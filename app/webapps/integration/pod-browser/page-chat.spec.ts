@@ -507,3 +507,153 @@ test('revoking real page access leaves only the locally authored chat draft avai
     }
   }
 })
+
+test('asking an Agent about a selection quotes it in Page chat and sends it as a Page reference', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1440, height: 1000 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto(pageRoute(state.report_id))
+    const passage = `需要 Agent 改写的段落 ${crypto.randomUUID().slice(0, 8)}`
+    id = (
+      await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+        type: 'doc',
+        title: 'Ask Agent selection',
+        xml: `<page><p>${passage}</p></page>`
+      })
+    ).page.id
+    await page.goto(pageRoute(id))
+    const content = page.locator('.pod-document .editor-content')
+    await expect(content.locator('p')).toHaveText(passage)
+    await page.getByRole('button', { name: '页面对话', exact: true }).click()
+    const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
+    const input = panel.getByRole('textbox', { name: '消息', exact: true })
+    await input.pressSequentially('@Ask Agent selection')
+    await page.getByRole('option', { name: 'Ask Agent selection', exact: true }).click()
+    await expect(panel.locator('.pod-chat-draft-page')).toContainText('Ask Agent selection')
+    await content.evaluate(element => {
+      const text = element.querySelector('p')!.firstChild!
+      ;(element as HTMLElement).focus()
+      window.getSelection()!.setBaseAndExtent(text, 0, text, 7)
+      document.dispatchEvent(new Event('selectionchange'))
+    })
+    await page
+      .getByRole('toolbar', { name: '选区格式', exact: true })
+      .getByRole('button', { name: '问 Agent', exact: true })
+      .click()
+    await expect(panel.locator('.pod-chat-quoted blockquote')).toHaveText(passage.slice(0, 7))
+    await expect(input).toBeFocused()
+    await input.fill('')
+    await input.pressSequentially('@Ask Agent selection')
+    await page.getByRole('option', { name: 'Ask Agent selection', exact: true }).click()
+    await expect(panel.locator('.pod-chat-quoted blockquote')).toHaveText(passage.slice(0, 7))
+    await selectChatAgent(page, panel)
+    await input.fill('请把这句改得更简洁')
+    const response = page.waitForResponse(
+      response =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
+    )
+    await panel.getByRole('button', { name: '发送消息', exact: true }).click()
+    const sent = await response
+    expect((await sent.json()).conversation.pageID).toBe(id)
+    expect(sent.request().postDataJSON().data.links).toContainEqual({ kind: 'page', id, quote: passage.slice(0, 7) })
+    // This fixture queues delivery. Reload and edit the persisted message to
+    // verify that its selected passage survives the server round trip.
+    await expect(panel.getByRole('region', { name: '待发送', exact: true })).toContainText('请把这句改得更简洁')
+    await page.reload()
+    await panel.getByRole('button', { name: '编辑待发送消息', exact: true }).click()
+    await expect(panel.locator('.pod-chat-quoted blockquote')).toHaveText(passage.slice(0, 7))
+    await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue('请把这句改得更简洁')
+    await expect(content.locator('p')).toHaveText(passage)
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
+test('desktop panels reverse in place, close interaction immediately, and keep keyboard and restored URLs instant', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1440, height: 1000 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  try {
+    await page.goto(`${pageRoute(state.report_id)}?chat=new`)
+    const chat = page.getByRole('button', { name: '页面对话', exact: true })
+    const comments = page.getByRole('button', { name: '评论', exact: true }).first()
+    const panel = page.locator('.pod-page-chat')
+    await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toBeVisible()
+    await chat.press('Enter')
+    await expect(panel).toHaveCount(0)
+    // Observe before clicking: Motion starts native animations on the next frame.
+    const [captured] = await Promise.all([
+      page.waitForFunction(() => {
+        const element = document.querySelector<HTMLElement>('.pod-page-chat')
+        const animations = element?.getAnimations()
+        if (!element || !animations?.length) return false
+        element.dataset.motionProbe = 'same-panel'
+        for (const animation of animations) {
+          animation.pause()
+          animation.currentTime = Number(animation.effect!.getTiming().duration) / 2
+        }
+        const opacity = Number(getComputedStyle(element).opacity)
+        return opacity > 0 && opacity < 1 ? opacity : false
+      }),
+      chat.click()
+    ])
+    const halfway = await captured.jsonValue()
+    expect(halfway).toBeGreaterThan(0)
+    expect(halfway).toBeLessThan(1)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    expect(await panel.evaluate(element => getComputedStyle(element).transform)).toBe('matrix(1, 0, 0, 1, 0, 0)')
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await chat.click()
+    await panel.evaluate(element => element.getAnimations().forEach(animation => animation.pause()))
+    await expect(chat).toBeFocused()
+    await expect(panel).toHaveAttribute('inert', '')
+    await expect(panel).toHaveAttribute('aria-hidden', 'true')
+    await chat.click()
+    await expect(panel).not.toHaveAttribute('inert', '')
+    await expect(panel).toHaveAttribute('data-motion-probe', 'same-panel')
+    await expect(panel).toHaveCount(1)
+
+    await comments.click()
+    await expect(panel).toHaveCount(0)
+    await expect(page.locator('.pod-comments')).toHaveCount(1)
+    await chat.click()
+    await expect(page.locator('.pod-comments')).toHaveCount(0)
+    await expect(panel).toHaveCount(1)
+
+    await chat.focus()
+    await chat.press('Enter')
+    await expect(panel).toHaveCount(0)
+    await chat.press('Enter')
+    expect(
+      await panel.evaluate(
+        element => element.getAnimations().filter(animation => animation.playState === 'running').length
+      )
+    ).toBe(0)
+    await chat.press('Enter')
+    await page.goto(`${pageRoute(state.report_id)}?chat=new`)
+    await expect(panel).toHaveCount(1)
+    expect(
+      await panel.evaluate(
+        element => element.getAnimations().filter(animation => animation.playState === 'running').length
+      )
+    ).toBe(0)
+
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await chat.click()
+    await panel.evaluate(element => element.getAnimations().forEach(animation => animation.pause()))
+    await expect(panel).toHaveAttribute('inert', '')
+    expect(await panel.evaluate(element => getComputedStyle(element).transform)).toBe('matrix(1, 0, 0, 1, 0, 0)')
+    await chat.click()
+    await expect(panel).not.toHaveAttribute('inert', '')
+    expect(await panel.evaluate(element => getComputedStyle(element).transform)).toBe('matrix(1, 0, 0, 1, 0, 0)')
+  } finally {
+    await context.close()
+  }
+})

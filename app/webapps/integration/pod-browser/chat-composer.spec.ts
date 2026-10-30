@@ -3,6 +3,58 @@ import { request, selectChatAgent, state } from './fixtures'
 import { conversationRoute } from './routes'
 import type { ConversationDetail, PodAgent } from '../../pod/api'
 
+test('the composer grows, wraps and shrinks with native field sizing', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1440, height: 960 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  try {
+    await page.goto('/')
+    const input = page.getByRole('textbox', { name: '消息', exact: true })
+    await expect(input).toBeEditable()
+    const native = await page.evaluate(() => CSS.supports('field-sizing', 'content'))
+    const height = () => input.evaluate(element => element.getBoundingClientRect().height)
+    await input.fill('')
+    const emptyHeight = await height()
+    await input.fill('A wrapping draft with enough words to fill several lines. '.repeat(4))
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect.poll(height).toBeGreaterThan(emptyHeight)
+    await input.fill(Array.from({ length: 30 }, (_, index) => `Line ${index}`).join('\n'))
+    await expect.poll(height).toBe(240)
+    expect(await input.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+    if (native) expect(await input.evaluate(element => element.style.height)).toBe('')
+    await input.fill('')
+    await expect.poll(height).toBe(emptyHeight)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  } finally {
+    await context.close()
+  }
+})
+
+test('removing a Page mention preserves surrounding text and literal punctuation', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto('/')
+    const created = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'doc',
+      title: 'C++ plan (2026)'
+    })
+    id = created.page.id
+    const input = page.getByRole('textbox', { name: '消息', exact: true })
+    await input.pressSequentially('Review @C++ plan')
+    await page.getByRole('option', { name: 'C++ plan (2026)', exact: true }).click()
+    await input.pressSequentially('with the team.')
+    await page.locator('.pod-chat-draft-page').getByRole('button', { name: '关闭', exact: true }).click()
+    await expect(input).toHaveValue('Review with the team.')
+    await expect(page.locator('.pod-chat-draft-page')).toHaveCount(0)
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
 async function removeRoom(page: Page, id: string) {
   let detail = await request<ConversationDetail>(page, `/conversations/${id}`)
   for (const queue of detail.pendingQueues) {
@@ -18,6 +70,49 @@ async function removeRoom(page: Page, id: string) {
   await request(page, `/conversations/${id}`, 'DELETE')
 }
 
+test('edited code is visible while syntax highlighting waits for the new text', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto('/')
+    const messageID = crypto.randomUUID()
+    const room = await request<ConversationDetail>(page, '/conversations', 'POST', {
+      conversationID: crypto.randomUUID(),
+      messageID,
+      agentUID: state.agent_uid,
+      text: '```js\nconst original = 1\n```',
+      deliveryMode: 'queue'
+    })
+    id = room.conversation.id
+    await request(page, `/conversations/${id}/participants`, 'POST', { addUIDs: [state.member.uid] })
+    await page.goto(conversationRoute(id))
+    const code = page.locator(`[data-chat-message-id="${messageID}"] .pod-chat-code`)
+    await expect(code.locator('.shiki code')).toHaveText('const original = 1')
+    await page.getByRole('button', { name: '编辑待发送消息', exact: true }).click()
+    const input = page.getByRole('textbox', { name: '消息', exact: true })
+    await input.fill('```js\nconst revised = 2\n```')
+    await page.clock.install()
+    await page.clock.pauseAt(new Date())
+    const saved = page.waitForResponse(
+      response =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}/queue`
+    )
+    await input.press('Enter')
+    expect((await saved).ok()).toBe(true)
+    await expect(code.locator('code')).toHaveText('const revised = 2')
+    await expect(code.locator('.shiki')).toHaveCount(0)
+    await page.clock.runFor(180)
+    await expect(code.locator('.shiki code')).toHaveText('const revised = 2')
+  } finally {
+    await page.clock.resume()
+    if (id) await removeRoom(page, id)
+    await context.close()
+  }
+})
+
 test('inline mention search keeps the draft focused and sends the selected Agent through the real API', async ({
   browser
 }, info) => {
@@ -31,14 +126,16 @@ test('inline mention search keeps the draft focused and sends the selected Agent
     const agent = agents.find(agent => agent.uid === state.agent_uid)!
     const input = page.getByRole('textbox', { name: '消息', exact: true })
     await input.pressSequentially('Use @Chat workspace')
-    await page.getByRole('option', { name: 'Chat workspace reference', exact: true }).click()
+    await page.getByRole('option', { name: 'Chat workspace reference Browser report', exact: true }).click()
     const reference = page.locator('.pod-chat-draft-page')
     await expect(reference).toContainText('Chat workspace reference')
     await reference.getByRole('button', { name: '关闭', exact: true }).click()
     await expect(input).toHaveValue('Use ')
     await input.fill('请')
     await input.pressSequentially('@Chat workspace')
-    await expect(page.getByRole('option', { name: 'Chat workspace reference', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('option', { name: 'Chat workspace reference Browser report', exact: true })
+    ).toBeVisible()
     await input.press('Escape')
     await input.fill('')
     const query = agent.displayName.split(/\s+/).find(word => word.length > 2) || agent.displayName

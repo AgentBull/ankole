@@ -15,7 +15,10 @@ defmodule Ankole.Pod.Jobs.PurgePage do
     Access,
     Page,
     PageChange,
+    PageDailyActivity,
+    PageComment,
     PageContent,
+    PageSnapshot,
     Pages,
     PageUserState
   }
@@ -99,16 +102,27 @@ defmodule Ankole.Pod.Jobs.PurgePage do
   end
 
   defp delete_page_resources(ids) do
-    Enum.reduce_while(
-      [{PageUserState, :purge}, {PageChange, :prune}, {PageContent, :purge}],
-      :ok,
-      fn {resource, action}, :ok ->
-        case delete_resources(resource, action, Ash.Query.filter(resource, page_id in ^ids)) do
-          :ok -> {:cont, :ok}
-          error -> {:halt, error}
+    replies = Ash.Query.filter(PageComment, page_id in ^ids and not is_nil(root_id))
+
+    with :ok <- delete_resources(PageComment, :purge, replies) do
+      Enum.reduce_while(
+        [
+          {PageUserState, :purge},
+          {PageChange, :prune},
+          {PageComment, :purge},
+          {PageSnapshot, :purge},
+          {PageDailyActivity, :purge},
+          {PageContent, :purge}
+        ],
+        :ok,
+        fn {resource, action}, :ok ->
+          case delete_resources(resource, action, Ash.Query.filter(resource, page_id in ^ids)) do
+            :ok -> {:cont, :ok}
+            error -> {:halt, error}
+          end
         end
-      end
-    )
+      )
+    end
   end
 
   defp delete_resources(resource, action, query) do

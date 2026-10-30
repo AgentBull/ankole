@@ -87,21 +87,285 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert Ankole.Repo.aggregate(Ankole.OIDC.AuthorizationRequest, :count) == 0
   end
 
-  test "GET /site-admin-console redirects anonymous users to auth after completion", %{conn: conn} do
+  test "GET /site-admin-console redirects anonymous users to privileged Pod login with a sealed console_return ticket",
+       %{
+         conn: conn,
+         tenant: tenant
+       } do
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     conn = get(conn, ~p"/site-admin-console/settings")
+    location = redirected_to(conn)
 
-    uri = URI.parse(redirected_to(conn))
+    refute location =~ "/site-admin-console"
+    uri = URI.parse(location)
     assert uri.path == "/sessions/new"
+    query = URI.decode_query(uri.query)
 
-    assert URI.decode_query(uri.query) == %{
-             "purpose" => "console",
-             "return_to" => "/site-admin-console/settings"
-           }
+    assert {:ok, "/site-admin-console/settings"} =
+             AnkoleWeb.Session.unseal_console_return(query["console_return"], tenant.id)
+
+    if @host_policy do
+      assert String.starts_with?(uri.host, "accounts.")
+      assert query["tenant_id"] == tenant.id
+    else
+      assert uri.host == URI.parse(AnkoleWeb.PodURL.origin(conn, tenant)).host
+    end
 
     assert Ankole.Repo.aggregate(Ankole.BrowserSessions.OidcState, :count) == 0
     assert Ankole.Repo.aggregate(Ankole.OIDC.AuthorizationRequest, :count) == 0
+  end
+
+  test "signing into the privileged Pod as siteadmin immediately opens Console and site APIs without a second login",
+       %{conn: conn, tenant: tenant} do
+    {:ok, true} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), true)
+
+    %{principal: site_scoped_admin} =
+      Ankole.PrincipalsFixtures.human_fixture(%{
+        uid: Ankole.PrincipalsFixtures.unique_uid("site-scope-admin")
+      })
+
+    %{principal: tenant_scoped_admin} =
+      Ankole.PrincipalsFixtures.human_fixture(%{
+        uid: Ankole.PrincipalsFixtures.unique_uid("tenant-scope-admin")
+      })
+
+    {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(site_scoped_admin.uid)
+    {:ok, _} = Ankole.AuthZ.add_principal_to_group(tenant_scoped_admin.uid, "siteadmin")
+
+    email = "site-scope-admin@example.com"
+
+    {:ok, _} =
+      Ankole.Repo.transact(fn ->
+        Ankole.Principals.bind_site_credential_in_tx(site_scoped_admin.uid, %{
+          provider_id: "test-site",
+          subject_id: email,
+          verified_email: email
+        })
+      end)
+
+    previous_sources = Application.get_env(:ankole, :site_identity_sources, [])
+
+    defmodule ConsoleDirectSiteSource do
+      @behaviour Ankole.IdentityProviders.SiteSources
+      def authenticate(proof), do: {:ok, proof}
+      def login_path, do: "/test/site-login"
+      def display_name, do: "Test site source"
+      def fresh_authentication?, do: true
+    end
+
+    Application.put_env(:ankole, :site_identity_sources, [{"test-site", ConsoleDirectSiteSource}])
+    on_exit(fn -> Application.put_env(:ankole, :site_identity_sources, previous_sources) end)
+
+    site_auth_conn =
+      conn
+      |> init_test_session(%{})
+      |> AnkoleWeb.Session.ensure_browser()
+      |> then(fn base ->
+        {:ok, %{browser: browser, authentication: auth}} =
+          Ankole.BrowserSessions.authenticate_site(
+            AnkoleWeb.Session.browser_reference(base),
+            "test-site",
+            %{
+              subject_id: email,
+              verified_email: email,
+              auth_time: System.system_time(:second),
+              challenge_started_at: DateTime.utc_now(),
+              amr: ["otp"]
+            },
+            scope: :site,
+            target_tenant_id: tenant.id
+          )
+
+        AnkoleWeb.Session.put_authentication(base, browser, auth)
+      end)
+
+    tenant_auth_conn =
+      conn
+      |> init_test_session(%{})
+      |> AnkoleWeb.Session.put_tenant_session(%{
+        principal_uid: tenant_scoped_admin.uid,
+        provider_id: "lark-main",
+        external_id: "ext-admin"
+      })
+
+    for {signed_conn, expected_uid} <- [
+          {site_auth_conn, site_scoped_admin.uid},
+          {tenant_auth_conn, tenant_scoped_admin.uid}
+        ] do
+      shell = get(signed_conn, ~p"/site-admin-console")
+      html = html_response(shell, 200)
+
+      assert html =~
+               ~s(<meta name="ankole-site-admin-console-path" content="/site-admin-console">)
+
+      assert html =~ ~s(<meta name="ankole-principal" content="#{expected_uid}">)
+
+      api_conn =
+        shell
+        |> recycle()
+        |> put_req_header("accept", "application/vnd.api+json")
+        |> get("/api/v2/site/tenants")
+
+      assert json_response(api_conn, 200)["data"] != []
+    end
+
+    %{principal: member} =
+      Ankole.PrincipalsFixtures.human_fixture(%{
+        uid: Ankole.PrincipalsFixtures.unique_uid("console-non-admin")
+      })
+
+    member_conn =
+      conn
+      |> init_test_session(%{})
+      |> AnkoleWeb.Session.put_tenant_session(%{
+        principal_uid: member.uid,
+        provider_id: "lark-main",
+        external_id: "ext-member"
+      })
+
+    assert get(member_conn, ~p"/site-admin-console/tenants").status == 403
+
+    switched = get(member_conn, "/site-admin-console/tenants?sort=name&switch=1")
+    redirect_uri = URI.parse(redirected_to(switched))
+    query = URI.decode_query(redirect_uri.query || "")
+    assert query["switch"] == "1"
+
+    assert {:ok, "/site-admin-console/tenants?sort=name"} =
+             AnkoleWeb.Session.unseal_console_return(query["console_return"], tenant.id)
+  end
+
+  test "multi-account browser resolves siteadmin authentication for Console when active_authentication_id belongs to another Pod",
+       %{conn: conn, tenant: privileged} do
+    {:ok, true} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), true)
+    other_pod = Ankole.DataCase.create_tenant()
+
+    %{principal: admin} =
+      Ankole.PrincipalsFixtures.human_fixture(%{
+        uid: Ankole.PrincipalsFixtures.unique_uid("multi-admin")
+      })
+
+    {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(admin.uid)
+
+    other_member =
+      Ankole.Repo.with_tenant(other_pod.id, fn ->
+        Ankole.PrincipalsFixtures.human_fixture(%{
+          uid: Ankole.PrincipalsFixtures.unique_uid("other-pod-member")
+        }).principal
+      end)
+
+    conn = conn |> init_test_session(%{}) |> AnkoleWeb.Session.ensure_browser()
+    browser_ref = AnkoleWeb.Session.browser_reference(conn)
+
+    {:ok, %{browser: b1, authentication: admin_auth}} =
+      Ankole.BrowserSessions.authenticate(browser_ref, %{
+        "principal_uid" => admin.uid,
+        "access_version" => admin.access_version,
+        "provider_id" => "lark-main",
+        "external_id" => "admin-ext"
+      })
+
+    conn = AnkoleWeb.Session.put_authentication(conn, b1, admin_auth)
+    admin_ref = Ankole.BrowserSessions.reference(admin_auth)
+
+    # A non-admin candidate must not hide an administrator in the same browser.
+    member = Ankole.PrincipalsFixtures.human_fixture().principal
+
+    {:ok, %{browser: member_browser, authentication: member_auth}} =
+      Ankole.BrowserSessions.authenticate(browser_ref, %{
+        "principal_uid" => member.uid,
+        "access_version" => member.access_version,
+        "provider_id" => "lark-main",
+        "external_id" => "ordinary-member"
+      })
+
+    conn = AnkoleWeb.Session.put_authentication(conn, member_browser, member_auth)
+
+    assert {:ok, %{"principal_uid" => resolved_uid}, ^admin_ref} =
+             AnkoleWeb.Session.resolve_site_admin_session(conn)
+
+    assert resolved_uid == admin.uid
+
+    explicit_member =
+      Plug.Conn.put_req_header(
+        conn,
+        "x-ankole-authentication",
+        Ankole.BrowserSessions.encode_reference(Ankole.BrowserSessions.reference(member_auth))
+      )
+
+    assert :forbidden = AnkoleWeb.Session.resolve_site_admin_session(explicit_member)
+
+    {:ok, %{browser: b2, authentication: other_auth}} =
+      Ankole.Repo.with_tenant(other_pod.id, fn ->
+        Ankole.BrowserSessions.authenticate(browser_ref, %{
+          "principal_uid" => other_member.uid,
+          "access_version" => other_member.access_version,
+          "provider_id" => "lark-other",
+          "external_id" => "other-ext"
+        })
+      end)
+
+    conn = AnkoleWeb.Session.put_authentication(conn, b2, other_auth)
+    other_ref = Ankole.BrowserSessions.reference(other_auth)
+    assert AnkoleWeb.Session.authentication_reference(conn) == other_ref
+
+    shell = get(conn, ~p"/site-admin-console")
+    html = html_response(shell, 200)
+    encoded_admin_ref = Ankole.BrowserSessions.encode_reference(admin_ref)
+
+    assert html =~ ~s(<meta name="ankole-authentication" content="#{encoded_admin_ref}">)
+    assert html =~ ~s(<meta name="ankole-principal" content="#{admin.uid}">)
+    assert get_session(shell, "_csrf_token") == nil
+
+    assert Ankole.BrowserSessions.current_reference(AnkoleWeb.Session.browser_reference(shell)) ==
+             other_ref
+
+    [_, meta_csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, html)
+    origin = AnkoleWeb.PodURL.site_origin(shell)
+
+    pinned_post =
+      shell
+      |> recycle()
+      |> put_private(:plug_skip_csrf_protection, false)
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> put_req_header("origin", origin)
+      |> put_req_header("x-csrf-token", meta_csrf)
+      |> put_req_header("x-ankole-authentication", encoded_admin_ref)
+      |> post(
+        "/api/v2/browser/authentications/current",
+        Ankole.JSON.encode!(%{
+          data: %{authenticationRef: encoded_admin_ref, tenantID: privileged.id}
+        })
+      )
+
+    assert json_response(pinned_post, 201)["podURL"] ==
+             AnkoleWeb.PodURL.origin(shell, privileged) <> "/"
+  end
+
+  test "non-admin member of the privileged Pod receives 403 on Console without Console shell metadata or login redirect loop",
+       %{conn: conn} do
+    {:ok, true} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), true)
+
+    %{principal: member} =
+      Ankole.PrincipalsFixtures.human_fixture(%{
+        uid: Ankole.PrincipalsFixtures.unique_uid("ordinary-member")
+      })
+
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> AnkoleWeb.Session.put_tenant_session(%{
+        principal_uid: member.uid,
+        provider_id: "lark-main",
+        external_id: "ordinary-ext"
+      })
+      |> get(~p"/site-admin-console")
+
+    assert conn.status == 403
+    assert conn.resp_body == "Site administrator access required"
+    assert get_resp_header(conn, "location") == []
+    refute conn.resp_body =~ "ankole-site-admin-console-path"
   end
 
   test "the canonical Page redirects anonymous users to auth with its short path intact", %{
@@ -250,14 +514,27 @@ defmodule AnkoleWeb.SpaControllerTest do
 
     admin = active_admin_conn(conn)
 
-    for {base, path} <- [{conn, "/sessions/new?purpose=console"}, {admin, "/site-admin-console"}],
-        accept_language <- ["ja,en-US;q=0.8", "fr-FR", nil] do
-      request =
+    for accept_language <- ["ja,en-US;q=0.8", "fr-FR", nil] do
+      anon_request =
         if accept_language,
-          do: put_req_header(base, "accept-language", accept_language),
-          else: base
+          do: put_req_header(conn, "accept-language", accept_language),
+          else: conn
 
-      assert request |> get(path) |> html_response(200) =~ ~s(<html lang="ko-KR">)
+      login_shell =
+        anon_request
+        |> get("/site-admin-console")
+        |> follow_login_redirect()
+        |> follow_login_redirect()
+
+      assert html_response(login_shell, 200) =~ ~s(<html lang="ko-KR">)
+
+      admin_request =
+        if accept_language,
+          do: put_req_header(admin, "accept-language", accept_language),
+          else: admin
+
+      assert admin_request |> get("/site-admin-console") |> html_response(200) =~
+               ~s(<html lang="ko-KR">)
     end
 
     for {accept_language, locale} <- [

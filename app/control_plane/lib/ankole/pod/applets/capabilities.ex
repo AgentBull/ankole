@@ -1,7 +1,7 @@
 defmodule Ankole.Pod.Applets.Capabilities do
   @moduledoc "The only bridge from Applet code to authorized Pod domain operations."
 
-  alias Ankole.Pod.{Bases, Files, Pages, Serialization}
+  alias Ankole.Pod.{Access, Bases, Files, Pages, Serialization}
   alias Ankole.Pod.Applets.AI
 
   def call(context, %Ankole.AuthZ.Actor{} = actor, operation, args) do
@@ -11,7 +11,8 @@ defmodule Ankole.Pod.Applets.Capabilities do
       error(:read_only_route)
     else
       outcome =
-        with {:ok, page} <- Pages.authorize(actor, context["applet"]["pageId"], "page_view"),
+        with {:ok, page} <- Pages.fetch(context["applet"]["pageId"]),
+             {:ok, _} <- Access.authorize(actor, page, "page_view", trash: false),
              do: dispatch(page, actor, operation, args)
 
       result(outcome)

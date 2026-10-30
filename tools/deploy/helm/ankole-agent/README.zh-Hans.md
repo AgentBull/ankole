@@ -506,7 +506,7 @@ NFS 时，导出配置必须允许 root 写入及更改文件属主，或者通�
 默认开启 `root_squash` 且未做 uid `1000` 映射的 NFS 导出无法满足 Worker 文件系统契约。
 
 Worker 提供商配置中的 `idleReleaseAfter` 控制空闲实例回收时长：超时回收时，Kubernetes 仅销毁 Pod
-实例，持久存储与缓存盘均会保留。`agent_computer.worker.ready_timeout`（默认 10 分钟）则限制了
+实例，持久存储与缓存盘均会保留。`agent_workers.ready_timeout_seconds`（默认 10 分钟）则限制了
 Worker 启动后未就绪的最长等待时间。
 
 ## Provider 种子
@@ -572,7 +572,7 @@ WebSocket 升级；此外，凡配置了 `relayOrigin` 的提供商均要求控�
 - **`db-migrate` 初始化容器卡住**：通常是 `DATABASE_URL` 连接串有误、PostgreSQL 尚未就绪，或数据库缺少
   必需扩展（`pg_search`、`vector`）。
 - **Worker 已运行却迟迟未能就绪**：通常是 Worker 无法经由控制面 Service 的 HTTP 端口建立 WebSocket
-  连接。超出 `agent_computer.worker.ready_timeout` 时限后，控制面会自动替换该实例，而持久存储上的
+  连接。超出 `agent_workers.ready_timeout_seconds` 时限后，控制面会自动替换该实例，而持久存储上的
   Agent Home 数据保持不变。
 - **控制面无法创建 Worker**：控制面日志会打印缺失的 Kubernetes RBAC 权限，请核查控制面
   ServiceAccount 绑定的 Role 与 RoleBinding。

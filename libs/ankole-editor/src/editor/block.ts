@@ -5,16 +5,15 @@ import type { PhraseSet } from '../core/phrases'
 import type { Element, Node as PageNode } from '../document/tree'
 
 /** Imports the child elements of a block element. */
-export type BlockImport = { blocks(nodes: readonly PageNode[]): Node[] }
+export type BlockImport = { blocks(nodes: readonly PageNode[]): Node[]; code(nodes: readonly PageNode[]): Node[] }
 /** Reads the children of a block node as page nodes. */
-export type BlockRead = { children(node: Plot): PageNode[] }
+export type BlockRead = { children(node: Plot): PageNode[]; code(node: Plot): PageNode[] }
 
 export type BlockInsert = {
   title: PhraseSet.Ref
   detail: PhraseSet.Ref
   /** Search aliases, kept out of the visible menu description. */
   keywords?: string
-  glyph: string
   /** The block can replace the text block at the caret. */
   turnInto: boolean
   insert(wg: Wordgard): void

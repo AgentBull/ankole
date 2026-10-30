@@ -246,9 +246,9 @@ function computeMap(table: Plot) {
     const rowNode = table.content[row] as Plot
     let mapPos = row * width
     pos++
-    for (let i = 0, col = 0; ; i++) {
-      while (mapPos < map.length && map[mapPos] != 0) mapPos++
-      if (i == rowNode.content.length) break
+    for (let i = 0; i < rowNode.content.length; i++) {
+      while (mapPos < (row + 1) * width && map[mapPos] != 0) mapPos++
+      const col = mapPos - row * width
       const cellNode = rowNode.content[i]!
       cellEnd.set(pos, pos + cellNode.length)
       const colSpan = cellNode.mark(ColSpan) ?? 1,
@@ -273,7 +273,6 @@ function computeMap(table: Plot) {
         if (collided) (problems || (problems = [])).push({ type: 'collision', pos })
       }
       mapPos += colSpan
-      col += colSpan
       pos += cellNode.length
     }
     pos++

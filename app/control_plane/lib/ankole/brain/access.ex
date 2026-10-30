@@ -17,6 +17,7 @@ defmodule Ankole.Brain.Access do
   require Ash.Query
 
   alias Ankole.Brain.Claims
+  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Scope
   alias Ankole.Repo
 
@@ -83,6 +84,18 @@ defmodule Ankole.Brain.Access do
   """
   @spec scope_reachable?(t(), String.t()) :: boolean()
   def scope_reachable?(%__MODULE__{} = access, scope), do: scope in access.scopes
+
+  @doc "Checks every audience segment before replacing a caller-visible page body."
+  def guard_body_replacement(body, %__MODULE__{} = access, disclosure) do
+    with {:ok, segments} <- Markdoc.segments(body) do
+      if Enum.all?(segments, fn segment ->
+           scope_reachable?(access, segment.scope) and disclosable?(segment.scope, disclosure) and
+             Scope.validate_writable(segment.scope, access.querier_uid) == :ok
+         end),
+         do: :ok,
+         else: {:error, :hidden_or_protected_segments_use_edit_page}
+    end
+  end
 
   @doc """
   Returns whether one already-loaded row is reachable for this querier.

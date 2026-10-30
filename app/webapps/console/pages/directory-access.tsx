@@ -60,7 +60,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
   )
   return (
     <section className="grid gap-4 border-t border-border pt-6">
-      <h3 className="text-lg font-semibold">{t('console.directory_access.title')}</h3>
+      <h3 className="title-section">{t('console.directory_access.title')}</h3>
       <p className="text-sm text-muted-foreground">{t('console.directory_access.hint')}</p>
       <ErrorBlock error={directory.error} />
       {directory.isLoading ? <p role="status">{t('common.loading')}</p> : null}

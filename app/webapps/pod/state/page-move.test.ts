@@ -33,6 +33,12 @@ const readOnly = page('V', ['page_view'], { role: 'view', position: 'V' })
 const mine = page('P', ['page_view', 'page_edit'], { private_owner_uid: 'me', position: 'P' })
 const pages = [root, a, b, c, nested, table, readOnly, mine]
 
+test('a path node outside the loaded siblings cannot skip unloaded pages with a step move', () => {
+  expect(stepRequest([a, b], c, -1)).toBeNull()
+  expect(stepRequest([a, b], c, 1)).toBeNull()
+  expect(stepRequest([a, b, c], c, -1)).toEqual({ parent_id: 'R', private_owner_uid: null, before_id: 'B' })
+})
+
 test('a drop names the sibling next to the page, and an inside drop names the new parent', () => {
   expect(dropRequest(b, 'before')).toEqual({ parent_id: 'R', private_owner_uid: null, before_id: 'B' })
   expect(dropRequest(b, 'after')).toEqual({ parent_id: 'R', private_owner_uid: null, after_id: 'B' })

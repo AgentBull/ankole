@@ -1,6 +1,7 @@
 defmodule Ankole.Sessions.Tools.Brain do
   @moduledoc """
-  The Job read-tool owner for the Brain read operations `recall` and `get_page`.
+  The Job read-tool owner for the Brain read operations `recall`, `get_page`,
+  `entity`, `whoknows`, and `delta`.
 
   A codex Job composes its own model requests, and in code mode the model can
   call only the tools that Codex itself declared. The hosted `brain` tool of a
@@ -17,8 +18,14 @@ defmodule Ankole.Sessions.Tools.Brain do
   alias Ankole.Sessions.ToolResult
   alias Ankole.Sessions.Tools
 
-  @operations ~w(recall get_page)
-  @activities %{"recall" => "memory_recall", "get_page" => "memory_page_read"}
+  @operations ~w(recall get_page entity whoknows delta)
+  @activities %{
+    "recall" => "memory_recall",
+    "get_page" => "memory_page_read",
+    "entity" => "memory_entity_read",
+    "whoknows" => "memory_whoknows",
+    "delta" => "memory_delta"
+  }
 
   @doc "Returns the read operation names in catalog order."
   @spec operations() :: [String.t()]

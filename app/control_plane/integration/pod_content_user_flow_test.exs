@@ -78,12 +78,12 @@ defmodule Ankole.Pod.ContentUserFlowTest do
             private_owner_uid: ctx.owner.uid
           })
 
-        {:ok, _} =
+        {:ok, shared_page} =
           Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
             grants: [%{principal_uid: reader.uid, role: "view"}]
           })
 
-        page
+        shared_page
       end
 
     assert Repo.aggregate(
@@ -93,21 +93,35 @@ defmodule Ankole.Pod.ContentUserFlowTest do
              :count
            ) == 1000
 
+    reader_actor = Ankole.PrincipalsFixtures.actor_fixture(reader.uid)
     page = List.last(pages)
 
     {authorize_us, authorized} =
       :timer.tc(fn ->
-        Pages.authorize(Ankole.PrincipalsFixtures.actor_fixture(reader.uid), page.id, "page_view")
+        Pages.authorize(reader_actor, page.id, "page_view")
       end)
 
     assert {:ok, %{id: id}} = authorized
     assert id == page.id
 
     {list_us, result} =
-      :timer.tc(fn -> Pages.list(Ankole.PrincipalsFixtures.actor_fixture(reader.uid)) end)
+      :timer.tc(fn -> Pages.list(reader_actor) end)
 
     assert {:ok, visible} = result
-    assert MapSet.new(visible, & &1.id) == MapSet.new(pages, & &1.id)
+    assert length(visible) == 200
+
+    expected_top_200 =
+      pages
+      |> Enum.sort_by(& &1.id, :asc)
+      |> Enum.sort_by(& &1.updated_at, {:desc, DateTime})
+      |> Enum.take(200)
+      |> Enum.map(& &1.id)
+
+    assert Enum.map(visible, & &1.id) == expected_top_200
+
+    assert {:ok, filtered} = Pages.list(reader_actor, %{query: "Shared 1"})
+    assert length(filtered) == 112
+    assert hd(pages).id in Enum.map(filtered, & &1.id)
 
     IO.puts(
       "Pod AuthZ measurement: shared_pages=1000 authorize_ms=#{Float.round(authorize_us / 1000, 3)} visible_list_ms=#{Float.round(list_us / 1000, 3)} visible_count=#{length(visible)}"
@@ -175,7 +189,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     """)
 
     Repo.query!(
-      "CREATE TRIGGER test_pod_purge_interrupt BEFORE DELETE ON base_fields FOR EACH ROW EXECUTE FUNCTION test_pod_purge_interrupt()"
+      "CREATE TRIGGER test_pod_purge_interrupt BEFORE DELETE ON base_fields FOR EACH ROW WHEN (OLD.table_id = '#{table.id}'::uuid) EXECUTE FUNCTION test_pod_purge_interrupt()"
     )
 
     try do

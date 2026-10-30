@@ -49,7 +49,7 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/agent_workers.ex:clear_provider_rejections_in_tx" => 1,
     "across_tenants:lib/ankole/agent_workers.ex:provider_worker_count" => 1,
     "across_tenants:lib/ankole/agent_workers.ex:provider_workers" => 1,
-    "across_tenants:lib/ankole/browser_sessions/pod_access.ex:save_pod_authentications" => 1,
+    "across_tenants:lib/ankole/browser_sessions/pod_access.ex:pod_tenant_ids" => 1,
     "across_tenants:lib/ankole/conversations/delivery/dispatch.ex:reconcile_wakeups" => 1,
     "across_tenants:lib/ankole/oidc/authorization_requests.ex:cancel_for_browser_in_tx" => 1,
     "across_tenants:lib/ankole/oidc/authorization_requests.ex:find_request" => 1,
@@ -210,6 +210,9 @@ defmodule Ankole.TenancyGuardTest do
       "An invitation code identifies one Pod before tenant selection.",
     "pages_pkey" => "The application generates each page's globally unique UUIDv7.",
     "page_contents_pkey" => "A globally unique page id owns the document.",
+    "page_comments_pkey" => "The application generates each comment's globally unique UUIDv7.",
+    "page_snapshots_pkey" =>
+      "The application generates each document snapshot's globally unique UUIDv7.",
     "base_tables_pkey" => "The application generates each table's globally unique UUIDv7.",
     "base_fields_pkey" => "The application generates each field's globally unique UUIDv7.",
     "base_fields_one_primary_index" => "A globally unique table id owns its primary field.",

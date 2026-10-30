@@ -139,7 +139,8 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
       for page <- pages do
         assert {:ok, _} =
                  Pages.update(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
-                   title: "Revoked secret"
+                   title: "Revoked secret",
+                   expected_title: page.title
                  })
       end
 
@@ -249,7 +250,7 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
               Pages.update_in_tx(
                 Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                 page.id,
-                %{title: "Revoked"}
+                %{title: "Revoked", expected_title: page.title}
               )
 
             send(parent, {:page_locked, backend_pid()})

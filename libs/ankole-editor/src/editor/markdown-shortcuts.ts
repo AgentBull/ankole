@@ -22,6 +22,7 @@ import * as T from '../core/types'
 import { turnInto } from './block-actions'
 import { blockInsertion, compose, isContainer, isListItem, wrapTextblock } from './block-insert'
 import * as S from './schema'
+import { tableInsertion } from './tables'
 
 // The page syntax without tags: a typed `<` is text.
 const syntax = [gfm(), mdxMd(), { disable: { null: ['gfmFootnoteDefinition', 'gfmFootnoteCall'] } }]
@@ -82,7 +83,10 @@ function blockShortcut(state: GardState, typed: string): Transaction.Spec | null
     return then(() => ({ changes: task }))
   }
   if (!shortcutParagraph(block)) return null
-  if (typed === '-') return whole === '---' ? then(next => blockInsertion(next, T.HorizontalRule)) : null
+  if (typed === '-') {
+    if (whole === '|--' && !head.matchingParent(plot => plot.type === S.Table.type)) return then(tableInsertion)
+    return whole === '---' ? then(next => blockInsertion(next, T.HorizontalRule)) : null
+  }
   if (typed !== ' ') return null
   if (whole === '[] ' || check) {
     return then(next => turnInto(next, { kind: 'list', list: 'check', done: !!check && check[1] !== ' ' }))
@@ -161,8 +165,10 @@ function leaves(node: PhrasingContent, marks: Mark.Set): Node[] | null {
       return inner(T.Strong)
     case 'delete':
       return inner(T.Strikethrough)
-    case 'link':
-      return S.Link.isInSet(marks) ? null : inner(linkMark(node.url, node.title))
+    case 'link': {
+      const href = S.safeLinkHref(node.url)
+      return !href || S.Link.isInSet(marks) ? null : inner(linkMark(href, node.title))
+    }
     default:
       return null
   }

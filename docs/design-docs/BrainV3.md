@@ -256,22 +256,35 @@ candidate limits):
 
 In the Rust kernel, reciprocal-rank fusion (RRF) combines both candidate lists
 into real additive scores, so any item returned by both routes receives the sum
-of both RRF contributions. When `brain.rerank_model` is configured, a
-cross-encoder reranks the fused chunk candidates (falling back to the RRF scores
-if the reranker times out). Recall then applies domain scoring adjustments:
+of both RRF contributions. Before cross-encoder reranking, `Ankole.Brain.Recall`
+filters chunk candidates through the caller's two-layer access and disclosure
+boundary and caps candidates at two chunks per page slug so long source pages
+cannot crowd distinct entity pages out of the rerank window. When
+`brain.rerank_model` is configured, the cross-encoder reranks those capped
+candidates (falling back to the RRF scores if the reranker times out). Recall
+then applies domain scoring adjustments:
 
 - **Facts** decay with age using `confidence * exp(-age / halflife)` based on
   per-kind halflives in `brain.forgetting`, whereas **Takes** use their stored
-  weight directly.
+  weight directly. Returned claims carry their qualifying `context` alongside
+  `text`, counting both toward `budget_tokens`.
 - **Chunks** receive recall-time boosts (applied atop reranked scores) for graph
-  adjacency when a page links to two or more hits, recency from the page's
-  `effective_date`, and salience from the page's active Takes (combining count,
-  mean weight, and the share held by Humans or Agents).
+  adjacency when a page links to two or more hits, plus recency (from the page's
+  `effective_date`) and salience (from the page's active Takes, combining count,
+  mean weight, and the share held by Humans or Agents) strictly on hits backed
+  by a BM25 lexical match; vector-only semantic hits keep a `1.0` metadata
+  multiplier so fresh or salient pages do not outrank more relevant passages
+  without lexical evidence.
+- **Entity cards** resolve deterministically from exact normalized alias matches
+  in the query (plus the resolved `entity` filter when supplied, bounded to its
+  neighborhood) without a model call, returning up to three two-layer-filtered
+  cards with aliases, relational graph edges, backlink counts, and top facts.
 
-Result assembly packs ranked items greedily: if one candidate exceeds the
-remaining token budget, assembly skips it and continues scanning smaller items.
-For Chinese, Japanese, and Korean text without spaces, chunk overlap splits on
-Unicode grapheme boundaries.
+Result assembly packs ranked claims first, then matched entity cards, and
+finally ranked chunks greedily: if one candidate exceeds the remaining token
+budget, assembly skips it and continues scanning smaller items. For Chinese,
+Japanese, and Korean text without spaces, chunk overlap splits on Unicode
+grapheme boundaries.
 
 For ambient turn memory, `context_pack` builds entity and channel cards (placing
 current Facts first) within a fixed 4,000-token budget:
@@ -327,13 +340,15 @@ load hint whenever the target is an `agent-skills` discovery page.
 | Operation | What it does |
 | --- | --- |
 | `remember` | Writes one Fact or Take through the shared write contract |
+| `put_page` | Creates a structured page or replaces an existing single-scope page body under `expected_revision` optimistic concurrency |
+| `edit_page` | Applies exact-match surgical replacements inside caller-writable Markdoc spans under `expected_revision`, preserving hidden scopes and calibration scorecards and returning a compact unified diff |
 | `learn_source` | Registers one web URL Source and starts a background learning run |
-| `recall` | Fused retrieval over reachable claims and chunks |
-| `get_page` | Renders one page; a lazy Skill record comes back with the hint to load it with `skill_view` |
+| `recall` | Fused retrieval over reachable claims, exact-alias entity cards, and chunks |
+| `get_page` | Renders one page with its content `revision` and optional pruned Markdoc `content` (`include_content: true`); a lazy Skill record comes back with the hint to load it with `skill_view` |
 | `forget` | Expires or retracts a claim; soft-deletes a page |
 | `entity` | Resolves a name to a page through aliases; ambiguity returns candidates |
 | `whoknows` | Reports which Principals' scopes hold knowledge on a topic |
-| `synthesize` | Writes an analysis page from reachable knowledge, at the caller's eligibility |
+| `synthesize` | Writes an analysis page from reachable knowledge, contested claims, and open gaps, at the caller's eligibility |
 | `delta` | Reports knowledge changes since a cursor; excludes forgotten pages |
 
 Unlike the model-callable operations above, `context_pack` and
@@ -497,10 +512,13 @@ recording any phase error without halting later phases:
    dedup, pairing live pages of the same type that share a normalized alias into
    `brain_merge_suggestions` (at most one row per pair permanently). Merges
    never run automatically: when an operator approves a pair in the Console, one
-   transaction repoints claims, holders, timelines, aliases, tags, and links and
-   converts the duplicate into a slug redirect, while refusing canonical
-   Principal pages, library pages, media-primitive pages, and duplicates that
-   already have a non-empty body.
+   transaction snapshots the canonical page in `brain_object_versions` (when the
+   duplicate carries prose), strips generated calibration fences from the
+   duplicate body, appends any non-blank duplicate prose onto the canonical body
+   ahead of any canonical calibration scorecard, repoints claims, holders,
+   timelines, aliases, tags, and links, reconciles canonical chunks and body
+   edges, and converts the duplicate into a slug redirect, while refusing
+   canonical Principal pages, library pages, and media-primitive pages.
 9. **`purge`** permanently deletes soft-deleted pages whose retention TTL has
    expired.
 10. **`skill_lessons`** runs Skill lesson maintenance; see
@@ -530,8 +548,13 @@ All background Brain model calls are stateless, tool-free, and history-free:
   context, attribution, and provenance (with grading additionally receiving the
   Take's time window and restricting evidence to `world` or the Take's own
   `audience_scope`).
-- On-demand `synthesize` receives claim IDs, pages, holders, and provenance
-  while keeping Fact validity intervals separate from Take periods.
+- On-demand `synthesize` receives claim IDs, pages, holders, qualifying
+  `context`, decayed Fact `effective_confidence` or Take `weight`, and open
+  contradictions whose counterpart claims fall inside `world` or the synthesis
+  scope while satisfying the caller's access and disclosure bounds, keeping Fact
+  validity intervals separate from Take periods, surfacing contested points and
+  open gaps, and reconciling `[[slug]]` wikilink and `derived_from` edges on the
+  resulting analysis page.
 - Every call tags AIGateway traces with a phase-specific `brain.*` caller so
   operators can inspect prompts and completions in Langfuse.
 

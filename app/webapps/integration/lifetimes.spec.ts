@@ -148,7 +148,10 @@ test('returning to a new page preserves its separate draft when the old create f
   await expect.poll(() => server.writes.length).toBe(1)
   await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
   await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
-  await page.getByRole('link', { name: 'New conversation', exact: true }).click()
+  await page
+    .getByRole('tabpanel', { name: 'Chat' })
+    .getByRole('link', { name: 'New conversation', exact: true })
+    .click()
   await expect(page.getByRole('heading', { level: 1, name: /What can we work on/ })).toBeVisible()
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Separate draft')
   await server.complete()
@@ -183,7 +186,10 @@ test('a failed first create remains reachable from New and retries its original 
   await expect.poll(() => server.writes.length).toBe(1)
   const original = server.writes[0]!.request().postDataJSON().data
   await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
-  await page.getByRole('link', { name: 'New conversation', exact: true }).click()
+  await page
+    .getByRole('tabpanel', { name: 'Chat' })
+    .getByRole('link', { name: 'New conversation', exact: true })
+    .click()
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Newer local draft')
   await server.writes[0]!.fulfill({ status: 503, json: { error: 'unavailable' } })
   const recovery = page.getByRole('region', { name: 'Retained chat text' })
@@ -197,7 +203,10 @@ test('a failed first create remains reachable from New and retries its original 
     messageID: original.messageID,
     text: original.text
   })
-  await page.getByRole('link', { name: 'New conversation', exact: true }).click()
+  await page
+    .getByRole('tabpanel', { name: 'Chat' })
+    .getByRole('link', { name: 'New conversation', exact: true })
+    .click()
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Newer local draft')
   await server.complete(1)
   await expect(page.getByRole('link', { name: 'Created conversation', exact: true })).toBeVisible()
@@ -316,7 +325,10 @@ test('a late POST failure after reopening cannot fail the newer send or change i
   const snapshot = detail(oldID, first.text)
   snapshot.messages[0] = { ...snapshot.messages[0]!, id: first.messageID, authorType: 'human' }
   server.setDetail(snapshot)
-  await page.getByRole('link', { name: 'New conversation', exact: true }).click()
+  await page
+    .getByRole('tabpanel', { name: 'Chat' })
+    .getByRole('link', { name: 'New conversation', exact: true })
+    .click()
   await expect(page.getByRole('heading', { level: 1, name: /What can we work on/ })).toBeVisible()
   await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
   await streamEvent(page)

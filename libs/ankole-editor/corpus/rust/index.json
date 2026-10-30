@@ -352,6 +352,186 @@
       }
     },
     {
+      "name": "comment-anchors",
+      "xml": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000002 019a2b00-0000-7000-8000-000000000001\"><strong>First</strong> 🙂<br /><img src=\"asset\" /></comment> tail</p></page>",
+      "canonicalXml": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000001 019a2b00-0000-7000-8000-000000000002\"><strong>First</strong> 🙂<br /><img src=\"asset\" /></comment> tail</p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "First",
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000001",
+                    "019a2b00-0000-7000-8000-000000000002"
+                  ],
+                  "Strong": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": " 🙂",
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000001",
+                    "019a2b00-0000-7000-8000-000000000002"
+                  ]
+                }
+              },
+              {
+                "type": "LineBreak",
+                "param": null,
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000001",
+                    "019a2b00-0000-7000-8000-000000000002"
+                  ]
+                }
+              },
+              {
+                "type": "Image",
+                "param": "asset",
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000001",
+                    "019a2b00-0000-7000-8000-000000000002"
+                  ]
+                }
+              },
+              {
+                "type": "Text",
+                "param": " tail"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "code-comment-anchors",
+      "xml": "<page><pre lang=\"ts\">a<comment ids=\"019a2b00-0000-7000-8000-000000000001\">b\n  c</comment>d</pre></page>",
+      "canonicalXml": "<page><pre lang=\"ts\">a<comment ids=\"019a2b00-0000-7000-8000-000000000001\">b\n  c</comment>d</pre></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "CodeBlock",
+            "param": null,
+            "marks": {
+              "CodeBlockLanguage": "ts"
+            },
+            "content": [
+              {
+                "type": "Text",
+                "param": "a"
+              },
+              {
+                "type": "Text",
+                "param": "b",
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000001"
+                  ]
+                }
+              },
+              {
+                "type": "LineBreak",
+                "param": null,
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000001"
+                  ]
+                }
+              },
+              {
+                "type": "Text",
+                "param": "  c",
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000001"
+                  ]
+                }
+              },
+              {
+                "type": "Text",
+                "param": "d"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "rich-resources",
+      "xml": "<page><h6>Section</h6><media kind=\"video\" src=\"ankole:asset/movie.mp4\" mime=\"video/mp4\" title=\"Movie\" /><bookmark src=\"https://example.com/\" view=\"card\" title=\"Example\" description=\"Description\" /><embed href=\"https://www.figma.com/design/example\" /><callout tone=\"success\" icon=\"✅\"><p>Ready</p></callout></page>",
+      "canonicalXml": "<page><h6>Section</h6><media kind=\"video\" mime=\"video/mp4\" src=\"ankole:asset/movie.mp4\" title=\"Movie\" /><bookmark description=\"Description\" src=\"https://example.com/\" title=\"Example\" view=\"card\" /><embed href=\"https://www.figma.com/design/example\" /><callout icon=\"✅\" tone=\"success\"><p>Ready</p></callout></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Heading",
+            "param": 6,
+            "content": [
+              {
+                "type": "Text",
+                "param": "Section"
+              }
+            ]
+          },
+          {
+            "type": "Media",
+            "param": null,
+            "marks": {
+              "Resource_kind": "video",
+              "Resource_mime": "video/mp4",
+              "Resource_src": "ankole:asset/movie.mp4",
+              "Resource_title": "Movie"
+            }
+          },
+          {
+            "type": "Bookmark",
+            "param": null,
+            "marks": {
+              "Resource_description": "Description",
+              "Resource_src": "https://example.com/",
+              "Resource_title": "Example",
+              "Resource_view": "card"
+            }
+          },
+          {
+            "type": "Embed",
+            "param": null,
+            "marks": {
+              "EmbedHref": "https://www.figma.com/design/example"
+            }
+          },
+          {
+            "type": "Callout",
+            "param": null,
+            "marks": {
+              "CalloutIcon": "✅",
+              "CalloutTone": "success"
+            },
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "Ready"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "callout",
       "xml": "<page><callout tone=\"warning\"><p>本期包含新增产品。</p></callout></page>",
       "canonicalXml": "<page><callout tone=\"warning\"><p>本期包含新增产品。</p></callout></page>",
@@ -373,6 +553,156 @@
                     "param": "本期包含新增产品。"
                   }
                 ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "nested-blocks",
+      "xml": "<page><block><h2>Parent</h2><block><p>Child</p><p>Grandchild</p></block><ul><li><p>Item</p></li></ul></block><block><p>Leaf parent</p></block></page>",
+      "canonicalXml": "<page><block><h2>Parent</h2><block><p>Child</p><p>Grandchild</p></block><ul><li><p>Item</p></li></ul></block><p>Leaf parent</p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "BlockGroup",
+            "content": [
+              {
+                "type": "Heading",
+                "param": 2,
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "Parent"
+                  }
+                ]
+              },
+              {
+                "type": "BlockGroup",
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "Child"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "Grandchild"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "BulletList",
+                "content": [
+                  {
+                    "type": "ListItem",
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Item"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "Leaf parent"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "columns",
+      "xml": "<page><columns><column width=\"1200\"><p>Left</p></column><column width=\"800\"><block><p>Parent</p><p>Child</p></block></column></columns><columns><column/><column width=\"1000\"><p>Full width</p></column></columns></page>",
+      "canonicalXml": "<page><columns><column width=\"1200\"><p>Left</p></column><column width=\"800\"><block><p>Parent</p><p>Child</p></block></column></columns><p>Full width</p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Columns",
+            "content": [
+              {
+                "type": "Column",
+                "param": null,
+                "marks": {
+                  "ColumnWidth": 1200
+                },
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "Left"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "param": null,
+                "marks": {
+                  "ColumnWidth": 800
+                },
+                "content": [
+                  {
+                    "type": "BlockGroup",
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Parent"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Child"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "Full width"
               }
             ]
           }
@@ -525,9 +855,250 @@
       }
     },
     {
+      "name": "formula",
+      "xml": "<page><math source=\"manual\">E = mc^2</math></page>",
+      "canonicalXml": "<page><math source=\"manual\">E = mc^2</math></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Math",
+            "param": "E = mc^2",
+            "marks": {
+              "Attrs": [
+                [
+                  "source",
+                  "manual"
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty-formula",
+      "xml": "<page><math></math></page>",
+      "canonicalXml": "<page><math /></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Math",
+            "param": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "mermaid",
+      "xml": "<page><mermaid>flowchart TD\n  A[开始] --&gt; B[结束]</mermaid></page>",
+      "canonicalXml": "<page><mermaid>flowchart TD\n  A[开始] --&gt; B[结束]</mermaid></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Mermaid",
+            "content": [
+              {
+                "type": "Text",
+                "param": "flowchart TD"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "  A[开始] --> B[结束]"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "mermaid-view-theme",
+      "xml": "<page><mermaid view=\"code\" theme=\"dark\">flowchart LR\n  X --&gt; Y</mermaid></page>",
+      "canonicalXml": "<page><mermaid theme=\"dark\" view=\"code\">flowchart LR\n  X --&gt; Y</mermaid></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Mermaid",
+            "param": null,
+            "marks": {
+              "MermaidTheme": "dark",
+              "MermaidView": "code"
+            },
+            "content": [
+              {
+                "type": "Text",
+                "param": "flowchart LR"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "  X --> Y"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty-mermaid",
+      "xml": "<page><mermaid></mermaid></page>",
+      "canonicalXml": "<page><mermaid /></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Mermaid",
+            "content": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "code-wrap-and-formula",
+      "xml": "<page><pre lang=\"js\" wrap=\"true\">const x = 1</pre><math>\\frac{a}{b}</math></page>",
+      "canonicalXml": "<page><pre lang=\"js\" wrap=\"true\">const x = 1</pre><math>\\frac{a}{b}</math></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "CodeBlock",
+            "param": null,
+            "marks": {
+              "CodeBlockLanguage": "js",
+              "CodeWrap": "true"
+            },
+            "content": [
+              {
+                "type": "Text",
+                "param": "const x = 1"
+              }
+            ]
+          },
+          {
+            "type": "Math",
+            "param": "\\frac{a}{b}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mentions-and-marks",
+      "xml": "<page><p>详见 <mention page=\"019a2b00-0000-7000-8000-000000000001\" />，由 <strong><mention principal=\"019a2b00-0000-7000-8000-000000000099\" source=\"import\" /> 跟进</strong>。</p><p><a href=\"https://example.com\">前缀 <mention page=\"019a2b00-0000-7000-8000-000000000002\" /> 后缀</a></p><p><comment ids=\"019a2b00-0000-7000-8000-000000000003\"><mention principal=\"019a2b00-0000-7000-8000-000000000088\" /></comment></p></page>",
+      "canonicalXml": "<page><p>详见 <mention page=\"019a2b00-0000-7000-8000-000000000001\" />，由 <strong><mention principal=\"019a2b00-0000-7000-8000-000000000099\" source=\"import\" /> 跟进</strong>。</p><p><a href=\"https://example.com\">前缀 </a><mention page=\"019a2b00-0000-7000-8000-000000000002\" /><a href=\"https://example.com\"> 后缀</a></p><p><comment ids=\"019a2b00-0000-7000-8000-000000000003\"><mention principal=\"019a2b00-0000-7000-8000-000000000088\" /></comment></p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "详见 "
+              },
+              {
+                "type": "Mention",
+                "param": {
+                  "page": "019a2b00-0000-7000-8000-000000000001"
+                }
+              },
+              {
+                "type": "Text",
+                "param": "，由 "
+              },
+              {
+                "type": "Mention",
+                "param": {
+                  "principal": "019a2b00-0000-7000-8000-000000000099"
+                },
+                "marks": {
+                  "Strong": null,
+                  "Attrs": [
+                    [
+                      "source",
+                      "import"
+                    ]
+                  ]
+                }
+              },
+              {
+                "type": "Text",
+                "param": " 跟进",
+                "marks": {
+                  "Strong": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": "。"
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "前缀 ",
+                "marks": {
+                  "Link": [
+                    [
+                      "href",
+                      "https://example.com"
+                    ]
+                  ]
+                }
+              },
+              {
+                "type": "Mention",
+                "param": {
+                  "page": "019a2b00-0000-7000-8000-000000000002"
+                }
+              },
+              {
+                "type": "Text",
+                "param": " 后缀",
+                "marks": {
+                  "Link": [
+                    [
+                      "href",
+                      "https://example.com"
+                    ]
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Mention",
+                "param": {
+                  "principal": "019a2b00-0000-7000-8000-000000000088"
+                },
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000003"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "generated-0",
-      "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip></page>",
-      "canonicalXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip></page>",
+      "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip></page>",
+      "canonicalXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip></page>",
       "document": {
         "type": "Doc",
         "content": [
@@ -553,36 +1124,206 @@
                     ]
                   ],
                   "children": [
-                    "文&~|é!中🙂 |-🙂';>",
                     {
                       "name": "br",
                       "attrs": [],
                       "children": []
                     },
                     {
-                      "name": "br",
+                      "name": "strong",
                       "attrs": [],
+                      "children": [
+                        {
+                          "name": "mention",
+                          "attrs": [
+                            [
+                              "note",
+                              "\"quoted\""
+                            ],
+                            [
+                              "page",
+                              "019a2b00-0000-7000-8000-000000000001"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    },
+                    "🙂';",
+                    {
+                      "name": "u",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "name": "mention",
+                          "attrs": [
+                            [
+                              "page",
+                              "usr_alice"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "img",
+                      "attrs": [
+                        [
+                          "alt",
+                          "https://example.com"
+                        ],
+                        [
+                          "src",
+                          "中文"
+                        ],
+                        [
+                          "title",
+                          "<tag>"
+                        ]
+                      ],
                       "children": []
                     }
                   ]
                 },
                 {
-                  "name": "ul",
-                  "attrs": [],
+                  "name": "callout",
+                  "attrs": [
+                    [
+                      "note",
+                      "x"
+                    ],
+                    [
+                      "tone",
+                      "info"
+                    ]
+                  ],
                   "children": [
                     {
-                      "name": "li",
-                      "attrs": [
-                        [
-                          "task",
-                          "todo"
-                        ]
-                      ],
+                      "name": "my-block",
+                      "attrs": [],
                       "children": [
                         {
-                          "name": "hr",
+                          "name": "br",
                           "attrs": [],
                           "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "table",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "name": "tr",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "th",
+                              "attrs": [
+                                [
+                                  "align",
+                                  "center"
+                                ]
+                              ],
+                              "children": [
+                                {
+                                  "name": "p",
+                                  "attrs": [],
+                                  "children": [
+                                    {
+                                      "name": "img",
+                                      "attrs": [
+                                        [
+                                          "src",
+                                          "中文"
+                                        ],
+                                        [
+                                          "title",
+                                          "alpha"
+                                        ]
+                                      ],
+                                      "children": []
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "name": "tr",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "td",
+                              "attrs": [
+                                [
+                                  "align",
+                                  "center"
+                                ]
+                              ],
+                              "children": [
+                                {
+                                  "name": "p",
+                                  "attrs": [],
+                                  "children": [
+                                    {
+                                      "name": "br",
+                                      "attrs": [],
+                                      "children": []
+                                    },
+                                    {
+                                      "name": "a",
+                                      "attrs": [
+                                        [
+                                          "href",
+                                          "https://example.com"
+                                        ],
+                                        [
+                                          "title",
+                                          "<tag>"
+                                        ]
+                                      ],
+                                      "children": [
+                                        {
+                                          "name": "br",
+                                          "attrs": [],
+                                          "children": []
+                                        },
+                                        ":=/> <\"]!|me@example.com'/>文"
+                                      ]
+                                    },
+                                    {
+                                      "name": "my-block",
+                                      "attrs": [
+                                        [
+                                          "data-x",
+                                          "<tag>"
+                                        ],
+                                        [
+                                          "source",
+                                          ""
+                                        ]
+                                      ],
+                                      "children": [
+                                        {
+                                          "name": "br",
+                                          "attrs": [],
+                                          "children": []
+                                        },
+                                        {
+                                          "name": "br",
+                                          "attrs": [],
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     }
@@ -864,8 +1605,8 @@
     },
     {
       "name": "invalid-tone",
-      "xml": "<page><callout tone=\"danger\"><p>a</p></callout></page>",
-      "error": "XML 第 1 行第 7 列：<callout> 的 tone=\"danger\" 不合法。tone 的值应为 info 或 warning。"
+      "xml": "<page><callout tone=\"invalid\"><p>a</p></callout></page>",
+      "error": "XML 第 1 行第 7 列：<callout> 的 tone=\"invalid\" 不合法。tone 的值应为 info、warning、success、danger 或 neutral。"
     },
     {
       "name": "missing-href",
@@ -956,6 +1697,51 @@
       "name": "cdata-terminator-in-text",
       "xml": "<page><p>]]></p></page>",
       "error": "XML 第 1 行第 12 列：the string \"]]>\" is disallowed in char data.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "math-element",
+      "xml": "<page><math><strong>E</strong></math></page>",
+      "error": "XML 第 1 行第 13 列：<math> 只能包含文字。请把公式写成 LaTeX 文字。"
+    },
+    {
+      "name": "invalid-wrap",
+      "xml": "<page><pre wrap=\"wrap\">a</pre></page>",
+      "error": "XML 第 1 行第 7 列：<pre> 的 wrap=\"wrap\" 不合法。wrap 的值应为 true。"
+    },
+    {
+      "name": "mermaid-element",
+      "xml": "<page><mermaid><strong>a</strong></mermaid></page>",
+      "error": "XML 第 1 行第 16 列：<mermaid> 只能包含文字。请把 Mermaid 源码写成文字。"
+    },
+    {
+      "name": "invalid-mermaid-view",
+      "xml": "<page><mermaid view=\"split\">a</mermaid></page>",
+      "error": "XML 第 1 行第 7 列：<mermaid> 的 view=\"split\" 不合法。view 的值应为 both、code 或 diagram。"
+    },
+    {
+      "name": "mention-missing-target",
+      "xml": "<page><p><mention /></p></page>",
+      "error": "XML 第 1 行第 10 列：<mention> 需要指定 page 或 principal 属性。请为 <mention> 写上 page=\"...\" 或 principal=\"...\"。"
+    },
+    {
+      "name": "mention-both-targets",
+      "xml": "<page><p><mention page=\"p1\" principal=\"u1\" /></p></page>",
+      "error": "XML 第 1 行第 10 列：<mention> 不能同时指定 page 和 principal 属性。请只保留 page 或 principal 其中一个属性。"
+    },
+    {
+      "name": "mention-empty-page",
+      "xml": "<page><p><mention page=\"\" /></p></page>",
+      "error": "XML 第 1 行第 10 列：<mention> 的 page=\"\" 不合法。page 的值应为 非空页面 ID。"
+    },
+    {
+      "name": "mention-content",
+      "xml": "<page><p><mention page=\"p1\">text</mention></p></page>",
+      "error": "XML 第 1 行第 30 列：<mention> 是空元素。请把 <mention> 写成 <mention />。"
+    },
+    {
+      "name": "mention-block-level",
+      "xml": "<page><mention page=\"p1\" /></page>",
+      "error": "XML 第 1 行第 7 列：<mention> 是行内元素，不能直接放在 <page> 里。请把它放进 <p>。"
     }
   ],
   "boundaries": [
@@ -1129,6 +1915,429 @@
     }
   ],
   "edits": [
+    {
+      "name": "comment-anchors",
+      "initialXml": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000001\">First paragraph</comment></p><pre><comment ids=\"019a2b00-0000-7000-8000-000000000002\">code\n  next</comment></pre></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "First paragraph",
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000001"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "type": "CodeBlock",
+            "content": [
+              {
+                "type": "Text",
+                "param": "code",
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000002"
+                  ]
+                }
+              },
+              {
+                "type": "LineBreak",
+                "param": null,
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000002"
+                  ]
+                }
+              },
+              {
+                "type": "Text",
+                "param": "  next",
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000002"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            1,
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "中"
+                }
+              ]
+            ],
+            28
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            1,
+            [
+              1,
+              [
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "🙂"
+                }
+              ]
+            ],
+            29
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            2,
+            [
+              2,
+              []
+            ],
+            29,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            4,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            14,
+            [
+              13,
+              []
+            ],
+            7
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000001\"><strong>F</strong></comment>中<comment ids=\"019a2b00-0000-7000-8000-000000000001\">irst paragraph</comment></p><pre><comment ids=\"019a2b00-0000-7000-8000-000000000002\">code\n  next</comment></pre></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "F",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000001"
+                      ],
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "中"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "irst paragraph",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000001"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "code",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000002"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "LineBreak",
+                    "param": null,
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000002"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "  next",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000002"
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000001\">F</comment>🙂中<comment ids=\"019a2b00-0000-7000-8000-000000000001\">irst paragraph</comment></p><pre><comment ids=\"019a2b00-0000-7000-8000-000000000002\">code\n  next</comment></pre></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "F",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000001"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "🙂中"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "irst paragraph",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000001"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "code",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000002"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "LineBreak",
+                    "param": null,
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000002"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "  next",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000002"
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000001\">F</comment>中<comment ids=\"019a2b00-0000-7000-8000-000000000001\">irst paragraph</comment></p><pre><comment ids=\"019a2b00-0000-7000-8000-000000000002\">code\n  next</comment></pre><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "F",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000001"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "中"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "irst paragraph",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000001"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "code",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000002"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "LineBreak",
+                    "param": null,
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000002"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "  next",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000002"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000001\">F</comment>中<comment ids=\"019a2b00-0000-7000-8000-000000000001\">i</comment>ع<comment ids=\"019a2b00-0000-7000-8000-000000000001\">rst paragraph</comment></p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "F",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000001"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "中"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "i",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000001"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "ع"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "rst paragraph",
+                    "marks": {
+                      "Comment": [
+                        "019a2b00-0000-7000-8000-000000000001"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
     {
       "name": "text-and-marks",
       "initialXml": "<page><p>plain text</p><p>other</p></page>",
@@ -1744,6 +2953,461 @@
       ]
     },
     {
+      "name": "columns",
+      "initialXml": "<page><columns><column width=\"1200\"><p>Left</p><p>Second</p></column><column width=\"800\"><p>Right</p></column></columns><p>After</p></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Columns",
+            "content": [
+              {
+                "type": "Column",
+                "param": null,
+                "marks": {
+                  "ColumnWidth": 1200
+                },
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "Left"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "Second"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "param": null,
+                "marks": {
+                  "ColumnWidth": 800
+                },
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "Right"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "After"
+              }
+            ]
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            3,
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "中",
+                  "marks": {
+                    "Strong": null
+                  }
+                }
+              ]
+            ],
+            30
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            3,
+            [
+              1,
+              [
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "🙂"
+                }
+              ]
+            ],
+            30
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            11,
+            [
+              1,
+              []
+            ],
+            24,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            21,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            7,
+            [
+              7,
+              []
+            ],
+            7
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><columns><column width=\"1200\"><p><strong>L中</strong>eft</p><p>Second</p></column><column width=\"800\"><p>Right</p></column></columns><p>After</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Columns",
+                "content": [
+                  {
+                    "type": "Column",
+                    "param": null,
+                    "marks": {
+                      "ColumnWidth": 1200
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "L中",
+                            "marks": {
+                              "Strong": null
+                            }
+                          },
+                          {
+                            "type": "Text",
+                            "param": "eft"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Second"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Column",
+                    "param": null,
+                    "marks": {
+                      "ColumnWidth": 800
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Right"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "After"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><columns><column width=\"1200\"><p>L🙂eft</p><p>Second</p></column><column width=\"800\"><p>Right</p></column></columns><p>After</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Columns",
+                "content": [
+                  {
+                    "type": "Column",
+                    "param": null,
+                    "marks": {
+                      "ColumnWidth": 1200
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "L🙂eft"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Second"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Column",
+                    "param": null,
+                    "marks": {
+                      "ColumnWidth": 800
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Right"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "After"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><columns><column width=\"1200\"><p>L🙂eft</p><p>econd</p></column><column width=\"800\"><p>Right</p></column></columns><p>After</p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Columns",
+                "content": [
+                  {
+                    "type": "Column",
+                    "param": null,
+                    "marks": {
+                      "ColumnWidth": 1200
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "L🙂eft"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "econd"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Column",
+                    "param": null,
+                    "marks": {
+                      "ColumnWidth": 800
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Right"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "After"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><columns><column width=\"1200\"><p>L🙂eft</p><p>econd</p></column><column width=\"800\"><p>Rعight</p></column></columns><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Columns",
+                "content": [
+                  {
+                    "type": "Column",
+                    "param": null,
+                    "marks": {
+                      "ColumnWidth": 1200
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "L🙂eft"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "econd"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Column",
+                    "param": null,
+                    "marks": {
+                      "ColumnWidth": 800
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Rعight"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "unicode",
       "initialXml": "<page><p>🙂é👩‍💻中</p><p>ع</p></page>",
       "initialDocument": {
@@ -1980,6 +3644,396 @@
                   {
                     "type": "Text",
                     "param": "aعdded"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "nested-blocks",
+      "initialXml": "<page><block><p>Parent</p><block><p>Child</p><p>Grandchild</p></block></block><p>After</p></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "BlockGroup",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "Parent"
+                  }
+                ]
+              },
+              {
+                "type": "BlockGroup",
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "Child"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "Grandchild"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "After"
+              }
+            ]
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            2,
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "中",
+                  "marks": {
+                    "Strong": null
+                  }
+                }
+              ]
+            ],
+            35
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            2,
+            [
+              1,
+              [
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "🙂"
+                }
+              ]
+            ],
+            35
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            13,
+            [
+              1,
+              []
+            ],
+            26,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            20,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            12,
+            [
+              7,
+              []
+            ],
+            7
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><block><p><strong>P中</strong>arent</p><block><p>Child</p><p>Grandchild</p></block></block><p>After</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "BlockGroup",
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "P中",
+                        "marks": {
+                          "Strong": null
+                        }
+                      },
+                      {
+                        "type": "Text",
+                        "param": "arent"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "BlockGroup",
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Child"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Grandchild"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "After"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><block><p>P🙂arent</p><block><p>Child</p><p>Grandchild</p></block></block><p>After</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "BlockGroup",
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "P🙂arent"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "BlockGroup",
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Child"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Grandchild"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "After"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><block><p>P🙂arent</p><block><p>hild</p><p>Grandchild</p></block></block><p>After</p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "BlockGroup",
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "P🙂arent"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "BlockGroup",
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "hild"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Grandchild"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "After"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><block><p>P🙂arent</p><block><p>hild</p><p>Gعrandchild</p></block></block><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "BlockGroup",
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "P🙂arent"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "BlockGroup",
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "hild"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "Gعrandchild"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
                   }
                 ]
               }
@@ -2360,7 +4414,7 @@
     },
     {
       "name": "generated-0-seed-20261005",
-      "initialXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip></page>",
+      "initialXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip></page>",
       "initialDocument": {
         "type": "Doc",
         "content": [
@@ -2386,36 +4440,206 @@
                     ]
                   ],
                   "children": [
-                    "文&~|é!中🙂 |-🙂';>",
                     {
                       "name": "br",
                       "attrs": [],
                       "children": []
                     },
                     {
-                      "name": "br",
+                      "name": "strong",
                       "attrs": [],
+                      "children": [
+                        {
+                          "name": "mention",
+                          "attrs": [
+                            [
+                              "note",
+                              "\"quoted\""
+                            ],
+                            [
+                              "page",
+                              "019a2b00-0000-7000-8000-000000000001"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    },
+                    "🙂';",
+                    {
+                      "name": "u",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "name": "mention",
+                          "attrs": [
+                            [
+                              "page",
+                              "usr_alice"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "img",
+                      "attrs": [
+                        [
+                          "alt",
+                          "https://example.com"
+                        ],
+                        [
+                          "src",
+                          "中文"
+                        ],
+                        [
+                          "title",
+                          "<tag>"
+                        ]
+                      ],
                       "children": []
                     }
                   ]
                 },
                 {
-                  "name": "ul",
-                  "attrs": [],
+                  "name": "callout",
+                  "attrs": [
+                    [
+                      "note",
+                      "x"
+                    ],
+                    [
+                      "tone",
+                      "info"
+                    ]
+                  ],
                   "children": [
                     {
-                      "name": "li",
-                      "attrs": [
-                        [
-                          "task",
-                          "todo"
-                        ]
-                      ],
+                      "name": "my-block",
+                      "attrs": [],
                       "children": [
                         {
-                          "name": "hr",
+                          "name": "br",
                           "attrs": [],
                           "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "table",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "name": "tr",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "th",
+                              "attrs": [
+                                [
+                                  "align",
+                                  "center"
+                                ]
+                              ],
+                              "children": [
+                                {
+                                  "name": "p",
+                                  "attrs": [],
+                                  "children": [
+                                    {
+                                      "name": "img",
+                                      "attrs": [
+                                        [
+                                          "src",
+                                          "中文"
+                                        ],
+                                        [
+                                          "title",
+                                          "alpha"
+                                        ]
+                                      ],
+                                      "children": []
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "name": "tr",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "td",
+                              "attrs": [
+                                [
+                                  "align",
+                                  "center"
+                                ]
+                              ],
+                              "children": [
+                                {
+                                  "name": "p",
+                                  "attrs": [],
+                                  "children": [
+                                    {
+                                      "name": "br",
+                                      "attrs": [],
+                                      "children": []
+                                    },
+                                    {
+                                      "name": "a",
+                                      "attrs": [
+                                        [
+                                          "href",
+                                          "https://example.com"
+                                        ],
+                                        [
+                                          "title",
+                                          "<tag>"
+                                        ]
+                                      ],
+                                      "children": [
+                                        {
+                                          "name": "br",
+                                          "attrs": [],
+                                          "children": []
+                                        },
+                                        ":=/> <\"]!|me@example.com'/>文"
+                                      ]
+                                    },
+                                    {
+                                      "name": "my-block",
+                                      "attrs": [
+                                        [
+                                          "data-x",
+                                          "<tag>"
+                                        ],
+                                        [
+                                          "source",
+                                          ""
+                                        ]
+                                      ],
+                                      "children": [
+                                        {
+                                          "name": "br",
+                                          "attrs": [],
+                                          "children": []
+                                        },
+                                        {
+                                          "name": "br",
+                                          "attrs": [],
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     }
@@ -2430,11 +4654,33 @@
         {
           "clientSeq": 1,
           "changes": [
+            2,
             [
-              1,
-              []
-            ],
-            1,
+              0,
+              [
+                {
+                  "type": "Paragraph"
+                },
+                {
+                  "type": "Text",
+                  "param": "ad"
+                },
+                {
+                  "type": "Text",
+                  "param": "d ed",
+                  "marks": {
+                    "Strong": null
+                  }
+                },
+                "."
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            10,
             [
               0,
               [
@@ -2450,51 +4696,21 @@
               ]
             ]
           ]
-        },
-        {
-          "clientSeq": 2,
-          "changes": [
-            8
-          ]
-        },
-        {
-          "clientSeq": 3,
-          "changes": [
-            4,
-            [
-              0,
-              [
-                {
-                  "type": "Text",
-                  "param": "&<>"
-                }
-              ]
-            ],
-            4
-          ]
-        },
-        {
-          "clientSeq": 4,
-          "changes": [
-            [
-              1,
-              []
-            ],
-            4,
-            [
-              2,
-              []
-            ],
-            4
-          ]
         }
       ],
       "steps": [
         {
-          "xml": "<page><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip><p>added</p></page>",
+          "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip><p>ad<strong>d ed</strong></p></page>",
           "document": {
             "type": "Doc",
             "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "中文"
+                }
+              },
               {
                 "type": "UnknownBlock",
                 "param": {
@@ -2510,36 +4726,206 @@
                         ]
                       ],
                       "children": [
-                        "文&~|é!中🙂 |-🙂';>",
                         {
                           "name": "br",
                           "attrs": [],
                           "children": []
                         },
                         {
-                          "name": "br",
+                          "name": "strong",
                           "attrs": [],
+                          "children": [
+                            {
+                              "name": "mention",
+                              "attrs": [
+                                [
+                                  "note",
+                                  "\"quoted\""
+                                ],
+                                [
+                                  "page",
+                                  "019a2b00-0000-7000-8000-000000000001"
+                                ]
+                              ],
+                              "children": []
+                            }
+                          ]
+                        },
+                        "🙂';",
+                        {
+                          "name": "u",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "mention",
+                              "attrs": [
+                                [
+                                  "page",
+                                  "usr_alice"
+                                ]
+                              ],
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "name": "img",
+                          "attrs": [
+                            [
+                              "alt",
+                              "https://example.com"
+                            ],
+                            [
+                              "src",
+                              "中文"
+                            ],
+                            [
+                              "title",
+                              "<tag>"
+                            ]
+                          ],
                           "children": []
                         }
                       ]
                     },
                     {
-                      "name": "ul",
-                      "attrs": [],
+                      "name": "callout",
+                      "attrs": [
+                        [
+                          "note",
+                          "x"
+                        ],
+                        [
+                          "tone",
+                          "info"
+                        ]
+                      ],
                       "children": [
                         {
-                          "name": "li",
-                          "attrs": [
-                            [
-                              "task",
-                              "todo"
-                            ]
-                          ],
+                          "name": "my-block",
+                          "attrs": [],
                           "children": [
                             {
-                              "name": "hr",
+                              "name": "br",
                               "attrs": [],
                               "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "name": "table",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "tr",
+                              "attrs": [],
+                              "children": [
+                                {
+                                  "name": "th",
+                                  "attrs": [
+                                    [
+                                      "align",
+                                      "center"
+                                    ]
+                                  ],
+                                  "children": [
+                                    {
+                                      "name": "p",
+                                      "attrs": [],
+                                      "children": [
+                                        {
+                                          "name": "img",
+                                          "attrs": [
+                                            [
+                                              "src",
+                                              "中文"
+                                            ],
+                                            [
+                                              "title",
+                                              "alpha"
+                                            ]
+                                          ],
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "name": "tr",
+                              "attrs": [],
+                              "children": [
+                                {
+                                  "name": "td",
+                                  "attrs": [
+                                    [
+                                      "align",
+                                      "center"
+                                    ]
+                                  ],
+                                  "children": [
+                                    {
+                                      "name": "p",
+                                      "attrs": [],
+                                      "children": [
+                                        {
+                                          "name": "br",
+                                          "attrs": [],
+                                          "children": []
+                                        },
+                                        {
+                                          "name": "a",
+                                          "attrs": [
+                                            [
+                                              "href",
+                                              "https://example.com"
+                                            ],
+                                            [
+                                              "title",
+                                              "<tag>"
+                                            ]
+                                          ],
+                                          "children": [
+                                            {
+                                              "name": "br",
+                                              "attrs": [],
+                                              "children": []
+                                            },
+                                            ":=/> <\"]!|me@example.com'/>文"
+                                          ]
+                                        },
+                                        {
+                                          "name": "my-block",
+                                          "attrs": [
+                                            [
+                                              "data-x",
+                                              "<tag>"
+                                            ],
+                                            [
+                                              "source",
+                                              ""
+                                            ]
+                                          ],
+                                          "children": [
+                                            {
+                                              "name": "br",
+                                              "attrs": [],
+                                              "children": []
+                                            },
+                                            {
+                                              "name": "br",
+                                              "attrs": [],
+                                              "children": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
                             }
                           ]
                         }
@@ -2547,6 +4933,276 @@
                     }
                   ]
                 }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d ed",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip><p>ad<strong>d ed</strong></p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "中文"
+                }
+              },
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "chip",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "name": "my-block",
+                      "attrs": [
+                        [
+                          "constructor",
+                          ""
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "br",
+                          "attrs": [],
+                          "children": []
+                        },
+                        {
+                          "name": "strong",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "mention",
+                              "attrs": [
+                                [
+                                  "note",
+                                  "\"quoted\""
+                                ],
+                                [
+                                  "page",
+                                  "019a2b00-0000-7000-8000-000000000001"
+                                ]
+                              ],
+                              "children": []
+                            }
+                          ]
+                        },
+                        "🙂';",
+                        {
+                          "name": "u",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "mention",
+                              "attrs": [
+                                [
+                                  "page",
+                                  "usr_alice"
+                                ]
+                              ],
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "name": "img",
+                          "attrs": [
+                            [
+                              "alt",
+                              "https://example.com"
+                            ],
+                            [
+                              "src",
+                              "中文"
+                            ],
+                            [
+                              "title",
+                              "<tag>"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "callout",
+                      "attrs": [
+                        [
+                          "note",
+                          "x"
+                        ],
+                        [
+                          "tone",
+                          "info"
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "my-block",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "br",
+                              "attrs": [],
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "name": "table",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "name": "tr",
+                              "attrs": [],
+                              "children": [
+                                {
+                                  "name": "th",
+                                  "attrs": [
+                                    [
+                                      "align",
+                                      "center"
+                                    ]
+                                  ],
+                                  "children": [
+                                    {
+                                      "name": "p",
+                                      "attrs": [],
+                                      "children": [
+                                        {
+                                          "name": "img",
+                                          "attrs": [
+                                            [
+                                              "src",
+                                              "中文"
+                                            ],
+                                            [
+                                              "title",
+                                              "alpha"
+                                            ]
+                                          ],
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "name": "tr",
+                              "attrs": [],
+                              "children": [
+                                {
+                                  "name": "td",
+                                  "attrs": [
+                                    [
+                                      "align",
+                                      "center"
+                                    ]
+                                  ],
+                                  "children": [
+                                    {
+                                      "name": "p",
+                                      "attrs": [],
+                                      "children": [
+                                        {
+                                          "name": "br",
+                                          "attrs": [],
+                                          "children": []
+                                        },
+                                        {
+                                          "name": "a",
+                                          "attrs": [
+                                            [
+                                              "href",
+                                              "https://example.com"
+                                            ],
+                                            [
+                                              "title",
+                                              "<tag>"
+                                            ]
+                                          ],
+                                          "children": [
+                                            {
+                                              "name": "br",
+                                              "attrs": [],
+                                              "children": []
+                                            },
+                                            ":=/> <\"]!|me@example.com'/>文"
+                                          ]
+                                        },
+                                        {
+                                          "name": "my-block",
+                                          "attrs": [
+                                            [
+                                              "data-x",
+                                              "<tag>"
+                                            ],
+                                            [
+                                              "source",
+                                              ""
+                                            ]
+                                          ],
+                                          "children": [
+                                            {
+                                              "name": "br",
+                                              "attrs": [],
+                                              "children": []
+                                            },
+                                            {
+                                              "name": "br",
+                                              "attrs": [],
+                                              "children": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d ed",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
               },
               {
                 "type": "Paragraph",
@@ -2554,163 +5210,6 @@
                   {
                     "type": "Text",
                     "param": "added"
-                  }
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "xml": "<page><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip><p>added</p></page>",
-          "document": {
-            "type": "Doc",
-            "content": [
-              {
-                "type": "UnknownBlock",
-                "param": {
-                  "name": "chip",
-                  "attrs": [],
-                  "children": [
-                    {
-                      "name": "my-block",
-                      "attrs": [
-                        [
-                          "constructor",
-                          ""
-                        ]
-                      ],
-                      "children": [
-                        "文&~|é!中🙂 |-🙂';>",
-                        {
-                          "name": "br",
-                          "attrs": [],
-                          "children": []
-                        },
-                        {
-                          "name": "br",
-                          "attrs": [],
-                          "children": []
-                        }
-                      ]
-                    },
-                    {
-                      "name": "ul",
-                      "attrs": [],
-                      "children": [
-                        {
-                          "name": "li",
-                          "attrs": [
-                            [
-                              "task",
-                              "todo"
-                            ]
-                          ],
-                          "children": [
-                            {
-                              "name": "hr",
-                              "attrs": [],
-                              "children": []
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              },
-              {
-                "type": "Paragraph",
-                "content": [
-                  {
-                    "type": "Text",
-                    "param": "added"
-                  }
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "xml": "<page><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip><p>ad&amp;&lt;&gt;ded</p></page>",
-          "document": {
-            "type": "Doc",
-            "content": [
-              {
-                "type": "UnknownBlock",
-                "param": {
-                  "name": "chip",
-                  "attrs": [],
-                  "children": [
-                    {
-                      "name": "my-block",
-                      "attrs": [
-                        [
-                          "constructor",
-                          ""
-                        ]
-                      ],
-                      "children": [
-                        "文&~|é!中🙂 |-🙂';>",
-                        {
-                          "name": "br",
-                          "attrs": [],
-                          "children": []
-                        },
-                        {
-                          "name": "br",
-                          "attrs": [],
-                          "children": []
-                        }
-                      ]
-                    },
-                    {
-                      "name": "ul",
-                      "attrs": [],
-                      "children": [
-                        {
-                          "name": "li",
-                          "attrs": [
-                            [
-                              "task",
-                              "todo"
-                            ]
-                          ],
-                          "children": [
-                            {
-                              "name": "hr",
-                              "attrs": [],
-                              "children": []
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              },
-              {
-                "type": "Paragraph",
-                "content": [
-                  {
-                    "type": "Text",
-                    "param": "ad&<>ded"
-                  }
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "xml": "<page><p>ad&amp;ded</p></page>",
-          "document": {
-            "type": "Doc",
-            "content": [
-              {
-                "type": "Paragraph",
-                "content": [
-                  {
-                    "type": "Text",
-                    "param": "ad&ded"
                   }
                 ]
               }

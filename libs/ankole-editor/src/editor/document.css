@@ -1,0 +1,523 @@
+.ankole-editor .editor-comment-anchor {
+  background: var(--warning-subtle);
+  border-bottom: 1px solid var(--border-strong);
+  cursor: pointer;
+}
+
+/* Document typography (SPEC §7.4, Standard typography). Every colour comes from a uikit token, so the
+   light and dark themes need no second list here. */
+.ankole-editor,
+.ankole-editor-overlay {
+  font-family: var(--font-family-sans);
+  color: var(--foreground);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  --editor-selection-bg: var(--selection);
+  --editor-scrollbar-thumb: var(--border-strong);
+  --editor-toolbar-border: var(--border);
+  --editor-toolbar-bg: var(--background);
+  --editor-toolbar-btn: var(--fg-secondary);
+  --editor-toolbar-divider: var(--border);
+  --editor-hint: var(--fg-tertiary);
+  --editor-ink: var(--foreground);
+  --editor-placeholder: var(--fg-placeholder);
+  --editor-selected-outline: var(--border-strong);
+  --editor-h1: var(--foreground);
+  --editor-h2: var(--foreground);
+  --editor-pre-bg: var(--layer-01);
+  --editor-quote-border: var(--foreground);
+  --editor-quote-fg: var(--foreground);
+  --editor-task-border: var(--border-strong);
+  --editor-task-done-fg: var(--fg-tertiary);
+  --editor-task-done-bg: var(--foreground);
+  --editor-task-check: var(--background);
+  --editor-hr: var(--border);
+  --editor-strong: var(--foreground);
+  --editor-mark-bg: var(--warning-subtle);
+  --editor-code-fg: var(--foreground);
+  --editor-unknown-inline: var(--fg-tertiary);
+  --editor-unknown-border: var(--border-strong);
+  --editor-unknown-label: var(--fg-tertiary);
+  --editor-handle-fg: var(--fg-tertiary);
+  --editor-handle-hover-fg: var(--foreground);
+  --editor-handle-hover-bg: var(--accent);
+}
+/* The editor shell reserves room for controls outside the text. Hosts can size the document gutter. */
+:where(.ankole-editor) .editor-toolbar {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  height: 49px;
+  border-bottom: 1px solid var(--editor-toolbar-border);
+  background: var(--editor-toolbar-bg);
+  padding: 0 28px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.ankole-editor .toolbar-divider {
+  width: 1px;
+  height: 15px;
+  background: var(--editor-toolbar-divider);
+  margin: 0 6px;
+}
+.ankole-editor .toolbar-spacer {
+  flex: 1;
+}
+.ankole-editor .editing-hint {
+  font-size: 11px;
+  color: var(--editor-hint);
+  margin-left: 12px;
+}
+:where(.ankole-editor) .document-scroll {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 55px 70px 35px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-anchor {
+  position: relative;
+}
+/* The editor element draws no frame. The content shows its own cursor. */
+.ankole-editor .editor-view,
+.ankole-editor .editor-view:focus-within {
+  border: 0;
+  outline: none;
+}
+.ankole-editor .editor-view > wg-scroller {
+  overflow: visible;
+}
+/* Body text is 16px like Notion, with a 28px line: CJK text needs more leading than Notion's 1.5.
+   Blocks sit 4px apart, so consecutive paragraphs, list items, and to-dos keep one rhythm. */
+.ankole-editor .editor-content {
+  outline: none;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1.75;
+  min-height: var(--editor-min-height, 420px);
+  color: var(--editor-ink);
+}
+/* The paragraph hint is out of the line, so that it is not page text and does not move the caret. */
+.ankole-editor .editor-content[contenteditable='true'] p[data-placeholder]::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  color: var(--editor-placeholder);
+  pointer-events: none;
+  user-select: none;
+}
+.ankole-editor .editor-content[contenteditable='true'] p[data-mention-placeholder]::after {
+  content: attr(data-mention-placeholder);
+  color: var(--editor-placeholder);
+  pointer-events: none;
+  user-select: none;
+}
+.ankole-editor .editor-content .wg-selected-node {
+  outline: 2px solid var(--editor-selected-outline);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.ankole-editor .editor-content .editor-selected-block {
+  background: var(--editor-selection-bg);
+  border-radius: 3px;
+}
+.ankole-editor .editor-content .editor-selected-block::selection,
+.ankole-editor .editor-content .editor-selected-block *::selection {
+  background: transparent;
+}
+
+/* Blocks */
+
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h1:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--editor-h1);
+  margin: 32px 0 4px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h2:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 24px 0 4px;
+  color: var(--editor-h2);
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h3:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 20px 0 4px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(h4, h5, h6):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 16px 0 4px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h4:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  font-size: 16px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h5:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  font-size: 15px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h6:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  font-size: 14px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  p:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  margin: 4px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  [data-align='left']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  text-align: left;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  [data-align='center']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  text-align: center;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  [data-align='right']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  text-align: right;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  [data-align='justify']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  text-align: justify;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  pre:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  display: block;
+  font: 14px/1.6 var(--font-family-mono);
+  white-space: pre-wrap;
+  padding: 16px 20px;
+  background: var(--editor-pre-bg);
+  margin: 8px 0;
+  border-radius: var(--radius-control);
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  blockquote:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  margin: 8px 0;
+  padding: 0 14px;
+  border-left: 3px solid var(--editor-quote-border);
+  color: var(--editor-quote-fg);
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(ul, ol):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  margin: 4px 0;
+  padding-left: 26px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  ul:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  list-style: disc;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  ol:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  list-style: decimal;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  margin: 2px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li
+  > :is(ul, ol):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  margin: 2px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li
+  > p:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  margin: 0;
+}
+/* A task item shows a check box in its left padding. Read-only task items show the same box. */
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task]:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  position: relative;
+  list-style: none;
+  padding-left: 26px;
+  margin-left: -26px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task]:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 6px;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--editor-task-border);
+  border-radius: var(--radius-mini);
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[role='checkbox']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::before {
+  cursor: pointer;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task='done']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  color: var(--editor-task-done-fg);
+  text-decoration: line-through;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task='done']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::before {
+  background: var(--editor-task-done-bg);
+  border-color: var(--editor-task-done-bg);
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task='done']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::after {
+  content: '';
+  position: absolute;
+  left: 7.5px;
+  top: 9px;
+  width: 5px;
+  height: 8px;
+  border-right: 1.5px solid var(--editor-task-check);
+  border-bottom: 1.5px solid var(--editor-task-check);
+  transform: rotate(45deg);
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  hr:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  border: 0;
+  border-top: 1px solid var(--editor-hr);
+  margin: 16px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  img:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  max-width: 100%;
+  max-height: 440px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  .block-menu-target:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  outline: 2px solid var(--editor-selected-outline);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* Text formats */
+
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  strong:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  font-weight: 600;
+  color: var(--editor-strong);
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  em:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  font-style: italic;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  s:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  text-decoration: line-through;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  u:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  text-decoration: underline;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  mark:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  background: var(--editor-mark-bg);
+  color: inherit;
+}
+/* Inline code. Low specificity, so that blocks such as the embed card can style their own code. */
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :where(code):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  @apply code-inline;
+  color: var(--editor-code-fg);
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(a, .read-only-link):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  color: var(--foreground);
+  text-decoration-line: underline;
+  text-decoration-color: var(--border-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+/* A link is ink text with an underline, as uikit's `link`; the underline darkens under the pointer. */
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(a, .read-only-link):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ):hover {
+  text-decoration-color: currentColor;
+}
+
+/* Inline mentions: page references flow and wrap like text links; principal mentions stay atomic pills. */
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content .editor-mention {
+  font: inherit;
+  color: var(--foreground);
+  user-select: all;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content .editor-mention-page {
+  display: inline;
+  padding-block: 1px;
+  padding-inline: 2px;
+  border-radius: var(--radius-control);
+  text-decoration-line: underline;
+  text-decoration-color: var(--border-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    text-decoration-color 120ms ease;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content .editor-mention-page:hover {
+  background: var(--layer-hover);
+  text-decoration-color: currentColor;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content .editor-mention-principal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: -0.14em;
+  margin-inline: 2px;
+  padding: 1px 7px 1px 4px;
+  border-radius: 9999px;
+  background: var(--layer-hover);
+  color: var(--foreground);
+  line-height: 1.35;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content .editor-mention-principal:hover {
+  background: var(--accent);
+}
+
+/* Read-only elements (SPEC §7.4): known elements use the styles above. */
+
+:where(.ankole-editor, .ankole-editor-overlay) .read-only-block {
+  margin: 12px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .unknown-element {
+  border-radius: 3px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) span.unknown-element {
+  text-decoration: underline dotted var(--editor-unknown-inline);
+  text-underline-offset: 3px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) div.unknown-element {
+  border: 1px dashed var(--editor-unknown-border);
+  padding: 22px 14px 8px;
+  margin: 12px 0;
+  position: relative;
+}
+:where(.ankole-editor, .ankole-editor-overlay) div.unknown-element::before {
+  content: attr(data-name);
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  font: 10px/1.4 var(--font-family-mono);
+  color: var(--editor-unknown-label);
+}

@@ -52,8 +52,12 @@ Input handling:
   desktop Safari the trailing `keydown` (such as Enter) is suppressed as an
   editor command.
 - Starting an IME composition flushes any pending programmatic selection first
-  so the browser composes at the intended position, and inserts an empty
-  paragraph if composition begins between blocks.
+  so the browser composes at the intended position, and opens an empty paragraph
+  inside an empty block container without replacing that container, grouping the
+  wrapper with the composition's undo step. When the user clears all preedit
+  characters mid-composition, the editor removes the composed text without
+  inserting a zero-length text leaf and keeps `InputState.composing` active
+  while focus stays in editable DOM.
 - `insertReplacementText` and `insertFromYank` read text from `data` when
   `dataTransfer` is absent. Non-cancelable replacements—and `input` events that
   arrive without a preceding `beforeinput`—are reconciled from the DOM whenever
@@ -92,6 +96,9 @@ Bug fixes:
   instead of recursing into itself and overflowing the call stack.
 - States without custom key-binding providers still apply the default keymap,
   reading the keymap facet optionally rather than requiring it on the state.
+- `ContentUpdate.copyEltStructure` preserves nested node-inner wrapper elements
+  and marks reused node-inner tiles as fully reused so content edits inside a
+  plot keep its inner DOM hierarchy and connected widgets intact.
 
 Document and selection:
 

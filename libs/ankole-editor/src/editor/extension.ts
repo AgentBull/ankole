@@ -1,3 +1,4 @@
+import { headingFolding } from './headings'
 import { history } from '../core/history'
 import { GardSelection, GardState } from '../core/state'
 import { blocks } from '../blocks'
@@ -5,12 +6,17 @@ import { parseMarkdown } from '../document/markdown'
 import type { Element } from '../document/tree'
 import { pageDocument } from './convert'
 import { blockKeys } from './block-keys'
+import { blockSelection } from './block-selection'
 import { clipboard } from './clipboard'
+import { codeBlockExtension } from './code-block'
+import { commentDraftSelection } from './comments'
 import { pageCorrections } from './corrections'
 import { links } from './links'
 import { listEditing } from './lists'
+import { mentions } from './mention'
 import { nativeInput } from './native-input'
 import { pageEnd } from './page-end'
+import { fileUploadField } from './file-upload'
 import { shortcuts } from './shortcuts'
 import { tableEditing } from './tables'
 import { pageSessions } from './page-session'
@@ -24,13 +30,19 @@ export function editorExtension(): GardState.Extension {
     history(),
     pageSessions,
     blockKeys,
+    blockSelection,
     listEditing,
     shortcuts,
     links,
+    mentions,
     clipboard,
+    commentDraftSelection,
     nativeInput,
     tableEditing,
+    headingFolding,
     pageEnd,
+    codeBlockExtension,
+    fileUploadField,
     blocks.map(block => block.extension)
   ]
 }

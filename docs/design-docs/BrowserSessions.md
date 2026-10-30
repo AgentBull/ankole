@@ -21,18 +21,21 @@ PostgreSQL stores four core records for browser state:
 
 - **Browser group:** an ID, `revision`, `logout_revision`, default
   authentication and tenant, and expiry timestamp.
-- **Authentication:** the identity source, subject, scoped tenant (when
-  applicable), provider authentication time (`auth_time`), challenge start time
+- **Authentication:** the identity source, subject, credential `scope` (`site`
+  or `tenant`), scoped tenant (present for `tenant` scope and `nil` for `site`
+  scope), provider authentication time (`auth_time`), challenge start time
   (`challenge_started_at`), authentication methods (`amr`), verified email or
-  phone, local `authenticated_at`, expiry, CSRF secret, and Console admission
-  flag (`console_authenticated`).
+  phone, local `authenticated_at`, expiry, and CSRF secret.
 - **`PodAuthentication`:** a tenant access proof binding a verified
   authentication to one Human and `access_version`.
 - **`OidcState`:** an outbound upstream OIDC redirect state containing the state
-  token, browser group, target tenant, provider ID, purpose, mode,
-  `started_revision`, redirect URI, return path, prompt, optional invitation or
-  reauthentication pin, optional OIDC `AuthorizationRequest` ID, consumption
-  state, and expiry.
+  token, browser group, target tenant, provider ID, `started_revision`, redirect
+  URI, return path, optional Console return path (`console_return_to`), prompt,
+  optional invitation or reauthentication pin, optional OIDC
+  `AuthorizationRequest` ID, consumption state, and expiry.
+
+When an OIDC token authenticates a request, AuthZ reads `provider_scope` from
+the referenced Authentication's `scope` as part of its authentication evidence.
 
 Every top-level operation runs inside `Repo.transact_top_level/2`, while its
 `*_in_tx` counterpart composes inside a caller's transaction. Transactions
@@ -47,60 +50,74 @@ cleanup retains any group while at least one valid proof references it. Code
 challenges, delivery, and rate-limit windows belong to
 [Authentication](Authentication.md).
 
-## Login purposes and targets
+## Login scopes and targets
 
 `GET /sessions/new` serves the login shell directly without writing a database
 row. The shell determines its login target from the request host and query
-parameters (`purpose=console`, `tenant_id`, `return_to`, `switch=1`,
+parameters (`tenant_id`, `return_to`, sealed `console_return`, `switch=1`,
 `prompt=login`, `invitation_token`, sealed `reauth`, sealed `invitation`, or
 `oauth_request`).
 
 `AnkoleWeb.BrowserAuth.Targets` owns ceremony resolution. `AnkoleWeb.PodURL`
 uses the build-selected host policy to generate login destinations, enterprise
 SSO authorization URLs, and OAuth continuations. In SaaS, Pod login shells,
-including OAuth login and account selection, run on `accounts`; enterprise SSO
-authorization and callbacks run on the target Pod host, and successful OAuth
-login or selection returns to that Pod's `/oauth/authorize/resume` endpoint.
+including privileged-Pod Console sign-in, OAuth login, and account selection,
+run on `accounts`; enterprise SSO authorization and callbacks run on the target
+Pod host, and successful completion returns to the Pod host, the site Console
+origin (when the ceremony carries `console_return`), or the Pod's
+`/oauth/authorize/resume` endpoint.
 
 Login ceremonies target either a specific tenant or the site:
 
-- `pod`, `console`, and `oauth` logins target one tenant. A Pod login resolves
-  its tenant from the host or an explicit `tenant_id`; a Console login targets
-  the privileged tenant and requires membership as a site administrator; and an
-  OAuth login uses the Client's tenant recorded on `AuthorizationRequest`. When
-  an edition sets `pod_email_otp_disabled` on Pod hosts, `loginProviders` and
-  email OTP challenge endpoints omit or reject both `pod` and `oauth` email OTP
+- Tenant-targeted logins cover Pod entry, Console entry (targeting the
+  privileged tenant), and inbound OAuth authorization requests (targeting the
+  Client's tenant recorded on `AuthorizationRequest`). A Pod login resolves its
+  tenant from the request host or an explicit `tenant_id`. When an edition sets
+  `pod_email_otp_disabled` on Pod hosts, `loginProviders` and email OTP
+  challenge endpoints omit or reject tenant-targeted email OTP on those hosts
   while keeping tenant OIDC initiation and callbacks active.
 - Outbound enterprise SSO creates an `OidcState` row when the browser visits
   `/sessions/oidc/:provider_id/authorization`, and its callback completes
   against that recorded tenant and provider. `loginProviders` returns this
-  endpoint as each OIDC provider's `loginPath`: a `console` login keeps it on
-  the current site host, while `pod`, `oauth`, and tenant-targeted `site`
-  logins point it at the target Pod host. On shared site sign-in hosts,
+  endpoint as each OIDC provider's `loginPath` on the target Pod host for Pod,
+  Console, OAuth, and tenant-targeted site sign-in. On shared site sign-in hosts,
   `POST /api/v2/browser/pod-logins` resolves a workspace slug into its
-  `tenantID`, `displayName`, and active OIDC `providers` (including each provider's
-  `authorizationURL` on the workspace host) without exposing disabled tenants.
-- A `site` login runs only on editions whose non-Pod sign-in host sets
-  `default_login_purpose: :site` (self-hosted FOSS deployments authenticate
-  directly against `pod`, `console`, or `oauth` targets without public site
-  registration). Verifying a personal credential on a `site` login opens the
-  workspace chooser or, when the ceremony carries a target `tenant_id` (for
-  cross-host Pod sign-in, invitation acceptance, or personal-settings
-  reauthentication), enters that target Pod in the same completion transaction
-  when policy and membership allow. Site credential completion gathers the
-  target Pod's pending member together with existing credential bindings, locks
-  all candidate Principals in UID order, validates them, and records Pod access
-  in one pass. A missing target membership leaves the site proof available for
-  `/account`; a disabled target member or rejected target policy fails the login.
+  `tenantID`, `displayName`, and active OIDC `providers` (including each
+  provider's `authorizationURL` on the workspace host) without exposing disabled
+  tenants.
+- Site-wide sign-in runs only on editions whose shared non-Pod sign-in host sets
+  `site_login_host` (self-hosted FOSS deployments authenticate directly against
+  a target tenant). Verifying a personal credential on a site sign-in host opens
+  the workspace chooser or, when the ceremony carries a target `tenant_id` (for
+  cross-host Pod sign-in, Console return, invitation acceptance, or
+  personal-settings reauthentication), enters that target Pod in the same
+  completion transaction when policy and membership allow. Site credential
+  completion gathers the target Pod's pending member together with existing
+  credential bindings, locks all candidate Principals in UID order, validates
+  them, and records Pod access in one pass. A missing target membership leaves
+  the site proof available for `/account`; a disabled target member or rejected
+  target policy fails the login.
 
-Completing a Console login sets `console_authenticated` on the site proof, and
-subsequent Console requests still verify the privileged tenant, current Human
-access, and `siteadmin` membership. Pod proofs maintain their own independent
-tenant scopes and Human access versions.
-
-Pod logins and flows that add another credential run in additive authentication
-mode, which only a trusted server entry point can set. Once loaded, each open
-HTML document pins its `authentication_ref` and Pod ID.
+Every browser login adds or refreshes an independent authentication in the
+browser group, and each open HTML document pins its `authentication_ref` and Pod
+ID once loaded. When an operator visits `GET <console_path>` directly,
+`AnkoleWeb.SpaController` checks `AnkoleWeb.Session.resolve_site_admin_session/1`.
+The resolver scans proven references once and returns an administrator with its
+reference, a non-administrator member, or an unauthenticated result. An explicit
+`x-ankole-authentication` selection restricts resolution to that reference.
+If the selected authentication or another proven authentication in the browser
+group holds active `siteadmin` membership in the privileged tenant, the server
+renders the Console shell immediately, pins that `authentication_ref` on the
+document, and synchronizes its CSRF state without changing the browser default.
+If the browser holds an active non-administrator identity in the privileged
+tenant and no `siteadmin` authentication, the server responds with `403` rather
+than redirecting into a login loop. Otherwise,
+`AnkoleWeb.Session.seal_console_return/2` seals the Console path into a
+10-minute `browser.console_return` ticket bound to the privileged tenant ID and
+redirects to the privileged Pod's sign-in URL without exposing
+`ANKOLE_SITE_ADMIN_CONSOLE_PATH` in plaintext query parameters; after email OTP
+verification, enterprise OIDC callback, or identity selection, the browser
+returns to the Console path on the site origin.
 
 `GET /api/v2/browser/session` returns activated Pod identities, pending Pods,
 and verified site authentications; a site proof with zero Pods is still a valid
@@ -149,8 +166,9 @@ the selected proof and recheck its server state before sending each frame.
 HTML shells emit `ankole-authentication` and `ankole-pod` metadata, which
 browser API clients echo in the `x-ankole-authentication` and `x-ankole-pod`
 request headers. Because `EventSource`, file subresources, and sandboxed Applet
-`iframe`s cannot attach custom headers, Pod conversation SSE URLs and
-`GET /api/v2/pod/pages/:id/files/content` pass those references as query
+`iframe`s cannot attach custom headers, Pod conversation SSE URLs,
+`GET /api/v2/pod/pages/:id/files/content`, and
+`GET /api/v2/pod/metadata/files/content` pass those references as query
 parameters, and
 `GET /pod/applet-frame/:authentication_ref/:id/:revision/*path` embeds the
 authentication reference in the path. Even on these routes, the server requires
@@ -161,11 +179,17 @@ impersonate or switch accounts, and shareable links carry only the tenant and
 resource path.
 
 On the server, Pod API gates verify the selected tenant, authentication, current
-Human access, and credential binding. Conversation endpoints verify either
+Human access, and credential binding. The gate assigns the verified identity and
+resolved tenant to the request; JSON:API uses those assignments to construct its
+context. CSRF verification reads the selected authentication once, and the Pod
+identity check uses the same Human record for access-version and login-policy
+validation. Each new request verifies current server state.
+Conversation endpoints verify either
 participant membership or, for a Page-anchored thread, `page_view` permission on
-its anchor Page. Console API endpoints require current `siteadmin` membership; a
-Pod login never grants access to `/api/v2` Console management routes or native
-Console file transfers. Protected responses disallow shared caching.
+its anchor Page. Console API endpoints and native Console file transfers verify
+active `siteadmin` membership in the privileged tenant through
+`AnkoleWeb.Session.site_admin_session/1`, rejecting ordinary Pod members with
+`403`. Protected responses disallow shared caching.
 
 In the browser, Pod query cache keys include both the authentication identity
 and the tenant, and Console data selection stays local to the open document's
@@ -191,10 +215,9 @@ Completing a login, logging out a single account, and logging out browser-wide
 all acquire the browser group row lock and increment `browser.revision`. A newly
 created or revoked authentication receives that new revision, whereas
 re-verifying a live authentication preserves its `authentication_ref` and CSRF
-state so pinned tabs and online RP sessions keep working. Using an existing site
-proof in another ceremony also preserves its `console_authenticated` admission.
-Browser-wide logout additionally updates `browser.logout_revision`, while merely
-switching the default account advances neither counter.
+state so pinned tabs and online RP sessions keep working. Browser-wide logout
+additionally updates `browser.logout_revision`, while merely switching the
+default account advances neither counter.
 
 An outbound `OidcState` or inbound `AuthorizationRequest` can complete only when
 all three conditions hold:
@@ -211,11 +234,11 @@ unused, unexpired code can still complete after an earlier session logs out; see
 [Authentication](Authentication.md#verification-ceremonies) for code lifetimes,
 replacement rules, and policy checks.
 
-Ankole keys each authentication target by `(browser, provider, subject, purpose,
-tenant)`. A site source always uses purpose `site` with no tenant, even when
-invoked by an OAuth request, whereas a native tenant source uses its tenant,
-provider, and Principal UID while storing the provider's verified external ID
-separately.
+Ankole keys each authentication target by `(browser, provider, subject, scope,
+tenant)`. A site source uses scope `site` with `tenant_id = nil`, even when
+invoked by a tenant-targeted login or OAuth request, whereas a native tenant
+source uses scope `tenant` with its tenant ID, provider, and Principal UID while
+storing the provider's verified external ID separately.
 
 When OAuth triggers reauthentication for a selected account, Ankole pins that
 expected authentication ID on `AuthorizationRequest`. When a user starts
@@ -241,7 +264,7 @@ single-use consumption.
 
 | Interleaving | Result |
 | --- | --- |
-| A and B start OIDC ceremonies at revision 10; B completes at 11 in add mode. | A can still complete because A's own target did not change. |
+| A and B start OIDC ceremonies at revision 10; B completes at 11. | A can still complete because A's own target did not change. |
 | Two OIDC ceremonies for A start at revision 10; one completes at 11. | Completion rejects the second callback because A's target advanced to 11. |
 | A logs out before its earlier OIDC callback returns. | Completion rejects the callback against A's revocation tombstone; B remains valid. |
 | Browser-wide logout precedes an earlier OIDC callback. | Completion rejects the callback because `browser.logout_revision` advanced. |
@@ -313,18 +336,32 @@ Reauthenticating from personal settings always starts a new verification
 ceremony rather than reusing a stored proof, while upstream `auth_time`,
 `prompt=login`, and `max_age` continue to enforce OIDC provider evidence rules.
 
-Logging out a single account revokes that authentication, its dependent Pod
-proofs, and its online RP associations while leaving other signed-in accounts
-intact. If the revoked account was the browser default, Ankole clears the
-default rather than silently selecting another account. Open Pod streams recheck
+Signing out of a Pod (or the Site Console, which binds to the privileged Pod)
+revokes access for that Pod while leaving other signed-in Pods intact. When a
+`site` authentication still holds `PodAuthentication` rows in other Pods, Ankole
+removes only the target Pod's `PodAuthentication`, ends its online RP
+associations in that Pod, cancels pending `AuthorizationRequest` and `OidcState`
+rows for that Pod, and preserves the `site` authentication cookie for the
+remaining Pods. When the authentication is `tenant`-scoped or the exited Pod is
+its last remaining Pod, Ankole revokes the authentication row itself and clears
+its proof cookie. From the Console, signing out of the privileged Pod navigates
+to the Console path with `switch=1` so the privileged Pod sign-in page prompts
+explicitly for an administrator account rather than auto-admitting another
+signed-in account. If the exited Pod was the browser default, Ankole clears the
+default rather than silently selecting another Pod. Open Pod streams recheck
 their pinned proof before each frame or heartbeat ping.
 
-Console logout and confirmed RP logout apply across the entire browser group: in
-one transaction, Ankole advances `logout_revision`, revokes all authentications
-and online RP associations, and cancels pending `OidcState` and
-`AuthorizationRequest` rows (causing any reauthentication tied to a revoked
-proof to fail as well). After the transaction commits, the HTTP response clears
-the individual proof cookies while retaining the unprivileged group cookie.
+Signing out all accounts (from a Pod or the Console) and confirmed RP logout
+apply across the entire browser group: in one transaction, Ankole advances
+`logout_revision`, revokes all authentications and online RP associations, and
+cancels pending `OidcState` and `AuthorizationRequest` rows (causing any
+reauthentication tied to a revoked proof to fail as well). After the transaction
+commits, the HTTP response clears the individual proof cookies while retaining
+the unprivileged group cookie.
+The logged-out screen accepts only root-relative return destinations whose parsed
+URL has the current origin and whose normalized path starts with a single slash.
+It also excludes the logged-out path to prevent redirect loops; invalid
+destinations use `/sessions/new`.
 Revision checks ensure that neither a stale RP logout confirmation nor a delayed
 response can revoke a newer browser revision or resurrect a revoked proof. RP
 confirmation commits this revocation once, so subsequent back-channel logout

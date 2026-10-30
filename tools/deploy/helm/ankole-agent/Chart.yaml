@@ -3,7 +3,7 @@ name: ankole-agent
 description: Self-hosted Ankole control plane, Agent Computer, and optional PostgreSQL
 type: application
 version: 0.1.0
-appVersion: "2.0.0-alpha.24"
+appVersion: "2.0.0-alpha.42"
 home: https://github.com/AgentBull/ankole
 sources:
   - https://github.com/AgentBull/ankole

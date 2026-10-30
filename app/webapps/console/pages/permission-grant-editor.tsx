@@ -86,7 +86,7 @@ export function PermissionGrantsSection({
     <section className="grid gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="grid gap-1">
-          <h3 className="text-lg font-semibold tracking-normal">{title}</h3>
+          <h3 className="title-section">{title}</h3>
           <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
         </div>
         <Link to={addTo} className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}>

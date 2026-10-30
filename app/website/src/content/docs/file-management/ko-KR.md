@@ -18,8 +18,8 @@ order: 31
 
 | 폴더 | 내용 |
 |---|---|
-| `inbox/` | 사용자가 채팅 등에서 Agent에게 보낸 첨부 파일 |
-| `generated/` | Agent가 생성한 이미지 |
+| `chats/<channel>/inbox/` | 해당 대화에서 사용자가 Agent에게 보낸 첨부 파일 |
+| `chats/<channel>/generated/`, `generated/` | Agent가 생성한 이미지(대화 중 생성한 이미지는 `chats/<channel>/generated/`, 채널이 없는 작업은 `generated/`) |
 | `sent/` | Agent가 응답 메시지에 첨부해 보낸 파일 |
 | `skills/` | 해당 Agent에 설치된 Skill 파일(Skill당 하위 폴더 1개) |
 | `automation/` | Automation Job 실행 스크립트 |

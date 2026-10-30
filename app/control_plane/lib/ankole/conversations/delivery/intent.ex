@@ -213,6 +213,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
     update :start_attempt do
       accept([:platform_send_started_at])
       require_attributes([:platform_send_started_at])
+      validate(attribute_equals(:recovery_status, nil))
 
       change(fn changeset, _context ->
         case check_attempt(changeset.data) do
@@ -318,6 +319,9 @@ defmodule Ankole.Conversations.Delivery.Intent do
   def check_attempt(%__MODULE__{status: :pending, platform_send_started_at: started_at})
       when not is_nil(started_at),
       do: {:error, :intent_send_in_progress}
+
+  def check_attempt(%__MODULE__{status: :failed, possible_duplicate: true}),
+    do: {:error, :intent_manual_requeue_required}
 
   def check_attempt(%__MODULE__{attempt_count: attempts, max_attempts: maximum})
       when attempts >= maximum,

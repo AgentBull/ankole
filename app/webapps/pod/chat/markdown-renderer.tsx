@@ -1,7 +1,7 @@
 import { Button, toast } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiFileTextLine } from '@remixicon/react'
 import { Link } from '@tanstack/react-router'
-import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Children, isValidElement, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -39,8 +39,8 @@ function Table({ children }: { children?: ReactNode }) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => () => clearTimeout(timer.current), [])
   return (
-    <div className="pod-chat-table">
-      <div className="pod-chat-table-tools">
+    <div className="my-3">
+      <div className="flex justify-end">
         <Button
           variant="ghost"
           size="xs"
@@ -66,14 +66,32 @@ function Table({ children }: { children?: ReactNode }) {
           {t(copied ? 'pod.chat_timeline.copied' : 'pod.chat_timeline.copy_table')}
         </Button>
       </div>
-      <div className="pod-chat-table-scroll">
-        <table ref={table}>{children}</table>
+      <div className="overflow-x-auto">
+        <table ref={table} className="w-full border-collapse">
+          {children}
+        </table>
       </div>
     </div>
   )
 }
 
+// Each block takes its direction from its own first strong character, so an Arabic or Hebrew paragraph reads
+// right to left inside an otherwise left-to-right reply.
+const directional = (Tag: 'p' | 'li' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote') =>
+  function DirectionalBlock({ node: _node, ...props }: HTMLAttributes<HTMLElement> & { node?: unknown }) {
+    return <Tag dir="auto" {...props} />
+  }
+
 const components: Components = {
+  p: directional('p'),
+  li: directional('li'),
+  h1: directional('h1'),
+  h2: directional('h2'),
+  h3: directional('h3'),
+  h4: directional('h4'),
+  h5: directional('h5'),
+  h6: directional('h6'),
+  blockquote: directional('blockquote'),
   a: ({ children, href }) => {
     if (!href) return <span>{children}</span>
     if (href.startsWith('ankole:page/')) {
@@ -95,5 +113,15 @@ const components: Components = {
   },
   img: ({ src, alt }) => (typeof src === 'string' && src ? <ZoomableImage src={src} alt={alt} /> : <span>{alt}</span>),
   pre: CodeBlock,
-  table: Table
+  table: Table,
+  th: ({ children, style }) => (
+    <th dir="auto" className="content-cell content-cell-head text-start align-top" style={style}>
+      {children}
+    </th>
+  ),
+  td: ({ children, style }) => (
+    <td dir="auto" className="content-cell text-start align-top" style={style}>
+      {children}
+    </td>
+  )
 }

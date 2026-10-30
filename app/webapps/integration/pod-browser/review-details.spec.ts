@@ -228,7 +228,9 @@ test('link labels are batched by target table and follow target edits', async ({
   }
 })
 
-test('sharing conflicts retain the draft until an explicit latest-version retry', async ({ browser }) => {
+test('granular sharing updates merge concurrent collaborator changes without losing either write', async ({
+  browser
+}) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
@@ -237,52 +239,39 @@ test('sharing conflicts retain the draft until an explicit latest-version retry'
     await page.goto(location(state.report_id))
     const saved = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
       type: 'doc',
-      title: 'Sharing conflict review'
+      title: 'Sharing concurrent review'
     })
     savedID = saved.page.id
     await page.goto(location(savedID))
     await page.getByRole('button', { name: '分享', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: '分享页面', exact: true })
-    const inherit = dialog.getByRole('checkbox')
+    await page.getByRole('button', { name: '权限设置', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '权限设置', exact: true })
+    const inherit = dialog.getByRole('switch')
     await expect(inherit).toBeChecked()
     const started = Promise.withResolvers<void>(),
       release = Promise.withResolvers<void>()
     await page.route(`**/api/v2/pod/pages/${savedID}/sharing`, async route => {
-      if (route.request().method() !== 'PUT' || route.request().postDataJSON().data.inherit_permissions) {
+      if (route.request().method() !== 'PATCH' || route.request().postDataJSON().data.inherit_permissions !== false) {
         return route.continue()
       }
       started.resolve()
       await release.promise
       await route.continue()
     })
-    await inherit.uncheck()
-    await started.promise
-    const baseline = await request<{ sharing_version: string; grants: unknown[] }>(page, `/pages/${savedID}/sharing`)
-    await request(page, `/pages/${savedID}/sharing`, 'PUT', {
-      inherit_permissions: true,
-      grants: [{ principal_uid: state.member.uid, role: 'view' }],
-      sharing_version: baseline.sharing_version
-    })
-    release.resolve()
-    await expect(dialog.getByRole('alert')).toContainText('分享设置已由其他人修改')
-    await expect(inherit).not.toBeChecked()
-    const unchanged = await request<{ inherit_permissions: boolean; grants: unknown[] }>(
-      page,
-      `/pages/${savedID}/sharing`
-    )
-    expect(unchanged.inherit_permissions).toBe(true)
-    expect(unchanged.grants).toHaveLength(1)
-    await dialog.getByRole('button', { name: '保留我的设置并读取最新版本', exact: true }).click()
-    await expect(dialog.getByRole('status')).toContainText('已读取最新版本')
-    await expect(inherit).not.toBeChecked()
-    const savedSharing = page.waitForResponse(
+    const completed = page.waitForResponse(
       response =>
-        response.request().method() === 'PUT' &&
+        response.request().method() === 'PATCH' &&
         new URL(response.url()).pathname === `/api/v2/pod/pages/${savedID}/sharing`
     )
-    await dialog.getByRole('button', { name: '保存分享设置', exact: true }).click()
-    expect((await savedSharing).status()).toBe(200)
+    await inherit.click()
+    await started.promise
+    await request(page, `/pages/${savedID}/sharing`, 'PATCH', {
+      upserts: [{ principal_uid: state.member.uid, role: 'view', target_scope: 'container' }]
+    })
+    release.resolve()
+    expect((await completed).status()).toBe(200)
     await expect(inherit).toBeEnabled()
+    await expect(inherit).not.toBeChecked()
     await expect(dialog.getByRole('alert')).toHaveCount(0)
     await page.keyboard.press('Escape')
     const confirmed = await request<{
@@ -290,10 +279,13 @@ test('sharing conflicts retain the draft until an explicit latest-version retry'
       grants: { principal_uid: string | null; role: string }[]
     }>(page, `/pages/${savedID}/sharing`)
     expect(confirmed.inherit_permissions).toBe(false)
-    // Disabling inheritance retains the actor's manage access in the domain.
-    expect(confirmed.grants.map(({ principal_uid, role }) => ({ principal_uid, role }))).toEqual([
-      { principal_uid: state.owner.uid, role: 'manage' }
-    ])
+    // Disabling inheritance retains the actor's manage access while preserving concurrent collaborator grants.
+    expect(confirmed.grants.map(({ principal_uid, role }) => ({ principal_uid, role }))).toEqual(
+      expect.arrayContaining([
+        { principal_uid: state.owner.uid, role: 'manage' },
+        { principal_uid: state.member.uid, role: 'view' }
+      ])
+    )
   } finally {
     if (savedID) await request(page, `/pages/${savedID}`, 'DELETE').catch(() => {})
     await context.close()

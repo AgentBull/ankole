@@ -99,13 +99,18 @@ defmodule Ankole.CredentialUpgrade do
           do: "SELECT id, slug FROM tenants",
           else: "SELECT '#{@legacy_tenant_id}'::uuid AS id, 'default'::text AS slug"
 
+      not_offboarded =
+        if table?(repo, "human_access_restrictions") and table?(repo, "human_access_events"),
+          do: "WHERE NOT (#{offboarded_sql("p", tenant_scoped?)})",
+          else: ""
+
       %{rows: conflicts} =
         repo.query!("""
         WITH tenant_names AS (#{tenant_names}), candidates AS (
           SELECT DISTINCT #{tenant_id} AS tenant_id, c.principal_uid, c.email
           FROM (#{Enum.join(sources, " UNION ALL ")}) c
           JOIN principals p ON p.uid = c.principal_uid
-          WHERE NOT (#{offboarded_sql("p", tenant_scoped?)})
+          #{not_offboarded}
         ), conflicts AS (
           SELECT c.* FROM candidates c WHERE c.email IS NULL OR c.email = '' OR
             (SELECT count(DISTINCT x.principal_uid) FROM candidates x

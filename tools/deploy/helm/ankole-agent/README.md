@@ -633,7 +633,7 @@ satisfy the Worker filesystem contract.
 
 Each provider's `idleReleaseAfter` setting governs when Kubernetes deletes idle
 Worker Pods while retaining persistent storage and cache volumes. Meanwhile,
-`agent_computer.worker.ready_timeout` (10 minutes by default) bounds how long a
+`agent_workers.ready_timeout_seconds` (10 minutes by default) bounds how long a
 Worker Pod may stay unready before replacement.
 
 ## Provider seed
@@ -717,7 +717,7 @@ support enabled for `runtimeFabricUrl`, and any provider configured with
   server.
 - **Running Worker never becomes Ready**: Usually the Worker cannot establish a
   WebSocket connection to the control-plane Service HTTP port. Once
-  `agent_computer.worker.ready_timeout` elapses, the control plane replaces the
+  `agent_workers.ready_timeout_seconds` elapses, the control plane replaces the
   Worker instance while keeping Agent Home on persistent storage.
 - **Control plane fails to create Workers**: Look for missing Kubernetes RBAC
   permissions in the control-plane logs, and verify the Role and RoleBinding

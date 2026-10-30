@@ -11,9 +11,10 @@ business operation runs under the signed-in Human's permissions.
 
 ## Browser interactions
 
-Use Notion as the default interaction reference for pages, sharing, trash,
-properties, and views—covering loading, empty, pending, failed, and concurrent
-editing states—while preserving Ankole's UI components, visual identity, and
+Use Notion as the default interaction reference for pages, trash,
+properties, and views—and Feishu Wiki as the reference for the two-level Page
+sharing popover—covering loading, empty, pending, failed, and concurrent
+editing states while preserving Ankole's UI components, visual identity, and
 first-version domain scope. See Notion's guides on
 [views and filters](https://www.notion.com/help/views-filters-and-sorts),
 [properties](https://www.notion.com/help/database-properties), and
@@ -27,42 +28,304 @@ Creating a Page opens a non-modal menu offering document, Base, and file
 options:
 
 - **Documents and Bases** open immediately at the chosen Space root, Private
-  root, or parent Page. Inserting a Page from inside a document creates a child
-  under that document, and Agents create and publish Applets through their
-  conversation workflow.
+  root, or parent Page. Inserting a child document from inside a document body
+  inserts an inline `<mention page="…" />` reference at the caret and opens the
+  child document once saved; inserting a child Base inserts an interactive
+  `<embed ref="…" />` block, and Agents create and publish Applets
+  through their conversation workflow.
 - **File pages** prompt for a local file first, then submit its bytes and Page
   attributes to `POST /api/v2/pod/file-pages`, which creates the Page and file
   reference in a single tree transaction (defaulting an empty title to the
   selected filename). If creation fails, the UI keeps the form entry open for
   retry.
 
-Users edit Page titles at the top of the canvas. Page titles and document bodies
-share one recoverable draft and unsaved-changes navigation guard: failed saves
-keep the user's input, and attempting to navigate away with unsaved edits lets
-the user continue editing, download the draft, or discard changes and leave.
+Users edit Page titles at the top of the canvas. Document titles and bodies form
+a continuous writing area, with synchronization status and online participants
+in the Page header.
+
+Page titles and document bodies share one recoverable draft and unsaved-changes
+navigation guard: failed saves keep the user's input, and attempting to navigate
+away with unsaved edits lets the user continue editing, download the draft, or
+discard changes and leave.
 While any dialog submission is in flight, the dialog preserves its inputs and
 blocks dismissal. Document titles auto-save after 500 ms of idle typing and on
 blur (deferring auto-save until any active IME composition finishes). Pressing
-Enter in the title moves the caret to the start of the body, and pressing Up at
-the start of the body moves it back to the end of the title. Assistive
-technology receives normal save-status announcements, save failures expose an
-explicit retry control, and the block insertion menu floats beside the body
-without adding vertical gap beneath the title.
+Enter or Tab in a document title, or pressing Down on its last visual line,
+moves the caret to the start of the body, and pressing Up at the start of the
+body moves it back to the end of the title. Assistive technology receives normal
+save-status announcements, save failures expose an explicit retry control, and
+the block controls occupy the left gutter outside sequential Tab navigation.
+The gutter remains reachable as the pointer crosses from text to the controls,
+and the caret uses the same rendered coordinates as the text.
+
+Clicking the blank canvas below the last document block, including the side
+gutters, creates and focuses a root paragraph. If the last root block is already
+an empty paragraph, the editor focuses it without adding another block or undo
+step. Other block types receive a separate paragraph. The empty paragraph at the
+caret displays the typing hint. Clicking beside an existing line positions the
+caret on that line, and dragging from the blank canvas selects blocks. Creating
+the paragraph and typing into it are separate undo steps.
+
+An empty paragraph exposes a left `+` that opens the insertion menu for that
+paragraph. Blocks with content or an assigned type expose their type icon instead;
+list items show their bullet, numbered, or task type. Clicking the type icon or
+the adjacent grip opens the same block menu without changing the document. Its
+conversion submenu marks the current type. The Add below action creates a writable
+paragraph below the target (above with Alt/Option-click) and switches the same popup
+to insertion choices, keeping its original anchor. The menu offers editor block
+types (including inline `@` mentions and file uploads) followed by child Document or Base creation and **Embed Base or app**. Dismissing
+insertion keeps the prepared paragraph ready for typing. The grip also drags the
+block, including its nested children, to a visible insertion boundary. Multiple selected blocks move
+as one group, including selections that cross list boundaries. Dragging preserves
+each block's type: a paragraph dropped between list items splits the list, while
+a list item keeps its marker. Moving right below a parent block nests the dragged
+blocks; moving left lifts the drop boundary through parent levels. Dragging near
+the scroll container's edge reveals further drop targets, and Escape cancels.
+
+Document menus use the shared UIKit alumina ceramic material: a translucent
+surface that diffuses background colours, with soft directional lighting, fine
+edges, and a restrained shadow. The dark theme balances translucency with a
+denser tint to keep labels legible. Slash, insertion, conversion, and block actions
+share a 272 px surface and 36 px rows. The block catalogue has one owner for its
+options, search, grouping, and 22 px icon slots. Only the slash state adds raised
+icon tiles with a coloured light for each block type; other states use plain 16 px
+glyphs. Single-line rows and muted group labels separate basic blocks, layouts, and additional content. Search
+fields, action menus, and the emoji picker share the surface and focus treatment.
+Menu search and link fields select the UIKit
+`overlay` input variant explicitly. Input and InputGroup own their size, focus,
+and validation appearance; placing a regular field inside a popover keeps its
+regular appearance and caller-provided sizing.
+
+Escape selects the current block. Shift+Up/Down and Shift-click extend that
+selection across paragraphs and list items without including unselected siblings.
+Dragging from page whitespace selects the blocks the rectangle intersects. Each
+parent and child has its own hit area: selecting a parent includes its children,
+while selecting a child alone leaves its parent unselected. Across columns, only
+intersecting blocks are selected; unselected blocks between them stay untouched
+when the user deletes, replaces, copies, or moves the selection. The selection keeps
+its document origin during wheel and edge scrolling, and Escape cancels the gesture. Dragging
+inside text selects characters.
+Command/Control+A selects the whole document, and Enter edits the first
+selected block at its end. Duplicate, move, delete, and block-menu commands act
+on the selected group. Command/Control+Enter toggles selected tasks together,
+using the inverse of the first selected task's state. List-type changes affect only the selected items, while
+Undo restores each structural action in one step. The editor specification in
+`libs/ankole-editor/SPEC.md` owns the remaining keyboard and block contracts.
+
+Ordinary paragraphs and headings can own child blocks. Tab creates a structural
+parent-child relationship, represented by `<block>` in Page XML: its first block
+is the parent's own content and subsequent blocks are its children. Shift+Tab
+lifts a child; following siblings become its children. Enter in a parent's text
+transfers its children to the new sibling. Duplicating, deleting, or moving a
+parent includes its descendants, and conversion between ordinary blocks and
+list items preserves that relationship. The browser and Kernel share this
+representation, so saving and reloading restores editable nested blocks.
+The first list item can also nest under the ordinary block before its list.
+Tab moves only the selected leading items, and Shift+Tab lifts them with their
+markers while making subsequent child blocks children of the last lifted item.
+Enter in an empty list child lifts that item one level with its marker.
+When a selection spans columns or separate runs, Tab moves the selected blocks
+together below the first selected block's preceding sibling. Existing children
+stay before the moved blocks. Shift+Tab lifts each run within its own parent;
+root blocks stay in place. Unselected blocks and column boundaries remain intact,
+and the selection follows blocks that acquire children during the operation.
+
+The heading catalogue covers H1 through H6, with H1 smaller than the Page title.
+Readers can fold each heading's section up to the next sibling heading of equal
+or lower level. Fold state belongs to that editor instance and never modifies
+the document. The slash menu searches translated labels and multilingual aliases,
+so Chinese and English names can select the same block in either interface.
+
+Media blocks store image and video addresses in `<media>`, and webpage cards
+use `<bookmark>`. Each block persists its display metadata and view in Page XML.
+Media blocks offer link, card, and preview views; webpage cards add a title view
+and let editors enter the title, description, and cover image. Ankole uploads
+image and video bytes through the Page's existing asset contract before storing
+`ankole:asset/<full-sha256>/<name>` in the block.
+
+Every other file belongs to its own File Page. The **File** entry in the `/` and
+`+` menus opens an upload panel at the caret; each chosen or dropped file becomes
+a File Page child of the current Document, and the document body stays unchanged.
+Pasting or dropping files into the document routes each file by type: images and
+videos become media blocks at the drop point, while other files become File Page
+children through the same path as the upload panel. The new children appear in
+the subpages directory below the body. Files upload one at a time, and a failure
+stops at that file while the children created before it remain.
+
+External embeds use `<embed href="…" title="…" />` and render an iframe,
+deriving provider URLs for Figma, YouTube, and Vimeo while preserving the original
+link. The external site controls whether its content permits framing. Internal
+live embeds use `<embed ref="…" />` (with optional `table` and `view` on Base
+embeds) for interactive non-document Pages (`base`, `file`, and `applet`):
+editors insert them either by creating a child Base or by choosing **Embed Base
+or app** from the document `+` menu, which queries `GET
+/api/v2/pod/pages/search?embeddable=true` so Document Pages never appear as
+canvas embeds.
+
+Resource forms submit only edited fields, preserving concurrent updates to the
+other fields. Replacing a source removes its old MIME type, size, and explicit
+media kind; uploads supply fresh metadata. Preview and portable export choose
+the explicit media kind first, then the MIME type, then the URL. Copying resources
+provides images or links to other applications and a title with an address in
+plain text, while internal paste preserves the full resource metadata.
+
+Authors reference existing Pages (`doc`, `base`, `file`, `applet`) and tenant
+Principals inline by typing `@` or `＠` (when not preceded by `[A-Za-z0-9_]`),
+selecting **Mention or reference** from the `/` or `+` menu, or pasting a bare
+same-origin Pod Page URL. While the author types after `@`, focus stays inside
+the document text and an alumina ceramic overlay filters **All**, **Pages**, and
+**Principals** (`GET /api/v2/pod/mentions/candidates`). `Ankole.Pod.Pages.Mentions`
+ranks Pages and Principals independently within their own domains; the **All**
+tab caps its first screen at six grouped candidates (up to three **Pages** and
+three **Principals**, backfilling from the other group when one group has fewer
+than three matches) so both categories remain visible without scrolling while
+individual category tabs list up to twenty matches. Selecting a candidate
+commits an atomic self-closing `<mention page="<uuid>" />` or
+`<mention principal="<uid>" />` leaf with zero side effects: Ankole sends no
+notifications, grants no permissions, and wakes no Agents. Readers resolve visible mention targets in microtask-coalesced batches through
+`POST /api/v2/pod/mentions/resolve`, which enforces `page_view` per Page
+(evaluating trashed Page targets in a single batched ACL graph query) and
+`Access.collaborator_scope/1` for Guest directory isolation. When a caller has
+Guest collaborator scope, `Mentions` restricts Principal search and resolution
+to collaborators who share effective `page_view` on at least one live Page
+(whether through direct or inherited ancestor grants) or contributed to the
+context Page, and omits `email` and `job_title` from both search matching and
+returned Principal records so external Guests see only display names and
+avatars for human peers. Because a Guest's visible collaborators depend on the
+context Page, the browser caches Principal resolutions by both Principal UID
+and context Page ID, and inline pills, identity cards, and clipboard text share
+that context. All authorized Page
+mention consumers—inline chips, picker labels, clipboard plain-text
+serialization, and portable Markdown or text exports—project `{ title, icon }`
+from the shared `pageMetadata` TanStack DB collection after verifying
+`access !== 'restricted'`, whereas restricted targets bypass `pageMetadata` and
+render as a non-clickable restricted label without exposing any title or icon.
+Accessible Page mentions render inline with `PageIcon`, wrap naturally across
+lines, preview location and body excerpts on hover, and open the target Page on
+click. Accessible Principal mentions render as unbreakable inline pills
+(highlighting mentions of the signed-in Principal with a subtle Berry tint) and
+open an identity card popover on click, preserving display names for disabled
+historical Principals.
+
+Markdown tables can be pasted or inserted from the slash menu or `|--` shortcut.
+Cell, row, column, and table menus expose the selected operation scope. Row and
+column handles support selection, dragging, insertion, deletion, and keyboard
+move commands. Editors can merge and split cells, toggle header rows and columns,
+set alignment and background colors, sort rows, distribute or resize columns,
+expand a table to full width, and export CSV. Sorting keeps the first header row;
+tables with row spans require splitting those spans before sorting. An already
+sorted range produces no edit, and sorting retains unchanged leading and
+trailing rows so concurrent edits there continue to merge. Moves that
+would break a merged cell are disabled.
+
+Tab at the last cell and Mod+Enter add a row and continue editing. Commands and
+completed resize gestures each form one undo step. Tables scroll independently
+with overflow hints. Complete header rows stay fixed vertically, and complete
+header columns stay fixed horizontally. Their scroll regions remain accessible
+in read-only documents. Copying one selected cell copies its content, while
+multiple cells retain a table. XML stores column pixel widths in `widths`, full
+width in `layout="full"`, and cell colors in `background`. Markdown uses GFM for
+plain tables and block tags for richer tables. The browser and Rust codecs
+preserve these values through collaborative updates and reopening.
+
+Callouts offer an editable emoji and five background tones, stored as `icon` and
+`tone` on `<callout>`.
+
+In code blocks, Tab indents each line touched by the selection with a leading
+tab. Shift+Tab removes one leading tab or up to two spaces. These commands keep
+the selected text and its direction, and each command is one undo step.
+Each code block shows a toolbar with a searchable language picker, a wrap
+toggle, and copy. Kirari tokenizes the source for highlighting, while Page XML
+keeps the language in `lang`, the info string remainder in `meta`, and wrapping
+in `wrap="true"`; the Markdown codec writes a plain fence unless wrapping or
+extra attributes require a `<pre>` tag. Formula blocks store their LaTeX source
+in a `<math>` element and render it through Temml. The editor opens a formula
+panel from the block, reports invalid formulas there, and writes each edit to
+the page immediately. Markdown uses `$$` fences for formula blocks.
+Mermaid blocks store their source in a `<mermaid>` element and render it with
+Pele. The block splits source and diagram, remembers whether to show both,
+code only, or the diagram only, and stores the diagram palette (`auto`, `light`,
+or `dark`) on the element. Markdown writes a `mermaid` fence for the default
+view; non-default view or theme values use a `<mermaid>` tag around the fence.
+
+Documents support column rows. The insert menu and slash queries such as
+`/2 columns` create two to five columns. Dropping blocks beside another block
+creates columns; dropping beside an existing column adds a sibling. A vertical
+insertion line previews the destination. Moving the last block out removes that
+column, and a row with one remaining column becomes ordinary page content.
+Users drag the divider to resize adjacent columns, press Escape to cancel a
+preview, or focus the divider and use Left/Right and undo/redo shortcuts.
+Up/Down and Shift+Up/Down follow the document's reading order across columns:
+the last line of one column leads to the first line of the next, and upward
+motion reverses that order. Wrapped lines stay within their paragraph.
+Backspace at a column's first block joins it to the preceding text block;
+Delete at a column's last block joins the next text block. These operations
+remove an emptied column, and undo restores the original layout.
+Page XML stores the layout as `<columns>` containing `<column>` elements with
+relative `width` weights. Browser and Kernel normalization preserve the same
+layout through save, reload, and undo. On screens at most 600 px wide, columns
+stack vertically in document order.
+
+Document editors can set the icon in the title line from two tabs. **Emoji**
+searches or browses categories and renders Fluent Emoji Color, including
+skin-tone and joined sequences. **Custom icon** shows the Pod's shared
+custom-picture library and uploads a square raster image (`PNG`, `JPEG`, `GIF`,
+or `WebP`, verified by magic-byte signature) up to 1 MB, resized to 128 px and
+named with a unique ASCII shortcode such as `:my_icon:` using lowercase letters,
+digits, and underscores; re-uploading identical bytes under the same shortcode
+succeeds idempotently, whereas assigning an existing shortcode to a different
+asset fails with `shortcode_taken`.
+The existing Page `icon` metadata is the durable owner: it holds either the
+emoji or a `metadata/custom-emoji/...` path. Navigation, references, and page
+pickers render that same value; the Page header path is text only. Listing the
+picker catalog requires Space view access, uploading to the library requires
+Space edit access, reading an individual `metadata/custom-emoji/...` asset
+requires an active Pod Principal so Guests and Page-scoped Agents can render
+icons on shared Pages, and saving the Page `icon` requires `page_edit`. A save
+ignores another choice while the request is pending and offers retry after a
+failure. Viewers see the saved icon without editing controls.
 
 Page detail responses and directory lists attach each caller's effective actions
-from the same permission snapshot; UI controls gate actions on those bits while
+from the same permission snapshot. A Page detail response also carries
+`ancestors`: the Pages from the root down to the parent that the caller can read,
+stopping at the nearest unreadable ancestor, read in the same transaction as the
+Page itself. The Page header path renders that list as returned; UI controls gate actions on those bits while
 displaying role names as human summaries. Move pickers list writable Page
 destinations while excluding the moving Page and its descendants, and root
 create, move, and copy options read `can_create_space` and `can_create_private`
 from the directory using the exact destination check enforced on write (loading
-those root capabilities even while the sidebar section is collapsed). Every Page
-header also provides child-page navigation—listing visible children, paging
-additional children via the directory cursor, and offering child creation when
-the Page grants `page_edit`—which lets collaborators navigate shared subtrees
-whose parent Page is hidden from them. Both the Page header and sidebar invoke
+those root capabilities even while the sidebar section is collapsed). Base,
+file, and Applet Pages provide child-page navigation in their header—listing
+visible children, paging additional children via the directory cursor, and
+offering child creation when the Page grants `page_edit`—which lets
+collaborators navigate shared subtrees whose parent Page is hidden from them.
+Document Pages instead append a collapsible subpages directory below the
+document body whenever the caller can view at least one live direct child
+(`child_count > 0`), and render nothing when zero live children are visible.
+When a Document Page has visible children, its editor drops its standalone canvas
+minimum height so an empty parent keeps a single-line body placeholder for
+editors while read-only viewers hide the empty body and top divider entirely.
+When collapsed, the subpages directory shows a dimmed single-line toggle bar
+with a visible-child count badge and defers child-list requests until expanded.
+When expanded, the heading omits the count badge and offers List and Grid views, a field-visibility and
+column-order popover (`Creator`, `Modified`, and `Created` alongside the locked
+`Name` column), three-state column sorting (`asc`, `desc`, and tree sibling
+order), inline multi-file uploads that remain on the parent document, and child
+Document or Base creation. `Page.children_view` (`collapsed`, `view`,
+`field_order`, `visible_fields`) persists these presentation settings on the
+Page: editors save changes through `PATCH /api/v2/pod/pages/:id` without
+advancing `updated_at` or recording a content contributor edit, whereas
+read-only viewers adjust presentation locally in session memory. Both the Page
+header and sidebar invoke
 the same Trash action: trashing a Page discards its local draft, navigates to
 its visible parent or content root, and offers Undo, while Trash search matches
-both titles and document bodies before applying the server result limit.
+both titles and document bodies before applying the server result limit. Trash
+rows open the standard Page detail view. A top-level deleted Page remains
+readable with its document, Base, and file content, but the UI and API reject
+edits and personal-state writes; descendants of a deleted ancestor stay hidden.
+Managers can restore the Page or confirm permanent deletion from either the
+list or the detail notice. Permanent deletion starts the same bounded purge job
+as retention expiry and returns the manager to Trash.
 
 ### Pod URLs, dialogs, search, and motion
 
@@ -99,10 +362,31 @@ touch layouts expand hit targets. Mobile sidebar section links have a minimum
 height of 40 px across the full link target.
 
 The Pod shell layers a rounded paper sheet (`main`) above the ground-level
-sidebar (`Home` and `Chat` segmented tabs at top-left, paired with search,
+sidebar (`Home` and `Chat` tabs at top-left, paired with search,
 quick-create, and sidebar-collapse icon buttons at top-right; when the desktop
 sidebar collapses, the expand trigger flows into the 44 px sheet header without
-shifting content vertically). In `Home`, `Recently visited` interleaves visited
+shifting content vertically). On a Page, that header starts with the Page path
+in text only: every path begins at `Pages`, which links to all Pages, then names
+the direct parent and ends with the open Page in full ink beside its favorite
+star. Any ancestors between `Pages` and the direct parent fold into a menu. On a
+phone, `Pages` gives way to the title and every ancestor folds into that menu.
+The path is the Page read's `ancestors`, so an unreadable parent starts the path
+below it. A hairline under the header
+separates it from the scrolling content. The header's actions follow the path:
+`Page chat` and `Comments` are toggles that stay pressed while their panel is
+open, with `Comments` showing the unread count, and `Share` is the one bordered
+button (displaying a scope icon on live Pages and opening a two-level sharing
+popover across overview, multi-select invite, collaborator management, and
+permission settings subviews; viewers without `page_manage` open a read-only
+collaborator overview with link copy, while trashed Pages render a standalone
+Copy link icon button). When the header runs short, action labels give way before the title
+does. On desktop, an open chat or comments panel is a second paper sheet beside
+the Page, with the same radius, edge, and clearance. Each sheet keeps the
+shell's 6 px clearance, so the two sheets sit 12 px apart. The panel's 44 px
+header carries no hairline, and its title starts on the same 18 px edge as the
+Page path. Selects in either header are borderless text with a chevron. The
+chat composer docks at the bottom of the panel before the first message as
+well as after it. In `Home`, `Recently visited` interleaves visited
 Pages (ordered by `page_user_states.visited_at`) with recent Conversations
 (ordered by `lastActivityAt`) both inline in the sidebar and in `/content/recent`;
 opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
@@ -111,11 +395,55 @@ the user's navigation context stays stable. `Favorites` renders inline above the
 account switcher, `Trash`, and `Pod settings` sit in the sidebar footer.
 The Pod and Console share sidebar controls. Command/Control+B toggles the
 sidebar while leaving shortcuts inside editable controls to those controls.
-Ordinary Pod controls use paper styling rather than state colors to mark the
-active view, and high-frequency menus and keyboard shortcuts respond without
-artificial delay. On mobile, closing a Chat panel keeps its content mounted
-through the exit transition; when `prefers-reduced-motion` is enabled, panels
-swap movement for a short fade and Chat scrolling disables smooth animation.
+On desktop, the Pod sidebar starts at its 248 px minimum width and its edge
+separator widens it up to 480 px. Dragging updates the layout immediately and
+stores the final width in origin-scoped `localStorage`; Left and Right adjust a
+focused separator by 16 px, while Home and End select the minimum and maximum.
+Every Pod on the same origin restores that device preference. When the desktop
+sidebar is collapsed, hovering the left screen edge opens it as a temporary
+ceramic overlay without changing the collapse preference or moving the page.
+Leaving the overlay closes it, while `Show sidebar` expands it persistently.
+The open sidebar tab shows its icon and label; the other tab shows only its
+icon and names itself in a tooltip. The open tab and the current row in the Pod
+and Console sidebars share one mark: an ink wash one step denser than the hover
+wash, with ink text at the same weight. Only the Sidebar row the user followed
+marks the open Page, so a Page listed under both Recently visited and a tree
+highlights once; a Page opened without a Sidebar row marks its Space or Private
+row instead. The browser history entry records the followed section, so reloads
+and Back/Forward restore the same mark. A link opened in a new tab uses its tree
+row. The section determines both the visible wash and `aria-current`; URL
+matching alone cannot distinguish repeated links. Document row and section
+actions fade in over 140 ms under a fine pointer. Leaving the row hides them
+immediately; keyboard focus and an open menu keep them visible immediately.
+Touch and mobile sidebars show these actions persistently. Chat status and menu
+icons exchange places immediately. When the system forces its own colors, the
+current row takes an outline instead of the wash.
+
+Pointer clicks rotate the Recently visited, Favorites, Space, and Private
+chevrons over 140 ms. Nested tree changes, keyboard activation, preference
+restoration, and drop-driven expansion are immediate. Reduced motion replaces
+the root chevron's rotation with a short opacity recovery on pointer release.
+
+On desktop, pointer activation brings Comments, Page chat, and the conversation
+summary into view with an 8 px translation and opacity over 200 ms. Closing
+immediately returns focus and makes the departing panel inert while its visual
+exit completes. Reopening reverses that transition in place. Keyboard actions,
+URL restoration, automatic opening, and switching between Comments and Page
+chat are immediate. A close while a popup is still mounted also unmounts the
+panel immediately, so its portals leave with it. Navigation, lost access, and
+trashing a Page remove the corresponding panel without an exit delay. Async
+conversation completion and revocation callbacks consult the logical open
+state before navigating; a visually departing Page chat cannot reopen itself.
+
+On mobile, closing a Chat sheet keeps its content mounted through the sheet's
+exit transition. With `prefers-reduced-motion`, desktop panels use a 140 ms fade
+without translation, root chevrons change direction immediately, and Chat
+scrolling disables smooth animation. Keyboard and programmatic paths stay
+immediate under either preference.
+
+Chat timestamps appear immediately when a message is hovered or contains focus.
+Turn-rail markers resize immediately as the pointer or keyboard focus moves
+between turns, so browsing a long conversation never waits for visual feedback.
 
 ### Standalone Chats, Base cells, and file/Applet states
 
@@ -192,15 +520,16 @@ Page had no siblings, `undo` carries only the parent and Private owner).
 
 ### Permissions and ACL anchors
 
-`Ankole.Pod.Access` layers Pod permissions on Principal and AuthZ using a 4-bit
+`Ankole.Pod.Access` layers Pod permissions on Principal and AuthZ using a 5-bit
 action mask: `page_view = 1`, `page_write_records = 2`, `page_edit = 4`, and
-`page_manage = 8`. Named roles bundle all lower bits:
+`page_manage = 8`, plus `page_comment = 16`. Named roles bundle these actions:
 
 - **`view` (`1`)**: Read the Page and its records.
-- **`contribute` (`3`)**: Edit Base records and upload record attachments.
-- **`edit` (`7`)**: Edit documents, Page metadata, Base schemas, and Applet
+- **`contribute` (`19`)**: Comment on documents, edit Base records, and upload
+  record attachments.
+- **`edit` (`23`)**: Edit documents, Page metadata, Base schemas, and Applet
   source, and create Space-root Pages.
-- **`manage` (`15`)**: Manage sharing, delete Base tables, move Pages across
+- **`manage` (`31`)**: Manage sharing, delete Base tables, move Pages across
   permission boundaries, and manage Trash.
 
 Page grants live in `permission_grants`, but the general Console grant API
@@ -263,6 +592,105 @@ covering indexes that include `private_owner_uid`. Page timestamps use
 `timestamptz`) so native Ash filters match the partial index predicate for live
 Pages.
 
+Each directory entry includes `has_children`, indicating whether the caller can
+view at least one live direct child, while Page detail responses and Phoenix
+channel `tree_changed` parent summaries also include `child_count` for the
+caller's visible live direct children. The directory query calculates existence
+with the same authorization filter as the returned entries, and passing
+`details=true` to `GET /api/v2/pod/pages/children` enriches the returned batch
+with creator display names, timestamps, plain-text document excerpts, and
+primary file descriptors while keeping default sidebar navigation on its
+index-only scan. Hidden descendants
+and deleted children do not make a Page expandable. The sidebar renders an
+expand button for branches and an equally wide spacer for leaves; users with
+edit permission can create a child through the row's add button in either case.
+When the directory identifies a leaf, the browser closes it without fetching a
+child list. Branch choices stay in the current browser document. On reload,
+`pages.navigation` returns Space and Private roots, the visible active Page path,
+and the first child-list page for each ancestor in one response. These reads share
+one evaluated authorization context per subject, including the interactive Human
+when an Agent acts on their behalf. The browser expands only that path; section
+folding preferences remain scoped to the Pod and authentication. A path node beyond
+the first 200 siblings appears alongside the loaded directory rows, with duplicates
+removed as pagination reaches it. Dragging can target these path nodes; step-up and
+step-down commands require the node to be among the continuously loaded siblings.
+Shared Pages whose ancestors are hidden or whose
+Private root belongs to another person remain accessible through Shared and search.
+
+Pod routes show loading feedback while their data or component is pending and
+render the destination as soon as both are ready. Loading feedback has no minimum
+visible duration. A Page route renders cached details immediately while TanStack
+Query revalidates stale data in the background. A cold route waits for its first
+read alongside the component download.
+
+The shared shell loads an emoji search dataset only when a picker opens,
+selecting the current locale and using English for other locales.
+
+Remote search inputs update their text immediately and wait for 180 ms of quiet
+before changing the query. Command search, Page pickers, mention and participant
+search, and Base reference pickers share this behavior. While the text differs
+from the submitted query, pickers hide remote results for the previous text so
+users cannot select a stale match. Locally available commands and Agents filter
+immediately. TanStack Query continues to own request cancellation and cached
+results.
+
+Each paginated TanStack Query owns its directory data in memory. The bootstrap
+fills directories that have no cached data and keeps only the active path in its
+own query. Revalidating the path preserves loaded directory pages and cursors.
+Creation controls subscribe to an enabled directory query whenever they need
+the caller's root capabilities. The default creation menu and Recent select
+those capabilities from the Space root query; favorites, Shared, and search
+also load that directory. These consumers share its cache and in-flight request,
+and fetch independently of sidebar bootstrap success. Access changes invalidate
+the same query so active consumers reread the caller's permissions.
+Lists expose a retry when this read fails and prevent creation from cached
+permissions until the query succeeds.
+
+The browser shares Page titles and icons through one in-memory TanStack DB
+collection per QueryClient, authentication, and Pod. Successful directory, list,
+search, Page-detail, and mention reads populate this collection; confirmed edits
+and authorized content events update it by Page ID. Row components subscribe to
+their Page, while paths and pickers subscribe to their displayed IDs. Query
+snapshots continue to own membership, pagination, permissions, and freshness.
+An in-flight read cannot overwrite a metadata edit confirmed after that read
+started. A later read can refresh that Page normally. The collection lasts for
+the browser session and does not persist data or queue offline writes. Signals
+continue to own editable document drafts, including pending title changes.
+
+After a successful create, move, delete, or restore, the browser applies the
+committed change to cached directories and continues the user action while
+mounted queries refresh in the background. The browser immediately removes a
+restored Page from each cached Trash filter. When a Page is renamed, the browser
+updates the shared metadata and refreshes search membership, Page details, history,
+and insights while preserving unrelated comments and Base table queries.
+Conversation list events invalidate the shared recent-query prefix used by
+Home and the sidebar.
+Page, directory, Agent, conversation, teammate-search, and Base snapshot queries
+pass their abort signal to the HTTP client so cancellation also stops the
+associated request.
+When the content subscription becomes ready or reconnects, the browser invalidates
+content queries through TanStack Query. Initial reads continue, and observed cached
+queries revalidate according to their normal lifecycle.
+Hovering or focusing an expansion control for 100 ms prefetches its child list.
+Pod links use TanStack Router's intent preloading after 250 ms: the router loads
+the destination component and runs its loader together. Page loaders prefetch
+details through TanStack Query, which owns freshness and deduplicates the read
+when the user follows the link. A cold expansion rotates the arrow immediately
+and shows an inline spinner after 250 ms, keeping the row height stable. Cached
+children remain visible during background validation. Opening Home uses the
+existing cache, and the Space settings dialog loads its details when opened.
+
+The sidebar retains Home inside a React Activity boundary. While Chat is selected,
+React preserves Home's local branch choices and DOM but releases its query and
+effect subscriptions. Home rereads stored section preferences when its effects
+resume, including choices made in another tab while Home was hidden.
+`ContentProvider` keeps receiving content events and invalidating the cache;
+visible consumers refresh immediately, and Home refreshes its stale queries
+when selected. The navigation model separates root preferences
+from each row's computed expansion state, so toggling a branch updates that row
+and its children. Persistent navigation components select the pathname and
+navigation state they use instead of subscribing to every URL change.
+
 Search and directory lists enforce access before applying result caps:
 
 - **Full-text search**: Matches titles and plain-text bodies across visible
@@ -281,7 +709,11 @@ Search and directory lists enforce access before applying result caps:
   as tie-breaker. Trash lists scan top-level deleted Pages in deletion-time
   order in batches before the 200-row cap; during that check, each candidate
   ignores its own deletion tombstone while still hiding Pages under a deleted
-  ancestor.
+  ancestor. The list response contains the authorized Page rows; the browser
+  reads creation permissions and the current Principal from the root-directory
+  cache. Favorites, recents, and Shared reuse their reachable-anchor result when
+  Ash filters and projects the returned rows, evaluating each subject once in the
+  read transaction.
 
 Every Agent write locks and verifies the active `RunRef` or Job attempt inside
 the same PostgreSQL transaction that commits the Pod change, using the authority
@@ -318,18 +750,55 @@ Within the domain:
   `pages.search` Agent tools with explicit tenant binding on every SQL branch.
 - `Ankole.Pod.Pages.Sharing` manages collaborator pickers, Space access policy
   (where the unconditional `all_humans` rule sets the Space default role while
-  conditional rules keep their own scope), and `pages.sharing` /
-  `pages.set_sharing` (enforcing `page_manage` and optimistic sharing-version
-  checks identically for browsers and Agents in one transaction). Base Pages
-  offer `view`, `contribute`, `edit`, and `manage` roles; non-Base Pages offer
-  `view`, `edit`, and `manage` (rejecting `self`-scoped `contribute` grants
-  while allowing `container` grants to confer record-write access on child
-  Bases). Adding, editing, or revoking a collaborator saves immediately:
-  conditional grants, Usersets, and custom bitmasks render as read-only rows
-  with a revoke button, untouched rows keep their exact bitmasks, role edits
-  expand to full role bitmasks, and payloads supplying both a role and an action
-  set must match. AuthZ persists the underlying `permission_grants` rows and
-  triggers anchor maintenance.
+  conditional rules keep their own scope), and Page sharing reads and writes.
+  `GET /api/v2/pod/pages/:id/sharing` (`Sharing.sharing/2`, also backing
+  `pages.sharing`) authorizes callers who hold `page_view` or `page_manage` on a
+  live Page, returning `can_manage`, `scope_kind` (`space` or `private`),
+  `space_name`, `space_role`, inherited collaborator provenance (`space_admin`,
+  `space_default`, `space_agent`, `private_owner`, and `ancestor`), and local
+  `grants`. Each local grant carries an authoritative `rule_kind` (`role` for
+  unconditional Principal or group grants matching a canonical action bundle in
+  `Ankole.Pod.Access`, or `advanced` for Usersets, CEL conditions, and custom
+  action subsets). When a caller lacks `page_manage`, `Sharing` omits
+  collaborator picker `subjects`, omits disabled Principals, inactive Private
+  Guest grants, conditional CEL expressions, Userset definitions, and grants
+  without `page_view`, and returns active unconditional Principal and group
+  grants that confer `page_view` (including both canonical `role` grants and
+  `advanced` action subsets). For callers with Guest collaborator scope,
+  `Collaborators` and `Sharing` restrict visible peers to collaborators who
+  share effective `page_view` on at least one live Page or contributed to the
+  Page and set `subtitle` to `nil` so external Guests see only display names and
+  avatars; Guest grants carried on Pages inside a Private subtree include
+  `inactive_in_private: true` because Guests hold zero effective access in
+  Private space. Both `PATCH /api/v2/pod/pages/:id/sharing`
+  (`Sharing.update_sharing/4`) and `PUT /api/v2/pod/pages/:id/sharing`
+  (`Sharing.set_sharing/4`, also backing `pages.set_sharing`) enforce the same
+  collaborator, peer-visibility, and scope validation contract under the tenant
+  Pod tree lock—rejecting new or escalated Guest grants on Private subtrees with
+  `guest_forbidden_in_private` (`422`), restricting Guest managers to visible
+  shared-Page peers, and ensuring that the acting manager (and any interactive
+  Human Principal on an Agent session) holds `page_manage` when
+  `inherit_permissions` is `false` by adding a container `manage` grant only if
+  that Principal lacks `page_manage`. `PATCH` applies atomic granular mutations
+  (`inherit_permissions`, `upserts`, and `removes`), replacing any unconditional
+  grant at the opposite `target_scope` for an upserted owner while merging
+  concurrent non-conflicting updates and preserving untouched custom action
+  bitmasks, whereas `PUT` diffs the submitted grant set against existing rows
+  when `expected_sharing_version` matches so unchanged rows stay in place and
+  managers can preserve or narrow historical grants for disabled Principals,
+  legacy Guests when external guest access is turned off, or inactive Private
+  Guests without escalating them. Documents and Base Pages offer `view`,
+  `contribute`, `edit`, and `manage` roles (labeling `contribute` as comment
+  access on Documents and record submission on Bases), while Files and Applets
+  offer `view`, `edit`, and `manage`; `container` grants can confer comment and
+  record-write access on descendant Pages, and `Sharing` rejects `self`-scoped
+  rules granting only `page_write_records` on Documents or granting
+  `page_write_records` or `page_comment` without `page_edit` or `page_manage` on
+  Files and Applets. Conditional grants, Usersets, and custom bitmasks appear as
+  read-only advanced rules in permission settings with explicit removal, role
+  edits expand to full role bitmasks, payloads supplying both a role and an
+  action set must match, and `AuthZ` persists the underlying `permission_grants`
+  rows and triggers anchor maintenance.
 
 Read isolation matches each operation's locking needs:
 
@@ -358,6 +827,68 @@ interrupted job can safely resume.
 
 ## Documents and collaboration
 
+### Document tools
+
+The document menu offers **Insights**, **Show editing stats**, **Export →
+Markdown**, and **Copy → Markdown / Plain text**. Export and copy read the
+current editor draft, including edits awaiting OT acknowledgement. Markdown
+includes the title and icon when present; plain text contains only the body.
+Both projections use the canonical document tree. The portable Markdown
+projection flattens layout containers, renders callouts as blockquotes, and
+renders accessible Page references and `<mention page="…" />` nodes as readable
+titles and links while redacting restricted targets to plain text and rendering
+`<mention principal="…" />` nodes as `@Name` (plain-text copy outputs Page
+mention titles without trailing URLs). Media images become
+Markdown images; videos, attachments, webpage cards, and external embeds become
+readable links. Plain-text tables use
+tabs between cells and newlines between rows. Copy uses the reader's Page and
+file links without the author's browser authentication reference.
+
+Export downloads a `.md` file when the document has no local attachments.
+Documents with uploaded media or attachments, referenced File Pages, or a custom icon download
+as a ZIP containing Markdown and the actual files at relative paths. Ankole
+reads each file through its owning authenticated endpoint before producing the
+archive; a failed file read leaves an error instead of a partial download.
+Referenced documents, Bases, and Applets remain links to their independent
+Pages, and remote image URLs remain remote URLs.
+
+The desktop statistics footer stays visible while enabled, including during
+typing. Unicode word segmentation counts word-like segments, including Chinese
+and Japanese text without spaces. UTF-16 code units count as characters,
+nonempty text lines count as paragraphs, and estimated reading time rounds up
+at 200 segmented words per minute.
+Selecting text in the document replaces the whole-body totals with selected
+word and character counts. The browser remembers footer visibility per Pod and
+Principal. Command/Control+Shift+G toggles the footer, and Command/Control+Shift+I
+opens Insights.
+
+`Ankole.Pod.Documents.Insights` shows creation and update times, contributors,
+recent readers, and daily activity for the last 30 UTC dates. `PageContent` owns
+the durable contributor set and records body and title/icon edits inside the
+Page write transaction. No-op edits and comment annotation changes do not add
+contributors or editing sessions. OT replay pruning leaves attribution and
+activity intact. Author profiles are loaded in one batch for each result page.
+
+Readers need `page_view` to inspect Insights and set their own `hide_visits`
+preference for that document. Only `page_edit` callers can list readers. The
+list is paginated by most recent visit and excludes Principals who hide their
+visits; hiding a name does not subtract anonymous activity counts. The browser
+records a visit when the actual Page route opens, separately from prefetches,
+reference resolution, and API content reads. `PageUserState.visited_at` stores
+the latest visit and `edited_at` stores the latest meaningful edit for that
+Principal. A gap of at least five minutes starts a new viewing or editing
+session. A title or icon edit joins the same editing session as body changes.
+
+`PageDailyActivity` stores viewing sessions, editing sessions, and new comments
+(including replies) per Page and UTC date. The owning operation increments its
+counter inside the same Page transaction. Edits to an existing comment and
+resolution changes do not count as new comments. Data accumulates from when
+recording is enabled; the interface explains the counting rules and exposes a
+daily table alongside the chart. Page purge removes both these counters and
+reader states.
+
+### Persistence
+
 `Ankole.Pod.Documents` manages document revisions and collaborative writes,
 while Ash resources persist `Page`, `PageContent`, `PageChange`, and
 `PageUserState` rows inside the caller's transaction:
@@ -368,6 +899,193 @@ while Ash resources persist `Page`, `PageContent`, `PageChange`, and
 - Favorite and visit upserts modify only the columns supplied by the caller.
 - The enclosing aggregate transaction holds the tree lock (when applicable) and
   AuthZ proof.
+
+### Live editing
+
+Each browser keeps its confirmed document, one submitted batch, and subsequent
+local edits. The control plane assigns revisions under the Page row lock and
+deduplicates retried batches by client ID and sequence. A stale submission receives
+the missing changes so the client can transform and resubmit it. The client marks
+received transactions as remote and includes structural corrections in its pending
+changes. Lists and table operations preserve the identity of retained text so a
+concurrent edit follows its cell or paragraph. Undo changes the author's own work
+while preserving received edits.
+
+Agents use the same authorized document commit owner through the Pod tool RPC.
+Whole-document writes and appends require the revision that the Agent read. On a
+revision conflict, the Agent reads the current document before submitting revised
+work. The server publishes an accepted write as an incremental ChangeSet for open
+editors, which transform pending Human edits over it.
+
+Document participants and selections are ephemeral Phoenix Presence data. The
+server derives participant identity from the authenticated Principal and checks
+Page access before delivering updates. The browser maps selections through its
+pending edits and hides selections from an incompatible revision. The participant
+strip distinguishes viewers and editors. The Page header's participant picker
+shows connection and save status, keeping both visible while the document
+scrolls. In a narrow header, a status icon and participant count replace
+the text and avatar strip; the participant popover shows the full status and
+member list. `PodRealtime` owns connection status and reports it from the channel
+lifecycle. A failed synchronization request displays a retryable error while
+the channel continues to report its actual connection
+status. Reconnecting clients request missing revisions.
+When the replay window is unavailable, the browser retains an unconfirmed draft
+for export and reads the current document.
+The browser uses the same recovery flow when one author replaces a complete
+container, such as reordered table rows, while another edits its contents.
+Positional OT cannot identify the edited content inside that replacement, so
+the browser keeps the unconfirmed draft for manual reconciliation and opens
+the committed document.
+
+When the server rejects an editing batch, the browser terminates that editing
+session and closes its channel. It keeps the local draft available for export
+and offers a fresh document read. A reader who loses editing permission can
+reopen the current document with viewing permission; losing all Page access
+removes the editor. The retry action is available only for request failures in
+an active editing session.
+
+The browser stores unconfirmed content and title drafts in tab-local
+`sessionStorage`, scoped to the Pod, Principal, and Page. On a browser reload,
+the editor opens the server document and offers retained content drafts for
+export and manual reconciliation. A restored title keeps its original base and
+requires review when the server title differs. Confirmed content and explicitly
+discarded drafts are removed from browser storage. If storage is unavailable,
+the browser asks the author to export the draft before reloading or closing the
+tab. This recovery copy never commits a document by itself.
+
+Human and Agent title edits must carry the title the author began editing as
+`expected_title`. `Ankole.Pod.Pages` compares it with the current title under the
+Page row lock and returns `title_conflict` with the current title when the base
+is missing, null, or different. The browser retains the
+draft and lets its author choose the current title or explicitly submit the draft
+against the reviewed title. Background refreshes never advance an unsaved draft's
+base. Updates to other metadata need no title base. Body revision checks remain
+independent of title changes.
+
+### Version history
+
+`Ankole.Pod.Documents.History` owns immutable `PageSnapshot` checkpoints.
+Readers need `page_edit` to list, preview, export, or restore them: sharing the
+current document with a viewer or contributor does not expose deleted historical
+content. Each snapshot stores canonical body XML without comment marks, title,
+icon, author, document revision, and timestamps. History exposes checkpoints from
+the last 30 days and keeps at most 200 per Page, including checkpoints made before
+and after a restore. Every append trims the Page's excess snapshots in the same
+transaction. An hourly job removes expired snapshots from idle Pages in bounded
+batches. Snapshots use the Page's existing attachment retention.
+
+Creating a document establishes its first checkpoint. Before a meaningful body,
+title, or icon edit, the owning Page transaction records the current confirmed
+state if the last checkpoint is at least five minutes old. Identical states and
+comment-only OT batches do not add checkpoints. The history viewer presents the
+current document separately from saved checkpoints. No timer or background job
+is needed to make this decision. Ordinary checkpoints show the content's last
+modification time; restore entries show the restore operation time. The preview
+also identifies when the snapshot was saved. Readers can compare a selected
+version with the current document using Markdown additions and deletions,
+including title and icon changes. The comparison renders from the two saved
+contents independently of reference-name requests. Historical references show readable names and
+open the referenced Page's current content. Exporting a version uses the same
+attachment bundling contract as exporting the current document.
+
+Restoring a checkpoint requires both the current content revision and Page
+update timestamp, serialized as an ISO 8601 date-time string. The browser fetches
+both values together when opening the restore confirmation. The server rejects
+a stale restore so the caller can inspect concurrent content or metadata changes.
+In one Page transaction, it saves a
+checkpoint before restoring, computes the current-to-target ChangeSet, commits
+that ChangeSet as a new revision, and saves the restored checkpoint. Revision
+numbers always advance. The operation restores body, title, and icon; it does
+not restore sharing, tree location, discussions, or their resolution status.
+Current comment marks survive only where the diff preserves a complete marked
+fragment as a contiguous range. Old snapshots cannot resurrect deleted anchors.
+Other editors keep using the normal
+OT protocol, including rebasing edits that were awaiting acknowledgement.
+
+### Comments and anchored discussions
+
+`Ankole.Pod.Comments` owns Page-scoped root threads and one level of replies.
+`page_view` permits reading, while `page_comment` permits posting. Authors can
+edit or delete their own comments; `page_manage` can manage other authors'
+comments. The root author or a caller with `page_edit` can resolve, reopen, or
+explicitly relocate a thread. Deleting a root with replies preserves a tombstone
+and the remaining discussion. Posting a reply does not resolve or reopen it.
+Every author is an existing Principal represented by `ActorRef`, including
+Human and Agent authors; comments do not introduce an Agent execution path.
+Asking an Agent about selected text goes through Page Chat (see
+[Conversations](Conversations.md)), which carries the selection as a quoted
+Page reference. Selecting text from a Page already referenced in the chat draft
+adds the quote to that reference. Mentioning the same Page again preserves the
+quote; choosing a new selection replaces the draft's previous quote.
+
+A root may refer to the whole Page or to selected text. Inline
+`<comment ids="…">` marks carry a set of root thread UUIDs through canonical XML
+and OT. The set preserves overlapping discussions during concurrent annotation.
+The server emits mark additions and removals for annotation changes, preserving
+the underlying text identity, active selections, and concurrent text edits.
+Text in ordinary blocks and code blocks can carry the same mark. The comment
+record also retains its original quoted text and anchor revision. The server
+computes the quote from the confirmed document, checks the caller's `base_revision`, and
+commits the new thread and annotation in one Page transaction. It rejects marks
+that refer to a missing thread or a thread on another Page.
+
+The browser captures a selection from the actual editor tree and maps its
+retained source tokens through local and remote OT transactions. Edits elsewhere
+in the document do not invalidate the pending comment. Before creating or
+relocating an anchor, the browser waits until the collaboration session has no
+pending body changes, the local XML matches the confirmed XML, and no document
+conflict requires recovery. It uses that confirmed body's revision for the
+request. An unsaved title or a retained recovery draft does not block a confirmed
+body's anchor; both still require attention before leaving the Page. An in-flight
+body batch also protects navigation, even if later edits restore the confirmed
+XML. If an edit deletes or replaces any of the
+selected source text, the browser keeps the draft and asks for a new selection;
+identical replacement text is not evidence that the source survived. Insertions
+within a surviving selection update its displayed quote. Authors can continue
+writing the comment while the document saves or the selection needs replacing;
+submission becomes available when the selection is valid and saved. Native block
+moves and one-time cut/paste within the same editor carry comment marks. Copying
+or duplicating content, pasting it into another editor, and Markdown export omit
+those marks so another document cannot inherit the thread. If all annotated text
+is deleted, the thread remains readable with its saved quote and an explicit
+missing-text state. Relocation requires a new selection; the system does not
+guess a matching passage.
+
+Comment text uses Markdown. Mutation versions protect edits and resolution
+changes from stale writes. An edit draft keeps the version the author began
+editing; an incoming update requires the author to review the latest comment
+before continuing. The browser keeps unfinished drafts per Pod, Principal,
+Page, and thread. A successful request consumes only its submitted text and
+selection. The editor handle subscription refreshes the pending selection directly
+from its native state field. Page notifications and reconnect reads refresh the Query cache.
+Comment annotations advance the OT revision without changing document edit
+attribution or creating a history checkpoint. Resolution state belongs to the
+thread rather than the document mark. Resolved threads keep their anchors but
+do not show a passive highlight or intercept normal document clicks. Clicking
+overlapping open anchors shows the discussions at that location. On mobile,
+following a quote closes the comment sheet and selects its text; a return action
+reopens the discussion. Relocating a missing quote similarly returns the reader
+to the document to select replacement text. The open discussion list refreshes
+when its document revision falls behind, so deleting quoted text updates its
+missing-text state.
+
+Root threads record their latest activity time and actor. Activity updates do
+not advance the root's mutation version, so replies leave an in-progress root
+edit valid. Editing, resolving, relocating, or deleting the root still advances
+its version. Threads are paginated by latest activity, so a new reply in an old
+thread appears at the top. `PageUserState.comments_read_at` stores each
+Principal's acknowledgment. The document header and comments panel show threads
+whose latest activity came from another Principal after that acknowledgment,
+provide an unread filter, and expose an explicit
+mark-all-read action. That action acknowledges only the activity watermark the
+reader received as an ISO 8601 date-time string; later activity stays unread.
+Each discussion has a copyable `commentId` Page link that opens and locates the
+thread, including a resolved
+thread or one beyond the first page of results. Known thread IDs use a direct
+thread read; the browser does not walk list cursors to locate them. The summary
+uses database aggregates for counts and returns resolution state only for native
+anchors in the current document. Each listed thread carries its own unread
+state. Acknowledging activity notifies only connections for the same Principal.
 
 `page_contents` stores canonical page-tree XML together with derived plain text.
 The Rust kernel enforces the exact same XML vocabulary and normalization rules
@@ -382,7 +1100,8 @@ a bound preserves the local draft and prompts for explicit reset or reload.
 
 ### Agent document reads and writes
 
-Agents read a document's Markdown and revision via `ankole-pod pages.read`,
+Agents read a document's Markdown, revision, and resolved `references` metadata
+for any `<mention />` targets visible to the caller via `ankole-pod pages.read`,
 which holds a shared page lock across the content read (and across any revision
 replay up to the revision captured under that lock).
 
@@ -396,7 +1115,11 @@ XML validation error or committing the parsed document. Under that page lock,
 the Rust kernel computes a minimal ChangeSet—aligning unchanged blocks first,
 then diffing changed child nodes and UTF-16 text spans with Myers diff without
 ever splitting surrogate pairs—and verifies that applying the ChangeSet
-reproduces the target document. If the content changed, the transaction writes a
+reproduces the target document. Paragraph and heading conversions, heading-level
+changes, data-cell and header-cell conversions, and bullet-list and ordered-list
+conversions replace only the opening token while diffing their content in place.
+This keeps pending human text inside the converted block and preserves comment
+anchors on retained content. If the content changed, the transaction writes a
 `PageChange` row with `client_id = "server:" <> principal_uid` and
 `client_seq = new_revision` (browsers cannot claim the reserved `server:`
 prefix); no-op writes leave the current revision unchanged.
@@ -412,11 +1135,21 @@ returning a revision conflict on any concurrent commit.
 
 Each browser tab opens one authenticated Phoenix socket at `/pod/socket` with
 32 MiB frame and fragmented-message limits so maximum-size Unicode documents fit
-on the wire. Joining the `content` topic subscribes the tab to tenant
-content-access notifications to refresh active directory queries—rechecking
-admission and refreshing on join, reconnect, and periodic access checks
-(retrying on transient token-service errors and ending the subscription on
-access denial). Changes to ancestor or Space policies refresh effective action
+on the wire. The browser starts HTTP reads and the `content` subscription in
+parallel, so the page and directory render while the socket connects. A successful
+join reconciles cached content in the background, replacing reads that started
+before subscription with fresh reads. Authorized `tree_changed` events refresh
+affected child lists and update their parents' `has_children` flags;
+`page_updated` events patch titles and icons in the shared metadata collection.
+Reconnecting reconciles cached content. Every 60 seconds,
+the server checks admission and reevaluates the authorization context, notifying
+the browser when evaluated subjects, grants, or groups change. `Pod.Access`
+publishes committed permission changes from sharing, grant writes, moves across
+ACL anchors, and Page trash or restore operations. Trash and restore can change
+access to other Pages through Userset dependencies even when grants stay the same.
+Related access notifications from one commit coalesce before delivery. The client retries
+transient token-service errors and ends the subscription on access denial.
+Changes to ancestor or Space policies, including moves across ACL anchors, refresh effective action
 bits even when a Page's content revision has not changed, without unmounting the
 open document editor or losing its local draft.
 
@@ -454,11 +1187,20 @@ node's marks, the editor maps both endpoints through pending changes and
 mutates only the affected UTF-16 range in the DOM, preserving native browser
 composition underlines and caret position when earlier text shifts; structural
 edits or mark mismatches cancel composition through the editor's standard path.
-Finally, the editor host resolves `embed` blocks and
+Finally, the editor host resolves Page `embed` blocks carrying `ref` and
 `ankole:asset/<full-sha256>/<name>` URLs: inserting an inline subpage creates
 the child Page in the tree first, deleting a direct child embed from the block
-menu trashes that child Page, and deleting a reference via text selection or an
-Agent rewrite leaves the target Page intact in the tree.
+menu trashes that child Page. For a multi-block menu deletion, the editor sends
+all selected embed references to `POST /api/v2/pod/pages/:id/embeds/delete`.
+`Pages` checks the parent and each direct child's permissions in one tree
+transaction and commits all child deletions together. A rejected child leaves
+all children and their purge jobs unchanged. After success, the editor removes
+the captured block selection if the document is still unchanged. Deleting a
+block that refers to a Page outside this document's direct children leaves the
+target and its directory entry intact. The browser refreshes the document's
+child listing, while Page events update cached entries for children actually
+deleted by the server. Deleting a reference via text selection or an Agent
+rewrite leaves the target Page intact in the tree.
 
 ## Base
 
@@ -840,7 +1582,9 @@ Browser requests hit `/api/v2/pod/pages/:id/routes/*path` under standard Pod
 session + CSRF checks and must send `x-ankole-applet-revision` (Agent RPC
 `applets.call` enters the same `Ankole.Pod.Applets.Invocation` owner under the
 Agent's active write fence). Admission locks the Page to verify access and the
-loaded revision/package: a stale revision returns HTTP `409`
+loaded revision/package. Applet execution and each host capability call require
+a live Applet Page, so moving it to Trash closes those entry points. A stale
+revision returns HTTP `409`
 (`applet_revision_changed`), prompting the host to reload the Page and swap in
 the latest publication without replaying a failed mutation.
 

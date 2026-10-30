@@ -1,0 +1,40 @@
+[
+  {
+    "name": "Agent table sorting",
+    "after": "<page><table><tr><td><p>A</p></td></tr><tr><td><p>B</p></td></tr><tr><td><p>C</p></td></tr></table></page>",
+    "changes": [
+      1,
+      [
+        7,
+        []
+      ],
+      7,
+      [
+        0,
+        [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "param": "B",
+                        "type": "Text"
+                      }
+                    ],
+                    "type": "Paragraph"
+                  }
+                ],
+                "type": "Cell"
+              }
+            ],
+            "type": "TableRow"
+          }
+        ]
+      ],
+      8
+    ],
+    "before": "<page><table><tr><td><p>B</p></td></tr><tr><td><p>A</p></td></tr><tr><td><p>C</p></td></tr></table></page>"
+  }
+]

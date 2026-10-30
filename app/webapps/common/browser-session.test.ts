@@ -3,7 +3,8 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import {
   applyDataTenantNavigation,
   dataTenantID,
-  endSiteSession,
+  endAccountSession,
+  endBrowserSession,
   selectDataTenant,
   withDataContext
 } from './browser-session'
@@ -14,14 +15,41 @@ const previousFetch = globalThis.fetch
 let currentURL: URL
 let requestedURL: URL | undefined
 let storage: Map<string, string>
+let local: Map<string, string>
 let selectedAuthentication: string
+let selectedPrincipal: string
+
+function mockStorage(backing: Map<string, string>): Storage {
+  return {
+    get length() {
+      return backing.size
+    },
+    key(index: number) {
+      return [...backing.keys()][index] ?? null
+    },
+    getItem(key: string) {
+      return backing.get(key) ?? null
+    },
+    setItem(key: string, value: string) {
+      backing.set(key, value)
+    },
+    removeItem(key: string) {
+      backing.delete(key)
+    },
+    clear() {
+      backing.clear()
+    }
+  }
+}
 
 beforeEach(() => {
   currentURL = new URL('https://ankole.test/operator/agents?sort=name')
   client.setConfig({ baseUrl: currentURL.origin })
   requestedURL = undefined
   selectedAuthentication = 'account-a.1'
+  selectedPrincipal = 'usr_alice'
   storage = new Map([['ankole.console.data-tenant:account-a.1', 'tenant-a']])
+  local = new Map()
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
@@ -43,17 +71,8 @@ beforeEach(() => {
           currentURL = new URL(url)
         }
       },
-      sessionStorage: {
-        getItem(key: string) {
-          return storage.get(key) ?? null
-        },
-        setItem(key: string, value: string) {
-          storage.set(key, value)
-        },
-        removeItem(key: string) {
-          storage.delete(key)
-        }
-      }
+      localStorage: mockStorage(local),
+      sessionStorage: mockStorage(storage)
     }
   })
   Object.defineProperty(globalThis, 'document', {
@@ -62,9 +81,13 @@ beforeEach(() => {
       querySelector: (selector: string) =>
         selector.includes('ankole-authentication')
           ? { content: selectedAuthentication }
-          : selector.includes('csrf-token')
-            ? { content: 'session-csrf' }
-            : null
+          : selector.includes('ankole-pod')
+            ? { content: 'pod-privileged' }
+            : selector.includes('ankole-principal')
+              ? { content: selectedPrincipal }
+              : selector.includes('csrf-token')
+                ? { content: 'session-csrf' }
+                : null
     }
   })
 })
@@ -77,7 +100,7 @@ afterEach(() => {
   globalThis.fetch = previousFetch
 })
 
-test('ending a site session keeps the next login from inheriting the old data tenant', async () => {
+test('ending the browser session keeps the next login from inheriting the old data tenant', async () => {
   const requests: Array<{ path: string; method: string; csrf: string | null }> = []
   globalThis.fetch = (async (request: Request) => {
     expect(dataTenantID()).toBeNull()
@@ -89,7 +112,7 @@ test('ending a site session keeps the next login from inheriting the old data te
     return Response.json({})
   }) as typeof fetch
 
-  await endSiteSession()
+  await endBrowserSession()
 
   expect(requests).toEqual([{ path: '/api/v2/browser/session', method: 'DELETE', csrf: 'session-csrf' }])
   const tenants: (string | null)[] = []
@@ -101,11 +124,44 @@ test('ending a site session keeps the next login from inheriting the old data te
   expect(tenants).toEqual([null])
 })
 
+test('ending a single account session revokes only the pinned Pod access and clears its data tenant', async () => {
+  const requests: Array<{
+    path: string
+    method: string
+    csrf: string | null
+    authentication: string | null
+    pod: string | null
+  }> = []
+  globalThis.fetch = (async (request: Request) => {
+    expect(dataTenantID()).toBeNull()
+    requests.push({
+      path: new URL(request.url).pathname,
+      method: request.method,
+      csrf: request.headers.get('x-csrf-token'),
+      authentication: request.headers.get('x-ankole-authentication'),
+      pod: request.headers.get('x-ankole-pod')
+    })
+    return Response.json({})
+  }) as typeof fetch
+
+  await endAccountSession()
+
+  expect(requests).toEqual([
+    {
+      path: '/api/v2/browser/authentications/current',
+      method: 'DELETE',
+      csrf: 'session-csrf',
+      authentication: 'account-a.1',
+      pod: 'pod-privileged'
+    }
+  ])
+})
+
 test('a failed sign-out request still clears the browser selection before redirecting to sign-in', async () => {
   globalThis.fetch = (async (_path: string, _init?: RequestInit) =>
     Response.json({ error: 'unavailable' }, { status: 503 })) as typeof fetch
 
-  await expect(endSiteSession()).rejects.toMatchObject({ status: 503 })
+  await expect(endBrowserSession()).rejects.toMatchObject({ status: 503 })
 
   expect(dataTenantID()).toBeNull()
 })
@@ -163,4 +219,37 @@ test('a new document for another authentication has its own Console data selecti
   expect(dataTenantID()).toBeNull()
   selectedAuthentication = 'account-a.1'
   expect(dataTenantID()).toBe('tenant-a')
+})
+
+test('ending a single account session wipes Pod drafts and comment quotes only for that Pod and Principal', async () => {
+  local.set('ankole.pod.comments:pod-privileged:usr_alice:page-1', '{"quote":"secret"}')
+  local.set('ankole.pod.comments:pod-privileged:usr_bob:page-1', '{"quote":"keep-bob"}')
+  local.set('ankole.pod.comments:pod-other:usr_alice:page-1', '{"quote":"keep-other-pod"}')
+  storage.set('ankole.pod.document-draft:pod-privileged:usr_alice:page-1', '{"xml":"<page><p>secret</p></page>"}')
+  storage.set('ankole.pod.document-draft:pod-privileged:usr_bob:page-1', '{"xml":"<page><p>keep</p></page>"}')
+  globalThis.fetch = (async (_request: Request) => Response.json({})) as typeof fetch
+
+  await endAccountSession()
+
+  expect(local.has('ankole.pod.comments:pod-privileged:usr_alice:page-1')).toBe(false)
+  expect(storage.has('ankole.pod.document-draft:pod-privileged:usr_alice:page-1')).toBe(false)
+  expect(local.get('ankole.pod.comments:pod-privileged:usr_bob:page-1')).toBe('{"quote":"keep-bob"}')
+  expect(local.get('ankole.pod.comments:pod-other:usr_alice:page-1')).toBe('{"quote":"keep-other-pod"}')
+  expect(storage.get('ankole.pod.document-draft:pod-privileged:usr_bob:page-1')).toBe(
+    '{"xml":"<page><p>keep</p></page>"}'
+  )
+})
+
+test('ending the browser session wipes all Pod drafts and comment quotes across storage buckets', async () => {
+  local.set('ankole.pod.comments:pod-privileged:usr_alice:page-1', '{"quote":"secret"}')
+  local.set('ankole.pod.comments:pod-other:usr_bob:page-2', '{"drafts":{"new":"reply"}}')
+  local.set('ankole.pod.stats-preference', 'true')
+  storage.set('ankole.pod.document-draft:pod-privileged:usr_alice:page-1', '{"xml":"<page><p>secret</p></page>"}')
+  storage.set('ankole.pod.document-draft:pod-other:usr_bob:page-2', '{"xml":"<page><p>other</p></page>"}')
+  globalThis.fetch = (async (_request: Request) => Response.json({})) as typeof fetch
+
+  await endBrowserSession()
+
+  expect([...local.keys()]).toEqual(['ankole.pod.stats-preference'])
+  expect([...storage.keys()]).toEqual([])
 })

@@ -352,7 +352,7 @@ export class InputState {
       if (!sel.focusNode) return false
       const userEvent = `input.type.compose${compositionStart ? '.start' : ''}`
       const { from, to } = range || wg.state.selection
-      Command.dispatch(wg, insertText, { from, to, insert: event.data!, userEvent })
+      Command.dispatch(wg, insertText, { from, to, insert: event.data ?? '', userEvent })
     } else if (type == 'deleteCompositionText') {
       // WebKit removes the composed text from the DOM when the
       // composition is committed or canceled. This event cannot be
@@ -463,6 +463,16 @@ export class InputState {
       value = tokens.map(token => (token as Leaf<string>).param).join('')
     }
     return { fromB, toB, text: value, target: comp.target }
+  }
+
+  keepEmptyComposition(wg: Wordgard) {
+    return (
+      !!this.composing &&
+      !this.composing.target &&
+      this.domMapping.empty &&
+      !this.unflushedSelection &&
+      inEditableDOM(wg, wg.observer.selectionRange.focusNode)
+    )
   }
 
   clearComposition() {
@@ -908,8 +918,8 @@ function compositionEnd(wg: Wordgard) {
 
 function compositionUpdate(wg: Wordgard, event: CompositionEvent) {
   if (!wg.inputState.composing) {
-    prepareComposition(wg)
-    wg.inputState.composing = { changes: 0, target: null }
+    const opened = prepareComposition(wg)
+    wg.inputState.composing = { changes: opened ? 1 : 0, target: null }
 
     let wrap: Mark.Set | null = null
     if (!event.data) {
@@ -944,11 +954,16 @@ function compositionUpdate(wg: Wordgard, event: CompositionEvent) {
 function prepareComposition(wg: Wordgard) {
   wg.inputState.readNewSelection()
   const { state } = wg
+  let opened = false
   if (state.selection.isCursor && !state.sel.head.parent.node.inlineContent) {
     const open = enter(wg, null)
-    if (open) wg.dispatch({ ...open, userEvent: 'input.type' })
+    if (open) {
+      wg.dispatch({ ...open, userEvent: 'input.type.compose.start' })
+      opened = true
+    }
   }
   if (wg.observer.editorSelectionPending) wg.flush()
+  return opened
 }
 
 function inlineBoundNear(pos: Pos) {
@@ -1073,7 +1088,7 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
 
   drop(wg, event) {
     if (!event.dataTransfer || wg.state.readOnly) return true
-    const slice = readClipboard(wg.state, event.dataTransfer, wg.state.sel.head, false)
+    let slice = readClipboard(wg.state, event.dataTransfer, wg.state.sel.head, false)
     if (!slice) return false
 
     const dropPos = wg.posAtCoords({ x: event.clientX, y: event.clientY }).pos
@@ -1082,6 +1097,9 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
       draggedContent && dragMovesSelection(wg, event)
         ? { correct: { from: draggedContent.from, to: draggedContent.to }, local: true }
         : null
+    // A move uses the source selection, including its internal annotations. Clipboard filters
+    // intentionally remove annotations from copies and external drops.
+    if (del && draggedContent) slice = draggedContent.toSlice(wg.state.doc)
     if (wg.state.facet(dropHandler).some(f => f(wg, event, dropPos, del ? del.correct : null, slice))) return true
     const ins = { correct: { from: dropPos, insert: slice, fit: true }, local: true }
     const changes = ChangeSet.create(wg.state.doc, del ? [del, ins] : ins)
@@ -1152,7 +1170,8 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
     if (!pending.domRange) return false
     let change: ChangeSet.Change | undefined
     if (event.inputType == 'insertCompositionText' || event.inputType == 'insertText') {
-      change = { from: pending.domRange.from, to: pending.domRange.to, insert: [Leaf.text(pending.data!)] }
+      const text = pending.data ?? ''
+      change = { from: pending.domRange.from, to: pending.domRange.to, insert: text ? [Leaf.text(text)] : [] }
     } else if (isDeletionInputEvent(event.inputType) || event.inputType == 'deleteCompositionText') {
       change = { from: pending.domRange.from, to: pending.domRange.to }
     } else {

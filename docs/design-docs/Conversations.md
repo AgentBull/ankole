@@ -413,13 +413,45 @@ search and the summary drawer:
 
 All surfaces, code blocks, selections, status pills, and composer focus rings
 use semantic tokens from the shared Ankole UI kit across light and dark themes.
+A reply's code blocks, inline code, and tables take the same forms as a
+document's, because a reply can be saved as a page: 13 px source under a 32 px
+toolbar on a light fill, and 14 px table cells on a hairline grid. Pickers, the
+find bar, turn previews, and the jump to the latest message float over the
+conversation as ceramic, and renaming a conversation edits its title where it
+stands.
+Messages and the composer share one 760 px column. Message text is 15 px on a
+24 px line; names, work summaries, tool rows, and reply sources are 13 px. A
+Human's message is a neutral ink-tinted bubble, aligned right for the viewer
+and left for other Humans, and an Agent's reply is plain text on the page. The
+viewer's own messages carry no name or avatar, and a message from the same
+author within five minutes of the previous one continues it without repeating
+them; in both cases the time appears on hover and the name stays available to
+assistive technology. A finished turn's model appears in the tooltip of its
+work summary. The composer is a paper writing surface whose edge darkens while
+it has focus.
+
+Each state of a turn has its own mark, so the person can tell at a glance
+whether an Agent is working, needs them, or has stopped. In the sidebar, an
+unread room shows a blue dot, a room that waits on a decision shows an amber dot
+with a halo, and a room where an Agent is working or a background run is active
+shows a turning neutral ring. While an Agent writes, a caret follows its last
+words, and the composer offers a labelled Stop button next to Send. A turn that
+fails reads "Failed after …" in the destructive colour with the failing step
+marked, a stopped turn reads "Stopped after …", and a retryable turn offers a
+labelled Retry reply action. A pending decision card has an amber edge and
+heading, and its question and choices use the message type scale. Queued
+messages offer a labelled Steer action, and a background run card counts its
+time in minutes and hours once it runs past a minute.
 
 In the timeline, compact event notices sit alongside attributed messages:
 
 - Live turn previews track their triggering `sourceMessageID`, and interleaved
   replies link back to the question they answer and restore scroll focus there.
 - Markdown rendering supports syntax-highlighted code, tables, math formulas,
-  Page chips, and image lightboxes.
+  Page chips, and image lightboxes. Code text updates immediately while syntax
+  highlighting waits for 150 ms of quiet; a highlighted result appears only for
+  the exact text and language that produced it. Plain-text blocks use the native
+  code presentation without loading the highlighter.
 - While a turn runs, the active step stays visible above collapsed prior steps
   and reasoning; once the reply commits, the entire execution trace collapses
   above the answer, whereas stopped or failed turns keep their recorded steps
@@ -430,14 +462,20 @@ In the timeline, compact event notices sit alongside attributed messages:
   within the room's access boundary.
 - Message actions support copying, quoting, eligible edits, Agent retries, and
   **Save to Pod** (displaying saved Pages as links beneath the source message).
+  Saving a text message loads the document parser when the user submits the
+  save dialog.
 
 In the composer, users can combine `@` Agent and Human mentions, Page
 references, `/` commands, file attachments, and per-Agent model-profile
 overrides:
 
 - **Input and completion:** IME composition Enter never submits a message.
+  The textarea uses native `field-sizing: content` within its height limits;
+  browsers without that capability use the measured-height fallback.
   Autocomplete popovers keep focus inside the textarea, respond to arrow keys,
   `Tab`, `Enter`, and `Escape`, and match multi-word names and Page titles.
+  Selecting a completion restores the caret as React commits the updated
+  input, before the user can type into the completed text.
   Removing a named Page-reference chip deletes only that structured reference
   while leaving surrounding prose untouched.
 - **References and permissions:** Quoted messages and Page chips travel as
@@ -470,6 +508,16 @@ overrides:
 Embedded Page Chat renders the exact same room inside a resizable side panel
 with Page context controls, `participants`-versus-`anchor_page` scope switching,
 and a link to open the full Chat workspace.
+
+Asking an Agent about selected Page text goes through Page Chat. Selecting text
+in a document and choosing `Ask Agent` in the selection toolbar opens Page Chat
+(the open conversation, or the Page's latest one), quotes the selection in the
+composer, and focuses it. The quote travels as a `{ kind: "page", id, quote }`
+message link, so the Agent receives it as referenced user context and locates
+the passage with a fresh Page read before editing. A draft quotes one passage at
+a time: a quoted message and a Page selection replace each other. Choosing the
+action changes nothing in the document and needs only access to Page Chat, not
+edit permission.
 
 ## SSE and Visible History
 

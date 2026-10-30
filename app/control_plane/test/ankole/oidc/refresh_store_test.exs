@@ -41,12 +41,12 @@ defmodule Ankole.OIDC.RefreshStoreTest do
   test "an online authorization of the same login keeps the Session of live refresh tokens",
        ctx do
     authentication =
-      Ankole.BrowserSessions.authentication(
+      Ankole.BrowserSessions.identity(
         %{
           "id" => ctx.session.authentication_id,
           "revision" => ctx.session.authentication_revision
         },
-        :oauth
+        Repo.tenant_id!()
       )
 
     assert {:ok, session} = Sessions.ensure(ctx.client.id, authentication, "openid")

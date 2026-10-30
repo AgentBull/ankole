@@ -29,6 +29,23 @@ type ChatEditing = {
   agentUID: string
   commandID?: string
 }
+/**
+ * A draft quotes one passage at a time, a message or a Page selection, beside any number of Page references.
+ * `quote` decides which passage stays when the added links bring one: the added one replaces the draft's, or
+ * the draft keeps its own. A reference already in the draft is not repeated.
+ */
+function addLinks(current: ChatLinks, added: ChatLinks, quote: 'replace' | 'keep'): ChatLinks {
+  const addedQuote = added.find(link => link.quote != null)
+  const currentQuote = current.find(link => link.quote != null)
+  const dropped = quote === 'replace' ? currentQuote : addedQuote && currentQuote ? addedQuote : undefined
+  const merged = [...current, ...added].filter(link => link !== dropped)
+  return merged.filter((link, index) => {
+    const sameTarget = (other: ChatLinks[number]) => other.kind === link.kind && other.id === link.id
+    const quoted = merged.find(other => sameTarget(other) && other.quote != null)
+    return quoted ? link === quoted : merged.findIndex(sameTarget) === index
+  })
+}
+
 export const draftLinks = (links: ConversationMessage['links']) =>
   links.map(link => ({
     kind: link.kind,
@@ -159,6 +176,7 @@ export const ChatModel = createModel(() => {
   let stopCommandID: string | undefined
   const hasText = computed(() => draft.value.trim().length > 0)
   const hasContent = computed(() => hasText.value || attachments.hasFiles.value)
+  const quoted = computed(() => links.value.find(link => link.quote != null))
   const clearCapturedDraft = (capture: Pick<MessageSubmission, 'text' | 'links' | 'mentions'>) => {
     if (
       draft.peek() !== capture.text ||
@@ -182,6 +200,7 @@ export const ChatModel = createModel(() => {
     activities,
     mentions,
     links,
+    quoted,
     neededInvites,
     targetAgentUID,
     answeringInteractionID,
@@ -203,6 +222,13 @@ export const ChatModel = createModel(() => {
     },
     cancelAnswer() {
       answeringInteractionID.value = undefined
+    },
+    /** Quote a message or a Page selection in the draft, in place of any passage it quoted before. */
+    quote(link: { kind: 'message' | 'page'; id: string; quote: string }) {
+      links.value = addLinks(links.peek(), [link], 'replace')
+    },
+    referencePage(id: string) {
+      links.value = addLinks(links.peek(), [{ kind: 'page', id }], 'keep')
     },
     rememberReading(presentation: ChatPresentation, position: ChatReadingPosition | undefined) {
       if (!gone.peek()) reading.value = { ...reading.peek(), [presentation]: position }
@@ -262,12 +288,7 @@ export const ChatModel = createModel(() => {
       batch(() => {
         draft.value = previous.trim() ? `${previous}\n\n${input.text}` : input.text
         if (!previous.trim()) targetAgentUID.value = agentUID
-        links.value = [
-          ...links.peek(),
-          ...references.filter(
-            link => !links.peek().some(existing => existing.kind === link.kind && existing.id === link.id)
-          )
-        ]
+        links.value = addLinks(links.peek(), references, 'keep')
         mentions.value = [
           ...mentions.peek(),
           ...people.filter(person => !mentions.peek().some(existing => existing.uid === person.uid))

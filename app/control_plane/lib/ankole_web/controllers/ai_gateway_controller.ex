@@ -23,12 +23,8 @@ defmodule AnkoleWeb.AIGatewayController do
     subject_type = conn.assigns.current_ai_gateway_subject_type
     request_context = RequestContext.from_headers(conn.req_headers, "http")
 
-    with {:ok, request, request_context, brain_context} <-
-           bind_codex_request(conn, request, request_context) do
-      response_opts =
-        conn
-        |> response_opts(subject_type, request_context)
-        |> Keyword.put(:brain_context, brain_context)
+    with {:ok, request, request_context} <- bind_codex_request(conn, request, request_context) do
+      response_opts = response_opts(conn, subject_type, request_context)
 
       cond do
         # The trigger is a request item, so it must not reach the provider path
@@ -239,17 +235,12 @@ defmodule AnkoleWeb.AIGatewayController do
   defp bind_codex_request(conn, request, request_context) do
     case get_req_header(conn, CodexModelBinding.header_name()) do
       [] ->
-        {:ok, request, request_context, nil}
+        {:ok, request, request_context}
 
       [encoded] ->
-        with {:ok, binding} <- CodexModelBinding.decode(encoded),
-             {:ok, brain_context} <-
-               CodexModelBinding.brain_context(
-                 conn.assigns.current_ai_gateway_subject_uid,
-                 binding
-               ) do
+        with {:ok, binding} <- CodexModelBinding.decode(encoded) do
           {:ok, CodexModelBinding.apply(request, binding, request_context),
-           CodexModelBinding.request_context(binding, request_context), brain_context}
+           CodexModelBinding.request_context(binding, request_context)}
         end
 
       _values ->

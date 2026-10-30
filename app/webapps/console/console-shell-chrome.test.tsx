@@ -84,6 +84,10 @@ test.each([
   expect(html.includes(`aria-label="${i18n.t('console.tenants.data_context')}"`)).toBe(visible)
   expect(html).toContain('fill="#FF4669"')
   expect(html).toContain(`>${i18n.t('console.title')}</h1>`)
+  // The account actions sit in the content sheet header, not on the ground.
+  const contentStart = html.indexOf('id="console-content"')
+  expect(contentStart).toBeGreaterThan(-1)
+  expect(html.indexOf(`aria-label="${i18n.t('console.aria.sign_out')}"`)).toBeGreaterThan(contentStart)
   expect(html).not.toContain('Control plane')
   client.clear()
 })

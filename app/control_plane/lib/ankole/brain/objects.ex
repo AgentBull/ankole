@@ -202,7 +202,7 @@ defmodule Ankole.Brain.Objects do
   @spec create_object_in_tx(map(), writer()) :: {:ok, Object.t()} | {:error, term()}
   def create_object_in_tx(attrs, writer) when is_map(attrs) do
     slug = attrs[:slug]
-    body = attrs[:body] || ""
+    body = normalize_body(attrs[:body])
     meta = attrs[:meta] || %{}
 
     with :ok <- Repo.require_transaction(),
@@ -254,11 +254,12 @@ defmodule Ankole.Brain.Objects do
          :ok <- Object.verify_content_hash(object, expected_hash),
          {:ok, tags} <- updated_tags(attrs, object),
          new_title = Map.get(attrs, :title, object.title),
-         new_body = Map.get(attrs, :body, object.body),
+         new_body = attrs |> Map.get(:body, object.body) |> normalize_body(),
          new_meta = Map.get(attrs, :meta, object.meta),
-         :ok <- validate_body_scopes(new_body, writer),
+         existing_scopes = system_existing_scopes(object.body, writer),
+         :ok <- validate_body_scopes(new_body, writer, existing_scopes),
          {:ok, subtype} <- updated_subtype(attrs, object),
-         {:ok, _version} <- snapshot_version(object, author) do
+         {:ok, _version} <- snapshot_version(object, author, opts) do
       changes =
         %{
           title: new_title,
@@ -291,7 +292,7 @@ defmodule Ankole.Brain.Objects do
   def upsert_source_projection_in_tx(%Source{kind: kind} = source, attrs)
       when kind in ["file", "url", "oidc_client"] and is_map(attrs) do
     slug = attrs[:slug]
-    body = attrs[:body] || ""
+    body = normalize_body(attrs[:body])
 
     with :ok <- Repo.require_transaction(),
          :ok <- validate_slug(slug),
@@ -709,11 +710,15 @@ defmodule Ankole.Brain.Objects do
 
   defp validate_type(_type), do: {:error, :missing_object_type}
 
-  defp validate_body_scopes(body, writer) do
-    with {:ok, scopes} <- Markdoc.scopes(body) do
-      scopes
-      |> Enum.reject(&(&1 == "world"))
-      |> Enum.reduce_while(:ok, fn scope, :ok ->
+  defp validate_body_scopes(body, writer, existing_scopes \\ []) do
+    with {:ok, scopes} <- non_world_scopes(body) do
+      scopes_to_check =
+        case writer do
+          :system -> scopes -- existing_scopes
+          _writer_uid -> scopes
+        end
+
+      Enum.reduce_while(scopes_to_check, :ok, fn scope, :ok ->
         result =
           case writer do
             :system -> Scope.validate(scope)
@@ -727,6 +732,27 @@ defmodule Ankole.Brain.Objects do
       end)
     end
   end
+
+  defp non_world_scopes(body) do
+    with {:ok, raw_segments} <- Markdoc.raw_segments(body) do
+      scopes =
+        raw_segments
+        |> Enum.map(& &1.scope)
+        |> Enum.reject(&(&1 == "world"))
+        |> Enum.uniq()
+
+      {:ok, scopes}
+    end
+  end
+
+  defp system_existing_scopes(body, :system) when is_binary(body) do
+    case non_world_scopes(body) do
+      {:ok, scopes} -> scopes
+      {:error, _reason} -> []
+    end
+  end
+
+  defp system_existing_scopes(_body, _writer), do: []
 
   defp insert_source_projection(source, attrs, type, body) do
     object =
@@ -811,10 +837,12 @@ defmodule Ankole.Brain.Objects do
 
   # This is the ordinary write gate, checked after taking the Object lock.
   # Restore and managed projections have their own lifecycle entry points.
-  defp guard_editable(%Object{deleted_at: deleted_at}) when not is_nil(deleted_at),
+  @doc false
+  @spec guard_editable(Object.t()) :: :ok | {:error, term()}
+  def guard_editable(%Object{deleted_at: deleted_at}) when not is_nil(deleted_at),
     do: {:error, :object_deleted}
 
-  defp guard_editable(object), do: guard_unmanaged(object)
+  def guard_editable(object), do: guard_unmanaged(object)
 
   # A Source-managed page takes its body from the Source, so every instance
   # edit path refuses it. Claims, links, and timelines stay open as
@@ -868,13 +896,15 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  defp snapshot_version(%Object{} = object, author) do
+  defp snapshot_version(%Object{} = object, author, opts \\ []) do
+    tags = Keyword.get_lazy(opts, :snapshot_tags, fn -> Links.tags_for_object(object.slug) end)
+
     Ankole.Ash.create(ObjectVersion, :snapshot, %{
       object_id: object.id,
       author: author,
       body: object.body,
       meta: object.meta,
-      tags: Links.tags_for_object(object.slug)
+      tags: tags
     })
   end
 
@@ -890,6 +920,9 @@ defmodule Ankole.Brain.Objects do
       nil -> {:error, :not_found}
     end
   end
+
+  defp normalize_body(nil), do: ""
+  defp normalize_body(body) when is_binary(body), do: String.replace(body, "\r\n", "\n")
 
   defp normalize_optional(nil), do: nil
 

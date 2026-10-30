@@ -195,7 +195,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
 
       {:ok, page} =
         Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
-          parent_id: source.id
+          parent_id: space.id
         })
 
       {:ok, child} =
@@ -203,6 +203,13 @@ defmodule Ankole.Pod.MovePermissionsTest do
 
       assert {:ok, _} =
                share(ctx.owner, child, %{grants: [%{principal_uid: guest.uid, role: "view"}]})
+
+      if @source == :private do
+        assert {:ok, _} =
+                 Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
+                   parent_id: private.id
+                 })
+      end
 
       assert {:ok, _} =
                Pages.authorize(

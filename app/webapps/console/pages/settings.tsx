@@ -36,6 +36,7 @@ import { useTranslation } from 'react-i18next'
 import { Navigate, Outlet, useParams } from '@tanstack/react-router'
 import { linkTarget } from '../../common/router'
 import { dataTenantID } from '../../common/browser-session'
+import { ErrorBoundary } from '../../common/error-boundary'
 import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorDetailList, requestErrorMessage } from '../../common/request-errors'
 import {
@@ -344,35 +345,37 @@ function SingleSettingEditorDrawer() {
             </DrawerHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
-              {!initialized && (list.isLoading || detail.isFetching || writing) ? (
-                <div className="grid gap-4">
-                  <Skeleton className="h-24 w-full" />
-                  <Skeleton className="h-64 w-full" />
-                </div>
-              ) : (
-                <div
-                  data-setting-key={key}
-                  className="grid gap-6 data-[search-match=true]:ring-2 data-[search-match=true]:ring-ring">
-                  <ErrorBlock error={drawerError} />
-                  {item?.editable && initialized ? (
-                    <SettingValueEditor
-                      key={item.key}
-                      item={item}
-                      value={model.text.value}
-                      error={model.validationError.value}
-                      onChange={value => {
-                        model.text.value = value
-                        model.clearValidation()
-                      }}
-                      decrypt={{
-                        revealed: model.revealed.value,
-                        revealing: decrypt.isPending,
-                        onReveal: reveal
-                      }}
-                    />
-                  ) : null}
-                </div>
-              )}
+              <ErrorBoundary variant="panel" resetKeys={[scope, key]}>
+                {!initialized && (list.isLoading || detail.isFetching || writing) ? (
+                  <div className="grid gap-4">
+                    <Skeleton className="h-24 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                ) : (
+                  <div
+                    data-setting-key={key}
+                    className="grid gap-6 data-[search-match=true]:ring-2 data-[search-match=true]:ring-ring">
+                    <ErrorBlock error={drawerError} />
+                    {item?.editable && initialized ? (
+                      <SettingValueEditor
+                        key={item.key}
+                        item={item}
+                        value={model.text.value}
+                        error={model.validationError.value}
+                        onChange={value => {
+                          model.text.value = value
+                          model.clearValidation()
+                        }}
+                        decrypt={{
+                          revealed: model.revealed.value,
+                          revealing: decrypt.isPending,
+                          onReveal: reveal
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                )}
+              </ErrorBoundary>
             </div>
 
             <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border p-4">
@@ -596,108 +599,110 @@ export function SettingGroupDrawer() {
             </DrawerHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
-              {list.isLoading || (draftStatus === 'loading' && !list.isError) ? (
-                <div className="grid gap-4">
-                  <Skeleton className="h-24 w-full" />
-                  <Skeleton className="h-64 w-full" />
-                </div>
-              ) : (
-                <div className="grid gap-8">
-                  <ErrorBlock
-                    error={
-                      model.validationError.value ??
-                      update.error ??
-                      decrypt.error ??
-                      list.error ??
-                      (draftStatus === 'absent' ? t('console.settings.not_found') : undefined)
-                    }
-                  />
-
-                  {group?.id === 'brain' && scope === 'tenant' ? (
-                    <div className="grid gap-2 border border-border p-4">
-                      <p className="text-sm font-medium">{t('console.settings.site_foundation')}</p>
-                      {members
-                        .filter(item => item.scope === 'global')
-                        .map(item => (
-                          <div
-                            key={item.key}
-                            data-setting-key={item.key}
-                            tabIndex={-1}
-                            className="grid gap-1 text-xs data-[search-match=true]:ring-2 data-[search-match=true]:ring-ring">
-                            <code>{item.key}</code>
-                            <span>{formatJSON(item.value)}</span>
-                          </div>
-                        ))}
-                      <Link
-                        className="link text-xs"
-                        to="/settings/group/brain"
-                        search={settingsSearch(searchParams, { scope: 'global' })}>
-                        {t('console.settings.open_site_task')}
-                      </Link>
-                    </div>
-                  ) : null}
-                  {group?.id === 'brain' ? (
-                    <p className="text-sm">
-                      {t('console.settings.schedule_timezone', {
-                        timezone:
-                          list.data?.app_configurations.find(item => item.key === 'system.timezone')?.value ?? '—'
-                      })}{' '}
-                      ·{' '}
-                      <Link
-                        className="link"
-                        to="/settings/system.timezone"
-                        search={settingsSearch(searchParams, { focus: undefined })}>
-                        {t('common.edit')}
-                      </Link>
-                    </p>
-                  ) : null}
-                  {members.find(item => item.runtime_status) ? (
-                    <p role="status" className="text-sm">
-                      {t(`console.settings.runtime_${members.find(item => item.runtime_status)!.runtime_status}`)}
-                    </p>
-                  ) : null}
-                  {draftStatus === 'ready' && group?.id === 'brain' ? (
-                    <BrainSettingsEditor
-                      drafts={model.drafts.value}
-                      items={items}
-                      models={model.brainModels.value}
-                      saving={busy}
-                      onDraftChange={model.setDraft}
-                      onModelChange={model.setBrainModel}
-                      onRestore={setRestoreItem}
-                    />
-                  ) : draftStatus === 'ready' && group?.id === 'observability' ? (
-                    <ObservabilitySettingsEditor
-                      drafts={model.drafts.value}
-                      headerRows={model.headerRows.value}
-                      headerRevealing={decrypt.isPending}
-                      items={items}
-                      saving={busy}
-                      onDraftChange={model.setDraft}
-                      onHeaderRowsChange={model.setHeaderRows}
-                      onReplaceHeaders={() => model.setHeaderRows([])}
-                      onRestore={setRestoreItem}
-                      onRevealHeaders={revealHeaders}
-                    />
-                  ) : draftStatus === 'ready' && group ? (
-                    <SettingsTaskEditor
-                      key={sourceKey}
-                      group={group.id}
-                      items={items}
-                      drafts={model.drafts.value}
-                      onDraftChange={model.setDraft}
-                      onRestore={setRestoreItem}
-                      saving={busy}
-                      testMail={(settings, recipient) =>
-                        testMail.mutateAsync({
-                          path: { key: 'authn.email.mail' },
-                          body: { data: { settings, recipient } }
-                        })
+              <ErrorBoundary variant="panel" resetKeys={[sourceKey]}>
+                {list.isLoading || (draftStatus === 'loading' && !list.isError) ? (
+                  <div className="grid gap-4">
+                    <Skeleton className="h-24 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                ) : (
+                  <div className="grid gap-8">
+                    <ErrorBlock
+                      error={
+                        model.validationError.value ??
+                        update.error ??
+                        decrypt.error ??
+                        list.error ??
+                        (draftStatus === 'absent' ? t('console.settings.not_found') : undefined)
                       }
                     />
-                  ) : null}
-                </div>
-              )}
+
+                    {group?.id === 'brain' && scope === 'tenant' ? (
+                      <div className="grid gap-2 border border-border p-4">
+                        <p className="text-sm font-medium">{t('console.settings.site_foundation')}</p>
+                        {members
+                          .filter(item => item.scope === 'global')
+                          .map(item => (
+                            <div
+                              key={item.key}
+                              data-setting-key={item.key}
+                              tabIndex={-1}
+                              className="grid gap-1 text-xs data-[search-match=true]:ring-2 data-[search-match=true]:ring-ring">
+                              <code>{item.key}</code>
+                              <span>{formatJSON(item.value)}</span>
+                            </div>
+                          ))}
+                        <Link
+                          className="link text-xs"
+                          to="/settings/group/brain"
+                          search={settingsSearch(searchParams, { scope: 'global' })}>
+                          {t('console.settings.open_site_task')}
+                        </Link>
+                      </div>
+                    ) : null}
+                    {group?.id === 'brain' ? (
+                      <p className="text-sm">
+                        {t('console.settings.schedule_timezone', {
+                          timezone:
+                            list.data?.app_configurations.find(item => item.key === 'system.timezone')?.value ?? '—'
+                        })}{' '}
+                        ·{' '}
+                        <Link
+                          className="link"
+                          to="/settings/system.timezone"
+                          search={settingsSearch(searchParams, { focus: undefined })}>
+                          {t('common.edit')}
+                        </Link>
+                      </p>
+                    ) : null}
+                    {members.find(item => item.runtime_status) ? (
+                      <p role="status" className="text-sm">
+                        {t(`console.settings.runtime_${members.find(item => item.runtime_status)!.runtime_status}`)}
+                      </p>
+                    ) : null}
+                    {draftStatus === 'ready' && group?.id === 'brain' ? (
+                      <BrainSettingsEditor
+                        drafts={model.drafts.value}
+                        items={items}
+                        models={model.brainModels.value}
+                        saving={busy}
+                        onDraftChange={model.setDraft}
+                        onModelChange={model.setBrainModel}
+                        onRestore={setRestoreItem}
+                      />
+                    ) : draftStatus === 'ready' && group?.id === 'observability' ? (
+                      <ObservabilitySettingsEditor
+                        drafts={model.drafts.value}
+                        headerRows={model.headerRows.value}
+                        headerRevealing={decrypt.isPending}
+                        items={items}
+                        saving={busy}
+                        onDraftChange={model.setDraft}
+                        onHeaderRowsChange={model.setHeaderRows}
+                        onReplaceHeaders={() => model.setHeaderRows([])}
+                        onRestore={setRestoreItem}
+                        onRevealHeaders={revealHeaders}
+                      />
+                    ) : draftStatus === 'ready' && group ? (
+                      <SettingsTaskEditor
+                        key={sourceKey}
+                        group={group.id}
+                        items={items}
+                        drafts={model.drafts.value}
+                        onDraftChange={model.setDraft}
+                        onRestore={setRestoreItem}
+                        saving={busy}
+                        testMail={(settings, recipient) =>
+                          testMail.mutateAsync({
+                            path: { key: 'authn.email.mail' },
+                            body: { data: { settings, recipient } }
+                          })
+                        }
+                      />
+                    ) : null}
+                  </div>
+                )}
+              </ErrorBoundary>
             </div>
 
             <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border p-4">

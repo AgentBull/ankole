@@ -6,8 +6,8 @@ import { parseMarkdown, printMarkdown } from '../document/markdown'
 import type { SourceFormat } from '../document/tree'
 import { unknownNames } from '../document/vocabulary'
 import { parseXml, printXml } from '../document/xml'
-import { replaceTree } from './convert'
-import { validatedPageSource } from './page-update'
+import { pageDocument, replaceTree } from './convert'
+import { portablePageChanges, validatedPageSource } from './page-update'
 
 export type PageWrite = { format: SourceFormat; source: string; revision: number }
 export type PageSnapshot = { revision: number; markdown: string; xml: string }
@@ -69,7 +69,9 @@ export class PageSession {
     printMarkdown(tree)
     checkSource(printXml(tree), 'xml')
     this.editor.dispatch({
-      ...replaceTree(this.editor.state, tree),
+      ...(write.format === 'markdown'
+        ? { changes: portablePageChanges(this.editor.state.doc, pageDocument(tree)) }
+        : replaceTree(this.editor.state, tree)),
       annotations: history.isolate.of(true),
       userEvent: 'page.write'
     })

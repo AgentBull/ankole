@@ -44,7 +44,7 @@ defmodule Ankole.AuthZ.Actor do
         "surface" => surface,
         "ip" => ip,
         "provider_id" => proof.provider_id,
-        "provider_scope" => if(proof.purpose == :site, do: "site", else: "tenant"),
+        "provider_scope" => Atom.to_string(proof.scope),
         "amr" => proof.amr,
         "authenticated_at" => DateTime.to_unix(proof.authenticated_at),
         "challenge_started_at" => time(proof.challenge_started_at)

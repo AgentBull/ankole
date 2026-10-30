@@ -17,7 +17,8 @@ import {
 } from '@ankole/uikit'
 import { RiCheckLine, RiCloseLine, RiLink } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
-import { useDeferredValue, useState } from 'react'
+import { useState } from 'react'
+import { useDebouncedValue } from '../../common/use-debounced-value'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import { agentsQuery, type ConversationDetail } from '../api'
@@ -48,20 +49,22 @@ export function SharePopover({
   const [selected, setSelected] = useState<SelectedCandidate[]>([])
   const [removingMember, setRemovingMember] = useState<ConversationDetail['conversation']['participants'][number]>()
   const [query, setQuery] = useState('')
-  const search = useDeferredValue(query)
+  const search = useDebouncedValue(query, 180)
   const agents = useQuery({ ...agentsQuery, enabled: open })
   const people = useQuery({
     queryKey: [...teammatesKey(), search],
-    queryFn: () => podChatTeammates({ query: { query: search } }),
+    queryFn: ({ signal }) => podChatTeammates({ query: { query: search }, signal }),
     enabled: open
   })
   const existing = new Set(room.participants.map(member => member.uid))
   const canParticipate = room.canManage || existing.has(room.viewer.uid)
   const callable = new Set(agents.data?.agents.map(agent => agent.uid))
-  const availablePeople = (people.data?.teammates ?? []).filter(person => !existing.has(person.uid))
+  const availablePeople = (query === search ? (people.data?.teammates ?? []) : []).filter(
+    person => !existing.has(person.uid)
+  )
   const availableAgents = (agents.data?.agents ?? []).filter(
     agent =>
-      !existing.has(agent.uid) && agent.displayName.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
+      !existing.has(agent.uid) && agent.displayName.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
   )
   const activeSelected = selected.filter(candidate => !existing.has(candidate.uid))
   const selectedUIDs = new Set(activeSelected.map(candidate => candidate.uid))
@@ -109,7 +112,13 @@ export function SharePopover({
                 placeholder={t('pod.chat_room.search_people_agents')}
               />
               <CommandList>
-                <CommandEmpty>{t('pod.chat_room.no_matches')}</CommandEmpty>
+                <CommandEmpty>
+                  {t(
+                    query !== search || people.isPending || agents.isPending
+                      ? 'pod.content.loading'
+                      : 'pod.chat_room.no_matches'
+                  )}
+                </CommandEmpty>
                 {!!availablePeople.length && (
                   <CommandGroup heading={t('pod.chat_room.people')}>
                     {availablePeople.map(person => (

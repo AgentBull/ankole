@@ -89,14 +89,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       )
 
     with {:ok, authorization} <- authorize_grant(state, request),
-         {:ok, brain_context} <-
-           CodexModelBinding.brain_context(
-             state.subject_uid,
-             Map.get(state, :codex_model_binding)
-           ),
          {:ok, request, socket_context} <- prepare_response_create_request(state, request) do
-      authorization = Keyword.put(authorization, :brain_context, brain_context)
-
       if CompactionRequests.compaction_trigger?(request) do
         serve_compaction_trigger(state, request, authorization)
       else

@@ -12,6 +12,7 @@ use serde::Serialize;
 pub struct Segment {
     pub scope: String,
     pub text: String,
+    pub tagged: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -179,8 +180,9 @@ fn source_lines(source: &str) -> Vec<SourceLine<'_>> {
     let mut start = 0;
 
     for (index, raw_line) in source.split_inclusive('\n').enumerate() {
-        let text = raw_line.strip_suffix('\n').unwrap_or(raw_line);
-        let end = start + text.len();
+        let without_lf = raw_line.strip_suffix('\n').unwrap_or(raw_line);
+        let end = start + without_lf.len();
+        let text = without_lf.strip_suffix('\r').unwrap_or(without_lf);
         lines.push(SourceLine {
             number: index + 1,
             start,
@@ -194,9 +196,10 @@ fn source_lines(source: &str) -> Vec<SourceLine<'_>> {
 }
 
 fn parse_tag_line(line: &str) -> Option<AudienceTag> {
+    let line = line.strip_suffix('\r').unwrap_or(line);
     let bytes = line.as_bytes();
     let mut end = bytes.len();
-    while end > 0 && matches!(bytes[end - 1], b' ' | b'\t' | b'\r') {
+    while end > 0 && matches!(bytes[end - 1], b' ' | b'\t') {
         end -= 1;
     }
 
@@ -292,6 +295,7 @@ fn build_segments(source: &str, tags: Vec<TagToken>) -> Result<Vec<Segment>, Ana
                 segments.push(Segment {
                     scope: "world".to_string(),
                     text: source[cursor..token.start].to_string(),
+                    tagged: false,
                 });
                 cursor = token.end;
                 open = Some((scope.clone(), token.line));
@@ -306,6 +310,7 @@ fn build_segments(source: &str, tags: Vec<TagToken>) -> Result<Vec<Segment>, Ana
                 segments.push(Segment {
                     scope: scope.clone(),
                     text: source[cursor..token.start].to_string(),
+                    tagged: true,
                 });
                 cursor = token.end;
                 open = None;
@@ -323,6 +328,7 @@ fn build_segments(source: &str, tags: Vec<TagToken>) -> Result<Vec<Segment>, Ana
     segments.push(Segment {
         scope: "world".to_string(),
         text: source[cursor..].to_string(),
+        tagged: false,
     });
     Ok(segments)
 }

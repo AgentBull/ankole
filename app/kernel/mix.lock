@@ -1,6 +1,5 @@
 %{
   "jason": {:hex, :jason, "1.4.5", "2e3a008590b0b8d7388c20293e9dcc9cf3e5d642fd2a114e4cbbb52e595d940a", [:mix], [{:decimal, "~> 1.0 or ~> 2.0 or ~> 3.0", [hex: :decimal, repo: "hexpm", optional: true]}], "hexpm", "b0c823996102bcd0239b3c2444eb00409b72f6a140c1950bc8b457d836b30684"},
-  "protox": {:hex, :protox, "2.1.0", "af130f17349a34acb3c79a48f05cc2b07fddf7d9951944b92c217c5b439bfa6e", [:mix], [], "hexpm", "89efe4c45eacaa8e8e6347d4be0813b6d5c58d004920a5150d81ea655cbd8cb2"},
   "rustler": {:hex, :rustler, "0.38.0", "7a8906998ff0d28e3021c0a73264abcda719bda344b2e58307c6805b0f87c9b4", [:mix], [{:jason, "~> 1.0", [hex: :jason, repo: "hexpm", optional: false]}], "hexpm", "704c03c1bf66be12b031c5a389347b91c81c5cb819a24b068b0de36fe4a5652a"},
-  "torque": {:hex, :torque, "0.5.3", "d037ecff3185b795f398851a7f237d9ec02159525de271bf272ebacfd29c923a", [:mix, :rebar3], [], "hexpm", "701d1360af834f70c74f8202fc9e2364521c460a7e0ad10db5f5367f55bd6da5"},
+  "torque": {:hex, :torque, "0.5.4", "a84d2c37af5bd32c0af9221207030d8bd01c76652df79f961f310df632d9927d", [:mix, :rebar3], [], "hexpm", "421b6c8918f5d00fd3f8e8060784127aa7d93c835a8f082d7c86f753047215b2"},
 }

@@ -65,7 +65,7 @@ const navLinkActiveClass = 'text-foreground'
 		</div>
 	</div>
 
-	<input id={mobileMenuId} type="checkbox" class="peer sr-only" />
+	<input id={mobileMenuId} type="checkbox" class="peer sr-only sm:hidden" />
 	<nav class="hidden border-t border-border peer-checked:block sm:hidden">
 		<div class="flex flex-col px-4 py-2">
 			<a href={docsHref} class:list={[navLinkClass, docsActive && navLinkActiveClass]}>{t(lang, 'nav.docs')}</a>
@@ -76,3 +76,10 @@ const navLinkActiveClass = 'text-foreground'
 		</div>
 	</nav>
 </header>
+
+<style>
+	header:has(> input:focus-visible) label[for] {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
+</style>

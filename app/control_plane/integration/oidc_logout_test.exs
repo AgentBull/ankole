@@ -282,21 +282,19 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
       {:ok, %{authentication: authentication}} =
         BrowserSessions.authenticate(
           reference,
-          :pod,
           %{
             "principal_uid" => human.uid,
             "access_version" => human.access_version,
             "provider_id" => "lark-main",
             "external_id" => human.uid,
             "auth_time" => System.system_time(:second)
-          },
-          mode: :add
+          }
         )
 
       send(delivery, :finish_delivery)
       assert Task.await(confirmation, 5_000).status == 302
 
-      assert BrowserSessions.authentication(BrowserSessions.reference(authentication), :pod)[
+      assert BrowserSessions.identity(BrowserSessions.reference(authentication), tenant.id)[
                "principal_uid"
              ] == human.uid
     after
@@ -334,7 +332,7 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
     conn = conn |> init_test_session(%{}) |> WebSession.ensure_browser()
 
     {:ok, %{browser: browser, authentication: authentication}} =
-      BrowserSessions.authenticate(WebSession.browser_reference(conn), :oauth, %{
+      BrowserSessions.authenticate(WebSession.browser_reference(conn), %{
         "principal_uid" => human.principal.uid,
         "provider_id" => "lark-main",
         "external_id" => human.principal.uid,

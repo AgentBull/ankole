@@ -18,7 +18,6 @@ WORKDIR /build
 COPY package.json bun.lock ./
 COPY app/function_runtime/package.json ./app/function_runtime/package.json
 COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
-COPY libs/ankole-editor/patches ./libs/ankole-editor/patches
 RUN bun install --filter @ankole/function-runtime --production --frozen-lockfile --ignore-scripts
 COPY app/function_runtime/main ./app/function_runtime/main
 COPY libs/applet-sdk/src ./libs/applet-sdk/src

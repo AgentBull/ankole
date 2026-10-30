@@ -36,7 +36,7 @@ Read operations:
 Write operations:
   pages.set_sharing {id, sharing_version, inherit_permissions?, grants?} — requires manage access
   pages.create     {type: doc|base|applet|file, title, parent_id?, private_owner_uid?}
-  pages.update     {id, title?, icon?}
+  pages.update     {id, title?, expected_title?, icon?} — expected_title is required whenever title is supplied
   pages.move       {id, parent_id?, private_owner_uid?}
   pages.delete     {id} — moves the subtree into the trash
   pages.restore    {id}

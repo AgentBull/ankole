@@ -7,6 +7,7 @@ import { listTenantsOptions } from './api/v2-site/generated/@tanstack/react-quer
 import { fromDocument } from './api/json-api'
 import { dataTenantID, selectDataTenant } from '../common/browser-session'
 import { ErrorBlock } from '../common/error-block'
+import { ErrorBoundary } from '../common/error-boundary'
 import type { ConsoleRouteSlot } from './slots'
 import { ConsoleTenantContext } from './tenant-context'
 import { consoleTenantPage, tenantSwitchPath } from './state/tenant-scope'
@@ -79,13 +80,21 @@ export function ConsoleTenantContent({ children, slot }: { children: ReactNode; 
       ) : tenants.isPending ? (
         <p role="status">{t('common.loading')}</p>
       ) : (
-        items.map((tenant, index) => (
-          <ConsoleTenantContext key={tenant.id} value={{ ...tenant, first: index === 0 }}>
-            <section aria-label={`${tenant.display_name} (${tenant.slug})`} className="min-w-0">
-              {children}
-            </section>
-          </ConsoleTenantContext>
-        ))
+        items.map((tenant, index) => {
+          const tenantLabel = `${tenant.display_name} (${tenant.slug})`
+          return (
+            <ConsoleTenantContext key={tenant.id} value={{ ...tenant, first: index === 0 }}>
+              <section aria-label={tenantLabel} className="min-w-0">
+                <ErrorBoundary
+                  variant="panel"
+                  label={tenantLabel}
+                  resetKeys={[tenant.id, location.pathname, location.searchStr]}>
+                  {children}
+                </ErrorBoundary>
+              </section>
+            </ConsoleTenantContext>
+          )
+        })
       )}
     </div>
   )

@@ -45,8 +45,8 @@ defmodule AnkoleWeb.Session do
     )
   end
 
-  @doc "Opens the Console context after setup verifies its first administrator."
-  def put_admin_session(conn, attrs) do
+  @doc "Writes a verified tenant authentication after setup or test sign-in."
+  def put_tenant_session(conn, attrs) do
     attrs = stringify_keys(attrs)
     conn = ensure_browser(conn)
 
@@ -54,23 +54,33 @@ defmodule AnkoleWeb.Session do
          {:ok, %{browser: browser, authentication: authentication}} <-
            BrowserSessions.authenticate(
              browser_reference(conn),
-             :console,
              Map.put(attrs, "access_version", version)
            ) do
       put_authentication(conn, browser, authentication)
     else
-      {:error, reason} -> raise "Cannot establish setup authentication: #{inspect(reason)}"
+      {:error, reason} -> raise "Cannot establish tenant authentication: #{inspect(reason)}"
     end
   end
 
-  @doc "Writes the verified site proof that completed first-administrator setup."
-  def put_site_admin_session(
-        conn,
-        %BrowserSessions.Session{} = browser,
-        %BrowserSessions.Authentication{purpose: :site, console_authenticated: true} =
-          authentication
-      ),
-      do: put_authentication(conn, browser, authentication)
+  @doc "Pins a proven authentication on the current document and synchronizes its CSRF state."
+  def pin_authentication(conn, reference) when is_map(reference) do
+    conn = put_private(conn, :browser_authentication_ref, reference)
+
+    case BrowserSessions.get_authentication(reference) do
+      {:ok, authentication} when is_binary(conn.secret_key_base) ->
+        Plug.CSRFProtection.delete_csrf_token()
+        :ok = Plug.CSRFProtection.load_state(conn.secret_key_base, authentication.csrf_token)
+
+        register_before_send(conn, fn conn ->
+          Plug.CSRFProtection.delete_csrf_token()
+          :ok = Plug.CSRFProtection.load_state(nil, nil)
+          conn
+        end)
+
+      _ ->
+        conn
+    end
+  end
 
   def authentication_references(conn) do
     conn = fetch_cookies(conn)
@@ -100,6 +110,11 @@ defmodule AnkoleWeb.Session do
     end)
   end
 
+  def authentication_reference(%{assigns: %{pod_authentication: identity}, private: private})
+      when not is_map_key(private, :browser_authentication_ref) do
+    %{"id" => identity["authentication_id"], "revision" => identity["authentication_revision"]}
+  end
+
   def authentication_reference(conn) do
     candidate = authentication_candidate(conn)
     if authentication_proven?(conn, candidate), do: candidate
@@ -107,10 +122,12 @@ defmodule AnkoleWeb.Session do
 
   def invalid_authentication_selection?(conn), do: authentication_candidate(conn) == :invalid
 
+  defp authentication_candidate(%{private: %{browser_authentication_ref: ref}}), do: ref
+
   defp authentication_candidate(conn) do
     case get_req_header(conn, "x-ankole-authentication") do
       [] ->
-        conn.private[:browser_authentication_ref] || parameter_reference(conn) ||
+        parameter_reference(conn) ||
           BrowserSessions.current_reference(browser_reference(conn))
 
       [value] ->
@@ -122,11 +139,16 @@ defmodule AnkoleWeb.Session do
   end
 
   def authentication_proven?(conn, reference) do
+    not is_nil(proven_authentication(conn, reference))
+  end
+
+  defp proven_authentication(conn, reference) do
     with true <- authentication_cookie_proven?(conn, reference),
          %{"id" => browser_id} <- browser_reference(conn),
-         {:ok, %{browser_id: ^browser_id}} <- BrowserSessions.get_authentication(reference),
-         do: true,
-         else: (_ -> false)
+         {:ok, %{browser_id: ^browser_id} = authentication} <-
+           BrowserSessions.get_authentication(reference),
+         do: authentication,
+         else: (_ -> nil)
   end
 
   defp authentication_cookie_proven?(conn, %{"id" => id} = reference) when is_binary(id) do
@@ -176,6 +198,9 @@ defmodule AnkoleWeb.Session do
         parameter_authentication(conn)
 
       {"GET", ["api", "v2", "pod", "pages", _id, "files", "content"]} ->
+        parameter_authentication(conn)
+
+      {"GET", ["api", "v2", "pod", "metadata", "files", "content"]} ->
         parameter_authentication(conn)
 
       {"GET", ["api", "v2", "pod", "conversations", _id, "attachments", _message_id]} ->
@@ -291,28 +316,90 @@ defmodule AnkoleWeb.Session do
 
   def unseal_membership_invitation(_, _, _), do: {:error, :login_expired}
 
+  def seal_console_return(return_to, privileged_tenant_id)
+      when is_binary(return_to) and is_binary(privileged_tenant_id) do
+    safe = safe_console_return_to(return_to)
+
+    payload =
+      Ankole.JSON.encode!(%{
+        "return_to" => safe,
+        "exp" => System.system_time(:second) + @state_ttl
+      })
+
+    Ankole.SecretKeyBase.seal(payload, "browser.console_return", [privileged_tenant_id])
+  end
+
+  def unseal_console_return(ticket, tenant_id)
+      when is_binary(ticket) and ticket != "" and is_binary(tenant_id) do
+    with {:ok, privileged} <- Ankole.Tenants.privileged(),
+         true <- privileged.id == tenant_id,
+         {:ok, json} <-
+           Ankole.SecretKeyBase.unseal(ticket, "browser.console_return", [privileged.id]),
+         {:ok, %{"return_to" => return_to, "exp" => exp}} <- Ankole.JSON.decode(json),
+         true <-
+           is_binary(return_to) and exp > System.system_time(:second) and
+             valid_console_return_to?(return_to) do
+      {:ok, return_to}
+    else
+      _ -> {:error, :login_expired}
+    end
+  end
+
+  def unseal_console_return(_, _), do: {:error, :login_expired}
+
+  defp safe_console_return_to(value) do
+    safe = safe_return_to(value)
+    if valid_console_return_to?(safe), do: safe, else: AnkoleWeb.SiteAdminConsole.path()
+  end
+
+  defp valid_console_return_to?(path) do
+    base = AnkoleWeb.SiteAdminConsole.path()
+    path == base or String.starts_with?(path, [base <> "/", base <> "?"])
+  end
+
   def current_authentication(conn) do
-    with ref when is_map(ref) <- authentication_reference(conn),
-         {:ok, authentication} <- BrowserSessions.get_authentication(ref),
+    with %BrowserSessions.Authentication{} = authentication <-
+           proven_authentication(conn, authentication_candidate(conn)),
          tenant_id when is_binary(tenant_id) <-
            selected_tenant(conn, authentication),
-         do: BrowserSessions.identity(ref, tenant_id),
+         do: BrowserSessions.identity(BrowserSessions.reference(authentication), tenant_id),
          else: (_ -> nil)
   end
 
+  @doc "Resolves an explicit Pod selector against the request host; callers own any fallback."
+  def request_tenant(conn, explicit \\ nil) do
+    selected =
+      case {get_req_header(conn, "x-ankole-pod"), explicit} do
+        {[], id} -> {:ok, id}
+        {[id], nil} -> {:ok, id}
+        {[id], id} -> {:ok, id}
+        _ -> {:error, :tenant_mismatch}
+      end
+
+    with {:ok, selected} <- selected,
+         {:ok, selected} <- cast_request_tenant(selected),
+         host = Ankole.Repo.tenant_id(),
+         true <- is_nil(selected) or is_nil(host) or selected == host do
+      {:ok, host || selected}
+    else
+      false -> {:error, :tenant_mismatch}
+      error -> error
+    end
+  end
+
+  defp cast_request_tenant(nil), do: {:ok, nil}
+
+  defp cast_request_tenant(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> {:ok, id}
+      _ -> {:error, :not_found}
+    end
+  end
+
   defp selected_tenant(conn, authentication) do
-    case get_req_header(conn, "x-ankole-pod") do
-      [id] ->
-        case Ecto.UUID.cast(id) do
-          {:ok, id} ->
-            if Ankole.Repo.tenant_id() in [nil, id], do: id
-
-          _ ->
-            nil
-        end
-
-      [] ->
-        Ankole.Repo.tenant_id() || authentication.tenant_id ||
+    case request_tenant(conn) do
+      {:ok, id} ->
+        id || authentication.tenant_id ||
           case BrowserSessions.get(browser_reference(conn)) do
             {:ok, browser} -> browser.active_tenant_id
             _ -> nil
@@ -323,26 +410,135 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  def admin_session(conn), do: browser_authentication(conn, :console)
-
   def site_admin_session(conn) do
-    case admin_session(conn) do
-      %{"principal_uid" => uid} = authentication -> if AuthZ.site_admin?(uid), do: authentication
+    with {:ok, privileged} <- Ankole.Tenants.privileged(),
+         {:ok, identity, _ref} <-
+           site_admin_for_reference(conn, authentication_candidate(conn), privileged.id) do
+      identity
+    else
       _ -> nil
     end
   end
 
-  def oauth_session(conn), do: browser_authentication(conn, :oauth)
+  def authorize_site_admin_session(conn) do
+    candidate = authentication_candidate(conn)
 
-  def pod_session(conn), do: browser_authentication(conn, :pod)
+    if candidate == :invalid do
+      :unauthorized
+    else
+      case Ankole.Tenants.privileged() do
+        {:ok, privileged} ->
+          case site_admin_for_reference(conn, candidate, privileged.id) do
+            {:ok, identity, _ref} ->
+              {:ok, identity}
 
-  defp browser_authentication(conn, purpose) do
+            :forbidden ->
+              :forbidden
+
+            :unauthenticated ->
+              if active_non_admin_authentication?(conn, candidate),
+                do: :forbidden,
+                else: :unauthorized
+          end
+
+        _ ->
+          :unauthorized
+      end
+    end
+  end
+
+  defp active_non_admin_authentication?(conn, candidate) do
+    if get_req_header(conn, "x-ankole-authentication") != [] do
+      not is_nil(proven_authentication(conn, candidate)) and
+        BrowserSessions.identities(candidate) != []
+    else
+      (not is_nil(proven_authentication(conn, candidate)) and
+         BrowserSessions.identities(candidate) != []) or
+        Enum.any?(authentication_references(conn), &(BrowserSessions.identities(&1) != []))
+    end
+  end
+
+  def resolve_site_admin_session(conn) do
+    with {:ok, privileged} <- Ankole.Tenants.privileged() do
+      candidate = authentication_candidate(conn)
+      result = site_admin_for_reference(conn, candidate, privileged.id)
+
+      if match?({:ok, _, _}, result) or
+           get_req_header(conn, "x-ankole-authentication") != [] or candidate == :invalid do
+        result
+      else
+        conn
+        |> authentication_references()
+        |> Enum.reject(&(&1 == candidate))
+        |> Enum.reduce_while(result, fn ref, result ->
+          case site_admin_for_reference(conn, ref, privileged.id) do
+            {:ok, _, _} = resolved ->
+              {:halt, resolved}
+
+            :forbidden ->
+              {:cont, :forbidden}
+
+            :unauthenticated ->
+              {:cont, result}
+          end
+        end)
+      end
+    else
+      _ -> :unauthenticated
+    end
+  end
+
+  def oauth_session(conn) do
     reference = authentication_candidate(conn)
 
+    with true <- is_map(reference),
+         tenant_id when is_binary(tenant_id) <- oauth_tenant_id(conn, reference) do
+      reference_identity(conn, reference, tenant_id)
+    else
+      _ -> nil
+    end
+  end
+
+  defp oauth_tenant_id(conn, reference) do
+    Ankole.Repo.tenant_id() ||
+      with {:ok, authentication} <- BrowserSessions.get_authentication(reference) do
+        authentication.tenant_id ||
+          case BrowserSessions.get(browser_reference(conn)) do
+            {:ok, browser} -> browser.active_tenant_id
+            _ -> nil
+          end
+      else
+        _ -> nil
+      end
+  end
+
+  def pod_session(conn) do
+    case Ankole.Repo.tenant_id() do
+      tenant_id when is_binary(tenant_id) ->
+        reference_identity(conn, authentication_candidate(conn), tenant_id)
+
+      nil ->
+        nil
+    end
+  end
+
+  defp site_admin_for_reference(conn, reference, privileged_tenant_id) do
+    case reference_identity(conn, reference, privileged_tenant_id) do
+      %{"principal_uid" => uid} = identity ->
+        if Ankole.Repo.with_tenant(privileged_tenant_id, fn -> AuthZ.site_admin?(uid) end),
+          do: {:ok, identity, reference},
+          else: :forbidden
+
+      nil ->
+        :unauthenticated
+    end
+  end
+
+  defp reference_identity(conn, reference, tenant_id) do
     with true <- authentication_cookie_proven?(conn, reference),
          %{"id" => browser_id} <- browser_reference(conn),
          %{"browser_id" => ^browser_id} = identity <-
-           BrowserSessions.authentication(reference, purpose),
+           BrowserSessions.identity(reference, tenant_id),
          do: identity,
          else: (_ -> nil)
   end
@@ -363,8 +559,8 @@ defmodule AnkoleWeb.Session do
   end
 
   defp authentication_csrf_state(conn) do
-    case BrowserSessions.get_authentication(authentication_reference(conn)) do
-      {:ok, authentication} -> authentication.csrf_token
+    case proven_authentication(conn, authentication_candidate(conn)) do
+      %BrowserSessions.Authentication{} = authentication -> authentication.csrf_token
       _ -> nil
     end
   end
@@ -383,7 +579,6 @@ defmodule AnkoleWeb.Session do
     conn.request_path in [
       "/sessions/new",
       "/sessions/logged-out",
-      "/sessions/logout-error",
       "/oauth/logout",
       "/setup"
     ] or
@@ -426,34 +621,52 @@ defmodule AnkoleWeb.Session do
 
   def revoke_authentication(conn) do
     with ref when is_map(ref) <- authentication_reference(conn),
-         {:ok, _} <- BrowserSessions.revoke(browser_reference(conn), ref) do
-      {:ok,
-       conn
-       |> delete_resp_cookie(
-         SessionCookies.authentication_prefix() <> ref["id"],
-         SessionCookies.delete_options()
-       )
-       |> put_private(:browser_authentication_ref, nil)
-       |> put_private(
-         :browser_authentication_proofs,
-         Enum.reject(conn.private[:browser_authentication_proofs] || [], &(&1 == ref))
-       )}
+         {:ok, target_tenant_id} <- revocation_tenant(conn),
+         {:ok, authentication_revoked?} <-
+           revoke_target(browser_reference(conn), ref, target_tenant_id) do
+      conn = put_private(conn, :browser_authentication_ref, nil)
+
+      if authentication_revoked? do
+        {:ok,
+         conn
+         |> delete_resp_cookie(
+           SessionCookies.authentication_prefix() <> ref["id"],
+           SessionCookies.delete_options()
+         )
+         |> put_private(
+           :browser_authentication_proofs,
+           Enum.reject(conn.private[:browser_authentication_proofs] || [], &(&1 == ref))
+         )}
+      else
+        {:ok, conn}
+      end
     else
+      {:error, :invalid_authentication} -> {:error, :invalid_authentication}
       _ -> {:error, :browser_session_expired}
     end
+  end
+
+  defp revocation_tenant(conn) do
+    case request_tenant(conn) do
+      {:ok, id} -> {:ok, id}
+      _ -> {:error, :invalid_authentication}
+    end
+  end
+
+  defp revoke_target(browser_ref, ref, nil) do
+    with {:ok, _} <- BrowserSessions.revoke(browser_ref, ref), do: {:ok, true}
+  end
+
+  defp revoke_target(browser_ref, ref, tenant_id) do
+    with {:ok, %{authentication_revoked?: revoked?}} <-
+           BrowserSessions.revoke_pod(browser_ref, ref, tenant_id),
+         do: {:ok, revoked?}
   end
 
   def logout(conn) do
     case BrowserSessions.logout(browser_reference(conn)) do
       {:ok, _} -> {:ok, clear_authentication_cookies(conn)}
       error -> error
-    end
-  end
-
-  def clear_admin_session(conn) do
-    case logout(conn) do
-      {:ok, conn} -> conn
-      {:error, :browser_session_expired} -> clear_authentication_cookies(conn)
     end
   end
 

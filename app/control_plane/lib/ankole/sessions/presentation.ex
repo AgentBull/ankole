@@ -166,7 +166,7 @@ defmodule Ankole.Sessions.Presentation do
   defp activity_payload(%{"activity" => activity} = payload) when is_map(activity) do
     payload
     |> Map.delete("activity")
-    |> Map.put("label_key", current_activity_key(activity["key"]))
+    |> Map.put("label_key", activity["key"])
     |> Map.put("label_bindings", activity["bindings"] || %{})
   end
 
@@ -199,12 +199,6 @@ defmodule Ankole.Sessions.Presentation do
   end
 
   def publish_committed(_result), do: :ok
-
-  # Remove after pre-rename Worker images and their open Workspaces retire.
-  defp current_activity_key("signals_gateway.reply.activity." <> suffix),
-    do: "conversations.delivery.reply.activity." <> suffix
-
-  defp current_activity_key(key), do: key
 
   def stop(run), do: Preview.stop(run.event)
 

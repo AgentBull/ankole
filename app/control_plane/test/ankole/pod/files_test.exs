@@ -269,7 +269,7 @@ defmodule Ankole.Pod.FilesTest do
 
     {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
-    assert {:error, :not_found} =
+    assert {:error, :manifest_changed} =
              Files.read(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
                page.id,
@@ -278,7 +278,7 @@ defmodule Ankole.Pod.FilesTest do
              )
   end
 
-  test "removing references and trashing keep bytes until the page is purged", ctx do
+  test "trashing keeps page files readable and restoring preserves their bytes", ctx do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{title: "Report"})
 
@@ -294,11 +294,21 @@ defmodule Ankole.Pod.FilesTest do
 
     {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
-    assert {:error, :not_found} =
+    assert {:ok, _, "persistent"} =
              Files.read(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                page.id,
                result.file.path
+             )
+
+    assert {:error, :not_found} =
+             Files.upload(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               "asset",
+               nil,
+               "replacement.png",
+               "blocked"
              )
 
     assert {:ok, _file} = Drive.fetch(:pod, "pages/#{page.id}/#{result.file.path}")

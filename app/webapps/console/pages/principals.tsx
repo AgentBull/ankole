@@ -179,7 +179,7 @@ export function PrincipalDetailPage() {
         <div className="flex flex-wrap items-center gap-4 border-b border-border pb-5">
           {loadedPrincipal ? <PrincipalAvatar principal={loadedPrincipal} size="lg" /> : null}
           <div className="grid min-w-0 gap-1">
-            <h2 className="truncate text-2xl font-semibold tracking-normal text-foreground">
+            <h2 className="truncate title-page text-foreground">
               {loadedPrincipal ? principalLabel(loadedPrincipal) : uid}
             </h2>
             {loadedPrincipal?.email || loadedPrincipal?.handle ? (
@@ -232,7 +232,7 @@ function HumanMembershipSection({ principal }: { principal: PrincipalRecord }) {
   })
   return (
     <section className="grid gap-3 border-b border-border pb-6">
-      <h3 className="text-lg font-semibold">{t('console.principals.membership')}</h3>
+      <h3 className="title-section">{t('console.principals.membership')}</h3>
       <p className="text-sm text-muted-foreground">{t('console.principals.membership_hint')}</p>
       <div className="flex items-center gap-3">
         <Badge variant="secondary">{t(`console.principals.membership_${principal.membership}`)}</Badge>
@@ -287,7 +287,7 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalRecord }) {
   return (
     <section className="grid gap-4">
       <div className="grid gap-1">
-        <h3 className="text-lg font-semibold tracking-normal">{t('console.principals.groups_section_title')}</h3>
+        <h3 className="title-section">{t('console.principals.groups_section_title')}</h3>
         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
           {t('console.principals.groups_section_description')}
         </p>

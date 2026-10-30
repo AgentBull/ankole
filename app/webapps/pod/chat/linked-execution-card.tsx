@@ -15,6 +15,7 @@ import { ContentError } from '../content-primitives'
 import { podKeys } from '../api'
 import { conversationExecution } from '../api/generated/sdk.gen'
 import type { LinkedExecution } from './types'
+import { formatElapsed } from './elapsed'
 
 const statusLabels: Record<string, string> = {
   queued: 'queued',
@@ -29,7 +30,7 @@ const statusLabels: Record<string, string> = {
 }
 
 export function LinkedExecutionCard({ run, conversationID }: { run: LinkedExecution; conversationID: string }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const running = run.status === 'running' || run.status === 'queued'
@@ -55,14 +56,14 @@ export function LinkedExecutionCard({ run, conversationID }: { run: LinkedExecut
         onClick={() => setOpen(true)}>
         <RiNodeTree aria-hidden />
         <span>
-          <strong>{run.title}</strong>
+          <strong title={run.title}>{run.title}</strong>
           <small>
             {run.agentName ||
               t(run.kind === 'workflow' ? 'pod.chat_timeline.workflow' : 'pod.chat_timeline.background_work')}
             {status ? ` · ${status}` : ''}
           </small>
         </span>
-        <time>{(duration / 1000).toFixed(1)}s</time>
+        <time>{formatElapsed(duration, i18n.language)}</time>
         {running ? (
           <RiLoader4Line className="animate-spin" aria-hidden />
         ) : waiting ? (

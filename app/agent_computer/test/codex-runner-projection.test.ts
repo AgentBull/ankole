@@ -6,11 +6,10 @@ import { projectCodexNotification } from '../src/core/codex-runner/protocol'
 import { createWebTools } from '../src/tools/web/web-tools'
 
 describe('@ankole/agent-computer Codex job capability projection', () => {
-  it('projects the exact Job allowlist and rejects browser and foreground-only tools', async () => {
+  it('projects the tools supplied by Job setup and rejects undeclared calls', async () => {
     const calls: unknown[] = []
     const tools: WorkerAgentTool[] = [
       tool('skill_view', z.object({ name: z.string() }), () => 'loaded Skill'),
-      tool('scratch_note', z.object({ content: z.string() }), () => 'must stay hidden'),
       tool('web_search', z.object({ query: z.string().min(1) }), params => {
         calls.push(params)
         return 'search result'
@@ -21,18 +20,8 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
         inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 } }, required: ['query'] }
       },
       tool('get_page', z.object({ reference: z.string() }), () => 'memory page'),
-      ...['remember', 'forget', 'entity', 'whoknows', 'synthesize', 'delta'].map(name =>
-        tool(name, z.object({ value: z.string() }), () => 'must stay hidden')
-      ),
-      tool('browser_navigate', z.object({ url: z.string() }), () => 'page snapshot'),
-      imageTool('browser_screenshot'),
-      ...['browser_run', 'command', 'interactive_terminal', 'read_file', 'apply_patch', 'reply_attachment'].map(name =>
-        tool(name, z.object({ value: z.string() }), () => 'must stay hidden')
-      ),
-      tool(
-        'browser_snapshot',
-        z.string().transform(value => value.trim()),
-        () => 'quarantined'
+      ...['entity', 'whoknows', 'delta', 'future_brain_read'].map(name =>
+        tool(name, z.object({ value: z.string() }), () => 'declared read')
       )
     ]
 
@@ -41,7 +30,17 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     })
 
     expect(projection.dynamicTools.map(spec => ('name' in spec ? spec.name : undefined)).sort()).toEqual(
-      ['web_search', 'web_fetch', 'skill_view', 'recall', 'get_page'].sort()
+      [
+        'web_search',
+        'web_fetch',
+        'skill_view',
+        'recall',
+        'get_page',
+        'entity',
+        'whoknows',
+        'delta',
+        'future_brain_read'
+      ].sort()
     )
     expect(projection.quarantinedTools).toEqual([])
     // A tool that carries its owner's schema is declared with that schema, not a zod conversion.
@@ -158,6 +157,23 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
       contentItems: [{ type: 'inputText', text: 'Dynamic tool is unavailable: browser_screenshot' }],
       success: false
     })
+  })
+
+  it('projects images returned by a declared tool', async () => {
+    const projection = buildCodexJobProjection({ tools: [imageTool('declared_image')] })
+    const result = await projection.handleToolCall(
+      {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        callId: 'image-1',
+        namespace: null,
+        tool: 'declared_image',
+        arguments: {}
+      },
+      new AbortController().signal
+    )
+    expect(result.success).toBe(true)
+    expect(result.contentItems.some(item => item.type === 'inputImage')).toBe(true)
   })
 
   it('does not resolve a namespaced call to a local Job tool', async () => {

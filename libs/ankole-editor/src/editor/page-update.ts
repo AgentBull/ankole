@@ -3,6 +3,8 @@ import { Transaction } from '../core/state'
 import { printNormalizedXml } from '../document/xml'
 import { checkSource } from '../document/tree'
 import { normalizedPageDocument, readTree } from './convert'
+import { commentRanges, withoutCommentMarks } from './comments'
+import { Comment } from './schema'
 
 // Documents are immutable. Reuse the guard's validated normal form at flush
 // and for confirmed XML without keeping editor sessions alive.
@@ -19,6 +21,19 @@ export function validatedPageSource(document: Plot.Doc) {
     sources.set(document, source)
   }
   return source
+}
+
+/** Portable source omits thread IDs. Retain live anchors on content that the source edit keeps. */
+export function portablePageChanges(before: Plot.Doc, after: Plot.Doc): ChangeSet {
+  const changes: ChangeSet.Change[] = []
+  diffChildren(before.content.map(withoutCommentMarks), after.content.map(withoutCommentMarks), 0, changes)
+  const content = ChangeSet.create(before, changes)
+  const retained: { from: number; to: number }[] = []
+  content.iterGaps((from, to) => retained.push({ from, to }))
+  const detached = commentRanges({ state: { doc: before } })
+    .filter(range => !retained.some(gap => gap.from <= range.from && gap.to >= range.to))
+    .map(({ id, from, to }) => ({ from, to, remove: Comment.of([id]) }))
+  return ChangeSet.create(before, detached).compose(content)
 }
 
 /**

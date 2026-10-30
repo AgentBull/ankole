@@ -3,7 +3,7 @@
 `@ankole/block-editor` is Ankole's internal block-editor library at
 `libs/ankole-editor`. Distributed as a private Bun workspace package, its
 TypeScript source is compiled directly by each host application, which shares
-React 19.3.0 with the editor.
+React 19.3.1 with the editor.
 
 See the [Specification](SPEC.md) for document formats, editing behavior, public
 APIs, host responsibilities, and browser support. Within that boundary, this
@@ -11,8 +11,16 @@ package handles editing and document conversion, while hosts manage persistence,
 document selection, and error recovery. Hosts can also pass `labels` to
 translate the UI: any omitted keys fall back to the built-in Chinese defaults,
 and updating `labels` at runtime keeps the current document, selection, and undo
-history intact. The `playground/` directory provides a standalone example host
-and is excluded from the package tarball.
+history intact. Code blocks highlight through Kirari and carry a language
+picker, wrap toggle, and copy control; formula blocks render LaTeX through
+Temml; Mermaid blocks render `mermaid` fences through Pele with a source and
+diagram split view. These ship with the package and need no host configuration.
+Through `EditorHost` hooks, hosts also supply inline mentions (`@` and `＠`
+pickers for pages and principals, mounted inline via `mountMention`) and
+discussion comment anchors (native `Comment` marks across rich text and code,
+live draft selection tracking via `trackCommentSelection`, and resolved-thread
+presentation via `resolvedCommentIDs`). The `playground/` directory provides a
+standalone example host and is excluded from the package tarball.
 
 ## Use in an Ankole workspace
 
@@ -24,15 +32,15 @@ host's `package.json`:
   "dependencies": {
     "@ankole/block-editor": "workspace:*",
     "@ankole/uikit": "workspace:*",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   }
 }
 ```
 
 Then run `bun install` from the Ankole repository root. Because the root
-manifest and `bun.lock` manage workspace dependencies and apply the Markdown
-writer patch, `libs/ankole-editor` needs no lockfile of its own.
+manifest and `bun.lock` manage workspace dependencies, `libs/ankole-editor`
+needs no lockfile of its own.
 
 Import only from the public entry points:
 
@@ -79,10 +87,8 @@ editor instance. Revision numbers are scoped to a single editor instance, so
 always read a fresh snapshot after replacing the instance. For IME composition
 conflicts and stale-write rejection, see [SPEC.md](SPEC.md).
 
-If a standalone consumer installs the package from a tarball outside the Ankole
-workspace, it must declare and apply the patch in `patches/` via its own
-`patchedDependencies` field; `bun run --filter @ankole/block-editor test:package`
-verifies that tarball workflow.
+`bun run --filter @ankole/block-editor test:package` verifies the tarball
+installation workflow for standalone consumers.
 
 ## Develop and verify
 

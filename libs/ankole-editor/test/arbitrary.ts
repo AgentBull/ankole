@@ -73,7 +73,14 @@ function inline(depth: number, linked = false): fc.Arbitrary<Node> {
       .record({ src: word, alt: fc.option(word, { nil: undefined }), title: fc.option(word, { nil: undefined }) })
       .map(({ src, alt, title }) =>
         e('img', { src, ...(alt === undefined ? {} : { alt }), ...(title === undefined ? {} : { title }) })
+      ),
+    fc
+      .tuple(
+        fc.constantFrom<'page' | 'principal'>('page', 'principal'),
+        fc.constantFrom('019a2b00-0000-7000-8000-000000000001', 'usr_alice', 'page_roadmap'),
+        attributes
       )
+      .map(([kind, id, attrs]) => e('mention', { ...attrs, [kind]: id }))
   ]
   if (depth <= 0) return fc.oneof(...leaf)
   const children = fc.array(inline(depth - 1, linked), { minLength: 1, maxLength: 3 })

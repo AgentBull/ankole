@@ -29,7 +29,6 @@ COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
 COPY app/kernel/package.json ./app/kernel/package.json
 COPY libs/ankole-editor/package.json ./libs/ankole-editor/package.json
-COPY libs/ankole-editor/patches ./libs/ankole-editor/patches
 COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
 COPY libs/uikit/package.json ./libs/uikit/package.json
 

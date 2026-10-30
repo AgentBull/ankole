@@ -181,7 +181,7 @@ export class ChangeSet {
 
   /** Returns true if this set makes no changes. */
   get empty() {
-    return this.sections.length == 0 || (this.sections.length == 2 && this.sections[1]! < 0)
+    return this.sections.length == 0 || (this.sections.length == 2 && this.sections[1] === -1)
   }
 
   /** Compare this change set to another one. */
@@ -806,14 +806,16 @@ function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true)
         if (remove) {
           const mods: Modification[] = [{ remove }]
           markableSections(doc, from, to, remove.type.spanning, (node, from, to) => {
-            const has = remove.isInSet(node.tag.marks)
+            const has = remove.type.isInSet(node.tag.marks)
             if (!has || !doc.schema.markAllowed(remove.type, node.type)) return false
             let modsHere = mods
             if (remove.type.set) {
-              const left = subtractSet(remove.value as any[], has.value as any[], remove.type.set!)
-              if (!left.length) return false
-              modsHere = [{ remove: remove.type.of(left) }]
-            }
+              const values = (remove.value as any[]).filter(value =>
+                (has.value as any[]).some(present => remove.type.set!(value, present) === 0)
+              )
+              if (!values.length) return false
+              modsHere = [{ remove: remove.type.of(values) }]
+            } else if (!has.eq(remove)) return false
             section(from, to, -2, modsHere)
             return true
           })

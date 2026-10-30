@@ -529,9 +529,118 @@ defmodule Ankole.SessionsCase do
     # tests set stub_driver: false.
     {stub_driver?, opts} = Keyword.pop(opts, :stub_driver, true)
 
-    with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts) do
+    with {:ok, result} <-
+           observe_emit_entry(agent_uid, binding_name, input, opts, stub_driver?) do
       {:ok, maybe_finalize_test_inbound_batch(result, stub_driver?)}
     end
+  end
+
+  defp observe_emit_entry(agent_uid, binding_name, input, opts, false) do
+    Observe.emit_entry(agent_uid, binding_name, input, opts)
+  end
+
+  defp observe_emit_entry(agent_uid, binding_name, input, opts, true) do
+    owner = self()
+    spawned_ref = make_ref()
+    handler = {__MODULE__, :emit_entry_drivers, spawned_ref}
+    Process.put(spawned_ref, [])
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ankole, :repo, :query],
+        fn _, _, metadata, _ ->
+          maybe_stub_inserted_session_drivers(metadata, agent_uid, owner, spawned_ref)
+        end,
+        nil
+      )
+
+    try do
+      case Observe.emit_entry(agent_uid, binding_name, input, opts) do
+        {:ok, _result} = ok ->
+          ok
+
+        other ->
+          cleanup_spawned_stub_drivers(spawned_ref)
+          other
+      end
+    rescue
+      error ->
+        cleanup_spawned_stub_drivers(spawned_ref)
+        reraise error, __STACKTRACE__
+    after
+      :telemetry.detach(handler)
+      Process.delete(spawned_ref)
+    end
+  end
+
+  defp maybe_stub_inserted_session_drivers(metadata, agent_uid, owner, spawned_ref) do
+    query = Map.get(metadata, :query, "")
+    params = Map.get(metadata, :params, [])
+
+    if (String.starts_with?(query, ~s(INSERT INTO "signals")) or
+          String.starts_with?(query, ~s(INSERT INTO "conversation_inbound_batches"))) and
+         agent_uid in params do
+      for {^agent_uid, session_id} <-
+            extract_inserted_session_keys(query, params, metadata.result),
+          is_binary(session_id) and session_id != "" do
+        key = %{agent_uid: agent_uid, session_id: session_id}
+
+        if Ankole.Sessions.driver_pid(key) == :undefined do
+          pid = stub_driver(key, owner)
+          Process.put(spawned_ref, [pid | Process.get(spawned_ref, [])])
+        end
+      end
+    end
+  end
+
+  defp extract_inserted_session_keys(query, params, {:ok, %{num_rows: n} = res})
+       when is_integer(n) and n > 0 do
+    case res do
+      %{columns: columns, rows: rows} when is_list(columns) and is_list(rows) and rows != [] ->
+        agent_idx = Enum.find_index(columns, &(&1 == "agent_uid"))
+        session_idx = Enum.find_index(columns, &(&1 == "session_id"))
+
+        if is_integer(agent_idx) and is_integer(session_idx) do
+          Enum.map(rows, fn row -> {Enum.at(row, agent_idx), Enum.at(row, session_idx)} end)
+        else
+          extract_session_keys_from_insert_sql(query, params)
+        end
+
+      _without_returning ->
+        extract_session_keys_from_insert_sql(query, params)
+    end
+  end
+
+  defp extract_inserted_session_keys(_query, _params, _result), do: []
+
+  defp extract_session_keys_from_insert_sql(query, params) do
+    case Regex.run(
+           ~r/\AINSERT INTO "(?:signals|conversation_inbound_batches)" \(([^)]+)\) VALUES \(([^)]+)\)/,
+           query
+         ) do
+      [_, raw_cols, raw_vals] ->
+        cols = raw_cols |> String.split(",") |> Enum.map(&String.trim(&1, " \""))
+        vals = raw_vals |> String.split(",") |> Enum.map(&resolve_sql_param(&1, params))
+        pairs = Map.new(Enum.zip(cols, vals))
+        [{Map.get(pairs, "agent_uid"), Map.get(pairs, "session_id")}]
+
+      _other ->
+        []
+    end
+  end
+
+  defp resolve_sql_param(token, params) do
+    case Regex.run(~r/\A\s*\$(\d+)\s*\z/, token) do
+      [_, idx_str] -> Enum.at(params, String.to_integer(idx_str) - 1)
+      _other -> nil
+    end
+  end
+
+  defp cleanup_spawned_stub_drivers(spawned_ref) do
+    spawned_ref
+    |> Process.get([])
+    |> Enum.each(&Process.exit(&1, :kill))
   end
 
   def group_entry(overrides) do

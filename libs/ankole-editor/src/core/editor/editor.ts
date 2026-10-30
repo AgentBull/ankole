@@ -375,7 +375,9 @@ export class Wordgard {
     this.rejectedTransaction = false
     if (rejected) this.inputState.abortComposition()
     const composition = this.composing ? this.inputState.getCompositionInfo(this) : null
-    if (this.composing && !composition) this.inputState.abortComposition()
+    if (this.composing && !composition && !this.inputState.keepEmptyComposition(this)) {
+      this.inputState.abortComposition()
+    }
     const changes = domChanges ? addUpdated(update.changes.sections, domChanges) : update.changes.sections
     const prevDocTile = this.docTile
     if (!update.empty) {

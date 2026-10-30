@@ -8,6 +8,7 @@ import { ChatAvatar } from './chat-avatar'
 import { ModelControls } from '../model-controls'
 import { useRoomActions } from './room-api'
 import { LinkedExecutionCard } from './linked-execution-card'
+import { PodPanelSurface, type PanelInputEvent } from '../panel-motion'
 
 export function ChatSummaryPanel({
   detail,
@@ -16,14 +17,14 @@ export function ChatSummaryPanel({
 }: {
   detail: ConversationDetail
   callableAgentUIDs: string[]
-  onClose(): void
+  onClose(event?: PanelInputEvent): void
 }) {
   const { t } = useTranslation()
   const room = detail.conversation,
     actions = useRoomActions(room.id)
   const { pageIDs, attachments } = detail.artifacts
   return (
-    <aside
+    <PodPanelSurface
       className="pod-chat-summary"
       aria-label={t('pod.chat_room.summary')}
       onKeyDown={event => {
@@ -126,6 +127,6 @@ export function ChatSummaryPanel({
         ))}
         {!detail.linkedRuns.length && <p className="pod-chat-subtle">{t('pod.chat_room.no_background')}</p>}
       </section>
-    </aside>
+    </PodPanelSurface>
   )
 }

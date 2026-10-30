@@ -53,12 +53,10 @@ transaction commits. For login challenges, `Ankole.Authn` evaluates whether the
 normalized target email is eligible to receive mail before generating a secret
 digest:
 
-- `console` logins deliver codes only when the email resolves in the privileged
-  tenant to a Human member of `siteadmin` (through either a bound `email_otp`
-  credential or a unique unbound pending Human).
-- `pod` and `oauth` logins without an invitation deliver codes only when the
-  email resolves to an existing Human in the target tenant, including disabled
-  members and members whose Pod policy requires enterprise SSO so that
+- Tenant-targeted logins without an invitation (Pod sign-in, privileged-Pod
+  sign-in for the Console, and OAuth authorization requests) deliver codes only
+  when the email resolves to an existing Human in the target tenant, including
+  disabled members and members whose Pod policy requires enterprise SSO so that
   submitting the code surfaces `account_disabled` or `login_policy_rejected`.
 - Public link invitations deliver codes when the email matches an existing
   tenant Human or satisfies the Pod's login policy for the invited role and
@@ -66,8 +64,9 @@ digest:
   submitted email matches the invitation's target address.
 - Pinned reauthentications deliver codes only when the email resolves in the
   target tenant to the pinned Human Principal.
-- `site` logins deliver codes to any syntactically valid email address so users
-  can verify an address before selecting, joining, or creating a Pod.
+- Shared-host `site` logins without a target tenant deliver codes to any
+  syntactically valid email address so users can verify an address before
+  selecting, joining, or creating a Pod.
 
 Once `Sender` delivery succeeds for an eligible target, `Ankole.Authn` activates
 the challenge if the stored digest matches the reservation; activation
@@ -86,8 +85,9 @@ membership.
 `authn_challenges` tracks active and completed ceremonies. Each row stores the
 browser group, optional tenant and Principal, strategy, purpose, factor stage,
 target, secret digest, attempt count, attempt limit (five by default), start
-time, expiry, verification time, and ceremony context—including login purpose,
-mode, return path, and any optional reference to an invitation,
+time, expiry, verification time, and ceremony context—including the return path,
+optional Console return path (`console_return_to`), optional target tenant ID
+(`target_tenant_id`), and any optional reference to an invitation,
 reauthentication, or OIDC authorization request (OIDC requests and pinned
 reauthentications also record `started_revision`). During verification,
 `Ankole.Authn` locks the browser record before locking the challenge. If the
@@ -130,9 +130,9 @@ challenge so the user can immediately start a reauthentication ceremony.
 
 For browser rendering, the Auth HTML shell embeds public feature-flag decisions
 in its `ankole-features` meta element—evaluating flags in the site context for
-site login and in the tenant context for Pod login—and includes the target
-tenant's display name on Pod and OAuth logins so SaaS sign-in pages can show the
-destination before login. The official OpenFeature provider loads this feature
+site login and in the tenant context for tenant-targeted login—and includes the
+target tenant's display name when a target tenant is resolved so SaaS sign-in
+pages can show the destination before login. The official OpenFeature provider loads this feature
 snapshot before the first render, whereas backend consumers evaluate features at
 their own operation boundaries. A build can also wrap the Auth SPA with
 `AuthAppSlots.emailOtpChallenge` and run an outer request Plug ahead of the core
@@ -144,10 +144,12 @@ when sending or resending a code (see
 
 `Ankole.Authn.Mailer` delivers verification codes and Pod invitations through
 Swoosh, rendering multipart HTML and plain-text emails from compile-time MJML
-templates (`MjmlEEx` with `Mjml`). It selects the message locale from the
-request's `Accept-Language` header, falling back to the target tenant's default
-locale and then the site default locale. Agent email uses a separate subsystem
-and owner.
+templates. `Ankole.Authn.Emails.Layout` compiles the shared layout and each
+template with `Mjml`, then Elixir's EEx and `Phoenix.HTML.Engine` compile the
+HTML renderer and escape dynamic values when sending a message. The mailer
+selects the message locale from the request's `Accept-Language` header, falling
+back to the target tenant's default locale and then `"en-US"`. Agent email uses
+a separate subsystem and owner.
 
 The global encrypted `authn.email.mail` setting stores the SMTP server, port,
 sender address, optional username and password, TLS mode, and optional CA file

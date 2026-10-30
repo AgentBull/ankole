@@ -9,6 +9,18 @@ import { conversationAttachmentURL } from './native-transfers'
 import type { ChatAttachments } from './state/chat-attachments'
 import { AttachmentPreview } from './attachment-preview'
 
+/** Files that share a long prefix differ at the end, so a long name gives way in the middle and keeps its extension. */
+function AttachmentName({ name }: { name: string }) {
+  const dot = name.lastIndexOf('.')
+  const split = dot > 0 && name.length - dot <= 8 ? dot : name.length
+  return (
+    <>
+      <span className="min-w-0 truncate">{name.slice(0, split)}</span>
+      <span className="shrink-0">{name.slice(split)}</span>
+    </>
+  )
+}
+
 export function ChatAttachmentButton({ model, disabled }: { model: ChatAttachments; disabled?: boolean }) {
   const { t } = useTranslation()
   const input = useRef<HTMLInputElement>(null)
@@ -60,10 +72,10 @@ export function ChatAttachmentDrafts({
             <a
               href={file.url}
               download={file.file.name}
-              className="block max-w-48 truncate"
+              className="flex max-w-48"
               title={file.file.name}
               aria-label={t('pod.chat_attachments.download', { name: file.file.name })}>
-              {file.file.name}
+              <AttachmentName name={file.file.name} />
             </a>
             {!recovery && (
               <span role={file.state === 'failed' ? 'alert' : 'status'} className="text-fg-tertiary">
@@ -167,11 +179,11 @@ export function MessageAttachments({
             />
             <a
               href={conversationAttachmentURL(conversationID, messageID, attachment.path, true)}
-              className="max-w-64 truncate text-xs"
+              className="flex min-w-0 max-w-64 text-xs"
               download={attachment.name}
               title={attachment.name}
               aria-label={t('pod.chat_attachments.download', { name: attachment.name })}>
-              {attachment.name}
+              <AttachmentName name={attachment.name} />
             </a>
             {renderAction?.(attachment)}
           </li>

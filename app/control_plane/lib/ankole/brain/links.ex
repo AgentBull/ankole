@@ -84,24 +84,29 @@ defmodule Ankole.Brain.Links do
     Enum.reduce_while(links, {:ok, MapSet.new()}, fn {target, type, source, kind, resolution},
                                                      {:ok, keys} ->
       result =
-        with {:ok, target} <- Objects.resolve_slug(target),
-             {:ok, _} <-
-               upsert_link(%{
-                 from_object_slug: slug,
-                 to_object_slug: target.slug,
-                 link_type: type,
-                 link_source: source,
-                 link_kind: kind,
-                 origin_object_slug: slug,
-                 origin_field: "body",
-                 resolution_type: resolution
-               }) do
-          {:ok, {target.slug, type, source}}
+        with {:ok, target} <- Objects.resolve_slug(target) do
+          if target.slug == slug do
+            {:error, :self_link}
+          else
+            with {:ok, _} <-
+                   upsert_link(%{
+                     from_object_slug: slug,
+                     to_object_slug: target.slug,
+                     link_type: type,
+                     link_source: source,
+                     link_kind: kind,
+                     origin_object_slug: slug,
+                     origin_field: "body",
+                     resolution_type: resolution
+                   }) do
+              {:ok, {target.slug, type, source}}
+            end
+          end
         end
 
       case result do
         {:ok, key} -> {:cont, {:ok, MapSet.put(keys, key)}}
-        {:error, :not_found} -> {:cont, {:ok, keys}}
+        {:error, reason} when reason in [:not_found, :self_link] -> {:cont, {:ok, keys}}
       end
     end)
   end

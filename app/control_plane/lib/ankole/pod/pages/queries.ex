@@ -2,67 +2,305 @@ defmodule Ankole.Pod.Pages.Queries do
   @moduledoc "Owns visible page lists, directory cursors, search, and version snapshots."
   require Ash.Query
   alias Ankole.Repo
-  alias Ankole.Pod.{Access, Page, Pages}
+  alias Ankole.Pod.{Access, Files, Page, PageContent, Pages}
 
   def list_children(%Ankole.AuthZ.Actor{} = actor, parent_id, opts \\ %{}) do
-    uid = Ankole.AuthZ.Actor.uid(actor)
-
     Repo.transact_repeatable_read_only(fn ->
-      with :ok <- visible_parent(actor, parent_id) do
-        limit = Ankole.Attrs.get(opts, :limit, 200)
-        limit = if is_integer(limit), do: max(1, min(limit, 200)), else: 200
-        cursor = Ankole.Attrs.get(opts, :cursor)
-        page_opts = if cursor, do: [limit: limit, after: cursor], else: [limit: limit]
-
-        owner =
-          if is_nil(parent_id) and to_string(Ankole.Attrs.get(opts, :scope, "space")) == "private",
-            do: uid
-
-        query = Page |> Ash.Query.for_read(if(parent_id, do: :list_children, else: :list_roots))
-
-        query =
-          if parent_id,
-            do: Ash.Query.filter(query, parent_id == ^parent_id),
-            else: Ash.Query.filter(query, is_nil(parent_id))
-
-        query =
-          cond do
-            parent_id -> query
-            owner -> Ash.Query.filter(query, private_owner_uid == ^owner)
-            true -> Ash.Query.filter(query, is_nil(private_owner_uid))
-          end
-
-        query =
-          query
-          |> Ash.Query.sort(position: :asc, id: :asc)
-          |> Ash.Query.select([
-            :id,
-            :tenant_id,
-            :parent_id,
-            :private_owner_uid,
-            :position,
-            :title,
-            :icon,
-            :type,
-            :acl_anchor_id,
-            :inherit_permissions
-          ])
-
-        with {:ok, page} <- Ankole.Ash.read_authorized(query, actor, page: page_opts) do
-          next = if page.more?, do: List.last(page.results).__metadata__.keyset
-
-          {:ok,
-           %{
-             pages: page.results,
-             next_cursor: next,
-             principal_uid: uid,
-             can_create_private: can_create_private?(actor),
-             can_create_space: Pages.can_create_space?(actor)
-           }}
+      with {:ok, access} <- Ankole.Pod.Access.Graph.navigation_access(actor),
+           policy = Ankole.AuthZ.Checks.PodAnchorFilter.policy(access.reachable),
+           :ok <- visible_directory_parent(actor, parent_id, policy),
+           {:ok, directory} <- read_directory(actor, parent_id, opts, access, policy) do
+        if Ankole.Attrs.get(opts, :details, false) in [true, "true"] do
+          {:ok, Map.put(directory, :details, child_details(directory.pages))}
+        else
+          {:ok, directory}
         end
       end
     end)
   end
+
+  def visible_child_count_in_tx(%Ankole.AuthZ.Actor{} = actor, %Page{} = page, reachable) do
+    if is_nil(page.deleted_at) do
+      Page
+      |> Ash.Query.filter(parent_id == ^page.id)
+      |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(
+        actor,
+        Ankole.AuthZ.Checks.PodAnchorFilter.policy(reachable)
+      )
+      |> Ankole.Ash.count!(actor: actor, authorize?: true)
+    else
+      0
+    end
+  end
+
+  @doc """
+  The ancestors of `page` from the root down to its parent that `actor` can read. The path stops at the
+  nearest unreadable ancestor and starts below it, so a shared page under a private parent shows only the
+  pages its reader can open.
+  """
+  def readable_ancestors_in_tx(%Ankole.AuthZ.Actor{} = actor, %Page{} = page, reachable) do
+    with {:ok, path} <- Access.path(page),
+         ids = path |> Enum.drop(-1) |> Enum.map(& &1.id),
+         {:ok, readable} <-
+           Page
+           |> Ash.Query.filter(id in ^ids)
+           |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(
+             actor,
+             Ankole.AuthZ.Checks.PodAnchorFilter.policy(reachable)
+           )
+           |> Ankole.Ash.read_authorized(actor) do
+      by_id = Map.new(readable, &{&1.id, &1})
+
+      {:ok,
+       ids
+       |> Enum.reverse()
+       |> Enum.reduce_while([], fn id, chain ->
+         case by_id do
+           %{^id => ancestor} -> {:cont, [ancestor | chain]}
+           _unreadable -> {:halt, chain}
+         end
+       end)}
+    end
+  end
+
+  def navigation(%Ankole.AuthZ.Actor{} = actor, active_page_id) do
+    Repo.transact_repeatable_read_only(fn ->
+      with {:ok, access} <- Ankole.Pod.Access.Graph.navigation_access(actor),
+           policy = Ankole.AuthZ.Checks.PodAnchorFilter.policy(access.reachable),
+           {:ok, space} <- read_directory(actor, nil, %{scope: "space"}, access, policy),
+           {:ok, private} <- read_directory(actor, nil, %{scope: "private"}, access, policy) do
+        path = navigation_path(active_page_id, access.reachable)
+
+        path =
+          if path != [] and hd(path).private_owner_uid not in [nil, Ankole.AuthZ.Actor.uid(actor)],
+            do: [],
+            else: path
+
+        ids = Enum.map(path, & &1.id)
+
+        path_query =
+          Page
+          |> Ash.Query.filter(id in ^ids)
+          |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(actor, policy)
+          |> Ash.Query.aggregate(:has_children, :exists, :children,
+            query: [filter: policy.filter],
+            authorize?: false
+          )
+
+        path_pages =
+          if ids == [],
+            do: %{},
+            else:
+              Ankole.Ash.read!(path_query, actor: actor, authorize?: true)
+              |> Map.new(&{&1.id, &1})
+
+        path = Enum.map(path, &Map.fetch!(path_pages, &1.id))
+        scope = if List.first(path) && hd(path).private_owner_uid, do: "private", else: "space"
+
+        Enum.reduce_while(Enum.drop(path, -1), {:ok, []}, fn parent, {:ok, directories} ->
+          case read_directory(actor, parent.id, %{}, access, policy) do
+            {:ok, directory} ->
+              {:cont,
+               {:ok, [Map.merge(directory, %{parent_id: parent.id, scope: scope}) | directories]}}
+
+            error ->
+              {:halt, error}
+          end
+        end)
+        |> case do
+          {:ok, directories} ->
+            {:ok,
+             %{
+               directories: [
+                 Map.merge(space, %{parent_id: nil, scope: "space"}),
+                 Map.merge(private, %{parent_id: nil, scope: "private"})
+                 | Enum.reverse(directories)
+               ],
+               path: path
+             }}
+
+          error ->
+            error
+        end
+      end
+    end)
+  end
+
+  def navigation_entries(actor, ids) do
+    Repo.transact_repeatable_read_only(fn ->
+      with {:ok, access} <- Ankole.Pod.Access.Graph.navigation_access(actor) do
+        policy = Ankole.AuthZ.Checks.PodAnchorFilter.policy(access.reachable)
+
+        Page
+        |> Ash.Query.filter(id in ^ids)
+        |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(actor, policy)
+        |> Ash.Query.aggregate(:has_children, :exists, :children,
+          query: [filter: policy.filter],
+          authorize?: false
+        )
+        |> Ash.Query.aggregate(:child_count, :count, :children,
+          query: [filter: policy.filter],
+          authorize?: false
+        )
+        |> Ankole.Ash.read_authorized(actor)
+      end
+    end)
+  end
+
+  defp navigation_path(nil, _reachable), do: []
+
+  defp navigation_path(id, reachable) do
+    with {:ok, page} <- Pages.fetch(id),
+         {:ok, path} <- Access.path(page),
+         true <-
+           Enum.all?(
+             path,
+             &(is_nil(&1.deleted_at) and Bitwise.band(Access.page_bits(&1, reachable), 1) != 0)
+           ) do
+      path
+    else
+      _ -> []
+    end
+  end
+
+  defp visible_directory_parent(_actor, nil, _policy), do: :ok
+
+  defp visible_directory_parent(actor, id, policy) do
+    query =
+      Page
+      |> Ash.Query.filter(id == ^id)
+      |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(actor, policy)
+
+    case Ankole.Ash.read_one_authorized(query, actor) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, _page} -> :ok
+      error -> error
+    end
+  end
+
+  defp read_directory(actor, parent_id, opts, access, policy) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+    limit = Ankole.Attrs.get(opts, :limit, 200)
+    limit = if is_integer(limit), do: max(1, min(limit, 200)), else: 200
+    cursor = Ankole.Attrs.get(opts, :cursor)
+    page_opts = if cursor, do: [limit: limit, after: cursor], else: [limit: limit]
+
+    owner =
+      if is_nil(parent_id) and to_string(Ankole.Attrs.get(opts, :scope, "space")) == "private",
+        do: uid
+
+    query = Page |> Ash.Query.for_read(if(parent_id, do: :list_children, else: :list_roots))
+
+    query =
+      if parent_id,
+        do: Ash.Query.filter(query, parent_id == ^parent_id),
+        else: Ash.Query.filter(query, is_nil(parent_id))
+
+    query =
+      cond do
+        parent_id -> query
+        owner -> Ash.Query.filter(query, private_owner_uid == ^owner)
+        true -> Ash.Query.filter(query, is_nil(private_owner_uid))
+      end
+
+    query =
+      query
+      |> Ash.Query.sort(position: :asc, id: :asc)
+      |> Ash.Query.select([
+        :id,
+        :tenant_id,
+        :parent_id,
+        :private_owner_uid,
+        :position,
+        :title,
+        :icon,
+        :type,
+        :acl_anchor_id,
+        :inherit_permissions
+      ])
+      |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(actor, policy)
+      # Apply the caller's visibility filter without resolving grants again.
+      |> Ash.Query.aggregate(:has_children, :exists, :children,
+        query: [filter: policy.filter],
+        authorize?: false
+      )
+
+    with {:ok, page} <- Ankole.Ash.read_authorized(query, actor, page: page_opts) do
+      {:ok,
+       %{
+         pages: page.results,
+         next_cursor: if(page.more?, do: List.last(page.results).__metadata__.keyset),
+         principal_uid: uid,
+         can_create_private: can_create_private?(actor),
+         can_create_space: Bitwise.band(access.space_bits, 4) != 0,
+         can_manage_space: access.can_manage_space
+       }}
+    end
+  end
+
+  defp child_details([]), do: %{}
+
+  defp child_details(pages) do
+    ids = Enum.map(pages, & &1.id)
+
+    meta_by_id =
+      Page
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.Query.select([:id, :created_at, :updated_at, :created_by])
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.id, &1})
+
+    creator_uids =
+      meta_by_id
+      |> Map.values()
+      |> Enum.map(& &1.created_by.uid)
+      |> Enum.uniq()
+
+    names_by_uid =
+      Ankole.Principals.list_principals!(
+        query: [filter: [uid: [in: creator_uids]], select: [:uid, :display_name]]
+      )
+      |> Map.new(&{&1.uid, &1.display_name})
+
+    doc_ids = for %{type: :doc, id: id} <- pages, do: id
+
+    excerpts_by_id =
+      if doc_ids == [] do
+        %{}
+      else
+        PageContent
+        |> Ash.Query.filter(page_id in ^doc_ids)
+        |> Ash.Query.select([:page_id, :plain_text])
+        |> Ankole.Ash.read!()
+        |> Map.new(fn row -> {row.page_id, excerpt_text(row.plain_text)} end)
+      end
+
+    file_ids = for %{type: :file, id: id} <- pages, do: id
+    files_by_id = Files.primary_files_by_page(file_ids)
+
+    Map.new(pages, fn page ->
+      meta = Map.fetch!(meta_by_id, page.id)
+      creator_uid = meta.created_by.uid
+
+      {page.id,
+       %{
+         created_at: meta.created_at,
+         updated_at: meta.updated_at,
+         created_by: creator_uid,
+         creator_name: Map.get(names_by_uid, creator_uid),
+         excerpt: Map.get(excerpts_by_id, page.id),
+         file: Map.get(files_by_id, page.id)
+       }}
+    end)
+  end
+
+  defp excerpt_text(text) when is_binary(text) do
+    text
+    |> String.trim()
+    |> String.slice(0, 300)
+  end
+
+  defp excerpt_text(_text), do: ""
 
   def search(%Ankole.AuthZ.Actor{} = actor, query, opts \\ %{}) do
     Repo.transact_repeatable_read_only(fn -> search_pages(actor, query, opts) end)
@@ -76,6 +314,7 @@ defmodule Ankole.Pod.Pages.Queries do
       |> Ash.Query.for_read(:search, %{
         required_action: Ankole.Attrs.get(opts, :required_action, :page_view)
       })
+      |> maybe_filter_embeddable(Ankole.Attrs.get(opts, :embeddable, false))
       |> Ash.Query.filter(ilike(title, ^pattern) or exists(content, ilike(plain_text, ^pattern)))
       |> Ash.Query.calculate(
         :relevance,
@@ -106,6 +345,11 @@ defmodule Ankole.Pod.Pages.Queries do
   end
 
   defp search_pages(_actor, _query, _opts), do: {:error, :invalid_request}
+
+  defp maybe_filter_embeddable(query, true),
+    do: Ash.Query.filter(query, type in [:base, :file, :applet])
+
+  defp maybe_filter_embeddable(query, _embeddable), do: query
 
   defp ancestors(actor, pages) do
     ids = Enum.map(pages, & &1.id)
@@ -219,6 +463,10 @@ defmodule Ankole.Pod.Pages.Queries do
         Page
         |> Ash.Query.filter(id in ^ids)
         |> Ash.Query.set_context(%{pod_state_order: ids, pod_visited_at: visited_at})
+        |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(
+          actor,
+          Ankole.AuthZ.Checks.PodAnchorFilter.policy(reachable)
+        )
 
       {:ok, query}
     end
@@ -233,9 +481,13 @@ defmodule Ankole.Pod.Pages.Queries do
       shared = shared_root_ids(shared, reachable)
 
       {:ok,
-       Ash.Query.filter(
-         Page,
+       Page
+       |> Ash.Query.filter(
          id in ^shared and (is_nil(private_owner_uid) or private_owner_uid != ^uid)
+       )
+       |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(
+         actor,
+         Ankole.AuthZ.Checks.PodAnchorFilter.policy(reachable)
        )}
     end
   end
@@ -362,12 +614,6 @@ defmodule Ankole.Pod.Pages.Queries do
 
   def can_create_private?(%Ankole.AuthZ.Actor{} = actor) do
     match?({:ok, %{type: :human, membership: :member}}, Access.principal(actor))
-  end
-
-  defp visible_parent(_actor, nil), do: :ok
-
-  defp visible_parent(actor, id) do
-    with {:ok, _} <- Pages.authorize(actor, id, "page_view"), do: :ok
   end
 
   def reconcile_versions(%Ankole.AuthZ.Actor{} = actor, page_ids, table_ids)

@@ -2,6 +2,7 @@ import type { MutationCache } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { rootErrorOptions } from './error-boundary'
 import { activeLocale, loadLocale } from './i18n'
 import { AppProviders, createQueryClient } from './providers'
 import { initializeFeatures } from './features'
@@ -35,7 +36,7 @@ export async function mountApp(
   await Promise.all([loadLocale(activeLocale()), loadLocale('en-US'), initializeFeatures(flags)])
 
   const queryClient = container.__ankoleQueryClient ?? createQueryClient(mutationCache)
-  const root = container.__ankoleRoot ?? createRoot(container)
+  const root = container.__ankoleRoot ?? createRoot(container, rootErrorOptions)
 
   container.__ankoleQueryClient = queryClient
   container.__ankoleRoot = root

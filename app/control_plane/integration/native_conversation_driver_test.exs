@@ -638,6 +638,13 @@ defmodule Ankole.Conversations.NativeDriverTest do
        context do
     %{human: human, agent: agent, script: script} = context
 
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: human.uid,
+        resource_pattern: "agent:#{agent.uid}:tool:finish_scheduled",
+        action: "invoke"
+      })
+
     Agent.update(
       script,
       &%{

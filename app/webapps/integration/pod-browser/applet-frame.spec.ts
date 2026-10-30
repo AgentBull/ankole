@@ -1,9 +1,23 @@
 import { expect, test, type Locator } from '@playwright/test'
 import { login, state, request, requestWithSharingVersion } from './fixtures'
 import { pageRoute } from './routes'
-import { PageSharingModel } from '../../pod/state/page-sharing'
+import { isAdvancedSharingRule } from '../../pod/state/page-sharing'
 import type { PageSharing } from '../../pod/content-api'
 import type { PodPageSharingResponse } from '../../pod/api/generated/types.gen'
+
+const snapshotSharing = (source: PodPageSharingResponse): PageSharing => ({
+  sharing_version: source.sharing_version,
+  inherit_permissions: source.inherit_permissions,
+  grants: source.grants.map(grant => ({
+    principal_uid: grant.principal_uid ?? null,
+    group_id: grant.group_id ?? null,
+    target_scope: grant.target_scope ?? 'container',
+    source_page_id: grant.source_page_id ?? null,
+    source_action: grant.source_action ?? null,
+    condition: grant.condition?.trim() || 'true',
+    ...(isAdvancedSharingRule(grant) ? { actions: grant.actions } : { role: grant.role })
+  }))
+})
 
 const draftStorage = (body: Locator) =>
   body.evaluate(() =>
@@ -194,7 +208,10 @@ test('ESM chunks and Web Workers retain the original tab identity when another a
     }, id)
     expect(denied).toBe(403)
   } finally {
-    if (id && title !== undefined) await request(original, `/pages/${id}`, 'PATCH', { title })
+    if (id && title !== undefined) {
+      const current = await request<{ page: { title: string } }>(original, `/pages/${id}`)
+      await request(original, `/pages/${id}`, 'PATCH', { title, expected_title: current.page.title })
+    }
     if (submitted) {
       await request(original, `/tables/${state.table_id}/records`, 'POST', {
         deletes: [{ id: submitted.id, expected_versions: submitted.versions }]
@@ -227,9 +244,7 @@ test('an Applet viewer submits according to target permissions without losing lo
     await member.goto(state.base_url + pageRoute(state.base_id))
     const base = await request<{ actions: string[] }>(member, `/pages/${state.base_id}`)
     expect(base.actions).toContain('page_write_records')
-    const originalBase = new PageSharingModel()
-    originalBase.replace(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
-    restoreBase = originalBase.body()
+    restoreBase = snapshotSharing(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
     const share = (role: 'view' | 'contribute') =>
       requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', {
         inherit_permissions: false,
@@ -289,26 +304,28 @@ test('an Applet viewer submits according to target permissions without losing lo
     await share('view')
     await expect(draft).toHaveValue('Unsubmitted member evaluation')
     await expect(frame.getByRole('button', { name: 'Local counter 1', exact: true })).toBeVisible()
-    const ancestor = new PageSharingModel()
-    ancestor.replace(await request<PodPageSharingResponse>(owner, `/pages/${state.report_id}/sharing`))
-    restoreReport = ancestor.body()
-    const memberIndex = ancestor.draft.value!.grants.findIndex(
-      grant => grant.principal_uid === state.member.uid && (grant.condition ?? 'true') === 'true'
-    )
-    expect(memberIndex).toBeGreaterThanOrEqual(0)
+    const reportSharing = await request<PodPageSharingResponse>(owner, `/pages/${state.report_id}/sharing`)
+    restoreReport = snapshotSharing(reportSharing)
+    expect(
+      reportSharing.grants.some(
+        grant => grant.principal_uid === state.member.uid && (grant.condition ?? 'true') === 'true'
+      )
+    ).toBe(true)
     await requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', {
       inherit_permissions: true,
       grants: []
     })
-    ancestor.update(memberIndex, { role: 'view' })
-    await requestWithSharingVersion(owner, `/pages/${state.report_id}/sharing`, 'PUT', ancestor.body())
+    await request(owner, `/pages/${state.report_id}/sharing`, 'PATCH', {
+      upserts: [{ principal_uid: state.member.uid, role: 'view', target_scope: 'container' }]
+    })
     const target = await request<{ actions: string[] }>(member, `/pages/${state.base_id}`)
     expect(target.actions).not.toContain('page_write_records')
     await expect(draft).toBeEditable()
     await expect(draft).toHaveValue('Unsubmitted member evaluation')
     await expect(frame.getByRole('button', { name: 'Local counter 1', exact: true })).toBeVisible()
-    ancestor.update(memberIndex, { role: 'contribute' })
-    await requestWithSharingVersion(owner, `/pages/${state.report_id}/sharing`, 'PUT', ancestor.body())
+    await request(owner, `/pages/${state.report_id}/sharing`, 'PATCH', {
+      upserts: [{ principal_uid: state.member.uid, role: 'contribute', target_scope: 'container' }]
+    })
     await expect(button).toBeEnabled()
     await expect(draft).toBeEditable()
     await expect(draft).toHaveValue('Unsubmitted member evaluation')
@@ -341,12 +358,12 @@ test('a rejected table write preserves the Applet draft until Page access is rev
   await memberContext.addCookies(state.member.cookies)
   const owner = await ownerContext.newPage()
   const member = await memberContext.newPage()
-  const appletSharing = new PageSharingModel()
-  const baseSharing = new PageSharingModel()
+  let restoreApplet: PageSharing | undefined
+  let restoreBase: PageSharing | undefined
   try {
     await owner.goto(pageRoute(state.applet_id))
-    appletSharing.replace(await request<PodPageSharingResponse>(owner, `/pages/${state.applet_id}/sharing`))
-    baseSharing.replace(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
+    restoreApplet = snapshotSharing(await request<PodPageSharingResponse>(owner, `/pages/${state.applet_id}/sharing`))
+    restoreBase = snapshotSharing(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
     await requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', {
       inherit_permissions: false,
       grants: [
@@ -386,11 +403,11 @@ test('a rejected table write preserves the Applet draft until Page access is rev
     await expect(member.locator('iframe')).toHaveCount(0)
     await expect(member.getByRole('button', { name: '重新加载小应用', exact: true })).toHaveCount(0)
   } finally {
-    if (appletSharing.body()) {
-      await requestWithSharingVersion(owner, `/pages/${state.applet_id}/sharing`, 'PUT', appletSharing.body())
+    if (restoreApplet) {
+      await requestWithSharingVersion(owner, `/pages/${state.applet_id}/sharing`, 'PUT', restoreApplet)
     }
-    if (baseSharing.body()) {
-      await requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', baseSharing.body())
+    if (restoreBase) {
+      await requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', restoreBase)
     }
     await Promise.all([ownerContext.close(), memberContext.close()])
   }

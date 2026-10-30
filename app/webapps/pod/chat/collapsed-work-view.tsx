@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ExecutionSummary } from './types'
 import { ToolRunView, stepTitle } from './tool-run-view'
+import { formatElapsed } from './elapsed'
 
 export function CollapsedWorkView({
   execution,
@@ -16,7 +17,7 @@ export function CollapsedWorkView({
   phaseLabel?: string
   attention?: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     if (!active || !startedAt) return
@@ -33,9 +34,12 @@ export function CollapsedWorkView({
       )
   )
   const current = runningSteps.at(-1)
+  const stopped = ['stopped', 'cancelled'].includes(execution.status ?? '')
   const failed =
+    stopped ||
     steps.some(step => ['error', 'failed'].includes(step.status)) ||
-    ['error', 'failed', 'stopped', 'cancelled'].includes(execution.status ?? '')
+    ['error', 'failed'].includes(execution.status ?? '')
+  const outcome = active ? undefined : stopped ? 'stopped' : failed ? 'failed' : undefined
   const thinkingDisclosure = active && !current
   const urgent = attention || failed
   const [expanded, setExpanded] = useState((active && !thinkingDisclosure) || urgent)
@@ -54,7 +58,7 @@ export function CollapsedWorkView({
       <div className="pod-chat-work pod-chat-work-status" role="status">
         <span className="pod-chat-working-dot" aria-hidden />
         <span>{phaseLabel || t('pod.chat_timeline.thinking')}</span>
-        {duration != null && <time>{(duration / 1000).toFixed(1)}s</time>}
+        {duration != null && <time>{formatElapsed(duration, i18n.language)}</time>}
       </div>
     )
   }
@@ -62,6 +66,7 @@ export function CollapsedWorkView({
   return (
     <details
       className={`pod-chat-work${thinkingDisclosure ? ' pod-chat-thinking' : ''}`}
+      data-outcome={outcome}
       open={expanded}
       onToggle={event => {
         if (event.currentTarget.open !== expanded) {
@@ -69,19 +74,21 @@ export function CollapsedWorkView({
           setExpanded(event.currentTarget.open)
         }
       }}>
-      <summary>
+      <summary title={execution.model}>
         {active && <span className="pod-chat-working-dot" aria-hidden />}
         <span>
           {active
             ? runningSteps.length > 1
               ? phaseLabel || t('pod.chat_timeline.tool_count', { count: steps.length })
               : (current && stepTitle(current)) || phaseLabel || t('pod.chat_timeline.thinking')
-            : t('pod.chat_timeline.worked_for', {
-                seconds: ((duration ?? 0) / 1000).toFixed(1),
-                count: steps.length
-              })}
+            : outcome
+              ? t(`pod.chat_timeline.${outcome}_after`, { duration: formatElapsed(duration ?? 0, i18n.language) })
+              : t('pod.chat_timeline.worked_for', {
+                  duration: formatElapsed(duration ?? 0, i18n.language),
+                  count: steps.length
+                })}
         </span>
-        {active && duration != null && <time>{(duration / 1000).toFixed(1)}s</time>}
+        {active && duration != null && <time>{formatElapsed(duration, i18n.language)}</time>}
         {thinkingDisclosure && steps.length > 0 && (
           <span> · {t('pod.chat_timeline.tool_count', { count: steps.length })}</span>
         )}

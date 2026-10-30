@@ -19,7 +19,7 @@ import { toast } from '@ankole/uikit/components/sonner'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 import {
@@ -39,6 +39,7 @@ import type {
 export type IdentityAdapter = SetupIdentityProviderAdaptersResponse['adapters'][number]
 import { ConfigFields, defaultConfig, localizedText, setPath } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
+import { ErrorBoundary } from '../common/error-boundary'
 import i18n, { loadLocale, nativeLocaleLabel } from '../common/i18n'
 import { BrainPacksStep } from './brain-packs-step'
 import { SetupLayout, SetupPanel } from './layout'
@@ -166,39 +167,41 @@ export function SetupApp() {
         </nav>
 
         <div className="min-w-0">
-          {state.error ? (
-            <SetupPanel title={t('setup.title')}>
-              <ErrorBlock
-                error={state.error}
-                action={
-                  <Button size="sm" type="button" variant="outline" onClick={() => void state.refetch()}>
-                    {t('common.retry')}
-                  </Button>
-                }
+          <ErrorBoundary variant="panel" resetKeys={[currentStep, authenticated]}>
+            {state.error ? (
+              <SetupPanel title={t('setup.title')}>
+                <ErrorBlock
+                  error={state.error}
+                  action={
+                    <Button size="sm" type="button" variant="outline" onClick={() => void state.refetch()}>
+                      {t('common.retry')}
+                    </Button>
+                  }
+                />
+              </SetupPanel>
+            ) : state.isLoading ? (
+              <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
+            ) : !authenticated ? (
+              <BootstrapGate
+                setupState={state.data}
+                onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ['setup-state'] })}
               />
-            </SetupPanel>
-          ) : state.isLoading ? (
-            <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
-          ) : !authenticated ? (
-            <BootstrapGate
-              setupState={state.data}
-              onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ['setup-state'] })}
-            />
-          ) : plugins.error ? (
-            <ErrorBlock error={plugins.error} />
-          ) : !pluginsModel.sourceKey.value ? (
-            <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
-          ) : step === 'plugins' ? (
-            <PluginsStep model={pluginsModel} onContinue={() => completeStep('plugins', 'industry')} />
-          ) : step === 'industry' ? (
-            <BrainPacksStep onContinue={() => completeStep('industry', 'identity')} />
-          ) : (
-            <IdentityStep
-              model={identityModel}
-              pluginsModel={pluginsModel}
-              publicBaseURL={state.data?.publicBaseURL ?? window.location.origin}
-            />
-          )}
+            ) : plugins.error ? (
+              <ErrorBlock error={plugins.error} />
+            ) : !pluginsModel.sourceKey.value ? (
+              <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
+            ) : step === 'plugins' ? (
+              <PluginsStep model={pluginsModel} onContinue={() => completeStep('plugins', 'industry')} />
+            ) : step === 'industry' ? (
+              <BrainPacksStep onContinue={() => completeStep('industry', 'identity')} />
+            ) : (
+              <IdentityStep
+                model={identityModel}
+                pluginsModel={pluginsModel}
+                publicBaseURL={state.data?.publicBaseURL ?? window.location.origin}
+              />
+            )}
+          </ErrorBoundary>
         </div>
       </fieldset>
     </SetupLayout>
@@ -500,18 +503,20 @@ function IdentityMethodStep({
           })}
         </RadioGroup>
       </section>
-      {emailMethod ? (
-        <EmailAdminForm />
-      ) : (
-        // The key remounts the form per adapter so request state from one
-        // provider never lingers under another.
-        <SSOIdentityForm
-          key={activeAdapter.adapterID}
-          adapter={activeAdapter}
-          model={model}
-          publicBaseURL={publicBaseURL}
-        />
-      )}
+      <ErrorBoundary variant="panel" resetKeys={[emailMethod ? 'email_otp' : activeAdapter.adapterID]}>
+        {emailMethod ? (
+          <EmailAdminForm />
+        ) : (
+          // The key remounts the form per adapter so request state from one
+          // provider never lingers under another.
+          <SSOIdentityForm
+            key={activeAdapter.adapterID}
+            adapter={activeAdapter}
+            model={model}
+            publicBaseURL={publicBaseURL}
+          />
+        )}
+      </ErrorBoundary>
     </SetupPanel>
   )
 }
@@ -529,10 +534,20 @@ function SSOIdentityForm({
   useSignals()
   const { i18n: i18next, t } = useTranslation()
   const [callbackCopied, setCallbackCopied] = useState(false)
+  const callbackCopiedTimer = useRef<number | null>(null)
   const [customizeCallback, setCustomizeCallback] = useState(false)
   const providerIDControlID = useId()
   const providerIDErrorID = `${providerIDControlID}-error`
   const providerIDHintID = `${providerIDControlID}-hint`
+
+  useEffect(
+    () => () => {
+      if (callbackCopiedTimer.current !== null) {
+        window.clearTimeout(callbackCopiedTimer.current)
+      }
+    },
+    []
+  )
 
   const mutation = useMutation({
     mutationFn: async (input: IdentitySetupDraft) => {
@@ -569,9 +584,15 @@ function SSOIdentityForm({
   async function copyCallbackURL() {
     try {
       await navigator.clipboard.writeText(oidcCallbackURL(publicBaseURL, model.providerID.value))
+      if (callbackCopiedTimer.current !== null) {
+        window.clearTimeout(callbackCopiedTimer.current)
+      }
       setCallbackCopied(true)
       toast.success(t('setup.oidc_callback_url_copied'))
-      window.setTimeout(() => setCallbackCopied(false), 2000)
+      callbackCopiedTimer.current = window.setTimeout(() => {
+        callbackCopiedTimer.current = null
+        setCallbackCopied(false)
+      }, 2000)
     } catch {
       toast.error(t('setup.oidc_callback_url_copy_failed'))
     }

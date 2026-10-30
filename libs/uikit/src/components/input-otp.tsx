@@ -15,7 +15,7 @@ function InputOTP({
   return (
     <OTPInput
       data-slot="input-otp"
-      containerClassName={cn('cn-input-otp flex items-center has-disabled:opacity-50', containerClassName)}
+      containerClassName={cn('cn-input-otp group/input-otp flex items-center', containerClassName)}
       spellCheck={false}
       className={cn('disabled:cursor-not-allowed', className)}
       {...props}
@@ -42,7 +42,7 @@ function InputOTPSlot({
       data-slot="input-otp-slot"
       data-active={isActive}
       className={cn(
-        'relative flex size-8 items-center justify-center rounded-control border border-field-edge border-b-input bg-field text-sm transition-[color,border-color,background-color] outline-none aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-[active=true]:z-10 data-[active=true]:border-control-edge data-[active=true]:border-b-ring data-[active=true]:bg-background data-[active=true]:shadow-[inset_0_-1px_0_var(--color-ring)]',
+        'relative flex size-8 items-center justify-center rounded-control border border-field-edge border-b-input bg-field text-sm transition-[color,border-color,background-color] outline-none aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-[active=true]:z-10 data-[active=true]:border-control-edge data-[active=true]:border-b-ring data-[active=true]:bg-background data-[active=true]:shadow-[inset_0_-1px_0_var(--color-ring)] group-has-[input:disabled]/input-otp:border-b-transparent group-has-[input:disabled]/input-otp:text-fg-disabled',
         className
       )}
       {...props}>

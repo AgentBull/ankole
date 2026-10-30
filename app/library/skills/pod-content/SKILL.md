@@ -50,6 +50,10 @@ with `source_action`) and either `role` or exact `actions`, plus optional
 Set a Page's `title` with `pages.create` or `pages.update`;
 `pages.write` supplies its Markdown body. Follow the native Pod delivery
 rules for Page authoring and the requested output format.
+Every `pages.update` request that supplies `title` requires its last-read title as
+`expected_title`, including `""` for an untitled Page. The server rejects a missing
+or stale base with `title_conflict`. Read the current title and reconsider the
+rename before retrying. Updates to other metadata do not require a title base.
 
 1. Use `pages.search {query}` to find titles and document text, or read a known
    page ID. Search returns at most 30 matches. Use `pages.children {parent_id}`
@@ -64,10 +68,12 @@ rules for Page authoring and the requested output format.
 4. If the write conflicts, read again and reconsider the change. Do not
    overwrite a newer revision or claim the old write succeeded.
 
-Create inline content where it belongs: pass the intended document's
-`parent_id` to `pages.create`, then add its embed. Do not create elsewhere and
-move it merely to create a child. If inserting the embed fails, the child remains
-in the page tree. Removing an embed from Markdown removes only the reference.
+Create child content where it belongs: pass the intended document's
+`parent_id` to `pages.create`, then add a reference to it. Use
+`<mention page="<document-page-id>" />` for a child document and an embed for
+an interactive Base, File Page, or Applet. Do not create elsewhere and move it
+merely to create a child. If inserting the reference fails, the child remains
+in the page tree. Removing a reference from Markdown removes only the reference.
 The page link form is `ankole:page/<page-id>`.
 
 In document Markdown, put each inline embed on its own line. For an Applet,

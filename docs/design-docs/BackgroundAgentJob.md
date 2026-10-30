@@ -531,7 +531,7 @@ Workspace path):
 Code mode exposes strictly the dynamic tools that Agent Computer declares to the
 Codex thread (`tools.<name>` inside the JavaScript executor; undeclared tools do
 not exist, and AIGateway-hosted Response tools never enter this registry).
-`buildCodexJobProjection` admits at most six read-only/coordination tools:
+`buildCodexJobProjection` admits at most nine read-only/coordination tools:
 
 | Tool | Executor | Condition |
 | --- | --- | --- |
@@ -540,6 +540,9 @@ not exist, and AIGateway-hosted Response tools never enter this registry).
 | `skill_view` | `Ankole.Sessions.Tools.Skill` through `tools.read` | Always |
 | `recall` | `Ankole.Sessions.Tools.Brain` through `tools.read` | The turn start carries its declaration in `request_context.brain_tools`, which the control plane fills while `brain.enabled` is true |
 | `get_page` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
+| `entity` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
+| `whoknows` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
+| `delta` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
 | `request_parent_input` | The Worker lead-thread guard and the control plane wait | Always declared; only the lead thread may call it |
 
 Brain write operations, browser tools, and foreground-only tools never enter

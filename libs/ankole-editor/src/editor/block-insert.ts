@@ -52,10 +52,15 @@ function emptyCopy(node: Node): Node | null {
 /**
  * Changes that insert `nodes` at `pos`. The blocks around `pos` split there, up to the nearest
  * container: a list splits at the item. A part that would be empty is not made, except after the
- * end of the last block of a container: there an empty copy follows, so that the caret has a place.
+ * end of the last block of a container: when `trailing` is true, an empty copy follows for the caret.
  * `at` is the position of the first inserted node in the new document.
  */
-function splitInsert(doc: Plot.Doc, pos: number, nodes: readonly Node[]): { changes: ChangeSet.Spec; at: number } {
+export function splitInsert(
+  doc: Plot.Doc,
+  pos: number,
+  nodes: readonly Node[],
+  trailing = true
+): { changes: ChangeSet.Spec; at: number } {
   const { container, block } = placeOf(doc, pos)
   if (!block) return { changes: { from: pos, insert: nodes }, at: pos }
   const inBlock = (plot: Pos.Plot) => !!plot.parent && plot.before >= block.before
@@ -68,7 +73,7 @@ function splitInsert(doc: Plot.Doc, pos: number, nodes: readonly Node[]): { chan
   }
   if (cut.pos == block.before) return { changes: { from: cut.pos, insert: nodes }, at: cut.pos }
   if (cut.pos == block.after) {
-    const copy = block.after == container.end ? emptyCopy(block.node) : null
+    const copy = trailing && block.after == container.end ? emptyCopy(block.node) : null
     return { changes: { from: cut.pos, insert: copy ? [...nodes, copy] : nodes }, at: cut.pos }
   }
   const close: Token[] = [],
@@ -99,7 +104,7 @@ export function wrapTextblock(state: GardState, textblock: Pos.Plot, container: 
  * follows it. Elsewhere the block at the caret splits at the caret and the new block goes between
  * the parts: the caret moves into a new container, or after a new leaf block.
  */
-export function blockInsertion(state: GardState, node: Node): Transaction.Spec {
+function insertion(state: GardState, node: Node): { spec: Transaction.Spec; at: number } {
   const { schema } = state
   const head = state.sel.head
   const textblock = head.textblockParent
@@ -108,13 +113,16 @@ export function blockInsertion(state: GardState, node: Node): Transaction.Spec {
     if (textblock && inContainer) {
       const end = textblock.end + 1
       return {
-        changes: wrapTextblock(state, textblock, node.tag),
-        selection: cx => GardSelection.near(cx, end, -1)
+        spec: {
+          changes: wrapTextblock(state, textblock, node.tag),
+          selection: cx => GardSelection.near(cx, end, -1)
+        },
+        at: textblock.before
       }
     }
     const filled = node.content.length ? node : node.tag.create([T.Paragraph.create([])])
     const { changes, at } = splitInsert(state.doc, head.pos, [filled])
-    return { changes, selection: cx => GardSelection.near(cx, at + 2, 1) }
+    return { spec: { changes, selection: cx => GardSelection.near(cx, at + 2, 1) }, at }
   }
   if (
     textblock &&
@@ -125,12 +133,19 @@ export function blockInsertion(state: GardState, node: Node): Transaction.Spec {
   ) {
     const after = textblock.before + node.length + 1
     return {
-      changes: { from: textblock.before, to: textblock.after, insert: [node, T.Paragraph.create([])] },
-      selection: cx => GardSelection.near(cx, after, 1)
+      spec: {
+        changes: { from: textblock.before, to: textblock.after, insert: [node, T.Paragraph.create([])] },
+        selection: cx => GardSelection.near(cx, after, 1)
+      },
+      at: textblock.before
     }
   }
   const { changes, at } = splitInsert(state.doc, head.pos, [node])
-  return { changes, selection: cx => GardSelection.near(cx, at + node.length, 1) }
+  return { spec: { changes, selection: cx => GardSelection.near(cx, at + node.length, 1) }, at }
+}
+
+export function blockInsertion(state: GardState, node: Node): Transaction.Spec {
+  return insertion(state, node).spec
 }
 
 /**
@@ -179,10 +194,17 @@ export function withLeadingEdit(wg: Wordgard, edit: Transaction.Spec, f: () => v
 }
 
 /** Insert a block at the caret as one undo step. See `blockInsertion`. */
-export function insertBlock(wg: Wordgard, node: Node) {
+export function insertBlock(wg: Wordgard, node: Node, after?: (at: number) => Transaction.Spec): number {
   const edit = leading.get(wg)
   leading.delete(wg)
-  const spec = edit ? compose(wg.state, edit, state => blockInsertion(state, node)) : blockInsertion(wg.state, node)
+  let insertedAt = 0
+  const step = (state: GardState): Transaction.Spec => {
+    const { spec, at } = insertion(state, node)
+    insertedAt = at
+    return after ? { ...spec, ...after(at) } : spec
+  }
+  const spec = edit ? compose(wg.state, edit, step) : step(wg.state)
   dispatchStep(wg, { ...spec, userEvent: 'block.insert' })
   wg.focus()
+  return insertedAt
 }

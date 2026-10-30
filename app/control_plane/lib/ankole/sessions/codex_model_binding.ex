@@ -8,20 +8,6 @@ defmodule Ankole.Sessions.CodexModelBinding do
   @spec header_name() :: String.t()
   def header_name, do: @header_name
 
-  @doc """
-  Builds the trusted memory context at the runtime client's transport edge.
-
-  The Job attempt that the binding names scopes the Brain context that
-  compaction and the hosted memory tools of the gateway read.
-  """
-  def brain_context(_subject_uid, nil), do: {:ok, nil}
-
-  def brain_context(subject_uid, %{"job" => %{"signal_id" => signal_id}}) do
-    Ankole.Brain.RequestContext.build(subject_uid, %{"signal_id" => signal_id})
-  end
-
-  def brain_context(_subject_uid, _binding), do: {:ok, nil}
-
   @spec decode(String.t()) :: {:ok, map()} | {:error, :invalid_codex_model_binding}
   def decode(encoded) when is_binary(encoded) do
     with {:ok, json} <- Base.url_decode64(encoded, padding: false),

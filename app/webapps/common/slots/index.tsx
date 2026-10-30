@@ -1,5 +1,6 @@
 import { useBooleanFlagValue } from '@openfeature/react-sdk'
 import { createContext, useContext, Suspense, type ReactNode } from 'react'
+import { ErrorBoundary, type ErrorBoundaryVariant } from '../error-boundary'
 
 export function validateSlotIDs(slots: readonly { id: string }[], reserved: readonly string[]): void {
   const ids = new Set(reserved)
@@ -31,6 +32,18 @@ function FeatureGate({ flagKey, children }: { flagKey: string; children: SlotGat
   return children(useBooleanFlagValue(flagKey, false))
 }
 
-export function SlotBoundary({ children }: { children: ReactNode }) {
-  return <Suspense fallback={null}>{children}</Suspense>
+export function SlotBoundary({
+  children,
+  resetKeys,
+  variant
+}: {
+  children: ReactNode
+  resetKeys?: readonly unknown[]
+  variant?: ErrorBoundaryVariant
+}) {
+  return (
+    <ErrorBoundary fallback={variant ? undefined : null} resetKeys={resetKeys} variant={variant}>
+      <Suspense fallback={null}>{children}</Suspense>
+    </ErrorBoundary>
+  )
 }

@@ -52,11 +52,11 @@ function CommandDialog({
 function CommandInput({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
     <div data-slot="command-input-wrapper" className="p-1">
-      <InputGroup className="border-transparent border-b-input bg-transparent px-3 hover:bg-transparent">
+      <InputGroup variant="overlay">
         <CommandPrimitive.Input
           data-slot="command-input"
           className={cn(
-            'w-full px-2 text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
+            'w-full px-2 text-sm outline-hidden disabled:cursor-not-allowed disabled:text-fg-disabled',
             className
           )}
           {...props}
@@ -94,7 +94,7 @@ function CommandGroup({ className, ...props }: React.ComponentProps<typeof Comma
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        'overflow-hidden p-1 text-foreground **:[[cmdk-group-heading]]:px-2.5 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:text-muted-foreground',
+        'overflow-hidden p-1 text-foreground **:[[cmdk-group-heading]]:px-2.5 **:[[cmdk-group-heading]]:py-2 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:text-muted-foreground',
         className
       )}
       {...props}
@@ -106,7 +106,7 @@ function CommandSeparator({ className, ...props }: React.ComponentProps<typeof C
   return (
     <CommandPrimitive.Separator
       data-slot="command-separator"
-      className={cn('-mx-1 my-1 h-px bg-border/50', className)}
+      className={cn('mx-2.5 my-1.5 h-px bg-(--menu-field-edge)', className)}
       {...props}
     />
   )
@@ -117,7 +117,7 @@ function CommandItem({ className, children, ...props }: React.ComponentProps<typ
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "group/command-item relative flex min-h-8 cursor-default items-center gap-2 rounded-control px-2.5 py-1.5 text-sm outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-[selected=true]:bg-muted data-[selected=true]:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 data-[selected=true]:*:[svg]:text-foreground",
+        "group/command-item relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-control px-2.5 py-2 text-sm leading-5 outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-disabled data-[selected=true]:bg-(--menu-hover) data-[selected=true]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[selected=true]:*:[svg]:text-foreground",
         className
       )}
       {...props}>

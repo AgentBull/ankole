@@ -1,6 +1,6 @@
 ---
 name: brain-learning
-description: Use when material or a thought must become durable memory, and when a remembered fact turns out wrong — learning an article, page, paper, book, file, recording, or meeting transcript; capturing someone's own idea; repairing memory after a correction. Read this before the first learn_source call in a conversation. Routes each material kind to the right learning path, guides the audience scope choice, and owns the write and repair discipline.
+description: Use when material, structured entity notes, or a thought must become durable memory, and when a remembered fact or page prose turns out wrong — learning an article, page, paper, book, file, recording, or meeting transcript; curating an entity, project, or concept page; capturing someone's own idea; repairing memory after a correction. Read this before the first learn_source or put_page call in a conversation. Routes each material kind to the right learning path, guides the audience scope choice, and owns the write and repair discipline.
 default_enabled: true
 ankole-runtime: main
 ---
@@ -27,7 +27,9 @@ file anything yourself.
 | Text pasted into this conversation | Nothing. Conversations are learned automatically; do not re-save them |
 | Someone's own idea, thesis, or framework | `remember` — see "Capture ideas verbatim" |
 | One fact, decision, or preference | `remember`, not `learn_source` |
-| An open question that needs investigation and a report | A background job or deep research; afterwards `remember` the durable conclusions |
+| A structured page or dossier for a durable entity, project, or concept | `put_page` for a new page (linking related pages via `[[slug]]`), or `get_page(include_content: true)` followed by `edit_page` when the page already exists |
+| Revising or updating prose on an existing page | `get_page(include_content: true)` to read `content` and `revision`, then `edit_page` with `expected_revision` |
+| An open question that needs investigation and a report | A background job or deep research; afterwards `remember` the durable conclusions or curate a page with `put_page` / `edit_page` |
 
 ## Choose the audience scope
 
@@ -60,6 +62,12 @@ keeping — typed, spoken, or in a transcribed voice note:
   company, or project, check `entity` first and attach the claim to the
   existing page; a name that does not resolve files the claim to the channel
   instead.
+- Prefer surgical edits over full-page overwrites. Before updating an existing
+  page, call `get_page` with `include_content: true` and pass its `revision` as
+  `expected_revision` to `edit_page`. Reserve `put_page` with
+  `expected_revision` for full-body replacements on single-scope pages, and link
+  related entities inline with `[[slug]]` wikilinks so graph traversal and
+  recall discover the edges.
 - Transcripts and recorder summaries carry claims, not facts. Transcription
   garbles names, and machine summaries turn banter into commitments. Before
   you remember a surprising claim — a role change, an ownership, a major
@@ -91,9 +99,13 @@ it by claim id. A wrong claim rarely lives alone, so after the direct fix:
   it does not belong, and record it where it does.
 - A confabulation has no stored source to fix. `remember` the correction with
   the mistake named in `context`, so recall surfaces the guard next time.
+- When wrong prose sits inside a page body rather than a structured claim, read
+  the page with `get_page(include_content: true)` and patch the exact span with
+  `edit_page` under `expected_revision`.
 
 ## After it lands
 
 Use `recall` or `get_page` to read the learned knowledge, `synthesize` when a
-question needs conclusions drawn across many memories, and `remember` for your
-own durable judgments about the material.
+question needs conclusions, contested points, and open gaps drawn across many
+memories, and `remember` or `edit_page` for your own durable judgments and
+curated notes about the material.

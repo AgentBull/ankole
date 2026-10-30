@@ -10,7 +10,7 @@ import {
   deleteBackward,
   deleteForward
 } from '../../src/core/command/helper'
-import { insertLineBreak, enter, toggleMark } from '../../src/core/command/commands'
+import { insertLineBreak, insertText, enter, toggleMark } from '../../src/core/command/commands'
 import { Plot, Mark, Leaf, Node, Schema, ChangeSet } from '../../src/core/doc'
 import { Emphasis, Strong } from '../../src/core/types/schema'
 import { Link } from './types'
@@ -162,6 +162,20 @@ const AtomMark = Mark.define('AtomMark', {
   }),
   ap = builder(AtomMark)
 
+const EmptyItem = Plot.define('EmptyItem', {
+    blockContent: Node.Group.Content,
+    canBeEmpty: true,
+    shape: { element: 'li' }
+  }),
+  emptyLi = builder(EmptyItem)
+
+const EmptyList = Plot.define('EmptyList', {
+    blockContent: EmptyItem,
+    group: Node.Group.Content,
+    shape: { element: 'ul' }
+  }),
+  emptyUl = builder(EmptyList)
+
 const schema = Schema.define([
   ...basicSchema.nodes,
   ...basicSchema.marks,
@@ -171,7 +185,9 @@ const schema = Schema.define([
   PreservedMark,
   InlineSpan,
   InlineAtom,
-  AtomMark
+  AtomMark,
+  EmptyItem,
+  EmptyList
 ])
 const doc = builder(schema)
 
@@ -316,6 +332,21 @@ describe('enter', () => {
 
   it('can overwrite a selection', () => {
     test(doc(0, pre('a'), p('b'), 1), runEnter, doc(p(0)))
+  })
+
+  it('inserts a paragraph inside an empty non-isolating container instead of replacing it', () => {
+    test(doc(emptyUl(emptyLi(0))), runEnter, doc(emptyUl(emptyLi(p(0)))))
+  })
+})
+
+describe('insertText', () => {
+  it('deletes the target range without creating an empty text leaf when insert is empty', () => {
+    let state = GardState.create({ doc: doc(p('ab')), selection: GardSelection.cursor(3) })
+    const tr = insertText({ state }, { from: 1, to: 3, insert: '', userEvent: 'input.type.compose' })
+    ist(!!tr)
+    state = state.update(tr as Transaction.Spec).state
+    ist(state.doc, doc(p()), eq)
+    ist((state.doc.firstChild as Plot).content.length, 0)
   })
 })
 

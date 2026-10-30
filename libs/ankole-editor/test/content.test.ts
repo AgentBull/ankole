@@ -3,7 +3,8 @@ import type { Node, Plot } from '../src/core/doc'
 import { parseMarkdown } from '../src/document/markdown'
 import { printXml } from '../src/document/xml'
 import { markValue } from '../src/editor/attributes'
-import { applyBlockType, duplicateBlocks, type BlockType } from '../src/editor/block-actions'
+import { applyBlockType, duplicateBlocks } from '../src/editor/block-actions'
+import { type BlockType } from '../src/editor/block-catalog'
 import { toggleFormat, type FormatName } from '../src/editor/commands'
 import * as S from '../src/editor/schema'
 import { expectReopens, exportMarkdown, open, press, readTree, select, shape, typeText, type Shape } from './helpers'
@@ -240,7 +241,7 @@ describe('block actions keep what the new block can show', () => {
 
   test('a divider or embed leaves one paragraph for the caret', () => {
     expect(run('x', 'divider')).toBe('<page><p>x</p><hr /><p /></page>')
-    expect(run('x\n\n<p />', 'embed')).toBe('<page><p>x</p><embed /><p /></page>')
+    expect(run('x\n\n<p />', 'embed')).toBe('<page><p>x</p><embed href="" /><p /></page>')
   })
 
   test('a copy keeps the state of task items', () => {
@@ -259,9 +260,9 @@ test('the page read from the editor leaves out characters that a page cannot sto
   expect(printXml(readTree(editor))).toBe('<page><p>axyz</p></page>')
 })
 
-test('Tab indentation stops before the page limits', () => {
+test('Tab leaves a first block without a preceding parent in place', () => {
   const editor = open('a')
   select(editor, 1)
   for (let index = 0; index < 60; index++) press(editor, 'Tab')
-  expect(printXml(readTree(editor))).toBe('<page><p indent="49">a</p></page>')
+  expect(printXml(readTree(editor))).toBe('<page><p>a</p></page>')
 })

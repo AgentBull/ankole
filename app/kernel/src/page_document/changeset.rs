@@ -1,4 +1,4 @@
-use super::document::{DocNode, Marks, NodeKind, is_container, validate_mark};
+use super::document_schema::{DocNode, Marks, NodeKind, is_container, validate_mark};
 use super::tree::{self, Result};
 use serde_json::{Value, json};
 
@@ -47,9 +47,7 @@ enum Token {
 impl Token {
     fn len(&self) -> usize {
         match self {
-            Self::Leaf(n) if n.kind == NodeKind::Text => {
-                n.param.as_str().unwrap_or("").encode_utf16().count()
-            }
+            Self::Leaf(n) => n.span(),
             _ => 1,
         }
     }
@@ -141,16 +139,9 @@ fn slice_tokens(source: &[Token], from: usize, len: usize) -> Result<Vec<Token>>
                 out.push(token.clone());
             } else if let Token::Leaf(node) = token {
                 if node.kind == NodeKind::Text {
-                    let units: Vec<u16> = node
-                        .param
-                        .as_str()
-                        .expect("text node param is string")
-                        .encode_utf16()
-                        .collect();
                     let start = from.saturating_sub(offset);
-                    let stop = (end - offset).min(units.len());
-                    let text = String::from_utf16(&units[start..stop])
-                        .map_err(|_| "change splits a Unicode surrogate pair")?;
+                    let stop = (end - offset).min(node.span());
+                    let text = node.text_slice(start, stop)?;
                     let mut part = node.clone();
                     part.param = json!(text);
                     out.push(Token::Leaf(part));
@@ -168,6 +159,72 @@ fn slice_tokens(source: &[Token], from: usize, len: usize) -> Result<Vec<Token>>
     }
     Ok(out)
 }
+/// A borrowed view of the wire format, shared by application and anchor preservation.
+pub(super) enum Section<'a> {
+    Retain(usize),
+    Marks(usize, &'a [Value]),
+    Replace(usize, &'a [Value]),
+}
+impl<'a> Section<'a> {
+    pub(super) fn read(value: &'a Value) -> Result<Self> {
+        if let Some(length) = value.as_u64() {
+            return Ok(Self::Retain(
+                usize::try_from(length).map_err(|_| "invalid change length")?,
+            ));
+        }
+        let section = value
+            .as_array()
+            .filter(|s| s.len() == 2)
+            .ok_or("invalid ChangeSet section")?;
+        let length = usize::try_from(section[0].as_u64().ok_or("invalid change length")?)
+            .map_err(|_| "invalid change length")?;
+        let data = section[1].as_array().ok_or("invalid ChangeSet data")?;
+        Ok(if is_mark_modification(data) {
+            Self::Marks(length, data)
+        } else {
+            Self::Replace(length, data)
+        })
+    }
+    fn source_len(&self) -> usize {
+        match self {
+            Self::Retain(n) | Self::Marks(n, _) | Self::Replace(n, _) => *n,
+        }
+    }
+    fn preserves_source(&self) -> bool {
+        !matches!(self, Self::Replace(..))
+    }
+}
+
+pub(super) fn retained_ranges(changes: &Value) -> Result<Vec<(usize, usize)>> {
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    let mut offset = 0usize;
+    let mut continuing = false;
+    for value in changes.as_array().ok_or("ChangeSet must be an array")? {
+        let section = Section::read(value)?;
+        let end = offset
+            .checked_add(section.source_len())
+            .ok_or("change length overflow")?;
+        if section.preserves_source() {
+            if let Some(last) = ranges
+                .last_mut()
+                .filter(|last| continuing && last.1 == offset)
+            {
+                last.1 = end;
+            } else {
+                ranges.push((offset, end));
+            }
+        }
+        continuing = section.preserves_source();
+        offset = end;
+    }
+    Ok(ranges)
+}
+
+fn is_mark_modification(data: &[Value]) -> bool {
+    data.first()
+        .is_some_and(|value| value.get("add").is_some() || value.get("remove").is_some())
+}
+
 pub fn apply(doc: &DocNode, changes: &Value) -> Result<DocNode> {
     let changes = changes.as_array().ok_or("ChangeSet must be an array")?;
     let mut source = Vec::new();
@@ -178,60 +235,56 @@ pub fn apply(doc: &DocNode, changes: &Value) -> Result<DocNode> {
     let mut inserted = 0;
     let mut depth = 0;
     for section in changes {
-        if let Some(len) = section.as_u64() {
-            let len = usize::try_from(len).map_err(|_| "invalid change length")?;
-            if offset.checked_add(len).is_none_or(|end| end > length) {
-                return Err("change exceeds document".into());
-            }
-            append_tokens(&mut output, &mut depth, slice_tokens(&source, offset, len)?)?;
-            offset += len;
-            continue;
-        }
-        let section = section
-            .as_array()
-            .filter(|s| s.len() == 2)
-            .ok_or("invalid ChangeSet section")?;
-        let len = section[0].as_u64().ok_or("invalid change length")? as usize;
-        let data = section[1].as_array().ok_or("invalid ChangeSet data")?;
+        let section = Section::read(section)?;
+        let len = section.source_len();
         if offset.checked_add(len).is_none_or(|end| end > length) {
             return Err("change exceeds document".into());
         }
-        if data
-            .first()
-            .is_some_and(|v| v.get("add").is_some() || v.get("remove").is_some())
-        {
-            let mut kept = slice_tokens(&source, offset, len)?;
-            for modification in data {
-                let (add, name) =
-                    if let Some(name) = modification.get("add").and_then(Value::as_str) {
-                        (true, name)
-                    } else {
-                        (
-                            false,
-                            modification
-                                .get("remove")
-                                .and_then(Value::as_str)
-                                .ok_or("invalid mark modification")?,
-                        )
-                    };
-                let value = modification.get("value").ok_or("missing mark value")?;
-                validate_mark(name, value)?;
-                for token in &mut kept {
-                    let node = match token {
-                        Token::Open(n) | Token::Leaf(n) => n,
-                        Token::Close => return Err("mark modification on close token".into()),
-                    };
-                    if add {
-                        node.marks.insert(name.into(), value.clone());
-                    } else if node.marks.get(name) == Some(value) {
-                        node.marks.remove(name);
+        match section {
+            Section::Retain(_) => {
+                append_tokens(&mut output, &mut depth, slice_tokens(&source, offset, len)?)?;
+            }
+            Section::Marks(_, data) => {
+                let mut kept = slice_tokens(&source, offset, len)?;
+                for modification in data {
+                    let (add, name) =
+                        if let Some(name) = modification.get("add").and_then(Value::as_str) {
+                            (true, name)
+                        } else {
+                            (
+                                false,
+                                modification
+                                    .get("remove")
+                                    .and_then(Value::as_str)
+                                    .ok_or("invalid mark modification")?,
+                            )
+                        };
+                    let value = modification.get("value").ok_or("missing mark value")?;
+                    validate_mark(name, value)?;
+                    for token in &mut kept {
+                        let node = match token {
+                            Token::Open(n) | Token::Leaf(n) => n,
+                            Token::Close => return Err("mark modification on close token".into()),
+                        };
+                        if name == "Comment" {
+                            super::comments::modify_mark(
+                                node,
+                                value.as_array().expect("validated comment identifiers"),
+                                add,
+                            );
+                        } else if add {
+                            node.marks.insert(name.into(), value.clone());
+                        } else if node.marks.get(name) == Some(value) {
+                            node.marks.remove(name);
+                        }
                     }
                 }
+                append_tokens(&mut output, &mut depth, kept)?;
             }
-            append_tokens(&mut output, &mut depth, kept)?;
-        } else {
-            for value in data {
-                parse_token(value, &mut output, &mut inserted, &mut depth)?;
+            Section::Replace(_, data) => {
+                for value in data {
+                    parse_token(value, &mut output, &mut inserted, &mut depth)?;
+                }
             }
         }
         offset += len;

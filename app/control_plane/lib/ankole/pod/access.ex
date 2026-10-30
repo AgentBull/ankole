@@ -8,16 +8,29 @@ defmodule Ankole.Pod.Access do
   alias Ankole.Sessions.{JobTurnRef, RunRef}
   alias Ankole.AutomationJobs.AttemptRef
 
-  @actions ~w(page_view page_write_records page_edit page_manage)
+  @actions ~w(page_view page_write_records page_edit page_manage page_comment)
   @roles %{
     "view" => ["page_view"],
-    "contribute" => ~w(page_view page_write_records),
-    "edit" => ~w(page_view page_write_records page_edit),
+    "contribute" => ~w(page_view page_write_records page_comment),
+    "edit" => ~w(page_view page_write_records page_edit page_comment),
     "manage" => @actions
   }
   def page_actions, do: @actions
   def actions(role) when is_binary(role) or is_atom(role), do: Map.fetch(@roles, to_string(role))
   def actions(_role), do: :error
+
+  def canonical_role_actions?(role, actions) when is_list(actions) do
+    case actions(role) do
+      {:ok, expected} -> Enum.sort(Enum.uniq(actions)) == Enum.sort(expected)
+      :error -> false
+    end
+  end
+
+  @doc "Publishes a committed authorization change to open pages and cached directories."
+  def broadcast_change do
+    Pages.broadcast_access()
+    Phoenix.PubSub.broadcast(Ankole.PubSub, "pod-content:" <> Repo.tenant_id!(), :access_changed)
+  end
 
   def write(authority, fun, opts \\ []) when is_function(fun, 0) do
     with :ok <- validate_authority_shape(authority) do
@@ -113,6 +126,8 @@ defmodule Ankole.Pod.Access do
   def ensure_private(uid), do: put_role(%{principal_uid: uid}, "pod:private:#{uid}:**", "manage")
 
   def authorize(uid, page, action, opts \\ []) when action in @actions do
+    opts = authorization_options(action, opts)
+
     with :ok <- visible_state(page, opts),
          {:ok, reachable} <- reachable_anchors(uid, page_options(page, opts)) do
       authorize_bits(page, action, reachable)
@@ -120,6 +135,7 @@ defmodule Ankole.Pod.Access do
   end
 
   def authorize_reachable(page, action, reachable, opts \\ []) when action in @actions do
+    opts = authorization_options(action, opts)
     with :ok <- visible_state(page, opts), do: authorize_bits(page, action, reachable)
   end
 
@@ -127,6 +143,12 @@ defmodule Ankole.Pod.Access do
     if band(page_bits(page, reachable), action_bit(action)) != 0,
       do: {:ok, page},
       else: {:error, :forbidden}
+  end
+
+  defp authorization_options(action, opts) do
+    if action == "page_view" and not Keyword.has_key?(opts, :trash),
+      do: Keyword.put(opts, :trash, :self),
+      else: opts
   end
 
   defp page_options(page, opts) do
@@ -144,9 +166,11 @@ defmodule Ankole.Pod.Access do
     end
   end
 
-  def authorize_with_permissions(uid, page) do
-    with :ok <- visible_state(page, []),
-         {:ok, reachable} <- reachable_anchors(uid, target_ids: [page.acl_anchor_id]),
+  def authorize_with_permissions(uid, page, opts \\ []) do
+    opts = authorization_options("page_view", opts)
+
+    with :ok <- visible_state(page, opts),
+         {:ok, reachable} <- reachable_for(uid, page_options(page, opts)),
          bits = page_bits(page, reachable),
          true <- band(bits, 1) != 0,
          do: {:ok, Ankole.Pod.Access.Graph.project_permissions(page, bits)},
@@ -157,12 +181,19 @@ defmodule Ankole.Pod.Access do
   end
 
   defp visible_state(page, opts) do
-    if Keyword.get(opts, :trash, false) do
-      :ok
-    else
-      with {:ok, path} <- path(page) do
-        if Enum.any?(path, & &1.deleted_at), do: {:error, :not_found}, else: :ok
-      end
+    case Keyword.get(opts, :trash, false) do
+      true ->
+        :ok
+
+      :self ->
+        with {:ok, path} <- path(page) do
+          if Enum.any?(Enum.drop(path, -1), & &1.deleted_at), do: {:error, :not_found}, else: :ok
+        end
+
+      _ ->
+        with {:ok, path} <- path(page) do
+          if Enum.any?(path, & &1.deleted_at), do: {:error, :not_found}, else: :ok
+        end
     end
   end
 
@@ -538,7 +569,7 @@ defmodule Ankole.Pod.Access do
       policy = MapSet.new(selected, &{{&1.principal_uid, &1.group_id}, action_bit(&1.action)})
 
       if baseline == "pod:space:**",
-        do: Enum.reduce([1, 2, 4, 8], policy, &MapSet.put(&2, {:space_admin_fallback, &1})),
+        do: Enum.reduce([1, 2, 4, 8, 16], policy, &MapSet.put(&2, {:space_admin_fallback, &1})),
         else: policy
     end
   end

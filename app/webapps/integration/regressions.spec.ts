@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { pageRoute } from './pod-browser/routes'
 
 test('selecting either Agent in a compiled Pod enables sending and retains the selection', async ({ page }) => {
   await page.route('**/api/v2/pod/**', route =>
@@ -388,7 +389,7 @@ test('a setting reopened during a save waits for the persisted value', async ({ 
         : { app_configurations: [item] }
     })
   })
-  await page.goto('/settings')
+  await page.goto('/settings?scope=global')
   const edit = page.locator('a[href="/settings/worker.test_limit?scope=global"]')
   await edit.click()
   await page.getByRole('spinbutton').fill('20')
@@ -506,7 +507,7 @@ test('a settings group reopened during a save does not reuse its old draft', asy
       }
     })
   })
-  await page.goto('/settings')
+  await page.goto('/settings?scope=global')
   const edit = page.locator('a[href="/settings/group/observability?scope=global"]')
   await edit.click()
   const input = page.locator('input[type=url]')
@@ -526,4 +527,83 @@ test('a settings group reopened during a save does not reuse its old draft', asy
   endpoint = 'https://new.example.test'
   await writes[0]!.fulfill({ json: { app_configurations: [setting('observability.traces.otlp_endpoint', endpoint)] } })
   await expect(input).toHaveValue(endpoint)
+})
+
+test('document Page title Tab, last-line ArrowDown, and body Shift+Tab follow Notion focus flow', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 800 })
+  const id = '00112233-4455-6677-8899-aabbccddeeff'
+  let titleValue = ''
+  await page.route('**/api/v2/pod/**', route => {
+    const url = new URL(route.request().url())
+    const method = route.request().method()
+    if (url.pathname === `/api/v2/pod/pages/${id}` && method === 'PATCH') {
+      titleValue = route.request().postDataJSON().data.title ?? ''
+    }
+    if (url.pathname === `/api/v2/pod/pages/${id}`) {
+      return route.fulfill({
+        json: {
+          actions: ['page_view', 'page_edit', 'page_manage'],
+          role: 'manage',
+          ancestors: [],
+          child_count: 0,
+          content: { content: '<page/>', plain_text: '' },
+          page: {
+            id,
+            title: titleValue,
+            type: 'doc',
+            position: 'a0',
+            revision: 1,
+            inherit_permissions: true,
+            created_at: '2026-10-28T00:00:00Z',
+            updated_at: '2026-10-28T00:00:00Z'
+          }
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/pages/${id}/state`) return route.fulfill({ status: 204 })
+    if (url.pathname === '/api/v2/pod/realtime-token') return new Promise(() => {})
+    if (url.pathname.endsWith('/children') || url.pathname === '/api/v2/pod/pages') {
+      return route.fulfill({ json: { pages: [], can_create_space: true, can_create_private: true } })
+    }
+    if (url.pathname.endsWith('/agents')) return route.fulfill({ json: { agents: [] } })
+    return route.fulfill({ json: { conversations: [], entries: [] } })
+  })
+  await page.goto(pageRoute(id))
+  const title = page.getByRole('textbox', { name: 'Page title', exact: true })
+  const body = page.locator('.pod-document .editor-content')
+  await expect(title).toBeFocused()
+
+  const longTitle = 'A document title that wraps naturally as part of the page and keeps the writing flow continuous'
+  await title.fill(longTitle)
+  expect((await title.boundingBox())!.height).toBeGreaterThan(80)
+
+  for (const key of ['Tab', 'ArrowDown', 'Enter']) {
+    await title.dispatchEvent('keydown', { key, keyCode: 229, isComposing: true, bubbles: true, cancelable: true })
+    await expect(title).toBeFocused()
+  }
+
+  await title.press('Tab')
+  await expect(body).toBeFocused()
+  await page.keyboard.insertText('First body paragraph.')
+  await expect(body).toHaveText('First body paragraph.')
+
+  await body.press('Shift+Tab')
+  await expect(body).toBeFocused()
+
+  await body.press('ControlOrMeta+Home')
+  await body.press('ArrowUp')
+  await expect(title).toBeFocused()
+  await expect(title).toHaveJSProperty('selectionStart', longTitle.length)
+
+  await title.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(0, 0))
+  await title.press('ArrowDown')
+  await expect(title).toBeFocused()
+  expect(await title.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBeGreaterThan(0)
+
+  await title.evaluate((element: HTMLTextAreaElement) => {
+    const offset = element.value.length - 5
+    element.setSelectionRange(offset, offset)
+  })
+  await title.press('ArrowDown')
+  await expect(body).toBeFocused()
 })

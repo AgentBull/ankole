@@ -9,10 +9,6 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
   alias AnkoleWeb.Session, as: WebSession
   alias AnkoleWeb.SessionCookies
 
-  setup do
-    :ok
-  end
-
   test "a native browser upload is not a Page; its attachment-only Message and frozen download survive reads",
        %{conn: conn} do
     {conn, uid} = console_conn_with_principal(conn)
@@ -379,7 +375,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     conn = WebSession.ensure_browser(conn)
 
     {:ok, %{browser: browser, authentication: auth}} =
-      BrowserSessions.authenticate(WebSession.browser_reference(conn), :pod, %{
+      BrowserSessions.authenticate(WebSession.browser_reference(conn), %{
         "principal_uid" => principal.uid,
         "access_version" => principal.access_version,
         "provider_id" => "local",

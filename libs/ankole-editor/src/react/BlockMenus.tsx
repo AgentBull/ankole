@@ -1,4 +1,5 @@
 import { Button } from '@ankole/uikit/components/button'
+import { Input } from '@ankole/uikit/components/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,42 +11,59 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@ankole/uikit/components/dropdown-menu'
-import { RiAddLine, RiDraggable, RiMoreLine } from '@remixicon/react'
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement } from 'react'
+import {
+  RiAddLine,
+  RiArrowDownLine,
+  RiArrowUpLine,
+  RiDeleteBinLine,
+  RiDraggable,
+  RiFileCopyLine,
+  RiMoreLine,
+  RiText
+} from '@remixicon/react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import type { Command } from '../core/command'
 import { Embed, embedAttributes } from '../blocks/embed'
-import { editorHost } from '../editor/host'
-import type { Node, Pos } from '../core/doc'
+import { editorHost } from '../editor/host-context'
+import { type Pos } from '../core/doc'
 import { Decoration, KeyBinding, type Wordgard } from '../core/editor'
-import { history } from '../core/history'
+import { scrollableParents } from '../core/editor/dom'
 import { GardSelection, GardState, Transaction } from '../core/state'
 import {
   applyBlockType,
-  blockOptions,
+  blockTypeAt,
   canTurnInto,
   currentBlock,
-  deleteBlock,
+  actionUnits,
+  removal,
   duplicateBlocks,
-  insertAfterBlock,
+  insertBesideBlock,
   moveBlocks,
-  turnBlockInto,
-  type BlockType
+  turnBlockInto
 } from '../editor/block-actions'
+import { blockOptions, filterBlockOptions, type BlockType } from '../editor/block-catalog'
 import { useEditor, useEditorLabel, useEditorState } from './context'
+import { adjacentUnit, targetAt } from '../editor/block-target'
+import { dispatchStep, isList } from '../editor/block-insert'
+import { BlockSelection } from '../editor/block-selection'
+import { blockAt, blockDrop } from './block-geometry'
+import * as T from '../core/types'
+import { BlockTypeIcon } from './block-type-icon'
+import { BlockTypeItems } from './BlockTypeItems'
 
 /*
  * Menus for blocks (SPEC §7.6): the insert menu of the toolbar and of the block handle, and the
  * block menu of the toolbar, of ⌘/ and of the block handle. One state field records the open menu
- * and its top-level block, so that the target follows document changes and the block shows as the
+ * and its block, so that the target follows document changes and the block shows as the
  * target while its menu is open.
  */
 
 type MenuKind = 'insert' | 'block' | 'keyboard' | 'handle-insert' | 'handle'
 /**
- * The open menu. `pos` is the position before its top-level block, or null for the insert menu of
+ * The open menu. `pos` is the position before its block, or null for the insert menu of
  * the toolbar. Each ⌘/ press has its own `request` number.
  */
-type OpenMenu = { kind: MenuKind; pos: number | null; request?: number }
+type OpenMenu = { kind: MenuKind; pos: number | null; request?: number; inserting?: boolean }
 
 let keyboardRequests = 0
 
@@ -66,24 +84,29 @@ const menuField = GardState.Field.define<OpenMenu | null>({
   provide: field =>
     Decoration.Point.source.of(state => {
       const menu = state.field(field)
-      return menu && menu.pos !== null && !menu.kind.endsWith('insert')
+      return menu && menu.pos !== null && !menu.inserting && !menu.kind.endsWith('insert')
         ? Decoration.Point.set([[targetMark, menu.pos]])
         : Decoration.Point.none
     })
 })
 
-/** The top-level block at `pos`. */
-function topBlock(state: GardState, pos: number | null): Pos.Node | null {
+/** The block or list item at `pos`. */
+function menuTarget(state: GardState, pos: number | null): Pos.Node | null {
   if (pos === null || pos < 0 || pos > state.doc.length) return null
-  const found = state.doc.resolveNode(pos)
-  return found && !found.parent?.parent ? found : null
+  return targetAt(state.doc, pos)
 }
 
-/** ⌘/ opens the block menu of the current top-level block, unless the selection spans several. */
+/** ⌘/ opens the menu for the current block or whole block selection. */
 const openFromKeyboard: Command = wg => {
   const { state } = wg
-  const block = topBlock(state, state.readOnly ? null : currentBlock(state))
-  if (!block || state.selection.from < block.before || state.selection.to > block.after) return false
+  const block = menuTarget(state, state.readOnly ? null : currentBlock(state))
+  if (
+    !block ||
+    (!(state.selection instanceof BlockSelection) &&
+      (state.selection.from < block.before || state.selection.to > block.after))
+  ) {
+    return false
+  }
   return { effects: setMenu.of({ kind: 'keyboard', pos: block.before, request: ++keyboardRequests }) }
 }
 
@@ -117,20 +140,35 @@ function useMenu(kind: MenuKind) {
 
 const targetOf = (editor: Wordgard) => editor.state.field(menuField, false)?.pos ?? null
 
-export function InsertMenu({ hovered, trigger }: { hovered?: () => number | null; trigger?: ReactElement }) {
+export function InsertMenu({
+  hovered,
+  trigger,
+  children
+}: {
+  hovered?: () => number | null
+  trigger?: ReactElement
+  children?: (prepareInsertion: () => void) => ReactNode
+}) {
   const label = useEditorLabel()
   const kind = hovered ? 'handle-insert' : 'insert'
   const { editor, open, change, finalFocus } = useMenu(kind)
   const triggerId = useId()
+  const toggle = (next: boolean, reason?: string, before = false) => {
+    if (next && !open) {
+      const pos = hovered?.()
+      if (pos !== undefined && pos !== null) insertBesideBlock(editor, pos, 'paragraph', before)
+    }
+    change(next, hovered ? currentBlock(editor.state) : null, reason)
+  }
   return (
     <DropdownMenu
       modal={false}
       open={open}
       triggerId={triggerId}
-      onOpenChange={(next, details) => change(next, hovered?.() ?? null, details.reason)}>
+      onOpenChange={(next, details) => toggle(next, details.reason)}>
       <DropdownMenuTrigger
         id={triggerId}
-        {...(hovered ? handleTriggerEvents(() => change(!open, hovered())) : {})}
+        {...(hovered ? handleTriggerEvents(event => toggle(!open, undefined, event.altKey)) : {})}
         render={
           trigger ?? (
             <Button variant="ghost" size="xs">
@@ -144,42 +182,104 @@ export function InsertMenu({ hovered, trigger }: { hovered?: () => number | null
         className="block-menu ankole-editor-overlay"
         aria-label={label('insert_block')}
         finalFocus={finalFocus}>
-        <DropdownMenuLabel>{label('add_content')}</DropdownMenuLabel>
-        {blockOptions.map(option => (
-          <DropdownMenuItem
-            key={option.type}
-            onClick={() => {
-              const pos = targetOf(editor)
-              if (!hovered) applyBlockType(editor, option.type)
-              else if (topBlock(editor.state, pos)) insertAfterBlock(editor, pos!, option.type)
-            }}>
-            <span className="menu-icon">{option.glyph}</span>
-            <span>
-              {option.title(editor.state)}
-              <small>{option.detail(editor.state)}</small>
-            </span>
-          </DropdownMenuItem>
-        ))}
+        {open && <InsertChoices close={() => toggle(false)}>{children}</InsertChoices>}
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
+/** The target has already been chosen when the menu opens, including host insertions. */
+function prepareInsertion(editor: Wordgard) {
+  const block = menuTarget(editor.state, targetOf(editor))
+  if (block) editor.dispatch({ selection: GardSelection.near(editor.state, block.before + 1, 1) })
+}
+
+type InsertExtras = (prepareInsertion: () => void) => ReactNode
+
+function InsertChoices({ close, children }: { close(): void; children?: InsertExtras }) {
+  const editor = useEditor()
+  const label = useEditorLabel()
+  const [filter, setFilter] = useState('')
+  const options = filterBlockOptions(editor.state, filter)
+  const choose = (type: BlockType) => {
+    prepareInsertion(editor)
+    applyBlockType(editor, type)
+    editor.focus()
+  }
+  return (
+    <>
+      <Input
+        variant="overlay"
+        autoFocus
+        value={filter}
+        aria-label={label('filter_blocks')}
+        placeholder={label('filter_blocks')}
+        onChange={event => setFilter(event.target.value)}
+        onKeyDown={event => {
+          if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+            event.stopPropagation()
+            return
+          }
+          if (event.key === 'Enter' && options[0]) {
+            event.preventDefault()
+            event.stopPropagation()
+            choose(options[0].type)
+            close()
+          } else if (!['ArrowDown', 'ArrowUp', 'Escape', 'Tab'].includes(event.key)) {
+            event.stopPropagation()
+          }
+        }}
+      />
+      <BlockTypeItems options={options} onChoose={choose} />
+      {children && <DropdownMenuSeparator />}
+      {children?.(() => {
+        prepareInsertion(editor)
+        editor.focus()
+      })}
+    </>
+  )
+}
+
+function BlockMenuBody({ close, insertMenu }: { close(): void; insertMenu?: InsertExtras }) {
+  const inserting = useEditorState(state => state.field(menuField, false)?.inserting)
+  return inserting ? <InsertChoices close={close}>{insertMenu}</InsertChoices> : <BlockActions />
+}
+
 /** The block menu. Without `hovered`, it acts on the top-level block that holds the caret. */
-export function BlockMenu({ hovered, trigger }: { hovered?: () => number | null; trigger?: ReactElement }) {
+export function BlockMenu({
+  hovered,
+  trigger,
+  typeTrigger,
+  insertMenu
+}: {
+  hovered?: () => number | null
+  trigger?: ReactElement
+  typeTrigger?: ReactElement
+  insertMenu?: InsertExtras
+}) {
   const label = useEditorLabel()
   const kind = hovered ? 'handle' : 'block'
   const { editor, open, change, finalFocus } = useMenu(kind)
-  const triggerId = useId()
+  const gripId = useId()
+  const typeId = useId()
+  const [triggerId, setTriggerId] = useState(gripId)
+  const inserting = useEditorState(state => state.field(menuField, false)?.inserting)
+  const toggle = (id: string) => {
+    setTriggerId(id)
+    change(!open, hovered ? hovered() : currentBlock(editor.state))
+  }
   return (
     <DropdownMenu
       modal={false}
       open={open}
       triggerId={triggerId}
       onOpenChange={(next, details) => change(next, hovered ? hovered() : currentBlock(editor.state), details.reason)}>
+      {typeTrigger && (
+        <DropdownMenuTrigger id={typeId} {...handleTriggerEvents(() => toggle(typeId))} render={typeTrigger} />
+      )}
       <DropdownMenuTrigger
-        id={triggerId}
-        {...(hovered ? handleTriggerEvents(() => change(!open, hovered())) : {})}
+        id={gripId}
+        {...(hovered ? handleTriggerEvents(() => toggle(gripId)) : {})}
         render={
           trigger ?? (
             <Button
@@ -195,22 +295,23 @@ export function BlockMenu({ hovered, trigger }: { hovered?: () => number | null;
       />
       <DropdownMenuContent
         className="block-menu block-actions ankole-editor-overlay"
-        aria-label={label('block_actions')}
+        aria-label={label(inserting ? 'insert_block' : 'block_actions')}
         finalFocus={finalFocus}>
-        <BlockActions />
+        <BlockMenuBody close={() => change(false)} insertMenu={insertMenu} />
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
 /** The block menu of ⌘/, anchored at the top of its block. */
-export function KeyboardBlockMenu() {
+export function KeyboardBlockMenu({ insertMenu }: { insertMenu?: InsertExtras }) {
   const label = useEditorLabel()
   const { editor, open, setOpen, change, finalFocus } = useMenu('keyboard')
   const request = useEditorState(state => {
     const menu = state.field(menuField, false)
     return menu?.kind === 'keyboard' ? menu : null
   })
+  const inserting = useEditorState(state => state.field(menuField, false)?.inserting)
   const [top, setTop] = useState(0)
   const triggerId = useId()
   const anchor = useRef<HTMLButtonElement>(null)
@@ -242,9 +343,9 @@ export function KeyboardBlockMenu() {
       />
       <DropdownMenuContent
         className="block-menu block-actions ankole-editor-overlay"
-        aria-label={label('block_actions')}
+        aria-label={label(inserting ? 'insert_block' : 'block_actions')}
         finalFocus={finalFocus}>
-        <BlockActions />
+        <BlockMenuBody close={() => change(false)} insertMenu={insertMenu} />
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -254,12 +355,12 @@ export function KeyboardBlockMenu() {
  * Handle buttons open their menu on click, so that a press that moves starts a drag of the block
  * instead.
  */
-function handleTriggerEvents(toggle: () => void) {
+function handleTriggerEvents(toggle: (event: { altKey?: boolean }) => void) {
   return {
     onMouseDown: (event: { preventBaseUIHandler(): void }) => event.preventBaseUIHandler(),
-    onClick: (event: { preventBaseUIHandler(): void }) => {
+    onClick: (event: { altKey?: boolean; preventBaseUIHandler(): void }) => {
       event.preventBaseUIHandler()
-      toggle()
+      toggle(event)
     }
   }
 }
@@ -268,10 +369,11 @@ function BlockActions() {
   const label = useEditorLabel()
   const editor = useEditor()
   const state = useEditorState()
-  const block = topBlock(state, state.field(menuField, false)?.pos ?? null)
+  const block = menuTarget(state, state.field(menuField, false)?.pos ?? null)
+  const selected = block ? (actionUnits(state, block.before) ?? []) : []
   const act = (action: (pos: number) => void) => () => {
     const pos = targetOf(editor)
-    if (topBlock(editor.state, pos)) action(pos!)
+    if (menuTarget(editor.state, pos)) action(pos!)
   }
   const turnInto = (type: BlockType) =>
     act(pos => {
@@ -279,128 +381,136 @@ function BlockActions() {
     })
   const remove = async () => {
     const pos = targetOf(editor)
-    const target = topBlock(editor.state, pos)
+    const target = menuTarget(editor.state, pos)
     if (!target || editor.state.readOnly) return
-    const ref = target.node.type === Embed.type ? embedAttributes(target.node).ref : undefined
-    if (ref && editorHost(editor)?.deleteEmbed) {
-      if (!(await editorHost(editor)!.deleteEmbed!(ref))) return
-      // A pending network request must not remove another block after a local edit.
-      if (topBlock(editor.state, pos)?.node !== target.node) return
+    const state = editor.state
+    const change = removal(state, pos!)
+    if (!change) return
+    const refs = [
+      ...new Set(
+        (actionUnits(state, pos!) ?? []).flatMap(unit => {
+          const ref = unit.node.type === Embed.type ? embedAttributes(unit.node).ref : undefined
+          return ref ? [ref] : []
+        })
+      )
+    ]
+    const host = editorHost(editor)
+    if (refs.length && host?.deleteEmbeds) {
+      if (!(await host.deleteEmbeds(refs))) return
+      // Keep the captured selection, but do not apply old positions to an edited document.
+      if (editor.state.doc !== state.doc || editor.state.readOnly) return
     }
-    deleteBlock(editor, pos!)
+    dispatchStep(editor, change)
   }
   return (
     <>
       <DropdownMenuLabel>{label(block ? 'current_block' : 'focus_document')}</DropdownMenuLabel>
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger disabled={!block || !canTurnInto(state, block.before)}>
+        <DropdownMenuSubTrigger disabled={!selected.length || selected.some(unit => !canTurnInto(state, unit.before))}>
+          <RiText aria-hidden />
           {label('turn_into')}
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent className="block-menu ankole-editor-overlay" aria-label={label('turn_into_type')}>
-          {blockOptions
-            .filter(option => option.turnInto)
-            .map(option => (
-              <DropdownMenuItem key={option.type} onClick={turnInto(option.type)}>
-                <span className="menu-icon">{option.glyph}</span>
-                {option.title(editor.state)}
-              </DropdownMenuItem>
-            ))}
+          <BlockTypeItems
+            options={blockOptions.filter(option => option.turnInto)}
+            current={selected.length === 1 ? blockTypeAt(state, selected[0]!.before) : null}
+            onChoose={type => turnInto(type)()}
+          />
         </DropdownMenuSubContent>
       </DropdownMenuSub>
+      <DropdownMenuItem
+        disabled={!block}
+        closeOnClick={false}
+        onClick={event => {
+          const menu = editor.state.field(menuField, false)
+          if (!menu || menu.pos === null || !insertBesideBlock(editor, menu.pos, 'paragraph', event.altKey)) return
+          editor.dispatch({ effects: setMenu.of({ ...menu, pos: currentBlock(editor.state), inserting: true }) })
+        }}>
+        <RiAddLine aria-hidden />
+        {label('insert_below')}
+      </DropdownMenuItem>
       <DropdownMenuItem disabled={!block} onClick={act(pos => duplicateBlocks(editor, pos))}>
+        <RiFileCopyLine aria-hidden />
         {label('duplicate')}
       </DropdownMenuItem>
-      <DropdownMenuItem disabled={!block?.index} onClick={act(pos => moveBlocks(editor, -1, pos))}>
+      <DropdownMenuItem
+        disabled={!selected.length || !adjacentUnit(selected[0]!, -1)}
+        onClick={act(pos => moveBlocks(editor, -1, pos))}>
+        <RiArrowUpLine aria-hidden />
         {label('move_up')}
       </DropdownMenuItem>
       <DropdownMenuItem
-        disabled={!block || block.index === state.doc.content.length - 1}
+        disabled={!selected.length || !adjacentUnit(selected.at(-1)!, 1)}
         onClick={act(pos => moveBlocks(editor, 1, pos))}>
+        <RiArrowDownLine aria-hidden />
         {label('move_down')}
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem disabled={!block} variant="destructive" onClick={() => void remove()}>
+        <RiDeleteBinLine aria-hidden />
         {label('delete_block')}
       </DropdownMenuItem>
     </>
   )
 }
 
-type Hit = { pos: number; node: Node; dom: HTMLElement; rect: DOMRect }
-
-/**
- * The top-level block at the vertical position `y`, counting the margins around a block as part of
- * it. With `clamp`, a position above or below all blocks gives the first or the last block.
- */
-function blockAt(editor: Wordgard, y: number, clamp: boolean): Hit | null {
-  let pos = 0,
-    first: Hit | null = null,
-    last: Hit | null = null
-  for (const node of editor.state.doc.content) {
-    const dom = editor.nodeDOM(pos)
-    if (dom instanceof HTMLElement) {
-      const rect = dom.getBoundingClientRect()
-      const style = getComputedStyle(dom)
-      last = { pos, node, dom, rect }
-      first ??= last
-      // Blocks follow each other down the page, so no later block holds a position above this one.
-      if (y < rect.top - parseFloat(style.marginTop)) break
-      if (y <= rect.bottom + parseFloat(style.marginBottom)) return last
-    }
-    pos += node.length
-  }
-  if (!clamp || !first || !last) return null
-  return y < first.rect.top ? first : y > last.rect.bottom ? last : null
-}
-
-/** Move the top-level block at `from` to the position `to` between top-level blocks, as one undo step. */
-function moveBlock(editor: Wordgard, from: number, to: number) {
-  const node = topBlock(editor.state, from)?.node
-  if (!node || to === from || to === from + node.length) return
-  editor.dispatch({
-    changes: [
-      { from, to: from + node.length },
-      { from: to, insert: [node] }
-    ],
-    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(to, -1) + 1),
-    annotations: history.isolate.of(true),
-    userEvent: 'move.block',
-    scrollIntoView: true
-  })
-}
-
 const handleMenuOpen = (state: GardState) => !!state.field(menuField, false)?.kind.startsWith('handle')
 
-/** Handles beside the hovered top-level block: insert below, open the block menu, drag to reorder. */
-export function BlockHandles({ anchor }: { anchor: HTMLElement }) {
+/** Handles beside the hovered block: insert beside it, open its menu, or drag to reorder. */
+export function BlockHandles({
+  anchor,
+  insertMenu
+}: {
+  anchor: HTMLElement
+  insertMenu?: (prepareInsertion: () => void) => ReactNode
+}) {
   const label = useEditorLabel()
   const editor = useEditor()
-  const [hover, setHover] = useState<{ pos: number; top: number } | null>(null)
+  const [hover, setHover] = useState<{ pos: number; top: number; left: number } | null>(null)
   const menuOpen = useEditorState(handleMenuOpen)
   const handle = useRef<HTMLDivElement>(null)
   const line = useRef<HTMLDivElement>(null)
-  const dragged = useRef<{ pos: number; doc: GardState['doc'] } | null>(null)
+  const dragged = useRef<{ positions: number[]; doc: GardState['doc'] } | null>(null)
   const hoveredPos = useRef<number | null>(null)
+  const pointer = useRef<MouseEvent | null>(null)
+  const refreshHover = useRef<() => void>(() => {})
   hoveredPos.current = hover?.pos ?? null
   // The handle stays on its block while one of its menus is open or the block is dragged.
   const keep = () => handleMenuOpen(editor.state) || !!dragged.current
 
   useEffect(() => {
     const scroller = anchor.parentElement ?? anchor
-    const move = (event: MouseEvent) => {
+    const move = (event: MouseEvent, refresh = false) => {
+      pointer.current = event
       if (keep()) return
       // Moving onto the handle keeps the current block.
-      if ((event.target as Element).closest?.('.drag-handle')) return
-      const hit = blockAt(editor, event.clientY, false)
+      if (!refresh && (event.target as Element).closest?.('.drag-handle')) return
+      const hit = blockAt(editor, event.clientX, event.clientY, false)
       if (!hit) return setHover(null)
       const handleHeight = handle.current?.offsetHeight ?? 0
       const lineHeight = parseFloat(getComputedStyle(hit.dom).lineHeight)
       const lineBox = Number.isNaN(lineHeight) ? hit.rect.height : Math.min(lineHeight, hit.rect.height)
-      const top = hit.rect.top - anchor.getBoundingClientRect().top + (lineBox - handleHeight) / 2
-      setHover(previous => (previous?.pos === hit.pos && previous.top === top ? previous : { pos: hit.pos, top }))
+      const box = anchor.getBoundingClientRect()
+      const top = hit.rect.top - box.top + (lineBox - handleHeight) / 2
+      const parent = editor.state.doc.resolve(hit.pos).parent
+      const list = isList(parent.node) ? editor.nodeDOM(parent.before) : null
+      // List markers and task checkboxes occupy the space before the paragraph's text.
+      const left =
+        (list instanceof HTMLElement ? list.getBoundingClientRect().left : hit.rect.left) -
+        box.left -
+        58 -
+        (hit.dom.classList.contains('foldable-heading') ? 24 : 0)
+      setHover(previous =>
+        previous?.pos === hit.pos && previous.top === top && previous.left === left
+          ? previous
+          : { pos: hit.pos, top, left }
+      )
     }
     const leave = (event: PointerEvent) => {
-      if (event.pointerType === 'mouse' && !keep()) setHover(null)
+      if (event.pointerType === 'mouse') {
+        pointer.current = null
+        if (!keep()) setHover(null)
+      }
     }
     const pointerUp = (event: PointerEvent) => {
       if (event.pointerType !== 'mouse') move(event)
@@ -408,6 +518,10 @@ export function BlockHandles({ anchor }: { anchor: HTMLElement }) {
     scroller.addEventListener('mousemove', move)
     scroller.addEventListener('pointerup', pointerUp)
     scroller.addEventListener('pointerleave', leave)
+    refreshHover.current = () => {
+      if (pointer.current) move(pointer.current, true)
+      else if (!keep()) setHover(null)
+    }
     return () => {
       scroller.removeEventListener('mousemove', move)
       scroller.removeEventListener('pointerup', pointerUp)
@@ -415,25 +529,41 @@ export function BlockHandles({ anchor }: { anchor: HTMLElement }) {
     }
   }, [editor, anchor])
 
-  // The positions are stale after a document change. The next pointer move shows the handle again.
+  // Recompute against the rendered document: local edits and remote echoes can arrive while the
+  // pointer is stationary in the gutter.
   const doc = useEditorState(state => state.doc)
   useEffect(() => {
-    if (!keep()) setHover(null)
+    refreshHover.current()
   }, [doc])
 
   useEffect(() => {
+    let dragPointer: DragEvent | null = null
+    let scrolling: ReturnType<typeof setInterval> | null = null
+    const stopScrolling = () => {
+      if (scrolling !== null) clearInterval(scrolling)
+      scrolling = null
+      dragPointer = null
+    }
     const target = (event: DragEvent) => {
       const drag = dragged.current
       if (!drag) return null
       event.preventDefault()
       event.stopPropagation()
       if (editor.state.doc !== drag.doc) return null
-      const hit = blockAt(editor, event.clientY, true)
+      const hit = blockAt(editor, event.clientX, event.clientY, true)
       if (!hit) return null
-      const before = event.clientY < hit.rect.top + hit.rect.height / 2
-      return { hit, before, to: before ? hit.pos : hit.pos + hit.node.length }
+      return blockDrop(
+        editor.state,
+        drag.positions,
+        hit,
+        { x: event.clientX, y: event.clientY, viewportWidth: window.innerWidth },
+        pos => {
+          const dom = editor.nodeDOM(pos)
+          return dom instanceof HTMLElement ? dom.getBoundingClientRect() : null
+        }
+      )
     }
-    const over = (event: DragEvent) => {
+    const draw = (event: DragEvent) => {
       const found = target(event)
       const element = line.current
       if (event.dataTransfer && dragged.current) event.dataTransfer.dropEffect = 'move'
@@ -443,66 +573,131 @@ export function BlockHandles({ anchor }: { anchor: HTMLElement }) {
         return
       }
       const box = anchor.getBoundingClientRect()
-      const edge = found.before ? found.hit.rect.top - 4 : found.hit.rect.bottom + 4
-      element.style.width = `${box.width}px`
-      element.style.transform = `translateY(${edge - box.top - 1}px)`
+      const { marker } = found
+      element.style.width = `${marker.width}px`
+      element.style.height = `${marker.height}px`
+      element.style.left = `${marker.left - box.left}px`
+      element.style.transform = `translateY(${marker.top - box.top - 1}px)`
       element.style.opacity = '1'
+    }
+    const over = (event: DragEvent) => {
+      draw(event)
+      if (!dragged.current) return
+      dragPointer = event
+      if (scrolling !== null) return
+      const scroller = scrollableParents(editor.contentDOM).y
+      scrolling = setInterval(() => {
+        if (!dragPointer || !dragged.current || editor.state.doc !== dragged.current.doc) return stopScrolling()
+        const bounds = scroller?.getBoundingClientRect()
+        const top = Math.max(0, bounds?.top ?? 0)
+        const bottom = Math.min(window.innerHeight, bounds?.bottom ?? window.innerHeight)
+        const y = dragPointer.clientY
+        const speed = y < top + 32 ? -12 : y > bottom - 32 ? 12 : 0
+        if (!speed) return
+        if (scroller) scroller.scrollTop += speed
+        else window.scrollBy(0, speed)
+        draw(dragPointer)
+      }, 50)
     }
     const drop = (event: DragEvent) => {
       const found = target(event)
-      const drag = dragged.current
-      if (found && drag) moveBlock(editor, drag.pos, found.to)
+      if (found) dispatchStep(editor, found.edit)
+      stopScrolling()
+    }
+    const leave = (event: DragEvent) => {
+      if (!anchor.contains(event.relatedTarget as globalThis.Node | null)) stopScrolling()
     }
     anchor.addEventListener('dragover', over, true)
     anchor.addEventListener('drop', drop, true)
+    anchor.addEventListener('dragleave', leave)
+    anchor.ownerDocument.addEventListener('dragend', stopScrolling)
     return () => {
+      stopScrolling()
       anchor.removeEventListener('dragover', over, true)
       anchor.removeEventListener('drop', drop, true)
+      anchor.removeEventListener('dragleave', leave)
+      anchor.ownerDocument.removeEventListener('dragend', stopScrolling)
     }
   }, [editor, anchor])
 
+  const target = hover ? menuTarget(editor.state, hover.pos) : null
+  const empty = target?.node.type === T.Paragraph.type && target.node.isPlot && !target.node.content.length
+  const type = target ? blockTypeAt(editor.state, target.before) : null
   const shown = hover !== null
   return (
     <>
       <div
-        draggable
-        onDragStart={event => {
-          const pos = hoveredPos.current
-          const block = pos === null ? null : editor.nodeDOM(pos)
-          if (pos === null || !block) return event.preventDefault()
-          dragged.current = { pos, doc: editor.state.doc }
-          event.dataTransfer.effectAllowed = 'move'
-          event.dataTransfer.setData('application/x-ankole-block', String(pos))
-          event.dataTransfer.setDragImage(block, 0, 0)
-        }}
-        onDragEnd={() => {
-          dragged.current = null
-          if (line.current) line.current.style.opacity = '0'
-          setHover(null)
-          editor.focus()
-        }}>
-        <div
-          ref={handle}
-          className="drag-handle"
-          data-menu-open={menuOpen}
-          style={shown ? { top: hover.top } : { visibility: 'hidden' }}>
+        ref={handle}
+        className="drag-handle"
+        data-menu-open={menuOpen}
+        style={shown ? { top: hover.top, left: hover.left } : { visibility: 'hidden' }}>
+        {empty && (
           <InsertMenu
             hovered={() => hoveredPos.current}
             trigger={
-              <Button variant="ghost" size="icon-xs" aria-label={label('insert_below')} title={label('insert_below')}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                tabIndex={-1}
+                aria-label={label('insert_block')}
+                title={label('insert_block')}>
                 <RiAddLine />
               </Button>
-            }
-          />
-          <BlockMenu
-            hovered={() => hoveredPos.current}
-            trigger={
-              <Button variant="ghost" size="icon-xs" aria-label={label('block_menu')} title={label('drag_hint')}>
-                <RiDraggable />
+            }>
+            {insertMenu}
+          </InsertMenu>
+        )}
+        <BlockMenu
+          hovered={() => hoveredPos.current}
+          insertMenu={insertMenu}
+          typeTrigger={
+            !empty ? (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                tabIndex={-1}
+                aria-label={label('current_block_menu')}
+                title={
+                  type
+                    ? blockOptions.find(option => option.type === type)?.title(editor.state)
+                    : label('current_block_menu')
+                }>
+                {type ? <BlockTypeIcon type={type} /> : <RiMoreLine />}
               </Button>
-            }
-          />
-        </div>
+            ) : undefined
+          }
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              tabIndex={-1}
+              aria-label={label('block_menu')}
+              title={label('drag_hint')}
+              draggable
+              onDragStart={event => {
+                const pos = hoveredPos.current
+                const block = pos === null ? null : editor.nodeDOM(pos)
+                if (pos === null || !block) return event.preventDefault()
+                const selection = editor.state.selection
+                const positions =
+                  selection instanceof BlockSelection && selection.blocks.some(block => block.before === pos)
+                    ? selection.blocks.map(block => block.before)
+                    : [pos]
+                dragged.current = { positions, doc: editor.state.doc }
+                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setData('application/x-ankole-block', String(pos))
+                event.dataTransfer.setDragImage(block, 0, 0)
+              }}
+              onDragEnd={() => {
+                dragged.current = null
+                if (line.current) line.current.style.opacity = '0'
+                setHover(null)
+                editor.focus()
+              }}>
+              <RiDraggable />
+            </Button>
+          }
+        />
       </div>
       <div className="drag-line" ref={line} />
     </>

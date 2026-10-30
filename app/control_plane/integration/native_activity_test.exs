@@ -1,7 +1,7 @@
 defmodule AnkoleWeb.NativeActivityTest do
   use AnkoleWeb.ConnCase, async: false
   import AnkoleWeb.PodAPI
-  @moduletag sandbox: false
+  @moduletag sandbox: false, host: :pod
   import Ecto.Query
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
   alias Ankole.{Conversations, Repo, Sessions}
@@ -919,7 +919,7 @@ defmodule AnkoleWeb.NativeActivityTest do
     key = %{agent_uid: agent.uid, session_id: Sessions.Key.conversation(id)}
 
     progress(agent.uid, first, "running", %{
-      "key" => "signals_gateway.reply.activity.read_file",
+      "key" => "conversations.delivery.reply.activity.read_file",
       "bindings" => %{"path" => "one", "hidden" => %{secret: true}}
     })
 
@@ -1017,14 +1017,12 @@ defmodule AnkoleWeb.NativeActivityTest do
     {:ok, completed} =
       Ankole.BrowserSessions.authenticate(
         AnkoleWeb.Session.browser_reference(conn),
-        :pod,
         %{
           "principal_uid" => principal.uid,
           "access_version" => principal.access_version,
           "provider_id" => "lark-main",
           "external_id" => principal.uid
-        },
-        mode: :add
+        }
       )
 
     conn = AnkoleWeb.Session.put_authentication(conn, completed.browser, completed.authentication)
@@ -1125,7 +1123,12 @@ defmodule AnkoleWeb.NativeActivityTest do
     Task.async(
       Repo.bind_tenant(fn ->
         request =
-          Plug.Test.conn(:get, "/api/v2/pod/conversations/#{id}/events")
+          %{
+            Plug.Test.conn(:get, "/api/v2/pod/conversations/#{id}/events")
+            | host: conn.host,
+              port: conn.port,
+              scheme: conn.scheme
+          }
           |> Plug.Test.init_test_session(get_session(conn))
           |> copy_authentication_cookies(conn)
           |> put_req_header("accept", "text/event-stream")
@@ -1232,7 +1235,12 @@ defmodule AnkoleWeb.NativeActivityTest do
 
   defp sse_snapshot(conn, id) do
     request =
-      Plug.Test.conn(:get, "/api/v2/pod/conversations/#{id}/events")
+      %{
+        Plug.Test.conn(:get, "/api/v2/pod/conversations/#{id}/events")
+        | host: conn.host,
+          port: conn.port,
+          scheme: conn.scheme
+      }
       |> Plug.Test.init_test_session(get_session(conn))
       |> copy_authentication_cookies(conn)
       |> put_req_header("accept", "text/event-stream")

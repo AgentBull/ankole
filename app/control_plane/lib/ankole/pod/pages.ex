@@ -9,13 +9,19 @@ defmodule Ankole.Pod.Pages do
   require Ash.Query
   alias Ankole.{ActorRef, AuthZ, Repo}
   alias Ankole.Pod.{Access, Page, PageContent, PageUserState, Position}
-  alias Ankole.Pod.Pages.{Queries, Sharing}
+  alias Ankole.Pod.Pages.{Mentions, Queries, Sharing}
+  alias Ankole.Pod.Documents.History
 
   defdelegate list_children(actor, parent_id, opts \\ %{}), to: Queries
+  defdelegate navigation(actor, active_page_id), to: Queries
+  defdelegate navigation_entries(actor, ids), to: Queries
   defdelegate search(actor, query, opts \\ %{}), to: Queries
   defdelegate list(actor, opts \\ %{}), to: Queries
   defdelegate can_create_private?(actor), to: Queries
   defdelegate reconcile_versions(actor, page_ids, table_ids), to: Queries
+  defdelegate mention_candidates(actor, opts \\ %{}), to: Mentions, as: :candidates
+  defdelegate resolve_mentions(actor, attrs), to: Mentions, as: :resolve
+  defdelegate resolve_xml_references(actor, xml, context_page_id \\ nil), to: Mentions
 
   def can_create_space?(%Ankole.AuthZ.Actor{} = actor),
     do: match?(:ok, destination(actor, nil, nil))
@@ -24,6 +30,8 @@ defmodule Ankole.Pod.Pages do
   defdelegate subjects(actor), to: Sharing
   defdelegate set_sharing(actor, id, attrs, authority \\ nil), to: Sharing
   defdelegate set_sharing_in_tx(actor, id, attrs), to: Sharing
+  defdelegate update_sharing(actor, id, attrs, authority \\ nil), to: Sharing
+  defdelegate update_sharing_in_tx(actor, id, attrs), to: Sharing
   defdelegate space(actor), to: Sharing
   defdelegate set_space(actor, role, authority \\ nil), to: Sharing
   defdelegate set_space_in_tx(actor, role), to: Sharing
@@ -33,8 +41,8 @@ defmodule Ankole.Pod.Pages do
   defdelegate remove_space_agent_in_tx(actor, agent_uid), to: Sharing
 
   @doc "Checks the active Principal and the page's inherited AuthZ permission."
-  def authorize(%Ankole.AuthZ.Actor{} = actor, id, action) do
-    with {:ok, page} <- fetch(id), do: Access.authorize(actor, page, action)
+  def authorize(%Ankole.AuthZ.Actor{} = actor, id, action, opts \\ []) do
+    with {:ok, page} <- fetch(id), do: Access.authorize(actor, page, action, opts)
   end
 
   def fetch(id) do
@@ -68,7 +76,10 @@ defmodule Ankole.Pod.Pages do
 
   def create(%Ankole.AuthZ.Actor{} = actor, attrs, authority \\ nil) when is_map(attrs) do
     authority = authority || actor.turn_authority
-    Access.write_tree(authority, fn -> create_in_tx(actor, attrs) end, after_commit: &committed/1)
+
+    Access.write_tree(authority, fn -> create_in_tx(actor, attrs) end,
+      after_commit: &committed_tree/1
+    )
   end
 
   @doc "Creates a page in the caller's transaction."
@@ -84,7 +95,9 @@ defmodule Ankole.Pod.Pages do
              Ankole.Attrs.get(attrs, :parent_id),
              Ankole.Attrs.get(attrs, :private_owner_uid)
            ),
-         {:ok, source} <- source_message(actor, Ankole.Attrs.get(attrs, :saved_from_message_id)) do
+         {:ok, source} <- source_message(actor, Ankole.Attrs.get(attrs, :saved_from_message_id)),
+         {:ok, children_view} <-
+           normalize_children_view(Ankole.Attrs.get(attrs, :children_view, %{})) do
       now = DateTime.utc_now(:microsecond)
 
       skip_default_table = Ankole.Attrs.get(attrs, :skip_default_table, false)
@@ -107,6 +120,7 @@ defmodule Ankole.Pod.Pages do
             )
           ),
         saved_from_message_id: source && source.id,
+        children_view: children_view,
         created_by: ActorRef.from_principal(principal),
         created_at: now,
         updated_at: now
@@ -132,25 +146,107 @@ defmodule Ankole.Pod.Pages do
   @doc false
   def update_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
     with {:ok, page} <- lock(id),
-         {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "page_edit") do
+         {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "page_edit"),
+         :ok <- check_title_base(page, attrs),
+         {:ok, children_view} <- merge_children_view(page.children_view, attrs) do
       changes =
         Map.new([:title, :icon], fn key ->
           {key, Ankole.Attrs.get(attrs, key, Map.get(page, key))}
         end)
 
-      Ankole.Ash.update(
-        page,
-        :edit,
-        Map.put(changes, :updated_at, DateTime.utc_now(:microsecond))
-      )
+      identity_edited? =
+        Enum.any?(changes, fn {key, value} -> Map.fetch!(page, key) != value end)
+
+      now = DateTime.utc_now(:microsecond)
+
+      updated_at =
+        if identity_edited? or Ankole.Attrs.get(attrs, :children_view, :missing) == :missing,
+          do: now,
+          else: page.updated_at
+
+      with :ok <- record_document_edit(page, changes, actor, now) do
+        Ankole.Ash.update(
+          page,
+          :edit,
+          changes
+          |> Map.put(:children_view, children_view)
+          |> Map.put(:updated_at, updated_at)
+        )
+      end
     end
   end
+
+  defp check_title_base(page, attrs) do
+    if Ankole.Attrs.get(attrs, :title, :missing) == :missing or
+         Ankole.Attrs.get(attrs, :expected_title) == page.title do
+      :ok
+    else
+      {:error, {:title_conflict, page.title}}
+    end
+  end
+
+  defp merge_children_view(current, attrs) do
+    case Ankole.Attrs.get(attrs, :children_view, :missing) do
+      :missing ->
+        {:ok, current || %{}}
+
+      nil ->
+        {:error, :invalid_request}
+
+      patch ->
+        with {:ok, normalized} <- normalize_children_view(patch) do
+          {:ok, Map.merge(current || %{}, normalized)}
+        end
+    end
+  end
+
+  defp normalize_children_view(nil), do: {:ok, %{}}
+
+  defp normalize_children_view(map) when is_map(map) do
+    {:ok,
+     Map.new(map, fn {key, value} ->
+       {to_string(key), normalize_children_view_value(value)}
+     end)}
+  end
+
+  defp normalize_children_view(_invalid), do: {:error, :invalid_request}
+
+  defp normalize_children_view_value(value)
+       when is_atom(value) and value not in [true, false, nil],
+       do: Atom.to_string(value)
+
+  defp normalize_children_view_value(value) when is_list(value),
+    do: Enum.map(value, &normalize_children_view_value/1)
+
+  defp normalize_children_view_value(value), do: value
+
+  defp record_document_edit(%{type: :doc} = page, changes, actor, now) do
+    if Enum.any?(changes, fn {key, value} -> Map.fetch!(page, key) != value end) do
+      content =
+        PageContent
+        |> Ash.Query.filter(page_id == ^page.id)
+        |> Ankole.Ash.read_one!(not_found_error?: true)
+
+      with :ok <- History.checkpoint_in_tx(page, content, now),
+           :ok <- Ankole.Pod.Documents.Insights.edit_in_tx(page.id, AuthZ.Actor.uid(actor), now),
+           {:ok, _} <-
+             Ankole.Ash.update(content, :attribute_edit, %{
+               updated_by: ActorRef.from_actor(actor),
+               updated_at: now
+             }),
+           do: :ok
+    else
+      :ok
+    end
+  end
+
+  defp record_document_edit(_page, _changes, _actor, _now), do: :ok
 
   def move(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
     authority = authority || actor.turn_authority
 
     Access.write_tree(authority, fn -> move_in_tx(actor, id, attrs) end,
-      after_commit: &committed/1
+      after_commit: &committed_tree/1
     )
   end
 
@@ -175,7 +271,12 @@ defmodule Ankole.Pod.Pages do
              position: position,
              updated_at: DateTime.utc_now(:microsecond)
            }) do
-      {:ok, %{page: moved, undo: undo}}
+      access_changed =
+        page.acl_anchor_id != moved.acl_anchor_id or
+          page.parent_anchor_id != moved.parent_anchor_id or
+          page.private_owner_uid != moved.private_owner_uid
+
+      {:ok, %{page: moved, undo: undo, access_changed: access_changed}}
     end
   end
 
@@ -282,7 +383,10 @@ defmodule Ankole.Pod.Pages do
 
   def delete(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil) do
     authority = authority || actor.turn_authority
-    Access.write_tree(authority, fn -> delete_in_tx(actor, id) end, after_commit: &committed/1)
+
+    Access.write_tree(authority, fn -> delete_in_tx(actor, id) end,
+      after_commit: &committed_access_tree/1
+    )
   end
 
   @doc false
@@ -298,42 +402,43 @@ defmodule Ankole.Pod.Pages do
     end
   end
 
-  def delete_embed(%Ankole.AuthZ.Actor{} = actor, parent_id, child_id, authority \\ nil) do
+  def delete_embeds(%Ankole.AuthZ.Actor{} = actor, parent_id, child_ids, authority \\ nil) do
     authority = authority || actor.turn_authority
 
-    with {:ok, _} <- authorize(actor, parent_id, "page_edit") do
-      case fetch(child_id) do
-        {:ok, %Page{parent_id: ^parent_id}} ->
-          Access.write_tree(
-            authority,
-            fn -> delete_embed_in_tx(actor, parent_id, child_id) end,
-            after_commit: fn
-              %Page{} = page -> committed(page)
-              _ -> :ok
-            end
-          )
-          |> case do
-            {:ok, _} -> {:ok, nil}
-            error -> error
-          end
-
-        _reference ->
-          {:ok, nil}
-      end
+    with {:ok, _} <-
+           Access.write_tree(
+             authority,
+             fn -> delete_embeds_in_tx(actor, parent_id, child_ids) end,
+             after_commit: fn pages ->
+               Enum.each(pages, &committed_access_tree/1)
+             end
+           ) do
+      {:ok, nil}
     end
   end
 
   @doc false
-  def delete_embed_in_tx(%Ankole.AuthZ.Actor{} = actor, parent_id, child_id) do
+  def delete_embeds_in_tx(%Ankole.AuthZ.Actor{} = actor, parent_id, child_ids) do
     lock_tree()
 
     with {:ok, parent} <- authorize(actor, parent_id, "page_edit") do
       parent_id = parent.id
 
-      case lock(child_id) do
-        {:ok, %Page{parent_id: ^parent_id} = child} -> delete_embedded_child(actor, child)
-        _reference -> {:ok, nil}
-      end
+      child_ids
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.reduce_while({:ok, []}, fn child_id, {:ok, pages} ->
+        case lock(child_id) do
+          {:ok, %Page{parent_id: ^parent_id, deleted_at: nil} = child} ->
+            case delete_embedded_child(actor, child) do
+              {:ok, page} -> {:cont, {:ok, [page | pages]}}
+              error -> {:halt, error}
+            end
+
+          _reference ->
+            {:cont, {:ok, pages}}
+        end
+      end)
     end
   end
 
@@ -352,7 +457,10 @@ defmodule Ankole.Pod.Pages do
 
   def restore(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil) do
     authority = authority || actor.turn_authority
-    Access.write_tree(authority, fn -> restore_in_tx(actor, id) end, after_commit: &committed/1)
+
+    Access.write_tree(authority, fn -> restore_in_tx(actor, id) end,
+      after_commit: &committed_access_tree/1
+    )
   end
 
   @doc false
@@ -372,6 +480,36 @@ defmodule Ankole.Pod.Pages do
     end
   end
 
+  def purge(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil) do
+    authority = authority || actor.turn_authority
+
+    Access.write_tree(authority, fn -> purge_in_tx(actor, id) end,
+      after_commit: &committed_tree/1
+    )
+  end
+
+  @doc false
+  def purge_in_tx(%Ankole.AuthZ.Actor{} = actor, id) do
+    lock_tree()
+
+    with {:ok, page} <- lock(id),
+         {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "page_manage", trash: :self),
+         true <- not is_nil(page.deleted_at),
+         true <- is_nil(page.purge_started_at),
+         {:ok, page} <- Ankole.Ash.update(page, :begin_purge, %{}),
+         :ok <-
+           Ankole.Job.schedule_in_tx(
+             Ankole.Pod.Jobs.PurgePage,
+             %{tenant_id: Repo.tenant_id!(), page_id: page.id},
+             DateTime.utc_now(:microsecond)
+           ) do
+      {:ok, page}
+    else
+      false -> {:error, :cannot_purge}
+      error -> error
+    end
+  end
+
   def get(%Ankole.AuthZ.Actor{} = actor, id) do
     with {:ok, detail} <- Repo.transact_top_level(fn -> get_in_tx(actor, id) end) do
       {:ok, Map.put(detail, :source_conversation, source_status(actor, detail.page))}
@@ -381,10 +519,20 @@ defmodule Ankole.Pod.Pages do
   @doc false
   def get_in_tx(%Ankole.AuthZ.Actor{} = actor, id) do
     with {:ok, page} <- lock(id, :share),
-         {:ok, page} <- Access.authorize_with_permissions(actor, page),
+         {:ok, reachable} <- Access.reachable_anchors(actor, trash_page_id: page.id),
+         {:ok, page} <- Access.authorize_with_permissions(actor, page, reachable: reachable),
          {:ok, content} <-
-           PageContent |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.read_one() do
-      {:ok, %{page: page, content: content, role: page.role, actions: page.actions}}
+           PageContent |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.read_one(),
+         {:ok, ancestors} <- Queries.readable_ancestors_in_tx(actor, page, reachable) do
+      {:ok,
+       %{
+         page: page,
+         ancestors: ancestors,
+         content: content,
+         role: page.role,
+         actions: page.actions,
+         child_count: Queries.visible_child_count_in_tx(actor, page, reachable)
+       }}
     end
   end
 
@@ -402,6 +550,12 @@ defmodule Ankole.Pod.Pages do
           end
         end)
 
+      changes =
+        case Ankole.Attrs.get(attrs, :hide_visits, :missing) do
+          :missing -> changes
+          hidden -> Map.put(changes, :hide_visits, hidden)
+        end
+
       if changes == %{} do
         Repo.transact_repeatable_read_only(fn ->
           with {:ok, _} <- authorize(actor, id, "page_view"),
@@ -413,8 +567,9 @@ defmodule Ankole.Pod.Pages do
         end)
       else
         Repo.transact_top_level(fn ->
-          with {:ok, page} <- lock(id, :share),
-               {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "page_view"),
+          with {:ok, page} <- lock(id),
+               {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "page_view", trash: false),
+               :ok <- Ankole.Pod.Documents.Insights.visit_in_tx(page, uid, changes[:visited_at]),
                do: save_state_in_tx(uid, id, changes)
         end)
       end
@@ -434,7 +589,9 @@ defmodule Ankole.Pod.Pages do
              Map.merge(changes, %{principal_uid: principal_uid, page_id: page_id}),
              upsert_fields: Map.keys(changes)
            ) do
-      if is_nil(updated.favorited_at) and is_nil(updated.visited_at) do
+      if is_nil(updated.favorited_at) and is_nil(updated.visited_at) and
+           is_nil(updated.comments_read_at) and is_nil(updated.edited_at) and
+           not updated.hide_visits do
         {:ok, _} = Ankole.Ash.destroy(updated, :remove_empty)
       end
 
@@ -444,7 +601,7 @@ defmodule Ankole.Pod.Pages do
 
   defp state_flags(attrs) when is_map(attrs) do
     if Enum.all?(
-         [:favorite, :visited],
+         [:favorite, :visited, :hide_visits],
          &(Ankole.Attrs.get(attrs, &1, :missing) in [:missing, true, false])
        ),
        do: :ok,
@@ -478,6 +635,10 @@ defmodule Ankole.Pod.Pages do
     Phoenix.PubSub.broadcast(Ankole.PubSub, "pod-page:" <> id, {:page_committed, id})
   end
 
+  def broadcast_comments(id) do
+    Phoenix.PubSub.broadcast(Ankole.PubSub, "pod-page:" <> id, {:comments_committed, id})
+  end
+
   def broadcast_access do
     Phoenix.PubSub.broadcast(Ankole.PubSub, "pod-access:" <> Repo.tenant_id!(), :recheck_access)
   end
@@ -486,12 +647,52 @@ defmodule Ankole.Pod.Pages do
   def committed(%{page: page}), do: committed(page)
 
   def committed(result) do
-    broadcast_access()
+    Access.broadcast_change()
     committed_page(result)
   end
 
+  def committed_tree(%{page: page, undo: undo} = result) do
+    if result[:access_changed], do: Access.broadcast_change(), else: broadcast_access()
+
+    content_event(
+      {:tree_changed, Enum.uniq([directory_location(page), directory_location(undo)]), page.id,
+       false}
+    )
+
+    broadcast(page.id)
+  end
+
+  def committed_tree(%Page{} = page) do
+    broadcast_access()
+    publish_tree(page)
+  end
+
+  def committed_tree(%{page: page}), do: committed_tree(page)
+
+  defp committed_access_tree(page) do
+    Access.broadcast_change()
+    publish_tree(page)
+  end
+
+  defp publish_tree(page) do
+    content_event(
+      {:tree_changed, [directory_location(page)], page.id, not is_nil(page.deleted_at)}
+    )
+
+    broadcast(page.id)
+  end
+
+  defp directory_location(page), do: Map.take(page, [:parent_id, :private_owner_uid])
+
+  defp content_event(event),
+    do: Phoenix.PubSub.broadcast(Ankole.PubSub, "pod-content:" <> Repo.tenant_id!(), event)
+
   @doc "Publishes a committed change of one page."
-  def committed_page(%Page{id: id}), do: broadcast(id)
+  def committed_page(%Page{id: id}) do
+    broadcast(id)
+    content_event({:page_updated, id})
+  end
+
   def committed_page(_result), do: :ok
 
   defp destination(uid, parent, owner, initialize_private \\ true)
@@ -544,7 +745,9 @@ defmodule Ankole.Pod.Pages do
 
   defp initial_content(%{type: :doc} = page, uid, _skip, xml) do
     with {:ok, parsed} <- Ankole.Kernel.page_validate(xml || "<page />"),
-         {:ok, _} <-
+         {:ok, info} <- Ankole.Kernel.page_comment_info(parsed.xml),
+         :ok <- Ankole.Pod.Comments.validate_marks_in_tx(page.id, info.ids),
+         {:ok, content} <-
            Ankole.Ash.create(PageContent, :create_in_tx, %{
              page_id: page.id,
              content: parsed.xml,
@@ -552,7 +755,7 @@ defmodule Ankole.Pod.Pages do
              updated_by: ActorRef.from_writer(uid, Repo.tenant_id!(), []),
              updated_at: page.updated_at
            }),
-         do: :ok
+         do: History.checkpoint_in_tx(page, content, page.created_at, :created)
   end
 
   defp initial_content(%{type: :base} = page, uid, false, nil) do

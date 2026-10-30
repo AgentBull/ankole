@@ -1,4 +1,4 @@
-import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { useAggregate } from '@ankole/applet-sdk'
 import type { AggregateQuery, BaseField, Filter, GroupBy, Metric } from '@ankole/applet-sdk/types'
 import { useState } from 'react'
@@ -8,6 +8,7 @@ import { FieldValue } from './base-fields'
 import { RiArrowDownSLine, RiBarChartLine } from '@remixicon/react'
 
 export function BaseSummary({ tableID, fields, filter }: { tableID: string; fields: BaseField[]; filter?: Filter }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [operation, setOperation] = useState<Metric['operation']>('count')
   const [fieldID, setFieldID] = useState('')
@@ -64,6 +65,7 @@ function Summary({
   bucket: GroupBy['bucket']
   setBucket(bucket: GroupBy['bucket']): void
 }) {
+  const { t } = useTranslation()
   const candidates = fields.filter(
     field =>
       operation === 'count' ||
@@ -170,6 +172,7 @@ function Summary({
 }
 
 function SummaryResult({ tableID, query, groups }: { tableID: string; query: AggregateQuery; groups: BaseField[] }) {
+  const { t } = useTranslation()
   const result = useAggregate(tableID, query)
   return (
     <>

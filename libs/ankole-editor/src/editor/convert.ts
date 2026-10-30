@@ -9,9 +9,10 @@ import { Leaf, Mark, type Node, type Plot } from '../core/doc'
 import type { GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { normalizeTree } from '../document/normalize'
-import { element, removeInvalidCharacters, text, textOf, type Element, type Node as PageNode } from '../document/tree'
+import { element, removeInvalidCharacters, text, type Element, type Node as PageNode } from '../document/tree'
 import { blocks as blockDefinitions } from '../blocks'
 import {
+  codeNodes,
   extraAttrs as extra,
   extraOf as attrsBack,
   markSet,
@@ -21,6 +22,7 @@ import {
   type Pairs
 } from './attributes'
 import * as S from './schema'
+import { commentIDs } from '../document/comments'
 
 export function freeze(node: Element): S.Frozen {
   return Object.freeze({
@@ -61,7 +63,9 @@ export function replaceTree(state: GardState, tree: Element): Transaction.Spec {
 }
 
 const blocks = (node: Element) => (node.children as Element[]).map(block)
-const blockImport = { blocks: (nodes: readonly PageNode[]) => (nodes as Element[]).map(block) }
+const codeContent = (nodes: readonly PageNode[]) =>
+  inline(nodes).flatMap(leaf => codeNodes((leaf as Leaf).param as string, leaf.marks))
+const blockImport = { blocks: (nodes: readonly PageNode[]) => (nodes as Element[]).map(block), code: codeContent }
 
 function textBlockMarks(attrs: Record<string, string>) {
   return markSet([
@@ -75,6 +79,14 @@ function textBlockMarks(attrs: Record<string, string>) {
 function block(node: Element): Node {
   const attrs = node.attrs
   switch (node.name) {
+    case 'block':
+      return S.BlockGroup.withMarks(markSet([extra(attrs)])).create(blocks(node))
+    case 'columns':
+      return S.Columns.withMarks(markSet([extra(attrs)])).create(blocks(node))
+    case 'column':
+      return S.Column.withMarks(
+        markSet([attrs.width && S.ColumnWidth.of(Number(attrs.width)), extra(attrs, ['width'])])
+      ).create(blocks(node))
     case 'p':
       return T.Paragraph.withMarks(textBlockMarks(attrs)).create(inline(node.children))
     case 'h1':
@@ -98,13 +110,20 @@ function block(node: Element): Node {
         markSet([
           attrs.lang !== undefined && T.CodeBlockLanguage.of(attrs.lang),
           attrs.meta !== undefined && S.CodeMeta.of(attrs.meta),
-          extra(attrs, ['lang', 'meta'])
+          attrs.wrap !== undefined && S.CodeWrap.of(attrs.wrap),
+          extra(attrs, ['lang', 'meta', 'wrap'])
         ])
-      ).create(code(textOf(node)))
+      ).create(codeContent(node.children))
     case 'hr':
       return T.HorizontalRule.withMarks(markSet([extra(attrs)]))
     case 'table':
-      return S.Table.withMarks(markSet([extra(attrs)])).create(
+      return S.Table.withMarks(
+        markSet([
+          attrs.widths && S.TableWidths.of(attrs.widths),
+          attrs.layout && S.TableLayout.of('full'),
+          extra(attrs, ['widths', 'layout'])
+        ])
+      ).create(
         (node.children as Element[]).map(row =>
           S.TableRow.withMarks(markSet([extra(row.attrs)])).create((row.children as Element[]).map(cell))
         )
@@ -124,42 +143,37 @@ function item(node: Element): Node {
 }
 
 function cell(node: Element): Node {
-  const { align, colspan, rowspan } = node.attrs
+  const { align, colspan, rowspan, background } = node.attrs
   return (node.name === 'th' ? S.HeaderCell : S.DataCell)
     .withMarks(
       markSet([
         align && S.Align.of(align as 'left'),
         colspan && T.ColSpan.of(Number(colspan)),
         rowspan && T.RowSpan.of(Number(rowspan)),
-        extra(node.attrs, ['align', 'colspan', 'rowspan'])
+        background && S.CellBackground.of(background),
+        extra(node.attrs, ['align', 'colspan', 'rowspan', 'background'])
       ])
     )
     .create(blocks(node))
 }
 
-// A code block holds text and line breaks: "\n" becomes a LineBreak leaf. "\r" has no node of its
-// own and stays in the text.
-function code(value: string): Node[] {
-  const result: Node[] = []
-  value.split('\n').forEach((line, index) => {
-    if (index) result.push(T.LineBreak)
-    if (line) result.push(Leaf.text(line))
-  })
-  return result
-}
-
-type Context = { formats: Mark[]; style: string; link: Pairs | null }
+type Context = { formats: Mark[]; style: string; link: Pairs | null; comments: readonly string[] }
 
 const joinStyle = (outer: string, inner: string) =>
   !outer.trim() ? inner : !inner.trim() ? outer : `${outer}${/;\s*$/.test(outer) ? '' : ';'} ${inner}`
 
 const contextMarks = (context: Context) =>
-  markSet([...context.formats, context.style && S.TextStyle.of(context.style), context.link && S.Link.of(context.link)])
+  markSet([
+    ...context.formats,
+    context.style && S.TextStyle.of(context.style),
+    context.link && S.Link.of(context.link),
+    context.comments.length > 0 && S.Comment.of(context.comments)
+  ])
 
 /** Flatten normalized inline content into leaves with mark sets, as N flattens it. */
 function inline(
-  nodes: PageNode[],
-  context: Context = { formats: [], style: '', link: null },
+  nodes: readonly PageNode[],
+  context: Context = { formats: [], style: '', link: null, comments: [] },
   out: Node[] = []
 ): Node[] {
   for (const node of nodes) {
@@ -170,12 +184,26 @@ function inline(
     const plain = Object.keys(node.attrs).length === 0
     const format = Object.hasOwn(S.formats, node.name) ? S.formats[node.name as keyof typeof S.formats] : undefined
     if (format && plain) inline(node.children, { ...context, formats: [...context.formats, format] }, out)
-    else if (node.name === 'span' && Object.keys(node.attrs).every(name => name === 'style')) {
+    else if (node.name === 'comment') {
+      inline(
+        node.children,
+        { ...context, comments: [...new Set([...context.comments, ...commentIDs(node.attrs.ids!)])].sort() },
+        out
+      )
+    } else if (node.name === 'span' && Object.keys(node.attrs).every(name => name === 'style')) {
       inline(node.children, { ...context, style: joinStyle(context.style, node.attrs.style ?? '') }, out)
     } else if (node.name === 'a' && node.children.length) {
       inline(node.children, { ...context, link: pairsOf(node.attrs) }, out)
     } else if (node.name === 'br') {
-      out.push(T.LineBreak.withMarks(markSet([context.link && S.Link.of(context.link), extra(node.attrs)])))
+      out.push(
+        T.LineBreak.withMarks(
+          markSet([
+            context.link && S.Link.of(context.link),
+            context.comments.length > 0 && S.Comment.of(context.comments),
+            extra(node.attrs)
+          ])
+        )
+      )
     } else if (node.name === 'img') {
       out.push(
         T.Image.of(
@@ -184,7 +212,22 @@ function inline(
             node.attrs.alt !== undefined && T.ImageAlt.of(node.attrs.alt),
             node.attrs.title !== undefined && S.ImageTitle.of(node.attrs.title),
             context.link && S.Link.of(context.link),
+            context.comments.length > 0 && S.Comment.of(context.comments),
             extra(node.attrs, ['src', 'alt', 'title'])
+          ])
+        )
+      )
+    } else if (node.name === 'mention') {
+      const target: S.MentionTarget =
+        node.attrs.page !== undefined ? { page: node.attrs.page } : { principal: node.attrs.principal! }
+      out.push(
+        S.Mention.of(
+          target,
+          markSet([
+            ...context.formats,
+            context.style && S.TextStyle.of(context.style),
+            context.comments.length > 0 && S.Comment.of(context.comments),
+            extra(node.attrs, ['page', 'principal'])
           ])
         )
       )
@@ -228,7 +271,14 @@ function textBlockAttrs(node: Plot) {
   }
 }
 
-const blockRead = { children: (node: Plot) => node.content.map(blockBack) }
+function codeBack(node: Plot): PageNode[] {
+  return node.content.map(leaf => {
+    const value = text(leaf.isText ? (leaf.param as string) : '\n')
+    const ids = markValue(leaf, S.Comment)
+    return ids?.length ? element('comment', { ids: ids.join(' ') }, [value]) : value
+  })
+}
+const blockRead = { children: (node: Plot) => node.content.map(blockBack), code: codeBack }
 
 function blockBack(node: Node): PageNode {
   const definition = blockDefinitions.find(definition => definition.type === node.type)
@@ -239,6 +289,16 @@ function blockBack(node: Node): PageNode {
     throw new Error(`Unexpected block leaf ${node.name}`)
   }
   const children = () => node.content.map(blockBack)
+  if (is(node, S.BlockGroup)) return element('block', attrsBack(node), children())
+  if (is(node, S.Columns)) return element('columns', attrsBack(node), children())
+  if (is(node, S.Column)) {
+    const width = markValue(node, S.ColumnWidth)
+    return element(
+      'column',
+      { ...attrsBack(node), ...(width && width !== 1000 ? { width: String(width) } : {}) },
+      children()
+    )
+  }
   if (is(node, T.Paragraph)) return element('p', textBlockAttrs(node), inlineBack(node.content))
   if (is(node, T.Heading)) return element(`h${node.tag.param}`, textBlockAttrs(node), inlineBack(node.content))
   if (is(node, S.Blockquote)) return element('blockquote', attrsBack(node), children())
@@ -254,17 +314,27 @@ function blockBack(node: Node): PageNode {
   if (is(node, T.CodeBlock)) {
     const lang = markValue(node, T.CodeBlockLanguage)
     const meta = markValue(node, S.CodeMeta)
-    const value = node.content.map(leaf => (leaf.isText ? (leaf.param as string) : '\n')).join('')
+    const wrap = markValue(node, S.CodeWrap)
+    const content = codeBack(node)
     return element(
       'pre',
-      { ...attrsBack(node), ...(lang !== undefined ? { lang } : {}), ...(meta !== undefined ? { meta } : {}) },
-      value ? [text(value)] : []
+      {
+        ...attrsBack(node),
+        ...(lang !== undefined ? { lang } : {}),
+        ...(meta !== undefined ? { meta } : {}),
+        ...(wrap !== undefined ? { wrap } : {})
+      },
+      content
     )
   }
   if (is(node, S.Table)) {
     return element(
       'table',
-      attrsBack(node),
+      {
+        ...attrsBack(node),
+        ...(node.mark(S.TableWidths) ? { widths: node.mark(S.TableWidths)! } : {}),
+        ...(node.mark(S.TableLayout) ? { layout: node.mark(S.TableLayout)! } : {})
+      },
       node.content.map(row => element('tr', attrsBack(row), (row as Plot).content.map(cellBack)))
     )
   }
@@ -286,7 +356,8 @@ function cellBack(node: Node): PageNode {
       ...attrsBack(node),
       ...(align ? { align } : {}),
       ...(colspan ? { colspan: String(colspan) } : {}),
-      ...(rowspan ? { rowspan: String(rowspan) } : {})
+      ...(rowspan ? { rowspan: String(rowspan) } : {}),
+      ...(node.mark(S.CellBackground) ? { background: node.mark(S.CellBackground)! } : {})
     },
     (node as Plot).content.map(blockBack)
   )
@@ -308,6 +379,12 @@ function inlineBack(nodes: readonly Node[]): PageNode[] {
         ...(alt !== undefined ? { alt } : {}),
         ...(title !== undefined ? { title } : {})
       })
+    } else if (is(node, S.Mention)) {
+      const target = (node as Leaf).param as S.MentionTarget
+      result = element('mention', {
+        ...attrsBack(node),
+        ...('page' in target ? { page: target.page } : { principal: target.principal })
+      })
     } else if (is(node, S.InlineElement)) result = thaw((node as Leaf).param as S.Frozen)
     else throw new Error(`Unexpected inline node ${node.name}`)
     for (const mark of node.marks) {
@@ -318,6 +395,8 @@ function inlineBack(nodes: readonly Node[]): PageNode[] {
     if (style) result = element('span', { style }, [result])
     const link = markValue(node, S.Link)
     if (link) result = element('a', recordOf(link), [result])
+    const comments = markValue(node, S.Comment)
+    if (comments?.length) result = element('comment', { ids: comments.join(' ') }, [result])
     return result
   })
 }

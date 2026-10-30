@@ -1,3 +1,4 @@
+import { usePagesMetadata } from '../use-page-metadata'
 import { Button, cn, useReducedMotion } from '@ankole/uikit'
 import { RiArrowDownLine, RiFileTextLine, RiReplyLine } from '@remixicon/react'
 import { Link } from '@tanstack/react-router'
@@ -6,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
 import { podLocation } from '../../common/browser-context'
+import { ErrorBoundary } from '../../common/error-boundary'
 import type { ConversationDetail, ConversationMessage, PodActivity, PodActivityItem } from '../api'
 import { MessageArtifacts, SaveMessageButton } from '../message-artifacts'
 import { OlderMessages, messageID, useChatReading, type useChatHistory } from '../chat-history'
@@ -18,7 +20,7 @@ import { LinkedExecutionCard } from './linked-execution-card'
 import { MessageActions } from './message-actions'
 import { humanizeToolName } from './tool-run-view'
 import { TurnRail } from './turn-rail'
-import { ChatAvatar } from './chat-avatar'
+import { avatarInitials, ChatAvatar } from './chat-avatar'
 import type { ExecutionStep, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
 
 type TimelineActions = {
@@ -51,7 +53,8 @@ export function TurnTimeline({
   canAnswer,
   readOnlyReason,
   onAnswer,
-  onComposeAnswer
+  onComposeAnswer,
+  onRefresh
 }: {
   model: InstanceType<typeof ChatModel>
   presentation: ChatPresentation
@@ -75,6 +78,7 @@ export function TurnTimeline({
   readOnlyReason?: string
   onAnswer?: (interactionID: string, answer: ClarifyAnswer) => Promise<unknown>
   onComposeAnswer?: (interactionID: string, text: string) => void
+  onRefresh?: () => void
 }) {
   const { t } = useTranslation()
   const savedReading = useRef(model.reading.peek()[presentation])
@@ -118,82 +122,86 @@ export function TurnTimeline({
         className="pod-chat-history-scroll">
         <div ref={contentRef} className="pod-chat-history-content">
           <OlderMessages history={history} scrollRef={scrollRef} />
-          {messages.map(item => (
+          {messages.map((item, index) => (
             <div key={messageID(item)} data-chat-message-id={messageID(item)} tabIndex={-1}>
-              {item.type === 'committed' ? (
-                <CommittedMessage
-                  message={item.message as TimelineMessage}
-                  conversationID={conversationID}
-                  onEdit={
-                    item.message.id === latestInput?.messageID && latestInput.authorUID === viewerUID && actions?.edit
-                      ? () => actions.edit!(item.message)
-                      : undefined
-                  }
-                  onRetry={
-                    retryableMessageIDs.includes(item.message.id) && actions?.regenerate
-                      ? () => actions.regenerate!(item.message)
-                      : undefined
-                  }
-                  onQuote={onQuote ? text => onQuote(text, item.message) : undefined}
-                  linkedRuns={executions.messages.get(item.message.id) ?? []}
-                  replySource={replySources.get(item.message.id)}
-                  onJumpToSource={id => jumpToMessage(id)?.focus({ preventScroll: true })}
-                  onAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onAnswer : undefined}
-                  onComposeAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onComposeAnswer : undefined}
-                  readOnlyReason={readOnlyReason}
-                  keyboardActive={item.message.id === lastChoice}
-                  showActions={item.message.id === latestReply?.id}
-                  editDisabledReason={actions?.editDisabledReason}
-                  avatarURL={members.find(member => member.uid === item.message.authorUID)?.avatarURL}
-                  own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
-                  queued={item.queued}
-                />
-              ) : (
-                <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
-                  <MessageIdentity
-                    name={t('pod.chat_timeline.you')}
-                    human
-                    avatarURL={members.find(member => member.uid === viewerUID)?.avatarURL}
+              <ErrorBoundary variant="inline" onReset={onRefresh} resetKeys={[messageID(item), item.message]}>
+                {item.type === 'committed' ? (
+                  <CommittedMessage
+                    message={item.message as TimelineMessage}
+                    conversationID={conversationID}
+                    onEdit={
+                      item.message.id === latestInput?.messageID && latestInput.authorUID === viewerUID && actions?.edit
+                        ? () => actions.edit!(item.message)
+                        : undefined
+                    }
+                    onRetry={
+                      retryableMessageIDs.includes(item.message.id) && actions?.regenerate
+                        ? () => actions.regenerate!(item.message)
+                        : undefined
+                    }
+                    onQuote={onQuote ? text => onQuote(text, item.message) : undefined}
+                    linkedRuns={executions.messages.get(item.message.id) ?? []}
+                    replySource={replySources.get(item.message.id)}
+                    onJumpToSource={id => jumpToMessage(id)?.focus({ preventScroll: true })}
+                    onAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onAnswer : undefined}
+                    onComposeAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onComposeAnswer : undefined}
+                    readOnlyReason={readOnlyReason}
+                    keyboardActive={item.message.id === lastChoice}
+                    showActions={item.message.id === latestReply?.id}
+                    editDisabledReason={actions?.editDisabledReason}
+                    avatarURL={members.find(member => member.uid === item.message.authorUID)?.avatarURL}
+                    own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
+                    queued={item.queued}
+                    continued={continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))}
                   />
-                  <div className="pod-chat-human-text">
-                    <ChatMarkdown text={item.message.text ?? ''} />
-                  </div>
-                  <p role="status" className="pod-chat-message-state">
-                    {t(item.message.state === 'failed' ? 'pod.chat.send_failed' : 'pod.chat.sending')}
-                  </p>
-                </article>
-              )}
+                ) : (
+                  <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
+                    <MessageIdentity name={t('pod.chat_timeline.you')} human quiet />
+                    <div className="pod-chat-human-text">
+                      <ChatMarkdown text={item.message.text ?? ''} />
+                    </div>
+                    <p role="status" className="pod-chat-message-state">
+                      {t(item.message.state === 'failed' ? 'pod.chat.send_failed' : 'pod.chat.sending')}
+                    </p>
+                  </article>
+                )}
+              </ErrorBoundary>
             </div>
           ))}
           {activeStreams.map(stream => (
-            <LiveMessage
+            <ErrorBoundary
               key={`${stream.agentUID}:${stream.responseID}`}
-              stream={stream}
-              conversationID={conversationID}
-              linkedRuns={executions.streams.get(stream.agentUID) ?? []}
-              avatarURL={members.find(member => member.uid === stream.agentUID)?.avatarURL}
-            />
+              variant="inline"
+              resetKeys={[stream.responseID, stream.text]}>
+              <LiveMessage
+                stream={stream}
+                conversationID={conversationID}
+                linkedRuns={executions.streams.get(stream.agentUID) ?? []}
+                avatarURL={members.find(member => member.uid === stream.agentUID)?.avatarURL}
+              />
+            </ErrorBoundary>
           ))}
           {unloadedQuestions.map(question => {
             const agent = members.find(member => member.uid === question.agentUID)
             return (
-              <article
-                key={question.interaction_id}
-                className="pod-chat-timeline-message pod-chat-agent-message"
-                data-pending-interaction={question.interaction_id}>
-                <MessageIdentity
-                  name={agent?.displayName || t('pod.chat_timeline.agent')}
-                  avatarURL={agent?.avatarURL}
-                />
-                <ChoiceCard
-                  prompt={question}
-                  interaction={question}
-                  onAnswer={canAnswerAgent(question.agentUID ?? null) ? onAnswer : undefined}
-                  onComposeAnswer={canAnswerAgent(question.agentUID ?? null) ? onComposeAnswer : undefined}
-                  readOnlyReason={readOnlyReason}
-                  keyboardActive={question.messageID === lastChoice}
-                />
-              </article>
+              <ErrorBoundary key={question.interaction_id} variant="inline" resetKeys={[question.interaction_id]}>
+                <article
+                  className="pod-chat-timeline-message pod-chat-agent-message"
+                  data-pending-interaction={question.interaction_id}>
+                  <MessageIdentity
+                    name={agent?.displayName || t('pod.chat_timeline.agent')}
+                    avatarURL={agent?.avatarURL}
+                  />
+                  <ChoiceCard
+                    prompt={question}
+                    interaction={question}
+                    onAnswer={canAnswerAgent(question.agentUID ?? null) ? onAnswer : undefined}
+                    onComposeAnswer={canAnswerAgent(question.agentUID ?? null) ? onComposeAnswer : undefined}
+                    readOnlyReason={readOnlyReason}
+                    keyboardActive={question.messageID === lastChoice}
+                  />
+                </article>
+              </ErrorBoundary>
             )
           })}
           {!activeStreams.length && activity && <ActivityView activity={activity} />}
@@ -213,7 +221,7 @@ export function TurnTimeline({
       {!isAtBottom && (
         <Button
           className="pod-chat-jump-latest"
-          variant="outline"
+          variant="ghost"
           size="sm"
           onClick={event => void scrollToBottom(reducedMotion || event.detail === 0 ? 'instant' : undefined)}>
           <RiArrowDownLine aria-hidden />
@@ -225,34 +233,65 @@ export function TurnTimeline({
   )
 }
 
+/**
+ * Who wrote a message. Your own messages and a message that continues the same author's last one keep the
+ * name only for assistive technology, so the line shows only the time, on hover.
+ */
 function MessageIdentity({
   name,
   human = false,
   archived = false,
   time,
-  model,
-  avatarURL
+  avatarURL,
+  quiet = false
 }: {
   name: string
   human?: boolean
   archived?: boolean
   time?: string
-  model?: string
   avatarURL?: string | null
+  quiet?: boolean
 }) {
   const { t, i18n } = useTranslation()
   return (
-    <header className="pod-chat-message-identity">
-      <ChatAvatar name={name} src={avatarURL} agent={!human} className="pod-chat-message-avatar" />
-      <strong>{name}</strong>
+    <header className="pod-chat-message-identity" data-quiet={quiet || undefined}>
+      {!quiet && <ChatAvatar name={name} src={avatarURL} agent={!human} className="pod-chat-message-avatar" />}
+      <strong className={quiet ? 'sr-only' : undefined}>{name}</strong>
       {archived && <span className="pod-chat-archived">{t('pod.chat_timeline.archived')}</span>}
-      {model && <span className="pod-chat-message-model">{model}</span>}
       {time && (
         <time dateTime={time} title={new Date(time).toLocaleString(i18n.language)}>
-          {new Date(time).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
+          {messageTime(time, i18n.language)}
         </time>
       )}
     </header>
+  )
+}
+
+// A conversation can span days, so a message from before today names its day as well as its time.
+export function messageTime(value: string, locale: string, now = new Date()) {
+  const date = new Date(value)
+  const today = date.toDateString() === now.toDateString()
+  return new Intl.DateTimeFormat(locale, {
+    ...(today
+      ? {}
+      : { month: 'short', day: 'numeric', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) }),
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
+/** Messages from one author within five minutes read as one block: the second drops its name and avatar. */
+const CONTINUATION_MS = 5 * 60_000
+
+function continuesPrevious(previous: DisplayMessage | undefined, current: DisplayMessage, hasReplySource: boolean) {
+  if (!previous || previous.type !== 'committed' || current.type !== 'committed' || hasReplySource) return false
+  const [a, b] = [previous.message, current.message]
+  return (
+    a.kind === 'message' &&
+    b.kind === 'message' &&
+    !!a.authorUID &&
+    a.authorUID === b.authorUID &&
+    Date.parse(b.createdAt) - Date.parse(a.createdAt) < CONTINUATION_MS
   )
 }
 
@@ -273,6 +312,7 @@ function CommittedMessage({
   avatarURL,
   own,
   queued,
+  continued = false,
   readOnlyReason
 }: {
   message: TimelineMessage
@@ -291,10 +331,14 @@ function CommittedMessage({
   avatarURL?: string | null
   own: boolean
   queued?: boolean
+  continued?: boolean
   readOnlyReason?: string
 }) {
   const { t, i18n } = useTranslation()
   const [saved, setSaved] = useState<PageDetail['page']>()
+  const savedPages = usePagesMetadata([
+    ...new Map([...message.savedPages, ...(saved ? [saved] : [])].map(page => [page.id, page])).values()
+  ])
   const rich = message.richContent
   const human = message.authorType === 'human'
   const name = message.authorDisplayName
@@ -303,11 +347,11 @@ function CommittedMessage({
     return (
       <div className="pod-chat-timeline-event">
         <span className="pod-chat-event-avatar" aria-hidden>
-          {Array.from(name)[0]}
+          {avatarInitials(name)}
         </span>
         <p title={label}>{label}</p>
         <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString(i18n.language)}>
-          {new Date(message.createdAt).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
+          {messageTime(message.createdAt, i18n.language)}
         </time>
         {onRetry && <MessageActions text="" onRetry={onRetry} alwaysVisible />}
       </div>
@@ -319,15 +363,16 @@ function CommittedMessage({
       className={cn(
         'pod-chat-timeline-message',
         human ? 'pod-chat-human-message' : 'pod-chat-agent-message',
-        own && 'pod-chat-own-message'
+        own && 'pod-chat-own-message',
+        continued && 'pod-chat-continued-message'
       )}>
       <MessageIdentity
         name={name}
         human={human}
         archived={message.authorArchived}
         time={message.createdAt}
-        model={rich?.execution?.model}
         avatarURL={avatarURL}
+        quiet={own || continued}
       />
       {queued && <span className="pod-chat-queued-badge">{t('pod.chat_timeline.queued')}</span>}
       {replySource && (
@@ -342,7 +387,7 @@ function CommittedMessage({
         </button>
       )}
       {message.links
-        .filter(link => link.kind === 'message' && link.quote)
+        .filter(link => link.quote)
         .map(link => (
           <blockquote key={link.id} className="pod-chat-quoted-message">
             {link.quote}
@@ -380,17 +425,15 @@ function CommittedMessage({
           <SaveMessageButton message={message} conversationID={conversationID} onSaved={setSaved} />
         )}
       </MessageActions>
-      {[...new Map([...message.savedPages, ...(saved ? [saved] : [])].map(page => [page.id, page])).values()].map(
-        page => (
-          <Link
-            key={page.id}
-            className="pod-chat-page-pill pod-chat-saved-page"
-            to={podLocation(`/pages/${page.id}`).pathname}>
-            <RiFileTextLine aria-hidden />
-            {page.title || t('pod.content.untitled')}
-          </Link>
-        )
-      )}
+      {savedPages.map(page => (
+        <Link
+          key={page.id}
+          className="pod-chat-page-pill pod-chat-saved-page"
+          to={podLocation(`/pages/${page.id}`).pathname}>
+          <RiFileTextLine aria-hidden />
+          {page.title || t('pod.content.untitled')}
+        </Link>
+      ))}
     </article>
   )
 }
@@ -580,7 +623,7 @@ function LiveMessage({
           steps: activeActivity ? activitySteps(activeActivity, item => label(item, true)) : []
         }}
       />
-      {stream.text && <ChatMarkdown text={stream.text} />}
+      {stream.text && <ChatMarkdown text={stream.text} className="pod-chat-live-text" />}
       {linkedRuns.map(run => (
         <LinkedExecutionCard key={`${run.kind}:${run.id}`} conversationID={conversationID} run={run} />
       ))}

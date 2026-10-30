@@ -78,7 +78,7 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
       assert %URI{path: "/oauth/authorize/resume", query: query} = URI.parse(redirected_to(conn))
       assert query == "oauth_request=" <> oauth_request
       assert WebSession.oauth_session(conn)["auth_time"] == auth_time
-      assert WebSession.admin_session(conn) == nil
+      assert WebSession.site_admin_session(conn) == nil
 
       conn =
         conn |> recycle() |> get("/oauth/authorize/resume", %{"oauth_request" => oauth_request})
@@ -173,7 +173,62 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
     assert %URI{path: "/oauth/authorize/resume", query: query} = URI.parse(redirected_to(conn))
     assert query == "oauth_request=" <> oauth_request
     assert %{"auth_time" => nil} = WebSession.oauth_session(conn)
-    assert WebSession.admin_session(conn) == nil
+    assert WebSession.site_admin_session(conn) == nil
+  end
+
+  test "Enterprise OIDC login with console_return returns directly to Console and grants siteadmin access",
+       %{conn: conn, tenant: tenant} do
+    {:ok, %{principal: admin}} =
+      Ankole.Principals.create_human(%{
+        email: "upstream@example.com",
+        display_name: "Upstream Admin"
+      })
+
+    {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(admin.uid)
+
+    {:ok, _} =
+      Ankole.PrincipalsFixtures.create_external_identity(%{
+        principal_uid: admin.uid,
+        provider: "entra",
+        external_id: "graph-user"
+      })
+
+    console_entry = conn |> init_test_session(%{}) |> get("/site-admin-console/settings")
+    login_redirect = redirected_to(console_entry)
+    refute login_redirect =~ "/site-admin-console"
+
+    console_return =
+      URI.parse(login_redirect).query |> URI.decode_query() |> Map.fetch!("console_return")
+
+    authorized =
+      console_entry
+      |> recycle()
+      |> pod_conn(tenant)
+      |> get("/sessions/oidc/entra/authorization", %{"console_return" => console_return})
+
+    upstream =
+      authorized |> redirected_to() |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    stub_upstream(upstream["nonce"], %{"auth_time" => System.system_time(:second)})
+
+    completed =
+      authorized
+      |> recycle()
+      |> pod_conn(tenant)
+      |> get("/sessions/oidc/entra/callback", %{"code" => "code-1", "state" => upstream["state"]})
+
+    expected_console_url = AnkoleWeb.PodURL.site_origin(conn) <> "/site-admin-console/settings"
+    assert redirected_to(completed) == expected_console_url
+    assert WebSession.site_admin_session(completed)["principal_uid"] == admin.uid
+
+    console_shell =
+      completed
+      |> recycle()
+      |> site_conn()
+      |> get("/site-admin-console/settings")
+
+    assert html_response(console_shell, 200) =~
+             ~s(<meta name="ankole-principal" content="#{admin.uid}">)
   end
 
   test "only providers that can force authentication enter the fresh provider list", %{

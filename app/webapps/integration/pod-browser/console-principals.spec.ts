@@ -15,22 +15,22 @@ for (const membership of ['guest', 'member'] as const) {
     const context = await browser.newContext()
     await context.addCookies(state.site_admin.cookies)
     const page = await context.newPage()
-    const label = membership === 'guest' ? '访客' : '成员'
+    const label = membership === 'guest' ? 'Guest' : 'Member'
     const nextMembership = membership === 'guest' ? 'member' : 'guest'
-    const nextLabel = nextMembership === 'member' ? '成员' : '访客'
+    const nextLabel = nextMembership === 'member' ? 'Member' : 'Guest'
     const name = `Browser Console ${membership} ${Date.now()}`
     const email = `console-${membership}-${Date.now()}@example.com`
     try {
       await page.goto(`${state.console_url}/access/principals`)
-      await expect(page.locator(`a[data-row-link][href$="/${state.site_admin.uid}"]`)).toBeVisible()
+      await expect(page.locator(`a[data-row-link][href*="/${state.site_admin.uid}"]`)).toBeVisible()
       await page.goto(`${state.console_url}/access/principals?data_tenant=${state.tenant_id}`)
-      await expect(page.locator(`a[data-row-link][href$="/${state.owner.uid}"]`)).toContainText('Browser owner')
-      await expect(page.locator(`a[data-row-link][href$="/${state.site_admin.uid}"]`)).toHaveCount(0)
+      await expect(page.locator(`a[data-row-link][href*="/${state.owner.uid}"]`)).toContainText('Browser owner')
+      await expect(page.locator(`a[data-row-link][href*="/${state.site_admin.uid}"]`)).toHaveCount(0)
 
-      await page.getByRole('link', { name: '添加用户', exact: true }).click()
-      await page.getByRole('textbox', { name: /^显示名称/ }).fill(name)
-      await page.getByRole('textbox', { name: /^邮箱/ }).fill(email)
-      await page.getByRole('combobox', { name: '成员身份', exact: true }).click()
+      await page.getByRole('link', { name: 'Add user', exact: true }).click()
+      await page.getByRole('textbox', { name: /^Display name/ }).fill(name)
+      await page.getByRole('textbox', { name: /^Email/ }).fill(email)
+      await page.getByRole('combobox', { name: 'Membership', exact: true }).click()
       await page.getByRole('option', { name: label, exact: true }).click()
       const createdResponse = page.waitForResponse(
         response => new URL(response.url()).pathname === '/api/v2/principals' && response.request().method() === 'POST'
@@ -45,7 +45,7 @@ for (const membership of ['guest', 'member'] as const) {
           /^\/api\/v2\/principals\/[^/]+\/access$/.test(new URL(response.url()).pathname) &&
           response.request().method() === 'GET'
       )
-      await page.getByRole('button', { name: '创建用户', exact: true }).click()
+      await page.getByRole('button', { name: 'Create user', exact: true }).click()
       const createdHTTP = await createdResponse
       expect(createdHTTP.status()).toBe(201)
       expect(createdHTTP.request().headers()['x-ankole-tenant']).toBe(state.tenant_id)
@@ -72,10 +72,10 @@ for (const membership of ['guest', 'member'] as const) {
       expect(access.access_version).toBe(1)
       await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
       const section = page.locator('section').filter({
-        has: page.getByRole('heading', { name: '成员身份', exact: true })
+        has: page.getByRole('heading', { name: 'Membership', exact: true })
       })
       await expect(section.getByText(label, { exact: true })).toBeVisible()
-      await section.getByRole('button', { name: `转为${nextLabel}`, exact: true }).click()
+      await section.getByRole('button', { name: `Convert to ${nextMembership}`, exact: true }).click()
       const changedResponse = page.waitForResponse(
         response =>
           new URL(response.url()).pathname === `${detailPath}/membership` && response.request().method() === 'PATCH'
@@ -85,7 +85,7 @@ for (const membership of ['guest', 'member'] as const) {
       )
       await page
         .getByRole('dialog')
-        .getByRole('button', { name: `转为${nextLabel}`, exact: true })
+        .getByRole('button', { name: `Convert to ${nextMembership}`, exact: true })
         .click()
       const changedHTTP = await changedResponse
       expect(changedHTTP.status()).toBe(200)
@@ -119,7 +119,7 @@ for (const membership of ['guest', 'member'] as const) {
       const persistedAccess = (await persistedAccessHTTP.json()) as GetHumanAccessResponse
       expect(persistedAccess.access_version).toBe(changedAccess.access_version)
       await expect(section.getByText(nextLabel, { exact: true })).toBeVisible()
-      await expect(section.getByRole('button', { name: `转为${label}`, exact: true })).toBeVisible()
+      await expect(section.getByRole('button', { name: `Convert to ${membership}`, exact: true })).toBeVisible()
       await page.screenshot({ path: testInfo.outputPath(`console-${membership}-membership.png`), fullPage: true })
     } finally {
       await context.close()

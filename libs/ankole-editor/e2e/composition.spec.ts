@@ -1,4 +1,4 @@
-import { caret, expect, openDocument, reopen, test } from './helpers'
+import { caret, expect, expectMarkdown, openDocument, reopen, test } from './helpers'
 
 test('Chromium IME commits composed text between emoji without changing its format', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'Playwright exposes IME composition through Chromium CDP only.')
@@ -124,6 +124,103 @@ test('a same-paragraph API edit keeps native composition open and commits its ca
     await client.send('Input.insertText', { text: '中文' })
     await page.keyboard.insertText('继续')
     await expect(page.locator('#workspace p')).toHaveText('接口术语😀：这里中文继续，末尾')
+  } finally {
+    await client.detach()
+  }
+})
+
+for (const [label, trigger, selector, expected] of [
+  ['bullet', '- ', 'ul > li', '- 你好世界\n- 下一项'],
+  ['numbered', '1. ', 'ol > li', '1. 你好世界\n2. 下一项'],
+  ['task', '[] ', 'ul > li[data-task="todo"]', '- [ ] 你好世界\n- [ ] 下一项']
+] as const) {
+  test(`Chromium IME composes, clears Pinyin, and commits Chinese inside an empty ${label} list item`, async ({
+    page,
+    browserName
+  }) => {
+    test.skip(browserName !== 'chromium', 'Playwright exposes IME composition through Chromium CDP only.')
+    await openDocument(page, '')
+    await page.locator('.editor-content > p').click()
+    await page.keyboard.type(trigger)
+    const items = page.locator(`.editor-content > ${selector}`)
+    await expect(items).toHaveCount(1)
+
+    const client = await page.context().newCDPSession(page)
+    try {
+      // Start Pinyin composition in the empty list item, backspace Pinyin to empty, then re-compose and commit.
+      await client.send('Input.imeSetComposition', { text: 'n', selectionStart: 1, selectionEnd: 1 })
+      await expect(items).toHaveCount(1)
+      await client.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 })
+      await expect(items).toHaveCount(1)
+      await client.send('Input.imeSetComposition', { text: 'nihao', selectionStart: 5, selectionEnd: 5 })
+      await client.send('Input.insertText', { text: '你好' })
+      await client.send('Input.imeSetComposition', { text: 'shijie', selectionStart: 6, selectionEnd: 6 })
+      await client.send('Input.insertText', { text: '世界' })
+      await expect(items.nth(0)).toHaveText('你好世界')
+
+      // Splitting into a second empty item also accepts Chinese IME composition.
+      await page.keyboard.press('Enter')
+      await expect(items).toHaveCount(2)
+      await client.send('Input.imeSetComposition', { text: 'xiayixiang', selectionStart: 10, selectionEnd: 10 })
+      await client.send('Input.insertText', { text: '下一项' })
+      await expect(items.nth(1)).toHaveText('下一项')
+      await expectMarkdown(page, expected)
+      await reopen(page)
+      await expect(page.locator(`.editor-content > ${selector}`)).toHaveText(['你好世界', '下一项'])
+    } finally {
+      await client.detach()
+    }
+  })
+}
+
+test('canceling an IME composition in an empty list item leaves an empty item and supports subsequent items', async ({
+  page,
+  browserName
+}) => {
+  test.skip(browserName !== 'chromium', 'Playwright exposes IME composition through Chromium CDP only.')
+  await openDocument(page, '- 第一项\n-')
+  const items = page.locator('.editor-content > ul > li')
+  await expect(items).toHaveCount(2)
+  await items.nth(1).click()
+
+  const client = await page.context().newCDPSession(page)
+  try {
+    await client.send('Input.imeSetComposition', { text: 'ni', selectionStart: 2, selectionEnd: 2 })
+    // Empty and end the composition without committing text.
+    await client.send('Input.insertText', { text: '' })
+    await expectMarkdown(page, '- 第一项\n-')
+
+    // Composing again in the same empty item commits cleanly and undoes in one step.
+    await items.nth(1).click()
+    await client.send('Input.imeSetComposition', { text: 'di er', selectionStart: 5, selectionEnd: 5 })
+    await client.send('Input.insertText', { text: '第二项' })
+    await expectMarkdown(page, '- 第一项\n- 第二项')
+    await items.nth(1).click()
+    await page.keyboard.press('ControlOrMeta+z')
+    await expectMarkdown(page, '- 第一项\n-')
+    await reopen(page)
+  } finally {
+    await client.detach()
+  }
+})
+
+test('Escape then ArrowDown from a trailing code block accepts Chinese IME composition immediately', async ({
+  page,
+  browserName
+}) => {
+  test.skip(browserName !== 'chromium', 'Playwright exposes IME composition through Chromium CDP only.')
+  await openDocument(page, '```ts\nconst count = 1\n```')
+  await caret(page.locator('.editor-code-pre'), 'end')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('.editor-selected-block')).toHaveCount(1)
+
+  const client = await page.context().newCDPSession(page)
+  try {
+    await client.send('Input.imeSetComposition', { text: 'ni hao', selectionStart: 6, selectionEnd: 6 })
+    await client.send('Input.insertText', { text: '你好世界' })
+    await expectMarkdown(page, '```ts\nconst count = 1\n```\n\n你好世界')
+    await reopen(page)
   } finally {
     await client.detach()
   }

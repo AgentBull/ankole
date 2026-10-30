@@ -1,4 +1,4 @@
-import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import {
   Button,
   Checkbox,
@@ -11,7 +11,8 @@ import {
   RadioGroupItem
 } from '@ankole/uikit'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useDebouncedValue } from '../common/use-debounced-value'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { FieldInputModel } from './state/field-input'
@@ -31,6 +32,7 @@ export function FieldInput({
   onChange,
   pageID,
   required = false,
+  variant = 'default',
   disabled = false,
   commitOnChange = false,
   onEditStart,
@@ -42,6 +44,7 @@ export function FieldInput({
   onChange(value: Value): void | Promise<unknown>
   pageID: string
   required?: boolean
+  variant?: 'default' | 'overlay'
   disabled?: boolean
   /** Local forms need the current value before their submit button receives focus. */
   commitOnChange?: boolean
@@ -50,6 +53,7 @@ export function FieldInput({
   onPendingChange?(pending: boolean): void
 }) {
   useSignals()
+  const { t } = useTranslation()
   const model = useModel(FieldInputModel)
   model.load(value, field.type)
   const draft = model.draft.value,
@@ -287,6 +291,7 @@ export function FieldInput({
   return (
     <div data-cell-retained={model.dirty.value ? 'true' : undefined}>
       <Input
+        variant={variant}
         disabled={disabled}
         required={required}
         aria-label={field.name}
@@ -350,44 +355,49 @@ function ReferencePicker({
   onChange(value: Value): void
   disabled: boolean
 }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
-  const deferredQuery = useDeferredValue(query)
+  const settledQuery = useDebouncedValue(query, 180)
   const [pageToken, setPageToken] = useState<string>()
   const [previousTokens, setPreviousTokens] = useState<(string | undefined)[]>([])
   const multiple = field.config.multiple !== false
   const search = useRef<HTMLInputElement>(null)
   const client = useQueryClient()
   const candidates = useQuery({
-    queryKey: [...contentKeys.page(pageID), 'reference', field.id, deferredQuery, pageToken],
-    enabled: open,
+    queryKey: [...contentKeys.page(pageID), 'reference', field.id, settledQuery, pageToken],
+    enabled: open && query === settledQuery,
     placeholderData: keepPreviousData,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (field.type === 'user') {
         const result = await client.fetchQuery({
           queryKey: [...contentKeys.all, 'subjects'],
-          queryFn: () => podSubjects(),
+          queryFn: ({ signal }) => podSubjects({ signal }),
           staleTime: 30_000
         })
         const items = result.subjects
           .filter(subject => subject.kind === 'human' && !!subject.principal_uid)
           .map(subject => ({ id: subject.principal_uid!, name: subject.name }))
-          .filter(subject => subject.name.toLocaleLowerCase().includes(deferredQuery.toLocaleLowerCase()))
+          .filter(subject => subject.name.toLocaleLowerCase().includes(settledQuery.toLocaleLowerCase()))
         return { items, next: undefined as string | undefined }
       }
       const schema = await client.fetchQuery({ ...baseSchemaQuery(String(field.config.table_id)), staleTime: 30_000 })
       const primary = schema.fields.find(field => field.is_primary) ?? schema.fields[0]
-      const result = await baseHTTP.query(schema.table.id, {
-        page_size: 100,
-        page_token: pageToken,
-        ...(deferredQuery && primary
-          ? {
-              filter: {
-                conjunction: 'and',
-                conditions: [{ field_id: primary.id, operator: 'text_contains', value: deferredQuery }]
+      const result = await baseHTTP.query(
+        schema.table.id,
+        {
+          page_size: 100,
+          page_token: pageToken,
+          ...(settledQuery && primary
+            ? {
+                filter: {
+                  conjunction: 'and',
+                  conditions: [{ field_id: primary.id, operator: 'text_contains', value: settledQuery }]
+                }
               }
-            }
-          : {})
-      })
+            : {})
+        },
+        signal
+      )
       return {
         items: result.records.map(record => ({
           id: record.id,
@@ -397,6 +407,8 @@ function ReferencePicker({
       }
     }
   })
+  const searching = query !== settledQuery || candidates.isPlaceholderData
+  const items = searching ? undefined : candidates.data?.items
   return (
     <PopoverContent
       align="start"
@@ -406,6 +418,7 @@ function ReferencePicker({
         {t(field.type === 'user' ? 'pod.content.choose_people' : 'pod.content.choose_related_records')}
       </PopoverTitle>
       <Input
+        variant="overlay"
         ref={search}
         aria-label={t('pod.content.search_options')}
         placeholder={t('pod.content.search')}
@@ -418,11 +431,11 @@ function ReferencePicker({
         }}
       />
       <ContentError error={candidates.error} />
-      {candidates.isPending && <p role="status">{t('pod.content.loading_options')}</p>}
-      {candidates.data?.items.length === 0 && <p className="text-sm text-fg-tertiary">{t('pod.content.no_matches')}</p>}
+      {(searching || candidates.isPending) && <p role="status">{t('pod.content.loading_options')}</p>}
+      {items?.length === 0 && <p className="text-sm text-fg-tertiary">{t('pod.content.no_matches')}</p>}
       {multiple ? (
         <ul className="min-h-0 max-h-[min(18rem,40dvh)] space-y-2 overflow-y-auto">
-          {candidates.data?.items.map(candidate => (
+          {items?.map(candidate => (
             <li key={candidate.id}>
               <label className="flex min-h-10 items-center gap-2 rounded-control px-2 py-1 text-sm hover:bg-accent">
                 <Checkbox
@@ -447,7 +460,7 @@ function ReferencePicker({
             onChange([String(selected)])
             close()
           }}>
-          {candidates.data?.items.map(candidate => (
+          {items?.map(candidate => (
             <label
               key={candidate.id}
               className="flex min-h-10 items-center gap-2 rounded-control px-2 py-1 text-sm hover:bg-accent">
@@ -462,7 +475,7 @@ function ReferencePicker({
           <Button
             size="sm"
             variant="ghost"
-            disabled={!previousTokens.length || candidates.isFetching}
+            disabled={!previousTokens.length || searching || candidates.isFetching}
             onClick={() => {
               setPageToken(previousTokens.at(-1))
               setPreviousTokens(tokens => tokens.slice(0, -1))
@@ -472,7 +485,7 @@ function ReferencePicker({
           <Button
             size="sm"
             variant="ghost"
-            disabled={!candidates.data?.next || candidates.isFetching}
+            disabled={!candidates.data?.next || searching || candidates.isFetching}
             onClick={() => {
               setPreviousTokens(tokens => [...tokens, pageToken])
               setPageToken(candidates.data?.next)

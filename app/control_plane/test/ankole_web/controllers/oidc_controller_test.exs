@@ -667,14 +667,14 @@ defmodule AnkoleWeb.OIDCControllerTest do
       Ankole.OIDCFixtures.session(human.principal.uid, client.id, scope, browser: browser)
 
     ref = %{"id" => first.authentication_id, "revision" => first.authentication_revision}
-    first_auth = Ankole.BrowserSessions.authentication(ref, :oauth)
+    first_auth = Ankole.BrowserSessions.identity(ref, Repo.tenant_id!())
     {:ok, first_code} = OIDC.Grants.authorize(request, first_auth)
     Process.sleep(1_100)
 
     {:ok, second} =
       Ankole.OIDCFixtures.session(human.principal.uid, client.id, scope, browser: browser)
 
-    second_auth = Ankole.BrowserSessions.authentication(ref, :oauth)
+    second_auth = Ankole.BrowserSessions.identity(ref, Repo.tenant_id!())
     assert second.id == first.id
     assert second.auth_time == first.auth_time
     assert second_auth["auth_time"] > first_auth["auth_time"]
@@ -1210,7 +1210,6 @@ defmodule AnkoleWeb.OIDCControllerTest do
     assert {:error, :login_subject_mismatch} =
              Ankole.BrowserSessions.authenticate(
                browser,
-               :oauth,
                wrong,
                oauth_request_id: oauth_request,
                expected_authentication_id: expected
@@ -1221,7 +1220,6 @@ defmodule AnkoleWeb.OIDCControllerTest do
     assert {:error, :login_expired} =
              Ankole.BrowserSessions.authenticate(
                browser,
-               :oauth,
                Map.put(wrong, "principal_uid", a.principal.uid),
                oauth_request_id: oauth_request,
                expected_authentication_id: expected
@@ -1380,15 +1378,13 @@ defmodule AnkoleWeb.OIDCControllerTest do
     {:ok, %{browser: browser, authentication: authentication}} =
       Ankole.BrowserSessions.authenticate(
         WebSession.browser_reference(conn),
-        :pod,
         %{
           "principal_uid" => principal.uid,
           "provider_id" => "lark-main",
           "external_id" => principal.uid,
           "access_version" => principal.access_version,
           "auth_time" => System.system_time(:second)
-        },
-        mode: :add
+        }
       )
 
     conn = WebSession.put_authentication(conn, browser, authentication)
@@ -1521,7 +1517,6 @@ defmodule AnkoleWeb.OIDCControllerTest do
     {:ok, %{browser: browser, authentication: authentication}} =
       Ankole.BrowserSessions.authenticate(
         WebSession.browser_reference(conn),
-        :oauth,
         %{
           "principal_uid" => principal_uid,
           "provider_id" => "lark-main",

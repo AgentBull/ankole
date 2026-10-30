@@ -1,286 +1,9 @@
+use super::document_schema::{
+    DocNode, FORMATS, Marks, NodeKind, RESOURCE_FIELDS, freeze, pair_value, pairs, thaw,
+};
 use super::tree::{self, Attrs, Element, Node, Result, element};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
 
-pub(super) type Marks = BTreeMap<String, Value>;
-// The core orders the marks by rank; readTree wraps them in that order.
-const FORMATS: [(&str, &str); 8] = [
-    ("u", "Underline"),
-    ("s", "Strikethrough"),
-    ("mark", "Highlight"),
-    ("sup", "Superscript"),
-    ("sub", "Subscript"),
-    ("em", "Emphasis"),
-    ("strong", "Strong"),
-    ("code", "Code"),
-];
-fn is_format_mark(name: &str) -> bool {
-    FORMATS.iter().any(|(_, mark)| *mark == name)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NodeKind {
-    Doc,
-    Paragraph,
-    Heading,
-    Blockquote,
-    BulletList,
-    OrderedList,
-    ListItem,
-    CodeBlock,
-    HorizontalRule,
-    Table,
-    TableRow,
-    Cell,
-    HeaderCell,
-    UnknownBlock,
-    LineBreak,
-    Image,
-    InlineElement,
-    Text,
-    Callout,
-    Embed,
-}
-impl std::fmt::Display for NodeKind {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{self:?}")
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct DocNode {
-    pub kind: NodeKind,
-    pub param: Value,
-    pub marks: Marks,
-    pub content: Option<Vec<DocNode>>,
-}
-impl DocNode {
-    pub fn new(kind: NodeKind, param: Value, marks: Marks, content: Option<Vec<Self>>) -> Self {
-        Self {
-            kind,
-            param,
-            marks,
-            content,
-        }
-    }
-    pub fn json(&self) -> Value {
-        let mut result = serde_json::Map::new();
-        result.insert("type".into(), json!(self.kind));
-        let default = default_param(self.kind);
-        if !self.marks.is_empty() || default.as_ref() != Some(&self.param) {
-            result.insert("param".into(), self.param.clone());
-        }
-        if !self.marks.is_empty() {
-            result.insert("marks".into(), json!(self.marks));
-        }
-        if let Some(children) = &self.content {
-            result.insert(
-                "content".into(),
-                Value::Array(children.iter().map(Self::json).collect()),
-            );
-        }
-        Value::Object(result)
-    }
-    pub fn from_json(value: &Value) -> Result<Self> {
-        let kind = value
-            .get("type")
-            .and_then(Value::as_str)
-            .ok_or("missing node type")?;
-        let kind = serde_json::from_value::<NodeKind>(json!(kind))
-            .map_err(|_| format!("unknown node type {kind}"))?;
-        let param = value
-            .get("param")
-            .cloned()
-            .or_else(|| default_param(kind))
-            .ok_or("missing node parameter")?;
-        let marks: Marks = if let Some(marks) = value.get("marks") {
-            serde_json::from_value(marks.clone()).map_err(|e| e.to_string())?
-        } else {
-            Marks::new()
-        };
-        let children = if is_container(kind) {
-            Some(if let Some(children) = value.get("content") {
-                children
-                    .as_array()
-                    .ok_or("invalid node content")?
-                    .iter()
-                    .map(Self::from_json)
-                    .collect::<Result<_>>()?
-            } else {
-                Vec::new()
-            })
-        } else {
-            None
-        };
-        let result = Self::new(kind, param, marks, children);
-        result.validate()?;
-        Ok(result)
-    }
-    pub fn validate(&self) -> Result<()> {
-        let valid = match self.kind {
-            NodeKind::Text => self.param.as_str().is_some_and(|s| !s.is_empty()),
-            NodeKind::Heading => self.param.as_u64().is_some_and(|v| (1..=6).contains(&v)),
-            NodeKind::OrderedList => self.param.is_number(),
-            NodeKind::Image => self.param.is_string(),
-            NodeKind::InlineElement | NodeKind::UnknownBlock => thaw(&self.param).is_ok(),
-            _ => self.param.is_null(),
-        };
-        if !valid {
-            return Err(format!("invalid node parameter {}", self.kind));
-        }
-        for (name, value) in &self.marks {
-            validate_mark(name, value)?;
-            if !mark_target(name, self.kind) {
-                return Err(format!("mark {name} cannot target {}", self.kind));
-            }
-        }
-        if let Some(children) = &self.content {
-            if !is_container(self.kind) {
-                return Err("leaf has children".into());
-            }
-            for child in children {
-                child.validate()?;
-                if !child_allowed(self.kind, child.kind) {
-                    return Err(format!("invalid {} child {}", self.kind, child.kind));
-                }
-            }
-        } else if is_container(self.kind) {
-            return Err("plot is missing children".into());
-        }
-        Ok(())
-    }
-}
-fn default_param(kind: NodeKind) -> Option<Value> {
-    match kind {
-        NodeKind::Heading | NodeKind::OrderedList => Some(json!(1)),
-        NodeKind::Text | NodeKind::Image | NodeKind::InlineElement | NodeKind::UnknownBlock => None,
-        _ => Some(Value::Null),
-    }
-}
-pub fn is_container(kind: NodeKind) -> bool {
-    matches!(
-        kind,
-        NodeKind::Doc
-            | NodeKind::Paragraph
-            | NodeKind::Heading
-            | NodeKind::Blockquote
-            | NodeKind::BulletList
-            | NodeKind::OrderedList
-            | NodeKind::ListItem
-            | NodeKind::CodeBlock
-            | NodeKind::Table
-            | NodeKind::TableRow
-            | NodeKind::Cell
-            | NodeKind::HeaderCell
-            | NodeKind::Callout
-    )
-}
-fn inline(kind: NodeKind) -> bool {
-    matches!(
-        kind,
-        NodeKind::Text | NodeKind::LineBreak | NodeKind::Image | NodeKind::InlineElement
-    )
-}
-fn block(kind: NodeKind) -> bool {
-    !inline(kind)
-        && !matches!(
-            kind,
-            NodeKind::Doc
-                | NodeKind::TableRow
-                | NodeKind::Cell
-                | NodeKind::HeaderCell
-                | NodeKind::ListItem
-        )
-}
-fn child_allowed(parent: NodeKind, child: NodeKind) -> bool {
-    match parent {
-        NodeKind::Paragraph | NodeKind::Heading => inline(child),
-        NodeKind::CodeBlock => matches!(child, NodeKind::Text | NodeKind::LineBreak),
-        NodeKind::BulletList | NodeKind::OrderedList => child == NodeKind::ListItem,
-        NodeKind::Table => child == NodeKind::TableRow,
-        NodeKind::TableRow => matches!(child, NodeKind::Cell | NodeKind::HeaderCell),
-        _ => block(child),
-    }
-}
-fn mark_target(name: &str, kind: NodeKind) -> bool {
-    if is_format_mark(name) || name == "TextStyle" {
-        return matches!(kind, NodeKind::Text | NodeKind::InlineElement);
-    }
-    match name {
-        "Link" => inline(kind),
-        "Align" => matches!(
-            kind,
-            NodeKind::Paragraph | NodeKind::Heading | NodeKind::Cell | NodeKind::HeaderCell
-        ),
-        "Indent" | "BlockStyle" => matches!(kind, NodeKind::Paragraph | NodeKind::Heading),
-        "Task" => kind == NodeKind::ListItem,
-        "CodeBlockLanguage" | "CodeMeta" => kind == NodeKind::CodeBlock,
-        "ColSpan" | "RowSpan" => matches!(kind, NodeKind::Cell | NodeKind::HeaderCell),
-        "ImageAlt" | "ImageTitle" => kind == NodeKind::Image,
-        "PagePlaceholder" => kind == NodeKind::Paragraph,
-        "CalloutTone" => kind == NodeKind::Callout,
-        "EmbedRef" | "EmbedTable" | "EmbedView" => kind == NodeKind::Embed,
-        "Attrs" => !matches!(
-            kind,
-            NodeKind::Doc | NodeKind::Text | NodeKind::UnknownBlock | NodeKind::InlineElement
-        ),
-        _ => false,
-    }
-}
-pub(super) fn validate_mark(name: &str, value: &Value) -> Result<()> {
-    let valid = if is_format_mark(name) || name == "PagePlaceholder" {
-        value.is_null()
-    } else {
-        match name {
-            "TextStyle" | "BlockStyle" | "CodeBlockLanguage" | "CodeMeta" | "ImageAlt"
-            | "ImageTitle" | "EmbedRef" | "EmbedTable" | "EmbedView" => value.is_string(),
-            "Align" => value
-                .as_str()
-                .is_some_and(|s| ["left", "center", "right", "justify"].contains(&s)),
-            "Task" => value
-                .as_str()
-                .is_some_and(|s| ["todo", "done"].contains(&s)),
-            "CalloutTone" => value
-                .as_str()
-                .is_some_and(|s| ["info", "warning"].contains(&s)),
-            "Indent" => value.as_u64().is_some_and(|v| (1..=999).contains(&v)),
-            "ColSpan" | "RowSpan" => value
-                .as_u64()
-                .is_some_and(|v| (1..=u64::from(tree::SPAN_LIMIT)).contains(&v)),
-            "Attrs" | "Link" => pairs(value)
-                .is_ok_and(|a| !a.is_empty() && (name != "Link" || a.contains_key("href"))),
-            _ => false,
-        }
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(format!("invalid mark {name}"))
-    }
-}
-fn pairs(value: &Value) -> Result<Attrs> {
-    let pairs = value.as_array().ok_or("attribute pairs must be an array")?;
-    let mut result = Attrs::new();
-    let mut previous: Option<&str> = None;
-    for pair in pairs {
-        let pair = pair
-            .as_array()
-            .filter(|p| p.len() == 2)
-            .ok_or("invalid attribute pair")?;
-        let name = pair[0].as_str().ok_or("invalid attribute name")?;
-        let value = pair[1].as_str().ok_or("invalid attribute value")?;
-        if previous.is_some_and(|old| old >= name) {
-            return Err("attribute pairs must be sorted and unique".into());
-        }
-        previous = Some(name);
-        result.insert(name.into(), value.into());
-    }
-    Ok(result)
-}
-fn pair_value(attrs: &Attrs) -> Value {
-    Value::Array(attrs.iter().map(|(k, v)| json!([k, v])).collect())
-}
 fn extras(attrs: &Attrs, known: &[&str]) -> Marks {
     let attrs: Attrs = attrs
         .iter()
@@ -302,30 +25,6 @@ fn add_num_attr(marks: &mut Marks, attrs: &Attrs, key: &str, mark: &str) {
     if let Some(value) = attrs.get(key) {
         marks.insert(mark.into(), json!(value.parse::<u64>().unwrap_or(0)));
     }
-}
-fn freeze(node: &Element) -> Value {
-    json!({"name":node.name,"attrs":pair_value(&node.attrs),"children":node.children.iter().map(|c|match c{Node::Text(t)=>json!(t),Node::Element(n)=>freeze(n)}).collect::<Vec<_>>()})
-}
-fn thaw(value: &Value) -> Result<Element> {
-    let name = value
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or("invalid frozen element")?;
-    let attrs = pairs(value.get("attrs").ok_or("missing frozen attributes")?)?;
-    let children = value
-        .get("children")
-        .and_then(Value::as_array)
-        .ok_or("invalid frozen children")?
-        .iter()
-        .map(|child| {
-            if let Some(s) = child.as_str() {
-                Ok(Node::Text(s.into()))
-            } else {
-                thaw(child).map(Node::Element)
-            }
-        })
-        .collect::<Result<_>>()?;
-    Ok(element(name, attrs, children))
 }
 /** The caller has already normalized and validated this page tree. */
 pub fn page_document_normalized(page: &Element) -> Result<DocNode> {
@@ -386,15 +85,39 @@ fn from_block(node: &Element) -> Result<DocNode> {
             add_str_attr(&mut marks, attrs, "style", "BlockStyle");
             children = Some(from_inline(&node.children, &Marks::new(), "")?);
         }
-        "blockquote" => {
-            kind = NodeKind::Blockquote;
+        "columns" | "column" => {
+            kind = if node.name == "columns" {
+                NodeKind::Columns
+            } else {
+                NodeKind::Column
+            };
+            marks = extras(
+                attrs,
+                if node.name == "column" {
+                    &["width"]
+                } else {
+                    &[]
+                },
+            );
+            if node.name == "column" {
+                add_num_attr(&mut marks, attrs, "width", "ColumnWidth");
+            }
+            children = Some(blocks(node)?);
+        }
+        "blockquote" | "block" => {
+            kind = if node.name == "block" {
+                NodeKind::BlockGroup
+            } else {
+                NodeKind::Blockquote
+            };
             marks = extras(attrs, &[]);
             children = Some(blocks(node)?);
         }
         "callout" => {
             kind = NodeKind::Callout;
-            marks = extras(attrs, &["tone"]);
+            marks = extras(attrs, &["tone", "icon"]);
             add_str_attr(&mut marks, attrs, "tone", "CalloutTone");
+            add_str_attr(&mut marks, attrs, "icon", "CalloutIcon");
             children = Some(blocks(node)?);
         }
         "ul" | "ol" => {
@@ -427,32 +150,56 @@ fn from_block(node: &Element) -> Result<DocNode> {
             add_str_attr(&mut marks, attrs, "task", "Task");
             children = Some(blocks(node)?);
         }
-        "pre" => {
-            kind = NodeKind::CodeBlock;
-            marks = extras(attrs, &["lang", "meta"]);
-            add_str_attr(&mut marks, attrs, "lang", "CodeBlockLanguage");
-            add_str_attr(&mut marks, attrs, "meta", "CodeMeta");
-            let value = tree::text_of(node);
+        "pre" | "mermaid" => {
+            if node.name == "pre" {
+                kind = NodeKind::CodeBlock;
+                marks = extras(attrs, &["lang", "meta", "wrap"]);
+                add_str_attr(&mut marks, attrs, "lang", "CodeBlockLanguage");
+                add_str_attr(&mut marks, attrs, "meta", "CodeMeta");
+                add_str_attr(&mut marks, attrs, "wrap", "CodeWrap");
+            } else {
+                kind = NodeKind::Mermaid;
+                marks = extras(attrs, &["view", "theme"]);
+                add_str_attr(&mut marks, attrs, "view", "MermaidView");
+                add_str_attr(&mut marks, attrs, "theme", "MermaidTheme");
+            }
             let mut content = Vec::new();
-            for (index, line) in value.split('\n').enumerate() {
-                if index > 0 {
-                    content.push(DocNode::new(
-                        NodeKind::LineBreak,
-                        Value::Null,
-                        Marks::new(),
-                        None,
-                    ));
-                }
-                if !line.is_empty() {
-                    content.push(DocNode::new(
-                        NodeKind::Text,
-                        json!(line),
-                        Marks::new(),
-                        None,
-                    ));
+            for text in from_inline(&node.children, &Marks::new(), "")? {
+                let value = text.param.as_str().ok_or("invalid code text")?;
+                for (index, line) in value.split('\n').enumerate() {
+                    if index > 0 {
+                        content.push(DocNode::new(
+                            NodeKind::LineBreak,
+                            Value::Null,
+                            text.marks.clone(),
+                            None,
+                        ));
+                    }
+                    if !line.is_empty() {
+                        content.push(DocNode::new(
+                            NodeKind::Text,
+                            json!(line),
+                            text.marks.clone(),
+                            None,
+                        ));
+                    }
                 }
             }
             children = Some(content);
+        }
+        "math" => {
+            kind = NodeKind::Math;
+            marks = extras(attrs, &[]);
+            param = json!(
+                node.children
+                    .iter()
+                    .filter_map(|child| match child {
+                        Node::Text(value) => Some(value.as_str()),
+                        Node::Element(_) => None,
+                    })
+                    .collect::<String>()
+            );
+            children = None;
         }
         "hr" => {
             kind = NodeKind::HorizontalRule;
@@ -465,7 +212,18 @@ fn from_block(node: &Element) -> Result<DocNode> {
             } else {
                 NodeKind::TableRow
             };
-            marks = extras(attrs, &[]);
+            marks = extras(
+                attrs,
+                if node.name == "table" {
+                    &["widths", "layout"]
+                } else {
+                    &[]
+                },
+            );
+            if node.name == "table" {
+                add_str_attr(&mut marks, attrs, "widths", "TableWidths");
+                add_str_attr(&mut marks, attrs, "layout", "TableLayout");
+            }
             children = Some(blocks(node)?);
         }
         "td" | "th" => {
@@ -474,19 +232,34 @@ fn from_block(node: &Element) -> Result<DocNode> {
             } else {
                 NodeKind::HeaderCell
             };
-            marks = extras(attrs, &["align", "colspan", "rowspan"]);
+            marks = extras(attrs, &["align", "colspan", "rowspan", "background"]);
+            add_str_attr(&mut marks, attrs, "background", "CellBackground");
             add_str_attr(&mut marks, attrs, "align", "Align");
             add_num_attr(&mut marks, attrs, "colspan", "ColSpan");
             add_num_attr(&mut marks, attrs, "rowspan", "RowSpan");
             children = Some(blocks(node)?);
         }
+        "media" | "bookmark" => {
+            kind = if node.name == "media" {
+                NodeKind::Media
+            } else {
+                NodeKind::Bookmark
+            };
+            marks = extras(attrs, &RESOURCE_FIELDS);
+            for key in RESOURCE_FIELDS {
+                add_str_attr(&mut marks, attrs, key, &format!("Resource_{key}"));
+            }
+            children = None;
+        }
         "embed" => {
             kind = NodeKind::Embed;
-            marks = extras(attrs, &["ref", "table", "view"]);
+            marks = extras(attrs, &["ref", "table", "view", "href", "title"]);
             for (key, name) in [
                 ("ref", "EmbedRef"),
                 ("table", "EmbedTable"),
                 ("view", "EmbedView"),
+                ("href", "EmbedHref"),
+                ("title", "EmbedTitle"),
             ] {
                 add_str_attr(&mut marks, attrs, key, name);
             }
@@ -522,6 +295,22 @@ fn from_inline(nodes: &[Node], context: &Marks, style: &str) -> Result<Vec<DocNo
             let mut next = context.clone();
             next.insert((*name).into(), Value::Null);
             out.extend(from_inline(&node.children, &next, style)?);
+        } else if node.name == "comment" {
+            let mut next = context.clone();
+            let mut ids = next
+                .get("Comment")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            ids.extend(
+                super::comments::parse_ids(&node.attrs["ids"])?
+                    .into_iter()
+                    .map(Value::String),
+            );
+            ids.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+            ids.dedup();
+            next.insert("Comment".into(), Value::Array(ids));
+            out.extend(from_inline(&node.children, &next, style)?);
         } else if node.name == "span" && node.attrs.keys().all(|key| key == "style") {
             let inner = node.attrs.get("style").map_or("", String::as_str);
             let joined = tree::join_style(style, inner);
@@ -539,8 +328,10 @@ fn from_inline(nodes: &[Node], context: &Marks, style: &str) -> Result<Vec<DocNo
                     &[]
                 },
             );
-            if let Some(link) = context.get("Link") {
-                mark.insert("Link".into(), link.clone());
+            for name in ["Link", "Comment"] {
+                if let Some(value) = context.get(name) {
+                    mark.insert(name.into(), value.clone());
+                }
             }
             if node.name == "img" {
                 let src = node.attrs.get("src").ok_or("missing img src")?;
@@ -550,6 +341,21 @@ fn from_inline(nodes: &[Node], context: &Marks, style: &str) -> Result<Vec<DocNo
             } else {
                 out.push(DocNode::new(NodeKind::LineBreak, Value::Null, mark, None));
             }
+        } else if node.name == "mention" {
+            let mut mark = extras(&node.attrs, &["page", "principal"]);
+            for (key, value) in &marks {
+                if key != "Link" {
+                    mark.insert(key.clone(), value.clone());
+                }
+            }
+            let param = if let Some(page) = node.attrs.get("page") {
+                json!({ "page": page })
+            } else if let Some(principal) = node.attrs.get("principal") {
+                json!({ "principal": principal })
+            } else {
+                return Err("missing mention target".into());
+            };
+            out.push(DocNode::new(NodeKind::Mention, param, mark, None));
         } else {
             out.push(DocNode::new(
                 NodeKind::InlineElement,
@@ -592,7 +398,20 @@ pub fn read_tree(doc: &DocNode) -> Result<Element> {
         }
         children.push(Node::Element(to_block(node)?));
     }
-    tree::normalize(element("page", Attrs::new(), children))
+    let mut root = element("page", Attrs::new(), children);
+    clean(&mut root);
+    tree::normalize(root)
+}
+fn clean(node: &mut Element) {
+    for value in node.attrs.values_mut() {
+        value.retain(tree::valid_character);
+    }
+    for child in &mut node.children {
+        match child {
+            Node::Text(value) => value.retain(tree::valid_character),
+            Node::Element(child) => clean(child),
+        }
+    }
 }
 fn to_block(node: &DocNode) -> Result<Element> {
     let mut attrs = attrs_back(node)?;
@@ -615,30 +434,65 @@ fn to_block(node: &DocNode) -> Result<Element> {
             children = to_inline(node.content.as_deref().unwrap_or_default())?;
         }
         NodeKind::UnknownBlock => return thaw(&node.param),
-        NodeKind::CodeBlock => {
-            name = "pre".into();
-            restore(&mut attrs, node, "lang", "CodeBlockLanguage");
-            restore(&mut attrs, node, "meta", "CodeMeta");
-            let value: String = node
-                .content
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .map(|n| {
-                    if n.kind == NodeKind::Text {
-                        n.param.as_str().unwrap_or("")
-                    } else {
-                        "\n"
-                    }
-                })
-                .collect();
-            if !value.is_empty() {
-                children.push(Node::Text(value));
+        NodeKind::Media | NodeKind::Bookmark => {
+            name = if node.kind == NodeKind::Media {
+                "media"
+            } else {
+                "bookmark"
+            }
+            .into();
+            for key in RESOURCE_FIELDS {
+                restore(&mut attrs, node, key, &format!("Resource_{key}"));
+            }
+        }
+        NodeKind::Math => {
+            name = "math".into();
+            if let Some(text) = node.param.as_str()
+                && !text.is_empty()
+            {
+                children.push(Node::Text(text.into()));
+            }
+        }
+        NodeKind::CodeBlock | NodeKind::Mermaid => {
+            if node.kind == NodeKind::Mermaid {
+                name = "mermaid".into();
+                restore(&mut attrs, node, "view", "MermaidView");
+                restore(&mut attrs, node, "theme", "MermaidTheme");
+            } else {
+                name = "pre".into();
+                restore(&mut attrs, node, "lang", "CodeBlockLanguage");
+                restore(&mut attrs, node, "meta", "CodeMeta");
+                restore(&mut attrs, node, "wrap", "CodeWrap");
+            }
+            for leaf in node.content.as_deref().unwrap_or_default() {
+                let value = Node::Text(if leaf.kind == NodeKind::Text {
+                    leaf.param.as_str().unwrap_or("").to_owned()
+                } else {
+                    "\n".to_owned()
+                });
+                if let Some(ids) = leaf.marks.get("Comment").and_then(Value::as_array) {
+                    children.push(Node::Element(element(
+                        "comment",
+                        Attrs::from([(
+                            "ids".into(),
+                            ids.iter()
+                                .filter_map(Value::as_str)
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        )]),
+                        vec![value],
+                    )));
+                } else {
+                    children.push(value);
+                }
             }
         }
         _ => {
             name = match node.kind {
                 NodeKind::Blockquote => "blockquote",
+                NodeKind::BlockGroup => "block",
+                NodeKind::Columns => "columns",
+                NodeKind::Column => "column",
                 NodeKind::BulletList => "ul",
                 NodeKind::OrderedList => "ol",
                 NodeKind::ListItem => "li",
@@ -657,13 +511,20 @@ fn to_block(node: &DocNode) -> Result<Element> {
             }
             for (key, mark) in [
                 ("task", "Task"),
+                ("width", "ColumnWidth"),
+                ("widths", "TableWidths"),
+                ("layout", "TableLayout"),
+                ("background", "CellBackground"),
                 ("align", "Align"),
                 ("colspan", "ColSpan"),
                 ("rowspan", "RowSpan"),
                 ("tone", "CalloutTone"),
+                ("icon", "CalloutIcon"),
                 ("ref", "EmbedRef"),
                 ("table", "EmbedTable"),
                 ("view", "EmbedView"),
+                ("href", "EmbedHref"),
+                ("title", "EmbedTitle"),
             ] {
                 restore(&mut attrs, node, key, mark);
             }
@@ -672,23 +533,13 @@ fn to_block(node: &DocNode) -> Result<Element> {
             }
         }
     }
-    for value in attrs.values_mut() {
-        value.retain(tree::valid_character);
-    }
     Ok(element(name, attrs, children))
 }
 fn to_inline(nodes: &[DocNode]) -> Result<Vec<Node>> {
     let mut result = Vec::new();
     for node in nodes {
         let mut value = match node.kind {
-            NodeKind::Text => Node::Text(
-                node.param
-                    .as_str()
-                    .ok_or("invalid text")?
-                    .chars()
-                    .filter(|c| tree::valid_character(*c))
-                    .collect(),
-            ),
+            NodeKind::Text => Node::Text(node.param.as_str().ok_or("invalid text")?.into()),
             NodeKind::LineBreak => Node::Element(element("br", attrs_back(node)?, Vec::new())),
             NodeKind::Image => {
                 let mut attrs = attrs_back(node)?;
@@ -699,6 +550,18 @@ fn to_inline(nodes: &[DocNode]) -> Result<Vec<Node>> {
                 restore(&mut attrs, node, "alt", "ImageAlt");
                 restore(&mut attrs, node, "title", "ImageTitle");
                 Node::Element(element("img", attrs, Vec::new()))
+            }
+            NodeKind::Mention => {
+                let mut attrs = attrs_back(node)?;
+                let map = node.param.as_object().ok_or("invalid mention")?;
+                if let Some(page) = map.get("page").and_then(Value::as_str) {
+                    attrs.insert("page".into(), page.into());
+                } else if let Some(principal) = map.get("principal").and_then(Value::as_str) {
+                    attrs.insert("principal".into(), principal.into());
+                } else {
+                    return Err("invalid mention".into());
+                }
+                Node::Element(element("mention", attrs, Vec::new()))
             }
             NodeKind::InlineElement => Node::Element(thaw(&node.param)?),
             _ => return Err("unexpected inline node".into()),
@@ -722,6 +585,19 @@ fn to_inline(nodes: &[DocNode]) -> Result<Vec<Node>> {
         }
         if let Some(link) = node.marks.get("Link") {
             value = Node::Element(element("a", pairs(link)?, vec![value]));
+        }
+        if let Some(ids) = node.marks.get("Comment").and_then(Value::as_array) {
+            value = Node::Element(element(
+                "comment",
+                Attrs::from([(
+                    "ids".into(),
+                    ids.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                )]),
+                vec![value],
+            ));
         }
         result.push(value);
     }

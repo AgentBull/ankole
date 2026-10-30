@@ -27,7 +27,6 @@ defmodule Ankole.BrowserSessions do
   defdelegate get_authentication(ref), to: Identity
   defdelegate authentication_evidence(id), to: Identity
   defdelegate current_reference(ref), to: Identity
-  defdelegate authentication(ref, purpose), to: Identity
   defdelegate identity(ref, tenant_id), to: Identity
   defdelegate identities(ref), to: Identity
   defdelegate claim_membership(ref, tenant_id), to: PodAccess
@@ -40,10 +39,10 @@ defmodule Ankole.BrowserSessions do
   defdelegate begin_oidc_state_in_tx(ref, attrs), to: Logins
   defdelegate oidc_callback(ref, provider_id, state), to: Logins
   defdelegate consume_oidc_state_in_tx(ref, id, auth), to: Logins
-  defdelegate authenticate(ref, purpose, auth, opts \\ []), to: Logins
-  defdelegate authenticate_in_tx(ref, purpose, auth, opts \\ []), to: Logins
-  defdelegate authenticate_site(ref, purpose, provider_id, proof, opts \\ []), to: Logins
-  defdelegate authenticate_site_in_tx(ref, purpose, provider_id, proof, opts \\ []), to: Logins
+  defdelegate authenticate(ref, auth, opts \\ []), to: Logins
+  defdelegate authenticate_in_tx(ref, auth, opts \\ []), to: Logins
+  defdelegate authenticate_site(ref, provider_id, proof, opts \\ []), to: Logins
+  defdelegate authenticate_site_in_tx(ref, provider_id, proof, opts \\ []), to: Logins
   defdelegate replace_site_credential_in_tx(ref, actor, proof), to: Logins
 
   defdelegate create_pod_access(authentication_ref, create), to: PodAccess
@@ -51,6 +50,8 @@ defmodule Ankole.BrowserSessions do
 
   defdelegate revoke(browser_ref, authentication_ref), to: Revocation
   defdelegate revoke_in_tx(browser_ref, authentication_ref), to: Revocation
+  defdelegate revoke_pod(browser_ref, authentication_ref, tenant_id), to: Revocation
+  defdelegate revoke_pod_in_tx(browser_ref, authentication_ref, tenant_id), to: Revocation
   defdelegate logout(ref, expected_revision \\ nil), to: Revocation
   defdelegate logout_in_tx(ref, expected_revision \\ nil), to: Revocation
   defdelegate cleanup_expired(now), to: Revocation

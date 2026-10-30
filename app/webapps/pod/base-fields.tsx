@@ -1,4 +1,4 @@
-import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -27,6 +27,7 @@ export function BaseCell({
   editable: boolean
   update(data: RecordData, versions: Versions): Promise<unknown>
 }) {
+  const { t } = useTranslation()
   const value = fieldValue(record, field)
   useSignals()
   const model = useModel(BaseCellModel)

@@ -25,13 +25,13 @@ test('backward selection retains its range through repeated formatting and Markd
   for (const format of ['strong', 'u', 'mark']) {
     await expect(page.locator(`.editor-content ${format}`)).toHaveText('selected')
   }
-  await expect(page.locator('.editor-content mark')).toHaveCSS('background-color', 'rgb(255, 241, 184)')
+  await expect(page.locator('.editor-content mark')).toHaveCSS('background-color', 'rgb(248, 245, 232)')
   expect(await page.evaluate(() => window.getSelection()!.toString())).toBe('selected')
   await reopen(page)
   for (const format of ['strong', 'u', 'mark']) {
     await expect(page.locator(`.editor-content ${format}`)).toHaveText('selected')
   }
-  await expect(page.locator('.editor-content mark')).toHaveCSS('background-color', 'rgb(255, 241, 184)')
+  await expect(page.locator('.editor-content mark')).toHaveCSS('background-color', 'rgb(248, 245, 232)')
 })
 
 test('cross-paragraph formatting keeps unselected prefixes and suffixes', async ({ page }) => {
@@ -51,7 +51,8 @@ test('keyboard selection and Alt+F10 expose an operable toolbar without losing t
   const toolbar = page.getByRole('toolbar', { name: '选区格式' })
   await expect(toolbar).toBeVisible()
   await page.keyboard.press('Alt+F10')
-  await expect(toolbar.getByRole('button', { name: '粗体', exact: true })).toBeFocused()
+  await expect(toolbar.getByRole('button', { name: '转换 Block 类型', exact: true })).toBeFocused()
+  await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('Enter')
   await expect(page.locator('.editor-content em')).toHaveText('Keyboard')
@@ -114,18 +115,20 @@ test('code block selection does not offer text formatting', async ({ page }) => 
   await expect(page.getByRole('toolbar', { name: '选区格式' })).toHaveCount(0)
 })
 
-test('plus inserts after the hovered block rather than the old caret', async ({ page }) => {
+test('the block menu inserts after the hovered block rather than the old caret', async ({ page }) => {
   await openDocument(page, 'First\n\nSecond\n\nThird')
   await caret(page.locator('.editor-content > p').last())
   await page.locator('.editor-content > p').first().hover()
-  await page.getByRole('button', { name: '在下方添加 Block', exact: true }).click()
+  await page.locator('.drag-handle').getByRole('button', { name: '当前 Block 菜单', exact: true }).click()
+  await page.getByRole('menuitem', { name: '在下方添加 Block', exact: true }).click()
   const item = page.getByRole('menuitem', { name: /二级标题/ })
   await item.hover()
   await page.evaluate(
     () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
   )
-  await expect(page.getByRole('button', { name: '在下方添加 Block', exact: true })).toBeVisible()
-  const anchor = (await page.getByRole('button', { name: '在下方添加 Block', exact: true }).boundingBox())!
+  const typeTrigger = page.locator('.drag-handle').getByRole('button', { name: '当前 Block 菜单', exact: true })
+  await expect(typeTrigger).toBeVisible()
+  const anchor = (await typeTrigger.boundingBox())!
   const menu = (await item.boundingBox())!
   expect(menu.x).toBeGreaterThanOrEqual(anchor.x)
   expect(menu.x).toBeLessThanOrEqual(anchor.x + anchor.width)
@@ -145,7 +148,10 @@ test('Block menu duplicates, moves and deletes the hovered block with undo', asy
   await expect(paragraphs).toHaveText(['First', 'First', 'Second', 'Third'])
   // A menu closes after its action. Wait for the closing animation before opening the next menu.
   await expect(page.getByRole('menu')).toHaveCount(0)
-  await page.getByRole('button', { name: '当前 Block 菜单', exact: true }).click()
+  await page
+    .getByRole('toolbar', { name: '编辑器工具栏', exact: true })
+    .getByRole('button', { name: '当前 Block 菜单', exact: true })
+    .click()
   await page.getByRole('menuitem', { name: '下移', exact: true }).click()
   await expect(paragraphs).toHaveText(['First', 'Second', 'First', 'Third'])
   await expect(page.getByRole('menu')).toHaveCount(0)
@@ -164,6 +170,16 @@ test.describe('touch block handles', () => {
     await openDocument(page, 'First\n\nSecond\n\nThird')
     const paragraphs = page.locator('.editor-content > p')
     await caret(paragraphs.last())
+    const expectedCaret = await paragraphs.first().evaluate(element => {
+      const box = element.getBoundingClientRect()
+      const range = document.caretRangeFromPoint(box.x + 12, box.y + 10)!
+      return {
+        anchor: range.startContainer.textContent,
+        anchorOffset: range.startOffset,
+        focus: range.startContainer.textContent,
+        focusOffset: range.startOffset
+      }
+    })
     await paragraphs.first().tap({ position: { x: 12, y: 10 } })
     const selection = () =>
       page.evaluate(() => {
@@ -175,11 +191,11 @@ test.describe('touch block handles', () => {
           focusOffset: selection.focusOffset
         }
       })
-    const tappedCaret = await selection()
-    expect(tappedCaret.anchor).toBe('First')
+    expect(expectedCaret.anchor).toBe('First')
     const handle = page.getByRole('button', { name: 'Block 菜单', exact: true })
     await expect(handle).toBeVisible()
-    expect(await selection()).toEqual(tappedCaret)
+    // WebKit finishes native touch placement after the tap's focus event.
+    await expect.poll(selection).toEqual(expectedCaret)
     await handle.tap()
     await page.getByRole('menuitem', { name: /创建副本/ }).tap()
     await expect(paragraphs).toHaveText(['First', 'First', 'Second', 'Third'])
@@ -268,6 +284,39 @@ test('slash menu filters heading levels and supports keyboard select and Escape'
   await expect(page.getByRole('listbox', { name: '插入 Block' })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(page.locator('.editor-content > p').last()).toHaveText('/no-match')
+})
+
+test('slash and plus share block choices and menu dimensions while only slash uses raised tiles', async ({ page }) => {
+  await openDocument(page, '')
+  const paragraph = page.locator('.editor-content > p')
+  await paragraph.hover()
+  await page.getByRole('button', { name: '添加 Block', exact: true }).click()
+  const insert = page.getByRole('menu', { name: '添加 Block', exact: true })
+  const choices = insert.getByRole('menuitem')
+  await expect(choices.first()).toBeVisible()
+  const titles = await choices.allTextContents()
+  await expect(insert).toHaveCSS('width', '272px')
+  await expect(choices.first()).toHaveCSS('height', '36px')
+  const plainIcon = choices.first().locator('.block-type-icon')
+  await expect(plainIcon).toHaveCSS('width', '16px')
+  await expect(plainIcon).toHaveCSS('background-image', 'none')
+  await expect(plainIcon).toHaveCSS('box-shadow', 'none')
+  await page.keyboard.press('Escape')
+  await page.keyboard.type('/')
+  const slash = page.getByRole('listbox', { name: '插入 Block', exact: true })
+  const options = slash.getByRole('option')
+  await expect(options).toHaveText(titles.map(title => title.trim()))
+  await expect(slash).toHaveCSS('width', '272px')
+  await expect(options.first()).toHaveCSS('height', '36px')
+  const tile = options.first().locator('.block-type-icon')
+  await expect(tile).toHaveCSS('width', '22px')
+  await expect(tile).not.toHaveCSS('background-image', 'none')
+  await expect(tile).not.toHaveCSS('box-shadow', 'none')
+  await page.keyboard.type('h2')
+  await page.keyboard.press('Tab')
+  await page.keyboard.type('Heading')
+  await expect(page.locator('.editor-content > h2')).toHaveText('Heading')
+  await expect(page.locator('.editor-content > *')).toHaveCount(1)
 })
 
 test('slash in a code block is text and opens no menu', async ({ page }) => {
@@ -382,4 +431,20 @@ test('rapid slash confirmation removes the complete query on every insertion', a
   await expect(page.locator('.editor-content h2')).toHaveText(
     Array.from({ length: 8 }, (_, index) => `Heading ${index}`)
   )
+})
+
+test('the selection toolbar turns the selected blocks into another type in one step', async ({ page }) => {
+  await openDocument(page, 'First\n\nSecond')
+  await selectText(page, 'First', 1, 'Second', 3)
+  const toolbar = page.getByRole('toolbar', { name: '选区格式' })
+  const type = toolbar.getByRole('button', { name: '转换 Block 类型', exact: true })
+  await expect(type).toHaveText('正文')
+  await type.click()
+  await page.getByRole('menuitem', { name: /二级标题/ }).click()
+  await expect(page.locator('.editor-content h2')).toHaveText(['First', 'Second'])
+  await expect(toolbar).toBeVisible()
+  await expect(type).toHaveText('二级标题')
+  expect(await page.evaluate(() => window.getSelection()!.toString())).toContain('Sec')
+  await page.getByRole('button', { name: '撤销', exact: true }).click()
+  await expect(page.locator('.editor-content h2')).toHaveCount(0)
 })

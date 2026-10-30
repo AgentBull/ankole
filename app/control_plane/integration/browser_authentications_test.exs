@@ -35,7 +35,7 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
   end
 
   test "independent callbacks wait on the browser row, then both commit", context do
-    %{browser: browser, first: a, second: b} = context
+    %{browser: browser, first: a, second: b, tenant: tenant} = context
     [state_a, state_b] = for _ <- 1..2, do: oidc_state(browser)
     {first, second} = race(browser, state_a, a, state_b, b)
     assert {:ok, a_login} = first
@@ -43,22 +43,22 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
 
     for {login, human} <- [{a_login, a}, {b_login, b}] do
       reference = BrowserSessions.reference(login.authentication)
-      assert BrowserSessions.authentication(reference, :pod)["principal_uid"] == human.uid
+      assert BrowserSessions.identity(reference, tenant.id)["principal_uid"] == human.uid
     end
   end
 
   test "two callbacks for one subject cannot replace each other's committed proof", context do
-    %{browser: browser, first: human} = context
+    %{browser: browser, first: human, tenant: tenant} = context
     [first_state, second_state] = for _ <- 1..2, do: oidc_state(browser)
     {first, second} = race(browser, first_state, human, second_state, human)
     assert {:ok, login} = first
     assert {:error, :login_expired} = second
-    assert BrowserSessions.authentication(BrowserSessions.reference(login.authentication), :pod)
+    assert BrowserSessions.identity(BrowserSessions.reference(login.authentication), tenant.id)
   end
 
   test "logout confirmation cannot include authentication added while it waits for the lock",
        context do
-    %{browser: browser, first: a, second: b} = context
+    %{browser: browser, first: a, second: b, tenant: tenant} = context
     {:ok, a_login} = complete_oidc(browser, oidc_state(browser).id, auth(a))
     {:ok, request} = Ankole.OIDC.RPLogout.prepare(browser, %{})
     new_login = oidc_state(browser)
@@ -71,8 +71,8 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
 
     assert {:ok, b_login} = first
     assert {:error, :logout_request_expired} = second
-    assert BrowserSessions.authentication(BrowserSessions.reference(a_login.authentication), :pod)
-    assert BrowserSessions.authentication(BrowserSessions.reference(b_login.authentication), :pod)
+    assert BrowserSessions.identity(BrowserSessions.reference(a_login.authentication), tenant.id)
+    assert BrowserSessions.identity(BrowserSessions.reference(b_login.authentication), tenant.id)
   end
 
   defp race(browser, first_state, first_human, second_state, second_human) do
@@ -132,8 +132,6 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
       BrowserSessions.begin_oidc_state(browser, %{
         state: Ecto.UUID.generate(),
         provider_id: "local",
-        purpose: :pod,
-        mode: :add,
         redirect_uri: "http://localhost/sessions/oidc/local/callback"
       })
 

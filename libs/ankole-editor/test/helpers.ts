@@ -20,7 +20,9 @@ import { parseMarkdown, printMarkdown } from '../src/document/markdown'
 import type { Element } from '../src/document/tree'
 import { parseXml, printXml } from '../src/document/xml'
 import { readTree as treeOf } from '../src/editor/convert'
-import { headlessState } from '../src/editor/extension'
+import { editorExtension, headlessState, initialState } from '../src/editor/extension'
+import { hostExtension } from '../src/editor/host'
+import { type EditorHost } from '../src/editor/host-context'
 
 class HeadlessEditor {
   composing = false
@@ -42,6 +44,11 @@ class HeadlessEditor {
 /** A headless editor with a page from Markdown source or a page tree. */
 export function open(source: string | Element = ''): Wordgard {
   return new HeadlessEditor(headlessState(source)) as unknown as Wordgard
+}
+
+/** A headless editor that also installs the extensions of `host`. */
+export function openWithHost(source: string | Element, host: EditorHost): Wordgard {
+  return new HeadlessEditor(initialState(source, [editorExtension(), hostExtension(host)])) as unknown as Wordgard
 }
 
 /** Mark a headless editor as composing with an input method, or not. */

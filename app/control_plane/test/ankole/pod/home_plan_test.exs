@@ -26,7 +26,7 @@ defmodule Ankole.Pod.HomePlanTest do
     human_actor = actor_fixture(human)
     mixed_actor = AuthZ.Actor.new(agent, interactive_principal: human)
     assert {:ok, reachable} = Access.reachable_anchors(mixed_actor)
-    assert Access.page_bits(Repo.get!(Ankole.Pod.Page, page.id), reachable) == 3
+    assert Access.page_bits(Repo.get!(Ankole.Pod.Page, page.id), reachable) == 19
 
     for actor <- [human_actor, mixed_actor] do
       assert {:ok, %{records: [record]}} =
@@ -235,7 +235,12 @@ defmodule Ankole.Pod.HomePlanTest do
                Bases.write_records(caller, table.id, %{creates: [%{data: %{}}]})
 
       if role == "edit" do
-        assert {:ok, _} = Pages.update(caller, page.id, %{title: "Editable structure"})
+        assert {:ok, _} =
+                 Pages.update(caller, page.id, %{
+                   title: "Editable structure",
+                   expected_title: page.title
+                 })
+
         assert {:ok, _} = Bases.create_field(caller, table.id, %{name: "Notes", type: "text"})
         assert {:error, :forbidden} = Pages.delete(caller, page.id)
       else

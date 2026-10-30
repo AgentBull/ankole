@@ -43,6 +43,7 @@ import {
 import { nextPageParams, fromDocument } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
+import { ErrorBoundary } from '../../../common/error-boundary'
 import { formatConsoleDate } from '../../console-primitives'
 import {
   FilterSwitch,
@@ -340,198 +341,200 @@ export function BrainObjectDrawer() {
           </DrawerHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
-            {detail.isLoading ? (
-              <div className="grid gap-4">
-                <Skeleton className="h-24 w-full" />
-                <Skeleton className="h-64 w-full" />
-              </div>
-            ) : (
-              <div className="grid gap-7">
-                <ErrorBlock error={detail.error ?? (versions.isFetchNextPageError ? undefined : versions.error)} />
+            <ErrorBoundary variant="panel" resetKeys={[slug]}>
+              {detail.isLoading ? (
+                <div className="grid gap-4">
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-64 w-full" />
+                </div>
+              ) : (
+                <div className="grid gap-7">
+                  <ErrorBlock error={detail.error ?? (versions.isFetchNextPageError ? undefined : versions.error)} />
 
-                {detail.data?.candidates ? (
-                  <DrawerSection title={t('console.brain.ambiguous_title')}>
-                    <ul className="grid gap-1">
-                      {detail.data.candidates.map(candidate => (
-                        <li key={candidate.slug}>
-                          <Link className="link font-mono text-xs" to={brainObjectPath(candidate.slug ?? '')}>
-                            {candidate.slug}
-                          </Link>
-                          {candidate.title ? (
-                            <span className="ml-2 text-xs text-muted-foreground">{candidate.title}</span>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  </DrawerSection>
-                ) : null}
-
-                {page ? (
-                  <>
-                    <DrawerSection title={t('console.brain.document')}>
-                      <div className="border border-border bg-background p-4">
-                        <MarkdownBody text={page.rendered} />
-                      </div>
-                    </DrawerSection>
-
-                    <DrawerSection title={`${t('console.brain.facts')} (${page.facts.length})`}>
-                      <CompactTable
-                        columns={[
-                          t('console.brain.claim'),
-                          t('console.brain.kind'),
-                          t('console.brain.holder'),
-                          t('console.brain.valid_window'),
-                          t('console.brain.scope')
-                        ]}
-                        empty={t('console.brain.no_rows')}
-                        rowCount={page.facts.length}>
-                        {page.facts.map(fact => (
-                          <TableRow key={fact.id} className={fact.expired_at ? 'opacity-60' : undefined}>
-                            <TableCell className="max-w-[320px] whitespace-normal text-xs">{fact.claim}</TableCell>
-                            <TableCell className="text-xs">{fact.kind ?? '—'}</TableCell>
-                            <TableCell className="font-mono text-xs">{fact.holder ?? '—'}</TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {formatConsoleDate(fact.valid_from)}
-                              {fact.valid_until ? ` → ${formatConsoleDate(fact.valid_until)}` : ''}
-                              {fact.expired_at ? ` (${t('console.brain.expired')})` : ''}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">{fact.audience_scope}</TableCell>
-                          </TableRow>
+                  {detail.data?.candidates ? (
+                    <DrawerSection title={t('console.brain.ambiguous_title')}>
+                      <ul className="grid gap-1">
+                        {detail.data.candidates.map(candidate => (
+                          <li key={candidate.slug}>
+                            <Link className="link font-mono text-xs" to={brainObjectPath(candidate.slug ?? '')}>
+                              {candidate.slug}
+                            </Link>
+                            {candidate.title ? (
+                              <span className="ml-2 text-xs text-muted-foreground">{candidate.title}</span>
+                            ) : null}
+                          </li>
                         ))}
-                      </CompactTable>
+                      </ul>
                     </DrawerSection>
+                  ) : null}
 
-                    <DrawerSection title={`${t('console.brain.takes')} (${page.takes.length})`}>
-                      <CompactTable
-                        columns={[
-                          t('console.brain.claim'),
-                          t('console.brain.kind'),
-                          t('console.brain.weight'),
-                          t('console.brain.grade'),
-                          t('console.brain.resolution'),
-                          t('console.brain.scope')
-                        ]}
-                        empty={t('console.brain.no_rows')}
-                        rowCount={page.takes.length}>
-                        {page.takes.map(take => (
-                          <TableRow key={take.id} className={take.active ? undefined : 'opacity-60'}>
-                            <TableCell className="max-w-[320px] whitespace-normal text-xs">{take.claim}</TableCell>
-                            <TableCell className="text-xs">{take.kind ?? '—'}</TableCell>
-                            <TableCell className="text-xs">{take.weight ?? '—'}</TableCell>
-                            <TableCell className="text-xs">
-                              {take.graded_quality
-                                ? `${take.graded_quality}${take.graded_confidence != null ? ` · ${take.graded_confidence}` : ''}`
-                                : '—'}
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              {take.resolved_at
-                                ? `${take.resolved_quality ?? ''}${take.resolved_outcome != null ? ` · ${String(take.resolved_outcome)}` : ''}`
-                                : '—'}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">{take.audience_scope}</TableCell>
-                          </TableRow>
-                        ))}
-                      </CompactTable>
-                    </DrawerSection>
+                  {page ? (
+                    <>
+                      <DrawerSection title={t('console.brain.document')}>
+                        <div className="border border-border bg-background p-4">
+                          <MarkdownBody text={page.rendered} />
+                        </div>
+                      </DrawerSection>
 
-                    <DrawerSection title={`${t('console.brain.timelines')} (${page.timelines.length})`}>
-                      <CompactTable
-                        columns={[
-                          t('console.brain.date'),
-                          t('console.brain.summary'),
-                          t('console.brain.event_object'),
-                          t('console.brain.scope')
-                        ]}
-                        empty={t('console.brain.no_rows')}
-                        rowCount={page.timelines.length}>
-                        {page.timelines.map(timeline => (
-                          <TableRow key={timeline.id}>
-                            <TableCell className="text-xs">{timeline.date}</TableCell>
-                            <TableCell className="max-w-[360px] whitespace-normal text-xs">
-                              {timeline.summary}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">
-                              {timeline.event_object_slug ? (
-                                <Link className="link" to={brainObjectPath(timeline.event_object_slug)}>
-                                  {timeline.event_object_slug}
-                                </Link>
-                              ) : (
-                                '—'
-                              )}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">{timeline.audience_scope}</TableCell>
-                          </TableRow>
-                        ))}
-                      </CompactTable>
-                    </DrawerSection>
-
-                    <DrawerSection title={t('console.brain.links')}>
-                      <div className="grid gap-3 text-xs sm:grid-cols-2">
-                        <LinkList
-                          title={t('console.brain.links_outgoing')}
-                          links={page.links.outgoing.map(link => ({
-                            slug: link.to,
-                            linkType: link.link_type,
-                            context: link.context
-                          }))}
-                          empty={t('console.brain.no_rows')}
-                        />
-                        <LinkList
-                          title={t('console.brain.links_incoming')}
-                          links={page.links.incoming.map(link => ({
-                            slug: link.from,
-                            linkType: link.link_type,
-                            context: link.context
-                          }))}
-                          empty={t('console.brain.no_rows')}
-                        />
-                      </div>
-                    </DrawerSection>
-
-                    <DrawerSection title={t('console.brain.versions')}>
-                      {versions.isLoading ? (
-                        <Skeleton className="h-24 w-full" />
-                      ) : (
+                      <DrawerSection title={`${t('console.brain.facts')} (${page.facts.length})`}>
                         <CompactTable
                           columns={[
-                            t('console.brain.snapshot_at'),
-                            t('console.brain.author'),
-                            t('console.brain.body_preview'),
-                            ''
+                            t('console.brain.claim'),
+                            t('console.brain.kind'),
+                            t('console.brain.holder'),
+                            t('console.brain.valid_window'),
+                            t('console.brain.scope')
                           ]}
-                          empty={t('console.brain.no_versions')}
-                          rowCount={versions.data?.length ?? 0}>
-                          {(versions.data ?? []).map(version => (
-                            <TableRow key={version.id}>
-                              <TableCell className="text-xs">{formatConsoleDate(version.snapshot_at)}</TableCell>
-                              <TableCell className="font-mono text-xs">
-                                <ActorLabel actor={version.author} />
+                          empty={t('console.brain.no_rows')}
+                          rowCount={page.facts.length}>
+                          {page.facts.map(fact => (
+                            <TableRow key={fact.id} className={fact.expired_at ? 'opacity-60' : undefined}>
+                              <TableCell className="max-w-[320px] whitespace-normal text-xs">{fact.claim}</TableCell>
+                              <TableCell className="text-xs">{fact.kind ?? '—'}</TableCell>
+                              <TableCell className="font-mono text-xs">{fact.holder ?? '—'}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {formatConsoleDate(fact.valid_from)}
+                                {fact.valid_until ? ` → ${formatConsoleDate(fact.valid_until)}` : ''}
+                                {fact.expired_at ? ` (${t('console.brain.expired')})` : ''}
                               </TableCell>
-                              <TableCell className="max-w-[280px] truncate text-xs text-muted-foreground">
-                                {version.body}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                {page.editable ? (
-                                  <Button
-                                    disabled={rollback.isPending}
-                                    size="xs"
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => setRollbackVersionID(version.id)}>
-                                    {t('console.brain.rollback')}
-                                  </Button>
-                                ) : null}
-                              </TableCell>
+                              <TableCell className="font-mono text-xs">{fact.audience_scope}</TableCell>
                             </TableRow>
                           ))}
                         </CompactTable>
-                      )}
-                      <LoadMore query={versions} />
-                    </DrawerSection>
-                  </>
-                ) : null}
-              </div>
-            )}
+                      </DrawerSection>
+
+                      <DrawerSection title={`${t('console.brain.takes')} (${page.takes.length})`}>
+                        <CompactTable
+                          columns={[
+                            t('console.brain.claim'),
+                            t('console.brain.kind'),
+                            t('console.brain.weight'),
+                            t('console.brain.grade'),
+                            t('console.brain.resolution'),
+                            t('console.brain.scope')
+                          ]}
+                          empty={t('console.brain.no_rows')}
+                          rowCount={page.takes.length}>
+                          {page.takes.map(take => (
+                            <TableRow key={take.id} className={take.active ? undefined : 'opacity-60'}>
+                              <TableCell className="max-w-[320px] whitespace-normal text-xs">{take.claim}</TableCell>
+                              <TableCell className="text-xs">{take.kind ?? '—'}</TableCell>
+                              <TableCell className="text-xs">{take.weight ?? '—'}</TableCell>
+                              <TableCell className="text-xs">
+                                {take.graded_quality
+                                  ? `${take.graded_quality}${take.graded_confidence != null ? ` · ${take.graded_confidence}` : ''}`
+                                  : '—'}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {take.resolved_at
+                                  ? `${take.resolved_quality ?? ''}${take.resolved_outcome != null ? ` · ${String(take.resolved_outcome)}` : ''}`
+                                  : '—'}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">{take.audience_scope}</TableCell>
+                            </TableRow>
+                          ))}
+                        </CompactTable>
+                      </DrawerSection>
+
+                      <DrawerSection title={`${t('console.brain.timelines')} (${page.timelines.length})`}>
+                        <CompactTable
+                          columns={[
+                            t('console.brain.date'),
+                            t('console.brain.summary'),
+                            t('console.brain.event_object'),
+                            t('console.brain.scope')
+                          ]}
+                          empty={t('console.brain.no_rows')}
+                          rowCount={page.timelines.length}>
+                          {page.timelines.map(timeline => (
+                            <TableRow key={timeline.id}>
+                              <TableCell className="text-xs">{timeline.date}</TableCell>
+                              <TableCell className="max-w-[360px] whitespace-normal text-xs">
+                                {timeline.summary}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">
+                                {timeline.event_object_slug ? (
+                                  <Link className="link" to={brainObjectPath(timeline.event_object_slug)}>
+                                    {timeline.event_object_slug}
+                                  </Link>
+                                ) : (
+                                  '—'
+                                )}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">{timeline.audience_scope}</TableCell>
+                            </TableRow>
+                          ))}
+                        </CompactTable>
+                      </DrawerSection>
+
+                      <DrawerSection title={t('console.brain.links')}>
+                        <div className="grid gap-3 text-xs sm:grid-cols-2">
+                          <LinkList
+                            title={t('console.brain.links_outgoing')}
+                            links={page.links.outgoing.map(link => ({
+                              slug: link.to,
+                              linkType: link.link_type,
+                              context: link.context
+                            }))}
+                            empty={t('console.brain.no_rows')}
+                          />
+                          <LinkList
+                            title={t('console.brain.links_incoming')}
+                            links={page.links.incoming.map(link => ({
+                              slug: link.from,
+                              linkType: link.link_type,
+                              context: link.context
+                            }))}
+                            empty={t('console.brain.no_rows')}
+                          />
+                        </div>
+                      </DrawerSection>
+
+                      <DrawerSection title={t('console.brain.versions')}>
+                        {versions.isLoading ? (
+                          <Skeleton className="h-24 w-full" />
+                        ) : (
+                          <CompactTable
+                            columns={[
+                              t('console.brain.snapshot_at'),
+                              t('console.brain.author'),
+                              t('console.brain.body_preview'),
+                              ''
+                            ]}
+                            empty={t('console.brain.no_versions')}
+                            rowCount={versions.data?.length ?? 0}>
+                            {(versions.data ?? []).map(version => (
+                              <TableRow key={version.id}>
+                                <TableCell className="text-xs">{formatConsoleDate(version.snapshot_at)}</TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  <ActorLabel actor={version.author} />
+                                </TableCell>
+                                <TableCell className="max-w-[280px] truncate text-xs text-muted-foreground">
+                                  {version.body}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {page.editable ? (
+                                    <Button
+                                      disabled={rollback.isPending}
+                                      size="xs"
+                                      type="button"
+                                      variant="outline"
+                                      onClick={() => setRollbackVersionID(version.id)}>
+                                      {t('console.brain.rollback')}
+                                    </Button>
+                                  ) : null}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </CompactTable>
+                        )}
+                        <LoadMore query={versions} />
+                      </DrawerSection>
+                    </>
+                  ) : null}
+                </div>
+              )}
+            </ErrorBoundary>
           </div>
         </DrawerContent>
       </Drawer>

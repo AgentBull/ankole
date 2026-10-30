@@ -766,3 +766,57 @@ test('reconnecting restores current work while old responses and revoked streams
   model.snapshot(current)
   expect(model.liveStreams.value).toEqual({})
 })
+
+test('a draft quotes one passage: a Page selection and a quoted message replace each other and keep Page chips', () => {
+  const model = new ChatModel()
+  const chip = { kind: 'page' as const, id: 'referenced-page' }
+  model.links.value = [chip]
+  model.quote({ kind: 'page', id: 'open-page', quote: 'Selected passage' })
+  expect(model.links.value).toEqual([chip, { kind: 'page', id: 'open-page', quote: 'Selected passage' }])
+  model.quote({ kind: 'message', id: 'earlier-message', quote: 'Earlier reply' })
+  expect(model.links.value).toEqual([chip, { kind: 'message', id: 'earlier-message', quote: 'Earlier reply' }])
+  model.quote({ kind: 'page', id: 'open-page', quote: 'Another passage' })
+  expect(model.links.value).toEqual([chip, { kind: 'page', id: 'open-page', quote: 'Another passage' }])
+})
+
+test('restoring a queued message keeps the draft quote and adds only the references it lacks', () => {
+  const model = new ChatModel()
+  model.quote({ kind: 'page', id: 'open-page', quote: 'Draft passage' })
+  const input: ConversationPendingInput = {
+    messageID: 'queued',
+    agentUID: 'agent',
+    authorUID: 'person',
+    text: 'Queued text',
+    modelProfile: 'primary',
+    deliveryMode: 'queue',
+    mentions: [],
+    links: [
+      { kind: 'message', id: 'earlier-message', quote: 'Queued passage' },
+      { kind: 'page', id: 'referenced-page' }
+    ],
+    attachments: []
+  }
+  model.restoreQueuedInput(input, 'agent')
+  expect(model.links.value).toEqual([
+    { kind: 'page', id: 'open-page', quote: 'Draft passage' },
+    { kind: 'page', id: 'referenced-page' }
+  ])
+  expect(model.quoted.value?.quote).toBe('Draft passage')
+})
+
+test('Ask Agent upgrades an existing Page reference and ordinary mentions preserve its selected passage', () => {
+  const model = new ChatModel()
+  model.referencePage('open-page')
+  model.referencePage('another-page')
+  model.quote({ kind: 'page', id: 'open-page', quote: 'Selected passage' })
+  expect(model.quoted.value?.quote).toBe('Selected passage')
+  model.referencePage('open-page')
+  expect(model.quoted.value?.quote).toBe('Selected passage')
+  expect(model.links.value).toHaveLength(2)
+  expect(model.links.value.filter(link => link.id === 'open-page')).toEqual([
+    { kind: 'page', id: 'open-page', quote: 'Selected passage' }
+  ])
+  model.quote({ kind: 'page', id: 'open-page', quote: 'Updated passage' })
+  expect(model.quoted.value?.quote).toBe('Updated passage')
+  expect(model.links.value).toHaveLength(2)
+})

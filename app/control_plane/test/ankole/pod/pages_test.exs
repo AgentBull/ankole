@@ -19,6 +19,16 @@ defmodule Ankole.Pod.PagesTest do
     %{owner: owner, reader: reader, agent: agent}
   end
 
+  test "an untitled Page still requires an explicit empty title base", ctx do
+    actor = actor_fixture(ctx.owner)
+    {:ok, page} = Pages.create(actor, %{})
+
+    assert {:error, {:title_conflict, ""}} = Pages.update(actor, page.id, %{title: "First title"})
+
+    assert {:ok, %{title: "First title"}} =
+             Pages.update(actor, page.id, %{title: "First title", expected_title: ""})
+  end
+
   test "moving the first Space page into Private establishes its owner's access", ctx do
     actor = actor_fixture(ctx.owner.uid)
     assert {:ok, []} = Pages.list(actor, %{scope: "private"})
@@ -113,6 +123,34 @@ defmodule Ankole.Pod.PagesTest do
     assert MapSet.new(ancestors, & &1.id) == MapSet.new([root.id, middle.id])
   end
 
+  test "a page read returns the ancestors its reader can open, from the root down to the parent",
+       ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    reader = actor_fixture(ctx.reader.uid)
+
+    {:ok, root} =
+      Pages.create(owner, %{title: "Restricted root", private_owner_uid: ctx.owner.uid})
+
+    {:ok, middle} = Pages.create(owner, %{title: "Shared middle", parent_id: root.id})
+    {:ok, leaf} = Pages.create(owner, %{title: "Leaf", parent_id: middle.id})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, middle.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
+      })
+
+    assert {:ok, %{ancestors: [%Page{id: root_id}, %Page{id: middle_id}]}} =
+             Pages.get(owner, leaf.id)
+
+    assert {root_id, middle_id} == {root.id, middle.id}
+
+    assert {:ok, %{ancestors: [%Page{id: ^middle_id, title: "Shared middle"}]}} =
+             Pages.get(reader, leaf.id)
+
+    assert {:ok, %{ancestors: []}} = Pages.get(owner, root.id)
+  end
+
   test "an editor can remove their own inherited inline child", ctx do
     owner = actor_fixture(ctx.owner.uid)
     editor = actor_fixture(ctx.reader.uid)
@@ -126,7 +164,7 @@ defmodule Ankole.Pod.PagesTest do
 
     {:ok, child} = Pages.create(editor, %{parent_id: parent.id})
     assert {:error, :forbidden} = Pages.authorize(editor, child.id, "page_manage")
-    assert {:ok, nil} = Pages.delete_embed(editor, parent.id, child.id)
+    assert {:ok, nil} = Pages.delete_embeds(editor, parent.id, [child.id])
     assert %DateTime{} = Repo.get!(Page, child.id).deleted_at
   end
 
@@ -153,12 +191,15 @@ defmodule Ankole.Pod.PagesTest do
     assert found.id == visible.id
   end
 
-  test "record contribution is meaningful on Bases or inherited descendants, not a document itself",
+  test "document contribution permits comments and reaches descendant records only with container scope",
        ctx do
     owner = actor_fixture(ctx.owner.uid)
-    {:ok, page} = Pages.create(owner, %{})
+    contributor = actor_fixture(ctx.reader.uid)
+    {:ok, page} = Pages.create(owner, %{private_owner_uid: ctx.owner.uid})
+    {:ok, base} = Pages.create(owner, %{parent_id: page.id, type: "base"})
+    {:ok, table} = Ankole.Pod.Bases.create_table(owner, base.id, %{name: "Records"})
 
-    assert {:error, :invalid_grants} =
+    assert {:ok, _} =
              Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
                grants: [
                  %{principal_uid: ctx.reader.uid, role: "contribute", target_scope: "self"}
@@ -166,11 +207,23 @@ defmodule Ankole.Pod.PagesTest do
              })
 
     assert {:ok, _} =
+             Ankole.Pod.Comments.create(contributor, page.id, %{body: "A document comment"})
+
+    assert {:error, :forbidden} =
+             Documents.write(contributor, page.id, 0, "<page><p>Changed body</p></page>")
+
+    assert {:error, :forbidden} =
+             Ankole.Pod.Bases.write_records(contributor, table.id, %{creates: [%{data: %{}}]})
+
+    assert {:ok, _} =
              Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
                grants: [
                  %{principal_uid: ctx.reader.uid, role: "contribute", target_scope: "container"}
                ]
              })
+
+    assert {:ok, %{records: [_]}} =
+             Ankole.Pod.Bases.write_records(contributor, table.id, %{creates: [%{data: %{}}]})
   end
 
   test "space default roles, Private, explicit Agent admission, and restricted roots use AuthZ",
@@ -517,6 +570,52 @@ defmodule Ankole.Pod.PagesTest do
              Pages.restore(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
   end
 
+  test "trash reads only the deleted root and keeps page writes closed", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid)
+
+    {:ok, root} =
+      Pages.create(actor, %{
+        title: "Readable trash",
+        xml: "<page><p>Readable body</p></page>"
+      })
+
+    {:ok, child} = Pages.create(actor, %{parent_id: root.id, title: "Hidden child"})
+    {:ok, _} = Pages.delete(actor, root.id)
+
+    assert {:ok, %{page: page, content: content}} = Pages.get(actor, root.id)
+    assert page.id == root.id
+    assert page.deleted_at
+    assert "page_manage" in page.actions
+    assert content.plain_text == "Readable body"
+    assert {:error, :not_found} = Pages.get(actor, child.id)
+    assert {:error, :not_found} = Pages.update(actor, root.id, %{title: "Changed"})
+    assert {:error, :not_found} = Pages.state(actor, root.id, %{favorite: true})
+  end
+
+  test "permanent deletion starts the existing purge job only for a deleted root", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid)
+    {:ok, root} = Pages.create(actor, %{title: "Purge root"})
+    {:ok, child} = Pages.create(actor, %{parent_id: root.id, title: "Purge child"})
+
+    assert {:error, :cannot_purge} = Pages.purge(actor, root.id)
+    {:ok, _} = Pages.delete(actor, root.id)
+    assert {:error, :not_found} = Pages.purge(actor, child.id)
+
+    assert {:ok, purging} = Pages.purge(actor, root.id)
+    assert purging.purge_started_at
+    assert {:error, :cannot_restore} = Pages.restore(actor, root.id)
+    assert {:error, :cannot_purge} = Pages.purge(actor, root.id)
+
+    assert Enum.any?(Repo.all(Oban.Job), fn job ->
+             job.worker == "Ankole.Pod.Jobs.PurgePage" and job.args["page_id"] == root.id and
+               job.state == "available"
+           end)
+
+    assert :ok = Ankole.Pod.Jobs.PurgePage.run(%Oban.Job{args: %{"page_id" => root.id}})
+    assert {:error, :not_found} = Pages.fetch(root.id)
+    assert {:error, :not_found} = Pages.fetch(child.id)
+  end
+
   test "deleting an embed trashes its direct child and can unlink hidden or missing references",
        ctx do
     {:ok, parent} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
@@ -534,17 +633,17 @@ defmodule Ankole.Pod.PagesTest do
       })
 
     assert {:ok, nil} =
-             Pages.delete_embed(
+             Pages.delete_embeds(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                parent.id,
-               referenced.id
+               [referenced.id]
              )
 
     assert {:ok, nil} =
-             Pages.delete_embed(
+             Pages.delete_embeds(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                parent.id,
-               Ecto.UUID.generate()
+               [Ecto.UUID.generate()]
              )
 
     {:ok, _} =
@@ -560,10 +659,10 @@ defmodule Ankole.Pod.PagesTest do
              )
 
     assert {:ok, nil} =
-             Pages.delete_embed(
+             Pages.delete_embeds(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                parent.id,
-               referenced.id
+               [referenced.id]
              )
 
     {:ok, _} =
@@ -572,29 +671,60 @@ defmodule Ankole.Pod.PagesTest do
       })
 
     assert {:error, :forbidden} =
-             Pages.delete_embed(
+             Pages.delete_embeds(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                parent.id,
-               child.id
+               [child.id]
              )
 
     assert {:error, :forbidden} =
-             Pages.delete_embed(
+             Pages.delete_embeds(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                referenced.id,
-               child.id
+               [child.id]
              )
 
     assert {:ok, nil} =
-             Pages.delete_embed(
+             Pages.delete_embeds(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                parent.id,
-               child.id
+               [child.id]
              )
 
     assert %DateTime{} = Repo.get!(Page, child.id).deleted_at
 
     assert is_nil(Repo.get!(Page, referenced.id).deleted_at)
+  end
+
+  test "batch embed deletion rolls back every child and purge job when one child is forbidden",
+       ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    editor = actor_fixture(ctx.reader.uid)
+    {:ok, parent} = Pages.create(owner, %{})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, parent.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: ctx.reader.uid, role: "edit"}]
+      })
+
+    {:ok, own_child} = Pages.create(editor, %{parent_id: parent.id})
+    {:ok, other_child} = Pages.create(owner, %{parent_id: parent.id})
+    assert own_child.id < other_child.id
+    before_jobs = Repo.aggregate(Oban.Job, :count)
+
+    assert {:error, :forbidden} =
+             Pages.delete_embeds(editor, parent.id, [own_child.id, other_child.id])
+
+    assert is_nil(Repo.get!(Page, own_child.id).deleted_at)
+    assert is_nil(Repo.get!(Page, other_child.id).deleted_at)
+    assert Repo.aggregate(Oban.Job, :count) == before_jobs
+
+    assert {:ok, nil} =
+             Pages.delete_embeds(owner, parent.id, [own_child.id, other_child.id, own_child.id])
+
+    assert %DateTime{} = Repo.get!(Page, own_child.id).deleted_at
+    assert %DateTime{} = Repo.get!(Page, other_child.id).deleted_at
   end
 
   test "whole document CAS validates XML before commit and logs incremental changes", ctx do
@@ -670,6 +800,34 @@ defmodule Ankole.Pod.PagesTest do
 
     assert {:ok, %{changes: [%{kind: :change}], revision: 1}} =
              Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 0)
+  end
+
+  test "personal and shared lists evaluate permissions once and project the visible page's rights",
+       ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    reader = actor_fixture(ctx.reader.uid)
+    {:ok, page} = Pages.create(owner, %{private_owner_uid: ctx.owner.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+        grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
+      })
+
+    {:ok, _} = Pages.state(reader, page.id, %{favorite: true, visited: true})
+    function = {Ankole.Kernel, :authz_evaluate_pod_context, 1}
+
+    for scope <- ["recent", "favorites", "shared"] do
+      :erlang.trace_pattern(function, true, [:call_count])
+
+      try do
+        assert {:ok, [visible]} = Pages.list(reader, %{scope: scope})
+        assert visible.id == page.id
+        assert visible.actions == ["page_view"]
+        assert :erlang.trace_info(function, :call_count) == {:call_count, 1}
+      after
+        :erlang.trace_pattern(function, false, [:call_count])
+      end
+    end
   end
 
   test "favorites, recents, and text search never reveal inaccessible pages", ctx do
@@ -776,5 +934,120 @@ defmodule Ankole.Pod.PagesTest do
 
       assert {:ok, []} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(foreign))
     end)
+  end
+
+  test "children_view merges without touching updated_at and list_children details enriches Human, Agent, Doc, and File rows",
+       ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    reader = actor_fixture(ctx.reader.uid)
+    agent = actor_fixture(ctx.agent.uid)
+
+    assert {:ok, _} = Pages.space_agent(owner, ctx.agent.uid, "edit")
+
+    {:ok, hub} =
+      Pages.create(owner, %{
+        title: "Hub",
+        children_view: %{view: :grid, visible_fields: [:created_by]}
+      })
+
+    assert hub.children_view == %{"view" => "grid", "visible_fields" => ["created_by"]}
+    initial_updated_at = hub.updated_at
+
+    Process.sleep(5)
+
+    assert {:ok, updated_hub} =
+             Pages.update(owner, hub.id, %{children_view: %{collapsed: true}})
+
+    assert updated_hub.children_view == %{
+             "collapsed" => true,
+             "view" => "grid",
+             "visible_fields" => ["created_by"]
+           }
+
+    assert DateTime.compare(updated_hub.updated_at, initial_updated_at) == :eq
+
+    long_text = String.duplicate("Architecture overview paragraph. ", 12)
+    {:ok, doc_child} = Pages.create(agent, %{parent_id: hub.id, title: "Agent Spec"})
+    assert {:ok, _} = Documents.write(agent, doc_child.id, 0, "<page><p>#{long_text}</p></page>")
+
+    {:ok, file_child} = Pages.create(owner, %{parent_id: hub.id, type: "file", title: "Diagram"})
+
+    assert {:ok, _} =
+             Ankole.Pod.Files.upload(
+               owner,
+               file_child.id,
+               "file",
+               0,
+               "diagram.png",
+               <<137, 80, 78, 71>>,
+               "image/png"
+             )
+
+    {:ok, secret_child} = Pages.create(owner, %{parent_id: hub.id, title: "Restricted"})
+
+    assert {:ok, _} =
+             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, secret_child.id, %{
+               inherit_permissions: false,
+               grants: [%{principal_uid: ctx.owner.uid, role: "manage"}]
+             })
+
+    assert {:ok, %{child_count: 3}} = Pages.get(owner, hub.id)
+    assert {:ok, %{child_count: 2}} = Pages.get(reader, hub.id)
+
+    assert {:ok, lightweight_dir} =
+             Pages.list_children(reader, hub.id, %{details: false})
+
+    assert length(lightweight_dir.pages) == 2
+    refute Map.has_key?(lightweight_dir, :details)
+
+    assert {:ok, %{pages: detailed, details: by_id}} =
+             Pages.list_children(reader, hub.id, %{details: true})
+
+    assert length(detailed) == 2
+    assert by_id[doc_child.id].creator_name == ctx.agent.display_name
+    assert String.length(by_id[doc_child.id].excerpt) == 300
+    assert by_id[doc_child.id].excerpt =~ "Architecture overview paragraph."
+
+    assert by_id[file_child.id].creator_name == ctx.owner.display_name
+
+    assert %{path: "diagram.png", content_type: "image/png", size: 4} =
+             by_id[file_child.id].file
+  end
+
+  test "delete_embeds skips already-trashed direct children idempotently while enforcing permissions on live children",
+       ctx do
+    owner = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid)
+    editor_principal = human_fixture().principal
+    editor = Ankole.PrincipalsFixtures.actor_fixture(editor_principal.uid)
+
+    {:ok, parent} = Pages.create(owner, %{title: "Parent Doc"})
+
+    {:ok, already_trashed} =
+      Pages.create(owner, %{parent_id: parent.id, title: "Already Trashed"})
+
+    {:ok, live_own} = Pages.create(editor, %{parent_id: parent.id, title: "Editor Child"})
+    {:ok, live_protected} = Pages.create(owner, %{parent_id: parent.id, title: "Owner Child"})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, parent.id, %{
+        inherit_permissions: false,
+        grants: [
+          %{principal_uid: ctx.owner.uid, role: "manage"},
+          %{principal_uid: editor_principal.uid, role: "edit"}
+        ]
+      })
+
+    assert {:ok, _} = Pages.delete(owner, already_trashed.id)
+
+    assert {:error, :forbidden} =
+             Pages.delete_embeds(editor, parent.id, [already_trashed.id, live_protected.id])
+
+    assert {:ok, %{deleted_at: nil}} = Pages.fetch(live_protected.id)
+
+    assert {:ok, nil} =
+             Pages.delete_embeds(editor, parent.id, [already_trashed.id, live_own.id])
+
+    assert {:ok, %{deleted_at: %DateTime{}}} = Pages.fetch(live_own.id)
+    assert {:ok, %{deleted_at: %DateTime{}}} = Pages.fetch(already_trashed.id)
   end
 end

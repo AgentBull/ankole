@@ -5,13 +5,6 @@ import { resolve } from 'node:path'
 const project = resolve(import.meta.dir, '..')
 const consumer = await mkdtemp(resolve(tmpdir(), 'ankole-editor-consumer-'))
 const manifest = JSON.parse(await readFile(resolve(project, 'package.json'), 'utf8'))
-const workspace = JSON.parse(await readFile(resolve(project, '../../package.json'), 'utf8'))
-const patchPrefix = 'libs/ankole-editor/'
-const patchedDependencies = Object.fromEntries(
-  Object.entries(workspace.patchedDependencies as Record<string, string>)
-    .filter(([, path]) => path.startsWith(`${patchPrefix}patches/`))
-    .map(([name, path]) => [name, path.slice(patchPrefix.length)])
-)
 
 async function run(command: string[], cwd: string, env = process.env) {
   const child = Bun.spawn(command, { cwd, env, stdout: 'inherit', stderr: 'inherit' })
@@ -28,7 +21,6 @@ try {
     ['bun', 'pm', 'pack', '--ignore-scripts', '--filename', resolve(consumer, 'uikit.tgz'), '--quiet'],
     resolve(project, '../uikit')
   )
-  await cp(resolve(project, 'patches'), resolve(consumer, 'patches'), { recursive: true })
   const dependencies = {
     [manifest.name]: './editor.tgz',
     '@ankole/uikit': './uikit.tgz',
@@ -55,7 +47,6 @@ try {
         dependencies,
         devDependencies,
         overrides: { '@ankole/uikit': './uikit.tgz' },
-        patchedDependencies,
         scripts: { build: 'bun --bun vite build', preview: 'bun --bun vite preview --host 127.0.0.1' }
       },
       null,
@@ -66,6 +57,8 @@ try {
   for (const name of ['embedded.html', 'embedded.tsx', 'embedded.css']) {
     await cp(resolve(project, 'playground', name), resolve(consumer, 'playground', name))
   }
+  await mkdir(resolve(consumer, 'public'))
+  await cp(resolve(project, 'public', 'resource-preview.html'), resolve(consumer, 'public', 'resource-preview.html'))
   await writeFile(
     resolve(consumer, 'vite.config.ts'),
     `
@@ -104,16 +97,105 @@ export default defineConfig({
   await writeFile(
     resolve(consumer, 'smoke.ts'),
     `
-import { PageCollaboration, insertImage, insertEmbed, type EditorHost, type PageChanges } from '@ankole/block-editor/editor'
-import { parseMarkdown, printMarkdown, printXml, parseXml } from '@ankole/block-editor/document'
-const host: EditorHost = { resolveAsset: value => value }
+import { BlockEditor, useEditor, type EditorHandle } from '@ankole/block-editor'
+import {
+  PageCollaboration,
+  PageSession,
+  commentRanges,
+  commentSelection,
+  commitMention,
+  insertEmbed,
+  insertImage,
+  insertMention,
+  insertResource,
+  mentionField,
+  remoteSelections,
+  revealComment,
+  trackCommentSelection,
+  type CommentRange,
+  type CommentSelection,
+  type EditorHost,
+  type MentionCategory,
+  type MentionItem,
+  type MentionQueryResult,
+  type MentionSession,
+  type MentionTarget,
+  type MountMentionOptions,
+  type PageChanges,
+  type RemoteSelection,
+  type ResourceAttributes,
+  type ResourceKind
+} from '@ankole/block-editor/editor'
+import { parseMarkdown, printMarkdown, printXml, parseXml, resourceContent, resourceText } from '@ankole/block-editor/document'
+
+const mentionTarget: MentionTarget = { page: '019a2b00-0000-7000-8000-000000000001' }
+const mentionCategory: MentionCategory = 'all'
+const mentionItem: MentionItem = { target: mentionTarget, title: 'Roadmap' }
+const mentionResult: MentionQueryResult = { items: [mentionItem], totalAllMatches: 1 }
+const resourceKind: ResourceKind = 'bookmark'
+const resourceAttrs: ResourceAttributes = { src: 'https://example.com', title: 'Example', view: 'card' }
+const commentSel: CommentSelection = { from: 1, to: 4, quote: 'abc' }
+const commentRange: CommentRange = { id: '019a2b00-0000-7000-8000-000000000002', from: 1, to: 4 }
+const peerSelection: RemoteSelection = { id: 'peer', name: 'Alice', color: '#2469a2', anchor: 1, head: 1 }
+const host: EditorHost = {
+  resolveAsset: value => value,
+  queryMentions: () => mentionResult,
+  mountMention: (_target, _container, _options: MountMentionOptions) => () => {},
+  requestComment: selection => void selection,
+  openComment: ids => void ids
+}
 const response: PageChanges = { revision: 0, changes: [] }
-if (!PageCollaboration || !insertImage || !insertEmbed || !host.resolveAsset || !response) throw new Error('Package host export missing')
-const source = '<future version="0">\\n  Content **with marks**\\n</future>'
+const verifyHandle = (handle: EditorHandle | null, session: MentionSession | null) => ({ handle, session })
+if (
+  !BlockEditor ||
+  !useEditor ||
+  !PageCollaboration ||
+  !PageSession ||
+  !insertImage ||
+  !insertEmbed ||
+  !insertMention ||
+  !commitMention ||
+  !mentionField ||
+  !insertResource ||
+  !commentSelection ||
+  !trackCommentSelection ||
+  !commentRanges ||
+  !revealComment ||
+  !remoteSelections ||
+  !host.resolveAsset ||
+  !mentionCategory ||
+  !resourceKind ||
+  !resourceAttrs.src ||
+  !commentSel.quote ||
+  !commentRange.id ||
+  !peerSelection.color ||
+  !verifyHandle ||
+  !response
+) {
+  throw new Error('Package export missing')
+}
+const source = [
+  '<future version="0">',
+  '  Content **with marks** and <mention page="019a2b00-0000-7000-8000-000000000001" />',
+  '</future>',
+  '',
+  '<bookmark src="https://example.com" title="Example" view="card" />'
+].join('\\n')
 const page = parseMarkdown(source)
 const xml = printXml(page)
 if (printXml(parseXml(xml)) !== xml) throw new Error('Package XML mismatch')
 if (printXml(parseMarkdown(printMarkdown(page))) !== xml) throw new Error('Package Markdown mismatch')
+const commentXml = '<page><p><comment ids="019a2b00-0000-7000-8000-000000000002">Anchored</comment></p></page>'
+if (printXml(parseXml(commentXml)) !== commentXml) throw new Error('Package comment anchor XML mismatch')
+const bookmarkNode = page.children[1]
+if (
+  !bookmarkNode ||
+  !('name' in bookmarkNode) ||
+  resourceContent(bookmarkNode)?.src !== 'https://example.com' ||
+  !resourceText(bookmarkNode)
+) {
+  throw new Error('Package resource helper mismatch')
+}
 `
   )
   await run(['bun', 'install'], consumer)

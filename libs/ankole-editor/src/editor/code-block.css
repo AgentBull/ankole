@@ -1,0 +1,242 @@
+/* Code blocks: a persistent toolbar over the highlighted source (SPEC §7.6). */
+/* The frame, toolbar, and source text are the shared `code-surface`, `code-toolbar`, and `code-text` forms from
+   the UI kit, which chat replies use too. */
+:where(.ankole-editor) .editor-content .editor-code-block {
+  @apply code-surface;
+  margin: 8px 0;
+}
+
+:where(.ankole-editor) .editor-content .editor-code-toolbar {
+  @apply code-toolbar;
+}
+
+:where(.ankole-editor) .editor-content .editor-code-title {
+  margin-right: auto;
+  color: var(--fg-tertiary);
+}
+
+:where(.ankole-editor) .editor-content .editor-code-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-mini);
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+:where(.ankole-editor) .editor-content .editor-code-toolbar button:is(:hover, :focus-visible, [aria-pressed='true']) {
+  background: var(--layer-hover);
+  color: var(--foreground);
+}
+
+:where(.ankole-editor) .editor-content .editor-code-toolbar button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+:where(.ankole-editor) .editor-content .editor-code-language {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:where(.ankole-editor) .editor-content .editor-code-pre {
+  @apply code-text;
+  border-radius: 0;
+  background: transparent;
+  white-space: pre;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+:where(.ankole-editor) .editor-content .editor-code-block[data-wrap='true'] .editor-code-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Syntax colours. Kirari emits one class per token category; each maps to an Ankole theme token. */
+:where(.ankole-editor) {
+  --kirari-text: var(--foreground);
+  --kirari-keyword: var(--color-purple-60);
+  --kirari-variable: var(--foreground);
+  --kirari-property: var(--color-cyan-70);
+  --kirari-function: var(--color-blue-70);
+  --kirari-string: var(--color-green-70);
+  --kirari-number: var(--color-orange-60);
+  --kirari-boolean: var(--color-orange-60);
+  --kirari-null: var(--color-orange-60);
+  --kirari-comment: var(--fg-tertiary);
+  --kirari-operator: var(--color-purple-70);
+  --kirari-punctuation: var(--fg-secondary);
+  --kirari-type: var(--color-cyan-70);
+  --kirari-regex: var(--color-red-70);
+  --kirari-inserted: var(--color-green-70);
+  --kirari-deleted: var(--color-red-70);
+  --kirari-heading: var(--color-blue-70);
+  --kirari-tag: var(--color-red-70);
+  --kirari-attribute: var(--color-orange-60);
+  --kirari-entity: var(--color-yellow-60);
+}
+
+[data-theme='dark'] :where(.ankole-editor) {
+  --kirari-keyword: var(--color-purple-40);
+  --kirari-property: var(--color-cyan-40);
+  --kirari-function: var(--color-blue-40);
+  --kirari-string: var(--color-green-40);
+  --kirari-number: var(--color-orange-40);
+  --kirari-boolean: var(--color-orange-40);
+  --kirari-null: var(--color-orange-40);
+  --kirari-operator: var(--color-purple-30);
+  --kirari-type: var(--color-cyan-30);
+  --kirari-regex: var(--color-red-40);
+  --kirari-inserted: var(--color-green-40);
+  --kirari-deleted: var(--color-red-40);
+  --kirari-heading: var(--color-blue-40);
+  --kirari-tag: var(--color-red-40);
+  --kirari-attribute: var(--color-orange-40);
+  --kirari-entity: var(--color-yellow-40);
+}
+
+:where(.ankole-editor) .kirari-text {
+  color: var(--kirari-text);
+}
+:where(.ankole-editor) .kirari-keyword {
+  color: var(--kirari-keyword);
+}
+:where(.ankole-editor) .kirari-variable {
+  color: var(--kirari-variable);
+}
+:where(.ankole-editor) .kirari-property {
+  color: var(--kirari-property);
+}
+:where(.ankole-editor) .kirari-function {
+  color: var(--kirari-function);
+}
+:where(.ankole-editor) .kirari-string {
+  color: var(--kirari-string);
+}
+:where(.ankole-editor) .kirari-number {
+  color: var(--kirari-number);
+}
+:where(.ankole-editor) .kirari-boolean {
+  color: var(--kirari-boolean);
+}
+:where(.ankole-editor) .kirari-null {
+  color: var(--kirari-null);
+}
+:where(.ankole-editor) .kirari-comment {
+  color: var(--kirari-comment);
+  font-style: italic;
+}
+:where(.ankole-editor) .kirari-operator {
+  color: var(--kirari-operator);
+}
+:where(.ankole-editor) .kirari-punctuation {
+  color: var(--kirari-punctuation);
+}
+:where(.ankole-editor) .kirari-type {
+  color: var(--kirari-type);
+}
+:where(.ankole-editor) .kirari-regex {
+  color: var(--kirari-regex);
+}
+:where(.ankole-editor) .kirari-inserted {
+  color: var(--kirari-inserted);
+}
+:where(.ankole-editor) .kirari-deleted {
+  color: var(--kirari-deleted);
+}
+:where(.ankole-editor) .kirari-heading {
+  color: var(--kirari-heading);
+}
+:where(.ankole-editor) .kirari-tag {
+  color: var(--kirari-tag);
+}
+:where(.ankole-editor) .kirari-attribute {
+  color: var(--kirari-attribute);
+}
+:where(.ankole-editor) .kirari-entity {
+  color: var(--kirari-entity);
+}
+
+/* The language picker of a code block. It is a ceramic surface like the block menus. */
+:where(.ankole-editor-overlay).code-language-menu {
+  position: fixed;
+  z-index: 40;
+  width: min(272px, calc(100vw - 16px));
+  padding: 4px;
+}
+
+:where(.ankole-editor-overlay).code-language-menu .code-language-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-tertiary);
+}
+
+:where(.ankole-editor-overlay).code-language-menu .code-language-search svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+:where(.ankole-editor-overlay).code-language-menu .code-language-search input {
+  min-width: 0;
+  flex: 1;
+  height: 34px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-family-sans);
+  font-size: 14px;
+}
+
+:where(.ankole-editor-overlay).code-language-menu .code-language-options {
+  max-height: min(360px, 52vh);
+  overflow-y: auto;
+  padding-top: 4px;
+  overscroll-behavior: contain;
+}
+
+:where(.ankole-editor-overlay).code-language-menu .code-language-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-family-sans);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+:where(.ankole-editor-overlay).code-language-menu .code-language-option:is(:hover, [aria-selected='true']) {
+  background: var(--menu-hover);
+}
+
+:where(.ankole-editor-overlay).code-language-menu .code-language-check {
+  width: 16px;
+  height: 16px;
+  color: var(--brand);
+}
+
+:where(.ankole-editor-overlay).code-language-menu .code-language-empty {
+  padding: 12px 8px;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+  text-align: center;
+}

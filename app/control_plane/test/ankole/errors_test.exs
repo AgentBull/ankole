@@ -104,6 +104,7 @@ defmodule Ankole.ErrorsTest do
 
   test "reason/1 gives domain code its reason and keeps other failures" do
     for {error, reason} <- [
+          {Ash.Error.Forbidden.exception([]), :forbidden},
           {Rejected.exception(reason: :job_not_found), :job_not_found},
           {Conflict.exception(reason: :worker_provider_in_use), :worker_provider_in_use},
           {Stale.exception([]), :stale},

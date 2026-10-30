@@ -18,8 +18,8 @@ order: 31
 
 | 文件夹 | 内容 |
 |---|---|
-| `inbox/` | 用户在对话中发给 Agent 的附件 |
-| `generated/` | Agent 生成的图片 |
+| `chats/<channel>/inbox/` | 用户在对应会话中发给 Agent 的附件 |
+| `chats/<channel>/generated/`、`generated/` | Agent 生成的图片（会话内归入 `chats/<channel>/generated/`，无会话来源时归入 `generated/`） |
 | `sent/` | Agent 随回复发出的文件 |
 | `skills/` | Agent 已安装的 Skill，每个 Skill 对应一个子文件夹 |
 | `automation/` | Automation Job 脚本 |

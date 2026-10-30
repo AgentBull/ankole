@@ -480,7 +480,7 @@ function GroupMembersSection({ group }: { group: PrincipalGroupRecord }) {
   return (
     <section className="grid gap-4">
       <div className="grid gap-1">
-        <h3 className="text-lg font-semibold tracking-normal">{t('console.principal_groups.members_section_title')}</h3>
+        <h3 className="title-section">{t('console.principal_groups.members_section_title')}</h3>
         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
           {synced
             ? t('console.principal_groups.members_synced_note')

@@ -23,13 +23,7 @@ import {
   listPrincipalsOptions
 } from './api/v2/generated/@tanstack/react-query.gen'
 import { listAiGatewayProvidersOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
-import { automationJobListOptions } from './pages/automation-jobs'
-import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
-import { conversationListOptions } from './pages/conversations'
-import { principalListOptions } from './pages/principals'
 import { resourceID } from './console-primitives'
-import { checkbackListOptions, cronScheduleListOptions } from './pages/schedules'
-import { webhookEndpointListOptions } from './pages/webhooks'
 import { GLOBAL_LIBRARY_SCOPE, isSiteLibraryDefaults } from './state/agent-library-capabilities'
 
 export interface ConsoleRouteLoaderContext {
@@ -82,21 +76,34 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     oidcClients: () => all(ensure(listOidcClientsOptions()), ensure(listPrincipalGroupsOptions())),
     identityMappings: () => all(ensure(listIdentityMappingRequestsOptions()), ensure(listPrincipalsOptions())),
     principalGroups: () => ensure(listPrincipalGroupsOptions()).then(() => null),
-    principals: () => ensure(principalListOptions()).then(() => null),
+    principals: async () => {
+      const { principalListOptions } = await import('./pages/principals')
+      await ensure(principalListOptions())
+      return null
+    },
     signals: ({ location }: ConsoleRouteLoaderContext) =>
       all(ensure(agentListOptions()), ensure(listSignalBindingsOptions({ query: { agent: agentFilter(location) } }))),
-    schedules: ({ location }: ConsoleRouteLoaderContext) =>
-      all(ensure(agentListOptions()), ensure(cronScheduleListOptions(agentFilter(location)))),
-    scheduleCheckbacks: ({ location }: ConsoleRouteLoaderContext) =>
-      all(ensure(agentListOptions()), ensure(checkbackListOptions(agentFilter(location)))),
-    webhooks: ({ location }: ConsoleRouteLoaderContext) =>
-      all(ensure(agentListOptions()), ensure(webhookEndpointListOptions(agentFilter(location)))),
-    automationJobs: ({ location }: ConsoleRouteLoaderContext) =>
-      all(ensure(agentListOptions()), ensure(automationJobListOptions(agentFilter(location)))),
+    schedules: async ({ location }: ConsoleRouteLoaderContext) => {
+      const { cronScheduleListOptions } = await import('./pages/schedules')
+      return all(ensure(agentListOptions()), ensure(cronScheduleListOptions(agentFilter(location))))
+    },
+    scheduleCheckbacks: async ({ location }: ConsoleRouteLoaderContext) => {
+      const { checkbackListOptions } = await import('./pages/schedules')
+      return all(ensure(agentListOptions()), ensure(checkbackListOptions(agentFilter(location))))
+    },
+    webhooks: async ({ location }: ConsoleRouteLoaderContext) => {
+      const { webhookEndpointListOptions } = await import('./pages/webhooks')
+      return all(ensure(agentListOptions()), ensure(webhookEndpointListOptions(agentFilter(location))))
+    },
+    automationJobs: async ({ location }: ConsoleRouteLoaderContext) => {
+      const { automationJobListOptions } = await import('./pages/automation-jobs')
+      return all(ensure(agentListOptions()), ensure(automationJobListOptions(agentFilter(location))))
+    },
     settings: () => ensure(listSiteAppConfigurationsOptions()).then(() => null),
     workerEnvs: () => ensure(listSiteWorkerEnvsOptions()).then(() => null),
     workers: () => ensure(agentWorkerListOptions()).then(() => null),
-    backgroundAgentJobs: ({ location }: ConsoleRouteLoaderContext) => {
+    backgroundAgentJobs: async ({ location }: ConsoleRouteLoaderContext) => {
+      const { backgroundAgentJobListOptions } = await import('./pages/background-agent-jobs')
       const searchParams = new URLSearchParams(location.searchStr)
       const selectedID = resourceID(searchParams.get('job'), 1000)
       const list = ensure(
@@ -116,7 +123,8 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
           )
         : list.then(() => null)
     },
-    conversations: ({ location }: ConsoleRouteLoaderContext) => {
+    conversations: async ({ location }: ConsoleRouteLoaderContext) => {
+      const { conversationListOptions } = await import('./pages/conversations')
       const searchParams = new URLSearchParams(location.searchStr)
 
       return ensure(

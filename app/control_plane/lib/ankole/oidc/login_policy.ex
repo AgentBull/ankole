@@ -95,7 +95,7 @@ defmodule Ankole.OIDC.LoginPolicy do
          do: authorize_source(client, provider_id)
   end
 
-  def authorize_login(purpose, provider_id) when purpose in [:console, :pod] do
+  def authorize_login(provider_id) when is_binary(provider_id) do
     with {:ok, providers} <- login_providers(),
          true <- Enum.any?(providers, &(&1["provider_id"] == provider_id)) do
       :ok
@@ -115,9 +115,6 @@ defmodule Ankole.OIDC.LoginPolicy do
       error -> error
     end
   end
-
-  def authorize_login(%{purpose: purpose}, provider_id) when purpose in [:console, :pod],
-    do: authorize_login(purpose, provider_id)
 
   def requires_login?(params), do: "login" in prompt_values(params) or params["max_age"] == 0
 

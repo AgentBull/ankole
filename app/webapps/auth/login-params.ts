@@ -4,7 +4,7 @@ import type { LoginProvidersData } from '../common/api/generated/types.gen'
 export interface LoginContext {
   oauthRequest?: string
   tenantID?: string
-  purpose?: string
+  consoleReturn?: string
   returnTo?: string
   prompt?: string
   reauth?: string
@@ -14,7 +14,7 @@ export interface LoginContext {
 
 const authorizationQueryKeys = [
   'oauth_request',
-  'purpose',
+  'console_return',
   'return_to',
   'prompt',
   'reauth',
@@ -35,7 +35,7 @@ export function readLoginSearch(search = window.location.search): {
   const params = new URLSearchParams(search)
   const oauthRequest = readParam(params, 'oauth_request')
   const tenantID = readParam(params, 'tenant_id')
-  const purpose = readParam(params, 'purpose')
+  const consoleReturn = readParam(params, 'console_return')
   const returnTo = readParam(params, 'return_to')
   const prompt = readParam(params, 'prompt')
   const switchAccount = readParam(params, 'switch')
@@ -46,7 +46,7 @@ export function readLoginSearch(search = window.location.search): {
   const query: NonNullable<LoginProvidersData['query']> = compactRecord({
     oauth_request: oauthRequest,
     tenant_id: tenantID,
-    purpose,
+    console_return: consoleReturn,
     prompt,
     switch: switchAccount,
     reauth,
@@ -57,7 +57,7 @@ export function readLoginSearch(search = window.location.search): {
   const context: LoginContext = compactRecord({
     oauthRequest,
     tenantID,
-    purpose,
+    consoleReturn,
     returnTo,
     prompt,
     reauth,
@@ -82,9 +82,24 @@ export function loginContextKey(context?: LoginContext): string {
     pathname,
     context?.oauthRequest ?? '',
     context?.tenantID ?? '',
-    context?.purpose ?? '',
+    context?.consoleReturn ?? '',
     context?.reauth ?? '',
     context?.invitation ?? '',
     context?.invitationToken ?? ''
   ].join(':')
+}
+
+/** The post-logout sign-in button only follows a local, non-looping destination. */
+export function signInReturnTo(value: string | null, origin: string): string {
+  if (value?.startsWith('/') && !value.startsWith('//')) {
+    try {
+      const url = new URL(value, origin)
+      if (url.origin === origin && !url.pathname.startsWith('//') && !url.pathname.startsWith('/sessions/logged-out')) {
+        return url.pathname + url.search + url.hash
+      }
+    } catch {
+      // Invalid URLs use the normal sign-in entry.
+    }
+  }
+  return '/sessions/new'
 }

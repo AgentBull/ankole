@@ -1,8 +1,50 @@
-import { authenticationRef } from './browser-context'
+import { authenticationRef, podID, principalUID } from './browser-context'
 import { deleteAuthSession, deleteBrowserAuthentication } from './api/generated/sdk.gen'
+
+const podDraftPrefixes = ['ankole.pod.comments:', 'ankole.pod.document-draft:'] as const
 
 function storageKey(): string {
   return `ankole.console.data-tenant:${authenticationRef() ?? 'anonymous'}`
+}
+
+function removeMatchingKeys(storage: Storage | undefined, prefixes: readonly string[]): void {
+  if (!storage) return
+  try {
+    const keys = new Set<string>(Object.keys(storage))
+    if (typeof storage.length === 'number' && typeof storage.key === 'function') {
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index)
+        if (key !== null) keys.add(key)
+      }
+    }
+    for (const key of keys) {
+      if (prefixes.some(prefix => key.startsWith(prefix))) {
+        storage.removeItem(key)
+      }
+    }
+  } catch {
+    // Storage access can fail under restricted browser privacy modes.
+  }
+}
+
+export function clearPodSessionDrafts(scope?: { podId?: string | null; principalUid?: string | null }): void {
+  if (typeof window === 'undefined') return
+  const scoped = scope?.podId && scope?.principalUid ? `${scope.podId}:${scope.principalUid}:` : ''
+  const prefixes = scoped ? podDraftPrefixes.map(prefix => `${prefix}${scoped}`) : podDraftPrefixes
+  let local: Storage | undefined
+  let session: Storage | undefined
+  try {
+    local = window.localStorage ?? globalThis.localStorage
+  } catch {
+    local = undefined
+  }
+  try {
+    session = window.sessionStorage ?? globalThis.sessionStorage
+  } catch {
+    session = undefined
+  }
+  removeMatchingKeys(local, prefixes)
+  removeMatchingKeys(session, prefixes)
 }
 
 export function dataTenantID(): string | null {
@@ -13,8 +55,15 @@ export function clearDataTenant(): void {
   window.sessionStorage.removeItem(storageKey())
 }
 
-export async function endSiteSession(): Promise<void> {
+export async function endAccountSession(): Promise<void> {
   clearDataTenant()
+  clearPodSessionDrafts({ podId: podID(), principalUid: principalUID() })
+  await deleteBrowserAuthentication()
+}
+
+export async function endBrowserSession(): Promise<void> {
+  clearDataTenant()
+  clearPodSessionDrafts()
   await deleteAuthSession()
 }
 
@@ -63,9 +112,4 @@ export function withDataContext(fetch: typeof globalThis.fetch): typeof globalTh
     return response
   }
   return scopedFetch as typeof globalThis.fetch
-}
-
-export async function endPodSession(): Promise<void> {
-  clearDataTenant()
-  await deleteBrowserAuthentication()
 }

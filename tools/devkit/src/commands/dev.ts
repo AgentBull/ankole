@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { defineCommand } from '@crustjs/core'
 
@@ -174,6 +174,17 @@ export function signalChild(
   }
 }
 
+export function requireSaaSSourceCheckout(env: NodeJS.ProcessEnv, repoRoot: string): void {
+  if (env.ANKOLE_EDITION !== 'saas') return
+  if (existsSync(path.join(repoRoot, 'internals/control_plane/config.exs'))) return
+
+  throw new Error(
+    'The SaaS edition is proprietary commercial software owned by AgentBull PTE Ltd. ' +
+      'Access to its source code is restricted to authorized users. ' +
+      'To run the open-source edition, use ANKOLE_EDITION=foss bun dev.'
+  )
+}
+
 async function runDev(flags: {
   services: boolean
   migrate: boolean
@@ -181,6 +192,8 @@ async function runDev(flags: {
   port: number
   'worker-image'?: string
 }): Promise<void> {
+  requireSaaSSourceCheckout(process.env, repoRootPath)
+
   const port = flags.port
   const workerImage =
     flags['worker-image'] ?? (await resolveLocalWorkerImage({ scope: 'source-mounted', allowBuild: flags.build }))

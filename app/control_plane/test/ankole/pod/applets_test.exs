@@ -196,6 +196,30 @@ defmodule Ankole.Pod.AppletsTest do
     assert {:error, :not_found} = call(ctx.owner, page.id, "GET", "/")
   end
 
+  test "trashing an Applet closes its capabilities on other live Pages", ctx do
+    actor = actor_fixture(ctx.owner)
+    page = create(ctx.owner)
+    {:ok, target} = Pages.create(actor, %{type: "file", private_owner_uid: ctx.owner})
+
+    context = %{"applet" => %{"pageId" => page.id}, "method" => "POST"}
+
+    write = fn bytes, revision ->
+      Applets.Capabilities.call(context, actor, "file.write", [
+        target.id,
+        %{
+          "name" => "data.txt",
+          "baseRevision" => revision,
+          "bytes" => %{"__ankole_bytes" => Base.encode64(bytes)}
+        }
+      ])
+    end
+
+    assert {:ok, _} = write.("before trash", 0)
+    assert {:ok, _} = Pages.delete(actor, page.id)
+    assert {:error, %{code: "not_found", status: 404}} = write.("after trash", 1)
+    assert {:ok, _, "before trash"} = Files.read(actor, target.id, "data.txt")
+  end
+
   test "Bases capabilities use caller permissions, preserve field conflicts, and prevent GET writes",
        ctx do
     {:ok, base} =

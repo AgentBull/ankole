@@ -62,7 +62,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
     assert {:ok, true} = Ankole.Setup.Config.completed?()
     assert %{"principal_uid" => uid} = WebSession.site_admin_session(conn)
 
-    assert {:ok, %{console_authenticated: true, challenge_started_at: %DateTime{}}} =
+    assert {:ok, %{scope: :site, challenge_started_at: %DateTime{}}} =
              BrowserSessions.get_authentication(WebSession.authentication_reference(conn))
 
     assert AuthZ.site_admin?(uid)
@@ -103,7 +103,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
 
     {otp_conn, challenge_params} =
       if @host_policy do
-        {accounts_conn(conn), %{purpose: "site", tenantID: first.id, email: proof.subject_id}}
+        {accounts_conn(conn), %{tenantID: first.id, email: proof.subject_id}}
       else
         {pod_conn(conn, first), %{email: proof.subject_id}}
       end
@@ -185,7 +185,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
     refute_receive {:email, _}
   end
 
-  test "Console OTP silently skips delivery for non-administrators while delivering and reporting account_disabled for disabled siteadmins",
+  test "Console entry seals console_return, returns to Console after OTP login, grants siteadmins access, and blocks non-admins with 403",
        %{conn: conn, tenant: tenant} do
     {:ok, _} = AppConfigure.put_global_by_key("setup.completed", true)
 
@@ -198,86 +198,159 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
     {:ok, %{principal: member}} =
       Principals.create_human(%{email: "member@example.com", display_name: "Member"})
 
-    for email <- ["stranger@example.com", "member@example.com"] do
-      silent_conn =
-        conn
-        |> init_test_session(%{})
-        |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-          purpose: "console",
-          returnTo: "https://evil.example",
-          email: email
-        })
-
-      %{"challengeID" => challenge, "expiresAt" => expires_at} = api_response(silent_conn, 200)
-      assert is_binary(expires_at)
-      refute_receive {:email, _}
-
-      rejected =
-        silent_conn
-        |> recycle()
-        |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-          challengeID: challenge,
-          code: "000000"
-        })
-
-      assert api_error(rejected, 401)["code"] == "invalid_code"
-      refute WebSession.site_admin_session(rejected)
-    end
-
-    refute AuthZ.site_admin?(member.uid)
-
-    admin =
+    {primary_admin, disabled_admin} =
       Ankole.Repo.with_tenant(tenant.id, fn ->
         {:ok, %{principal: primary_admin}} =
           Principals.create_human(%{email: "primary-admin@example.com", display_name: "Primary"})
 
         {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(primary_admin.uid)
 
-        {:ok, %{principal: admin}} =
+        {:ok, %{principal: disabled_admin}} =
           Principals.create_human(%{email: "disabled-admin@example.com", display_name: "Admin"})
 
-        {:ok, _} = AuthZ.add_principal_to_group(admin.uid, "siteadmin")
+        {:ok, _} = AuthZ.add_principal_to_group(disabled_admin.uid, "siteadmin")
 
         {:ok, _} =
           HumanAccess.disable(
-            admin.uid,
+            disabled_admin.uid,
             "suspended",
             nil,
             "suspend-console-admin",
             :suspended
           )
 
-        admin
+        {primary_admin, disabled_admin}
       end)
 
-    assert AuthZ.site_admin_member?(admin.uid)
-    refute AuthZ.site_admin?(admin.uid)
+    refute AuthZ.site_admin?(member.uid)
+    assert AuthZ.site_admin_member?(disabled_admin.uid)
+    refute AuthZ.site_admin?(disabled_admin.uid)
 
-    admin_conn =
-      conn
+    console_entry = conn |> init_test_session(%{}) |> get("/site-admin-console/settings")
+    redirect_url = redirected_to(console_entry)
+    refute redirect_url =~ "/site-admin-console"
+
+    console_return =
+      URI.parse(redirect_url).query |> URI.decode_query() |> Map.fetch!("console_return")
+
+    otp_origin = if @host_policy, do: accounts_conn(conn), else: pod_conn(conn, tenant)
+
+    base_params =
+      if @host_policy,
+        do: %{tenantID: tenant.id, consoleReturn: console_return},
+        else: %{consoleReturn: console_return}
+
+    disabled_sent =
+      otp_origin
       |> init_test_session(%{})
-      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-        purpose: "console",
-        email: "disabled-admin@example.com"
-      })
+      |> api_post(
+        "/api/v2/browser/sessions/email-otp/challenges",
+        Map.put(base_params, :email, "disabled-admin@example.com")
+      )
 
-    %{"challengeID" => admin_challenge} = api_response(admin_conn, 200)
+    %{"challengeID" => disabled_challenge} = api_response(disabled_sent, 200)
 
     assert_receive {:email,
                     %Swoosh.Email{to: [{_, "disabled-admin@example.com"}], text_body: body}}
 
-    [_, code] = Regex.run(~r/code is (\d{6})/, body)
+    [_, disabled_code] = Regex.run(~r/code is (\d{6})/, body)
 
     disabled_resp =
-      admin_conn
-      |> recycle()
+      %{
+        recycle(disabled_sent)
+        | host: otp_origin.host,
+          port: otp_origin.port,
+          scheme: otp_origin.scheme
+      }
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        challengeID: admin_challenge,
-        code: code
+        challengeID: disabled_challenge,
+        code: disabled_code
       })
 
     assert api_error(disabled_resp, 403)["code"] == "account_disabled"
     refute WebSession.site_admin_session(disabled_resp)
+
+    admin_sent =
+      otp_origin
+      |> init_test_session(%{})
+      |> api_post(
+        "/api/v2/browser/sessions/email-otp/challenges",
+        Map.put(base_params, :email, "primary-admin@example.com")
+      )
+
+    %{"challengeID" => admin_challenge} = api_response(admin_sent, 200)
+
+    assert_receive {:email,
+                    %Swoosh.Email{to: [{_, "primary-admin@example.com"}], text_body: admin_body}}
+
+    [_, admin_code] = Regex.run(~r/code is (\d{6})/, admin_body)
+
+    admin_verified =
+      %{
+        recycle(admin_sent)
+        | host: otp_origin.host,
+          port: otp_origin.port,
+          scheme: otp_origin.scheme
+      }
+      |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
+        challengeID: admin_challenge,
+        code: admin_code
+      })
+
+    expected_console_url = AnkoleWeb.PodURL.site_origin(conn) <> "/site-admin-console/settings"
+    assert api_response(admin_verified, 200)["returnTo"] == expected_console_url
+    assert WebSession.site_admin_session(admin_verified)["principal_uid"] == primary_admin.uid
+
+    admin_console =
+      admin_verified
+      |> recycle()
+      |> delete_req_header("accept")
+      |> site_conn()
+      |> get("/site-admin-console/settings")
+
+    assert html_response(admin_console, 200) =~
+             ~s(<meta name="ankole-principal" content="#{primary_admin.uid}">)
+
+    member_sent =
+      otp_origin
+      |> init_test_session(%{})
+      |> api_post(
+        "/api/v2/browser/sessions/email-otp/challenges",
+        Map.put(base_params, :email, "member@example.com")
+      )
+
+    %{"challengeID" => member_challenge} = api_response(member_sent, 200)
+
+    assert_receive {:email,
+                    %Swoosh.Email{to: [{_, "member@example.com"}], text_body: member_body}}
+
+    [_, member_code] = Regex.run(~r/code is (\d{6})/, member_body)
+
+    member_verified =
+      %{
+        recycle(member_sent)
+        | host: otp_origin.host,
+          port: otp_origin.port,
+          scheme: otp_origin.scheme
+      }
+      |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
+        challengeID: member_challenge,
+        code: member_code
+      })
+
+    assert api_response(member_verified, 200)["returnTo"] == expected_console_url
+    refute WebSession.site_admin_session(member_verified)
+
+    member_console =
+      member_verified
+      |> recycle()
+      |> delete_req_header("accept")
+      |> site_conn()
+      |> get("/site-admin-console/settings")
+
+    assert member_console.status == 403
+    assert member_console.resp_body == "Site administrator access required"
+    assert get_resp_header(member_console, "location") == []
   end
 
   test "edition login boundaries enforce FOSS registration disablement and SaaS Pod OTP disablement",
@@ -316,7 +389,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
       providers_conn =
         conn
         |> init_test_session(%{})
-        |> api_get("/api/v2/browser/identity-providers", %{purpose: "site"})
+        |> api_get("/api/v2/browser/identity-providers")
 
       assert api_error(providers_conn, 401)["code"] == "login_expired"
 
@@ -324,7 +397,6 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
         conn
         |> init_test_session(%{})
         |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-          purpose: "site",
           email: "self-register@example.com"
         })
 
@@ -433,8 +505,8 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
 
     {target_conn, provider_query, challenge_payload} =
       if @host_policy do
-        {accounts_conn(conn), %{purpose: "site", tenant_id: tenant.id},
-         %{purpose: "site", tenantID: tenant.id, email: "dev-login@example.com"}}
+        {accounts_conn(conn), %{tenant_id: tenant.id},
+         %{tenantID: tenant.id, email: "dev-login@example.com"}}
       else
         {pod_conn(conn, tenant), %{}, %{email: "dev-login@example.com"}}
       end

@@ -1,4 +1,5 @@
 import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { Button, Input, Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@ankole/uikit'
 import { useState } from 'react'
 import type { Condition, BaseField, Filter, Sort, Value } from '@ankole/applet-sdk/types'
@@ -51,6 +52,7 @@ export function QueryControls({
   update(filter: Filter | undefined, sort: Sort[] | undefined): void
   disabled?: boolean
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [conditions, setConditions] = useState<Condition[]>(filter?.conditions ?? [])
   const [conjunction, setConjunction] = useState<'and' | 'or'>(filter?.conjunction ?? 'and')
@@ -341,10 +343,12 @@ function FilterValue({
   pageID: string
   update(value: Condition['value']): void
 }) {
+  const { t } = useTranslation()
   if (!field) return null
   if (field.type === 'attachment') {
     return (
       <Input
+        variant="overlay"
         aria-label={t('pod.content.attachment_name')}
         value={
           condition.value && typeof condition.value === 'object' && 'name' in condition.value
@@ -391,6 +395,7 @@ function FilterValue({
   const selectedReference = person ? principalUID(condition.value) : condition.value ? String(condition.value) : null
   return (
     <FieldInput
+      variant="overlay"
       commitOnChange
       pageID={pageID}
       field={referenceContains ? { ...effective, config: { ...effective.config, multiple: false } } : effective}

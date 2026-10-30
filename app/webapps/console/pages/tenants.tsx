@@ -290,12 +290,14 @@ function TransferAdministration({ tenant }: { tenant: Tenant }) {
     ...transferSiteAdministrationMutation(),
     onSuccess: () => {
       clearDataTenant()
-      window.location.assign('/sessions/new')
+      window.location.assign(
+        document.querySelector('meta[name="ankole-site-admin-console-path"]')?.getAttribute('content') || '/'
+      )
     }
   })
   return (
     <section className="grid gap-4 border-t border-border pt-6">
-      <h2 className="text-base font-semibold">{t('console.tenants.transfer')}</h2>
+      <h2 className="title-inline">{t('console.tenants.transfer')}</h2>
       <p className="text-sm text-muted-foreground">{t('console.tenants.transfer_description')}</p>
       <ErrorBlock error={principals.error ?? transfer.error} />
       <LabeledField label={t('console.tenants.new_site_admin')}>

@@ -6,10 +6,15 @@ import { identityQuery } from './content-api'
 import { podRealtimeToken, podVersions } from './api/generated/sdk.gen'
 import { InternalAPIError } from '../common/internal-api-client'
 
+export type TopicConnection = 'connecting' | 'connected' | 'disconnected'
+
 type Topic = {
   channel: Channel
   ready: Promise<unknown>
   references: number
+  rejoinedListeners: Set<(response: unknown) => void>
+  connection: TopicConnection
+  connectionListeners: Set<(status: TopicConnection) => void>
   presence?: Presence
   presenceListeners?: Set<() => void>
 }
@@ -17,6 +22,7 @@ export type TopicHandle = {
   ready: Promise<unknown>
   push<T>(event: string, payload: object): Promise<T>
   on(event: string, callback: (payload: any) => void): () => void
+  presence(): { id: string; metas: Record<string, unknown>[] }[]
   close(): void
 }
 
@@ -76,7 +82,15 @@ export class PodRealtime {
         socket.onOpen(() => {
           void this.verify()
         })
+        const disconnected = () => {
+          for (const topic of this.topics.values()) {
+            topic.connection = 'disconnected'
+            for (const listener of topic.connectionListeners) listener('disconnected')
+          }
+        }
+        socket.onClose(disconnected)
         socket.onError(() => {
+          disconnected()
           void podRealtimeToken()
             .then(result => {
               this.token = result.token
@@ -98,13 +112,47 @@ export class PodRealtime {
     let topic = this.topics.get(name)
     if (!topic) {
       const channel = socket.channel(name, {})
-      const presence = name.startsWith('applet:') ? new Presence(channel) : undefined
+      const presence = name.startsWith('applet:') || name.startsWith('page:') ? new Presence(channel) : undefined
       const presenceListeners = new Set<() => void>()
       presence?.onSync(() => {
         for (const listener of presenceListeners) listener()
       })
-      const ready = pushResult(channel.join())
-      topic = { channel, ready, references: 0, presence, presenceListeners }
+      let attempted = false
+      const rejoinedListeners = new Set<(response: unknown) => void>()
+      const connectionListeners = new Set<(status: TopicConnection) => void>()
+      const connectionChanged = (status: TopicConnection) => {
+        const current = this.topics.get(name)
+        if (current) current.connection = status
+        for (const listener of connectionListeners) listener(status)
+      }
+      channel.onError(() => connectionChanged('disconnected'))
+      channel.onClose(() => connectionChanged('disconnected'))
+      const join = channel
+        .join()
+        .receive('ok', response => {
+          connectionChanged('connected')
+          if (attempted) for (const listener of rejoinedListeners) listener(response)
+          attempted = true
+        })
+        .receive('error', () => {
+          attempted = true
+          connectionChanged('disconnected')
+        })
+        .receive('timeout', () => {
+          attempted = true
+          connectionChanged('disconnected')
+        })
+      const ready = pushResult(join)
+      topic = {
+        channel,
+        ready,
+        references: 0,
+        presence,
+        presenceListeners,
+        rejoinedListeners,
+        connection: 'connecting',
+        connectionListeners
+      }
       this.topics.set(name, topic)
       // A failed join must be observed even if its owner is unmounted before ready.
       void ready.catch(() => {})
@@ -113,6 +161,8 @@ export class PodRealtime {
     owned.references++
     let closed = false
     const bindings: [string, number][] = []
+    const joinBindings: ((response: unknown) => void)[] = []
+    const cleanups: (() => void)[] = []
     return {
       ready: owned.ready,
       push: async <T>(event: string, payload: object) => {
@@ -120,7 +170,34 @@ export class PodRealtime {
         if (closed) throw new Error(t('pod.content.the_page_connection_is_closed'))
         return pushResult<T>(owned.channel.push(event, payload))
       },
+      presence: () => owned.presence?.list((id, data) => ({ id, metas: data.metas })) ?? [],
       on: (event, callback) => {
+        if (event === 'connection') {
+          const listener = (status: TopicConnection) => callback({ status })
+          owned.connectionListeners.add(listener)
+          const remove = () => owned.connectionListeners.delete(listener)
+          cleanups.push(() => {
+            if (remove()) listener('disconnected')
+          })
+          callback({ status: owned.connection })
+          return remove
+        }
+        if (event === 'presence') {
+          const listener = () => callback({})
+          owned.presenceListeners?.add(listener)
+          const remove = () => owned.presenceListeners?.delete(listener)
+          cleanups.push(remove)
+          listener()
+          return remove
+        }
+        if (event === 'rejoined') {
+          const listener = (response: unknown) => callback(response)
+          owned.rejoinedListeners.add(listener)
+          joinBindings.push(listener)
+          return () => {
+            owned.rejoinedListeners.delete(listener)
+          }
+        }
         const ref = owned.channel.on(event, callback)
         bindings.push([event, ref])
         return () => owned.channel.off(event, ref)
@@ -128,7 +205,9 @@ export class PodRealtime {
       close: () => {
         if (closed) return
         closed = true
+        for (const cleanup of cleanups) cleanup()
         for (const [event, ref] of bindings) owned.channel.off(event, ref)
+        for (const listener of joinBindings) owned.rejoinedListeners.delete(listener)
         if (--owned.references === 0) {
           owned.channel.leave()
           this.topics.delete(name)

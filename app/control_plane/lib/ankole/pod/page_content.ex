@@ -34,6 +34,7 @@ defmodule Ankole.Pod.PageContent do
 
     attribute(:updated_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
     attribute(:updated_at, :utc_datetime_usec, allow_nil?: false)
+    attribute(:contributors, {:array, Ankole.Ash.Types.ActorRef}, allow_nil?: false, default: [])
   end
 
   actions do
@@ -41,15 +42,33 @@ defmodule Ankole.Pod.PageContent do
 
     create :create_in_tx do
       accept([:page_id, :content, :plain_text, :updated_by, :updated_at])
+      change(&record_contributor/2)
     end
 
     update :replace do
       accept([:content, :plain_text, :updated_by, :updated_at])
+      change(&record_contributor/2)
+    end
+
+    update :attribute_edit do
+      accept([:updated_by, :updated_at])
+      change(&record_contributor/2)
     end
 
     destroy :purge do
       require_atomic?(true)
     end
+  end
+
+  defp record_contributor(changeset, _context) do
+    author = Ash.Changeset.get_attribute(changeset, :updated_by)
+    contributors = Ash.Changeset.get_attribute(changeset, :contributors) || []
+
+    Ash.Changeset.force_change_attribute(
+      changeset,
+      :contributors,
+      Enum.uniq(contributors ++ [author])
+    )
   end
 
   @type t :: %__MODULE__{}

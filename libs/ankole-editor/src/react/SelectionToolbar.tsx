@@ -1,44 +1,68 @@
 import { Button } from '@ankole/uikit/components/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@ankole/uikit/components/dropdown-menu'
 import { Input } from '@ankole/uikit/components/input'
 import {
+  RiArrowDownSLine,
   RiBold,
   RiCloseLine,
   RiCodeLine,
+  RiChat1Line,
   RiExternalLinkLine,
   RiItalic,
   RiLink,
   RiMarkPenLine,
+  RiRobot2Line,
   RiStrikethrough,
   RiUnderline
 } from '@remixicon/react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Command } from '../core/command'
-import type { Mark, Plot } from '../core/doc'
+import { Node, type Mark, type Plot } from '../core/doc'
 import type { Wordgard } from '../core/editor'
 import browser from '../core/editor/browser'
 import { GardSelection, type GardState } from '../core/state'
-import * as T from '../core/types'
 import { toggleFormat, type FormatName } from '../editor/commands'
+import { blockTypeAt, canTurnInto, turnBlockInto } from '../editor/block-actions'
+import { blockOptions, type BlockType } from '../editor/block-catalog'
+import { selectedUnits } from '../editor/block-selection'
 import { openLinkHref } from '../editor/host'
+import { editorHost } from '../editor/host-context'
+import { commentSelection, type CommentSelection } from '../editor/comments'
 import { linkAt, removeLink, setLink, type LinkInfo } from '../editor/links'
-import { formats } from '../editor/schema'
+import { Mention, formats, safeLinkHref } from '../editor/schema'
 import { editorPhrases } from '../editor/phrases'
 import type { PhraseSet } from '../core/phrases'
+import { BlockTypeItems } from './BlockTypeItems'
 import { useEditor, useEditorLabel, useEditorState } from './context'
 
+// How the text looks. Highlight is a look of the text like the others, so it closes this group.
 const buttons = [
   { format: 'strong', label: editorPhrases.ref('bold'), Icon: RiBold },
   { format: 'em', label: editorPhrases.ref('italic'), Icon: RiItalic },
   { format: 'u', label: editorPhrases.ref('underline'), Icon: RiUnderline },
   { format: 's', label: editorPhrases.ref('strikethrough'), Icon: RiStrikethrough },
-  { format: 'code', label: editorPhrases.ref('inline_code'), Icon: RiCodeLine }
+  { format: 'code', label: editorPhrases.ref('inline_code'), Icon: RiCodeLine },
+  { format: 'mark', label: editorPhrases.ref('highlight'), Icon: RiMarkPenLine }
 ] satisfies { format: FormatName; label: PhraseSet.Ref; Icon: typeof RiBold }[]
+
+/** Whether every block the selection touches can turn into another type. */
+function canTurnSelection(state: GardState) {
+  const units = selectedUnits(state)
+  return !!units?.length && units.every(unit => canTurnInto(state, unit.before))
+}
+
+/** The block type every block the selection touches shares, or null when they differ. */
+function sharedBlockType(state: GardState): BlockType | null {
+  const types = new Set(selectedUnits(state)?.map(unit => blockTypeAt(state, unit.before)))
+  return types.size === 1 ? [...types][0]! : null
+}
 
 /** The address for the link form input, or null when it is not a usable address (SPEC §7.6). */
 function linkUrl(value: string) {
   const url = value.trim()
-  if (/^(https?:\/\/|mailto:|tel:|\/|#)/i.test(url)) return url
+  const safe = safeLinkHref(url)
+  if (safe) return safe
   if (/^[^\s/:]+\.[^\s/:]+(?:[/?#].*)?$/.test(url)) return `https://${url}`
   return null
 }
@@ -64,10 +88,10 @@ function formattable(state: GardState): Range | null {
   const { selection, doc } = state
   if (!(selection instanceof GardSelection.Text) || selection.empty) return null
   const { from, to } = selection
-  if (!doc.textContent({ from, to }).trim()) return null
+  if (!doc.textContent({ from, to, leafText: leaf => (leaf.type === Mention ? '@' : '') }).trim()) return null
   let code = false
   doc.iterate(from, to, node => {
-    if (node.type === T.CodeBlock.type) code = true
+    if (node.type.hasRole(Node.Role.Code)) code = true
     return !code
   })
   return code ? null : { from, to }
@@ -108,7 +132,13 @@ function selectionRect(editor: Wordgard, { from, to }: Range) {
 
 const composingKey = (event: KeyboardEvent) => event.isComposing || event.keyCode === 229
 
-type Info = { rect: DOMRect; active: boolean[]; highlight: boolean; link: boolean; caretLink: LinkInfo | null }
+/** Whether the host acts on any selection, editable or not: asking an Agent about it or commenting on it. */
+const actsOnSelection = (editor: Wordgard) => {
+  const host = editorHost(editor)
+  return !!(host?.requestComment || host?.askAgent)
+}
+
+type Info = { rect: DOMRect; active: boolean[]; link: boolean; caretLink: LinkInfo | null }
 /** The open link form, with the link that it edits, if any. */
 type LinkForm = { link: LinkInfo | null }
 
@@ -126,11 +156,14 @@ export function SelectionToolbar() {
   form.current = linkForm
   // The selection that Escape hid the toolbar for. Another selection shows it again.
   const dismissed = useRef<GardSelection | null>(null)
+  // The block type menu renders outside the toolbar; the toolbar holds its place while focus is in either.
+  const typeMenu = useRef<HTMLDivElement>(null)
   const refresh = useRef(() => {})
 
   // ⌘K and the link button: edit the selected text, or the link at the caret.
   const openLink = () => {
     const { state } = editor
+    if (state.readOnly) return false
     const range = formattable(state)
     const link = linkAt(state)
     const target = range ?? (state.selection.empty ? link : null)
@@ -143,7 +176,6 @@ export function SelectionToolbar() {
         info ?? {
           rect: selectionRect(editor, target),
           active: [],
-          highlight: false,
           link: !!link,
           caretLink: range ? null : link
         }
@@ -165,12 +197,17 @@ export function SelectionToolbar() {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
         // The toolbar keeps its place while the user works in it.
-        if (toolbar.current?.contains(document.activeElement)) return
+        if ([toolbar.current, typeMenu.current].some(part => part?.contains(document.activeElement))) return
         const focused = document.activeElement === editor.contentDOM
         // The link form takes focus right after it opens.
         if (form.current && focused) return
         const { state } = editor
-        const range = formattable(state)
+        if (dismissed.current && !dismissed.current.eq(state.selection)) dismissed.current = null
+        const range = formattable(state) ?? (actsOnSelection(editor) ? commentSelection(editor) : null)
+        if (state.readOnly && !actsOnSelection(editor)) {
+          setInfo(null)
+          return
+        }
         const caretLink = !range && state.selection.empty && !state.readOnly ? linkAt(state) : null
         const target = range ?? caretLink
         if (!target || !focused || pointer || composing || editor.composing || dismissed.current?.eq(state.selection)) {
@@ -189,7 +226,6 @@ export function SelectionToolbar() {
           setInfo({
             rect,
             active: buttons.map(({ format }) => hasFormat(state.doc, range.from, range.to, formats[format])),
-            highlight: hasFormat(state.doc, range.from, range.to, formats.mark),
             link: !!linkAt(state),
             caretLink: null
           })
@@ -197,7 +233,6 @@ export function SelectionToolbar() {
           setInfo({
             rect,
             active: [],
-            highlight: false,
             link: true,
             caretLink
           })
@@ -228,7 +263,7 @@ export function SelectionToolbar() {
       // ⌘K on Apple platforms, where Ctrl+K deletes to the end of the line; Ctrl+K elsewhere.
       const mod = browser.mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
       if (event.key === 'Escape') {
-        if (formattable(editor.state) || (editor.state.selection.empty && linkAt(editor.state))) {
+        if (commentSelection(editor) || (editor.state.selection.empty && linkAt(editor.state))) {
           dismissed.current = editor.state.selection
           update()
         }
@@ -312,7 +347,13 @@ export function SelectionToolbar() {
       role={linkForm ? 'dialog' : 'toolbar'}
       aria-label={label(linkForm ? 'edit_link' : info.caretLink ? 'link' : 'selection_format')}
       onKeyDown={event => {
-        if (composingKey(event.nativeEvent)) return
+        // React bubbles keys from the portaled block type menu through here; that menu handles its own keys.
+        if (
+          composingKey(event.nativeEvent) ||
+          (event.target instanceof Element && !event.currentTarget.contains(event.target))
+        ) {
+          return
+        }
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
@@ -344,6 +385,7 @@ export function SelectionToolbar() {
           }}>
           <div className="link-form-row">
             <Input
+              variant="overlay"
               autoFocus
               aria-label={label('link_address')}
               value={url}
@@ -413,44 +455,149 @@ export function SelectionToolbar() {
           </Button>
         </div>
       ) : (
-        <>
-          {buttons.map(({ format, label, Icon }, index) => (
+        <SelectionActions
+          editable={!state.readOnly && !!formattable(state)}
+          info={info}
+          apply={apply}
+          openLink={openLink}
+          hide={() => setInfo(null)}
+          typeMenu={typeMenu}
+        />
+      )}
+    </div>,
+    document.body
+  )
+}
+
+/**
+ * The selection toolbar groups its actions by the question each answers, in this order: who helps with the
+ * text (ask an Agent), what the blocks are (block type), how the text looks (marks), and what the text
+ * connects to (link, comment). Read-only documents and code keep only the actions that leave the text as it
+ * is: asking an Agent and commenting.
+ */
+function SelectionActions({
+  editable,
+  info,
+  apply,
+  openLink,
+  hide,
+  typeMenu
+}: {
+  editable: boolean
+  info: Info
+  apply(format: FormatName): void
+  openLink(): boolean
+  hide(): void
+  typeMenu: RefObject<HTMLDivElement | null>
+}) {
+  const label = useEditorLabel()
+  const editor = useEditor()
+  const state = useEditorState()
+  const host = editorHost(editor)
+  // A native selection can be newer than the editor's last animation frame.
+  const handOff = (action: (selection: CommentSelection) => void) => {
+    editor.flush()
+    const selection = commentSelection(editor)
+    if (selection) action(selection)
+    hide()
+  }
+  const askAgent = host?.askAgent
+  const requestComment = host?.requestComment
+  const type = sharedBlockType(state)
+  return (
+    <>
+      {askAgent && (
+        <div role="group" className="selection-group">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="selection-ask"
+            aria-label={label('ask_agent')}
+            title={label('ask_agent')}
+            onMouseDown={event => event.preventDefault()}
+            onClick={() => handOff(askAgent)}>
+            <RiRobot2Line />
+            <span className="selection-ask-label">{label('ask_agent')}</span>
+          </Button>
+        </div>
+      )}
+      {editable && canTurnSelection(state) && (
+        <div role="group" className="selection-group">
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              onMouseDown={event => event.preventDefault()}
+              render={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="selection-block-type"
+                  aria-label={label('turn_into_type')}
+                  title={label('turn_into_type')}
+                />
+              }>
+              <span className="selection-block-type-label">
+                {type ? blockOptions.find(option => option.type === type)?.title(state) : label('turn_into')}
+              </span>
+              <RiArrowDownSLine />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              ref={typeMenu}
+              className="block-menu ankole-editor-overlay"
+              aria-label={label('turn_into_type')}
+              finalFocus={() => editor.contentDOM}>
+              <BlockTypeItems
+                options={blockOptions.filter(option => option.turnInto)}
+                current={type}
+                onChoose={next => turnBlockInto(editor, undefined, next)}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+      {editable && (
+        <div role="group" className="selection-group">
+          {buttons.map(({ format, label: phrase, Icon }, index) => (
             <Button
               key={format}
               variant="ghost"
-              size="icon-xs"
-              aria-label={label(state)}
-              title={label(state)}
+              size="icon-sm"
+              aria-label={phrase(state)}
+              title={phrase(state)}
               aria-pressed={info.active[index]}
               onMouseDown={event => event.preventDefault()}
               onClick={() => apply(format)}>
               <Icon />
             </Button>
           ))}
-          <span className="toolbar-divider" />
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={label('link')}
-            title={label('link')}
-            aria-pressed={info.link}
-            onMouseDown={event => event.preventDefault()}
-            onClick={openLink}>
-            <RiLink />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={label('highlight')}
-            title={label('highlight')}
-            aria-pressed={info.highlight}
-            onMouseDown={event => event.preventDefault()}
-            onClick={() => apply('mark')}>
-            <RiMarkPenLine />
-          </Button>
-        </>
+        </div>
       )}
-    </div>,
-    document.body
+      {(editable || requestComment) && (
+        <div role="group" className="selection-group">
+          {editable && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={label('link')}
+              title={label('link')}
+              aria-pressed={info.link}
+              onMouseDown={event => event.preventDefault()}
+              onClick={openLink}>
+              <RiLink />
+            </Button>
+          )}
+          {requestComment && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={label('comment')}
+              title={label('comment')}
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => handOff(requestComment)}>
+              <RiChat1Line />
+            </Button>
+          )}
+        </div>
+      )}
+    </>
   )
 }

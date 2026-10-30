@@ -1,4 +1,5 @@
 import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { BaseField, BaseRecord, Value } from '@ankole/applet-sdk/types'
@@ -104,6 +105,7 @@ export async function loadReferenceLabels(tableID: string, ids: string[]) {
 }
 
 export function FieldValue({ field, value, pageID }: { field: BaseField; value: Value; pageID?: string }) {
+  const { t } = useTranslation()
   const sharedLabels = useContext(ReferenceLabels)
   const people = ['user', 'created_by', 'updated_by'].includes(field.type)
   const link = field.type === 'link'

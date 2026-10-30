@@ -8,5 +8,11 @@ export default defineConfig({
   retries: 0,
   timeout: 120000,
   outputDir: '../../output/playwright/pod-results',
-  use: { baseURL: state.base_url, trace: 'retain-on-failure', screenshot: 'only-on-failure' }
+  use: {
+    channel: process.env.POD_BROWSER_CHANNEL,
+    launchOptions: { executablePath: process.env.POD_BROWSER_EXECUTABLE_PATH },
+    baseURL: state.base_url,
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure'
+  }
 })

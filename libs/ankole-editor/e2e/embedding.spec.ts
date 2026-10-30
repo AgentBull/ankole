@@ -18,13 +18,15 @@ test('host translations update menus and slash search without replacing the edit
   const menu = page.getByRole('listbox', { name: 'Insert block', exact: true })
   await expect(menu).toBeVisible()
   await expect(menu.getByRole('option')).toHaveCount(1)
-  await expect(menu.getByRole('option')).toContainText('Plain paragraph')
+  await expect(menu.getByRole('option')).toHaveText('Text')
+  await expect(menu.getByRole('option')).toHaveAccessibleDescription('Plain paragraph')
+  await expect(menu.getByRole('option').locator('[title]')).toHaveAttribute('title', 'Plain paragraph')
   await editor.press('Escape')
   await editor.press('ControlOrMeta+/')
   await expect(page.getByRole('menu', { name: 'Block actions', exact: true })).toBeVisible()
 })
 
-test('changing labels keeps an open slash menu selection within its translated results', async ({ page }) => {
+test('changing labels preserves multilingual aliases and the selected block', async ({ page }) => {
   const editor = page.getByRole('textbox', { name: 'Second document', exact: true })
   await caret(editor.locator('p').last())
   await editor.press('End')
@@ -36,10 +38,11 @@ test('changing labels keeps an open slash menu selection within its translated r
   await editor.press('ArrowDown')
   // A host can change locale while the edit area retains focus.
   await page.getByRole('button', { name: 'Translate second editor', exact: true }).dispatchEvent('click')
-  await expect(menu.getByRole('option')).toHaveCount(1)
-  await expect(menu.getByRole('option', { selected: true })).toContainText('项目列表')
+  // Search aliases remain available when the host changes the displayed language.
+  await expect(menu.getByRole('option')).toHaveText(['项目列表', 'Numbered list', 'Checklist'])
+  await expect(menu.getByRole('option', { selected: true })).toHaveText('Checklist')
   await editor.press('Enter')
-  await expect(editor.locator('ul')).toHaveCount(1)
+  await expect(editor.locator('li[data-task]')).toHaveCount(1)
   await expect(menu).toHaveCount(0)
 })
 
@@ -52,6 +55,7 @@ test('read-only content stays readable and selectable', async ({ page }) => {
   const panel = page.getByTestId('first-editor')
   await expect(panel.locator('.editor-content')).toHaveAttribute('contenteditable', 'false')
   expect(await panel.ariaSnapshot()).toContain('heading "Readable title" [level=1]')
+  await expect(panel.getByRole('button', { name: '收起章节', exact: true })).toHaveAttribute('aria-expanded', 'true')
   const text = await panel.locator('h1').evaluate(element => {
     const range = document.createRange()
     range.selectNodeContents(element)
@@ -249,4 +253,81 @@ test('an oversized edit is rejected before state changes and later edits still s
     .toBeGreaterThan(JSON.parse(before!).revision)
   await page.getByRole('button', { name: 'Undo second', exact: true }).click()
   await expect(editor.locator('p')).toHaveText('Before')
+})
+
+test('an open resource form preserves host edits to fields the user did not change', async ({ page, baseURL }) => {
+  const source = page.getByLabel('Host source', { exact: true })
+  const apply = page.getByRole('button', { name: 'Apply source without moving focus', exact: true })
+  const panel = page.getByTestId('second-editor')
+  const block = panel.locator('.resource-block')
+  const output = page.getByLabel('Second Markdown', { exact: true })
+  await source.fill(
+    `<bookmark src="${baseURL}/resource-preview.html" title="Original" description="Old" view="card" />`
+  )
+  await apply.click()
+  await source.fill(
+    `<bookmark src="${baseURL}/resource-preview.html" title="Original" description="Remote description" view="link" />`
+  )
+  await block.getByRole('button', { name: '编辑', exact: true }).click()
+  await block.getByLabel('标题', { exact: true }).fill('Local title')
+  await apply.dispatchEvent('click')
+  await expect(block.getByLabel('标题', { exact: true })).toHaveValue('Local title')
+  await expect(block.getByLabel('描述', { exact: true })).toHaveValue('Remote description')
+  await block.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(output).toContainText('title="Local title"')
+  await expect(output).toContainText('description="Remote description"')
+  await expect(output).toContainText('view="link"')
+
+  await source.fill(`<embed href="${baseURL}/resource-preview.html" title="Original" />`)
+  await apply.click()
+  await expect(block.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-forms')
+  await source.fill(`<embed href="${baseURL}/resource-preview.html?remote=1" title="Original" />`)
+  await block.getByRole('button', { name: '编辑', exact: true }).click()
+  await block.getByLabel('标题', { exact: true }).fill('Local frame title')
+  await apply.dispatchEvent('click')
+  await expect(block.getByLabel('标题', { exact: true })).toHaveValue('Local frame title')
+  await expect(block.getByLabel('链接地址', { exact: true })).toHaveValue(`${baseURL}/resource-preview.html?remote=1`)
+  await block.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(output).toContainText('title="Local frame title"')
+  await expect(output).toContainText('resource-preview.html?remote=1')
+})
+
+test('the file entry hands chosen files to the host and leaves the document unchanged', async ({ page }) => {
+  const editor = page.getByRole('textbox', { name: 'Second document', exact: true })
+  await caret(editor.locator('p').last())
+  await editor.press('End')
+  await editor.press('Enter')
+  await expect(editor.locator('p').last()).toHaveText('')
+  const before = await editor.innerText()
+  await editor.pressSequentially('/附件')
+  await page.getByRole('listbox').getByRole('option').first().click()
+  const panel = page.getByRole('dialog', { name: '文件', exact: true })
+  const zone = panel.getByRole('button', { name: '选择或拖入文件', exact: true })
+  await expect(zone).toBeFocused()
+  await expect(panel).toContainText('可以一次选择多个文件')
+  expect(await editor.innerText()).toBe(before)
+
+  const chooser = page.waitForEvent('filechooser')
+  await zone.click()
+  await (await chooser).setFiles([{ name: 'reject.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') }])
+  await expect(panel.getByRole('alert')).toHaveText('Host rejected the files')
+
+  const retry = page.waitForEvent('filechooser')
+  await zone.click()
+  await (
+    await retry
+  ).setFiles([
+    { name: 'report.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') },
+    { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('notes') }
+  ])
+  await expect(panel).toBeHidden()
+  await expect(page.getByLabel('Accepted files', { exact: true })).toHaveText('report.pdf notes.txt')
+  await expect(editor).toBeFocused()
+  expect(await editor.innerText()).toBe(before)
+
+  await editor.pressSequentially('/file')
+  await editor.press('Enter')
+  await expect(panel).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(panel).toBeHidden()
 })

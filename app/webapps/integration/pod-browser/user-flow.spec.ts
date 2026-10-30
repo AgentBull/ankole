@@ -11,15 +11,24 @@ async function pageAction(page: Page, name: string) {
 }
 
 async function documentAction(page: Page, name: string) {
-  await page.locator('.pod-document-tools').getByRole('button', { name: '添加内容', exact: true }).click()
-  await page.getByRole('menuitem', { name, exact: true }).click()
+  await page.locator('.editor-content > *').first().hover()
+  await page.getByRole('button', { name: 'Block 菜单', exact: true }).click()
+  await page.getByRole('menuitem', { name: '在下方添加 Block', exact: true }).click()
+  if (name === '新建页面') {
+    await page.getByRole('menuitem', { name, exact: true }).hover()
+  } else {
+    await page.getByRole('menuitem', { name, exact: true }).click()
+  }
 }
 // Match the full visible label while preserving MF2's intentional bidi isolation in the product.
 const visibleName = (name: string) =>
   new RegExp(`^\\p{Bidi_Control}*${[...name].map(RegExp.escape).join('\\p{Bidi_Control}*')}\\p{Bidi_Control}*$`, 'u')
 async function choose(page: Page, name: string, option: string, parent?: string) {
   if (name === '目标位置' || name === '选择页面') {
-    const dialog = page.getByRole('dialog', { name: name === '目标位置' ? '移动页面' : '引用页面', exact: true })
+    const dialog = page.getByRole('dialog', {
+      name: name === '目标位置' ? '移动页面' : '嵌入多维表或应用',
+      exact: true
+    })
     const search = dialog.getByRole('combobox', { name, exact: true })
     await search.click()
     await expect(search).toBeFocused()
@@ -255,15 +264,16 @@ test('private work moves, shares, searches, favorites and restores through the r
     await expect(owner.getByRole('main').getByRole('link', { name: title })).toBeVisible()
     await owner.getByRole('main').getByRole('link', { name: title }).click()
     await owner.getByRole('button', { name: '分享', exact: true }).click()
-    await owner.getByRole('combobox', { name: '选择成员、组或 Agent', exact: true }).fill('Browser member')
-    await owner.getByRole('option', { name: 'Browser member', exact: true }).click()
+    await owner.getByRole('combobox', { name: '搜索协作者', exact: true }).fill('Browser member')
+    await owner.getByRole('option').filter({ hasText: 'Browser member' }).first().click()
     const shared = owner.waitForResponse(
       response =>
-        response.request().method() === 'PUT' && new URL(response.url()).pathname === `/api/v2/pod/pages/${id}/sharing`
+        response.request().method() === 'PATCH' &&
+        new URL(response.url()).pathname === `/api/v2/pod/pages/${id}/sharing`
     )
-    await owner.getByRole('dialog').getByRole('button', { name: '添加', exact: true }).click()
+    await owner.getByRole('dialog').getByRole('button', { name: '确定', exact: true }).click()
     expect((await shared).status()).toBe(200)
-    await expect(owner.getByRole('dialog').getByRole('checkbox')).toBeEnabled()
+    await expect(owner.getByRole('dialog', { name: '分享文档', exact: true })).toBeVisible()
     await owner.keyboard.press('Escape')
     await member.goto(state.base_url + route(id))
     await expect(content(member)).toHaveText('Private research result')
@@ -312,6 +322,7 @@ test('Private creation and moves wait for identity after delayed and failed read
   await owner.route('**/api/v2/pod/pages**', async intercepted => {
     const url = new URL(intercepted.request().url())
     const identityRead =
+      url.pathname === '/api/v2/pod/pages/navigation' ||
       url.searchParams.get('scope') === 'private' ||
       (url.pathname === '/api/v2/pod/pages/search' &&
         url.searchParams.get('required_action') === 'page_edit' &&
@@ -416,12 +427,21 @@ test('a large business table uses global groups and per-group paging across its 
   await owner.clock.setFixedTime(new Date('2026-10-19T12:00:00Z'))
   try {
     await owner.goto(state.base_url + route(state.report_id))
+    await expect(content(owner)).toBeVisible()
     const title = `Large workflow ${crypto.randomUUID()}`
-    const { page } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
-      type: 'base',
-      title,
-      parent_id: state.report_id
-    })
+    await documentAction(owner, '新建页面')
+    const createdBase = owner.waitForResponse(
+      response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
+    )
+    await owner.getByRole('menuitem', { name: '多维表', exact: true }).click()
+    const { page } = (await (await createdBase).json()) as { page: { id: string; title: string } }
+    await request(owner, `/pages/${page.id}`, 'PATCH', { title, expected_title: page.title })
+    await expect
+      .poll(
+        async () =>
+          (await request<{ content: { content: string } }>(owner, `/pages/${state.report_id}`)).content.content
+      )
+      .toContain(page.id)
     const { tables } = await request<{ tables: { id: string }[] }>(owner, `/bases/${page.id}`)
     expect(tables).toHaveLength(1)
     const table = tables[0]!
@@ -472,7 +492,7 @@ test('a large business table uses global groups and per-group paging across its 
     }
     await createView('看板')
     await choose(owner, '选择分组字段', 'Status')
-    const column = owner.getByRole('heading', { name: 'New 2501', exact: true }).locator('..')
+    const column = owner.getByRole('heading', { name: 'New 2501', exact: true }).locator('xpath=ancestor::section[1]')
     await expect(column).toBeVisible()
     await expect(column.locator('article')).toHaveCount(100)
     const first = await column.locator('article').first().innerText()
@@ -493,8 +513,6 @@ test('a large business table uses global groups and per-group paging across its 
     await owner.getByRole('button', { name: 'Grid', exact: true }).click()
     await expect(owner.getByRole('button', { name: '下一页', exact: true })).toBeVisible()
     await owner.goto(state.base_url + route(state.report_id))
-    await documentAction(owner, '引用已有页面')
-    await choose(owner, '选择页面', title)
     const inline = content(owner)
       .locator('.embed')
       .filter({ has: owner.getByRole('button', { name: title, exact: true }) })
@@ -556,16 +574,94 @@ test('block-menu removal follows direct-child ownership and preserves references
         )
       )
       .toBe(true)
-    await documentAction(owner, '引用已有页面')
+    await documentAction(owner, '嵌入多维表或应用')
     await choose(owner, '选择页面', 'Browser sales')
     await expect(embedded).toContainText('Browser sales')
+    const sourcePage = owner.locator(`.pod-tree-link[href="${route(state.base_id)}"]`)
+    await expect(sourcePage).toBeVisible()
     await embedded.hover()
     await owner.getByRole('button', { name: 'Block 菜单', exact: true }).click()
     await owner.getByRole('menuitem', { name: '删除 Block', exact: true }).click()
     await expect(embedded).toHaveCount(0)
     expect((await request<{ page: { id: string } }>(owner, `/pages/${state.base_id}`)).page.id).toBe(state.base_id)
+    await expect(sourcePage).toBeVisible()
   } finally {
     await context.close()
+  }
+})
+
+test('one block-menu request deletes a batch atomically and a forbidden child leaves every page intact', async ({
+  browser
+}) => {
+  const ownerContext = await browser.newContext()
+  const memberContext = await browser.newContext()
+  await ownerContext.addCookies(state.owner.cookies)
+  await memberContext.addCookies(state.member.cookies)
+  const owner = await ownerContext.newPage()
+  const member = await memberContext.newPage()
+  let parentID: string | undefined
+  try {
+    await owner.goto(state.base_url + route(state.report_id))
+    await member.goto(state.base_url + route(state.report_id))
+    const { page: parent } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
+      title: 'Atomic embed batch'
+    })
+    parentID = parent.id
+    const share = (role: string) =>
+      request(owner, `/pages/${parent.id}/sharing`, 'PUT', {
+        inherit_permissions: false,
+        grants: [{ principal_uid: state.member.uid, role }]
+      })
+    await share('edit')
+    const { page: first } = await request<{ page: { id: string } }>(member, '/pages', 'POST', {
+      parent_id: parent.id,
+      title: 'Own child'
+    })
+    const { page: second } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
+      parent_id: parent.id,
+      title: 'Other child'
+    })
+    await request(owner, `/pages/${parent.id}/content`, 'PUT', {
+      base_revision: 0,
+      xml: `<page><p>Batch selection</p><embed ref="${first.id}"/><embed ref="${second.id}"/></page>`
+    })
+    const endpoint = `/api/v2/pod/pages/${parent.id}/embeds/delete`
+    const requests: unknown[] = []
+    member.on('request', request => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === endpoint) {
+        requests.push(request.postDataJSON())
+      }
+    })
+    const remove = async () => {
+      await member.goto(state.base_url + route(parent.id))
+      await expect(content(member).locator('.embed')).toHaveCount(2)
+      await content(member).locator('p').first().click()
+      await member.keyboard.press('Escape')
+      await member.keyboard.press('ControlOrMeta+a')
+      await member.keyboard.press('ControlOrMeta+/')
+      const response = member.waitForResponse(response => new URL(response.url()).pathname === endpoint)
+      await member.getByRole('menuitem', { name: '删除 Block', exact: true }).click()
+      return response
+    }
+    expect((await remove()).status()).toBe(403)
+    expect(requests).toEqual([{ data: { refs: [first.id, second.id] } }])
+    await expect(content(member).locator('.embed')).toHaveCount(2)
+    for (const id of [first.id, second.id]) {
+      expect((await request<{ page: { deleted_at: string | null } }>(owner, `/pages/${id}`)).page.deleted_at).toBeNull()
+    }
+    await share('manage')
+    expect((await remove()).status()).toBe(201)
+    expect(requests).toHaveLength(2)
+    await expect(content(member).locator('.embed')).toHaveCount(0)
+    for (const id of [first.id, second.id]) {
+      expect(
+        (await request<{ page: { deleted_at: string | null } }>(owner, `/pages/${id}`)).page.deleted_at
+      ).not.toBeNull()
+    }
+  } finally {
+    if (parentID) await request(owner, `/pages/${parentID}`, 'DELETE')
+    await ownerContext.close()
+    await memberContext.close()
   }
 })
 

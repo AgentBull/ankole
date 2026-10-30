@@ -131,6 +131,7 @@ export function SessionFindBar({
     <div className="pod-chat-find" role="search">
       <Input
         ref={inputRef}
+        variant="overlay"
         autoFocus
         value={query}
         aria-label={t('pod.chat_room.find')}

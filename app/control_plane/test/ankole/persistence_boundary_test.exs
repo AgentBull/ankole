@@ -178,8 +178,7 @@ defmodule Ankole.PersistenceBoundaryTest do
           "lib/ankole/ash.ex",
           "lib/ankole/ash/probe.ex",
           "lib/ankole/errors.ex",
-          "lib/ankole/errors/probe.ex",
-          "lib/ankole_web/console_errors.ex"
+          "lib/ankole/errors/probe.ex"
         ],
         path <- [path, Path.expand(path)] do
       found = source |> Code.string_to_quoted!() |> PersistenceBoundary.occurrences(path)

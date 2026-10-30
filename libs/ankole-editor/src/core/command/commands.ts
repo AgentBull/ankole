@@ -38,7 +38,7 @@ export const insertText: Command.Pure<{ from: number; to: number; insert: string
     (from == selection.from && to == selection.to && state.sel.activeMarks) ||
     state.doc.resolve(from).marks(state.doc.resolve(to))
   return {
-    changes: { from, to, insert: [Leaf.Text.of(insert, marks)], fit: true },
+    changes: { from, to, insert: insert ? [Leaf.Text.of(insert, marks)] : [], fit: true },
     scrollIntoView: true,
     selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1),
     userEvent
@@ -90,7 +90,12 @@ export const enter: Command.Pure = ({ state }) => {
     if (!wrap) return false
     let content: Plot[] = []
     for (let i = wrap.length - 1; i >= 0; i--) content = [wrap[i]!.create(content)]
-    const changes = ChangeSet.create(state.doc, { from: from.pos, to: to.pos, insert: content, fit: true })
+    const changes = ChangeSet.create(state.doc, {
+      from: from.pos,
+      to: to.pos,
+      insert: content,
+      fit: from.pos != to.pos
+    })
     const placed = content.length ? changes.findInserted(t => t == content[0]!.tag) : null
     return {
       changes,

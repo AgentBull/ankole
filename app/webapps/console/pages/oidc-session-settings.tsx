@@ -29,7 +29,7 @@ export function OIDCSessionSettings({
   const providers = useQuery(listOidcLoginSourcesOptions())
   return (
     <section className="grid gap-5 border-b border-border pb-6">
-      <h3 className="text-base font-semibold">{t('console.access_sessions.title')}</h3>
+      <h3 className="title-inline">{t('console.access_sessions.title')}</h3>
       <p className="text-sm text-muted-foreground">{t('console.access_sessions.providers_hint')}</p>
       <ErrorBlock error={providers.error} />
       <div className="grid gap-3">
@@ -144,7 +144,7 @@ export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
   })
   return (
     <section className="grid gap-4 border-t border-border pt-6">
-      <h3 className="text-base font-semibold">{t('console.access_sessions.deliveries')}</h3>
+      <h3 className="title-inline">{t('console.access_sessions.deliveries')}</h3>
       <p className="text-sm text-muted-foreground">{t('console.access_sessions.delivery_hint')}</p>
       <ErrorBlock error={deliveries.error} />
       {deliveries.isLoading ? <p role="status">{t('common.loading')}</p> : null}

@@ -38,7 +38,8 @@ export function useEditorState(): GardState
 export function useEditorState<T>(select: (state: GardState) => T): T
 export function useEditorState<T>(select?: (state: GardState) => T): GardState | T {
   const { drawn, subscribe } = useHandle()
-  return useSyncExternalStore(subscribe, () => (select ? select(drawn()) : drawn()))
+  const getSnapshot = () => (select ? select(drawn()) : drawn())
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
 /** Reads interface labels from the same state as the editor menus. */

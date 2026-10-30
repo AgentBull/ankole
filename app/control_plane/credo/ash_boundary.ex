@@ -5,7 +5,7 @@ defmodule Ankole.Credo.AshBoundary do
   Keeps persistence calls at their owners.
 
   Framework errors, bulk actions, bulk results, and transaction hooks stay in
-  `Ankole.Ash`, `Ankole.Errors`, and `AnkoleWeb.ConsoleErrors`. Ecto writes,
+  `Ankole.Ash` and `Ankole.Errors`. Ecto writes,
   Ecto row locks, and `Repo` transactions stay in the registered exception
   modules. Web, plugin, and application code calls domain code interfaces
   instead of Ash. `test/ankole/persistence_boundary.exs` lists the exception

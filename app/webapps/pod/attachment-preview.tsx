@@ -52,13 +52,22 @@ export function AttachmentPreview({
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const body = useRef<HTMLDivElement>(null)
+  const [thumbnailFailed, setThumbnailFailed] = useState(false)
   const kind = attachmentPreviewKind(name, type)
   const image = kind === 'image'
-  const thumbnail = image ? (
-    <img src={url} alt={name} loading="lazy" className="size-12 rounded-control object-cover" />
-  ) : (
-    <RiFileLine className="size-6 text-fg-tertiary" aria-hidden />
-  )
+  // The surrounding control already names the file, so the thumbnail is decoration and falls back to the file mark.
+  const thumbnail =
+    image && !thumbnailFailed ? (
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        className="size-12 rounded-control object-cover"
+        onError={() => setThumbnailFailed(true)}
+      />
+    ) : (
+      <RiFileLine className="size-6 text-fg-tertiary" aria-hidden />
+    )
   if (!kind) {
     return local ? (
       thumbnail

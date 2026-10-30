@@ -1,4 +1,5 @@
 import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
 import { contentError } from './content-errors'
 import { ErrorBlock } from '../common/error-block'
@@ -58,7 +59,7 @@ export const roleLabels: Record<PageRole, string> = {
     return t('pod.content.can_view')
   },
   get contribute() {
-    return t('pod.content.can_contribute')
+    return t('pod.document.can_contribute')
   },
   get edit() {
     return t('pod.content.can_edit')
@@ -103,6 +104,7 @@ export function Choice<T extends string>({
 }
 
 export function ContentError({ error, retry }: { error: unknown; retry?: () => void }) {
+  const { t } = useTranslation()
   return (
     <ErrorBlock
       error={contentError(error)}
@@ -128,6 +130,7 @@ export function TextField({
   onChange(value: string): void
   placeholder?: string
   disabled?: boolean
+  variant?: 'default' | 'overlay'
 }) {
   return (
     <label className="grid gap-1.5 text-sm">

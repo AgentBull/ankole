@@ -143,6 +143,68 @@ export function ResourceListPage({
     onClearFilters?.()
   }
 
+  const showEmpty = !hasError && isEmpty && !isLoading
+  const showTable = !showEmpty && (!hasError || !isEmpty)
+  const emptyState = (
+    <Empty className="items-start p-8 text-left md:p-10">
+      <EmptyHeader className="max-w-xl items-start">
+        {emptyIcon ? <EmptyMedia variant="icon">{emptyIcon}</EmptyMedia> : null}
+        <EmptyTitle>
+          {isFiltered ? t('console.empty.no_results_title') : (emptyTitle ?? t('console.empty.title'))}
+        </EmptyTitle>
+        <EmptyDescription className="text-balance">
+          {isFiltered ? t('console.empty.no_results_description') : emptyDescription}
+        </EmptyDescription>
+      </EmptyHeader>
+      {/* An empty list is where the create action is most needed, and the page
+          header button is the furthest control from where the eye already is.
+          A filtered list falls back to nothing: offering "create" to someone
+          whose search missed answers a question they did not ask. */}
+      {isFiltered && onClearFilters ? (
+        <Button size="sm" type="button" variant="outline" onClick={clearFilters}>
+          {t('console.empty.clear_filters')}
+        </Button>
+      ) : (
+        <EmptyActions create={createControl} extra={emptyAction} />
+      )}
+    </Empty>
+  )
+  const table = (
+    <Table
+      aria-busy={isLoading}
+      className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_td:last-child]:transition-colors fine-hover:[&_tbody_tr:hover_td:last-child]:bg-[image:linear-gradient(var(--color-accent),var(--color-accent))] [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-[image:linear-gradient(var(--color-accent),var(--color-accent))] [&_tbody_tr[data-state=selected]_td:last-child]:bg-selection [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-card"
+      containerLabel={t('console.table.region_label', { title })}>
+      <TableHeader>
+        <TableRow>
+          {displayColumns.map((column, index) => (
+            <TableHead key={`${index}:${column}`}>{column}</TableHead>
+          ))}
+          <TableHead className="w-0 text-right">
+            <span className="sr-only">{t('console.actions')}</span>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {isLoading ? (
+          Array.from({ length: 4 }, (_, rowIndex) => (
+            <TableRow key={rowIndex}>
+              {displayColumns.map((column, columnIndex) => (
+                <TableCell key={`${column}-${columnIndex}`}>
+                  <Skeleton className={cn('h-4', columnIndex === 0 ? 'w-28' : 'w-20')} />
+                </TableCell>
+              ))}
+              <TableCell>
+                <Skeleton className="ml-auto size-7" />
+              </TableCell>
+            </TableRow>
+          ))
+        ) : (
+          <TenantTableRows>{children}</TenantTableRows>
+        )}
+      </TableBody>
+    </Table>
+  )
+
   return (
     <PageStack>
       <PageHeader
@@ -157,74 +219,23 @@ export function ResourceListPage({
       />
 
       {subNav}
-      {showToolbar ? (
-        <div ref={toolbarRef} className="contents">
-          {toolbar}
-        </div>
-      ) : null}
-      {showToolbar && count !== undefined && !isLoading ? <ResultCount count={count} /> : null}
       <ErrorBlock error={pagination?.isFetchNextPageError ? undefined : listError} />
+      {showTable ? (
+        <p className="-mb-3 text-xs text-muted-foreground sm:hidden">{t('console.table.scroll_hint')}</p>
+      ) : null}
 
-      {!hasError && isEmpty && !isLoading ? (
-        <Empty className="items-start border border-border bg-card p-8 text-left md:p-10">
-          <EmptyHeader className="max-w-xl items-start">
-            {emptyIcon ? <EmptyMedia variant="icon">{emptyIcon}</EmptyMedia> : null}
-            <EmptyTitle>
-              {isFiltered ? t('console.empty.no_results_title') : (emptyTitle ?? t('console.empty.title'))}
-            </EmptyTitle>
-            <EmptyDescription className="text-balance">
-              {isFiltered ? t('console.empty.no_results_description') : emptyDescription}
-            </EmptyDescription>
-          </EmptyHeader>
-          {/* An empty list is where the create action is most needed, and the page
-              header button is the furthest control from where the eye already is.
-              A filtered list falls back to nothing: offering "create" to someone
-              whose search missed answers a question they did not ask. */}
-          {isFiltered && onClearFilters ? (
-            <Button size="sm" type="button" variant="outline" onClick={clearFilters}>
-              {t('console.empty.clear_filters')}
-            </Button>
-          ) : (
-            <EmptyActions create={createControl} extra={emptyAction} />
-          )}
-        </Empty>
-      ) : !hasError || !isEmpty ? (
-        <div className="grid gap-2">
-          <p className="text-xs text-muted-foreground sm:hidden">{t('console.table.scroll_hint')}</p>
-          <Table
-            aria-busy={isLoading}
-            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_td:last-child]:transition-colors fine-hover:[&_tbody_tr:hover_td:last-child]:bg-accent [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-accent [&_tbody_tr[data-state=selected]_td:last-child]:bg-selection [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-card"
-            containerClassName="border border-border bg-card"
-            containerLabel={t('console.table.region_label', { title })}>
-            <TableHeader>
-              <TableRow>
-                {displayColumns.map((column, index) => (
-                  <TableHead key={`${index}:${column}`}>{column}</TableHead>
-                ))}
-                <TableHead className="w-0 text-right">
-                  <span className="sr-only">{t('console.actions')}</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                Array.from({ length: 4 }, (_, rowIndex) => (
-                  <TableRow key={rowIndex}>
-                    {displayColumns.map((column, columnIndex) => (
-                      <TableCell key={`${column}-${columnIndex}`}>
-                        <Skeleton className={cn('h-4', columnIndex === 0 ? 'w-28' : 'w-20')} />
-                      </TableCell>
-                    ))}
-                    <TableCell>
-                      <Skeleton className="ml-auto size-7" />
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TenantTableRows>{children}</TenantTableRows>
-              )}
-            </TableBody>
-          </Table>
+      {/* The toolbar is the first row of the list frame, so the search, its
+          count, and the rows it filters read as one object. */}
+      {showToolbar || showEmpty || showTable ? (
+        <div className="divide-y divide-border border border-border bg-card">
+          {showToolbar ? (
+            <div ref={toolbarRef} className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 p-2">
+              {toolbar}
+              {count !== undefined && !isLoading ? <ResultCount count={count} /> : null}
+            </div>
+          ) : null}
+          {showEmpty ? emptyState : null}
+          {showTable ? table : null}
         </div>
       ) : null}
       {pagination && <LoadMore query={pagination} />}
@@ -378,7 +389,7 @@ export function CursorPagination({
 export function ResultCount({ count }: { count: number }) {
   const { t } = useTranslation()
   return (
-    <p aria-live="polite" className="-mt-3 text-sm text-muted-foreground">
+    <p aria-live="polite" className="ml-auto shrink-0 px-2 text-sm text-muted-foreground">
       {t('console.result_count', { count })}
     </p>
   )
@@ -387,9 +398,9 @@ export function ResultCount({ count }: { count: number }) {
 /**
  * One list toolbar: search on the left, resource filters on the right.
  *
- * Every list used to build its own — a full-width card holding a `max-w-xl`
- * input, a bare bordered box, or two separate boxes with a gap between them —
- * so the same control sat at three different widths on three pages.
+ * The search carries no frame of its own. `ResourceListPage` draws it as the
+ * first row of the list frame, and a page that searches something other than a
+ * table puts it in a `ScopeBar`.
  */
 export function ResourceSearch({
   filters,
@@ -409,7 +420,7 @@ export function ResourceSearch({
   const { t } = useTranslation()
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 border border-border bg-card p-2">
+    <div className="flex min-w-0 flex-1 basis-72 flex-wrap items-center gap-x-4 gap-y-2">
       <SearchField
         className="flex-1 basis-72"
         clearLabel={t('console.empty.clear_search')}

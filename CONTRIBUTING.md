@@ -215,6 +215,9 @@ Keep this terminal open. The devkit starts or verifies PostgreSQL and Function R
 
 The devkit formats Phoenix logs and keeps service builds attached to the terminal.
 
+Restart `bun dev` after adding or pulling a database migration. The devkit validates
+and applies the selected migrations before Phoenix starts.
+
 When local runtime inputs diverge from published images, the first run may spend substantial time building the Function Runtime or Agent Computer images. Wait while there is active build output.
 
 For the SaaS edition with its private source checkout, use the same command
@@ -610,13 +613,13 @@ Once those static checks pass on `main`, the runtime-image workflow builds, veri
   ```
   Under the hood, `mix ankole.plugins.test` compiles `:ankole` in `:test`, skips full application boot, and runs each plugin's `test_helper.exs` to start only its own supervisor (the full `control-plane:test` suite runs these tests as well).
 - **Credo and unused-code gates**: Control-plane lint enforces Credo's default suite, `ex_slop`, and Ankole's custom checks with zero baseline exemptions (max nesting depth `4`, max cyclomatic complexity `20`). If a PR eliminates all remaining findings for a check currently marked `disabled` in `app/control_plane/.credo.exs`, re-enable that check in the same PR. Likewise, `bun run analyze:unused` flags dead production files, exports, types, and dependencies—test-only callers do not keep unused production code alive.
-- **Pinned Elixir dependency patches**: Before compiling Mix dependencies, `app/control_plane` applies local patches to Ash `3.37.2`, AshPostgres `2.15.1`, AshJsonApi `1.8.0`, and `attesto` `2.6.1` (requiring `patch` on `PATH`, preinstalled in Docker). Each `_build` tree tracks a content stamp over the patches and patch loader; whenever either changes, Mix recompiles the patched packages and clears `:ankole`'s build cache, failing hard if any hunk fails to apply. Together these patches silence spurious notification warnings, handle tenant-invisible skipped upserts, emit accurate native OpenAPI schemas (timestamps, embedded IDs, nullable array items, `DELETE` responses), honor halted `before_dispatch` plugs in JSON:API routers, accept Ankole's opaque Principal UIDs in `attesto`, and treat Ash/AshJsonApi resource-reference DSL entries as runtime rather than compile-time module edges (while keeping verifier coverage intact). Re-verify public action behavior whenever bumping these libraries, and drop each patch once upstream ships the fix.
+- **Pinned Elixir dependency patches**: Before compiling Mix dependencies, `app/control_plane` applies local patches to Ash `3.37.2`, AshJsonApi `1.8.0`, and `attesto` `2.7.0` (requiring `patch` on `PATH`, preinstalled in Docker). Each `_build` tree tracks a content stamp over the patches and patch loader; whenever either changes, Mix recompiles the patched packages and clears `:ankole`'s build cache, failing hard if any hunk fails to apply. Together these patches silence spurious notification warnings, emit accurate native OpenAPI schemas (timestamps, embedded IDs, nullable array items, `DELETE` responses), honor halted `before_dispatch` plugs in JSON:API routers, accept Ankole's opaque Principal UIDs in `attesto`, and treat Ash/AshJsonApi resource-reference DSL entries as runtime rather than compile-time module edges (while keeping verifier coverage intact). Re-verify public action behavior whenever bumping these libraries, and drop each patch once upstream ships the fix.
 - **Compile-connected cycle and boundary checks**: Whenever you change module references in `app/control_plane`, verify both `:test` and `:prod` graphs (since `:prod` initializes plugs at compile time):
   ```bash
   MIX_ENV=test ANKOLE_EDITION=foss mix ankole.compile_cycles
   MIX_ENV=prod ANKOLE_EDITION=foss mix ankole.compile_cycles
   ```
-  `mix ankole.compile_cycles` rejects any cycle containing at least one compile-time edge across `:ankole` and its local Mix dependencies (pure runtime cycles are fine), and enforces directory boundaries: core domain code (`app/control_plane/lib` and `internals/control_plane/lib`) must never statically reference a concrete Plugin, nor may one Plugin statically reference another (the sole legacy upgrade exceptions are `Ankole.Upgrade202610` referencing `Ankole.Plugins.SlackAdapter.Config` and `Ankole.Plugins.Microsoft365Adapter.Config`; see [Control Plane Plugins](docs/design-docs/Plugins.md#fixed-source-builds)). Endpoints and Routers wrap business plugs in local function plugs, and the SaaS router uses `AnkoleWeb.runtime_forward` so forwarded targets stay runtime-only edges. Also run both commands with `ANKOLE_EDITION=saas` when `internals/` is present, and never pass `--only-direct` (which hides transitive compile cycles). To run the standalone xref boundary suite without PostgreSQL:
+  `mix ankole.compile_cycles` rejects any cycle containing at least one compile-time edge across `:ankole` and its local Mix dependencies (pure runtime cycles are fine), and enforces directory boundaries: core domain code (`app/control_plane/lib` and `internals/control_plane/lib`) must never statically reference a concrete Plugin, nor may one Plugin statically reference another (see [Control Plane Plugins](docs/design-docs/Plugins.md#fixed-source-builds)). Endpoints and Routers wrap business plugs in local function plugs, and the SaaS router uses `AnkoleWeb.runtime_forward` so forwarded targets stay runtime-only edges. Also run both commands with `ANKOLE_EDITION=saas` when `internals/` is present, and never pass `--only-direct` (which hides transitive compile cycles). To run the standalone xref boundary suite without PostgreSQL:
   ```bash
   elixir -e 'ExUnit.start(); Code.require_file("integration/compile_cycles_test.exs")'
   ```
@@ -643,7 +646,7 @@ Control-plane persistence is owned by **Ash resources**, with each domain's root
   - Calculations, validations, or changes that call domain code each live in their own focused module (e.g., `Ankole.Brain.Schemas.MergeSuggestion.PageSummary`).
   - Procedural helpers that both touch a resource and call other domain modules live in a separate sibling module (e.g., `Ankole.Conversations.Delivery.PreviewStates` alongside `PreviewState`).
   - Inline anonymous functions in the DSL and functions defined directly on the resource module may call only leaf utilities that never touch a domain (such as `Ankole.Errors`, `Ankole.Repo`, or `Ankole.Files.Path`).
-- **Domain error wrapping (`Ankole.Errors`)**: Resource actions surface `Invalid.Stale`, `Invalid.StatusTransition`, or `Invalid.NotFound`, while generic actions wrap domain rejection reasons into `Invalid.Rejected` via `Ankole.Errors.wrap/1`. Callers extract reasons with `Ankole.Errors.reason/1` rather than pattern-matching raw `Ash.Error` structs, and `AnkoleWeb.ConsoleErrors.fallback/4` translates those errors into HTTP responses.
+- **Domain error wrapping (`Ankole.Errors`)**: Resource actions surface `Invalid.Stale`, `Invalid.StatusTransition`, or `Invalid.NotFound`, while generic actions wrap domain rejection reasons into `Invalid.Rejected` via `Ankole.Errors.wrap/1`. Callers extract reasons with `Ankole.Errors.reason/1` rather than pattern-matching raw `Ash.Error` structs; `AshJsonApi.ToJsonApiError` translates resource errors on JSON:API routes, while `AnkoleWeb.ConsoleErrors` renders the `%{error: %{code, message, details}}` envelope on non-JSON:API browser HTTP routes.
 
 For the handful of low-level subsystems whose access patterns do not fit Ash resource semantics—process coordination (`M2`), flat read models (`M4`, returning maps/scalars rather than resource structs), dynamic Base schemas (`M7`), set maintenance (`M8`), or hybrid search retrieval (`M9`)—`app/control_plane/test/ankole/persistence_boundary.exs` maintains an explicit, user-approved allowlist. Only allowlisted modules may run direct Ecto writes, Ecto row locks, `Repo.transact`, or raw Ecto queries over resource tables, and stale allowlist entries fail the test once migrated to Ash.
 
@@ -685,6 +688,62 @@ How `pod_browser_server.exs` works:
 - **Host, port, and state file**: By default the server binds `127.0.0.1:4000` (stop any competing server on `:4000` first, or set `POD_BROWSER_PORT` alongside a distinct `pod_browser_*` `MIX_TEST_PARTITION`) and serves built production assets on `http://<tenant-slug>.ankole.localhost:4000`. Always navigate via the canonical `base_url` and shared account-proof cookies written to `POD_BROWSER_STATE_PATH` (`0600` permissions; delete it after testing) rather than hitting `127.0.0.1` directly or appending `?tenant_id=` query parameters.
 - **Real connections and real auth**: The server uses the standard Ecto connection pool (not SQL Sandbox) so Phoenix Channels stay alive across requests, creates a fresh data tenant on each boot, reuses a fixed root-administrator Principal in the privileged tenant, and delivers login OTPs through a local TLS SMTP fixture whose `.mail.json` companion file lets Playwright read delivered codes without bypassing authentication or AuthZ.
 - **Coverage**: The suite verifies live collaborative page edits, Base tables, Applet publishing, access revocation, Office file previews, Console member/guest provisioning and access-version bumps across reloads, iframe module loading, CSS isolation, per-tab identity selection, and the full sample-reservation Applet backend (pending submissions, input retention on rejection, viewer write denial, competing reservations, and paired frontend/backend revision swaps—delaying one real committed HTTP response solely to inspect pending UI state).
+
+For the document multiplayer suite, build a source-mounted Worker image from the
+repository root with Docker running:
+
+```bash
+bun tools/devkit/src/local-worker-image.ts --scope source-mounted --output /tmp/ankole-doc-worker-image
+```
+
+Start the fixture server from step 2 with
+`POD_BROWSER_AGENT_COLLAB=true` and
+`ANKOLE_E2E_WORKER_IMAGE="$(cat /tmp/ankole-doc-worker-image)"` in its environment.
+This mode skips unrelated chat seeds and starts a real Docker Worker. Run only
+the corresponding suite in step 3:
+
+```bash
+POD_BROWSER_STATE_PATH=/tmp/ankole-pod-browser.json bun run test:pod document-multiplayer.spec.ts
+```
+
+The suite drives independent authenticated browser sessions and a deterministic Agent
+AutomationJob through `ankole-pod`, RuntimeFabric, the signed file relay, and
+PostgreSQL. It covers structural edits, local undo, reconnection, tab reload
+recovery, title conflicts, revoked access, live selections across multiple tabs, lost acknowledgements,
+and Agent writes concurrent with pending Human text. It also verifies retrying
+a lost synchronization reply without losing online participants, and exporting
+a rejected draft before reopening a document with viewing permission.
+The fixture's supervised Worker owner serializes reconciliation and removes its
+own containers and volumes when it stops, including on `SIGTERM`. Normal script
+exit and Worker startup failures stop that same owner. Without this mode, the Agent
+case is skipped; a passing browser-only run does not verify the Worker path.
+
+### Local browser performance
+
+Use the same dedicated Pod browser fixture and production bundles above. To measure
+with the installed Chrome on this machine, without CPU or network throttling:
+
+```bash
+POD_BROWSER_STATE_PATH=/tmp/ankole-pod-browser.json \
+  POD_BROWSER_CHANNEL=chrome POD_PERFORMANCE_PROFILE=local \
+  POD_PERFORMANCE_OUTPUT=/tmp/ankole-browser-performance \
+  bun run --filter @ankole/webapps test:pod performance.spec.ts key-pages-performance.spec.ts \
+  --output /tmp/ankole-browser-performance/traces
+```
+
+The suites cover document and conversation editing, content lists and search,
+Trash restoration, directory expansion, Base drafts, Applet interaction, account
+and Pod settings, and Console list pages. Each case starts with a fresh browser
+context and disabled HTTP cache. JSON artifacts record the official `web-vitals`
+LCP, INP and CLS measurements, content readiness, interaction completion, long
+tasks, and request timings; screenshots accompany them. Scripted local INP samples
+are not a real-user percentile, and top-frame metrics exclude Applet iframe
+interactions. Compare the same profile and fixture across builds. Keep development
+server results separate from production bundles. The `desktop` profile adds
+network throttling. The `mobile` profile exercises document and conversation
+editing with network and CPU throttling; the key-page suite uses desktop layouts.
+Give concurrent runs separate `--output` directories so Playwright keeps each
+run's traces and screenshots intact.
 
 ### Console API and OpenAPI
 

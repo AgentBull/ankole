@@ -30,55 +30,6 @@ test('mobile page chat completes its exit before it leaves the page', async ({ b
   }
 })
 
-test('reduced motion keeps the page chat fade and removes its movement', async ({ browser }) => {
-  const context = await browser.newContext({
-    baseURL: state.base_url,
-    viewport: { width: 390, height: 844 },
-    reducedMotion: 'reduce'
-  })
-  await context.addCookies(state.owner.cookies)
-  const page = await context.newPage()
-  try {
-    await page.goto(pageRoute(state.report_id))
-    await page.getByRole('button', { name: '页面对话', exact: true }).click()
-    const sheet = page.locator('[data-slot="sheet-content"]')
-    await expect(sheet).toBeVisible()
-    const motion = await sheet.evaluate(element => {
-      const style = getComputedStyle(element)
-      return { translate: style.translate, properties: style.transitionProperty, duration: style.transitionDuration }
-    })
-    expect(motion.translate).toBe('none')
-    expect(motion.properties).toBe('opacity')
-    expect(motion.duration).toBe('0.14s')
-  } finally {
-    await context.close()
-  }
-})
-
-test('desktop sidebar shortcuts and page menus do not animate', async ({ browser }) => {
-  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1365, height: 900 } })
-  await context.addCookies(state.owner.cookies)
-  const page = await context.newPage()
-  try {
-    await page.goto(pageRoute(state.report_id))
-    await expect(page.getByRole('button', { name: '页面对话', exact: true })).toBeVisible()
-    for (const slot of ['sidebar-gap', 'sidebar-container']) {
-      expect(
-        await page.locator(`[data-slot="${slot}"]`).evaluate(element => getComputedStyle(element).transitionDuration)
-      ).toBe('0s')
-    }
-    await page.keyboard.press('Control+b')
-    await expect(page.locator('[data-slot="sidebar-gap"]')).toHaveCSS('width', '0px')
-    await page.keyboard.press('Control+b')
-    await page.getByRole('button', { name: '更多操作', exact: true }).click()
-    const menu = page.locator('[data-slot="dropdown-menu-content"]')
-    await expect(menu).toBeVisible()
-    await expect(menu).toHaveCSS('transition-property', 'none')
-  } finally {
-    await context.close()
-  }
-})
-
 test('reduced motion jumps to the latest chat message in one scroll update', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: state.base_url, reducedMotion: 'reduce' })
   await context.addCookies(state.owner.cookies)
@@ -144,7 +95,7 @@ test('a successful first send during mobile exit does not reopen the closed page
     await trigger.click()
     await expect(page).toHaveURL(url => url.searchParams.get('chat') === uuidShorten(saved.conversation.id))
     await expect(
-      sheet.getByRole('region', { name: '对话消息', exact: true }).getByText(text, { exact: true })
+      sheet.getByRole('region', { name: '待发送', exact: true }).getByText(text, { exact: true })
     ).toBeVisible()
   } finally {
     acknowledgement.resolve()

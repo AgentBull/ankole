@@ -1,7 +1,7 @@
 # OpenID Connect Server
 
 Ankole acts as an OpenID Connect Provider for registered relying parties (RPs).
-`attesto` 2.6.1 provides the OAuth 2.0 and OIDC protocol primitives, while
+`attesto` 2.7.0 provides the OAuth 2.0 and OIDC protocol primitives, while
 Ankole owns Client policy, browser authentication, durable sessions, access
 tokens, and PostgreSQL persistence. Each site exposes a single issuer URL and
 signs tokens with one site-wide RSA key.

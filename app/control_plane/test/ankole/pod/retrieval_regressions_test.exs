@@ -164,7 +164,8 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
 
       {:ok, _} =
         Pages.update(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), older.id, %{
-          title: "Updated saved page"
+          title: "Updated saved page",
+          expected_title: older.title
         })
 
       {:ok, hidden_root} =

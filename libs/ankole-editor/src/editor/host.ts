@@ -1,46 +1,36 @@
+import { editorHost, hostFacet, type EditorHost, type EmbedAttributes } from './host-context'
+import { resourceWidget } from '../blocks/resources'
 import { Elt } from '../core/doc'
 import { Wordgard, Decoration } from '../core/editor'
 import { Widget } from '../core/editor/decoration'
-import type { GardState } from '../core/state'
+import { GardState } from '../core/state'
 import * as T from '../core/types'
 import { Embed, embed as embedBlock, embedAttributes } from '../blocks/embed'
+import { assetURL } from '../document/resources'
 import { element } from '../document/tree'
 import { markValue } from './attributes'
 import { deleteBlock } from './block-actions'
 import { dispatchStep } from './block-insert'
-import { ImageTitle } from './schema'
-
-export type EmbedAttributes = { ref?: string; table?: string; view?: string }
-export type EditorHost = {
-  mountEmbed?(
-    attributes: EmbedAttributes,
-    container: HTMLElement,
-    update: (attributes: EmbedAttributes) => void,
-    remove: () => void
-  ): void | (() => void)
-  resolveAsset?(address: string): string
-  openPage?(id: string): void
-  /** Only the block-menu action calls this. Selection edits only remove the reference. */
-  deleteEmbed?(id: string): Promise<boolean>
-}
-
-const hosts = new WeakMap<Wordgard, EditorHost>()
-export const editorHost = (editor: Wordgard) => hosts.get(editor)
+import { ImageTitle, Mention, safeLinkHref, sameMentionTarget, type MentionTarget } from './schema'
 
 /** Open a safe link address through the host or the browser. */
 export function openLinkHref(editor: Wordgard, href: string): boolean {
+  const safe = safeLinkHref(href)
+  if (!safe) return false
   const host = editorHost(editor)
-  if (href.startsWith('ankole:page/')) {
+  if (safe.startsWith('ankole:page/')) {
     if (!host?.openPage) return false
-    host.openPage(href.slice('ankole:page/'.length))
+    host.openPage(safe.slice('ankole:page/'.length))
     return true
   }
-  if (!/^(https?:\/\/|mailto:|tel:|\/|#)/i.test(href) || typeof window === 'undefined') return false
-  if (href.startsWith('#')) {
-    window.location.hash = href
+  const target = safe.startsWith('ankole:asset/') ? assetURL(safe, host?.resolveAsset) : safe
+  const allowedTarget = target ? safeLinkHref(target) : null
+  if (!allowedTarget || allowedTarget.startsWith('ankole:') || typeof window === 'undefined') return false
+  if (allowedTarget.startsWith('#')) {
+    window.location.hash = allowedTarget
     return true
   }
-  window.open(href, '_blank', 'noopener,noreferrer')
+  window.open(allowedTarget, '_blank', 'noopener,noreferrer')
   return true
 }
 
@@ -74,7 +64,7 @@ export function hostExtension(host: EditorHost): GardState.Extension {
                     Object.entries(next).filter((item): item is [string, string] => item[1] !== undefined)
                   )
                 ),
-                { blocks: () => [] }
+                { blocks: () => [], code: () => [] }
               )
             ]
           },
@@ -105,8 +95,44 @@ export function hostExtension(host: EditorHost): GardState.Extension {
     },
     propagateEvent: false
   })
+  const mention = Widget.define<MentionTarget>({
+    eq: sameMentionTarget,
+    render: (target, editor) => {
+      const span = document.createElement('span')
+      span.contentEditable = 'false'
+      if ('page' in target) {
+        span.className = 'editor-mention editor-mention-page'
+        span.setAttribute('data-mention-page', target.page)
+      } else {
+        span.className = 'editor-mention editor-mention-principal'
+        span.setAttribute('data-mention-principal', target.principal)
+      }
+      editors.set(span, editor)
+      return span
+    },
+    connect: (target, dom) => {
+      const editor = editors.get(dom as Element)
+      const dispose = host.mountMention?.(target, dom as HTMLElement, {
+        readOnly: editor?.state.readOnly ?? true,
+        openPage: host.openPage ? id => host.openPage!(id) : undefined
+      })
+      if (dispose) cleanup.set(dom as Element, dispose)
+    },
+    disconnect: (_target, dom) => {
+      cleanup.get(dom as Element)?.()
+      cleanup.delete(dom as Element)
+    },
+    propagateEvent: false
+  })
   return [
-    host.mountEmbed ? Decoration.Tag.shape(Embed, tag => embed.of(embedAttributes(tag))) : [],
+    hostFacet.of(host),
+    host.mountEmbed
+      ? Decoration.Tag.shape(Embed, tag => {
+          const attrs = embedAttributes(tag)
+          return attrs.href !== undefined ? resourceWidget.of('embed') : embed.of(attrs)
+        })
+      : [],
+    host.mountMention ? Decoration.Tag.shape(Mention, tag => mention.of(tag.param)) : [],
     host.resolveAsset
       ? Decoration.Tag.shape(T.Image, tag =>
           Elt.mk('img', {
@@ -117,27 +143,26 @@ export function hostExtension(host: EditorHost): GardState.Extension {
         )
       : [],
     Wordgard.domEventHandler('click', (event, editor) => {
-      if (event.button !== 0) return false
+      if (event.defaultPrevented || event.button !== 0) return false
+      if ((event.target as Element | null)?.closest('.editor-mention')) return false
+      const anchor = (event.target as Element | null)?.closest('[data-comment-ids]')
+      if (anchor && host.openComment) {
+        host.openComment(anchor.getAttribute('data-comment-ids')!.split(' '))
+        event.preventDefault()
+        return true
+      }
       const link = (event.target as Element | null)?.closest('a[href]')
       if (!link) return false
-      const href = link.getAttribute('href') ?? ''
+      const href = (link.getAttribute('href') ?? '').trim()
       if (href.startsWith('ankole:page/')) {
-        if (!host.openPage) return false
         event.preventDefault()
-        host.openPage(href.slice('ankole:page/'.length))
+        host.openPage?.(href.slice('ankole:page/'.length))
         return true
       }
       if (!editor.state.readOnly && !event.metaKey && !event.ctrlKey) return false
-      if (!openLinkHref(editor, href)) return false
       event.preventDefault()
+      openLinkHref(editor, href)
       return true
     })
   ]
-}
-
-export function attachHost(editor: Wordgard, host?: EditorHost) {
-  if (host) hosts.set(editor, host)
-  return () => {
-    hosts.delete(editor)
-  }
 }

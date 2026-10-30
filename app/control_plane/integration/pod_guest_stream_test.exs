@@ -61,8 +61,8 @@ defmodule Ankole.Pod.GuestStreamIntegrationTest do
     on_exit(fn -> :gen_tcp.close(rejected) end)
     :ok = :gen_tcp.send(rejected, request(origin, path, cookie))
     denied = receive_closed(rejected)
-    assert denied =~ "HTTP/1.1 403"
-    assert denied =~ "forbidden"
+    assert denied =~ "HTTP/1.1 401"
+    assert denied =~ "unauthorized"
     refute denied =~ "text/event-stream"
   end
 
@@ -77,14 +77,12 @@ defmodule Ankole.Pod.GuestStreamIntegrationTest do
     {:ok, %{browser: browser, authentication: authentication}} =
       BrowserSessions.authenticate(
         Session.browser_reference(conn),
-        :pod,
         %{
           "principal_uid" => principal.uid,
           "access_version" => principal.access_version,
           "provider_id" => "local",
           "external_id" => principal.uid
-        },
-        mode: :add
+        }
       )
 
     conn = Session.put_authentication(conn, browser, authentication)

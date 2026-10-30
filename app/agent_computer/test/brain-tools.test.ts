@@ -125,6 +125,44 @@ describe('Job Brain read adapter', () => {
     ])
   })
 
+  it('executes every additional declared Brain read through the fenced RPC', async () => {
+    for (const name of ['entity', 'whoknows', 'delta', 'future_read']) {
+      const calls: unknown[] = []
+      const rpc = (async (method: unknown, payload: unknown, scope: unknown) => {
+        const request = payload as { name: string; argumentsJson: Uint8Array }
+        calls.push({ method, name: request.name, args: jsonObjectFromBytes(request.argumentsJson, 'args'), scope })
+        return { bodyJson: jsonBytes({ output: name }) }
+      }) as unknown as RPCRequester
+      const tools = createBrainTools({
+        turn,
+        rpc,
+        declarations: brainToolDeclarations({
+          brain_tools: [
+            { type: 'function', name, description: 'Declared by the control plane', parameters: getPageSchema }
+          ]
+        })
+      })
+      const projection = buildCodexJobProjection({ tools })
+      expect(projection.dynamicTools.map(tool => tool.name)).toEqual([name])
+      expect(
+        await projection.handleToolCall(
+          {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            callId: name,
+            namespace: null,
+            tool: name,
+            arguments: { reference: 'companies/acme' }
+          },
+          new AbortController().signal
+        )
+      ).toEqual({ success: true, contentItems: [{ type: 'inputText', text: name }] })
+      expect(calls).toEqual([
+        { method: 'tools.read', name, args: { reference: 'companies/acme' }, scope: { jobTurn: turn } }
+      ])
+    }
+  })
+
   it('propagates the owner refusal without a local fallback', async () => {
     const rpc = (async () => {
       throw new Error('signal_not_owned')

@@ -894,6 +894,38 @@ describe('DocTile', () => {
       ist(tile.dom.innerHTML, `<div><before${uned}></before><p>ac</p><after${uned}></after></div>`)
     })
 
+    it('keeps nested node wrappers and connected inner widgets intact on content edits', () => {
+      let connects = 0,
+        disconnects = 0
+      const bar = Widget.create({
+        render: () => {
+          const el = document.createElement('div')
+          el.className = 'bar'
+          return el
+        },
+        connect: () => {
+          connects++
+        },
+        disconnect: () => {
+          disconnects++
+        }
+      })
+      const connectedEditor: Wordgard = { connected: true } as any
+      const paraShape = Decoration.Tag.shape(Paragraph, Elt.mk('div', [bar, Elt.mk('section', [Elt.mk('p', [0])])]))
+      let tile = DocTile.create(
+        GardState.create({ doc: doc(p('abc')), config: paraShape }),
+        document.createElement('div'),
+        connectedEditor
+      )
+      ist(connects, 1)
+      ist(disconnects, 0)
+      const tr = tile.state.update({ changes: { from: 2, to: 3 } })
+      tile = tile.update(tr.state, tr.changes.sections, connectedEditor)
+      ist(tile.dom.innerHTML, `<div><div class="bar"${uned}></div><section><p>ac</p></section></div>`)
+      ist(connects, 1)
+      ist(disconnects, 0)
+    })
+
     it('supports dynamic shapes', () => {
       const cls = GardState.Facet.define<string>()
       let called = 0

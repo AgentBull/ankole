@@ -1,4 +1,4 @@
-import { parseMarkdown, printXml } from '@ankole/block-editor/document'
+import { usePageMetadata, usePagesMetadata } from './use-page-metadata'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, Input } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -8,7 +8,8 @@ import { Link } from '@tanstack/react-router'
 import type { ConversationMessage } from './api'
 import { podKeys, type ConversationAttachment } from './api'
 import { podLocation } from '../common/browser-context'
-import { contentKeys, pageAPI, pageQuery, pageSearchQuery, type Page, type PageDetail } from './content-api'
+import { pageAPI, pageQuery, pageSearchQuery, type Page, type PageDetail } from './content-api'
+import { pageCreated } from './state/navigation-cache'
 import { ContentError } from './content-primitives'
 import { PagePicker } from './page-picker'
 import { MessageAttachments } from './chat-attachments'
@@ -59,9 +60,10 @@ export function MessageArtifacts({ message, conversationID }: { message: Message
 
 export function MessagePageReference({ id }: { id: string }) {
   const { t } = useTranslation()
-  const page = useQuery(pageQuery(id))
-  if (page.error) return <span className="text-fg-tertiary">{t('pod.content.cannot_display')}</span>
-  if (!page.data) {
+  const query = useQuery(pageQuery(id))
+  const page = usePageMetadata(query.data?.page)
+  if (query.error) return <span className="text-fg-tertiary">{t('pod.content.cannot_display')}</span>
+  if (!page) {
     return (
       <span role="status" className="text-fg-tertiary">
         {t('pod.content.loading_page')}
@@ -70,8 +72,8 @@ export function MessagePageReference({ id }: { id: string }) {
   }
   return (
     <Link className="link pod-object-reference" to={podLocation(`/pages/${id}`).pathname}>
-      <PageIcon page={page.data.page} />
-      <span>{page.data.page.title || t('pod.content.untitled')}</span>
+      <PageIcon page={page} />
+      <span>{page.title || t('pod.content.untitled')}</span>
     </Link>
   )
 }
@@ -92,15 +94,16 @@ export function SaveMessageButton({
   const [title, setTitle] = useState(() => defaultSaveTitle(message, attachment, t))
   const [selectedParent, setParent] = useState<string>()
   const [selectedPage, setSelectedPage] = useState<Page>()
-  const [saved, setSaved] = useState<PageDetail['page']>()
+  const [savedSnapshot, setSaved] = useState<PageDetail['page']>()
+  const saved = usePageMetadata(savedSnapshot)
   const pages = useQuery({ ...pageSearchQuery('', { required_action: 'page_edit' }), enabled: open })
   const parent =
     selectedParent ?? (pages.data?.can_create_private ? 'private' : pages.data?.can_create_space ? 'space' : '')
-  const destinations = [
+  const destinations = usePagesMetadata([
     ...new Map(
       [...(pages.data?.pages ?? []), ...(selectedPage ? [selectedPage] : [])].map(page => [page.id, page])
     ).values()
-  ]
+  ])
   const validParent =
     (parent === 'private' && pages.data?.can_create_private === true) ||
     (parent === 'space' && pages.data?.can_create_space === true) ||
@@ -114,7 +117,11 @@ export function SaveMessageButton({
       if (parent === 'private' && !pages.data?.principal_uid) {
         throw new Error(t('pod.content.your_private_identity_is_not_available_yet_wait_for_loading'))
       }
-      const xml = attachment ? undefined : printXml(parseMarkdown(messageMarkdown(message)))
+      let xml: string | undefined
+      if (!attachment) {
+        const { parseMarkdown, printXml } = await import('@ankole/block-editor/document')
+        xml = printXml(parseMarkdown(messageMarkdown(message)))
+      }
       const { page } = await pageAPI.create({
         type: attachment ? 'file' : 'doc',
         title,
@@ -130,7 +137,7 @@ export function SaveMessageButton({
     },
     onSuccess: async page => {
       await Promise.all([
-        client.invalidateQueries({ queryKey: contentKeys.all }),
+        pageCreated(client, page),
         client.invalidateQueries({ queryKey: podKeys.detail(conversationID) })
       ])
       setOpen(false)

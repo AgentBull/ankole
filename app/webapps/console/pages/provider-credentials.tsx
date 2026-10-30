@@ -115,7 +115,7 @@ export function CredentialPoolEditor({
     <section className="grid gap-5 border border-border bg-card p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1">
-          <h3 className="text-lg font-semibold">{t('console.providers.pool_title')}</h3>
+          <h3 className="title-section">{t('console.providers.pool_title')}</h3>
           <p className="max-w-2xl text-sm text-muted-foreground">{t('console.providers.pool_description')}</p>
         </div>
         <div className="flex flex-wrap gap-2">

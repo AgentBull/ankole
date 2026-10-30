@@ -5,15 +5,15 @@ defmodule Ankole.Errors do
   A resource action shapes framework errors into these exceptions through its
   default error handler (`shape/2`). A generic action returns its domain
   reason through `wrap/1`. Domain code gets the reason back through
-  `reason/1`. `AnkoleWeb.ConsoleErrors` presents them in Phoenix controller
-  routes. Each exception implements `AshJsonApi.ToJsonApiError` for the v2
+  `reason/1`. Each exception implements `AshJsonApi.ToJsonApiError` for the v2
   JSON:API routers.
   """
 
   alias Ankole.Errors.Invalid.{Conflict, NotFound, Rejected, Stale, StatusTransition}
 
   @type reason ::
-          :stale
+          :forbidden
+          | :stale
           | :not_found
           | {:invalid_status_transition, from :: atom(), to :: atom()}
           | term()
@@ -185,6 +185,8 @@ defmodule Ankole.Errors do
   def reason({:error, error}), do: {:error, to_reason(error)}
   def reason(result), do: result
 
+  defp to_reason(%Ash.Error.Forbidden{}), do: :forbidden
+
   defp to_reason(%{errors: errors} = class) when is_list(errors) do
     case Enum.find_value(errors, &known_reason/1) do
       {:ok, reason} -> reason
@@ -199,6 +201,7 @@ defmodule Ankole.Errors do
     end
   end
 
+  defp known_reason(%Ash.Error.Forbidden{}), do: {:ok, :forbidden}
   defp known_reason(%Rejected{reason: reason}), do: {:ok, reason}
   defp known_reason(%Conflict{reason: reason}), do: {:ok, reason}
   defp known_reason(%Stale{}), do: {:ok, :stale}

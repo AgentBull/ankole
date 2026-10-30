@@ -13,7 +13,7 @@ owns durable state, provider policy, credentials, and domain commits.
 
 The current modules are:
 
-- `common/` - AEAD tokens, key derivation, hashing, password hashing,
+- `common/` - AEAD tokens, key derivation, hashing,
   encodings, UUID helpers, JWT helpers, phone normalization, `o200k_base` token
   estimation, and web URL classification and admission.
 - `web_proxy.rs` - a loopback SOCKS5 TCP proxy for local Chromium that validates

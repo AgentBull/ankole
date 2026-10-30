@@ -4,7 +4,6 @@ import { InternalAPIError } from '../../common/internal-api-client'
 
 export type LoginFormError =
   | { kind: 'invalid_code' }
-  | { kind: 'not_admin' }
   | { kind: 'account_disabled' }
   | { kind: 'sso_required' | 'reauthentication_required' }
   | { kind: 'locked'; remainingSeconds: number }
@@ -19,7 +18,6 @@ export function classifyLoginError(error: unknown): LoginFormError | undefined {
 
   const code = requestErrorCode(error.payload)
   if (error.status === 401 && code === 'invalid_code') return { kind: 'invalid_code' }
-  if (error.status === 403 && code === 'not_an_admin') return { kind: 'not_admin' }
   if (error.status === 403 && code === 'login_policy_rejected') return { kind: 'sso_required' }
   if (error.status === 403 && code === 'reauthentication_required') return { kind: 'reauthentication_required' }
   if (error.status === 403 && code === 'account_disabled') return { kind: 'account_disabled' }

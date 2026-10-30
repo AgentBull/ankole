@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next'
 import { isRecord } from '@agentbull/active-support'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import type { ExecutionStep } from './types'
+import { formatElapsed } from './elapsed'
 
 function ToolIcon({ tool }: { tool: string }) {
   const Icon = /bash|terminal|command|shell/.test(tool)
@@ -90,7 +91,7 @@ export function commandDetails(step: ExecutionStep) {
 }
 
 export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]; compact?: boolean }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   if (!steps.length) return null
   if (compact && steps.length > 1) {
     const runningCount = steps.filter(
@@ -140,8 +141,10 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
               data-status={failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}>
               <Label className="pod-chat-tool-line">
                 <ToolIcon tool={step.tool} />
-                <span className="pod-chat-tool-title">{stepTitle(step)}</span>
-                {step.duration_ms != null && <time>{(step.duration_ms / 1000).toFixed(1)}s</time>}
+                <span className="pod-chat-tool-title" title={stepTitle(step)}>
+                  {stepTitle(step)}
+                </span>
+                {step.duration_ms != null && <time>{formatElapsed(step.duration_ms, i18n.language)}</time>}
                 <span
                   className="pod-chat-tool-state"
                   aria-label={t(

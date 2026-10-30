@@ -71,7 +71,11 @@ defmodule Ankole.Pod.Bases.Delete do
   end
 
   def purge_pages(page_ids) do
-    tables = BaseTable |> Ash.Query.filter(page_id in ^page_ids) |> Ankole.Ash.read!()
+    tables =
+      BaseTable
+      |> Ash.Query.filter(page_id in ^page_ids)
+      |> Ash.Query.sort(id: :asc)
+      |> Ankole.Ash.read!()
 
     Enum.reduce_while(tables, :ok, fn table, :ok ->
       with {:ok, _} <-

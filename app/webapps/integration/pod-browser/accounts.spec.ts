@@ -30,6 +30,12 @@ test('real email code logins share two Pod accounts while the chooser preserves 
     await expect(first.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
     expect((await identity(first)).principalUID).toBe(state.owner.uid)
 
+    await first.getByRole('button', { name: /^账户菜单/ }).click()
+    const singleMenu = first.getByRole('menu')
+    await expect(singleMenu.getByRole('menuitem', { name: new RegExp(`^退出 .*${state.tenant_name}`) })).toBeVisible()
+    await expect(singleMenu.getByRole('menuitem', { name: '全部退出', exact: true })).toHaveCount(0)
+    await first.keyboard.press('Escape')
+
     const other = state.other_pod.base_url + pageRoute(state.other_pod.page_id)
     await second.goto(other)
     await login(second, state.other_pod)
@@ -126,7 +132,8 @@ test('the sidebar account menu lists each proved organization and opens another 
     await expect(other).toContainText(new URL(state.other_pod.base_url).hostname.split('.')[0]!)
     await expect(other).toContainText('使用 \u2068邮箱验证码\u2069 登录')
     await expect(menu.getByRole('menuitemradio', { name: '浅色', exact: true })).toBeVisible()
-    await expect(menu.getByRole('menuitem', { name: /^退出 .*Browser owner/ })).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: new RegExp(`^退出 .*${state.tenant_name}`) })).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: '全部退出', exact: true })).toBeVisible()
     await other.click()
     await expect(first).toHaveURL(url => url.origin === new URL(state.other_pod.base_url).origin)
     await expect(first.getByRole('button', { name: /^账户菜单/ })).toBeVisible()

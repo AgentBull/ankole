@@ -204,6 +204,31 @@ defmodule Ankole.CredentialUpgradeTest do
            ]
   end
 
+  test "preflight succeeds and catches collisions on schemas before human_access_restrictions existed",
+       %{upgrade_tenant: tenant} do
+    person(tenant, "first", "active")
+    local(tenant, "first", "first@example.com")
+
+    Repo.query!("DROP TABLE human_access_restrictions")
+    Repo.query!("DROP TABLE human_access_events")
+    Repo.query!("DROP TABLE principal_site_credentials")
+    Repo.query!("DROP TABLE saas_accounts")
+
+    for table <-
+          ~w(principals human_users human_user_local_credentials principal_external_identities),
+        do: Repo.query!("ALTER TABLE #{table} DROP COLUMN tenant_id")
+
+    assert :ok = CredentialUpgrade.preflight!(Repo)
+
+    Repo.query!("INSERT INTO principals VALUES ('second', 'human', 'disabled')")
+    Repo.query!("INSERT INTO human_users VALUES ('second', ' FIRST@example.com ')")
+    Repo.query!("INSERT INTO human_user_local_credentials VALUES ('second', 'legacy-hash')")
+
+    error = assert_raise RuntimeError, fn -> CredentialUpgrade.preflight!(Repo) end
+    assert error.message =~ "first"
+    assert error.message =~ "second"
+  end
+
   test "offline OIDC migration connects only uniquely evidenced browser authentications", %{
     upgrade_tenant: tenant
   } do

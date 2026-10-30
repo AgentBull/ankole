@@ -1,0 +1,26 @@
+[
+  {
+    "name": "comment annotation retains the selected text",
+    "before": "<page><p>hello</p></page>",
+    "after": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000001\">hello</comment></p></page>",
+    "changes": [1, [5, [{"add": "Comment", "value": ["019a2b00-0000-7000-8000-000000000001"]}]], 1]
+  },
+  {
+    "name": "overlapping threads change only their own set members",
+    "before": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000001 019a2b00-0000-7000-8000-000000000002\">hello</comment></p></page>",
+    "after": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000002 019a2b00-0000-7000-8000-000000000003\">hello</comment></p></page>",
+    "changes": [1, [5, [{"remove": "Comment", "value": ["019a2b00-0000-7000-8000-000000000001"]}, {"add": "Comment", "value": ["019a2b00-0000-7000-8000-000000000003"]}]], 1]
+  },
+  {
+    "name": "reanchoring a phrase between repeated paragraphs retains both text streams",
+    "before": "<page><p><comment ids=\"019a2b00-0000-7000-8000-000000000001\">Hello</comment> world</p><p>Hello world</p></page>",
+    "after": "<page><p>Hello world</p><p><comment ids=\"019a2b00-0000-7000-8000-000000000001\">Hello</comment> world</p></page>",
+    "changes": [1, [5, [{"remove": "Comment", "value": ["019a2b00-0000-7000-8000-000000000001"]}]], 8, [5, [{"add": "Comment", "value": ["019a2b00-0000-7000-8000-000000000001"]}]], 7]
+  },
+  {
+    "name": "formatting retains the selected text",
+    "before": "<page><p><strong>hello</strong></p></page>",
+    "after": "<page><p><em>hello</em></p></page>",
+    "changes": [1, [5, [{"remove": "Strong", "value": null}, {"add": "Emphasis", "value": null}]], 1]
+  }
+]

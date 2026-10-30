@@ -392,7 +392,7 @@ test.each([
   '<page><table><tr><td rowspan="0"/></tr></table></page>',
   '<page><td/></page>',
   '<page><p><a>no href</a></p></page>',
-  '<page><callout tone="danger"/></page>'
+  '<page><callout tone="invalid"/></page>'
 ])('rejects invalid XML or an invalid page: %s', source => {
   rejection(() => parseXml(source))
 })

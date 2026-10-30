@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import {
@@ -8,6 +8,7 @@ import {
   buildDevWorkerPsArgs,
   parseDockerContainerIDs,
   parseDockerContextHost,
+  requireSaaSSourceCheckout,
   signalChild
 } from './dev'
 import type { ChildProcess } from 'node:child_process'
@@ -143,5 +144,33 @@ describe('managed child shutdown', () => {
     signalChild(child, 'SIGTERM', deniedGroupKill, 'darwin')
 
     expect(directSignals).toEqual(['SIGTERM'])
+  })
+})
+
+describe('SaaS source checkout validation', () => {
+  test('rejects SaaS startup without the private source checkout', () => {
+    withRepoRoot(repoRoot => {
+      expect(() => requireSaaSSourceCheckout({ ANKOLE_EDITION: 'saas' }, repoRoot)).toThrow(
+        'The SaaS edition is proprietary commercial software owned by AgentBull PTE Ltd. ' +
+          'Access to its source code is restricted to authorized users. ' +
+          'To run the open-source edition, use ANKOLE_EDITION=foss bun dev.'
+      )
+    })
+  })
+
+  test('allows SaaS startup with the private source checkout', () => {
+    withRepoRoot(repoRoot => {
+      const config = path.join(repoRoot, 'internals/control_plane/config.exs')
+      mkdirSync(path.dirname(config), { recursive: true })
+      writeFileSync(config, '')
+
+      expect(() => requireSaaSSourceCheckout({ ANKOLE_EDITION: 'saas' }, repoRoot)).not.toThrow()
+    })
+  })
+
+  test('does not require the private source checkout for FOSS', () => {
+    withRepoRoot(repoRoot => {
+      expect(() => requireSaaSSourceCheckout({ ANKOLE_EDITION: 'foss' }, repoRoot)).not.toThrow()
+    })
   })
 })

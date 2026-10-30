@@ -22,14 +22,17 @@ fn splits_root_audience_blocks_without_changing_content_bytes() {
             Segment {
                 scope: "world".to_string(),
                 text: "# 明湖 AI\r\npublic\r\n".to_string(),
+                tagged: false,
             },
             Segment {
                 scope: "principal:alice".to_string(),
                 text: "\nprivate\r\n".to_string(),
+                tagged: true,
             },
             Segment {
                 scope: "world".to_string(),
                 text: "\ntail".to_string(),
+                tagged: false,
             },
         ]
     );
@@ -67,7 +70,94 @@ fn treats_fenced_and_indented_tag_text_as_code() {
         assert_eq!(analysis.segments.len(), 1);
         assert_eq!(analysis.segments[0].scope, "world");
         assert_eq!(analysis.segments[0].text, source);
+        assert!(!analysis.segments[0].tagged);
     }
+}
+
+#[test]
+fn treats_crlf_code_fences_containing_audience_tags_identically_to_lf() {
+    for source in [
+        "```markdoc\r\n{% audience scope=\"world\" %}\r\n{% /audience %}\r\n```\r\n",
+        "~~~ text\r\n{% audience scope=\"world\" %}\r\n{% /audience %}\r\n~~~~\r\n",
+        "    {% audience scope=\"world\" %}\r\n    {% /audience %}\r\n",
+        "- item\r\n\r\n  ```markdoc\r\n  {% audience scope=\"world\" %}\r\n  ```\r\n",
+    ] {
+        let analysis = analyze(source).unwrap();
+        assert_eq!(
+            analysis.segments,
+            vec![Segment {
+                scope: "world".to_string(),
+                text: source.to_string(),
+                tagged: false,
+            }]
+        );
+    }
+
+    assert_eq!(
+        error(concat!(
+            "{% audience scope=\"principal:alice\" %}\r\n",
+            "private\r\n",
+            "```markdoc\r\n",
+            "{% /audience %}\r\n",
+            "```\r\n",
+            "tail\r\n"
+        )),
+        AnalysisError {
+            code: "unclosed_audience_tag",
+            line: 1,
+        }
+    );
+}
+
+#[test]
+fn distinguishes_explicit_world_tags_from_unwrapped_prose() {
+    for unwrapped in [
+        "Plain top-level prose\n",
+        "Inline `{% audience scope=\"world\" %}` literal\n",
+        "```\n{% audience scope=\"world\" %}\n{% /audience %}\n```\n",
+    ] {
+        let decoded: serde_json::Value =
+            serde_json::from_str(&analyze_json(unwrapped).unwrap()).unwrap();
+        assert_eq!(
+            decoded["segments"],
+            serde_json::json!([
+                {
+                    "scope": "world",
+                    "text": unwrapped,
+                    "tagged": false,
+                }
+            ])
+        );
+    }
+
+    let mixed = concat!(
+        "Lead prose\n",
+        "{% audience scope=\"world\" %}\n",
+        "Explicit world block\n",
+        "{% /audience %}\n",
+        "Trailing prose"
+    );
+    let decoded: serde_json::Value = serde_json::from_str(&analyze_json(mixed).unwrap()).unwrap();
+    assert_eq!(
+        decoded["segments"],
+        serde_json::json!([
+            {
+                "scope": "world",
+                "text": "Lead prose\n",
+                "tagged": false,
+            },
+            {
+                "scope": "world",
+                "text": "\nExplicit world block\n",
+                "tagged": true,
+            },
+            {
+                "scope": "world",
+                "text": "\nTrailing prose",
+                "tagged": false,
+            }
+        ])
+    );
 }
 
 #[test]
@@ -163,11 +253,31 @@ fn shares_audience_contract_cases_with_console_preview() {
     for case in cases.as_array().unwrap() {
         let actual: serde_json::Value =
             serde_json::from_str(&analyze_json(case["source"].as_str().unwrap()).unwrap()).unwrap();
-        let field = if case.get("error").is_some() {
-            "error"
+        if case.get("error").is_some() {
+            assert_eq!(actual["error"], case["error"], "case: {}", case["name"]);
         } else {
-            "segments"
-        };
-        assert_eq!(actual[field], case[field], "case: {}", case["name"]);
+            let projected: Vec<serde_json::Value> = actual["segments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|segment| {
+                    assert!(
+                        segment["tagged"].is_boolean(),
+                        "case: {} missing boolean tagged",
+                        case["name"]
+                    );
+                    serde_json::json!({
+                        "scope": segment["scope"],
+                        "text": segment["text"],
+                    })
+                })
+                .collect();
+            assert_eq!(
+                serde_json::Value::Array(projected),
+                case["segments"],
+                "case: {}",
+                case["name"]
+            );
+        }
     }
 }

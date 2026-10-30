@@ -13,10 +13,11 @@ import {
   RiServerLine,
   RiSparkling2Line
 } from '@remixicon/react'
-import { useQuery as useBaseQuery } from '@tanstack/react-query'
+import { useQuery as useBaseQuery, useQueryErrorResetBoundary } from '@tanstack/react-query'
 import type { ComponentType, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useLocation } from '@tanstack/react-router'
+import { useLocation, useRouter } from '@tanstack/react-router'
+import { ErrorBoundary } from '../../common/error-boundary'
 import { requestErrorMessage } from '../../common/request-errors'
 import { linkTarget } from '../../common/router'
 import {
@@ -208,7 +209,9 @@ export function HomePage() {
         />
       </section>
 
-      <BackgroundActivity agents={agentRows} />
+      <ErrorBoundary variant="panel" label={t('console.home.background_activity.title')}>
+        <BackgroundActivity agents={agentRows} />
+      </ErrorBoundary>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Panel
@@ -216,35 +219,37 @@ export function HomePage() {
           title={t('console.home.recent_jobs')}
           to="/background-agent-jobs"
           linkLabel={t('console.home.view_all')}>
-          {jobs.isLoading ? (
-            <RowSkeletons />
-          ) : jobRows.length === 0 ? (
-            <PanelEmpty>{t('console.background_agent_jobs.empty_title')}</PanelEmpty>
-          ) : (
-            <ul className="grid">
-              {jobRows.slice(0, 5).map(job => {
-                const jobAgent = agentRows.find(agent => agent.uid === job.agent_uid)
-                return (
-                  <li key={job.id}>
-                    <Link
-                      {...linkTarget(`/background-agent-jobs?job=${job.id}`)}
-                      className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <span className="min-w-0 truncate text-sm text-foreground">{job.title ?? `#${job.id}`}</span>
-                        <JobStatus status={job.status} />
-                      </div>
-                      <span className="truncate text-xs text-muted-foreground">
-                        <span className={jobAgent ? undefined : 'font-mono'} title={job.agent_uid}>
-                          {jobAgent ? jobAgent.display_name : job.agent_uid}
-                        </span>{' '}
-                        · {formatConsoleDate(job.inserted_at)}
-                      </span>
-                    </Link>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+          <ErrorBoundary variant="inline" className="m-4" label={t('console.home.recent_jobs')}>
+            {jobs.isLoading ? (
+              <RowSkeletons />
+            ) : jobRows.length === 0 ? (
+              <PanelEmpty>{t('console.background_agent_jobs.empty_title')}</PanelEmpty>
+            ) : (
+              <ul className="grid">
+                {jobRows.slice(0, 5).map(job => {
+                  const jobAgent = agentRows.find(agent => agent.uid === job.agent_uid)
+                  return (
+                    <li key={job.id}>
+                      <Link
+                        {...linkTarget(`/background-agent-jobs?job=${job.id}`)}
+                        className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <span className="min-w-0 truncate text-sm text-foreground">{job.title ?? `#${job.id}`}</span>
+                          <JobStatus status={job.status} />
+                        </div>
+                        <span className="truncate text-xs text-muted-foreground">
+                          <span className={jobAgent ? undefined : 'font-mono'} title={job.agent_uid}>
+                            {jobAgent ? jobAgent.display_name : job.agent_uid}
+                          </span>{' '}
+                          · {formatConsoleDate(job.inserted_at)}
+                        </span>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </ErrorBoundary>
         </Panel>
 
         <Panel
@@ -252,41 +257,43 @@ export function HomePage() {
           title={t('console.home.recent_conversations')}
           to="/conversations"
           linkLabel={t('console.home.view_all')}>
-          {conversations.isLoading ? (
-            <RowSkeletons />
-          ) : (conversations.data?.conversations ?? []).length === 0 ? (
-            <PanelEmpty>{t('console.conversations.empty_title')}</PanelEmpty>
-          ) : (
-            <ul className="grid">
-              {(conversations.data?.conversations ?? []).map(conversation => {
-                const displayName = conversationDisplayName(conversation)
-                const subjectAgent = agentRows.find(agent => agent.uid === conversation.subject_uid)
+          <ErrorBoundary variant="inline" className="m-4" label={t('console.home.recent_conversations')}>
+            {conversations.isLoading ? (
+              <RowSkeletons />
+            ) : (conversations.data?.conversations ?? []).length === 0 ? (
+              <PanelEmpty>{t('console.conversations.empty_title')}</PanelEmpty>
+            ) : (
+              <ul className="grid">
+                {(conversations.data?.conversations ?? []).map(conversation => {
+                  const displayName = conversationDisplayName(conversation)
+                  const subjectAgent = agentRows.find(agent => agent.uid === conversation.subject_uid)
 
-                return (
-                  <li key={conversation.id}>
-                    <Link
-                      to={`/conversations/${encodeURIComponent(conversation.id)}`}
-                      className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <span className="min-w-0 truncate text-sm text-foreground" title={displayName}>
-                          {displayName}
+                  return (
+                    <li key={conversation.id}>
+                      <Link
+                        to={`/conversations/${encodeURIComponent(conversation.id)}`}
+                        className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <span className="min-w-0 truncate text-sm text-foreground" title={displayName}>
+                            {displayName}
+                          </span>
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {t('console.home.message_count', { count: conversation.message_count })}
+                          </span>
+                        </div>
+                        <span className="truncate text-xs text-muted-foreground">
+                          <span className={subjectAgent ? undefined : 'font-mono'} title={conversation.subject_uid}>
+                            {subjectAgent ? subjectAgent.display_name : conversation.subject_uid}
+                          </span>{' '}
+                          · {formatConsoleDate(conversation.updated_at)}
                         </span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {t('console.home.message_count', { count: conversation.message_count })}
-                        </span>
-                      </div>
-                      <span className="truncate text-xs text-muted-foreground">
-                        <span className={subjectAgent ? undefined : 'font-mono'} title={conversation.subject_uid}>
-                          {subjectAgent ? subjectAgent.display_name : conversation.subject_uid}
-                        </span>{' '}
-                        · {formatConsoleDate(conversation.updated_at)}
-                      </span>
-                    </Link>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </ErrorBoundary>
         </Panel>
       </div>
 
@@ -340,8 +347,10 @@ export function NotFoundPage() {
  * console. This keeps the operator inside the product and offers both a retry
  * and a way home, and still shows the message so a bug report can quote it.
  */
-export function RouteErrorPage({ error }: { error?: unknown }) {
+export function RouteErrorPage({ error, reset }: { error?: unknown; reset?: () => void }) {
   const { t } = useTranslation()
+  const router = useRouter()
+  const queryReset = useQueryErrorResetBoundary()
   // Loader failures reject with the parsed JSON error body, so the fallback
   // goes through the shared envelope reader instead of String(object).
   const detail =
@@ -358,7 +367,18 @@ export function RouteErrorPage({ error }: { error?: unknown }) {
       <PageHeader title={t('console.route_error.title')} description={t('console.route_error.description')} />
       {detail ? <p className="font-mono text-sm break-all text-muted-foreground">{detail}</p> : null}
       <div className="flex flex-wrap gap-3">
-        <Button size="sm" type="button" onClick={() => window.location.reload()}>
+        <Button
+          size="sm"
+          type="button"
+          onClick={() => {
+            queryReset.reset()
+            if (reset) {
+              reset()
+              void router.invalidate()
+            } else {
+              window.location.reload()
+            }
+          }}>
           {t('common.retry')}
         </Button>
         <Link to="/" className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}>

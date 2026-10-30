@@ -64,6 +64,64 @@ defmodule Ankole.Pod.RPCBrokerTest do
     assert Enum.map(ancestors, & &1["id"]) == [parent.id]
   end
 
+  test "Agent title updates require the last-read title and preserve a concurrent Human rename",
+       ctx do
+    actor = actor_fixture(ctx.owner)
+    {:ok, page} = Pages.create(actor, %{title: "Original", private_owner_uid: ctx.owner})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
+        grants: [%{principal_uid: ctx.agent, role: "edit"}]
+      })
+
+    assert {:ok, %{"result" => %{"pages" => [%{"title" => original}]}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("pages.search", %{query: "Original"}),
+               ctx.ctx
+             )
+
+    assert {:ok, _} =
+             Pages.update(actor, page.id, %{title: "Human title", expected_title: original})
+
+    for params <- [
+          %{id: page.id, title: "Agent draft"},
+          %{id: page.id, title: "Agent draft", expected_title: nil},
+          %{id: page.id, title: "Agent draft", expected_title: original}
+        ] do
+      assert {:error,
+              %{"code" => "title_conflict", "details_json" => %{"title" => "Human title"}}} =
+               RPCBroker.handle_write(ctx.ref, request("pages.update", params), ctx.ctx)
+
+      assert {:ok, %{title: "Human title"}} = Pages.fetch(page.id)
+    end
+
+    assert {:ok, %{"result" => %{"pages" => [%{"title" => current}]}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("pages.search", %{query: "Human title"}),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => %{"title" => "Agent draft"}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.update", %{
+                 id: page.id,
+                 title: "Agent draft",
+                 expected_title: current
+               }),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => %{"title" => "Agent draft", "icon" => "📄"}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.update", %{id: page.id, icon: "📄"}),
+               ctx.ctx
+             )
+  end
+
   for operation <- ["pages.write", "files.upload"] do
     test "#{operation} reports the final relay error without changing the page", ctx do
       operation = unquote(operation)
@@ -125,6 +183,9 @@ defmodule Ankole.Pod.RPCBrokerTest do
     assert {:ok, %{"result" => readable}} =
              RPCBroker.handle_read(ctx.ref, request("pages.sharing", %{id: page.id}), ctx.ctx)
 
+    assert [%{"principal_uid" => agent_uid, "rule_kind" => "role"}] = readable["grants"]
+    assert agent_uid == ctx.agent
+
     params = %{
       id: page.id,
       sharing_version: readable["sharing_version"],
@@ -140,6 +201,27 @@ defmodule Ankole.Pod.RPCBrokerTest do
              RPCBroker.handle_write(
                ctx.ref,
                request("pages.set_sharing", %{params | sharing_version: "stale"}),
+               ctx.ctx
+             )
+
+    guest = human_fixture(%{membership: :guest}).principal
+
+    assert {:ok, %{"result" => latest}} =
+             RPCBroker.handle_read(ctx.ref, request("pages.sharing", %{id: page.id}), ctx.ctx)
+
+    guest_params = %{
+      id: page.id,
+      sharing_version: latest["sharing_version"],
+      grants: [
+        %{principal_uid: ctx.agent, role: "manage"},
+        %{principal_uid: guest.uid, role: "view"}
+      ]
+    }
+
+    assert {:error, %{"code" => "guest_forbidden_in_private"}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.set_sharing", guest_params),
                ctx.ctx
              )
   end

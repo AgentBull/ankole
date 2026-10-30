@@ -13,7 +13,7 @@ type SpaceChange =
   | { type: 'grant'; principal_uid: string; role: PageRole }
   | { type: 'remove'; principal_uid: string }
 
-export function SpaceSettingsButton() {
+export function SpaceSettingsButton({ canManage }: { canManage: boolean }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const client = useQueryClient()
@@ -39,8 +39,8 @@ export function SpaceSettingsButton() {
     saving.current = true
     mutate.mutate(change, { onSuccess })
   }
-  const space = useQuery({ queryKey: [...contentKeys.all, 'space'], queryFn: () => podSpace() })
-  return space.data?.can_manage ? (
+  const space = useQuery({ queryKey: [...contentKeys.all, 'space'], queryFn: () => podSpace(), enabled: open })
+  return canManage ? (
     <Dialog open={open} onOpenChange={next => !saving.current && setOpen(next)}>
       <Button
         size="icon-sm"
@@ -58,7 +58,11 @@ export function SpaceSettingsButton() {
         showCloseButton={!mutate.isPending}
         aria-busy={mutate.isPending}>
         <DialogTitle>{t('pod.content.space_settings')}</DialogTitle>
-        {open && <SpaceSettings space={space.data} close={() => setOpen(false)} mutate={mutate} commit={commit} />}
+        {open && space.isPending && <p role="status">{t('pod.content.loading')}</p>}
+        {open && space.error && <ContentError error={space.error} retry={() => void space.refetch()} />}
+        {open && space.data && (
+          <SpaceSettings space={space.data} close={() => setOpen(false)} mutate={mutate} commit={commit} />
+        )}
       </DialogContent>
     </Dialog>
   ) : null

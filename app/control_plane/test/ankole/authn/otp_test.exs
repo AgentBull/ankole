@@ -48,7 +48,7 @@ defmodule Ankole.Authn.OtpTest do
     assert {:ok, %{authentication: auth}} =
              Domain.verify_otp(browser, sent.challenge_id, code, "test-ip")
 
-    assert auth.purpose == :site
+    assert auth.scope == :site
     assert auth.subject_id == "alice@example.com"
     assert auth.amr == ["otp"]
     assert [] == Ankole.Principals.list_site_credentials("email_otp", "alice@example.com")
@@ -94,7 +94,7 @@ defmodule Ankole.Authn.OtpTest do
 
     assert {:ok, sent} =
              Domain.request_otp(browser, email, "ordered-source",
-               purpose: :site,
+               scope: :site,
                target_tenant_id: target.id
              )
 
@@ -116,7 +116,7 @@ defmodule Ankole.Authn.OtpTest do
   } do
     assert {:ok, sent} =
              Domain.request_otp(browser, "new-site-user@example.com", "new-site-source",
-               purpose: :site,
+               scope: :site,
                target_tenant_id: tenant.id
              )
 
@@ -126,7 +126,7 @@ defmodule Ankole.Authn.OtpTest do
     assert {:ok, completed} =
              Domain.verify_otp(browser, sent.challenge_id, code, "new-site-source")
 
-    assert completed.authentication.purpose == :site
+    assert completed.authentication.scope == :site
     assert completed.browser.active_tenant_id == nil
     assert BrowserSessions.identities(BrowserSessions.reference(completed.authentication)) == []
   end
@@ -293,7 +293,7 @@ defmodule Ankole.Authn.OtpTest do
       })
 
     {:ok, sent_outsider} =
-      Domain.request_otp(browser, "outsider@example.com", "source-outsider-1", purpose: :pod)
+      Domain.request_otp(browser, "outsider@example.com", "source-outsider-1", scope: :tenant)
 
     refute_receive {:email, _}
 
@@ -307,7 +307,7 @@ defmodule Ankole.Authn.OtpTest do
              Domain.verify_otp(browser, sent_outsider.challenge_id, "000000", "source-outsider-1")
 
     {:ok, _} =
-      Domain.request_otp(browser, "outsider2@example.com", "source-outsider-2", purpose: :pod)
+      Domain.request_otp(browser, "outsider2@example.com", "source-outsider-2", scope: :tenant)
 
     refute_receive {:email, _}
 
@@ -328,7 +328,9 @@ defmodule Ankole.Authn.OtpTest do
       )
 
     {:ok, sent_disabled} =
-      Domain.request_otp(browser, "disabled-member@example.com", "source-member-1", purpose: :pod)
+      Domain.request_otp(browser, "disabled-member@example.com", "source-member-1",
+        scope: :tenant
+      )
 
     assert_receive {:email,
                     %Swoosh.Email{to: [{_, "disabled-member@example.com"}], text_body: body}}
@@ -396,7 +398,7 @@ defmodule Ankole.Authn.OtpTest do
 
     {:ok, sent_sso} =
       Domain.request_otp(browser, sso_member.uid && "sso-member@example.com", "source-member-2",
-        purpose: :pod
+        scope: :tenant
       )
 
     assert_receive {:email,
@@ -408,25 +410,9 @@ defmodule Ankole.Authn.OtpTest do
              Domain.verify_otp(browser, sent_sso.challenge_id, sso_code, "source-member-2")
   end
 
-  test "Console OTP delivers only to bound or pending siteadmin principals, including disabled siteadmins",
+  test "privileged Pod OTP preserves console_return_to and enforces active Human access",
        %{browser: browser, tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-
-    {:ok, %{principal: ordinary}} =
-      Ankole.Principals.create_human(%{
-        email: "ordinary@example.com",
-        display_name: "Ordinary Member"
-      })
-
-    refute Ankole.AuthZ.site_admin_member?(ordinary.uid)
-
-    {:ok, silent} =
-      Domain.request_otp(browser, "ordinary@example.com", "console-source", purpose: :console)
-
-    refute_receive {:email, _}
-
-    assert {:error, :invalid_code} =
-             Domain.verify_otp(browser, silent.challenge_id, "123456", "console-source")
 
     {:ok, %{principal: admin}} =
       Ankole.Principals.create_human(%{
@@ -438,13 +424,24 @@ defmodule Ankole.Authn.OtpTest do
     assert Ankole.AuthZ.site_admin_member?(admin.uid)
 
     {:ok, sent_admin} =
-      Domain.request_otp(browser, "root-admin@example.com", "console-source", purpose: :console)
+      Domain.request_otp(browser, "root-admin@example.com", "console-source",
+        scope: :tenant,
+        console_return_to: "/site-admin-console/settings"
+      )
 
     assert_receive {:email, %Swoosh.Email{to: [{_, "root-admin@example.com"}], text_body: body}}
     [_, code] = Regex.run(~r/verification code is (\d{6})/, body)
 
-    assert {:ok, %{authentication: %{console_authenticated: true}}} =
+    assert {:ok,
+            %{
+              authentication: %{scope: :site} = auth,
+              scope: :tenant,
+              ceremony_context: %{"console_return_to" => "/site-admin-console/settings"}
+            }} =
              Domain.verify_otp(browser, sent_admin.challenge_id, code, "console-source")
+
+    assert BrowserSessions.identity(BrowserSessions.reference(auth), tenant.id)["principal_uid"] ==
+             admin.uid
 
     {:ok, %{principal: disabled_admin}} =
       Ankole.Principals.create_human(%{
@@ -467,9 +464,7 @@ defmodule Ankole.Authn.OtpTest do
     assert Ankole.AuthZ.site_admin_member?(disabled_admin.uid)
 
     {:ok, sent_disabled_admin} =
-      Domain.request_otp(browser, "disabled-admin@example.com", "console-source",
-        purpose: :console
-      )
+      Domain.request_otp(browser, "disabled-admin@example.com", "console-source", scope: :tenant)
 
     assert_receive {:email,
                     %Swoosh.Email{
@@ -544,7 +539,7 @@ defmodule Ankole.Authn.OtpTest do
 
   test "verification and invitation emails render localized multipart HTML and plaintext across all catalogs and escape untrusted names" do
     workspace = "R&D <script>alert(1)</script>"
-    url = "https://ankole.example.com/join/inv-token-123"
+    url = "https://ankole.example.com/join/inv-token-123?source=email&lang=en"
 
     for {header, expected_locale, expected_code_subject} <- [
           {"en-US", "en-US", "Ankole verification code"},
@@ -606,7 +601,11 @@ defmodule Ankole.Authn.OtpTest do
       assert inv_html =~ "<!doctype html>"
       assert inv_html =~ ~s(lang="#{expected_locale}")
       assert inv_html =~ ~s(src="cid:ankole-logo.png")
-      assert inv_html =~ url
+      assert inv_html =~ "#E10059"
+
+      assert inv_html =~
+               ~s(href="https://ankole.example.com/join/inv-token-123?source=email&amp;lang=en")
+
       assert inv_html =~ "R&amp;D &lt;script&gt;alert(1)&lt;/script&gt;"
       refute inv_html =~ "<script>alert(1)</script>"
       assert inv_text =~ url

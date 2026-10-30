@@ -365,7 +365,11 @@ test('structure edits and page management do not imply record submission', async
       )
       await member.keyboard.press('Escape')
       await expect(member.getByRole('menu')).toBeHidden()
-      await expect(member.getByRole('button', { name: '分享', exact: true })).toHaveCount(role === 'manage' ? 1 : 0)
+      await expect(member.getByRole('button', { name: '分享', exact: true })).toHaveCount(1)
+      await member.getByRole('button', { name: '分享', exact: true }).click()
+      await expect(member.getByRole('dialog', { name: '分享数据表', exact: true })).toBeVisible()
+      await expect(member.getByRole('button', { name: /权限设置/ })).toHaveCount(role === 'manage' ? 1 : 0)
+      await member.keyboard.press('Escape')
       const title = member.getByRole('textbox', { name: '页面标题', exact: true })
       await expect(title).toHaveCount(role === 'edit' ? 1 : 0)
 

@@ -206,7 +206,13 @@ defmodule Ankole.Pod.RPCBroker do
                  WorkerFiles.put(target, {:file, local},
                    worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}
                  ) do
-            {:ok, %{detail | content: %{xml_file: true}}}
+            references =
+              Pages.resolve_xml_references(actor, detail.content.content, detail.page.id)
+
+            {:ok,
+             detail
+             |> Map.put(:content, %{xml_file: true})
+             |> Map.put(:references, references)}
           end
         after
           File.rm(local)

@@ -64,7 +64,7 @@ export function ChatSidebar() {
   const { t } = useTranslation()
   const client = useQueryClient(),
     navigate = useNavigate(),
-    location = useLocation()
+    pathname = useLocation({ select: location => location.pathname })
   const { isMobile, setOpenMobile } = useSidebar()
   const [deleting, setDeleting] = useState<RoomRow>(),
     [leaving, setLeaving] = useState<RoomRow>(),
@@ -98,7 +98,7 @@ export function ChatSidebar() {
       client.removeQueries({ queryKey: podKeys.detail(room.id) })
       void client.invalidateQueries({ queryKey: podKeys.conversations })
       if (room.pageID) void client.invalidateQueries({ queryKey: podKeys.pageConversations(room.pageID) })
-      if (location.pathname === podLocation(`/conversations/${room.id}`).pathname) {
+      if (pathname === podLocation(`/conversations/${room.id}`).pathname) {
         void navigate({ to: podLocation('/').pathname })
       }
     },
@@ -112,7 +112,7 @@ export function ChatSidebar() {
       client.removeQueries({ queryKey: podKeys.detail(room.id) })
       void client.invalidateQueries({ queryKey: podKeys.conversations })
       if (room.pageID) void client.invalidateQueries({ queryKey: podKeys.pageConversations(room.pageID) })
-      if (location.pathname === podLocation(`/conversations/${room.id}`).pathname) {
+      if (pathname === podLocation(`/conversations/${room.id}`).pathname) {
         void navigate({ to: podLocation('/').pathname })
       }
     },
@@ -132,8 +132,8 @@ export function ChatSidebar() {
       <div className="pb-1">
         <Link
           to={newChatPath}
-          className="pod-nav-link"
-          aria-current={location.pathname === newChatPath ? 'page' : undefined}
+          className="nav-row pod-nav-link"
+          aria-current={pathname === newChatPath ? 'page' : undefined}
           onClick={close}>
           <RiAddLine aria-hidden />
           <span className="truncate">{t('pod.chat.new_conversation')}</span>
@@ -200,14 +200,23 @@ export function ChatSidebar() {
                   <ContextMenu key={room.id}>
                     <ContextMenuTrigger render={<SidebarMenuItem className="pod-chat-row flex items-center" />}>
                       {isRenaming ? (
-                        <ChatRenameField room={room} onDone={() => setRenaming(undefined)} />
+                        <div className="flex h-7 w-full min-w-0 items-center gap-2 pr-1 pl-2 text-[13px]">
+                          {room.agents.length > 0 && (
+                            <span className="pod-chat-avatar-cluster">
+                              {room.agents.slice(0, 2).map(agent => (
+                                <ChatAvatar key={agent.uid} name={agent.displayName} src={agent.avatarURL} agent />
+                              ))}
+                            </span>
+                          )}
+                          <ChatRenameField room={room} onDone={() => setRenaming(undefined)} />
+                        </div>
                       ) : (
                         <>
                           <SidebarMenuButton
                             render={<Link to={podLocation(`/conversations/${room.id}`).pathname} />}
-                            isActive={location.pathname === podLocation(`/conversations/${room.id}`).pathname}
+                            isActive={pathname === podLocation(`/conversations/${room.id}`).pathname}
                             onClick={close}
-                            title={room.title}>
+                            title={room.title || t('pod.content.untitled')}>
                             {room.agents.length > 0 && (
                               <span className="pod-chat-avatar-cluster">
                                 {room.agents.slice(0, 2).map(agent => (
@@ -215,7 +224,9 @@ export function ChatSidebar() {
                                 ))}
                               </span>
                             )}
-                            <span>{room.title}</span>
+                            <span className="min-w-0 flex-1 truncate text-left" dir="auto">
+                              {room.title || t('pod.content.untitled')}
+                            </span>
                             {room.viewer.muted && (
                               <RiNotificationOffLine className="size-3 shrink-0" aria-label={t('pod.chat_room.mute')} />
                             )}
@@ -347,6 +358,7 @@ function ChatRenameField({ room, onDone }: { room: RoomRow; onDone(): void }) {
   return (
     <Input
       autoFocus
+      variant="inline"
       className="pod-chat-row-rename"
       aria-label={t('pod.chat_room.rename')}
       value={value}

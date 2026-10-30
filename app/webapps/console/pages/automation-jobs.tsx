@@ -180,7 +180,7 @@ export function AutomationJobsPage() {
               ) : null}
             </SheetDescription>
           </SheetHeader>
-          <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
+          <div className="min-w-0 flex-1 overflow-y-auto p-6">
             {detailNotFound ? (
               <ErrorBlock error={t('console.automation_jobs.not_found', { id: selectedID })} />
             ) : detail.error || runs.error ? (

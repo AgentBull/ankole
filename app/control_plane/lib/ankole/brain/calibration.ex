@@ -28,6 +28,69 @@ defmodule Ankole.Brain.Calibration do
   @grade_stale_months 6
   @calibration_start "<!-- brain:calibration:start -->"
   @calibration_end "<!-- brain:calibration:end -->"
+  @calibration_pattern ~r/#{Regex.escape(@calibration_start)}[\s\S]*?#{Regex.escape(@calibration_end)}/u
+  @calibration_strip_pattern ~r/[ \t]*\n*#{Regex.escape(@calibration_start)}[\s\S]*?#{Regex.escape(@calibration_end)}\n*/u
+
+  @doc "Returns the start and end HTML comment fences of the calibration scorecard."
+  @spec fence_markers() :: {String.t(), String.t()}
+  def fence_markers, do: {@calibration_start, @calibration_end}
+
+  @doc "Returns whether text contains either calibration fence marker."
+  @spec contains_fence_marker?(String.t()) :: boolean()
+  def contains_fence_marker?(text) when is_binary(text) do
+    String.contains?(text, @calibration_start) or String.contains?(text, @calibration_end)
+  end
+
+  @doc "Extracts all fenced calibration sections in document order."
+  @spec extract_sections(String.t()) :: [String.t()]
+  def extract_sections(body) when is_binary(body) do
+    @calibration_pattern
+    |> Regex.scan(body)
+    |> Enum.map(fn [block] -> block end)
+  end
+
+  @doc "Splits text into alternating `{:text, binary}` and `{:calibration, binary}` spans."
+  @spec split_spans(String.t()) :: [{:text | :calibration, String.t()}]
+  def split_spans(text) when is_binary(text) do
+    case Regex.run(@calibration_pattern, text, return: :index) do
+      nil ->
+        [{:text, text}]
+
+      [{pos, len}] ->
+        before = binary_part(text, 0, pos)
+        fenced = binary_part(text, pos, len)
+        rest = binary_part(text, pos + len, byte_size(text) - pos - len)
+
+        spans =
+          if(before == "", do: [], else: [{:text, before}]) ++
+            [{:calibration, fenced}]
+
+        spans ++ if(rest == "", do: [], else: split_spans(rest))
+    end
+  end
+
+  @doc "Removes the generated calibration scorecard fence from a page body while preserving leading line indentation."
+  @spec strip_calibration_section(String.t()) :: String.t()
+  def strip_calibration_section(body) when is_binary(body) do
+    stripped = Regex.replace(@calibration_strip_pattern, body, "\n\n")
+
+    if String.trim(stripped) == "" do
+      ""
+    else
+      stripped
+      |> String.trim_leading("\n")
+      |> String.trim_trailing()
+    end
+  end
+
+  @doc "Appends a fenced calibration section to the end of a page body."
+  @spec append_section(String.t(), String.t()) :: String.t()
+  def append_section(body, section) when is_binary(body) and is_binary(section) do
+    case String.trim_trailing(body) do
+      "" -> section <> "\n"
+      trimmed -> trimmed <> "\n\n" <> section <> "\n"
+    end
+  end
 
   @doc false
   def grade_takes do
@@ -414,13 +477,10 @@ defmodule Ankole.Brain.Calibration do
   end
 
   defp replace_calibration_section(body, section) do
-    pattern =
-      ~r/#{Regex.escape(@calibration_start)}[\s\S]*?#{Regex.escape(@calibration_end)}/u
-
-    if Regex.match?(pattern, body) do
-      Regex.replace(pattern, body, section)
+    if Regex.match?(@calibration_pattern, body) do
+      Regex.replace(@calibration_pattern, body, section)
     else
-      String.trim_trailing(body) <> "\n\n" <> section <> "\n"
+      append_section(body, section)
     end
   end
 end

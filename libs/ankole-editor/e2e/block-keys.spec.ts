@@ -1,4 +1,4 @@
-import { caret, expectMarkdown, replaceDocument, test } from './helpers'
+import { caret, expect, expectMarkdown, openDocument, replaceDocument, reopen, selectText, test } from './helpers'
 
 // Backspace, Delete, Enter and Tab at block boundaries behave as in Notion (checked by hand on
 // 2026-10-08). The caret is in the text given by `at`. Playwright runs the browsers on this
@@ -430,7 +430,7 @@ const scenarios: Scenario[] = [
     markdown: 's\n\na\n\nhello\n\ne',
     at: ['hello', 2],
     keys: [['Tab'], ['Tab', 'Shift+Tab', 'Tab']],
-    expected: 's\n\na\n\n<p indent="1">hello</p>\n\ne'
+    expected: 's\n\n<block>\n  a\n\n  hello\n</block>\n\ne'
   },
   {
     name: 'Shift+Tab lifts a nested item; the items after it become its children',
@@ -447,18 +447,25 @@ const scenarios: Scenario[] = [
     expected: 's\n\n- a\n- hello\n  - child\n- next\n\ne'
   },
   {
-    name: 'Tab does not nest the first item of a list',
+    name: 'Tab nests the first list item under the preceding ordinary block',
     markdown: 's\n\n- hello\n\ne',
     at: ['hello', 0],
     keys: [['Tab']],
-    expected: 's\n\n- hello\n\ne'
+    expected: '<block>\n  s\n\n  - hello\n</block>\n\ne'
   },
   {
-    name: 'Tab in a code block inserts a tab character',
+    name: 'Tab keeps the first list item when no preceding block can own it',
+    markdown: '- hello\n\ne',
+    at: ['hello', 0],
+    keys: [['Tab']],
+    expected: '- hello\n\ne'
+  },
+  {
+    name: 'Tab in a code block indents the current line',
     markdown: 's\n\n```\nhello\n```\n\ne',
     at: ['hello', 2],
     keys: [['Tab']],
-    expected: 's\n\n```\nhe\tllo\n```\n\ne'
+    expected: 's\n\n```\n\thello\n```\n\ne'
   }
 ]
 
@@ -476,3 +483,38 @@ for (const { name, markdown, at, keys, expected } of scenarios) {
     }
   })
 }
+
+test('code Tab and Shift+Tab indent selected lines without replacing their text', async ({ page }) => {
+  await openDocument(page, 'Before\n\n```\nfirst\nsecond\nthird\n```\n\nAfter')
+  const code = page.locator('.editor-content pre')
+  await code.click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.press('Tab')
+  await expect.poll(() => code.innerText()).toBe('\tfirst\n\tsecond\n\tthird')
+  await page.keyboard.press('Shift+Tab')
+  await expect.poll(() => code.innerText()).toBe('first\nsecond\nthird')
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect.poll(() => code.innerText()).toBe('\tfirst\n\tsecond\n\tthird')
+  await page.keyboard.press('ControlOrMeta+Shift+z')
+  await expect.poll(() => code.innerText()).toBe('first\nsecond\nthird')
+  await selectText(page, 'second', 0, 'first', 2)
+  await page.keyboard.press('Tab')
+  await expect.poll(() => code.innerText()).toBe('\tfirst\n\tsecond\nthird')
+  await expect(page.locator('.editor-content > p')).toHaveText(['Before', 'After'])
+  await reopen(page)
+  await expect.poll(() => code.innerText()).toBe('\tfirst\n\tsecond\nthird')
+})
+
+test('Shift+Tab lifts a selected child while preserving selected root siblings', async ({ page }) => {
+  await openDocument(page, '<block>\n  Parent\n\n  Child\n</block>\n\nRoot')
+  await caret(page.locator('.editor-content').getByText('Child', { exact: true }), 0)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(page.locator('.editor-selected-block')).toHaveText(['Child', 'Root'])
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.locator('.editor-content > p')).toHaveText(['Parent', 'Child', 'Root'])
+  await expect(page.locator('.editor-selected-block')).toHaveText(['Child', 'Root'])
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(page.locator('.block-group > p')).toHaveText(['Parent', 'Child'])
+  await expect(page.locator('.editor-selected-block')).toHaveText(['Child', 'Root'])
+})

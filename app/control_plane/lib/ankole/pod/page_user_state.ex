@@ -1,5 +1,5 @@
 defmodule Ankole.Pod.PageUserState do
-  @moduledoc "One person's favorite and visit times for one page."
+  @moduledoc "One person's favorites, visits, and acknowledged comment activity for one page."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.Pod,
@@ -38,20 +38,44 @@ defmodule Ankole.Pod.PageUserState do
 
     attribute(:favorited_at, :utc_datetime_usec, public?: true)
     attribute(:visited_at, :utc_datetime_usec, public?: true)
+    attribute(:hide_visits, :boolean, public?: true, allow_nil?: false, default: false)
+    attribute(:edited_at, :utc_datetime_usec)
+    attribute(:comments_read_at, :utc_datetime_usec)
   end
 
   actions do
     defaults([:read])
 
+    read :viewers do
+      pagination(keyset?: true, max_page_size: 100, countable: false, required?: false)
+    end
+
     create :put do
-      accept([:principal_uid, :page_id, :favorited_at, :visited_at])
+      accept([
+        :principal_uid,
+        :page_id,
+        :favorited_at,
+        :visited_at,
+        :comments_read_at,
+        :hide_visits,
+        :edited_at
+      ])
+
       upsert?(true)
-      upsert_fields([:favorited_at, :visited_at])
+      upsert_fields([:favorited_at, :visited_at, :comments_read_at, :hide_visits, :edited_at])
     end
 
     destroy :remove_empty do
       require_atomic?(true)
-      change(filter(expr(is_nil(favorited_at) and is_nil(visited_at))))
+
+      change(
+        filter(
+          expr(
+            is_nil(favorited_at) and is_nil(visited_at) and is_nil(comments_read_at) and
+              is_nil(edited_at) and not hide_visits
+          )
+        )
+      )
     end
 
     destroy :purge do

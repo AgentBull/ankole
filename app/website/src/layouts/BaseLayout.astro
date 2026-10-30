@@ -46,9 +46,9 @@ const { lang, title, description, path = '', markdownPath } = Astro.props
 		</a>
 		{!markdownPath && <AgentDirective lang={lang} />}
 		<Header lang={lang} />
-		<div id="main-content">
+		<main id="main-content" tabindex="-1">
 			<slot />
-		</div>
+		</main>
 		<Footer lang={lang} />
 	</body>
 </html>

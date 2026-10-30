@@ -11,6 +11,7 @@ import { GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { pairsOf, recordOf, type Pairs } from './attributes'
 import { openLinkHref } from './host'
+import { editorHost } from './host-context'
 import * as S from './schema'
 
 /** A link: its address and title, and the range of its text. */
@@ -96,16 +97,18 @@ const step = (spec: { changes: ChangeSet.Spec; userEvent: string }): Transaction
  * whole link and keeps its other attributes. A caret outside a link does nothing.
  */
 export const setLink: Command.Pure<LinkTarget> = ({ state }, target) => {
-  if (state.readOnly || !target.href) return false
+  const href = S.safeLinkHref(target.href)
+  if (state.readOnly || !href) return false
+  const normalizedTarget = href === target.href ? target : { ...target, href }
   const found = linksInSelection(state)
   const { from, to } = state.selection
   const inside = found.length === 1 && found[0]!.from <= from && to <= found[0]!.to ? found[0]! : null
   if (inside) {
-    const mark = S.Link.of(linkValue(inside.mark.value, target))
+    const mark = S.Link.of(linkValue(inside.mark.value, normalizedTarget))
     return step({ changes: { from: inside.from, to: inside.to, add: mark }, userEvent: 'mark.add' })
   }
   if (state.selection.empty) return false
-  const mark = S.Link.of(linkValue([], target))
+  const mark = S.Link.of(linkValue([], normalizedTarget))
   return step({
     changes: state.selection.ranges.map(({ from, to }) => ({ from, to, add: mark })),
     userEvent: 'mark.add'
@@ -167,13 +170,14 @@ const onEnter = GardState.prec.highest(
 
 const onClick = Wordgard.domEventHandler('click', (event, wg) => {
   if (event.defaultPrevented || event.button !== 0) return false
+  if ((event.target as Element | null)?.closest('.editor-mention')) return false
   const link = (event.target as Element | null)?.closest('a[href]')
   if (!link) return false
-  const href = link.getAttribute('href') ?? ''
-  if (href.startsWith('ankole:page/')) return false
+  const href = (link.getAttribute('href') ?? '').trim()
+  if (href.startsWith('ankole:page/') && editorHost(wg)) return false
   if (!wg.state.readOnly && !event.metaKey && !event.ctrlKey) return false
-  if (!openLinkHref(wg, href)) return false
   event.preventDefault()
+  openLinkHref(wg, href)
   return true
 })
 

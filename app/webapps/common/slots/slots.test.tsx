@@ -5,7 +5,7 @@ import { lazy } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { validateConsoleSlots } from '../../console/slots'
 import { initializeFeatures } from '../features'
-import { ActivePluginsContext, SlotGate, validateSlotIDs } from './index'
+import { ActivePluginsContext, SlotBoundary, SlotGate, validateSlotIDs } from './index'
 
 const originalProvider = OpenFeature.getProvider()
 afterAll(async () => {
@@ -59,4 +59,20 @@ test('active Plugin slots use the mounted snapshot and official SDK conditions',
     </OpenFeatureProvider>
   )
   expect(html).toBe('<span>Enabled</span><span>Unconditional</span>')
+})
+
+test('SlotBoundary isolates synchronous render failures without taking down sibling markup', () => {
+  function BrokenSlot(): never {
+    throw new Error('slot boom')
+  }
+  const silent = renderToStaticMarkup(
+    <div>
+      <span>Host before</span>
+      <SlotBoundary>
+        <BrokenSlot />
+      </SlotBoundary>
+      <span>Host after</span>
+    </div>
+  )
+  expect(silent).toBe('<div><span>Host before</span><span>Host after</span></div>')
 })

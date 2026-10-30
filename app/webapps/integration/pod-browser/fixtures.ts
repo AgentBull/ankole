@@ -5,12 +5,14 @@ export type Login = { uid: string; email: string }
 type Identity = Login & { cookies: Parameters<BrowserContext['addCookies']>[0] }
 
 type State = {
+  document_agent_uid?: string
   agent_actions_url: string
   base_url: string
   mailbox_path: string
   console_url: string
   tenant_id: string
   tenant_slug: string
+  tenant_name: string
   report_id: string
   base_id: string
   table_id: string
@@ -50,6 +52,28 @@ type State = {
 const statePath = process.env.POD_BROWSER_STATE_PATH
 if (!statePath) throw new Error('Start the dedicated real Pod browser fixture and set POD_BROWSER_STATE_PATH')
 export const state = JSON.parse(readFileSync(statePath, 'utf8')) as State
+
+export async function closeRealtimeSocket(page: Page) {
+  // Chromium's offline emulation leaves established WebSockets open. Close the
+  // actual transport through CDP without replacing the WebSocket or HTTP adapter.
+  const session = await page.context().newCDPSession(page)
+  try {
+    const prototype = await session.send('Runtime.evaluate', { expression: 'WebSocket.prototype' })
+    const sockets = await session.send('Runtime.queryObjects', { prototypeObjectId: prototype.result.objectId! })
+    const closed = await session.send('Runtime.callFunctionOn', {
+      objectId: sockets.objects.objectId!,
+      functionDeclaration: `function() {
+        const sockets = this.filter(socket => socket.readyState === WebSocket.OPEN && new URL(socket.url).pathname === '/pod/socket/websocket');
+        for (const socket of sockets) socket.close();
+        return sockets.length;
+      }`,
+      returnByValue: true
+    })
+    expect(closed.result.value).toBe(1)
+  } finally {
+    await session.detach()
+  }
+}
 
 async function agentAction<T>(action: 'create' | 'publish', body: unknown): Promise<T> {
   const response = await fetch(`${state.agent_actions_url}/${action}`, {

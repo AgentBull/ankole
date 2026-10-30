@@ -107,7 +107,7 @@ defmodule Ankole.Pod.Files do
              {:ok, page} <- Pages.lock(page_id, :share),
              :ok <- require_type(page, :applet),
              {:ok, action} <- required_read_action(page, "dist/" <> relative),
-             {:ok, _} <- Pages.authorize(actor, page.id, action),
+             {:ok, _} <- Pages.authorize(actor, page.id, action, trash: false),
              :ok <- frame_revision(page, expected_revision),
              {:ok, file} <- Drive.fetch(:pod, path),
              do: {:ok, file}
@@ -200,7 +200,7 @@ defmodule Ankole.Pod.Files do
              {:ok, _} <- commit_upload_in_tx(actor, page.id, upload),
              do: Pages.fetch(page.id)
       end,
-      after_commit: &Pages.committed/1
+      after_commit: &Pages.committed_tree/1
     )
   end
 
@@ -277,6 +277,26 @@ defmodule Ankole.Pod.Files do
   end
 
   def parse_path(_path), do: {:error, :invalid_path}
+
+  @doc "Returns the primary file descriptor for each requested file page ID."
+  def primary_files_by_page([]), do: %{}
+
+  def primary_files_by_page(page_ids) when is_list(page_ids) do
+    prefixes = Enum.map(page_ids, &prefix/1)
+
+    case Drive.list_under_prefixes(:pod, prefixes) do
+      {:ok, files} ->
+        Enum.reduce(files, %{}, fn file, acc ->
+          case parse_path(file.path) do
+            {:ok, page_id, _relative} -> Map.put_new(acc, page_id, entry(file))
+            {:error, _reason} -> acc
+          end
+        end)
+
+      {:error, _reason} ->
+        %{}
+    end
+  end
 
   @doc false
   def publish_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, upserts, routes) do

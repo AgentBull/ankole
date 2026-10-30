@@ -68,7 +68,7 @@ import { ErrorBlock } from '../../common/error-block'
 import { localizedText } from '../../common/config-fields'
 import { formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, SaveButton } from '../console-form'
-import { ResourceSearch } from '../console-list-page'
+import { ResourceSearch, ScopeBar } from '../console-list-page'
 import {
   GLOBAL_LIBRARY_SCOPE,
   isSiteLibraryDefaults,
@@ -285,9 +285,7 @@ export function AgentPluginDetailPage() {
             label={t('console.agent_library_capabilities.back')}
           />
           <div>
-            <h2 className="text-2xl font-semibold tracking-normal">
-              {plugin ? humanizeAgentPluginID(plugin.id) : pluginID}
-            </h2>
+            <h2 className="title-page">{plugin ? humanizeAgentPluginID(plugin.id) : pluginID}</h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
               {plugin?.description ?? t('console.agent_library_capabilities.plugin_not_found')}
             </p>
@@ -344,7 +342,7 @@ export function AgentPluginDetailPage() {
 
           <section className="grid gap-3">
             <div>
-              <h3 className="text-lg font-semibold">{t('console.agent_library_capabilities.plugin_skills')}</h3>
+              <h3 className="title-section">{t('console.agent_library_capabilities.plugin_skills')}</h3>
               <p className="text-sm text-muted-foreground">
                 {t('console.agent_library_capabilities.plugin_skills_description')}
               </p>
@@ -410,7 +408,11 @@ function CapabilitySearch({
 }) {
   const { t } = useTranslation()
   const label = t(`console.agent_library_capabilities.search_${kind}`)
-  return <ResourceSearch label={label} placeholder={label} value={value} onChange={onChange} />
+  return (
+    <ScopeBar>
+      <ResourceSearch label={label} placeholder={label} value={value} onChange={onChange} />
+    </ScopeBar>
+  )
 }
 
 function AgentPluginCard({

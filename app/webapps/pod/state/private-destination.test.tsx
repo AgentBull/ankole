@@ -86,3 +86,54 @@ describe('Private page creation', () => {
     )
   }
 })
+
+test('content lists disable cached creation permissions when the directory read fails', async () => {
+  for (const scope of ['space', 'private', 'favorites', 'shared', 'search']) {
+    const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false } } })
+    const key = contentKeys.children(scope === 'private' ? 'private' : 'space')
+    client.setQueryData(key, {
+      pages: [
+        {
+          pages: [],
+          principal_uid: 'current-human',
+          can_create_space: true,
+          can_create_private: true,
+          next_cursor: null
+        }
+      ],
+      pageParams: [undefined]
+    })
+    client
+      .getQueryCache()
+      .find({ queryKey: key, exact: true })!
+      .setState({ status: 'error', error: new Error('Directory unavailable') })
+    const rootRoute = createRootRoute()
+    const route = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/content/$scope',
+      component: ContentListRoute
+    })
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([route]),
+      history: createMemoryHistory({ initialEntries: [`/content/${scope}`] }),
+      parseSearch: parseRouterSearch,
+      stringifySearch: stringifyRouterSearch
+    })
+    await router.load()
+    try {
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={client}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      )
+      const create = html.match(
+        new RegExp(`<button\\b[^>]*aria-label="${RegExp.escape(t('pod.content.new_page'))}"[^>]*>`)
+      )?.[0]
+      expect(create).toBeDefined()
+      expect(create).toMatch(/\sdisabled(?:=|\s|>)/)
+      expect(html).toContain('role="alert"')
+    } finally {
+      client.clear()
+    }
+  }
+})

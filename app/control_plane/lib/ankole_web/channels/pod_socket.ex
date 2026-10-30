@@ -42,7 +42,7 @@ defmodule AnkoleWeb.PodSocket do
   def actor(attrs, context) do
     Ankole.Repo.with_tenant(attrs.tenant_id, fn ->
       with %{} = authentication <-
-             Ankole.BrowserSessions.authentication(attrs.authentication, :pod),
+             Ankole.BrowserSessions.identity(attrs.authentication, attrs.tenant_id),
            {:ok, principal} <- Ankole.Principals.get_principal(attrs.uid),
            do:
              {:ok,
@@ -59,7 +59,7 @@ defmodule AnkoleWeb.PodSocket do
   def active?(attrs) do
     Ankole.Repo.with_tenant(attrs.tenant_id, fn ->
       with %{"principal_uid" => uid} <-
-             Ankole.BrowserSessions.authentication(attrs.authentication, :pod),
+             Ankole.BrowserSessions.identity(attrs.authentication, attrs.tenant_id),
            true <- uid == attrs.uid,
            {:ok, principal} <- Ankole.Principals.get_principal(uid),
            {:ok, _} <- Ankole.Pod.Access.principal(Ankole.AuthZ.Actor.new(principal)),

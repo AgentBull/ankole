@@ -62,7 +62,8 @@ export const useSearchParams: typeof useBaseSearchParams = () => {
 export const Link = ((props: ComponentProps<typeof RouterLink>) => {
   const tenant = useConsoleTenant()
   const router = useRouter()
-  const tenantID = tenant?.id ?? (typeof window === 'undefined' ? null : dataTenantID())
+  const selectedTenantID = typeof window === 'undefined' ? null : dataTenantID()
+  const tenantID = tenant?.id ?? selectedTenantID
   if (!tenantID) return <RouterLink {...props} />
   const params = new URLSearchParams(router.latestLocation.searchStr)
   const current = Object.fromEntries(tenant ? tenantSearchParams(params, tenant.id) : params)
@@ -77,7 +78,7 @@ export const Link = ((props: ComponentProps<typeof RouterLink>) => {
   return (
     <RouterLink<AnyRouter, string, string, string, string>
       {...props}
-      reloadDocument
+      reloadDocument={props.reloadDocument || (!site && tenantID !== selectedTenantID)}
       search={site ? search : { ...search, data_tenant: tenantID }}
     />
   )
@@ -90,6 +91,8 @@ export const useNavigate: typeof useBaseNavigate = defaults => {
   return options => {
     if (!tenant) return navigate(options)
     const target = router.buildLocation({ ...defaults, ...options } as Parameters<typeof router.buildLocation>[0])
+    const site = consoleTenantPage(target.pathname, new URLSearchParams(target.searchStr)) === 'site'
+    if (site || tenant.id === dataTenantID()) return navigate(options)
     selectDataTenant(tenant.id, target.href)
     return Promise.resolve()
   }

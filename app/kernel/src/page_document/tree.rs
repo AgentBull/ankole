@@ -66,7 +66,7 @@ pub fn valid_character(c: char) -> bool {
 fn layout(value: &str) -> bool {
     value.chars().all(|c| matches!(c, ' ' | '\t' | '\r' | '\n'))
 }
-fn name_valid(name: &str, attribute: bool) -> bool {
+pub(super) fn name_valid(name: &str, attribute: bool) -> bool {
     static ELEMENT: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^\p{L}[\p{L}\p{N}_-]*$").expect("valid static regex"));
     static ATTRIBUTE: LazyLock<Regex> =
@@ -221,93 +221,30 @@ enum Content {
     Items,
     Rows,
     Cells,
+    Columns,
     Unknown,
 }
 fn content(name: &str) -> Content {
     match name {
-        "page" | "blockquote" | "li" | "th" | "td" | "callout" => Content::Blocks,
-        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "a" | "span" => Content::Inline,
-        "pre" => Content::Text,
-        "hr" | "embed" | "img" | "br" => Content::Empty,
+        "page" | "block" | "blockquote" | "li" | "th" | "td" | "callout" | "column" => {
+            Content::Blocks
+        }
+        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "a" | "span" | "comment" => Content::Inline,
+        "pre" | "math" | "mermaid" => Content::Text,
+        "hr" | "embed" | "media" | "bookmark" | "img" | "br" | "mention" => Content::Empty,
         "ul" | "ol" => Content::Items,
         "table" => Content::Rows,
         "tr" => Content::Cells,
+        "columns" => Content::Columns,
         value if FORMATS.contains(&value) => Content::Inline,
         _ => Content::Unknown,
     }
 }
 fn is_inline(name: &str) -> bool {
-    matches!(name, "a" | "span" | "img" | "br") || FORMATS.contains(&name)
+    matches!(name, "a" | "span" | "img" | "br" | "comment" | "mention") || FORMATS.contains(&name)
 }
 fn known(name: &str) -> bool {
     content(name) != Content::Unknown
-}
-fn allowed_attribute(name: &str, key: &str) -> bool {
-    match name {
-        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-            matches!(key, "align" | "indent" | "style")
-        }
-        "th" | "td" => matches!(key, "align" | "colspan" | "rowspan"),
-        "ol" => key == "start",
-        "li" => key == "task",
-        "pre" => matches!(key, "lang" | "meta"),
-        "callout" => key == "tone",
-        "embed" => matches!(key, "ref" | "table" | "view"),
-        "a" => matches!(key, "href" | "title"),
-        "img" => matches!(key, "src" | "alt" | "title"),
-        "span" => key == "style",
-        _ => false,
-    }
-}
-fn integer_text(value: &str, min: u32, max: u32) -> bool {
-    !value.is_empty()
-        && (value == "0" || !value.starts_with('0'))
-        && value.bytes().all(|c| c.is_ascii_digit())
-        && value.parse::<u32>().is_ok_and(|v| (min..=max).contains(&v))
-}
-fn attributes(node: &Element) -> Result<Attrs> {
-    if node.name == "page" && !node.attrs.is_empty() {
-        return Err("page has no attributes".into());
-    }
-    let mut result = Attrs::new();
-    for (key, value) in &node.attrs {
-        if !name_valid(key, true) || !value.chars().all(valid_character) {
-            return Err("invalid XML attribute".into());
-        }
-        if allowed_attribute(&node.name, key) {
-            let valid = match key.as_str() {
-                "align" => ["left", "center", "right", "justify"].contains(&value.as_str()),
-                "indent" => integer_text(value, 1, 999),
-                "start" => integer_text(value, 0, 999_999_999),
-                "colspan" | "rowspan" => integer_text(value, 1, SPAN_LIMIT),
-                "task" => ["todo", "done"].contains(&value.as_str()),
-                "tone" => ["info", "warning"].contains(&value.as_str()),
-                _ => true,
-            };
-            if !valid {
-                return Err(format!("invalid {} attribute {key}", node.name));
-            }
-            if (value.is_empty()
-                && ["alt", "lang", "meta", "style", "title"].contains(&key.as_str()))
-                || (value == "1"
-                    && (key == "colspan"
-                        || key == "rowspan"
-                        || (key == "start" && node.name == "ol")))
-            {
-                continue;
-            }
-        }
-        result.insert(key.clone(), value.clone());
-    }
-    let required = match node.name.as_str() {
-        "a" => Some("href"),
-        "img" => Some("src"),
-        _ => None,
-    };
-    if required.is_some_and(|key| !result.contains_key(key)) {
-        return Err("missing required attribute".into());
-    }
-    Ok(result)
 }
 fn count(depth: usize, count: &mut usize) -> Result<()> {
     *count += 1;
@@ -335,13 +272,14 @@ fn normalize_element(
     let valid_parent = match node.name.as_str() {
         "li" => matches!(parent, Some("ul" | "ol")),
         "tr" => parent == Some("table"),
+        "column" => parent == Some("columns"),
         "th" | "td" => parent == Some("tr"),
         _ => true,
     };
     if !valid_parent {
         return Err(format!("invalid parent for {}", node.name));
     }
-    let attrs = attributes(&node)?;
+    let attrs = super::attributes::normalize(&node)?;
     let children = match content(&node.name) {
         Content::Inline => normalize_inline(node.children, &node.name, depth, size)?,
         Content::Empty => {
@@ -354,26 +292,16 @@ fn normalize_element(
             }
             Vec::new()
         }
-        Content::Text => {
-            let mut text = String::new();
-            for child in node.children {
-                count(depth + 1, size)?;
-                match child {
-                    Node::Text(value) if value.chars().all(valid_character) => {
-                        text.push_str(&value)
-                    }
-                    _ => return Err("pre can contain text only".into()),
-                }
-            }
-            if text.is_empty() {
-                Vec::new()
-            } else {
-                vec![Node::Text(text)]
-            }
-        }
+        Content::Text => normalize_inline(node.children, &node.name, depth, size)?,
         Content::Unknown => unknown_children(node.children, &node.name, depth, size)?,
         kind => block_children(node.children, &node.name, kind, depth, size)?,
     };
+    if node.name == "block" && attrs.is_empty() && children.len() < 2 {
+        return Ok(match children.into_iter().next() {
+            Some(Node::Element(child)) => child,
+            _ => element("p", Attrs::new(), Vec::new()),
+        });
+    }
     Ok(element(node.name, attrs, children))
 }
 fn block_children(
@@ -394,34 +322,59 @@ fn block_children(
             Content::Items => node.name == "li",
             Content::Rows => node.name == "tr",
             Content::Cells => matches!(node.name.as_str(), "th" | "td"),
+            Content::Columns => node.name == "column",
             _ => !is_inline(&node.name),
         };
         if !allowed {
             return Err(format!("invalid child {} in {parent}", node.name));
         }
-        let normalized = normalize_element(node, Some(parent), depth + 1, size)?;
-        if matches!(normalized.name.as_str(), "ul" | "ol") && normalized.children.is_empty() {
-            continue;
-        }
-        if let Some(Node::Element(previous)) = result.last_mut()
-            && matches!(normalized.name.as_str(), "ul" | "ol")
-            && previous.name == normalized.name
-        {
-            for (key, value) in normalized.attrs {
-                if key == "start" {
-                    continue;
+        let mut normalized = normalize_element(node, Some(parent), depth + 1, size)?;
+        let mut nodes = Vec::new();
+        if normalized.name == "columns" && normalized.attrs.is_empty() {
+            normalized.children.retain(|node| {
+                matches!(node, Node::Element(column) if
+                !column.children.is_empty() || column.attrs.keys().any(|key| key != "width"))
+            });
+            if normalized.children.len() < 2 && normalized.children.iter().all(|node|
+                matches!(node, Node::Element(column) if column.attrs.keys().all(|key| key == "width"))) {
+                for child in normalized.children {
+                    if let Node::Element(column) = child { nodes.extend(column.children); }
                 }
-                if previous.attrs.get(&key).is_some_and(|old| old != &value) {
-                    return Err("adjacent list attributes conflict".into());
-                }
-                previous.attrs.entry(key).or_insert(value);
-            }
-            previous.children.extend(normalized.children);
-            continue;
+            } else { nodes.push(Node::Element(normalized)); }
+        } else {
+            nodes.push(Node::Element(normalized));
         }
-        result.push(Node::Element(normalized));
+        for node in nodes {
+            append_block(&mut result, node)?;
+        }
     }
     Ok(result)
+}
+fn append_block(result: &mut Vec<Node>, node: Node) -> Result<()> {
+    let Node::Element(normalized) = node else {
+        return Err("expected block".into());
+    };
+    if matches!(normalized.name.as_str(), "ul" | "ol") && normalized.children.is_empty() {
+        return Ok(());
+    }
+    if let Some(Node::Element(previous)) = result.last_mut()
+        && matches!(normalized.name.as_str(), "ul" | "ol")
+        && previous.name == normalized.name
+    {
+        for (key, value) in normalized.attrs {
+            if key == "start" {
+                continue;
+            }
+            if previous.attrs.get(&key).is_some_and(|old| old != &value) {
+                return Err("adjacent list attributes conflict".into());
+            }
+            previous.attrs.entry(key).or_insert(value);
+        }
+        previous.children.extend(normalized.children);
+    } else {
+        result.push(Node::Element(normalized));
+    }
+    Ok(())
 }
 fn unknown_children(
     children: Vec<Node>,
@@ -471,6 +424,7 @@ struct Context {
     marks: Vec<String>,
     style: String,
     link: Option<Attrs>,
+    comments: Vec<String>,
 }
 #[derive(Clone)]
 struct Atom {
@@ -520,6 +474,15 @@ fn flatten(
             }
             Node::Element(node) => node,
         };
+        if parent == "pre" && node.name != "comment" {
+            return Err("pre can contain text only".into());
+        }
+        if parent == "math" {
+            return Err("math can contain text only".into());
+        }
+        if parent == "mermaid" && node.name != "comment" {
+            return Err("mermaid can contain text only".into());
+        }
         if !name_valid(&node.name, false) {
             return Err("invalid element name".into());
         }
@@ -535,6 +498,15 @@ fn flatten(
                 .map(|s| (*s).into())
                 .collect();
             flatten(node.children, &next, out, parent, depth + 1, size)?;
+        } else if node.name == "comment" {
+            count(depth, size)?;
+            let attrs = super::attributes::normalize(&node)?;
+            let mut next = context.clone();
+            next.comments
+                .extend(super::comments::parse_ids(&attrs["ids"])?);
+            next.comments.sort();
+            next.comments.dedup();
+            flatten(node.children, &next, out, parent, depth + 1, size)?;
         } else if node.name == "span" && node.attrs.keys().all(|key| key == "style") {
             count(depth, size)?;
             let mut next = context.clone();
@@ -548,7 +520,7 @@ fn flatten(
             if context.link.is_some() {
                 return Err("nested links".into());
             }
-            let link = attributes(&node)?;
+            let link = super::attributes::normalize(&node)?;
             let mut next = context.clone();
             next.link = Some(link.clone());
             let mut inner = Vec::new();
@@ -566,8 +538,13 @@ fn flatten(
             let atom_context = if matches!(node.name.as_str(), "br" | "img") {
                 Context {
                     link: context.link.clone(),
+                    comments: context.comments.clone(),
                     ..Context::default()
                 }
+            } else if node.name == "mention" {
+                let mut next = context.clone();
+                next.link = None;
+                next
             } else {
                 context.clone()
             };
@@ -677,7 +654,9 @@ fn normalize_inline(
         depth + 1,
         size,
     )?;
-    convert_line_breaks(&mut atoms);
+    if parent != "pre" && parent != "math" && parent != "mermaid" {
+        convert_line_breaks(&mut atoms);
+    }
     let mut split = Vec::new();
     for atom in atoms {
         if let Some(value) = &atom.value
@@ -716,6 +695,7 @@ fn normalize_inline(
         }
         if let Some(previous) = merged.last_mut()
             && previous.context.marks == atom.context.marks
+            && previous.context.comments == atom.context.comments
             && previous.context.style == atom.context.style
             && previous.context.link == atom.context.link
             && let (Some(before), Some(after)) = (&mut previous.value, &atom.value)
@@ -729,11 +709,22 @@ fn normalize_inline(
     let mut i = 0;
     while i < merged.len() {
         let style = &merged[i].context.style;
+        let comments = &merged[i].context.comments;
         let mut end = i + 1;
-        while end < merged.len() && merged[end].context.style == *style {
+        while end < merged.len()
+            && merged[end].context.style == *style
+            && merged[end].context.comments == *comments
+        {
             end += 1;
         }
-        let children = formatted(&units(&merged[i..end]), &[]);
+        let mut children = formatted(&units(&merged[i..end]), &[]);
+        if !comments.is_empty() {
+            children = vec![Node::Element(element(
+                "comment",
+                Attrs::from([("ids".into(), comments.join(" "))]),
+                children,
+            ))];
+        }
         if style.is_empty() {
             result.extend(children);
         } else {

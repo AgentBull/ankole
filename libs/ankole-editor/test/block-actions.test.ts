@@ -8,19 +8,24 @@ import { Callout } from '../src/blocks/callout'
 import {
   applyBlockType,
   blockChange,
+  blockTypeAt,
   canTurnInto,
   duplicateBlocks,
   duplication,
-  insertAfterBlock,
+  insertBesideBlock,
   movement,
+  relocation,
   removal,
   turnBlock,
-  turnBlockInto,
-  type CoreBlockType
+  turnBlockInto
 } from '../src/editor/block-actions'
+import { type CoreBlockType } from '../src/editor/block-catalog'
 import { blockInsertion, compose } from '../src/editor/block-insert'
 import { readTree } from '../src/editor/convert'
 import { headlessState } from '../src/editor/extension'
+
+import { BlockSelection } from '../src/editor/block-selection'
+import { unitAt } from '../src/editor/block-target'
 
 const markdown = (state: GardState) => printMarkdown(readTree(state.doc))
 
@@ -57,6 +62,26 @@ function apply(state: GardState, spec: Transaction.Spec | null) {
 
 const change = (state: GardState, type: CoreBlockType) => apply(state, blockChange(state, type))
 const parentName = (state: GardState) => state.doc.resolve(state.selection.head).parent.node.name
+
+test.each([
+  ['Text', 0, 'paragraph'],
+  ['## Heading', 0, 'h2'],
+  ['##', 0, 'h2'],
+  ['- Bullet\n  - Child', 1, 'bullet'],
+  ['3. Number', 1, 'number'],
+  ['- [ ] Task', 1, 'check'],
+  ['- [x] Task', 1, 'check'],
+  ['<block>\n  ## Parent\n\n  Child\n</block>', 0, 'h2'],
+  ['> Quote', 0, 'quote'],
+  ['```\ncode\n```', 0, 'code'],
+  ['<callout>\n  Note\n</callout>', 0, 'callout'],
+  ['<embed ref="page" />', 0, 'embed'],
+  ['```mermaid\nflowchart TD\n```', 0, 'mermaid'],
+  ['---', 0, 'divider'],
+  ['<widget>Unknown</widget>', 0, null]
+] as const)('the handle identifies the semantic type of %p', (source, pos, type) => {
+  expect(blockTypeAt(headlessState(source), pos)).toBe(type)
+})
 
 test.each([
   ['hello', 'hello', 'h2', '## hello'],
@@ -112,8 +137,10 @@ test('an empty paragraph becomes an empty item and keeps the caret', () => {
   expect(parentName(result)).toBe('ListItem')
 })
 
-test('a list item turned into another block leaves the list; its other blocks follow it', () => {
-  expect(markdown(change(open('- a\n  - child\n- b', 'a'), 'paragraph'))).toBe('a\n\n- child\n- b')
+test('a list item turned into another block leaves the list and keeps its children', () => {
+  expect(markdown(change(open('- a\n  - child\n- b', 'a'), 'paragraph'))).toBe(
+    '<block>\n  a\n\n  - child\n</block>\n\n- b'
+  )
   expect(markdown(change(open('- a\n- b\n- c', 'b'), 'h1'))).toBe('- a\n\n# b\n\n- c')
   expect(markdown(change(open('1. a\n2. b\n3. c', 'b'), 'code'))).toBe('1. a\n\n```\nb\n```\n\n1. c')
   expect(markdown(change(open('- a\n  - b\n  - c', 'b'), 'paragraph'))).toBe('- a\n\n  b\n\n  - c')
@@ -128,14 +155,14 @@ test('an empty item becomes an empty block', () => {
   expect(parentName(result)).toBe('Heading')
 })
 
-test('a list type applies to the list, or to the run of to-do or plain items', () => {
-  expect(markdown(change(open('- a\n- b', 'a'), 'check'))).toBe('- [ ] a\n- [ ] b')
-  expect(markdown(change(open('- [x] a\n- [ ] b\n- c', 'a'), 'bullet'))).toBe('- a\n- b\n- c')
+test('a list type applies only to selected items, splitting surrounding lists', () => {
+  expect(markdown(change(open('- a\n- b', 'a'), 'check'))).toBe('- [ ] a\n- b')
+  expect(markdown(change(open('- [x] a\n- [ ] b\n- c', 'a'), 'bullet'))).toBe('- a\n- [ ] b\n- c')
   expect(markdown(change(open('- [ ] a\n- b', 'b'), 'number'))).toBe('- [ ] a\n\n1. b')
   expect(markdown(change(open('- a\n- [ ] b\n- c', 'b'), 'number'))).toBe('- a\n\n1. b\n\n- c')
   expect(markdown(change(open('- [ ] a\n- b', 'a', 0, ['b', 1]), 'number'))).toBe('1. a\n2. b')
-  expect(markdown(change(open('1. a\n2. b', 'b'), 'check'))).toBe('- [ ] a\n- [ ] b')
-  expect(markdown(change(open('3. a\n4. b', 'a'), 'bullet'))).toBe('- a\n- b')
+  expect(markdown(change(open('1. a\n2. b', 'b'), 'check'))).toBe('1. a\n\n- [ ] b')
+  expect(markdown(change(open('3. a\n4. b', 'a'), 'bullet'))).toBe('- a\n\n1. b')
 })
 
 test('quote and callout take the text of the block at the caret; the caret moves to its end', () => {
@@ -169,11 +196,12 @@ test.each([
   expect(parentName(result)).not.toBe('Doc')
 })
 
-test('duplicates copy blocks with their attributes and move the caret into the copy', () => {
+test('duplicates copy blocks with their attributes and select the complete copies', () => {
   const paragraph = open('s\n\nhello\n\ne', 'hello', 1)
   const copied = apply(paragraph, duplication(paragraph))
   expect(markdown(copied)).toBe('s\n\nhello\n\nhello\n\ne')
-  expect(copied.selection.head).toBe(11)
+  expect(copied.selection).toBeInstanceOf(BlockSelection)
+  expect([copied.selection.from, copied.selection.to]).toEqual([10, 17])
   const item = open('- [x] a\n  - child\n- b', 'a')
   expect(markdown(apply(item, duplication(item)))).toBe('- [x] a\n  - child\n- [x] a\n  - child\n- b')
   const callout = open('<callout tone="info">\n  one\n\n  two\n</callout>', 'one', 1)
@@ -185,7 +213,7 @@ test('duplicates copy blocks with their attributes and move the caret into the c
   const reference = openAt('a\n\n<embed ref="tasks" />', 0)
   const copy = apply(reference, duplication(reference, 3))
   expect(markdown(copy)).toBe('a\n\n<embed ref="tasks" />\n\n<embed ref="tasks" />')
-  expect(copy.selection).toBeInstanceOf(GardSelection.Node)
+  expect(copy.selection).toBeInstanceOf(BlockSelection)
   expect(copy.selection.from).toBe(4)
 })
 
@@ -255,7 +283,7 @@ test.each(['h2', 'bullet', 'quote', 'divider', 'callout', 'embed'] as const)(
   'inserting %p after a block is one undo step',
   type => {
     const editor = editorFor(open('First\n\nSecond', 'Second', 'end'))
-    expect(insertAfterBlock(editor, 0, type)).toBe(true)
+    expect(insertBesideBlock(editor, 0, type)).toBe(true)
     expect(editor.state.doc.content.length).toBeGreaterThan(2)
     expect(undoDepth(editor.state)).toBe(1)
     expect(markdown(undoOnce(editor.state))).toBe('First\n\nSecond')
@@ -320,4 +348,101 @@ test.each([
   expect(markdown(editor.state)).toBe(expected)
   expect(undoDepth(editor.state)).toBe(1)
   expect(markdown(undoOnce(editor.state))).toBe(source)
+})
+
+test('a list item menu converts only that item and preserves nested children', () => {
+  const state = open('- a\n- b\n  - child\n- c', 'b')
+  const at = unitAt(state.doc, state.selection.head, 1)!.before
+  expect(markdown(apply(state, turnBlock(state, at, 'h2')))).toBe(
+    '- a\n\n<block>\n  ## b\n\n  - child\n</block>\n\n- c'
+  )
+  expect(markdown(apply(state, turnBlock(state, at, 'callout')))).toBe(
+    '- a\n\n<block>\n  <callout>\n    b\n  </callout>\n\n  - child\n</block>\n\n- c'
+  )
+})
+
+test('menu operations on a selected block keep the complete selection', () => {
+  const doc = headlessState('a\n\nb\n\nc')
+  const state = doc.update({ selection: BlockSelection.between(doc.doc, 0, 3)! }).state
+  expect(markdown(apply(state, duplication(state, 3)))).toBe('a\n\nb\n\na\n\nb\n\nc')
+  expect(markdown(apply(state, movement(state, 1, 0)))).toBe('c\n\na\n\nb')
+  expect(markdown(apply(state, removal(state, 3)))).toBe('c')
+})
+
+test('dragging list items across containers preserves their children and markers', () => {
+  const state = open('- [x] a\n  - child\n- b\n\nEnd', 'a')
+  const item = unitAt(state.doc, state.selection.head, 1)!
+  const moved = apply(state, relocation(state, [item.before], state.doc.length))
+  expect(markdown(moved)).toBe('- b\n\nEnd\n\n- [x] a\n  - child')
+  const plain = open('- a\n- b\n\nEnd', 'End')
+  const end = unitAt(plain.doc, plain.selection.head, 1)!
+  const firstItem = unitAt(plain.doc, position(plain, 'a'), 1)!
+  expect(markdown(apply(plain, relocation(plain, [end.before], firstItem.after)))).toBe('- a\n\nEnd\n\n- b')
+})
+
+test('dragging the last list item removes its empty wrapper and undo restores the hierarchy', () => {
+  const state = open('- only\n\nEnd', 'only')
+  const item = unitAt(state.doc, state.selection.head, 1)!
+  const editor = editorFor(state)
+  editor.dispatch(relocation(state, [item.before], state.doc.length)!)
+  expect(markdown(editor.state)).toBe('End\n\n- only')
+  expect(editor.state.selection).toBeInstanceOf(BlockSelection)
+  expect(undoDepth(editor.state)).toBe(1)
+  expect(markdown(undoOnce(editor.state))).toBe('- only\n\nEnd')
+})
+
+test('a selected group can turn into headings and a list through its menu in one undo step', () => {
+  for (const [type, expected] of [
+    ['h2', '## a\n\n## b\n\nc'],
+    ['bullet', '- a\n- b\n\nc']
+  ] as const) {
+    const doc = headlessState('a\n\nb\n\nc')
+    const state = doc.update({ selection: BlockSelection.between(doc.doc, 0, 3)! }).state
+    const editor = editorFor(state)
+    expect(turnBlockInto(editor, 3, type)).toBe(true)
+    expect(markdown(editor.state)).toBe(expected)
+    expect(undoDepth(editor.state)).toBe(1)
+    expect(markdown(undoOnce(editor.state))).toBe('a\n\nb\n\nc')
+  }
+})
+
+test('a selection crosses a list boundary without taking unselected items', () => {
+  const doc = open('Before\n\n- one\n- two\n\nAfter\n\nEnd', 'two')
+  const item = unitAt(doc.doc, doc.selection.head, 1)!
+  const after = unitAt(doc.doc, position(doc, 'After'), 1)!
+  const state = doc.update({ selection: BlockSelection.between(doc.doc, item.before, after.before)! }).state
+  expect(
+    (state.selection as BlockSelection).blocks.map(block => block.node.isPlot && block.node.textContent())
+  ).toEqual(['two', 'After'])
+  expect(markdown(apply(state, duplication(state)))).toBe('Before\n\n- one\n- two\n\nAfter\n\n- two\n\nAfter\n\nEnd')
+  expect(markdown(apply(state, removal(state, after.before)))).toBe('Before\n\n- one\n\nEnd')
+  const moved = apply(state, relocation(state, [item.before, after.before], state.doc.length))
+  expect(markdown(moved)).toBe('Before\n\n- one\n\nEnd\n\n- two\n\nAfter')
+  expect(markdown(undoOnce(moved))).toBe('Before\n\n- one\n- two\n\nAfter\n\nEnd')
+})
+
+test('duplicating a paragraph and the first list item splits the destination list', () => {
+  const doc = open('Before\n\n- one\n- two\n\nAfter', 'one')
+  const item = unitAt(doc.doc, doc.selection.head, 1)!
+  const state = doc.update({ selection: BlockSelection.between(doc.doc, 0, item.before)! }).state
+  expect(markdown(apply(state, duplication(state)))).toBe('Before\n\n- one\n\nBefore\n\n- one\n- two\n\nAfter')
+  expect(markdown(apply(state, removal(state, 0)))).toBe('- two\n\nAfter')
+})
+
+test('dragging a bullet into a numbered list preserves the bullet type', () => {
+  const state = open('- bullet\n\n1. one\n2. two', 'bullet')
+  const item = unitAt(state.doc, state.selection.head, 1)!
+  const one = unitAt(state.doc, position(state, 'one'), 1)!
+  expect(markdown(apply(state, relocation(state, [item.before], one.after)))).toBe('1. one\n\n- bullet\n\n1. two')
+})
+
+test('moving a child and its uncle does not copy an empty version of their unselected parent', () => {
+  const doc = open('- Parent\n  - Child\n- Uncle\n\nEnd', 'Child')
+  const child = unitAt(doc.doc, doc.selection.head, 1)!
+  const uncle = unitAt(doc.doc, position(doc, 'Uncle'), 1)!
+  const state = doc.update({ selection: BlockSelection.between(doc.doc, child.before, uncle.before)! }).state
+  expect(markdown(apply(state, removal(state, child.before)))).toBe('- Parent\n\nEnd')
+  expect(markdown(apply(state, relocation(state, [child.before, uncle.before], state.doc.length)))).toBe(
+    '- Parent\n\nEnd\n\n- Child\n- Uncle'
+  )
 })

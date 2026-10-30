@@ -14,12 +14,6 @@ defmodule Mix.Tasks.Ankole.CompileCycles do
   @shortdoc "Check compile cycles and Plugin dependency directions"
   use Mix.Task
 
-  @upgrade "app/control_plane/lib/ankole/upgrade_202610.ex"
-  @upgrade_targets [
-    "plugins/slack_adapter/lib/ankole/plugins/slack_adapter/config.ex",
-    "plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/config.ex"
-  ]
-
   @impl true
   def run(_args) do
     Mix.Task.run("compile")
@@ -57,8 +51,6 @@ defmodule Mix.Tasks.Ankole.CompileCycles do
 
     Mix.shell().info("Plugin dependency directions: OK")
   end
-
-  defp forbidden?(@upgrade, sink) when sink in @upgrade_targets, do: false
 
   defp forbidden?(source, sink) do
     case {owner(source), owner(sink)} do

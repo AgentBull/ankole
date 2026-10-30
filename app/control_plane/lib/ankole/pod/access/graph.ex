@@ -4,7 +4,7 @@ defmodule Ankole.Pod.Access.Graph do
   alias Ankole.AuthZ.{Actor, Decision}
   alias Ankole.Repo
 
-  @actions ~w(page_view page_write_records page_edit page_manage)
+  @actions ~w(page_view page_write_records page_edit page_manage page_comment)
 
   def page_bits(page, reachable) do
     case Map.get(reachable, page.acl_anchor_id) do
@@ -17,7 +17,7 @@ defmodule Ankole.Pod.Access.Graph do
     cond do
       band(bits, 8) != 0 -> "manage"
       band(bits, 4) != 0 -> "edit"
-      band(bits, 2) != 0 -> "contribute"
+      band(bits, 18) != 0 -> "contribute"
       band(bits, 1) != 0 -> "view"
       true -> nil
     end
@@ -27,6 +27,7 @@ defmodule Ankole.Pod.Access.Graph do
   def action_bit("page_write_records"), do: 2
   def action_bit("page_edit"), do: 4
   def action_bit("page_manage"), do: 8
+  def action_bit("page_comment"), do: 16
 
   def project_permissions(page, bits) do
     actions = for action <- @actions, band(bits, action_bit(action)) != 0, do: action
@@ -75,14 +76,69 @@ defmodule Ankole.Pod.Access.Graph do
     end
   end
 
+  def navigation_access(%Actor{} = actor) do
+    with {:ok, contexts} <- actor_contexts(actor) do
+      reachable =
+        Enum.reduce(contexts, nil, fn {subject, context}, previous ->
+          current = graph_rows(query_reachable(Actor.uid(subject), context, []).rows)
+          if previous, do: intersect_reachable(previous, current), else: current
+        end)
+
+      {:ok,
+       %{
+         reachable: reachable,
+         space_bits:
+           Enum.reduce(contexts, 31, fn {_, {snapshot, evaluated}}, bits ->
+             band(bits, snapshot_space_bits(snapshot, evaluated))
+           end),
+         can_manage_space:
+           Enum.all?(contexts, fn {_, {snapshot, _}} -> space_manager?(snapshot) end)
+       }}
+    end
+  end
+
+  @doc "Detects changes in evaluated subjects, grants, and groups; tree writes publish their own access changes."
+  def context_signature(%Actor{} = actor) do
+    with {:ok, contexts} <- actor_contexts(actor) do
+      permissions =
+        Enum.map(contexts, fn {_, {snapshot, evaluated}} ->
+          {Map.take(snapshot["principal"], ~w(uid type status membership)),
+           Enum.sort_by(snapshot["grants"], & &1["id"]),
+           Enum.sort(evaluated["satisfiedGrantIDs"]), Enum.sort(evaluated["effectiveGroupIDs"]),
+           space_manager?(snapshot)}
+        end)
+
+      {:ok, :crypto.hash(:sha256, :erlang.term_to_binary(permissions, [:deterministic]))}
+    end
+  end
+
+  defp actor_contexts(actor) do
+    [Actor.primary(actor), Actor.interactive(actor)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce_while({:ok, []}, fn subject, {:ok, contexts} ->
+      case context_snapshot(subject) do
+        {:ok, context} -> {:cont, {:ok, [{subject, context} | contexts]}}
+        error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, contexts} -> {:ok, Enum.reverse(contexts)}
+      error -> error
+    end
+  end
+
+  defp space_manager?(snapshot) do
+    snapshot =
+      snapshot |> Map.put("resource", "tenant_console:pod_space") |> Map.put("action", "update")
+
+    match?(%{"status" => "allow"}, Ankole.Kernel.authz_authorize(snapshot))
+  end
+
   defp snapshot_space_bits(%{"principal" => %{"membership" => "guest"}}, _), do: 0
 
   defp snapshot_space_bits(snapshot, evaluated) do
-    admin =
-      snapshot |> Map.put("resource", "tenant_console:pod_space") |> Map.put("action", "update")
-
-    if match?(%{"status" => "allow"}, Ankole.Kernel.authz_authorize(admin)) do
-      15
+    if space_manager?(snapshot) do
+      31
     else
       satisfied = MapSet.new(evaluated["satisfiedGrantIDs"])
       groups = MapSet.new(evaluated["effectiveGroupIDs"])
@@ -170,7 +226,7 @@ defmodule Ankole.Pod.Access.Graph do
             JOIN pages source ON source.tenant_id = g.tenant_id AND source.id = g.source_page_id
             WHERE g.tenant_id = $1::text::uuid AND g.target_page_id = d.id
               AND g.source_page_id IS NOT NULL
-              AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage')
+              AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage', 'page_comment')
               AND (g.condition = 'true' OR g.id = ANY($2::text[]::uuid[]))
           ) dependency
         ),
@@ -205,21 +261,21 @@ defmodule Ankole.Pod.Access.Graph do
         grant_candidates AS (
           SELECT g.* FROM permission_grants g
           WHERE g.tenant_id = $1::text::uuid AND g.principal_uid = $3::text
-            AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage') AND g.condition = 'true'
+            AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage', 'page_comment') AND g.condition = 'true'
           UNION ALL
           SELECT g.* FROM permission_grants g
           WHERE g.tenant_id = $1::text::uuid AND g.group_id = ANY($4::text[]::uuid[])
-            AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage') AND g.condition = 'true'
+            AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage', 'page_comment') AND g.condition = 'true'
           UNION ALL
           SELECT g.* FROM permission_grants g
           WHERE g.tenant_id = $1::text::uuid AND g.source_page_id IS NOT NULL
-            AND g.condition = 'true' AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage')
+            AND g.condition = 'true' AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage', 'page_comment')
             AND ((CASE WHEN $9::text[] IS NULL THEN $7::text[] ELSE ARRAY[candidate.trash_id] END) IS NULL
               OR g.target_page_id IN (SELECT id FROM dependencies))
           UNION ALL
           SELECT g.* FROM permission_grants g
           WHERE g.tenant_id = $1::text::uuid AND g.id = ANY($2::text[]::uuid[])
-            AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage') AND g.condition <> 'true'
+            AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage', 'page_comment') AND g.condition <> 'true'
         ),
         active_grants AS (
           SELECT
@@ -229,6 +285,7 @@ defmodule Ankole.Pod.Access.Graph do
               WHEN 'page_write_records' THEN 2
               WHEN 'page_edit' THEN 4
               WHEN 'page_manage' THEN 8
+              WHEN 'page_comment' THEN 16
             END AS req_bit,
             g.target_page_id,
             (g.target_scope = 'container') AS is_container,
@@ -237,6 +294,7 @@ defmodule Ankole.Pod.Access.Graph do
               WHEN 'page_write_records' THEN 2
               WHEN 'page_edit' THEN 4
               WHEN 'page_manage' THEN 8
+              WHEN 'page_comment' THEN 16
             END AS grant_bit,
             g.resource_pattern
           FROM grant_candidates g
@@ -244,7 +302,7 @@ defmodule Ankole.Pod.Access.Graph do
         seeds (anchor_id, scope, bit) AS (
           SELECT la.id, s.scope, b.bit
           FROM live_anchors la
-          CROSS JOIN (VALUES (1), (2), (4), (8)) AS b(bit)
+          CROSS JOIN (VALUES (1), (2), (4), (8), (16)) AS b(bit)
           CROSS JOIN (VALUES ('container'), ('self')) AS s(scope)
           WHERE la.parent_anchor_id IS NULL
             AND la.private_owner_uid IS NULL
@@ -277,7 +335,7 @@ defmodule Ankole.Pod.Access.Graph do
         edges (src_anchor, src_scope, src_bit, dst_anchor, dst_scope, dst_bit) AS (
           SELECT la.parent_anchor_id, 'container', b.bit, la.id, s.scope, b.bit
           FROM live_anchors la
-          CROSS JOIN (VALUES (1), (2), (4), (8)) AS b(bit)
+          CROSS JOIN (VALUES (1), (2), (4), (8), (16)) AS b(bit)
           CROSS JOIN (VALUES ('container'), ('self')) AS s(scope)
           WHERE la.parent_anchor_id IS NOT NULL
             AND la.inherit_permissions = true

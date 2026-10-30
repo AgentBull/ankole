@@ -220,11 +220,13 @@ defmodule Ankole.Pod.AccessReviewTest do
         expected =
           MapSet.new(
             for page <- pages,
+                {:ok, current} <- [Pages.fetch(page.id)],
                 {:ok, _} <- [
-                  Pages.authorize(
+                  Access.authorize(
                     Ankole.PrincipalsFixtures.actor_fixture(actor.uid),
-                    page.id,
-                    "page_view"
+                    current,
+                    "page_view",
+                    trash: false
                   )
                 ],
                 do: page.id
@@ -502,7 +504,8 @@ defmodule Ankole.Pod.AccessReviewTest do
 
     assert {:ok, _} =
              Pages.update(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
-               title: "Renamed"
+               title: "Renamed",
+               expected_title: page.title
              })
 
     assert_receive {:page_committed, _}

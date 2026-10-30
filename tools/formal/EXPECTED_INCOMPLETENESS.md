@@ -2,7 +2,7 @@
 
 During formal verification, Lynx and Lean explore every term or state permitted by the untyped BEAM runtime or by an abstract state model. Whenever an upstream caller contract, Ash resource attribute, or PostgreSQL constraint rules out an invalid case, production code omits redundant defensive guards and the formal laws state that boundary explicitly in `requires:`.
 
-Each entry below documents an intentional boundary surfaced during formal verification and identifies the upstream owner responsible for enforcing it.
+Each entry below documents an intentional boundary surfaced during formal verification and identifies the upstream owner responsible for enforcing it. A dated decision records a boundary the project agreed to keep rather than close.
 
 ## `Ankole.Pod.Position`
 
@@ -43,7 +43,7 @@ Each entry below documents an intentional boundary surfaced during formal verifi
 
 | Surfaced Case | Runtime Behavior | Formal Scope | Upstream Owner |
 | --- | --- | --- | --- |
-| `Text.truncate_utf8/3` receives `byte_size(text) > max_bytes` while `byte_size(suffix) > max_bytes` | `available = max(max_bytes - byte_size(suffix), 0)` evaluates to `0`, so `"" <> suffix` returns `suffix` even though `byte_size(suffix) > max_bytes`. | `truncate_utf8_universal_contract` requires `max_bytes >= byte_size(suffix)` along with valid UTF-8 `text` and `suffix`. | `Ankole.BackgroundAgentJobs.Wakeups.truncate_summary/1` (`app/control_plane/lib/ankole/background_agent_jobs/wakeups.ex`) is the sole production caller, passing `max_bytes = 16_384` and `suffix = "...[truncated]"` (`14` bytes). Callers with arbitrary byte budgets use `Text.truncate_utf8_window/3` instead. |
+| `Text.truncate_utf8/3` receives `byte_size(text) > max_bytes` while `byte_size(suffix) > max_bytes` | `available = max(max_bytes - byte_size(suffix), 0)` evaluates to `0`, so `"" <> suffix` returns `suffix` even though `byte_size(suffix) > max_bytes`. | `truncate_utf8_universal_contract` requires `max_bytes >= byte_size(suffix)` along with valid UTF-8 `text` and `suffix`. | `Ankole.BackgroundAgentJobs.Wakeups.truncate_summary/1` (`app/control_plane/lib/ankole/background_agent_jobs/wakeups.ex`, `max_bytes = 16_384`, `suffix = "...[truncated]"`, `14` bytes) and `Ankole.Brain.PageEdit.compact_diff/2` (`app/control_plane/lib/ankole/brain/page_edit.ex`, `max_bytes = 8_192`, `suffix = "\n... (diff truncated)"`, `21` bytes) are the sole production callers. Callers with arbitrary byte budgets use `Text.truncate_utf8_window/3` instead. |
 | `Text.utf8_suffix/2` receives an invalid UTF-8 binary with `byte_size(text) <= max_bytes`, a non-binary `_text` with `max_bytes == 0`, or a non-integer `max_bytes` | `when byte_size(text) <= max_bytes` returns `text` without checking `String.valid?(text)` or `is_integer(max_bytes)`, and `def utf8_suffix(_text, 0)` returns `""` without checking `is_binary(_text)`. | `utf8_suffix_universal_contract` requires `is_binary(text)`, `String.valid?(text)`, `is_integer(max_bytes)`, and `max_bytes >= 0`. | `Text.truncate_utf8_window/3` (`app/control_plane/lib/ankole/text.ex`) and `Ankole.AutomationJobs.bounded_text/2` (`app/control_plane/lib/ankole/automation_jobs.ex`) are the sole callers, passing valid `String.t()` binaries and non-negative integer byte budgets. |
 
 ## Reply interaction normalization and merge
@@ -169,3 +169,62 @@ Each entry below documents an intentional boundary surfaced during formal verifi
 | Residual physical rows become authoritative after an interrupted inline-to-physical promotion. | Rejected candidate: inline rows remain authoritative until the control-plane metadata transaction commits. Retrying promotion drops any residual physical shard objects and re-imports the current inline snapshot. | `Promote.if_needed/1`, `Physical.create_table!/3` |
 | Whether a partially committed DDL change can serve rows under the older metadata schema. | Rejected candidate: any schema-version mismatch between physical shard state and control-plane metadata denies access until an operator repairs the table; Ankole does not promise automatic inverse-DDL recovery. | `Physical.state/2`, `BaseRepo`, `PodContentModel.md` |
 | Whether crashing between shard drop and metadata deletion leaves table cleanup stuck. | Rejected candidate: deletion marks and queues the table first (immediately hiding marked tables), and both physical shard drops and metadata deletion are idempotent so retries complete cleanly once the background cleanup job runs. | `Bases.Delete`, `Pod.Jobs.PurgePage` |
+
+## Delivery intent lifecycle
+
+- **Production module**: `app/control_plane/lib/ankole/conversations/delivery/intent.ex`
+- **Model**: `lean/DeliveryIntent.lean`
+- **Conformance suite**: `app/control_plane/test/ankole/conversations/delivery/intent_trace_test.exs`
+
+| Surfaced Case | Runtime Behavior | Formal Scope | Upstream Owner |
+| --- | --- | --- | --- |
+| `requeue` runs on a row whose `possible_duplicate` is true | `Intent`'s `:requeue` action clears `recovery_status` and moves the row to `:pending` while keeping `possible_duplicate` true so the operator-authorized retry carries its `[Possible duplicate]` notice; `:start_attempt` rejects automatic retries on `:failed` rows with `possible_duplicate == true` until `:requeue` moves the row to `:pending`. | `requeue` in `DeliveryIntent.lean` clears `recovery` and preserves `possibleDuplicate`, and `canStart` admits `:pending` rows (including operator-requeued duplicates) while blocking `:failed` rows with `possibleDuplicate = true`. | `Ankole.Conversations.Delivery.Recovery` sets `possible_duplicate: true` and `possible_duplicate_notice` when requeuing an uncertain delivery, and both `Dispatch.dispatchable_intent?/2` and `Intent`'s `:start_attempt` action block unconfirmed `:failed` duplicate-fenced rows. |
+| `requeue` runs on a generic intent | The action rejects the update; generic delivery stops instead of retrying. | The model's `requeue` is the durable-reply contract and omits `delivery_class`. | `Delivery.Intent` validates `delivery_class == :durable_ai_reply`; this is a product decision, not an invariant gap. |
+| A finalizer records a result for an attempt that recovery already superseded | The dispatch fence compares status, attempt count, and send timestamp under the row lock; the late result becomes a logged no-op. | `finalize` models only the abstract fence. It does not model the row lock, the stale-result log, or the mirror of a successful intent; `recovery_test.exs` exercises the production no-op. | `dispatch.ex` `refetch_claimed_intent/2`; PostgreSQL row locks. |
+
+## Background Agent Job claims
+
+- **Production module**: `app/control_plane/lib/ankole/background_agent_jobs/lifecycle.ex`
+- **Model**: `lean/BackgroundAgentJob.lean`
+- **Conformance suite**: `app/control_plane/test/ankole/background_agent_jobs/claim_trace_test.exs`
+
+| Surfaced Case | Runtime Behavior | Formal Scope | Upstream Owner |
+| --- | --- | --- | --- |
+| `worker_report` names `running` for a Job that is not running | With a `turn_ref` for another attempt, `commit_status_after_runtime_prefix_in_tx/7` returns `:background_agent_job_attempt_changed`; with no `turn_ref`, the status machine would accept the transition. | The model covers the claim and slot transitions, not arbitrary status reports. `worker_report` is treated as an upstream-owned transition. | Every Worker report carries a `turn_ref` authorized by `Ankole.AgentWorkers.WorkerRouteAuth`; internal `commit_status` callers pass only terminal statuses. |
+| The per-Agent cap is resolved outside the claim transaction | `Admission` reads `max_running` before opening the transaction so the transaction never waits on another connection. | `maxRunning` is a model parameter; the model does not prove that every caller resolves the same value. | `Ankole.BackgroundAgentJobs.Admission` and the AppConfigure reader. |
+| A `waiting_on_user` report releases the slot | The status machine allows `running -> waiting_on_user`; `capacity_available_in_tx?/2` counts only `:running`, so the slot is free. The waiting transition additionally requires a lead Turn with a pending `request_user_input`. | The model proves the counter effect (`waiting_releases_slot`), not the Turn-trajectory precondition. | `Turns.ensure_lead_closed_for_current_attempt_in_tx/2`. |
+
+## Session epoch fence and stale refund
+
+- **Production modules**: `app/control_plane/lib/ankole/sessions/{fence,admission,run}.ex`
+- **Model**: `lean/SessionEpoch.lean`
+- **Conformance suite**: `app/control_plane/test/ankole/sessions/epoch_trace_test.exs`
+
+| Surfaced Case | Runtime Behavior | Formal Scope | Upstream Owner |
+| --- | --- | --- | --- |
+| A stale Driver refunds an attempt that a newer admission already replaced | `refund_in_tx/2` accepts any run whose epoch is older than the workspace, locks the live Signal, and decrements `attempt_count` (never below `provider_capacity_attempt_count`) without checking which attempt the run owned. | The model states the loose contract directly: `refund_ignores_run_attempt` and `double_refund_credits_twice`. The conformance suite checks the single stale refund, not the split-brain double refund. | The refund is deliberately keyed to the Signal rather than an attempt row. Closing the gap would require passing a run-owned attempt anchor into `refund_in_tx/2` and a conditional update; the exposure is limited to a split-brain takeover and inflates the retry budget by one per duplicate stale writer. **Decision (2026-10-29):** keep this refund contract and the recorded boundary; no attempt token or conditional update is added. |
+| A commit from an older epoch reaches a terminal write | `Fence.check_in_tx/2` compares the locked workspace epoch and returns `:stale_driver`; the transaction rolls back. | The model assumes PostgreSQL row locks keep the workspace row stable through commit; it does not model lock scheduling. | `sessions/fence.ex`, `sessions/run.ex` `finalize_in_tx/4`. |
+| A shutdown refund applies after a takeover | `:shutdown` requires `workspace.epoch == run.epoch`; `:stale_driver` requires `workspace.epoch > run.epoch`. | `commitAllowed` and `refund` model the two modes only through the epoch comparison. | `Run.refund_in_tx/2` and `Driver` shutdown handling. |
+
+## Page draft reload
+
+- **Production module**: `app/webapps/pod/state/page-draft.ts`
+- **Model**: `lean/PageDraft.lean`
+- **Conformance suite**: `app/webapps/pod/state/page-draft-async.test.ts`
+
+| Surfaced Case | Runtime Behavior | Formal Scope | Upstream Owner |
+| --- | --- | --- | --- |
+| `reload()` starts while the draft already differs from `savedXML` | The read captures the dirty draft, and a later resolve applies because the draft did not change during the request. The edit is replaced unless the caller kept a recovery copy. | The model proves that an edit made **after** the request starts blocks the resolve (`resolve_of_edited`). It does not claim that a read started on a dirty draft is safe. | The page UI calls `reload()` only from the conflict-reset path after `keepRecoveryDraft`, or from the explicit “reload document” action, which is a deliberate replacement. |
+| A collaboration `changed` callback from a previous Page calls `saved(content, version)` | `PageDraftModel.saved(content, version)` has no source token and would rewrite the current Page's saved baseline and revision. | `stale_save_rewrites_baseline` records the missing guard instead of assuming it. | `PageCollaboration.dispose()` (`libs/ankole-editor/src/editor/page-collaboration.ts`) checks `disposed` in `receive`, `publish`, and `flush()`; React effect cleanup disposes the previous Page's collaboration before the next effect. JavaScript runs those callbacks on one thread, so a callback cannot straddle the dispose. **Decision (2026-10-29):** keep the collaboration owner's dispose boundary; `PageDraftModel` does not gain a source token. |
+| A read resolves with the same revision as the current save | The resolve applies and adopts the read's content. | The model's guard is `¬ version < revision`; it assumes the Page revision identifies committed content. | `pages.revision` is the commit version on the Page row; the same revision denotes the same saved document. |
+
+## Retry ladder
+
+- **Production module**: `app/control_plane/lib/ankole/sessions/turn_error_classifier.ex`
+- **Model**: `lean/RetryLadder.lean`
+- **Conformance suite**: `app/control_plane/test/ankole/sessions/retry_ladder_test.exs`
+
+| Surfaced Case | Runtime Behavior | Formal Scope | Upstream Owner |
+| --- | --- | --- | --- |
+| `delay_seconds/3` receives a negative or non-integer attempt | A negative integer is clamped to the first rung (`max(attempt - 1, 0)`); a non-integer raises inside the arithmetic. | The model uses `Nat` and proves the clamp, bounds, and saturation. The owning suite drives `-3..10`, `100`, and `1000`. | Callers pass `attempt_count` / `provider_capacity_attempt_count` counters, which PostgreSQL constrains to integers. |
+| Lynx translates the function directly | It does not: the body calls `Enum.at/2` and `Integer.pow/2`, which Lynx does not translate, and cutting them off would erase the result under proof. | The contract uses a standalone Lean model plus an exhaustive production check rather than a translated-function theorem. | `TurnErrorClassifier.delay_seconds/3` keeps its idiomatic list ladder and integer exponentiation; production code is not reshaped for the proof. |

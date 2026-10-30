@@ -360,16 +360,19 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
           Repo.query!("DEALLOCATE tool_result_journal_lookup")
         end
 
-      assert plan["Index Name"] == "ai_gateway_messages_tool_result_journal_key_index",
-             inspect(plan)
+      index_plan =
+        Enum.find(plan_nodes(plan), fn node ->
+          node["Index Name"] == "ai_gateway_messages_tool_result_journal_key_index"
+        end)
 
-      assert plan["Index Cond"] =~ "tool_result_idempotency_key"
+      assert index_plan, inspect(plan)
+      assert index_plan["Index Cond"] =~ "tool_result_idempotency_key"
 
       key_position =
         Enum.find_index(params, &(&1 == journal.metadata["tool_result_idempotency_key"]))
 
       assert is_integer(key_position)
-      assert plan["Index Cond"] =~ "$#{key_position + 1}"
+      assert index_plan["Index Cond"] =~ "$#{key_position + 1}"
 
       assert Repo.aggregate(
                from(message in Message,
@@ -1304,6 +1307,8 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       usage: %{}
     })
   end
+
+  defp plan_nodes(plan), do: [plan | Enum.flat_map(Map.get(plan, "Plans", []), &plan_nodes/1)]
 
   defp record_tool_results(attrs) do
     {:ok, result} =

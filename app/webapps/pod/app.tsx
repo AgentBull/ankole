@@ -10,9 +10,14 @@ import {
   RouterProvider,
   useLocation,
   useNavigate,
+  useRouter,
   useRouterState
 } from '@tanstack/react-router'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQueryErrorResetBoundary } from '@tanstack/react-query'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
+import { ErrorBoundary, ErrorFallback } from '../common/error-boundary'
+import { InternalAPIError } from '../common/internal-api-client'
 import { PodSidebar } from './sidebar'
 import { ContentListRoute } from './content-list'
 import { ContentProvider } from './content-context'
@@ -21,9 +26,11 @@ import { ChatDraftProvider } from './chat-drafts'
 import { podKeys, type ConversationDetail } from './api'
 import { contentKeys, pageQuery, type PageDetail } from './content-api'
 import { prefetchBase } from './base-api'
+import { RealtimeRequestError } from './realtime'
 import { podLocation, podRouteID } from '../common/browser-context'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
+import { SidebarLayoutModel } from './state/sidebar-layout'
 import './pod.css'
 
 import { SlotGate, validateSlotIDs } from '../common/slots'
@@ -63,7 +70,12 @@ export function podRouteTitle(
   }
   return label ? `${label} · Ankole` : undefined
 }
-const routeFeedback = { pendingComponent: PodRouteLoading, pendingMs: 0, errorComponent: PodRouteError }
+const routeFeedback = {
+  pendingComponent: PodRouteLoading,
+  pendingMs: 0,
+  pendingMinMs: 0,
+  errorComponent: PodRouteError
+}
 const LazyChatRoute = lazyRouteComponent(() => import('./chat-page'), 'ChatRoute')
 const LazyPageRoute = lazyRouteComponent(() => import('./page-workspace'), 'PageRoute')
 
@@ -71,7 +83,7 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
   validateSlotIDs(slots.settingsTabs ?? [], podSettingsSections)
   const client = useQueryClient()
   const router = useMemo(() => {
-    const rootRoute = createRootRoute({ component: PodShell })
+    const rootRoute = createRootRoute({ component: PodShell, errorComponent: PodShellError })
     const routeTree = rootRoute.addChildren([
       createRoute({
         getParentRoute: () => rootRoute,
@@ -97,7 +109,8 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
         loader: async ({ params }) => {
           const pageID = podRouteID(params.pageID)
           if (!pageID) throw new Response('Page not found', { status: 404 })
-          await client.prefetchQuery(pageQuery(pageID))
+          const read = client.prefetchQuery(pageQuery(pageID))
+          if (client.getQueryData(contentKeys.page(pageID)) === undefined) await read
           const detail = client.getQueryData<PageDetail>(contentKeys.page(pageID))
           if (detail?.page.type === 'base') void prefetchBase(client, pageID)
           return null
@@ -108,7 +121,8 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
       createRoute({
         getParentRoute: () => rootRoute,
         path: 'content/$scope',
-        component: ContentListRoute
+        component: ContentListRoute,
+        ...routeFeedback
       }),
       createRoute({
         getParentRoute: () => rootRoute,
@@ -120,6 +134,9 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
 
     return createRouter({
       routeTree,
+      defaultPreload: 'intent',
+      defaultPreloadDelay: 250,
+      defaultPreloadStaleTime: 0,
       parseSearch: parseRouterSearch,
       stringifySearch: stringifyRouterSearch
     })
@@ -147,29 +164,78 @@ function PodRouteLoading() {
   )
 }
 
-function PodRouteError({ error }: { error: unknown }) {
+function PodShellError({ error, reset }: { error: unknown; reset?: () => void }) {
+  const router = useRouter()
+  const queryReset = useQueryErrorResetBoundary()
+  return (
+    <ErrorFallback
+      variant="shell"
+      error={error}
+      reset={() => {
+        queryReset.reset()
+        if (reset) {
+          reset()
+          void router.invalidate()
+        } else {
+          window.location.reload()
+        }
+      }}
+    />
+  )
+}
+
+function PodRouteError({ error, reset }: { error: unknown; reset?: () => void }) {
+  const router = useRouter()
+  const queryReset = useQueryErrorResetBoundary()
+  const retry = () => {
+    queryReset.reset()
+    if (reset) {
+      reset()
+      void router.invalidate()
+    } else {
+      window.location.reload()
+    }
+  }
+  const isRequestFailure =
+    error instanceof InternalAPIError || error instanceof RealtimeRequestError || error instanceof Response
   return (
     <>
       <PodTopBar pageFallback />
       <div className="p-8">
-        <ContentError error={error} retry={() => window.location.reload()} />
+        {isRequestFailure ? (
+          <ContentError error={error} retry={retry} />
+        ) : (
+          <ErrorFallback variant="panel" error={error} reset={retry} />
+        )}
       </div>
     </>
   )
 }
 
 function PodShell() {
+  useSignals()
   const { t } = useTranslation()
   const client = useQueryClient()
+  const sidebarLayout = useModel(SidebarLayoutModel)
   const { accountNavigation } = usePodSlots()
-  const location = useLocation()
+  const { pathname, composerLocationKey } = useLocation({
+    select: location => {
+      const state = location.state as (Partial<PodCommandNavigationState> & { __TSR_key?: string; key?: string }) | null
+      return {
+        pathname: location.pathname,
+        composerLocationKey:
+          location.pathname === '/' && state?.focusComposer ? (state.__TSR_key ?? state.key ?? location.href) : null
+      }
+    },
+    structuralSharing: true
+  })
   const navigate = useNavigate()
   const [commandOpen, setCommandOpen] = useState(false)
   const commandReturnFocus = useRef<HTMLElement | null>(null)
   const focusedChatLocation = useRef<string | null>(null)
   useLayoutEffect(() => {
-    const conversationSegment = location.pathname.startsWith('/conversations/')
-      ? decodeURIComponent(location.pathname.slice('/conversations/'.length).split('/')[0] ?? '')
+    const conversationSegment = pathname.startsWith('/conversations/')
+      ? decodeURIComponent(pathname.slice('/conversations/'.length).split('/')[0] ?? '')
       : undefined
     const conversationID = conversationSegment ? (podRouteID(conversationSegment) ?? conversationSegment) : undefined
     const syncTitle = () => {
@@ -181,13 +247,13 @@ function PodShell() {
             .getQueryData<{ conversations: Array<{ id: string; title: string }> }>(podKeys.conversations)
             ?.conversations.find(item => item.id === conversationID)?.title
       }
-      const next = podRouteTitle(location.pathname, t, conversationTitle)
+      const next = podRouteTitle(pathname, t, conversationTitle)
       if (next) document.title = next
     }
     syncTitle()
     if (!conversationID) return
     return client.getQueryCache().subscribe(() => syncTitle())
-  }, [client, location.pathname, t])
+  }, [client, pathname, t])
   const openCommand = useCallback(() => {
     commandReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setCommandOpen(true)
@@ -213,20 +279,8 @@ function PodShell() {
     window.addEventListener('keydown', shortcut, true)
     return () => window.removeEventListener('keydown', shortcut, true)
   }, [commandOpen, openCommand])
-  const locationState = location.state as
-    | (Partial<PodCommandNavigationState> & {
-        __TSR_key?: string
-        key?: string
-      })
-    | null
-  const locationKey = locationState?.__TSR_key ?? locationState?.key ?? location.href
   useEffect(() => {
-    if (
-      location.pathname !== '/' ||
-      !locationState?.focusComposer ||
-      commandOpen ||
-      focusedChatLocation.current === locationKey
-    ) {
+    if (!composerLocationKey || commandOpen || focusedChatLocation.current === composerLocationKey) {
       return
     }
     const observer = new MutationObserver(focusComposer)
@@ -237,12 +291,12 @@ function PodShell() {
       )
       if (!composer) return
       composer.focus()
-      focusedChatLocation.current = locationKey
+      focusedChatLocation.current = composerLocationKey
       observer.disconnect()
       void navigate({ to: podLocation('/').pathname, replace: true, resetScroll: false })
     }
     focusComposer()
-    if (focusedChatLocation.current !== locationKey) {
+    if (focusedChatLocation.current !== composerLocationKey) {
       observer.observe(document.body, {
         childList: true,
         subtree: true,
@@ -251,19 +305,29 @@ function PodShell() {
       })
     }
     return () => observer.disconnect()
-  }, [locationKey, location.pathname, locationState?.focusComposer, commandOpen, navigate])
+  }, [composerLocationKey, commandOpen, navigate])
   return (
     <PodCommandContext value={openCommand}>
       <TooltipProvider>
         <SidebarProvider
           className="pod-shell h-svh overflow-hidden"
-          style={{ '--sidebar-width': '248px' } as CSSProperties}>
-          <SlotGate slot={accountNavigation}>
-            {enabled => <PodSidebar accountNavigation={enabled ? accountNavigation?.content : undefined} />}
-          </SlotGate>
+          style={{ '--sidebar-width': `${sidebarLayout.width.value}px` } as CSSProperties}>
+          <ErrorBoundary
+            variant="panel"
+            className="fixed bottom-3 left-3 z-50 w-(--sidebar-width) max-w-[calc(100vw-1.5rem)] md:static md:m-2 md:shrink-0 md:self-start"
+            resetKeys={[pathname]}>
+            <SlotGate slot={accountNavigation}>
+              {enabled => (
+                <PodSidebar
+                  accountNavigation={enabled ? accountNavigation?.content : undefined}
+                  layout={sidebarLayout}
+                />
+              )}
+            </SlotGate>
+          </ErrorBoundary>
           <SidebarInset className="min-h-0 overflow-hidden">
             <PodTopBar />
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-hidden has-data-sheet:overflow-visible">
               <Outlet />
             </div>
           </SidebarInset>
@@ -277,12 +341,9 @@ function PodShell() {
 function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
   const { t } = useTranslation()
   const { state } = useSidebar()
-  const location = useLocation()
+  const pathname = useLocation({ select: location => location.pathname })
   const isLoading = useRouterState({ select: routerState => routerState.isLoading })
-  const contentHeader =
-    location.pathname === '/' ||
-    location.pathname.startsWith('/pages/') ||
-    location.pathname.startsWith('/conversations/')
+  const contentHeader = pathname === '/' || pathname.startsWith('/pages/') || pathname.startsWith('/conversations/')
   if (contentHeader && !pageFallback) return null
   if (!contentHeader && pageFallback) return null
 

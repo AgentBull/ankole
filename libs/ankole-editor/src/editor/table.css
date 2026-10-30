@@ -1,0 +1,187 @@
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  table:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: var(--table-width, 100%);
+  min-width: var(--table-min-width, 0px);
+  margin: 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(td, th):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  @apply content-cell;
+  min-width: 25px;
+  overflow-wrap: anywhere;
+  background-color: var(--cell-background, var(--background));
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  th:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  @apply content-cell-head;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(td, th)
+  > p:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  margin: 0;
+}
+
+/* Table chrome lives outside the editable DOM; the table itself keeps native semantics. */
+.ankole-editor .table-block {
+  position: relative;
+  width: min(100%, var(--table-width, 100%));
+  margin-block: 24px 40px;
+  max-width: 100%;
+}
+.ankole-editor .table-scroll {
+  overflow: auto;
+  max-height: min(70vh, 640px);
+  overscroll-behavior-inline: contain;
+  border: 1px solid var(--editor-hr);
+}
+.ankole-editor .table-scroll:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.ankole-editor .editor-content > .table-block[data-table-layout='full'] {
+  width: calc(100% + var(--table-bleed, 0px) * 2);
+  max-width: none;
+  margin-inline: calc(-1 * var(--table-bleed, 0px));
+}
+.ankole-editor .table-block[data-table-header-row] > .table-scroll > table > tbody > tr:first-child > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--cell-background, var(--layer-01));
+}
+.ankole-editor .table-block[data-table-header-column] > .table-scroll > table > tbody > tr > th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: var(--cell-background, var(--layer-01));
+}
+.ankole-editor
+  .table-block[data-table-header-row][data-table-header-column]
+  > .table-scroll
+  > table
+  > tbody
+  > tr:first-child
+  > th:first-child {
+  z-index: 3;
+}
+.ankole-editor .table-block::before,
+.ankole-editor .table-block::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+}
+.ankole-editor .table-block::before {
+  left: 0;
+  background: linear-gradient(to right, #0002, transparent);
+}
+.ankole-editor .table-block::after {
+  right: 0;
+  background: linear-gradient(to left, #0002, transparent);
+}
+.ankole-editor .table-block:has(> .table-scroll[data-scroll-left])::before,
+.ankole-editor .table-block:has(> .table-scroll[data-scroll-right])::after {
+  opacity: 1;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-selection-tools {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  gap: 4px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) :is(.table-handle, .table-add, .table-resizer) {
+  position: fixed;
+  z-index: 29;
+  touch-action: none;
+}
+:where(.ankole-editor, .ankole-editor-overlay) :is(.table-handle, .table-add) {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--popover);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) :is(.table-handle, .table-add):hover {
+  background: var(--accent);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-row-handle {
+  width: 20px;
+  cursor: grab;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-column-handle {
+  height: 20px;
+  cursor: grab;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-add-row {
+  height: 20px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-add-column {
+  width: 20px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-resizer {
+  width: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-resizer:is(:hover, :focus-visible) {
+  background: var(--primary);
+  opacity: 0.65;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-drop-line {
+  position: fixed;
+  z-index: 40;
+  background: var(--primary);
+  pointer-events: none;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-drop-row {
+  height: 3px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-drop-column {
+  width: 3px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-color-swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #0002;
+  border-radius: 4px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .table-custom-color {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.ankole-editor [data-cell-background] {
+  color: var(--cell-ink);
+}
+
+.ankole-editor .editor-content > .table-block[data-table-layout='full'] table {
+  min-width: max(100%, var(--table-min-width, 0px));
+}

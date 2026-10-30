@@ -1,5 +1,7 @@
+import { usePageMetadata, usePagesMetadata } from './use-page-metadata'
 import { Button, Input, toast } from '@ankole/uikit'
-import { RiChat3Line, RiLockLine } from '@remixicon/react'
+import { pageCreated } from './state/navigation-cache'
+import { RiChat3Line, RiDeleteBinLine, RiLockLine } from '@remixicon/react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -12,7 +14,7 @@ import { ChatAvatar } from './chat/chat-avatar'
 import { ChatRowStatus } from './chat/chat-sidebar'
 import {
   cachedPages,
-  contentKeys,
+  directoryCapabilitiesQuery,
   pageAPI,
   pageChildrenQuery,
   pagesQuery,
@@ -21,6 +23,7 @@ import {
   type PageScope
 } from './content-api'
 import { ContentError, scopeLabels, typeLabels } from './content-primitives'
+import { PermanentDeletePageDialog, usePagePurge } from './page-actions'
 import { CreatePageButton } from './page-create-menu'
 import { PageIcon } from './page-icon'
 import { mergeRecentEntries } from './state/navigation'
@@ -76,7 +79,7 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
   const searched = useQuery({ ...pageSearchQuery(query), enabled: search })
   const roots = useInfiniteQuery({
     ...pageChildrenQuery(effectiveScope === 'private' ? 'private' : 'space'),
-    enabled: rootScope
+    enabled: !trash
   })
   const pages = rootScope
     ? {
@@ -90,10 +93,12 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
       : listing
   const client = useQueryClient()
   const navigate = useNavigate()
+  const [purging, setPurging] = useState<Page>()
+  const purge = usePagePurge(() => setPurging(undefined))
   const restore = useMutation({
     mutationFn: pageAPI.restore,
-    onSuccess: async ({ page }) => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+    onSuccess: ({ page }) => {
+      pageCreated(client, page)
       toast.success(t('pod.content.page_restored'), {
         action: {
           label: t('pod.content.open_page'),
@@ -102,22 +107,24 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
       })
     }
   })
+  const capabilities = roots.data?.pages[0]
   const rows: Page[] | undefined = pages.data?.pages
   const pagesByID = new Map(
     [...cachedPages(client), ...(rows ?? []), ...(searched.data?.ancestors ?? [])].map(page => [page.id, page])
   )
-  const error = pages.error || restore.error
+  const error = pages.error || (!trash && roots.error) || restore.error
   return (
     <ContentListFrame
       title={search ? t('pod.content.search_pages') : scopeLabels[effectiveScope]}
       actions={
         !trash &&
         (effectiveScope === 'private'
-          ? pages.data?.can_create_private !== false
-          : pages.data?.can_create_space === true) && (
+          ? capabilities?.can_create_private !== false
+          : capabilities?.can_create_space === true) && (
           <CreatePageButton
             scope={effectiveScope === 'private' ? 'private' : 'space'}
-            privateOwner={pages.data?.principal_uid}
+            privateOwner={capabilities?.principal_uid}
+            disabled={roots.isError}
           />
         )
       }>
@@ -134,7 +141,13 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
           onChange={event => setInputQuery(event.target.value)}
         />
       )}
-      <ContentError error={error} retry={() => void pages.refetch()} />
+      <ContentError
+        error={error}
+        retry={() => {
+          void pages.refetch()
+          if (!rootScope && !trash) void roots.refetch()
+        }}
+      />
       {pages.isPending || (debouncing && !rows?.length) ? (
         <p role="status">{t('pod.content.loading')}</p>
       ) : (
@@ -143,7 +156,7 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
             <PageListItem
               key={page.id}
               page={page}
-              parent={rootScope ? '' : pageParent(page, pagesByID, t('pod.content.untitled'))}
+              ancestors={rootScope ? [] : pageAncestors(page, pagesByID)}
               showPrivateBadge={!rootScope && Boolean(page.private_owner_uid)}
               timestamp={
                 rootScope
@@ -151,20 +164,34 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
                   : formatPageTimestamp(trash ? (page.deleted_at ?? page.updated_at) : page.updated_at, i18n.language)
               }
               restoreAction={
-                trash && (
-                  <Button
-                    data-pod-list-item
-                    aria-describedby={`pod-list-title-${page.id}`}
-                    size="sm"
-                    variant="outline"
-                    disabled={!!page.purge_started_at || restore.isPending}
-                    onClick={() => restore.mutate(page.id)}>
-                    {page.purge_started_at
-                      ? t('pod.content.purging')
-                      : restore.isPending && restore.variables === page.id
-                        ? t('pod.content.restoring')
-                        : t('pod.content.restore')}
-                  </Button>
+                trash &&
+                page.actions?.includes('page_manage') && (
+                  <>
+                    <Button
+                      data-pod-list-item
+                      aria-describedby={`pod-list-title-${page.id}`}
+                      size="sm"
+                      variant="outline"
+                      disabled={!!page.purge_started_at || restore.isPending}
+                      onClick={() => restore.mutate(page.id)}>
+                      {page.purge_started_at
+                        ? t('pod.content.purging')
+                        : restore.isPending && restore.variables === page.id
+                          ? t('pod.content.restoring')
+                          : t('pod.content.restore')}
+                    </Button>
+                    <Button
+                      data-pod-list-item
+                      aria-describedby={`pod-list-title-${page.id}`}
+                      aria-label={t('pod.content.permanently_delete')}
+                      title={t('pod.content.permanently_delete')}
+                      size="icon-sm"
+                      variant="ghost"
+                      disabled={!!page.purge_started_at || purge.isPending}
+                      onClick={() => setPurging(page)}>
+                      <RiDeleteBinLine aria-hidden className="size-4" />
+                    </Button>
+                  </>
                 )
               }
             />
@@ -191,6 +218,14 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
               : t('pod.content.no_pages_yet')}
         </p>
       )}
+      {purging && (
+        <PermanentDeletePageDialog
+          page={purging}
+          pending={purge.isPending}
+          onCancel={() => setPurging(undefined)}
+          onConfirm={() => purge.mutate(purging)}
+        />
+      )}
     </ContentListFrame>
   )
 }
@@ -199,25 +234,26 @@ function RecentContentList() {
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
   const pages = useQuery(pagesQuery('recent'))
+  const destinations = useInfiniteQuery(directoryCapabilitiesQuery())
+  const capabilities = destinations.data
   const conversations = useQuery({
     queryKey: [...podKeys.conversations, 'recent', 'list'],
     queryFn: ({ signal }) => podConversations({ query: { order: 'recent', limit: 100 }, signal })
   })
   const entries = mergeRecentEntries(pages.data?.pages ?? [], conversations.data?.conversations ?? [])
   const pending = pages.isPending || conversations.isPending
-  const error = pages.error || conversations.error
+  const error = pages.error || conversations.error || destinations.error
   const pagesByID = new Map([...cachedPages(client), ...(pages.data?.pages ?? [])].map(page => [page.id, page]))
   return (
     <ContentListFrame
       title={scopeLabels.recent}
-      actions={
-        pages.data?.can_create_space && <CreatePageButton scope="space" privateOwner={pages.data.principal_uid} />
-      }>
+      actions={!destinations.isError && capabilities?.can_create_space && <CreatePageButton scope="space" />}>
       <ContentError
         error={error}
         retry={() => {
           void pages.refetch()
           void conversations.refetch()
+          void destinations.refetch()
         }}
       />
       {pending && !entries.length && <p role="status">{t('pod.content.loading')}</p>}
@@ -228,7 +264,7 @@ function RecentContentList() {
               <PageListItem
                 key={`page:${entry.id}`}
                 page={entry.page}
-                parent={pageParent(entry.page, pagesByID, t('pod.content.untitled'))}
+                ancestors={pageAncestors(entry.page, pagesByID)}
                 showPrivateBadge={Boolean(entry.page.private_owner_uid)}
                 timestamp={formatPageTimestamp(entry.timestamp, i18n.language)}
               />
@@ -273,34 +309,34 @@ function RecentContentList() {
   )
 }
 
+export function handlePodListKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+  if (
+    event.nativeEvent.isComposing ||
+    event.nativeEvent.keyCode === 229 ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey ||
+    (event.key !== 'j' && event.key !== 'k') ||
+    !(event.target instanceof HTMLElement) ||
+    event.target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"]')
+  ) {
+    return
+  }
+  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-pod-list-item]:not([disabled])')]
+  const current = rows.indexOf(document.activeElement as HTMLElement)
+  if (current < 0 || rows.length < 2) return
+  event.preventDefault()
+  const next = rows[(current + (event.key === 'j' ? 1 : -1) + rows.length) % rows.length]!
+  next.focus()
+  next.scrollIntoView({ block: 'nearest' })
+}
+
 function ContentListFrame({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
   return (
-    <section
-      className="pod-content-list h-full overflow-auto px-6 pt-2 pb-6 md:px-10"
-      onKeyDown={event => {
-        if (
-          event.nativeEvent.isComposing ||
-          event.nativeEvent.keyCode === 229 ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.metaKey ||
-          event.shiftKey ||
-          (event.key !== 'j' && event.key !== 'k') ||
-          !(event.target instanceof HTMLElement) ||
-          event.target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"]')
-        ) {
-          return
-        }
-        const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-pod-list-item]:not([disabled])')]
-        const current = rows.indexOf(document.activeElement as HTMLElement)
-        if (current < 0 || rows.length < 2) return
-        event.preventDefault()
-        const next = rows[(current + (event.key === 'j' ? 1 : -1) + rows.length) % rows.length]!
-        next.focus()
-        next.scrollIntoView({ block: 'nearest' })
-      }}>
+    <section className="pod-content-list h-full overflow-auto px-6 pt-2 pb-6 md:px-10" onKeyDown={handlePodListKeyDown}>
       <div className="mb-6 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">{title}</h1>
+        <h1 className="title-page">{title}</h1>
         {actions}
       </div>
       {children}
@@ -312,19 +348,23 @@ const listLinkClass =
   'pod-content-list-link flex min-h-8 min-w-0 items-center gap-3 rounded-control px-3 py-1 text-[13px] leading-5 text-foreground no-underline hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring'
 
 function PageListItem({
-  page,
-  parent,
+  page: sourcePage,
+  ancestors,
   showPrivateBadge,
   timestamp,
   restoreAction
 }: {
   page: Page
-  parent: string
+  ancestors: Page[]
   showPrivateBadge: boolean
   timestamp: string
   restoreAction?: ReactNode
 }) {
   const { t } = useTranslation()
+  const page = usePageMetadata(sourcePage)
+  const parent = usePagesMetadata(ancestors)
+    .map(page => page.title || t('pod.content.untitled'))
+    .join(' / ')
   const content = (
     <>
       <PageIcon page={page} />
@@ -345,33 +385,23 @@ function PageListItem({
     </>
   )
   return (
-    <li className={restoreAction ? 'flex min-h-8 items-center justify-between gap-3 py-0.5' : undefined}>
-      {restoreAction ? (
-        <span className="flex min-w-0 flex-1 items-center gap-3 px-3 py-1">{content}</span>
-      ) : (
-        <Link
-          data-pod-list-item
-          className={listLinkClass}
-          aria-label={page.title || t('pod.content.untitled')}
-          aria-description={[typeLabels[page.type], showPrivateBadge ? t('pod.content.private') : '', parent, timestamp]
-            .filter(Boolean)
-            .join(' · ')}
-          to={podLocation(`/pages/${page.id}`).pathname}>
-          {content}
-        </Link>
-      )}
+    <li className={restoreAction ? 'flex min-h-8 items-center justify-between gap-1 py-0.5' : undefined}>
+      <Link
+        data-pod-list-item
+        className={`${listLinkClass} flex-1`}
+        aria-label={page.title || t('pod.content.untitled')}
+        aria-description={[typeLabels[page.type], showPrivateBadge ? t('pod.content.private') : '', parent, timestamp]
+          .filter(Boolean)
+          .join(' · ')}
+        to={podLocation(`/pages/${page.id}`).pathname}>
+        {content}
+      </Link>
       {restoreAction}
     </li>
   )
 }
 
-function pageParent(page: Page, pagesByID: Map<string, Page>, untitled: string): string {
-  return pageAncestors(page, pagesByID)
-    .map(ancestor => ancestor.title || untitled)
-    .join(' / ')
-}
-
-function formatPageTimestamp(iso: string | null | undefined, locale?: string): string {
+export function formatPageTimestamp(iso: string | null | undefined, locale?: string): string {
   if (!iso) return ''
   const time = Date.parse(iso)
   if (Number.isNaN(time)) return ''

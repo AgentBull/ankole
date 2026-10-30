@@ -1,3 +1,4 @@
+import { signal } from '@preact/signals-react'
 import { ChatModel } from './chat'
 
 type Model = InstanceType<typeof ChatModel>
@@ -6,6 +7,11 @@ type Model = InstanceType<typeof ChatModel>
 export class ChatDrafts {
   private readonly models = new Map<string, Model>()
   private readonly pageModels = new Map<string, Set<Model>>()
+  /**
+   * A Page selection that someone asked an Agent about, waiting for that Page's chat to quote it. The chat
+   * that opens takes it, because which conversation opens is known only once the chat resolves.
+   */
+  readonly pageQuote = signal<{ pageID: string; quote: string } | null>(null)
 
   get(conversationID?: string, pageID?: string): Model {
     const key = conversationID ? `conversation:${conversationID}` : `new:${pageID ?? 'chat'}`

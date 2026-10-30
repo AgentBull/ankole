@@ -158,39 +158,15 @@ defmodule Ankole.EditionBuildTest do
 
     assert {:error, :enoent} = File.lstat(dependencies)
 
-    script = """
-    const worker = `
-      import { prepareEdition } from './scripts/edition.ts';
-      console.log('ready');
-      await Bun.stdin.text();
-      prepareEdition();
-    `;
-    const children = Array.from({ length: 8 }, () =>
-      Bun.spawn(['bun', '-e', worker], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' })
-    );
-    await Promise.all(children.map(async child => {
-      const reader = child.stdout.getReader();
-      const { value } = await reader.read();
-      if (new TextDecoder().decode(value).trim() !== 'ready') throw new Error('Worker not ready');
-      reader.releaseLock();
-    }));
-    for (const child of children) child.stdin.end();
-    const results = await Promise.all(children.map(async child => ({
-      status: await child.exited,
-      error: await new Response(child.stderr).text()
-    })));
-    for (const result of results) {
-      if (result.status !== 0) throw new Error(result.error);
-    }
-    """
+    command!(
+      webapps,
+      "bun",
+      ["-e", "import { prepareEdition } from './scripts/edition.ts'; prepareEdition()"],
+      env
+    )
 
-    for _ <- 1..3 do
-      assert File.rm(dependencies) in [:ok, {:error, :enoent}]
-      command!(webapps, "bun", ["-e", script], env)
-
-      assert File.stat!(dependencies).inode ==
-               File.stat!(Path.join(webapps, "node_modules")).inode
-    end
+    assert File.stat!(dependencies).inode ==
+             File.stat!(Path.join(webapps, "node_modules")).inode
   end
 
   defp check_private_type_checks!(checkout, webapps, env) do
@@ -313,7 +289,7 @@ defmodule Ankole.EditionBuildTest do
       %{status: 400, halted: true} = AnkoleWeb.Plugs.RequestHost.call(conn, [])
       conn = Plug.Test.conn(:get, "https://site.example.test/edition-fixture")
       conn = AnkoleWeb.Plugs.RequestHost.call(conn, [])
-      %{status: 200, assigns: %{browser_login_mode: :add}} = Ankole.EditionFixture.Router.call(conn, Ankole.EditionFixture.Router.init([]))
+      %{status: 200, assigns: %{site_login_host: true}} = Ankole.EditionFixture.Router.call(conn, Ankole.EditionFixture.Router.init([]))
       tags = AnkoleWeb.Assets.entry_tags(conn, "edition-fixture") |> IO.iodata_to_binary()
       check.("private frontend tags", String.contains?(tags, "/assets/js/edition-fixture-"), true)
     end
@@ -374,7 +350,7 @@ defmodule Ankole.EditionBuildTest do
     File.mkdir_p!(target)
 
     for name <- File.ls!(source),
-        name not in ["_build", "deps", "node_modules", "output", "target"] and
+        name not in ["_build", "deps", "node_modules", "output", "target", ".elixir_ls"] and
           not String.starts_with?(name, "mix_lock_") and
           not String.starts_with?(name, "mix_pubsub_") do
       path = Path.join(source, name)

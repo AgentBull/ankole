@@ -28,10 +28,6 @@ defmodule AnkoleWeb.PodControllerTest do
     end
   end
 
-  setup do
-    :ok
-  end
-
   test "anonymous access is denied and an ordinary Human can use Pod", %{
     conn: conn,
     tenant: tenant
@@ -48,7 +44,7 @@ defmodule AnkoleWeb.PodControllerTest do
     non_admin = conn |> Plug.Test.init_test_session(%{}) |> WebSession.ensure_browser()
 
     {:ok, %{browser: browser, authentication: auth}} =
-      Ankole.BrowserSessions.authenticate(WebSession.browser_reference(non_admin), :pod, %{
+      Ankole.BrowserSessions.authenticate(WebSession.browser_reference(non_admin), %{
         "principal_uid" => human.uid,
         "access_version" => human.access_version,
         "provider_id" => "lark-main",
@@ -546,7 +542,6 @@ defmodule AnkoleWeb.PodControllerTest do
       {:ok, %{browser: browser, authentication: auth}} =
         Ankole.BrowserSessions.authenticate(
           WebSession.browser_reference(authenticated_conn),
-          :pod,
           %{
             "principal_uid" => human_uid,
             "access_version" => human.access_version,

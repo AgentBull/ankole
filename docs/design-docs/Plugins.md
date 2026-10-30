@@ -278,6 +278,10 @@ directories. In development, code reloading covers `:ankole` and its local Mix
 dependencies, and protocol consolidation stays disabled so reloads do not
 trigger a full protocol scan on every HTTP request.
 
+The devkit validates and applies the selected database migrations before starting
+Phoenix. Developers restart `bun dev` to apply migrations added during a running
+session.
+
 The six external provider clients live as internal modules of their respective
 Plugins, each with distinct module names and error structs. Once `Repo` and
 AppConfigure finish starting, the active Plugin cohort starts each Plugin's
@@ -287,11 +291,7 @@ Static source dependencies point strictly inward from concrete Plugins to core
 domain contracts: domain modules must not reference concrete Plugins, and
 Plugins must not reference one another. `mix ankole.compile_cycles` enforces
 this boundary across compile, export, and runtime edges in the compiled `xref`
-graph, allowing only two explicit migration calls from `Ankole.Upgrade202610` to
-`Ankole.Plugins.SlackAdapter.Config` and
-`Ankole.Plugins.Microsoft365Adapter.Config` for migrating persisted Slack and
-Microsoft credentials. At runtime, Ankole resolves Plugins from the configured
-module list.
+graph. At runtime, Ankole resolves Plugins from the configured module list.
 
 Reusable lower-level libraries with independent callers—`im_transport`,
 `feishu_protocol`, the Rust/Elixir Kernel, and `tools/fake-feishu`—remain
@@ -313,6 +313,12 @@ entry, and both maps resolve source paths inside `internals/webapps`. Phoenix
 and Vite consume the same resolved entry names, and every SPA loads the build's
 merged locale catalog (allowing private extensions to define their own TOML key
 namespaces).
+
+The Console shell loads route components on demand. A route loader that uses a
+page-owned query imports that page on the same route; the shared shell does not
+pull unrelated editors into its initial module graph. TanStack Query owns the
+fetched data, and the router renders a ready destination without a minimum
+loading-screen duration.
 
 An override wrapper passes typed `slots` into the public root component, whereas
 public roots default to empty slots:

@@ -5,10 +5,6 @@ defmodule AnkoleWeb.PodPageControllerTest do
   alias Ankole.Pod.Pages
   alias Ankole.Repo
 
-  setup do
-    :ok
-  end
-
   test "browser creation rejects Applet shells and creates a document with its body", %{
     conn: conn
   } do
@@ -194,13 +190,13 @@ defmodule AnkoleWeb.PodPageControllerTest do
         private_owner_uid: other.uid
       })
 
-    hidden = api_post(conn, "/api/v2/pod/pages/#{parent.id}/embeds/#{target.id}/delete", %{})
+    hidden = api_post(conn, "/api/v2/pod/pages/#{parent.id}/embeds/delete", %{refs: [target.id]})
     assert true == api_response(hidden, 200)
 
     missing =
       hidden
       |> recycle_api()
-      |> api_post("/api/v2/pod/pages/#{parent.id}/embeds/#{Ecto.UUID.generate()}/delete", %{})
+      |> api_post("/api/v2/pod/pages/#{parent.id}/embeds/delete", %{refs: [Ecto.UUID.generate()]})
 
     assert true == api_response(missing, 200)
 
@@ -219,7 +215,7 @@ defmodule AnkoleWeb.PodPageControllerTest do
     removed =
       missing
       |> recycle_api()
-      |> api_post("/api/v2/pod/pages/#{parent.id}/embeds/#{target.id}/delete", %{})
+      |> api_post("/api/v2/pod/pages/#{parent.id}/embeds/delete", %{refs: [target.id]})
 
     assert true == api_response(removed, 200)
 

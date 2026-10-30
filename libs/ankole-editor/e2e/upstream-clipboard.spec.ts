@@ -145,7 +145,7 @@ test(`${source}117 parses a table wrapped in fragment comments`, async ({ page }
   await expect(page.locator('.editor-content table')).not.toContainText('StartFragment')
 })
 
-test(`${source}104 includes table wrappers when a cell is copied`, async ({ page }) => {
+test(`${source}104 copies a single cell as content [Outline adaptation]`, async ({ page }) => {
   await openDocument(page, 'Replace me')
   await selectDocument(page)
   await clipboard(page.locator('.editor-content'), 'paste', {
@@ -153,11 +153,12 @@ test(`${source}104 includes table wrappers when a cell is copied`, async ({ page
   })
   await selectText(page, 'A', 0, 'A', 1)
   const data = await clipboard(page.locator('.editor-content'), 'copy')
-  expect(data['text/html']).toContain('<table')
+  expect(data['text/html']).not.toContain('<table')
   expect(data['text/html']).not.toContain('>B<')
   await replaceDocument(page, 'Replace me')
   await selectDocument(page)
   await clipboard(page.locator('.editor-content'), 'paste', data)
-  await expect(page.locator('.editor-content table')).toHaveText('A')
+  await expect(page.locator('.editor-content table')).toHaveCount(0)
+  await expect(page.locator('.editor-content p')).toHaveText('A')
   await reopen(page)
 })

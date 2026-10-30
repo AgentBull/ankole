@@ -63,7 +63,7 @@ defmodule Ankole.Authn.EmailTransportTest do
     assert html =~ "<!doctype html>"
     assert html =~ code
     assert {:ok, false} = Ankole.Setup.Config.completed?()
-    assert is_nil(WebSession.admin_session(conn))
+    assert is_nil(WebSession.site_admin_session(conn))
     wrong = if code == "000000", do: "111111", else: "000000"
 
     conn =

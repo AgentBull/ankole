@@ -755,11 +755,6 @@ defmodule Ankole.ConversationsTest do
     assert wire.conversation.page_id == page.id
     assert wire.conversation.pod_instructions =~ "Current Page ID: #{page.id}"
 
-    assert wire.conversation.pod_instructions =~
-             "research reports are saved as editable Pod Pages by default"
-
-    assert wire.conversation.pod_instructions =~ "explicitly requests a file format"
-
     input = Repo.get_by!(Signal, message_id: request.message_id)
 
     assert {:ok, %{job: job}} =

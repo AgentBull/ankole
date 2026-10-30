@@ -13,6 +13,7 @@ import type {
 } from 'mdast'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown, gfmToMarkdown } from 'mdast-util-gfm'
+import { mathFromMarkdown, mathToMarkdown, type Math as MathNode } from 'mdast-util-math'
 import {
   mdxJsxFromMarkdown,
   mdxJsxToMarkdown,
@@ -22,16 +23,29 @@ import {
 } from 'mdast-util-mdx-jsx'
 import { toMarkdown, type Options } from 'mdast-util-to-markdown'
 import { gfm } from 'micromark-extension-gfm'
+import { math } from 'micromark-extension-math'
 import { mdxJsx } from 'micromark-extension-mdx-jsx'
 import { mdxMd } from 'micromark-extension-mdx-md'
 import { normalizeTree } from './normalize'
+import { stripComments } from './comments'
 import { prepareTags, type PreparedSource } from './tags'
 import { checkSource, DocumentError, element, text, textOf, TreeError, type Element, type Node } from './tree'
 import { ruleOf } from './vocabulary'
 
-const syntax = [gfm(), mdxJsx(), mdxMd(), { disable: { null: ['gfmFootnoteDefinition', 'gfmFootnoteCall'] } }]
+const syntax = [
+  gfm(),
+  // A formula block always uses `$$`; a single `$` stays literal text.
+  math({ singleDollarTextMath: false }),
+  mdxJsx(),
+  mdxMd(),
+  { disable: { null: ['gfmFootnoteDefinition', 'gfmFootnoteCall'] } }
+]
 // Bare URLs become links while the source is tokenized. The extra GFM pass would also link escaped text.
-const trees = [...gfmFromMarkdown().map(extension => ({ ...extension, transforms: [] })), mdxJsxFromMarkdown()]
+const trees = [
+  ...gfmFromMarkdown().map(extension => ({ ...extension, transforms: [] })),
+  mdxJsxFromMarkdown(),
+  mathFromMarkdown()
+]
 
 const read = (source: string) => fromMarkdown(source, { extensions: syntax, mdastExtensions: trees })
 
@@ -185,7 +199,9 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Elem
           )
         ]
       case 'code':
-        return [at(codeBlock(node), node)]
+        return [at(node.lang === 'mermaid' && node.meta == null ? mermaidBlock(node) : codeBlock(node), node)]
+      case 'math':
+        return [at(mathBlock(node), node)]
       case 'table':
         return [table(node)]
       case 'definition':
@@ -206,6 +222,14 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Elem
       { ...(node.lang != null ? { lang: node.lang } : {}), ...(node.meta != null ? { meta: node.meta } : {}) },
       node.value ? [text(node.value)] : []
     )
+  }
+
+  function mathBlock(node: MathNode): Element {
+    return element('math', {}, node.value ? [text(node.value)] : [])
+  }
+
+  function mermaidBlock(node: Code): Element {
+    return element('mermaid', {}, node.value ? [text(node.value)] : [])
   }
 
   function listItem(item: ListItem): Element {
@@ -280,6 +304,12 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Elem
           ]
         case 'inlineCode':
           return [at(element('code', {}, [text(node.value)]), node)]
+        case 'inlineMath':
+          throw new TreeError(
+            '行内公式暂不支持',
+            at(element('unsupported'), node),
+            '请把 $$…$$ 单独写成一段，让它成为公式块。'
+          )
         case 'break':
           return [at(element('br'), node)]
         case 'link':
@@ -319,8 +349,14 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Elem
       created.children = inline(node.children)
       // A block element written on one line holds its inline content in a paragraph.
       if (rule?.content === 'blocks' && created.children.length) created.children = [element('p', {}, created.children)]
-    } else if (rule?.content === 'text') created.children = codeTag(node, created)
-    else if ((rule && (rule.content === 'inline' || rule.content === 'empty')) || (!rule && inlineTags(node))) {
+    } else if (rule?.content === 'text') {
+      created.children =
+        node.name === 'math'
+          ? mathTag(node, created)
+          : node.name === 'mermaid'
+            ? mermaidTag(node, created)
+            : codeTag(node, created)
+    } else if ((rule && (rule.content === 'inline' || rule.content === 'empty')) || (!rule && inlineTags(node))) {
       created.children = inlineTag(node, created)
     } else created.children = blocks(node.children)
     return created
@@ -366,6 +402,31 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Elem
     return code.children
   }
 
+  // A block tag of <math> holds one formula block. The tag adds attributes that the
+  // `$$` syntax cannot carry.
+  function mathTag(node: MdxJsxFlowElement, created: Element): Node[] {
+    if (!node.children.length) return []
+    const [formula, ...rest] = node.children
+    if (rest.length || formula?.type !== 'math') {
+      throw new TreeError(`<${created.name}> 只能包含一个公式块`, created, '请把公式写在 $$ 之间。')
+    }
+    return mathBlock(formula).children
+  }
+
+  // A block tag of <mermaid> holds one fenced Mermaid block.
+  function mermaidTag(node: MdxJsxFlowElement, created: Element): Node[] {
+    if (!node.children.length) return []
+    const [fence, ...rest] = node.children
+    if (rest.length || fence?.type !== 'code' || fence.lang !== 'mermaid') {
+      throw new TreeError(
+        `<${created.name}> 只能包含一个 mermaid 代码围栏`,
+        created,
+        '请把源码写在 ```mermaid 围栏里。'
+      )
+    }
+    return mermaidBlock(fence).children
+  }
+
   function attributes(node: MdxJsxFlowElement | MdxJsxTextElement, created: Element): Record<string, string> {
     const entries: [string, string][] = []
     for (const attribute of node.attributes) {
@@ -401,14 +462,15 @@ const printOptions: Options = {
   rule: '-',
   extensions: [
     gfmToMarkdown(),
+    mathToMarkdown(),
     mdxJsxToMarkdown({ quote: '"' }),
     { handlers: { bareUrl: verbatim, raw: verbatim } as Options['handlers'] }
   ]
 }
 
-/** Print the canonical Markdown of a page. The result reads back as the same page. */
+/** Print portable content; live comment anchors remain in canonical XML only. */
 export function printMarkdown(tree: Element): string {
-  const page = normalizeTree(tree)
+  const page = normalizeTree(stripComments(tree))
   const source = toMarkdown(toMdast(page), printOptions).replace(/\n+$/, '')
   let reread: Element | undefined
   try {
@@ -457,6 +519,10 @@ function block(node: Node): RootContent {
       )
     case 'pre':
       return fence(node) ?? flow(node, [{ type: 'code', lang: null, meta: null, value: textOf(node) }])
+    case 'math':
+      return mathMdast(node)
+    case 'mermaid':
+      return mermaidMdast(node)
     case 'hr':
       return plain(node) ? { type: 'thematicBreak' } : flow(node, [])
     case 'table':
@@ -583,6 +649,20 @@ function list(node: Element): List | undefined {
 
 const tightItem = ([first, second, ...rest]: Element[]) =>
   !second || (!rest.length && first?.name === 'p' && (second.name === 'ul' || second.name === 'ol'))
+
+function mathMdast(node: Element): RootContent {
+  const value = textOf(node)
+  if (plain(node) && node.children.every(child => child.type === 'text')) return { type: 'math', value }
+  return flow(node, value ? [{ type: 'math', value }] : [])
+}
+
+function mermaidMdast(node: Element): RootContent {
+  const value = textOf(node)
+  if (plain(node) && node.children.every(child => child.type === 'text')) {
+    return { type: 'code', lang: 'mermaid', meta: null, value }
+  }
+  return flow(node, [{ type: 'code', lang: 'mermaid', meta: null, value }])
+}
 
 function fence(node: Element): Code | undefined {
   const { lang, meta, ...rest } = node.attrs

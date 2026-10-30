@@ -371,7 +371,7 @@ export function ProviderEditorPage() {
             <CredentialPoolEditor provider={selected} providerKind={activeKind} />
           ) : unavailableKind ? (
             <section className="grid gap-1 border border-border bg-card p-5 md:p-6">
-              <h3 className="text-lg font-semibold">{t('console.providers.pool_title')}</h3>
+              <h3 className="title-section">{t('console.providers.pool_title')}</h3>
               <p className="max-w-2xl text-sm text-muted-foreground">{t('console.providers.pool_kind_unavailable')}</p>
             </section>
           ) : null

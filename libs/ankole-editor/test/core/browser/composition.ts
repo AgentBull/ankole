@@ -1,12 +1,12 @@
 import { describe, it } from './runner'
 import { Wordgard } from '../../../src/core/editor'
-import { Leaf } from '../../../src/core/doc'
+import { Leaf, Node as GardNode, Plot, Schema } from '../../../src/core/doc'
 import { Strong } from '../../../src/core/types/schema'
 import { GardSelection } from '../../../src/core/state'
 import browser from '../../../src/core/editor/browser'
 import ist from 'ist'
 import { tempEditor, requireFocus } from './tempview'
-import { basicBuilders, eq } from '../schema'
+import { basicBuilders, basicSchema, builder, eq } from '../schema'
 const { doc, p, strong, em } = basicBuilders
 
 function compositionEvent(wg: Wordgard, type: string) {
@@ -385,6 +385,80 @@ describe('composition', () => {
       ist(wg.state.doc, doc(p('ani'), p('b')), eq)
     })
   }
+
+  it('keeps composing when composed text is deleted to empty and re-entered', () => {
+    const wg = requireFocus(tempEditor(doc(p('.'), p(0))))
+    const second = wg.contentDOM.querySelectorAll('p')[1]!
+    compositionEvent(wg, 'compositionstart')
+    compositionEvent(wg, 'compositionupdate')
+    inputEvent(wg, 'beforeinput', {
+      inputType: 'insertCompositionText',
+      data: 'n',
+      isComposing: true,
+      targetRanges: [new StaticRange({ startContainer: second, startOffset: 0, endContainer: second, endOffset: 0 })]
+    })
+    second.textContent = 'n'
+    const firstNode = selEnd(second.firstChild!)
+    inputEvent(wg, 'input', { inputType: 'insertCompositionText', data: 'n', isComposing: true })
+    wg.flush()
+    ist(wg.composing)
+
+    compositionEvent(wg, 'compositionupdate')
+    inputEvent(wg, 'beforeinput', {
+      inputType: 'insertCompositionText',
+      data: '',
+      isComposing: true,
+      targetRanges: [
+        new StaticRange({ startContainer: firstNode, startOffset: 0, endContainer: firstNode, endOffset: 1 })
+      ]
+    })
+    firstNode.remove()
+    second.appendChild(document.createElement('br'))
+    document.getSelection()!.collapse(second, 0)
+    inputEvent(wg, 'input', { inputType: 'insertCompositionText', data: '', isComposing: true })
+    wg.flush()
+    ist(wg.composing)
+    ist(wg.state.doc, doc(p('.'), p()), eq)
+    ist((wg.state.doc.content[1] as Plot).content.length, 0)
+
+    compositionEvent(wg, 'compositionupdate')
+    inputEvent(wg, 'beforeinput', {
+      inputType: 'insertCompositionText',
+      data: '好',
+      isComposing: true,
+      targetRanges: [new StaticRange({ startContainer: second, startOffset: 0, endContainer: second, endOffset: 0 })]
+    })
+    second.textContent = '好'
+    selEnd(second.firstChild!)
+    inputEvent(wg, 'input', { inputType: 'insertCompositionText', data: '好', isComposing: true })
+    compositionEvent(wg, 'compositionend')
+    wg.flush()
+    ist(!wg.composing)
+    ist(wg.state.doc, doc(p('.'), p('好')), eq)
+  })
+
+  it('opens a paragraph inside an empty list item without replacing the list', () => {
+    const EmptyItem = Plot.define('EmptyItem', {
+      blockContent: GardNode.Group.Content,
+      canBeEmpty: true,
+      shape: { element: 'li' }
+    })
+    const EmptyList = Plot.define('EmptyList', {
+      blockContent: EmptyItem,
+      group: GardNode.Group.Content,
+      shape: { element: 'ul' }
+    })
+    const emptyLi = builder(EmptyItem)
+    const emptyUl = builder(EmptyList)
+    const listDoc = builder(Schema.define([...basicSchema.nodes, ...basicSchema.marks, EmptyItem, EmptyList]))
+    const wg = requireFocus(tempEditor(listDoc(emptyUl(emptyLi(0)))))
+    compose(
+      wg,
+      [3, 3, 'n', () => selEnd(wg.contentDOM.querySelector('li p')!.appendChild(document.createTextNode('n')))],
+      [3, 4, '你']
+    )
+    ist(wg.state.doc, listDoc(emptyUl(emptyLi(p('你')))), eq)
+  })
 
   // FIXME text composition next to widgets
 

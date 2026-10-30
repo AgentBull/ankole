@@ -34,7 +34,9 @@ export default function LanguageDropdown({ label, items }: LanguageDropdownProps
             render={<a href={item.href} aria-current={item.active ? 'true' : undefined} />}
             className="flex cursor-pointer items-center justify-between gap-4 px-4 py-2 no-underline">
             <span>{item.label}</span>
-            {item.active ? <RiCheckLine aria-hidden="true" className="size-4 text-primary" /> : null}
+            {item.active ? (
+              <RiCheckLine aria-hidden="true" className="size-4 text-brand-60 dark:text-brand-40" />
+            ) : null}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

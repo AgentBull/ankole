@@ -196,6 +196,66 @@ pub fn page_diff_nif(old: Term<'_>, new: Term<'_>) -> NIFResult<String> {
         .map_err(error_message)
 }
 
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_identity_changes_nif(source: Term<'_>) -> NIFResult<String> {
+    let source = decode_string(source, "source")?;
+    stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::identity_changes(&source)
+    })
+    .map_err(error_message)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_comment_info_nif(source: Term<'_>) -> NIFResult<String> {
+    let source = decode_string(source, "source")?;
+    stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::comment_info(&source)
+    })
+    .map(|info| info.to_string())
+    .map_err(error_message)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_comment_annotate_nif(
+    source: Term<'_>,
+    id: Term<'_>,
+    from: usize,
+    to: usize,
+) -> NIFResult<(String, String, String)> {
+    let source = decode_string(source, "source")?;
+    let id = decode_string(id, "id")?;
+    let page = stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::annotate_comment(&source, &id, from, to)
+    })
+    .map_err(error_message)?;
+    Ok((page.xml, page.plain_text, page.quote))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_comment_remove_nif(source: Term<'_>, id: Term<'_>) -> NIFResult<(String, String)> {
+    let source = decode_string(source, "source")?;
+    let id = decode_string(id, "id")?;
+    let page = stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::remove_comment(&source, &id)
+    })
+    .map_err(error_message)?;
+    Ok((page.xml, page.plain_text))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_restore_comments_nif(
+    current: Term<'_>,
+    target: Term<'_>,
+) -> NIFResult<(String, String)> {
+    let current = decode_string(current, "current")?;
+    let target = decode_string(target, "target")?;
+    let page = stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::restore_comments(&current, &target)
+    })
+    .map_err(error_message)?;
+    Ok((page.xml, page.plain_text))
+}
+
 #[cfg(feature = "markdown")]
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn markdown_code_ranges_nif(source: Term<'_>) -> NIFResult<Vec<(usize, usize)>> {

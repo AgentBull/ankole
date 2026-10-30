@@ -286,7 +286,7 @@ function StoppedDeliveries({
   return (
     <section aria-labelledby="stopped-deliveries-title" className="grid gap-3">
       <div>
-        <h2 id="stopped-deliveries-title" className="text-base font-semibold">
+        <h2 id="stopped-deliveries-title" className="title-inline">
           {t('console.signals.stopped_deliveries')}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">{t('console.signals.stopped_deliveries_description')}</p>

@@ -42,12 +42,13 @@ defmodule Ankole.KernelTest do
 
     assert %{
              "segments" => [
-               %{"scope" => "world", "text" => "public\n"},
+               %{"scope" => "world", "text" => "public\n", "tagged" => false},
                %{
                  "scope" => "principal:alice",
-                 "text" => "\nprivate [[people/alice]]\n"
+                 "text" => "\nprivate [[people/alice]]\n",
+                 "tagged" => true
                },
-               %{"scope" => "world", "text" => ""}
+               %{"scope" => "world", "text" => "", "tagged" => false}
              ],
              "wikilinks" => ["people/alice"]
            } =

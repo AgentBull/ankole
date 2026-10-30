@@ -33,7 +33,10 @@ defmodule AnkoleWeb.AuthControllerTest do
              "/"
   end
 
-  test "OIDC authorization stores state and redirects in one browser response", %{conn: conn} do
+  test "OIDC authorization stores state and redirects in one browser response", %{
+    conn: conn,
+    tenant: tenant
+  } do
     assert {:ok, true} =
              Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
@@ -45,11 +48,17 @@ defmodule AnkoleWeb.AuthControllerTest do
                true
              )
 
+    {:ok, console_ticket} =
+      WebSession.seal_console_return("/site-admin-console/agents", tenant.id)
+
+    https_conn = forwarded_https_conn(conn)
+    site_origin = AnkoleWeb.PodURL.site_origin(%{https_conn | scheme: :https, port: 443})
+    pod_https = pod_conn(%{https_conn | scheme: :https, port: 443}, tenant)
+
     providers_conn =
-      conn
-      |> forwarded_https_conn()
+      %{https_conn | host: pod_https.host}
       |> init_test_session(%{})
-      |> api_get("/api/v2/browser/identity-providers", %{"purpose" => "console"})
+      |> api_get("/api/v2/browser/identity-providers", %{"console_return" => console_ticket})
 
     assert %{"loginPath" => login_path} =
              Enum.find(
@@ -57,15 +66,13 @@ defmodule AnkoleWeb.AuthControllerTest do
                &(&1["providerID"] == "lark-main")
              )
 
-    assert login_path == "/sessions/oidc/lark-main/authorization"
+    assert login_path == "https://#{pod_https.host}/sessions/oidc/lark-main/authorization"
 
     conn =
-      conn
-      |> forwarded_https_conn()
+      %{https_conn | host: pod_https.host}
       |> init_test_session(%{})
       |> get(login_path, %{
-        "purpose" => "console",
-        "return_to" => "/site-admin-console/agents"
+        "console_return" => console_ticket
       })
 
     authorization_url = redirected_to(conn, 302)
@@ -76,10 +83,10 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert query["state"] == oidc_state.state
 
     assert query["redirect_uri"] ==
-             "https://#{conn.host}/sessions/oidc/lark-main/callback"
+             "https://#{pod_https.host}/sessions/oidc/lark-main/callback"
 
-    assert oidc_state.purpose == :console
-    assert oidc_state.return_to == "/site-admin-console/agents"
+    assert oidc_state.tenant_id == tenant.id
+    assert oidc_state.return_to == site_origin <> "/site-admin-console/agents"
   end
 
   test "OIDC callback without matching state fails closed", %{conn: conn} do
@@ -91,7 +98,7 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert api_response(conn, 401)["error"] ==
              "login_expired"
 
-    assert WebSession.admin_session(conn) == nil
+    assert WebSession.site_admin_session(conn) == nil
   end
 
   test "OIDC callback rejects provider mismatch", %{conn: conn} do
@@ -104,7 +111,6 @@ defmodule AnkoleWeb.AuthControllerTest do
           Ankole.BrowserSessions.begin_oidc_state(WebSession.browser_reference(conn), %{
             state: "state-1",
             provider_id: "lark-main",
-            purpose: :console,
             redirect_uri: "http://localhost/sessions/oidc/lark-main/callback"
           })
 
@@ -115,7 +121,7 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert api_response(conn, 401)["error"] ==
              "login_expired"
 
-    assert WebSession.admin_session(conn) == nil
+    assert WebSession.site_admin_session(conn) == nil
   end
 
   test "OIDC callback rejects expired state", %{conn: conn} do
@@ -128,7 +134,6 @@ defmodule AnkoleWeb.AuthControllerTest do
           Ankole.BrowserSessions.begin_oidc_state(WebSession.browser_reference(conn), %{
             state: "state-1",
             provider_id: "lark-main",
-            purpose: :console,
             redirect_uri: "http://localhost/sessions/oidc/lark-main/callback"
           })
 
@@ -143,7 +148,7 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert api_response(conn, 401)["error"] ==
              "login_expired"
 
-    assert WebSession.admin_session(conn) == nil
+    assert WebSession.site_admin_session(conn) == nil
   end
 
   test "bootstrap OIDC state cannot be replayed as admin login after setup is complete", %{
@@ -166,7 +171,7 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert api_response(conn, 409)["error"] ==
              "setup already completed"
 
-    assert WebSession.admin_session(conn) == nil
+    assert WebSession.site_admin_session(conn) == nil
   end
 
   test "requesting email OTP and starting SSO do not lock out switching between sign-in methods",

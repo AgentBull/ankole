@@ -82,13 +82,9 @@ export function MessageActions({
         </Button>
       )}
       {onRetry && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          title={t('pod.chat.retry_keeps_artifacts')}
-          aria-label={t('pod.chat.retry_reply')}
-          onClick={onRetry}>
+        <Button variant="ghost" size="xs" title={t('pod.chat.retry_keeps_artifacts')} onClick={onRetry}>
           <RiRestartLine aria-hidden />
+          {t('pod.chat.retry_reply')}
         </Button>
       )}
       {children}

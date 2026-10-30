@@ -53,7 +53,7 @@ defmodule Ankole.Pod.Applets do
   @doc false
   def published_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, revision) do
     with {:ok, page} <- Pages.lock(page_id, :share),
-         {:ok, _page} <- Pages.authorize(actor, page.id, "page_view"),
+         {:ok, _page} <- Access.authorize(actor, page, "page_view", trash: false),
          :ok <- applet_type(page),
          :ok <- current_revision(page.revision, revision),
          {:ok, source} <- backend_source(page.id),

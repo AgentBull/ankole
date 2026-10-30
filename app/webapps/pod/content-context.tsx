@@ -5,6 +5,8 @@ import { createBaseAPI } from './base-api'
 import { isRealtimeAccessDenied, PodRealtime } from './realtime'
 import { podLocation } from '../common/browser-context'
 import { contentKeys } from './content-api'
+import { applyTreeChange, updatePageMetadata } from './state/navigation-cache'
+import { revalidateMentions } from './state/document-mentions'
 import { podKeys } from './api'
 
 const ContentContext = createContext<ReturnType<typeof createContent> | null>(null)
@@ -35,23 +37,33 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     let disposed = false
     let retry: ReturnType<typeof setTimeout> | undefined
     const refreshConversations = () => {
-      if (!disposed) void client.invalidateQueries({ queryKey: [...podKeys.conversations, 'sidebar'] })
+      if (!disposed) void client.invalidateQueries({ queryKey: [...podKeys.conversations, 'recent'] })
     }
     const refresh = () => {
-      if (!disposed) void client.invalidateQueries({ queryKey: contentKeys.all })
+      if (disposed) return
+      // Preserve initial reads; revalidate cached data when subscriptions become ready.
+      void client.invalidateQueries({ queryKey: contentKeys.all })
+      revalidateMentions(client)
       refreshConversations()
     }
     const subscribe = () => {
       void content.realtime.join('content').then(
         handle => {
           if (disposed) return handle.close()
-          handle.on('changed', refresh)
+          handle.on('access_changed', refresh)
+          handle.on('rejoined', refresh)
+          handle.on('tree_changed', payload => {
+            if (!disposed) void applyTreeChange(client, payload)
+          })
+          handle.on('page_updated', payload => {
+            if (disposed) return
+            updatePageMetadata(client, payload)
+          })
           handle.on('access_revoked', refresh)
           handle.on('conversations_changed', refreshConversations)
-          void handle.ready.catch(refresh)
+          void handle.ready.then(refresh, () => {})
         },
         error => {
-          refresh()
           if (!disposed && !isRealtimeAccessDenied(error)) retry = setTimeout(subscribe, 1000)
         }
       )

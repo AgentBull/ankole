@@ -120,12 +120,19 @@ defmodule Ankole.OIDC.Sessions do
     with {:ok, session} <- get(id), do: Ankole.Ash.update(session, :revoke_in_tx, %{})
   end
 
-  def end_authentication_in_tx(id, revision) do
-    Session
-    |> Ash.Query.for_read(:lookup_across_tenants)
-    |> Ash.Query.filter(
-      authentication_id == ^id and authentication_revision == ^revision and is_nil(ended_at)
-    )
+  def end_authentication_in_tx(id, revision, opts \\ []) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+
+    query =
+      Session
+      |> Ash.Query.for_read(:lookup_across_tenants)
+      |> Ash.Query.filter(
+        authentication_id == ^id and authentication_revision == ^revision and is_nil(ended_at)
+      )
+
+    query = if tenant_id, do: Ash.Query.filter(query, tenant_id == ^tenant_id), else: query
+
+    query
     |> lock_sessions()
     |> Ankole.Ash.read_across_tenants!(lock_identity: {:rows, "oidc_sessions", :id})
     |> terminate_sessions(:browser)

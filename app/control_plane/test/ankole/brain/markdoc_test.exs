@@ -126,6 +126,63 @@ defmodule Ankole.Brain.MarkdocTest do
       assert head < sales and sales < tail
       assert {:ok, _segments} = Markdoc.segments(pruned)
     end
+
+    test "keeps adjacent audience blocks line-separated when world segments are pruned" do
+      keep = fn scope -> scope in ["group:company_123", "group:dept_sales"] end
+
+      assert {:ok, pruned} = Markdoc.prune(@body, keep)
+      refute pruned =~ "{% /audience %}{% audience"
+
+      assert {:ok, [%{scope: "group:company_123"}, %{scope: "group:dept_sales"}]} =
+               Markdoc.segments(pruned)
+    end
+  end
+
+  describe "apply_default_scope/2" do
+    test "wraps prose containing fenced or inline audience tag literals in non-world scope" do
+      body = """
+      Private runbook note with `{% audience scope="world" %}` inline example.
+
+      ```markdoc
+      {% audience scope="world" %}
+      example only
+      {% /audience %}
+      ```
+      """
+
+      assert {:ok, wrapped} = Markdoc.apply_default_scope(body, "principal:user_456")
+      assert {:ok, [%{scope: "principal:user_456", tagged: true}]} = Markdoc.segments(wrapped)
+    end
+
+    test "wraps untagged prose around explicit audience blocks while preserving code indentation" do
+      body =
+        "    indented_header()\n\n" <>
+          ~s({% audience scope="group:dept_sales" %}\nsales detail\n{% /audience %}\n\n) <>
+          "Trailing untagged note."
+
+      assert {:ok, wrapped} = Markdoc.apply_default_scope(body, "principal:user_456")
+
+      assert {:ok,
+              [
+                %{scope: "principal:user_456", text: first_text},
+                %{scope: "group:dept_sales", text: middle_text},
+                %{scope: "principal:user_456", text: last_text}
+              ]} = Markdoc.segments(wrapped)
+
+      assert first_text =~ "    indented_header()"
+      assert middle_text =~ "sales detail"
+      assert last_text =~ "Trailing untagged note."
+    end
+
+    test "rejects unclosed code fences that capture the generated closing audience tag" do
+      assert {:error, :unclosed_audience_tag} =
+               Markdoc.apply_default_scope("Intro\n\n```text\nunclosed", "principal:user_456")
+    end
+
+    test "normalizes CRLF newlines and leaves world or blank content unwrapped" do
+      assert {:ok, "line 1\nline 2"} = Markdoc.apply_default_scope("line 1\r\nline 2", "world")
+      assert {:ok, "  \n "} = Markdoc.apply_default_scope("  \r\n ", "principal:user_456")
+    end
   end
 
   describe "wikilinks/1" do

@@ -23,8 +23,10 @@ defmodule Ankole.Brain.Merge do
   import Ecto.Query, warn: false
   require Ash.Query
 
+  alias Ankole.Brain.Calibration
   alias Ankole.Brain.Chunks
   alias Ankole.Brain.Links
+  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.MergeSuggestion
   alias Ankole.Brain.Schemas.Object
@@ -104,13 +106,16 @@ defmodule Ankole.Brain.Merge do
       else
         with {:ok, canonical, duplicate} <- orient(first, second, target_slug),
              {:ok, canonical, duplicate} <- lock_pair(canonical, duplicate),
-             :ok <- guard_duplicate_mergeable(duplicate),
+             :ok <- guard_pair_live(canonical, duplicate),
+             :ok <- guard_pair_unmanaged(canonical, duplicate),
+             :ok <- guard_duplicate_mergeable(canonical, duplicate),
+             pre_merge_tags = Links.tags_for_object(canonical.slug),
              {:ok, moved} <- repoint_children(canonical, duplicate),
              {:ok, _alias} <- keep_duplicate_name(canonical, duplicate),
              {:ok, _duplicate} <- Ankole.Ash.destroy(duplicate, :merge_duplicate),
              {:ok, _redirect} <- insert_redirect(canonical, duplicate),
-             {:ok, canonical} <- Objects.refresh_content_hash_in_tx(canonical),
-             {:ok, _object} <- Chunks.reconcile_in_tx(canonical),
+             {:ok, canonical} <-
+               consolidate_duplicate_body_in_tx(canonical, duplicate, decided_by, pre_merge_tags),
              {:ok, _suggestion} <-
                Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
           {:ok,
@@ -263,20 +268,83 @@ defmodule Ankole.Brain.Merge do
     end
   end
 
-  defp guard_duplicate_mergeable(%Object{} = duplicate) do
+  defp guard_pair_live(%Object{deleted_at: nil}, %Object{deleted_at: nil}), do: :ok
+  defp guard_pair_live(%Object{}, %Object{}), do: {:error, :not_found}
+
+  defp guard_duplicate_mergeable(%Object{} = canonical, %Object{} = duplicate) do
     cond do
       Objects.canonical_principal_page?(duplicate.slug) ->
         {:error, {:principal_canonical_page, duplicate.slug}}
 
-      String.trim(duplicate.body) != "" ->
-        # A written body cannot merge mechanically; the operator moves the
-        # text first, then approves. Extraction-created duplicates — the
-        # class this queue exists for — carry empty bodies.
-        {:error, {:merge_body_not_blank, duplicate.slug}}
-
       true ->
-        :ok
+        with {:ok, _canonical_segments} <- Markdoc.raw_segments(canonical.body),
+             {:ok, _duplicate_segments} <- Markdoc.raw_segments(duplicate.body) do
+          :ok
+        end
     end
+  end
+
+  defp consolidate_duplicate_body_in_tx(canonical, duplicate, decided_by, pre_merge_tags) do
+    duplicate_body = Calibration.strip_calibration_section(duplicate.body)
+
+    with {:ok, duplicate_segments} <- Markdoc.segments(duplicate_body) do
+      if duplicate_segments == [] do
+        with {:ok, canonical} <- Objects.refresh_content_hash_in_tx(canonical),
+             {:ok, _reconciled} <- Chunks.reconcile_in_tx(canonical) do
+          {:ok, canonical}
+        end
+      else
+        canonical_base = Calibration.strip_calibration_section(canonical.body)
+
+        merged_body =
+          append_body_preserving_calibration(canonical.body, canonical_base, duplicate_body)
+
+        with :ok <- verify_merged_scopes(canonical_base, duplicate_body, merged_body),
+             {:ok, updated} <-
+               Objects.update_object_in_tx(
+                 canonical.slug,
+                 %{body: merged_body, expected_content_hash: canonical.content_hash},
+                 :system,
+                 author: decided_by,
+                 snapshot_tags: pre_merge_tags
+               ),
+             {:ok, _links} <- Links.reconcile_object_links_in_tx(updated.slug) do
+          {:ok, updated}
+        end
+      end
+    end
+  end
+
+  defp append_body_preserving_calibration(canonical_body, canonical_base, duplicate_body) do
+    combined =
+      case canonical_base do
+        "" -> duplicate_body
+        text -> text <> "\n\n" <> duplicate_body
+      end
+
+    canonical_body
+    |> Calibration.extract_sections()
+    |> Enum.reduce(combined, &Calibration.append_section(&2, &1))
+  end
+
+  # Verifies that appending `duplicate_body` after `canonical_base` keeps every
+  # non-`world` audience block intact rather than capturing it inside an
+  # unclosed CommonMark code fence or HTML block in `canonical_base`.
+  defp verify_merged_scopes(canonical_base, duplicate_body, merged_body) do
+    with {:ok, canonical_segments} <- Markdoc.raw_segments(canonical_base),
+         {:ok, duplicate_segments} <- Markdoc.raw_segments(duplicate_body),
+         {:ok, merged_segments} <- Markdoc.raw_segments(merged_body) do
+      expected = non_world_pairs(canonical_segments) ++ non_world_pairs(duplicate_segments)
+      actual = non_world_pairs(merged_segments)
+
+      if Enum.frequencies(actual) == Enum.frequencies(expected),
+        do: :ok,
+        else: {:error, :unclosed_block_captures_audience_tags}
+    end
+  end
+
+  defp non_world_pairs(segments) do
+    for %{scope: scope, text: text} <- segments, scope != "world", do: {scope, text}
   end
 
   defp guard_pair_unmanaged(%Object{managed_by_source_id: nil}, %Object{managed_by_source_id: nil}),

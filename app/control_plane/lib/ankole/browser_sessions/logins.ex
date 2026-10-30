@@ -16,8 +16,6 @@ defmodule Ankole.BrowserSessions.Logins do
   alias Ankole.Repo
 
   @oidc_state_ttl 10 * 60
-  @tenant_purposes [:console, :oauth, :pod]
-  @site_purposes [:console, :oauth, :pod, :site]
 
   def begin_oidc_state(ref, attrs) when is_map(attrs) do
     Repo.transact_top_level(fn -> begin_oidc_state_in_tx(ref, attrs) end)
@@ -26,7 +24,6 @@ defmodule Ankole.BrowserSessions.Logins do
   @doc "Creates an outbound upstream OIDC state in the caller's transaction."
   def begin_oidc_state_in_tx(ref, attrs) when is_map(attrs) do
     Identity.in_transaction!(:begin_oidc_state_in_tx)
-    purpose = Map.fetch!(attrs, :purpose)
 
     with {:ok, browser} <- Identity.fetch_browser(ref, true) do
       Ankole.Ash.create(OidcState, :begin_in_tx, %{
@@ -34,8 +31,6 @@ defmodule Ankole.BrowserSessions.Logins do
         browser_id: browser.id,
         tenant_id: Repo.tenant_id!(),
         provider_id: Map.fetch!(attrs, :provider_id),
-        purpose: purpose,
-        mode: Map.get(attrs, :mode) || default_mode(purpose),
         started_revision: Map.get(attrs, :started_revision) || browser.revision,
         redirect_uri: Map.fetch!(attrs, :redirect_uri),
         return_to: Map.get(attrs, :return_to) || "/",
@@ -78,14 +73,12 @@ defmodule Ankole.BrowserSessions.Logins do
          {:ok, consumed} <-
            oidc_state |> Ankole.Ash.update(:consume_in_tx, %{}) |> Ankole.Errors.reason(),
          {:ok, completed} <-
-           authenticate_in_tx(ref, consumed.purpose, auth,
-             mode: consumed.mode,
+           authenticate_in_tx(ref, auth,
              started_revision: consumed.started_revision,
              challenge_started_at: consumed.inserted_at,
              expected_authentication_id: consumed.expected_authentication_id,
              reauthentication_principal_uid: consumed.reauthentication_principal_uid,
-             oauth_request_id: consumed.oauth_request_id,
-             oidc_state_id: consumed.id
+             oauth_request_id: consumed.oauth_request_id
            ) do
       {:ok, Map.put(completed, :oidc_state, consumed)}
     else
@@ -99,22 +92,22 @@ defmodule Ankole.BrowserSessions.Logins do
     end
   end
 
-  def authenticate(ref, purpose, auth, opts \\ []) when purpose in @tenant_purposes do
-    Repo.transact_top_level(fn -> authenticate_in_tx(ref, purpose, auth, opts) end)
+  def authenticate(ref, auth, opts \\ []) when is_map(auth) and is_list(opts) do
+    Repo.transact_top_level(fn -> authenticate_in_tx(ref, auth, opts) end)
   end
 
-  @doc "Completes an enterprise or local-tenant authentication in the caller's transaction."
-  def authenticate_in_tx(ref, purpose, auth, opts \\ []) when purpose in @tenant_purposes do
+  @doc "Completes a tenant-scoped authentication in the caller's transaction."
+  def authenticate_in_tx(ref, auth, opts \\ []) when is_map(auth) and is_list(opts) do
     Identity.in_transaction!(:authenticate_in_tx)
     tenant_id = Repo.tenant_id!()
     started_at = Keyword.get_lazy(opts, :challenge_started_at, &DateTime.utc_now/0)
 
     with {:ok, browser} <- Identity.fetch_browser(ref, true),
-         :ok <- ensure_oauth_request_pending(ref, purpose, opts),
+         :ok <- ensure_oauth_request_pending(ref, tenant_id, opts),
          false <- Ankole.IdentityProviders.SiteSources.registered?(auth["provider_id"]),
          {:ok, principal} <- Identity.lock_human(auth),
-         :ok <- can_complete(purpose, started_at, principal, auth) do
-      context = build_context(browser, purpose, tenant_id, opts)
+         :ok <- can_complete(started_at, principal, auth) do
+      context = build_context(browser, :tenant, tenant_id, opts)
 
       persist_login(
         ref,
@@ -133,26 +126,25 @@ defmodule Ankole.BrowserSessions.Logins do
     end
   end
 
-  def authenticate_site(ref, purpose, provider_id, proof, opts \\ [])
-      when purpose in @site_purposes do
+  def authenticate_site(ref, provider_id, proof, opts \\ [])
+      when is_binary(provider_id) and is_list(opts) do
     Repo.transact_top_level(fn ->
-      authenticate_site_in_tx(ref, purpose, provider_id, proof, opts)
+      authenticate_site_in_tx(ref, provider_id, proof, opts)
     end)
   end
 
   @doc "Completes a site credential authentication in the caller's transaction."
-  def authenticate_site_in_tx(ref, purpose, provider_id, proof, opts \\ [])
-      when purpose in @site_purposes do
+  def authenticate_site_in_tx(ref, provider_id, proof, opts \\ [])
+      when is_binary(provider_id) and is_list(opts) do
     Identity.in_transaction!(:authenticate_site_in_tx)
 
     with {:ok, browser} <- Identity.fetch_browser(ref, true),
-         {:ok, context, oauth_request} <- site_context(ref, browser, purpose, opts),
+         {:ok, context, oauth_request} <- site_context(ref, browser, opts),
          {:ok, %{subject_id: subject_id, auth_time: auth_time} = verified} <-
            Ankole.IdentityProviders.SiteSources.authenticate(provider_id, proof),
          :ok <- site_flow_policy(context, oauth_request, provider_id, verified),
          {:ok, principals} <-
-           site_principals_for_context(context, provider_id, subject_id, verified),
-         :ok <- ensure_console_admin(context, principals) do
+           site_principals_for_context(context, provider_id, subject_id, verified) do
       persist_login(
         ref,
         browser,
@@ -173,8 +165,8 @@ defmodule Ankole.BrowserSessions.Logins do
 
     with true <- Ankole.AuthZ.Actor.tenant_id(actor) == tenant_id,
          {:ok, browser} <- Identity.fetch_browser(ref, true),
-         {:ok, principals} <- site_principals(tenant_id, proof.provider_id, proof, :pod) do
-      context = build_context(browser, :pod, tenant_id, mode: :add)
+         {:ok, principals} <- site_principals(tenant_id, proof.provider_id, proof, :tenant) do
+      context = build_context(browser, :tenant, tenant_id, [])
 
       persist_login(
         ref,
@@ -193,67 +185,69 @@ defmodule Ankole.BrowserSessions.Logins do
     end
   end
 
-  defp ensure_oauth_request_pending(ref, :oauth, opts) do
+  defp ensure_oauth_request_pending(ref, tenant_id, opts) do
     case Keyword.get(opts, :oauth_request_id) do
       nil ->
         :ok
 
       id ->
         case AuthorizationRequests.get(ref, id) do
-          {:ok, %{status: :pending}} -> :ok
+          {:ok, %{status: :pending, tenant_id: ^tenant_id}} -> :ok
           {:ok, _} -> {:error, :login_expired}
           error -> error
         end
     end
   end
 
-  defp ensure_oauth_request_pending(_ref, _purpose, _opts), do: :ok
+  defp site_context(ref, browser, opts) do
+    cond do
+      is_binary(Keyword.get(opts, :oauth_request_id)) ->
+        oauth_request_id = Keyword.fetch!(opts, :oauth_request_id)
 
-  defp site_context(ref, browser, :oauth, opts) do
-    oauth_request_id = Keyword.fetch!(opts, :oauth_request_id)
+        with {:ok, %{status: :pending} = oauth_request} <-
+               AuthorizationRequests.get(ref, oauth_request_id) do
+          opts =
+            opts
+            |> Keyword.put_new(:started_revision, oauth_request.started_revision)
+            |> Keyword.put_new(
+              :expected_authentication_id,
+              oauth_request.expected_authentication_id
+            )
 
-    with {:ok, %{status: :pending} = oauth_request} <-
-           AuthorizationRequests.get(ref, oauth_request_id) do
-      opts =
-        opts
-        |> Keyword.put_new(:started_revision, oauth_request.started_revision)
-        |> Keyword.put_new(:expected_authentication_id, oauth_request.expected_authentication_id)
+          {:ok, build_context(browser, :oauth, oauth_request.tenant_id, opts), oauth_request}
+        else
+          {:ok, _} -> {:error, :login_expired}
+          error -> error
+        end
 
-      {:ok, build_context(browser, :oauth, oauth_request.tenant_id, opts), oauth_request}
-    else
-      {:ok, _} -> {:error, :login_expired}
-      error -> error
+      Keyword.get(opts, :scope) == :site ->
+        {:ok, build_context(browser, :site, nil, opts), nil}
+
+      is_binary(Keyword.get(opts, :tenant_id)) or is_binary(Repo.tenant_id()) ->
+        tenant_id = Keyword.get(opts, :tenant_id) || Repo.tenant_id()
+        {:ok, build_context(browser, :tenant, tenant_id, opts), nil}
+
+      true ->
+        {:ok, build_context(browser, :site, nil, opts), nil}
     end
   end
 
-  defp site_context(_ref, browser, :site, opts),
-    do: {:ok, build_context(browser, :site, nil, opts), nil}
-
-  defp site_context(_ref, browser, purpose, opts) when purpose in [:pod, :console],
-    do: {:ok, build_context(browser, purpose, Repo.tenant_id!(), opts), nil}
-
-  defp build_context(browser, purpose, tenant_id, opts) do
+  defp build_context(browser, ceremony, tenant_id, opts) do
     %{
-      purpose: purpose,
+      ceremony: ceremony,
       tenant_id: tenant_id,
-      mode: Keyword.get(opts, :mode) || default_mode(purpose),
       started_revision: Keyword.get(opts, :started_revision) || browser.revision,
       expected_authentication_id: Keyword.get(opts, :expected_authentication_id),
       reauthentication_principal_uid: Keyword.get(opts, :reauthentication_principal_uid),
       target_tenant_id: tenant_id || Keyword.get(opts, :target_tenant_id),
-      oauth_request_id: Keyword.get(opts, :oauth_request_id),
-      oidc_state_id: Keyword.get(opts, :oidc_state_id)
+      oauth_request_id: Keyword.get(opts, :oauth_request_id)
     }
   end
 
-  defp default_mode(:pod), do: :add
-  defp default_mode(:site), do: :add
-  defp default_mode(_), do: :replace
-
-  defp site_flow_policy(%{purpose: :site}, _oauth_request, _provider_id, _proof), do: :ok
+  defp site_flow_policy(%{ceremony: :site}, _oauth_request, _provider_id, _proof), do: :ok
 
   defp site_flow_policy(
-         %{purpose: :oauth, tenant_id: tenant_id},
+         %{ceremony: :oauth, tenant_id: tenant_id},
          oauth_request,
          provider_id,
          proof
@@ -269,27 +263,13 @@ defmodule Ankole.BrowserSessions.Logins do
   end
 
   defp site_flow_policy(
-         %{purpose: purpose, tenant_id: tenant_id},
+         %{ceremony: :tenant, tenant_id: tenant_id},
          _oauth_request,
          provider_id,
-         _proof
+         _
        ) do
-    Repo.with_tenant(tenant_id, fn -> LoginPolicy.authorize_login(purpose, provider_id) end)
+    Repo.with_tenant(tenant_id, fn -> LoginPolicy.authorize_login(provider_id) end)
   end
-
-  defp ensure_console_admin(%{purpose: :console, tenant_id: tenant_id}, principals) do
-    admin? =
-      Repo.with_tenant(tenant_id, fn ->
-        Enum.any?(
-          principals,
-          &(&1.tenant_id == tenant_id and Ankole.AuthZ.site_admin?(&1.uid))
-        )
-      end)
-
-    if admin?, do: :ok, else: {:error, :not_an_admin}
-  end
-
-  defp ensure_console_admin(_context, _principals), do: :ok
 
   defp site_principal(tenant_id, uid, candidate, provider_id, proof) do
     Repo.with_tenant(tenant_id, fn ->
@@ -337,7 +317,7 @@ defmodule Ankole.BrowserSessions.Logins do
   end
 
   defp site_principals_for_context(context, provider_id, subject_id, verified) do
-    case site_principals(context.target_tenant_id, provider_id, verified, context.purpose) do
+    case site_principals(context.target_tenant_id, provider_id, verified, context.ceremony) do
       {:error, :not_a_member} when is_binary(context.reauthentication_principal_uid) ->
         expected_subject(context, provider_id, subject_id, [])
 
@@ -346,7 +326,7 @@ defmodule Ankole.BrowserSessions.Logins do
     end
   end
 
-  defp site_principals(target_tenant_id, provider_id, proof, purpose) do
+  defp site_principals(target_tenant_id, provider_id, proof, ceremony) do
     bindings =
       provider_id
       |> Ankole.Principals.list_site_credentials(proof.subject_id)
@@ -370,7 +350,7 @@ defmodule Ankole.BrowserSessions.Logins do
     end)
     |> case do
       {:ok, principals} ->
-        if purpose != :site and is_binary(target_tenant_id) and
+        if ceremony != :site and is_binary(target_tenant_id) and
              not Enum.any?(principals, &(&1.tenant_id == target_tenant_id)),
            do: {:error, :not_a_member},
            else: {:ok, principals}
@@ -410,7 +390,7 @@ defmodule Ankole.BrowserSessions.Logins do
       browser_id: browser.id,
       provider_id: provider_id,
       subject_id: subject_id,
-      purpose: if(site?, do: :site, else: context.purpose),
+      scope: if(site?, do: :site, else: :tenant),
       tenant_id: if(site?, do: nil, else: context.tenant_id)
     ]
 
@@ -419,7 +399,6 @@ defmodule Ankole.BrowserSessions.Logins do
 
     with :ok <- unchanged_target(context, old),
          :ok <- expected_subject(context, provider_id, subject_id, principals),
-         :ok <- replace_context(browser, context, old, subject_id),
          :ok <- if(renew_site?, do: :ok, else: Revocation.end_authentication(old)),
          {:ok, authentication} <-
            persist_authentication(old, attributes, %{
@@ -431,8 +410,6 @@ defmodule Ankole.BrowserSessions.Logins do
              verified_email: Map.get(proof, :verified_email),
              verified_phone: Map.get(proof, :verified_phone),
              external_id: external_id,
-             console_authenticated:
-               context.purpose == :console or (renew_site? and old.console_authenticated),
              csrf_token: if(renew_site?, do: old.csrf_token, else: Identity.csrf_state()),
              expires_at: DateTime.add(DateTime.utc_now(), Identity.session_ttl())
            }),
@@ -515,7 +492,7 @@ defmodule Ankole.BrowserSessions.Logins do
       Ash.Query.filter(
         Authentication,
         browser_id == ^attributes[:browser_id] and provider_id == ^attributes[:provider_id] and
-          subject_id == ^attributes[:subject_id] and purpose == ^attributes[:purpose]
+          subject_id == ^attributes[:subject_id] and scope == ^attributes[:scope]
       )
 
     query =
@@ -527,12 +504,12 @@ defmodule Ankole.BrowserSessions.Logins do
   end
 
   defp expected_subject(
-         %{purpose: purpose, reauthentication_principal_uid: uid} = context,
+         %{reauthentication_principal_uid: uid} = context,
          _provider_id,
          _subject_id,
          principals
        )
-       when purpose in [:pod, :site] and is_binary(uid) do
+       when is_binary(uid) do
     target_tenant_id = context.target_tenant_id
 
     case Identity.read_authentication(context.expected_authentication_id) do
@@ -562,49 +539,7 @@ defmodule Ankole.BrowserSessions.Logins do
     end
   end
 
-  defp replace_context(_browser, %{mode: :add}, _old, _subject_id), do: :ok
-
-  defp replace_context(browser, context, old, subject_id) do
-    replaced =
-      browser.id
-      |> Revocation.live_authentications()
-      |> Enum.filter(fn authentication ->
-        authentication.id != (old && old.id) and
-          (authentication.purpose == context.purpose or
-             (context.purpose in [:console, :oauth] and
-                authentication.purpose in [:console, :oauth] and
-                authentication.subject_id != subject_id))
-      end)
-
-    purposes =
-      if context.purpose in [:console, :oauth],
-        do: [:console, :oauth],
-        else: [context.purpose]
-
-    with :ok <- Revocation.revoke_records(replaced, browser.revision + 1),
-         :ok <- maybe_cancel_oauth_requests(browser.id, context) do
-      query =
-        OidcState
-        |> Ash.Query.filter(
-          browser_id == ^browser.id and purpose in ^purposes and is_nil(consumed_at)
-        )
-
-      query =
-        if context.oidc_state_id,
-          do: Ash.Query.filter(query, id != ^context.oidc_state_id),
-          else: query
-
-      Revocation.expire_oidc_states(query)
-    end
-  end
-
-  defp maybe_cancel_oauth_requests(browser_id, %{purpose: purpose, oauth_request_id: except_id})
-       when purpose in [:console, :oauth],
-       do: AuthorizationRequests.cancel_for_browser_in_tx(browser_id, except_id: except_id)
-
-  defp maybe_cancel_oauth_requests(_browser_id, _context), do: :ok
-
-  defp can_complete(purpose, started_at, principal, auth) do
+  defp can_complete(started_at, principal, auth) do
     cond do
       not Ankole.Tenants.accepting_work?(principal.tenant_id) ->
         {:error, :tenant_suspended}
@@ -618,9 +553,6 @@ defmodule Ankole.BrowserSessions.Logins do
         auth
       ) ->
         {:error, :login_policy_rejected}
-
-      purpose == :console and not Ankole.AuthZ.site_admin?(principal.uid) ->
-        {:error, :not_an_admin}
 
       true ->
         :ok

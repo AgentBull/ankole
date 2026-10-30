@@ -117,12 +117,12 @@ defmodule Ankole.OIDCRefreshCleanupConcurrencyTest do
     {:ok, challenge} = Attesto.PKCE.challenge(Attesto.Secret.generate())
 
     authentication =
-      Ankole.BrowserSessions.authentication(
+      Ankole.BrowserSessions.identity(
         %{
           "id" => context.session.authentication_id,
           "revision" => context.session.authentication_revision
         },
-        :oauth
+        Repo.tenant_id!()
       )
 
     authorization =

@@ -18,8 +18,8 @@ Operators configure the underlying local directory, S3, or R2 backend via [Contr
 
 | Folder | Contents |
 |---|---|
-| `inbox/` | Attachments that people sent to the Agent |
-| `generated/` | Images that the Agent generated |
+| `chats/<channel>/inbox/` | Attachments that people sent to the Agent in that conversation |
+| `chats/<channel>/generated/`, `generated/` | Images that the Agent generated (`chats/<channel>/generated/` in a conversation, or `generated/` without a source channel) |
 | `sent/` | Files that the Agent attached to replies |
 | `skills/` | The Agent's installed Skills, one folder per Skill |
 | `automation/` | Automation Job scripts |

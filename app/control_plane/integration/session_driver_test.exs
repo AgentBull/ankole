@@ -1349,14 +1349,14 @@ defmodule Ankole.Sessions.DriverTest do
         {app, Application.get_all_env(app)}
       end)
 
-    :ok = :peer.call(peer, Application, :put_all_env, [config])
+    :ok = :peer.call(peer, Application, :put_all_env, [config, [persistent: true]])
 
     repo =
       Application.get_env(:ankole, Repo)
       |> Keyword.put(:pool, DBConnection.ConnectionPool)
       |> Keyword.put(:pool_size, 4)
 
-    :ok = :peer.call(peer, Application, :put_env, [:ankole, Repo, repo])
+    :ok = :peer.call(peer, Application, :put_env, [:ankole, Repo, repo, [persistent: true]])
     assert {:ok, _} = :peer.call(peer, Application, :ensure_all_started, [:ankole], 30000)
     assert true == :peer.call(peer, Node, :connect, [node()])
     :ok = :global.sync()
@@ -3982,6 +3982,13 @@ defmodule Ankole.Sessions.DriverTest do
 
     calls =
       if tool_effect? do
+        {:ok, _} =
+          Ankole.AuthZ.create_permission_grant(%{
+            principal_uid: owner_uid,
+            resource_pattern: "agent:#{original_key.agent_uid}:tool:set_channel_standing_orders",
+            action: "invoke"
+          })
+
         [
           tool_call("orders", "set_channel_standing_orders", %{
             "orders" => "Keep the completed channel orders."

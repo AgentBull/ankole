@@ -37,8 +37,40 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSessionTest do
     add_second_admin()
     assert {:ok, _} = AuthZ.remove_principal_from_group(uid, "siteadmin")
 
+    assert %{"error" => %{"code" => "forbidden"}} =
+             conn |> recycle_api() |> readiness() |> json_response(403)
+  end
+
+  test "a signed-in non-admin Pod user receives 403 while malformed authentication selectors receive 401",
+       %{conn: conn} do
+    other_tenant = Ankole.DataCase.create_tenant()
+
+    other_principal =
+      Repo.with_tenant(other_tenant.id, fn ->
+        Ankole.PrincipalsFixtures.human_fixture().principal
+      end)
+
+    other_conn =
+      Repo.with_tenant(other_tenant.id, fn ->
+        conn
+        |> Plug.Test.init_test_session(%{})
+        |> AnkoleWeb.Session.put_tenant_session(%{
+          principal_uid: other_principal.uid,
+          provider_id: "local",
+          external_id: other_principal.uid
+        })
+      end)
+
+    assert %{"error" => %{"code" => "forbidden"}} =
+             other_conn
+             |> readiness()
+             |> json_response(403)
+
     assert %{"error" => %{"code" => "unauthorized"}} =
-             conn |> recycle_api() |> readiness() |> json_response(401)
+             other_conn
+             |> put_req_header("x-ankole-authentication", "malformed-reference")
+             |> readiness()
+             |> json_response(401)
   end
 
   test "disabling a Human revokes the next request", %{conn: conn, tenant: tenant} do

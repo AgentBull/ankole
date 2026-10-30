@@ -3,9 +3,21 @@
  * vocabulary go into one `Attrs` mark per node. Block definitions use these helpers to convert their
  * own elements.
  */
-import { Mark, type Node, type Plot, ValidationError } from '../core/doc'
+import { type ChangeSet, Leaf, Mark, type Node, type Plot, ValidationError } from '../core/doc'
 import * as T from '../core/types'
 import { compareNames } from '../document/tree'
+import { vocabulary } from '../document/vocabulary'
+
+/** Editor marks and XML use the same attribute value grammar. */
+export function attributeValue(element: string, name: string, numeric = false) {
+  const pattern = vocabulary[element]!.attributes[name]
+  return (value: unknown) => {
+    const validType = numeric ? typeof value === 'number' && Number.isInteger(value) : typeof value === 'string'
+    if (!validType || (pattern && !pattern.test(String(value)))) {
+      throw new ValidationError(`Invalid ${element} attribute ${name}`)
+    }
+  }
+}
 
 /** Attributes as [name, value] pairs, sorted by Unicode code point, names unique. */
 export type Pairs = readonly (readonly [string, string])[]
@@ -72,3 +84,29 @@ export function extraOf(node: Node | Plot.Tag): Record<string, string> {
 
 export const markValue = <V>(node: Node | Plot.Tag, type: Mark.Type<V>) =>
   node.marks.find(mark => mark.type === type)?.value as V | undefined
+
+/** Changes that set `type` on the block at `pos` to `value`, or remove `type` when `value` is null. */
+export function markChange<V>(
+  node: Node | null | undefined,
+  pos: number,
+  type: Mark.Type<V>,
+  value: V | null
+): ChangeSet.Spec | undefined {
+  if (!node) return undefined
+  const current = node.mark(type)
+  if (value === null) return current === undefined ? undefined : { from: pos, remove: type.of(current) }
+  return current === value ? undefined : { from: pos, add: type.of(value) }
+}
+
+/**
+ * Inline leaves for a code-role block: `\n` becomes a `LineBreak` leaf, while `\r` stays in the
+ * text leaf so XML `&#13;` round-trips.
+ */
+export function codeNodes(value: string, marks: Mark.Set = Mark.none): Node[] {
+  const result: Node[] = []
+  value.split('\n').forEach((line, index) => {
+    if (index) result.push(T.LineBreak.withMarks(marks))
+    if (line) result.push(Leaf.text(line, marks))
+  })
+  return result
+}

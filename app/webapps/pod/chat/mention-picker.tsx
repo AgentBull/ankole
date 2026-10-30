@@ -1,6 +1,8 @@
+import { usePagesMetadata } from '../use-page-metadata'
 import { useQuery } from '@tanstack/react-query'
 import type { Ref, RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDebouncedValue } from '../../common/use-debounced-value'
 import { agentsQuery, type ConversationDetail } from '../api'
 import { podChatTeammates } from '../api/generated/sdk.gen'
 import { pageSearchQuery } from '../content-api'
@@ -34,16 +36,18 @@ export function MentionPicker({
   onClose(): void
 }) {
   const { t } = useTranslation()
+  const settledQuery = useDebouncedValue(query, 180)
+  const searching = query !== settledQuery
   const agents = useQuery({ ...agentsQuery, enabled: !pagesOnly && allowAgents })
   const people = useQuery({
-    queryKey: [...teammatesKey(), query],
-    queryFn: () => podChatTeammates({ query: { query } }),
+    queryKey: [...teammatesKey(), settledQuery],
+    queryFn: ({ signal }) => podChatTeammates({ query: { query: settledQuery }, signal }),
     enabled: !pagesOnly
   })
-  const pages = useQuery(pageSearchQuery(query))
-  const pagesByID = new Map(
-    [...(pages.data?.pages ?? []), ...(pages.data?.ancestors ?? [])].map(page => [page.id, page])
-  )
+  const pages = useQuery(pageSearchQuery(settledQuery))
+  const pageResults = usePagesMetadata(pages.data?.pages ?? [])
+  const ancestors = usePagesMetadata(pages.data?.ancestors ?? [])
+  const pagesByID = new Map([...pageResults, ...ancestors].map(page => [page.id, page]))
   const inRoom = new Set(detail?.conversation.participants.map(person => person.uid))
   const matches = (name: string) => name.toLocaleLowerCase().includes(query.toLocaleLowerCase())
   const options: CompletionOption[] = [
@@ -65,7 +69,7 @@ export function MentionPicker({
             choose: () => onChoose({ type: 'agent', uid: agent.uid, displayName: agent.displayName })
           }))
       : []),
-    ...(!pagesOnly
+    ...(!pagesOnly && !searching
       ? (people.data?.teammates ?? []).map(person => ({
           id: person.uid,
           group: t('pod.chat_room.people'),
@@ -81,7 +85,7 @@ export function MentionPicker({
           choose: () => onChoose({ type: 'human', uid: person.uid, displayName: person.displayName })
         }))
       : []),
-    ...(pages.data?.pages ?? []).map(page => {
+    ...(searching ? [] : pageResults).map(page => {
       const parent = pageAncestors(page, pagesByID)
         .map(page => page.title || t('pod.content.untitled'))
         .join(' / ')
@@ -109,7 +113,7 @@ export function MentionPicker({
       options={options}
       input={input}
       handle={handle}
-      loading={pages.isFetching || (!pagesOnly && (agents.isFetching || people.isFetching))}
+      loading={searching || pages.isFetching || (!pagesOnly && (agents.isFetching || people.isFetching))}
       onClose={onClose}>
       <ContentError error={pages.error || people.error || agents.error} />
     </ComposerCompletionList>

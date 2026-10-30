@@ -35,6 +35,7 @@ defmodule Ankole.Brain.GetPage do
           {:ok, map()} | {:ambiguous, [map()]} | {:error, term()}
   def get_page(querier_uid, reference, opts \\ []) do
     disclosure = Keyword.get(opts, :disclosure, Access.open_disclosure())
+    include_content? = Keyword.get(opts, :include_content, false) == true
 
     with {:ok, access} <- Access.for_readers(querier_uid, disclosure),
          {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid) do
@@ -47,7 +48,7 @@ defmodule Ankole.Brain.GetPage do
           {:error, :not_found}
 
         {:ok, object} ->
-          {:ok, render_page(object, access, disclosure, visibility)}
+          {:ok, render_page(object, access, disclosure, visibility, include_content?)}
 
         {:ambiguous, candidates} ->
           {:ambiguous, candidates}
@@ -103,6 +104,7 @@ defmodule Ankole.Brain.GetPage do
       %{
         id: claim.id,
         claim: claim.claim,
+        context: claim.context,
         kind: claim.kind,
         holder: claim.holder,
         notability: claim.notability,
@@ -166,7 +168,7 @@ defmodule Ankole.Brain.GetPage do
     end)
   end
 
-  defp render_page(%Object{} = object, access, disclosure, visibility) do
+  defp render_page(%Object{} = object, access, disclosure, visibility, include_content?) do
     keep = fn scope ->
       Access.scope_reachable?(access, scope) and Access.disclosable?(scope, disclosure)
     end
@@ -183,19 +185,22 @@ defmodule Ankole.Brain.GetPage do
     takes = page_takes(object, access, disclosure)
 
     keep_counterpart = fn %Claim{} = counterpart ->
-      Access.reachable?(access, %{
-        audience_scope: counterpart.audience_scope,
-        author: counterpart.author
-      }) and Access.disclosable?(counterpart.audience_scope, disclosure)
+      Access.reachable?(access, counterpart) and
+        Access.disclosable?(counterpart.audience_scope, disclosure)
     end
 
-    Map.merge(page_shell(object, visibility), %{
-      rendered: render_markdoc(object, body),
-      facts: facts,
-      takes: takes,
-      contradictions: page_contradictions(claim_ids(facts, takes), keep_counterpart, visibility),
-      timelines: page_timelines(object, access, disclosure)
-    })
+    page =
+      Map.merge(page_shell(object, visibility), %{
+        revision: object.content_hash,
+        rendered: render_markdoc(object, body),
+        facts: facts,
+        takes: takes,
+        contradictions:
+          page_contradictions(claim_ids(facts, takes), keep_counterpart, visibility),
+        timelines: page_timelines(object, access, disclosure)
+      })
+
+    if include_content?, do: Map.put(page, :content, body), else: page
   end
 
   # The scope-independent page projection: metadata is instance-visible, so
@@ -313,6 +318,7 @@ defmodule Ankole.Brain.GetPage do
       %{
         id: claim.id,
         claim: claim.claim,
+        context: claim.context,
         kind: claim.kind,
         holder: claim.holder,
         notability: claim.notability,

@@ -275,6 +275,21 @@ defmodule AnkoleWeb.AgentFileControllerTest do
              |> api_get(~p"/api/v2/agents/#{agent_uid}/files")
              |> json_response(403)
 
+    assert %{"error" => %{"code" => "forbidden"}} =
+             conn
+             |> recycle_api()
+             |> api_get(~p"/api/v2/agents/#{agent_uid}/files/content?path=notes.txt")
+             |> json_response(403)
+
+    assert %{"error" => %{"code" => "forbidden"}} =
+             conn
+             |> recycle_api()
+             |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
+               path: "notes.txt",
+               file: build_upload!("denied")
+             )
+             |> json_response(403)
+
     assert conn
            |> recycle_api()
            |> api_get(~p"/api/v2/agents/#{other_agent.uid}/files")

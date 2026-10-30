@@ -1,4 +1,5 @@
 import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import {
   Button,
   DropdownMenu,
@@ -12,14 +13,15 @@ import {
 } from '@ankole/uikit'
 import { RiAddLine, RiFileAddLine, RiLoader4Line } from '@remixicon/react'
 import { useRef } from 'react'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { requestErrorMessage } from '../common/request-errors'
-import { contentKeys, pageAPI, pageChildrenQuery, type Page } from './content-api'
+import { directoryCapabilitiesQuery, pageAPI, type Page } from './content-api'
 import { contentError } from './content-errors'
 import { typeLabels } from './content-primitives'
 import { PageIcon } from './page-icon'
+import { pageCreated } from './state/navigation-cache'
 import { chooseLocalFile, createFilePage } from './native-transfers'
 
 export type CreatePageOptions = {
@@ -29,9 +31,11 @@ export type CreatePageOptions = {
   onCreated?: (page: Page) => void
 }
 
+type PageType = 'doc' | 'base' | 'file'
+
 export type PageCreation = {
   isPending: boolean
-  submit: (type: 'doc' | 'base' | 'file') => Promise<void>
+  submit: (type: PageType) => Promise<void>
 }
 
 export function usePageCreation({ parentID, scope, privateOwner, onCreated }: CreatePageOptions = {}): PageCreation {
@@ -78,7 +82,7 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
         targetScope: override?.scope ?? scope,
         targetOwner: override?.privateOwner ?? privateOwner
       })
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+      pageCreated(client, page)
       if (callback) callback(page)
       else void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
     } catch (error) {
@@ -89,6 +93,21 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
     isPending: mutation.isPending,
     submit: type => run(type)
   }
+}
+
+/**
+ * Creates one File Page per file under the parent, in order, and announces the result. A failure
+ * stops at that file and rejects; the File Pages created before it stay in the tree.
+ */
+export async function uploadFileSubpages(client: QueryClient, parentID: string, files: readonly File[]) {
+  let lastTitle = ''
+  for (const file of files) {
+    const { page } = await createFilePage(file, { parent_id: parentID })
+    pageCreated(client, page)
+    lastTitle = page.title || file.name
+  }
+  if (files.length === 1) toast.success(t('pod.subpages.uploaded_file', { title: lastTitle }))
+  else if (files.length > 1) toast.success(t('pod.subpages.uploaded_files', { count: files.length }))
 }
 
 export function useSubpageCreation() {
@@ -107,7 +126,7 @@ export function useSubpageCreation() {
       if (!input) return
       try {
         const { page } = await mutation.mutateAsync({ input, parentID })
-        await client.invalidateQueries({ queryKey: contentKeys.all })
+        pageCreated(client, page)
         if (onCreated) onCreated(page)
         else void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
       } catch (error) {
@@ -118,8 +137,11 @@ export function useSubpageCreation() {
   return forParent
 }
 
-function PageTypeItems({ create }: { create: PageCreation }) {
-  return (['doc', 'base', 'file'] as const).map(type => (
+const pageTypes = ['doc', 'base', 'file'] as const
+
+function PageTypeItems({ create, types = pageTypes }: { create: PageCreation; types?: readonly PageType[] }) {
+  useTranslation()
+  return types.map(type => (
     <DropdownMenuItem key={type} disabled={create.isPending} onClick={() => void create.submit(type)}>
       <PageIcon page={{ type, icon: null }} />
       {typeLabels[type]}
@@ -132,16 +154,19 @@ export function CreatePageButton({
   scope,
   privateOwner,
   compact = false,
-  label = t('pod.content.new_page'),
+  disabled = false,
+  label: providedLabel,
   onCreated
-}: CreatePageOptions & { compact?: boolean; label?: string }) {
-  const destinations = useInfiniteQuery({ ...pageChildrenQuery('space'), enabled: !parentID && scope === undefined })
-  const capabilities = destinations.data?.pages[0]
+}: CreatePageOptions & { compact?: boolean; disabled?: boolean; label?: string }) {
+  const { t } = useTranslation()
+  const label = providedLabel ?? t('pod.content.new_page')
+  const needsCapabilities = !parentID && scope === undefined
+  const destinations = useInfiniteQuery({ ...directoryCapabilitiesQuery(), enabled: needsCapabilities })
+  const capabilities = destinations.data
   const effectiveScope = scope ?? (capabilities?.can_create_space ? 'space' : 'private')
   const owner = privateOwner ?? (scope === undefined ? capabilities?.principal_uid : undefined)
   const unavailable =
-    !parentID &&
-    scope === undefined &&
+    needsCapabilities &&
     (!capabilities || destinations.isError || (!capabilities.can_create_space && !capabilities.can_create_private))
   const waitingForIdentity = !parentID && effectiveScope === 'private' && !owner
   const create = usePageCreation({ parentID, scope: effectiveScope, privateOwner: owner, onCreated })
@@ -155,7 +180,7 @@ export function CreatePageButton({
             aria-label={label}
             title={label}
             aria-busy={create.isPending}
-            disabled={unavailable || waitingForIdentity || create.isPending}
+            disabled={disabled || unavailable || waitingForIdentity || create.isPending}
           />
         }>
         {create.isPending ? (
@@ -173,10 +198,13 @@ export function CreatePageButton({
 }
 
 export function CreatePageSubmenu({
-  label = t('pod.sidebar.new_subpage'),
+  label: providedLabel,
   create: provided,
+  types,
   ...options
-}: CreatePageOptions & { label?: string; create?: PageCreation }) {
+}: CreatePageOptions & { label?: string; create?: PageCreation; types?: readonly PageType[] }) {
+  const { t } = useTranslation()
+  const label = providedLabel ?? t('pod.sidebar.new_subpage')
   const fallback = usePageCreation(options)
   const create = provided ?? fallback
   return (
@@ -186,7 +214,7 @@ export function CreatePageSubmenu({
         {label}
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-56" aria-label={label}>
-        <PageTypeItems create={create} />
+        <PageTypeItems create={create} types={types} />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   )

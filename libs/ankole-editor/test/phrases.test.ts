@@ -4,7 +4,7 @@ import { undoDepth } from '../src/core/history'
 import { Leaf } from '../src/core/doc'
 import { initialState, editorExtension } from '../src/editor/extension'
 import { editorPhrases } from '../src/editor/phrases'
-import { blockOptions } from '../src/editor/block-actions'
+import { blockOptions } from '../src/editor/block-catalog'
 import { readTree } from '../src/editor/convert'
 
 test('host labels change block names without changing the document, selection or undo history', () => {

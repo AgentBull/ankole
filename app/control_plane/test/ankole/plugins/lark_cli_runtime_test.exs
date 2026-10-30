@@ -280,36 +280,57 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
              Bindings.binding_config(target_binding, Config)
   end
 
-  test "Lark binding assignment holds the adapter lock across validation and persistence" do
+  test "Lark binding assignment acquires the platform application lock before cross-tenant validation and persistence" do
     %{principal: agent} = agent_fixture()
-    lock_key = "signals_gateway:binding_assignment:lark"
+    handler_id = {:lark_application_lock, System.unique_integer([:positive])}
     parent = self()
 
-    task =
-      Task.async(
-        Repo.bind_tenant(fn ->
-          Repo.transact(fn repo ->
-            SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key])
-            send(parent, :assignment_lock_acquired)
-            Process.sleep(200)
-            {:ok, :released}
-          end)
-        end)
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:ankole, :repo, :query],
+        fn _event, _measurements, %{query: query, params: params}, _config ->
+          send(parent, {:repo_query, query, params})
+        end,
+        nil
       )
 
-    assert_receive :assignment_lock_acquired, 1_000
-    started_at = System.monotonic_time(:millisecond)
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    config = lark_config("cli_serialized")
+    {:ok, application} = Config.platform_application(config)
 
     assert {:ok, %{binding: %Binding{}}} =
              Bindings.put_binding(
                agent.uid,
                "lark",
                "lark-main",
-               binding_attrs(lark_config("cli_serialized"))
+               binding_attrs(config)
              )
 
-    assert System.monotonic_time(:millisecond) - started_at >= 150
-    assert {:ok, :released} = Task.await(task, 1_000)
+    queries = drain_repo_queries([])
+
+    lock_index =
+      Enum.find_index(queries, fn {query, params} ->
+        query =~ "pg_advisory_xact_lock" and params == ["signals:application:" <> application]
+      end)
+
+    persist_index =
+      Enum.find_index(queries, fn {query, _params} ->
+        query =~ ~s(INTO "signal_bindings")
+      end)
+
+    assert is_integer(lock_index)
+    assert is_integer(persist_index)
+    assert lock_index < persist_index
+  end
+
+  defp drain_repo_queries(acc) do
+    receive do
+      {:repo_query, query, params} -> drain_repo_queries([{query, params} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   test "concurrent Lark binding saves validate app ownership from committed database state" do

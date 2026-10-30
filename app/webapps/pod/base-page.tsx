@@ -1,5 +1,7 @@
 import { createAppletRoutes } from './applet-routes'
+import { pageCreated } from './state/navigation-cache'
 import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { AppletRuntimeProvider, useAggregate, useRecords, useRecordWrites } from '@ankole/applet-sdk'
 import type {
   AppletRuntime,
@@ -43,6 +45,7 @@ import {
   RiTableLine
 } from '@remixicon/react'
 import { contentKeys, podRequest, type PageDetail } from './content-api'
+import { ErrorBoundary } from '../common/error-boundary'
 import { useContent } from './content-context'
 import { ContentError } from './content-primitives'
 import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
@@ -156,6 +159,7 @@ function BaseWorkspace({
   initialView?: string
   inline?: InlineView
 }) {
+  const { t } = useTranslation()
   const tables = useQuery(baseTablesQuery(detail.page.id))
   const [selected, setSelected] = useState(initialTable ?? '')
   const [renaming, setRenaming] = useState<string>()
@@ -308,6 +312,7 @@ function TableWorkspace({
   initialView?: string
   inline?: InlineView
 }) {
+  const { t } = useTranslation()
   const { base, pageHref } = useContent()
   const schema = useQuery(baseSchemaQuery(tableID))
   useSignals()
@@ -652,15 +657,17 @@ function TableWorkspace({
         <>
           <ContentError error={writes.write.error || updateView.error || stats.error || schema.error} />
           <div className="pod-base-content min-w-0">
-            <BaseViewContent
-              key={`${effective.id}:${effective.type}`}
-              {...sharedViewProps}
-              records={[]}
-              pending={writes.write.isPending}
-              create={writes.create}
-              update={writes.update}
-              remove={writes.remove}
-            />
+            <ErrorBoundary variant="panel" resetKeys={[tableID, effective.id, effective.type]}>
+              <BaseViewContent
+                key={`${effective.id}:${effective.type}`}
+                {...sharedViewProps}
+                records={[]}
+                pending={writes.write.isPending}
+                create={writes.create}
+                update={writes.update}
+                remove={writes.remove}
+              />
+            </ErrorBoundary>
           </div>
           <p className="pod-base-status text-xs text-fg-tertiary" role="status">
             {stats.isPending
@@ -670,7 +677,9 @@ function TableWorkspace({
                 })}
             {writes.write.isPending ? t('pod.content.saving_2') : ''}
           </p>
-          <BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />
+          <ErrorBoundary fallback={null} resetKeys={[tableID]}>
+            <BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />
+          </ErrorBoundary>
         </>
       ) : (
         <UngroupedWorkspaceBody
@@ -683,7 +692,11 @@ function TableWorkspace({
           historyLength={history.length}
           onPrevious={() => model.previous()}
           onNext={token => model.next(token)}
-          summary={<BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />}
+          summary={
+            <ErrorBoundary fallback={null} resetKeys={[tableID]}>
+              <BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />
+            </ErrorBoundary>
+          }
         />
       )}
       <Dialog open={!!deletingView} onOpenChange={open => !open && !removeView.isPending && setDeletingView(undefined)}>
@@ -714,21 +727,23 @@ function TableWorkspace({
           closeLabel={t('common.close')}
           showCloseButton={!writes.write.isPending}>
           <DialogTitle>{t('pod.content.new_record')}</DialogTitle>
-          <RecordForm
-            fields={schema.data.fields}
-            pageID={page.page.id}
-            editable={editable}
-            close={() => setNewRecord(false)}
-            write={async changes => {
-              newRecordSaving.current = true
-              try {
-                await writes.write.mutateAsync(changes)
-                setNewRecord(false)
-              } finally {
-                newRecordSaving.current = false
-              }
-            }}
-          />
+          <ErrorBoundary variant="panel" resetKeys={[tableID, newRecord]}>
+            <RecordForm
+              fields={schema.data.fields}
+              pageID={page.page.id}
+              editable={editable}
+              close={() => setNewRecord(false)}
+              write={async changes => {
+                newRecordSaving.current = true
+                try {
+                  await writes.write.mutateAsync(changes)
+                  setNewRecord(false)
+                } finally {
+                  newRecordSaving.current = false
+                }
+              }}
+            />
+          </ErrorBoundary>
         </DialogContent>
       </Dialog>
     </div>
@@ -758,6 +773,7 @@ function UngroupedWorkspaceBody({
   onNext(token: string): void
   summary: React.ReactNode
 }) {
+  const { t } = useTranslation()
   const records = useRecords(tableID, query)
   const rows = records.data?.records ?? []
   return (
@@ -767,15 +783,17 @@ function UngroupedWorkspaceBody({
         retry={() => void records.refetch()}
       />
       <div className="pod-base-content min-w-0">
-        <BaseViewContent
-          key={`${sharedViewProps.view.id}:${sharedViewProps.view.type}`}
-          {...sharedViewProps}
-          records={rows}
-          pending={records.write.isPending}
-          create={records.create}
-          update={records.update}
-          remove={records.remove}
-        />
+        <ErrorBoundary variant="panel" resetKeys={[tableID, sharedViewProps.view.id, sharedViewProps.view.type]}>
+          <BaseViewContent
+            key={`${sharedViewProps.view.id}:${sharedViewProps.view.type}`}
+            {...sharedViewProps}
+            records={rows}
+            pending={records.write.isPending}
+            create={records.create}
+            update={records.update}
+            remove={records.remove}
+          />
+        </ErrorBoundary>
         {!records.isPending && !records.error && !rows.length && (
           <p className="py-8 text-sm text-fg-tertiary">
             {sharedViewProps.editable
@@ -884,6 +902,7 @@ function CreateViewButton({
   fields: BaseField[]
   onCreated(id: string): void
 }) {
+  const { t } = useTranslation()
   const client = useQueryClient()
   const { base } = useContent()
   const create = useMutation({
@@ -933,6 +952,7 @@ function CopyTableButton({
   filter?: Filter
   onCopied(pageID: string): void
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false),
     [title, setTitle] = useState(''),
     [selectedParent, setParent] = useState<string>()
@@ -986,8 +1006,8 @@ function CopyTableButton({
           }
         }
       }),
-    onSuccess: async ({ page }) => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+    onSuccess: ({ page }) => {
+      pageCreated(client, page)
       onCopied(page.id)
       setOpen(false)
     },

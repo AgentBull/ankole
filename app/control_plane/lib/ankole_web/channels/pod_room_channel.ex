@@ -12,9 +12,11 @@ defmodule AnkoleWeb.PodRoomChannel do
     Repo.put_tenant_id(socket.assigns.tenant_id)
 
     with_tenant(socket, fn ->
+      opts = if String.starts_with?(topic, "applet:"), do: [trash: false], else: []
+
       with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
            {:ok, page_id} <- page_id(topic, socket.assigns.actor),
-           {:ok, _} <- Pages.authorize(socket.assigns.actor, page_id, "page_view") do
+           {:ok, _} <- Pages.authorize(socket.assigns.actor, page_id, "page_view", opts) do
         AnkoleWeb.PodChannel.subscribe(socket)
         Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-room:" <> topic)
         if String.starts_with?(topic, "applet:"), do: send(self(), :track_presence)

@@ -1,3 +1,4 @@
+import { attributeValue } from './attributes'
 /*
  * The editor schema: one node type or mark type for each element and attribute of the page tree
  * (SPEC §1–§3), so that every normalized page has exactly one editor document.
@@ -13,11 +14,33 @@ import * as T from '../core/types'
 import { blocks } from '../blocks'
 import { embedCard } from '../blocks/embed'
 import { Attrs, checkPairs, type Pairs } from './attributes'
+import { commentIDPattern } from '../document/comments'
 
 const G = Node.Group
 
 /** A frozen element: the parameter of a read-only leaf. Text children are plain strings. */
 export type Frozen = { readonly name: string; readonly attrs: Pairs; readonly children: readonly (string | Frozen)[] }
+
+/** The entity identifier carried by an inline `<mention />` leaf. */
+export type MentionTarget = { readonly page: string } | { readonly principal: string }
+
+export const sameMentionTarget = (a: MentionTarget, b: MentionTarget): boolean =>
+  ('page' in a && 'page' in b && a.page === b.page) ||
+  ('principal' in a && 'principal' in b && a.principal === b.principal)
+
+export function checkMentionTarget(value: unknown): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ValidationError('Expected a mention target')
+  }
+  const keys = Object.keys(value)
+  if (keys.length !== 1 || (keys[0] !== 'page' && keys[0] !== 'principal')) {
+    throw new ValidationError('Mention target must specify either page or principal')
+  }
+  const id = (value as Record<string, unknown>)[keys[0]!]
+  if (typeof id !== 'string' || !id.length) {
+    throw new ValidationError('Mention target identifier must be a non-empty string')
+  }
+}
 
 function checkFrozen(value: unknown): void {
   const frozen = value as Frozen
@@ -32,18 +55,6 @@ function checkFrozen(value: unknown): void {
 /** §7.4: the text of a read-only element is all the text in the element. */
 const frozenText = (frozen: Frozen): string =>
   frozen.children.map(child => (typeof child === 'string' ? child : frozenText(child))).join('')
-
-const oneOf =
-  <V extends string>(...values: V[]) =>
-  (value: V) => {
-    if (!values.includes(value)) throw new ValidationError(`Expected one of ${values.join(', ')}, got ${value}`)
-  }
-
-const integer = (min: number, max: number) => (value: number) => {
-  if (!Number.isInteger(value) || value < min || value > max) {
-    throw new ValidationError(`Expected an integer from ${min} to ${max}, got ${value}`)
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Read-only display. Only element names and display attributes reach the editor DOM; document
@@ -83,6 +94,7 @@ function view(frozen: Frozen, inline: boolean): Elt<string> {
   const children = frozen.children.map(child => (typeof child === 'string' ? child : view(child, inline)))
   const attr = (name: string) => frozen.attrs.find(pair => pair[0] === name)?.[1]
   if (frozen.name === 'img') return Elt.mk('img', { src: attr('src') ?? '', alt: attr('alt') ?? '' })
+  if (frozen.name === 'mention') return Elt.mk('span', { class: 'editor-mention editor-mention-readonly' }, ['@'])
   if (frozen.name === 'a') return Elt.mk('span', { class: 'read-only-link', title: attr('href') ?? '' }, children)
   if (frozen.name === 'li' && attr('task')) {
     return Elt.mk('li', { class: 'read-only-task', 'data-task': attr('task') ?? '' }, children)
@@ -114,6 +126,34 @@ function view(frozen: Frozen, inline: boolean): Elt<string> {
 
 /** `page`. The editor shows an empty page as one empty paragraph with `PagePlaceholder` (SPEC §7.2). */
 export const Page = Plot.defineDoc({ blockContent: G.Content })
+
+/** A block with children: the first block is its own content, followed by indented children. */
+export const BlockGroup = Plot.define('BlockGroup', {
+  blockContent: G.Content,
+  group: G.Content,
+  canBeEmpty: true,
+  cursorBarrier: 'empty',
+  defining: true,
+  shape: { element: 'div', selector: 'div.block-group', attributes: { class: 'block-group' } }
+})
+
+/** A column owns editable blocks; a row lays its columns out from left to right. */
+export const Column = Plot.define('Column', {
+  blockContent: G.Content,
+  canBeEmpty: true,
+  cursorBarrier: 'empty',
+  isolating: true,
+  defining: true,
+  shape: { element: 'div', selector: 'div.editor-column', attributes: { class: 'editor-column' } }
+})
+
+export const Columns = Plot.define('Columns', {
+  blockContent: Column,
+  group: G.Content,
+  canBeEmpty: true,
+  orientation: 'row',
+  shape: { element: 'div', selector: 'div.editor-columns', attributes: { class: 'editor-columns' } }
+})
 
 /** `blockquote`. The core's Blockquote cannot be empty and joins its neighbours. */
 export const Blockquote = Plot.define('Blockquote', {
@@ -180,7 +220,14 @@ export const Table = Plot.define('Table', {
   cursorBarrier: 'empty',
   canBeEmpty: true,
   role: Node.Role.Table,
-  shape: { structure: Elt.mk('table', [Elt.mk('tbody', [0])]) }
+  shape: {
+    selector: 'table',
+    structure: Elt.mk('div', { class: 'table-block' }, [
+      Elt.mk('div', { class: 'table-scroll', role: 'region', tabindex: '0', 'aria-label': 'Table' }, [
+        Elt.mk('table', [Elt.mk('colgroup', []), Elt.mk('tbody', [0])])
+      ])
+    ])
+  }
 })
 
 /** An unknown element at block level. Read-only; its parameter is the element. */
@@ -205,6 +252,38 @@ export const InlineElement = Leaf.Type.define<Frozen>('InlineElement', {
   shape: { structure: frozen => Elt.mk('span', { class: 'read-only-inline' }, [view(frozen, true)]) }
 })
 
+/**
+ * `mention`: an inline entity reference to a page or principal. Carries only the immutable
+ * identifier; the host resolves live labels and icons under the viewer's authorization scope.
+ */
+export const Mention = Leaf.Type.define<MentionTarget>('Mention', {
+  inline: true,
+  validate: checkMentionTarget,
+  shape: {
+    element: 'span',
+    selector: 'span[data-mention-page], span[data-mention-principal]',
+    attributes: (target): Record<string, string> =>
+      'page' in target
+        ? {
+            class: 'editor-mention editor-mention-page',
+            contenteditable: 'false',
+            'data-mention-page': target.page
+          }
+        : {
+            class: 'editor-mention editor-mention-principal',
+            contenteditable: 'false',
+            'data-mention-principal': target.principal
+          },
+    readElement: element => {
+      const page = element.getAttribute('data-mention-page')
+      const principal = element.getAttribute('data-mention-principal')
+      if (page && !principal) return { page }
+      if (principal && !page) return { principal }
+      return parse.Reject
+    }
+  }
+})
+
 // ---------------------------------------------------------------------------
 // Marks
 
@@ -226,7 +305,55 @@ export const TextStyle = Mark.Type.define<string>('TextStyle', {
   ]
 })
 
-/** `a`. The value holds every attribute of the link, including unknown ones. Only href and title are rendered. */
+/** Thread anchors travel with their text through the document's OT operations. */
+export const Comment = Mark.Type.define<readonly string[]>('Comment', {
+  rank: 5,
+  inclusive: false,
+  target: [Leaf.Text, InlineElement, Mention, T.Image, T.LineBreak],
+  set: { compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0) },
+  validate: value => {
+    if (
+      !Array.isArray(value) ||
+      !value.length ||
+      value.some(
+        (id, index) => typeof id !== 'string' || !commentIDPattern.test(id) || (index > 0 && value[index - 1]! >= id)
+      )
+    ) {
+      throw new ValidationError('Expected sorted unique comment thread identifiers')
+    }
+  },
+  shape: {
+    element: 'span',
+    attributes: ids => ({ class: 'editor-comment-anchor', 'data-comment-ids': ids.join(' ') })
+  },
+  parseRules: []
+})
+
+const SAFE_LINK_SCHEME = /^(?:https?:|mailto:|tel:|\/|#)/i
+
+function isEdgeControlOrSpace(code: number): boolean {
+  return code <= 0x20 || code === 0x7f
+}
+
+/** Return a trimmed link href when its scheme or path form is safe for DOM navigation, or null. */
+export function safeLinkHref(value: string): string | null {
+  let start = 0
+  let end = value.length
+  while (start < end && isEdgeControlOrSpace(value.charCodeAt(start))) start++
+  while (end > start && isEdgeControlOrSpace(value.charCodeAt(end - 1))) end--
+  if (start === end) return null
+  for (let i = start; i < end; i++) {
+    const code = value.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) return null
+  }
+  const trimmed = start === 0 && end === value.length ? value : value.slice(start, end)
+  if (SAFE_LINK_SCHEME.test(trimmed) || trimmed.startsWith('ankole:page/') || trimmed.startsWith('ankole:asset/')) {
+    return trimmed
+  }
+  return null
+}
+
+/** `a`. The value holds every attribute of the link, including unknown ones. Only safe hrefs and titles are rendered. */
 export const Link = Mark.Type.define<Pairs>('Link', {
   rank: 20,
   inclusive: false,
@@ -234,15 +361,28 @@ export const Link = Mark.Type.define<Pairs>('Link', {
   target: [Leaf.Text, InlineElement, T.Image, T.LineBreak],
   shape: {
     element: 'a',
-    attributes: pairs => Object.fromEntries(pairs.filter(([name]) => name === 'href' || name === 'title'))
+    attributes: pairs => {
+      const attrs: Record<string, string> = { rel: 'noopener noreferrer' }
+      for (const [name, value] of pairs) {
+        if (name === 'href') {
+          const safe = safeLinkHref(value)
+          if (safe) attrs.href = safe
+        } else if (name === 'title') {
+          attrs.title = value
+        }
+      }
+      return attrs
+    }
   },
-  // Pasted HTML keeps the link target as written and its title.
+  // Pasted HTML keeps safe link targets and titles while rejecting disallowed schemes.
   parseRules: [
     {
       selector: 'a[href]',
       readElement: element => {
+        const href = safeLinkHref(element.getAttribute('href') ?? '')
+        if (!href) return parse.Reject
         const title = element.getAttribute('title')
-        return [['href', element.getAttribute('href')!] as const, ...(title ? [['title', title] as const] : [])]
+        return [['href', href] as const, ...(title ? [['title', title] as const] : [])]
       }
     }
   ]
@@ -259,10 +399,46 @@ export const Align = Mark.Type.define<Alignment>('Align', {
   target: [...textBlocks, DataCell, HeaderCell],
   keepOnSplit: true,
   keepOnTypeChange: true,
-  validate: oneOf(...alignments),
+  validate: attributeValue('p', 'align'),
   shape: { attribute: 'data-align', value: 0, readAttribute: alignment },
   // Pasted HTML: `start` is the default alignment, `end` is right.
   parseRules: [{ attribute: 'style/text-align', readAttribute: value => alignment(value === 'end' ? 'right' : value) }]
+})
+
+/** Pixel widths in logical column order. */
+export const TableWidths = Mark.Type.define<string>('TableWidths', {
+  target: Table,
+  validate: attributeValue('table', 'widths'),
+  shape: { attribute: 'data-table-widths', value: 0 }
+})
+
+export const TableLayout = Mark.Type.define<'full'>('TableLayout', {
+  target: Table,
+  validate: attributeValue('table', 'layout'),
+  shape: { attribute: 'data-table-layout', value: 0 }
+})
+
+export const CellBackground = Mark.Type.define<string>('CellBackground', {
+  target: [DataCell, HeaderCell],
+  keepOnTypeChange: true,
+  validate: attributeValue('td', 'background'),
+  shape: {
+    attributes: color => {
+      const rgb = [1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16) / 255)
+      const linear = rgb.map(value => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4))
+      const luminance = linear[0]! * 0.2126 + linear[1]! * 0.7152 + linear[2]! * 0.0722
+      return {
+        'data-cell-background': color,
+        style: `--cell-background: ${color}; --cell-ink: ${luminance > 0.179 ? '#000000' : '#ffffff'}`
+      }
+    }
+  },
+  parseRules: [
+    {
+      attribute: 'data-cell-background',
+      readAttribute: value => (/^#[0-9a-fA-F]{6}$/.test(value) ? value : parse.Reject)
+    }
+  ]
 })
 
 /** `indent` of p, h1–h6. */
@@ -270,8 +446,21 @@ export const Indent = Mark.Type.define<number>('Indent', {
   target: textBlocks,
   keepOnSplit: true,
   keepOnTypeChange: true,
-  validate: integer(1, 999),
+  validate: attributeValue('p', 'indent', true),
   shape: { attribute: 'data-indent', value: indent => String(indent) }
+})
+
+/** Relative width of a column. Missing values have weight 1000. */
+export const ColumnWidth = Mark.Type.define<number>('ColumnWidth', {
+  target: Column,
+  validate: attributeValue('column', 'width', true),
+  shape: { attributes: width => ({ 'data-column-width': String(width), style: `--column-weight: ${width}` }) },
+  parseRules: [
+    {
+      attribute: 'data-column-width',
+      readAttribute: value => (/^[1-9][0-9]{0,3}$/.test(value) ? Number(value) : parse.Reject)
+    }
+  ]
 })
 
 /** `style` of p, h1–h6. Pasted HTML keeps no block styles, so the shape has no parse rule. */
@@ -287,7 +476,7 @@ export const BlockStyle = Mark.Type.define<string>('BlockStyle', {
 export const Task = Mark.Type.define<'todo' | 'done'>('Task', {
   target: ListItem,
   keepOnSplit: true,
-  validate: oneOf('todo', 'done'),
+  validate: attributeValue('li', 'task'),
   shape: {
     attributes: task => ({ role: 'checkbox', 'aria-checked': String(task === 'done'), 'data-task': task })
   },
@@ -306,6 +495,16 @@ export const CodeMeta = Mark.Type.define<string>('CodeMeta', {
   keepOnSplit: true,
   validate: 'string',
   shape: { attribute: 'data-meta', value: 0 }
+})
+
+/** `wrap` of pre. Present only when the code block wraps long lines. */
+export const CodeWrap = Mark.Type.define<string>('CodeWrap', {
+  target: T.CodeBlock,
+  keepOnSplit: true,
+  validate: value => {
+    if (value !== 'true') throw new ValidationError(`Expected true, got ${value}`)
+  },
+  shape: { attribute: 'data-wrap', value: 0 }
 })
 
 /** `title` of img. The alt text uses the core's ImageAlt. */
@@ -338,6 +537,9 @@ const formatMarks = Object.values(formats)
 
 export const schemaElements: readonly Schema.Element[] = [
   Page,
+  BlockGroup,
+  Columns,
+  Column,
   T.Paragraph,
   T.Heading,
   Blockquote,
@@ -353,30 +555,49 @@ export const schemaElements: readonly Schema.Element[] = [
   UnknownBlock,
   T.LineBreak,
   T.Image,
+  Mention,
   InlineElement,
   ...formatMarks,
   TextStyle,
+  Comment,
   Link,
   Align,
   Indent,
+  ColumnWidth,
+  TableWidths,
+  TableLayout,
+  CellBackground,
   BlockStyle,
   Task,
   T.CodeBlockLanguage,
   CodeMeta,
+  CodeWrap,
   T.ColSpan,
   T.RowSpan,
   T.ImageAlt,
   ImageTitle,
   PagePlaceholder,
   Attrs,
-  Schema.Override.markTarget(Attrs, target => [target, Blockquote, ListItem, Table, TableRow, DataCell, HeaderCell]),
+  Schema.Override.markTarget(Attrs, target => [
+    target,
+    BlockGroup,
+    Columns,
+    Column,
+    Blockquote,
+    ListItem,
+    Table,
+    TableRow,
+    DataCell,
+    HeaderCell,
+    Mention
+  ]),
   ...blocks.flatMap(block => block.schema),
   // The core's lists hold the core's list items; ours hold our list item.
   Schema.Override.plotContent(T.BulletList, ListItem),
   Schema.Override.plotContent(T.OrderedList, ListItem),
   // N gives `br` and `img` only a link, never a format or style.
-  ...formatMarks.map(mark => Schema.Override.markTarget(mark, [Leaf.Text, InlineElement])),
-  Schema.Override.markTarget(TextStyle, [Leaf.Text, InlineElement])
+  ...formatMarks.map(mark => Schema.Override.markTarget(mark, [Leaf.Text, InlineElement, Mention])),
+  Schema.Override.markTarget(TextStyle, [Leaf.Text, InlineElement, Mention])
 ]
 
 export const schema = Schema.define(schemaElements)

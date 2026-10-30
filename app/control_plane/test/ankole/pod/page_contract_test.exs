@@ -454,6 +454,167 @@ defmodule Ankole.Pod.PageContractTest do
     assert Repo.get(Page, page.id)
   end
 
+  test "navigation bootstraps roots and only the active path with one authorization snapshot",
+       ctx do
+    actor = actor_fixture(ctx.owner.uid)
+    {:ok, root} = Pages.create(actor, %{title: "Root"})
+    {:ok, middle} = Pages.create(actor, %{parent_id: root.id, title: "Middle"})
+    {:ok, active} = Pages.create(actor, %{parent_id: middle.id, title: "Active"})
+    {:ok, sibling} = Pages.create(actor, %{title: "Unrelated"})
+    {:ok, _} = Pages.create(actor, %{parent_id: sibling.id})
+    handler = "navigation-snapshot-#{root.id}"
+
+    :telemetry.attach(
+      handler,
+      [:ankole, :repo, :query],
+      fn _, _, metadata, pid ->
+        if self() == pid and String.contains?(metadata.query, "WITH subject AS"),
+          do: send(pid, :navigation_snapshot)
+      end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    assert {:ok, result} = Pages.navigation(actor, active.id)
+    assert Enum.map(result.path, & &1.id) == [root.id, middle.id, active.id]
+    assert Enum.map(result.directories, & &1.parent_id) == [nil, nil, root.id, middle.id]
+    assert_receive :navigation_snapshot
+    refute_receive :navigation_snapshot
+    assert Enum.all?(result.directories, &is_boolean(&1.can_manage_space))
+  end
+
+  test "directory branches count only live, visible direct children", ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    reader = human_fixture().principal
+    reader_actor = actor_fixture(reader.uid)
+    {:ok, root} = Pages.create(owner, %{title: "Shared root"})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, root.id, %{
+        grants: [%{principal_uid: reader.uid, role: "view"}]
+      })
+
+    {:ok, hidden} = Pages.create(owner, %{parent_id: root.id})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, hidden.id, %{
+        inherit_permissions: false,
+        grants: []
+      })
+
+    {:ok, grandchild} = Pages.create(owner, %{parent_id: hidden.id})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, grandchild.id, %{
+        grants: [%{principal_uid: reader.uid, role: "view"}]
+      })
+
+    assert {:ok, %{pages: [owner_root]}} = Pages.list_children(owner, nil)
+    assert owner_root.aggregates.has_children
+    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    refute reader_root.aggregates.has_children
+    assert {:ok, %{pages: []}} = Pages.list_children(reader_actor, root.id)
+
+    {:ok, visible} = Pages.create(owner, %{parent_id: root.id})
+    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    assert reader_root.aggregates.has_children
+    assert {:ok, %{pages: [leaf]}} = Pages.list_children(reader_actor, root.id)
+    assert leaf.id == visible.id
+    refute leaf.aggregates.has_children
+
+    {:ok, _} = Pages.delete(owner, visible.id)
+    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    refute reader_root.aggregates.has_children
+
+    {:ok, _} = Pages.restore(owner, visible.id)
+    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    assert reader_root.aggregates.has_children
+
+    {:ok, _} = Pages.move(owner, visible.id, %{parent_id: hidden.id})
+    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    refute reader_root.aggregates.has_children
+  end
+
+  test "navigation includes the active path beyond the first directory page", ctx do
+    actor = actor_fixture(ctx.owner.uid)
+    {:ok, root} = Pages.create(actor, %{title: "Root"})
+    {:ok, active} = Pages.create(actor, %{parent_id: root.id, position: "z", title: "Active"})
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.insert_all(
+      Page,
+      for n <- 1..200 do
+        %{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
+          tenant_id: root.tenant_id,
+          type: :file,
+          title: "Sibling #{n}",
+          position: "A" <> String.pad_leading(to_string(n), 3, "0"),
+          parent_id: root.id,
+          acl_anchor_id: root.id,
+          created_by: root.created_by,
+          created_at: now,
+          updated_at: now
+        }
+      end
+    )
+
+    assert {:ok, result} = Pages.navigation(actor, active.id)
+    directory = Enum.find(result.directories, &(&1.parent_id == root.id))
+    assert length(directory.pages) == 200
+    refute Enum.any?(directory.pages, &(&1.id == active.id))
+    assert Enum.map(result.path, & &1.id) == [root.id, active.id]
+
+    assert {:ok, %{pages: [last]}} =
+             Pages.list_children(actor, root.id, %{cursor: directory.next_cursor})
+
+    assert last.id == active.id
+  end
+
+  test "branch existence and bootstrap paths intersect Agent and interactive Human access", ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    reader = human_fixture().principal
+    agent = actor_fixture(ctx.agent.uid)
+    interactive = %{agent | interactive_principal: reader}
+    {:ok, root} = Pages.create(owner, %{})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, root.id, %{
+        grants: [
+          %{principal_uid: ctx.agent.uid, role: "view"},
+          %{principal_uid: reader.uid, role: "view"}
+        ]
+      })
+
+    {:ok, child} = Pages.create(owner, %{parent_id: root.id})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, child.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: ctx.agent.uid, role: "view"}]
+      })
+
+    assert {:ok, %{pages: [agent_root]}} = Pages.list_children(agent, nil)
+    assert agent_root.aggregates.has_children
+    assert {:ok, %{pages: [interactive_root]}} = Pages.list_children(interactive, nil)
+    refute interactive_root.aggregates.has_children
+    assert {:ok, %{path: []}} = Pages.navigation(interactive, child.id)
+    assert {:ok, %{pages: []}} = Pages.list_children(interactive, root.id)
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, child.id, %{
+        grants: [
+          %{principal_uid: ctx.agent.uid, role: "view"},
+          %{principal_uid: reader.uid, role: "view"}
+        ]
+      })
+
+    assert {:ok, %{pages: [interactive_root]}} = Pages.list_children(interactive, nil)
+    assert interactive_root.aggregates.has_children
+    assert {:ok, result} = Pages.navigation(interactive, child.id)
+    assert Enum.map(result.path, & &1.id) == [root.id, child.id]
+  end
+
   test "directory pagination uses bytewise C ordering and returns one covered projection" do
     principal = Ankole.PrincipalsFixtures.human_fixture().principal
     actor = Ankole.AuthZ.Actor.new(principal)

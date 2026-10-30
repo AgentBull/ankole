@@ -23,13 +23,13 @@ function Switch({
       data-slot="switch"
       data-size={size}
       className={cn(
-        'peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-offset-1 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 data-[size=default]:h-6 data-[size=default]:w-12 data-[size=default]:[--switch-thumb:1.125rem] data-[size=default]:[--switch-x:1.6875rem] data-[size=sm]:h-4 data-[size=sm]:w-8 data-[size=sm]:[--switch-thumb:0.625rem] data-[size=sm]:[--switch-x:1.1875rem] dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:bg-foreground data-unchecked:bg-gray-50 data-disabled:cursor-not-allowed data-disabled:opacity-50 dark:data-unchecked:bg-gray-60',
+        'peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-offset-1 aria-invalid:border-destructive data-[size=default]:h-5 data-[size=default]:w-[38px] data-[size=default]:[--switch-thumb:14px] data-[size=default]:[--switch-x:20px] data-[size=default]:[--switch-x0:2px] data-[size=sm]:h-4 data-[size=sm]:w-[30px] data-[size=sm]:[--switch-thumb:10px] data-[size=sm]:[--switch-x:16px] data-[size=sm]:[--switch-x0:2px] data-checked:bg-foreground data-unchecked:bg-gray-50 data-disabled:cursor-not-allowed data-disabled:bg-gray-30! dark:data-unchecked:bg-gray-60 dark:data-disabled:bg-gray-70!',
         className
       )}
       {...props}>
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
-        className="pointer-events-none block size-[var(--switch-thumb)] rounded-full bg-white ring-0 transition-transform dark:data-checked:bg-background data-checked:translate-x-[var(--switch-x)] data-unchecked:translate-x-[0.1875rem]"
+        className="pointer-events-none block size-[var(--switch-thumb)] rounded-full bg-white ring-0 transition-transform dark:data-checked:bg-background data-checked:translate-x-[var(--switch-x)] data-unchecked:translate-x-[var(--switch-x0)]"
       />
     </SwitchPrimitive.Root>
   )

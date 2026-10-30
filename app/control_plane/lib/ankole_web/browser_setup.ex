@@ -538,7 +538,7 @@ defmodule AnkoleWeb.BrowserSetup do
          :ok <- SetupConfig.delete_bootstrap_activation_code() do
       conn
       |> WebSession.clear_setup_session()
-      |> WebSession.put_site_admin_session(completed.browser, completed.authentication)
+      |> WebSession.put_authentication(completed.browser, completed.authentication)
       |> BrowserAPI.ok(%{returnTo: AnkoleWeb.SiteAdminConsole.path()})
     else
       {:error, status, reason} -> error(conn, status, reason)
@@ -571,7 +571,6 @@ defmodule AnkoleWeb.BrowserSetup do
          {:ok, completed} <-
            Ankole.BrowserSessions.authenticate_site_in_tx(
              browser,
-             :console,
              "email_otp",
              %{
                challenge_id: challenge.id,

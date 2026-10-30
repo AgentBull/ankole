@@ -16,10 +16,27 @@ defmodule Ankole.AuthZ.Grants do
   @console_admin_resource_patterns ["site_console:**", "tenant_console:**"]
   @console_admin_actions ~w(read update delete reset decrypt sync)
 
-  def create(attrs), do: Repo.transact_top_level(fn -> create_permission_grant(attrs) end)
-  def upsert(attrs), do: Repo.transact_top_level(fn -> upsert_permission_grant(attrs) end)
-  def update(id, attrs), do: Repo.transact_top_level(fn -> update_permission_grant(id, attrs) end)
-  def delete(id), do: Repo.transact_top_level(fn -> delete_permission_grant(id) end)
+  def create(attrs) do
+    Repo.transact_top_level(fn -> create_permission_grant(attrs) end, after_commit: &committed/1)
+  end
+
+  def upsert(attrs) do
+    Repo.transact_top_level(fn -> upsert_permission_grant(attrs) end, after_commit: &committed/1)
+  end
+
+  def update(id, attrs) do
+    Repo.transact_top_level(fn -> update_permission_grant(id, attrs) end,
+      after_commit: &committed/1
+    )
+  end
+
+  def delete(id) do
+    Repo.transact_top_level(fn -> delete_permission_grant(id) end, after_commit: &committed/1)
+  end
+
+  defp committed(grant) do
+    if grant_affects_pod?(grant), do: Ankole.Pod.Access.broadcast_change()
+  end
 
   def create_permission_grant(attrs) do
     :ok = Ankole.Repo.require_transaction()
@@ -239,7 +256,8 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   defp allow_guest_share(%{principal_uid: uid, action: action})
-       when is_binary(uid) and action in ~w(page_view page_write_records page_edit page_manage) do
+       when is_binary(uid) and
+              action in ~w(page_view page_write_records page_edit page_manage page_comment) do
     with {:ok, principal} <- Ankole.Principals.get_principal(uid) do
       if principal.membership == :guest do
         with {:ok, enabled} <-
@@ -332,7 +350,7 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   defp normalize_target(%{action: action, resource_pattern: pattern} = attrs)
-       when action in ~w(page_view page_write_records page_edit page_manage) and
+       when action in ~w(page_view page_write_records page_edit page_manage page_comment) and
               is_binary(pattern) do
     case Regex.run(
            ~r/\Apod:\*\*:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):(\*\*|page)\z/,

@@ -12,14 +12,16 @@ import {
 import { RiAddLine, RiCloseLine, RiExternalLinkLine, RiHistoryLine } from '@remixicon/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { lazy, Suspense, useEffect, useState, useRef, type CSSProperties, type RefObject } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useState, useRef, type CSSProperties, type RefObject } from 'react'
 import { Link } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
+import { ErrorBoundary, ErrorFallback } from '../common/error-boundary'
 import { pageConversationsQuery, podKeys } from './api'
 import { useRoomActions } from './chat/room-api'
 import { ContentError } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
 import { useChatDrafts } from './chat-drafts'
+import { PodPanelPresence, PodPanelSurface, type PanelInputEvent } from './panel-motion'
 import './chat.css'
 
 const ChatPage = lazy(() => import('./chat-page').then(module => ({ default: module.ChatPage })))
@@ -29,6 +31,7 @@ export function PageChat({
   pageID,
   pageTitle,
   selection,
+  animate,
   select,
   returnFocus
 }: {
@@ -36,12 +39,17 @@ export function PageChat({
   pageID: string
   pageTitle: string
   selection: string | null
-  select(id: string | null, flushSync?: boolean): void
+  animate: boolean
+  select(id: string | null, flushSync?: boolean, event?: PanelInputEvent): void
   returnFocus: RefObject<HTMLElement | null>
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const drafts = useChatDrafts()
+  const currentSelection = useRef(selection)
+  useLayoutEffect(() => {
+    currentSelection.current = selection
+  }, [selection])
   // Keep the current conversation on the sheet until its close transition ends.
   const [displayedSelection, setDisplayedSelection] = useState(selection)
   if (selection && selection !== displayedSelection) setDisplayedSelection(selection)
@@ -63,12 +71,12 @@ export function PageChat({
   }, [selection, chats.data, chats.isFetching, drafts, pageID, select])
   const exitConversation = () => {
     void client.invalidateQueries({ queryKey: podKeys.pageConversations(pageID) })
-    select('new', true)
+    if (currentSelection.current) select('new', true)
   }
   const header = (
     <header className="pod-page-chat-header" title={pageTitle}>
-      <div className="pod-page-chat-heading">
-        <h2 className="pod-page-chat-title">{t('pod.page_chat.title')}</h2>
+      <div className="sheet-header gap-0.5">
+        <h2 className="sheet-title">{t('pod.page_chat.title')}</h2>
         <div className="pod-page-chat-scope">
           <Select
             value={selectedChat?.accessScope ?? newScope}
@@ -78,7 +86,7 @@ export function PageChat({
               else setNewScope(value)
             }}
             disabled={accessDenied || actions.update.isPending || (!!conversationID && !selectedChat?.canManage)}>
-            <SelectTrigger size="sm" aria-label={t('pod.chat_room.visibility')}>
+            <SelectTrigger size="sm" variant="ghost" aria-label={t('pod.chat_room.visibility')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -88,7 +96,7 @@ export function PageChat({
           </Select>
         </div>
         <Button
-          size="icon-sm"
+          size="icon-xs"
           variant="ghost"
           aria-label={t('pod.chat.new_conversation')}
           title={t('pod.chat.new_conversation')}
@@ -104,6 +112,7 @@ export function PageChat({
             aria-label={t('pod.page_chat.choose_chat')}
             title={t('pod.page_chat.choose_chat')}
             className="pod-page-chat-switcher"
+            variant="ghost"
             size="sm">
             <RiHistoryLine aria-hidden />
             <SelectValue className="sr-only" />
@@ -119,7 +128,7 @@ export function PageChat({
         </Select>
         {conversationID && (
           <Button
-            size="icon-sm"
+            size="icon-xs"
             variant="ghost"
             aria-label={t('pod.page_chat.open_chat')}
             render={<Link to={podLocation(`/conversations/${conversationID}`).pathname} />}
@@ -127,7 +136,11 @@ export function PageChat({
             <RiExternalLinkLine aria-hidden />
           </Button>
         )}
-        <Button size="icon-sm" variant="ghost" aria-label={t('pod.page_chat.close')} onClick={() => select(null, true)}>
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          aria-label={t('pod.page_chat.close')}
+          onClick={event => select(null, true, event)}>
           <RiCloseLine aria-hidden />
         </Button>
       </div>
@@ -152,39 +165,50 @@ export function PageChat({
         </p>
       </>
     ) : (
-      <Suspense
-        fallback={
+      <ErrorBoundary
+        resetKeys={[pageID, conversationID ?? 'new']}
+        fallback={({ error, reset }) => (
           <>
             {header}
-            <p role="status" className="p-4 text-sm">
-              {t('pod.chat.loading_history')}
-            </p>
+            <div className="p-4">
+              <ErrorFallback variant="panel" error={error} reset={reset} />
+            </div>
           </>
-        }>
-        <ChatPage
-          key={conversationID ?? 'new'}
-          conversationID={conversationID}
-          pageID={pageID}
-          accessScope={newScope}
-          pageHeader={header}
-          pageChat={{
-            pageTitle,
-            conversations: chats.data?.conversations ?? [],
-            conversationsPending: chats.isPending,
-            listError: chats.data && chats.error && !accessDenied ? chats.error : undefined,
-            onRetryList: () => void chats.refetch(),
-            accessDenied,
-            onSelectConversation: id => select(id, true),
-            onNewConversation: () => select('new', true),
-            onClose: () => select(null, true)
-          }}
-          onNewConversation={() => select('new', true)}
-          onExitConversation={exitConversation}
-          onConversationStarted={id => {
-            if (selection) select(id)
-          }}
-        />
-      </Suspense>
+        )}>
+        <Suspense
+          fallback={
+            <>
+              {header}
+              <p role="status" className="p-4 text-sm">
+                {t('pod.chat.loading_history')}
+              </p>
+            </>
+          }>
+          <ChatPage
+            key={conversationID ?? 'new'}
+            conversationID={conversationID}
+            pageID={pageID}
+            accessScope={newScope}
+            pageHeader={header}
+            pageChat={{
+              pageTitle,
+              conversations: chats.data?.conversations ?? [],
+              conversationsPending: chats.isPending,
+              listError: chats.data && chats.error && !accessDenied ? chats.error : undefined,
+              onRetryList: () => void chats.refetch(),
+              accessDenied,
+              onSelectConversation: id => select(id, true),
+              onNewConversation: () => select('new', true),
+              onClose: event => select(null, true, event)
+            }}
+            onNewConversation={() => select('new', true)}
+            onExitConversation={exitConversation}
+            onConversationStarted={id => {
+              if (currentSelection.current) select(id)
+            }}
+          />
+        </Suspense>
+      </ErrorBoundary>
     )
   if (mobile) {
     return (
@@ -196,45 +220,50 @@ export function PageChat({
       </Sheet>
     )
   }
-  if (!selection) return null
   return (
-    <aside
-      aria-label={t('pod.page_chat.title')}
-      className="pod-page-chat"
-      style={{ '--pod-page-chat-width': `${width}px` } as CSSProperties}>
-      <div
-        role="separator"
-        tabIndex={0}
-        aria-label={t('pod.chat_room.resize_chat')}
-        aria-orientation="vertical"
-        aria-valuemin={360}
-        aria-valuemax={480}
-        aria-valuenow={width}
-        className="pod-page-chat-resize"
-        onPointerDown={event => {
-          resizing.current = { x: event.clientX, width }
-          event.currentTarget.setPointerCapture(event.pointerId)
-          event.preventDefault()
-        }}
-        onPointerMove={event => {
-          if (resizing.current) {
-            setWidth(Math.max(360, Math.min(480, resizing.current.width + resizing.current.x - event.clientX)))
-          }
-        }}
-        onPointerUp={() => {
-          resizing.current = undefined
-        }}
-        onPointerCancel={() => {
-          resizing.current = undefined
-        }}
-        onKeyDown={event => {
-          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-            event.preventDefault()
-            setWidth(current => Math.max(360, Math.min(480, current + (event.key === 'ArrowLeft' ? 10 : -10))))
-          }
-        }}
-      />
-      {body}
-    </aside>
+    <PodPanelPresence animate={animate && !accessDenied}>
+      {selection && (
+        <PodPanelSurface
+          key="page-chat"
+          aria-label={t('pod.page_chat.title')}
+          data-sheet
+          className="pod-page-chat paper-sheet"
+          style={{ '--pod-page-chat-width': `${width}px` } as CSSProperties}>
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-label={t('pod.chat_room.resize_chat')}
+            aria-orientation="vertical"
+            aria-valuemin={360}
+            aria-valuemax={480}
+            aria-valuenow={width}
+            className="pod-page-chat-resize"
+            onPointerDown={event => {
+              resizing.current = { x: event.clientX, width }
+              event.currentTarget.setPointerCapture(event.pointerId)
+              event.preventDefault()
+            }}
+            onPointerMove={event => {
+              if (resizing.current) {
+                setWidth(Math.max(360, Math.min(480, resizing.current.width + resizing.current.x - event.clientX)))
+              }
+            }}
+            onPointerUp={() => {
+              resizing.current = undefined
+            }}
+            onPointerCancel={() => {
+              resizing.current = undefined
+            }}
+            onKeyDown={event => {
+              if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                event.preventDefault()
+                setWidth(current => Math.max(360, Math.min(480, current + (event.key === 'ArrowLeft' ? 10 : -10))))
+              }
+            }}
+          />
+          {body}
+        </PodPanelSurface>
+      )}
+    </PodPanelPresence>
   )
 }

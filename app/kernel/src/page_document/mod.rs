@@ -1,7 +1,13 @@
 //! The page-tree codec and Wordgard apply path. PostgreSQL remains the document owner.
+mod attributes;
 mod changeset;
+mod comments;
+pub use comments::{
+    CommentedPage, annotate_comment, comment_info, remove_comment, restore_comments,
+};
 mod diff;
 mod document;
+mod document_schema;
 mod tree;
 
 use serde::Serialize;
@@ -37,6 +43,10 @@ pub fn diff(old: &str, new: &str) -> Result<Value> {
     let new = document::page_document_normalized(&tree::parse(new)?)?;
     diff::changes(&old, &new)
 }
+pub fn identity_changes(source: &str) -> Result<String> {
+    let doc = document::page_document_normalized(&tree::parse(source)?)?;
+    Ok(serde_json::json!([doc.span()]).to_string())
+}
 
 fn page(root: Element) -> Result<Page> {
     let xml = tree::print(&root);
@@ -47,7 +57,7 @@ fn page(root: Element) -> Result<Page> {
     fn visit(node: &Element, text: &mut String) {
         let block = matches!(
             node.name.as_str(),
-            "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "pre"
+            "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "pre" | "math" | "mermaid"
         );
         if block && !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');

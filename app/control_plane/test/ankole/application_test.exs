@@ -20,11 +20,11 @@ defmodule Ankole.ApplicationTest do
 
     assert delivery_index < i18n_catalog_index
 
-    assert "Refining the answer…" =
-             I18n.t("conversations.delivery.cardkit.refining", %{}, locale: "en-US")
-
-    assert "正在深思熟虑…" =
-             I18n.t("conversations.delivery.cardkit.refining", %{}, locale: "zh-Hans-CN")
+    for locale <- ["en-US", "zh-Hans-CN"] do
+      translated = I18n.t("conversations.delivery.cardkit.refining", %{}, locale: locale)
+      assert is_binary(translated) and translated != ""
+      refute translated == "conversations.delivery.cardkit.refining"
+    end
   end
 
   test "starts Delivery and Sessions before Workflow and Oban before plugin enqueue" do

@@ -48,14 +48,12 @@ defmodule Ankole.EditionFixture.ConformanceTest do
     {:ok, completed} =
       Ankole.BrowserSessions.authenticate(
         WebSession.browser_reference(member_conn),
-        :pod,
         %{
           "principal_uid" => member.uid,
           "access_version" => member.access_version,
           "provider_id" => "fixture",
           "external_id" => "fixture-member"
-        },
-        mode: :add
+        }
       )
 
     member_conn =
@@ -192,6 +190,8 @@ defmodule Ankole.EditionFixture.ConformanceTest do
       )
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+    Application.put_env(:ankole, :fixture_https_port, port)
+    on_exit(fn -> Application.delete_env(:ankole, :fixture_https_port) end)
     script = Path.expand("../../webapps/fixture-browser.ts", __DIR__)
 
     for mode <- ["enabled", "disabled"] do
@@ -242,10 +242,10 @@ defmodule Ankole.EditionFixture.ConformanceTest do
       })
 
     conn = init_test_session(conn, %{})
-    providers = conn |> api_get("/api/v2/browser/identity-providers", %{purpose: "site"})
+    providers = api_get(conn, "/api/v2/browser/identity-providers")
     assert api_response(providers, 200)["providers"]
 
-    payload = %{purpose: "site", email: "fixture@example.test"}
+    payload = %{email: "fixture@example.test"}
     assert conn |> api_post(@otp_path, payload) |> response(403) == "Fixture challenge required"
 
     passed =
@@ -263,13 +263,13 @@ defmodule Ankole.EditionFixture.ConformanceTest do
 
     snapshot =
       conn
-      |> api_get("/api/v2/browser/identity-providers", %{purpose: "site"})
+      |> api_get("/api/v2/browser/identity-providers")
       |> api_response(200)
 
     refute Map.has_key?(snapshot, "features")
 
     unchallenged =
-      conn |> api_post(@otp_path, %{purpose: "site", email: "fixture-disabled@example.test"})
+      conn |> api_post(@otp_path, %{email: "fixture-disabled@example.test"})
 
     assert api_response(unchallenged, 200)["challengeID"]
     assert_receive {:email, %Swoosh.Email{to: [{_, "fixture-disabled@example.test"}]}}

@@ -70,6 +70,15 @@ RPC, the control plane still enforces that Agent's permissions on the target
 page, so sharing a page file never requires exposing an Agent's personal drive
 to a Human.
 
+The Pod drive also owns a tenant-wide `metadata/` namespace for files that
+belong to the Pod rather than to a Page. `metadata/custom-emoji/<sha256>/<icon
+name>` holds the shared picture library that Page icons use, where the name is
+an ASCII shortcode such as `:my_icon:`, and a Page stores that relative path in
+its `icon` value. Space `page_view` reads the library and
+space `page_edit` adds to it through `/api/v2/pod/metadata/custom-emojis` and
+`/api/v2/pod/metadata/files/content`. Purging a Page leaves these paths in
+place, because they have no Page owner and stay available to the whole Pod.
+
 Replacing a file page advances the page revision and updates the file reference
 in one transaction, while document assets and Base attachments embed their full
 SHA-256 digest in their paths. Publishing an Applet atomically replaces `src/`,
@@ -102,6 +111,7 @@ Several Agent-drive prefixes carry reserved meanings:
 | `chats/<channel>/inbox/<message ID>/<digest>/<file name>` | A native Human Message attachment |
 | `chats/<channel>/generated/<digest>/<file name>` | AIGateway image generation in a channel conversation |
 | `generated/<digest>/<file name>` | AIGateway image generation without a source channel |
+| `sent/<digest>/<file name>` | Outbound reply attachment committed by the Worker (source `sent`) |
 | `skills/<name>/…` | Console upload or `ankole-files put` |
 | `automation/<folder>-<suffix>/…` | Automation Job registration |
 

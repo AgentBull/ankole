@@ -18,8 +18,8 @@ order: 31
 
 | フォルダ | 内容 |
 |---|---|
-| `inbox/` | Agent に送信された添付ファイル |
-| `generated/` | Agent が生成した画像 |
+| `chats/<channel>/inbox/` | その会話で Agent に送信された添付ファイル |
+| `chats/<channel>/generated/`、`generated/` | Agent が生成した画像（会話内では `chats/<channel>/generated/`、チャネルに紐付かない場合は `generated/`） |
 | `sent/` | Agent が返信に添付したファイル |
 | `skills/` | Agent にインストール済みの Skill（Skill ごとに 1 フォルダ） |
 | `automation/` | Automation Job のスクリプト |

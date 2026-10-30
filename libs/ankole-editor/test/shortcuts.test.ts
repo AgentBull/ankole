@@ -1,14 +1,18 @@
 import { expect, test } from 'bun:test'
 import { insertText } from '../src/core/command/commands'
-import type { Leaf } from '../src/core/doc'
+import { parse as parseDOM, serialize, type Leaf } from '../src/core/doc'
+import type { Wordgard } from '../src/core/editor'
+import { eventHandler } from '../src/core/editor/input'
 import { undo } from '../src/core/history'
-import { GardSelection, Transaction, type GardState } from '../src/core/state'
+import { GardSelection, GardState, Transaction } from '../src/core/state'
 import { printMarkdown } from '../src/document/markdown'
-import { printXml } from '../src/document/xml'
+import { parseXml, printXml } from '../src/document/xml'
 import { readTree } from '../src/editor/convert'
 import { headlessState } from '../src/editor/extension'
 import { addressLink, linkAt, removeLink, setLink } from '../src/editor/links'
 import { fenceShortcut } from '../src/editor/markdown-shortcuts'
+import { Link, safeLinkHref, schema } from '../src/editor/schema'
+import { open, openWithHost } from './helpers'
 
 const markdown = (state: GardState) => printMarkdown(readTree(state.doc))
 const xml = (state: GardState) => printXml(readTree(state.doc))
@@ -73,6 +77,15 @@ test('a checkbox typed in a bullet item makes it a to-do item', () => {
 test('undo right after a conversion gives back the typed characters', () => {
   expect(markdown(undone(type(empty(), '[] ')))).toBe('s\n\n\\[]&#x20;\n\ne')
   expect(markdown(undone(type(empty(), '## ')))).toBe('s\n\n\\##&#x20;\n\ne')
+})
+
+test('typing the table shortcut creates editable header cells and undo restores the marker', () => {
+  const state = type(empty(), '|--')
+  const tree = readTree(state.doc)
+  const table = tree.children.find(node => node.type === 'element' && node.name === 'table')
+  expect(table?.type === 'element' && table.children.length).toBe(3)
+  expect(xml(type(state, 'Name'))).toContain('<th><p>Name</p></th>')
+  expect(xml(undone(state))).toBe('<page><p>s</p><p>|--</p><p>e</p></page>')
 })
 
 test('a block marker typed before existing text converts the paragraph and keeps the caret', () => {
@@ -162,4 +175,152 @@ test('the link form reads, changes and removes links', () => {
     setLink({ state: plain }, { href: 'https://c.example', title: 'C' }) as Transaction.Spec
   ).state
   expect(markdown(linked)).toBe('[a](https://c.example "C") [link](https://a.example "T") b')
+  expect(setLink({ state: plain }, { href: 'javascript:alert(1)' })).toBe(false)
+  expect(setLink({ state: plain }, { href: 'data:text/html,<script>alert(1)</script>' })).toBe(false)
+})
+
+function mockLinkContainer(href: string, label: string, title?: string): Element {
+  const textNode = {
+    nodeType: 3,
+    nodeValue: label,
+    firstChild: null,
+    nextSibling: null
+  }
+  const attrs = new Map<string, string>([['href', href]])
+  if (title !== undefined) attrs.set('title', title)
+  const anchor = {
+    nodeType: 1,
+    nodeName: 'A',
+    firstChild: textNode,
+    nextSibling: null,
+    attributes: [...attrs.entries()].map(([name, value]) => ({ name, value })),
+    getAttribute: (name: string) => attrs.get(name) ?? null,
+    hasAttribute: (name: string) => attrs.has(name),
+    matches: (selector: string) => selector === 'a' || (selector === 'a[href]' && attrs.has('href')),
+    style: {}
+  }
+  const paragraph = {
+    nodeType: 1,
+    nodeName: 'P',
+    firstChild: anchor,
+    nextSibling: null,
+    attributes: [],
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    matches: (selector: string) => selector === 'p',
+    style: {}
+  }
+  return {
+    nodeType: 1,
+    nodeName: 'DIV',
+    firstChild: paragraph,
+    nextSibling: null,
+    attributes: [],
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    matches: () => false,
+    style: {}
+  } as unknown as Element
+}
+
+function dispatchAnchorClick(
+  editor: Wordgard,
+  href: string,
+  options: { metaKey?: boolean; ctrlKey?: boolean } = {}
+): boolean {
+  let prevented = false
+  const anchor = {
+    getAttribute: (name: string) => (name === 'href' ? href : null),
+    closest(selector: string) {
+      return selector === 'a[href]' ? anchor : null
+    }
+  }
+  const event = {
+    button: 0,
+    metaKey: options.metaKey ?? false,
+    ctrlKey: options.ctrlKey ?? false,
+    target: anchor,
+    get defaultPrevented() {
+      return prevented
+    },
+    preventDefault() {
+      prevented = true
+    }
+  } as unknown as Event
+  for (const handler of editor.state.facet(eventHandler)['click'] ?? []) {
+    if (handler(event, editor)) break
+  }
+  return prevented
+}
+
+test('link protocol allowlist protects toDOM, parseDOM, Markdown shortcuts, and activation clicks', () => {
+  for (const unsafe of [
+    'javascript:alert(1)',
+    '  \t\nJaVaScRiPt:alert(1)',
+    'java\tscript:alert(1)',
+    'vbscript:msgbox(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'file:///etc/passwd',
+    'blob:https://example.com/123'
+  ]) {
+    expect(safeLinkHref(unsafe)).toBeNull()
+
+    // Stored unsafe links never emit an executable href in DOM serialization.
+    const stored = headlessState(
+      parseXml(`<page><p><a href="${unsafe.replace(/[<>&"]/g, '')}" title="Note">bad</a></p></page>`)
+    )
+    const html = serialize(stored.doc).toHTML()
+    expect(html).toBe('<p><a rel="noopener noreferrer" title="Note">bad</a></p>')
+    expect(html).not.toContain('href=')
+
+    // Pasted HTML with disallowed href rejects the Link mark while preserving text.
+    const parsed = parseDOM(schema, mockLinkContainer(unsafe, 'pasted', 'Title'))
+    expect(parsed.content[0]!.isPlot && parsed.content[0]!.content[0]?.marks.some(mark => mark.type === Link)).toBe(
+      false
+    )
+    expect(printXml(readTree(parsed))).toBe('<page><p>pasted</p></page>')
+  }
+
+  for (const allowed of [
+    'https://example.com/path',
+    '  http://example.com  ',
+    'mailto:alice@example.com',
+    'tel:+1234567',
+    'ankole:page/019a2b00-0000-7000-8000-000000000001',
+    'ankole:asset/hash/report.pdf',
+    '/docs/intro',
+    '#overview'
+  ]) {
+    const trimmed = allowed.trim()
+    expect(safeLinkHref(allowed)).toBe(trimmed)
+    const parsed = parseDOM(schema, mockLinkContainer(allowed, 'ok', 'Safe'))
+    expect(printXml(readTree(parsed))).toBe(`<page><p><a href="${trimmed}" title="Safe">ok</a></p></page>`)
+  }
+
+  // Markdown inline shortcuts reject javascript: and data: URLs.
+  expect(xml(type(at('<p />', 1), '[click](javascript:alert(1))'))).toBe(
+    '<page><p>[click](javascript:alert(1))</p></page>'
+  )
+  expect(xml(type(at('<p />', 1), '[click](data:text/html,hi)'))).toBe('<page><p>[click](data:text/html,hi)</p></page>')
+  expect(xml(type(at('<p />', 1), '[click](https://example.com)'))).toBe(
+    '<page><p><a href="https://example.com">click</a></p></page>'
+  )
+
+  // Activation clicks (readOnly and Mod+Click) always call preventDefault() even on unhandled/unsafe hrefs.
+  for (const href of ['javascript:alert(1)', 'data:text/html,hi', 'https://example.com', 'ankole:page/target']) {
+    const editable = open('text')
+    expect(dispatchAnchorClick(editable, href)).toBe(false)
+    expect(dispatchAnchorClick(editable, href, { metaKey: true })).toBe(true)
+    expect(dispatchAnchorClick(editable, href, { ctrlKey: true })).toBe(true)
+
+    const readOnlyEditor = open('text')
+    readOnlyEditor.dispatch({ effects: GardState.appendConfig.of(GardState.readOnly.of(true)) })
+    expect(dispatchAnchorClick(readOnlyEditor, href)).toBe(true)
+
+    const hostedWithoutOpenPage = openWithHost('text', {})
+    expect(dispatchAnchorClick(hostedWithoutOpenPage, href, { metaKey: true })).toBe(true)
+    const hostedReadOnly = openWithHost('text', {})
+    hostedReadOnly.dispatch({ effects: GardState.appendConfig.of(GardState.readOnly.of(true)) })
+    expect(dispatchAnchorClick(hostedReadOnly, href)).toBe(true)
+  }
 })

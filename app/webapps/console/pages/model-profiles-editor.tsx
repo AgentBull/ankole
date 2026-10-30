@@ -120,7 +120,7 @@ function AgentModelProfilesEditor({
   return (
     <section id="model-profiles" className="grid min-w-0 scroll-mt-16 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
       <div className="grid gap-1">
-        <h3 className="text-lg font-semibold tracking-normal">{t('console.models.title')}</h3>
+        <h3 className="title-section">{t('console.models.title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.models.description')}</p>
         {!loading && providers.length === 0 ? (
           <p className="text-sm leading-6 text-muted-foreground">

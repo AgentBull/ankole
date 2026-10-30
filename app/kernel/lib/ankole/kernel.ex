@@ -191,7 +191,52 @@ defmodule Ankole.Kernel do
     end
   end
 
+  @doc "Computes the single-retain identity ChangeSet for a normalized page document."
+  @spec page_identity_changes(String.t()) :: {:ok, [pos_integer()]} | {:error, String.t()}
+  def page_identity_changes(source) when is_binary(source) do
+    case page_identity_changes_nif(source) do
+      {:error, _} = error -> error
+      json -> Torque.decode(json)
+    end
+  end
+
+  @doc "Reads native comment IDs and a document copy without annotation marks."
+  def page_comment_info(source) when is_binary(source) do
+    case page_comment_info_nif(source) do
+      {:error, _} = error ->
+        error
+
+      json ->
+        with {:ok, %{"ids" => ids, "stripped_xml" => xml}} <- Torque.decode(json),
+             do: {:ok, %{ids: ids, stripped_xml: xml}}
+    end
+  end
+
+  @doc "Moves one comment mark to a document range and returns its quoted text."
+  def page_comment_annotate(source, id, from, to)
+      when is_binary(source) and is_binary(id) and is_integer(from) and from >= 0 and
+             is_integer(to) and to >= from do
+    case page_comment_annotate_nif(source, id, from, to) do
+      {:error, _} = error -> error
+      {xml, plain_text, quote} -> {:ok, %{xml: xml, plain_text: plain_text, quote: quote}}
+    end
+  end
+
+  @doc "Removes one comment's native marks while preserving document content."
+  def page_comment_remove(source, id) when is_binary(source) and is_binary(id),
+    do: source |> page_comment_remove_nif(id) |> decode_page_result()
+
+  @doc "Carries current comment marks through a content diff without copying historical marks."
+  def page_restore_comments(current, target) when is_binary(current) and is_binary(target),
+    do: current |> page_restore_comments_nif(target) |> decode_page_result()
+
+  defp page_comment_info_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+  defp page_comment_annotate_nif(_source, _id, _from, _to), do: :erlang.nif_error(:nif_not_loaded)
+  defp page_comment_remove_nif(_source, _id), do: :erlang.nif_error(:nif_not_loaded)
+  defp page_restore_comments_nif(_current, _target), do: :erlang.nif_error(:nif_not_loaded)
+
   defp page_diff_nif(_old, _new), do: :erlang.nif_error(:nif_not_loaded)
+  defp page_identity_changes_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
   defp page_validate_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
   defp page_apply_nif(_source, _changes), do: :erlang.nif_error(:nif_not_loaded)
 

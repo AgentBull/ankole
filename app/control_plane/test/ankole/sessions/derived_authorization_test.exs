@@ -195,7 +195,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     condition = ~s(context.request.ip == "10.20.1.10" && context.request.surface == "agent_rpc")
     agent_grants = page_grants(ctx.agent.uid, pattern)
     refute page.id in rpc_page_ids(attempt)
-    assert {:error, %{"code" => "forbidden"}} = rpc_update(attempt, page.id, "Denied")
+    assert {:error, %{"code" => "forbidden"}} = rpc_update(attempt, page.id, "Denied", page.title)
 
     Enum.each(agent_grants, fn grant ->
       assert {:ok, _} = AuthZ.delete_permission_grant(grant.id)
@@ -204,14 +204,18 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     page_grants(ctx.agent.uid, pattern, condition)
     human_grants = page_grants(ctx.human.uid, pattern, condition)
     assert page.id in rpc_page_ids(attempt)
-    assert {:ok, %{"result" => %{"title" => "Allowed"}}} = rpc_update(attempt, page.id, "Allowed")
+
+    assert {:ok, %{"result" => %{"title" => "Allowed"}}} =
+             rpc_update(attempt, page.id, "Allowed", page.title)
 
     Enum.each(human_grants, fn grant ->
       assert {:ok, _} = AuthZ.delete_permission_grant(grant.id)
     end)
 
     refute page.id in rpc_page_ids(attempt)
-    assert {:error, %{"code" => "forbidden"}} = rpc_update(attempt, page.id, "Denied again")
+
+    assert {:error, %{"code" => "forbidden"}} =
+             rpc_update(attempt, page.id, "Denied again", "Allowed")
 
     assert {:ok, %{page: %{title: "Allowed"}}} =
              Pages.get(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id)
@@ -237,7 +241,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     assert page.id in rpc_page_ids(attempt)
 
     assert {:ok, %{"result" => %{"title" => "Service write"}}} =
-             rpc_update(attempt, page.id, "Service write")
+             rpc_update(attempt, page.id, "Service write", page.title)
   end
 
   test "background hosted reads enforce the human's tool grant before returning rendered content",
@@ -422,13 +426,13 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     Enum.map(pages, & &1["id"])
   end
 
-  defp rpc_update(attempt, id, title),
+  defp rpc_update(attempt, id, title, expected_title),
     do:
       RPCBroker.handle_write(
         attempt.job_ref,
         %PodRequest{
           operation: "pages.update",
-          params_json: Torque.encode!(%{id: id, title: title})
+          params_json: Torque.encode!(%{id: id, title: title, expected_title: expected_title})
         },
         rpc_context(attempt)
       )

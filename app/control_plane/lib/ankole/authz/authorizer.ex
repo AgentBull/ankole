@@ -64,15 +64,8 @@ defmodule Ankole.AuthZ.Authorizer do
       %{check: :pod_filter} ->
         with :ok <- Ankole.AuthZ.Checks.ActorGuardrail.check(state.actor, :pod),
              {:ok, policy} <- Ankole.AuthZ.Checks.PodAnchorFilter.check(state.actor, query) do
-          query =
-            query
-            |> Ash.Query.ensure_selected([:id, :acl_anchor_id])
-            |> Ash.Query.set_context(%{private: %{pod_authorization: {state.actor, policy}}})
-            |> Ash.Query.after_action(fn _query, pages ->
-              {:ok, Ankole.AuthZ.Checks.PodAnchorFilter.project(pages, policy.reachable)}
-            end)
-
-          {:ok, query, state}
+          {:ok, Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(query, state.actor, policy),
+           state}
         else
           _ -> forbidden()
         end

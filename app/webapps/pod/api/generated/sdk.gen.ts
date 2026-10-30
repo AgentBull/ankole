@@ -99,15 +99,18 @@ import type {
   PodChatTeammatesData,
   PodChatTeammatesErrors,
   PodChatTeammatesResponses,
+  PodCommentReadData,
+  PodCommentReadErrors,
+  PodCommentReadResponses,
   PodConversationsData,
   PodConversationsErrors,
   PodConversationsResponses,
   PodDocumentWriteData,
   PodDocumentWriteErrors,
   PodDocumentWriteResponses,
-  PodEmbedDeleteData,
-  PodEmbedDeleteErrors,
-  PodEmbedDeleteResponses,
+  PodEmbedsDeleteData,
+  PodEmbedsDeleteErrors,
+  PodEmbedsDeleteResponses,
   PodFileCopyData,
   PodFileCopyErrors,
   PodFileCopyResponses,
@@ -119,6 +122,12 @@ import type {
   PodMemberAccessReviewData,
   PodMemberAccessReviewErrors,
   PodMemberAccessReviewResponses,
+  PodMentionCandidatesData,
+  PodMentionCandidatesErrors,
+  PodMentionCandidatesResponses,
+  PodMentionsResolveData,
+  PodMentionsResolveErrors,
+  PodMentionsResolveResponses,
   PodMeResponses,
   PodModelProfilesData,
   PodModelProfilesErrors,
@@ -129,18 +138,60 @@ import type {
   PodPageChildrenData,
   PodPageChildrenErrors,
   PodPageChildrenResponses,
+  PodPageCommentAnchorData,
+  PodPageCommentAnchorErrors,
+  PodPageCommentAnchorResponses,
+  PodPageCommentCreateData,
+  PodPageCommentCreateErrors,
+  PodPageCommentCreateResponses,
+  PodPageCommentDeleteData,
+  PodPageCommentDeleteErrors,
+  PodPageCommentDeleteResponses,
+  PodPageCommentResolveData,
+  PodPageCommentResolveErrors,
+  PodPageCommentResolveResponses,
+  PodPageCommentsData,
+  PodPageCommentsErrors,
+  PodPageCommentsReadData,
+  PodPageCommentsReadErrors,
+  PodPageCommentsReadResponses,
+  PodPageCommentsResponses,
+  PodPageCommentSummaryData,
+  PodPageCommentSummaryErrors,
+  PodPageCommentSummaryResponses,
+  PodPageCommentUpdateData,
+  PodPageCommentUpdateErrors,
+  PodPageCommentUpdateResponses,
   PodPageCreateData,
   PodPageCreateErrors,
   PodPageCreateResponses,
   PodPageDeleteData,
   PodPageDeleteErrors,
   PodPageDeleteResponses,
+  PodPageHistoryData,
+  PodPageHistoryEntryData,
+  PodPageHistoryEntryErrors,
+  PodPageHistoryEntryResponses,
+  PodPageHistoryErrors,
+  PodPageHistoryResponses,
+  PodPageHistoryRestoreData,
+  PodPageHistoryRestoreErrors,
+  PodPageHistoryRestoreResponses,
+  PodPageInsightsData,
+  PodPageInsightsErrors,
+  PodPageInsightsResponses,
   PodPageListData,
   PodPageListErrors,
   PodPageListResponses,
   PodPageMoveData,
   PodPageMoveErrors,
   PodPageMoveResponses,
+  PodPageNavigationData,
+  PodPageNavigationErrors,
+  PodPageNavigationResponses,
+  PodPagePurgeData,
+  PodPagePurgeErrors,
+  PodPagePurgeResponses,
   PodPageReadData,
   PodPageReadErrors,
   PodPageReadResponses,
@@ -153,6 +204,9 @@ import type {
   PodPageSharingData,
   PodPageSharingErrors,
   PodPageSharingResponses,
+  PodPageSharingUpdateData,
+  PodPageSharingUpdateErrors,
+  PodPageSharingUpdateResponses,
   PodPageSharingWriteData,
   PodPageSharingWriteErrors,
   PodPageSharingWriteResponses,
@@ -162,6 +216,9 @@ import type {
   PodPageUserStateData,
   PodPageUserStateErrors,
   PodPageUserStateResponses,
+  PodPageViewersData,
+  PodPageViewersErrors,
+  PodPageViewersResponses,
   PodRealtimeTokenData,
   PodRealtimeTokenErrors,
   PodRealtimeTokenResponses,
@@ -394,19 +451,6 @@ export const podVersions = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podEmbedDelete operation on pod_page_operation resource
- */
-export const podEmbedDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodEmbedDeleteData, ThrowOnError>
-): RequestResult<PodEmbedDeleteResponses, PodEmbedDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodEmbedDeleteResponses, PodEmbedDeleteErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/embeds/{ref}/delete',
-    ...options
-  })
-
-/**
  * podBaseQuery operation on pod_base_operation resource
  */
 export const podBaseQuery = <ThrowOnError extends boolean = true>(
@@ -424,6 +468,23 @@ export const podBaseQuery = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podPageHistoryRestore operation on pod_document_history_operation resource
+ */
+export const podPageHistoryRestore = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageHistoryRestoreData, ThrowOnError>
+): RequestResult<PodPageHistoryRestoreResponses, PodPageHistoryRestoreErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodPageHistoryRestoreResponses, PodPageHistoryRestoreErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/history/{snapshot_id}/restore',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podModelProfiles operation on pod_chat_operation resource
  */
 export const podModelProfiles = <ThrowOnError extends boolean = true>(
@@ -433,6 +494,19 @@ export const podModelProfiles = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/agents/{uid}/model-profiles',
+    ...options
+  })
+
+/**
+ * podPageNavigation operation on pod_page_operation resource
+ */
+export const podPageNavigation = <ThrowOnError extends boolean = true>(
+  options?: Options<PodPageNavigationData, ThrowOnError>
+): RequestResult<PodPageNavigationResponses, PodPageNavigationErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodPageNavigationResponses, PodPageNavigationErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/navigation',
     ...options
   })
 
@@ -515,6 +589,49 @@ export const answerConversationInteraction = <ThrowOnError extends boolean = tru
   })
 
 /**
+ * podPageCommentDelete operation on pod_document_comment_operation resource
+ */
+export const podPageCommentDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentDeleteData, ThrowOnError>
+): RequestResult<PodPageCommentDeleteResponses, PodPageCommentDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodPageCommentDeleteResponses, PodPageCommentDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments/{comment_id}',
+    ...options
+  })
+
+/**
+ * podCommentRead operation on pod_document_comment_operation resource
+ */
+export const podCommentRead = <ThrowOnError extends boolean = true>(
+  options: Options<PodCommentReadData, ThrowOnError>
+): RequestResult<PodCommentReadResponses, PodCommentReadErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodCommentReadResponses, PodCommentReadErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments/{comment_id}',
+    ...options
+  })
+
+/**
+ * podPageCommentUpdate operation on pod_document_comment_operation resource
+ */
+export const podPageCommentUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentUpdateData, ThrowOnError>
+): RequestResult<PodPageCommentUpdateResponses, PodPageCommentUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodPageCommentUpdateResponses, PodPageCommentUpdateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments/{comment_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * changePodMembership operation on pod_admin_operation resource
  */
 export const changePodMembership = <ThrowOnError extends boolean = true>(
@@ -529,6 +646,19 @@ export const changePodMembership = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podPageViewers operation on pod_page_operation resource
+ */
+export const podPageViewers = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageViewersData, ThrowOnError>
+): RequestResult<PodPageViewersResponses, PodPageViewersErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageViewersResponses, PodPageViewersErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/viewers',
+    ...options
   })
 
 /**
@@ -632,6 +762,19 @@ export const verifyPodEmailBinding = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podPagePurge operation on pod_page_operation resource
+ */
+export const podPagePurge = <ThrowOnError extends boolean = true>(
+  options: Options<PodPagePurgeData, ThrowOnError>
+): RequestResult<PodPagePurgeResponses, PodPagePurgeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodPagePurgeResponses, PodPagePurgeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/purge',
+    ...options
   })
 
 /**
@@ -746,6 +889,23 @@ export const requestPodEmailBinding = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podPageCommentAnchor operation on pod_document_comment_operation resource
+ */
+export const podPageCommentAnchor = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentAnchorData, ThrowOnError>
+): RequestResult<PodPageCommentAnchorResponses, PodPageCommentAnchorErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodPageCommentAnchorResponses, PodPageCommentAnchorErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments/{comment_id}/anchor',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podPageRestore operation on pod_page_operation resource
  */
 export const podPageRestore = <ThrowOnError extends boolean = true>(
@@ -755,6 +915,19 @@ export const podPageRestore = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/restore',
+    ...options
+  })
+
+/**
+ * podPageHistoryEntry operation on pod_document_history_operation resource
+ */
+export const podPageHistoryEntry = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageHistoryEntryData, ThrowOnError>
+): RequestResult<PodPageHistoryEntryResponses, PodPageHistoryEntryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageHistoryEntryResponses, PodPageHistoryEntryErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/history/{snapshot_id}',
     ...options
   })
 
@@ -864,6 +1037,23 @@ export const unbindPodCredential = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/me/credentials/{id}',
     ...options
+  })
+
+/**
+ * podPageCommentResolve operation on pod_document_comment_operation resource
+ */
+export const podPageCommentResolve = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentResolveData, ThrowOnError>
+): RequestResult<PodPageCommentResolveResponses, PodPageCommentResolveErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodPageCommentResolveResponses, PodPageCommentResolveErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments/{comment_id}/resolution',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1024,6 +1214,19 @@ export const podPageUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podPageCommentSummary operation on pod_document_comment_operation resource
+ */
+export const podPageCommentSummary = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentSummaryData, ThrowOnError>
+): RequestResult<PodPageCommentSummaryResponses, PodPageCommentSummaryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageCommentSummaryResponses, PodPageCommentSummaryErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments/summary',
+    ...options
+  })
+
+/**
  * setPodAdministrator operation on pod_admin_operation resource
  */
 export const setPodAdministrator = <ThrowOnError extends boolean = true>(
@@ -1037,6 +1240,23 @@ export const setPodAdministrator = <ThrowOnError extends boolean = true>(
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
+    }
+  })
+
+/**
+ * podMentionsResolve operation on pod_page_operation resource
+ */
+export const podMentionsResolve = <ThrowOnError extends boolean = true>(
+  options?: Options<PodMentionsResolveData, ThrowOnError>
+): RequestResult<PodMentionsResolveResponses, PodMentionsResolveErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<PodMentionsResolveResponses, PodMentionsResolveErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/mentions/resolve',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options?.headers
     }
   })
 
@@ -1132,6 +1352,23 @@ export const podRealtimeToken = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podEmbedsDelete operation on pod_page_operation resource
+ */
+export const podEmbedsDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodEmbedsDeleteData, ThrowOnError>
+): RequestResult<PodEmbedsDeleteResponses, PodEmbedsDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodEmbedsDeleteResponses, PodEmbedsDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/embeds/delete',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podSpaceAgentDelete operation on pod_page_operation resource
  */
 export const podSpaceAgentDelete = <ThrowOnError extends boolean = true>(
@@ -1189,6 +1426,19 @@ export const createPodInvitation = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podPageHistory operation on pod_document_history_operation resource
+ */
+export const podPageHistory = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageHistoryData, ThrowOnError>
+): RequestResult<PodPageHistoryResponses, PodPageHistoryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageHistoryResponses, PodPageHistoryErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/history',
+    ...options
   })
 
 /**
@@ -1252,6 +1502,23 @@ export const podPageSharing = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podPageSharingUpdate operation on pod_page_operation resource
+ */
+export const podPageSharingUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageSharingUpdateData, ThrowOnError>
+): RequestResult<PodPageSharingUpdateResponses, PodPageSharingUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodPageSharingUpdateResponses, PodPageSharingUpdateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/sharing',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podPageSharingWrite operation on pod_page_operation resource
  */
 export const podPageSharingWrite = <ThrowOnError extends boolean = true>(
@@ -1299,6 +1566,23 @@ export const createConversation = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podPageCommentsRead operation on pod_document_comment_operation resource
+ */
+export const podPageCommentsRead = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentsReadData, ThrowOnError>
+): RequestResult<PodPageCommentsReadResponses, PodPageCommentsReadErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodPageCommentsReadResponses, PodPageCommentsReadErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments/read',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podDocumentWrite operation on pod_page_operation resource
  */
 export const podDocumentWrite = <ThrowOnError extends boolean = true>(
@@ -1308,6 +1592,49 @@ export const podDocumentWrite = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/content',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podPageInsights operation on pod_page_operation resource
+ */
+export const podPageInsights = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageInsightsData, ThrowOnError>
+): RequestResult<PodPageInsightsResponses, PodPageInsightsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageInsightsResponses, PodPageInsightsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/insights',
+    ...options
+  })
+
+/**
+ * podPageComments operation on pod_document_comment_operation resource
+ */
+export const podPageComments = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentsData, ThrowOnError>
+): RequestResult<PodPageCommentsResponses, PodPageCommentsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageCommentsResponses, PodPageCommentsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments',
+    ...options
+  })
+
+/**
+ * podPageCommentCreate operation on pod_document_comment_operation resource
+ */
+export const podPageCommentCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentCreateData, ThrowOnError>
+): RequestResult<PodPageCommentCreateResponses, PodPageCommentCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodPageCommentCreateResponses, PodPageCommentCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1343,6 +1670,19 @@ export const setPodModelSelection = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podMentionCandidates operation on pod_page_operation resource
+ */
+export const podMentionCandidates = <ThrowOnError extends boolean = true>(
+  options?: Options<PodMentionCandidatesData, ThrowOnError>
+): RequestResult<PodMentionCandidatesResponses, PodMentionCandidatesErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodMentionCandidatesResponses, PodMentionCandidatesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/mentions/candidates',
+    ...options
   })
 
 /**

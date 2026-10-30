@@ -5,6 +5,7 @@ import { OpenFeatureProvider } from '@openfeature/react-sdk'
 import type { ReactNode } from 'react'
 import { HelmetProvider } from 'react-helmet-async'
 import { I18nextProvider } from 'react-i18next'
+import { ErrorBoundary } from './error-boundary'
 import i18n from './i18n'
 import { ActivePluginsContext } from './slots'
 
@@ -39,7 +40,9 @@ export function AppProviders({
         <I18nextProvider i18n={i18n}>
           <QueryClientProvider client={queryClient}>
             <ActivePluginsContext value={activePlugins}>
-              <OpenFeatureProvider>{children}</OpenFeatureProvider>
+              <OpenFeatureProvider>
+                <ErrorBoundary variant="shell">{children}</ErrorBoundary>
+              </OpenFeatureProvider>
             </ActivePluginsContext>
             <Toaster />
           </QueryClientProvider>

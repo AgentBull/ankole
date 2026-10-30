@@ -134,18 +134,13 @@ defmodule Ankole.OIDC.AuthorizationRequests do
 
   def cancel_for_browser_in_tx(browser_id, opts \\ []) do
     :ok = Repo.require_transaction()
-    except_id = Keyword.get(opts, :except_id)
     authentication_id = Keyword.get(opts, :authentication_id)
+    tenant_id = Keyword.get(opts, :tenant_id)
 
     query =
       AuthorizationRequest
       |> Ash.Query.for_read(:lookup_across_tenants)
       |> Ash.Query.filter(browser_id == ^browser_id and status in [:pending, :authenticated])
-
-    query =
-      if except_id,
-        do: Ash.Query.filter(query, id != ^except_id),
-        else: query
 
     query =
       if authentication_id do
@@ -157,6 +152,8 @@ defmodule Ankole.OIDC.AuthorizationRequests do
       else
         query
       end
+
+    query = if tenant_id, do: Ash.Query.filter(query, tenant_id == ^tenant_id), else: query
 
     query
     |> Ash.Query.sort(id: :asc)

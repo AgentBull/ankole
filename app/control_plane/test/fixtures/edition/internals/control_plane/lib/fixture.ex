@@ -69,11 +69,7 @@ defmodule Ankole.EditionFixture.Router do
   defp fixture_challenge(conn, _), do: conn
 
   defp add_authentications(conn, _opts) do
-    conn = Plug.Conn.assign(conn, :browser_login_mode, :add)
-
-    if not match?({:pod, _}, conn.assigns[:host_context]),
-      do: Plug.Conn.assign(conn, :default_login_purpose, :site),
-      else: conn
+    Plug.Conn.assign(conn, :site_login_host, not match?({:pod, _}, conn.assigns[:host_context]))
   end
 end
 
@@ -83,7 +79,7 @@ defmodule Ankole.EditionFixture.Controller do
 
   def pod(conn, %{"uid" => uid}) do
     conn
-    |> AnkoleWeb.Session.put_admin_session(%{
+    |> AnkoleWeb.Session.put_tenant_session(%{
       principal_uid: uid,
       provider_id: "fixture",
       external_id: uid
@@ -95,14 +91,17 @@ end
 defmodule Ankole.EditionFixture.HostPolicy do
   @behaviour AnkoleWeb.Plugs.RequestHost
   def domain, do: "example.test"
-  def pod_origin(%Ankole.Tenants.Tenant{}), do: "https://pod.example.test"
-  def canonical_origin(:site), do: "https://site.example.test"
+  def pod_origin(%Ankole.Tenants.Tenant{}), do: "https://pod.example.test" <> port_suffix()
+  def canonical_origin(:site), do: "https://site.example.test" <> port_suffix()
 
   def canonical_origin({:pod, "019a2b00-0000-7000-8000-000000000001"}),
-    do: "https://pod.example.test"
+    do: "https://pod.example.test" <> port_suffix()
 
-  def login_url(_tenant, params),
-    do: "https://site.example.test/sessions/new?" <> URI.encode_query(params)
+  def login_url(tenant, params) do
+    params = if tenant, do: Map.put(params, "tenant_id", tenant.id), else: params
+    query = if map_size(params) == 0, do: "", else: "?" <> URI.encode_query(params)
+    canonical_origin(:site) <> "/sessions/new" <> query
+  end
 
   def membership_login_url(_conn, tenant, _reason, params),
     do: {:ok, login_url(tenant, params)}
@@ -113,6 +112,13 @@ defmodule Ankole.EditionFixture.HostPolicy do
     do: {:ok, {:pod, "019a2b00-0000-7000-8000-000000000001"}}
 
   def classify(_), do: :error
+
+  defp port_suffix do
+    case Application.get_env(:ankole, :fixture_https_port) do
+      port when is_integer(port) -> ":#{port}"
+      _ -> ""
+    end
+  end
 end
 
 defmodule Ankole.EditionFixture.Config do

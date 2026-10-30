@@ -10,130 +10,48 @@ import type { Wordgard } from '../core/editor'
 import { GardSelection, type GardState, type Transaction } from '../core/state'
 import * as T from '../core/types'
 import { blocks } from '../blocks'
+import { fileUploadSpec } from './file-upload'
+import { blockOptions, type BlockType, type CoreBlockType } from './block-catalog'
 import { Callout } from '../blocks/callout'
 import { compareNames } from '../document/tree'
 import { Attrs, markSet, markValue, type Pairs } from './attributes'
-import { blockInsertion, compose, dispatchStep, isContainer, isList, isListItem, withLeadingEdit } from './block-insert'
+import {
+  blockInsertion,
+  compose,
+  dispatchStep,
+  isContainer,
+  isList,
+  isListItem,
+  splitInsert,
+  withLeadingEdit
+} from './block-insert'
 import * as S from './schema'
-import type { PhraseSet } from '../core/phrases'
-import { editorPhrases } from './phrases'
+import { adjacentUnit, blockContent, blockRemovalRanges, targetAt, unitAt } from './block-target'
+import { BlockSelection, selectedUnits } from './block-selection'
+import { withoutCommentMarks } from './comments'
+import { insertChildren, isBlockGroup } from './nesting'
+import { columnInsertion } from './columns'
+import { mentionTriggerSpec } from './mention'
+import { tableInsertion } from './tables'
 
-/** Block types of the core vocabulary. Block definitions add their own names. */
-export const coreBlockTypes = [
-  'paragraph',
-  'h1',
-  'h2',
-  'h3',
-  'bullet',
-  'number',
-  'check',
-  'quote',
-  'code',
-  'divider'
-] as const
-export type CoreBlockType = (typeof coreBlockTypes)[number]
-export type BlockType = CoreBlockType | (typeof blocks)[number]['name']
-
-export type BlockOption = {
-  type: BlockType
-  title: PhraseSet.Ref
-  detail: PhraseSet.Ref
-  keywords?: string
-  glyph: string
-  turnInto: boolean
+/** The semantic type shown by a block's handle and conversion menu. */
+export function blockTypeAt(state: GardState, pos: number): BlockType | null {
+  const target = targetAt(state.doc, pos)
+  if (!target) return null
+  if (isList(target.parent!.node)) {
+    if (S.Task.isInSet(target.node.marks)) return 'check'
+    return target.parent!.node.type === T.OrderedList ? 'number' : 'bullet'
+  }
+  const node = target.node.isPlot && isBlockGroup(target.node) ? target.node.firstChild : target.node
+  if (!node) return null
+  if (node.type === T.Paragraph.type) return 'paragraph'
+  if (node.isPlot && node.tag.is(T.Heading)) return `h${node.tag.param}`
+  if (node.type === T.CodeBlock.type) return 'code'
+  if (node.type === T.HorizontalRule.type) return 'divider'
+  if (node.type === S.Blockquote.type) return 'quote'
+  if (node.type === S.Columns.type && node.isPlot) return `columns${node.content.length}`
+  return blocks.find(block => block.type === node.type)?.name ?? null
 }
-
-/** Menu entries in SPEC §7.6 order: the core block types, then the installed blocks. */
-export const blockOptions: readonly BlockOption[] = [
-  {
-    type: 'paragraph',
-    title: editorPhrases.ref('paragraph_title'),
-    detail: editorPhrases.ref('paragraph_detail'),
-    keywords: 'text paragraph',
-    glyph: 'T',
-    turnInto: true
-  },
-  {
-    type: 'h1',
-    title: editorPhrases.ref('h1_title'),
-    detail: editorPhrases.ref('h1_detail'),
-    keywords: 'heading h1',
-    glyph: 'H₁',
-    turnInto: true
-  },
-  {
-    type: 'h2',
-    title: editorPhrases.ref('h2_title'),
-    detail: editorPhrases.ref('h2_detail'),
-    keywords: 'heading h2',
-    glyph: 'H₂',
-    turnInto: true
-  },
-  {
-    type: 'h3',
-    title: editorPhrases.ref('h3_title'),
-    detail: editorPhrases.ref('h3_detail'),
-    keywords: 'heading h3',
-    glyph: 'H₃',
-    turnInto: true
-  },
-  {
-    type: 'bullet',
-    title: editorPhrases.ref('bullet_title'),
-    detail: editorPhrases.ref('bullet_detail'),
-    keywords: 'bullet list',
-    glyph: '≡',
-    turnInto: true
-  },
-  {
-    type: 'number',
-    title: editorPhrases.ref('number_title'),
-    detail: editorPhrases.ref('number_detail'),
-    keywords: 'numbered list',
-    glyph: '1.',
-    turnInto: true
-  },
-  {
-    type: 'check',
-    title: editorPhrases.ref('check_title'),
-    detail: editorPhrases.ref('check_detail'),
-    keywords: 'todo checklist',
-    glyph: '☑',
-    turnInto: true
-  },
-  {
-    type: 'quote',
-    title: editorPhrases.ref('quote_title'),
-    detail: editorPhrases.ref('quote_detail'),
-    keywords: 'quote',
-    glyph: '❞',
-    turnInto: true
-  },
-  {
-    type: 'code',
-    title: editorPhrases.ref('code_title'),
-    detail: editorPhrases.ref('code_detail'),
-    keywords: 'code',
-    glyph: '<>',
-    turnInto: true
-  },
-  {
-    type: 'divider',
-    title: editorPhrases.ref('divider_title'),
-    detail: editorPhrases.ref('divider_detail'),
-    keywords: 'divider',
-    glyph: '—',
-    turnInto: false
-  },
-  ...blocks.map(block => ({
-    type: block.name,
-    title: block.insert.title,
-    detail: block.insert.detail,
-    keywords: block.insert.keywords,
-    glyph: block.insert.glyph,
-    turnInto: block.insert.turnInto
-  }))
-]
 
 /** What the selected blocks become. A code target can give the language and `meta` of a fence. */
 export type BlockTarget = { kind: 'text'; tag: Plot.Tag } | { kind: 'code'; lang?: string; meta?: string } | ListTarget
@@ -163,20 +81,25 @@ export function applyBlockType(editor: Wordgard, type: BlockType, replace?: { fr
   )
 }
 
-/** The top-level block that holds the selection head, as the position before it. */
+/** The block that holds the selection head, as the position before it. */
 export function currentBlock(state: GardState): number | null {
-  const { head } = state.selection
+  if (state.selection instanceof BlockSelection) return state.selection.last.before
+  const unit = unitAt(state.doc, state.selection.head, state.selection.headSide)
+  if (unit && (isBlockGroup(unit.node) || isBlockGroup(unit.parent!.node))) return unit.before
+  if (unit?.parent && isList(unit.parent.node)) return unit.before
+  if (unit?.parent?.node.type === S.Column.type) return unit.before
   let pos = 0
   for (const node of state.doc.content) {
-    if (head <= pos + node.length) return pos
+    if (state.selection.head <= pos + node.length) return pos
     pos += node.length
   }
   return null
 }
 
-/** Whether the block menu can turn the top-level block at `pos` into another type. */
+/** Whether the block menu can turn the block at `pos` into another type. */
 export function canTurnInto(state: GardState, pos: number): boolean {
-  const node = topLevel(state, pos)?.[0]?.node
+  const target = conversionTarget(state, pos)?.node
+  const node = target?.isPlot && isBlockGroup(target) ? target.firstChild : target
   return (
     !!node &&
     (node.type === T.Paragraph.type ||
@@ -184,44 +107,76 @@ export function canTurnInto(state: GardState, pos: number): boolean {
       node.type === T.CodeBlock.type ||
       node.type === S.Blockquote.type ||
       node.type === Callout.type ||
-      node.type.hasRole(Node.Role.List))
+      node.type.hasRole(Node.Role.List) ||
+      isList(state.doc.resolve(pos).parent.node))
   )
 }
 
-/** Turn the top-level block at `pos` into `type` as one undo step. */
-export function turnBlockInto(editor: Wordgard, pos: number, type: BlockType): boolean {
-  return step(editor, turnBlock(editor.state, pos, type))
+/** A parent's own content can change type without selecting its children. */
+function conversionTarget(state: GardState, pos: number): Pos.Node | null {
+  const target = targetAt(state.doc, pos)
+  if (target) return target
+  const head = pos >= 0 && pos < state.doc.length ? state.doc.resolveNode(pos) : null
+  return head?.parent && head.index === 0 && isBlockGroup(head.parent.node) ? head : null
+}
+
+/** Turn the block at `pos`, or every block the selection touches, into `type` as one undo step. */
+export function turnBlockInto(editor: Wordgard, pos: number | undefined, type: BlockType): boolean {
+  const units = actionUnits(editor.state, pos)
+  if (!units?.length) return false
+  // Work from the end so earlier block positions stay valid through each conversion.
+  let spec: Transaction.Spec | null = null
+  for (const unit of [...units].reverse()) {
+    spec = spec
+      ? compose(editor.state, spec, state => turnBlock(state, unit.before, type))
+      : turnBlock(editor.state, unit.before, type)
+  }
+  return step(editor, spec)
 }
 
 /**
- * Duplicate the top-level block at `pos`, or the selected blocks (see `selectedUnits`). The copies
- * follow the originals, and the caret moves into the first copy.
+ * Duplicate the block at `pos`, or the selected blocks (see `selectedUnits`). The copies
+ * follow the originals and become the whole-block selection.
  */
 export function duplicateBlocks(editor: Wordgard, pos?: number): boolean {
   return step(editor, duplication(editor.state, pos))
 }
 
-/** Swap the top-level block at `pos`, or the selected blocks, with the sibling before or after them. */
+/** Swap the block at `pos`, or the selected blocks, with the sibling before or after them. */
 export function moveBlocks(editor: Wordgard, direction: -1 | 1, pos?: number): boolean {
   return step(editor, movement(editor.state, direction, pos))
 }
 
 /**
- * Delete the top-level block at `pos`. The caret moves to the next block, or to the previous one.
+ * Delete the block at `pos`. The caret moves to the next block, or to the previous one.
  * An empty page gets an empty paragraph.
  */
 export function deleteBlock(editor: Wordgard, pos: number): boolean {
   return step(editor, removal(editor.state, pos))
 }
 
-/** Insert an empty paragraph after the top-level block at `pos` and apply `type` to it, as one undo step. */
-export function insertAfterBlock(editor: Wordgard, pos: number, type: BlockType): boolean {
+/** Insert an empty paragraph beside the block at `pos` and apply `type` in one undo step. */
+export function insertBesideBlock(editor: Wordgard, pos: number, type: BlockType, before = false): boolean {
   const { state } = editor
-  const block = topLevel(state, pos)?.[0]
+  const block = specifiedUnits(state, pos)?.[0]
   if (!block || state.readOnly) return false
+  if (!before && block.node.isPlot && block.node.type === T.Paragraph.type && !block.node.content.length) {
+    editor.dispatch({ selection: GardSelection.cursor(block.before + 1) })
+    applyBlockType(editor, type)
+    editor.focus()
+    return true
+  }
+  let at = before ? block.before : block.after
+  const insert: Token[] = [T.Paragraph.create([])]
+  const parent = block.parent!
+  if (isList(parent.node)) {
+    if (at === parent.start) at = parent.before
+    else if (at === parent.end) at = parent.after
+    else insert.splice(0, insert.length, Plot.End, ...insert, parent.node.tag)
+  }
   const paragraph = {
-    changes: { from: block.after, insert: [T.Paragraph.create([])] },
-    selection: GardSelection.cursor(block.after + 1)
+    changes: { from: at, insert },
+    selection: GardSelection.cursor(at + (insert[0] === Plot.End ? 2 : 1))
   }
   const definition = blocks.find(definition => definition.name === type)
   if (definition) withLeadingEdit(editor, paragraph, () => definition.insert.insert(editor))
@@ -253,12 +208,27 @@ function selectSpan(state: GardState, from: number, to: number): GardState | nul
   return state.update({ selection: GardSelection.range(start, end) }).state
 }
 
-/** The spec of `turnBlockInto` for a top-level block at `pos`. */
+/** The spec of `turnBlockInto` for a block at `pos`. */
 export function turnBlock(state: GardState, pos: number, type: BlockType): Transaction.Spec | null {
-  const target = topLevel(state, pos)?.[0]
+  const target = conversionTarget(state, pos)
   if (!target?.node.isPlot || !canTurnInto(state, pos) || state.readOnly) return null
   if (!blockOptions.find(option => option.type === type)?.turnInto) return null
   const plot = target as Pos.Plot
+  if (isBlockGroup(plot.node)) return turnBlock(state, plot.start, type)
+  if (isListItem(plot)) {
+    // Select only this item's own text. Its nested children keep their types.
+    const text = plot.node.firstChild
+    const inside = selectSpan(state, plot.start, text ? plot.start + text.length : plot.end)
+    if (!inside) return null
+    if (type !== 'quote' && type !== 'callout') {
+      return compose(state, { selection: inside.selection }, next => blockChange(next, type as CoreBlockType))
+    }
+    const unlisted = turnInto(inside, { kind: 'text', tag: T.Paragraph })
+    if (!unlisted) return null
+    const tr = state.update(unlisted)
+    const at = unitAt(tr.state.doc, tr.changes.mapPos(inside.selection.from, 1), 1)
+    return at ? compose(state, unlisted, next => turnBlock(next, at.before, type)) : null
+  }
   const inside = state.selection.from > plot.before && state.selection.to < plot.after
 
   if (plot.node.isTextblock) {
@@ -354,6 +324,9 @@ export function blockChange(state: GardState, type: CoreBlockType): Transaction.
     case 'h1':
     case 'h2':
     case 'h3':
+    case 'h4':
+    case 'h5':
+    case 'h6':
       return turnInto(state, { kind: 'text', tag: T.Heading.of(Number(type[1])) })
     case 'bullet':
     case 'number':
@@ -363,8 +336,19 @@ export function blockChange(state: GardState, type: CoreBlockType): Transaction.
       return turnInto(state, { kind: 'code' })
     case 'quote':
       return { ...blockInsertion(state, S.Blockquote.create([])), userEvent: 'block.insert' }
+    case 'table':
+      return tableInsertion(state)
     case 'divider':
       return { ...blockInsertion(state, T.HorizontalRule), userEvent: 'block.insert' }
+    case 'columns2':
+    case 'columns3':
+    case 'columns4':
+    case 'columns5':
+      return columnInsertion(state, Number(type.at(-1)))
+    case 'mention':
+      return mentionTriggerSpec(state)
+    case 'file':
+      return fileUploadSpec(state)
   }
 }
 
@@ -373,7 +357,7 @@ export function blockChange(state: GardState, type: CoreBlockType): Transaction.
  * their type and keep their alignment, indent, style and other attributes where the new type has
  * them. For a list item:
  *
- *  - a list target changes the type of its list;
+ *  - a list target changes the selected items, splitting the list around them;
  *  - another target moves the item out of the list and changes the type of its text. The blocks
  *    after the text in the item follow it.
  */
@@ -504,16 +488,18 @@ function moveOut(
     const text =
       item.node.firstChild?.isPlot && item.node.firstChild.isTextblock ? state.doc.resolvePlot(item.start)! : null
     const tag = withAttrs(blockTag(state.schema, text?.node.tag ?? null, target), Attrs.isInSet(item.node.marks)?.value)
+    const nested = item.node.content.length > (text ? 1 : 0)
     const lead: Token[] = first && index > 0 ? [Plot.End] : []
     out.push({
       from: first && index === 0 ? list.before : item.before,
       to: text ? text.start : item.start,
-      insert: [...lead, tag]
+      insert: [...lead, ...(nested ? [S.BlockGroup] : []), tag]
     })
     if (text && target.kind === 'code' && text.node.type !== T.CodeBlock.type && text.node.content.length) {
       out.push({ from: text.start, to: text.end, insert: codeContent(text.node) })
     }
     const trail: Token[] = text ? [] : [Plot.End]
+    if (nested) trail.push(Plot.End)
     if (last && index < items.length - 1) trail.push(reopenList(list.node.tag))
     out.push({ from: item.end, to: last && index === items.length - 1 ? list.after : item.after, insert: trail })
     end = text ? text.end : item.end
@@ -548,15 +534,21 @@ function codeTag(schema: Schema, from: Plot.Tag, target: { lang?: string; meta?:
 
 /** The text and line breaks of a textblock as code block content. */
 function codeContent(node: Plot): Node[] {
-  const text = node.textContent({
-    leafText: leaf =>
-      leaf.type === T.LineBreak.type ? '\n' : leaf.type === S.InlineElement ? leaf.type.spec.toText!(leaf) : ''
-  })
   const result: Node[] = []
-  text.split('\n').forEach((line, index) => {
-    if (index) result.push(T.LineBreak)
-    if (line) result.push(Leaf.text(line))
-  })
+  for (const leaf of node.content) {
+    const text = leaf.isText
+      ? (leaf.param as string)
+      : leaf.type === T.LineBreak.type
+        ? '\n'
+        : leaf.type === S.InlineElement
+          ? leaf.type.spec.toText!(leaf as Leaf)
+          : ''
+    const marks = leaf.marks.filter(mark => mark.type === S.Comment)
+    text.split('\n').forEach((line, index) => {
+      if (index) result.push(T.LineBreak.withMarks(marks))
+      if (line) result.push(Leaf.text(line, marks))
+    })
+  }
   return result
 }
 
@@ -596,11 +588,9 @@ function siblingRuns(blocks: Pos.Plot[]): Pos.Plot[][] {
   return runs
 }
 
-const hasTask = (node: Node) => !!S.Task.isInSet(node.marks)
-
 /**
- * Change the type of a list. A bullet list holds runs of to-do items and of plain items, and each
- * run counts as a list of its own (SPEC §7.2), so only the runs with selected items change.
+ * Change only the chosen list items. Numbered and bullet lists split around a changed run;
+ * checklist markers live on the individual items.
  */
 function retypeList(
   state: GardState,
@@ -615,42 +605,32 @@ function retypeList(
     if (on && !task) out.push({ from: item.before, add: S.Task.of('todo') })
     else if (!on && task) out.push({ from: item.before, remove: task })
   }
-  if (list.node.type === T.OrderedList) {
-    if (target.list === 'number') return
-    out.push({ from: list.before, to: list.start, insert: [state.schema.withMarksFrom(list.node.tag, T.BulletList)] })
-    for (const item of items) setTask(item, target.list === 'check')
-    return
-  }
   const chosen = new Set(selected.map(item => item.before))
   const runs: [number, number][] = []
   for (let first = 0; first < items.length;) {
     let last = first
-    while (last + 1 < items.length && hasTask(items[last + 1]!.node) === hasTask(items[first]!.node)) last++
-    if (items.slice(first, last + 1).some(item => chosen.has(item.before))) {
-      // Adjacent runs that both change into a numbered list become one list.
-      const previous = runs.at(-1)
-      if (target.list === 'number' && previous && previous[1] === first - 1) previous[1] = last
-      else runs.push([first, last])
-    }
+    while (last + 1 < items.length && chosen.has(items[last + 1]!.before) === chosen.has(items[first]!.before)) last++
+    if (chosen.has(items[first]!.before)) runs.push([first, last])
     first = last + 1
   }
   for (const [first, last] of runs) {
     const run = items.slice(first, last + 1)
-    if (target.list !== 'number') {
+    const tag = target.list === 'number' ? T.OrderedList.of(1) : T.BulletList
+    if (list.node.type === tag.type) {
       for (const item of run) setTask(item, target.list === 'check')
       continue
     }
     const whole = first === 0 && last === items.length - 1
-    const ordered = whole ? state.schema.withMarksFrom(list.node.tag, T.OrderedList.of(1)) : T.OrderedList.of(1)
-    if (first === 0) out.push({ from: list.before, to: list.start, insert: [ordered] })
-    else out.push({ from: run[0]!.before, insert: [Plot.End, ordered] })
+    const replacement = whole ? state.schema.withMarksFrom(list.node.tag, tag) : tag
+    if (first === 0) out.push({ from: list.before, to: list.start, insert: [replacement] })
+    else out.push({ from: run[0]!.before, insert: [Plot.End, replacement] })
     if (last < items.length - 1) {
       out.push({
         from: run.at(-1)!.after,
-        insert: [Plot.End, first === 0 ? list.node.tag : list.node.tag.split(false)]
+        insert: [Plot.End, reopenList(list.node.tag)]
       })
     }
-    for (const item of run) setTask(item, false)
+    for (const item of run) setTask(item, target.list === 'check')
   }
 }
 
@@ -695,6 +675,18 @@ function wrapInList(state: GardState, run: Pos.Plot[], target: ListTarget, out: 
   const nested = ordered ? T.OrderedList.of(1) : T.BulletList
   const item = target.list === 'check' ? S.ListItem.withMarks([S.Task.of(target.done ? 'done' : 'todo')]) : S.ListItem
   const first = run[0]!
+  const owner = first.parent!
+  if (run.length === 1 && first.index === 0 && isBlockGroup(owner.node)) {
+    out.push(
+      {
+        from: owner.before,
+        to: first.start,
+        insert: [outer, withAttrs(item, markValue(owner.node, Attrs)), itemParagraph(schema, first.node.tag)]
+      },
+      { from: owner.end, to: owner.after, insert: [Plot.End, Plot.End] }
+    )
+    return
+  }
   const before = first.previousSibling
   let level = 0
   let from = first.before
@@ -730,47 +722,23 @@ function wrapInList(state: GardState, run: Pos.Plot[], target: ListTarget, out: 
 // ---------------------------------------------------------------------------
 // Block menu and block shortcuts
 
-/** The top-level block at `pos`, as a one-element list. */
-function topLevel(state: GardState, pos: number): Pos.Node[] | null {
-  if (pos < 0 || pos >= state.doc.length) return null
-  const node = state.doc.resolveNode(pos)
-  return node && node.parent && !node.parent.parent ? [node] : null
+/** The block at `pos`, as a one-element list. */
+function specifiedUnits(state: GardState, pos: number): Pos.Node[] | null {
+  const node = targetAt(state.doc, pos)
+  return node ? [node] : null
 }
 
-/**
- * The block that a block shortcut acts on at `pos` (SPEC §7.6): a list item with its children, or
- * a block in a container. `side` picks the block after or before a position between blocks.
- */
-function unitAt(doc: Plot.Doc, pos: number, side: -1 | 1): Pos.Node | null {
-  const at = doc.resolve(pos)
-  let node: Pos.Node | null
-  if (at.parent.node.inlineContent || !at.parent.node.content.length) node = at.parent.parent ? at.parent : null
-  else {
-    const after = at.nodeAfter ? pos : null
-    const before = at.nodeBefore ? pos - at.nodeBefore.length : null
-    const start = side > 0 ? (after ?? before) : (before ?? after)
-    node = start === null ? null : doc.resolveNode(start)
+/** A menu on a selected block acts on the whole block selection. */
+export function actionUnits(state: GardState, pos?: number): Pos.Node[] | null {
+  const selected = state.selection
+  if (
+    selected instanceof BlockSelection &&
+    (pos === undefined || selected.blocks.some(block => block.before === pos))
+  ) {
+    return selected.blocks
   }
-  for (; node?.parent; node = node.parent) if (isList(node.parent.node) || isContainer(node.parent)) return node
-  return null
-}
-
-/**
- * The blocks that a block shortcut acts on: all blocks from the one at the selection start to the
- * one at its end when they are siblings, or else the block at the anchor.
- */
-function selectedUnits(state: GardState): Pos.Node[] | null {
-  const { doc, selection } = state
-  const forward = selection.anchor <= selection.head
-  const anchor = unitAt(doc, selection.anchor, forward ? 1 : -1)
-  const head = unitAt(doc, selection.head, forward ? -1 : 1)
-  if (!anchor) return null
-  const parentOf = (node: Pos.Node) => (node.parent!.parent ? node.parent!.before : -1)
-  if (!head || parentOf(head) !== parentOf(anchor)) return [anchor]
-  const [first, last] = anchor.before <= head.before ? [anchor, head] : [head, anchor]
-  const units: Pos.Node[] = []
-  for (let pos = first.before; pos <= last.before; pos += units.at(-1)!.node.length) units.push(doc.resolveNode(pos)!)
-  return units
+  if (pos === undefined) return selectedUnits(state)
+  return specifiedUnits(state, pos)
 }
 
 /** A selection at the start of the block at `pos`: a node selection for a block leaf such as a divider. */
@@ -780,23 +748,39 @@ function selectStart(cx: GardSelection.Context, pos: number, node: Node): GardSe
 
 /** The spec of `duplicateBlocks`. */
 export function duplication(state: GardState, pos?: number): Transaction.Spec | null {
-  const units = pos === undefined ? selectedUnits(state) : topLevel(state, pos)
+  const units = actionUnits(state, pos)
   if (!units?.length || state.readOnly) return null
-  const at = units.at(-1)!.after
-  const first = units[0]!.node
+  const nodes = blockContent(units).map(withoutCommentMarks)
+  const insertion = insertBlocks(state, units.at(-1)!.after, nodes)
+  const { at } = insertion
   return {
-    changes: { from: at, insert: units.map(unit => unit.node) },
-    selection: cx => selectStart(cx, at, first),
+    changes: insertion.changes,
+    selection: cx =>
+      BlockSelection.between(cx.doc, at, at + nodes.slice(0, -1).reduce((size, node) => size + node.length, 0))!,
     userEvent: 'block.duplicate'
   }
 }
 
 /** The spec of `moveBlocks`. Without `pos`, the selection moves with the blocks. */
 export function movement(state: GardState, direction: -1 | 1, pos?: number): Transaction.Spec | null {
-  const units = pos === undefined ? selectedUnits(state) : topLevel(state, pos)
+  const units = actionUnits(state, pos)
   if (!units?.length || state.readOnly) return null
   const first = units[0]!
   const last = units.at(-1)!
+  if (
+    units.some((unit, index) => index > 0 && unit.before !== units[index - 1]!.after) ||
+    first.parent!.start !== last.parent!.start ||
+    !(direction < 0 ? first.previousSibling : last.nextSibling)
+  ) {
+    const next = adjacentUnit(direction < 0 ? first : last, direction)
+    return next
+      ? relocation(
+          state,
+          units.map(unit => unit.before),
+          direction < 0 ? next.before : next.after
+        )
+      : null
+  }
   const sibling = direction < 0 ? first.previousSibling : last.nextSibling
   if (!sibling) return null
   const changes: ChangeSet.Change[] =
@@ -812,28 +796,86 @@ export function movement(state: GardState, direction: -1 | 1, pos?: number): Tra
   const moved = first.before + direction * sibling.length
   return {
     changes,
-    selection: pos === undefined ? undefined : cx => selectStart(cx, moved, first.node),
+    selection:
+      pos === undefined || state.selection instanceof BlockSelection
+        ? undefined
+        : cx => selectStart(cx, moved, first.node),
+    userEvent: 'block.move'
+  }
+}
+
+/** Insert complete blocks at a boundary, splitting a surrounding list when their types differ. */
+function insertBlocks(state: GardState, pos: number, nodes: readonly Node[]) {
+  const parent = state.doc.resolve(pos).parent
+  return nodes.every(node => state.schema.canContain(parent.node.type, node.type))
+    ? { changes: { from: pos, insert: nodes }, at: pos }
+    : splitInsert(state.doc, pos, nodes, false)
+}
+
+/** Move complete blocks to a boundary, preserving their types and nested children. */
+export function relocation(
+  state: GardState,
+  positions: readonly number[],
+  to: number,
+  nestUnder?: number
+): Transaction.Spec | null {
+  if (state.readOnly || !positions.length) return null
+  const units = positions.map(pos => targetAt(state.doc, pos))
+  if (units.some(unit => !unit)) return null
+  const first = units[0]!
+  if (nestUnder === undefined && units.some(unit => to >= unit!.before && to <= unit!.after)) return null
+  if (nestUnder !== undefined && units.some(unit => nestUnder >= unit!.before && nestUnder < unit!.after)) return null
+  if (units.some((unit, index) => index > 0 && unit!.before < units[index - 1]!.after)) return null
+  const destination = nestUnder === undefined ? state.doc.resolve(to).parent : state.doc.resolveNode(nestUnder)!
+  const source = first.parent!
+  let nodes = blockContent(units as Pos.Node[])
+  if (
+    isList(source.node) &&
+    nodes.every(node => node.type === S.ListItem.type) &&
+    !source.node.tag.eq(destination.node.tag)
+  ) {
+    nodes = [source.node.tag.create(nodes)]
+  }
+  const deletion = state.update({
+    changes: { correct: blockRemovalRanges(units as Pos.Node[]).map(range => ({ ...range, fit: true })), local: true }
+  })
+  const parent = nestUnder === undefined ? null : deletion.state.doc.resolveNode(deletion.changes.mapPos(nestUnder, 1))
+  const insertion = parent
+    ? insertChildren(parent, nodes)
+    : insertBlocks(deletion.state, deletion.changes.mapPos(to, to < first.before ? -1 : 1), nodes)
+  const { at } = insertion
+  return {
+    ...compose(state, { changes: deletion.changes }, () => ({
+      changes: insertion.changes,
+      selection: cx =>
+        BlockSelection.between(cx.doc, at, at + nodes.slice(0, -1).reduce((size, node) => size + node.length, 0))!
+    })),
     userEvent: 'block.move'
   }
 }
 
 /** The spec of `deleteBlock`. */
 export function removal(state: GardState, pos: number): Transaction.Spec | null {
-  const block = topLevel(state, pos)?.[0]
+  const units = actionUnits(state, pos)
+  const block = units?.[0]
   if (!block || state.readOnly) return null
-  if (state.doc.content.length === 1) {
+  const last = units!.at(-1)!
+  const ranges = blockRemovalRanges(units!)
+  if (ranges.length === 1 && block.parent!.node.isDoc && block.before === 0 && last.after === state.doc.length) {
     return {
-      changes: { from: block.before, to: block.after, insert: [T.Paragraph.create([])] },
+      changes: { from: block.before, to: last.after, insert: [T.Paragraph.create([])] },
       selection: GardSelection.cursor(block.before + 1),
       userEvent: 'block.delete'
     }
   }
-  const next = block.nextSibling
-  const previous = block.previousSibling
+  const adjacent = adjacentUnit(last, 1) ?? adjacentUnit(block, -1)
   return {
-    changes: { from: block.before, to: block.after },
-    selection: cx =>
-      next ? selectStart(cx, block.before, next) : selectStart(cx, block.before - previous!.length, previous!),
+    changes: { correct: ranges.map(range => ({ ...range, fit: true })), local: true },
+    selection: (cx, changes) => {
+      const at = adjacent && changes.mapPos(adjacent.before, 1, 'after')
+      const node = at == null ? null : cx.doc.nodeAt(at)
+      return node ? selectStart(cx, at!, node) : GardSelection.near(cx, changes.mapPos(block.before, -1), 1)
+    },
     userEvent: 'block.delete'
   }
 }

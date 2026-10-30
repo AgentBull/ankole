@@ -298,9 +298,7 @@ function ConversationHeader({ conversation }: { conversation: AIGatewayConversat
   return (
     <header className="grid gap-3 border-b border-border pb-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h2 className="min-w-0 break-all text-xl leading-8 font-semibold tracking-normal text-foreground">
-          {displayName}
-        </h2>
+        <h2 className="min-w-0 break-all title-page text-foreground">{displayName}</h2>
         <StatusIndicator tone={conversation.ended_at == null ? 'positive' : 'neutral'}>
           {conversation.ended_at == null
             ? t('console.conversations.status_active')
@@ -388,7 +386,7 @@ export function ConversationDetailPage() {
           <ConversationHeader conversation={detail} />
 
           <section className="grid gap-3" aria-label={t('console.conversations.details')}>
-            <h3 className="text-base font-semibold">{t('console.conversations.details')}</h3>
+            <h3 className="title-inline">{t('console.conversations.details')}</h3>
             <dl className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
               <DetailField label={t('console.conversations.subject')} value={<AgentLink uid={detail.subject_uid} />} />
               <DetailField label={t('console.conversations.key')} value={detail.conversation_key} mono />
@@ -414,7 +412,7 @@ export function ConversationDetailPage() {
 
       <section className="grid gap-4">
         <div className="flex items-baseline justify-between gap-4">
-          <h3 ref={messageHeading} tabIndex={-1} className="scroll-mt-20 text-base font-semibold">
+          <h3 ref={messageHeading} tabIndex={-1} className="scroll-mt-20 title-inline">
             {t('console.conversations.messages')}
           </h3>
           {messages.isLoading ? (

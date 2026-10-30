@@ -1,4 +1,4 @@
-import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@ankole/uikit'
 import { RiArrowLeftSLine, RiArrowRightSLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
@@ -8,6 +8,7 @@ import { renderSlideToSvg } from '@office-kit/pptx-preview'
 import { ContentError } from './content-primitives'
 
 export default function PresentationPreview({ url }: { url: string }) {
+  const { t } = useTranslation()
   const [selected, setSelected] = useState(0)
   const navRef = useRef<HTMLElement>(null)
   const slides = useQuery({

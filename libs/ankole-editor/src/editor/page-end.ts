@@ -1,27 +1,36 @@
 /*
- * Click at the page end (SPEC §7.5 Page-end click). When the last block is a leaf (an embed, a
- * divider, a read-only block) or a container (a table, a quote, a callout), a click in
- * the empty space below it adds an empty paragraph at the page end and puts the caret there. Below
- * a text block or a list, the click puts the caret in that block as usual.
+ * Click at the page end (SPEC §7.5 Page-end click). The content surface and surrounding-page
+ * gestures share this operation, so a click adds one root paragraph or focuses the empty last one.
  */
-import { Node } from '../core/doc'
 import { Wordgard } from '../core/editor'
 import { GardSelection } from '../core/state'
 import * as T from '../core/types'
+import { dispatchStep } from './block-insert'
 
-export const pageEnd = Wordgard.domEventHandler('mousedown', (event, wg) => {
+export function focusPageEnd(wg: Wordgard, y: number): boolean {
   const { doc, readOnly } = wg.state
   const last = doc.lastChild
-  if (event.button !== 0 || event.target !== wg.contentDOM || readOnly || !wg.editable || !last) return false
-  if (last.isPlot && (last.isTextblock || last.type.hasRole(Node.Role.List))) return false
+  if (readOnly || !wg.editable || !last) return false
   const dom = wg.nodeDOM(doc.length - last.length)
-  if (!dom || event.clientY <= dom.getBoundingClientRect().bottom) return false
-  wg.dispatch({
-    changes: { from: doc.length, insert: [T.Paragraph.create([])] },
-    selection: GardSelection.cursor(doc.length + 1),
-    scrollIntoView: true,
-    userEvent: 'input'
-  })
+  if (!dom || y <= dom.getBoundingClientRect().bottom) return false
+  if (last.isPlot && last.type === T.Paragraph.type && !last.content.length) {
+    wg.dispatch({
+      selection: GardSelection.cursor(doc.length - last.length + 1),
+      scrollIntoView: true,
+      userEvent: 'select.pointer'
+    })
+  } else {
+    dispatchStep(wg, {
+      changes: { from: doc.length, insert: [T.Paragraph.create([])] },
+      selection: GardSelection.cursor(doc.length + 1),
+      userEvent: 'block.insert'
+    })
+  }
   wg.focus()
   return true
+}
+
+export const pageEnd = Wordgard.domEventHandler('mousedown', (event, wg) => {
+  if (event.button || event.ctrlKey || event.metaKey || event.altKey || event.target !== wg.contentDOM) return false
+  return focusPageEnd(wg, event.clientY)
 })

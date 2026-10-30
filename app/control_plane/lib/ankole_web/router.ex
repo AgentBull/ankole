@@ -99,6 +99,9 @@ defmodule AnkoleWeb.Router do
     get "/pages/:id/files/content", PodFileController, :download
     post "/pages/:id/files", PodFileController, :upload
     post "/file-pages", PodFileController, :create
+    get "/metadata/custom-emojis", PodMetadataController, :custom_emojis
+    post "/metadata/custom-emojis", PodMetadataController, :upload_custom_emoji
+    get "/metadata/files/content", PodMetadataController, :download
     get "/pages/:id/routes/*path", PodAppletController, :get
     post "/pages/:id/routes/*path", PodAppletController, :post
     put "/pages/:id/routes/*path", PodAppletController, :put
@@ -173,7 +176,7 @@ defmodule AnkoleWeb.Router do
   end
 
   # Provider webhook ingress. Not a RESTful API surface, so it lives outside
-  # /api/v1 and outside every pipeline: no session, no CSRF, no bearer token,
+  # /api/v2 and outside every pipeline: no session, no CSRF, no bearer token,
   # and no Accept negotiation (providers send arbitrary Accept headers).
   # Authenticating the provider is the declared handler's job — Bot Framework
   # JWT, Graph clientState, or whatever the provider signs with.

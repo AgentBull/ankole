@@ -13,8 +13,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
 
     * `:bulk_result`, `:error_class`, `:ash_error_match` - bulk-result decoding,
       error-class construction, and a pattern or guard that names an
-      `Ash.Error` module outside `Ankole.Ash`, `Ankole.Errors`, and
-      `AnkoleWeb.ConsoleErrors`.
+      `Ash.Error` module outside `Ankole.Ash` and `Ankole.Errors`.
     * `:ash_direct`, `:ash_bulk`, `:transaction_hook` - a direct `Ash.*`
       execution or `Ash.bulk_*` call, and an `Ash.Changeset` transaction hook
       outside those owners. `Ankole.Ash` runs actions in the tenant context, and
@@ -41,7 +40,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
                   "../../../internals/control_plane/test/persistence_boundary.exs",
                   __DIR__
                 )
-  @owners ["/lib/ankole/ash.ex", "/lib/ankole/errors.ex", "/lib/ankole_web/console_errors.ex"]
+  @owners ["/lib/ankole/ash.ex", "/lib/ankole/errors.ex"]
   @owner_dirs ["/lib/ankole/ash/", "/lib/ankole/errors/"]
   @application_root Path.expand("..", __DIR__)
   @consumer_files Enum.map(

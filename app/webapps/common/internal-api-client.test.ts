@@ -54,7 +54,7 @@ test('generated operations return payloads and read the current CSRF token for e
 
 test.each([
   [401, { errors: [{ code: 'invalid_code' }] }],
-  [403, { errors: [{ code: 'not_an_admin' }] }],
+  [403, { errors: [{ code: 'account_disabled' }] }],
   [429, { errors: [{ code: 'rate_limited', meta: { details: { retryAfterSeconds: 30 } } }] }],
   [404, { error: { code: 'conversation_not_found', message: 'Conversation not found' } }]
 ])(

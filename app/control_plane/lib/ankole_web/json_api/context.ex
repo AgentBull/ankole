@@ -31,7 +31,7 @@ defmodule AnkoleWeb.JSONAPI.Context do
   def browser_context(conn) do
     origin =
       with id when is_binary(id) <- Ankole.Repo.tenant_id(),
-           {:ok, tenant} <- Ankole.Tenants.get(id),
+           {:ok, tenant} <- current_tenant(conn, id),
            do: AnkoleWeb.PodURL.origin(conn, tenant),
            else: (_ -> nil)
 
@@ -42,6 +42,9 @@ defmodule AnkoleWeb.JSONAPI.Context do
       authentication_ref: AnkoleWeb.Session.authentication_reference(conn)
     }
   end
+
+  defp current_tenant(%{assigns: %{current_tenant: %{id: id} = tenant}}, id), do: {:ok, tenant}
+  defp current_tenant(_conn, id), do: Ankole.Tenants.get(id)
 
   defp canonical_targets(resource, params) do
     fun = fn ->

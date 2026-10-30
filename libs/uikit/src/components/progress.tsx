@@ -34,10 +34,7 @@ function Progress({ className, children, max = 100, min = 0, style, value, ...pr
 function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props) {
   return (
     <ProgressPrimitive.Track
-      className={cn(
-        'relative flex h-2 w-full min-w-12 items-center overflow-x-hidden rounded-none bg-muted',
-        className
-      )}
+      className={cn('relative flex h-1 w-full min-w-12 items-center overflow-hidden rounded-full bg-muted', className)}
       data-slot="progress-track"
       {...props}
     />
@@ -49,10 +46,10 @@ function ProgressIndicator({ className, style, ...props }: ProgressPrimitive.Ind
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
       className={cn(
-        'h-full w-full origin-left bg-foreground transition-transform duration-(--duration-dialog) ease-out',
+        'h-full w-full rounded-full bg-foreground transition-transform duration-(--duration-dialog) ease-out',
         className
       )}
-      style={{ width: '100%', transform: 'scaleX(var(--progress-fraction))', ...style }}
+      style={{ width: '100%', transform: 'translateX(calc((var(--progress-fraction) - 1) * 100%))', ...style }}
       {...props}
     />
   )

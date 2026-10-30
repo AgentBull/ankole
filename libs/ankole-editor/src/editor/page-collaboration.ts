@@ -1,6 +1,7 @@
 import { ChangeSet, type Plot } from '../core/doc'
 import { Wordgard } from '../core/editor'
-import { GardState, Transaction } from '../core/state'
+import { Correction, GardState, Transaction } from '../core/state'
+import { pageCorrections } from './corrections'
 import { preparePageUpdate, validatedPageSource } from './page-update'
 
 export type PageChange = {
@@ -155,36 +156,65 @@ export class PageCollaboration {
       if (change.kind === 'reset') {
         return this.reset()
       }
-      const remote = ChangeSet.fromJSON(this.confirmed.schema, change.changes!)
-      if (this.sent && change.client_id === this.options.clientID && change.client_seq === this.sent.sequence) {
-        this.confirmed = remote.apply(this.confirmed)
-        this.sent = undefined
-      } else {
-        let afterSent = this.confirmed
-        let visible = remote
-        if (this.sent) {
-          afterSent = this.sent.changes.apply(this.confirmed)
-          const transformed = ChangeSet.transform(this.confirmed, remote, this.sent.changes)
-          visible = transformed.a
-          this.sent.changes = transformed.b
+      try {
+        const remote = ChangeSet.fromJSON(this.confirmed.schema, change.changes!)
+        if (this.sent && change.client_id === this.options.clientID && change.client_seq === this.sent.sequence) {
+          this.confirmed = remote.apply(this.confirmed)
+          this.sent = undefined
+        } else {
+          const nextConfirmed = remote.apply(this.confirmed)
+          const local = this.localChanges()
+          // Positional OT cannot follow an edit into a container that another writer
+          // deleted or replaced. Keep the draft through the host's existing recovery flow.
+          if (
+            replacesEditedContainer(this.confirmed, remote, local) ||
+            replacesEditedContainer(this.confirmed, local, remote)
+          ) {
+            return this.reset()
+          }
+          let afterSent = this.confirmed
+          let visible = remote
+          let nextSentChanges = this.sent?.changes
+          if (this.sent) {
+            afterSent = this.sent.changes.apply(this.confirmed)
+            const transformed = ChangeSet.transform(this.confirmed, remote, this.sent.changes)
+            visible = transformed.a
+            nextSentChanges = transformed.b
+          }
+          const transformed = ChangeSet.transform(afterSent, visible, this.pending)
+          this.applying = true
+          try {
+            const before = this.editor.state
+            const incoming = before.update({
+              changes: transformed.a,
+              annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)],
+              userEvent: 'remote'
+            })
+            // A rebase can make two individually valid edits violate the page's rules.
+            // Own the repair as local pending work, while mapping the visible selection
+            // and undo history through the complete incoming transaction only once.
+            const correction = preparePageUpdate(
+              incoming.state.update({
+                changes: Correction.check(incoming.changes, incoming.newDoc, pageCorrections) ?? []
+              })
+            )
+            const nextPending = transformed.b.compose(correction.changes)
+            this.editor.dispatch(
+              before.update(Transaction.merge(before, incoming, { changes: correction.changes, sequential: true }))
+            )
+            // Two valid peer edits can exceed a document limit when combined.
+            // Preserve this client's accepted draft instead of advancing an unapplied view.
+            if (this.editor.state === before) return this.reset()
+            if (this.sent && nextSentChanges) this.sent.changes = nextSentChanges
+            this.pending = nextPending
+            this.confirmed = nextConfirmed
+          } finally {
+            this.applying = false
+          }
         }
-        const transformed = ChangeSet.transform(afterSent, visible, this.pending)
-        this.pending = transformed.b
-        this.confirmed = remote.apply(this.confirmed)
-        this.applying = true
-        try {
-          const before = this.editor.state
-          this.editor.dispatch({
-            changes: transformed.a,
-            annotations: Transaction.addToHistory.of(false),
-            userEvent: 'remote'
-          })
-          // Two valid peer edits can exceed a document limit when combined.
-          // Preserve this client's accepted draft instead of advancing an unapplied view.
-          if (this.editor.state === before) return this.reset()
-        } finally {
-          this.applying = false
-        }
+      } catch (error) {
+        this.publish(error)
+        return this.reset()
       }
       this.revision = change.revision
     }
@@ -209,8 +239,60 @@ export class PageCollaboration {
   currentRevision() {
     return this.revision
   }
+
+  /** Express this view's selection in the confirmed document's coordinate system. */
+  selectionToConfirmed(selection: { anchor: number; head: number }) {
+    const changes = this.localChanges().invert(this.confirmed)
+    return { revision: this.revision, ...mapSelection(selection, changes) }
+  }
+
+  /** A peer selection is meaningful only at the exact revision it names. */
+  selectionFromConfirmed(selection: { revision: number; anchor: number; head: number }) {
+    if (
+      selection.revision !== this.revision ||
+      ![selection.anchor, selection.head].every(
+        position => Number.isSafeInteger(position) && position >= 0 && position <= this.confirmed.length
+      )
+    ) {
+      return null
+    }
+    return mapSelection(selection, this.localChanges())
+  }
+
+  private localChanges() {
+    return this.sent ? this.sent.changes.compose(this.pending) : this.pending
+  }
   dispose() {
     this.disposed = true
     clearTimeout(this.timer)
+  }
+}
+
+function replacesEditedContainer(document: Plot.Doc, replacement: ChangeSet, edits: ChangeSet): boolean {
+  if (replacement.empty || edits.empty) return false
+  let conflict = false
+  replacement.iterChanges((from, to, fromB, toB) => {
+    if (conflict || from === to) return
+    const pureDelete = fromB === toB
+    document.iterate(from, to, (node, pos) => {
+      if (conflict) return false
+      if (!node.isPlot || pos < from || pos + node.length > to) return
+      const end = pos + node.length
+      edits.iterChanges((editFrom, editTo, editFromB, editToB) => {
+        if (editFrom >= end || editTo <= pos) return
+        if (pureDelete && editFromB === editToB && editFrom <= pos && editTo >= end) return
+        conflict = true
+      })
+      return false
+    })
+  })
+  return conflict
+}
+
+function mapSelection(selection: { anchor: number; head: number }, changes: ChangeSet) {
+  const forward = selection.anchor <= selection.head
+  return {
+    anchor: changes.mapPos(selection.anchor, forward ? 1 : -1),
+    head: changes.mapPos(selection.head, selection.anchor === selection.head || !forward ? 1 : -1)
   }
 }

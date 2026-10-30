@@ -2,23 +2,27 @@ import { Button, cn, toast } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiTextWrap } from '@remixicon/react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDebouncedValue } from '../../common/use-debounced-value'
 
 export function CodeBlockView({ code, language }: { code: string; language?: string }) {
   const { t } = useTranslation()
-  const [highlighted, setHighlighted] = useState<{ language?: string; html: string }>()
+  const [highlighted, setHighlighted] = useState<{ code: string; language: string; html: string }>()
+  const settledCode = useDebouncedValue(code, 150)
   const [wrap, setWrap] = useState(false)
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => {
+    if (!language || ['text', 'txt', 'plaintext'].includes(language)) return
     let current = true
     void import('shiki')
       .then(async shiki => {
         const lang = language && language in shiki.bundledLanguages ? language : 'text'
-        const html = await shiki.codeToHtml(code, {
+        if (!current) return
+        const html = await shiki.codeToHtml(settledCode, {
           lang,
           themes: { light: 'github-light', dark: 'github-dark' }
         })
-        if (current) setHighlighted({ language, html })
+        if (current) setHighlighted({ code: settledCode, language, html })
       })
       .catch(() => {
         // Plain code stays available when a language or the highlighter cannot load.
@@ -26,14 +30,14 @@ export function CodeBlockView({ code, language }: { code: string; language?: str
     return () => {
       current = false
     }
-  }, [code, language])
+  }, [settledCode, language])
   useEffect(() => () => clearTimeout(timer.current), [])
-  const html = highlighted?.language === language ? highlighted?.html : undefined
+  const html = highlighted?.code === code && highlighted.language === language ? highlighted.html : undefined
   return (
-    <div className={cn('pod-chat-code', wrap && 'pod-chat-code-wrap')}>
-      <div className="pod-chat-code-header">
-        <span>{language || t('pod.chat_timeline.plain_text')}</span>
-        <div>
+    <div className={cn('pod-chat-code code-surface my-3 max-w-full', wrap && 'pod-chat-code-wrap')}>
+      <div className="code-toolbar">
+        <span className="mr-auto">{language || t('pod.chat_timeline.plain_text')}</span>
+        <div className="flex items-center gap-0.5">
           <Button
             variant="ghost"
             size="icon-xs"

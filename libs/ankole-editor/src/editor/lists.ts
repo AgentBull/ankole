@@ -5,11 +5,15 @@
  * decides which operation a key runs.
  */
 import { Plot, Pos, type ChangeSet, type Node, type Token } from '../core/doc'
-import { Wordgard } from '../core/editor'
-import { GardSelection, Transaction, type GardState } from '../core/state'
+import { KeyBinding, Wordgard } from '../core/editor'
+import { history } from '../core/history'
+import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { Attrs } from './attributes'
 import * as S from './schema'
+import { selectedUnits } from './block-selection'
+import { isList } from './block-insert'
+import { liftListFromBlock } from './nesting'
 
 /** Lists nest at most this many levels below the top level (SPEC §7.6: at most 49 levels). */
 export const maxLevel = 49
@@ -182,7 +186,7 @@ export function removeItemHead(doc: Plot.Doc, item: Pos.Plot): ChangeSet.Spec[] 
 }
 
 /**
- * Enter in a list item (SPEC §7.5 Lists), with the caret in a paragraph of the item or in an
+ * Enter in a list item (SPEC §7.5 Lists), with the caret in its first paragraph or in an
  * empty item. Enter in an empty item lifts a nested item one level and turns a top-level item into
  * a paragraph. At the start of an item it adds an empty item before it. Elsewhere the item splits:
  * the text after the caret and the blocks after it in the item go to a new item. A paragraph that
@@ -195,8 +199,11 @@ export function enterListItem(state: GardState): Transaction.Spec | false {
   if (block && block.node.type != T.Paragraph.type) return false
   const item = block ? block.parent! : head.parent
   if (!isItem(item.node)) return false
+  if (block && block.index > 0) return false
   const list = item.parent!
   if (isEmptyItem(item.node) && (!block || block.index == 0)) {
+    const lifted = liftListFromBlock(list, item.index, item.index)
+    if (lifted) return { changes: lifted, scrollIntoView: true, userEvent: 'outdent' }
     if (isItem(list.parent!.node)) {
       return {
         changes: liftChanges(doc, list, item.index, item.index, true),
@@ -239,14 +246,28 @@ function taskAt(wg: Wordgard, event: MouseEvent): { pos: number; node: Node } | 
   return found && isItem(found.node) ? found : null
 }
 
-/** List editing beside the keys: a click on the check box of a task item toggles the task. */
+const clearComposedItem = Transaction.Annotation.define<boolean>()
+
+const composedItemField = GardState.Field.define<boolean>({
+  create: () => false,
+  update(active, tr) {
+    if (tr.annotation(clearComposedItem)) return false
+    if (tr.docChanged) return tr.isUserEvent('input.type.compose')
+    return active
+  }
+})
+
 /**
  * An edit that empties the only paragraph of a list item leaves an empty item, which reads as `-`.
  * A paragraph with attributes stays. A page write keeps its source as written, history replays what
- * it recorded, and a composition keeps the paragraph that holds its text.
+ * it recorded, and a composition keeps the paragraph that holds its text until composition ends.
  */
 const emptiedItems = Transaction.extender.of(tr => {
-  if (!tr.docChanged || ['page.write', 'undo', 'redo', 'input.type.compose'].some(event => tr.isUserEvent(event))) {
+  if (
+    !tr.docChanged ||
+    tr.annotation(Transaction.remote) ||
+    ['page.write', 'undo', 'redo', 'input.type.compose'].some(event => tr.isUserEvent(event))
+  ) {
     return null
   }
   const doc = tr.newDoc,
@@ -275,13 +296,71 @@ const emptiedItems = Transaction.extender.of(tr => {
 })
 
 export const listEditing: GardState.Extension = [
+  composedItemField,
   emptiedItems,
+  KeyBinding.of({
+    key: 'Mod-Enter',
+    run: ({ state }) => {
+      if (state.readOnly) return false
+      const units = selectedUnits(state) ?? []
+      const tasks: Pos.Node[] = []
+      for (const unit of units) {
+        if (isItem(unit.node) && unit.node.mark(S.Task)) tasks.push(unit)
+        else if (isList(unit.node)) {
+          for (let i = 0; i < unit.node.content.length; i++) {
+            const child = childAt(state.doc, unit as Pos.Plot, i)
+            if (child.node.mark(S.Task)) tasks.push(child)
+          }
+        }
+      }
+      return tasks.length ? toggleTasks(tasks) : false
+    }
+  }),
+  Wordgard.domEventHandler('compositionend', (_event, wg) => {
+    const { state } = wg
+    if (state.readOnly || !state.field(composedItemField, false)) return false
+    if (!state.selection.isCursor) {
+      wg.dispatch({ annotations: clearComposedItem.of(true) })
+      return false
+    }
+    const paragraph = state.sel.head.parent
+    const item = paragraph.parent
+    if (
+      item &&
+      isItem(item.node) &&
+      item.node.content.length == 1 &&
+      paragraph.node.type == T.Paragraph.type &&
+      !paragraph.node.content.length &&
+      !paragraph.node.marks.length
+    ) {
+      wg.dispatch({
+        changes: { from: paragraph.before, to: paragraph.after },
+        selection: GardSelection.cursor(item.start),
+        annotations: clearComposedItem.of(true),
+        userEvent: 'input.type.compose'
+      })
+    } else {
+      wg.dispatch({ annotations: clearComposedItem.of(true) })
+    }
+    return false
+  }),
   Wordgard.domEventHandler('mousedown', (event, wg) => {
     if (event.button != 0 || wg.state.readOnly) return false
     const task = taskAt(wg, event)
     if (!task) return false
-    const value = task.node.mark(S.Task) == 'done' ? 'todo' : 'done'
-    wg.dispatch({ changes: { from: task.pos, add: S.Task.of(value) }, userEvent: 'toggle.task' })
+    wg.dispatch(toggleTasks([task]))
     return true
   })
 ]
+
+function toggleTasks(tasks: readonly { pos: number; node: Node }[]): Transaction.Spec {
+  const value = tasks[0]!.node.mark(S.Task) === 'done' ? 'todo' : 'done'
+  return {
+    changes: tasks.map(task => ({
+      from: task.pos,
+      add: S.Task.of(value)
+    })),
+    annotations: history.isolate.of(true),
+    userEvent: 'toggle.task'
+  }
+}

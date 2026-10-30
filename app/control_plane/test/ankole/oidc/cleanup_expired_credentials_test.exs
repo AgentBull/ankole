@@ -99,7 +99,6 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
       BrowserSessions.begin_oidc_state(anonymous_ref, %{
         state: "anon-expired-state",
         provider_id: "lark",
-        purpose: :console,
         redirect_uri: "https://cleanup.example.test/callback"
       })
 
@@ -128,7 +127,6 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
       BrowserSessions.begin_oidc_state(active_ref, %{
         state: "active-state",
         provider_id: "lark",
-        purpose: :console,
         redirect_uri: "https://cleanup.example.test/callback"
       })
 
@@ -136,7 +134,6 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
       BrowserSessions.begin_oidc_state(active_ref, %{
         state: "expired-state",
         provider_id: "lark",
-        purpose: :console,
         redirect_uri: "https://cleanup.example.test/callback"
       })
 

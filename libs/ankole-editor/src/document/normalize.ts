@@ -11,6 +11,7 @@ import {
   type Node
 } from './tree'
 import { marks, ruleOf, type ElementRule, type Mark } from './vocabulary'
+import { commentIDs } from './comments'
 
 /*
  * The normal form keeps everything a reader can see and removes differences
@@ -31,13 +32,19 @@ const valueHints: Record<string, string> = {
   task: 'todo 或 done',
   colspan: '1 到 9999 的整数',
   rowspan: '1 到 9999 的整数',
-  tone: 'info 或 warning'
+  width: '1 到 9999 的整数',
+  tone: 'info、warning、success、danger 或 neutral',
+  wrap: 'true',
+  view: 'both、code 或 diagram',
+  theme: 'auto、light 或 dark',
+  page: '非空页面 ID',
+  principal: '非空主体 UID'
 }
 // Empty values of these attributes show nothing and equal a missing attribute.
 const optionalText = new Set(['alt', 'lang', 'meta', 'style', 'title'])
 
 type Count = { nodes: number }
-type Atom = { value?: string; node?: Element; marks: Mark[]; style: string; link: Element | null }
+type Atom = { value?: string; node?: Element; marks: Mark[]; style: string; link: Element | null; comments: string[] }
 
 export function normalizeTree(root: Element): Element {
   if (root?.type !== 'element' || root.name !== 'page') {
@@ -76,11 +83,24 @@ function normalizeElement(node: Element, parent: Element | undefined, depth: num
         : rule.content === 'inline'
           ? normalizeInline(node.children, node, depth, state)
           : blockChildren(node, rule.content, depth, state)
+  if (node.name === 'block' && !Object.keys(attrs).length && children.length < 2) {
+    return (children[0] as Element | undefined) ?? element('p')
+  }
   return element(node.name, attrs, children)
 }
 
 function normalizeAttributes(node: Element, rule: ElementRule | undefined): Record<string, string> {
   const entries = Object.entries(node.attrs).sort(([a], [b]) => compareNames(a, b))
+  if (node.name === 'comment') {
+    if (entries.length !== 1 || entries[0]![0] !== 'ids') {
+      throw new TreeError('comment 只支持 ids 属性', node, '请提供 ids 并删除其他属性。')
+    }
+    try {
+      return { ids: commentIDs(node.attrs.ids!).join(' ') }
+    } catch {
+      throw new TreeError('comment 的 ids 必须是以空格分隔的 UUIDv7', node, '请使用有效的评论线程 ID。')
+    }
+  }
   if (node.name === 'page' && entries.length) throw new TreeError('page 没有属性', node, '页面标题等信息不写在正文里。')
   const kept: [string, string][] = []
   for (const [key, value] of entries) {
@@ -92,14 +112,16 @@ function normalizeAttributes(node: Element, rule: ElementRule | undefined): Reco
       throw new TreeError(
         `<${node.name}> 的 ${key}="${value}" 不合法`,
         node,
-        `${key} 的值应为 ${valueHints[key] ?? pattern.source}。`
+        `${key} 的值应为 ${key === 'view' && node.name !== 'mermaid' ? 'link、title、card 或 preview' : (valueHints[key] ?? pattern.source)}。`
       )
     }
     if (
       known &&
       ((optionalText.has(key) && value === '') ||
         (node.name === 'ol' && key === 'start' && value === '1') ||
-        ((key === 'colspan' || key === 'rowspan') && value === '1'))
+        (node.name === 'column' && key === 'width' && value === '1000') ||
+        ((key === 'colspan' || key === 'rowspan') && value === '1') ||
+        (node.name === 'mermaid' && ((key === 'view' && value === 'both') || (key === 'theme' && value === 'auto'))))
     ) {
       continue
     }
@@ -110,21 +132,25 @@ function normalizeAttributes(node: Element, rule: ElementRule | undefined): Reco
       throw new TreeError(`<${node.name}> 缺少 ${key} 属性`, node, `请为 <${node.name}> 写上 ${key}。`)
     }
   }
+  if (node.name === 'mention') {
+    const hasPage = kept.some(([name]) => name === 'page')
+    const hasPrincipal = kept.some(([name]) => name === 'principal')
+    if (hasPage === hasPrincipal) {
+      throw new TreeError(
+        hasPage ? '<mention> 不能同时指定 page 和 principal 属性' : '<mention> 需要指定 page 或 principal 属性',
+        node,
+        hasPage ? '请只保留 page 或 principal 其中一个属性。' : '请为 <mention> 写上 page="..." 或 principal="..."。'
+      )
+    }
+  }
   // Object.fromEntries keeps names such as __proto__ as ordinary attributes.
   return Object.fromEntries(kept)
 }
 
 function textChildren(node: Element, depth: number, state: Count): Node[] {
-  let value = ''
-  for (const child of node.children) {
-    count(child, depth + 1, state)
-    if (child.type === 'element') {
-      throw new TreeError(`<${node.name}> 只能包含文字`, child, '请删除其中的元素，或改用代码文字。')
-    }
-    checkCharacters(child.value, child)
-    value += child.value
-  }
-  return value ? [text(value)] : []
+  const atoms: Atom[] = []
+  flatten(node.children, { marks: [], style: '', link: null, comments: [] }, atoms, node, depth + 1, state)
+  return rebuild(merge(atoms))
 }
 
 function emptyChildren(node: Element): Node[] {
@@ -167,6 +193,16 @@ function blockChildren(node: Element, content: 'blocks' | readonly string[], dep
     const normalized = normalizeElement(child, node, depth + 1, state)
     // A list without items shows nothing.
     if ((normalized.name === 'ul' || normalized.name === 'ol') && !normalized.children.length) continue
+    if (normalized.name === 'columns' && !Object.keys(normalized.attrs).length) {
+      const columns = (normalized.children as Element[]).filter(
+        column => column.children.length || Object.keys(column.attrs).some(key => key !== 'width')
+      )
+      if (columns.length < 2 && columns.every(column => Object.keys(column.attrs).every(key => key === 'width'))) {
+        result.push(...columns.flatMap(column => column.children as Element[]))
+        continue
+      }
+      normalized.children = columns
+    }
     result.push(normalized)
   }
   return mergeLists(result)
@@ -225,7 +261,7 @@ function unknownChildren(node: Element, depth: number, state: Count): Node[] {
 
 function normalizeInline(nodes: Node[], container: Element, depth: number, state: Count): Node[] {
   const atoms: Atom[] = []
-  flatten(nodes, { marks: [], style: '', link: null }, atoms, container, depth + 1, state)
+  flatten(nodes, { marks: [], style: '', link: null, comments: [] }, atoms, container, depth + 1, state)
   convertLineBreaks(atoms)
   return rebuild(merge(splitEmphasisSpace(atoms)))
 }
@@ -245,6 +281,15 @@ function flatten(
       if (child.value) atoms.push({ ...context, value: child.value })
       continue
     }
+    if (container.name === 'pre' && child.name !== 'comment') {
+      throw new TreeError('<pre> 只能包含文字', child, '请删除其中的元素，或改用代码文字。')
+    }
+    if (container.name === 'math') {
+      throw new TreeError('<math> 只能包含文字', child, '请把公式写成 LaTeX 文字。')
+    }
+    if (container.name === 'mermaid' && child.name !== 'comment') {
+      throw new TreeError('<mermaid> 只能包含文字', child, '请把 Mermaid 源码写成文字。')
+    }
     checkElementName(child.name, child)
     const rule = ruleOf(child.name)
     if (rule?.kind === 'block') {
@@ -262,6 +307,17 @@ function flatten(
         ? context.marks
         : marks.filter(mark => mark === name || context.marks.includes(mark))
       flatten(child.children, { ...context, marks: merged }, atoms, container, depth + 1, state)
+    } else if (child.name === 'comment') {
+      count(child, depth, state)
+      const attrs = normalizeAttributes(child, rule)
+      flatten(
+        child.children,
+        { ...context, comments: [...new Set([...context.comments, ...commentIDs(attrs.ids!)])].sort() },
+        atoms,
+        container,
+        depth + 1,
+        state
+      )
     } else if (child.name === 'span' && Object.keys(child.attrs).every(key => key === 'style')) {
       count(child, depth, state)
       const style = child.attrs.style ?? ''
@@ -283,7 +339,19 @@ function flatten(
       if (inner.length) atoms.push(...inner)
       else atoms.push({ ...context, node: link })
     } else if (child.name === 'br' || child.name === 'img') {
-      atoms.push({ marks: [], style: '', link: context.link, node: normalizeElement(child, container, depth, state) })
+      atoms.push({
+        marks: [],
+        style: '',
+        link: context.link,
+        comments: context.comments,
+        node: normalizeElement(child, container, depth, state)
+      })
+    } else if (child.name === 'mention') {
+      atoms.push({
+        ...context,
+        link: null,
+        node: normalizeElement(child, container, depth, state)
+      })
     } else {
       atoms.push({ ...context, node: normalizeElement(child, container, depth, state) })
     }
@@ -366,6 +434,7 @@ function merge(atoms: Atom[]): Atom[] {
       previous?.value !== undefined &&
       atom.value !== undefined &&
       previous.style === atom.style &&
+      previous.comments.join() === atom.comments.join() &&
       sameLink(previous.link, atom.link) &&
       previous.marks.join() === atom.marks.join()
     ) {
@@ -383,9 +452,11 @@ function rebuild(atoms: Atom[]): Node[] {
   const result: Node[] = []
   for (let i = 0; i < atoms.length;) {
     const style = atoms[i]!.style
+    const comments = atoms[i]!.comments
     let end = i + 1
-    while (end < atoms.length && atoms[end]!.style === style) end++
-    const content = formatted(units(atoms.slice(i, end)), [])
+    while (end < atoms.length && atoms[end]!.style === style && atoms[end]!.comments.join() === comments.join()) end++
+    let content = formatted(units(atoms.slice(i, end)), [])
+    if (comments.length) content = [element('comment', { ids: comments.join(' ') }, content)]
     if (style) result.push(element('span', { style }, content))
     else result.push(...content)
     i = end

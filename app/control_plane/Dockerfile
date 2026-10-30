@@ -65,7 +65,6 @@ COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
 COPY libs/uikit/package.json ./libs/uikit/package.json
 COPY tools/devkit/package.json ./tools/devkit/package.json
 COPY tools/openapi-client-generator/package.json ./tools/openapi-client-generator/package.json
-COPY libs/ankole-editor/patches/mdast-util-to-markdown@2.2.0.patch ./libs/ankole-editor/patches/mdast-util-to-markdown@2.2.0.patch
 
 # The build uses only the workspace packages copied above.
 RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser", "app/control_plane", "app/kernel", "app/webapps", "libs/ankole-editor", "libs/applet-sdk", "libs/uikit", "tools/devkit", "tools/openapi-client-generator"]; await Bun.write("package.json", JSON.stringify(p));'

@@ -6,6 +6,14 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
   alias Ankole.Repo
   alias AnkoleWeb.Session, as: WebSession
 
+  defmodule MultiPodSiteSource do
+    @behaviour Ankole.IdentityProviders.SiteSources
+    def authenticate(proof), do: {:ok, proof}
+    def login_path, do: "/test/site-login"
+    def display_name, do: "Test site source"
+    def fresh_authentication?, do: true
+  end
+
   setup %{tenant: tenant, conn: conn} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
@@ -192,6 +200,27 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     assert WebSession.pod_session(pin(pinned_both, b_ref))["principal_uid"] == b.uid
   end
 
+  test "a pinned Pod API request shares its verified authentication and tenant with the API context",
+       %{
+         a: a,
+         tenant: tenant
+       } do
+    {login, reference} = add_login(browser_request(%{}), a)
+    cookies = apply_cookies(%{}, send_resp(login, 200, ""))
+
+    {response, reads} =
+      authentication_reads(fn ->
+        cookies |> api_request(reference) |> api_get("/api/v2/pod/pages", %{"scope" => "trash"})
+      end)
+
+    assert %{"pages" => []} = api_response(response, 200)
+    assert response.assigns.current_tenant.id == tenant.id
+    assert response.assigns.current_principal.uid == a.uid
+    assert WebSession.authentication_reference(response) == reference
+    # CSRF and the Pod admission gate each read once; JSON:API reuses admission.
+    assert reads == 2
+  end
+
   test "a file subresource retains its document identity when another account becomes active", %{
     a: a,
     b: b,
@@ -292,6 +321,246 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     assert %{"error" => %{"code" => "unauthorized"}} = json_response(foreign, 401)
   end
 
+  test "signing out one Pod on a shared site authentication keeps other Pods online until the last Pod exits",
+       %{conn: conn, tenant: tenant, a: a} do
+    {:ok, _} = first_site_admin_fixture(a.uid)
+    other_tenant = Ankole.DataCase.create_tenant()
+    email = "multi-pod-member@example.com"
+
+    previous_sources = Application.get_env(:ankole, :site_identity_sources, [])
+    Application.put_env(:ankole, :site_identity_sources, [{"test-site", MultiPodSiteSource}])
+    on_exit(fn -> Application.put_env(:ankole, :site_identity_sources, previous_sources) end)
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        Ankole.Principals.bind_site_credential_in_tx(a.uid, %{
+          provider_id: "test-site",
+          subject_id: email,
+          verified_email: email
+        })
+      end)
+
+    other_principal =
+      Repo.with_tenant(other_tenant.id, fn ->
+        %{principal: principal} = human_fixture()
+
+        {:ok, _} =
+          Repo.transact(fn ->
+            Ankole.Principals.bind_site_credential_in_tx(principal.uid, %{
+              provider_id: "test-site",
+              subject_id: email,
+              verified_email: email
+            })
+          end)
+
+        principal
+      end)
+
+    signed_in =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.ensure_browser()
+      |> then(fn base ->
+        {:ok, %{browser: browser, authentication: auth}} =
+          BrowserSessions.authenticate_site(
+            WebSession.browser_reference(base),
+            "test-site",
+            %{
+              subject_id: email,
+              verified_email: email,
+              auth_time: System.system_time(:second),
+              challenge_started_at: DateTime.utc_now(),
+              amr: ["otp"]
+            },
+            scope: :site,
+            target_tenant_id: tenant.id
+          )
+
+        WebSession.put_authentication(base, browser, auth)
+      end)
+
+    ref = WebSession.authentication_reference(signed_in)
+    cookie_name = AnkoleWeb.SessionCookies.authentication_prefix() <> ref["id"]
+
+    console_shell =
+      signed_in
+      |> get(AnkoleWeb.PodURL.site_origin(signed_in) <> "/site-admin-console")
+
+    assert html_response(console_shell, 200) =~
+             ~s(<meta name="ankole-pod" content="#{tenant.id}">)
+
+    token = csrf(console_shell)
+
+    exited_first =
+      console_shell
+      |> delete_request(ref, token)
+      |> put_req_header("x-ankole-pod", tenant.id)
+      |> api_delete("/api/v2/browser/authentications/current")
+
+    assert %{"ok" => true} = api_response(exited_first, 200)
+    refute Map.has_key?(exited_first.resp_cookies, cookie_name)
+
+    first_pod =
+      exited_first
+      |> recycle()
+      |> delete_req_header("accept")
+      |> get(AnkoleWeb.PodURL.origin(exited_first, tenant) <> "/")
+
+    expected_pod_login =
+      if Application.get_env(:ankole, :host_policy),
+        do: AnkoleWeb.PodURL.login_url(first_pod, tenant),
+        else: "/sessions/new"
+
+    assert redirected_to(first_pod) == expected_pod_login
+
+    console_after_exit =
+      exited_first
+      |> recycle()
+      |> delete_req_header("accept")
+      |> get(AnkoleWeb.PodURL.site_origin(exited_first) <> "/site-admin-console")
+
+    expected_console_login_prefix =
+      AnkoleWeb.PodURL.login_url(console_after_exit, tenant)
+      |> String.split("?", parts: 2)
+      |> hd()
+
+    assert String.starts_with?(
+             redirected_to(console_after_exit),
+             expected_console_login_prefix <> "?"
+           )
+
+    assert redirected_to(console_after_exit) =~ "console_return="
+
+    other_pod_session =
+      exited_first
+      |> recycle()
+      |> Map.put(:host, other_tenant.slug <> ".ankole.localhost")
+      |> pin(ref)
+      |> put_req_header("x-ankole-pod", other_tenant.id)
+      |> api_get("/api/v2/browser/session")
+      |> api_response(200)
+
+    assert other_pod_session["principalUID"] == other_principal.uid
+    assert Enum.map(other_pod_session["accounts"], & &1["tenant"]["id"]) == [other_tenant.id]
+
+    other_pod_shell =
+      exited_first
+      |> recycle()
+      |> delete_req_header("accept")
+      |> pin(ref)
+      |> get(AnkoleWeb.PodURL.origin(exited_first, other_tenant) <> "/")
+
+    assert html_response(other_pod_shell, 200) =~
+             ~s(<meta name="ankole-principal" content="#{other_principal.uid}">)
+
+    other_token = csrf(other_pod_shell)
+
+    exited_last =
+      other_pod_shell
+      |> delete_request(ref, other_token)
+      |> put_req_header("x-ankole-pod", other_tenant.id)
+      |> api_delete("/api/v2/browser/authentications/current")
+
+    assert %{"ok" => true} = api_response(exited_last, 200)
+    assert exited_last.resp_cookies[cookie_name].max_age == 0
+  end
+
+  test "single-Pod sign-out on a site authentication rejects unrelated Pods and clears the cookie when remaining Pods are disabled",
+       %{conn: conn, tenant: tenant, a: a} do
+    {:ok, _} = first_site_admin_fixture(a.uid)
+    other_tenant = Ankole.DataCase.create_tenant()
+    unrelated_tenant = Ankole.DataCase.create_tenant()
+    email = "disabled-sibling-pod@example.com"
+
+    previous_sources = Application.get_env(:ankole, :site_identity_sources, [])
+    Application.put_env(:ankole, :site_identity_sources, [{"test-site", MultiPodSiteSource}])
+    on_exit(fn -> Application.put_env(:ankole, :site_identity_sources, previous_sources) end)
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        Ankole.Principals.bind_site_credential_in_tx(a.uid, %{
+          provider_id: "test-site",
+          subject_id: email,
+          verified_email: email
+        })
+      end)
+
+    other_principal =
+      Repo.with_tenant(other_tenant.id, fn ->
+        %{principal: principal} = human_fixture()
+
+        {:ok, _} =
+          Repo.transact(fn ->
+            Ankole.Principals.bind_site_credential_in_tx(principal.uid, %{
+              provider_id: "test-site",
+              subject_id: email,
+              verified_email: email
+            })
+          end)
+
+        principal
+      end)
+
+    signed_in =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.ensure_browser()
+      |> then(fn base ->
+        {:ok, %{browser: browser, authentication: auth}} =
+          BrowserSessions.authenticate_site(
+            WebSession.browser_reference(base),
+            "test-site",
+            %{
+              subject_id: email,
+              verified_email: email,
+              auth_time: System.system_time(:second),
+              challenge_started_at: DateTime.utc_now(),
+              amr: ["otp"]
+            },
+            scope: :site,
+            target_tenant_id: tenant.id
+          )
+
+        WebSession.put_authentication(base, browser, auth)
+      end)
+
+    ref = WebSession.authentication_reference(signed_in)
+    cookie_name = AnkoleWeb.SessionCookies.authentication_prefix() <> ref["id"]
+
+    console_shell =
+      signed_in
+      |> get(AnkoleWeb.PodURL.site_origin(signed_in) <> "/site-admin-console")
+
+    token = csrf(console_shell)
+
+    unrelated =
+      console_shell
+      |> delete_request(ref, token)
+      |> put_req_header("x-ankole-pod", unrelated_tenant.id)
+      |> api_delete("/api/v2/browser/authentications/current")
+
+    assert api_error(unrelated, 401)["code"] == "invalid_authentication"
+
+    Repo.with_tenant(other_tenant.id, fn ->
+      assert {:ok, _} =
+               Ankole.Principals.HumanAccess.disable(
+                 other_principal.uid,
+                 "Offboarding",
+                 nil,
+                 "disable-sibling"
+               )
+    end)
+
+    exited =
+      console_shell
+      |> delete_request(ref, token)
+      |> put_req_header("x-ankole-pod", tenant.id)
+      |> api_delete("/api/v2/browser/authentications/current")
+
+    assert %{"ok" => true} = api_response(exited, 200)
+    assert exited.resp_cookies[cookie_name].max_age == 0
+  end
+
   defp assert_available_account(response, uid) do
     # Discovery lists the other held proofs. A pinned Pod request still fails.
     assert %{"authenticated" => true, "principalUID" => nil, "accounts" => accounts} =
@@ -377,15 +646,13 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     {:ok, %{browser: browser, authentication: auth}} =
       BrowserSessions.authenticate(
         WebSession.browser_reference(conn),
-        :pod,
         %{
           "principal_uid" => principal.uid,
           "access_version" => principal.access_version,
           "provider_id" => "local",
           "external_id" => principal.uid,
           "auth_time" => System.system_time(:second)
-        },
-        mode: :add
+        }
       )
 
     conn = WebSession.put_authentication(conn, browser, auth)

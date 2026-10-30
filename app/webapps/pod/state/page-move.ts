@@ -49,7 +49,9 @@ export function dropAvailability(
 /** The request that moves `page` one place up or down among its siblings, or `null` at an end. */
 export function stepRequest(pages: Page[], page: Page, direction: -1 | 1): PodPageMove | null {
   const ordered = siblings(pages, page)
-  const neighbor = ordered[ordered.findIndex(sibling => sibling.id === page.id) + direction]
+  const index = ordered.findIndex(sibling => sibling.id === page.id)
+  if (index < 0) return null
+  const neighbor = ordered[index + direction]
   if (!neighbor) return null
   return { ...placeOf(page), ...(direction < 0 ? { before_id: neighbor.id } : { after_id: neighbor.id }) }
 }

@@ -52,7 +52,13 @@ defmodule Ankole.Sessions.Tools.BrainTest do
   test "declares the hosted read subset as read-only Job tools" do
     declarations = Tools.Brain.declarations()
 
-    assert Enum.map(declarations, & &1["name"]) == ["recall", "get_page"]
+    assert Enum.map(declarations, & &1["name"]) == [
+             "recall",
+             "get_page",
+             "entity",
+             "whoknows",
+             "delta"
+           ]
 
     assert Enum.map(declarations, &Map.take(&1, ~w(type strict name description parameters))) ==
              Ankole.Brain.Tools.function_specs(Tools.Brain.operations())
@@ -113,18 +119,55 @@ defmodule Ankole.Sessions.Tools.BrainTest do
     assert lazy.details["page"]["slug"] == lazy_slug
   end
 
-  test "a write operation and invalid arguments do not reach Brain", context do
-    assert {:error, error} =
+  test "entity, whoknows, and delta run through the read-tool broker", context do
+    assert {:ok, entity_res} =
              ReadToolBroker.handle_read(
                context.turn,
-               request("remember", %{"claim" => "x", "provenance" => "test"}),
-               %{request_id: "r"}
+               request("entity", %{"name" => "Wire Format"}),
+               %{request_id: "r-entity"}
              )
 
-    assert error["code"] == "unknown_read_tool"
+    assert entity_res["details"]["entity"]["slug"] == context.object.slug
 
-    assert {:error, {:unknown_operation, "remember"}} =
-             Tools.Brain.read(context.turn, "remember", %{})
+    assert {:ok, whoknows_res} =
+             ReadToolBroker.handle_read(
+               context.turn,
+               request("whoknows", %{"topic" => "wire format"}),
+               %{request_id: "r-whoknows"}
+             )
+
+    assert is_list(whoknows_res["details"]["experts"])
+
+    since =
+      DateTime.utc_now(:microsecond) |> DateTime.add(-3600, :second) |> DateTime.to_iso8601()
+
+    assert {:ok, delta_res} =
+             ReadToolBroker.handle_read(
+               context.turn,
+               request("delta", %{"since" => since}),
+               %{request_id: "r-delta"}
+             )
+
+    assert Enum.any?(
+             delta_res["details"]["new_claims"],
+             &(&1["claim"] == "The wire format carries dated facts")
+           )
+  end
+
+  test "a write operation and invalid arguments do not reach Brain", context do
+    for write_op <- ~w(remember put_page edit_page forget synthesize learn_source) do
+      assert {:error, error} =
+               ReadToolBroker.handle_read(
+                 context.turn,
+                 request(write_op, %{}),
+                 %{request_id: "r"}
+               )
+
+      assert error["code"] == "unknown_read_tool"
+
+      assert {:error, {:unknown_operation, ^write_op}} =
+               Tools.Brain.read(context.turn, write_op, %{})
+    end
 
     assert {:error, error} =
              ReadToolBroker.handle_read(

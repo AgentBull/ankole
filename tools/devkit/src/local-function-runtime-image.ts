@@ -26,7 +26,6 @@ export const functionRuntimeInputRoots = [
   'app/function_runtime/main',
   'libs/applet-sdk/package.json',
   'libs/applet-sdk/src',
-  'libs/ankole-editor/patches',
   'package.json',
   'bun.lock'
 ] as const

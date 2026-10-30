@@ -56,7 +56,7 @@ export const podKeys = {
 }
 export const agentsQuery = {
   queryKey: podKeys.agents,
-  queryFn: () => podAgents()
+  queryFn: ({ signal }: { signal: AbortSignal }) => podAgents({ signal })
 }
 export const conversationSearchQuery = (query = '') => {
   const trimmed = query.trim()
@@ -68,7 +68,7 @@ export const conversationSearchQuery = (query = '') => {
 }
 export const pageConversationsQuery = (pageID: string) => ({
   queryKey: podKeys.pageConversations(pageID),
-  queryFn: () => podConversations({ query: { pageID } })
+  queryFn: ({ signal }: { signal: AbortSignal }) => podConversations({ query: { pageID }, signal })
 })
 export function conversationQuery(id: string) {
   return {

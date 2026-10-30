@@ -97,7 +97,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        '-mx-6 -mb-6 mt-2 flex flex-row items-center justify-end gap-2 border-t border-border bg-muted/30 px-6 py-4',
+        '-mx-6 -mb-6 mt-2 flex flex-row items-center justify-end gap-2 border-t border-border px-6 py-4',
         className
       )}
       {...props}>
@@ -110,13 +110,7 @@ function DialogFooter({
 }
 
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
-  return (
-    <DialogPrimitive.Title
-      data-slot="dialog-title"
-      className={cn('font-heading text-xl leading-7 font-normal tracking-normal normal-case', className)}
-      {...props}
-    />
-  )
+  return <DialogPrimitive.Title data-slot="dialog-title" className={cn('title-overlay', className)} {...props} />
 }
 
 function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props) {
@@ -124,7 +118,7 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        'mt-0.5 text-sm leading-relaxed text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
+        'mt-0.5 text-sm leading-5 text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
         className
       )}
       {...props}

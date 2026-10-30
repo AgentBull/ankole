@@ -15,16 +15,16 @@
   },
   "dependencies": {
     "@agentbull/active-support": "^1.6.0",
-    "@angular-devkit/schematics": "^22.2.3",
-    "@angular-devkit/schematics-cli": "^22.2.3",
-    "@crustjs/core": "^0.5.5",
-    "@crustjs/extensions": "^0.5.5",
+    "@angular-devkit/schematics": "^22.2.5",
+    "@angular-devkit/schematics-cli": "^22.2.5",
+    "@crustjs/core": "^0.5.6",
+    "@crustjs/extensions": "^0.5.6",
     "chalk": "^6.0.1",
     "jsonc": "^3.0.0",
     "pino-pretty": "^13.2.0"
   },
   "devDependencies": {
-    "knip": "^6.41.0",
+    "knip": "^6.43.0",
     "konsistent": "1.0.0-beta.12",
     "typescript": "6.0.3"
   },

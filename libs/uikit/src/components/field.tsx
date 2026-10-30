@@ -28,7 +28,10 @@ function FieldLegend({
     <legend
       data-slot="field-legend"
       data-variant={variant}
-      className={cn('mb-3 font-medium data-[variant=label]:text-sm data-[variant=legend]:text-sm', className)}
+      className={cn(
+        'mb-3 data-[variant=label]:text-[13px] data-[variant=label]:leading-5 data-[variant=label]:font-medium data-[variant=legend]:title-inline',
+        className
+      )}
       {...props}
     />
   )
@@ -93,7 +96,7 @@ function FieldLabel({ className, ...props }: React.ComponentProps<typeof Label>)
     <Label
       data-slot="field-label"
       className={cn(
-        'group/field-label peer/field-label flex w-fit gap-2 leading-relaxed group-data-[disabled=true]/field:opacity-50 has-data-checked:border-foreground has-[>[data-slot=field]]:rounded-none has-[>[data-slot=field]]:border *:data-[slot=field]:p-4',
+        'group/field-label peer/field-label flex w-fit gap-2 group-data-[disabled=true]/field:text-fg-disabled has-data-checked:border-foreground has-[>[data-slot=field]]:rounded-none has-[>[data-slot=field]]:border *:data-[slot=field]:p-4',
         'has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col',
         className
       )}
@@ -107,7 +110,7 @@ function FieldTitle({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="field-label"
       className={cn(
-        'flex w-fit items-center gap-2 text-sm font-medium group-data-[disabled=true]/field:opacity-50 in-data-[slot=field-label]:font-medium',
+        'flex w-fit items-center gap-2 text-[13px] leading-5 font-medium group-data-[disabled=true]/field:text-fg-disabled',
         className
       )}
       {...props}
@@ -120,7 +123,7 @@ function FieldDescription({ className, ...props }: React.ComponentProps<'p'>) {
     <p
       data-slot="field-description"
       className={cn(
-        'text-left text-sm leading-normal font-normal tracking-normal text-muted-foreground normal-case group-has-data-horizontal/field:text-balance [[data-variant=legend]+&]:-mt-1.5',
+        'text-left text-sm leading-5 font-normal tracking-normal text-muted-foreground normal-case group-data-[disabled=true]/field:text-fg-disabled group-has-data-horizontal/field:text-balance [[data-variant=legend]+&]:-mt-1.5',
         'last:mt-0 nth-last-2:-mt-1',
         '[&>a]:link',
         className

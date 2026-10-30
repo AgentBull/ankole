@@ -1,16 +1,9 @@
 .ankole-editor,
 .ankole-editor-overlay {
-  --editor-embed-border: #e4dfd9;
-  --editor-embed-bg: #fbfaf8;
-  --editor-embed-fg: #6f6252;
-  --editor-embed-code: #9a8d7e;
-}
-
-:is([data-theme='dark'], [data-theme='dark'] *):is(.ankole-editor, .ankole-editor-overlay) {
-  --editor-embed-border: #343637;
-  --editor-embed-bg: #202223;
-  --editor-embed-fg: #dcd4c8;
-  --editor-embed-code: #abaaa6;
+  --editor-embed-border: var(--border);
+  --editor-embed-bg: var(--layer-01);
+  --editor-embed-fg: var(--fg-secondary);
+  --editor-embed-code: var(--fg-tertiary);
 }
 
 :where(.ankole-editor, .ankole-editor-overlay) .embed {

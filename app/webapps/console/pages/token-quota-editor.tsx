@@ -136,7 +136,7 @@ export function TokenQuotaEditor({
   return (
     <section className="grid gap-4">
       <div className="grid gap-1">
-        <h3 className="text-lg font-semibold tracking-normal">{t('console.agents.token_quota_title')}</h3>
+        <h3 className="title-section">{t('console.agents.token_quota_title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.agents.token_quota_description')}</p>
       </div>
       <ErrorBlock error={quota.error ?? save.error} />

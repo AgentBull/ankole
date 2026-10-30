@@ -67,5 +67,19 @@ defmodule AnkoleWeb.PodAppletFrameControllerTest do
     assert {:ok, %{revision: 2}} = Files.publish(actor, page.id, 1, manifest)
     stale = conn |> recycle_api() |> get(url)
     assert response(stale, 409) =~ "changed(window)"
+
+    rev2_url = "/pod/applet-frame/#{reference}/#{page.id}/2/main.js"
+    assert response(conn |> recycle_api() |> get(rev2_url), 200) == "export {}"
+
+    assert {:ok, _} = Pages.delete(actor, page.id)
+
+    assert %{"error" => %{"code" => "not_found"}} =
+             conn |> recycle_api() |> get(rev2_url) |> json_response(404)
+
+    assert %{"error" => %{"code" => "not_found"}} =
+             conn
+             |> recycle_api()
+             |> get("/pod/applet-frame/current/#{page.id}/2/index.html")
+             |> json_response(404)
   end
 end

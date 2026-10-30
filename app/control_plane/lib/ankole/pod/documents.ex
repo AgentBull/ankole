@@ -7,7 +7,8 @@ defmodule Ankole.Pod.Documents do
   """
   require Ash.Query
   alias Ankole.{ActorRef, Repo}
-  alias Ankole.Pod.{Access, PageChange, PageContent, Pages}
+  alias Ankole.Pod.{Access, Comments, PageChange, PageContent, Pages}
+  alias Ankole.Pod.Documents.{History, Insights}
 
   def write(uid, id, base_revision, xml, authority \\ nil)
 
@@ -32,8 +33,12 @@ defmodule Ankole.Pod.Documents do
 
     commit_in_tx(actor, id, fn page ->
       with :ok <- current_revision(page, base_revision),
-           {:ok, parsed} <- validation,
-           do: save_diff(page, content!(page), uid, parsed)
+           {:ok, parsed} <- validation do
+        content = content!(page)
+
+        with {:ok, marked} <- preserve_comments(page.id, content.content, parsed.xml),
+             do: save_diff(page, content, uid, marked)
+      end
     end)
   end
 
@@ -64,7 +69,8 @@ defmodule Ankole.Pod.Documents do
           "<page>" <> page_children(content.content) <> page_children(fragment.xml) <> "</page>"
 
         with {:ok, parsed} <- Ankole.Kernel.page_validate(xml),
-             do: save_diff(page, content, Ankole.AuthZ.Actor.uid(actor), parsed)
+             {:ok, marked} <- preserve_comments(page.id, content.content, parsed.xml),
+             do: save_diff(page, content, Ankole.AuthZ.Actor.uid(actor), marked)
       end
     end)
   end
@@ -72,20 +78,43 @@ defmodule Ankole.Pod.Documents do
   defp page_children("<page />"), do: ""
   defp page_children("<page>" <> rest), do: String.trim_trailing(rest, "</page>")
 
-  defp save_diff(page, content, uid, parsed) do
-    with {:ok, changes} <- Ankole.Kernel.page_diff(content.content, parsed.xml) do
+  defp preserve_comments(page_id, current, incoming) do
+    with {:ok, info} <- Ankole.Kernel.page_comment_info(incoming),
+         :ok <- Comments.validate_marks_in_tx(page_id, info.ids),
+         do: Ankole.Kernel.page_restore_comments(current, incoming)
+  end
+
+  @doc "Commits parsed native content after the caller locks the page and authorizes its operation."
+  def commit_parsed_in_tx(page, content, actor, parsed, opts \\ []) do
+    save_diff(page, content, Ankole.AuthZ.Actor.uid(actor), parsed, opts)
+  end
+
+  defp save_diff(page, content, uid, parsed, opts \\ []) do
+    with {:ok, diff_changes} <- Ankole.Kernel.page_diff(content.content, parsed.xml),
+         {:ok, changes} <-
+           resolve_diff_changes(diff_changes, parsed.xml, Keyword.get(opts, :force, false)) do
       if changes == [] do
         {:ok, %{page: page, content: content}}
       else
-        save(page, content, uid, parsed, %{
-          kind: :change,
-          client_id: "server:" <> uid,
-          client_seq: page.revision + 1,
-          changes: changes
-        })
+        save(
+          page,
+          content,
+          uid,
+          parsed,
+          %{
+            kind: :change,
+            client_id: "server:" <> uid,
+            client_seq: page.revision + 1,
+            changes: changes
+          },
+          opts
+        )
       end
     end
   end
+
+  defp resolve_diff_changes([], xml, true), do: Ankole.Kernel.page_identity_changes(xml)
+  defp resolve_diff_changes(changes, _xml, _force), do: {:ok, changes}
 
   def apply(uid, id, attrs, authority \\ nil)
 
@@ -102,7 +131,7 @@ defmodule Ankole.Pod.Documents do
     if is_integer(batch.base) and batch.base >= 0 and is_binary(batch.client) and
          byte_size(batch.client) in 1..255 and not String.starts_with?(batch.client, "server:") and
          is_integer(batch.seq) and batch.seq > 0 and
-         is_list(batch.changes) do
+         is_list(batch.changes) and batch.changes != [] do
       authority
       |> Access.write(fn -> apply_in_tx(actor, id, batch) end, after_commit: &committed/1)
       |> result()
@@ -235,19 +264,35 @@ defmodule Ankole.Pod.Documents do
     |> Ankole.Ash.read_one!(not_found_error?: true)
   end
 
-  defp save(page, content, uid, parsed, change) do
+  defp save(page, content, uid, parsed, change, opts \\ []) do
     now = DateTime.utc_now(:microsecond)
     author = ActorRef.from_writer(uid, Repo.tenant_id!(), [])
 
     with {:ok, window} <- Ankole.Pod.Config.ot_replay_window(),
+         {:ok, info} <- Ankole.Kernel.page_comment_info(parsed.xml),
+         {:ok, previous} <- Ankole.Kernel.page_comment_info(content.content),
+         :ok <- Comments.validate_marks_in_tx(page.id, info.ids),
+         edited = info.stripped_xml != previous.stripped_xml,
+         :ok <- maybe_checkpoint(edited, page, content, now),
+         :ok <-
+           if(edited or Keyword.get(opts, :force, false),
+             do: Insights.edit_in_tx(page.id, uid, now),
+             else: :ok
+           ),
          {:ok, content} <-
-           Ankole.Ash.update(content, :replace, %{
-             content: parsed.xml,
-             plain_text: parsed.plain_text,
-             updated_by: author,
-             updated_at: now
+           Ankole.Ash.update(
+             content,
+             :replace,
+             Map.merge(attribution(edited, opts, author, now), %{
+               content: parsed.xml,
+               plain_text: parsed.plain_text
+             })
+           ),
+         {:ok, page} <-
+           Ankole.Ash.update(page, :advance_revision, %{
+             updated_at:
+               if(edited or Keyword.get(opts, :force, false), do: now, else: page.updated_at)
            }),
-         {:ok, page} <- Ankole.Ash.update(page, :advance_revision, %{updated_at: now}),
          {:ok, _} <-
            Ankole.Ash.create(
              PageChange,
@@ -265,6 +310,17 @@ defmodule Ankole.Pod.Documents do
            |> Ankole.Ash.destroy_where(:prune) do
       {:ok, %{page: page, content: content}}
     end
+  end
+
+  defp maybe_checkpoint(true, page, content, now),
+    do: History.checkpoint_in_tx(page, content, now)
+
+  defp maybe_checkpoint(false, _page, _content, _now), do: :ok
+
+  defp attribution(edited, opts, author, now) do
+    if Keyword.get(opts, :attribution, true) and (edited or Keyword.get(opts, :force, false)),
+      do: %{updated_by: author, updated_at: now},
+      else: %{}
   end
 
   defp current_revision(%{revision: revision}, revision), do: :ok

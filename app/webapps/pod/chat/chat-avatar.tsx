@@ -1,4 +1,7 @@
 import { Avatar, AvatarImage, AvatarFallback, cn } from '@ankole/uikit'
+import { avatarInitials } from '../avatar-initials'
+
+export { avatarInitials }
 
 export function ChatAvatar({
   name,
@@ -11,15 +14,6 @@ export function ChatAvatar({
   agent?: boolean
   className?: string
 }) {
-  const words = name.trim().split(/\s+/)
-  const initials =
-    (words.length > 1
-      ? words
-          .slice(0, 2)
-          .map(word => Array.from(word)[0])
-          .join('')
-      : Array.from(name.trim()).slice(0, 2).join('')
-    ).toLocaleUpperCase() || '?'
   return (
     <Avatar
       aria-hidden
@@ -27,7 +21,7 @@ export function ChatAvatar({
       size="sm"
       className={cn('pod-chat-avatar', agent && 'pod-chat-avatar-agent', className)}>
       {src && <AvatarImage src={src} alt="" />}
-      <AvatarFallback>{initials}</AvatarFallback>
+      <AvatarFallback>{avatarInitials(name)}</AvatarFallback>
     </Avatar>
   )
 }

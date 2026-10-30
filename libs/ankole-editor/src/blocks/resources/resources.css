@@ -1,0 +1,165 @@
+:where(.ankole-editor, .ankole-editor-overlay) .editor-resource {
+  margin: 12px 0;
+  min-width: 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-block {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.5;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 4px 8px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-toolbar a {
+  display: inline-flex;
+  color: var(--fg-secondary);
+  padding: 4px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-form label {
+  display: grid;
+  gap: 4px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-actions {
+  display: flex;
+  gap: 8px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-actions [aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--foreground);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  text-decoration: none;
+  color: var(--foreground);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-summary:hover {
+  background: var(--accent);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-name {
+  font-weight: 500;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-copy small,
+:where(.ankole-editor, .ankole-editor-overlay) .resource-hint {
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-hint {
+  margin: 0;
+  padding: 8px 16px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-symbol {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  color: var(--fg-tertiary);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-cover {
+  width: 120px;
+  height: 96px;
+  object-fit: cover;
+  flex: 0 0 auto;
+  border-radius: var(--radius-control);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-frame {
+  display: block;
+  width: 100%;
+  height: 480px;
+  border: 0;
+  background: var(--layer-01);
+  resize: vertical;
+  min-height: 160px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-media {
+  display: block;
+  max-width: 100%;
+  max-height: 640px;
+  margin: auto;
+}
+:where(.ankole-editor, .ankole-editor-overlay) [data-view='link'] .resource-name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 400;
+}
+@media (max-width: 600px) {
+  :where(.ankole-editor, .ankole-editor-overlay) .resource-frame {
+    height: 300px;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .resource-cover {
+    width: 80px;
+    height: 80px;
+  }
+}
+
+/* The file upload panel hands files to the host; it is a ceramic surface below the caret. */
+:where(.ankole-editor-overlay).file-upload {
+  position: fixed;
+  z-index: 40;
+  width: min(360px, calc(100vw - 16px));
+  padding: 12px;
+}
+:where(.ankole-editor-overlay).file-upload .file-upload-zone {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--fg-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+:where(.ankole-editor-overlay).file-upload .file-upload-zone svg {
+  width: 20px;
+  height: 20px;
+}
+:where(.ankole-editor-overlay).file-upload .file-upload-zone:hover,
+:where(.ankole-editor-overlay).file-upload .file-upload-zone[data-dragging='true'] {
+  border-color: var(--ring);
+  color: var(--foreground);
+}
+:where(.ankole-editor-overlay).file-upload .file-upload-zone:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+:where(.ankole-editor-overlay).file-upload .file-upload-zone:disabled {
+  cursor: progress;
+}
+:where(.ankole-editor-overlay).file-upload .file-upload-hint {
+  margin: 8px 0 0;
+  color: var(--fg-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+:where(.ankole-editor-overlay).file-upload .file-upload-error {
+  margin: 6px 0 0;
+  color: var(--destructive-foreground);
+  font-size: 12px;
+  line-height: 18px;
+}

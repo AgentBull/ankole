@@ -19,10 +19,7 @@ defmodule Ankole.BrowserSessions.OidcState do
     unique_index_names([{[:state], "browser_oidc_states_state_index"}])
 
     check_constraints do
-      check_constraint(:purpose, "browser_oidc_states_purpose")
-      check_constraint(:mode, "browser_oidc_states_mode")
       check_constraint(:started_revision, "browser_oidc_states_started_revision_nonnegative")
-      check_constraint(:oauth_request_id, "browser_oidc_states_oauth_request")
     end
   end
 
@@ -48,19 +45,6 @@ defmodule Ankole.BrowserSessions.OidcState do
       public?: true,
       allow_nil?: false,
       constraints: [trim?: false]
-    )
-
-    attribute(:purpose, :atom,
-      public?: true,
-      allow_nil?: false,
-      constraints: [one_of: [:console, :oauth, :pod]]
-    )
-
-    attribute(:mode, :atom,
-      public?: true,
-      allow_nil?: false,
-      default: :replace,
-      constraints: [one_of: [:replace, :add]]
     )
 
     attribute(:started_revision, :integer,
@@ -101,8 +85,6 @@ defmodule Ankole.BrowserSessions.OidcState do
         :browser_id,
         :tenant_id,
         :provider_id,
-        :purpose,
-        :mode,
         :started_revision,
         :redirect_uri,
         :return_to,

@@ -37,7 +37,7 @@ defmodule Ankole.Authn.OtpConcurrencyTest do
 
     source = "concurrent-#{session.id}"
     email = "#{session.id}@example.test"
-    assert {:ok, sent} = Domain.request_otp(browser, email, source, login_purpose: :site)
+    assert {:ok, sent} = Domain.request_otp(browser, email, source, scope: :site)
     assert_receive {:smtp_message, _, [^email], message}, 5_000
     [_, code] = Regex.run(~r/code is (\d{6})/, SMTPFixture.text(message))
     wrong = if code == "000000", do: "111111", else: "000000"

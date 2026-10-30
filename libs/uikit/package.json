@@ -23,6 +23,7 @@
       "types": "./src/lib/*.ts",
       "import": "./src/lib/*.ts"
     },
+    "./emoji.css": "./src/assets/fonts/fluent-emoji/FluentEmojiColor.css",
     "./styles.css": "./src/styles.css"
   },
   "scripts": {
@@ -43,6 +44,7 @@
     "clsx": "2.1.1",
     "cmdk": "^1.1.1",
     "embla-carousel-react": "^8.6.0",
+    "emoji-picker-react": "5.1.4",
     "input-otp": "1.5.0",
     "next-themes": "0.4.6",
     "sonner": "2.0.8",

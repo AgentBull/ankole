@@ -109,7 +109,7 @@ export function AgentLibraryEditor({
   return (
     <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
       <div className="grid gap-1">
-        <h3 className="break-words text-lg font-semibold tracking-normal">{t('console.agent_library.title')}</h3>
+        <h3 className="break-words title-section">{t('console.agent_library.title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.agent_library.description')}</p>
         <p className="text-xs leading-5 text-muted-foreground">{t('console.agent_library.effect_hint')}</p>
       </div>

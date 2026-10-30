@@ -13,11 +13,12 @@ Every Agent within an Ankole tenant shares one knowledge space instead of copyin
 
 ## What Brain can learn
 
-Knowledge enters Brain through three active paths:
+Knowledge enters Brain through four active paths:
 
 | Path | Result | Conditions |
 | --- | --- | --- |
 | An Agent calls `remember` | One fact or judgment becomes durable immediately | The Agent must file one atomic claim, give its source, and select a valid audience scope |
+| An Agent calls `put_page` or `edit_page` | A structured subject page is created or revised in place with version history and reconciled `[[slug]]` links | Updates require `expected_revision` optimistic concurrency; multi-audience edits stay within the caller's writable Markdoc scopes while preserving hidden sections |
 | Signals learning processes a conversation | Useful facts, judgments, and open commitments can be learned without an explicit `remember` call | The channel must be a direct message or IM group, and the Brain maintainer Agent must have a usable `light` profile; group learning also needs a synchronized member permission group |
 | An operator registers a Source | A file or web page becomes searchable and can produce extracted claims | Claim extraction needs the maintainer Agent's `light` profile; files must be deployment-readable, and files and fetched page text must be valid UTF-8 no larger than 10 MiB; URLs need the Agent's `web_fetch` profile |
 
@@ -51,13 +52,16 @@ When a task calls for explicit memory lookup or updates, Agents invoke dedicated
 
 | Tool | Outcome |
 | --- | --- |
+| `remember` | Records one atomic Fact or Take with provenance and audience scope |
+| `put_page` | Creates a structured page or replaces an existing single-scope page body under `expected_revision` |
+| `edit_page` | Applies exact-match surgical replacements inside caller-writable Markdoc spans under `expected_revision`, returning a compact diff |
 | `learn_source` | Registers one web URL as a Source and starts background learning |
-| `recall` | Returns current Facts and Takes first, then relevant page passages within a token budget |
-| `get_page` | Reads one complete filtered page by slug or natural-language name; ambiguous names return candidates instead of a guess |
+| `recall` | Returns current Facts and Takes first, followed by exact-alias entity cards and relevant page passages within a token budget |
+| `get_page` | Reads one complete filtered page (with its `revision` and optional pruned Markdoc `content`) by slug or natural-language name; ambiguous names return candidates instead of a guess |
 | `entity` | Returns an entity card with selected facts, relationships, and a backlink count |
 | `whoknows` | Ranks visible people, Agents, and companies whose stored knowledge matches a topic |
 | `delta` | Reports new and expired claims and timeline events within a time range |
-| `synthesize` | Uses recalled evidence to write a durable analysis page for one question |
+| `synthesize` | Uses recalled evidence, contested claims, and open gaps to write a durable analysis page for one question |
 | `forget` | Expires one Fact, deactivates one Take, or soft-deletes one page, with a recorded reason |
 
 ### Discover recall-only Skills

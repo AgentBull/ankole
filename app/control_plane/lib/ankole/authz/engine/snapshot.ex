@@ -5,7 +5,7 @@ defmodule Ankole.AuthZ.Snapshot do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
 
-  @pod_actions ~w(page_view page_write_records page_edit page_manage update)
+  @pod_actions ~w(page_view page_write_records page_edit page_manage page_comment update)
 
   def build_authorization_snapshot(principal_uid, resource, action, context \\ %{}) do
     with {:ok, [action]} <- Input.normalize_actions([action]),

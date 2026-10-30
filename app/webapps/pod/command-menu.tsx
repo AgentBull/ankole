@@ -1,4 +1,6 @@
-import { createContext, useContext, useDeferredValue, useEffect, useRef, useState, type RefObject } from 'react'
+import { usePagesMetadata } from './use-page-metadata'
+import { createContext, useContext, useEffect, useRef, useState, type RefObject } from 'react'
+import { useDebouncedValue } from '../common/use-debounced-value'
 import {
   Command,
   CommandEmpty,
@@ -18,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import { authenticationRef, podID, podLocation } from '../common/browser-context'
+import { ErrorBoundary } from '../common/error-boundary'
 import { conversationSearchQuery } from './api'
 import { pageSearchQuery } from './content-api'
 import { ContentError, scopeIcons, scopeLabels, typeLabels } from './content-primitives'
@@ -46,12 +49,13 @@ export function PodCommandMenu({
   const navigate = useNavigate()
   const { setOpenMobile } = useSidebar()
   const [query, setQuery] = useState('')
-  const deferredQuery = useDeferredValue(query)
-  const pages = useQuery({ ...pageSearchQuery(deferredQuery), enabled: open })
-  const pageResults = query === deferredQuery ? (pages.data?.pages ?? []) : []
-  const pagesByID = new Map([...pageResults, ...(pages.data?.ancestors ?? [])].map(page => [page.id, page]))
-  const conversations = useQuery({ ...conversationSearchQuery(deferredQuery), enabled: open })
-  const conversationResults = query === deferredQuery ? (conversations.data?.conversations ?? []) : []
+  const settledQuery = useDebouncedValue(query, 180)
+  const pages = useQuery({ ...pageSearchQuery(settledQuery), enabled: open })
+  const pageResults = usePagesMetadata(query === settledQuery ? (pages.data?.pages ?? []) : [])
+  const ancestors = usePagesMetadata(pages.data?.ancestors ?? [])
+  const pagesByID = new Map([...pageResults, ...ancestors].map(page => [page.id, page]))
+  const conversations = useQuery({ ...conversationSearchQuery(settledQuery), enabled: open })
+  const conversationResults = query === settledQuery ? (conversations.data?.conversations ?? []) : []
   const session = useQuery({
     queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
@@ -94,120 +98,128 @@ export function PodCommandMenu({
           )
         }}>
         <DialogTitle className="sr-only">{label}</DialogTitle>
-        <Command
-          label={label}
-          loop
-          vimBindings={false}
-          // Page and conversation results include body matches from the server; preserve higher scores for title and command matches.
-          filter={(value, search, keywords) =>
-            value.startsWith('page:') || value.startsWith('chat:')
-              ? Math.max(0.5, commandFilter(value, search, keywords))
-              : commandFilter(value, search, keywords)
-          }
-          onKeyDownCapture={event => {
-            if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) {
-              event.stopPropagation()
+        <ErrorBoundary variant="panel" className="m-3" resetKeys={[open]}>
+          <Command
+            label={label}
+            loop
+            vimBindings={false}
+            // Page and conversation results include body matches from the server; preserve higher scores for title and command matches.
+            filter={(value, search, keywords) =>
+              value.startsWith('page:') || value.startsWith('chat:')
+                ? Math.max(0.5, commandFilter(value, search, keywords))
+                : commandFilter(value, search, keywords)
             }
-          }}>
-          <CommandInput
-            aria-label={label}
-            placeholder={t('pod.command.placeholder')}
-            value={query}
-            onValueChange={setQuery}
-            autoFocus
-          />
-          <CommandList label={label}>
-            <CommandEmpty>{t('pod.content.no_matches')}</CommandEmpty>
-            <CommandGroup heading={t('pod.content.page_navigation')}>
-              <CommandItem
-                value="new-chat"
-                keywords={[t('pod.chat.new_conversation')]}
-                onSelect={() => void choose('/', true)}>
-                <RiAddLine aria-hidden />
-                {t('pod.chat.new_conversation')}
-              </CommandItem>
-              <CommandItem
-                value="scope:search"
-                keywords={[t('pod.content.search_pages')]}
-                onSelect={() => void choose('/content/search')}>
-                <RiSearchLine aria-hidden />
-                {t('pod.content.search_pages')}
-              </CommandItem>
-              {(['space', 'private', 'shared', 'recent', 'favorites', 'trash'] as const)
-                .filter(scope => scope !== 'private' || pages.data?.can_create_private !== false)
-                .map(scope => {
-                  const Icon = scopeIcons[scope]
-                  return (
-                    <CommandItem
-                      key={scope}
-                      value={`scope:${scope}`}
-                      keywords={[scopeLabels[scope]]}
-                      onSelect={() => void choose(`/content/${scope}`)}>
-                      <Icon aria-hidden />
-                      {scopeLabels[scope]}
-                    </CommandItem>
-                  )
-                })}
-              <CommandItem
-                value="nav:account-settings"
-                keywords={[t('pod.account.title')]}
-                onSelect={() => void choose('/me')}>
-                <RiUser3Line aria-hidden />
-                {t('pod.account.title')}
-              </CommandItem>
-              {session.data?.canManagePod && (
+            onKeyDownCapture={event => {
+              if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) {
+                event.stopPropagation()
+              }
+            }}>
+            <CommandInput
+              aria-label={label}
+              placeholder={t('pod.command.placeholder')}
+              value={query}
+              onValueChange={setQuery}
+              autoFocus
+            />
+            <CommandList label={label}>
+              <CommandEmpty>
+                {t(
+                  query !== settledQuery || pages.isFetching || conversations.isFetching
+                    ? 'pod.content.loading'
+                    : 'pod.content.no_matches'
+                )}
+              </CommandEmpty>
+              <CommandGroup heading={t('pod.content.page_navigation')}>
                 <CommandItem
-                  value="nav:pod-settings"
-                  keywords={[t('pod.settings.title')]}
-                  onSelect={() => void choose('/settings')}>
-                  <RiSettings3Line aria-hidden />
-                  {t('pod.settings.title')}
+                  value="new-chat"
+                  keywords={[t('pod.chat.new_conversation')]}
+                  onSelect={() => void choose('/', true)}>
+                  <RiAddLine aria-hidden />
+                  {t('pod.chat.new_conversation')}
                 </CommandItem>
+                <CommandItem
+                  value="scope:search"
+                  keywords={[t('pod.content.search_pages')]}
+                  onSelect={() => void choose('/content/search')}>
+                  <RiSearchLine aria-hidden />
+                  {t('pod.content.search_pages')}
+                </CommandItem>
+                {(['space', 'private', 'shared', 'recent', 'favorites', 'trash'] as const)
+                  .filter(scope => scope !== 'private' || pages.data?.can_create_private !== false)
+                  .map(scope => {
+                    const Icon = scopeIcons[scope]
+                    return (
+                      <CommandItem
+                        key={scope}
+                        value={`scope:${scope}`}
+                        keywords={[scopeLabels[scope]]}
+                        onSelect={() => void choose(`/content/${scope}`)}>
+                        <Icon aria-hidden />
+                        {scopeLabels[scope]}
+                      </CommandItem>
+                    )
+                  })}
+                <CommandItem
+                  value="nav:account-settings"
+                  keywords={[t('pod.account.title')]}
+                  onSelect={() => void choose('/me')}>
+                  <RiUser3Line aria-hidden />
+                  {t('pod.account.title')}
+                </CommandItem>
+                {session.data?.canManagePod && (
+                  <CommandItem
+                    value="nav:pod-settings"
+                    keywords={[t('pod.settings.title')]}
+                    onSelect={() => void choose('/settings')}>
+                    <RiSettings3Line aria-hidden />
+                    {t('pod.settings.title')}
+                  </CommandItem>
+                )}
+              </CommandGroup>
+              {pageResults.length > 0 && (
+                <CommandGroup heading={t('pod.content.all_pages')}>
+                  {pageResults.map(page => {
+                    const title = page.title || t('pod.content.untitled')
+                    const parent = pageAncestors(page, pagesByID)
+                      .map(page => page.title || t('pod.content.untitled'))
+                      .join(' / ')
+                    return (
+                      <CommandItem
+                        key={page.id}
+                        value={`page:${page.id}`}
+                        keywords={[title, typeLabels[page.type]]}
+                        onSelect={() => void choose(`/pages/${page.id}`)}>
+                        <PageIcon page={page} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{title}</span>
+                          {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
+                        </span>
+                        <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
+                      </CommandItem>
+                    )
+                  })}
+                </CommandGroup>
               )}
-            </CommandGroup>
-            {pageResults.length > 0 && (
-              <CommandGroup heading={t('pod.content.all_pages')}>
-                {pageResults.map(page => {
-                  const title = page.title || t('pod.content.untitled')
-                  const parent = pageAncestors(page, pagesByID)
-                    .map(page => page.title || t('pod.content.untitled'))
-                    .join(' / ')
-                  return (
-                    <CommandItem
-                      key={page.id}
-                      value={`page:${page.id}`}
-                      keywords={[title, typeLabels[page.type]]}
-                      onSelect={() => void choose(`/pages/${page.id}`)}>
-                      <PageIcon page={page} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate">{title}</span>
-                        {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
-                      </span>
-                      <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
-                    </CommandItem>
-                  )
-                })}
-              </CommandGroup>
-            )}
-            {conversationResults.length > 0 && (
-              <CommandGroup heading={t('pod.sidebar.tabs.chat')}>
-                {conversationResults.map(conversation => {
-                  const title = conversation.title.trim() || t('pod.content.untitled')
-                  return (
-                    <CommandItem
-                      key={conversation.id}
-                      value={`chat:${conversation.id}`}
-                      keywords={[title]}
-                      onSelect={() => void choose(`/conversations/${conversation.id}`)}>
-                      <RiChat3Line aria-hidden />
-                      <span className="truncate">{title}</span>
-                    </CommandItem>
-                  )
-                })}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
+              {conversationResults.length > 0 && (
+                <CommandGroup heading={t('pod.sidebar.tabs.chat')}>
+                  {conversationResults.map(conversation => {
+                    const title = conversation.title.trim() || t('pod.content.untitled')
+                    return (
+                      <CommandItem
+                        key={conversation.id}
+                        value={`chat:${conversation.id}`}
+                        keywords={[title]}
+                        onSelect={() => void choose(`/conversations/${conversation.id}`)}>
+                        <RiChat3Line aria-hidden />
+                        <span className="truncate">{title}</span>
+                      </CommandItem>
+                    )
+                  })}
+                </CommandGroup>
+              )}
+            </CommandList>
+          </Command>
+        </ErrorBoundary>
         {(pages.isPending || conversations.isPending) && (
           <p role="status" className="px-3 text-xs text-fg-tertiary">
             {t('pod.content.loading')}

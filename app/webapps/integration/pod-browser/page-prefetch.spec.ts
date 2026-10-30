@@ -1,14 +1,74 @@
 import { state, request } from './fixtures'
-import { pageRoute } from './routes'
+import { listRoute, pageRoute } from './routes'
 import { writeFileSync } from 'node:fs'
 import { expect, test, type Route } from '@playwright/test'
 
-test('a cold page fetches its data before its lazy module and chat query changes do not refetch it', async ({
+for (const intent of ['hover', 'focus'] as const) {
+  test(`${intent} preloads Page code and data together without recording a visit`, async ({ browser }) => {
+    const context = await browser.newContext({ baseURL: state.base_url, serviceWorkers: 'block' })
+    await context.addCookies(state.owner.cookies)
+    const setup = await context.newPage()
+    const page = await context.newPage()
+    const held: Route[] = []
+    let released = false
+    let pageID: string | undefined
+    let reads = 0
+    let writes = 0
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname
+      if (request.method() === 'GET' && path === `/api/v2/pod/pages/${pageID}`) reads++
+      if (request.method() !== 'GET' && path === `/api/v2/pod/pages/${pageID}/user-state`) writes++
+    })
+    await page.route(/\/page-workspace-[^/]+\.js(?:\?.*)?$/, async route => {
+      if (released) return route.continue()
+      held.push(route)
+    })
+    try {
+      await setup.goto(listRoute('trash'))
+      const title = `Page ${intent} ${crypto.randomUUID()}`
+      const created = await request<{ page: { id: string } }>(setup, '/pages', 'POST', { type: 'doc', title })
+      pageID = created.page.id
+      await page.goto(listRoute('space'))
+      const link = page
+        .getByRole('region', { name: '空间', exact: true })
+        .getByRole('link', { name: title, exact: true })
+      await expect(link).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      const details = page.waitForResponse(
+        response =>
+          response.request().method() === 'GET' && new URL(response.url()).pathname === `/api/v2/pod/pages/${pageID}`
+      )
+      await link[intent]()
+      await expect.poll(() => held.length).toBeGreaterThan(0)
+      expect((await details).ok()).toBe(true)
+      expect(reads).toBe(1)
+      expect(writes).toBe(0)
+      expect(new URL(page.url()).pathname).toBe(listRoute('space'))
+
+      released = true
+      await Promise.all(held.map(route => route.continue()))
+      await link.click()
+      await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(title)
+      await expect(page.locator('.editor-content')).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      expect(reads).toBe(1)
+      expect(writes).toBe(1)
+    } finally {
+      released = true
+      await Promise.all(held.map(route => route.continue().catch(() => {})))
+      if (pageID) await request(setup, `/pages/${pageID}`, 'DELETE')
+      await context.close()
+    }
+  })
+}
+
+test('page data loads in parallel and cached navigation does not wait for revalidation', async ({
   browser
 }, testInfo) => {
   const setup = await browser.newContext({ baseURL: state.base_url })
   await setup.addCookies(state.owner.cookies)
   const setupPage = await setup.newPage()
+  const title = `Parallel page loading probe ${Date.now()}`
   let pageID: string | undefined
   const context = await browser.newContext({ baseURL: state.base_url, serviceWorkers: 'block' })
   await context.addCookies(state.owner.cookies)
@@ -22,6 +82,9 @@ test('a cold page fetches its data before its lazy module and chat query changes
   const record = (event: string) => events.push({ event, elapsedMS: Date.now() - started })
   const errors: string[] = []
   let released = false
+  let trashed = false
+  const pageRefresh = Promise.withResolvers<void>()
+  const directoryRefresh = Promise.withResolvers<void>()
   let pageRequests = 0
   let fetchedAt = 0
   page.on('pageerror', error => errors.push(error.message))
@@ -40,7 +103,7 @@ test('a cold page fetches its data before its lazy module and chat query changes
     await setupPage.goto('/')
     const created = await request<{ page: { id: string } }>(setupPage, '/pages', 'POST', {
       type: 'doc',
-      title: 'Parallel page loading probe',
+      title,
       private_owner_uid: state.owner.uid
     })
     pageID = created.page.id
@@ -96,8 +159,56 @@ test('a cold page fetches its data before its lazy module and chat query changes
     await page.waitForLoadState('networkidle')
     record('page chat closed without duplicate page GET')
     expect(pageRequests).toBe(1)
+
+    await page.getByRole('link', { name: '回收站', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '回收站', exact: true })).toBeVisible()
+    let heldPageReads = 0
+    await page.route(`**/api/v2/pod/pages/${pageID}`, async route => {
+      if (route.request().method() === 'GET') {
+        heldPageReads++
+        await pageRefresh.promise
+      }
+      await route.continue()
+    })
+    await page
+      .getByRole('region', { name: '私人页面', exact: true })
+      .getByRole('link', { name: title, exact: true })
+      .click()
+    await expect.poll(() => heldPageReads).toBeGreaterThan(0)
+    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(title)
+    record('cached page visible while its revalidation is blocked')
+    const refreshed = page.waitForResponse(
+      response =>
+        response.request().method() === 'GET' && new URL(response.url()).pathname === `/api/v2/pod/pages/${pageID}`
+    )
+    pageRefresh.resolve()
+    expect((await refreshed).status()).toBe(200)
+
+    let heldDirectoryReads = 0
+    await page.route(/\/api\/v2\/pod\/pages(?:\/(?:children|navigation))?(?:\?|$)/, async route => {
+      if (route.request().method() === 'GET') {
+        heldDirectoryReads++
+        await directoryRefresh.promise
+      }
+      await route.continue()
+    })
+    await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+    const removed = page.waitForResponse(
+      response =>
+        response.request().method() === 'DELETE' && new URL(response.url()).pathname === `/api/v2/pod/pages/${pageID}`
+    )
+    await page.getByRole('menuitem', { name: '移到回收站', exact: true }).click()
+    expect((await removed).ok()).toBe(true)
+    trashed = true
+    await expect.poll(() => heldDirectoryReads).toBeGreaterThan(0)
+    await expect(page).toHaveURL(state.base_url + listRoute('private'))
+    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveCount(0)
+    record('deleted page exited while directory revalidation is blocked')
+    directoryRefresh.resolve()
     expect(errors).toEqual([])
   } finally {
+    pageRefresh.resolve()
+    directoryRefresh.resolve()
     const evidence = testInfo.outputPath('network-probe.json')
     writeFileSync(evidence, JSON.stringify({ events, pageRequests, errors, cacheDisabled: true }, null, 2))
     await testInfo.attach('page-prefetch-network-probe', {
@@ -105,7 +216,7 @@ test('a cold page fetches its data before its lazy module and chat query changes
       contentType: 'application/json'
     })
     await context.close()
-    if (pageID) await request(setupPage, `/pages/${pageID}`, 'DELETE')
+    if (pageID && !trashed) await request(setupPage, `/pages/${pageID}`, 'DELETE')
     await setup.close()
   }
 })

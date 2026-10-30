@@ -59,6 +59,7 @@ done
 | `Ankole.Sessions.WorkerAcquisition` | `test/sessions/worker_acquisition_laws_test.exs` | Absorbing `:unavailable` terminal state, `:idle` immunity to late non-demand events, gating of workspace replies to opening Workers only, preservation of the `since` deadline across retries and phase transitions, state clearing on round commit, bounded timer scheduling (`0..60_000` ms), and redaction of provider error details. |
 | `Ankole.AgentWorkers.ProviderKind`, `Ankole.AgentWorkers.Decision` | `test/agent_workers/decision_laws_test.exs` | Non-`nil` generation matching in `current_instance?/2`, exact cleanup selection by production `Decision.next/1` across arbitrary fact maps and proper observation lists requiring cleanup (selecting the second matching instance when multiple instances match, or the first non-matching instance otherwise), and selecting pause versus delete on idle release (`pause_release?/2`). |
 | `Ankole.Text` | `test/text_laws_test.exs` | Valid UTF-8 scalar boundaries (`String.valid?/1`), byte-budget upper bounds (`byte_size(out) <= max_bytes`), prefix/suffix slice preservation, and exact input preservation whenever `byte_size(text) <= max_bytes` across `utf8_prefix/2`, `utf8_suffix/2`, `truncate_utf8/3`, and `truncate_utf8_window/3`. |
+| `Ankole.Sessions.TurnErrorClassifier` | `lean/RetryLadder.lean`; `app/control_plane/test/ankole/sessions/retry_ladder_test.exs` | Every retry ladder is non-decreasing, saturates at its last rung, and stays inside its published bound: conversation execution `5..120` s, conversation capacity `30..750` s, Job execution `60..7200` s, and Job infrastructure `15..300` s. The owning suite exhausts every distinct clamp value (`attempt` in `-3..10` plus `100` and `1000`) against the production function. Lynx cannot translate `Enum.at/2` and `Integer.pow/2` without changing the production shape, so the contract uses a standalone model plus an exhaustive production check. |
 
 The Decision cleanup law invokes the translated production `Decision.next/1`
 function directly: Lean proves that its translated matcher closure and list
@@ -71,14 +72,12 @@ cutoffs.
 
 ## V2 contracts
 
-The groups below follow the implementation sequence derived from the
-architecture specifications (`pod_chat_nuphos_implementation_plan.md`,
-`pod_authz_pg_implementation_spec.md`, `lark_aligned_authn_technical_plan.md`,
-`pod_implementation_plan.md`, and `base_architecture_plan.md` in
-`/Users/ding/Downloads/v2-arch`), as a guide to code ownership. Candidate properties come from ordinary user
-expectations and stable, low-dispute product contracts; design documents alone
-do not establish correctness. Production callers, schemas, and real adapter
-tests determine whether a counterexample is reachable and what it affects.
+The groups below follow the subsystem boundaries documented in
+`docs/design-docs/` as a guide to code ownership. Candidate properties come
+from ordinary user expectations and stable, low-dispute product contracts;
+design documents alone do not establish correctness. Production callers,
+schemas, and real adapter tests determine whether a counterexample is
+reachable and what it affects.
 
 | Group | Proof or traversal | Exact scope |
 | --- | --- | --- |
@@ -91,6 +90,10 @@ tests determine whether a counterexample is reachable and what it affects.
 | 7. Attempt authority | `lean/AttemptAuthority.lean` | Proves that committing a write requires the current Job, Run, assigned Agent, attempt ID, and Human access version, preventing replaced attempts, revoked Humans, or inactive Jobs from mutating durable state. |
 | 8. Applet lifecycle | `lean/AppletLifecycle.lean` | Proves across arbitrary modeled traces that user execution starts at most once, admission retries share a single absolute deadline, the first terminal outcome absorbs late frames and cleanup failures, and cancellation leaves already-committed capability writes intact. |
 | 9. Base recovery | `lean/BaseRecovery.lean` | Proves that interrupting promotion before metadata commit leaves inline rows authoritative, retrying promotion replaces residual shard data, completed promotion preserves rows, partial DDL commits fail version checks, marked deletions hide tables immediately, shard cleanup and metadata deletion are idempotent, and metadata deletion waits for completed shard cleanup. |
+| 10. Delivery intent | `lean/DeliveryIntent.lean`; `app/control_plane/test/ankole/conversations/delivery/intent_trace_test.exs` | Proves that `sent`, `expired`, and (without an explicit requeue) `unknown` absorb every later transition; that a claim charges one attempt only when the row is pending or non-duplicate failed, in flight is clear, recovery is clear, and the budget is unspent; that an explicit requeue raises the ceiling to exactly one further attempt; and that a finalizer for a superseded attempt cannot record its outcome. The PostgreSQL trace drives the production actions across randomized start/succeed/fail/unknown/expire/requeue sequences; the production late-finalizer fence is exercised by `recovery_test.exs`. |
+| 11. Background Job claims | `lean/BackgroundAgentJob.lean`; `app/control_plane/test/ankole/background_agent_jobs/claim_trace_test.exs` | Proves that every transition preserves the per-Agent running cap, that a fresh claim charges one attempt and one slot only when the claim budget (25) and execution-failure budget (5) are unspent, that a continuation from `waiting_on_user` checks the claim budget and consecutive Turn failures (allowing resumption past the execution-failure budget), that terminal failure and charged `requeue` increment `execution_failures` without clamping, that terminal jobs absorb every transition, and that leaving `running` releases the slot. The PostgreSQL trace checks wrong `expected_attempt`, both budgets, the terminal guard, a second claim, and slot reuse for a second Job. |
+| 12. Session epoch fence | `lean/SessionEpoch.lean`; `app/control_plane/test/ankole/sessions/epoch_trace_test.exs` | Proves that admission advances the workspace epoch and charges one attempt, that a run from an older epoch cannot commit, and that the deliberate stale refund decrements the live attempt without inspecting the run's own attempt. The PostgreSQL trace checks a live run, the takeover rejection, the new writer's acceptance, the refund, and rejection of a closed signal. |
+| 13. Page draft reload | `lean/PageDraft.lean`; `app/webapps/pod/state/page-draft-async.test.ts` | Proves that a resolving read cannot replace a draft edited after the request started, that a source switch, `discard`, or `cancelReload` invalidates older reads, that a read never lowers the revision, and that an applied read sets both the draft and its saved baseline. The Bun test drives the real `PageDraftModel` with 200 seeded random interleavings and compares it with an executable mirror. |
 
 ### Data integrity and stable product contracts
 
@@ -121,6 +124,11 @@ bun run --filter @ankole/function-runtime test
 bun run --filter @ankole/function-runtime test:integration
 bun run --filter @ankole/agent-computer test ./test/fabric.test.ts
 bun run control-plane:test test/ankole_web/channels/worker_channel_test.exs
+bun run control-plane:test test/ankole/conversations/delivery/intent_trace_test.exs
+bun run control-plane:test test/ankole/background_agent_jobs/claim_trace_test.exs
+bun run control-plane:test test/ankole/sessions/epoch_trace_test.exs
+bun run control-plane:test test/ankole/sessions/retry_ladder_test.exs
+bun run --filter @ankole/webapps test ./pod/state/page-draft-async.test.ts
 bun run --filter @ankole/kernel test:rust
 ```
 
@@ -132,18 +140,22 @@ its standalone kernel export.
 
 ### Protocol correspondence and assumptions
 
-The five Lean protocol models prove invariants over explicit state-transition
+The Lean protocol models prove invariants over explicit state-transition
 systems rather than translating stateful Elixir processes directly. We audit
 alignment between each model and production through code review and integration
 suites against real adapters (rather than universal refinement proofs):
 
-| Model | Production transition and required boundary | Production suite under `app/control_plane/test/` |
+| Model | Production transition and required boundary | Owning conformance suite |
 | --- | --- | --- |
 | `AccessGraph` | `pod/access/graph.ex` seeds and recursive dependency edges; `pod/access.ex` symbolic policy comparison. Assumes transparent anchors have no local seed and a single inherited dependency for the given scope and action; visibility filtering, condition evaluation, tenant scoping, and SQL graph extraction remain obligations of the application and database layers. | `ankole/pod/anchor_property_test.exs`, `ankole/pod/move_permissions_test.exs` |
 | `HumanAccess` | `principals/human_access.ex` evaluates offboard restrictions against `cleared_at` and the latest restore rather than the latest status reason; `principals/site_credentials.ex` reads the latest credential release; `authn/strategies/otp/actions.ex` locks and consumes the challenge row in a separate transaction prior to completion. Abstracts a single credential watermark and challenge row where each status transition increments the Human's access version. | `ankole/principals/offboarding_credentials_test.exs`, `ankole/authn/otp_test.exs` |
 | `AttemptAuthority` | `automation_jobs/attempt_access.ex` and `pod/access.ex` re-verify authority inside the write transaction while Human, Job, and Run locks hold those rows stable until commit. `WorkAccess.classify_in_tx/5` prevents reassigning an active human-authorized Job, and the review path rejects active attempts until authorization is valid. Assumes these row-lock and action invariants. | `ankole/pod/automation_attempt_test.exs` (real RPC codec and Pod writes) |
 | `AppletLifecycle` | `function_runtime/applet_client.ex` retries at most once on admission connection failure or HTTP `503` before `start`, sharing one absolute deadline across all admission steps, while its frame reducer retains the first terminal outcome; `pod/applets/invocation.ex` supervises capability tasks and cancellation. Models admission/start/result ordering without modeling BEAM mailbox fairness, remote process termination, or capability rollback. | `ankole/function_runtime/applet_client_test.exs` (real local HTTP and WebSocket) |
 | `BaseRecovery` | `pod/bases/promote.ex`, `pod/bases/physical.ex`, `pod/base_repo.ex`, and `pod/bases/delete.ex`. Metadata row locks serialize per-table operations, local transactions commit atomically, promotion copies authoritative inline rows, and reads verify schema versions and deletion markers. Abstracts committed snapshots of a single table without modeling PostgreSQL internals, cross-table links, distributed transactions, or background job scheduling. | `ankole/pod/base_storage_test.exs` (real control-plane and Base shard databases) |
+| `BackgroundAgentJob` | `background_agent_jobs/lifecycle.ex` admits `claim_attempt`, `claim_continuation`, `requeue`, and terminal status commits while holding the Agent slot lock; `job.ex` owns the status machine and uncapped `execution_failures` increments; `capacity_available_in_tx?/2` counts running Jobs of the same Agent. Assumes callers resolve `max_running` before the transaction and that worker reports carry a `turn_ref` enforced by `WorkerRouteAuth`. | `ankole/background_agent_jobs/claim_trace_test.exs` (real PostgreSQL), `ankole/background_agent_jobs_test.exs` |
+| `DeliveryIntent` | `conversations/delivery/intent.ex` declares the status transitions, optimistic `(status, attempt_count)` filter, and `:start_attempt` guards (`recovery_status == nil` and manual requeue required for failed `possible_duplicate` rows); `dispatch.ex` gates, claims, fences, and finalizes an attempt; `recovery.ex` owns in-flight reconciliation, the bounded retry schedule, and explicit requeue. | `ankole/conversations/delivery/intent_trace_test.exs` (real PostgreSQL), `ankole/conversations/delivery/recovery_test.exs` |
+| `SessionEpoch` | `sessions/fence.ex` compares the run's epoch with the locked workspace; `sessions/admission.ex` advances the epoch under the workspace lock; `sessions/run.ex` finalizes against that fence and refunds a stale Driver's attempt without an attempt token. Assumes PostgreSQL row locks hold the workspace and Signal stable through commit. | `ankole/sessions/epoch_trace_test.exs` (real PostgreSQL) |
+| `PageDraft` | `app/webapps/pod/state/page-draft.ts` captures `reloadVersion` and the draft before a read, compares both on resolve, ignores older revisions, and resets the generation on `load`, `discard`, and `cancelReload`. The model abstracts `title` and the collaboration callback; `PageCollaboration.dispose()` in `libs/ankole-editor` owns the cross-source callback boundary. | `pod/state/page-draft-async.test.ts` (real Signal model) |
 
 ### Runtime support
 

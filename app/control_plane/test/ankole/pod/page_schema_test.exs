@@ -346,6 +346,46 @@ defmodule Ankole.Pod.PageSchemaTest do
     )
   end
 
+  test "children_view enforces valid presentation keys, permutations, and object JSONB storage",
+       %{
+         tenant: tenant
+       } do
+    page = new_page()
+    assert page.children_view == %{}
+
+    updated =
+      update!(page, :edit, %{
+        children_view: %{
+          "collapsed" => true,
+          "view" => "grid",
+          "field_order" => ["created_at", "created_by", "updated_at"],
+          "visible_fields" => ["created_at"]
+        }
+      })
+
+    assert updated.children_view["collapsed"] == true
+    assert updated.children_view["view"] == "grid"
+
+    for invalid <- [
+          %{"unknown" => true},
+          %{"collapsed" => "yes"},
+          %{"view" => "board"},
+          %{"field_order" => ["created_by", "updated_at"]},
+          %{"field_order" => ["created_by", "updated_at", "created_by"]},
+          %{"visible_fields" => ["created_by", "created_by"]},
+          %{"visible_fields" => ["title"]}
+        ] do
+      refute action_changeset(updated, :edit, %{children_view: invalid}).valid?,
+             "expected invalid children_view to fail validation: #{inspect(invalid)}"
+    end
+
+    assert_sql_constraint(
+      "UPDATE pages SET children_view = '[]'::jsonb WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid",
+      [tenant.id, page.id],
+      "pages_children_view_object"
+    )
+  end
+
   defp action(PageChange), do: :append
   defp action(PageUserState), do: :put
   defp action(_resource), do: :create_in_tx

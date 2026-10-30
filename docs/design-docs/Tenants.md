@@ -256,9 +256,12 @@ Ankole serves the site administration Console at
 startup if the path is invalid or collides with another route. Rather than
 embedding that path in public frontend bundles, the server discloses it only in
 authenticated siteadmin responses: signing in without a return URL opens `/` on
-the canonical Pod host, and if the signed-in Human belongs to `siteadmin`, the
-Pod session payload includes the Console URL so the Pod sidebar renders a
-Console link (which still requires its own dedicated Console login).
+the canonical Pod host, and if the signed-in Human belongs to `siteadmin` in the
+privileged tenant, the Pod session payload includes the Console URL so the Pod
+sidebar renders a Console link that opens the Console directly under the
+browser's proven `siteadmin` authentication. Direct unauthenticated visits to
+the Console path seal a short-lived `console_return` ticket and redirect to
+sign-in on the privileged Pod.
 
 Console `/api/v2` endpoints and native Agent file transfers honor the
 `x-ankole-tenant` header—defaulting to the operator's own tenant when
@@ -274,6 +277,11 @@ authentication reference (if navigation is cancelled, the current document and
 selection stay intact). Signing out—or confirming an OIDC sign-out—clears the
 stored selection, cancelling OIDC sign-out keeps it, and another login session
 never inherits it.
+
+Navigation within the selected tenant and navigation to site resources use the
+client router, preserving the document and its query cache. A record link that
+selects another tenant loads a new document. Record URLs carry their tenant so
+opening a link in another tab establishes the same data context.
 
 Tenant-owned Console collections show all active and suspended tenants when the
 operator has no data-tenant selection. Each tenant section uses a separate API
@@ -348,9 +356,9 @@ and account-proof cookies are shared across Pod subdomains, while login ceremoni
 start directly on the target Pod host.
 
 Any active Human in a tenant can sign in via that tenant's enabled identity
-providers and participate in Conversations without needing `siteadmin`, and a
-Pod work session never unlocks Console management APIs. Signing into a Pod adds
-that proved identity to the browser's multi-account keyring: the sidebar account
+providers and participate in Conversations without needing `siteadmin`; Console
+routes and site management APIs require `siteadmin` membership in the privileged
+tenant and reject ordinary Pod members with `403`. Signing into a Pod adds that proved identity to the browser's multi-account keyring: the sidebar account
 switcher lists every proved `(identity, tenant)` pair, lets the user switch Pods
 and update the browser default, or opens the account chooser without signing out
 while preserving the return path; see [Browser Sessions](BrowserSessions.md).

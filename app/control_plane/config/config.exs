@@ -75,6 +75,7 @@ config :ankole, Oban,
        {"*/5 * * * *", Ankole.AutomationJobs.Jobs.ExpireAttempts},
        {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts},
        {"41 * * * *", Ankole.OIDC.Jobs.CleanupExpiredCredentials},
+       {"17 * * * *", Ankole.Pod.Jobs.ExpireDocumentHistory},
        {"23 * * * *", Ankole.Files.Jobs.CollectUnreferenced},
        {"* * * * *", Ankole.AgentWorkers.SweepJob},
        {"*/5 * * * *", Ankole.AgentWorkers.SweepJob, args: %{objects: true}}

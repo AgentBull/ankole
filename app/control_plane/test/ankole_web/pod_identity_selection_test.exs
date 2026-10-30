@@ -92,7 +92,9 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     for {reference, principal} <- [{ctx.a_ref, ctx.a}, {ctx.b_ref, ctx.b}] do
       chooser = chooser(ctx.signed, ctx.tenant)
       selected = select(chooser, ctx.tenant, reference)
-      assert api_response(selected, 200)["returnTo"] == "/content/space"
+
+      assert api_response(selected, 200)["returnTo"] ==
+               expected_return_to(chooser, ctx.tenant, "/content/space")
 
       response =
         selected
@@ -128,7 +130,8 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
              Enum.sort([ctx.a.uid, ctx.b.uid])
 
     selected = select(shell, ctx.tenant, ctx.a_ref)
-    assert %{"returnTo" => "/content/space"} = api_response(selected, 200)
+    expected = expected_return_to(shell, ctx.tenant, "/content/space")
+    assert %{"returnTo" => ^expected} = api_response(selected, 200)
     assert BrowserSessions.current_reference(WebSession.browser_reference(selected)) == ctx.a_ref
 
     pinned =
@@ -234,7 +237,8 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     assert api_error(unknown, 401)["code"] == "invalid_authentication"
   end
 
-  test "the session gives the Console URL only to a site administrator", ctx do
+  test "the session gives the Console URL only to a site administrator and identity selection honors console_return",
+       ctx do
     Repo.put_tenant_id(ctx.a.tenant_id)
     {:ok, _} = first_site_admin_fixture(ctx.a.uid)
 
@@ -245,6 +249,44 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> api_response(200)
 
     assert session["consoleURL"] == ctx.site_origin <> "/site-admin-console"
+
+    {:ok, console_ticket} =
+      WebSession.seal_console_return("/site-admin-console/tenants", ctx.tenant.id)
+
+    shell = chooser(ctx.signed, ctx.tenant)
+
+    chooser_origin =
+      if @host_policy,
+        do:
+          URI.to_string(%URI{scheme: to_string(shell.scheme), host: shell.host, port: shell.port}),
+        else: PodURL.origin(shell, ctx.tenant)
+
+    provider_query =
+      %{"console_return" => console_ticket}
+      |> Map.merge(if(@host_policy, do: %{"tenant_id" => ctx.tenant.id}, else: %{}))
+
+    providers_resp =
+      shell
+      |> recycle()
+      |> put_req_header("accept", "application/json")
+      |> get(
+        chooser_origin <>
+          "/api/v2/browser/identity-providers?" <> URI.encode_query(provider_query)
+      )
+      |> api_response(200)
+
+    assert Enum.map(providers_resp["identities"], & &1["principalUID"]) == [ctx.a.uid]
+
+    forbidden =
+      select(shell, ctx.tenant, ctx.b_ref, %{consoleReturn: console_ticket})
+
+    assert api_error(forbidden, 403)["code"] == "forbidden"
+
+    selected =
+      select(shell, ctx.tenant, ctx.a_ref, %{consoleReturn: console_ticket})
+
+    assert api_response(selected, 200)["returnTo"] ==
+             ctx.site_origin <> "/site-admin-console/tenants"
   end
 
   @tag :foss_sign_in
@@ -266,17 +308,12 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     conn = WebSession.ensure_browser(conn)
 
     {:ok, %{browser: browser, authentication: authentication}} =
-      BrowserSessions.authenticate(
-        WebSession.browser_reference(conn),
-        :pod,
-        %{
-          "principal_uid" => principal.uid,
-          "access_version" => principal.access_version,
-          "provider_id" => "local",
-          "external_id" => principal.uid
-        },
-        mode: :add
-      )
+      BrowserSessions.authenticate(WebSession.browser_reference(conn), %{
+        "principal_uid" => principal.uid,
+        "access_version" => principal.access_version,
+        "provider_id" => "local",
+        "external_id" => principal.uid
+      })
 
     conn = WebSession.put_authentication(conn, browser, authentication)
     {conn, WebSession.authentication_reference(conn)}
@@ -286,15 +323,28 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     shell =
       conn
       |> put_req_header("accept", "text/html")
-      |> get(PodURL.origin(conn, tenant) <> "/sessions/new?switch=1&return_to=%2Fcontent%2Fspace")
+      |> get(PodURL.login_url(conn, tenant, %{"switch" => "1", "return_to" => "/content/space"}))
 
     assert html_response(shell, 200) =~ "csrf-token"
     shell
   end
 
-  defp select(shell, tenant, ref) do
+  defp select(shell, tenant, ref, extra \\ %{}) do
     [_, csrf] = Regex.run(~r/name="csrf-token" content="([^"]+)"/, shell.resp_body)
-    origin = PodURL.origin(shell, tenant)
+
+    origin =
+      if @host_policy,
+        do:
+          URI.to_string(%URI{scheme: to_string(shell.scheme), host: shell.host, port: shell.port}),
+        else: PodURL.origin(shell, tenant)
+
+    payload =
+      %{
+        returnTo: "/content/space",
+        authenticationRef: BrowserSessions.encode_reference(ref)
+      }
+      |> Map.merge(if(@host_policy, do: %{tenantID: tenant.id}, else: %{}))
+      |> Map.merge(extra)
 
     shell
     |> recycle()
@@ -302,9 +352,10 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     |> put_req_header("content-type", "application/json")
     |> put_req_header("x-csrf-token", csrf)
     |> put_req_header("origin", origin)
-    |> api_post(origin <> "/api/v2/browser/sessions/identity-selection", %{
-      returnTo: "/content/space",
-      authenticationRef: BrowserSessions.encode_reference(ref)
-    })
+    |> api_post(origin <> "/api/v2/browser/sessions/identity-selection", payload)
+  end
+
+  defp expected_return_to(conn, tenant, path) do
+    if @host_policy, do: PodURL.origin(conn, tenant) <> path, else: path
   end
 end

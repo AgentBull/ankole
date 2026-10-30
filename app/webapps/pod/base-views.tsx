@@ -1,4 +1,4 @@
-import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import {
   Button,
   Dialog,
@@ -122,6 +122,7 @@ function BaseView(props: ViewProps) {
 }
 
 function GridView(props: ViewProps) {
+  const { t } = useTranslation()
   const visible = props.view.config.visible_fields
     ? props.fields.filter(field => field.is_primary || props.view.config.visible_fields!.includes(field.id))
     : props.fields
@@ -352,6 +353,7 @@ function RecordCard(
     coverImage?: { name: string; src: string }
   }
 ) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const primary = props.fields.find(field => field.is_primary) ?? props.fields[0]
   return (
@@ -428,6 +430,7 @@ function RecordDetailsDialog({
   onOpenChange(open: boolean): void
   record: BaseRecord
 }) {
+  const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={next => !pending && onOpenChange(next)}>
       <DialogContent
@@ -469,6 +472,7 @@ function RecordDeleteButton({
   remove,
   onDeleted
 }: Pick<ViewProps, 'fields' | 'remove'> & { record: BaseRecord; onDeleted?(): void }) {
+  const { t } = useTranslation()
   const [deleting, setDeleting] = useState<BaseRecord>()
   const open = !!deleting
   const setOpen = (next: boolean) => setDeleting(next ? record : undefined)
@@ -575,6 +579,7 @@ function GroupField({
 }
 
 function KanbanView(props: ViewProps) {
+  const { t } = useTranslation()
   const [offset, setOffset] = useState(0)
   const field = props.fields.find(field => field.id === props.view.config.group_field_id)
   const counts = useAggregate(props.tableID, {
@@ -642,6 +647,7 @@ function KanbanColumn({
   field: BaseField
   group: { value: Value; valueJSON?: string | null; count: number }
 }) {
+  const { t } = useTranslation()
   const [token, setToken] = useState<string>()
   const [history, setHistory] = useState<(string | undefined)[]>([])
   const [error, setError] = useState<unknown>()
@@ -792,6 +798,7 @@ function KanbanColumn({
 }
 
 function GalleryView(props: ViewProps) {
+  const { t } = useTranslation()
   const attachmentFields = props.fields.filter(field => field.type === 'attachment')
   const cover = attachmentFields.find(field => field.id === props.view.config.cover_field_id)
   return (
@@ -847,6 +854,7 @@ export function RecordForm(
   }
 ) {
   useSignals()
+  const { t } = useTranslation()
   const model = useModel(RecordFormModel)
   // Read before the map so React Compiler tracks the signal values in its cache.
   const values = model.values.value,

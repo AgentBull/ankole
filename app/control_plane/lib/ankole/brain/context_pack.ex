@@ -113,6 +113,7 @@ defmodule Ankole.Brain.ContextPack do
         aka =
           ObjectAlias
           |> Ash.Query.filter(object_slug == ^card.slug)
+          |> Ash.Query.sort(alias_norm: :asc, id: :asc)
           |> Ash.Query.limit(5)
           |> Ash.Query.select([:alias_norm])
           |> Ankole.Ash.read!()
@@ -122,6 +123,7 @@ defmodule Ankole.Brain.ContextPack do
           Link
           |> Ash.Query.filter(from_object_slug == ^card.slug)
           |> LazySkillVisibility.filter_links(visibility)
+          |> Ash.Query.sort(link_type: :asc, to_object_slug: :asc, id: :asc)
           |> Ash.Query.limit(10)
           |> Ash.Query.select([:link_type, :to_object_slug])
           |> Ankole.Ash.read!()
@@ -153,7 +155,7 @@ defmodule Ankole.Brain.ContextPack do
             |> Ash.Query.filter(claim_type == :fact and is_nil(expired_at))
             |> Access.filter_claims(access)
             |> LazySkillVisibility.filter_claims(visibility)
-            |> Ash.Query.sort(valid_from: :desc)
+            |> Ash.Query.sort(valid_from: :desc, id: :asc)
             |> Ash.Query.limit(50)
             |> Ankole.Ash.read!()
             |> Access.filter_disclosable(& &1.audience_scope, disclosure)
@@ -202,17 +204,12 @@ defmodule Ankole.Brain.ContextPack do
          true <- is_binary(message_text) and String.trim(message_text) != "",
          {:ok, access} <- Access.for_readers(agent_uid, disclosure),
          {:ok, visibility} <- LazySkillVisibility.for_querier(agent_uid) do
-      slugs = Links.match_aliases_in_text(message_text)
-
       objects =
-        Object
-        |> Ash.Query.filter(slug in ^slugs and is_nil(deleted_at))
-        |> LazySkillVisibility.filter_objects(visibility)
-        |> Ash.Query.sort(slug: :asc)
-        |> Ankole.Ash.read!()
+        message_text
+        |> Links.match_aliases_in_text()
+        |> visible_alias_objects(access, disclosure, visibility)
 
       objects
-      |> visible_pointer_objects(access, disclosure)
       |> Enum.take(@pointer_limit)
       |> Enum.map(fn object ->
         %{slug: object.slug, title: object.title, type: object.type}
@@ -229,6 +226,35 @@ defmodule Ankole.Brain.ContextPack do
       )
 
       []
+  end
+
+  @doc false
+  @spec visible_alias_slugs(
+          [String.t()],
+          Access.t(),
+          disclosure(),
+          LazySkillVisibility.t()
+        ) :: [String.t()]
+  def visible_alias_slugs([], _access, _disclosure, _visibility), do: []
+
+  def visible_alias_slugs(slugs, access, disclosure, visibility) when is_list(slugs) do
+    order = slugs |> Enum.uniq() |> Enum.with_index() |> Map.new()
+
+    slugs
+    |> visible_alias_objects(access, disclosure, visibility)
+    |> Enum.map(& &1.slug)
+    |> Enum.sort_by(&Map.fetch!(order, &1))
+  end
+
+  defp visible_alias_objects([], _access, _disclosure, _visibility), do: []
+
+  defp visible_alias_objects(slugs, access, disclosure, visibility) do
+    Object
+    |> Ash.Query.filter(slug in ^slugs and is_nil(deleted_at))
+    |> LazySkillVisibility.filter_objects(visibility)
+    |> Ash.Query.sort(slug: :asc)
+    |> Ankole.Ash.read!()
+    |> visible_pointer_objects(access, disclosure)
   end
 
   # A pointer requires reachable content, not just instance-visible metadata.
@@ -311,7 +337,7 @@ defmodule Ankole.Brain.ContextPack do
       |> Ash.Query.filter(weight >= 0.6)
       |> Access.filter_claims(access)
       |> LazySkillVisibility.filter_claims(visibility)
-      |> Ash.Query.sort(weight: :desc)
+      |> Ash.Query.sort(weight: :desc, id: :asc)
       |> Ash.Query.limit(@open_thread_limit)
       |> Ankole.Ash.read!()
 
@@ -320,7 +346,7 @@ defmodule Ankole.Brain.ContextPack do
       |> Ash.Query.filter(claim_type == :fact and is_nil(expired_at) and kind == "commitment")
       |> Access.filter_claims(access)
       |> LazySkillVisibility.filter_claims(visibility)
-      |> Ash.Query.sort(valid_from: :desc)
+      |> Ash.Query.sort(valid_from: :desc, id: :asc)
       |> Ash.Query.limit(@open_thread_limit)
       |> Ankole.Ash.read!()
 

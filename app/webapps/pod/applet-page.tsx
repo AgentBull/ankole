@@ -1,7 +1,7 @@
-import { t } from 'i18next'
 import { Button } from '@ankole/uikit'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { AppletRuntime } from '@ankole/applet-sdk/types'
 import { mountApplet } from './applet-host'
 import { contentKeys, pageQuery, podRequest, type PageDetail } from './content-api'
@@ -11,6 +11,21 @@ import { isRealtimeAccessDenied } from './realtime'
 import { usePageRealtime } from './use-page-realtime'
 
 export function AppletPage({ detail }: { detail: PageDetail }) {
+  const { t } = useTranslation()
+  if (detail.page.deleted_at) {
+    return (
+      <section className="min-h-32 text-base leading-normal font-normal">
+        <div className="content-object px-4 py-6 text-sm text-muted-foreground" role="status">
+          {t('pod.content.applet_inactive_in_trash')}
+        </div>
+      </section>
+    )
+  }
+  return <ActiveAppletPage detail={detail} />
+}
+
+function ActiveAppletPage({ detail }: { detail: PageDetail }) {
+  const { t } = useTranslation()
   const container = useRef<HTMLDivElement>(null)
   const instanceID = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const { base, realtime, readDenial } = useContent()
@@ -21,6 +36,7 @@ export function AppletPage({ detail }: { detail: PageDetail }) {
   const [loadRevoked, setLoadRevoked] = useState(false)
   const revoked = connection.revoked || loadRevoked
   const [loading, setLoading] = useState(true)
+  const [ready, setReady] = useState(false)
   const runtime = useMemo<Omit<AppletRuntime, 'revision' | 'routes'>>(
     () => ({
       pageID: detail.page.id,
@@ -54,6 +70,7 @@ export function AppletPage({ detail }: { detail: PageDetail }) {
     let disposed = false
     setError(undefined)
     setLoading(true)
+    setReady(false)
     const applet = mountApplet(
       detail.page.id,
       detail.page.revision,
@@ -63,7 +80,10 @@ export function AppletPage({ detail }: { detail: PageDetail }) {
         setLoading(false)
         setError(error)
       },
-      () => setLoading(false),
+      () => {
+        setLoading(false)
+        setReady(true)
+      },
       async () => {
         if (disposed) return
         setLoading(true)
@@ -99,7 +119,7 @@ export function AppletPage({ detail }: { detail: PageDetail }) {
       )}
       {loading && !revoked && <p role="status">{t('pod.content.loading_applet')}</p>}
       {!revoked && <ContentError error={connection.error} retry={connection.retry} />}
-      <div ref={container} hidden={!!error || revoked} />
+      <div ref={container} hidden={(!ready && !!error) || revoked} />
     </section>
   )
 }

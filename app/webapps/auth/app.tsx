@@ -7,6 +7,7 @@ import type { LoginProvidersResponse } from '../common/api/generated/types.gen'
 import { BrandIcon } from '../common/brand'
 import { localizedText } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
+import { ErrorBoundary } from '../common/error-boundary'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { ThemeToggle } from '../common/theme-toggle'
 import { EmailOtpForm } from './email-otp-form'
@@ -49,7 +50,7 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
     queryKey: ['identity-providers', query],
     queryFn: () => loginProviders({ query })
   })
-  const siteLogin = providers.data?.purpose === 'site'
+  const siteLogin = providers.data?.scope === 'site' && !context.tenantID
   useEffect(() => {
     document.title = presentation.title ?? t(siteLogin ? 'auth.register_document_title' : 'auth.document_title')
   }, [t, siteLogin, presentation.title])
@@ -61,6 +62,7 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
             authenticationRef,
             oauthRequest: context.oauthRequest,
             tenantID: context.tenantID,
+            consoleReturn: context.consoleReturn,
             returnTo: context.returnTo,
             prompt: context.prompt,
             reauth: context.reauth
@@ -93,62 +95,67 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
           </div>
         </CardHeader>
         <CardContent className="grid gap-5">
-          <ErrorBlock error={providers.error ?? selection.error} />
-          {hasIdentities && (
-            <div className="grid gap-2.5">
-              {identities.map(identity => (
-                <Button
-                  key={`${identity.authenticationRef}:${identity.principalUID}`}
-                  variant="outline"
-                  className="w-full"
-                  disabled={selection.isPending}
-                  onClick={() => selection.mutate(identity.authenticationRef)}>
-                  {t('auth.continue_identity', {
-                    name: identity.displayName,
-                    provider: identityProviderLabel(identity.providerID, list, i18n.language, t('auth.email_login'))
-                  })}
-                </Button>
-              ))}
-            </div>
-          )}
-          {hasIdentities && hasEmail && <div className="border-t border-border/70" role="separator" />}
-          {!verifying && providers.data?.requireSSOForMembers && (
-            <p role="note" className="rounded-control bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-              {t('auth.sso_required')}
-            </p>
-          )}
-          {hasEmail && (
-            <EmailOtpForm
-              context={context}
-              sendLabel={presentation.sendLabel}
-              compactVerification={Boolean(presentation.verificationTitle)}
-              onStepChange={presentation.verificationTitle ? setEmailStep : undefined}
-            />
-          )}
-          {!verifying && sso.length > 0 && (
-            <div className="ak-login-list mt-0">
-              {(hasEmail || hasIdentities) && (
-                <div className="ak-login-divider mt-0">{presentation.providerDivider ?? t('auth.or_sso')}</div>
-              )}
-              {sso.map(provider => (
-                <Button
-                  variant="outline"
-                  key={provider.providerID}
-                  onClick={() => {
-                    const url = new URL(provider.loginPath, window.location.origin)
-                    url.search = authorizationParams.toString()
-                    window.location.assign(url)
-                  }}>
-                  {t('auth.sign_in_with', {
-                    provider:
-                      localizedText(provider.displayName, i18n.language) ?? humanizeTechnicalLabel(provider.providerID)
-                  })}
-                </Button>
-              ))}
-            </div>
-          )}
-          {providers.isLoading && <Skeleton className="h-16 w-full" aria-label={t('common.loading')} />}
-          {!providers.error && !providers.isLoading && list.length === 0 && <p>{t('auth.no_providers')}</p>}
+          <ErrorBoundary variant="panel">
+            <ErrorBlock error={providers.error ?? selection.error} />
+            {hasIdentities && (
+              <div className="grid gap-2.5">
+                {identities.map(identity => (
+                  <Button
+                    key={`${identity.authenticationRef}:${identity.principalUID}`}
+                    variant="outline"
+                    className="w-full"
+                    disabled={selection.isPending}
+                    onClick={() => selection.mutate(identity.authenticationRef)}>
+                    {t('auth.continue_identity', {
+                      name: identity.displayName,
+                      provider: identityProviderLabel(identity.providerID, list, i18n.language, t('auth.email_login'))
+                    })}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {hasIdentities && hasEmail && <div className="border-t border-border/70" role="separator" />}
+            {!verifying && providers.data?.requireSSOForMembers && (
+              <p role="note" className="rounded-control bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                {t('auth.sso_required')}
+              </p>
+            )}
+            {hasEmail && (
+              <ErrorBoundary variant="inline" label={t('auth.email_login')}>
+                <EmailOtpForm
+                  context={context}
+                  sendLabel={presentation.sendLabel}
+                  compactVerification={Boolean(presentation.verificationTitle)}
+                  onStepChange={presentation.verificationTitle ? setEmailStep : undefined}
+                />
+              </ErrorBoundary>
+            )}
+            {!verifying && sso.length > 0 && (
+              <div className="ak-login-list mt-0">
+                {(hasEmail || hasIdentities) && (
+                  <div className="ak-login-divider mt-0">{presentation.providerDivider ?? t('auth.or_sso')}</div>
+                )}
+                {sso.map(provider => (
+                  <Button
+                    variant="outline"
+                    key={provider.providerID}
+                    onClick={() => {
+                      const url = new URL(provider.loginPath, window.location.origin)
+                      url.search = authorizationParams.toString()
+                      window.location.assign(url)
+                    }}>
+                    {t('auth.sign_in_with', {
+                      provider:
+                        localizedText(provider.displayName, i18n.language) ??
+                        humanizeTechnicalLabel(provider.providerID)
+                    })}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {providers.isLoading && <Skeleton className="h-16 w-full" aria-label={t('common.loading')} />}
+            {!providers.error && !providers.isLoading && list.length === 0 && <p>{t('auth.no_providers')}</p>}
+          </ErrorBoundary>
         </CardContent>
       </Card>
     </main>

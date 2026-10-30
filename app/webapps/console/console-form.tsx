@@ -153,7 +153,7 @@ export function ResourceEditorPage({
         <BackLink to={backTo} />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
-            <h2 className="text-2xl font-semibold tracking-normal">{title}</h2>
+            <h2 className="title-page">{title}</h2>
             {description ? <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
           </div>
           {secondary}

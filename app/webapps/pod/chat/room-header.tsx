@@ -45,6 +45,7 @@ import { ContentError } from '../content-primitives'
 import { ChatAvatar } from './chat-avatar'
 import { useRoomActions } from './room-api'
 import { exportConversation } from './room-export'
+import type { PanelInputEvent } from '../panel-motion'
 
 export type PageChatHeaderControls = {
   pageTitle: string
@@ -55,7 +56,7 @@ export type PageChatHeaderControls = {
   accessDenied: boolean
   onSelectConversation(id: string): void
   onNewConversation(): void
-  onClose(): void
+  onClose(event?: PanelInputEvent): void
 }
 
 export function RoomHeader({
@@ -75,7 +76,7 @@ export function RoomHeader({
   detail: ConversationDetail
   onInvite(): void
   onFind(): void
-  onSummary(): void
+  onSummary(event?: PanelInputEvent): void
   summaryOpen: boolean
   summaryTrigger?: RefObject<HTMLButtonElement | null>
   embedded?: boolean
@@ -143,7 +144,7 @@ export function RoomHeader({
   return (
     <>
       <header
-        className={cn('pod-chat-header pod-room-header', pageChat && 'pod-page-chat-header')}
+        className={cn('pod-chat-header pod-room-header', pageChat && 'pod-page-chat-header sheet-header')}
         title={pageChat?.pageTitle}>
         {!embedded && (
           <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
@@ -157,6 +158,8 @@ export function RoomHeader({
             }}>
             <Input
               ref={input}
+              variant="inline"
+              className="w-full py-1"
               aria-label={t('pod.chat_room.rename')}
               value={title}
               onChange={event => setTitle(event.target.value)}
@@ -184,7 +187,7 @@ export function RoomHeader({
                 setTitle(room.title)
                 onEditingChange(true)
               }}>
-              {room.title}
+              {room.title || t('pod.content.untitled')}
             </button>
           </Title>
         )}
@@ -206,6 +209,7 @@ export function RoomHeader({
                 disabled={pageChat.accessDenied || actions.update.isPending || !room.canManage}>
                 <SelectTrigger
                   size="sm"
+                  variant="ghost"
                   className="pod-page-chat-scope-trigger"
                   aria-label={t('pod.chat_room.visibility')}>
                   <SelectValue />
@@ -233,6 +237,7 @@ export function RoomHeader({
                 aria-label={t('pod.page_chat.choose_chat')}
                 title={t('pod.page_chat.choose_chat')}
                 className="pod-page-chat-switcher"
+                variant="ghost"
                 size="sm">
                 <RiHistoryLine aria-hidden />
                 <SelectValue className="sr-only" />

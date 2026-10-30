@@ -1,6 +1,33 @@
 defmodule Ankole.Pod.Serialization do
   @moduledoc "JSON values for Pod HTTP, Channel, and Worker contracts."
 
+  def author_profiles(uids) do
+    Ankole.Principals.list_principals!(
+      query: [
+        filter: [uid: [in: Enum.uniq(uids)]],
+        select: [:uid, :display_name, :type, :avatar_url]
+      ]
+    )
+    |> Map.new(fn principal ->
+      {principal.uid,
+       %{
+         principal_uid: principal.uid,
+         name: principal.display_name,
+         kind: principal.type,
+         avatar_url: principal.avatar_url
+       }}
+    end)
+  end
+
+  def author_json(author, profiles) do
+    Map.get(profiles, author.uid, %{
+      principal_uid: author.uid,
+      name: nil,
+      kind: nil,
+      avatar_url: nil
+    })
+  end
+
   def page_json(page) do
     page
     |> Map.take([
@@ -15,6 +42,7 @@ defmodule Ankole.Pod.Serialization do
       :inherit_permissions,
       :revision,
       :saved_from_message_id,
+      :children_view,
       :created_at,
       :updated_at,
       :deleted_at,
@@ -43,6 +71,7 @@ defmodule Ankole.Pod.Serialization do
       page: page_json(detail.page),
       content: content_json(detail.content),
       role: detail.role,
+      child_count: Map.get(detail, :child_count, 0),
       source_conversation: detail.source_conversation
     }
 
@@ -83,6 +112,13 @@ defmodule Ankole.Pod.Serialization do
       details: nil
     }
 
+  def error(:guest_forbidden_in_private),
+    do: %{
+      code: "guest_forbidden_in_private",
+      message: "External guests cannot access private pages.",
+      details: nil
+    }
+
   def error({:forbidden, _action}), do: error(:forbidden)
   def error({:field_conflict, details}), do: error_details("field_conflict", details)
   def error({:record_conflict, id}), do: error_details("record_conflict", %{id: id})
@@ -92,6 +128,9 @@ defmodule Ankole.Pod.Serialization do
 
   def error({:revision_conflict, revision}),
     do: error_details("revision_conflict", %{revision: revision})
+
+  def error({:title_conflict, title}),
+    do: error_details("title_conflict", %{title: title})
 
   def error(reason) when is_atom(reason), do: error_details(Atom.to_string(reason), nil)
 
@@ -126,21 +165,45 @@ defmodule Ankole.Pod.Serialization do
 
   def status(code) do
     case code do
-      "not_found" -> 404
-      "route_not_found" -> 404
-      "method_not_allowed" -> 405
-      "applet_busy" -> 503
-      "handler_timeout" -> 504
-      "ai_unavailable" -> 502
-      code when code in ~w(handler_error handler_out_of_memory read_only_route) -> 500
-      "forbidden" -> 403
-      "move_requires_manage" -> 403
-      "file_too_large" -> 413
-      code when code in ~w(revision_conflict sharing_conflict cannot_restore manifest_changed
+      "not_found" ->
+        404
+
+      "route_not_found" ->
+        404
+
+      "method_not_allowed" ->
+        405
+
+      "applet_busy" ->
+        503
+
+      "handler_timeout" ->
+        504
+
+      "ai_unavailable" ->
+        502
+
+      code when code in ~w(handler_error handler_out_of_memory read_only_route) ->
+        500
+
+      "forbidden" ->
+        403
+
+      "move_requires_manage" ->
+        403
+
+      "file_too_large" ->
+        413
+
+      code
+      when code in ~w(revision_conflict title_conflict document_conflict sharing_conflict cannot_restore manifest_changed
                           field_conflict record_conflict record_exists schema_conflict local_table_changed
                           client_sequence_conflict applet_revision_changed
-                          position_conflict) -> 409
-      _ -> 422
+                          position_conflict) ->
+        409
+
+      _ ->
+        422
     end
   end
 end

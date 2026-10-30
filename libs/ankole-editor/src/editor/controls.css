@@ -1,0 +1,463 @@
+/* Block handles */
+
+/* Keep pointer tracking continuous from a block across its left gutter. */
+:where(.ankole-editor) .editor-anchor::before {
+  content: '';
+  position: absolute;
+  inset: 0 100% 0 auto;
+  width: 58px;
+}
+
+:where(.ankole-editor, .ankole-editor-overlay) .drag-handle {
+  position: absolute;
+  top: 0;
+  left: -58px;
+  display: flex;
+  color: var(--editor-handle-fg);
+  padding: 2px;
+  border-radius: 4px;
+  z-index: 8;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .drag-handle [data-slot='button'] {
+  color: inherit;
+  cursor: pointer;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .drag-handle [draggable='true'] {
+  cursor: grab;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .drag-handle:hover,
+:where(.ankole-editor, .ankole-editor-overlay) .drag-handle[data-menu-open='true'] {
+  color: var(--editor-handle-hover-fg);
+  background: var(--editor-handle-hover-bg);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .drag-line {
+  position: absolute;
+  height: 2px;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  background: var(--foreground);
+  opacity: 0;
+}
+:where(.ankole-editor) .block-marquee {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+  z-index: 6;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--selection) 50%, transparent);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .keyboard-block-anchor {
+  position: absolute;
+  left: 0;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Block menus share their catalogue geometry; slash owns only its anchor and icon finish. */
+
+:where(.ankole-editor-overlay).slash-menu {
+  position: fixed;
+  z-index: 30;
+}
+:where(.ankole-editor-overlay).mention-menu {
+  position: fixed;
+  z-index: 32;
+  width: min(340px, calc(100vw - 16px));
+  max-height: min(360px, var(--available-height, calc(100vh - 16px)));
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  transition: none;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-tabs {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-tab {
+  position: relative;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-tab:hover {
+  color: var(--foreground);
+}
+:where(.ankole-editor-overlay).mention-menu .mention-tab[aria-selected='true'] {
+  color: var(--foreground);
+}
+:where(.ankole-editor-overlay).mention-menu .mention-tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--foreground);
+}
+:where(.ankole-editor-overlay).mention-menu .mention-tab-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  user-select: none;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-list {
+  padding: 4px;
+  max-height: 326px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-group-label {
+  padding: 3px 8px 2px;
+  font-size: 11px;
+  line-height: 15px;
+  font-weight: 500;
+  color: var(--fg-tertiary);
+  user-select: none;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option + .mention-group-label {
+  margin-top: 4px;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-group-clickable {
+  cursor: pointer;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-group-clickable:hover {
+  color: var(--foreground);
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option[aria-selected='true'] {
+  background: var(--menu-hover);
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
+  background: var(--layer-01);
+  color: var(--fg-secondary);
+  overflow: hidden;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option-icon svg {
+  width: 16px;
+  height: 16px;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option-title {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-match {
+  background: transparent;
+  color: var(--primary);
+  font-weight: 600;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option-badge {
+  flex-shrink: 0;
+  padding: 0 5px;
+  height: 16px;
+  line-height: 16px;
+  border-radius: var(--radius-mini);
+  background: var(--layer-hover);
+  color: var(--fg-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-option-subtitle {
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--fg-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 112px;
+  padding: 16px;
+  color: var(--fg-tertiary);
+  font-size: 12.5px;
+}
+:where(.ankole-editor-overlay).mention-menu .mention-empty svg {
+  width: 18px;
+  height: 18px;
+  opacity: 0.7;
+}
+:where(.ankole-editor-overlay).block-menu .block-type-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 8px;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--radius-control);
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 20px;
+}
+:where(.ankole-editor-overlay).block-menu .block-type-option:hover,
+:where(.ankole-editor-overlay).block-menu .block-type-option[aria-selected='true'],
+:where(.ankole-editor-overlay).block-menu .block-type-option[data-current='true'] {
+  background: var(--menu-hover);
+}
+:where(.ankole-editor-overlay).block-menu .block-type-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  height: 22px;
+}
+:where(.ankole-editor-overlay).block-menu .block-type-current {
+  margin-left: auto;
+}
+
+/* Only the slash picker gives block types a raised tile and coloured light. */
+:where(.ankole-editor-overlay).slash-menu .block-type-icon {
+  --slash-icon-halo: var(--menu-icon-neutral);
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-control);
+  background:
+    radial-gradient(
+      ellipse at 84% 18%,
+      color-mix(in srgb, var(--slash-icon-halo) var(--slash-icon-halo-opacity), transparent),
+      transparent 80%
+    ),
+    var(--slash-icon-body);
+  box-shadow:
+    inset 0.5px 0.5px 0 var(--slash-icon-edge),
+    0 1px 2px var(--slash-icon-shadow);
+}
+:where(.ankole-editor-overlay).slash-menu
+  .block-type-icon:is([data-block-type='h1'], [data-block-type='number'], [data-block-type='embed']) {
+  --slash-icon-halo: var(--menu-icon-blue);
+}
+:where(.ankole-editor-overlay).slash-menu .block-type-icon:is([data-block-type='h3'], [data-block-type='bullet']) {
+  --slash-icon-halo: var(--menu-icon-purple);
+}
+:where(.ankole-editor-overlay).slash-menu .block-type-icon:is([data-block-type='check'], [data-block-type='code']) {
+  --slash-icon-halo: var(--menu-icon-cyan);
+}
+:where(.ankole-editor-overlay).slash-menu .block-type-icon[data-block-type='embed'] {
+  color: var(--menu-icon-blue);
+}
+
+/* Menus share the glyphs, while each surface owns its presentation. */
+:where(.ankole-editor-overlay, .ankole-editor) .block-type-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+:where(.ankole-editor-overlay, .ankole-editor) .block-type-icon svg {
+  width: 16px;
+  height: 16px;
+}
+:where(.ankole-editor-overlay) .menu-label {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  padding: 6px 8px 2px;
+}
+:where(.ankole-editor-overlay) .menu-label:not(:first-child) {
+  margin-top: 6px;
+}
+:where(.ankole-editor-overlay).block-menu {
+  transition: none;
+  width: min(272px, calc(100vw - 16px));
+  padding: 4px;
+  max-height: min(440px, 60vh, var(--available-height, 100vh));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+:where(.ankole-editor-overlay).block-menu
+  > :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger']) {
+  min-height: 36px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+:where(.ankole-editor-overlay).block-menu > input {
+  width: calc(100% - 16px);
+  margin: 2px 8px 8px;
+}
+/* Selection toolbar */
+
+/* A toolbar holds 28px controls: 4px of ceramic around them, dividers between the groups of actions. */
+:where(.ankole-editor-overlay).selection-toolbar {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  z-index: 40;
+  max-width: calc(100vw - 16px);
+}
+:where(.ankole-editor-overlay).selection-toolbar .toolbar-divider {
+  height: 16px;
+  margin: 0 4px;
+}
+/* Each group of actions follows the one before it across a divider. */
+:where(.ankole-editor-overlay).selection-toolbar .selection-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+:where(.ankole-editor-overlay).selection-toolbar .selection-group + .selection-group::before {
+  content: '';
+  width: 1px;
+  height: 16px;
+  margin: 0 4px 0 2px;
+  background: var(--editor-toolbar-divider);
+}
+/* Asking an Agent and the block type are labelled in ink: they name what they do, the marks show it. */
+:where(.ankole-editor-overlay).selection-toolbar :is(.selection-ask, .selection-block-type) {
+  color: var(--foreground);
+  font-weight: 500;
+}
+:where(.ankole-editor-overlay).selection-toolbar .selection-block-type {
+  gap: 4px;
+  padding-inline: 8px 6px;
+}
+:where(.ankole-editor-overlay).selection-toolbar .selection-block-type-label {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 480px) {
+  :where(.ankole-editor-overlay).selection-toolbar .selection-ask-label {
+    display: none;
+  }
+}
+:where(.ankole-editor-overlay).selection-toolbar [data-slot='button'] {
+  background: transparent;
+  box-shadow: none;
+}
+:where(.ankole-editor-overlay).selection-toolbar
+  [data-slot='button']:is(:hover, [aria-pressed='true'], [data-popup-open]) {
+  background: var(--menu-hover);
+}
+:where(.ankole-editor-overlay) .link-form {
+  width: 370px;
+  max-width: calc(100vw - 28px);
+}
+:where(.ankole-editor-overlay) .link-form-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+:where(.ankole-editor-overlay) .link-form input {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+}
+:where(.ankole-editor-overlay) .link-form p {
+  padding: 5px;
+  font-size: 11px;
+  color: var(--destructive);
+}
+:where(.ankole-editor-overlay) .link-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: min(440px, calc(100vw - 24px));
+}
+:where(.ankole-editor-overlay) .link-bar-url {
+  max-width: 180px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--fg-secondary, var(--editor-quote-fg));
+}
+
+@media (min-width: 1700px) {
+  :where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
+    padding-top: 70px;
+  }
+}
+@media (max-width: 1100px) {
+  :where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
+    padding: 42px 45px 30px;
+  }
+}
+@media (max-width: 720px) {
+  :where(.ankole-editor, .ankole-editor-overlay) .editor-toolbar {
+    padding: 0 12px;
+    gap: 2px;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .toolbar-divider {
+    margin: 0 2px;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
+    padding: 30px 24px 25px;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay)
+    .editor-content
+    h1:not(
+      :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+    ) {
+    font-size: 26px;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .drag-handle {
+    display: none !important;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .editing-hint {
+    display: none;
+  }
+}

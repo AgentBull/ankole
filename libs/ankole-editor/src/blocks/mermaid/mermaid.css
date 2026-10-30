@@ -1,0 +1,314 @@
+/* Mermaid blocks: source and rendered diagram side by side (SPEC §7.6). */
+:where(.ankole-editor) .editor-content .mermaid-block {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: 36px minmax(220px, min(520px, 60vh));
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--editor-pre-bg);
+  overflow: hidden;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-toolbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-tertiary);
+  font-family: var(--font-family-sans);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-spacer {
+  flex: 1;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-mini);
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-toolbar button:is(:hover, :focus-visible) {
+  background: var(--menu-hover);
+  color: var(--foreground);
+}
+
+:where(.ankole-editor) .editor-content .mermaid-toolbar button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-gutter {
+  grid-column: 1;
+  grid-row: 2;
+  width: calc(var(--mermaid-gutter-width, 2) * 1ch + 22px);
+  max-height: 100%;
+  padding: 14px 8px 14px 0;
+  overflow: hidden;
+  color: var(--fg-tertiary);
+  font: 13px/1.65 var(--font-family-mono);
+  text-align: right;
+  white-space: pre;
+  user-select: none;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-pre {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  max-height: 100%;
+  margin: 0;
+  padding: 14px 16px 14px 2px;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: 13px/1.65 var(--font-family-mono);
+  white-space: pre;
+  tab-size: 2;
+  outline: none;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-preview {
+  grid-column: 3;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-height: 100%;
+  padding: 16px;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  --pele-bg: var(--background);
+  --pele-fg: var(--foreground);
+  --pele-fg-on-light: var(--color-gray-100);
+  --pele-fg-on-dark: var(--color-gray-10);
+  --pele-muted: var(--fg-secondary);
+  --pele-line: var(--border-strong);
+  --pele-surface: var(--layer-01);
+  --pele-surface-alt: var(--layer-03);
+  --pele-border: var(--border);
+  --pele-accent: var(--brand);
+  --pele-critical: var(--destructive);
+  --pele-error: var(--destructive);
+  --pele-font: var(--font-family-sans);
+  --pele-font-mono: var(--font-family-mono);
+  --pele-radius: var(--radius-control);
+}
+
+:where(.ankole-editor) .editor-content .mermaid-preview .pele {
+  max-width: 100%;
+  height: auto;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-placeholder {
+  color: var(--fg-placeholder);
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-block[data-view='code'] {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+:where(.ankole-editor) .editor-content .mermaid-block[data-view='code'] .mermaid-preview {
+  display: none;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-block[data-view='diagram'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:where(.ankole-editor) .editor-content .mermaid-block[data-view='diagram'] .mermaid-gutter,
+:where(.ankole-editor) .editor-content .mermaid-block[data-view='diagram'] .mermaid-pre {
+  display: none;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-block[data-view='diagram'] .mermaid-preview {
+  grid-column: 1 / -1;
+  border-left: 0;
+}
+
+/* Explicit palettes; `auto` inherits the host theme tokens already set above. */
+:where(.ankole-editor) .editor-content .mermaid-block[data-theme='light'] .mermaid-preview {
+  --pele-bg: #fffefd;
+  --pele-fg: #18191a;
+  --pele-muted: #636566;
+  --pele-line: #47494a;
+  --pele-surface: #f4f4f2;
+  --pele-surface-alt: #e5e4e1;
+  --pele-border: #cbcac7;
+  --pele-accent: #1561ff;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-block[data-theme='dark'] .mermaid-preview {
+  --pele-bg: #18191a;
+  --pele-fg: #f4f4f2;
+  --pele-muted: #abaaa7;
+  --pele-line: #cbcac7;
+  --pele-surface: #232526;
+  --pele-surface-alt: #343637;
+  --pele-border: #47494a;
+  --pele-accent: #77a9ff;
+}
+
+/* Mermaid menus and the expanded diagram. */
+:where(.ankole-editor-overlay).mermaid-menu {
+  position: fixed;
+  z-index: 40;
+  width: min(248px, calc(100vw - 16px));
+  padding: 4px;
+}
+
+:where(.ankole-editor-overlay).mermaid-menu .mermaid-menu-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-family-sans);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+:where(.ankole-editor-overlay).mermaid-menu .mermaid-menu-option:is(:hover, :focus-visible, [aria-checked='true']) {
+  background: var(--menu-hover);
+}
+
+:where(.ankole-editor-overlay).mermaid-menu .mermaid-menu-check {
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  color: var(--brand);
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded {
+  position: fixed;
+  inset: 24px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sheet, 12px);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
+  background: color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-secondary);
+  font-size: 13px;
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-header strong {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 0;
+  border-radius: var(--radius-mini);
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-close:hover {
+  background: var(--menu-hover);
+  color: var(--foreground);
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 24px;
+  overflow: auto;
+  background: var(--background);
+  --pele-bg: var(--background);
+  --pele-fg: var(--foreground);
+  --pele-muted: var(--fg-secondary);
+  --pele-line: var(--border-strong);
+  --pele-surface: var(--layer-01);
+  --pele-surface-alt: var(--layer-03);
+  --pele-border: var(--border);
+  --pele-accent: var(--brand);
+  --pele-error: var(--destructive);
+  --pele-font: var(--font-family-sans);
+  --pele-font-mono: var(--font-family-mono);
+  --pele-radius: var(--radius-control);
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview .pele {
+  max-width: 100%;
+  height: auto;
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview[data-theme='light'] {
+  --pele-bg: #fffefd;
+  --pele-fg: #18191a;
+  --pele-muted: #636566;
+  --pele-line: #47494a;
+  --pele-surface: #f4f4f2;
+  --pele-surface-alt: #e5e4e1;
+  --pele-border: #cbcac7;
+  --pele-accent: #1561ff;
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview[data-theme='dark'] {
+  --pele-bg: #18191a;
+  --pele-fg: #f4f4f2;
+  --pele-muted: #abaaa7;
+  --pele-line: #cbcac7;
+  --pele-surface: #232526;
+  --pele-surface-alt: #343637;
+  --pele-border: #47494a;
+  --pele-accent: #77a9ff;
+}

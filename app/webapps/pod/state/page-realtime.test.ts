@@ -13,7 +13,13 @@ function pageTopic() {
   const ready = new Promise((resolve, reject) => (settle = { resolve, reject }))
   void ready.catch(() => {})
   const closed = jest.fn()
-  const handle: TopicHandle = { ready, push: async () => undefined as never, on: () => () => {}, close: closed }
+  const handle: TopicHandle = {
+    ready,
+    push: async () => undefined as never,
+    on: () => () => {},
+    presence: () => [],
+    close: closed
+  }
   let deliver!: (handle: TopicHandle) => void
   const delivered = new Promise<TopicHandle>(resolve => (deliver = resolve))
   let pending = false

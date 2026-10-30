@@ -122,7 +122,7 @@ defmodule SlackOpenAPI.SocketMode.Client do
         state = %{state | dispatch_tasks: rest}
 
         # A provider ack is sent only after the gateway transaction commits
-        # (SignalsGateway.md). An {:ok, _} result covers both accepted facts
+        # (Signals.md). An {:ok, _} result covers both accepted facts
         # and committed terminal decisions (filtered/ignored/no_handler), all
         # of which are safe to ack. An {:error, _} means the transaction did
         # not commit; withholding the ack lets Slack redeliver (ingress is

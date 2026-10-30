@@ -1,6 +1,7 @@
 import { Select as SelectPrimitive } from '@base-ui/react/select'
 import { RiArrowDownSLine, RiArrowUpSLine, RiCheckLine } from '@remixicon/react'
 import * as React from 'react'
+import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../lib/utils'
 
 const SelectThemeContext = React.createContext<{
@@ -65,14 +66,33 @@ function SelectValue({ children, className, placeholder, ...props }: SelectPrimi
   )
 }
 
+// A field select is a slot that holds a value. A ghost select sits in a header or toolbar band, where a
+// slot would read as an input: it is ink text with a chevron and shows a wash only on hover.
+const selectTriggerVariants = cva(
+  "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-control border px-3 py-0 text-sm leading-5 whitespace-nowrap transition-[background-color,color] duration-(--duration-feedback) disabled:cursor-not-allowed disabled:text-fg-disabled data-placeholder:text-fg-placeholder data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        field:
+          'border-field-edge border-b-input bg-field outline-none hover:bg-field-hover focus-visible:border-control-edge focus-visible:border-b-ring focus-visible:bg-background focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)] disabled:border-b-transparent disabled:bg-field aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-invalid:border-b-destructive data-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)]',
+        ghost:
+          'border-transparent bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-offset-1 data-popup-open:bg-accent data-popup-open:text-foreground'
+      }
+    },
+    defaultVariants: { variant: 'field' }
+  }
+)
+
 function SelectTrigger({
   className,
   size = 'default',
+  variant = 'field',
   children,
   ...props
-}: SelectPrimitive.Trigger.Props & {
-  size?: 'sm' | 'default'
-}) {
+}: SelectPrimitive.Trigger.Props &
+  VariantProps<typeof selectTriggerVariants> & {
+    size?: 'sm' | 'default'
+  }) {
   const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const themeContext = React.useContext(SelectThemeContext)
 
@@ -89,10 +109,8 @@ function SelectTrigger({
       ref={triggerRef}
       data-slot="select-trigger"
       data-size={size}
-      className={cn(
-        "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-control border border-field-edge border-b-input bg-field px-3 py-0 text-sm leading-5 whitespace-nowrap outline-none transition-[background-color] duration-(--duration-feedback) hover:bg-field-hover focus-visible:border-control-edge focus-visible:border-b-ring focus-visible:bg-background focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)] disabled:cursor-not-allowed disabled:border-b-transparent disabled:bg-field disabled:text-fg-disabled aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-invalid:border-b-destructive data-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-placeholder:text-fg-placeholder data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
+      data-variant={variant}
+      className={cn(selectTriggerVariants({ variant }), className)}
       {...props}>
       {children}
       <SelectPrimitive.Icon
@@ -132,7 +150,7 @@ function SelectContent({
           data-slot="select-content"
           data-align-trigger={alignItemWithTrigger}
           className={cn(
-            'ceramic relative isolate z-50 outline-none max-h-(--available-height) p-1 w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
+            'ceramic ceramic-primary ceramic-menu relative isolate z-50 outline-none max-h-(--available-height) p-1 w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
             className
           )}
           {...props}>
@@ -162,7 +180,7 @@ function SelectLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props) 
   return (
     <SelectPrimitive.GroupLabel
       data-slot="select-label"
-      className={cn('px-2.5 py-1.5 text-xs text-muted-foreground', className)}
+      className={cn('px-2.5 py-2 text-xs text-muted-foreground', className)}
       {...props}
     />
   )
@@ -173,7 +191,7 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex min-h-8 w-full cursor-pointer items-center gap-2.5 rounded-control py-1.5 pr-8 pl-2.5 text-sm leading-5 outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-control py-2 pr-8 pl-2.5 text-sm leading-5 outline-hidden select-none focus:bg-(--menu-hover) data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:text-fg-disabled [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className
       )}
       {...props}>
@@ -192,7 +210,7 @@ function SelectSeparator({ className, ...props }: SelectPrimitive.Separator.Prop
   return (
     <SelectPrimitive.Separator
       data-slot="select-separator"
-      className={cn('pointer-events-none -mx-1 my-1 h-px bg-border/50', className)}
+      className={cn('pointer-events-none mx-2.5 my-1.5 h-px bg-(--menu-field-edge)', className)}
       {...props}
     />
   )

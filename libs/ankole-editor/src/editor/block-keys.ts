@@ -19,12 +19,13 @@ import {
   moveByLine,
   selectedTextblocks
 } from '../core/command'
-import { ChangeSet, Leaf, Plot, Pos, type Node } from '../core/doc'
+import { ChangeSet, Leaf, Node, Plot, Pos } from '../core/doc'
 import { KeyBinding, Wordgard } from '../core/editor'
 import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { Callout } from '../blocks/callout'
 import { Embed } from '../blocks/embed'
+import { MermaidBlock, MermaidView } from '../blocks/mermaid'
 import { isList } from './block-insert'
 import {
   childAt,
@@ -37,6 +38,26 @@ import {
   unwrapItem
 } from './lists'
 import * as S from './schema'
+import { BlockSelection, selectedUnits } from './block-selection'
+import { relocation, removal } from './block-actions'
+import { unitAt } from './block-target'
+import { columnLineMotion } from './columns'
+import {
+  enterNestedBlock,
+  isBlockGroup,
+  liftBlocks,
+  liftListFromBlock,
+  nestingParent,
+  sinkBlocks,
+  sinkListStart
+} from './nesting'
+
+/** Whole-block deletion preserves the structure of unselected neighbours. */
+function deleteBlocks(state: GardState): Transaction.Spec | false {
+  return state.selection instanceof BlockSelection
+    ? (removal(state, state.selection.blocks[0]!.before) ?? false)
+    : false
+}
 
 /** Backward deletion by character or word (`char`), or to the line start (`line`). */
 export type DeleteMode = 'char' | 'line'
@@ -67,19 +88,21 @@ function caretBlock(state: GardState, side: -1 | 1): Pos.Plot | null {
   return block && (side < 0 ? head.isAtStart(block) : head.isAtEnd(block)) ? block : null
 }
 
-/** A caret between blocks next to a block leaf, such as a divider or an embed. */
+const isDiagramOnlyMermaid = (node: Node) => node.type === MermaidBlock.type && node.mark(MermaidView) === 'diagram'
+
+/** A caret between blocks next to a block leaf, such as a divider or an embed, or a diagram-only Mermaid block. */
 function besideLeaf(state: GardState, side: -1 | 1) {
   const { head } = state.sel
   const node = side < 0 ? head.nodeBefore : head.nodeAfter
-  return !head.parent.node.inlineContent && !!node && node.isLeaf && node.isBlock
+  return !head.parent.node.inlineContent && !!node && ((node.isLeaf && node.isBlock) || isDiagramOnlyMermaid(node))
 }
 
 /**
  * The last place for text in `node`: its last text block, or an empty block that can hold one.
- * Leaf blocks such as dividers and embeds have none.
+ * Leaf blocks such as dividers and embeds, and diagram-only Mermaid blocks, have none.
  */
 function lastTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null {
-  if (!(node instanceof Pos.Plot)) return null
+  if (!(node instanceof Pos.Plot) || isDiagramOnlyMermaid(node.node)) return null
   if (node.node.isTextblock) return node
   if (!node.node.content.length) return holdsText(state, node.node) ? node : null
   for (let i = node.node.content.length - 1; i >= 0; i--) {
@@ -91,7 +114,7 @@ function lastTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null {
 
 /** The first place for text in `node`, or `stop` at a table: deleting forward does not enter tables. */
 function firstTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null | 'stop' {
-  if (!(node instanceof Pos.Plot)) return null
+  if (!(node instanceof Pos.Plot) || isDiagramOnlyMermaid(node.node)) return null
   if (node.node.type == S.Table.type) return 'stop'
   if (node.node.isTextblock) return node
   if (!node.node.content.length) return holdsText(state, node.node) ? node : null
@@ -102,7 +125,7 @@ function firstTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null | 'st
   return null
 }
 
-/** The nearest place for text before `node`. The search leaves lists, but no other block. */
+/** The nearest place for text before `node`, crossing list and column boundaries. */
 function previousTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null {
   for (let current: Pos.Node | null = node; current?.parent;) {
     const parent: Pos.Plot = current.parent
@@ -110,14 +133,20 @@ function previousTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null {
       const found = lastTextPlace(state, childAt(state.doc, parent, i))
       if (found) return found
     }
-    current = isList(parent.node) || isItem(parent.node) ? parent : null
+    current =
+      parent.node.type === S.Column.type ||
+      parent.node.type === S.Columns.type ||
+      isList(parent.node) ||
+      isItem(parent.node)
+        ? parent
+        : null
   }
   return null
 }
 
-/** Inline content as it fits in `target`: a code block keeps only plain text and line breaks. */
+/** Inline content as it fits in `target`: code and Mermaid blocks keep only plain text and line breaks. */
 function fitText(content: readonly Node[], target: Plot): Node[] {
-  if (target.type != T.CodeBlock.type) return [...content]
+  if (!target.type.hasRole(Node.Role.Code)) return [...content]
   return content.flatMap((node): Node[] =>
     node.isText ? [Leaf.text(node.param as string)] : node.type == T.LineBreak.type ? [T.LineBreak] : []
   )
@@ -129,6 +158,12 @@ function fitText(content: readonly Node[], target: Plot): Node[] {
  */
 function removeBlock(state: GardState, block: Pos.Plot): ChangeSet.Spec {
   const parent = block.parent!
+  if (isBlockGroup(parent.node) && block.index === 0) {
+    return [
+      { from: parent.before, to: block.after },
+      { from: parent.end, to: parent.after }
+    ]
+  }
   if (isItem(parent.node) && block.index == 0) {
     const changes = removeItemHead(state.doc, parent)
     if (changes) return changes
@@ -219,8 +254,12 @@ export function deleteBackward(state: GardState, mode: DeleteMode): Transaction.
   if (state.readOnly || !state.selection.isCursor) return false
   const block = caretBlock(state, -1)
   if (!block) return besideLeaf(state, -1) ? {} : false
+  if (block.node.type.hasRole(Node.Role.Code)) return {}
   const parent = block.parent!
   const textblock = block.node.isTextblock
+  const nested = unitAt(state.doc, state.selection.head, 1)
+  const lifted = nested && liftBlocks([nested])
+  if (lifted) return { changes: lifted, scrollIntoView: true, userEvent: 'outdent' }
   // A list item, or a block that starts one, stands for the item.
   const item = isItem(block.node) ? block : isItem(parent.node) && block.index == 0 ? parent : null
   if (item) {
@@ -241,8 +280,11 @@ export function deleteBackward(state: GardState, mode: DeleteMode): Transaction.
   // The quote, callout or table cell whose first text holds the caret. An empty one holds it itself.
   const container = !textblock ? block : block.index == 0 && parent.parent ? parent : null
   if (container) {
+    if (container.node.type === S.Column.type) return joinBackward(state, block, block)
     if (isQuote(container.node) && mode == 'char') return unwrapQuote(container)
-    if (isQuote(container.node) || isCallout(container.node)) return joinBackward(state, block, container)
+    if (isQuote(container.node) || isCallout(container.node) || isBlockGroup(container.node)) {
+      return joinBackward(state, block, container)
+    }
     return {}
   }
   // The first block of the page. The core removes it when it is empty and another block follows; the
@@ -345,6 +387,10 @@ export function enterBlock(state: GardState): Transaction.Spec | false {
   }
   const { head } = state.sel
   const block = head.parent.node.inlineContent ? head.textblockParent : null
+  if (block) {
+    const nested = enterNestedBlock(state, block)
+    if (nested) return nested
+  }
   if (block?.node.type == T.Heading) return enterHeading(state, block)
   if (block?.node.type == T.Paragraph.type) {
     const parent = block.parent!
@@ -365,10 +411,35 @@ function indentChange(block: Pos.Plot, indent: number, dir: 1 | -1): Transaction
   }
 }
 
+/** Code indentation changes each touched line and keeps both selection ends beside their text. */
+function indentCode(state: GardState, block: Pos.Plot, dir: 1 | -1): Transaction.Spec {
+  const { selection } = state
+  const changes: ChangeSet.Spec[] = []
+  let offset = block.start
+  for (const line of block.node.textContent().split('\n')) {
+    if (offset <= selection.to && offset + line.length >= selection.from) {
+      if (dir > 0) changes.push({ from: offset, insert: [Leaf.text('\t')] })
+      else {
+        const count = /^(?:\t| {1,2})/.exec(line)?.[0].length ?? 0
+        if (count) changes.push({ from: offset, to: offset + count })
+      }
+    }
+    offset += line.length + 1
+  }
+  if (!changes.length) return {}
+  return {
+    changes,
+    selection: (_cx, set) => GardSelection.range(set.mapPos(selection.anchor, 1), set.mapPos(selection.head, 1)),
+    scrollIntoView: true,
+    userEvent: dir > 0 ? 'indent' : 'outdent'
+  }
+}
+
 /**
  * Tab (`dir` 1) and Shift+Tab (-1) anywhere in a block (SPEC §7.6): list items change their level,
- * paragraphs and headings their indent, and a code block takes a tab character. Table cells are
- * left to the table handlers.
+ * ordinary blocks their parent, and code blocks indent their selected lines. Existing indent attributes
+ * remain editable. Outside table cells and read-only mode, blocks already at their nesting or indentation limit consume the key without
+ * moving focus out of the editor.
  */
 export const indent: Command.Pure<1 | -1> = ({ state }, dir) => {
   if (state.readOnly) return false
@@ -376,24 +447,68 @@ export const indent: Command.Pure<1 | -1> = ({ state }, dir) => {
   const inCell = (pos: Pos) => !!pos.matchingParent(plot => isCell(plot))
   if (inCell(sel.from) || inCell(sel.to)) return false
   const code = sel.from.textblockParent
-  if (code?.node.type == T.CodeBlock.type && sel.to.textblockParent?.pos == code.pos) {
-    if (dir < 0) return {}
-    return {
-      changes: { from: sel.from.pos, to: sel.to.pos, insert: [Leaf.text('\t')] },
-      selection: GardSelection.cursor(sel.from.pos + 1),
-      scrollIntoView: true,
-      userEvent: 'input.type'
-    }
+  if (code?.node.type.hasRole(Node.Role.Code) && sel.to.textblockParent?.pos == code.pos) {
+    return indentCode(state, code, dir)
   }
   const changes: ChangeSet.Spec[] = []
   const items: Pos.Plot[] = []
+  const units = selectedUnits(state) ?? []
+  const runs: Pos.Node[][] = []
+  for (const unit of units) {
+    const run = runs.at(-1)
+    if (run?.at(-1)?.after === unit.before && run[0]!.parent!.start === unit.parent!.start) run.push(unit)
+    else runs.push([unit])
+  }
+  if (runs.length > 1) {
+    if (dir > 0) {
+      const first = units[0]!
+      const reference = isList(first.parent!.node) && first.index === 0 ? first.parent! : first
+      const parent = nestingParent(
+        reference,
+        units.map(unit => unit.node)
+      )
+      if (!parent) return {}
+      const ownsChildren = isBlockGroup(parent.node) || isList(parent.parent!.node)
+      const moved = relocation(
+        state,
+        units.map(unit => unit.before),
+        parent.after - 1,
+        ownsChildren ? undefined : parent.before
+      )
+      return moved ? { ...moved, scrollIntoView: true, userEvent: 'indent' } : {}
+    }
+    // Each selected run lifts within its own parent; top-level runs stay put.
+    let changes = ChangeSet.empty(state.doc.length)
+    let current = state
+    for (const run of [...runs].reverse()) {
+      const selection = BlockSelection.of(
+        current.doc,
+        run.map(unit => changes.mapPos(unit.before, 1))
+      )!
+      const spec = indent({ state: current.update({ selection }).state }, dir)
+      if (!spec) continue
+      const tr = current.update(spec)
+      changes = changes.compose(tr.changes)
+      current = tr.state
+    }
+    return { changes, scrollIntoView: true, userEvent: 'outdent' }
+  }
+  if (units.length && units.every(unit => !isList(unit.parent!.node))) {
+    const change = dir > 0 ? sinkBlocks(units) : liftBlocks(units)
+    if (change) return { changes: change, scrollIntoView: true, userEvent: dir > 0 ? 'indent' : 'outdent' }
+    if (!units.some(unit => unit.node.mark(S.Indent))) return {}
+  }
   const blocks = selectedTextblocks(state)
   if (!blocks.length && isItem(sel.head.parent.node)) items.push(sel.head.parent)
   for (const block of blocks) {
     const parent = block.parent!
     if (isItem(parent.node)) {
       if (!items.some(item => item.pos == parent.pos)) items.push(parent)
-    } else if (block.node.type == T.Paragraph.type || block.node.type == T.Heading) {
+    } else if (
+      block.node.mark(S.Indent) &&
+      !isBlockGroup(parent.node) &&
+      (block.node.type == T.Paragraph.type || block.node.type == T.Heading)
+    ) {
       const change = indentChange(block, block.node.tag.mark(S.Indent) ?? 0, dir)
       if (change) changes.push(change.changes!)
     }
@@ -410,13 +525,13 @@ export const indent: Command.Pure<1 | -1> = ({ state }, dir) => {
   for (const { list, first, last } of groups) {
     const change =
       dir > 0
-        ? sinkChanges(state.doc, list, first, last)
+        ? (first === 0 && sinkListStart(list, last)) || sinkChanges(state.doc, list, first, last)
         : isItem(list.parent!.node)
           ? liftChanges(state.doc, list, first, last)
-          : null
+          : liftListFromBlock(list, first, last)
     if (change) changes.push(change)
   }
-  if (!changes.length) return false
+  if (!changes.length) return {}
   return { changes, scrollIntoView: true, userEvent: dir > 0 ? 'indent' : 'outdent' }
 }
 
@@ -466,22 +581,35 @@ function deletingInputEvent(event: InputEvent, wg: Wordgard): boolean {
  */
 const deleteToLineEndWithoutKill: Command = wg =>
   !wg.state.readOnly &&
-  (deleteInCallout(wg.state) ||
+  (deleteBlocks(wg.state) ||
+    deleteInCallout(wg.state) ||
     deleteSelection(wg.state) ||
     deleteForward(wg.state) ||
     deleteToLineEnd(wg, 'forward') ||
     deleteUnit(wg, 'forward'))
 
 /**
- * Up and Down go past an embed (SPEC §7.5 Embeds). Where the core's motion
- * selects one, the motion goes on from beside it. With nothing past it, the caret stays.
+ * Up and Down follow reading order across columns and go past embeds (SPEC §7.5).
+ * Where the core's motion selects an embed, motion continues from beside it.
+ * With nothing past it, the caret stays.
  */
 const lineMotion: Command<{ dir: 'up' | 'down'; extend?: boolean }> = (wg, param) => {
-  if (param.extend) return false
   const moved = moveByLine(wg, param)
   if (typeof moved == 'boolean') return moved
   const forward = param.dir == 'down'
   let selection = moved.selection as GardSelection | null
+  if (selection) selection = columnLineMotion(wg, selection, forward)
+  if (selection && param.extend) {
+    return {
+      ...moved,
+      selection: GardSelection.range(
+        wg.state.selection.anchor,
+        selection.head,
+        selection.headSide,
+        selection.goalColumn
+      )
+    }
+  }
   while (selection instanceof GardSelection.Node && selection.node.type == Embed.type) {
     const beside = GardSelection.cursor(forward ? selection.to : selection.from, forward ? 1 : -1, selection.goalColumn)
     selection = wg.moveVertically(beside, forward, undefined, true)
@@ -493,17 +621,40 @@ const lineMotion: Command<{ dir: 'up' | 'down'; extend?: boolean }> = (wg, param
 const deleting =
   (mode: DeleteMode): Command<'forward' | 'backward'> =>
   ({ state }, dir) =>
-    deleteInCallout(state) || (dir == 'backward' ? deleteBackward(state, mode) : deleteForward(state))
+    deleteBlocks(state) ||
+    deleteInCallout(state) ||
+    (dir == 'backward' ? deleteBackward(state, mode) : deleteForward(state))
+
+/** Shift+Enter inside a code or Mermaid block inserts a paragraph below it and moves the caret there. */
+const exitCodeBlock: Command = ({ state }) => {
+  if (state.readOnly || !(state.selection instanceof GardSelection.Text)) return false
+  const code = state.sel.from.textblockParent
+  if (!code?.node.type.hasRole(Node.Role.Code) || state.sel.to.textblockParent?.pos !== code.pos) return false
+  return {
+    changes: { from: code.after, insert: [T.Paragraph.create()] },
+    selection: GardSelection.cursor(code.after + 1),
+    scrollIntoView: true,
+    userEvent: 'split.textblock'
+  }
+}
 
 /** Backspace, Delete, Enter, Tab and Up and Down at block boundaries, and the deletion of a cut. */
 export const blockKeys: GardState.Extension = [
+  GardState.prec.high(KeyBinding.of({ key: 'Shift-Enter', run: exitCodeBlock })),
   Command.handler(deleteRange, ({ state }, range) => {
+    if (
+      state.selection instanceof BlockSelection &&
+      range.from === state.selection.from &&
+      range.to === state.selection.to
+    ) {
+      return deleteBlocks(state)
+    }
     const spec = deleteInCallout(state, range)
     return spec && { ...spec, userEvent: range.userEvent }
   }),
   Command.handler(deleteUnit, deleting('char')),
   Command.handler(deleteCut, ({ state }) => {
-    const spec = deleteInCallout(state)
+    const spec = deleteBlocks(state) || deleteInCallout(state)
     return spec && { ...spec, userEvent: 'delete.cut' }
   }),
   Command.handler(deleteWord, deleting('char')),

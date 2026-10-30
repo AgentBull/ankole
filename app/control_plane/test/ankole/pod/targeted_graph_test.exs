@@ -33,6 +33,8 @@ defmodule Ankole.Pod.TargetedGraphTest do
       grant(%{source_page_id: b.id, source_action: "page_edit"}, a.id, "container", "page_manage")
 
     grant(%{source_page_id: child.id, source_action: "page_manage"}, e.id, "self", "page_view")
+    grant(%{source_page_id: child.id, source_action: "page_manage"}, e.id, "self", "page_comment")
+    grant(%{source_page_id: e.id, source_action: "page_comment"}, b.id, "self", "page_comment")
     grant(%{source_page_id: c.id, source_action: "page_view"}, d.id, "container", "page_view")
     grant(%{source_page_id: d.id, source_action: "page_view"}, c.id, "container", "page_view")
     assert {:ok, snapshot} = Snapshot.build_pod_context_snapshot(viewer.uid)
@@ -42,7 +44,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
     assert ids == Enum.uniq(ids)
 
     for {ip, a_bits, b_bits, child_bits} <- [
-          {"10.0.0.1", 9, 4, 8},
+          {"10.0.0.1", 9, 20, 8},
           {"10.0.0.2", 1, 0, 0}
         ] do
       assert {:ok, full} =
@@ -61,7 +63,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
             {child, child_bits},
             {c, 0},
             {d, 0},
-            {e, if(ip == "10.0.0.1", do: 1, else: 0)}
+            {e, if(ip == "10.0.0.1", do: 17, else: 0)}
           ] do
         page = Repo.get!(Page, page.id)
 
@@ -79,7 +81,8 @@ defmodule Ankole.Pod.TargetedGraphTest do
               {"page_view", 1},
               {"page_write_records", 2},
               {"page_edit", 4},
-              {"page_manage", 8}
+              {"page_manage", 8},
+              {"page_comment", 16}
             ] do
           if Bitwise.band(expected, bit) == 0 do
             assert {:error, :forbidden} =
@@ -107,10 +110,10 @@ defmodule Ankole.Pod.TargetedGraphTest do
     viewer = human_fixture().principal
     private = private_page(owner)
 
-    {:ok, private_child} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{parent_id: private.id})
-
     {:ok, shared} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{})
+
+    {:ok, private_child} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{parent_id: shared.id})
 
     {:ok, shared_child} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{parent_id: shared.id})
@@ -125,6 +128,11 @@ defmodule Ankole.Pod.TargetedGraphTest do
                  ]
                })
     end
+
+    assert {:ok, _} =
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), private_child.id, %{
+               parent_id: private.id
+             })
 
     assert_equivalent(guest.uid, private_child.id, 0)
     assert_equivalent(guest.uid, shared_child.id, 1)

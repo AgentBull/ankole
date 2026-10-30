@@ -10,12 +10,14 @@ import { BrandIcon } from '../common/brand'
 import { clearDataTenant } from '../common/browser-session'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { ThemeToggle } from '../common/theme-toggle'
+import { signInReturnTo } from './login-params'
 
 export function SessionScreen({ invalid }: { invalid: boolean }) {
   const { t } = useTranslation()
   const [submitting, setSubmitting] = useState(false)
   const query = new URLSearchParams(window.location.search)
   const request = query.get('request') ?? ''
+  const returnTo = signInReturnTo(query.get('return_to'), window.location.origin)
   const confirm = window.location.pathname === '/oauth/logout/confirm' && !invalid
   const cancelled = query.get('cancelled') === '1'
   const details = useQuery({
@@ -108,7 +110,7 @@ export function SessionScreen({ invalid }: { invalid: boolean }) {
             <p>{t(cancelled ? 'auth.logout_cancelled_description' : 'auth.logged_out_description')}</p>
           )}
           {!confirm || failed ? (
-            <Button type="button" variant="outline" onClick={() => window.location.assign('/sessions/new')}>
+            <Button type="button" variant="outline" onClick={() => window.location.assign(returnTo)}>
               {t('auth.back_to_sign_in')}
             </Button>
           ) : null}

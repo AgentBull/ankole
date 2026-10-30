@@ -227,6 +227,48 @@ defmodule Ankole.E2E.ComposeDeployment do
     %{deployment | tenant_id: tenant_id}
   end
 
+  defp login_admin!(%{compose: @compose} = deployment) do
+    {redirect, deployment} = request!(deployment, :get, "/site-admin-console", nil, 302)
+    [location] = Req.Response.get_header(redirect, "location")
+    uri = URI.parse(location)
+    pod_origin = URI.to_string(%URI{scheme: uri.scheme, host: uri.host, port: uri.port})
+    %{"console_return" => console_return} = URI.decode_query(uri.query)
+
+    {page, deployment} = request!(deployment, :get, location)
+    [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, page.body)
+    pod_deployment = %{deployment | origin: pod_origin, csrf: csrf}
+
+    assert {:ok, true} =
+             wait_until(deadline(15_000), fn ->
+               {providers, _} =
+                 browser_request!(
+                   pod_deployment,
+                   :get,
+                   "/identity-providers?console_return=" <> URI.encode_www_form(console_return)
+                 )
+
+               Enum.any?(providers.body["providers"], &(&1["providerID"] == "email_otp"))
+             end)
+
+    {sent, pod_deployment} =
+      browser_request!(pod_deployment, :post, "/sessions/email-otp/challenges", %{
+        consoleReturn: console_return,
+        email: @admin_email
+      })
+
+    {login, pod_deployment} =
+      browser_request!(pod_deployment, :post, "/sessions/email-otp/verifications", %{
+        challengeID: sent.body["challengeID"],
+        code: verification_code!()
+      })
+
+    deployment = %{pod_deployment | origin: deployment.origin}
+    assert %{"returnTo" => return_to} = login.body
+    {page, deployment} = request!(deployment, :get, return_to)
+    [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, page.body)
+    %{deployment | csrf: csrf}
+  end
+
   defp login_admin!(deployment) do
     {redirect, deployment} = request!(deployment, :get, "/site-admin-console", nil, 302)
     [path] = Req.Response.get_header(redirect, "location")
@@ -237,33 +279,11 @@ defmodule Ankole.E2E.ComposeDeployment do
     deployment = %{deployment | csrf: csrf}
 
     {login, deployment} =
-      if deployment.compose == @compose do
-        assert {:ok, true} =
-                 wait_until(deadline(15_000), fn ->
-                   {providers, _} =
-                     browser_request!(deployment, :get, "/identity-providers?flow=" <> flow)
-
-                   Enum.any?(providers.body["providers"], &(&1["providerID"] == "email_otp"))
-                 end)
-
-        {sent, deployment} =
-          browser_request!(deployment, :post, "/sessions/email-otp/challenges", %{
-            flow: flow,
-            email: @admin_email
-          })
-
-        browser_request!(deployment, :post, "/sessions/email-otp/verifications", %{
-          flow: flow,
-          challengeID: sent.body["challengeID"],
-          code: verification_code!()
-        })
-      else
-        browser_request!(deployment, :post, "/sessions/local-password", %{
-          flow: flow,
-          email: @admin_email,
-          password: @admin_password
-        })
-      end
+      browser_request!(deployment, :post, "/sessions/local-password", %{
+        flow: flow,
+        email: @admin_email,
+        password: @admin_password
+      })
 
     assert %{"returnTo" => return_to} = login.body
     {page, deployment} = request!(deployment, :get, return_to)
@@ -357,7 +377,6 @@ defmodule Ankole.E2E.ComposeDeployment do
       })
 
     browser_request!(deployment, :post, "/setup/email-otp/verifications", %{
-      flow: sent.body["flow"],
       challengeID: sent.body["challengeID"],
       code: verification_code!()
     })
@@ -481,7 +500,14 @@ defmodule Ankole.E2E.ComposeDeployment do
   end
 
   defp request!(deployment, method, path, body \\ nil, expected_status \\ 200) do
-    headers = [{"origin", deployment.origin}]
+    uri =
+      if String.starts_with?(path, ["http://", "https://"]),
+        do: URI.parse(path),
+        else: URI.parse(deployment.origin <> path)
+
+    request_origin = URI.to_string(%URI{scheme: uri.scheme, host: uri.host, port: uri.port})
+    host_header = if uri.port in [nil, 80, 443], do: uri.host, else: "#{uri.host}:#{uri.port}"
+    headers = [{"host", host_header}, {"origin", request_origin}]
 
     headers =
       if deployment.tenant_id,
@@ -501,7 +527,7 @@ defmodule Ankole.E2E.ComposeDeployment do
     ]
 
     options = [
-      url: deployment.origin <> path,
+      url: URI.to_string(%{uri | host: "127.0.0.1"}),
       method: method,
       headers: headers,
       retry: false,
@@ -513,7 +539,7 @@ defmodule Ankole.E2E.ComposeDeployment do
         is_nil(body) ->
           options
 
-        String.starts_with?(path, "/api/v2/") ->
+        String.starts_with?(uri.path || "", "/api/v2/") ->
           options
           |> Keyword.put(:body, Jason.encode!(body))
           |> Keyword.update!(:headers, &[{"content-type", "application/vnd.api+json"} | &1])

@@ -2,6 +2,36 @@ import { state, request } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
 import { conversationRoute, listRoute, pageRoute } from './routes'
 
+test('command search coalesces a typing burst and opens the current result', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  try {
+    await page.goto('/')
+    await page.keyboard.press('ControlOrMeta+k')
+    const menu = page.getByRole('dialog', { name: '搜索或跳转', exact: true })
+    const input = menu.locator('[cmdk-input]')
+    await expect(menu.locator(`[cmdk-item][data-value="page:${state.report_id}"]`)).toBeVisible()
+    const { page: report } = await request<{ page: { title: string } }>(page, `/pages/${state.report_id}`)
+    const queries: string[] = []
+    page.on('request', request => {
+      const url = new URL(request.url())
+      if (['/api/v2/pod/pages/search', '/api/v2/pod/conversations'].includes(url.pathname)) {
+        const query = url.searchParams.get('query')
+        if (query) queries.push(query)
+      }
+    })
+    await input.pressSequentially(report.title, { delay: 20 })
+    await expect(input).toHaveValue(report.title)
+    await expect.poll(() => queries).toEqual([report.title, report.title])
+    await menu.locator(`[cmdk-item][data-value="page:${state.report_id}"]`).click()
+    await expect(page).toHaveURL(state.base_url + pageRoute(state.report_id))
+    await expect(page.locator('.editor-content')).toBeVisible()
+  } finally {
+    await context.close()
+  }
+})
+
 async function createDocument(page: Page, text?: string) {
   await page.goto(pageRoute(state.report_id))
   const { page: created } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
@@ -161,7 +191,10 @@ for (const decision of ['proceed', 'cancel'] as const) {
         await expect(blocker).toBeHidden()
         expect(await page.evaluate(() => history.state?.focusComposer ?? null)).toBeNull()
         await page.getByRole('tab', { name: '对话', exact: true }).click()
-        await page.getByRole('button', { name: '新对话', exact: true }).click()
+        await page
+          .getByRole('tabpanel', { name: '对话', exact: true })
+          .getByRole('link', { name: '新对话', exact: true })
+          .click()
         await expect(blocker).toBeVisible()
       }
       const downloaded = page.waitForEvent('download')

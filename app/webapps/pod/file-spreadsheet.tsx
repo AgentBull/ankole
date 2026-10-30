@@ -1,4 +1,4 @@
-import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
@@ -6,6 +6,7 @@ import { read, utils } from 'xlsx'
 import { ContentError } from './content-primitives'
 
 export default function SpreadsheetPreview({ url }: { url: string }) {
+  const { t } = useTranslation()
   const [sheet, setSheet] = useState('')
   const workbook = useQuery({
     queryKey: ['file-spreadsheet', url],

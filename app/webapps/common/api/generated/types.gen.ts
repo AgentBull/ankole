@@ -177,11 +177,11 @@ export type LoginProvidersData = {
   body?: never
   path?: never
   query?: {
+    console_return?: string
     invitation?: string
     invitation_token?: string
     oauth_request?: string
     prompt?: string
-    purpose?: string
     reauth?: string
     switch?: string
     tenant_id?: string
@@ -224,8 +224,8 @@ export type LoginProvidersResponses = {
       pluginID?: string | null
       providerID: string
     }>
-    purpose?: string | null
     requireSSOForMembers: boolean
+    scope: 'site' | 'tenant'
     selectAccount: boolean
   }
 }
@@ -487,12 +487,12 @@ export type RequestEmailOtpData = {
    */
   body: {
     data: {
+      consoleReturn?: string | null
       email: string
       invitation?: string | null
       invitationToken?: string | null
       oauthRequest?: string | null
       prompt?: string | null
-      purpose?: string | null
       reauth?: string | null
       returnTo?: string | null
       tenantID?: string | null
@@ -567,6 +567,7 @@ export type SelectLoginIdentityData = {
   body: {
     data: {
       authenticationRef: string
+      consoleReturn?: string | null
       oauthRequest?: string | null
       prompt?: string | null
       reauth?: string | null

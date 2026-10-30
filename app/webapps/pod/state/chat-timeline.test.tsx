@@ -12,6 +12,7 @@ import type { LinkedExecution, TimelineLiveStream, TimelineMessage } from '../ch
 import {
   activitySteps,
   interleavedReplySources,
+  messageTime,
   placeLinkedExecutions,
   uncommittedStreams,
   timelineEventLabel,
@@ -66,15 +67,22 @@ test('a persisted execution restores all tool details inside a collapsed complet
 })
 
 test('active, failed, stopped and pending-decision work stays expanded', () => {
-  for (const props of [
-    { active: true, execution: { ...execution, steps: [{ ...execution.steps![0]!, status: 'running' }] } },
-    { attention: true },
-    { execution: { ...execution, status: 'stopped' } },
-    { execution: { ...execution, steps: [{ ...execution.steps![0]!, status: 'failed' }] } }
-  ]) {
-    const html = renderToStaticMarkup(<CollapsedWorkView execution={execution} {...props} />)
-    expect(html).toContain('<details class="pod-chat-work" open="">')
+  for (const [props, summary] of [
+    [{ active: true, execution: { ...execution, steps: [{ ...execution.steps![0]!, status: 'running' }] } }, undefined],
+    [{ attention: true }, 'Worked for 4.2s · 2 tools'],
+    [{ execution: { ...execution, status: 'stopped' } }, 'Stopped after 4.2s'],
+    [{ execution: { ...execution, steps: [{ ...execution.steps![0]!, status: 'failed' }] } }, 'Failed after 4.2s']
+  ] satisfies [Partial<Parameters<typeof CollapsedWorkView>[0]>, string | undefined][]) {
+    const html = render(<CollapsedWorkView execution={execution} {...props} />)
+    expect(html).toMatch(/<details class="pod-chat-work"[^>]* open="">/)
+    if (summary) expect(html).toContain(summary)
   }
+  expect(render(<CollapsedWorkView execution={{ ...execution, status: 'stopped' }} />)).toContain(
+    'data-outcome="stopped"'
+  )
+  expect(
+    render(<CollapsedWorkView execution={{ ...execution, steps: [{ ...execution.steps![0]!, status: 'failed' }] }} />)
+  ).toContain('data-outcome="failed"')
 })
 
 test('live thinking uses one collapsed disclosure with its timer and keeps the complete text available when opened', () => {
@@ -154,7 +162,7 @@ test('live work uses the room activity phases before the final reply is committe
     />
   )
   expect(parallel).toContain('2 tool calls')
-  expect(parallel.match(/Searching source material/g)).toHaveLength(1)
+  expect(parallel.match(/>Searching source material</g)).toHaveLength(1)
   expect(parallel).not.toContain('pod-chat-tool-group')
 })
 
@@ -656,4 +664,11 @@ test('an unresolved question stays actionable outside a 500-message history wind
   ]
   expect(unloadedPendingQuestions(interactions, messages)).toEqual([question])
   expect(unloadedPendingQuestions(interactions, [{ id: question.messageID }, ...messages])).toEqual([])
+})
+
+test('a message from before today names its day as well as its time', () => {
+  const now = new Date(2026, 9, 29, 15, 0)
+  expect(messageTime(new Date(2026, 9, 29, 9, 41).toISOString(), 'en-US', now)).toBe('09:41 AM')
+  expect(messageTime(new Date(2026, 9, 27, 9, 41).toISOString(), 'en-US', now)).toBe('Oct 27 at 09:41 AM')
+  expect(messageTime(new Date(2025, 11, 31, 23, 5).toISOString(), 'en-US', now)).toBe('Dec 31, 2025 at 11:05 PM')
 })

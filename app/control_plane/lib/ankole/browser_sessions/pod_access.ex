@@ -121,16 +121,22 @@ defmodule Ankole.BrowserSessions.PodAccess do
   end
 
   @doc false
-  def save_pod_authentications(authentication, principals) do
-    tenant_ids =
-      PodAuthentication
-      |> Ash.Query.for_read(:lookup_across_tenants)
-      |> Ash.Query.filter(authentication_id == ^authentication.id)
-      |> Ankole.Ash.read_across_tenants!()
-      |> Enum.map(& &1.tenant_id)
-      |> Enum.uniq()
+  def pod_tenant_ids(authentication_id) do
+    PodAuthentication
+    |> Ash.Query.for_read(:lookup_across_tenants)
+    |> Ash.Query.filter(authentication_id == ^authentication_id)
+    |> Ankole.Ash.read_across_tenants!()
+    |> Enum.map(& &1.tenant_id)
+    |> Enum.uniq()
+  end
 
-    with :ok <- remove_pod_authentications(authentication, tenant_ids) do
+  @doc false
+  def remove_pod_authentication_in_tx(authentication, tenant_id),
+    do: remove_pod_authentications(authentication, [tenant_id])
+
+  @doc false
+  def save_pod_authentications(authentication, principals) do
+    with :ok <- remove_pod_authentications(authentication, pod_tenant_ids(authentication.id)) do
       Enum.reduce_while(principals, :ok, fn principal, :ok ->
         result =
           Repo.with_tenant(principal.tenant_id, fn ->
@@ -154,7 +160,7 @@ defmodule Ankole.BrowserSessions.PodAccess do
 
     with {:ok, authentication} <- Identity.fetch_authentication(ref),
          {:ok, _} <- Identity.fetch_browser(%{"id" => authentication.browser_id}, true),
-         {:ok, %Authentication{purpose: :site} = authentication} <-
+         {:ok, %Authentication{scope: :site} = authentication} <-
            Identity.fetch_authentication(ref),
          true <- Ankole.IdentityProviders.SiteSources.registered?(authentication.provider_id) do
       action.(authentication)

@@ -1,40 +1,39 @@
 .ankole-editor,
 .ankole-editor-overlay {
-  --editor-callout-bg: #faf7f0;
-  --editor-callout-border: #eee6d6;
-  --editor-callout-fg: #6f6252;
-  --editor-callout-icon: #b49a6f;
-  --editor-callout-warn-bg: #fff5e6;
-  --editor-callout-warn-border: #e4c99f;
-  --editor-callout-warn-icon: #c08a2e;
-}
-
-:is([data-theme='dark'], [data-theme='dark'] *):is(.ankole-editor, .ankole-editor-overlay) {
-  --editor-callout-bg: #22201c;
-  --editor-callout-border: #3d362c;
-  --editor-callout-fg: #dcd4c8;
-  --editor-callout-icon: #c9ae82;
-  --editor-callout-warn-bg: #2b2216;
-  --editor-callout-warn-border: #5c4524;
-  --editor-callout-warn-icon: #e0a84b;
+  --editor-callout-bg: var(--layer-01);
+  --editor-callout-border: transparent;
+  --editor-callout-fg: var(--foreground);
+  --editor-callout-warn-bg: var(--warning-subtle);
+  --editor-callout-warn-border: transparent;
 }
 
 :where(.ankole-editor, .ankole-editor-overlay) .callout {
   position: relative;
   background: var(--editor-callout-bg);
   border: 1px solid var(--editor-callout-border);
-  border-radius: 4px;
-  padding: 12px 18px 12px 44px;
-  margin: 18px 0;
+  border-radius: var(--radius-control);
+  padding: 12px 16px 12px 44px;
+  margin: 8px 0;
   color: var(--editor-callout-fg);
 }
-:where(.ankole-editor, .ankole-editor-overlay) .callout::before {
-  content: '◈';
+:where(.ankole-editor, .ankole-editor-overlay) .callout-icon {
   position: absolute;
-  left: 18px;
+  left: 12px;
   top: 12px;
-  line-height: 1.95;
-  color: var(--editor-callout-icon);
+  width: 26px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 20px;
+  line-height: 28px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) button.callout-icon {
+  cursor: pointer;
+}
+:where(.ankole-editor, .ankole-editor-overlay) button.callout-icon:hover {
+  background: var(--accent);
+  border-radius: var(--radius-control);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .callout p {
   margin: 2px 0;
@@ -43,7 +42,27 @@
   background: var(--editor-callout-warn-bg);
   border-color: var(--editor-callout-warn-border);
 }
-:where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='warning']::before {
-  content: '⚠';
-  color: var(--editor-callout-warn-icon);
+:where(.ankole-editor, .ankole-editor-overlay) .callout:not([data-tone]),
+:where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='info'] {
+  background: var(--info-subtle);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='success'] {
+  background: var(--success-subtle);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='danger'] {
+  background: var(--destructive-subtle);
+}
+:where(.ankole-editor-overlay).callout-menu {
+  width: 280px;
+  padding: 12px;
+}
+:where(.ankole-editor-overlay) .callout-icon-options,
+:where(.ankole-editor-overlay) .callout-tone-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+:where(.ankole-editor-overlay) .callout-tone-options [aria-pressed='true'] {
+  background: var(--accent);
 }

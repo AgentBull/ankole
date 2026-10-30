@@ -26,15 +26,16 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from '@tanstack/react-router'
-import { activateBrowserAccount, browserSession, deleteAuthSession } from '../common/api/generated/sdk.gen'
+import { activateBrowserAccount, browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 type BrowserAccount = BrowserSessionResponse['accounts'][number] | BrowserSessionResponse['pendingAccounts'][number]
 import { authenticationRef, podID } from '../common/browser-context'
-import { endPodSession } from '../common/browser-session'
+import { endAccountSession, endBrowserSession } from '../common/browser-session'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { requestErrorMessage } from '../common/request-errors'
+import { avatarInitials } from './avatar-initials'
 
-const initial = (name: string) => [...name.trim()][0]?.toUpperCase() ?? '?'
+const initial = avatarInitials
 
 /**
  * The person and organization of this document, other accounts that this browser has proved,
@@ -62,14 +63,11 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const signOut = useMutation({
-    mutationFn: endPodSession,
-    onSettled: () => {
-      const tenant = podID()
-      window.location.assign(`/sessions/new${tenant ? `?${new URLSearchParams({ tenant_id: tenant })}` : ''}`)
-    }
+    mutationFn: endAccountSession,
+    onSettled: () => window.location.assign('/sessions/new')
   })
   const signOutAll = useMutation({
-    mutationFn: () => deleteAuthSession(),
+    mutationFn: endBrowserSession,
     onSuccess: () => window.location.assign('/sessions/logged-out')
   })
   const data = session.data
@@ -170,12 +168,14 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}>
           <RiLogoutBoxRLine aria-hidden />
-          {data?.displayName ? t('pod.sidebar.sign_out_name', { name: data.displayName }) : t('pod.sidebar.sign_out')}
+          {tenantName ? t('pod.sidebar.sign_out_name', { name: tenantName }) : t('pod.sidebar.sign_out')}
         </DropdownMenuItem>
-        <DropdownMenuItem disabled={signOutAll.isPending} onClick={() => signOutAll.mutate()}>
-          <RiLogoutCircleRLine aria-hidden />
-          {t('auth.sign_out_all')}
-        </DropdownMenuItem>
+        {(data?.accounts.length ?? 0) > 1 && (
+          <DropdownMenuItem disabled={signOutAll.isPending} onClick={() => signOutAll.mutate()}>
+            <RiLogoutCircleRLine aria-hidden />
+            {t('auth.sign_out_all')}
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

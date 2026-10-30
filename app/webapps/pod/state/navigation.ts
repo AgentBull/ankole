@@ -1,8 +1,29 @@
 import { recordValue, safeJsonParse } from '@agentbull/active-support'
-import { createModel, signal } from '@preact/signals-react'
+import { computed, createModel, signal } from '@preact/signals-react'
 
 export type NavigationScope = 'space' | 'private'
 export type CollapsibleSection = NavigationScope | 'recent' | 'favorites'
+
+/**
+ * History state a Sidebar link records with the page it opens, so the row the
+ * person followed stays the only marked one even when another section lists the page.
+ */
+export type PodSidebarNavigationState = {
+  keepSidebarTab?: 'home' | 'chat'
+  sidebarSection?: CollapsibleSection
+}
+
+/**
+ * Whether a Sidebar section owns the open page. Without a recorded section the page
+ * belongs to its tree, so a direct visit still marks the row where the page lives.
+ */
+export function isSidebarSectionActive(
+  activeSection: CollapsibleSection | undefined,
+  section: CollapsibleSection
+): boolean {
+  if (activeSection) return activeSection === section
+  return section === 'space' || section === 'private'
+}
 
 export type RecentEntry<
   P extends { id: string; visited_at?: string | null; updated_at?: string },
@@ -51,9 +72,7 @@ function decode(raw: string | null): Preferences {
       space: rootOpen?.space !== false,
       private: rootOpen?.private !== false
     },
-    expanded: new Set<string>(
-      Array.isArray(saved?.expanded) ? saved.expanded.filter((id: unknown) => typeof id === 'string' && id) : []
-    )
+    expanded: new Set<string>()
   }
 }
 
@@ -61,18 +80,25 @@ function decode(raw: string | null): Preferences {
 export const NavigationModel = createModel(
   (pod?: string, identity?: string, storage: PreferenceStorage | undefined = browserStorage()) => {
     const storageKey = pod && identity ? `ankole.pod.navigation:${pod}:${identity}` : undefined
-    let initial: string | null = null
+    let stored: string | null = null
     try {
-      if (storageKey) initial = storage?.getItem(storageKey) ?? null
+      if (storageKey) stored = storage?.getItem(storageKey) ?? null
     } catch {
       // Storage may be blocked. Navigation remains available for this document.
     }
-    const preferences = signal(decode(initial))
+    const preferences = signal(decode(stored))
+    const restore = (raw: string | null) => {
+      if (raw === stored) return
+      stored = raw
+      preferences.value = { ...decode(raw), expanded: preferences.peek().expanded }
+    }
     const save = (next: Preferences) => {
       preferences.value = next
       try {
-        if (storageKey) {
-          storage?.setItem(storageKey, JSON.stringify({ rootOpen: next.rootOpen, expanded: [...next.expanded] }))
+        if (storageKey && storage) {
+          const raw = JSON.stringify({ rootOpen: next.rootOpen })
+          storage.setItem(storageKey, raw)
+          stored = raw
         }
       } catch {
         // A failed preference write must not undo the user's local choice.
@@ -83,8 +109,23 @@ export const NavigationModel = createModel(
         return storageKey
       },
       preferences,
-      restore(raw: string | null) {
-        preferences.value = decode(raw)
+      rootOpen: computed(() => preferences.value.rootOpen),
+      restore,
+      refreshPreferences() {
+        if (!storageKey || !storage) return
+        try {
+          restore(storage.getItem(storageKey))
+        } catch {
+          // Keep this document's choices when storage cannot be read.
+        }
+      },
+      revealPath(ids: string[], scope: NavigationScope) {
+        const current = preferences.peek()
+        preferences.value = {
+          ...current,
+          rootOpen: { ...current.rootOpen, [scope]: true },
+          expanded: new Set([...current.expanded, ...ids])
+        }
       },
       toggleRoot(scope: CollapsibleSection) {
         const current = preferences.peek()
@@ -95,7 +136,14 @@ export const NavigationModel = createModel(
         const expanded = new Set(current.expanded)
         if (expanded.has(id)) expanded.delete(id)
         else expanded.add(id)
-        save({ ...current, expanded })
+        preferences.value = { ...current, expanded }
+      },
+      closePage(id: string) {
+        const current = preferences.peek()
+        if (!current.expanded.has(id)) return
+        const expanded = new Set(current.expanded)
+        expanded.delete(id)
+        preferences.value = { ...current, expanded }
       }
     }
   }

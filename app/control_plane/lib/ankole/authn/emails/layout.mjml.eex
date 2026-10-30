@@ -21,14 +21,14 @@
         background-color: #FFFFFF;
       }
       .ankole-link {
-        color: #18191A;
+        color: #E10059;
         text-decoration: underline;
         text-underline-offset: 3px;
       }
       .ankole-cta {
         display: inline-block;
         padding: 11px 22px;
-        background-color: #18191A;
+        background-color: #E10059;
         color: #FFFFFF !important;
         border-radius: 4px;
         font-size: 15px;
@@ -82,9 +82,9 @@
       <mj-section padding="28px 0 0 0">
         <mj-column>
           <mj-divider border-width="1px" border-style="solid" border-color="#E5E4E1" padding="0 0 18px 0" />
-          <mj-text font-size="13px" line-height="1.5" color="#888987">
+          <mj-text font-size="13px" line-height="1.5" color="#87898A">
             <span style="color:#636566;font-weight:500;">Ankole</span>
-            <span style="color:#CBCAC6;padding:0 6px;">&middot;</span>
+            <span style="color:#CBCAC7;padding:0 6px;">&middot;</span>
             <span><%= @footer %></span>
           </mj-text>
         </mj-column>

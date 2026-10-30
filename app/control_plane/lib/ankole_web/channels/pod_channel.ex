@@ -15,10 +15,13 @@ defmodule AnkoleWeb.PodChannel do
   def allowed?(socket),
     do:
       with_tenant(socket, fn ->
+        opts =
+          if match?("applet:" <> _, socket.assigns[:room_topic]), do: [trash: false], else: []
+
         AnkoleWeb.PodSocket.active?(socket.assigns) and
           match?(
             {:ok, _},
-            Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "page_view")
+            Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "page_view", opts)
           )
       end)
 

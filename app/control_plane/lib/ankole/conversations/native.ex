@@ -616,7 +616,7 @@ defmodule Ankole.Conversations.Native do
   def authorize_page(_uid, nil), do: :ok
 
   def authorize_page(%Ankole.AuthZ.Actor{} = actor, id) do
-    case Ankole.Pod.Pages.authorize(actor, id, "page_view") do
+    case Ankole.Pod.Pages.authorize(actor, id, "page_view", trash: false) do
       {:ok, _} -> :ok
       _ -> {:error, :page_unavailable}
     end

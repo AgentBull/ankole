@@ -73,7 +73,9 @@ defmodule Ankole.Logging.JSONFormatterTest do
              )
   end
 
-  test "a Phoenix endpoint request emits one completion log" do
+  test "a Phoenix endpoint request emits one completion log", tags do
+    Ankole.DataCase.setup_sandbox(tags)
+
     log =
       capture_log([format: "$metadata$message\n", metadata: [:event]], fn ->
         conn = AnkoleWeb.ConnCase.build_conn()

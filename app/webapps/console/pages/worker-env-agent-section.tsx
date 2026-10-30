@@ -324,7 +324,7 @@ export function WorkerEnvAgentSection({
   return (
     <section className="grid gap-4">
       <div className="grid gap-1">
-        <h3 className="text-lg font-semibold tracking-normal">{t('console.worker_envs.agent_section_title')}</h3>
+        <h3 className="title-section">{t('console.worker_envs.agent_section_title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.worker_envs.agent_section_description')}</p>
       </div>
       <ErrorBlock error={list.error ?? draftError} />

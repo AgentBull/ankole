@@ -1,20 +1,23 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Leaf } from '../core/doc'
+import { Leaf, Node } from '../core/doc'
 import { Wordgard } from '../core/editor'
 import { GardSelection, GardState, Transaction } from '../core/state'
 import { PhraseSet } from '../core/phrases'
-import * as T from '../core/types'
-import { applyBlockType, blockOptions, type BlockOption } from '../editor/block-actions'
+import { applyBlockType } from '../editor/block-actions'
+import { filterBlockOptions, type BlockOption, type BlockType } from '../editor/block-catalog'
+import { mentionField } from '../editor/mention'
+import { BlockTypeItems } from './BlockTypeItems'
+import { useAnchoredOverlay } from './anchored-overlay'
 import { useEditor, useEditorLabel, useEditorState } from './context'
 
 /*
  * The slash menu (SPEC §7.6). `/` opens it at the start of a text run (for example right after bold
  * text or a link), or after whitespace or `(`, outside code blocks. The query after `/` has at most
- * 75 characters and no whitespace or punctuation. The menu state is a field of the editor state, so
- * key handling and rendering read the same value.
+ * 75 characters and can include spaces, but not line breaks or punctuation. The menu state is a
+ * field of the editor state, so key handling and rendering read the same value.
  */
-const query = /(?:^|[\s(])\/([^\s.,+*?$@|#{}()^\-[\]\\/!%'"~=<>_:;]{0,75})$/
+const query = /(?:^|[\s(])\/([^\r\n\t.,+*?$|#{}()^\-[\]\\/!%'"~=<>_:;]{0,75})$/
 
 type Slash = {
   /** The position of `/`. */
@@ -33,17 +36,16 @@ const dismiss = Transaction.Effect.define<null>()
 function find(state: GardState, previous: Slash | null): Slash | null {
   const { selection } = state
   if (state.readOnly || !(selection instanceof GardSelection.Text) || !selection.empty) return null
+  if (state.field(mentionField, false)) return null
   const head = state.sel.head
-  if (!head.parent.node.isTextblock || head.parent.node.type == T.CodeBlock.type) return null
+  if (!head.parent.node.isTextblock || head.parent.node.type.hasRole(Node.Role.Code)) return null
   // The text run that holds the caret, up to the caret.
   const run = head.inText ? head.parent.node.content[head.index] : head.nodeBefore
   if (!run?.is(Leaf.Text)) return null
   const match = query.exec(head.inText ? run.param.slice(0, head.inText) : run.param)
   if (!match) return null
   const text = match[1]!.toLowerCase()
-  const options = blockOptions.filter(option =>
-    `${option.title(state)} ${option.detail(state)} ${option.keywords ?? ''}`.toLowerCase().includes(text)
-  )
+  const options = filterBlockOptions(state, text)
   if (!options.length) return null
   const from = selection.head - match[1]!.length - 1
   const index =
@@ -77,10 +79,10 @@ const slashField = GardState.Field.define<Slash | null>({
 const optionId = (wg: Wordgard, index: number) => `${wg.contentDOM.id}-slash-${index}`
 
 /** Delete the query and apply the block type at the caret, as one undo step. */
-function choose(wg: Wordgard, option: BlockOption) {
+function choose(wg: Wordgard, type: BlockType) {
   const menu = wg.state.field(slashField, false)
   if (!menu) return
-  applyBlockType(wg, option.type, { from: menu.from, to: menu.to })
+  applyBlockType(wg, type, { from: menu.from, to: menu.to })
   wg.focus()
 }
 
@@ -95,7 +97,7 @@ const keys = Wordgard.domEventHandler('keydown', (event, wg) => {
     return true
   }
   if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
-    choose(wg, menu.options[menu.index]!)
+    choose(wg, menu.options[menu.index]!.type)
     return true
   }
   if (event.key === 'Escape') {
@@ -109,12 +111,13 @@ const keys = Wordgard.domEventHandler('keydown', (event, wg) => {
 export const slashMenu: GardState.Extension = [
   slashField,
   GardState.prec.highest(keys),
-  Wordgard.contentAttributes.of(wg => {
+  Wordgard.contentAttributes.of((wg): Record<string, string | null> => {
     const menu = wg.hasFocus ? wg.state.field(slashField, false) : null
+    if (!menu) return { 'aria-autocomplete': 'list' }
     return {
       'aria-autocomplete': 'list',
-      'aria-controls': menu ? `${wg.contentDOM.id}-slash` : null,
-      'aria-activedescendant': menu ? optionId(wg, menu.index) : null
+      'aria-controls': `${wg.contentDOM.id}-slash`,
+      'aria-activedescendant': optionId(wg, menu.index)
     }
   })
 ]
@@ -124,47 +127,14 @@ export function SlashMenu() {
   const editor = useEditor()
   const menu = useEditorState(state => (editor.hasFocus ? (state.field(slashField, false) ?? null) : null))
   const list = useRef<HTMLDivElement>(null)
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
   const from = menu?.from
-  // The height changes with the number of options. A menu above the caret moves with it.
   const count = menu?.options.length
-
-  useLayoutEffect(() => {
-    if (from === undefined) {
-      setPosition(null)
-      return
-    }
-    const place = () => {
-      const element = list.current
-      if (!element || !editor.state.field(slashField, false)) return
-      const caret = editor.coordsAtPos(from, 1)
-      const { width, height } = element.getBoundingClientRect()
-      const viewport = window.visualViewport
-      const minX = (viewport?.offsetLeft ?? 0) + 8
-      const maxX = minX + (viewport?.width ?? window.innerWidth) - 16
-      const minY = (viewport?.offsetTop ?? 0) + 8
-      const maxY = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight) - 8
-      const below = caret.bottom + 4
-      setPosition({
-        left: Math.max(minX, Math.min(caret.left, maxX - width)),
-        top:
-          below + height > maxY && caret.top - height - 4 >= minY
-            ? caret.top - height - 4
-            : Math.min(below, maxY - height)
-      })
-    }
-    place()
-    window.addEventListener('scroll', place, true)
-    window.addEventListener('resize', place)
-    window.visualViewport?.addEventListener('resize', place)
-    window.visualViewport?.addEventListener('scroll', place)
-    return () => {
-      window.removeEventListener('scroll', place, true)
-      window.removeEventListener('resize', place)
-      window.visualViewport?.removeEventListener('resize', place)
-      window.visualViewport?.removeEventListener('scroll', place)
-    }
-  }, [editor, from, count])
+  const position = useAnchoredOverlay({
+    open: menu !== null,
+    panelRef: list,
+    anchor: () => (from === undefined ? null : editor.coordsAtPos(from, 1)),
+    dependencies: [from, count]
+  })
 
   useLayoutEffect(() => {
     if (menu) list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
@@ -175,34 +145,23 @@ export function SlashMenu() {
     <div
       ref={list}
       id={`${editor.contentDOM.id}-slash`}
-      className="slash-menu ankole-editor-overlay ceramic ceramic-primary"
+      className="block-menu slash-menu ankole-editor-overlay ceramic ceramic-primary"
       role="listbox"
       aria-label={label('slash_menu')}
       style={position ?? { visibility: 'hidden' }}>
-      <div className="menu-label">{label('add_content')}</div>
-      {menu.options.map((option, index) => (
-        <button
-          key={option.type}
-          id={optionId(editor, index)}
-          type="button"
-          tabIndex={-1}
-          className={index === menu.index ? 'selected' : ''}
-          role="option"
-          aria-selected={index === menu.index}
-          onMouseDown={event => event.preventDefault()}
-          onMouseEnter={() => {
+      <BlockTypeItems
+        options={menu.options}
+        onChoose={type => choose(editor, type)}
+        slash={{
+          index: menu.index,
+          id: index => optionId(editor, index),
+          highlight: index => {
             if (editor.state.field(slashField, false)?.index !== index) {
               editor.dispatch({ effects: highlight.of(index) })
             }
-          }}
-          onClick={() => choose(editor, option)}>
-          <span className="menu-icon">{option.glyph}</span>
-          <span>
-            {option.title(editor.state)}
-            <small>{option.detail(editor.state)}</small>
-          </span>
-        </button>
-      ))}
+          }
+        }}
+      />
     </div>,
     document.body
   )

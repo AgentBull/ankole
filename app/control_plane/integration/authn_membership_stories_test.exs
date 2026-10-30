@@ -586,7 +586,7 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     reference = BrowserSessions.reference(browser)
 
     {:ok, sent} =
-      Domain.request_otp(reference, email, "story-#{browser.id}", login_purpose: :site)
+      Domain.request_otp(reference, email, "story-#{browser.id}", scope: :site)
 
     code = delivered_code(email)
 

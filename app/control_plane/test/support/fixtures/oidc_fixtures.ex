@@ -57,8 +57,6 @@ defmodule Ankole.OIDCFixtures do
 
     {:ok, sent} =
       Ankole.Authn.Domain.request_otp(ref, email, "oidc-fixture",
-        purpose: :oauth,
-        mode: :add,
         oauth_request_id: request.id,
         request: request.request,
         return_to: "/oauth/authorize/resume?oauth_request=" <> request.id
@@ -76,7 +74,7 @@ defmodule Ankole.OIDCFixtures do
     {:ok, %{authentication: authentication}} =
       Ankole.Authn.Domain.verify_otp(ref, sent.challenge_id, code, "oidc-fixture")
 
-    proof = BrowserSessions.authentication(BrowserSessions.reference(authentication), :oauth)
+    proof = BrowserSessions.identity(BrowserSessions.reference(authentication), Repo.tenant_id!())
     OIDC.Sessions.ensure(client_id, proof, scope)
   end
 end

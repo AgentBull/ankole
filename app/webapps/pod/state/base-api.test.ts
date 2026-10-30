@@ -78,6 +78,7 @@ class RealtimeBoundary {
   readonly listeners = new Map<string, Set<(event: TableEvent) => void>>()
   readonly versions = new Set<(version: number | undefined) => void>()
   readonly handle: TopicHandle = {
+    presence: () => [],
     ready: this.ready.promise,
     push: async () => {
       throw new Error('These tests do not send channel commands')

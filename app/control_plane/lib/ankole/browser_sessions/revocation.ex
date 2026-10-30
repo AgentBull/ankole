@@ -4,7 +4,7 @@ defmodule Ankole.BrowserSessions.Revocation do
   """
   require Ash.Query
 
-  alias Ankole.BrowserSessions.{Authentication, Identity, OidcState, Session}
+  alias Ankole.BrowserSessions.{Authentication, Identity, OidcState, PodAccess, Session}
   alias Ankole.OIDC.AuthorizationRequests
   alias Ankole.Repo
 
@@ -18,8 +18,110 @@ defmodule Ankole.BrowserSessions.Revocation do
 
     with {:ok, browser} <- Identity.fetch_browser(browser_ref, true),
          {:ok, authentication} <- Identity.fetch_authentication(authentication_ref),
-         true <- authentication.browser_id == browser.id,
-         :ok <- revoke_records([authentication], browser.revision + 1),
+         true <- authentication.browser_id == browser.id do
+      finish_revocation(browser, authentication)
+    else
+      false -> {:error, :invalid_authentication}
+      error -> error
+    end
+  end
+
+  def revoke_pod(browser_ref, authentication_ref, tenant_id) when is_binary(tenant_id) do
+    Repo.transact_top_level(fn ->
+      revoke_pod_in_tx(browser_ref, authentication_ref, tenant_id)
+    end)
+  end
+
+  @doc false
+  def revoke_pod_in_tx(browser_ref, authentication_ref, tenant_id) when is_binary(tenant_id) do
+    Identity.in_transaction!(:revoke_pod_in_tx)
+
+    with {:ok, tenant_id} <- cast_tenant_id(tenant_id),
+         {:ok, browser} <- Identity.fetch_browser(browser_ref, true),
+         {:ok, authentication} <- Identity.fetch_authentication(authentication_ref),
+         true <- authentication.browser_id == browser.id do
+      case authentication.scope do
+        :tenant ->
+          if authentication.tenant_id == tenant_id do
+            with {:ok, browser} <- finish_revocation(browser, authentication) do
+              {:ok, %{browser: browser, authentication_revoked?: true}}
+            end
+          else
+            {:error, :invalid_authentication}
+          end
+
+        :site ->
+          revoke_site_pod(browser, authentication, tenant_id)
+      end
+    else
+      false -> {:error, :invalid_authentication}
+      error -> error
+    end
+  end
+
+  defp cast_tenant_id(tenant_id) do
+    case Ecto.UUID.cast(tenant_id) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :invalid_authentication}
+    end
+  end
+
+  defp revoke_site_pod(browser, authentication, tenant_id) do
+    pod_ids = PodAccess.pod_tenant_ids(authentication.id)
+
+    if tenant_id not in pod_ids do
+      {:error, :invalid_authentication}
+    else
+      remaining? =
+        pod_ids
+        |> Enum.reject(&(&1 == tenant_id))
+        |> Enum.any?(&(Identity.authentication_identity(authentication, &1) != nil))
+
+      if remaining? do
+        with :ok <-
+               Ankole.OIDC.Sessions.end_authentication_in_tx(
+                 authentication.id,
+                 authentication.revision,
+                 tenant_id: tenant_id
+               ),
+             :ok <- PodAccess.remove_pod_authentication_in_tx(authentication, tenant_id),
+             :ok <-
+               AuthorizationRequests.cancel_for_browser_in_tx(browser.id,
+                 authentication_id: authentication.id,
+                 tenant_id: tenant_id
+               ),
+             :ok <-
+               OidcState
+               |> Ash.Query.filter(
+                 browser_id == ^browser.id and tenant_id == ^tenant_id and is_nil(consumed_at) and
+                   expected_authentication_id == ^authentication.id
+               )
+               |> expire_oidc_states(),
+             {:ok, browser} <- clear_revoked_pod_default(browser, authentication.id, tenant_id) do
+          {:ok, %{browser: browser, authentication_revoked?: false}}
+        end
+      else
+        with {:ok, browser} <- finish_revocation(browser, authentication) do
+          {:ok, %{browser: browser, authentication_revoked?: true}}
+        end
+      end
+    end
+  end
+
+  defp clear_revoked_pod_default(browser, authentication_id, tenant_id) do
+    attrs = [revision: browser.revision + 1]
+
+    attrs =
+      if browser.active_authentication_id == authentication_id and
+           browser.active_tenant_id == tenant_id,
+         do: attrs ++ [active_authentication_id: nil, active_tenant_id: nil],
+         else: attrs
+
+    Ankole.Ash.update(browser, :revoke_in_tx, Map.new(attrs))
+  end
+
+  defp finish_revocation(browser, authentication) do
+    with :ok <- revoke_records([authentication], browser.revision + 1),
          :ok <-
            AuthorizationRequests.cancel_for_browser_in_tx(browser.id,
              authentication_id: authentication.id
@@ -39,9 +141,6 @@ defmodule Ankole.BrowserSessions.Revocation do
           else: attrs
 
       Ankole.Ash.update(browser, :revoke_in_tx, Map.new(attrs))
-    else
-      false -> {:error, :invalid_authentication}
-      error -> error
     end
   end
 

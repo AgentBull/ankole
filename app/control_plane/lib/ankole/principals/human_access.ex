@@ -79,9 +79,13 @@ defmodule Ankole.Principals.HumanAccess do
     end
   end
 
+  def check(%Principal{type: :human, status: :active, access_version: version}, version)
+      when is_integer(version),
+      do: :ok
+
   def check(uid, version) when is_binary(uid) and is_integer(version) do
     case Principals.get_principal_across_tenants(uid) do
-      {:ok, %Principal{type: :human, status: :active, access_version: ^version}} -> :ok
+      {:ok, principal} -> check(principal, version)
       _ -> {:error, :human_access_revoked}
     end
   end

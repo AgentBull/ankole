@@ -51,9 +51,109 @@ function EmbeddedHost() {
   const [toolbarVisible, setToolbarVisible] = useState(true)
   const [labels, setLabels] = useState<Partial<EditorLabels>>()
   const [collaboration, setCollaboration] = useState({ revision: 0, pending: false })
+  const [commentEvent, setCommentEvent] = useState('')
+  const [agentEvent, setAgentEvent] = useState('')
+  const [acceptedFiles, setAcceptedFiles] = useState('')
+  const [resolvedComments, setResolvedComments] = useState<readonly string[]>([])
+  const [openedPage, setOpenedPage] = useState('')
+  const mentionCatalog = useMemo(
+    () => [
+      {
+        target: { page: '019a2b00-0000-7000-8000-000000000101' } as const,
+        category: 'page' as const,
+        title: 'Product Roadmap',
+        subtitle: 'Product Space · 2m ago'
+      },
+      {
+        target: { page: '019a2b00-0000-7000-8000-000000000102' } as const,
+        category: 'page' as const,
+        title: '季度复盘报告',
+        subtitle: '公司空间 · 昨天'
+      },
+      {
+        target: { principal: 'usr_alice_001' } as const,
+        category: 'principal' as const,
+        title: 'Alice Chen',
+        subtitle: 'Staff Designer · alice@ankole.test'
+      },
+      {
+        target: { principal: 'agt_research_001' } as const,
+        category: 'principal' as const,
+        title: 'Research Agent',
+        badge: 'Agent',
+        subtitle: '@researcher · Market synthesis'
+      }
+    ],
+    []
+  )
   const host = useMemo<EditorHost>(
     () => ({
+      requestComment: selection => setCommentEvent(JSON.stringify(selection)),
+      askAgent: selection => setAgentEvent(JSON.stringify(selection)),
+      acceptFiles: async files => {
+        if (files.some(file => file.name.startsWith('reject'))) throw new Error('Host rejected the files')
+        setAcceptedFiles(files.map(file => file.name).join(' '))
+      },
+      openComment: ids => setCommentEvent(ids.join(' ')),
+      openPage: id => setOpenedPage(id),
       resolveAsset: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      queryMentions({ query, category }) {
+        const needle = query.trim().toLowerCase()
+        const match = (entry: (typeof mentionCatalog)[number]) =>
+          !needle ||
+          entry.title.toLowerCase().includes(needle) ||
+          (entry.subtitle?.toLowerCase().includes(needle) ?? false)
+        const allMatches = mentionCatalog.filter(match)
+        const items = category === 'all' ? allMatches : allMatches.filter(entry => entry.category === category)
+        return {
+          items: items.map(({ target, category: itemCat, title, subtitle, badge }) => ({
+            target,
+            title,
+            subtitle,
+            badge,
+            section: category === 'all' ? (itemCat === 'page' ? '页面' : '主体') : undefined,
+            sectionCategory: category === 'all' ? itemCat : undefined
+          })),
+          totalAllMatches: allMatches.length
+        }
+      },
+      mountMention(target, container, options) {
+        const entry = mentionCatalog.find(item =>
+          'page' in target
+            ? 'page' in item.target && item.target.page === target.page
+            : 'principal' in item.target && item.target.principal === target.principal
+        )
+        if ('page' in target) {
+          const link = document.createElement('a')
+          link.href = `/p/${target.page}`
+          link.textContent = entry?.title ?? 'Restricted page'
+          link.onclick = event => {
+            if (!event.metaKey && !event.ctrlKey && options.openPage) {
+              event.preventDefault()
+              options.openPage(target.page)
+            }
+          }
+          container.replaceChildren(link)
+          return () => container.replaceChildren()
+        }
+        container.textContent = `@${entry?.title ?? target.principal}`
+        return () => {
+          container.textContent = ''
+        }
+      },
+      mentionText(target) {
+        const entry = mentionCatalog.find(item =>
+          'page' in target
+            ? 'page' in item.target && item.target.page === target.page
+            : 'principal' in item.target && item.target.principal === target.principal
+        )
+        if ('page' in target) return entry?.title ?? 'Restricted page'
+        return `@${entry?.title ?? target.principal}`
+      },
+      matchPageUrl(url) {
+        const match = /^https:\/\/ankole\.test\/p\/([0-9a-f-]{36})(?:[?#].*)?$/i.exec(url)
+        return match?.[1] ?? null
+      },
       mountEmbed(attributes, container) {
         const code = document.createElement('code')
         code.textContent = attributes.ref ?? ''
@@ -64,7 +164,7 @@ function EmbeddedHost() {
         }
       }
     }),
-    []
+    [mentionCatalog]
   )
   const pages = useRef<Partial<Record<'first' | 'second', PageSession>>>({})
   useEffect(() => {
@@ -109,6 +209,50 @@ function EmbeddedHost() {
         <button onClick={() => setRender(value => value + 1)}>Rerender host</button>
         <button onClick={() => setVisible(value => !value)}>Toggle first editor</button>
         <button onClick={() => setReadOnly(value => !value)}>Toggle read only</button>
+        <button
+          onClick={() => {
+            const page = pages.current.first!
+            page.apply({
+              format: 'xml',
+              source:
+                '<page><p><comment ids="019a2b00-0000-7000-8000-000000000001">Anchored text</comment></p><p>Destination</p></page>',
+              revision: page.revision
+            })
+          }}>
+          Apply comment to first
+        </button>
+        <button
+          onClick={() => {
+            const page = pages.current.first!
+            page.apply({
+              format: 'xml',
+              source:
+                '<page><pre lang="ts">a<comment ids="019a2b00-0000-7000-8000-000000000001">b\n  c</comment>d</pre></page>',
+              revision: page.revision
+            })
+          }}>
+          Apply code comment to first
+        </button>
+        <output aria-label="Comment event">{commentEvent}</output>
+        <output aria-label="Agent event">{agentEvent}</output>
+        <output aria-label="Accepted files">{acceptedFiles}</output>
+        <output aria-label="Opened page">{openedPage}</output>
+        <button
+          onClick={() => setResolvedComments(ids => (ids.length ? [] : ['019a2b00-0000-7000-8000-000000000001']))}>
+          Toggle comment resolved
+        </button>
+        <button
+          onClick={() => {
+            const page = pages.current.first!
+            page.apply({
+              format: 'xml',
+              revision: page.revision,
+              source:
+                '<page><p><comment ids="019a2b00-0000-7000-8000-000000000001 019a2b00-0000-7000-8000-000000000002">Overlapping threads</comment></p></page>'
+            })
+          }}>
+          Apply overlapping comments
+        </button>
         <button onClick={() => setToolbarVisible(value => !value)}>Toggle second toolbar</button>
         <button
           onClick={() =>
@@ -169,6 +313,8 @@ function EmbeddedHost() {
           {visible && (
             <BlockEditor
               ariaLabel="First document"
+              host={host}
+              resolvedCommentIDs={resolvedComments}
               initial={render ? 'New initial must not replace edits' : '# First\n\nAlpha text'}
               onReady={editor => ready('first', editor)}
               readOnly={readOnly}

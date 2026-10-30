@@ -1,46 +1,99 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { createRootRoute, createRoute, createRouter, Navigate, RouterProvider } from '@tanstack/react-router'
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  lazyRouteComponent,
+  Navigate,
+  RouterProvider
+} from '@tanstack/react-router'
 import { configureConsoleAPIClient } from './api/client'
 import { applyDataTenantNavigation } from '../common/browser-session'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { createConsoleRouteLoaders } from './console-route-loaders'
 import { ConsoleLayout } from './console-shell-chrome'
-import { AgentEditorPage, AgentsListPage } from './pages/agents'
-import { AgentFilesPage } from './pages/agent-files'
-import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/identity'
-import { IdentityMappingCreatePage, IdentityMappingsPage } from './pages/identity-mappings'
-import { ProviderEditorPage, ProvidersListPage } from './pages/providers'
-import { SettingEditorDrawer, SettingGroupDrawer, SettingsPage } from './pages/settings'
-import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
-import { ScheduleCheckbacksPage, ScheduleCronEditorPage, SchedulesListPage } from './pages/schedules'
-import { WebhooksPage } from './pages/webhooks'
-import { AutomationJobsPage } from './pages/automation-jobs'
-import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
-import { WorkersListPage } from './pages/workers'
-import { WorkerProviderEditorPage, WorkerProvidersListPage } from './pages/worker-providers'
-import { BackgroundAgentJobsPage } from './pages/background-agent-jobs'
-import { ConversationDetailPage, ConversationsListPage } from './pages/conversations'
-import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
-import { BrainObjectDrawer, BrainObjectsPage } from './pages/brain/objects'
-import { BrainObjectEditorPage } from './pages/brain/object-editor'
-import { BrainClaimsPage } from './pages/brain/claims'
-import { BrainContradictionsPage } from './pages/brain/contradictions'
-import { BrainMergeSuggestionsPage } from './pages/brain/merge-suggestions'
-import { BrainSourcesPage } from './pages/brain/sources'
-import { BrainSuggestionsPage } from './pages/brain/suggestions'
-import { BrainSearchPreviewPage } from './pages/brain/search-preview'
-import { BrainPrincipalAuditPage } from './pages/brain/principal-audit'
-import { BrainHealthPage } from './pages/brain/health'
-import { PrincipalGroupEditorPage, PrincipalGroupsListPage } from './pages/principal-groups'
-import { PrincipalCreatePage } from './pages/principal-create'
-import { PrincipalEditPage } from './pages/principal-edit'
-import { PrincipalDetailPage, PrincipalsListPage } from './pages/principals'
-import { PermissionGrantEditorPage } from './pages/permission-grant-editor'
-import { OIDCClientEditorPage, OIDCClientsListPage } from './pages/oidc-clients'
 import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
-import { TenantsListPage, TenantEditorPage } from './pages/tenants'
 import { SlotBoundary, SlotGate } from '../common/slots'
 import { ConsoleSlotsContext, normalizeConsoleSlotPath, validateConsoleSlots, type ConsoleAppSlots } from './slots'
+
+const AgentEditorPage = lazyRouteComponent(() => import('./pages/agents'), 'AgentEditorPage')
+const AgentsListPage = lazyRouteComponent(() => import('./pages/agents'), 'AgentsListPage')
+const AgentFilesPage = lazyRouteComponent(() => import('./pages/agent-files'), 'AgentFilesPage')
+const IdentityProviderEditorPage = lazyRouteComponent(() => import('./pages/identity'), 'IdentityProviderEditorPage')
+const IdentityProvidersListPage = lazyRouteComponent(() => import('./pages/identity'), 'IdentityProvidersListPage')
+const IdentityMappingCreatePage = lazyRouteComponent(
+  () => import('./pages/identity-mappings'),
+  'IdentityMappingCreatePage'
+)
+const IdentityMappingsPage = lazyRouteComponent(() => import('./pages/identity-mappings'), 'IdentityMappingsPage')
+const ProviderEditorPage = lazyRouteComponent(() => import('./pages/providers'), 'ProviderEditorPage')
+const ProvidersListPage = lazyRouteComponent(() => import('./pages/providers'), 'ProvidersListPage')
+const SettingEditorDrawer = lazyRouteComponent(() => import('./pages/settings'), 'SettingEditorDrawer')
+const SettingGroupDrawer = lazyRouteComponent(() => import('./pages/settings'), 'SettingGroupDrawer')
+const SettingsPage = lazyRouteComponent(() => import('./pages/settings'), 'SettingsPage')
+const SignalBindingEditorPage = lazyRouteComponent(() => import('./pages/signals'), 'SignalBindingEditorPage')
+const SignalsListPage = lazyRouteComponent(() => import('./pages/signals'), 'SignalsListPage')
+const ScheduleCheckbacksPage = lazyRouteComponent(() => import('./pages/schedules'), 'ScheduleCheckbacksPage')
+const ScheduleCronEditorPage = lazyRouteComponent(() => import('./pages/schedules'), 'ScheduleCronEditorPage')
+const SchedulesListPage = lazyRouteComponent(() => import('./pages/schedules'), 'SchedulesListPage')
+const WebhooksPage = lazyRouteComponent(() => import('./pages/webhooks'), 'WebhooksPage')
+const AutomationJobsPage = lazyRouteComponent(() => import('./pages/automation-jobs'), 'AutomationJobsPage')
+const WorkerEnvEditorPage = lazyRouteComponent(() => import('./pages/worker-envs'), 'WorkerEnvEditorPage')
+const WorkerEnvsListPage = lazyRouteComponent(() => import('./pages/worker-envs'), 'WorkerEnvsListPage')
+const WorkersListPage = lazyRouteComponent(() => import('./pages/workers'), 'WorkersListPage')
+const WorkerProviderEditorPage = lazyRouteComponent(
+  () => import('./pages/worker-providers'),
+  'WorkerProviderEditorPage'
+)
+const WorkerProvidersListPage = lazyRouteComponent(() => import('./pages/worker-providers'), 'WorkerProvidersListPage')
+const BackgroundAgentJobsPage = lazyRouteComponent(
+  () => import('./pages/background-agent-jobs'),
+  'BackgroundAgentJobsPage'
+)
+const ConversationDetailPage = lazyRouteComponent(() => import('./pages/conversations'), 'ConversationDetailPage')
+const ConversationsListPage = lazyRouteComponent(() => import('./pages/conversations'), 'ConversationsListPage')
+const AgentLibraryPage = lazyRouteComponent(() => import('./pages/agent-library'), 'AgentLibraryPage')
+const AgentPluginDetailPage = lazyRouteComponent(() => import('./pages/agent-library'), 'AgentPluginDetailPage')
+const BrainObjectDrawer = lazyRouteComponent(() => import('./pages/brain/objects'), 'BrainObjectDrawer')
+const BrainObjectsPage = lazyRouteComponent(() => import('./pages/brain/objects'), 'BrainObjectsPage')
+const BrainObjectEditorPage = lazyRouteComponent(() => import('./pages/brain/object-editor'), 'BrainObjectEditorPage')
+const BrainClaimsPage = lazyRouteComponent(() => import('./pages/brain/claims'), 'BrainClaimsPage')
+const BrainContradictionsPage = lazyRouteComponent(
+  () => import('./pages/brain/contradictions'),
+  'BrainContradictionsPage'
+)
+const BrainMergeSuggestionsPage = lazyRouteComponent(
+  () => import('./pages/brain/merge-suggestions'),
+  'BrainMergeSuggestionsPage'
+)
+const BrainSourcesPage = lazyRouteComponent(() => import('./pages/brain/sources'), 'BrainSourcesPage')
+const BrainSuggestionsPage = lazyRouteComponent(() => import('./pages/brain/suggestions'), 'BrainSuggestionsPage')
+const BrainSearchPreviewPage = lazyRouteComponent(
+  () => import('./pages/brain/search-preview'),
+  'BrainSearchPreviewPage'
+)
+const BrainPrincipalAuditPage = lazyRouteComponent(
+  () => import('./pages/brain/principal-audit'),
+  'BrainPrincipalAuditPage'
+)
+const BrainHealthPage = lazyRouteComponent(() => import('./pages/brain/health'), 'BrainHealthPage')
+const PrincipalGroupEditorPage = lazyRouteComponent(
+  () => import('./pages/principal-groups'),
+  'PrincipalGroupEditorPage'
+)
+const PrincipalGroupsListPage = lazyRouteComponent(() => import('./pages/principal-groups'), 'PrincipalGroupsListPage')
+const PrincipalCreatePage = lazyRouteComponent(() => import('./pages/principal-create'), 'PrincipalCreatePage')
+const PrincipalEditPage = lazyRouteComponent(() => import('./pages/principal-edit'), 'PrincipalEditPage')
+const PrincipalDetailPage = lazyRouteComponent(() => import('./pages/principals'), 'PrincipalDetailPage')
+const PrincipalsListPage = lazyRouteComponent(() => import('./pages/principals'), 'PrincipalsListPage')
+const PermissionGrantEditorPage = lazyRouteComponent(
+  () => import('./pages/permission-grant-editor'),
+  'PermissionGrantEditorPage'
+)
+const OIDCClientEditorPage = lazyRouteComponent(() => import('./pages/oidc-clients'), 'OIDCClientEditorPage')
+const OIDCClientsListPage = lazyRouteComponent(() => import('./pages/oidc-clients'), 'OIDCClientsListPage')
+const TenantsListPage = lazyRouteComponent(() => import('./pages/tenants'), 'TenantsListPage')
+const TenantEditorPage = lazyRouteComponent(() => import('./pages/tenants'), 'TenantEditorPage')
 
 export type { ConsoleAppSlots } from './slots'
 
@@ -339,7 +392,7 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
             <SlotGate slot={route}>
               {enabled =>
                 enabled ? (
-                  <SlotBoundary>
+                  <SlotBoundary variant="panel" resetKeys={[route.id]}>
                     <route.Component />
                   </SlotBoundary>
                 ) : (
@@ -357,6 +410,7 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
   return createRouter({
     routeTree,
     basepath: basename,
+    defaultPendingMinMs: 0,
     parseSearch: parseRouterSearch,
     stringifySearch: stringifyRouterSearch
   })

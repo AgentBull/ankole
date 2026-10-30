@@ -350,4 +350,47 @@ defmodule Ankole.Brain.GetPageTest do
 
     refute outsider_page.rendered =~ "Kestrel private synthesis body."
   end
+
+  test "get_page returns revision, fact context, and caller-pruned Markdoc content when requested",
+       context do
+    {:ok, %{claim: contextual_fact}} =
+      Ankole.Brain.write_fact(
+        %{
+          object_slug: context.object.slug,
+          claim: "Minghu AI signed a pilot contract",
+          context: "Pilot covers three warehouses in Suzhou",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "medium",
+          confidence: 0.85,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "test"
+        },
+        context.member.uid
+      )
+
+    assert {:ok, default_page} = GetPage.get_page(context.member.uid, context.object.slug)
+    assert default_page.revision == context.object.content_hash
+    refute Map.has_key?(default_page, :content)
+    refute Map.has_key?(default_page, :body)
+
+    assert Enum.find(default_page.facts, &(&1.id == contextual_fact.id)).context ==
+             "Pilot covers three warehouses in Suzhou"
+
+    assert {:ok, member_with_content} =
+             GetPage.get_page(context.member.uid, context.object.slug, include_content: true)
+
+    assert member_with_content.content =~ "Public introduction."
+    assert member_with_content.content =~ ~s({% audience scope="group:#{context.group.name}" %})
+    assert member_with_content.content =~ "Internal deal progress."
+    refute Map.has_key?(member_with_content, :body)
+
+    assert {:ok, outsider_with_content} =
+             GetPage.get_page(context.outsider.uid, context.object.slug, include_content: true)
+
+    assert outsider_with_content.content =~ "Public introduction."
+    refute outsider_with_content.content =~ "Internal deal progress."
+    refute outsider_with_content.content =~ "{% audience"
+  end
 end

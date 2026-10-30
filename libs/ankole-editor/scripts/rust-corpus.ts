@@ -243,7 +243,27 @@ export function buildCorpus(seed = defaultSeed): Corpus {
       'code-unicode-and-breaks',
       '<page><pre lang="ts" meta="title=x">const x = 1\nconst y = 2</pre><p>🙂é👩‍💻中<br />ع</p></page>'
     ),
+    sample(
+      'comment-anchors',
+      '<page><p><comment ids="019a2b00-0000-7000-8000-000000000002 019a2b00-0000-7000-8000-000000000001"><strong>First</strong> 🙂<br /><img src="asset" /></comment> tail</p></page>'
+    ),
+    sample(
+      'code-comment-anchors',
+      '<page><pre lang="ts">a<comment ids="019a2b00-0000-7000-8000-000000000001">b\n  c</comment>d</pre></page>'
+    ),
+    sample(
+      'rich-resources',
+      '<page><h6>Section</h6><media kind="video" src="ankole:asset/movie.mp4" mime="video/mp4" title="Movie" /><bookmark src="https://example.com/" view="card" title="Example" description="Description" /><embed href="https://www.figma.com/design/example" /><callout tone="success" icon="✅"><p>Ready</p></callout></page>'
+    ),
     sample('callout', '<page><callout tone="warning"><p>本期包含新增产品。</p></callout></page>'),
+    sample(
+      'nested-blocks',
+      '<page><block><h2>Parent</h2><block><p>Child</p><p>Grandchild</p></block><ul><li><p>Item</p></li></ul></block><block><p>Leaf parent</p></block></page>'
+    ),
+    sample(
+      'columns',
+      '<page><columns><column width="1200"><p>Left</p></column><column width="800"><block><p>Parent</p><p>Child</p></block></column></columns><columns><column/><column width="1000"><p>Full width</p></column></columns></page>'
+    ),
     sample(
       'raw-inline-normalization',
       '<page><p>中\n文 <strong> a <em>b</em> </strong><span style="color:red"><span style="font-size:12px">x</span></span><br />\nnext</p></page>'
@@ -255,6 +275,19 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     sample(
       'xml-entities-and-cdata',
       '<?xml version="1.0" encoding="UTF-8"?><page><p a="x&#9;y">&amp;&lt;<![CDATA[汉字]]>&#x1F642;</p></page>'
+    ),
+    sample('formula', '<page><math source="manual">E = mc^2</math></page>'),
+    sample('empty-formula', '<page><math></math></page>'),
+    sample('mermaid', '<page><mermaid>flowchart TD\n  A[开始] --&gt; B[结束]</mermaid></page>'),
+    sample('mermaid-view-theme', '<page><mermaid view="code" theme="dark">flowchart LR\n  X --&gt; Y</mermaid></page>'),
+    sample('empty-mermaid', '<page><mermaid></mermaid></page>'),
+    sample(
+      'code-wrap-and-formula',
+      '<page><pre lang="js" wrap="true">const x = 1</pre><math>\\frac{a}{b}</math></page>'
+    ),
+    sample(
+      'mentions-and-marks',
+      '<page><p>详见 <mention page="019a2b00-0000-7000-8000-000000000001" />，由 <strong><mention principal="019a2b00-0000-7000-8000-000000000099" source="import" /> 跟进</strong>。</p><p><a href="https://example.com">前缀 <mention page="019a2b00-0000-7000-8000-000000000002" /> 后缀</a></p><p><comment ids="019a2b00-0000-7000-8000-000000000003"><mention principal="019a2b00-0000-7000-8000-000000000088" /></comment></p></page>'
     )
   ]
   const invalid = [
@@ -264,7 +297,7 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     ['missing-attribute-value', '<page><p align>a</p></page>'],
     ['duplicate-attribute', '<page><p align="left" align="right">a</p></page>'],
     ['invalid-child', '<page><p><td>a</td></p></page>'],
-    ['invalid-tone', '<page><callout tone="danger"><p>a</p></callout></page>'],
+    ['invalid-tone', '<page><callout tone="invalid"><p>a</p></callout></page>'],
     ['missing-href', '<page><p><a>a</a></p></page>'],
     ['missing-src', '<page><p><img alt="a" /></p></page>'],
     ['embed-content', '<page><embed>a</embed></page>'],
@@ -282,7 +315,16 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     ['xml-invalid-attribute-name', '<page><future a²="1" /></page>'],
     ['namespaced-name', '<page><x:y /></page>'],
     ['unescaped-attribute-less-than', '<page><p data="<" /></page>'],
-    ['cdata-terminator-in-text', '<page><p>]]></p></page>']
+    ['cdata-terminator-in-text', '<page><p>]]></p></page>'],
+    ['math-element', '<page><math><strong>E</strong></math></page>'],
+    ['invalid-wrap', '<page><pre wrap="wrap">a</pre></page>'],
+    ['mermaid-element', '<page><mermaid><strong>a</strong></mermaid></page>'],
+    ['invalid-mermaid-view', '<page><mermaid view="split">a</mermaid></page>'],
+    ['mention-missing-target', '<page><p><mention /></p></page>'],
+    ['mention-both-targets', '<page><p><mention page="p1" principal="u1" /></p></page>'],
+    ['mention-empty-page', '<page><p><mention page="" /></p></page>'],
+    ['mention-content', '<page><p><mention page="p1">text</mention></p></page>'],
+    ['mention-block-level', '<page><mention page="p1" /></page>']
   ].map(([name, xml]) => {
     const error = parseError(xml!)
     if (!error) throw new Error(`${name}: source must fail`)
@@ -306,13 +348,28 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     fixedOperations.slice(6)
   ]
   const edits = [
+    editChain(
+      'comment-anchors',
+      '<page><p><comment ids="019a2b00-0000-7000-8000-000000000001">First paragraph</comment></p><pre><comment ids="019a2b00-0000-7000-8000-000000000002">code\n  next</comment></pre></page>',
+      fixedBatches
+    ),
     editChain('text-and-marks', '<page><p>plain text</p><p>other</p></page>', fixedBatches),
     editChain(
       'table-cells',
       '<page><table><tr><th><p>header</p></th></tr><tr><td><p>123</p></td></tr></table></page>',
       fixedBatches
     ),
+    editChain(
+      'columns',
+      '<page><columns><column width="1200"><p>Left</p><p>Second</p></column><column width="800"><p>Right</p></column></columns><p>After</p></page>',
+      fixedBatches
+    ),
     editChain('unicode', '<page><p>🙂é👩‍💻中</p><p>ع</p></page>', fixedBatches),
+    editChain(
+      'nested-blocks',
+      '<page><block><p>Parent</p><block><p>Child</p><p>Grandchild</p></block></block><p>After</p></page>',
+      fixedBatches
+    ),
     editChain(
       'unknown-and-embed',
       '<page><future x="1">kept</future><p>before</p><embed ref="r" table="t" view="v" /><p>after</p></page>',

@@ -56,6 +56,9 @@ async function createChat(page: Page) {
   )
   await composer.getByRole('button', { name: '发送消息', exact: true }).click()
   const detail = (await (await sent).json()) as ConversationDetail
+  await request(page, `/conversations/${detail.conversation.id}/participants`, 'POST', {
+    addUIDs: [state.member.uid]
+  })
   await page.goto(conversationRoute(detail.conversation.id))
   return detail.conversation.id
 }

@@ -196,6 +196,29 @@ defmodule Ankole.Files do
     end
   end
 
+  @doc "Lists drive files under any of the requested folder prefixes, ordered by path."
+  @spec list_under_prefixes(drive(), [String.t()]) :: {:ok, [DriveFile.t()]} | {:error, term()}
+  def list_under_prefixes(drive, prefixes) when is_drive(drive) and is_list(prefixes) do
+    with {:ok, prefixes} <- normalize_paths(prefixes) do
+      case prefixes do
+        [] ->
+          {:ok, []}
+
+        prefixes ->
+          patterns = Enum.map(prefixes, &(Repo.escape_like(&1) <> "/%"))
+
+          files =
+            drive
+            |> files_query()
+            |> Ash.Query.filter(fragment("? LIKE ANY(?::text[])", path, ^patterns))
+            |> Ash.Query.sort(path: :asc)
+            |> Ankole.Ash.read!()
+
+          {:ok, files}
+      end
+    end
+  end
+
   @doc "Reads one drive file into memory."
   @spec read(drive(), String.t()) :: {:ok, DriveFile.t(), binary()} | {:error, term()}
   def read(drive, path) do

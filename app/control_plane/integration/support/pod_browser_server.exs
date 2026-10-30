@@ -42,7 +42,8 @@ alias AnkoleWeb.Session, as: WebSession
 
 tenant = Ankole.DataCase.create_tenant()
 Repo.put_tenant_id(tenant.id)
-{:ok, _} = Ankole.I18n.put_default_locale(System.get_env("POD_BROWSER_LOCALE", "zh-Hans-CN"))
+default_locale = System.get_env("POD_BROWSER_LOCALE", "zh-Hans-CN")
+{:ok, _} = Ankole.I18n.put_default_locale(default_locale)
 origin = AnkoleWeb.PodURL.origin(%{scheme: :http, port: port}, tenant)
 console_origin = AnkoleWeb.PodURL.site_origin(%{scheme: :http, port: port})
 
@@ -132,6 +133,7 @@ end)
 
 site_admin_account =
   Repo.with_tenant(privileged_tenant_id, fn ->
+    {:ok, _} = Ankole.I18n.put_default_locale(default_locale)
     email = "pod-browser-site-admin@example.com"
 
     account =
@@ -159,6 +161,7 @@ other_tenant = Ankole.DataCase.create_tenant()
 
 other_pod =
   Repo.with_tenant(other_tenant.id, fn ->
+    {:ok, _} = Ankole.I18n.put_default_locale(default_locale)
     account = Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Other workspace owner"})
 
     {:ok, page} =
@@ -268,7 +271,7 @@ end
     parent_id: report.id
   })
 
-cookies = fn principal, surface ->
+cookies = fn principal ->
   session_opts =
     Plug.Session.init(AnkoleWeb.SessionCookies.session_options())
 
@@ -283,7 +286,7 @@ cookies = fn principal, surface ->
   browser = WebSession.browser_reference(conn)
 
   {:ok, sent} =
-    Ankole.Authn.Domain.request_otp(browser, email, "fixture-seed", login_purpose: surface)
+    Ankole.Authn.Domain.request_otp(browser, email, "fixture-seed", scope: :tenant)
 
   code =
     receive do
@@ -494,180 +497,217 @@ end
     "<page><p>Reserve samples before your supplier review. Everyone works from the same inventory.</p><embed ref=\"#{backend_applet.id}\"/></page>"
   )
 
-# Seed UI materials through the Conversation commit owner. This fixture does
-# not claim a model run; the dedicated real-LLM suite checks that boundary.
-conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
-input_id = Ankole.Ecto.UUIDv7.autogenerate()
+chat_material =
+  if System.get_env("POD_BROWSER_AGENT_COLLAB") == "true" do
+    %{}
+  else
+    # Seed UI materials through the Conversation commit owner. This fixture does
+    # not claim a model run; the dedicated real-LLM suite checks that boundary.
+    conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
+    input_id = Ankole.Ecto.UUIDv7.autogenerate()
 
-{:ok, _conversation} =
-  Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
-    conversation_id: conversation_id,
-    agent_uid: agent.uid,
-    message_id: input_id,
-    text: "Keep the browser research results."
-  })
+    {:ok, _conversation} =
+      Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        conversation_id: conversation_id,
+        agent_uid: agent.uid,
+        message_id: input_id,
+        text: "Keep the browser research results."
+      })
 
-input = Repo.get_by!(Ankole.Signals.Signal, message_id: input_id)
-chat_text = "Browser chat findings. [Open the report](ankole:page/#{report.id})."
+    input = Repo.get_by!(Ankole.Signals.Signal, message_id: input_id)
+    chat_text = "Browser chat findings. [Open the report](ankole:page/#{report.id})."
 
-attachment =
-  Ankole.FilesFixtures.sent_attachment_fixture(
-    agent.uid,
-    "browser-evidence.txt",
-    "Original browser research evidence.",
-    "text/plain"
-  )
+    attachment =
+      Ankole.FilesFixtures.sent_attachment_fixture(
+        agent.uid,
+        "browser-evidence.txt",
+        "Original browser research evidence.",
+        "text/plain"
+      )
 
-{:ok, %{messages: [chat_message]}} =
-  Repo.transact(fn ->
-    with :ok <- Ankole.Sessions.Queue.lock_session_in_tx(agent.uid, input.session_id),
-         {:ok, target} <- Ankole.Conversations.Target.for_reply(input),
-         {:ok, result} <-
-           Ankole.Conversations.post_in_tx(target, %Ankole.Conversations.Statement{
-             signal: input,
-             completion: %{final_text: chat_text, clarify_prompt: nil, attachments: [attachment]}
-           }),
-         {:ok, _input} <-
-           Ankole.Sessions.Queue.mark_event_completed_in_tx(
-             input,
-             DateTime.utc_now(:microsecond)
-           ) do
-      {:ok, result}
+    {:ok, %{messages: [chat_message]}} =
+      Repo.transact(fn ->
+        with :ok <- Ankole.Sessions.Queue.lock_session_in_tx(agent.uid, input.session_id),
+             {:ok, target} <- Ankole.Conversations.Target.for_reply(input),
+             {:ok, result} <-
+               Ankole.Conversations.post_in_tx(target, %Ankole.Conversations.Statement{
+                 signal: input,
+                 completion: %{
+                   final_text: chat_text,
+                   clarify_prompt: nil,
+                   attachments: [attachment]
+                 }
+               }),
+             {:ok, _input} <-
+               Ankole.Sessions.Queue.mark_event_completed_in_tx(
+                 input,
+                 DateTime.utc_now(:microsecond)
+               ) do
+          {:ok, result}
+        end
+      end)
+
+    # This separate idle Conversation is intentionally deleted by the cross-window
+    # local-draft recovery story. The findings Conversation remains for its own test.
+
+    # These are committed UI materials, not model outputs. Runtime input/retry and
+    # real-provider acceptance are covered separately by their corresponding suites.
+    control_material = fn text ->
+      id = Ankole.Ecto.UUIDv7.autogenerate()
+
+      {:ok, reply} =
+        Repo.transact(fn ->
+          with {:ok, %{event: event}} <-
+                 Ankole.Conversations.create_in_tx(
+                   Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+                   %{
+                     conversation_id: id,
+                     agent_uid: agent.uid,
+                     message_id: Ankole.Ecto.UUIDv7.autogenerate(),
+                     text: text
+                   }
+                 ),
+               {:ok, %{messages: [reply]}} <-
+                 Ankole.ConversationsFixtures.post_statement_in_tx(
+                   event,
+                   "Completed UI material.\n\n```typescript\nconst total = 42\nconsole.log(total)\n```"
+                 ),
+               {:ok, _} <-
+                 Ankole.Sessions.Queue.mark_event_completed_in_tx(
+                   event,
+                   DateTime.utc_now(:microsecond)
+                 ),
+               do: {:ok, reply}
+        end)
+
+      {id, reply.id}
     end
-  end)
 
-# This separate idle Conversation is intentionally deleted by the cross-window
-# local-draft recovery story. The findings Conversation remains for its own test.
+    {chat_controls_conversation_id, chat_controls_reply_id} =
+      control_material.("Original completed edit request")
 
-# These are committed UI materials, not model outputs. Runtime input/retry and
-# real-provider acceptance are covered separately by their corresponding suites.
-control_material = fn text ->
-  id = Ankole.Ecto.UUIDv7.autogenerate()
+    {chat_regenerate_conversation_id, chat_regenerate_reply_id} =
+      control_material.("Original completed regenerate request")
 
-  {:ok, reply} =
-    Repo.transact(fn ->
-      with {:ok, %{event: event}} <-
-             Ankole.Conversations.create_in_tx(
-               Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
-               %{
-                 conversation_id: id,
-                 agent_uid: agent.uid,
-                 message_id: Ankole.Ecto.UUIDv7.autogenerate(),
-                 text: text
-               }
-             ),
-           {:ok, %{messages: [reply]}} <-
-             Ankole.ConversationsFixtures.post_statement_in_tx(
-               event,
-               "Completed UI material.\n\n```typescript\nconst total = 42\nconsole.log(total)\n```"
-             ),
-           {:ok, _} <-
-             Ankole.Sessions.Queue.mark_event_completed_in_tx(
-               event,
-               DateTime.utc_now(:microsecond)
-             ),
-           do: {:ok, reply}
-    end)
+    # This failure uses the real Main terminal transition without contacting a
+    # model Provider. The browser can exercise the actual retry mutation separately.
+    chat_failed_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
 
-  {id, reply.id}
-end
+    {:ok, failed_detail} =
+      Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        conversation_id: chat_failed_conversation_id,
+        agent_uid: agent.uid,
+        message_id: Ankole.Ecto.UUIDv7.autogenerate(),
+        text: "Original failed reply request",
+        model_profile: "careful"
+      })
 
-{chat_controls_conversation_id, chat_controls_reply_id} =
-  control_material.("Original completed edit request")
+    failed_input =
+      Repo.get_by!(Ankole.Signals.Signal, conversation_id: chat_failed_conversation_id)
 
-{chat_regenerate_conversation_id, chat_regenerate_reply_id} =
-  control_material.("Original completed regenerate request")
+    failed_key = %{agent_uid: agent.uid, session_id: failed_detail.session_id}
 
-# This failure uses the real Main terminal transition without contacting a
-# model Provider. The browser can exercise the actual retry mutation separately.
-chat_failed_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
+    {:ok, %Ankole.Sessions.Run{} = failed_run} =
+      Ankole.Sessions.Admission.admit(failed_key, failed_input)
 
-{:ok, failed_detail} =
-  Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
-    conversation_id: chat_failed_conversation_id,
-    agent_uid: agent.uid,
-    message_id: Ankole.Ecto.UUIDv7.autogenerate(),
-    text: "Original failed reply request",
-    model_profile: "careful"
-  })
+    {:ok, {:preparing, failed_run}} = Ankole.Sessions.Model.prepare(failed_run)
 
-failed_input = Repo.get_by!(Ankole.Signals.Signal, conversation_id: chat_failed_conversation_id)
-failed_key = %{agent_uid: agent.uid, session_id: failed_detail.session_id}
+    {:ok, %{posted: %{messages: [failed_notice]}}} =
+      Ankole.Sessions.Run.finalize(failed_run, :dead_letter, %{
+        "code" => "browser_fixture_failure"
+      })
 
-{:ok, %Ankole.Sessions.Run{} = failed_run} =
-  Ankole.Sessions.Admission.admit(failed_key, failed_input)
+    history_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
 
-{:ok, {:preparing, failed_run}} = Ankole.Sessions.Model.prepare(failed_run)
+    {:ok, :history_material_ready} =
+      Repo.transact(
+        fn ->
+          {:ok, %{event: first}} =
+            Ankole.Conversations.create_in_tx(
+              Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+              %{
+                conversation_id: history_conversation_id,
+                agent_uid: agent.uid,
+                message_id: Ankole.Ecto.UUIDv7.autogenerate(),
+                text: "History item 0001"
+              }
+            )
 
-{:ok, %{posted: %{messages: [failed_notice]}}} =
-  Ankole.Sessions.Run.finalize(failed_run, :dead_letter, %{"code" => "browser_fixture_failure"})
+          {:ok, _} =
+            Ankole.Sessions.Queue.mark_event_completed_in_tx(
+              first,
+              DateTime.utc_now(:microsecond)
+            )
 
-history_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
+          for sequence <- 2..1006 do
+            {:ok, %{event: event}} =
+              Ankole.Conversations.post_in_tx(
+                Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+                history_conversation_id,
+                %{
+                  message_id: Ankole.Ecto.UUIDv7.autogenerate(),
+                  text: "History item " <> String.pad_leading(Integer.to_string(sequence), 4, "0")
+                }
+              )
 
-{:ok, :history_material_ready} =
-  Repo.transact(
-    fn ->
-      {:ok, %{event: first}} =
-        Ankole.Conversations.create_in_tx(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
-          conversation_id: history_conversation_id,
-          agent_uid: agent.uid,
-          message_id: Ankole.Ecto.UUIDv7.autogenerate(),
-          text: "History item 0001"
-        })
+            {:ok, _} =
+              Ankole.Sessions.Queue.mark_event_completed_in_tx(
+                event,
+                DateTime.utc_now(:microsecond)
+              )
+          end
 
-      {:ok, _} =
-        Ankole.Sessions.Queue.mark_event_completed_in_tx(
-          first,
-          DateTime.utc_now(:microsecond)
-        )
+          {:ok, :history_material_ready}
+        end,
+        timeout: 180_000
+      )
 
-      for sequence <- 2..1006 do
-        {:ok, %{event: event}} =
-          Ankole.Conversations.post_in_tx(
-            Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
-            history_conversation_id,
-            %{
-              message_id: Ankole.Ecto.UUIDv7.autogenerate(),
-              text: "History item " <> String.pad_leading(Integer.to_string(sequence), 4, "0")
-            }
-          )
+    recovery_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
+    recovery_message_id = Ankole.Ecto.UUIDv7.autogenerate()
 
-        {:ok, _} =
+    {:ok, _} =
+      Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        conversation_id: recovery_conversation_id,
+        agent_uid: agent.uid,
+        message_id: recovery_message_id,
+        page_id: report.id,
+        text: "A saved Conversation for local draft recovery."
+      })
+
+    recovery_input = Repo.get_by!(Ankole.Signals.Signal, message_id: recovery_message_id)
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        with :ok <-
+               Ankole.Sessions.Queue.lock_session_in_tx(agent.uid, recovery_input.session_id) do
           Ankole.Sessions.Queue.mark_event_completed_in_tx(
-            event,
+            recovery_input,
             DateTime.utc_now(:microsecond)
           )
-      end
+        end
+      end)
 
-      {:ok, :history_material_ready}
-    end,
-    timeout: 180_000
-  )
+    %{
+      conversation_id: conversation_id,
+      chat_controls_conversation_id: chat_controls_conversation_id,
+      chat_controls_reply_id: chat_controls_reply_id,
+      chat_regenerate_conversation_id: chat_regenerate_conversation_id,
+      chat_regenerate_reply_id: chat_regenerate_reply_id,
+      chat_failed_conversation_id: chat_failed_conversation_id,
+      chat_failed_reply_id: failed_notice.id,
+      history_conversation_id: history_conversation_id,
+      recovery_conversation_id: recovery_conversation_id,
+      message_id: chat_message.id,
+      chat_text: chat_text,
+      chat_attachment_name: attachment["name"]
+    }
+  end
 
-recovery_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
-recovery_message_id = Ankole.Ecto.UUIDv7.autogenerate()
-
-{:ok, _} =
-  Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
-    conversation_id: recovery_conversation_id,
-    agent_uid: agent.uid,
-    message_id: recovery_message_id,
-    page_id: report.id,
-    text: "A saved Conversation for local draft recovery."
-  })
-
-recovery_input = Repo.get_by!(Ankole.Signals.Signal, message_id: recovery_message_id)
-
-{:ok, _} =
-  Repo.transact(fn ->
-    with :ok <-
-           Ankole.Sessions.Queue.lock_session_in_tx(agent.uid, recovery_input.session_id) do
-      Ankole.Sessions.Queue.mark_event_completed_in_tx(
-        recovery_input,
-        DateTime.utc_now(:microsecond)
-      )
-    end
-  end)
+document_agent_uid =
+  if System.get_env("POD_BROWSER_AGENT_COLLAB") == "true" do
+    Code.require_file("pod_document_worker.exs", __DIR__)
+    Ankole.PodDocumentWorker.start(port)
+  end
 
 defmodule Ankole.PodBrowserAgentActions do
   @moduledoc false
@@ -687,6 +727,15 @@ defmodule Ankole.PodBrowserAgentActions do
         case {conn.method, conn.path_info} do
           {"POST", ["create"]} ->
             Ankole.Pod.Pages.create(actor, Map.put(conn.body_params, "type", "applet"))
+
+          {"POST", ["document"]} ->
+            if opts[:document_agent_uid],
+              do:
+                Ankole.PodDocumentWorker.run(
+                  opts[:document_agent_uid],
+                  conn.body_params["page_id"]
+                ),
+              else: {:error, :not_found}
 
           {"POST", ["publish"]} ->
             body = conn.body_params
@@ -715,7 +764,9 @@ end
 
 {:ok, agent_actions} =
   Bandit.start_link(
-    plug: {Ankole.PodBrowserAgentActions, tenant_id: tenant.id, agent_uid: agent.uid},
+    plug:
+      {Ankole.PodBrowserAgentActions,
+       tenant_id: tenant.id, agent_uid: agent.uid, document_agent_uid: document_agent_uid},
     scheme: :http,
     ip: {127, 0, 0, 1},
     port: 0
@@ -724,12 +775,14 @@ end
 {:ok, {_ip, agent_actions_port}} = ThousandIsland.listener_info(agent_actions)
 
 state = %{
+  document_agent_uid: document_agent_uid,
   agent_actions_url: "http://127.0.0.1:#{agent_actions_port}",
   base_url: origin,
   mailbox_path: mailbox_path,
   console_url: console_origin <> AnkoleWeb.SiteAdminConsole.path(),
   tenant_id: tenant.id,
   tenant_slug: tenant.slug,
+  tenant_name: tenant.display_name,
   report_id: report.id,
   base_id: data_page.id,
   table_id: table.id,
@@ -744,32 +797,20 @@ state = %{
   backend_stock_field_id: stock.id,
   backend_record_id: sample.id,
   backend_publish_v2_files: backend_files["v2"],
-  conversation_id: conversation_id,
-  chat_controls_conversation_id: chat_controls_conversation_id,
-  chat_controls_reply_id: chat_controls_reply_id,
-  chat_regenerate_conversation_id: chat_regenerate_conversation_id,
-  chat_regenerate_reply_id: chat_regenerate_reply_id,
-  chat_failed_conversation_id: chat_failed_conversation_id,
-  chat_failed_reply_id: failed_notice.id,
-  history_conversation_id: history_conversation_id,
-  recovery_conversation_id: recovery_conversation_id,
-  message_id: chat_message.id,
-  chat_text: chat_text,
-  chat_attachment_name: attachment["name"],
   publish_v2_files: publish_files["v2"],
   owner: %{
     uid: owner.uid,
-    cookies: cookies.(owner, :pod),
+    cookies: cookies.(owner),
     email: owner_account.human_user.email
   },
   member: %{
     uid: member.uid,
-    cookies: cookies.(member, :pod),
+    cookies: cookies.(member),
     email: member_account.human_user.email
   },
   viewer: %{
     uid: viewer.uid,
-    cookies: cookies.(viewer, :pod),
+    cookies: cookies.(viewer),
     email: viewer_account.human_user.email
   },
   site_admin:
@@ -777,13 +818,15 @@ state = %{
       %{
         uid: site_admin_account.principal.uid,
         tenant_id: privileged_tenant_id,
-        cookies: cookies.(site_admin_account.principal, :console),
+        cookies: cookies.(site_admin_account.principal),
         email: site_admin_account.human_user.email
       }
     end),
   other_pod: other_pod,
   agent_uid: agent.uid
 }
+
+state = Map.merge(state, chat_material)
 
 state =
   if System.get_env("POD_BROWSER_CHAT_WORKSPACE") == "true" do

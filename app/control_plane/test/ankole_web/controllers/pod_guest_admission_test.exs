@@ -204,7 +204,7 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
     conn = conn |> Plug.Test.init_test_session(%{}) |> WebSession.ensure_browser()
 
     {:ok, %{browser: browser, authentication: auth}} =
-      BrowserSessions.authenticate(WebSession.browser_reference(conn), :pod, %{
+      BrowserSessions.authenticate(WebSession.browser_reference(conn), %{
         "principal_uid" => principal.uid,
         "access_version" => principal.access_version,
         "provider_id" => "local",

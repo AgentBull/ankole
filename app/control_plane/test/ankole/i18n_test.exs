@@ -5,7 +5,6 @@ defmodule Ankole.I18nTest do
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.I18n
   alias Ankole.I18n.Config
@@ -144,84 +143,6 @@ defmodule Ankole.I18nTest do
                AppConfigure.put_tenant_by_key("i18n.default_locale", "fr-FR")
 
       assert :ok = Ankole.I18n.Catalog.reload()
-    end
-
-    test "ScopeDefaultLocaleToPod migration copies legacy site locale only to Pods without overrides",
-         %{tenant: first} do
-      second =
-        create_tenant(%{
-          slug: "locale-migrated-#{Ecto.UUID.generate()}",
-          display_name: "Migrated Pod"
-        })
-
-      {:ok, "ja-JP"} = I18n.put_default_locale("ja-JP")
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-      {1, _} =
-        Repo.insert_all(Ankole.AppConfigure.SiteConfig, [
-          %{
-            scope: "global",
-            key: "i18n.default_locale",
-            value: %{"type" => "plaintext", "value" => "zh-Hans-CN"},
-            inserted_at: now,
-            updated_at: now
-          }
-        ])
-
-      {1, _} =
-        Repo.with_tenant(second.id, fn ->
-          Repo.insert_all(AppConfig, [
-            %{
-              tenant_id: second.id,
-              scope: "agent:legacy-agent",
-              key: "i18n.default_locale",
-              value: %{"type" => "plaintext", "value" => "ko-KR"},
-              inserted_at: now,
-              updated_at: now
-            }
-          ])
-        end)
-
-      unless Code.ensure_loaded?(Ankole.Repo.Migrations.ScopeDefaultLocaleToPod) do
-        Code.require_file(
-          Path.expand(
-            "../../priv/repo/migrations/20261028020000_scope_default_locale_to_pod.exs",
-            __DIR__
-          )
-        )
-      end
-
-      Repo.without_tenant(fn ->
-        Ecto.Migration.Runner.run(
-          Repo,
-          Repo.config(),
-          20_261_028_020_000,
-          Ankole.Repo.Migrations.ScopeDefaultLocaleToPod,
-          :forward,
-          :up,
-          :up,
-          log: false
-        )
-      end)
-
-      Cache.clear_for_test()
-
-      refute Repo.get_by(Ankole.AppConfigure.SiteConfig,
-               scope: "global",
-               key: "i18n.default_locale"
-             )
-
-      Repo.with_tenant(second.id, fn ->
-        refute Repo.get_by(AppConfig, scope: "agent:legacy-agent", key: "i18n.default_locale")
-      end)
-
-      Repo.with_tenant(first.id, fn ->
-        assert I18n.configured_default_locale() == {:ok, "ja-JP"}
-      end)
-
-      Repo.with_tenant(second.id, fn ->
-        assert I18n.configured_default_locale() == {:ok, "zh-Hans-CN"}
-      end)
     end
   end
 

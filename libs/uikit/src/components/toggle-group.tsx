@@ -70,7 +70,7 @@ function ToggleGroupItem({
       data-size={context.size || size}
       data-spacing={context.spacing}
       className={cn(
-        'shrink-0 focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:h-6.5 group-data-[spacing=0]/toggle-group:rounded-mini group-data-[spacing=0]/toggle-group:px-2.5 group-data-[spacing=0]/toggle-group:hover:bg-field-hover group-data-[spacing=0]/toggle-group:focus-visible:-outline-offset-2 group-data-[spacing=0]/toggle-group:data-[size=sm]:h-5.5 group-data-[spacing=0]/toggle-group:data-[size=sm]:px-2 group-data-[spacing=0]/toggle-group:aria-pressed:border-control-edge group-data-[spacing=0]/toggle-group:aria-pressed:border-b-control-base group-data-[spacing=0]/toggle-group:aria-pressed:bg-control',
+        'shrink-0 focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:h-6.5 group-data-[spacing=0]/toggle-group:rounded-mini group-data-[spacing=0]/toggle-group:px-2.5 group-data-[spacing=0]/toggle-group:hover:bg-field-hover group-data-[spacing=0]/toggle-group:focus-visible:-outline-offset-2 group-data-[spacing=0]/toggle-group:data-[size=sm]:h-5.5 group-data-[spacing=0]/toggle-group:data-[size=sm]:px-2 group-data-[spacing=0]/toggle-group:aria-pressed:border-control-edge group-data-[spacing=0]/toggle-group:aria-pressed:border-b-control-base group-data-[spacing=0]/toggle-group:aria-pressed:bg-control group-data-[spacing=0]/toggle-group:aria-pressed:shadow-control',
         toggleVariants({
           variant: context.variant || variant,
           size: context.size || size

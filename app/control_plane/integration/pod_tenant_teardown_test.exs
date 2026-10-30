@@ -18,6 +18,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
   alias Ankole.Pod.Page
   alias Ankole.Pod.PageChange
   alias Ankole.Pod.PageContent
+  alias Ankole.Pod.PageDailyActivity
   alias Ankole.Pod.PageUserState
   alias Ankole.Repo
   alias Ankole.Tenants
@@ -30,6 +31,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
     BaseField,
     BaseTable,
     PageUserState,
+    PageDailyActivity,
     PageChange,
     PageContent,
     Page
@@ -283,6 +285,14 @@ defmodule Ankole.Pod.TenantTeardownTest do
         principal_uid: "019a2b00-0000-7000-8000-0000000000cc",
         page_id: child.id,
         visited_at: now
+      })
+
+      Ankole.Pod.PagesFixtures.create_record!(PageDailyActivity, :put, %{
+        page_id: child.id,
+        day: DateTime.to_date(now),
+        views: 2,
+        edits: 1,
+        comments: 1
       })
 
       database =

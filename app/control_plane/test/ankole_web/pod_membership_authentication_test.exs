@@ -374,16 +374,18 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     assert {:ok, %{display_name: "Alice"}} = Principals.get_principal(person.uid)
   end
 
-  test "email reauthentication preserves the console, pinned Pod reference and RP session", %{
-    conn: conn,
-    tenant: tenant
-  } do
+  test "email reauthentication preserves site Console access, pinned Pod reference and RP session",
+       %{
+         conn: conn,
+         tenant: tenant
+       } do
     admin = member("renew@example.org")
     {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(admin.uid)
-    conn = login(conn, "renew@example.org", :console)
+    conn = login(conn, "renew@example.org", :pod)
     original_ref = WebSession.authentication_reference(conn)
     {:ok, original} = BrowserSessions.get_authentication(original_ref)
-    assert original.console_authenticated
+    assert original.scope == :site
+    assert WebSession.site_admin_session(conn)["principal_uid"] == admin.uid
 
     {:ok, %{client: client}} =
       Ankole.OIDC.create_client(%{
@@ -404,9 +406,9 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     conn = login(recycle(conn), "renew@example.org", :pod)
     assert WebSession.authentication_reference(conn) == original_ref
     {:ok, renewed} = BrowserSessions.get_authentication(original_ref)
-    assert renewed.console_authenticated
+    assert renewed.scope == :site
     assert renewed.csrf_token == original.csrf_token
-    assert BrowserSessions.authentication(original_ref, :console)["principal_uid"] == admin.uid
+    assert WebSession.site_admin_session(conn)["principal_uid"] == admin.uid
     assert {:ok, _} = Ankole.OIDC.Sessions.validate(rp.id, client.id, admin.uid, "openid")
 
     conn =
@@ -628,25 +630,13 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     verify_for_tenant(conn, tenant, email, %{})
   end
 
-  defp login(conn, email, purpose) do
-    conn = site_conn(conn)
-    conn = api_get(conn, "/api/v2/browser/session")
-    session = get_session(conn)
-
-    conn =
-      %{recycle(conn) | host: conn.host, port: conn.port, scheme: conn.scheme}
-      |> init_test_session(session)
-
-    verify(conn, email, %{purpose: Atom.to_string(purpose)})
-  end
-
   defp verify_for_tenant(conn, tenant, email, extra) do
     if @host_policy do
       target = accounts_conn(conn)
 
       conn =
         %{conn | host: target.host, port: target.port, scheme: target.scheme}
-        |> verify(email, Map.merge(extra, %{purpose: "site", tenantID: tenant.id}))
+        |> verify(email, Map.merge(extra, %{tenantID: tenant.id}))
 
       pod_conn(%{recycle(conn) | scheme: conn.scheme, port: conn.port}, tenant)
       |> delete_req_header("accept")

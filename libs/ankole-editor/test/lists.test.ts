@@ -217,11 +217,11 @@ for (const { name, markdown, at, keys, expected } of [
     expected: '- he\n- llo\n  - child'
   },
   {
-    name: 'Enter in a paragraph after a nested list moves the rest to a new item',
+    name: 'Enter in a plain child paragraph after a nested list creates a sibling paragraph',
     markdown: '* foo\n  * bar\n\n  baz',
     at: ['baz', 2],
     keys: ['Enter'],
-    expected: '- foo\n\n  - bar\n\n  ba\n- z'
+    expected: '- foo\n\n  - bar\n\n  ba\n\n  z'
   },
   {
     name: 'Tab nests an item under the item above, with its children',

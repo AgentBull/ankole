@@ -83,6 +83,7 @@ import {
   CursorPagination,
   ResourceSearch,
   ResultCount,
+  ScopeBar,
   useResourceSearchDraft
 } from '../console-list-page'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
@@ -228,15 +229,17 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
         description={t('console.background_agent_jobs.description')}
         actions={<RefreshButton />}
       />
-      <ResourceSearch
-        label={t('console.background_agent_jobs.search')}
-        maxLength={200}
-        placeholder={t('console.background_agent_jobs.search')}
-        value={searchDraft}
-        onChange={setSearchDraft}
-        filters={<AgentFilter scope={{ ...scope, selectAgent }} />}
-      />
-      {!list.isLoading ? <ResultCount count={jobs.length} /> : null}
+      <ScopeBar>
+        <ResourceSearch
+          label={t('console.background_agent_jobs.search')}
+          maxLength={200}
+          placeholder={t('console.background_agent_jobs.search')}
+          value={searchDraft}
+          onChange={setSearchDraft}
+          filters={<AgentFilter scope={{ ...scope, selectAgent }} />}
+        />
+        {!list.isLoading ? <ResultCount count={jobs.length} /> : null}
+      </ScopeBar>
 
       <div className="grid gap-3">
         {health.data ? <JobHealthStrip health={health.data} /> : health.error ? null : <JobHealthStripSkeleton />}
@@ -349,7 +352,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
             </SheetDescription>
           </SheetHeader>
 
-          <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
+          <div className="min-w-0 flex-1 overflow-y-auto p-6">
             {detail.error || turns.error ? (
               <ErrorBlock error={detail.error ?? turns.error} />
             ) : detail.isLoading || !selected || !turns.data ? (
@@ -676,7 +679,7 @@ function JobSection({ title, aside, children }: { title: string; aside?: ReactNo
   return (
     <section className="grid min-w-0 gap-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h3 className="text-base font-semibold">{title}</h3>
+        <h3 className="title-inline">{title}</h3>
         {aside}
       </div>
       {children}

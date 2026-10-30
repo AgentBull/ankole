@@ -45,6 +45,32 @@ export async function uploadFile(
   return response.json()
 }
 
+export type CustomEmoji = {
+  path: string
+  name: string
+  sha256: string
+  size: number
+  content_type?: string | null
+}
+
+export type CustomEmojiLibrary = {
+  custom_emojis: CustomEmoji[]
+  can_upload: boolean
+}
+
+export async function customEmojiLibrary(signal?: AbortSignal): Promise<CustomEmojiLibrary> {
+  const response = await transport('/api/v2/pod/metadata/custom-emojis', { method: 'GET', signal })
+  return response.json()
+}
+
+export async function uploadCustomEmoji(file: File, name: string, signal?: AbortSignal): Promise<CustomEmoji> {
+  const body = new FormData()
+  body.set('file', file)
+  body.set('name', name)
+  const response = await transport('/api/v2/pod/metadata/custom-emojis', { method: 'POST', body, signal })
+  return response.json()
+}
+
 export async function createFilePage(
   file: File,
   destination: { parent_id?: string; private_owner_uid?: string }

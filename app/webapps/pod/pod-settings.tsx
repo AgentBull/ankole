@@ -29,7 +29,7 @@ import { RiCheckLine, RiFileCopyLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import { unusedProviderID } from '../common/identity-provider'
@@ -117,7 +117,7 @@ function SettingsTabPanel({ slot, model, visible }: { slot: PodSettingsTabSlot; 
   }, [visible, model, slot.id])
   if (!visible) return null
   return model.section.value === slot.id ? (
-    <SlotBoundary>
+    <SlotBoundary variant="panel" resetKeys={[slot.id]}>
       <slot.Component />
     </SlotBoundary>
   ) : null
@@ -676,6 +676,8 @@ function PermissionReview({ review }: { review: PodMemberAccessReviewResponse['r
         return t('pod.content.can_view')
       case 'page_write_records':
         return t('pod.content.can_contribute')
+      case 'page_comment':
+        return t('pod.document.can_comment')
       case 'page_edit':
         return t('pod.content.can_edit')
       case 'page_manage':
@@ -976,7 +978,17 @@ function Providers({ model }: { model: Model }) {
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
   const [callbackCopied, setCallbackCopied] = useState(false)
+  const callbackCopiedTimer = useRef<number | null>(null)
   const [customizeCallback, setCustomizeCallback] = useState(false)
+
+  useEffect(
+    () => () => {
+      if (callbackCopiedTimer.current !== null) {
+        window.clearTimeout(callbackCopiedTimer.current)
+      }
+    },
+    []
+  )
   const providers = useQuery({ queryKey: keys.providers, queryFn: () => api.podAdminIdentityProviders() })
   const adapters = providers.data?.adapters ?? []
   const adapter = adapters.find(item => item.adapter_id === model.adapterID.value)
@@ -1013,6 +1025,10 @@ function Providers({ model }: { model: Model }) {
       providers.data?.providers.map(provider => provider.provider_id) ?? []
     )
     model.enabled.value = true
+    if (callbackCopiedTimer.current !== null) {
+      window.clearTimeout(callbackCopiedTimer.current)
+      callbackCopiedTimer.current = null
+    }
     setCallbackCopied(false)
     setCustomizeCallback(false)
     save.reset()
@@ -1023,9 +1039,15 @@ function Providers({ model }: { model: Model }) {
   const copyCallbackURL = () => {
     void navigator.clipboard.writeText(callbackURL).then(
       () => {
+        if (callbackCopiedTimer.current !== null) {
+          window.clearTimeout(callbackCopiedTimer.current)
+        }
         setCallbackCopied(true)
         toast.success(t('setup.oidc_callback_url_copied'))
-        window.setTimeout(() => setCallbackCopied(false), 2000)
+        callbackCopiedTimer.current = window.setTimeout(() => {
+          callbackCopiedTimer.current = null
+          setCallbackCopied(false)
+        }, 2000)
       },
       () => toast.error(t('setup.oidc_callback_url_copy_failed'))
     )

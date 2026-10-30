@@ -38,6 +38,7 @@ defmodule Ankole.Pod.Page do
       check_constraint(:acl_anchor_id, "pages_acl_anchor_shape")
       check_constraint(:parent_id, "pages_private_owner")
       check_constraint(:purge_started_at, "pages_purge_state")
+      check_constraint(:children_view, "pages_children_view_object")
     end
   end
 
@@ -81,6 +82,14 @@ defmodule Ankole.Pod.Page do
     )
 
     attribute(:saved_from_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
+
+    attribute(:children_view, Ankole.Ash.Types.JSONMap,
+      public?: true,
+      allow_nil?: false,
+      default: %{},
+      constraints: [max_bytes: 1024]
+    )
+
     attribute(:created_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
     attribute(:deleted_at, Ankole.Ash.Types.Timestamptz, public?: true)
     attribute(:purge_started_at, Ankole.Ash.Types.Timestamptz, public?: true)
@@ -91,7 +100,11 @@ defmodule Ankole.Pod.Page do
   calculations do
     calculate(:actions, {:array, :atom}, expr(nil),
       public?: true,
-      constraints: [items: [one_of: [:page_view, :page_write_records, :page_edit, :page_manage]]]
+      constraints: [
+        items: [
+          one_of: [:page_view, :page_write_records, :page_edit, :page_manage, :page_comment]
+        ]
+      ]
     )
 
     calculate(:role, :atom, expr(nil),
@@ -153,6 +166,7 @@ defmodule Ankole.Pod.Page do
         :parent_anchor_id,
         :revision,
         :saved_from_message_id,
+        :children_view,
         :created_by,
         :deleted_at,
         :purge_started_at,
@@ -161,10 +175,12 @@ defmodule Ankole.Pod.Page do
       ])
 
       validate(Ankole.Pod.Validations.PageState)
+      validate(Ankole.Pod.Validations.ChildrenView)
     end
 
     update :edit do
-      accept([:title, :icon, :updated_at])
+      accept([:title, :icon, :children_view, :updated_at])
+      validate(Ankole.Pod.Validations.ChildrenView)
     end
 
     update :move do

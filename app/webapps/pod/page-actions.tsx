@@ -1,5 +1,16 @@
+import { usePageMetadata } from './use-page-metadata'
 import { t } from 'i18next'
-import { DropdownMenuItem, DropdownMenuSeparator, toast } from '@ankole/uikit'
+import { useTranslation } from 'react-i18next'
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  toast
+} from '@ankole/uikit'
 import {
   RiArrowDownLine,
   RiArrowUpLine,
@@ -22,6 +33,8 @@ import { contentError } from './content-errors'
 import { useCopyPageLink } from './page-sharing'
 import { canMovePage, stepRequest } from './state/page-move'
 import { CreatePageSubmenu, useSubpageCreation } from './page-create-menu'
+
+import { pageCreated, pageRemoved, pageMoved } from './state/navigation-cache'
 
 const title = (page: Page) => page.title || t('pod.content.untitled')
 
@@ -46,11 +59,14 @@ function usePageMove() {
   const move = useMutation({
     mutationFn: ({ page, request }: { page: Page; request: PodPageMove; showUndo?: boolean }) =>
       pageAPI.move(page.id, request),
-    onSuccess: async (result, { page, showUndo }) => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+    onSuccess: (result, { page, showUndo }) => {
+      pageMoved(client, result.page, page)
       if (!showUndo) return
       toast.success(t('pod.sidebar.page_moved', { title: title(page) }), {
-        action: { label: t('pod.sidebar.undo'), onClick: () => move.mutate({ page, request: result.undo }) }
+        action: {
+          label: t('pod.sidebar.undo'),
+          onClick: () => move.mutate({ page: result.page, request: result.undo })
+        }
       })
     },
     onError: error => {
@@ -68,18 +84,18 @@ export function usePageTrash(onRemoved?: () => void) {
   const { pageID } = useParams({ strict: false })
   const restore = useMutation({
     mutationFn: pageAPI.restore,
-    onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.all }),
+    onSuccess: ({ page }) => pageCreated(client, page),
     onError: error => toast.error(requestErrorMessage(contentError(error)))
   })
   return useMutation({
     mutationFn: (page: Page) => pageAPI.remove(page.id),
-    onSuccess: async (_result, page) => {
+    onSuccess: (_result, page) => {
       onRemoved?.()
       const parent =
         page.parent_id &&
         (client.getQueryData<PageDetail>(contentKeys.page(page.parent_id))?.page ??
           cachedPages(client).find(candidate => candidate.id === page.parent_id))
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+      pageRemoved(client, page)
       if (podRouteID(pageID) === page.id) {
         const destination = parent ? `/pages/${parent.id}` : `/content/${page.private_owner_uid ? 'private' : 'space'}`
         void navigate({ to: podLocation(destination).pathname })
@@ -90,6 +106,50 @@ export function usePageTrash(onRemoved?: () => void) {
     },
     onError: error => toast.error(requestErrorMessage(contentError(error)))
   })
+}
+
+export function usePagePurge(onPurged?: () => void) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (page: Page) => pageAPI.purge(page.id),
+    onSuccess: (_result, page) => {
+      pageRemoved(client, page)
+      onPurged?.()
+      toast.success(t('pod.content.page_permanent_deletion_started', { title: title(page) }))
+    },
+    onError: error => toast.error(requestErrorMessage(contentError(error)))
+  })
+}
+
+export function PermanentDeletePageDialog({
+  page: sourcePage,
+  pending,
+  onCancel,
+  onConfirm
+}: {
+  page: Page
+  pending: boolean
+  onCancel(): void
+  onConfirm(): void
+}) {
+  const { t } = useTranslation()
+  const page = usePageMetadata(sourcePage)
+  return (
+    <Dialog open onOpenChange={open => !open && !pending && onCancel()}>
+      <DialogContent className="pod-dialog" closeLabel={t('common.close')} showCloseButton={!pending}>
+        <DialogTitle>{t('pod.content.permanently_delete_page')}</DialogTitle>
+        <p className="text-sm">{t('pod.content.permanently_delete_page_confirmation', { title: title(page) })}</p>
+        <DialogFooter>
+          <Button variant="outline" disabled={pending} onClick={onCancel}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="destructive" disabled={pending} onClick={onConfirm}>
+            {pending ? t('pod.content.permanently_deleting') : t('pod.content.permanently_delete')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 function usePageFavorite() {
@@ -118,6 +178,7 @@ export function PageMenuItems({
   onRename(): void
   onMoveTo(): void
 }) {
+  const { t } = useTranslation()
   const { pageHref } = useContent()
   const copyLink = useCopyPageLink(page.id)
   const canEdit = page.actions?.includes('page_edit') === true

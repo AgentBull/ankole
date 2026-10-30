@@ -86,7 +86,12 @@ export function ModelControls({
           if (next) void selection.refetch()
         }}
         disabled={disabled || selection.isPending || selection.isError || save.isPending}>
-        <SelectTrigger size="sm" aria-label={t('pod.chat.model')} title={label} className="max-w-48">
+        <SelectTrigger
+          size="sm"
+          variant={inline ? 'ghost' : 'field'}
+          aria-label={t('pod.chat.model')}
+          title={label}
+          className="max-w-48">
           <SelectValue>{label}</SelectValue>
           {save.isPending && (
             <span role="status" className="text-xs text-fg-tertiary">

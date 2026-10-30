@@ -7,13 +7,28 @@ import { Input } from './input'
 import { Textarea } from './textarea'
 import { cn } from '../lib/utils'
 
-function InputGroup({ className, ...props }: React.ComponentProps<'div'>) {
+/**
+ * `default` is a slot in a form. `overlay` is a field inside ceramic. `paper` is a writing surface that
+ * the page is built around, such as a chat composer: a sheet of paper lifted a little off the page,
+ * whose edge darkens while it has focus.
+ */
+function InputGroup({
+  className,
+  variant = 'default',
+  ...props
+}: React.ComponentProps<'div'> & { variant?: 'default' | 'overlay' | 'paper' }) {
   return (
     <div
       data-slot="input-group"
+      data-variant={variant}
       role="group"
       className={cn(
-        'group/input-group relative flex h-8 w-full min-w-0 items-center rounded-control border border-field-edge border-b-input bg-field px-3 outline-none transition-[background-color] duration-(--duration-feedback) hover:bg-field-hover has-[:is(input,textarea):focus-visible]:border-control-edge has-[:is(input,textarea):focus-visible]:border-b-ring has-[:is(input,textarea):focus-visible]:bg-background has-[:is(input,textarea):focus-visible]:shadow-[inset_0_-1px_0_var(--color-ring)] has-[[data-slot][aria-invalid=true]]:border-b-destructive has-[[data-slot][aria-invalid=true]]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[:user-invalid]:border-b-destructive has-[:user-invalid]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[input:disabled]:border-b-transparent has-[input:disabled]:text-fg-disabled has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3',
+        'group/input-group relative flex h-8 w-full min-w-0 items-center px-3 outline-none transition-[background-color] duration-(--duration-feedback) has-[input:disabled]:text-fg-disabled has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3',
+        variant === 'paper'
+          ? 'rounded-panel bg-background shadow-(--paper-shadow) has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_1px_var(--border-strong),0_2px_8px_rgb(35_37_38/0.06)]'
+          : variant === 'overlay'
+            ? 'h-9 rounded-[6px] border border-(--menu-field-edge) bg-(--menu-field) shadow-none has-[:is(input,textarea):focus-visible]:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)] has-[[aria-invalid=true]]:border-destructive-foreground has-[[aria-invalid=true]]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-foreground)_12%,transparent)] has-[:user-invalid]:border-destructive-foreground has-[:user-invalid]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-foreground)_12%,transparent)]'
+            : 'rounded-control border border-field-edge border-b-input bg-field hover:bg-field-hover has-[:is(input,textarea):focus-visible]:border-control-edge has-[:is(input,textarea):focus-visible]:border-b-ring has-[:is(input,textarea):focus-visible]:bg-background has-[:is(input,textarea):focus-visible]:shadow-[inset_0_-1px_0_var(--color-ring)] has-[[data-slot][aria-invalid=true]]:border-b-destructive has-[[data-slot][aria-invalid=true]]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[:user-invalid]:border-b-destructive has-[:user-invalid]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[input:disabled]:border-b-transparent',
         className
       )}
       {...props}
@@ -22,7 +37,7 @@ function InputGroup({ className, ...props }: React.ComponentProps<'div'>) {
 }
 
 const inputGroupAddonVariants = cva(
-  "flex h-auto cursor-text items-center justify-center gap-2 py-2 text-sm leading-5 font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:opacity-50 [&>svg:not([class*='size-'])]:size-3.5",
+  "flex h-auto cursor-text items-center justify-center gap-2 py-2 text-sm leading-5 font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:text-fg-disabled group-has-[input:disabled]/input-group:text-fg-disabled [&>svg:not([class*='size-'])]:size-3.5",
   {
     variants: {
       align: {

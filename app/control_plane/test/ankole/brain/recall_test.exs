@@ -468,6 +468,195 @@ defmodule Ankole.Brain.RecallTest do
            ]
   end
 
+  test "recall surfaces claim context and packs exact-alias entity cards with edges", context do
+    {:ok, partner} =
+      Ankole.Brain.create_object(
+        %{slug: "companies/velvet-rail", type: "company", title: "Velvet Rail"},
+        context.member.uid
+      )
+
+    {:ok, supplier} =
+      Ankole.Brain.create_object(
+        %{
+          slug: "companies/copper-harbor",
+          type: "company",
+          title: "Copper Harbor",
+          body: "Copper Harbor operates terminal cranes."
+        },
+        context.member.uid
+      )
+
+    {:ok, _alias} = Ankole.Brain.Links.add_alias(partner.slug, "Velvet Rail")
+
+    {:ok, _link} =
+      Ankole.Brain.Links.upsert_link(%{
+        from_object_slug: partner.slug,
+        to_object_slug: supplier.slug,
+        link_type: "relates_to",
+        link_source: "manual"
+      })
+
+    {:ok, _backlink} =
+      Ankole.Brain.Links.upsert_link(%{
+        from_object_slug: supplier.slug,
+        to_object_slug: partner.slug,
+        link_type: "relates_to",
+        link_source: "manual"
+      })
+
+    {:ok, %{claim: partner_fact}} =
+      Ankole.Brain.write_fact(
+        %{
+          object_slug: partner.slug,
+          claim: "Velvet Rail handles cold-chain freight",
+          context: "Applies only to refrigerated railcars during summer routing",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "high",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "test"
+        },
+        context.member.uid
+      )
+
+    {:ok, %{claim: private_partner_fact}} =
+      Ankole.Brain.write_fact(
+        %{
+          object_slug: partner.slug,
+          claim: "Velvet Rail Margin rebate schedule",
+          context: "Confidential rebate tier",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "group:#{context.group.name}",
+          notability: "high",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "test"
+        },
+        context.member.uid
+      )
+
+    assert {:ok, member_result} =
+             Recall.recall(context.member.uid, %{query: "Velvet Rail terminal cranes"})
+
+    returned_claim = Enum.find(member_result.claims, &(&1.id == partner_fact.id))
+    assert returned_claim.context == "Applies only to refrigerated railcars during summer routing"
+
+    assert [entity_card] = Enum.filter(member_result.entities, &(&1.slug == partner.slug))
+    assert "velvet rail" in entity_card.aka
+    assert entity_card.backlink_count >= 1
+
+    assert Enum.any?(
+             entity_card.edges,
+             &(&1.to == supplier.slug and &1.link_type == "relates_to")
+           )
+
+    assert private_partner_fact.claim in Enum.map(entity_card.facts, & &1.claim)
+
+    # Outsider receives the entity card without group-scoped facts.
+    assert {:ok, outsider_result} =
+             Recall.recall(context.outsider.uid, %{query: "Velvet Rail terminal cranes"})
+
+    assert [outsider_card] = Enum.filter(outsider_result.entities, &(&1.slug == partner.slug))
+    refute private_partner_fact.claim in Enum.map(outsider_card.facts, & &1.claim)
+
+    # Retrieved entity card touches last_retrieved_at.
+    assert Ankole.Repo.get_by!(Ankole.Brain.Schemas.Object, slug: partner.slug).last_retrieved_at !=
+             nil
+  end
+
+  test "recall hides entity cards with zero disclosable content, skips soft-deleted alias matches, and validates tool bounds",
+       context do
+    # Private page owned by member with zero world content: outsider must NOT get an entity card
+    # leaking its title, aliases, or outgoing edges.
+    {:ok, secret_deal} =
+      Ankole.Brain.create_object(
+        %{
+          slug: "projects/obsidian-acorn",
+          type: "project",
+          title: "Obsidian Acorn Acquisition",
+          body: """
+          {% audience scope="principal:#{context.member.uid}" %}
+          Confidential term sheet for Obsidian Acorn.
+          {% /audience %}
+          """
+        },
+        context.member.uid
+      )
+
+    {:ok, _alias} = Ankole.Brain.Links.add_alias(secret_deal.slug, "Obsidian Acorn")
+
+    {:ok, _link} =
+      Ankole.Brain.Links.upsert_link(%{
+        from_object_slug: secret_deal.slug,
+        to_object_slug: context.object.slug,
+        link_type: "relates_to",
+        link_source: "manual"
+      })
+
+    assert {:ok, member_res} = Recall.recall(context.member.uid, %{query: "Obsidian Acorn"})
+    assert Enum.any?(member_res.entities, &(&1.slug == secret_deal.slug))
+
+    assert {:ok, outsider_res} = Recall.recall(context.outsider.uid, %{query: "Obsidian Acorn"})
+    refute Enum.any?(outsider_res.entities, &(&1.slug == secret_deal.slug))
+
+    # Soft-deleted alias matches must not consume the 3-entity cap ahead of live matches.
+    for idx <- 1..2 do
+      slug = "companies/deleted-quartz-#{idx}"
+
+      {:ok, obj} =
+        Ankole.Brain.create_object(
+          %{slug: slug, type: "company", title: "Deleted Quartz #{idx}", body: "Public body."},
+          context.member.uid
+        )
+
+      {:ok, _} = Ankole.Brain.Links.add_alias(obj.slug, "Quartz#{idx}")
+      {:ok, _} = Ankole.Brain.soft_delete_object(obj.slug)
+    end
+
+    for idx <- 1..3 do
+      slug = "companies/live-quartz-#{idx}"
+
+      {:ok, obj} =
+        Ankole.Brain.create_object(
+          %{slug: slug, type: "company", title: "Live Quartz #{idx}", body: "Public body."},
+          context.member.uid
+        )
+
+      {:ok, _} = Ankole.Brain.Links.add_alias(obj.slug, "LiveQuartz#{idx}")
+    end
+
+    assert {:ok, quartz_res} =
+             Recall.recall(context.member.uid, %{
+               query: "Quartz1 Quartz2 LiveQuartz1 LiveQuartz2 LiveQuartz3"
+             })
+
+    assert Enum.sort(Enum.map(quartz_res.entities, & &1.slug)) == [
+             "companies/live-quartz-1",
+             "companies/live-quartz-2",
+             "companies/live-quartz-3"
+           ]
+
+    # Tool-layer integer bounds reject out-of-range budget_tokens and whoknows limit.
+    tool_ctx = Ankole.Brain.Tools.Context.for_subject(context.member.uid)
+
+    assert {:error, {:invalid, "budget_tokens"}} =
+             Ankole.Brain.Tools.execute(
+               "recall",
+               %{"query" => "crude", "budget_tokens" => 0},
+               tool_ctx
+             )
+
+    assert {:error, {:invalid, "limit"}} =
+             Ankole.Brain.Tools.execute(
+               "whoknows",
+               %{"topic" => "crude", "limit" => 99},
+               tool_ctx
+             )
+  end
+
   defp insert_channel! do
     now = DateTime.utc_now(:microsecond)
 

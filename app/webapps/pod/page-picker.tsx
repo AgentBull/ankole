@@ -1,6 +1,8 @@
+import { usePagesMetadata } from './use-page-metadata'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@ankole/uikit'
 import { RiFolderLine, RiLockLine } from '@remixicon/react'
-import { useDeferredValue, useState } from 'react'
+import { useState } from 'react'
+import { useDebouncedValue } from '../common/use-debounced-value'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { pageSearchQuery, type Page, type PageSearchOptions } from './content-api'
@@ -14,6 +16,7 @@ type Location = { id: string; title: string; private?: boolean }
 export function PagePicker({
   excludeSubtreeOf,
   requiredAction,
+  embeddable,
   roots = [],
   selected,
   onSelect,
@@ -23,6 +26,7 @@ export function PagePicker({
 }: {
   excludeSubtreeOf?: Page['id']
   requiredAction?: PageSearchOptions['required_action']
+  embeddable?: boolean
   roots?: Location[]
   selected?: string
   onSelect(id: string, page?: Page): void
@@ -32,14 +36,19 @@ export function PagePicker({
 }) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
-  const deferredQuery = useDeferredValue(query)
+  const settledQuery = useDebouncedValue(query, 180)
   const remote = useQuery(
-    pageSearchQuery(deferredQuery, { exclude_subtree_of: excludeSubtreeOf, required_action: requiredAction })
+    pageSearchQuery(settledQuery, {
+      exclude_subtree_of: excludeSubtreeOf,
+      required_action: requiredAction,
+      ...(embeddable ? { embeddable: true } : {})
+    })
   )
-  const searching = query !== deferredQuery || remote.isFetching
-  const pages = query === deferredQuery ? (remote.data?.pages ?? []) : []
+  const searching = query !== settledQuery || remote.isFetching
+  const pages = usePagesMetadata(query === settledQuery ? (remote.data?.pages ?? []) : [])
+  const ancestors = usePagesMetadata(remote.data?.ancestors ?? [])
   const visibleRoots = roots.filter(root => root.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-  const byID = new Map([...pages, ...(remote.data?.ancestors ?? [])].map(page => [page.id, page]))
+  const byID = new Map([...pages, ...ancestors].map(page => [page.id, page]))
   const parentTitle = (page: Page) => {
     const ancestors = pageAncestors(page, byID).map(parent => parent.title || t('pod.content.untitled'))
     const scope = page.private_owner_uid ? t('pod.content.private') : t('pod.content.space')

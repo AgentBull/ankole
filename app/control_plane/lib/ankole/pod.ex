@@ -23,6 +23,11 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.Page)
     resource(Ankole.Pod.PageContent)
     resource(Ankole.Pod.PageChange)
+    resource(Ankole.Pod.PageDailyActivity)
+    resource(Ankole.Pod.PageSnapshot)
+    resource(Ankole.Pod.PageComment)
+    resource(Ankole.Pod.Comments.Browser)
+    resource(Ankole.Pod.Documents.History.Browser)
     resource(Ankole.Pod.PageUserState)
 
     resource(Ankole.Pod.BaseTable)
@@ -36,6 +41,29 @@ defmodule Ankole.Pod do
     show_raised_errors?(false)
 
     routes do
+      base_route "/pages/:id/comments", Ankole.Pod.Comments.Browser do
+        route(:get, "/", :list, name: "podPageComments", query_params: [:status, :cursor, :limit])
+        route(:get, "/summary", :summary, name: "podPageCommentSummary")
+        route(:get, "/:comment_id", :show, name: "podCommentRead")
+        route(:put, "/read", :acknowledge, name: "podPageCommentsRead")
+        route(:post, "/", :create, name: "podPageCommentCreate")
+        route(:patch, "/:comment_id", :update, name: "podPageCommentUpdate")
+
+        route(:delete, "/:comment_id", :delete,
+          name: "podPageCommentDelete",
+          query_params: [:version]
+        )
+
+        route(:put, "/:comment_id/resolution", :resolve, name: "podPageCommentResolve")
+        route(:put, "/:comment_id/anchor", :anchor, name: "podPageCommentAnchor")
+      end
+
+      base_route "/pages/:id/history", Ankole.Pod.Documents.History.Browser do
+        route(:get, "/", :list, name: "podPageHistory", query_params: [:cursor, :limit])
+        route(:get, "/:snapshot_id", :show, name: "podPageHistoryEntry")
+        route(:post, "/:snapshot_id/restore", :restore, name: "podPageHistoryRestore")
+      end
+
       base_route "/admin", Ankole.Principals.PodAdminOperations do
         route(:get, "/settings", :settings, name: "podAdminSettings")
         route(:put, "/settings", :update_settings, name: "updatePodAdminSettings")
@@ -166,12 +194,17 @@ defmodule Ankole.Pod do
 
         route(:get, "/pages/children", :children,
           name: "podPageChildren",
-          query_params: [:parent_id, :scope, :cursor, :limit]
+          query_params: [:parent_id, :scope, :cursor, :limit, :details]
+        )
+
+        route(:get, "/pages/navigation", :navigation,
+          name: "podPageNavigation",
+          query_params: [:active_page_id]
         )
 
         route(:get, "/pages/search", :search,
           name: "podPageSearch",
-          query_params: [:query, :exclude_subtree_of, :required_action]
+          query_params: [:query, :exclude_subtree_of, :required_action, :embeddable]
         )
 
         route :post, "/pages", :create do
@@ -180,6 +213,15 @@ defmodule Ankole.Pod do
 
         route :get, "/pages/:id", :show do
           name("podPageRead")
+        end
+
+        route(:get, "/pages/:id/viewers", :viewers,
+          name: "podPageViewers",
+          query_params: [:cursor, :limit]
+        )
+
+        route :get, "/pages/:id/insights", :insights do
+          name("podPageInsights")
         end
 
         route :patch, "/pages/:id", :update do
@@ -198,8 +240,12 @@ defmodule Ankole.Pod do
           name("podPageRestore")
         end
 
-        route :post, "/pages/:id/embeds/:ref/delete", :delete_embed do
-          name("podEmbedDelete")
+        route :post, "/pages/:id/purge", :purge do
+          name("podPagePurge")
+        end
+
+        route :post, "/pages/:id/embeds/delete", :delete_embeds do
+          name("podEmbedsDelete")
         end
 
         route :put, "/pages/:id/content", :write do
@@ -216,6 +262,10 @@ defmodule Ankole.Pod do
 
         route :put, "/pages/:id/sharing", :set_sharing do
           name("podPageSharingWrite")
+        end
+
+        route :patch, "/pages/:id/sharing", :update_sharing do
+          name("podPageSharingUpdate")
         end
 
         route :get, "/subjects", :subjects do
@@ -241,6 +291,13 @@ defmodule Ankole.Pod do
         route :delete, "/space/agents/:uid", :remove_space_agent do
           name("podSpaceAgentDelete")
         end
+
+        route(:get, "/mentions/candidates", :mention_candidates,
+          name: "podMentionCandidates",
+          query_params: [:query, :category, :current_page_id, :limit]
+        )
+
+        route(:post, "/mentions/resolve", :resolve_mentions, name: "podMentionsResolve")
       end
     end
   end

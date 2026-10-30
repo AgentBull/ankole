@@ -12,11 +12,12 @@ defmodule AnkoleWeb.AgentFileController do
     try do
       with {:ok, agent_uid} <-
              Attrs.required_text(Map.get(params, "agent_uid"), {:missing, :agent_uid}),
+           {:ok, path} <- required_path(params),
            {:ok, %DriveFile{} = file} <-
              Files.console_download(
                conn.assigns.authz_actor,
                agent_uid,
-               Map.get(params, "path"),
+               path,
                local_path
              ) do
         conn
@@ -38,19 +39,23 @@ defmodule AnkoleWeb.AgentFileController do
 
     with {:ok, agent_uid} <-
            Attrs.required_text(Map.get(params, "agent_uid"), {:missing, :agent_uid}),
+         {:ok, path} <- required_path(body),
          {:ok, upload} <- upload_param(body),
          :ok <- assert_upload_size(upload),
          {:ok, file} <-
            Files.console_upload(
              conn.assigns.authz_actor,
              agent_uid,
-             Map.get(body, "path"),
+             path,
              upload.path,
              upload.content_type
            ) do
       json(conn, %{uploaded_file: Files.ConsoleActions.file_json(file)})
     end
   end
+
+  defp required_path(%{"path" => path}) when is_binary(path), do: {:ok, path}
+  defp required_path(_params), do: {:error, {:missing, :path}}
 
   defp upload_param(body) do
     case Map.get(body, "file") do
@@ -69,9 +74,14 @@ defmodule AnkoleWeb.AgentFileController do
     end
   end
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, {:error, reason}), do: error(conn, reason)
+
+  defp error(conn, :forbidden),
+    do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
 
   defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "file not found")
+
+  defp error(conn, :invalid_uid), do: ConsoleErrors.not_found(conn, "agent not found")
 
   defp error(conn, :agent_not_found),
     do: ConsoleErrors.render(conn, 404, "agent_not_found", "agent not found")

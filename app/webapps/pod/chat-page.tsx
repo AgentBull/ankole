@@ -1,10 +1,11 @@
 import { podLocation, podRouteID } from '../common/browser-context'
-import { Button, cn, Dialog, DialogContent, DialogTitle, DialogFooter } from '@ankole/uikit'
+import { Button, cn, Dialog, DialogContent, DialogTitle, DialogFooter, useIsMobile } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate, useParams } from '@tanstack/react-router'
+import { ErrorBoundary } from '../common/error-boundary'
 import { requestErrorMessage } from '../common/request-errors'
 import {
   chatError,
@@ -31,6 +32,7 @@ import { ChatSummaryPanel } from './chat/chat-summary-panel'
 import { SessionFindBar } from './chat/session-find-bar'
 import { QueuedStrip } from './chat/queued-strip'
 import { useRoomActions } from './chat/room-api'
+import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
 import './chat.css'
 
 export function ChatRoute() {
@@ -73,7 +75,22 @@ export function ChatPage({
     [deleting, setDeleting] = useState(false)
   const root = useRef<HTMLElement>(null)
   const composerInput = useRef<HTMLTextAreaElement>(null)
+  const pageQuote = drafts.pageQuote.value
+  useEffect(() => {
+    if (!pageID || pageQuote?.pageID !== pageID) return
+    drafts.pageQuote.value = null
+    model.quote({ kind: 'page', id: pageID, quote: pageQuote.quote })
+    composerInput.current?.focus()
+  }, [drafts, pageID, pageQuote, model])
   const summaryTrigger = useRef<HTMLButtonElement>(null)
+  const summaryMotion = usePanelMotion(summary)
+  const isMobile = useIsMobile()
+  const changeSummary = (next: boolean, event?: PanelInputEvent) => {
+    summaryMotion.prepare(next, event)
+    setSummary(next)
+    if (!next) summaryTrigger.current?.focus()
+  }
+  const toggleSummaryFromKeyboard = useEffectEvent(() => changeSummary(!summary))
   const findInput = useRef<HTMLInputElement>(null)
   const findReturnFocus = useRef<HTMLElement | null>(null)
   const closeFinding = useCallback(() => {
@@ -197,7 +214,7 @@ export function ChatPage({
       ) {
         event.preventDefault()
         if (event.key.toLowerCase() === 'f') openFinding()
-        else setSummary(value => !value)
+        else toggleSummaryFromKeyboard()
       }
     }
     element.addEventListener('keydown', handle)
@@ -214,7 +231,7 @@ export function ChatPage({
       variant={conversationID ? 'compact' : 'hero'}
       onInvite={() => setSharing(true)}
       onRename={() => setRenaming(true)}
-      onSummary={() => setSummary(true)}
+      onSummary={() => changeSummary(true)}
       onNew={onNewConversation}
       inputRef={composerInput}
       answering={actions.answer.isPending}
@@ -324,7 +341,7 @@ export function ChatPage({
         pageChat={pageChat}
         onInvite={() => setSharing(true)}
         onFind={toggleFinding}
-        onSummary={() => setSummary(value => !value)}
+        onSummary={event => changeSummary(!summary, event)}
         summaryOpen={summary}
         summaryTrigger={summaryTrigger}
         onDelete={() => setDeleting(true)}
@@ -335,55 +352,60 @@ export function ChatPage({
       {finding && <SessionFindBar root={root} history={history} inputRef={findInput} onClose={closeFinding} />}
       <div className="pod-chat-room-body">
         <div className="pod-chat-room-main">
-          <TurnTimeline
-            model={model}
-            presentation={pageID ? 'page' : 'standalone'}
-            history={history}
-            messages={messages}
-            viewerUID={data.conversation.viewer.uid}
-            members={data.conversation.participants}
-            working={commands.working}
-            waiting={waiting}
-            activity={activity}
-            retryTime={retryTime}
-            conversationID={conversationID}
-            retryableMessageIDs={data.pendingQueues.flatMap(queue =>
-              queue.retryableMessageID ? [queue.retryableMessageID] : []
-            )}
-            actions={commands.messageActions}
-            latestInput={data.latestInput}
-            liveStreams={liveStreams}
-            pendingInteractions={data.pendingInteractions}
-            linkedRuns={data.linkedRuns.map(run => ({
-              ...run,
-              agentName:
-                data.conversation.agents.find(agent => agent.uid === run.agentUID)?.displayName ??
-                data.messages.findLast(message => message.authorType === 'agent' && message.authorUID === run.agentUID)
-                  ?.authorDisplayName
-            }))}
-            canAnswer={uid =>
-              data.conversation.agents.some(agent => agent.uid === uid && agent.active) &&
-              availableAgents.some(agent => agent.uid === uid)
-            }
-            readOnlyReason={t('pod.chat_room.answer_unavailable')}
-            onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
-            onComposeAnswer={
-              !model.editing.value && !actions.answer.isPending
-                ? (interactionID, text) => {
-                    if (model.startAnswer(interactionID, text)) {
-                      composerInput.current?.focus()
+          <ErrorBoundary
+            variant="panel"
+            className="m-4 content-start"
+            resetKeys={[conversationID, data]}
+            onReset={() => void refreshConversationDetail(client, conversationID)}>
+            <TurnTimeline
+              model={model}
+              presentation={pageID ? 'page' : 'standalone'}
+              history={history}
+              messages={messages}
+              viewerUID={data.conversation.viewer.uid}
+              members={data.conversation.participants}
+              working={commands.working}
+              waiting={waiting}
+              activity={activity}
+              retryTime={retryTime}
+              conversationID={conversationID}
+              onRefresh={() => void refreshConversationDetail(client, conversationID)}
+              retryableMessageIDs={data.pendingQueues.flatMap(queue =>
+                queue.retryableMessageID ? [queue.retryableMessageID] : []
+              )}
+              actions={commands.messageActions}
+              latestInput={data.latestInput}
+              liveStreams={liveStreams}
+              pendingInteractions={data.pendingInteractions}
+              linkedRuns={data.linkedRuns.map(run => ({
+                ...run,
+                agentName:
+                  data.conversation.agents.find(agent => agent.uid === run.agentUID)?.displayName ??
+                  data.messages.findLast(
+                    message => message.authorType === 'agent' && message.authorUID === run.agentUID
+                  )?.authorDisplayName
+              }))}
+              canAnswer={uid =>
+                data.conversation.agents.some(agent => agent.uid === uid && agent.active) &&
+                availableAgents.some(agent => agent.uid === uid)
+              }
+              readOnlyReason={t('pod.chat_room.answer_unavailable')}
+              onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
+              onComposeAnswer={
+                !model.editing.value && !actions.answer.isPending
+                  ? (interactionID, text) => {
+                      if (model.startAnswer(interactionID, text)) {
+                        composerInput.current?.focus()
+                      }
                     }
-                  }
-                : undefined
-            }
-            onQuote={(quote, message) => {
-              model.links.value = [
-                ...model.links.value.filter(link => link.kind !== 'message'),
-                { kind: 'message', id: message.id, quote }
-              ]
-              composerInput.current?.focus()
-            }}
-          />
+                  : undefined
+              }
+              onQuote={(quote, message) => {
+                model.quote({ kind: 'message', id: message.id, quote })
+                composerInput.current?.focus()
+              }}
+            />
+          </ErrorBoundary>
           <div className="pod-chat-composer-dock">
             <QueuedStrip
               detail={data}
@@ -438,16 +460,21 @@ export function ChatPage({
             {composer}
           </div>
         </div>
-        {summary && (
-          <ChatSummaryPanel
-            detail={data}
-            callableAgentUIDs={availableAgents.map(agent => agent.uid)}
-            onClose={() => {
-              setSummary(false)
-              summaryTrigger.current?.focus()
-            }}
-          />
-        )}
+        <PodPanelPresence animate={!isMobile && summaryMotion.animate}>
+          {summary && (
+            <ErrorBoundary
+              key="summary"
+              variant="panel"
+              className="m-3 w-72 shrink-0 self-start"
+              resetKeys={[conversationID]}>
+              <ChatSummaryPanel
+                detail={data}
+                callableAgentUIDs={availableAgents.map(agent => agent.uid)}
+                onClose={event => changeSummary(false, event)}
+              />
+            </ErrorBoundary>
+          )}
+        </PodPanelPresence>
       </div>
       <SharePopover detail={data} open={sharing} onOpenChange={setSharing} />
       <Dialog open={deleting} onOpenChange={open => !remove.isPending && setDeleting(open)}>

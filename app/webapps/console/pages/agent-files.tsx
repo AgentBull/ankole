@@ -1,3 +1,4 @@
+import { formatFileBytes } from '../../common/file-format'
 import { TableRow, useMutation, useQuery, Link, useSearchParams } from '../tenant-context'
 import {
   Button,
@@ -384,7 +385,7 @@ function PathRow({
           t('console.agent_files.folder')
         )}
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground">{file ? formatBytes(file.size) : '–'}</TableCell>
+      <TableCell className="text-xs text-muted-foreground">{file ? formatFileBytes(file.size) || '–' : '–'}</TableCell>
       <TableCell className="text-xs text-muted-foreground">{file ? formatConsoleDate(file.updated_at) : '–'}</TableCell>
       <TableCell className="text-right">
         <DropdownMenu>
@@ -472,7 +473,7 @@ export function AgentFilesLink({ agentUID }: { agentUID: string }) {
   return (
     <section className="grid gap-4">
       <div className="grid gap-1">
-        <h3 className="text-lg font-semibold tracking-normal">{t('console.agent_files.section_title')}</h3>
+        <h3 className="title-section">{t('console.agent_files.section_title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.agent_files.section_description')}</p>
       </div>
       <div>
@@ -612,17 +613,4 @@ function joinPath(...segments: string[]): string {
     .map(segment => segment.trim())
     .filter(segment => segment.length > 0)
     .join('/')
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '–'
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let value = bytes / 1024
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
 }

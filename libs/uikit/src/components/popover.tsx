@@ -56,20 +56,14 @@ function PopoverHeader({ className, ...props }: React.ComponentProps<'div'>) {
 }
 
 function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
-  return (
-    <PopoverPrimitive.Title
-      data-slot="popover-title"
-      className={cn('text-sm leading-5 font-semibold normal-case', className)}
-      {...props}
-    />
-  )
+  return <PopoverPrimitive.Title data-slot="popover-title" className={cn('title-inline', className)} {...props} />
 }
 
 function PopoverDescription({ className, ...props }: PopoverPrimitive.Description.Props) {
   return (
     <PopoverPrimitive.Description
       data-slot="popover-description"
-      className={cn('mt-0.5 text-sm leading-relaxed text-muted-foreground', className)}
+      className={cn('mt-0.5 text-sm leading-5 text-muted-foreground', className)}
       {...props}
     />
   )

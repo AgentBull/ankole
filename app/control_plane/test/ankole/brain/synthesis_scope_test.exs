@@ -133,6 +133,231 @@ defmodule Ankole.Brain.SynthesisScopeTest do
     end
   end
 
+  test "synthesize passes claim context, decayed confidence, and scope-bounded open contradictions",
+       %{agent: agent, alice: alice, bob: bob} do
+    {:ok, %{claim: world_a}} =
+      Ankole.Brain.write_fact(
+        %{
+          object_slug: "companies/acme",
+          claim: "Acme renewal contract covers ten enterprise seats",
+          context: "Signed under the EMEA enterprise addendum",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "high",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "contract-a"
+        },
+        agent.uid
+      )
+
+    {:ok, %{claim: world_b}} =
+      Ankole.Brain.write_fact(
+        %{
+          object_slug: "companies/acme",
+          claim: "Acme renewal contract covers only two enterprise seats",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "high",
+          confidence: 0.85,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "contract-b"
+        },
+        agent.uid
+      )
+
+    {:ok, %{claim: private_bob}} =
+      Ankole.Brain.write_fact(
+        %{
+          object_slug: "companies/acme",
+          claim: "Acme secret renewal discount for Bob",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "principal:" <> bob.uid,
+          notability: "high",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "bob-dm"
+        },
+        agent.uid
+      )
+
+    assert :ok =
+             Ankole.Brain.Dreaming.record_contradiction_verdict(
+               world_a.id,
+               world_b.id,
+               "contradiction",
+               0.92,
+               %{"axis" => "seat count", "severity" => "high"}
+             )
+
+    assert :ok =
+             Ankole.Brain.Dreaming.record_contradiction_verdict(
+               world_a.id,
+               private_bob.id,
+               "contradiction",
+               0.95,
+               %{"axis" => "secret discount", "severity" => "high"}
+             )
+
+    alice_disclosure = %{
+      mode: :strict,
+      asker_uid: alice.uid,
+      present_uids: [alice.uid]
+    }
+
+    assert {:ok, page} =
+             Synthesis.synthesize(agent.uid, "Acme renewal contract seats",
+               disclosure: alice_disclosure
+             )
+
+    assert page.audience_scope == "world"
+    assert page.open_contradictions == 1
+
+    assert_receive {:synthesis_request, request}
+    prompt = request["messages"] |> List.first() |> Map.fetch!("content")
+
+    assert prompt =~ "Signed under the EMEA enterprise addendum"
+    assert prompt =~ "effective_confidence 0.9"
+    assert prompt =~ "Gaps & Open Questions"
+    assert prompt =~ "axis seat count"
+    refute prompt =~ "secret discount"
+    refute prompt =~ "Acme secret renewal discount for Bob"
+  end
+
+  test "re-synthesis cannot replace an existing section outside the caller's disclosure",
+       %{agent: agent, alice: alice} do
+    write_fact!(agent, "Acme published its renewal terms", "world")
+    question = "public Acme renewal summary"
+    assert {:ok, page} = Synthesis.synthesize(agent.uid, question)
+
+    body =
+      "Public summary.\n\n{% audience scope=\"principal:#{agent.uid}\" %}\nPrivate note.\n{% /audience %}"
+
+    assert {:ok, existing} = Objects.get_by_slug(page.slug)
+
+    assert {:ok, original} =
+             Ankole.Brain.update_object(
+               page.slug,
+               %{body: body, expected_content_hash: existing.content_hash},
+               agent.uid
+             )
+
+    disclosure = %{mode: :strict, asker_uid: alice.uid, present_uids: [alice.uid]}
+
+    assert {:error, :hidden_or_protected_segments_use_edit_page} =
+             Synthesis.synthesize(agent.uid, question, disclosure: disclosure)
+
+    assert {:ok, unchanged} = Objects.get_by_slug(page.slug)
+    assert unchanged.body == original.body
+    assert unchanged.content_hash == original.content_hash
+  end
+
+  test "same-day re-synthesis updates the live page, disambiguates soft-deleted slugs, and ignores expired contradiction counterparts",
+       %{agent: agent} do
+    {:ok, _partner} =
+      Ankole.Brain.create_object(
+        %{slug: "companies/partner-one", type: "company", title: "Partner One"},
+        agent.uid
+      )
+
+    {:ok, %{claim: current_claim}} =
+      Ankole.Brain.write_fact(
+        %{
+          object_slug: "companies/acme",
+          claim: "Acme renewal stays active",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "high",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "test"
+        },
+        agent.uid
+      )
+
+    {:ok, %{claim: expired_counterpart}} =
+      Ankole.Brain.write_fact(
+        %{
+          object_slug: "companies/acme",
+          claim: "Acme cancelled renewal in 2023",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "medium",
+          confidence: 0.7,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "legacy"
+        },
+        agent.uid
+      )
+
+    assert :ok =
+             Ankole.Brain.Dreaming.record_contradiction_verdict(
+               current_claim.id,
+               expired_counterpart.id,
+               "contradiction",
+               0.9,
+               %{"axis" => "status", "severity" => "medium"}
+             )
+
+    # Expire the counterpart claim: open_contradictions must drop to 0.
+    expired_counterpart
+    |> AshPostgres.DataLayer.to_ecto()
+    |> Ecto.Changeset.change(expired_at: DateTime.utc_now(:microsecond))
+    |> Repo.update!()
+
+    counter = :counters.new(1, [:atomics])
+
+    dynamic_url =
+      start_upstream_server(fn %{path: "chat/completions", body: body} ->
+        n = :counters.get(counter, 1) + 1
+        :counters.put(counter, 1, n)
+
+        # Also emit a stray {% audience %} wrapper on pass 2 to verify tag stripping.
+        text =
+          if n == 1 do
+            "Synthesis v1 citing [[companies/acme]]."
+          else
+            "{% audience scope=\"world\" %}\nSynthesis v#{n} citing [[companies/partner-one]].\n{% /audience %}"
+          end
+
+        answer = Ankole.JSON.encode!(%{"title" => "Renewal pass #{n}", "body" => text})
+        {:json, 200, chat_completion_body(body["model"], answer)}
+      end)
+
+    {:ok, _provider} =
+      ProviderConfigs.create_provider(%{
+        provider_id: "brain-synthesis-dynamic",
+        provider_kind: "openrouter",
+        base_url: dynamic_url,
+        credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+      })
+
+    configure_brain_maintainer_profile!("heavy", "brain-synthesis-dynamic", "fake-dreaming")
+
+    assert {:ok, first} = Synthesis.synthesize(agent.uid, "Acme renewal status")
+    assert first.open_contradictions == 0
+    assert first.body == "Synthesis v1 citing [[companies/acme]]."
+
+    # Re-synthesizing the same question on the same day updates the live analysis page.
+    assert {:ok, second} = Synthesis.synthesize(agent.uid, "Acme renewal status")
+    assert second.slug == first.slug
+    assert second.title == "Renewal pass 2"
+    assert second.body == "Synthesis v2 citing [[companies/partner-one]]."
+    assert {:ok, stored_second} = Objects.get_by_slug(second.slug)
+    assert stored_second.body == "Synthesis v2 citing [[companies/partner-one]]."
+
+    # Soft-deleting the page and synthesizing again allocates a fresh disambiguated slug.
+    assert {:ok, _} = Ankole.Brain.soft_delete_object(second.slug)
+    assert {:ok, third} = Synthesis.synthesize(agent.uid, "Acme renewal status")
+    assert third.slug != second.slug
+    assert String.starts_with?(third.slug, second.slug <> "-")
+  end
+
   defp write_fact!(agent, claim, audience_scope) do
     {:ok, %{claim: written}} =
       Ankole.Brain.write_fact(

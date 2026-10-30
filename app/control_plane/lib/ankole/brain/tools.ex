@@ -19,8 +19,8 @@ defmodule Ankole.Brain.Tools do
   alias Ankole.Brain.GetPage
   alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Objects
+  alias Ankole.Brain.PageEdit
   alias Ankole.Brain.Recall
-  alias Ankole.Brain.Scope
   alias Ankole.Brain.SourceLearning
   alias Ankole.Brain.Sources
   alias Ankole.Brain.Synthesis
@@ -72,6 +72,27 @@ defmodule Ankole.Brain.Tools do
       }
     end
 
+    @doc "Resolves and validates the writable audience for this caller."
+    def write_scope(explicit, context) when is_binary(explicit) and explicit != "" do
+      with {:ok, _} <- Ankole.Brain.Scope.parse(explicit),
+           :ok <- Ankole.Brain.Scope.validate_writable(explicit, context.querier_uid) do
+        {:ok, explicit}
+      else
+        {:error, :invalid_audience_scope} -> {:error, :invalid_scope}
+        error -> error
+      end
+    end
+
+    def write_scope(_missing, context) do
+      with {:ok, scope} <- context.default_write_scope,
+           :ok <- Ankole.Brain.Scope.validate_writable(scope, context.querier_uid),
+           do: {:ok, scope}
+    end
+
+    @doc "Checks the carrier's authority before a write."
+    def fence(%__MODULE__{write_fence: nil}), do: :ok
+    def fence(%__MODULE__{write_fence: fence}) when is_function(fence, 0), do: fence.()
+
     @type t :: %__MODULE__{
             querier_uid: String.t(),
             disclosure: Ankole.Brain.Access.disclosure(),
@@ -84,9 +105,8 @@ defmodule Ankole.Brain.Tools do
           }
   end
 
-  @operations ~w(remember learn_source recall get_page forget entity whoknows synthesize delta)
+  @operations ~w(remember put_page edit_page learn_source recall get_page forget entity whoknows synthesize delta)
   @take_kinds ~w(take bet hunch)
-  @audience_scope_pattern ~r/\A(world|group:.+|principal:.+)\z/
   @url_pattern ~r/\Ahttps?:\/\//
   @lazy_skill_slug_prefix "lazyload-agent-skills/"
   @lazy_skill_hint "Use skill_view to load lazyload-agent-skills/ results.\n"
@@ -186,9 +206,9 @@ defmodule Ankole.Brain.Tools do
          {:ok, kind} <- claim_kind(params["kind"]),
          :ok <- validate_grid(params, "confidence"),
          :ok <- validate_grid(params, "weight"),
-         {:ok, scope} <- write_scope(params["scope"], context),
+         {:ok, scope} <- Context.write_scope(params["scope"], context),
          {:ok, provenance} <- required(params, "provenance"),
-         :ok <- fence(context),
+         :ok <- Context.fence(context),
          {:ok, visibility} <- LazySkillVisibility.for_querier(context.querier_uid),
          {:ok, attrs} <-
            put_parent(
@@ -220,11 +240,15 @@ defmodule Ankole.Brain.Tools do
     end
   end
 
+  defp run("put_page", params, context), do: PageEdit.put_page(params, context)
+
+  defp run("edit_page", params, context), do: PageEdit.edit_page(params, context)
+
   defp run("learn_source", params, context) do
     with {:ok, url} <- required(params, "url"),
          :ok <- validate_learnable_url(url),
-         {:ok, scope} <- write_scope(params["scope"], context),
-         :ok <- fence(context),
+         {:ok, scope} <- Context.write_scope(params["scope"], context),
+         :ok <- Context.fence(context),
          {:ok, source} <- find_or_register_url_source(url, scope),
          {:ok, _enqueued} <- SourceLearning.enqueue_learn(source.id) do
       {:ok,
@@ -237,23 +261,29 @@ defmodule Ankole.Brain.Tools do
   end
 
   defp run("recall", params, context) do
-    with {:ok, query} <- required(params, "query") do
+    with {:ok, query} <- required(params, "query"),
+         {:ok, budget_tokens} <- optional_integer(params, "budget_tokens", 1, 12_000) do
       Recall.recall(
         context.querier_uid,
         %{
           query: query,
           entity: Ankole.Attrs.optional_text(params["entity"]),
-          budget_tokens: params["budget_tokens"]
+          budget_tokens: budget_tokens
         },
-        disclosure: context.disclosure
+        disclosure: context.disclosure,
+        conversation_id: context.conversation_id
       )
       |> entity_resolution_payload()
     end
   end
 
   defp run("get_page", params, context) do
-    with {:ok, reference} <- required(params, "reference") do
-      case GetPage.get_page(context.querier_uid, reference, disclosure: context.disclosure) do
+    with {:ok, reference} <- required(params, "reference"),
+         {:ok, include_content?} <- optional_boolean(params, "include_content", false) do
+      case GetPage.get_page(context.querier_uid, reference,
+             disclosure: context.disclosure,
+             include_content: include_content?
+           ) do
         {:ok, page} -> {:ok, %{"page" => JSON.plain(page)}}
         {:ambiguous, candidates} -> {:ok, %{"candidates" => JSON.plain(candidates)}}
         {:error, :not_found} -> {:ok, %{"error" => "not_found"}}
@@ -265,7 +295,7 @@ defmodule Ankole.Brain.Tools do
   defp run("forget", params, context) do
     with {:ok, reason} <- required(params, "reason"),
          {:ok, target} <- forget_target(params),
-         :ok <- fence(context),
+         :ok <- Context.fence(context),
          {:ok, _forgotten} <- forget(target, reason, context) do
       {:ok, %{"status" => "forgotten"}}
     end
@@ -304,9 +334,10 @@ defmodule Ankole.Brain.Tools do
 
   defp run("whoknows", params, context) do
     with {:ok, topic} <- required(params, "topic"),
+         {:ok, limit} <- optional_integer(params, "limit", 1, 20),
          {:ok, experts} <-
            Experts.who_knows(context.querier_uid, topic,
-             limit: params["limit"] || 5,
+             limit: limit || 5,
              disclosure: context.disclosure
            ) do
       {:ok, %{"experts" => JSON.plain(experts)}}
@@ -315,7 +346,7 @@ defmodule Ankole.Brain.Tools do
 
   defp run("synthesize", params, context) do
     with {:ok, question} <- required(params, "question"),
-         :ok <- fence(context),
+         :ok <- Context.fence(context),
          {:ok, result} <-
            Synthesis.synthesize(context.querier_uid, question, disclosure: context.disclosure) do
       {:ok, JSON.plain(result)}
@@ -427,23 +458,6 @@ defmodule Ankole.Brain.Tools do
     end
   end
 
-  defp write_scope(explicit, context) when is_binary(explicit) and explicit != "" do
-    with true <- Regex.match?(@audience_scope_pattern, explicit) || {:error, :invalid_scope},
-         :ok <- Scope.validate_writable(explicit, context.querier_uid) do
-      {:ok, explicit}
-    end
-  end
-
-  defp write_scope(_missing, context) do
-    with {:ok, scope} <- context.default_write_scope,
-         :ok <- Scope.validate_writable(scope, context.querier_uid) do
-      {:ok, scope}
-    end
-  end
-
-  defp fence(%Context{write_fence: nil}), do: :ok
-  defp fence(%Context{write_fence: fence}) when is_function(fence, 0), do: fence.()
-
   # `until_date` gates the take into Dreaming's due-date grading, so a value
   # that grade_takes cannot parse must be rejected at write time.
   defp validate_until_date(nil), do: :ok
@@ -528,6 +542,27 @@ defmodule Ankole.Brain.Tools do
     end
   end
 
+  defp optional_boolean(params, key, default) do
+    case Map.get(params, key) do
+      nil -> {:ok, default}
+      value when is_boolean(value) -> {:ok, value}
+      _other -> {:error, {:invalid, key}}
+    end
+  end
+
+  defp optional_integer(params, key, min_value, max_value) do
+    case Map.get(params, key) do
+      nil ->
+        {:ok, nil}
+
+      value when is_integer(value) and value >= min_value and value <= max_value ->
+        {:ok, value}
+
+      _other ->
+        {:error, {:invalid, key}}
+    end
+  end
+
   # An unparseable instant is an explicit error: silently treating it as absent
   # would widen the report to all history behind the caller's back.
   defp optional_datetime(params, key) do
@@ -577,6 +612,30 @@ defmodule Ankole.Brain.Tools do
     )
   end
 
+  defp description("put_page") do
+    Enum.join(
+      [
+        "Create a new structured Brain page or replace an existing page's Markdoc content under compare-and-swap.",
+        "Omit expected_revision to create a new page (type and title required); pass expected_revision from get_page to replace an existing page you can fully read and write.",
+        "Prefer edit_page for surgical changes to existing pages, especially shared pages that may hold other audiences' sections.",
+        "On creation, untagged content inherits scope (defaulting to the conversation audience) so private notes never leak to world; on replacement, omitting scope preserves a single-scope page's existing audience scope; pass scope: 'world' only for deployment-wide knowledge.",
+        "Use [[slug]] wikilinks in content to maintain graph edges."
+      ],
+      "\n"
+    )
+  end
+
+  defp description("edit_page") do
+    Enum.join(
+      [
+        "Apply 1..50 ordered exact-match text replacements (old_text -> new_text) to an existing Brain page.",
+        "Call get_page with include_content: true first to read the current content and revision, then pass that revision as expected_revision.",
+        "Edits apply only inside Markdoc sections you can read and write; hidden {% audience %} blocks of other audiences and generated calibration scorecards remain untouched."
+      ],
+      "\n"
+    )
+  end
+
   defp description("learn_source") do
     "Register one web url as a Brain learning source and start its learning run in the background. Consult the brain-learning skill for source routing and scope judgment before first use."
   end
@@ -585,7 +644,7 @@ defmodule Ankole.Brain.Tools do
     Enum.join(
       [
         "Search the Brain memory for stored knowledge that matches a query.",
-        "Returns structured current facts and takes first, then page passages, inside the token budget.",
+        "Returns structured current facts and takes (with context), exact-matched entity cards and relational links, then page passages, inside the token budget.",
         "Give entity to narrow the search to one entity and its relation neighborhood."
       ],
       "\n"
@@ -593,7 +652,7 @@ defmodule Ankole.Brain.Tools do
   end
 
   defp description("get_page") do
-    "Read one full memory page by slug or by natural-language name. Returns the page body with its current facts, timeline, and links, cut to what you may see. An ambiguous reference returns candidates instead of a guess. A lazyload-agent-skills/ page is a Skill discovery record: load that Skill with skill_view."
+    "Read one full memory page by slug or by natural-language name. Returns the rendered page with its revision, current facts (and context), timeline, and links, cut to what you may see; set include_content: true to also receive the raw caller-visible Markdoc content for edit_page or put_page. An ambiguous reference returns candidates instead of a guess. A lazyload-agent-skills/ page is a Skill discovery record: load that Skill with skill_view."
   end
 
   defp description("forget") do
@@ -681,6 +740,86 @@ defmodule Ankole.Brain.Tools do
     )
   end
 
+  defp parameters("put_page") do
+    object_schema(
+      %{
+        "slug" =>
+          string_schema(
+            "Canonical page slug such as 'companies/acme', 'projects/q4-launch', or 'concepts/hybrid-search'."
+          ),
+        "content" =>
+          string_schema(
+            "Markdoc body content (without YAML frontmatter or top-level # Title heading).",
+            min_length: 0,
+            max_length: 200_000
+          ),
+        "expected_revision" =>
+          string_schema(
+            "Current page revision from get_page when replacing an existing page. Omit when creating a new page."
+          ),
+        "type" =>
+          string_schema(
+            "Installed object type (required when creating a new page, e.g. 'company', 'person', 'project', 'concept', 'note', 'analysis')."
+          ),
+        "subtype" => string_schema("Optional object subtype."),
+        "title" =>
+          string_schema("Human-readable page title (required when creating a new page)."),
+        "scope" =>
+          scope_schema(
+            "Default audience scope applied to untagged content. Defaults to this conversation's audience on creation."
+          ),
+        "tags" => %{
+          "type" => "array",
+          "items" => string_schema("Tag name."),
+          "description" => "Optional tags for the page."
+        },
+        "aliases" => %{
+          "type" => "array",
+          "items" => string_schema("Natural-language alias."),
+          "description" => "Optional natural-language aliases that resolve to this page."
+        },
+        "allow_empty" => %{
+          "type" => "boolean",
+          "description" =>
+            "When replacing an existing page, must be true to overwrite the body with empty content. Defaults to false."
+        }
+      },
+      ["slug", "content"]
+    )
+  end
+
+  defp parameters("edit_page") do
+    object_schema(
+      %{
+        "slug" => string_schema("Exact slug (or slug redirect) of the page to edit."),
+        "expected_revision" => string_schema("Current page revision read from get_page."),
+        "edits" => %{
+          "type" => "array",
+          "minItems" => 1,
+          "maxItems" => 50,
+          "description" =>
+            "Ordered exact-match replacements applied sequentially to caller-editable Markdoc sections.",
+          "items" =>
+            object_schema(
+              %{
+                "old_text" =>
+                  string_schema(
+                    "Exact substring in the current editable content; must match exactly once."
+                  ),
+                "new_text" =>
+                  string_schema(
+                    "Replacement text (empty string deletes old_text).",
+                    min_length: 0
+                  )
+              },
+              ["old_text", "new_text"]
+            )
+        }
+      },
+      ["slug", "expected_revision", "edits"]
+    )
+  end
+
   defp parameters("learn_source") do
     object_schema(
       %{
@@ -720,7 +859,12 @@ defmodule Ankole.Brain.Tools do
   defp parameters("get_page") do
     object_schema(
       %{
-        "reference" => string_schema("Page slug or natural-language name of the page to read.")
+        "reference" => string_schema("Page slug or natural-language name of the page to read."),
+        "include_content" => %{
+          "type" => "boolean",
+          "description" =>
+            "When true, includes the caller-visible raw Markdoc content alongside rendered output for lossless edit_page or put_page round-trips. Defaults to false."
+        }
       },
       ["reference"]
     )

@@ -1,3 +1,4 @@
+import { usePageMetadata } from '../use-page-metadata'
 import {
   Button,
   InputGroup,
@@ -21,7 +22,7 @@ import {
   RiCommandLine,
   RiLoader4Line
 } from '@remixicon/react'
-import { useEffect, useId, useImperativeHandle, useRef, useState, type RefObject } from 'react'
+import { useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -85,6 +86,7 @@ export function Composer({
     navigate = useNavigate()
   const shell = useRef<HTMLDivElement>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
+  const pendingCaret = useRef<number>(undefined)
   const [modelOpen, setModelOpen] = useState(false)
   const recipientControl = useRef<HTMLButtonElement>(null)
   useImperativeHandle(inputRef, () => textarea.current!, [])
@@ -153,7 +155,15 @@ export function Composer({
     if (editingID) textarea.current?.focus()
   }, [editingID])
   const draft = model.draft.value
+  useLayoutEffect(() => {
+    const cursor = pendingCaret.current
+    if (cursor === undefined) return
+    pendingCaret.current = undefined
+    textarea.current?.focus()
+    textarea.current?.setSelectionRange(cursor, cursor)
+  }, [draft, picker])
   useEffect(() => {
+    if (CSS.supports('field-sizing', 'content')) return
     const input = textarea.current
     if (input) {
       input.style.height = 'auto'
@@ -187,23 +197,18 @@ export function Composer({
     const start = atPosition ?? textarea.current?.selectionStart ?? value.length
     const end = atPosition ?? textarea.current?.selectionEnd ?? start
     const inserted = insertCompletionTrigger(value, start, end, kind)
+    pendingCaret.current = inserted.cursor
     model.draft.value = inserted.value
     updatePicker(inserted.completion)
-    requestAnimationFrame(() => {
-      textarea.current?.focus()
-      textarea.current?.setSelectionRange(inserted.cursor, inserted.cursor)
-    })
   }
   const choose = (choice: MentionChoice) => {
     const text = `@${choice.displayName}`
     const start = picker?.start ?? draft.length,
       end = picker?.end ?? start
+    pendingCaret.current = start + text.length + 1
     model.draft.value = `${draft.slice(0, start)}${text} ${draft.slice(end)}`
     if (choice.type === 'page') {
-      model.links.value = [
-        ...model.links.value.filter(link => link.id !== choice.uid),
-        { kind: 'page', id: choice.uid }
-      ]
+      model.referencePage(choice.uid)
     } else {
       model.mentions.value = [
         ...model.mentions.value.filter(mention => mention.uid !== choice.uid),
@@ -212,9 +217,6 @@ export function Composer({
     }
     if (!detail && choice.type === 'agent' && !model.selectedAgentUID.value) model.selectedAgentUID.value = choice.uid
     close()
-    requestAnimationFrame(() => {
-      textarea.current?.setSelectionRange(start + text.length + 1, start + text.length + 1)
-    })
   }
   const slash = (command: SlashCommand) => {
     const start = picker?.start
@@ -268,7 +270,7 @@ export function Composer({
     } else submit()
   }
   const unavailable = detail?.conversation.agents.filter(agent => !agent.active) ?? []
-  const quoted = model.links.value.find(link => link.kind === 'message')
+  const quoted = model.quoted.value
   const editing = model.editing.value
   const editedAttachments =
     editing &&
@@ -350,7 +352,7 @@ export function Composer({
           event.preventDefault()
           send()
         }}>
-        <InputGroup className="pod-chat-composer-field">
+        <InputGroup variant="paper" className="pod-chat-composer-field">
           {answerID && (
             <div className="pod-chat-answer-context" role="status">
               <div>
@@ -395,7 +397,7 @@ export function Composer({
           )}
           <div className="pod-chat-draft-pages">
             {model.links.value
-              .filter(link => link.kind === 'page')
+              .filter(link => link.kind === 'page' && link.quote == null)
               .map(link => (
                 <DraftPageChip
                   key={link.id}
@@ -507,6 +509,7 @@ export function Composer({
                 <SelectTrigger
                   ref={recipientControl}
                   size="sm"
+                  variant="ghost"
                   className="pod-chat-agent-picker"
                   aria-label={t('pod.chat.choose_agent')}>
                   <SelectValue placeholder={t('pod.chat.choose_agent')} />
@@ -563,13 +566,15 @@ export function Composer({
               {working && commands.canStop && (
                 <InputGroupButton
                   type="button"
-                  size="icon-sm"
-                  variant="ghost"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 px-2 [&>svg]:size-3.5"
                   aria-label={t('pod.chat.stop')}
                   title={t('pod.chat.stop_hint')}
                   disabled={disabled}
                   onClick={stop}>
                   <RiStopFill aria-hidden />
+                  {t('pod.chat.stop_short')}
                 </InputGroupButton>
               )}
               <InputGroupButton
@@ -602,21 +607,23 @@ export function Composer({
 }
 
 export function removePageMention(text: string, name: string) {
-  return text.replace(new RegExp(`@${RegExp.escape(name)}(?![\\p{L}\\p{N}_])\\s?`, 'gu'), '')
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return text.replace(new RegExp(`@${escaped}(?![\\p{L}\\p{N}_])\\s?`, 'gu'), '')
 }
 
 function DraftPageChip({ id, onRemove }: { id: string; onRemove(name?: string): void }) {
   const { t } = useTranslation()
-  const page = useQuery(pageQuery(id))
+  const query = useQuery(pageQuery(id))
+  const page = usePageMetadata(query.data?.page)
   return (
     <span className="pod-chat-draft-page">
-      {page.data?.page.title || t('pod.chat_room.page_context')}
+      {page?.title || t('pod.chat_room.page_context')}
       <Button
         type="button"
         size="icon-xs"
         variant="ghost"
         aria-label={t('common.close')}
-        onClick={() => onRemove(page.data?.page.title)}>
+        onClick={() => onRemove(page?.title)}>
         <RiCloseLine aria-hidden />
       </Button>
     </span>

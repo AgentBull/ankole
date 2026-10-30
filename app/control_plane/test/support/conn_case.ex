@@ -126,7 +126,7 @@ defmodule AnkoleWeb.ConnCase do
     session_conn =
       conn
       |> Plug.Test.init_test_session(%{})
-      |> WebSession.put_admin_session(%{
+      |> WebSession.put_tenant_session(%{
         principal_uid: human.principal.uid,
         provider_id: "lark-main",
         external_id: "external-1"

@@ -171,9 +171,8 @@ function QueuedRow({
           {own && (
             <>
               <Button
-                size="icon-xs"
+                size="xs"
                 variant="ghost"
-                aria-label={t('pod.chat_room.steer_now')}
                 title={t('pod.chat_room.steer_now')}
                 disabled={disabled}
                 onClick={() =>
@@ -189,6 +188,7 @@ function QueuedRow({
                 ) : (
                   <RiCornerUpRightLine aria-hidden />
                 )}
+                {t('pod.chat_room.steer_short')}
               </Button>
               <Button
                 size="icon-xs"

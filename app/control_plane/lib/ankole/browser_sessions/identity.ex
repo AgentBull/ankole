@@ -65,28 +65,6 @@ defmodule Ankole.BrowserSessions.Identity do
     end
   end
 
-  def authentication(ref, :console) do
-    case get_authentication(ref) do
-      {:ok, %Authentication{purpose: :console, tenant_id: tenant_id} = authentication} ->
-        identity_for_authentication(authentication, tenant_id)
-
-      {:ok, %Authentication{purpose: :site, console_authenticated: true} = authentication} ->
-        with {:ok, tenant} <- Ankole.Tenants.privileged(),
-             do: identity_for_authentication(authentication, tenant.id),
-             else: (_ -> nil)
-
-      _ ->
-        nil
-    end
-  end
-
-  def authentication(ref, purpose) when purpose in [:oauth, :pod] do
-    with {:ok, authentication} <- get_authentication(ref),
-         tenant_id when is_binary(tenant_id) <- Repo.tenant_id() || authentication.tenant_id,
-         do: identity_for_authentication(authentication, tenant_id),
-         else: (_ -> nil)
-  end
-
   def identity(ref, tenant_id) when is_binary(tenant_id) do
     with {:ok, authentication} <- get_authentication(ref) do
       identity_for_authentication(authentication, tenant_id)
@@ -114,6 +92,11 @@ defmodule Ankole.BrowserSessions.Identity do
     end
   end
 
+  @doc false
+  def authentication_identity(%Authentication{} = authentication, tenant_id)
+      when is_binary(tenant_id),
+      do: identity_for_authentication(authentication, tenant_id)
+
   defp identity_for_authentication(authentication, tenant_id),
     do: Repo.with_tenant(tenant_id, fn -> identity_in_tenant(authentication) end)
 
@@ -122,10 +105,10 @@ defmodule Ankole.BrowserSessions.Identity do
            PodAuthentication
            |> Ash.Query.filter(authentication_id == ^authentication.id)
            |> Ankole.Ash.read_one!(),
-         :ok <- Ankole.Principals.HumanAccess.check(proof.principal_uid, proof.access_version),
+         {:ok, principal} <- Ankole.Principals.get_principal(proof.principal_uid),
+         :ok <- Ankole.Principals.HumanAccess.check(principal, proof.access_version),
          true <- Ankole.Tenants.accepting_work?(proof.tenant_id),
          true <- current_binding?(authentication, proof),
-         {:ok, principal} <- Ankole.Principals.get_principal(proof.principal_uid),
          true <-
            Ankole.Principals.PodLoginPolicy.authentication_allowed?(
              principal,
@@ -143,13 +126,12 @@ defmodule Ankole.BrowserSessions.Identity do
         "external_id" => authentication.external_id,
         "auth_time" => authentication.auth_time,
         "authenticated_at" => DateTime.to_unix(authentication.authenticated_at),
-        "provider_scope" => if(authentication.purpose == :site, do: "site", else: "tenant"),
+        "provider_scope" => Atom.to_string(authentication.scope),
         "amr" => authentication.amr,
         "challenge_started_at" => authentication.challenge_started_at,
         "verified_email" => authentication.verified_email,
         "verified_phone" => authentication.verified_phone,
-        "expires_at" => DateTime.to_unix(authentication.expires_at),
-        "purpose" => Atom.to_string(authentication.purpose)
+        "expires_at" => DateTime.to_unix(authentication.expires_at)
       }
     else
       _ -> nil
@@ -157,7 +139,7 @@ defmodule Ankole.BrowserSessions.Identity do
   end
 
   @doc false
-  def current_binding?(%Authentication{purpose: :site} = authentication, proof) do
+  def current_binding?(%Authentication{scope: :site} = authentication, proof) do
     Ankole.IdentityProviders.SiteSources.registered?(authentication.provider_id) and
       Ankole.Principals.site_credential_bound?(
         proof.principal_uid,

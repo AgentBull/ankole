@@ -146,7 +146,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
   return (
     <section className="grid gap-5 border-b border-border pb-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold">{t('console.human_access.title')}</h3>
+        <h3 className="title-section">{t('console.human_access.title')}</h3>
         {state ? (
           <Badge variant={state.status === 'active' ? 'success' : 'outline'}>
             {t(`console.status.${state.status}`, { defaultValue: humanizeTechnicalLabel(state.status) })}

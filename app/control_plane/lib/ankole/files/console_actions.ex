@@ -18,7 +18,7 @@ defmodule Ankole.Files.ConsoleActions do
 
   defp authorized(actor, action, args) do
     input = Ash.ActionInput.for_action(Files.ConsoleOperations, action, args)
-    Ankole.Ash.run_action_authorized(input, actor)
+    input |> Ankole.Ash.run_action_authorized(actor) |> Errors.reason()
   end
 
   @impl true

@@ -39,14 +39,15 @@ import {
 } from './api/generated/sdk.gen'
 
 export const baseHTTP = {
-  tables: (pageID: string) => podBaseTables({ path: { page_id: pageID } }),
+  tables: (pageID: string, signal?: AbortSignal) => podBaseTables({ path: { page_id: pageID }, signal }),
   createTable: (pageID: string, name: string) =>
     podBaseTableCreate({ path: { page_id: pageID }, body: { data: { name } } }),
   renameTable: (id: string, name: string) => podBaseTableRename({ path: { id }, body: { data: { name } } }),
   removeTable: (tableID: string) => podBaseTableDelete({ path: { id: tableID } }),
-  schema: (tableID: string): Promise<TableSchema> => podBaseSchema({ path: { id: tableID } }),
-  query: (tableID: string, body: RecordQuery): Promise<RecordsResult> =>
-    podBaseQuery({ path: { id: tableID }, body: { data: body } }),
+  schema: (tableID: string, signal?: AbortSignal): Promise<TableSchema> =>
+    podBaseSchema({ path: { id: tableID }, signal }),
+  query: (tableID: string, body: RecordQuery, signal?: AbortSignal): Promise<RecordsResult> =>
+    podBaseQuery({ path: { id: tableID }, body: { data: body }, signal }),
   aggregate: (tableID: string, body: AggregateQuery): Promise<AggregateResult> =>
     podBaseAggregate({ path: { id: tableID }, body: { data: body } }),
   write: (tableID: string, body: RecordWrite): Promise<WriteResult> =>
@@ -67,12 +68,12 @@ const tableKey = (tableID: string) => [...contentKeys.all, 'table', tableID]
 
 export const baseTablesQuery = (pageID: string) => ({
   queryKey: [...contentKeys.page(pageID), 'tables'],
-  queryFn: () => baseHTTP.tables(pageID)
+  queryFn: ({ signal }: { signal: AbortSignal }) => baseHTTP.tables(pageID, signal)
 })
 
 export const baseSchemaQuery = (tableID: string) => ({
   queryKey: [...tableKey(tableID), 'schema'],
-  queryFn: () => baseHTTP.schema(tableID)
+  queryFn: ({ signal }: { signal: AbortSignal }) => baseHTTP.schema(tableID, signal)
 })
 
 /** Start the first table's reads while the page's editor modules load. */
@@ -112,8 +113,8 @@ export function createBaseAPI(client: QueryClient, realtime: PodRealtime): BaseA
     client.fetchQuery({
       queryKey: snapshotKey(tableID),
       meta: { data_version: version },
-      queryFn: async () => {
-        const result = await baseHTTP.query(tableID, { local: true })
+      queryFn: async ({ signal }) => {
+        const result = await baseHTTP.query(tableID, { local: true }, signal)
         if (!result.complete) {
           throw new Error(t('pod.content.this_table_exceeds_the_local_query_limit_reload_its_schema'))
         }
@@ -234,7 +235,7 @@ export function createBaseAPI(client: QueryClient, realtime: PodRealtime): BaseA
                   // The server owns both row and byte limits. A write can change the mode.
                   const definition = await client.fetchQuery({
                     queryKey: [...key(tableID), 'schema'],
-                    queryFn: () => baseHTTP.schema(tableID),
+                    queryFn: ({ signal }) => baseHTTP.schema(tableID, signal),
                     staleTime: 0
                   })
                   if (!current()) return

@@ -76,7 +76,6 @@
         "$TURBO_ROOT$/app/webapps/.env*",
         "$TURBO_ROOT$/app/locales/**",
         "$TURBO_ROOT$/libs/{uikit,ankole-editor,applet-sdk}/src/**",
-        "$TURBO_ROOT$/libs/ankole-editor/patches/**",
         "$TURBO_ROOT$/libs/{uikit,ankole-editor,applet-sdk}/{package.json,tsconfig.json}",
         "$TURBO_ROOT$/tools/openapi-client-generator/package.json",
         "$TURBO_ROOT$/internals/control_plane/**",

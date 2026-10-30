@@ -11,42 +11,60 @@ defmodule AnkoleWeb.PodContentChannelTest do
     %{owner: owner, reader: reader}
   end
 
-  test "the content subscription refreshes after join and committed tree or policy changes",
+  test "content join and unchanged checks stay quiet while tree, metadata, and access changes are distinct",
        ctx do
     Process.flag(:trap_exit, true)
+    owner = actor_fixture(ctx.owner.uid)
+    {:ok, parent} = Pages.create(owner, %{})
 
     assert {:ok, %{}, socket} =
              subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
 
-    assert_push "changed", %{}, 1_000
-
-    assert {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
-    assert_push "changed", %{}, 1_000
-
-    assert {:ok, _} =
-             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
-               grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
-             })
-
-    assert_push "changed", %{}, 1_000
+    refute_push "access_changed", %{}, 100
     send(socket.channel_pid, :periodic_access)
-    assert_push "changed", %{}, 1_000
+    refute_push "access_changed", %{}, 100
 
-    reference = Process.monitor(socket.channel_pid)
-    leave(socket)
-    assert_receive {:DOWN, ^reference, :process, _, {:shutdown, :left}}, 1_000
+    {:ok, child} = Pages.create(owner, %{parent_id: parent.id})
+    parent_id = parent.id
+    child_id = child.id
 
-    assert {:ok, %{}, _socket} =
-             subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
+    assert_push "tree_changed",
+                %{
+                  directories: [%{parent_id: ^parent_id}],
+                  parents: [%{id: ^parent_id, has_children: true}],
+                  page_id: ^child_id
+                },
+                1_000
 
-    assert_push "changed", %{}, 1_000
+    refute_push "access_changed", %{}, 100
+
+    {:ok, _} = Pages.update(owner, child.id, %{title: "Renamed", expected_title: child.title})
+    assert_push "page_updated", %{id: ^child_id, title: "Renamed"}, 1_000
+    refute_push "tree_changed", _, 100
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, parent.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
+      })
+
+    assert_push "access_changed", %{}, 1_000
+    refute_push "access_changed", %{}, 100
+    send(socket.channel_pid, :periodic_access)
+    refute_push "access_changed", %{}, 100
+
+    grant = Repo.get_by!(Ankole.AuthZ.Grant, principal_uid: ctx.reader.uid, action: "page_view")
+    Repo.update!(Ecto.Changeset.change(grant, condition: "false"))
+    send(socket.channel_pid, :periodic_access)
+    assert_push "access_changed", %{}, 1_000
+    send(socket.channel_pid, :periodic_access)
+    refute_push "access_changed", %{}, 100
   end
 
   test "the content subscription closes when its authenticated account loses admission", ctx do
     assert {:ok, %{}, socket} =
              subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
 
-    assert_push "changed", %{}, 1_000
     reference = Process.monitor(socket.channel_pid)
     assert {:ok, _} = disable_principal_fixture(ctx.reader.uid)
     send(socket.channel_pid, :periodic_access)
@@ -54,11 +72,43 @@ defmodule AnkoleWeb.PodContentChannelTest do
     assert_receive {:DOWN, ^reference, :process, _, :normal}, 1_000
   end
 
+  test "trashing and restoring a Userset source refreshes access to dependent directories", ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    reader = actor_fixture(ctx.reader.uid)
+    {:ok, source_parent} = Pages.create(owner, %{title: "Sources"})
+    {:ok, source} = Pages.create(owner, %{parent_id: source_parent.id})
+    {:ok, target_parent} = Pages.create(owner, %{title: "Dependent directory"})
+    {:ok, target} = Pages.create(owner, %{parent_id: target_parent.id})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, target.id, %{
+        inherit_permissions: false,
+        grants: [%{source_page_id: source.id, source_action: "page_view", role: "view"}]
+      })
+
+    assert {:ok, %{pages: [%{id: target_id}]}} = Pages.list_children(reader, target_parent.id)
+    assert target_id == target.id
+
+    assert {:ok, %{}, socket} =
+             subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
+
+    assert {:ok, _} = Pages.delete(owner, source.id)
+    assert_push "access_changed", %{}, 1_000
+    assert {:ok, %{pages: []}} = Pages.list_children(reader, target_parent.id)
+    send(socket.channel_pid, :periodic_access)
+    refute_push "access_changed", %{}, 100
+
+    assert {:ok, _} = Pages.restore(owner, source.id)
+    assert_push "access_changed", %{}, 1_000
+    assert {:ok, %{pages: [%{id: ^target_id}]}} = Pages.list_children(reader, target_parent.id)
+    send(socket.channel_pid, :periodic_access)
+    refute_push "access_changed", %{}, 100
+  end
+
   test "room changes coalesce and background Session status refreshes the sidebar", ctx do
     assert {:ok, %{}, _socket} =
              subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
 
-    assert_push "changed", %{}, 1_000
     for _ <- 1..10, do: Ankole.Conversations.Events.publish_rooms_changed()
     refute_push "conversations_changed", %{}, 100
     assert_push "conversations_changed", %{}, 2_000
@@ -70,6 +120,39 @@ defmodule AnkoleWeb.PodContentChannelTest do
     )
 
     assert_push "conversations_changed", %{}, 2_000
+  end
+
+  test "Userset grant writes publish access changes even when the reader's context is unchanged",
+       ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    reader = actor_fixture(ctx.reader.uid)
+    {:ok, source} = Pages.create(owner, %{})
+    {:ok, target} = Pages.create(owner, %{})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, target.id, %{
+        inherit_permissions: false,
+        grants: []
+      })
+
+    assert {:ok, %{}, socket} =
+             subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
+
+    assert {:ok, grant} =
+             Ankole.AuthZ.create_permission_grant(%{
+               source_page_id: source.id,
+               source_action: "page_view",
+               resource_pattern: "pod:**:#{target.id}:page",
+               action: "page_view"
+             })
+
+    assert_push "access_changed", %{}, 1_000
+    assert {:ok, _} = Pages.authorize(reader, target.id, "page_view")
+    assert {:ok, _} = Ankole.AuthZ.delete_permission_grant(grant.id)
+    assert_push "access_changed", %{}, 1_000
+    assert {:error, :forbidden} = Pages.authorize(reader, target.id, "page_view")
+    send(socket.channel_pid, :periodic_access)
+    refute_push "access_changed", %{}, 100
   end
 
   test "a Pod socket proof is valid only on its tenant host", ctx do
@@ -238,7 +321,7 @@ defmodule AnkoleWeb.PodContentChannelTest do
         "base_revision" => 0,
         "client_id" => "reader",
         "client_seq" => 1,
-        "changes" => []
+        "changes" => [2]
       })
 
     assert_reply edit, :error, %{reason: "forbidden", details: nil}, 1_000
@@ -269,6 +352,61 @@ defmodule AnkoleWeb.PodContentChannelTest do
     send(socket.channel_pid, :periodic_access)
     assert_push "access_revoked", %{}, 1_000
     assert_receive {:DOWN, ^reference, :process, _, :normal}, 1_000
+  end
+
+  test "comment changes refresh connected readers independently of document revisions", ctx do
+    actor = actor_fixture(ctx.owner)
+    {:ok, page} = Pages.create(actor, %{private_owner_uid: ctx.owner.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+        grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
+      })
+
+    {:ok, _, socket} =
+      subscribe_and_join(authenticated_socket(ctx.reader), PodPageChannel, "page:#{page.id}")
+
+    {:ok, %{comment: root, revision: 0}} =
+      Ankole.Pod.Comments.create(actor, page.id, %{body: "Review the whole page"})
+
+    assert_push "comments_changed", %{}, 1_000
+
+    {:ok, %{comment: updated, revision: 0}} =
+      Ankole.Pod.Comments.update(actor, page.id, root.id, %{
+        body: "Clarified",
+        version: root.version
+      })
+
+    assert_push "comments_changed", %{}, 1_000
+
+    assert {:error, :comment_conflict} =
+             Ankole.Pod.Comments.resolve(actor, page.id, root.id, %{
+               resolved: true,
+               version: root.version
+             })
+
+    refute_push "comments_changed", %{}, 50
+
+    {:ok, %{comment: resolved, revision: 0}} =
+      Ankole.Pod.Comments.resolve(actor, page.id, root.id, %{
+        resolved: true,
+        version: updated.version
+      })
+
+    assert_push "comments_changed", %{}, 1_000
+
+    {:ok, %{revision: 0}} =
+      Ankole.Pod.Comments.delete(actor, page.id, root.id, %{version: resolved.version})
+
+    assert_push "comments_changed", %{}, 1_000
+
+    grant = Repo.get_by!(Ankole.AuthZ.Grant, principal_uid: ctx.reader.uid, action: "page_view")
+    Repo.delete!(grant)
+    reference = Process.monitor(socket.channel_pid)
+    send(socket.channel_pid, {:comments_committed, page.id})
+    assert_push "access_revoked", %{}, 1_000
+    assert_receive {:DOWN, ^reference, :process, _, :normal}, 1_000
+    refute_push "comments_changed", %{}, 50
   end
 
   test "an incoming document request detects a removed view grant before the periodic check",
@@ -540,6 +678,170 @@ defmodule AnkoleWeb.PodContentChannelTest do
     assert_reply ref, :error, %{reason: "invalid_request"}, 1_000
   end
 
+  test "document presence identifies principals and validates revisioned selections", ctx do
+    {:ok, page} = Pages.create(actor_fixture(ctx.owner.uid), %{})
+
+    {:ok, joined, writer} =
+      subscribe_and_join(authenticated_socket(ctx.owner), PodPageChannel, "page:#{page.id}")
+
+    {:ok, _, _reader} =
+      subscribe_and_join(authenticated_socket(ctx.reader), PodPageChannel, "page:#{page.id}")
+
+    uid = ctx.owner.uid
+    name = ctx.owner.display_name
+    session = joined.presence_session
+    assert_push "presence_state", _, 1_000
+    selection = %{"revision" => 0, "anchor" => 1, "head" => 1}
+
+    reference =
+      push(writer, "presence", %{
+        "selection" => selection,
+        "principal_uid" => ctx.reader.uid,
+        "name" => "Forged"
+      })
+
+    assert_reply reference, :ok, _, 1_000
+
+    assert_push "presence_diff",
+                %{
+                  joins: %{
+                    ^uid => %{
+                      metas: [
+                        %{
+                          name: ^name,
+                          session_id: ^session,
+                          selection: ^selection,
+                          mode: "editing"
+                        }
+                        | _
+                      ]
+                    }
+                  }
+                },
+                1_000
+
+    ref = push(writer, "presence", %{"selection" => %{selection | "revision" => 10}})
+    assert_reply ref, :ok, %{stale: true}, 1_000
+    ref = push(writer, "presence", %{"selection" => %{selection | "anchor" => -1}})
+    assert_reply ref, :error, %{reason: "invalid_request"}, 1_000
+    ref = push(writer, "presence", %{"selection" => nil})
+    assert_reply ref, :ok, _, 1_000
+
+    assert_push "presence_diff",
+                %{joins: %{^uid => %{metas: [%{selection: nil, mode: "viewing"} | _]}}},
+                1_000
+  end
+
+  test "document presence distinguishes sessions and closes a revoked recipient", ctx do
+    Process.flag(:trap_exit, true)
+    {:ok, page} = Pages.create(actor_fixture(ctx.owner.uid), %{})
+
+    {:ok, first, writer} =
+      subscribe_and_join(authenticated_socket(ctx.owner), PodPageChannel, "page:#{page.id}")
+
+    {:ok, second, _same_person} =
+      subscribe_and_join(authenticated_socket(ctx.owner), PodPageChannel, "page:#{page.id}")
+
+    refute first.presence_session == second.presence_session
+
+    {:ok, _, reader} =
+      subscribe_and_join(authenticated_socket(ctx.reader), PodPageChannel, "page:#{page.id}")
+
+    monitor = Process.monitor(reader.channel_pid)
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+        inherit_permissions: false,
+        grants: []
+      })
+
+    send(reader.channel_pid, :recheck_access)
+    assert_push "access_revoked", %{}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}, 1_000
+
+    reference =
+      push(writer, "presence", %{"selection" => %{"revision" => 0, "anchor" => 1, "head" => 1}})
+
+    assert_reply reference, :ok, _, 1_000
+  end
+
+  test "document presence reflects an editor becoming a viewer without losing their selection",
+       ctx do
+    {:ok, page} = Pages.create(actor_fixture(ctx.owner.uid), %{})
+
+    {:ok, _, viewer} =
+      subscribe_and_join(authenticated_socket(ctx.reader), PodPageChannel, "page:#{page.id}")
+
+    uid = ctx.reader.uid
+    selection = %{"revision" => 0, "anchor" => 1, "head" => 1}
+    reference = push(viewer, "presence", %{"selection" => selection})
+    assert_reply reference, :ok, _, 1_000
+
+    assert_push "presence_diff",
+                %{joins: %{^uid => %{metas: [%{selection: ^selection, mode: "editing"} | _]}}},
+                1_000
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: uid, role: "view"}]
+      })
+
+    send(viewer.channel_pid, :recheck_access)
+
+    assert_push "presence_diff",
+                %{joins: %{^uid => %{metas: [%{selection: ^selection, mode: "viewing"} | _]}}},
+                1_000
+
+    reference = push(viewer, "presence", %{"selection" => selection})
+    assert_reply reference, :ok, _, 1_000
+  end
+
+  test "empty OT change arrays are rejected and trashing an Applet blocks applet rooms while keeping page preview",
+       ctx do
+    actor = actor_fixture(ctx.owner.uid)
+    {:ok, doc} = Pages.create(actor, %{})
+
+    {:ok, _, doc_socket} =
+      subscribe_and_join(authenticated_socket(ctx.owner), PodPageChannel, "page:#{doc.id}")
+
+    empty_edit =
+      push(doc_socket, "changes", %{
+        "base_revision" => 0,
+        "client_id" => "owner",
+        "client_seq" => 1,
+        "changes" => []
+      })
+
+    assert_reply empty_edit, :error, %{reason: "invalid_request", details: nil}, 1_000
+
+    {:ok, applet} = Pages.create(actor, %{type: "applet"})
+
+    {:ok, _, applet_room} =
+      subscribe_and_join(
+        authenticated_socket(ctx.owner),
+        PodRoomChannel,
+        "applet:#{applet.id}:lobby"
+      )
+
+    {:ok, _, applet_page} =
+      subscribe_and_join(authenticated_socket(ctx.owner), PodPageChannel, "page:#{applet.id}")
+
+    room_ref = Process.monitor(applet_room.channel_pid)
+    {:ok, _} = Pages.delete(actor, applet.id)
+
+    assert_push "access_revoked", %{}, 1_000
+    assert_receive {:DOWN, ^room_ref, :process, _, :normal}, 1_000
+    assert Process.alive?(applet_page.channel_pid)
+
+    assert {:error, %{reason: "not_found"}} =
+             subscribe_and_join(
+               authenticated_socket(ctx.owner),
+               PodRoomChannel,
+               "applet:#{applet.id}:lobby"
+             )
+  end
+
   defp authenticated_socket(principal, ip \\ {127, 0, 0, 1}) do
     token = socket_token(principal)
     {:ok, tenant} = Ankole.Tenants.get(Repo.tenant_id!())
@@ -558,7 +860,7 @@ defmodule AnkoleWeb.PodContentChannelTest do
     browser_ref = BrowserSessions.reference(browser)
 
     {:ok, %{authentication: auth}} =
-      BrowserSessions.authenticate(browser_ref, :pod, %{
+      BrowserSessions.authenticate(browser_ref, %{
         "principal_uid" => principal.uid,
         "access_version" => principal.access_version,
         "provider_id" => "lark-main",

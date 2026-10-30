@@ -57,14 +57,12 @@ export function PageHeader({
     <div className="flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
       <DocumentTitle title={title} />
       <div className="grid min-w-0 gap-1">
-        {!tenant || tenant.first ? (
-          <h2 className="text-2xl font-semibold tracking-normal text-foreground">{title}</h2>
-        ) : null}
+        {!tenant || tenant.first ? <h2 className="title-page text-foreground">{title}</h2> : null}
         {description && (!tenant || tenant.first) ? (
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
         ) : null}
         {tenant ? (
-          <h3 className="text-base font-semibold">
+          <h3 className="title-inline">
             {tenant.display_name} <span className="text-sm font-normal text-muted-foreground">({tenant.slug})</span>
           </h3>
         ) : null}

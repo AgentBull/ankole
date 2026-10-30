@@ -20,8 +20,10 @@ defmodule Ankole.Brain.Recall do
   alias Ankole.Brain.Access
   alias Ankole.Brain.Chunker
   alias Ankole.Brain.Config
+  alias Ankole.Brain.ContextPack
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.LazySkillVisibility
+  alias Ankole.Brain.Links
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Link
@@ -40,6 +42,7 @@ defmodule Ankole.Brain.Recall do
   @salience_strength 0.15
   @rerank_timeout_ms 5_000
   @max_chunks_per_page 2
+  @max_recall_entities 3
   @retrieved_throttle_seconds 300
   @ln2 :math.log(2)
 
@@ -55,8 +58,12 @@ defmodule Ankole.Brain.Recall do
   @spec recall(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def recall(querier_uid, params, opts \\ []) do
     query = String.trim(params[:query] || "")
-    limit = params[:limit] || @default_limit
-    budget = min(params[:budget_tokens] || @default_budget_tokens, @assembly_budget_cap)
+    limit = normalize_positive_int(params[:limit], @default_limit)
+
+    budget =
+      params[:budget_tokens]
+      |> normalize_positive_int(@default_budget_tokens)
+      |> min(@assembly_budget_cap)
 
     disclosure =
       Keyword.get(opts, :disclosure, Access.open_disclosure())
@@ -66,22 +73,37 @@ defmodule Ankole.Brain.Recall do
     else
       with {:ok, access} <- Access.for_readers(querier_uid, disclosure),
            {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid),
-           {:ok, neighborhood} <- entity_neighborhood(params[:entity], visibility) do
+           {:ok, {entity_slug, neighborhood}} <-
+             entity_neighborhood(params[:entity], visibility) do
         query_vector = query_embedding(query)
 
         claims = claim_arm(access, visibility, query, query_vector, limit, neighborhood)
-        chunks = chunk_arm(access, visibility, query, query_vector, limit, neighborhood)
+
+        chunks =
+          chunk_arm(access, visibility, disclosure, query, query_vector, limit, neighborhood)
 
         claims = Access.filter_disclosable(claims, & &1.audience_scope, disclosure)
-        chunks = Access.filter_disclosable(chunks, & &1.chunk.audience_scope, disclosure)
 
-        {claim_payload, chunk_payload} = assemble(claims, chunks, budget)
+        entities =
+          matched_entities(
+            query,
+            entity_slug,
+            neighborhood,
+            access,
+            disclosure,
+            visibility,
+            Keyword.get(opts, :conversation_id)
+          )
 
-        touch_retrieved(chunk_payload, claim_payload)
+        {claim_payload, entity_payload, chunk_payload} =
+          assemble(claims, entities, chunks, budget)
+
+        touch_retrieved(chunk_payload, claim_payload, entity_payload)
 
         {:ok,
          %{
            claims: claim_payload,
+           entities: entity_payload,
            chunks: chunk_payload
          }}
       end
@@ -179,7 +201,7 @@ defmodule Ankole.Brain.Recall do
     Map.get(forgetting, key, 365)
   end
 
-  defp chunk_arm(access, visibility, query, query_vector, limit, neighborhood) do
+  defp chunk_arm(access, visibility, disclosure, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
 
     base =
@@ -197,6 +219,8 @@ defmodule Ankole.Brain.Recall do
       |> limit(^candidate_limit)
       |> select([chunk, _object], chunk.id)
       |> Repo.all()
+
+    bm25_set = MapSet.new(bm25_ids, &Ecto.UUID.cast!/1)
 
     vector_ids =
       case query_vector do
@@ -222,10 +246,29 @@ defmodule Ankole.Brain.Recall do
       end)
 
     hits
+    |> Access.filter_disclosable(& &1.chunk.audience_scope, disclosure)
+    |> cap_chunks_per_page()
     |> maybe_rerank(query)
     |> apply_adjacency_boost(visibility)
-    |> apply_recency_and_salience()
+    |> apply_recency_and_salience(bm25_set)
     |> Enum.sort_by(& &1.score, :desc)
+  end
+
+  # Caps each page at @max_chunks_per_page before cross-encoder reranking so
+  # one long media or source page cannot crowd other entity pages out of the
+  # rerank candidate window.
+  defp cap_chunks_per_page(hits) do
+    {kept_rev, _counts} =
+      Enum.reduce(hits, {[], %{}}, fn hit, {acc, counts} ->
+        slug = hit.object.slug
+        count = Map.get(counts, slug, 0)
+
+        if count >= @max_chunks_per_page,
+          do: {acc, counts},
+          else: {[hit | acc], Map.put(counts, slug, count + 1)}
+      end)
+
+    Enum.reverse(kept_rev)
   end
 
   defp vector_candidate_ids(base, {vector, signature}, candidate_limit, kind) do
@@ -325,33 +368,48 @@ defmodule Ankole.Brain.Recall do
     end
   end
 
-  defp apply_recency_and_salience(hits) do
-    slugs = hits |> Enum.map(& &1.object.slug) |> Enum.uniq()
+  # Recency and salience boosts apply only to lexical (BM25-backed) hits so a
+  # fresh or salient page cannot promote a tangential vector-only passage over
+  # exact lexical matches.
+  defp apply_recency_and_salience(hits, bm25_set) do
+    lexical_slugs =
+      hits
+      |> Enum.filter(&MapSet.member?(bm25_set, &1.chunk.id))
+      |> Enum.map(& &1.object.slug)
+      |> Enum.uniq()
 
-    take_counts =
-      Claim
-      |> where([claim], claim.claim_type == :take and claim.active == true)
-      |> where([claim], claim.object_slug in ^slugs)
-      |> group_by([claim], claim.object_slug)
-      |> select([claim], {
-        claim.object_slug,
-        count(claim.id),
-        sum(fragment("LEAST(GREATEST(?, 0.0), 1.0)", claim.weight)),
-        filter(count(claim.id), like(claim.holder, "people/%") or like(claim.holder, "agents/%"))
-      })
-      |> Repo.all()
-      |> Map.new(fn {slug, count, weight_sum, members} ->
-        {slug, {count, weight_sum, members}}
+    if lexical_slugs == [] do
+      hits
+    else
+      take_counts = load_take_counts(lexical_slugs)
+      today = Date.utc_today()
+
+      Enum.map(hits, fn hit ->
+        if MapSet.member?(bm25_set, hit.chunk.id) do
+          recency = recency_factor(hit.object, today)
+          salience = salience_factor(Map.get(take_counts, hit.object.slug, {0, 0.0, 0}))
+          %{hit | score: hit.score * recency * salience}
+        else
+          hit
+        end
       end)
+    end
+  end
 
-    today = Date.utc_today()
-
-    Enum.map(hits, fn hit ->
-      recency = recency_factor(hit.object, today)
-
-      salience = salience_factor(Map.get(take_counts, hit.object.slug, {0, 0.0, 0}))
-
-      %{hit | score: hit.score * recency * salience}
+  defp load_take_counts(slugs) do
+    Claim
+    |> where([claim], claim.claim_type == :take and claim.active == true)
+    |> where([claim], claim.object_slug in ^slugs)
+    |> group_by([claim], claim.object_slug)
+    |> select([claim], {
+      claim.object_slug,
+      count(claim.id),
+      sum(fragment("LEAST(GREATEST(?, 0.0), 1.0)", claim.weight)),
+      filter(count(claim.id), like(claim.holder, "people/%") or like(claim.holder, "agents/%"))
+    })
+    |> Repo.all()
+    |> Map.new(fn {slug, count, weight_sum, members} ->
+      {slug, {count, weight_sum, members}}
     end)
   end
 
@@ -430,12 +488,68 @@ defmodule Ankole.Brain.Recall do
     end
   end
 
-  # Claims take the budget first; chunks fill the remainder with at most two
-  # chunks per page.
-  defp assemble(claims, chunks, budget) do
+  defp matched_entities(
+         query,
+         entity_slug,
+         neighborhood,
+         access,
+         disclosure,
+         visibility,
+         conversation_id
+       ) do
+    alias_slugs =
+      query
+      |> Links.match_aliases_in_text()
+      |> filter_neighborhood_slugs(neighborhood)
+
+    slugs =
+      [entity_slug | alias_slugs]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> ContextPack.visible_alias_slugs(access, disclosure, visibility)
+      |> Enum.take(@max_recall_entities)
+
+    if slugs == [] do
+      []
+    else
+      forgetting = Config.forgetting()
+      now = DateTime.utc_now()
+
+      slugs
+      |> Enum.map(
+        &ContextPack.entity_card(
+          &1,
+          access,
+          disclosure,
+          forgetting,
+          now,
+          conversation_id,
+          visibility
+        )
+      )
+      |> Enum.reject(&is_nil/1)
+    end
+  end
+
+  defp filter_neighborhood_slugs(slugs, nil), do: slugs
+
+  defp filter_neighborhood_slugs(slugs, neighborhood),
+    do: Enum.filter(slugs, &(&1 in neighborhood))
+
+  # Claims take the budget first, followed by exact-matched entity cards and
+  # their relational links, then chunks (already capped at two per page in
+  # `chunk_arm/7`).
+  defp assemble(claims, entities, chunks, budget) do
+    {claim_payload, used_tokens} = pack_claims(claims, budget)
+    {entity_payload, used_tokens} = pack_entities(entities, used_tokens, budget)
+    chunk_payload = pack_chunks(chunks, used_tokens, budget)
+    {claim_payload, entity_payload, chunk_payload}
+  end
+
+  defp pack_claims(claims, budget) do
     {claim_payload, used_tokens} =
       Enum.reduce_while(claims, {[], 0}, fn %{claim: claim}, {acc, used} ->
-        tokens = Chunker.estimate_tokens(claim.claim)
+        tokens = claim_tokens(claim)
 
         if used + tokens > budget do
           {:cont, {acc, used}}
@@ -444,6 +558,7 @@ defmodule Ankole.Brain.Recall do
             id: claim.id,
             claim_type: Atom.to_string(claim.claim_type),
             claim: claim.claim,
+            context: claim.context,
             kind: claim.kind,
             holder: claim.holder,
             confidence: claim.confidence,
@@ -463,42 +578,77 @@ defmodule Ankole.Brain.Recall do
         end
       end)
 
-    {chunk_payload, _used, _per_page} =
-      Enum.reduce_while(chunks, {[], used_tokens, %{}}, fn hit, {acc, used, per_page} ->
-        slug = hit.object.slug
+    {Enum.reverse(claim_payload), used_tokens}
+  end
 
-        if Map.get(per_page, slug, 0) >= @max_chunks_per_page do
-          {:cont, {acc, used, per_page}}
+  defp claim_tokens(%Claim{claim: text, context: context})
+       when is_binary(context) and context != "" do
+    Chunker.estimate_tokens(text <> "\n" <> context)
+  end
+
+  defp claim_tokens(%Claim{claim: text}), do: Chunker.estimate_tokens(text)
+
+  defp pack_entities(entities, used_tokens, budget) do
+    {entity_payload, used} =
+      Enum.reduce_while(entities, {[], used_tokens}, fn card, {acc, used} ->
+        tokens = entity_tokens(card)
+
+        if used + tokens > budget do
+          {:cont, {acc, used}}
         else
-          tokens = Chunker.estimate_tokens(hit.chunk.chunk_text)
-
-          if used + tokens > budget do
-            {:cont, {acc, used, per_page}}
-          else
-            payload = %{
-              object_slug: slug,
-              title: hit.object.title,
-              type: hit.object.type,
-              chunk_index: hit.chunk.chunk_index,
-              content_kind: Atom.to_string(hit.chunk.content_kind),
-              text: hit.chunk.chunk_text,
-              audience_scope: hit.chunk.audience_scope
-            }
-
-            {:cont, {[payload | acc], used + tokens, Map.update(per_page, slug, 1, &(&1 + 1))}}
-          end
+          {:cont, {[card | acc], used + tokens}}
         end
       end)
 
-    {Enum.reverse(claim_payload), Enum.reverse(chunk_payload)}
+    {Enum.reverse(entity_payload), used}
   end
+
+  defp entity_tokens(card) do
+    facts = Enum.map_join(card.facts, "\n", & &1.claim)
+    edges = Enum.map_join(card.edges, "\n", &"#{&1.link_type}:#{&1.to}")
+    aka = Enum.join(card.aka, ", ")
+
+    [card.slug, card.title, card.type, aka, facts, edges]
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> Enum.join("\n")
+    |> Chunker.estimate_tokens()
+  end
+
+  defp pack_chunks(chunks, used_tokens, budget) do
+    {chunk_payload, _used} =
+      Enum.reduce_while(chunks, {[], used_tokens}, fn hit, {acc, used} ->
+        tokens = Chunker.estimate_tokens(hit.chunk.chunk_text)
+
+        if used + tokens > budget do
+          {:cont, {acc, used}}
+        else
+          payload = %{
+            object_slug: hit.object.slug,
+            title: hit.object.title,
+            type: hit.object.type,
+            chunk_index: hit.chunk.chunk_index,
+            content_kind: Atom.to_string(hit.chunk.content_kind),
+            text: hit.chunk.chunk_text,
+            audience_scope: hit.chunk.audience_scope
+          }
+
+          {:cont, {[payload | acc], used + tokens}}
+        end
+      end)
+
+    Enum.reverse(chunk_payload)
+  end
+
+  defp normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
+  defp normalize_positive_int(_other, default), do: default
 
   # Retrieved pages remember the hit for freshness maintenance; a five-minute
   # throttle keeps hot pages from writing on every recall.
-  defp touch_retrieved(chunk_payload, claim_payload) do
+  defp touch_retrieved(chunk_payload, claim_payload, entity_payload) do
     slugs =
       (Enum.map(chunk_payload, & &1.object_slug) ++
-         Enum.map(claim_payload, & &1.object_slug))
+         Enum.map(claim_payload, & &1.object_slug) ++
+         Enum.map(entity_payload, & &1.slug))
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
@@ -519,8 +669,8 @@ defmodule Ankole.Brain.Recall do
   # Resolving an entity narrows both arms to the entity's parent container
   # and one-hop link neighborhood. An entity that does not resolve is an
   # explicit error, never a silent global query.
-  defp entity_neighborhood(nil, _visibility), do: {:ok, nil}
-  defp entity_neighborhood("", _visibility), do: {:ok, nil}
+  defp entity_neighborhood(nil, _visibility), do: {:ok, {nil, nil}}
+  defp entity_neighborhood("", _visibility), do: {:ok, {nil, nil}}
 
   defp entity_neighborhood(entity, visibility) when is_binary(entity) do
     case Ankole.Brain.Objects.resolve_reference(entity, lazy_skill_visibility: visibility) do
@@ -536,7 +686,7 @@ defmodule Ankole.Brain.Recall do
           |> Repo.all()
           |> Enum.flat_map(fn {from, to} -> [from, to] end)
 
-        {:ok, Enum.uniq([object.slug | neighbors])}
+        {:ok, {object.slug, Enum.uniq([object.slug | neighbors])}}
 
       {:ambiguous, candidates} ->
         {:error, {:ambiguous_entity, candidates}}

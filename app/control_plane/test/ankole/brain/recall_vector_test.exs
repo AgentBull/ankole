@@ -291,6 +291,60 @@ defmodule Ankole.Brain.RecallVectorTest do
     assert both_index < vector_index
   end
 
+  test "recency and salience boosts apply only to lexically backed chunk hits", %{member: member} do
+    {:ok, older_closer} =
+      Ankole.Brain.create_object(
+        %{
+          slug: "concepts/vector-alpha",
+          type: "concept",
+          title: "Vector Alpha",
+          body: "lexgateclose passage without query words.",
+          effective_date: Date.add(Date.utc_today(), -90)
+        },
+        member.uid
+      )
+
+    {:ok, fresh_salient} =
+      Ankole.Brain.create_object(
+        %{
+          slug: "concepts/vector-beta",
+          type: "concept",
+          title: "Vector Beta",
+          body: "lexgateslight passage without query words.",
+          effective_date: Date.utc_today()
+        },
+        member.uid
+      )
+
+    for idx <- 1..3 do
+      {:ok, _take} =
+        Ankole.Brain.Claims.write_take(
+          %{
+            object_slug: fresh_salient.slug,
+            claim: "Salient thesis #{idx} on Vector Beta",
+            kind: "take",
+            holder: "people/#{member.uid}",
+            audience_scope: "world",
+            weight: 0.95,
+            provenance: "test"
+          },
+          member.uid,
+          embed: false
+        )
+    end
+
+    assert %{chunks: 2} = SelfHealing.embed_pending()
+
+    # Pure vector query ("lexgateprobeq"): neither chunk has a BM25 match, so
+    # fresh_salient receives no recency or salience boost and older_closer stays first.
+    assert {:ok, pure_vector} = Recall.recall(member.uid, %{query: "lexgateprobeq"})
+    slugs = Enum.map(pure_vector.chunks, & &1.object_slug)
+    alpha_idx = Enum.find_index(slugs, &(&1 == older_closer.slug))
+    beta_idx = Enum.find_index(slugs, &(&1 == fresh_salient.slug))
+    assert alpha_idx != nil and beta_idx != nil
+    assert alpha_idx < beta_idx
+  end
+
   defp write_fact(object, member, claim_text, confidence \\ 0.9) do
     Ankole.Brain.write_fact(
       %{
@@ -326,11 +380,24 @@ defmodule Ankole.Brain.RecallVectorTest do
   end
 
   defp fake_embedding(text) do
-    direction =
-      if String.contains?(String.downcase(text), ["cobalt", "probe"]), do: 0, else: 1
+    downcased = String.downcase(text)
 
-    for index <- 0..(@dimensions - 1) do
-      if index == direction, do: 1.0, else: 0.0
+    cond do
+      String.contains?(downcased, "lexgateprobeq") ->
+        [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+      String.contains?(downcased, "lexgateclose") ->
+        [0.96, 0.28, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+      String.contains?(downcased, "lexgateslight") ->
+        [0.88, 0.47, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+      true ->
+        direction = if String.contains?(downcased, ["cobalt", "probe"]), do: 0, else: 1
+
+        for index <- 0..(@dimensions - 1) do
+          if index == direction, do: 1.0, else: 0.0
+        end
     end
   end
 end

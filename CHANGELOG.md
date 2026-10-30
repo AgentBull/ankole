@@ -1,21 +1,180 @@
 # Changelog
 
-## Version 2.1.0-alpha.6 (2026-10-30)
+## Version 2.0.0-alpha.42 (2026-10-30)
+
+- Reset pre-release browser and OIDC sessions when migrating to unified
+  `site` and `tenant` authentication scopes. Users sign in again while
+  identities and OIDC client registrations remain intact; existing refresh
+  tokens stop working, and pending back-channel logout deliveries are discarded
+  with the retired sessions. Signing into the privileged Pod as a `siteadmin`
+  opens the Site Console and `/api/v2/site/*` endpoints directly without a
+  second login, with multi-account browser pinning on the Console shell, sealed
+  `console_return` redirects filtered to `siteadmin` identities, unified
+  authentication evidence on OIDC tokens, and `403` responses for authenticated
+  non-admin sessions on `/api/v2/site/*` and unauthorized native Agent file
+  downloads and uploads.
+
+- Scope single-space sign-out in Pods and the Site Console to the target Pod
+  (revoking only that Pod's access and RP sessions while other live Pod
+  identities remain on the site authentication, and returning Console sign-out
+  to privileged Pod sign-in via `?switch=1`), show browser-wide sign-out only
+  when more than one account is signed in, clear local Pod document and comment
+  drafts on sign-out, and require a resolved Pod host on `/api/v2/pod/*`
+  endpoints.
+
+- Sharpen Brain hybrid retrieval and close the Agent page-curation loop. `recall`
+  returns qualifying claim `context`, caps fused chunk candidates at two per page
+  before cross-encoder reranking, gates recency and salience boosts onto hits
+  backed by lexical BM25 evidence, and packs up to three exact-alias entity cards
+  with relationships and backlinks inside the token budget. Agents can read raw
+  caller-visible Markdoc prose and its `revision` via `get_page(include_content:
+  true)`, create or replace structured pages via `put_page`, and apply surgical
+  multi-span replacements via `edit_page` under `expected_revision` optimistic
+  concurrency while preserving audience boundaries and calibration scorecards.
+  `synthesize` incorporates claim `context`, decayed confidence, and
+  scope-bounded open contradictions to surface contested points and open gaps,
+  and refuses to replace analysis sections the caller cannot see or edit.
+  Console duplicate-page merge approvals consolidate non-blank duplicate bodies
+  with `ObjectVersion` snapshots, and Background Agent Jobs gain `entity`,
+  `whoknows`, and `delta` through `tools.read`.
+
+- Replace block-level Document Page embeds in Pod Documents with inline `@` /
+  `＠` mentions for Pages (`doc`, `base`, `file`, `applet`) and Principals
+  (tenant members, shared Guests, and AI colleagues), migrating historical
+  Document `<embed ref="…" />` blocks to `<p><mention page="…" /></p>`
+  paragraphs in PostgreSQL while keeping **Embed Base or app** (`embeddable=true`)
+  for interactive Bases, File Pages, and Applets. Typing `@` filters **All**,
+  **Pages**, and **Principals** without leaving the document, converts pasted
+  Pod Page URLs and newly created child Documents into inline mentions, previews
+  Page excerpts on hover, opens Principal identity cards on click, highlights
+  self-mentions, redacts restricted targets, and resolves Guest Principal
+  mentions within each Page's collaborator context while showing external Guests
+  only collaborator display names and avatars.
+
+- Redesign Pod Page sharing as a two-level popover with an overview, multi-select
+  collaborator invite flow, inherited and direct collaborator breakdown (`This
+  page and subpages` / `This page only`), consistent comment-role selection,
+  access-scope controls, and permission settings. Viewers without `manage`
+  access can open a read-only sharing overview to inspect effective
+  collaborators and copy the Page link. Interactive sharing changes apply
+  immediately via `PATCH /api/v2/pod/pages/:id/sharing`, block new Guest grants
+  on Private Pages while allowing existing inactive grants to round-trip without
+  granting access, and publish access updates when trashing or restoring a
+  Userset source Page.
+
+- Add durable document history, selected-text and whole-page comments, portable
+  Markdown exports, an editing statistics footer, and Document Insights:
+  - **Version history**: Capture five-minute checkpoints plus pre- and
+    post-restore snapshots (retained for 30 days, up to 200 per Page), show
+    content-edit timestamps and version diffs, preview snapshots read-only while
+    references load, refresh before confirmation, and commit metadata-aware
+    restores as new OT revisions. Full history requires edit access.
+  - **Comments**: Support anchored and whole-page threads, replies, resolution,
+    relocation, direct thread links, unread activity indicators, and mobile
+    navigation between discussions and quoted text. Native comment marks follow
+    in-editor moves and cut/paste across blocks, code, and Mermaid source while
+    omitting marks from copies and exports. Contributors can comment without
+    document edit access; canonical stored role grants gain comment access during
+    migration while custom action subsets keep their declared permissions.
+    Anchored comment submission and relocation unlock once the document body is
+    confirmed, even when a title change or recovery draft is pending.
+  - **Markdown export, statistics, and Insights**: Copy Documents as Markdown or
+    plain text, and export Markdown or ZIP archives bundling document-local
+    uploaded assets, custom icons, and embedded File Pages while keeping inline
+    Page mentions and links as Web URLs. Count CJK words via Unicode
+    segmentation in a toggleable footer, and surface creation/update times,
+    durable Human and Agent contributor attribution, 30-day activity trends, and
+    optional per-document reader privacy in Insights.
+
+- Open deleted Pages from Trash in a read-only detail view with restore and
+  confirmed permanent-delete actions, keep trashed Applets inactive while
+  preserving Page previews, keep external embedded Pages in their original
+  directory when an embed block is removed, and commit block-menu deletion of
+  multiple child Pages atomically in one transaction.
+
+- Upgrade collaborative Document editing, rich blocks, and table workflows:
+  - **Collaborative sync and drafts**: Preserve concurrent edits across lists,
+    tables, local undo, formatting marks, and Agent writes; retain local drafts
+    across tab reloads, rejected sessions, and whole-block replacement or sort
+    conflicts; require title baselines on Human and Agent renames to surface
+    conflicting title drafts instead of overwriting them; and place live
+    synchronization status and online participants in the Page header.
+  - **Blocks, media, and icons**: Add H1–H6 section folding, multilingual slash
+    aliases, configurable callouts, syntax-highlighted code blocks with
+    searchable language pickers and line wrapping, inline-editable `$$` LaTeX
+    formula blocks, split-view Mermaid diagram blocks with templates and
+    full-window preview, image and video uploads with link/card/preview modes,
+    webpage bookmark cards, external iframe embeds, multi-column layouts with
+    resizable widths and cross-column selection/navigation, and Document File
+    uploads saved as child File Pages in a collapsible List/Grid subpages
+    directory below the document body. Document Page icons sit in the title line
+    with localized Emoji search and shared Custom icons (`metadata/custom-emoji/`
+    up to 1 MB, named with bare names such as `my_icon` stored as `:my_icon:`).
+  - **Tables**: Add selection-aware row and column operations, cell merge and
+    split, drag and keyboard reordering, column widths, cell colours, sorting
+    (skipping no-op sorts), full-width layout, sticky headers, independent
+    scrolling, single-cell content paste, and formula-safe CSV export.
+  - **Keyboard, CJK IME, and gutter interaction**: Preserve list structure and
+    active preedit sessions during Chinese and CJK IME composition; align
+    whole-block, column, code, formula, and heading shortcuts (`Escape`,
+    `Shift+Enter`, `⌘Enter`, `Tab`/`ArrowDown` from title into body); unify
+    slash, `+`, and block-type menus; click below the last block to focus or
+    append a paragraph; and drag from blank gutters for marquee block selection.
+  - **Selection `Ask Agent`**: Quote selected document text directly into Page
+    chat from the selection toolbar (available in read-only documents and code
+    blocks as well), preserving selected-text quotes when the draft already
+    references the same Page.
+
+- Improve Pod and Console navigation, startup speed, and fault isolation:
+  - Bootstrap sidebar roots and the active Page's authorized `ancestors` path in
+    one pass, keep directory caches and cursors across tab switches and metadata
+    patches, prefetch linked Pages on pointer approach, remove the 500 ms route
+    loading floor, load Console routes on demand, and load emoji data, syntax
+    highlighting, and formula rendering lazily.
+  - Resize the desktop Pod sidebar between 248 and 480 px with left-edge hover
+    preview when collapsed, highlight only the sidebar row a user followed, keep
+    Page titles and icons synchronized across trees, breadcrumbs, lists, and
+    pickers, and keep permitted Page creation actions available while sections
+    load or recover.
+  - Isolate frontend render exceptions into inline, panel, and shell fault
+    boundaries across Pod, Console, Auth, and Setup with localized retry,
+    one-click diagnostic copy, and unsaved Document draft export.
+
+- Refine the interface design language, typography, and Pod Chat presentation:
+  - Align Page headers, side panels, and Console headers onto shared 16px paper
+    sheets over a cool light ground (`#F9FAFB`), move Console setup, theme, and
+    sign-out controls into the content sheet header, place Console list search,
+    filters, and counts in the top row of the list frame, and round transient
+    ceramic menus, popovers, dialogs, and sheets at 8px with unified control
+    borders, disabled outlines, and error borders.
+  - Regularize Okhsl colour ramps around the `#E10059` primary action across web
+    surfaces and transactional emails, style destructive buttons in deep red, and
+    highlight focused destructive menu items with a translucent red wash.
+  - Align Document typography and spacing with a 38px semibold title, 28/22/18px
+    headings, and a 32px body and list rhythm.
+  - Put Pod Chat on a single 760px column with 15/24 message text, unified code
+    and table blocks, inline conversation renaming, distinct sidebar indicators
+    for unread, waiting, and working turns, labelled Stop/Retry/Steer controls,
+    and real-world multilingual layout fixes for CJK/Arabic avatar initials,
+    Vietnamese diacritics, automatic `dir="auto"` text direction, formatted run
+    durations, and narrow-screen headers.
+
+## Version 2.0.0-alpha.41 (2026-10-30)
 
 - Fix enterprise SSO buttons on the Site Admin Console and Pod sign-in pages.
   Ankole sent these buttons an empty sign-in link, so the browser opened
   `/null` and showed a "no route found" error instead of the provider's sign-in
   page.
 
-## Version 2.1.0-alpha.5 (2026-10-29)
+## Version 2.0.0-alpha.40 (2026-10-29)
 
 - Internal changes only.
 
-## Version 2.1.0-alpha.4 (2026-10-28)
+## Version 2.0.0-alpha.39 (2026-10-28)
 
 - Internal changes only.
 
-## Version 2.1.0-alpha.3 (2026-10-28)
+## Version 2.0.0-alpha.38 (2026-10-28)
 
 - Stop declaring native image generation and web search to an OpenAI provider
   that uses Chat Completions. Chat Completions rejected those tools, so every
@@ -39,7 +198,7 @@
   example `xhigh` on Claude Opus 4.5. Models that the metadata does not describe
   get only a configured effort.
 
-## Version 2.1.0-alpha.2 (2026-10-28)
+## Version 2.0.0-alpha.37 (2026-10-28)
 
 - Show the Pod page picker scope labels from the locale catalogs.
 - Make the full Pod mobile sidebar section link 40 px tall so the whole row
@@ -47,7 +206,7 @@
 - Offer the realtime reconnect action on a Pod page when its live connection
   does not open in 10 seconds. Loaded file previews stay visible.
 
-## Version 2.1.0-alpha.1 (2026-10-28)
+## Version 2.0.0-alpha.36 (2026-10-28)
 
 - Show tenant-owned Site Console collections across all tenants and let operators
   filter by tenant. Bind record forms, row actions, links, searches, and page

@@ -3,6 +3,12 @@ defmodule Ankole.Pod.APIError do
   use Splode.Error, fields: [:reason], class: :invalid
 
   @chat_errors %{
+    comment_conflict: {409, "The comment changed. Reload it before trying again."},
+    invalid_comment_body: {422, "Enter a comment of at most 20,000 characters."},
+    invalid_comment_reply:
+      {422, "Replies must belong to an existing root discussion on this page."},
+    invalid_comment_anchor:
+      {422, "The text anchor must belong to an existing discussion on this page."},
     interaction_not_pending: {409, "This question has an answer or was superseded"},
     invalid_choice: {422, "Select a valid answer"},
     participant_unavailable: {422, "This participant is unavailable"},

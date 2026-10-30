@@ -20,7 +20,7 @@ defmodule AnkoleWeb.AuthController do
          :ok <- ensure_upstream_target(target),
          conn = WebSession.ensure_browser(conn),
          {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
-         :ok <- LoginPolicy.authorize_login(target.oauth_request || target.purpose, provider_id),
+         :ok <- authorize_target_login(target.oauth_request, provider_id),
          state <- WebSession.opaque_token(),
          redirect_uri <-
            Login.oidc_redirect_uri(AnkoleWeb.Plugs.RequestHost.origin(conn), provider_id),
@@ -33,15 +33,18 @@ defmodule AnkoleWeb.AuthController do
              %{provider_id: provider_id},
              Keyword.merge(upstream_opts, redirect_uri: redirect_uri, state: state)
            ),
+         return_to =
+           if(is_binary(target.console_return_to),
+             do: AnkoleWeb.PodURL.site_origin(conn) <> target.console_return_to,
+             else: target.return_to
+           ),
          {:ok, _} <-
            BrowserSessions.begin_oidc_state(WebSession.browser_reference(conn), %{
              state: state,
              provider_id: provider_id,
-             purpose: target.purpose,
-             mode: target.mode,
              started_revision: target.started_revision,
              redirect_uri: redirect_uri,
-             return_to: target.return_to,
+             return_to: return_to,
              prompt: target.request_params["prompt"] || [],
              invitation_id: target.invitation_id,
              expected_authentication_id: target.expected_authentication_id,
@@ -55,10 +58,15 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
-  defp ensure_upstream_target(%{purpose: :oauth, oauth_request: %{status: :pending}}), do: :ok
-  defp ensure_upstream_target(%{purpose: :oauth}), do: {:error, :login_expired}
-  defp ensure_upstream_target(%{purpose: purpose}) when purpose in [:pod, :console], do: :ok
+  defp ensure_upstream_target(%{oauth_request: %{status: :pending}}), do: :ok
+  defp ensure_upstream_target(%{oauth_request: %{}}), do: {:error, :login_expired}
+  defp ensure_upstream_target(%{scope: :tenant}), do: :ok
   defp ensure_upstream_target(_), do: {:error, :identity_provider_not_allowed}
+
+  defp authorize_target_login(nil, provider_id), do: LoginPolicy.authorize_login(provider_id)
+
+  defp authorize_target_login(request, provider_id),
+    do: LoginPolicy.authorize_login(request, provider_id)
 
   def oidc_callback(conn, %{"provider_id" => provider_id} = params) do
     code = params["code"]
@@ -81,10 +89,11 @@ defmodule AnkoleWeb.AuthController do
     browser_ref = WebSession.browser_reference(conn)
 
     with {:ok, oidc_state} <- BrowserSessions.oidc_callback(browser_ref, provider_id, state),
-         :ok <- verify_callback_host(conn, oidc_state.tenant_id),
+         :ok <- AnkoleWeb.BrowserAuth.Targets.verify_pod_host(conn, oidc_state.tenant_id),
          :ok <- Ankole.Repo.put_tenant_id(oidc_state.tenant_id),
-         {:ok, policy_subject, request_params} <- oidc_callback_policy(browser_ref, oidc_state),
-         :ok <- LoginPolicy.authorize_login(policy_subject, provider_id),
+         {:ok, oauth_request_policy, request_params} <-
+           oidc_callback_policy(browser_ref, oidc_state),
+         :ok <- authorize_target_login(oauth_request_policy, provider_id),
          {:ok,
           %{
             browser: browser,
@@ -125,13 +134,7 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
-  defp verify_callback_host(%{assigns: %{host_context: {:pod, host_tenant_id}}}, tenant_id)
-       when host_tenant_id != tenant_id,
-       do: {:error, :login_expired}
-
-  defp verify_callback_host(_conn, _tenant_id), do: :ok
-
-  defp oidc_callback_policy(browser_ref, %{purpose: :oauth, oauth_request_id: id}) do
+  defp oidc_callback_policy(browser_ref, %{oauth_request_id: id}) when is_binary(id) do
     case AuthorizationRequests.get(browser_ref, id) do
       {:ok, %{status: :pending} = request} -> {:ok, request, request.request}
       {:ok, _} -> {:error, :login_expired}
@@ -140,7 +143,7 @@ defmodule AnkoleWeb.AuthController do
   end
 
   defp oidc_callback_policy(_browser_ref, oidc_state) do
-    {:ok, oidc_state.purpose,
+    {:ok, nil,
      %{
        "prompt" => oidc_state.prompt,
        "reauthenticate" => not is_nil(oidc_state.expected_authentication_id)
@@ -167,7 +170,7 @@ defmodule AnkoleWeb.AuthController do
            ) do
       conn
       |> WebSession.clear_setup_session()
-      |> WebSession.put_admin_session(%{
+      |> WebSession.put_tenant_session(%{
         principal_uid: login.principal_uid,
         provider_id: login.provider_id,
         external_id: login.external_id,
@@ -187,21 +190,21 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
-  defp callback_return_to(conn, %{purpose: :oauth}, oauth_request),
+  defp callback_return_to(conn, _oidc_state, %{} = oauth_request),
     do: AnkoleWeb.PodURL.oauth_return_to(conn, oauth_request)
 
-  defp callback_return_to(_conn, oidc_state, _oauth_request),
-    do: WebSession.safe_return_to(oidc_state.return_to)
+  defp callback_return_to(conn, oidc_state, nil) do
+    site_prefix = AnkoleWeb.PodURL.site_origin(conn) <> "/"
 
-  defp login_error(conn, {:missing, key}), do: error(conn, 422, "#{key} is required")
-  defp login_error(conn, :invalid_credentials), do: error(conn, 401, "invalid_credentials")
+    if String.starts_with?(oidc_state.return_to, site_prefix),
+      do: oidc_state.return_to,
+      else: WebSession.safe_return_to(oidc_state.return_to)
+  end
 
   defp login_error(conn, reason) when reason in [:account_disabled, :human_access_revoked],
     do: error(conn, 403, "account_disabled")
 
   defp login_error(conn, :tenant_suspended), do: error(conn, 403, "tenant_suspended")
-
-  defp login_error(conn, :not_an_admin), do: error(conn, 403, "not_an_admin")
 
   defp login_error(conn, :login_subject_mismatch), do: error(conn, 400, "login_subject_mismatch")
 

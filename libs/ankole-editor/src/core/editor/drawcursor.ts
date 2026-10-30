@@ -140,7 +140,9 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
   const { head, headSide } = state.selection,
     { sel } = wg.state
   const { ref, rect } = coordsAtPos(wg, head, headSide)
-  const doc = wg.contentDOM.getBoundingClientRect()
+  // The layer belongs to the scroller. A host's block margins can move the
+  // content independently of that layer, so use the layer's own origin.
+  const origin = plugin.layer.getBoundingClientRect()
 
   // Block context, horizontal cursor
   if (!sel.head.parent.node.inlineContent) {
@@ -152,8 +154,8 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
       top = top + move * (other.top < top ? -1 : 1)
     }
     return cont({
-      left: (wg.state.textLTR ? rect.left : rect.right - width) - doc.left,
-      top: top - doc.top,
+      left: (wg.state.textLTR ? rect.left : rect.right - width) - origin.left,
+      top: top - origin.top,
       size: width,
       horiz: true,
       style: null
@@ -178,8 +180,8 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
       }
     }
     cont({
-      left: rect.left - doc.left,
-      top: bot - height - doc.top,
+      left: rect.left - origin.left,
+      top: bot - height - origin.top,
       size: height,
       horiz: false,
       style

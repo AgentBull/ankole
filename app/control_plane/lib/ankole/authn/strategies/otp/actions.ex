@@ -85,7 +85,7 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
        when purpose in ["setup", "bind_credential", "step_up"],
        do: true
 
-  defp deliverable?(%{purpose: "login", login_purpose: login_purpose} = context, target) do
+  defp deliverable?(%{purpose: "login"} = context, target) do
     ceremony = context.ceremony_context
     reauth_uid = ceremony["reauthentication_principal_uid"]
     invitation_id = ceremony["invitation_id"]
@@ -98,19 +98,13 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
           Ankole.Principals.resolve_email_otp_principal(target_tenant_id, target)
         )
 
-      login_purpose == :console ->
-        case Ankole.Principals.resolve_email_otp_principal(context.tenant_id, target) do
-          %{uid: uid} -> Ankole.AuthZ.site_admin_member?(uid)
-          nil -> false
-        end
-
       is_binary(invitation_id) and is_binary(target_tenant_id) ->
         invitation_deliverable?(target_tenant_id, invitation_id, target)
 
-      login_purpose in [:pod, :oauth] ->
+      is_binary(context.tenant_id) ->
         not is_nil(Ankole.Principals.resolve_email_otp_principal(context.tenant_id, target))
 
-      login_purpose == :site ->
+      true ->
         true
     end
   end
@@ -135,7 +129,7 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
     end)
   end
 
-  defp site_resend_cooldown(%{purpose: "login", login_purpose: :site}, target) do
+  defp site_resend_cooldown(%{purpose: "login", tenant_id: nil}, target) do
     seconds = Application.get_env(:ankole, :site_otp_resend_cooldown_seconds, 0)
 
     if seconds > 0 do
@@ -172,14 +166,10 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
         {:ok,
          %{
            purpose: purpose,
-           login_purpose: nil,
            tenant_id: Keyword.get(opts, :tenant_id),
            principal_uid: Keyword.get(opts, :principal_uid),
            ceremony_context: Keyword.get(opts, :ceremony_context, %{})
          }}
-
-      purpose when purpose in [:site, :pod, :console, :oauth] ->
-        login_challenge_context(browser, Keyword.put_new(opts, :login_purpose, purpose))
 
       "login" ->
         login_challenge_context(browser, opts)
@@ -190,18 +180,14 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
   end
 
   defp login_challenge_context(browser, opts) do
-    login_purpose = Keyword.get_lazy(opts, :login_purpose, fn -> default_login_purpose(opts) end)
-
-    with {:ok, tenant_id, defaults} <- authorize_login_purpose(browser, login_purpose, opts) do
+    with {:ok, tenant_id, defaults} <- authorize_login_target(browser, opts) do
       merged = Keyword.merge(defaults, opts)
-      mode = Keyword.get(merged, :mode) || default_mode(login_purpose)
 
       ceremony_context =
         %{
-          "login_purpose" => Atom.to_string(login_purpose),
-          "mode" => Atom.to_string(mode),
           "started_revision" => Keyword.get(merged, :started_revision),
           "return_to" => Keyword.get(merged, :return_to) || "/",
+          "console_return_to" => Keyword.get(merged, :console_return_to),
           "target_tenant_id" => Keyword.get(merged, :target_tenant_id),
           "oauth_request_id" => Keyword.get(merged, :oauth_request_id),
           "invitation_id" => Keyword.get(merged, :invitation_id),
@@ -214,7 +200,6 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
       {:ok,
        %{
          purpose: "login",
-         login_purpose: login_purpose,
          tenant_id: tenant_id,
          principal_uid: Keyword.get(opts, :principal_uid),
          ceremony_context: ceremony_context
@@ -222,49 +207,53 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
     end
   end
 
-  defp default_login_purpose(opts) do
+  defp authorize_login_target(browser, opts) do
+    scope = Keyword.get(opts, :scope)
+
     cond do
-      Keyword.has_key?(opts, :oauth_request_id) and not is_nil(opts[:oauth_request_id]) -> :oauth
-      is_binary(Keyword.get(opts, :tenant_id)) -> :pod
-      true -> :site
+      is_binary(Keyword.get(opts, :oauth_request_id)) ->
+        with {:ok, %{status: :pending} = request} <-
+               Ankole.OIDC.AuthorizationRequests.get(
+                 browser,
+                 Keyword.get(opts, :oauth_request_id)
+               ),
+             :ok <-
+               Repo.with_tenant(request.tenant_id, fn ->
+                 Ankole.OIDC.LoginPolicy.authorize_login(request, "email_otp")
+               end) do
+          {:ok, request.tenant_id,
+           [
+             started_revision: request.started_revision,
+             expected_authentication_id: request.expected_authentication_id
+           ]}
+        else
+          {:ok, _} -> {:error, :login_expired}
+          error -> error
+        end
+
+      scope == :site ->
+        {:ok, nil, []}
+
+      scope == :tenant or is_binary(Keyword.get(opts, :tenant_id)) ->
+        with tenant_id when is_binary(tenant_id) <-
+               Keyword.get(opts, :tenant_id) || Repo.tenant_id(),
+             :ok <-
+               Repo.with_tenant(tenant_id, fn ->
+                 Ankole.OIDC.LoginPolicy.authorize_login("email_otp")
+               end) do
+          {:ok, tenant_id, []}
+        else
+          nil -> {:error, :login_expired}
+          error -> error
+        end
+
+      is_nil(scope) ->
+        {:ok, nil, []}
+
+      true ->
+        {:error, :login_expired}
     end
   end
-
-  defp default_mode(:pod), do: :add
-  defp default_mode(:site), do: :add
-  defp default_mode(_), do: :replace
-
-  defp authorize_login_purpose(_browser, :site, _opts), do: {:ok, nil, []}
-
-  defp authorize_login_purpose(_browser, purpose, opts) when purpose in [:pod, :console] do
-    tenant_id = Keyword.get_lazy(opts, :tenant_id, &Repo.tenant_id!/0)
-
-    with :ok <-
-           Repo.with_tenant(tenant_id, fn ->
-             Ankole.OIDC.LoginPolicy.authorize_login(purpose, "email_otp")
-           end),
-         do: {:ok, tenant_id, []}
-  end
-
-  defp authorize_login_purpose(browser, :oauth, opts) do
-    with {:ok, %{status: :pending} = request} <-
-           Ankole.OIDC.AuthorizationRequests.get(browser, Keyword.get(opts, :oauth_request_id)),
-         :ok <-
-           Repo.with_tenant(request.tenant_id, fn ->
-             Ankole.OIDC.LoginPolicy.authorize_login(request, "email_otp")
-           end) do
-      {:ok, request.tenant_id,
-       [
-         started_revision: request.started_revision,
-         expected_authentication_id: request.expected_authentication_id
-       ]}
-    else
-      {:ok, _} -> {:error, :login_expired}
-      error -> error
-    end
-  end
-
-  defp authorize_login_purpose(_browser, _purpose, _opts), do: {:error, :login_expired}
 
   defp invalidate_previous(challenge) do
     browser_id = challenge.browser_session_id
@@ -322,60 +311,43 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
 
   defp complete_login_challenge(browser, %{purpose: "login"} = challenge) do
     context = challenge.ceremony_context
+    scope = if is_nil(challenge.tenant_id), do: :site, else: :tenant
 
-    with {:ok, login_purpose} <- parse_login_purpose(context["login_purpose"]),
-         {:ok, mode} <- parse_mode(context["mode"], login_purpose) do
-      started_revision =
-        if context["oauth_request_id"] || context["expected_authentication_id"],
-          do: context["started_revision"]
+    started_revision =
+      if context["oauth_request_id"] || context["expected_authentication_id"],
+        do: context["started_revision"]
 
-      target_tenant_id = context["target_tenant_id"]
-      reauth_uid = context["reauthentication_principal_uid"]
+    login_opts =
+      [
+        scope: scope,
+        started_revision: started_revision,
+        oauth_request_id: context["oauth_request_id"],
+        expected_authentication_id: context["expected_authentication_id"],
+        reauthentication_principal_uid: context["reauthentication_principal_uid"],
+        target_tenant_id: context["target_tenant_id"]
+      ]
+      |> Keyword.reject(fn {_key, value} -> is_nil(value) end)
 
-      login_opts =
-        [
-          mode: mode,
-          started_revision: started_revision,
-          oauth_request_id: context["oauth_request_id"],
-          expected_authentication_id: context["expected_authentication_id"],
-          reauthentication_principal_uid: reauth_uid,
-          target_tenant_id: target_tenant_id
-        ]
-        |> Keyword.reject(fn {_key, value} -> is_nil(value) end)
-
-      with_challenge_tenant(challenge.tenant_id, fn ->
-        with :ok <- accept_invitation(challenge),
-             {:ok, completed} <-
-               BrowserSessions.authenticate_site_in_tx(
-                 browser,
-                 login_purpose,
-                 "email_otp",
-                 %{challenge_id: challenge.id, browser_id: browser["id"]},
-                 login_opts
-               ) do
-          {:ok,
-           Map.merge(completed, %{
-             purpose: login_purpose,
-             tenant_id: completed.browser.active_tenant_id,
-             ceremony_context: challenge.ceremony_context
-           })}
-        end
-      end)
-    end
+    with_challenge_tenant(challenge.tenant_id, fn ->
+      with :ok <- accept_invitation(challenge),
+           {:ok, completed} <-
+             BrowserSessions.authenticate_site_in_tx(
+               browser,
+               "email_otp",
+               %{challenge_id: challenge.id, browser_id: browser["id"]},
+               login_opts
+             ) do
+        {:ok,
+         Map.merge(completed, %{
+           scope: scope,
+           tenant_id: completed.browser.active_tenant_id,
+           ceremony_context: challenge.ceremony_context
+         })}
+      end
+    end)
   end
 
   defp complete_login_challenge(_browser, _challenge), do: {:error, :invalid_code}
-
-  defp parse_login_purpose("site"), do: {:ok, :site}
-  defp parse_login_purpose("pod"), do: {:ok, :pod}
-  defp parse_login_purpose("console"), do: {:ok, :console}
-  defp parse_login_purpose("oauth"), do: {:ok, :oauth}
-  defp parse_login_purpose(_), do: {:error, :invalid_code}
-
-  defp parse_mode("add", _purpose), do: {:ok, :add}
-  defp parse_mode("replace", _purpose), do: {:ok, :replace}
-  defp parse_mode(nil, purpose), do: {:ok, default_mode(purpose)}
-  defp parse_mode(_, _), do: {:error, :invalid_code}
 
   defp with_challenge_tenant(nil, fun), do: Repo.without_tenant(fun)
   defp with_challenge_tenant(tenant_id, fun), do: Repo.with_tenant(tenant_id, fun)
@@ -398,7 +370,7 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
   end
 
   defp pending_target_invitation(
-         %{ceremony_context: %{"login_purpose" => "site"} = context} = challenge,
+         %{tenant_id: nil, ceremony_context: context} = challenge,
          tenant_id
        )
        when is_binary(tenant_id) do

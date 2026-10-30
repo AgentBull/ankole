@@ -10,24 +10,31 @@ defmodule Ankole.Pod.Pages.Browser do
     scope(:pod)
     allow(:list, check: :guardrail)
     allow(:children, check: :guardrail)
+    allow(:navigation, check: :guardrail)
     allow(:search, check: :guardrail)
     allow(:show, check: :guardrail)
+    allow(:insights, check: :guardrail)
+    allow(:viewers, check: :guardrail)
     allow(:create, check: :guardrail)
     allow(:update, check: :guardrail)
     allow(:move, check: :guardrail)
     allow(:delete, check: :guardrail)
     allow(:restore, check: :guardrail)
-    allow(:delete_embed, check: :guardrail)
+    allow(:purge, check: :guardrail)
+    allow(:delete_embeds, check: :guardrail)
     allow(:user_state, check: :guardrail)
     allow(:sharing, check: :guardrail)
     allow(:subjects, check: :guardrail)
     allow(:set_sharing, check: :guardrail)
+    allow(:update_sharing, check: :guardrail)
     allow(:write, check: :guardrail)
     allow(:reconcile_versions, check: :guardrail)
     allow(:space, check: :guardrail)
     allow(:set_space, check: :guardrail)
     allow(:space_agent, check: :guardrail)
     allow(:remove_space_agent, check: :guardrail)
+    allow(:mention_candidates, check: :guardrail)
+    allow(:resolve_mentions, check: :guardrail)
   end
 
   alias Ankole.Pod.{Documents, Pages, APIError}
@@ -41,7 +48,9 @@ defmodule Ankole.Pod.Pages.Browser do
   @actions [
     type: {:array, :atom},
     allow_nil?: false,
-    constraints: [items: [one_of: [:page_view, :page_write_records, :page_edit, :page_manage]]]
+    constraints: [
+      items: [one_of: [:page_view, :page_write_records, :page_edit, :page_manage, :page_comment]]
+    ]
   ]
   @subject [
     principal_uid: [type: PrincipalKey],
@@ -51,7 +60,16 @@ defmodule Ankole.Pod.Pages.Browser do
       type: :atom,
       constraints: [one_of: [:human, :agent, :group, :userset]],
       allow_nil?: false
-    ]
+    ],
+    avatar_url: [type: :string],
+    subtitle: [type: :string],
+    membership: [type: :atom, constraints: [one_of: [:member, :guest]]],
+    group_domain: [
+      type: :atom,
+      constraints: [one_of: [:operator, :directory, :im_group, :signal_source]]
+    ],
+    group_slug: [type: :string],
+    built_in: [type: :boolean]
   ]
   @grant [
     principal_uid: [type: PrincipalKey],
@@ -62,6 +80,24 @@ defmodule Ankole.Pod.Pages.Browser do
     condition: [type: :string, constraints: [trim?: false]],
     actions: Keyword.put(@actions, :allow_nil?, true),
     role: Keyword.put(@role, :allow_nil?, true)
+  ]
+  @sharing_upsert [
+    principal_uid: [type: PrincipalKey],
+    group_id: [type: UUIDv7],
+    role: @role,
+    target_scope: [type: :string, constraints: [match: ~r/\A(container|self)\z/]]
+  ]
+  @sharing_remove [
+    principal_uid: [type: PrincipalKey],
+    group_id: [type: UUIDv7],
+    source_page_id: [type: UUIDv7],
+    source_action: [type: :string],
+    target_scope: [
+      type: :string,
+      allow_nil?: false,
+      constraints: [match: ~r/\A(container|self)\z/]
+    ],
+    condition: [type: :string, constraints: [trim?: false]]
   ]
   @source_page [
     type: :map,
@@ -74,8 +110,66 @@ defmodule Ankole.Pod.Pages.Browser do
       ]
     ]
   ]
+  @inherited_collaborator Keyword.merge(@subject,
+                            origin: [
+                              type: :atom,
+                              constraints: [
+                                one_of: [
+                                  :space_admin,
+                                  :space_default,
+                                  :space_agent,
+                                  :private_owner,
+                                  :ancestor
+                                ]
+                              ],
+                              allow_nil?: false
+                            ],
+                            role: @role
+                          )
+  @sharing_fields [
+    can_manage: [type: :boolean, allow_nil?: false],
+    scope_kind: [type: :atom, constraints: [one_of: [:space, :private]], allow_nil?: false],
+    space_name: [
+      type: :string,
+      allow_nil?: false,
+      constraints: [allow_empty?: true, trim?: false]
+    ],
+    space_role: Keyword.put(@role, :allow_nil?, true),
+    inherit_permissions: [type: :boolean, allow_nil?: false],
+    sharing_version: [type: :string, allow_nil?: false],
+    subjects: [
+      type: {:array, :map},
+      constraints: [items: [fields: @subject]],
+      allow_nil?: false
+    ],
+    inherited: [
+      type: {:array, :map},
+      constraints: [items: [fields: @inherited_collaborator]],
+      allow_nil?: false
+    ],
+    grants: [
+      type: {:array, :map},
+      constraints: [
+        items: [
+          fields:
+            Keyword.merge(@subject, @grant)
+            |> Keyword.put(:role, @role)
+            |> Keyword.update!(:actions, &Keyword.put(&1, :allow_nil?, false))
+            |> Keyword.put(:source_page, @source_page)
+            |> Keyword.put(:rule_kind,
+              type: :atom,
+              constraints: [one_of: [:role, :advanced]],
+              allow_nil?: false
+            )
+            |> Keyword.put(:inactive_in_private, type: :boolean, allow_nil?: false)
+        ]
+      ],
+      allow_nil?: false
+    ]
+  ]
   @navigation_fields [
     id: [type: UUIDv7, allow_nil?: false],
+    has_children: [type: :boolean, allow_nil?: false],
     parent_id: [type: UUIDv7],
     private_owner_uid: [type: PrincipalKey],
     type: [
@@ -91,6 +185,156 @@ defmodule Ankole.Pod.Pages.Browser do
     actions: @actions
   ]
 
+  @directory_fields [
+    pages: [
+      type: {:array, :map},
+      constraints: [items: [fields: @navigation_fields]],
+      allow_nil?: false
+    ],
+    can_create_private: [type: :boolean, allow_nil?: false],
+    can_create_space: [type: :boolean, allow_nil?: false],
+    can_manage_space: [type: :boolean, allow_nil?: false],
+    principal_uid: [type: PrincipalKey, allow_nil?: false],
+    next_cursor: [type: :string]
+  ]
+
+  @file_preview_fields [
+    path: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+    sha256: [type: :string, allow_nil?: false],
+    size: [type: :integer, allow_nil?: false, constraints: [min: 0]],
+    content_type: [type: :string, allow_nil?: false]
+  ]
+
+  @child_detail_fields [
+    created_at: [type: :utc_datetime_usec],
+    updated_at: [type: :utc_datetime_usec],
+    created_by: [type: PrincipalKey],
+    creator_name: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    excerpt: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    file: [type: :map, constraints: [fields: @file_preview_fields]]
+  ]
+
+  @children_directory_fields Keyword.put(@directory_fields, :pages,
+                               type: {:array, :map},
+                               constraints: [
+                                 items: [fields: @navigation_fields ++ @child_detail_fields]
+                               ],
+                               allow_nil?: false
+                             )
+
+  @children_view_field [one_of: [:created_by, :updated_at, :created_at]]
+
+  @children_view_fields [
+    collapsed: [type: :boolean],
+    view: [type: :atom, constraints: [one_of: [:list, :grid]]],
+    field_order: [
+      type: {:array, :atom},
+      constraints: [items: @children_view_field]
+    ],
+    visible_fields: [
+      type: {:array, :atom},
+      constraints: [items: @children_view_field]
+    ]
+  ]
+
+  @mention_page_candidate_fields [
+    id: [type: UUIDv7, allow_nil?: false],
+    type: [
+      type: :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:doc, :base, :applet, :file]]
+    ],
+    title: [type: :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false]],
+    icon: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    private_owner_uid: [type: PrincipalKey],
+    ancestors: [
+      type: {:array, :string},
+      allow_nil?: false,
+      constraints: [items: [allow_empty?: true, trim?: false]]
+    ],
+    updated_at: [type: :utc_datetime_usec, allow_nil?: false]
+  ]
+
+  @mention_principal_candidate_fields [
+    principal_uid: [type: PrincipalKey, allow_nil?: false],
+    kind: [type: :atom, allow_nil?: false, constraints: [one_of: [:human, :agent]]],
+    name: [type: :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false]],
+    avatar_url: [type: :string],
+    membership: [type: :atom, constraints: [one_of: [:member, :guest]]],
+    email: [type: :string],
+    job_title: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    handle: [type: :string],
+    role: [type: :string, constraints: [allow_empty?: true, trim?: false]]
+  ]
+
+  @mention_ranking_fields [
+    kind: [type: :atom, allow_nil?: false, constraints: [one_of: [:page, :principal]]],
+    id: [type: :string, allow_nil?: false]
+  ]
+
+  @mention_resolved_page_fields [
+    id: [type: UUIDv7, allow_nil?: false],
+    access: [
+      type: :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:ok, :trashed, :restricted]]
+    ],
+    type: [type: :atom, constraints: [one_of: [:doc, :base, :applet, :file]]],
+    title: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    icon: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    private_owner_uid: [type: PrincipalKey],
+    ancestors: [
+      type: {:array, :string},
+      constraints: [items: [allow_empty?: true, trim?: false]]
+    ],
+    updated_at: [type: :utc_datetime_usec],
+    excerpt: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    file: [type: :map, constraints: [fields: @file_preview_fields]]
+  ]
+
+  @mention_resolved_principal_fields [
+    principal_uid: [type: PrincipalKey, allow_nil?: false],
+    access: [
+      type: :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:ok, :disabled, :restricted]]
+    ],
+    kind: [type: :atom, constraints: [one_of: [:human, :agent]]],
+    name: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    avatar_url: [type: :string],
+    membership: [type: :atom, constraints: [one_of: [:member, :guest]]],
+    email: [type: :string],
+    job_title: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    handle: [type: :string],
+    role: [type: :string, constraints: [allow_empty?: true, trim?: false]]
+  ]
+
+  defp navigation_directory(result),
+    do: Map.update!(result, :pages, &Enum.map(&1, fn page -> navigation_page(page) end))
+
+  defp children_directory(result) do
+    details = Map.get(result, :details)
+
+    result
+    |> Map.delete(:details)
+    |> Map.update!(:pages, fn pages ->
+      Enum.map(pages, fn page ->
+        base = navigation_page(page)
+
+        case details && Map.get(details, page.id) do
+          nil -> base
+          detail -> Map.merge(base, detail)
+        end
+      end)
+    end)
+  end
+
+  defp navigation_page(page) do
+    page
+    |> Map.take(Keyword.keys(@navigation_fields))
+    |> Map.put(:has_children, page.aggregates.has_children)
+  end
+
   @page [type: :struct, constraints: struct_constraints(Ankole.Pod.Page), allow_nil?: false]
   @content [type: :struct, constraints: struct_constraints(Ankole.Pod.PageContent)]
 
@@ -105,6 +349,95 @@ defmodule Ankole.Pod.Pages.Browser do
   end
 
   actions do
+    action :insights, :map do
+      constraints(
+        fields: [
+          created_at: [type: :utc_datetime_usec, allow_nil?: false],
+          updated_at: [type: :utc_datetime_usec, allow_nil?: false],
+          hide_visits: [type: :boolean, allow_nil?: false],
+          can_view_readers: [type: :boolean, allow_nil?: false],
+          daily: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields: [
+                  day: [type: :date, allow_nil?: false],
+                  views: [type: :integer, allow_nil?: false],
+                  edits: [type: :integer, allow_nil?: false],
+                  comments: [type: :integer, allow_nil?: false]
+                ]
+              ]
+            ]
+          ],
+          contributors: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields:
+                  Ankole.Pod.BrowserFields.author_fields() ++
+                    [
+                      role: [
+                        type: :atom,
+                        allow_nil?: false,
+                        constraints: [one_of: [:creator, :last_edited, :previously_edited]]
+                      ]
+                    ]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      argument(:id, UUIDv7, allow_nil?: false)
+
+      run(fn input, context ->
+        APIError.result(Ankole.Pod.Documents.Insights.read(context.actor, input.arguments.id))
+      end)
+    end
+
+    action :viewers, :map do
+      constraints(
+        fields: [
+          total: [type: :integer, allow_nil?: false],
+          next_cursor: [type: :string],
+          viewers: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields: [
+                  visited_at: [type: :utc_datetime_usec, allow_nil?: false],
+                  person: [
+                    type: :map,
+                    allow_nil?: false,
+                    constraints: [
+                      fields: Ankole.Pod.BrowserFields.author_fields()
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:cursor, :string)
+      argument(:limit, :integer, allow_nil?: false, default: 25, constraints: [min: 1, max: 100])
+
+      run(fn input, context ->
+        APIError.result(
+          Ankole.Pod.Documents.Insights.viewers(
+            context.actor,
+            input.arguments.id,
+            input.arguments
+          )
+        )
+      end)
+    end
+
     action :list, :map do
       constraints(
         fields: [
@@ -112,10 +445,7 @@ defmodule Ankole.Pod.Pages.Browser do
             type: {:array, :struct},
             constraints: [items: struct_constraints(Ankole.Pod.Page)],
             allow_nil?: false
-          ],
-          principal_uid: [type: PrincipalKey, allow_nil?: false],
-          can_create_private: [type: :boolean, allow_nil?: false],
-          can_create_space: [type: :boolean, allow_nil?: false]
+          ]
         ]
       )
 
@@ -131,36 +461,53 @@ defmodule Ankole.Pod.Pages.Browser do
         opts = Map.update!(input.arguments, :scope, &to_string/1)
 
         Pages.list(context.actor, opts)
-        |> APIError.result(
-          &%{
-            pages: &1,
-            principal_uid: Ankole.AuthZ.Actor.uid(context.actor),
-            can_create_private: Pages.can_create_private?(context.actor),
-            can_create_space: Pages.can_create_space?(context.actor)
+        |> APIError.result(&%{pages: &1})
+      end)
+    end
+
+    action :navigation, :map do
+      constraints(
+        fields: [
+          directories: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields:
+                  [parent_id: [type: UUIDv7], scope: [type: :string, allow_nil?: false]] ++
+                    @directory_fields
+              ]
+            ]
+          ],
+          path: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @navigation_fields]]
+          ]
+        ]
+      )
+
+      argument(:active_page_id, UUIDv7)
+
+      run(fn input, context ->
+        Pages.navigation(context.actor, input.arguments[:active_page_id])
+        |> APIError.result(fn result ->
+          %{
+            directories: Enum.map(result.directories, &navigation_directory/1),
+            path: Enum.map(result.path, &navigation_page/1)
           }
-        )
+        end)
       end)
     end
 
     action :children, :map do
-      constraints(
-        fields: [
-          pages: [
-            type: {:array, :map},
-            constraints: [items: [fields: @navigation_fields]],
-            allow_nil?: false
-          ],
-          can_create_private: [type: :boolean, allow_nil?: false],
-          can_create_space: [type: :boolean, allow_nil?: false],
-          principal_uid: [type: PrincipalKey, allow_nil?: false],
-          next_cursor: [type: :string]
-        ]
-      )
+      constraints(fields: @children_directory_fields)
 
       argument(:parent_id, UUIDv7)
       argument(:scope, :atom, constraints: [one_of: [:space, :private]], default: :space)
       argument(:cursor, :string)
       argument(:limit, :integer, constraints: [min: 1, max: 200], default: 200)
+      argument(:details, :boolean, default: false)
 
       run(fn input, context ->
         APIError.result(
@@ -169,11 +516,7 @@ defmodule Ankole.Pod.Pages.Browser do
             Map.get(input.arguments, :parent_id),
             input.arguments
           ),
-          fn result ->
-            Map.update!(result, :pages, fn pages ->
-              Enum.map(pages, &Map.take(&1, Keyword.keys(@navigation_fields)))
-            end)
-          end
+          &children_directory/1
         )
       end)
     end
@@ -199,6 +542,7 @@ defmodule Ankole.Pod.Pages.Browser do
 
       argument(:query, :string, allow_nil?: false, constraints: [allow_empty?: true])
       argument(:exclude_subtree_of, UUIDv7)
+      argument(:embeddable, :boolean, allow_nil?: false, default: false)
 
       argument(:required_action, :atom,
         allow_nil?: false,
@@ -215,9 +559,15 @@ defmodule Ankole.Pod.Pages.Browser do
       constraints(
         fields: [
           page: @page,
+          ancestors: [
+            type: {:array, :struct},
+            constraints: [items: struct_constraints(Ankole.Pod.Page)],
+            allow_nil?: false
+          ],
           content: @content,
           role: @role,
           actions: @actions,
+          child_count: [type: :integer, allow_nil?: false, constraints: [min: 0]],
           source_conversation: [
             type: :map,
             constraints: [
@@ -253,6 +603,7 @@ defmodule Ankole.Pod.Pages.Browser do
       argument(:private_owner_uid, PrincipalKey)
       argument(:position, :string, constraints: [trim?: false])
       argument(:saved_from_message_id, UUIDv7)
+      argument(:children_view, :map, constraints: [fields: @children_view_fields])
       argument(:xml, :string, constraints: [trim?: false])
       argument(:attachment_path, :string, constraints: [trim?: false])
 
@@ -264,7 +615,10 @@ defmodule Ankole.Pod.Pages.Browser do
             Pages.create(context.actor, input.arguments)
           end
 
-        APIError.result(result, &%{page: &1})
+        with {:ok, page} <- result do
+          Ankole.Pod.Access.authorize_with_permissions(context.actor, page)
+        end
+        |> APIError.result(&%{page: &1})
       end)
     end
 
@@ -272,7 +626,14 @@ defmodule Ankole.Pod.Pages.Browser do
       constraints(fields: [page: @page])
       argument(:id, UUIDv7, allow_nil?: false)
       argument(:title, :string, constraints: [trim?: false, allow_empty?: true])
+
+      argument(:expected_title, :string,
+        constraints: [trim?: false, allow_empty?: true],
+        description: "Required whenever title is supplied; the title read before editing."
+      )
+
       argument(:icon, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:children_view, :map, constraints: [fields: @children_view_fields])
 
       run(fn input, context ->
         Pages.update(context.actor, input.arguments.id, input.arguments)
@@ -329,12 +690,21 @@ defmodule Ankole.Pod.Pages.Browser do
       end)
     end
 
-    action :delete_embed, :boolean do
+    action :purge, :map do
+      constraints(fields: [page: @page])
       argument(:id, UUIDv7, allow_nil?: false)
-      argument(:ref, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        Pages.delete_embed(context.actor, input.arguments.id, input.arguments.ref)
+        Pages.purge(context.actor, input.arguments.id) |> APIError.result(&%{page: &1})
+      end)
+    end
+
+    action :delete_embeds, :boolean do
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:refs, {:array, UUIDv7}, allow_nil?: false)
+
+      run(fn input, context ->
+        Pages.delete_embeds(context.actor, input.arguments.id, input.arguments.refs)
         |> APIError.result(fn _ -> true end)
       end)
     end
@@ -353,6 +723,7 @@ defmodule Ankole.Pod.Pages.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
       argument(:favorite, :boolean)
       argument(:visited, :boolean)
+      argument(:hide_visits, :boolean)
 
       run(fn input, context ->
         Pages.state(context.actor, input.arguments.id, input.arguments)
@@ -361,30 +732,7 @@ defmodule Ankole.Pod.Pages.Browser do
     end
 
     action :sharing, :map do
-      constraints(
-        fields: [
-          inherit_permissions: [type: :boolean, allow_nil?: false],
-          sharing_version: [type: :string, allow_nil?: false],
-          subjects: [
-            type: {:array, :map},
-            constraints: [items: [fields: @subject]],
-            allow_nil?: false
-          ],
-          grants: [
-            type: {:array, :map},
-            constraints: [
-              items: [
-                fields:
-                  Keyword.merge(@subject, @grant)
-                  |> Keyword.put(:role, @role)
-                  |> Keyword.update!(:actions, &Keyword.put(&1, :allow_nil?, false))
-                  |> Keyword.put(:source_page, @source_page)
-              ]
-            ],
-            allow_nil?: false
-          ]
-        ]
-      )
+      constraints(fields: @sharing_fields)
 
       argument(:id, UUIDv7, allow_nil?: false)
 
@@ -419,6 +767,19 @@ defmodule Ankole.Pod.Pages.Browser do
       run(fn input, context ->
         Pages.set_sharing(context.actor, input.arguments.id, input.arguments)
         |> APIError.result(&%{page: &1})
+      end)
+    end
+
+    action :update_sharing, :map do
+      constraints(fields: @sharing_fields)
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:inherit_permissions, :boolean)
+      argument(:upserts, {:array, :map}, constraints: [items: [fields: @sharing_upsert]])
+      argument(:removes, {:array, :map}, constraints: [items: [fields: @sharing_remove]])
+
+      run(fn input, context ->
+        Pages.update_sharing(context.actor, input.arguments.id, input.arguments)
+        |> APIError.result(& &1.sharing)
       end)
     end
 
@@ -546,6 +907,78 @@ defmodule Ankole.Pod.Pages.Browser do
 
       run(fn input, context ->
         APIError.result(Pages.remove_space_agent(context.actor, input.arguments.uid))
+      end)
+    end
+
+    action :mention_candidates, :map do
+      constraints(
+        fields: [
+          space_name: [
+            type: :string,
+            allow_nil?: false,
+            constraints: [allow_empty?: true, trim?: false]
+          ],
+          total_all_matches: [type: :integer, allow_nil?: false, constraints: [min: 0]],
+          pages: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @mention_page_candidate_fields]]
+          ],
+          principals: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @mention_principal_candidate_fields]]
+          ],
+          ranking: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @mention_ranking_fields]]
+          ]
+        ]
+      )
+
+      argument(:query, :string, default: "", constraints: [allow_empty?: true, trim?: false])
+
+      argument(:category, :atom,
+        default: :all,
+        constraints: [one_of: [:all, :page, :principal]]
+      )
+
+      argument(:current_page_id, UUIDv7)
+      argument(:limit, :integer, default: 20, constraints: [min: 1, max: 30])
+
+      run(fn input, context ->
+        APIError.result(Pages.mention_candidates(context.actor, input.arguments))
+      end)
+    end
+
+    action :resolve_mentions, :map do
+      constraints(
+        fields: [
+          space_name: [
+            type: :string,
+            allow_nil?: false,
+            constraints: [allow_empty?: true, trim?: false]
+          ],
+          pages: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @mention_resolved_page_fields]]
+          ],
+          principals: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @mention_resolved_principal_fields]]
+          ]
+        ]
+      )
+
+      argument(:page_ids, {:array, UUIDv7}, default: [])
+      argument(:principal_uids, {:array, PrincipalKey}, default: [])
+      argument(:context_page_id, UUIDv7)
+
+      run(fn input, context ->
+        APIError.result(Pages.resolve_mentions(context.actor, input.arguments))
       end)
     end
   end

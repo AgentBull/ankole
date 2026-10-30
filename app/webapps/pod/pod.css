@@ -1,3 +1,4 @@
+@import '@ankole/uikit/emoji.css';
 .pod-shell {
   color: var(--foreground);
   background: var(--ground);
@@ -89,6 +90,63 @@ body:has(.pod-shell) [data-slot='dialog-footer'] {
   scrollbar-width: thin;
 }
 
+.pod-sidebar-resize-handle {
+  position: fixed;
+  z-index: 30;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-width) - 6px);
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.pod-sidebar-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  content: '';
+}
+
+.pod-sidebar-resize-handle:hover::after,
+.pod-sidebar-resize-handle:focus-visible::after,
+.pod-sidebar-resize-handle[data-resizing]::after {
+  background: var(--border-strong);
+}
+
+.pod-shell:has(.pod-sidebar-resize-handle[data-resizing]) [data-slot='sidebar-gap'],
+.pod-shell:has(.pod-sidebar-resize-handle[data-resizing]) .pod-sidebar {
+  transition: none;
+}
+
+body:has(.pod-sidebar-resize-handle[data-resizing]) {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.pod-sidebar-hover-rail {
+  position: fixed;
+  z-index: 30;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 12px;
+}
+
+.pod-shell [data-slot='sidebar'][data-state='collapsed'] > .pod-sidebar.pod-sidebar-preview {
+  left: 0;
+  z-index: 40;
+}
+
+.pod-sidebar-preview [data-slot='sidebar-inner'] {
+  background: transparent;
+}
+
 body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   background: var(--sidebar);
 }
@@ -115,48 +173,24 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   gap: 1px;
 }
 
-/* A selection is an object in a slot: the tab list is the slot and the open tab is paper. */
-.pod-sidebar-tabs[data-slot='tabs-list'] {
-  display: inline-flex;
-  width: auto;
-  min-width: 0;
+/* The open tab shows its label; every other tab is an icon with a tooltip, so the tabs stay short. */
+.pod-sidebar-tabs > [role='tab'] {
   height: 28px;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-control);
-  background: var(--field);
-  box-shadow: inset 0 0 0 1px var(--field-edge);
-}
-
-.pod-sidebar-tabs [data-slot='tabs-trigger'] {
-  height: 24px;
-  flex: none;
-  justify-content: center;
-  gap: 5px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-mini);
   padding-inline: 8px;
-  color: var(--fg-tertiary);
-  font-size: 12.5px;
-  font-weight: 500;
 }
 
-.pod-sidebar-tabs [data-slot='tabs-trigger'] > svg {
-  width: 14px;
-  height: 14px;
-  flex: none;
+.pod-sidebar-tabs > [role='tab']:not([data-active]) {
+  width: 28px;
+  padding: 0;
 }
 
-.pod-sidebar-tabs [data-slot='tabs-trigger']:hover {
-  background: transparent;
-  color: var(--foreground);
-}
-
-.pod-sidebar-tabs [data-slot='tabs-trigger'][data-active] {
-  border-color: var(--control-edge);
-  border-bottom-color: var(--control-base);
-  background: var(--control);
-  color: var(--foreground);
+.pod-sidebar-tabs > [role='tab']:not([data-active]) > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .pod-navigation {
@@ -169,7 +203,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   gap: 1px;
 }
 
-/* Rows are 28px on desktop: dense, and every item stays visible. */
+/* Rows are 28px on desktop: dense, and every item stays visible. Their states come from `nav-row`. */
 .pod-nav-link,
 .pod-tree-row,
 .pod-conversations [data-sidebar='menu-button'] {
@@ -178,12 +212,9 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   min-height: 28px;
   min-width: 0;
   align-items: center;
-  border: 1px solid transparent;
   border-radius: var(--radius-control);
-  color: var(--fg-secondary);
   font-size: 13px;
   text-decoration: none;
-  transition: background-color var(--duration-feedback) var(--ease-productive);
 }
 
 .pod-nav-link {
@@ -195,50 +226,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   width: 16px;
   height: 16px;
   flex: none;
-  color: var(--fg-tertiary);
-}
-
-.pod-nav-link:hover,
-.pod-tree-row:hover,
-.pod-conversations [data-sidebar='menu-button']:hover {
-  color: var(--foreground);
-  background: var(--accent);
-}
-
-/* The current place is paper with an ink mark. The mark alone meets 3:1 against the ground. */
-.pod-nav-link[aria-current='page'],
-.pod-tree-row[data-active],
-.pod-conversations [data-sidebar='menu-button'][data-active] {
-  border-color: var(--control-edge);
-  border-bottom-color: var(--control-base);
-  background: var(--control);
-  color: var(--foreground);
-  font-weight: 500;
-}
-
-.pod-nav-link[aria-current='page']::before,
-.pod-tree-row[data-active]::before,
-.pod-conversations [data-sidebar='menu-button'][data-active]::before {
-  position: absolute;
-  top: 6px;
-  bottom: 6px;
-  left: -1px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--foreground);
-  content: '';
-}
-
-/* Shortcut entries (Recents and Favorites) defer the primary paper card to the canonical page tree. */
-.pod-nav-link[data-shortcut='true'][aria-current='page'] {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--foreground);
-  font-weight: 500;
-}
-
-.pod-nav-link[data-shortcut='true'][aria-current='page']::before {
-  display: none;
+  color: var(--nav-icon);
 }
 
 .pod-nav-section {
@@ -256,7 +244,6 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   border-radius: var(--radius-control);
   color: var(--fg-tertiary);
   font-size: 12px;
-  font-weight: 500;
 }
 
 .pod-nav-section-heading > a {
@@ -278,6 +265,11 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   padding-left: 14px;
 }
 
+/* Below the sixth level each level indents 4px, so the title of a deeply nested page keeps its room. */
+.pod-tree-children .pod-tree-children .pod-tree-children .pod-tree-children .pod-tree-children .pod-tree-children {
+  padding-left: 4px;
+}
+
 .pod-tree-row {
   gap: 2px;
   padding: 0 2px;
@@ -287,7 +279,8 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   opacity: 0.45;
 }
 
-.pod-tree-toggle {
+.pod-tree-toggle,
+.pod-tree-toggle-space {
   display: grid;
   width: 20px;
   height: 20px;
@@ -323,19 +316,10 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   text-decoration: none;
 }
 
-/* Renaming uses a slot in its typing state: a light field with a 2px ink bottom line. */
+/* Renaming uses an inline field sized to the navigation row. */
 .pod-tree-rename {
-  min-width: 0;
-  height: 24px;
   flex: 1;
-  padding: 0 6px;
-  border: 0;
-  border-bottom: 2px solid var(--foreground);
-  border-radius: var(--radius-mini) var(--radius-mini) 0 0;
-  outline: none;
-  background: var(--field);
-  color: var(--foreground);
-  font-size: 13px;
+  margin-left: -4px;
 }
 
 .pod-tree-empty {
@@ -350,6 +334,13 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   flex: none;
   align-items: center;
   opacity: 0;
+  transition: opacity 0ms var(--ease-out);
+
+  @media (prefers-reduced-motion: reduce) {
+    transition-property: opacity !important;
+    transition-duration: 0ms !important;
+    transition-delay: 0ms !important;
+  }
 }
 
 .pod-row-action [data-slot='button'],
@@ -359,16 +350,110 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   min-width: 22px;
 }
 
-.pod-tree-row[data-active] .pod-row-action,
-.pod-chat-row:has([data-active='true']) .pod-row-action,
+/* A tree row's actions (two 28px buttons) sit over the end of the row, and the title gives up that room only
+   while they show, so a resting title uses the full width of the row. */
+.pod-tree-row > .pod-row-action {
+  position: absolute;
+  right: 2px;
+  pointer-events: none;
+}
+
+.pod-tree-row:is(:hover, :focus-within, :has([data-popup-open])):has(> .pod-row-action) {
+  padding-right: 58px;
+}
+
+.pod-tree-row:is(:hover, :focus-within, :has([data-popup-open])) > .pod-row-action {
+  pointer-events: auto;
+}
+
 .pod-tree-row:hover .pod-row-action,
 .pod-tree-row:focus-within .pod-row-action,
 .pod-tree-row:has([data-popup-open]) .pod-row-action,
 .pod-chat-row:hover .pod-row-action,
 .pod-chat-row:focus-within .pod-row-action,
 .pod-nav-section-heading:hover .pod-nav-actions,
-.pod-nav-section-heading:focus-within .pod-nav-actions {
+.pod-nav-section-heading:focus-within .pod-nav-actions,
+.pod-nav-section-heading:has([data-popup-open]) .pod-nav-actions {
   opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-sidebar='sidebar']:not([data-mobile='true']) {
+    .pod-tree-row:hover .pod-row-action,
+    .pod-nav-section-heading:hover .pod-nav-actions {
+      transition-property: opacity;
+      transition-duration: var(--duration-feedback);
+
+      @media (prefers-reduced-motion: reduce) {
+        transition-duration: var(--duration-feedback) !important;
+      }
+    }
+
+    .pod-tree-row:focus-within .pod-row-action,
+    .pod-tree-row:has([data-popup-open]) .pod-row-action,
+    .pod-nav-section-heading:focus-within .pod-nav-actions,
+    .pod-nav-section-heading:has([data-popup-open]) .pod-nav-actions {
+      transition-property: none;
+      transition-duration: 0ms;
+
+      @media (prefers-reduced-motion: reduce) {
+        transition-property: none !important;
+        transition-duration: 0ms !important;
+      }
+    }
+  }
+}
+
+.pod-nav-root-chevron {
+  transform: rotate(0deg);
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 1;
+  transition: none;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition-property: opacity !important;
+    transition-duration: 0ms !important;
+    transition-timing-function: var(--ease-out) !important;
+    transition-delay: 0ms !important;
+  }
+}
+
+.pod-tree-toggle[aria-expanded='true'] > .pod-nav-root-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pod-tree-toggle[data-motion-input='pointer'] > .pod-nav-root-chevron {
+    transition-duration: var(--duration-feedback) !important;
+  }
+
+  .pod-tree-toggle[data-pointer-pressed] > .pod-nav-root-chevron {
+    opacity: 0.65;
+    transition-duration: 0ms !important;
+  }
+
+  .pod-tree-toggle[data-motion-input='instant'] > .pod-nav-root-chevron {
+    opacity: 1;
+    transition-property: none !important;
+    transition-duration: 0ms !important;
+  }
+}
+
+/* Without a pointer there is no hover, so the current row keeps its actions in reach. */
+@media (hover: none) {
+  .pod-tree-row[data-active] .pod-row-action,
+  .pod-chat-row:has([data-active]) .pod-row-action {
+    opacity: 1;
+  }
+
+  .pod-tree-row[data-active]:has(> .pod-row-action) {
+    padding-right: 58px;
+  }
+
+  .pod-tree-row[data-active] > .pod-row-action {
+    pointer-events: auto;
+  }
 }
 
 .pod-conversations [data-sidebar='menu-button'] {
@@ -383,9 +468,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 }
 
 .pod-footer-action[data-active] {
-  border-color: var(--control-edge);
-  border-bottom-color: var(--control-base);
-  background: var(--control);
+  background: var(--layer-current);
   color: var(--foreground);
 }
 
@@ -480,10 +563,14 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   width: 17px;
   height: 17px;
   flex: none;
-  color: var(--fg-tertiary);
+  color: var(--nav-icon, var(--fg-tertiary));
   text-align: center;
   font-size: 15px;
   line-height: 17px;
+}
+
+img.pod-page-icon {
+  object-fit: contain;
 }
 
 .pod-object-reference {
@@ -547,14 +634,17 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 
   [data-horizontal] .pod-sidebar-tabs[data-slot='tabs-list'],
   .pod-sidebar-tabs[data-slot='tabs-list'] {
-    height: 40px;
-    padding: 3px;
+    height: 36px;
   }
 
-  .pod-sidebar-tabs [data-slot='tabs-trigger'] {
-    height: 34px;
-    min-height: 34px;
+  .pod-sidebar-tabs > [role='tab'] {
+    height: 36px;
+    min-height: 36px;
     padding-inline: 10px;
+  }
+
+  .pod-sidebar-tabs > [role='tab']:not([data-active]) {
+    width: 36px;
   }
 
   .pod-sidebar-top-actions > *,
@@ -571,7 +661,8 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
     align-items: center;
   }
 
-  .pod-tree-toggle {
+  .pod-tree-toggle,
+  .pod-tree-toggle-space {
     width: 32px;
     height: 32px;
   }

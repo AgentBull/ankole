@@ -1,5 +1,5 @@
 import { uuidV4 } from '@agentbull/active-support'
-import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { Button, Checkbox, Input, Popover, PopoverContent, PopoverTitle, PopoverTrigger, Textarea } from '@ankole/uikit'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
@@ -33,6 +33,7 @@ export function FieldEditorButton({
   onCreated?(fieldID: string): void
 }) {
   useSignals()
+  const { t } = useTranslation()
   const model = useModel(FieldEditorModel)
   const open = model.open.value
   const name = model.name.value
@@ -154,7 +155,7 @@ export function FieldEditorButton({
         </PopoverTitle>
         <div className="pod-dialog-body min-h-0 flex-1 grid gap-4 overflow-y-auto pr-1">
           <fieldset disabled={pending} className="grid gap-4">
-            <TextField label={t('pod.content.field_name')} value={name} onChange={setName} />
+            <TextField variant="overlay" label={t('pod.content.field_name')} value={name} onChange={setName} />
             <Choice
               label={t('pod.content.field_type')}
               value={type}
@@ -179,6 +180,7 @@ export function FieldEditorButton({
                 {options.map((option, index) => (
                   <div className="flex gap-2" key={option.id}>
                     <Input
+                      variant="overlay"
                       disabled={pending}
                       aria-label={t('pod.content.option', { value1: index + 1 })}
                       value={option.name}

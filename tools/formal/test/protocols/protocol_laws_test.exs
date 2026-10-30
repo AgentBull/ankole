@@ -4,7 +4,8 @@ defmodule Ankole.Formal.ProtocolLawsTest do
   @moduletag :laws
 
   for name <-
-        ~w(AccessGraph HumanAccess AttemptAuthority AppletLifecycle BaseRecovery RuntimeSupport) do
+        ~w(AccessGraph HumanAccess AttemptAuthority AppletLifecycle BaseRecovery BackgroundAgentJob DeliveryIntent PageDraft RetryLadder SessionEpoch
+           RuntimeSupport) do
     @name name
     test "#{name} protocol laws" do
       path = Path.expand("../../lean/#{@name}.lean", __DIR__)

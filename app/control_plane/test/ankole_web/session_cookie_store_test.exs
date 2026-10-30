@@ -54,7 +54,7 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
       |> with_secret_key_base()
       |> Plug.Session.call(@session_opts)
       |> fetch_session()
-      |> WebSession.put_admin_session(%{
+      |> WebSession.put_tenant_session(%{
         principal_uid: human.principal.uid,
         provider_id: "oidc-main",
         external_id: "external-123"
@@ -84,8 +84,7 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
     assert %{"id" => browser_id} = get_session(group_only, :browser_session)
     assert is_binary(browser_id)
     assert map_size(get_session(group_only, :browser_session)) == 1
-    assert get_session(group_only, :admin_session) == nil
-    refute WebSession.admin_session(group_only)
+    refute WebSession.site_admin_session(group_only)
 
     cookie_header = Enum.map_join(cookies, "; ", &(&1 |> String.split(";", parts: 2) |> hd()))
 
@@ -103,7 +102,7 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
              "principal_uid" => ^uid,
              "provider_id" => "oidc-main",
              "external_id" => "external-123"
-           } = WebSession.admin_session(conn)
+           } = WebSession.site_admin_session(conn)
   end
 
   test "ignores malformed cookies" do

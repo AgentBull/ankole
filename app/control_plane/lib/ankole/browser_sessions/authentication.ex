@@ -11,7 +11,6 @@ defmodule Ankole.BrowserSessions.Authentication do
     :verified_email,
     :verified_phone,
     :external_id,
-    :console_authenticated,
     :csrf_token,
     :expires_at
   ]
@@ -28,7 +27,7 @@ defmodule Ankole.BrowserSessions.Authentication do
     ])
 
     unique_index_names([
-      {[:browser_id, :provider_id, :subject_id, :purpose, :tenant_id],
+      {[:browser_id, :provider_id, :subject_id, :scope, :tenant_id],
        "browser_authentications_subject_index"}
     ])
 
@@ -58,13 +57,12 @@ defmodule Ankole.BrowserSessions.Authentication do
     attribute(:subject_id, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:external_id, :string, public?: true, constraints: [trim?: false])
 
-    attribute(:purpose, :atom,
+    attribute(:scope, :atom,
       public?: true,
       allow_nil?: false,
-      constraints: [one_of: [:console, :oauth, :pod, :site]]
+      constraints: [one_of: [:site, :tenant]]
     )
 
-    attribute(:console_authenticated, :boolean, public?: true, allow_nil?: false, default: false)
     attribute(:revision, :integer, public?: true, allow_nil?: false, constraints: [min: 1])
     attribute(:auth_time, :integer, public?: true)
 
@@ -91,21 +89,21 @@ defmodule Ankole.BrowserSessions.Authentication do
   end
 
   identities do
-    identity(:subject, [:browser_id, :provider_id, :subject_id, :purpose, :tenant_id],
+    identity(:subject, [:browser_id, :provider_id, :subject_id, :scope, :tenant_id],
       nils_distinct?: false
     )
   end
 
   validations do
     validate(attribute_equals(:tenant_id, nil),
-      where: [attribute_equals(:purpose, :site)],
-      message: "must match the login purpose",
+      where: [attribute_equals(:scope, :site)],
+      message: "must match the authentication scope",
       only_when_valid?: true
     )
 
     validate(attribute_does_not_equal(:tenant_id, nil),
-      where: [attribute_does_not_equal(:purpose, :site)],
-      message: "must match the login purpose",
+      where: [attribute_equals(:scope, :tenant)],
+      message: "must match the authentication scope",
       only_when_valid?: true
     )
   end
@@ -114,7 +112,7 @@ defmodule Ankole.BrowserSessions.Authentication do
     defaults([:read])
 
     create :create_in_tx do
-      accept([:browser_id, :tenant_id, :provider_id, :subject_id, :purpose] ++ @proof_fields)
+      accept([:browser_id, :tenant_id, :provider_id, :subject_id, :scope] ++ @proof_fields)
     end
 
     update :renew_in_tx do

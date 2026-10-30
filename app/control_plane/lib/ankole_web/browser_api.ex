@@ -100,8 +100,8 @@ defmodule AnkoleWeb.BrowserAPI do
           name: "loginProviders",
           query_params: [
             :oauth_request,
-            :purpose,
             :tenant_id,
+            :console_return,
             :prompt,
             :switch,
             :reauth,

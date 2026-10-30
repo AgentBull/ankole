@@ -37,8 +37,7 @@ defmodule Ankole.Pod.Copy do
 
   @doc "Publishes a committed copy: the tree changed and the new page exists."
   def committed(%{page: page}) do
-    Pages.broadcast_access()
-    Pages.broadcast(page.id)
+    Pages.committed_tree(page)
   end
 
   @doc false

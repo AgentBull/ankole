@@ -83,17 +83,14 @@ function SheetContent({
 }
 
 function SheetHeader({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="sheet-header" className={cn('flex flex-col gap-1.5 p-8', className)} {...props} />
+  return <div data-slot="sheet-header" className={cn('flex flex-col gap-1.5 p-6', className)} {...props} />
 }
 
 function SheetFooter({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="sheet-footer"
-      className={cn(
-        'mt-auto flex flex-row items-center justify-end gap-2 border-t border-border bg-muted/30 px-8 py-4',
-        className
-      )}
+      className={cn('mt-auto flex flex-row items-center justify-end gap-2 border-t border-border px-6 py-4', className)}
       {...props}
     />
   )
@@ -103,10 +100,7 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
   return (
     <SheetPrimitive.Title
       data-slot="sheet-title"
-      className={cn(
-        'font-heading text-xl leading-7 font-normal tracking-normal text-foreground normal-case',
-        className
-      )}
+      className={cn('title-overlay text-foreground', className)}
       {...props}
     />
   )
@@ -116,7 +110,7 @@ function SheetDescription({ className, ...props }: SheetPrimitive.Description.Pr
   return (
     <SheetPrimitive.Description
       data-slot="sheet-description"
-      className={cn('mt-0.5 text-sm leading-relaxed text-muted-foreground', className)}
+      className={cn('mt-0.5 text-sm leading-5 text-muted-foreground', className)}
       {...props}
     />
   )

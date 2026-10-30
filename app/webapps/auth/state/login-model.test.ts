@@ -9,8 +9,15 @@ describe('classifyLoginError', () => {
     ).toEqual({
       kind: 'invalid_code'
     })
-    expect(classifyLoginError(new InternalAPIError(403, 'Forbidden', { errors: [{ code: 'not_an_admin' }] }))).toEqual({
-      kind: 'not_admin'
+    expect(
+      classifyLoginError(new InternalAPIError(403, 'Forbidden', { errors: [{ code: 'login_policy_rejected' }] }))
+    ).toEqual({
+      kind: 'sso_required'
+    })
+    expect(
+      classifyLoginError(new InternalAPIError(403, 'Forbidden', { errors: [{ code: 'reauthentication_required' }] }))
+    ).toEqual({
+      kind: 'reauthentication_required'
     })
     expect(
       classifyLoginError(new InternalAPIError(403, 'Forbidden', { errors: [{ code: 'account_disabled' }] }))

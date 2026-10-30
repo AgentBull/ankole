@@ -1,9 +1,10 @@
-import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { Button, buttonVariants, cn } from '@ankole/uikit'
 import { RiUploadCloud2Line } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useRef, useState } from 'react'
 import { createClientConfig, InternalAPIError } from '../common/internal-api-client'
+import { ErrorBoundary } from '../common/error-boundary'
 import { contentKeys, fileURL, type PageDetail } from './content-api'
 import { ContentError } from './content-primitives'
 import { podFiles } from './api/generated/sdk.gen'
@@ -34,6 +35,7 @@ export async function uploadPageFile(
 }
 
 export function FilePage({ detail }: { detail: PageDetail }) {
+  const { t } = useTranslation()
   const { page, actions } = detail
   const canEdit = actions.includes('page_edit')
   const manifest = useQuery(filesQuery(page.id))
@@ -43,11 +45,14 @@ export function FilePage({ detail }: { detail: PageDetail }) {
   const client = useQueryClient()
   const connection = usePageRealtime(page.id, page.revision)
   const upload = useMutation({
-    mutationFn: ({ file, revision }: { file: File; revision: number }) =>
-      uploadPageFile(page.id, file, 'file', revision),
+    mutationFn: async (file: File) => {
+      const current =
+        manifest.data && !manifest.isFetching ? manifest.data : await client.fetchQuery(filesQuery(page.id))
+      return uploadPageFile(page.id, file, 'file', current.revision)
+    },
     onSuccess: () => {
       if (input.current) input.current.value = ''
-      return client.invalidateQueries({ queryKey: contentKeys.all })
+      return client.invalidateQueries({ queryKey: contentKeys.page(page.id) })
     },
     onError: async error => {
       if (error instanceof InternalAPIError && error.status === 409) await manifest.refetch()
@@ -66,9 +71,9 @@ export function FilePage({ detail }: { detail: PageDetail }) {
   const chooseLabel = file ? t('pod.content.choose_a_replacement_file') : t('pod.content.choose_a_file_to_upload')
   const canUpload = Boolean(manifest.data) && !manifest.isFetching && !upload.isPending
   const submit = (selected: File | undefined) => {
-    if (!selected || !manifest.data || manifest.isFetching || uploading.current) return
+    if (!selected || uploading.current) return
     uploading.current = true
-    upload.mutate({ file: selected, revision: manifest.data.revision })
+    upload.mutate(selected)
   }
   if (connection.revoked || isRealtimeAccessDenied(manifest.error)) {
     return <ContentError error={new Error(t('pod.content.you_no_longer_have_access_to_this_file'))} />
@@ -101,10 +106,10 @@ export function FilePage({ detail }: { detail: PageDetail }) {
         submit(event.dataTransfer.files[0])
       }}>
       <ContentError error={manifest.error} retry={() => void manifest.refetch()} />
-      <ContentError error={upload.error} retry={() => submit(upload.variables?.file)} />
+      <ContentError error={upload.error} retry={() => submit(upload.variables)} />
       {(upload.isPending || upload.isError) && upload.variables && (
         <p role="status" className="text-sm">
-          {upload.variables.file.name}
+          {upload.variables.name}
         </p>
       )}
       <ContentError error={connection.error} retry={connection.retry} />
@@ -150,7 +155,9 @@ export function FilePage({ detail }: { detail: PageDetail }) {
       {manifest.isPending ? (
         <p role="status">{t('pod.content.loading_file')}</p>
       ) : file ? (
-        <FilePreview pageID={page.id} file={file} />
+        <ErrorBoundary variant="panel" resetKeys={[page.id, file.path, file.sha256]}>
+          <FilePreview pageID={page.id} file={file} />
+        </ErrorBoundary>
       ) : canEdit ? (
         <div
           onClick={() => {
@@ -182,6 +189,7 @@ function isTextFile(name: string, mime?: string) {
 }
 
 function FilePreview({ pageID, file }: { pageID: string; file: DriveFile }) {
+  const { t } = useTranslation()
   const url = fileURL(pageID, file.path, file.sha256)
   const name = file.path.split('/').at(-1) ?? t('pod.content.file')
   const mime = file.content_type?.split(';')[0]?.trim().toLowerCase()
@@ -215,6 +223,7 @@ function FilePreview({ pageID, file }: { pageID: string; file: DriveFile }) {
 }
 
 function TextFilePreview({ pageID, url, name }: { pageID: string; url: string; name: string }) {
+  const { t } = useTranslation()
   const query = useQuery({
     queryKey: [...contentKeys.page(pageID), 'file-text-preview', url],
     queryFn: async ({ signal }) => {

@@ -145,49 +145,6 @@ defmodule Ankole.CompileCyclesTest do
              "internals/plugins/private/lib/consumer.ex -> plugins/alpha/lib/alpha.ex (runtime)"
   end
 
-  test "allows only the two concrete configuration targets of the temporary upgrade", context do
-    for {plugin, module} <- [
-          {"slack_adapter", FixtureSlackConfig},
-          {"microsoft365_adapter", FixtureMicrosoftConfig}
-        ] do
-      write!(
-        context.root,
-        "plugins/#{plugin}/lib/ankole/plugins/#{plugin}/config.ex",
-        "defmodule #{inspect(module)}, do: def(value, do: 1)"
-      )
-    end
-
-    write!(context.root, "app/control_plane/lib/ankole/upgrade_202610.ex", """
-    defmodule FixtureUpgrade do
-      def modules, do: [FixtureSlackConfig, FixtureMicrosoftConfig]
-    end
-    """)
-
-    {output, status} = check(context.host)
-    assert status == 0, output
-
-    write!(context.root, "app/control_plane/lib/ankole/upgrade_202610.ex", """
-    defmodule FixtureUpgrade do
-      def modules, do: [FixtureSlackConfig, FixtureMicrosoftConfig, FixtureAlpha]
-    end
-    """)
-
-    write!(context.root, "app/control_plane/lib/ankole/other_upgrade.ex", """
-    defmodule FixtureOtherUpgrade do
-      def module, do: FixtureSlackConfig
-    end
-    """)
-
-    {output, status} = check(context.host)
-    assert status != 0
-
-    assert output =~
-             "app/control_plane/lib/ankole/upgrade_202610.ex -> plugins/alpha/lib/alpha.ex (runtime)"
-
-    assert output =~
-             "app/control_plane/lib/ankole/other_upgrade.ex -> plugins/slack_adapter/lib/ankole/plugins/slack_adapter/config.ex (runtime)"
-  end
-
   test "checks compile-connected cycles in a local library", context do
     write!(context.root, "libs/protocol/lib/first.ex", """
     defmodule FixtureProtocolFirst do

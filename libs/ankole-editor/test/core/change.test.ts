@@ -31,6 +31,21 @@ function mk(doc: Plot.Doc, changes: readonly ChangeData[]) {
 }
 
 describe('ChangeSet', () => {
+  it('keeps a mark-only change that covers a whole leaf-only document', () => {
+    const Caption = Mark.Type.define<string>('Caption', {
+      target: hr.type,
+      validate: 'string',
+      shape: { attribute: 'data-caption', value: 0 }
+    })
+    const makeDoc = builder(Schema.define([...basicSchema.elements, Caption]))
+    const original = makeDoc(hr)
+    const change = ChangeSet.create(original, { from: 0, add: Caption.of('caption') })
+    ist(change.empty, false)
+    const updated = change.apply(original)
+    ist(updated.content[0]!.mark(Caption), 'caption')
+    ist(change.invert(original).apply(updated), original, eq)
+  })
+
   describe('apply', () => {
     function testApply(doc: Plot.Doc, changes: ChangeData[], expect: Plot) {
       ist(mk(doc, changes).apply(doc), expect, eq)

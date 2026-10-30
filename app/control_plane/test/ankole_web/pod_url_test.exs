@@ -200,10 +200,12 @@ defmodule AnkoleWeb.PodURLTest do
                  URI.parse("http://#{tenant.slug}.ankole.localhost")
                )
 
-      Repo.without_tenant(fn ->
-        conn = put_req_header(build_conn(), "x-ankole-pod", tenant.id)
+      Repo.with_tenant(tenant.id, fn ->
+        conn = pod_conn(build_conn(), tenant)
         assert {:error, :not_found} = AnkoleWeb.Plugs.RequirePodSession.target_tenant(conn)
       end)
+
+      assert get(build_conn(), "/pod?tenant_id=#{tenant.id}").status == 404
     end
   end
 
@@ -234,6 +236,16 @@ defmodule AnkoleWeb.PodURLTest do
       denied = api_get(conn, "/api/v2/pod/pages", query)
       assert %{"error" => %{"code" => "unauthorized"}} = json_response(denied, 401)
     end
+
+    # Even with an active Pod session, bare site-host requests cannot reach Pod APIs.
+    site_api =
+      conn
+      |> recycle()
+      |> site_conn()
+      |> put_req_header("x-ankole-pod", ctx.tenant.id)
+      |> api_get("/api/v2/pod/pages", %{tenant_id: ctx.tenant.id})
+
+    assert site_api.status in [401, 404]
 
     Repo.put_tenant_id(ctx.tenant.id)
 
