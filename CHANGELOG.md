@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.1.0-alpha.6 (2026-10-30)
+
+- Fix enterprise SSO buttons on the Site Admin Console and Pod sign-in pages.
+  Ankole sent these buttons an empty sign-in link, so the browser opened
+  `/null` and showed a "no route found" error instead of the provider's sign-in
+  page.
+
 ## Version 2.1.0-alpha.5 (2026-10-29)
 
 - Internal changes only.

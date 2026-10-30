@@ -45,11 +45,25 @@ defmodule AnkoleWeb.AuthControllerTest do
                true
              )
 
+    providers_conn =
+      conn
+      |> forwarded_https_conn()
+      |> init_test_session(%{})
+      |> api_get("/api/v2/browser/identity-providers", %{"purpose" => "console"})
+
+    assert %{"loginPath" => login_path} =
+             Enum.find(
+               api_response(providers_conn, 200)["providers"],
+               &(&1["providerID"] == "lark-main")
+             )
+
+    assert login_path == "/sessions/oidc/lark-main/authorization"
+
     conn =
       conn
       |> forwarded_https_conn()
       |> init_test_session(%{})
-      |> get("/sessions/oidc/lark-main/authorization", %{
+      |> get(login_path, %{
         "purpose" => "console",
         "return_to" => "/site-admin-console/agents"
       })
