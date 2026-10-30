@@ -782,11 +782,18 @@ defmodule AnkoleWeb.BrowserAuth do
     end
   end
 
-  defp providers_for_target(_conn, %{purpose: :console}),
-    do: LoginPolicy.login_providers()
+  # Console login stays on the site host, so its providers link to the current origin.
+  defp providers_for_target(_conn, %{purpose: :console}) do
+    with {:ok, providers} <- LoginPolicy.login_providers(),
+         do: {:ok, Enum.map(providers, &provider_login_path("", &1))}
+  end
 
-  defp providers_for_target(conn, %{purpose: :pod}) do
+  defp providers_for_target(conn, %{purpose: :pod, tenant_id: tenant_id}) do
     with {:ok, providers} <- LoginPolicy.login_providers() do
+      {:ok, tenant} = Ankole.Tenants.get(tenant_id)
+      origin = PodURL.origin(conn, tenant)
+      providers = Enum.map(providers, &provider_login_path(origin, &1))
+
       if conn.assigns[:pod_email_otp_disabled] == true,
         do: {:ok, Enum.reject(providers, &(&1["provider_id"] == "email_otp"))},
         else: {:ok, providers}
@@ -797,9 +804,10 @@ defmodule AnkoleWeb.BrowserAuth do
     with {:ok, client} <- Ankole.OIDC.get_active_client(request.request["client_id"]),
          {:ok, providers} <- LoginPolicy.providers(client, request.request) do
       {:ok, tenant} = Ankole.Tenants.get(request.tenant_id)
+      origin = PodURL.origin(conn, tenant)
 
       {:ok,
-       Enum.map(providers, &provider_login_path(conn, tenant, &1))
+       Enum.map(providers, &provider_login_path(origin, &1))
        |> Enum.reject(
          &(&1["provider_id"] == "email_otp" and conn.assigns[:pod_email_otp_disabled] == true)
        )}
@@ -815,7 +823,8 @@ defmodule AnkoleWeb.BrowserAuth do
         Ankole.IdentityProviders.Login.list_login_providers()
       end)
 
-    oidc_providers = Enum.map(oidc, &provider_login_path(conn, tenant, &1))
+    origin = PodURL.origin(conn, tenant)
+    oidc_providers = Enum.map(oidc, &provider_login_path(origin, &1))
 
     {:ok, oidc_providers ++ Ankole.IdentityProviders.SiteSources.providers()}
   end
@@ -823,15 +832,15 @@ defmodule AnkoleWeb.BrowserAuth do
   defp providers_for_target(_conn, %{purpose: :site}),
     do: {:ok, Ankole.IdentityProviders.SiteSources.providers()}
 
-  defp provider_login_path(conn, tenant, %{"kind" => "oidc"} = provider) do
+  defp provider_login_path(origin, %{"kind" => "oidc"} = provider) do
     Map.put(
       provider,
       "login_path",
-      PodURL.oidc_authorization_url(conn, tenant, provider["provider_id"])
+      origin <> PodURL.oidc_authorization_path(provider["provider_id"])
     )
   end
 
-  defp provider_login_path(_conn, _tenant, provider), do: provider
+  defp provider_login_path(_origin, provider), do: provider
 
   defp perform_request_email_otp(conn, params) do
     with {:ok, true} <- SetupConfig.completed?(),

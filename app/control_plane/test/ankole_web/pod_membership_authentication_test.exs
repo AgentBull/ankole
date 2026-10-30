@@ -257,7 +257,12 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     oidc_providers =
       Enum.filter(api_response(providers_conn, 200)["providers"], &(&1["kind"] == "oidc"))
 
-    assert [%{"providerID" => "company-sso", "kind" => "oidc"}] = oidc_providers
+    assert [%{"providerID" => "company-sso", "kind" => "oidc", "loginPath" => login_path}] =
+             oidc_providers
+
+    login_uri = URI.parse(login_path)
+    assert login_uri.host == URI.parse(AnkoleWeb.PodURL.origin(conn, target)).host
+    assert login_uri.path == "/sessions/oidc/company-sso/authorization"
 
     Repo.with_tenant(target.id, fn ->
       assert {:ok, %{membership: :guest, used_count: 0}} =

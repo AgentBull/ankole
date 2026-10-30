@@ -36,10 +36,11 @@ defmodule AnkoleWeb.PodURL do
       else: {:ok, login_url(conn, tenant, params)}
   end
 
-  def oidc_authorization_url(conn, tenant, provider_id) do
-    origin(conn, tenant) <>
-      "/sessions/oidc/" <> URI.encode(provider_id) <> "/authorization"
-  end
+  def oidc_authorization_url(conn, tenant, provider_id),
+    do: origin(conn, tenant) <> oidc_authorization_path(provider_id)
+
+  def oidc_authorization_path(provider_id),
+    do: "/sessions/oidc/" <> URI.encode(provider_id) <> "/authorization"
 
   def oauth_return_to(conn, request) do
     if @host_policy do

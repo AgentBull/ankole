@@ -73,7 +73,10 @@ Login ceremonies target either a specific tenant or the site:
   while keeping tenant OIDC initiation and callbacks active.
 - Outbound enterprise SSO creates an `OidcState` row when the browser visits
   `/sessions/oidc/:provider_id/authorization`, and its callback completes
-  against that recorded tenant and provider. On shared site sign-in hosts,
+  against that recorded tenant and provider. `loginProviders` returns this
+  endpoint as each OIDC provider's `loginPath`: a `console` login keeps it on
+  the current site host, while `pod`, `oauth`, and tenant-targeted `site`
+  logins point it at the target Pod host. On shared site sign-in hosts,
   `POST /api/v2/browser/pod-logins` resolves a workspace slug into its
   `tenantID`, `displayName`, and active OIDC `providers` (including each provider's
   `authorizationURL` on the workspace host) without exposing disabled tenants.
