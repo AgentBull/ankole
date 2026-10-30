@@ -1,0 +1,122 @@
+[
+  {
+    "file": "14_门店经营.xlsx",
+    "sheet": "门店日报",
+    "operation": "cell.set",
+    "cell": "F8",
+    "before": 1870,
+    "input": 1871,
+    "expected": {
+      "cell": "H8",
+      "before": 1841.95,
+      "after": 1842.95
+    },
+    "restore_value": 1870,
+    "baseline_totals": [
+      {
+        "cell": "门店日报!B5",
+        "label": "净销售合计",
+        "expected": 384512.13,
+        "actual_cached": 384512.12999999983,
+        "pass": true
+      },
+      {
+        "cell": "门店日报!E5",
+        "label": "销售减人力租金合计",
+        "expected": 302072.13,
+        "actual_cached": 302072.13,
+        "pass": true
+      },
+      {
+        "cell": "门店日报!H5",
+        "label": "整体净客单价",
+        "expected": 40.44090555,
+        "actual_cached": 40.44090555321832,
+        "pass": true
+      }
+    ],
+    "generation_engine_mutation_test": "passed",
+    "gridcraft_roundtrip": "not_executed",
+    "excel_and_wps_open_refresh": "not_executed"
+  },
+  {
+    "file": "16_来料质检.xlsx",
+    "sheet": "抽检记录",
+    "operation": "cell.set",
+    "cell": "G8",
+    "before": 0,
+    "input": 1,
+    "expected": {
+      "cell": "H8",
+      "before": 0,
+      "after": 0.0125
+    },
+    "restore_value": 0,
+    "baseline_totals": [
+      {
+        "cell": "抽检记录!B5",
+        "label": "抽检总数",
+        "expected": 10150.0,
+        "actual_cached": 10150.0,
+        "pass": true
+      },
+      {
+        "cell": "抽检记录!E5",
+        "label": "样本整体不良率",
+        "expected": 0.02758621,
+        "actual_cached": 0.027586206896551724,
+        "pass": true
+      },
+      {
+        "cell": "抽检记录!H5",
+        "label": "隔离复检批次",
+        "expected": 24.0,
+        "actual_cached": 24.0,
+        "pass": true
+      }
+    ],
+    "generation_engine_mutation_test": "passed",
+    "gridcraft_roundtrip": "not_executed",
+    "excel_and_wps_open_refresh": "not_executed"
+  },
+  {
+    "file": "24_多币种结算.xlsx",
+    "sheet": "结算台账",
+    "operation": "cell.set",
+    "cell": "F8",
+    "before": 3500,
+    "input": 3501,
+    "expected": {
+      "cell": "H8",
+      "before": 24850,
+      "after": 24857.1
+    },
+    "restore_value": 3500,
+    "baseline_totals": [
+      {
+        "cell": "结算台账!B5",
+        "label": "出口折合人民币",
+        "expected": 1383341.6,
+        "actual_cached": 1383341.6000000003,
+        "pass": true
+      },
+      {
+        "cell": "结算台账!E5",
+        "label": "进口折合人民币",
+        "expected": 711293.8,
+        "actual_cached": 711293.7999999999,
+        "pass": true
+      },
+      {
+        "cell": "结算台账!H5",
+        "label": "未结算金额总额",
+        "expected": 970037.7,
+        "actual_cached": 970037.7,
+        "pass": true
+      }
+    ],
+    "generation_engine_mutation_test": "passed",
+    "gridcraft_roundtrip": "not_executed",
+    "excel_and_wps_open_refresh": "not_executed"
+  }
+]

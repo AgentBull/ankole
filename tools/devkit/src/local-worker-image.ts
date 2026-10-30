@@ -39,6 +39,8 @@ const sharedInputRoots = [
   'app/kernel/node.ts',
   'app/kernel/src',
   'app/kernel/scripts',
+  'app/kernel/spreadsheet',
+  'app/kernel/spreadsheet-wasm',
   'app/library',
   'libs/ankole-editor',
   'libs/applet-sdk',

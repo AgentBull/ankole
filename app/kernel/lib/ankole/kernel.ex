@@ -260,6 +260,113 @@ defmodule Ankole.Kernel do
 
   defp decode_page_result({xml, plain_text}), do: {:ok, %{xml: xml, plain_text: plain_text}}
 
+  @typedoc "An immutable spreadsheet version held by the kernel. Applying an operation returns a new one."
+  @type spreadsheet :: reference()
+  @type spreadsheet_conflict ::
+          :target_deleted
+          | :overlapping_structural_edit
+          | :sheet_deleted
+          | :concurrent_sort_or_merge
+  @type spreadsheet_export :: %{xlsx_bytes: binary(), plain_text: String.t(), metadata: map()}
+
+  @doc """
+  Creates a workbook with one empty sheet whose `sheet_id` is 1, and returns it with its `.xlsx`
+  bytes, search text, and metadata.
+  """
+  @spec spreadsheet_create_blank(String.t()) ::
+          {:ok,
+           %{
+             doc_ref: spreadsheet(),
+             xlsx_bytes: binary(),
+             plain_text: String.t(),
+             metadata: map()
+           }}
+          | {:error, error_reason()}
+  def spreadsheet_create_blank(title) when is_binary(title) do
+    case spreadsheet_create_blank_nif(title) do
+      {:error, _reason} = error ->
+        error
+
+      {doc_ref, xlsx_bytes, plain_text, metadata} ->
+        {:ok,
+         %{
+           doc_ref: doc_ref,
+           xlsx_bytes: xlsx_bytes,
+           plain_text: plain_text,
+           metadata: Torque.decode!(metadata)
+         }}
+    end
+  end
+
+  @doc """
+  Reads `.xlsx` bytes and replays the committed operations not yet compacted into them, in
+  revision order.
+  """
+  @spec spreadsheet_open(binary(), [map()]) ::
+          {:ok, %{doc_ref: spreadsheet(), plain_text: String.t(), metadata: map()}}
+          | {:error, error_reason()}
+  def spreadsheet_open(xlsx_bytes, tail_ops) when is_binary(xlsx_bytes) and is_list(tail_ops) do
+    case spreadsheet_open_nif(xlsx_bytes, Torque.encode!(tail_ops)) do
+      {:error, _reason} = error ->
+        error
+
+      {doc_ref, plain_text, metadata} ->
+        {:ok, %{doc_ref: doc_ref, plain_text: plain_text, metadata: Torque.decode!(metadata)}}
+    end
+  end
+
+  @doc """
+  Rebases `incoming_op` over `prior_ops` (the operations committed after the author's base
+  revision, in revision order) and applies it to `doc_ref`, which must be the latest revision.
+
+  Returns the new document with the committed operation and its structural edit, or
+  `{:conflict, reason}` when the rebase would have to guess. `doc_ref` stays valid either way.
+  """
+  @spec spreadsheet_apply(spreadsheet(), map(), [map()]) ::
+          {:ok, %{doc_ref: spreadsheet(), committed_op: map(), structural_edit: map() | nil}}
+          | {:conflict, spreadsheet_conflict()}
+          | {:error, error_reason()}
+  def spreadsheet_apply(doc_ref, incoming_op, prior_ops)
+      when is_reference(doc_ref) and is_map(incoming_op) and is_list(prior_ops) do
+    case spreadsheet_apply_nif(doc_ref, Torque.encode!(incoming_op), Torque.encode!(prior_ops)) do
+      {:ok, {doc_ref, committed_op, structural_edit}} ->
+        {:ok,
+         %{
+           doc_ref: doc_ref,
+           committed_op: Torque.decode!(committed_op),
+           structural_edit: structural_edit && Torque.decode!(structural_edit)
+         }}
+
+      {:conflict, _reason} = conflict ->
+        conflict
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  @doc "Serializes a spreadsheet as `.xlsx` with its search text and metadata."
+  @spec spreadsheet_export_xlsx(spreadsheet()) ::
+          {:ok, spreadsheet_export()} | {:error, error_reason()}
+  def spreadsheet_export_xlsx(doc_ref) when is_reference(doc_ref) do
+    case spreadsheet_export_xlsx_nif(doc_ref) do
+      {:error, _reason} = error ->
+        error
+
+      {xlsx_bytes, plain_text, metadata} ->
+        {:ok,
+         %{xlsx_bytes: xlsx_bytes, plain_text: plain_text, metadata: Torque.decode!(metadata)}}
+    end
+  end
+
+  defp spreadsheet_create_blank_nif(_title), do: :erlang.nif_error(:nif_not_loaded)
+  defp spreadsheet_open_nif(_xlsx_bytes, _tail_ops), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp spreadsheet_apply_nif(_doc_ref, _incoming_op, _prior_ops),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  defp spreadsheet_export_xlsx_nif(_doc_ref), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc "Returns zero-based byte offsets and lengths for original CommonMark code, with delimiters."
   @spec markdown_code_ranges(String.t()) :: [{non_neg_integer(), non_neg_integer()}]
   def markdown_code_ranges(source) when is_binary(source) do
