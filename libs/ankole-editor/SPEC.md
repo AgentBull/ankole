@@ -599,7 +599,7 @@ Body text keeps a 28px line because CJK text needs more leading than Latin text;
   - For browser-applied edits—plain typing, composition updates, and inline deletes—the editor defers DOM re-rendering between `beforeinput` and `input`; any layout measurement during that window observes the previous render.
 - **Paste and copy**:
   - Pasting HTML preserves headings, flat and nested lists, quotes, tables, task items (`aria-checked` or GitHub task-list markup), code blocks (`data-language`), links (`href`, `title`), and images (`src`, `alt`, `title`).
-  - Microsoft Word list paragraphs (`mso-list` styles) become nested lists: the `mso-list` level sets the nesting, a new list id starts a new list, a numbered or lettered marker makes the list numbered, and the typed marker text is removed.
+  - Microsoft Word list paragraphs (`mso-list` styles) become nested lists: the `mso-list` level sets the nesting, a new list id starts a new list, a numbered or lettered marker makes the list numbered, a first number other than 1 becomes the list's `start`, and the typed marker text is removed.
   - Inline formatting recognizes vocabulary format tags plus `<b>`, `<i>`, `<del>`, and `<strike>`; CSS `font-weight` maps to bold only for `bold` and `700`.
   - Inline styles retain only `text-transform` and alignment (`data-align` or `text-align`, ignoring `start` and mapping `end` to `right`); all other inline styles and all block styles are stripped.
   - Callouts and embeds are recognized from HTML only in the exact markup written by the editor.

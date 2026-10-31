@@ -44,6 +44,19 @@ defmodule Ankole.Pod.PagesTest do
              Pages.update(actor, page.id, %{title: "Short", expected_title: longest})
   end
 
+  test "a legacy title above 255 characters stays while the icon changes", ctx do
+    actor = actor_fixture(ctx.owner)
+    {:ok, page} = Pages.create(actor, %{title: "Legacy"})
+    legacy = String.duplicate("标", 300)
+
+    Ankole.Repo.query!("UPDATE pages SET title = $1 WHERE id = $2", [
+      legacy,
+      Ecto.UUID.dump!(page.id)
+    ])
+
+    assert {:ok, %{title: ^legacy, icon: "📌"}} = Pages.update(actor, page.id, %{icon: "📌"})
+  end
+
   test "moving the first Space page into Private establishes its owner's access", ctx do
     actor = actor_fixture(ctx.owner.uid)
     assert {:ok, []} = Pages.list(actor, %{scope: "private"})

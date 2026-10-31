@@ -13,7 +13,8 @@
 - Full-width tables in Pod documents extend into the page margins.
 - Markdown export and copy omit empty paragraphs instead of writing `<p />`.
 - Pasting bullet and numbered lists from Microsoft Word, including `(1)` and
-  `一、` numbering, keeps them as nested lists.
+  `一、` numbering, keeps them as nested lists that start at their first
+  number.
 - The code language picker lists exact name and alias matches first, so `ts`
   selects TypeScript.
 - Losing edit permission while editing says so instead of reporting a changed
