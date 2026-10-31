@@ -29,9 +29,15 @@ defmodule Ankole.Pod.PagesTest do
              Pages.update(actor, page.id, %{title: "First title", expected_title: ""})
   end
 
-  test "a Page title holds at most 255 characters", ctx do
+  test "a Page title holds at most 255 code points", ctx do
     actor = actor_fixture(ctx.owner)
     longest = String.duplicate("标", 255)
+    # An accented letter is one character of two code points, which the Pod client also counts
+    accented = String.duplicate("e\u0301", 127)
+
+    assert {:error, _} = Pages.create(actor, %{title: accented <> "e\u0301"})
+    assert {:ok, %{title: title}} = Pages.create(actor, %{title: accented <> "e"})
+    assert title == accented <> "e"
 
     assert {:error, _} = Pages.create(actor, %{title: longest <> "x"})
     assert {:ok, page} = Pages.create(actor, %{title: longest})
