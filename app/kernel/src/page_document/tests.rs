@@ -19,7 +19,7 @@ fn kept_style_ignores_css_comments() {
             "color:red; /* note */ background-color:blue",
             "color:red; /* note */ background-color:blue",
         ),
-        ("color:red; /* open", "color:red; /* open"),
+        ("color:red; /* open", "color:red"),
         ("/* only */ margin:0", ""),
     ] {
         assert_eq!(tree::kept_style(style), kept, "{style}");

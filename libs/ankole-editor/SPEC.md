@@ -102,7 +102,7 @@ Normalization (`N`) strips only differences that are invisible to a reader: if t
 
 - `N` sorts attributes by name in Unicode code-point order.
 - If a known attribute has a value outside those permitted in section 2, `N` reports an error.
-- In a `style` value, `N` keeps only the `color`, `background-color`, and `text-transform` declarations. `N` drops every other declaration instead of reporting an error, so a stored page with other styles still opens. A value with only kept declarations stays as written; otherwise `N` joins the kept declarations with `; `, and a value with none of them is empty.
+- In a `style` value, `N` keeps only the `color`, `background-color`, and `text-transform` declarations. `N` drops every other declaration instead of reporting an error, so a stored page with other styles still opens. A value with only kept declarations and no unclosed `/*` comment stays as written; otherwise `N` joins the kept declarations with `; `, and a value with none of them is empty.
 - When the vocabulary declares `alt`, `title`, `lang`, `meta`, or `style` on an element and its value is `""`, `N` drops the attribute. `N` also drops `start="1"` on `ol`, `width="1000"` on `column`, `colspan="1"` and `rowspan="1"` on `th` and `td`, and `view="both"` and `theme="auto"` on `mermaid`.
 - Missing a required attribute on an element is an error.
 
