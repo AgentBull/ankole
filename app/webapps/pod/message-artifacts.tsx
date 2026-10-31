@@ -197,7 +197,7 @@ export function SaveMessageButton({
           <Input
             autoFocus
             value={title}
-            onChange={event => setTitle(limitPageTitle(event.target.value))}
+            onChange={event => setTitle(limitPageTitle(event.target.value, title))}
             disabled={save.isPending}
           />
         </label>

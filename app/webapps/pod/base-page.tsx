@@ -1058,7 +1058,7 @@ function CopyTableButton({
               aria-label={t('pod.content.page_title')}
               value={title}
               disabled={copy.isPending}
-              onChange={event => setTitle(limitPageTitle(event.target.value))}
+              onChange={event => setTitle(limitPageTitle(event.target.value, title))}
             />
           </label>
           <PagePicker

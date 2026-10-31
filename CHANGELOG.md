@@ -62,7 +62,8 @@
   briefly reopening on the same selection.
 - With text selected in a Pod document, Command+K on Apple platforms and
   Control+K elsewhere open the link form; otherwise they still open search.
-- Page titles hold at most 255 characters. Existing longer titles stay until
+- Page titles hold at most 255 Unicode code points. Typing or pasting past the
+  limit drops only the excess new text, and existing longer titles stay until
   they are edited.
 - Moving a Page to Trash names how many subpages moved with it, and Trash rows
   show the days left before permanent deletion.

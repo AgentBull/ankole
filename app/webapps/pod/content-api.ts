@@ -138,15 +138,26 @@ const pageTitleMaxLength = 255
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 /**
- * The control plane rejects a Page title longer than 255 characters, and it counts the characters
- * that people see (grapheme clusters). An input `maxLength` counts UTF-16 units instead.
+ * The control plane rejects a Page title longer than 255 code points, while an input `maxLength`
+ * counts UTF-16 units and can split a character. Like `maxLength`, this function keeps the text
+ * around an edit of `previous` and shortens only the inserted text, whole grapheme clusters at a time.
  */
-export function limitPageTitle(title: string): string {
-  let count = 0
-  for (const { index } of graphemes.segment(title)) {
-    if (count++ === pageTitleMaxLength) return title.slice(0, index)
+export function limitPageTitle(title: string, previous = ''): string {
+  const next = [...title]
+  if (next.length <= pageTitleMaxLength) return title
+  const before = [...previous]
+  let start = 0
+  while (start < before.length && next[start] === before[start]) start++
+  let end = 0
+  while (end < Math.min(before.length, next.length) - start && next.at(-1 - end) === before.at(-1 - end)) end++
+  let room = pageTitleMaxLength - start - end
+  let inserted = ''
+  for (const { segment } of graphemes.segment(next.slice(start, next.length - end).join(''))) {
+    room -= [...segment].length
+    if (room < 0) break
+    inserted += segment
   }
-  return title
+  return next.slice(0, start).join('') + inserted + next.slice(next.length - end).join('')
 }
 
 export const pageAPI = {

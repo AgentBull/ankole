@@ -878,7 +878,7 @@ export function PageRenameField({
         disabled={rename.isPending}
         placeholder={t('pod.content.untitled')}
         onFocus={event => event.currentTarget.select()}
-        onChange={event => setValue(limitPageTitle(event.target.value))}
+        onChange={event => setValue(limitPageTitle(event.target.value, value))}
         onBlur={() => submit(false)}
         onKeyDown={event => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return

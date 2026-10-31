@@ -130,9 +130,10 @@ describe('document export and statistics', () => {
 
   test('editing stats count written text and skip resource titles and addresses', () => {
     const xml =
-      '<page><p>Hello</p><media src="ankole:asset/hash/photo.png" title="photo.png"/><p>world<img src="ankole:asset/hash/inline.png" alt="chart"/></p></page>'
-    expect(documentPlainText(xml, { omitResources: true })).toBe('Hello\nworld')
-    expect(textStats(documentPlainText(xml, { omitResources: true })).words).toBe(2)
+      '<page><p>Hello</p><media src="ankole:asset/hash/photo.png" title="photo.png"/><p>world <a href="ankole:asset/hash/notes.txt">notes</a><img src="ankole:asset/hash/inline.png" alt="chart"/></p></page>'
+    const projection = { omitResources: true, resolveAsset: (source: string) => `https://pod.example/${source}` }
+    expect(documentPlainText(xml, projection)).toBe('Hello\nworld notes')
+    expect(textStats(documentPlainText(xml, projection)).words).toBe(3)
   })
 
   test('portable Markdown omits empty top-level paragraphs', () => {

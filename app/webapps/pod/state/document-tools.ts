@@ -226,7 +226,7 @@ function plainTextNodes(nodes: DocumentNode[], projection: DocumentProjection): 
       }
     }
     node.children.forEach(visit)
-    if (node.name === 'a' && resolved) text += ` (${resolved})`
+    if (node.name === 'a' && resolved && !projection.omitResources) text += ` (${resolved})`
     if (node.name === 'a' && node.attrs.href?.startsWith('ankole:page/')) {
       const reference = projection.resolveReference?.(node.attrs.href.slice('ankole:page/'.length))
       if (reference) text += ` (${reference.href})`
