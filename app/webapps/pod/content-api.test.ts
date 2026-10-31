@@ -26,6 +26,11 @@ test('an edit keeps the previous title when no whole inserted character fits', (
   expect(limitPageTitle(`${'a'.repeat(251)}👨‍👩‍👧`, full)).toBe(full)
 })
 
+test('an edit keeps an accent with the inserted letter it belongs to', () => {
+  const previous = `${'a'.repeat(253)}b\u0301`
+  expect(limitPageTitle(`${'a'.repeat(253)}xyc\u0301`, previous)).toBe(`${'a'.repeat(253)}xy`)
+})
+
 test('a legacy title above the limit can still lose text', () => {
   const legacy = 'a'.repeat(300)
   expect(limitPageTitle(legacy.slice(1), legacy)).toBe(legacy.slice(1))

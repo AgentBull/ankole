@@ -153,12 +153,11 @@ export function limitPageTitle(title: string, previous = ''): string {
   while (end < Math.min(before.length, next.length) - start && next.at(-1 - end) === before.at(-1 - end)) end++
   // Deleting text from a legacy title above the limit inserts nothing
   if (start + end === next.length) return title
-  let cut = start
-  let offset = 0
-  for (const { segment } of graphemes.segment(title)) {
-    if (offset > start && offset <= pageTitleMaxLength - end) cut = offset
-    offset += [...segment].length
-  }
+  const boundaries = [0]
+  for (const { segment } of graphemes.segment(title)) boundaries.push(boundaries.at(-1)! + [...segment].length)
+  // The kept text after the edit starts at a grapheme cluster boundary
+  end = next.length - boundaries.find(boundary => boundary >= next.length - end)!
+  const cut = boundaries.findLast(boundary => boundary > start && boundary <= pageTitleMaxLength - end) ?? start
   return cut === start ? previous : next.slice(0, cut).join('') + next.slice(next.length - end).join('')
 }
 
