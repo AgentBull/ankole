@@ -130,6 +130,18 @@ Phoenix serves HTTP routes, authentication ceremonies, cookie sessions, initial 
 
 Default `bun run test` suites skip container builds, live external chat/LLM providers, performance benchmarks, and chaos fault-injection runs. Before claiming that a Worker image, cloud provider, database failover, or external integration works end to end, run the corresponding `tools/e2e/run` mode; static code review catches contract mismatches, not live protocol or network behavior.
 
+## Pod Documents Embed External Pages Without Confirmation
+
+A Pod document stores the `href` of an `embed` and the `src` of an image as written. When a person pastes Markdown or HTML that contains an `<embed href>` element, the editor creates an external iframe without asking first, and an image address can use any scheme, including `javascript:`.
+
+Ankole accepts this because neither case reaches the Pod's own origin. The iframe loads the external page in that page's origin, so it gains no access to the Pod's cookies or API; a browser never runs a `javascript:` address from an `img` element. A pasted embed can still show a page that a reader did not choose to open, such as a fake sign-in form. Readers and editors should treat an embed like a link from its author. Text styles are different: the editor and the Rust kernel keep only `color`, `background-color`, and `text-transform`, because other CSS, such as a `position: fixed` overlay, would cover the page for every reader.
+
+## Concurrent Cross-Column Deletions Can Leave an Empty Column
+
+When a range edit ends in another column, the editor joins the text at both ends and keeps each column's other blocks. To keep the second column, the change closes the first column after the joined text and opens the second column again. Operational transformation keeps that inserted column boundary even when another collaborator deletes the text around it at the same time.
+
+So when two people delete adjacent ranges across the same column boundary concurrently, the converged page can hold an extra column with only an empty paragraph, and undoing one of the edits restores that layout. No text is lost, and deleting the empty column restores the intended layout. Ankole accepts this rare outcome: removing it needs a different change shape for cross-column edits or special handling in transformation, while an automatic cleanup cannot tell such a column from an empty column that a person inserted on purpose.
+
 ## Deliberate Non-Goals
 
 Today, Ankole intentionally does **not** provide:
