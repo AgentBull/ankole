@@ -13,9 +13,12 @@
 }
 
 .pod-page-content {
+  --pod-page-gutter-start: 48px;
+  --pod-page-gutter-end: 48px;
   width: min(100%, 856px);
   margin-inline: auto;
-  padding: 40px 48px 120px;
+  padding-block: 40px 120px;
+  padding-inline: var(--pod-page-gutter-start) var(--pod-page-gutter-end);
 }
 
 .pod-page[data-page-type='base'] .pod-page-content,
@@ -127,7 +130,8 @@ img.pod-page-title-icon.pod-page-icon {
 
 @media (min-width: 761px) {
   .pod-page[data-page-type='doc'] .pod-page-content {
-    padding-inline: 64px;
+    --pod-page-gutter-start: 64px;
+    --pod-page-gutter-end: 64px;
   }
 }
 
@@ -183,10 +187,13 @@ textarea.pod-page-title:focus-visible {
   position: relative;
 }
 
+/* The document scroll reaches into the page gutters so full-width tables can expand into them. */
 .pod-document .ankole-editor .document-scroll {
   max-width: none;
-  padding: 0;
-  margin: 0;
+  padding-block: 0;
+  padding-inline: var(--pod-page-gutter-start, 0px) var(--pod-page-gutter-end, 0px);
+  margin-block: 0;
+  margin-inline: calc(-1 * var(--pod-page-gutter-start, 0px)) calc(-1 * var(--pod-page-gutter-end, 0px));
 }
 
 .pod-document .ankole-editor .embed {
@@ -340,7 +347,9 @@ textarea.pod-page-title:focus-visible {
 
 @media (max-width: 760px) {
   .pod-page-content {
-    padding: 28px 24px 100px 58px;
+    --pod-page-gutter-start: 58px;
+    --pod-page-gutter-end: 24px;
+    padding-block: 28px 100px;
   }
 
   .pod-page-title {

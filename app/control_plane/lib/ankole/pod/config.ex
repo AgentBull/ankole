@@ -43,9 +43,10 @@ defmodule Ankole.Pod.Config do
         key: "pod.trash_retention_days",
         scope: :tenant,
         encrypted: false,
-        schema: Schema.new(&positive_integer/1),
+        schema: Schema.new(&non_negative_integer/1),
         default_value: 30,
-        description: "Days to retain deleted pages before automatic purge."
+        description:
+          "Days to retain deleted pages before automatic purge; 0 keeps them until this changes."
       ),
       Definition.new!(
         key: "pod.ot_replay_window",
@@ -101,6 +102,9 @@ defmodule Ankole.Pod.Config do
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
   defp positive_integer(_), do: {:error, :invalid_positive_integer}
+
+  defp non_negative_integer(value) when is_integer(value) and value >= 0, do: {:ok, value}
+  defp non_negative_integer(_), do: {:error, :invalid_non_negative_integer}
 
   defp validate(limits) when is_map(limits) do
     if Enum.sort(Map.keys(limits)) == Enum.sort(@limit_keys) and

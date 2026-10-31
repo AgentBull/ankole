@@ -51,7 +51,15 @@ import {
   type PodSidebarNavigationState
 } from './state/navigation'
 import { canMovePage, dropAvailability, dropRequest, rootRequest } from './state/page-move'
-import { pageAPI, pagesQuery, pageChildrenQuery, cachedPages, type Page, type NavigationPage } from './content-api'
+import {
+  pageAPI,
+  pagesQuery,
+  pageChildrenQuery,
+  cachedPages,
+  pageTitleMaxLength,
+  type Page,
+  type NavigationPage
+} from './content-api'
 import { contentError } from './content-errors'
 import { ContentError, scopeLabels } from './content-primitives'
 import { CreatePageButton } from './page-create-menu'
@@ -866,6 +874,7 @@ export function PageRenameField({
         variant="inline"
         className={cn('pod-tree-rename', className)}
         aria-label={t('pod.sidebar.rename_label', { title: page.title || t('pod.content.untitled') })}
+        maxLength={pageTitleMaxLength}
         value={value}
         disabled={rename.isPending}
         placeholder={t('pod.content.untitled')}

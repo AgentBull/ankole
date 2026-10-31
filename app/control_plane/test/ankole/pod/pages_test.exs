@@ -29,6 +29,21 @@ defmodule Ankole.Pod.PagesTest do
              Pages.update(actor, page.id, %{title: "First title", expected_title: ""})
   end
 
+  test "a Page title holds at most 255 characters", ctx do
+    actor = actor_fixture(ctx.owner)
+    longest = String.duplicate("标", 255)
+
+    assert {:error, _} = Pages.create(actor, %{title: longest <> "x"})
+    assert {:ok, page} = Pages.create(actor, %{title: longest})
+    assert page.title == longest
+
+    assert {:error, _} =
+             Pages.update(actor, page.id, %{title: longest <> "x", expected_title: longest})
+
+    assert {:ok, %{title: "Short"}} =
+             Pages.update(actor, page.id, %{title: "Short", expected_title: longest})
+  end
+
   test "moving the first Space page into Private establishes its owner's access", ctx do
     actor = actor_fixture(ctx.owner.uid)
     assert {:ok, []} = Pages.list(actor, %{scope: "private"})
@@ -149,6 +164,33 @@ defmodule Ankole.Pod.PagesTest do
              Pages.get(reader, leaf.id)
 
     assert {:ok, %{ancestors: []}} = Pages.get(owner, root.id)
+  end
+
+  test "the trash notice counts live descendants that the deleting manager can view", ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    manager = actor_fixture(ctx.reader.uid)
+    {:ok, parent} = Pages.create(owner, %{title: "Parent", private_owner_uid: ctx.owner.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, parent.id, %{
+        grants: [%{principal_uid: ctx.reader.uid, role: "manage"}]
+      })
+
+    {:ok, child} = Pages.create(owner, %{title: "Child", parent_id: parent.id})
+    {:ok, _} = Pages.create(owner, %{title: "Grandchild", parent_id: child.id})
+    {:ok, hidden} = Pages.create(owner, %{title: "Hidden", parent_id: parent.id})
+    {:ok, trashed} = Pages.create(owner, %{title: "Trashed", parent_id: parent.id})
+    {:ok, _} = Pages.delete(owner, trashed.id)
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, hidden.id, %{
+        inherit_permissions: false,
+        grants: []
+      })
+
+    assert Pages.visible_descendant_count(owner, parent.id) == 3
+    assert Pages.visible_descendant_count(manager, parent.id) == 2
+    assert Pages.visible_descendant_count(owner, child.id) == 1
   end
 
   test "an editor can remove their own inherited inline child", ctx do
@@ -870,6 +912,33 @@ defmodule Ankole.Pod.PagesTest do
              Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
                scope: "favorites"
              })
+  end
+
+  test "text search matches every word in the title or body in any order", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid)
+
+    {:ok, page} =
+      Pages.create(actor, %{
+        title: "季度 report",
+        xml: "<page><p>Revenue grew while 留存 held</p></page>"
+      })
+
+    {:ok, _} = Pages.state(actor, page.id, %{favorite: true})
+
+    assert {:ok, %{pages: [found]}} = Pages.search(actor, "留存  季度")
+    assert found.id == page.id
+    assert {:ok, %{pages: []}} = Pages.search(actor, "留存 missing")
+    assert {:ok, [_]} = Pages.list(actor, %{query: "held revenue"})
+    assert {:ok, [_]} = Pages.list(actor, %{scope: "favorites", query: "report grew"})
+
+    # Only the first 16 distinct words filter, so a word after them does not exclude the Page.
+    present = ~w(Revenue grew while held report 季度 留存 Rev gre whi hel rep 季 留 eve rew)
+    assert {:ok, %{pages: [_]}} = Pages.search(actor, Enum.join(present ++ ["absent"], " "))
+
+    {:ok, _} = Pages.delete(actor, page.id)
+    assert {:ok, [trashed]} = Pages.list(actor, %{scope: "trash", query: "grew 季度"})
+    assert trashed.id == page.id
+    assert {:ok, []} = Pages.list(actor, %{scope: "trash", query: "grew absent"})
   end
 
   test "page state preserves the other flag and removes a row with neither flag", ctx do

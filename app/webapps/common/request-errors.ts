@@ -71,6 +71,10 @@ export function requestErrorMessage(error: unknown): string {
       }
     }
 
+    // fetch rejects with a TypeError worded by the browser when it cannot reach the server.
+    if (error instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(error.message)) {
+      return i18n.t('common.network_request_failed')
+    }
     if (error instanceof Error) return conciseMessage(error.message)
 
     // A parsed JSON body in an unrecognized shape: show the JSON rather than

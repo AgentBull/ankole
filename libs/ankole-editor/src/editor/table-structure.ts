@@ -1,6 +1,6 @@
 import { type ChangeSet, type Plot } from '../core/doc'
 import * as T from '../core/types'
-import { Rect } from '../core/table/tablemap'
+import { Rect, type TableMap } from '../core/table/tablemap'
 import { markChange } from './attributes'
 import { Align, HeaderCell, TableRow, TableWidths } from './schema'
 import { cellsIn, columnWidths, emptyCell, isHeader, type TableContext } from './table-context'
@@ -172,6 +172,23 @@ export function splitCells(context: TableContext): TableEdit | null {
   return changes.length ? { changes, row: rect.startRow, column: rect.startCol } : null
 }
 
+/** Every cell and its logical rectangle, in document order, from one pass over the grid. */
+function cellBoxes(map: TableMap): Map<number, Rect> {
+  const boxes = new Map<number, Rect>()
+  for (let r = 0; r < map.height; r++) {
+    for (let c = 0; c < map.width; c++) {
+      const pos = map.cellAt(c, r)
+      if (pos === null || boxes.has(pos)) continue
+      let endCol = c + 1
+      let endRow = r + 1
+      while (endCol < map.width && map.cellAt(endCol, r) === pos) endCol++
+      while (endRow < map.height && map.cellAt(c, endRow) === pos) endRow++
+      boxes.set(pos, new Rect(c, r, endCol, endRow))
+    }
+  }
+  return boxes
+}
+
 /** A move reorders complete span groups; no merged cell may become discontiguous. */
 export function moveAxis(context: TableContext, axis: 'row' | 'column', destination: number): TableEdit | null {
   const { map, rect, rows } = context
@@ -183,13 +200,19 @@ export function moveAxis(context: TableContext, axis: 'row' | 'column', destinat
   const moved = order.splice(start, end - start)
   const target = destination > end ? destination - moved.length : destination
   order.splice(target, 0, ...moved)
-  const all = cellsIn(map, new Rect(0, 0, map.width, map.height))
-  for (const pos of all) {
-    const box = map.cellRect(pos)
+  const index: number[] = []
+  order.forEach((old, next) => (index[old] = next))
+  const boxes = cellBoxes(map)
+  for (const box of boxes.values()) {
     const a = axis === 'row' ? box.startRow : box.startCol
     const b = axis === 'row' ? box.endRow : box.endCol
-    const mapped = order.map((old, next) => (old >= a && old < b ? next : -1)).filter(n => n >= 0)
-    if (mapped.at(-1)! - mapped[0]! + 1 !== mapped.length || order[mapped[0]!] !== a) return null
+    let first = size
+    let last = -1
+    for (let i = a; i < b; i++) {
+      first = Math.min(first, index[i]!)
+      last = Math.max(last, index[i]!)
+    }
+    if (last - first + 1 !== b - a || order[first] !== a) return null
   }
   const changes: ChangeSet.Spec[] = []
   if (axis === 'row') {
@@ -198,11 +221,10 @@ export function moveAxis(context: TableContext, axis: 'row' | 'column', destinat
       { from: map.rowPos(destination), insert: rows.slice(start, end) }
     )
   } else {
+    const byRow = Array.from({ length: map.height }, (): number[] => [])
+    for (const [pos, box] of boxes) if (box.startCol >= start && box.startCol < end) byRow[box.startRow]!.push(pos)
     for (let r = 0; r < map.height; r++) {
-      const cells = all.filter(pos => {
-        const box = map.cellRect(pos)
-        return box.startRow === r && box.startCol >= start && box.startCol < end
-      })
+      const cells = byRow[r]!
       if (!cells.length) continue
       for (const pos of cells) changes.push({ from: pos, to: map.cellEnd(pos) })
       changes.push({ from: map.cellInsertionPos(destination, r), insert: cells.map(pos => map.getCell(pos)) })

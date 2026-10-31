@@ -114,6 +114,22 @@ describe('document export and statistics', () => {
     expect(documentPlainText(xml)).toBe(
       'Photo (ankole:asset/hash/photo.png)\nMovie (ankole:asset/hash/movie.mp4)\nWebsite (https://example.com)\nDesign (https://www.figma.com/design/test)'
     )
+    expect(documentPlainText(xml, { resolveAsset: source => `https://pod.example/${source.split('/').at(-1)}` })).toBe(
+      'Photo (https://pod.example/photo.png)\nMovie (https://pod.example/movie.mp4)\nWebsite (https://example.com)\nDesign (https://www.figma.com/design/test)'
+    )
+  })
+
+  test('editing stats count written text and skip resource titles and addresses', () => {
+    const xml =
+      '<page><p>Hello</p><media src="ankole:asset/hash/photo.png" title="photo.png"/><p>world<img src="ankole:asset/hash/inline.png" alt="chart"/></p></page>'
+    expect(documentPlainText(xml, { omitResources: true })).toBe('Hello\nworld')
+    expect(textStats(documentPlainText(xml, { omitResources: true })).words).toBe(2)
+  })
+
+  test('portable Markdown omits empty top-level paragraphs', () => {
+    expect(documentMarkdown('<page><p>Hello</p><p /><p>World</p><p /></page>', 'Title')).toBe(
+      '# Title\n\nHello\n\nWorld'
+    )
   })
 
   test('plain-text copy separates nested list, column, and table text blocks', () => {

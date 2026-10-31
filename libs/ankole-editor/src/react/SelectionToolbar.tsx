@@ -156,6 +156,8 @@ export function SelectionToolbar() {
   form.current = linkForm
   // The selection that Escape hid the toolbar for. Another selection shows it again.
   const dismissed = useRef<GardSelection | null>(null)
+  // The state that Ask Agent or comment handed off. Any later state shows the toolbar again.
+  const handedOff = useRef<GardState | null>(null)
   // The block type menu renders outside the toolbar; the toolbar holds its place while focus is in either.
   const typeMenu = useRef<HTMLDivElement>(null)
   const refresh = useRef(() => {})
@@ -210,7 +212,15 @@ export function SelectionToolbar() {
         }
         const caretLink = !range && state.selection.empty && !state.readOnly ? linkAt(state) : null
         const target = range ?? caretLink
-        if (!target || !focused || pointer || composing || editor.composing || dismissed.current?.eq(state.selection)) {
+        if (
+          !target ||
+          !focused ||
+          pointer ||
+          composing ||
+          editor.composing ||
+          dismissed.current?.eq(state.selection) ||
+          handedOff.current === state
+        ) {
           setInfo(null)
           setLinkForm(null)
           return
@@ -460,7 +470,10 @@ export function SelectionToolbar() {
           info={info}
           apply={apply}
           openLink={openLink}
-          hide={() => setInfo(null)}
+          hide={() => {
+            handedOff.current = editor.state
+            setInfo(null)
+          }}
           typeMenu={typeMenu}
         />
       )}
@@ -544,7 +557,10 @@ function SelectionActions({
               ref={typeMenu}
               className="block-menu ankole-editor-overlay"
               aria-label={label('turn_into_type')}
-              finalFocus={() => editor.contentDOM}>
+              finalFocus={() => {
+                editor.focus()
+                return false
+              }}>
               <BlockTypeItems
                 options={blockOptions.filter(option => option.turnInto)}
                 current={type}

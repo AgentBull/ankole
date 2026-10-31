@@ -1,5 +1,73 @@
 # Changelog
 
+## Version 2.0.0-alpha.43 (2026-10-30)
+
+- Discarding unsaved changes when leaving a Pod document removes the local
+  draft, so reopening the page no longer saves the discarded title.
+- Turning several selected blocks into another type from the selection toolbar
+  keeps the text selected and the toolbar open.
+- Plain-text copy of a Pod document links uploaded files with the reader's file
+  address, and editing stats count only written text.
+- Version comparison marks only the changed lines when text follows the last
+  line of an older version.
+- Full-width tables in Pod documents extend into the page margins.
+- Markdown export and copy omit empty paragraphs instead of writing `<p />`.
+- Pasting bullet and numbered lists from Microsoft Word, including `(1)` and
+  `一、` numbering, keeps them as nested lists.
+- The code language picker lists exact name and alias matches first, so `ts`
+  selects TypeScript.
+- Losing edit permission while editing says so instead of reporting a changed
+  document, and a page that cannot load mentions a kept draft only when one
+  exists.
+- Network failures show a translated message instead of the browser's
+  `Failed to fetch`.
+- Starting an IME composition on selected blocks writes only the committed
+  text in their place, both on an empty paragraph, such as the one that Escape
+  and Down create below a code block, and on blocks with text.
+- Confirming an IME candidate with Enter or Escape in the code language search
+  or the callout icon field no longer picks a language or closes the menu, and
+  the callout icon changes only when the composition ends.
+- Pasting a GitHub task list whose items hold paragraphs keeps it as a task
+  list.
+- Enter in the only, empty paragraph of a callout adds a paragraph inside the
+  callout instead of removing it.
+- Typing, IME composition, pasting, and inserting an image over several
+  selected table cells put the input in the first selected cell and clear the
+  others, instead of deleting cells or merging rows.
+- Shift+Down and Shift+Up extend a cell selection down its column also beside
+  empty cells, instead of selecting the neighbouring column too.
+- A collaborator's deletion that leaves a column row with one column unwraps
+  that row, as a local deletion does.
+- Typing in a large table is fast again: a 500-row table took seconds for each
+  key because every closed table menu checked row and column moves.
+- Cutting a whole document that starts with a table no longer crashes the
+  editor.
+- Deleting, typing over, cutting, or pressing Enter on a text selection that
+  crosses columns, nested list items in a table cell or callout, or a sublist
+  inside a callout keeps the columns, table, callout, and unselected items in
+  place, and undo restores the columns.
+- Pasting over two selected list items no longer nests the next item.
+- Command+Backspace at the first item of a list inside a callout or quote joins
+  it to the text before the container.
+- Pasting plain text with thousands of lines no longer takes seconds.
+- Page text styles keep only `color`, `background-color`, and `text-transform`.
+  Other declarations, such as a `position: fixed` overlay that covered the page
+  for every reader, are dropped when a page is read, written, or pasted into;
+  pages with such styles still open.
+- Pod search, scoped lists, favorites, recents, and Trash match every word of
+  a query in the title or body, in any order, using the first 16 distinct
+  words.
+- The selection toolbar stays closed after Ask Agent or Comment instead of
+  briefly reopening on the same selection.
+- With text selected in a Pod document, Command+K on Apple platforms and
+  Control+K elsewhere open the link form; otherwise they still open search.
+- Page titles hold at most 255 characters. Existing longer titles stay until
+  they are edited.
+- Moving a Page to Trash names how many subpages moved with it, and Trash rows
+  show the days left before permanent deletion.
+- Setting `pod.trash_retention_days` to `0` keeps deleted Pages in Trash until
+  the setting changes; the Console offers it as a switch.
+
 ## Version 2.0.0-alpha.42 (2026-10-30)
 
 - Reset pre-release browser and OIDC sessions when migrating to unified

@@ -712,7 +712,7 @@
     {
       "name": "raw-inline-normalization",
       "xml": "<page><p>中\n文 <strong> a <em>b</em> </strong><span style=\"color:red\"><span style=\"font-size:12px\">x</span></span><br />\nnext</p></page>",
-      "canonicalXml": "<page><p>中文  <strong>a <em>b</em></strong> <span style=\"color:red; font-size:12px\">x</span><br />next</p></page>",
+      "canonicalXml": "<page><p>中文  <strong>a <em>b</em></strong> <span style=\"color:red\">x</span><br />next</p></page>",
       "document": {
         "type": "Doc",
         "content": [
@@ -746,7 +746,7 @@
                 "type": "Text",
                 "param": "x",
                 "marks": {
-                  "TextStyle": "color:red; font-size:12px"
+                  "TextStyle": "color:red"
                 }
               },
               {

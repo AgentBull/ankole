@@ -64,10 +64,8 @@ function drop(wg: Wordgard, event: InputEvent) {
   const slice = event.dataTransfer && readClipboard(wg.state, event.dataTransfer, wg.state.doc.resolve(at.from), false)
   if (!slice) return
   const changes = ChangeSet.create(wg.state.doc, {
-    from: at.from,
-    to: at.to,
-    insert: slice,
-    fit: true
+    correct: { from: at.from, to: at.to, insert: slice, fit: true },
+    local: true
   })
   wg.dispatch({
     changes,

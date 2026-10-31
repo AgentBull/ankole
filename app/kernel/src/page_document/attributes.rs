@@ -81,6 +81,13 @@ pub(super) fn normalize(node: &Element) -> Result<Attrs> {
         if !name_valid(key, true) || !value.chars().all(valid_character) {
             return Err("invalid XML attribute".into());
         }
+        let kept;
+        let value = if key == "style" && allowed_attribute(&node.name, key) {
+            kept = super::tree::kept_style(value);
+            &kept
+        } else {
+            value
+        };
         if allowed_attribute(&node.name, key) {
             let valid = valid_value(&node.name, key, value);
             if !valid {

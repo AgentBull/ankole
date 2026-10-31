@@ -94,6 +94,23 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     end
   end
 
+  test "deleting a Page reports how many live descendants moved to Trash with it", %{conn: conn} do
+    {owner, uid} = console_conn_with_principal(conn)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+    {:ok, parent} = Ankole.Pod.Pages.create(actor, %{title: "Parent"})
+    {:ok, child} = Ankole.Pod.Pages.create(actor, %{parent_id: parent.id})
+    {:ok, _} = Ankole.Pod.Pages.create(actor, %{parent_id: child.id})
+
+    response =
+      owner
+      |> recycle_json()
+      |> delete("/api/v2/pod/pages/#{parent.id}")
+      |> json_response(200)
+
+    assert response["descendant_count"] == 2
+    assert response["page"]["id"] == parent.id
+  end
+
   test "Trash reads return authorized rows without recalculating root creation permissions", %{
     conn: conn
   } do
@@ -111,7 +128,8 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
         |> get("/api/v2/pod/pages", %{scope: "trash"})
         |> json_response(200)
 
-      assert Map.keys(response) == ["pages"]
+      assert Enum.sort(Map.keys(response)) == ["pages", "trash_retention_days"]
+      assert response["trash_retention_days"] == 30
       assert [%{"id" => id, "actions" => actions}] = response["pages"]
       assert id == page.id
       assert "page_manage" in actions

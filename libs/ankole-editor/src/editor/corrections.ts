@@ -10,6 +10,7 @@ import { type ChangeSet, Leaf, type Mark, Node } from '../core/doc'
 import { Correction } from '../core/state'
 import * as T from '../core/types'
 import { MermaidBlock } from '../blocks/mermaid'
+import { keptStyle } from '../document/normalize'
 import { compareNames } from '../document/tree'
 import { Attrs, type Pairs } from './attributes'
 import * as S from './schema'
@@ -78,11 +79,21 @@ const optionalText = new Set<unknown>([
 /**
  * §3.1: known attribute values must match the vocabulary. Mark values created by commands are not
  * validated by the core, so they are checked here. An invalid or empty optional value is removed;
- * spans are limited to 1–9999.
+ * spans are limited to 1–9999. A style keeps only the declarations that `N` keeps, so that an
+ * internal paste cannot show a style that the page never stores.
  */
 export const vocabularyValues = Correction.onMarks(Node.Group.All, node => {
   const changes: ChangeSet.Spec[] = []
   for (const mark of node.node.marks) {
+    const kept = (mark.type === S.TextStyle || mark.type === S.BlockStyle) && keptStyle(mark.value as string)
+    if (kept !== false && kept !== mark.value) {
+      // A text leaf takes the mark over its whole range; a plot takes it on its tag.
+      const range = node.node.isPlot ? { from: node.before } : { from: node.before, to: node.after }
+      changes.push(
+        kept ? { ...range, add: (mark.type as typeof S.TextStyle).of(kept) } : { ...range, remove: mark as Mark }
+      )
+      continue
+    }
     let valid = true
     const validate = mark.type.spec.validate
     if (typeof validate === 'function') {

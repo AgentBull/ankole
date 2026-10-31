@@ -142,7 +142,18 @@ export function codeLanguageLabel(lang: string | undefined, plainText = 'Plain T
 export function filterCodeLanguages(query: string): readonly CodeLanguageOption[] {
   const text = query.trim().toLowerCase()
   if (!text) return codeLanguages
-  return codeLanguages.filter(option => `${option.label} ${option.id} ${option.aliases}`.toLowerCase().includes(text))
+  // An exact name or alias comes first, then a word that starts with the query, so `ts` finds TypeScript.
+  const rank = (option: CodeLanguageOption) => {
+    const words = `${option.label} ${option.id} ${option.aliases}`.toLowerCase().split(/\s+/)
+    if (words.includes(text)) return 0
+    if (words.some(word => word.startsWith(text))) return 1
+    return words.join(' ').includes(text) ? 2 : -1
+  }
+  return codeLanguages
+    .map(option => ({ option, rank: rank(option) }))
+    .filter(entry => entry.rank >= 0)
+    .sort((a, b) => a.rank - b.rank)
+    .map(entry => entry.option)
 }
 
 type Highlighter = {

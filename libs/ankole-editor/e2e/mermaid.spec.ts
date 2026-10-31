@@ -89,6 +89,10 @@ test('the slash menu inserts an empty Mermaid block ready for typing', async ({ 
 })
 
 test('a late mount cannot replace a newer preview layer', async ({ page }) => {
+  test.skip(
+    !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
+    'Only the development server serves source modules'
+  )
   await page.goto('/')
   const modulePath = new URL('../src/blocks/mermaid/preview.ts', import.meta.url).pathname
   const result = await page.evaluate(async path => {
@@ -182,6 +186,10 @@ test('toolbar actions target the clicked Mermaid block after typing when multipl
 test('the Mermaid extension renders in a standalone Wordgard view and reuses empty placeholders across edits', async ({
   page
 }) => {
+  test.skip(
+    !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
+    'Only the development server serves source modules'
+  )
   await openDocument(page, `Paragraph\n\n\`\`\`mermaid\n\`\`\``)
   const placeholder = page.locator('.mermaid-placeholder')
   await expect(placeholder).toBeVisible()

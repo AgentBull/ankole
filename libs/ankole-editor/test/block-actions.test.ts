@@ -268,6 +268,18 @@ function editorFor(state: GardState) {
 
 const undoOnce = (state: GardState) => state.update(undo({ state }, null) as Transaction.Spec).state
 
+test.each([
+  ['forward', ['First', 1], ['Second', 3]],
+  ['backward', ['Second', 3], ['First', 1]]
+] as const)('turning a %s text selection across blocks keeps the same text selected', (_, from, to) => {
+  const editor = editorFor(open('First\n\nSecond', from[0], from[1], [to[0], to[1]]))
+  expect(turnBlockInto(editor, undefined, 'h2')).toBe(true)
+  expect(markdown(editor.state)).toBe('## First\n\n## Second')
+  expect(editor.state.selection.anchor).toBe(position(editor.state, from[0], from[1]))
+  expect(editor.state.selection.head).toBe(position(editor.state, to[0], to[1]))
+  expect(undoDepth(editor.state)).toBe(1)
+})
+
 test.each(['h2', 'quote', 'divider', 'callout', 'embed'] as const)(
   'a slash query deletion and %p are one undo step',
   type => {

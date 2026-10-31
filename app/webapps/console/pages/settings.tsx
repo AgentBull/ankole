@@ -74,7 +74,7 @@ import { BrainSettingsEditor } from './brain-settings-editor'
 import { ObservabilitySettingsEditor } from './observability-settings-editor'
 import { SettingValueEditor } from './setting-value-editors'
 import { SettingsTaskEditor } from './settings-task-editor'
-import { settingDurationParts } from '../state/setting-value-editor'
+import { DURATION_SWITCHES, retentionLength, settingDurationParts } from '../state/setting-value-editor'
 
 const SETTING_MUTATION_KEY = ['app-configurations']
 
@@ -766,9 +766,8 @@ function SettingFallback({ item }: { item: AppConfigurationItem }) {
     if (present && item.key === 'ai_agent.max_output_tokens' && value == null) {
       return t('console.settings.no_explicit_limit')
     }
-    if (present && item.key === 'ai_agent.inactivity_timeout_ms' && value === 0) {
-      return t('console.settings.inactivity_timeout_disabled')
-    }
+    const off = DURATION_SWITCHES[item.key]?.off
+    if (present && off && value === 0) return t(off)
     return !present
       ? t('console.settings.source_missing')
       : item.encrypted
@@ -785,7 +784,7 @@ function SettingFallback({ item }: { item: AppConfigurationItem }) {
         source: t(`console.settings.source_${item.fallback_source ?? 'missing'}`)
       })}
       {['pod.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&
-      Number(item.fallback_value) < Number(item.value) ? (
+      retentionLength(item.key, item.fallback_value) < retentionLength(item.key, item.value) ? (
         <span className="mt-2 block text-warning-foreground">{t('console.settings.retention_warning')}</span>
       ) : null}
     </span>

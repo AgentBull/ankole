@@ -23,6 +23,7 @@ import { ChangeSet, Leaf, Node, Plot, Pos } from '../core/doc'
 import { KeyBinding, Wordgard } from '../core/editor'
 import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
+import { CellSelection } from '../core/table'
 import { Callout } from '../blocks/callout'
 import { Embed } from '../blocks/embed'
 import { MermaidBlock, MermaidView } from '../blocks/mermaid'
@@ -125,8 +126,11 @@ function firstTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null | 'st
   return null
 }
 
-/** The nearest place for text before `node`, crossing list and column boundaries. */
-function previousTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null {
+/**
+ * The nearest place for text before `node`, crossing list and column boundaries, and quote and
+ * callout boundaries when `leaveContainers` is set.
+ */
+function previousTextPlace(state: GardState, node: Pos.Node, leaveContainers = false): Pos.Plot | null {
   for (let current: Pos.Node | null = node; current?.parent;) {
     const parent: Pos.Plot = current.parent
     for (let i = current.index - 1; i >= 0; i--) {
@@ -137,7 +141,8 @@ function previousTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null {
       parent.node.type === S.Column.type ||
       parent.node.type === S.Columns.type ||
       isList(parent.node) ||
-      isItem(parent.node)
+      isItem(parent.node) ||
+      (leaveContainers && (isQuote(parent.node) || isCallout(parent.node)))
         ? parent
         : null
   }
@@ -199,8 +204,8 @@ function join(state: GardState, target: Pos.Plot, source: Pos.Plot, userEvent: s
 }
 
 /** Join `source` to the nearest text before `from`. Without text before it, nothing changes. */
-function joinBackward(state: GardState, source: Pos.Plot, from: Pos.Node): Transaction.Spec {
-  const target = previousTextPlace(state, from)
+function joinBackward(state: GardState, source: Pos.Plot, from: Pos.Node, leaveContainers = false): Transaction.Spec {
+  const target = previousTextPlace(state, from, leaveContainers)
   return target ? join(state, target, source, 'join.backward') : {}
 }
 
@@ -272,7 +277,7 @@ export function deleteBackward(state: GardState, mode: DeleteMode): Transaction.
         userEvent: 'lift.list'
       }
     }
-    return joinBackward(state, block, item)
+    return joinBackward(state, block, item, true)
   }
   if (isItem(parent.node)) return moveOutOfItem(parent, block.index)
   const indent = textblock ? block.node.tag.mark(S.Indent) : undefined
@@ -364,7 +369,16 @@ function enterQuote(state: GardState, block: Pos.Plot, quote: Pos.Plot): Transac
 
 /** Enter in the last, empty paragraph of a callout that holds other blocks moves the paragraph after the callout. */
 function enterCallout(block: Pos.Plot, callout: Pos.Plot): Transaction.Spec | false {
-  if (block.node.content.length || !block.isLast || callout.node.content.length < 2) return false
+  if (block.node.content.length || !block.isLast) return false
+  // In a callout's only, empty paragraph, Enter adds a paragraph inside; the next Enter leaves.
+  if (callout.node.content.length < 2) {
+    return {
+      changes: { from: block.after, insert: [T.Paragraph.create()] },
+      selection: GardSelection.cursor(block.after + 1),
+      scrollIntoView: true,
+      userEvent: 'split.textblock'
+    }
+  }
   return {
     changes: { from: block.before, to: callout.after, insert: [Plot.End, block.node] },
     selection: GardSelection.cursor(block.before + 2),
@@ -594,6 +608,8 @@ const deleteToLineEndWithoutKill: Command = wg =>
  * With nothing past it, the caret stays.
  */
 const lineMotion: Command<{ dir: 'up' | 'down'; extend?: boolean }> = (wg, param) => {
+  // A cell selection moves by table rows in its own handler, not by the text layout.
+  if (wg.state.selection instanceof CellSelection) return false
   const moved = moveByLine(wg, param)
   if (typeof moved == 'boolean') return moved
   const forward = param.dir == 'down'

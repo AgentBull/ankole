@@ -21,7 +21,8 @@ export function documentComparisonSource(xml: string, title: string): string {
 
 /** Compare the selected version with the current document. */
 export function documentChanges(before: string, current: string) {
-  return diffLines(before, current).map(change => ({
+  // Markdown output has no final newline, so the last line otherwise differs from the same line followed by more text.
+  return diffLines(before, current, { ignoreNewlineAtEof: true }).map(change => ({
     kind: change.added ? ('added' as const) : change.removed ? ('removed' as const) : ('unchanged' as const),
     text: change.value
   }))

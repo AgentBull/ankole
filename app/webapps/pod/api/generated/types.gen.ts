@@ -4376,6 +4376,7 @@ export type PodPageDeleteResponses = {
    * Success
    */
   200: {
+    descendant_count: number
     page: PodPageType
   }
 }
@@ -4627,6 +4628,7 @@ export type PodPageListResponses = {
    */
   200: {
     pages: Array<PodPageType>
+    trash_retention_days?: number | null
   }
 }
 

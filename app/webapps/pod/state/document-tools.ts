@@ -10,6 +10,8 @@ export type DocumentProjection = {
   resolveReference?: (ref: string) => DocumentReference | undefined
   resolveEmbed?: (ref: string) => DocumentReference | undefined
   resolvePrincipal?: (uid: string) => DocumentPrincipalReference | undefined
+  /** Statistics count the text people wrote, not resource titles and addresses. */
+  omitResources?: boolean
 }
 
 function walkDocument(xml: string, visit: (node: DocumentElement) => void): DocumentElement {
@@ -148,7 +150,10 @@ export function documentMarkdown(xml: string, title: string, projection: Documen
     if (/^(p|h[1-6])$/.test(node.name)) node.attrs = {}
     return [node]
   }
-  page.children = page.children.flatMap(portable)
+  // Portable Markdown has no empty paragraph, and its lossless `<p />` form is noise outside Ankole.
+  page.children = page.children
+    .flatMap(portable)
+    .filter(node => node.type === 'text' || node.name !== 'p' || node.children.length > 0)
   return printMarkdown(page)
 }
 
@@ -186,13 +191,17 @@ function plainTextNodes(nodes: DocumentNode[], projection: DocumentProjection): 
       firstBlock = false
     }
     if (node.name === 'br') text += '\n'
-    const resource = resourceText(node)
+    const asset = assetSource(node)
+    if (asset && projection.resolveAsset) node.attrs[asset[0]] = projection.resolveAsset(asset[1])
+    const resource = projection.omitResources ? null : resourceText(node)
     if (resource !== null) {
       if (!firstBlock) text += '\n'
       firstBlock = false
       text += resource
     }
-    if (node.name === 'img') text += node.attrs.alt ? `(image: ${node.attrs.alt})` : '(image)'
+    if (node.name === 'img' && !projection.omitResources) {
+      text += node.attrs.alt ? `(image: ${node.attrs.alt})` : '(image)'
+    }
     if (node.name === 'mention' && node.attrs.page) {
       const reference = projection.resolveReference?.(node.attrs.page)
       if (reference) text += reference.title

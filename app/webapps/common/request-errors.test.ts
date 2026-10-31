@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { requestErrorCode, requestErrorDetailList, requestErrorDetails, requestErrorMessage } from './request-errors'
+import i18n from './i18n'
 
 test('keeps all YAML validation paths and line numbers', () => {
   const details = [
@@ -48,6 +49,17 @@ describe('requestErrorMessage', () => {
 
   test('serializes unrecognized object bodies instead of "[object Object]"', () => {
     expect(requestErrorMessage({ status: 502, reason: 'bad gateway' })).toBe('{"status":502,"reason":"bad gateway"}')
+  })
+
+  test('localizes browser network failures and keeps other type errors', () => {
+    const network = i18n.t('common.network_request_failed')
+    expect(network).not.toBe('common.network_request_failed')
+    for (const message of ['Failed to fetch', 'NetworkError when attempting to fetch resource.', 'Load failed']) {
+      expect(requestErrorMessage(new TypeError(message))).toBe(network)
+    }
+    expect(requestErrorMessage(new TypeError("Cannot read properties of undefined (reading 'id')"))).toBe(
+      "Cannot read properties of undefined (reading 'id')"
+    )
   })
 
   test('passes raw text bodies through', () => {

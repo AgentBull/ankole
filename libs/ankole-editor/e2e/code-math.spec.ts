@@ -135,6 +135,10 @@ test('plain code blocks mark Plain Text in the picker and target the clicked blo
 test('the formula input reads document source directly across preceding, remote, and guarded edits', async ({
   page
 }) => {
+  test.skip(
+    !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
+    'Only the development server serves source modules'
+  )
   await openDocument(page, 'Intro\n\n$$\na + b\n$$')
   const block = page.locator('.math-block')
   await block.click()
@@ -218,6 +222,8 @@ test('Escape and ArrowDown leave a trailing code or formula block and create a w
   await page.keyboard.press('Escape')
   await expect(page.locator('.editor-selected-block')).toHaveCount(1)
   await page.keyboard.press('ArrowDown')
+  // A person types after the new paragraph is drawn; keys within the same frame find no DOM caret.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   await page.keyboard.type('Next paragraph')
   await expectMarkdown(page, '```js\nconst answer = 42\n```\n\nNext paragraph')
 
@@ -228,11 +234,30 @@ test('Escape and ArrowDown leave a trailing code or formula block and create a w
 
   await openDocument(page, '$$\nE = mc^2\n$$')
   await page.locator('.math-block').click()
+  // The editor focuses its field on the next frame, as a person would see it.
+  await expect(page.locator('.math-editor input')).toBeFocused()
   await page.locator('.math-editor input').fill('x + y = z')
   await page.keyboard.press('Enter')
   await expect(page.locator('.math-editor')).toHaveCount(0)
   await expect(page.locator('.editor-selected-block')).toHaveCount(1)
   await page.keyboard.press('ArrowDown')
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   await page.keyboard.type('After formula')
   await expectMarkdown(page, '$$\nx + y = z\n$$\n\nAfter formula')
+})
+
+test('Enter and Escape that confirm an IME candidate in the language search do not pick or close', async ({ page }) => {
+  await openDocument(page, '```js\nconst answer = 42\n```')
+  await page.locator('.editor-code-language').click()
+  const search = page.locator('.code-language-search input')
+  await search.fill('py')
+  for (const key of ['Enter', 'Escape']) {
+    await search.evaluate((input, key) => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key, isComposing: true, bubbles: true, cancelable: true }))
+    }, key)
+  }
+  await expect(search).toBeVisible()
+  await expect(page.locator('.editor-code-language')).toHaveText('JavaScript')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.editor-code-language')).toHaveText('Python')
 })

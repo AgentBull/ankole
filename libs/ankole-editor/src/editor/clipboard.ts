@@ -34,6 +34,7 @@ import { hostFacet } from './host-context'
 import { linkAt } from './links'
 import { inheritedMentionMarks } from './mention'
 import { Comment, Link, Mention, type MentionTarget } from './schema'
+import { wordListHTML } from './word-lists'
 
 // A same-editor cut is a one-use move. The operating-system clipboard contains only an opaque
 // token and portable content; another page, a second paste, or undo uses ordinary stripped content.
@@ -336,9 +337,13 @@ export const clipboard: GardState.Extension = [
     const data = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
     if (!cut || data?.getData(cutMime) !== cut.token) return false
     cuts.delete(editor)
-    const { from, to } = editor.state.selection.replacementRange
+    const { ranges } = editor.state.selection
+    const { to } = ranges[0]!
     editor.dispatch({
-      changes: { correct: { from, to, insert: cut.slice, fit: true }, local: true },
+      changes: {
+        correct: ranges.map(({ from, to }, index) => ({ from, to, insert: index ? [] : cut.slice, fit: true })),
+        local: true
+      },
       selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1),
       userEvent: 'move.paste',
       scrollIntoView: true
@@ -376,6 +381,7 @@ export const clipboard: GardState.Extension = [
   Wordgard.clipboardTextSerializer.of(plainText),
   // Text sources (plain text, Markdown) already choose their edges: they close more plots than
   // they name in the context.
+  Wordgard.clipboardInputHTMLFilter.of(wordListHTML),
   Wordgard.clipboardInputFilter.of((slice, state) =>
     withoutCommentSlice(
       closedCount(slice.content) > slice.context.length ? slice : normalize(state.schema, slice.content, slice.context)

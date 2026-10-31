@@ -40,7 +40,7 @@ test('commonmark:325 preserves the paragraph after a nested list on Enter', asyn
   await caret(page.locator('.editor-content p').filter({ hasText: /^baz$/ }), 2)
   await page.keyboard.press('Enter')
   await expect(page.locator('.editor-content')).toHaveText('foobarbaz')
-  await expect(page.locator('.editor-content > ul > li').last()).toHaveText('z')
+  await expect(page.locator('.editor-content > ul > li > p')).toHaveText(['foo', 'ba', 'z'])
   await expect(page.locator('.editor-content ul ul li')).toHaveText('bar')
   await reopen(page)
   await expect(page.locator('.editor-content')).toHaveText('foobarbaz')

@@ -1,11 +1,15 @@
 import { expect, test } from 'bun:test'
 import { parseXml, printXml } from '../src/document/xml'
+import { ChangeSet, Leaf } from '../src/core/doc'
+import { Correction } from '../src/core/state'
+import { pageDocument, readTree as readDocument } from '../src/editor/convert'
+import { pageCorrections } from '../src/editor/corrections'
 import { columnDrop, columnInsertion, columnResize } from '../src/editor/columns'
 import { deleteBlock, relocation, duplicateBlocks } from '../src/editor/block-actions'
-import { Command, insertText } from '../src/core/command'
+import { Command, deleteCut, insertText } from '../src/core/command'
 import { BlockSelection } from '../src/editor/block-selection'
 import { insertImage, undo } from '../src/editor/commands'
-import { open, select, press, readTree, expectReopens } from './helpers'
+import { open, select, press, readTree, expectReopens, typeText } from './helpers'
 
 const page = (body: string) => open(parseXml(`<page>${body}</page>`))
 const column = (body: string) => `<column>${body}</column>`
@@ -168,4 +172,83 @@ test('deleting a disconnected selection that touches both document edges preserv
   expect(deleteBlock(editor, at(editor, 'A'))).toBe(true)
   expectBody(editor, '<p>Keep</p>')
   expectReopens(editor)
+})
+
+// Each edit over a text range that crosses into the next column, as Backspace, typing, Enter and cut apply it.
+const rangeEdits: [string, (editor: ReturnType<typeof page>) => unknown][] = [
+  ['Backspace', editor => press(editor, 'Backspace')],
+  ['typing', editor => typeText(editor, 'Z')],
+  ['Enter', editor => press(editor, 'Enter')],
+  ['cut', editor => Command.dispatch(editor, deleteCut)]
+]
+
+test.each(rangeEdits)('%s over a range into the next column joins the text and keeps both columns', (name, edit) => {
+  const initial = row('<p>Left</p><p>Left second</p>', '<p>Right</p><p>Right second</p>')
+  const editor = page(initial)
+  select(editor, at(editor, 'Left second') + 5, at(editor, 'Right') + 3)
+  edit(editor)
+  const left = {
+    Backspace: '<p>Leftght</p>',
+    typing: '<p>LeftZght</p>',
+    Enter: '<p>Left</p><p>ght</p>',
+    cut: '<p>Leftght</p>'
+  }[name]
+  expectBody(editor, row(`<p>Left</p>${left}`, '<p>Right second</p>'))
+  expectReopens(editor)
+  expect(undo(editor)).toBe(true)
+  expectBody(editor, initial)
+})
+
+test('a range inside one column keeps the column layout', () => {
+  const editor = open(
+    '<columns>\n  <column>\n    - x1\n      - x2\n  </column>\n\n  <column>\n    y\n  </column>\n</columns>'
+  )
+  select(editor, at(editor, 'x1') + 2, at(editor, 'x2') + 2)
+  press(editor, 'Backspace')
+  expectBody(editor, row('<ul><li><p>x2</p></li></ul>', '<p>y</p>'))
+})
+
+test.each([
+  ['Right', row('<p>Left</p><p>Leftght</p>', '<p>Right second</p>')],
+  ['Right second', '<p>Left</p><p>Leftght second</p>']
+])('Backspace into %s, Enter and two undo steps restore the columns', (target, deleted) => {
+  const initial = row('<p>Left</p><p>Left second</p>', '<p>Right</p><p>Right second</p>')
+  const editor = page(initial)
+  select(editor, at(editor, 'Left second') + 5, at(editor, target) + 3)
+  press(editor, 'Backspace')
+  expectBody(editor, deleted)
+  press(editor, 'Enter')
+  expect(undo(editor)).toBe(true)
+  expectBody(editor, deleted)
+  expect(undo(editor)).toBe(true)
+  expectBody(editor, initial)
+})
+
+test('a remote deletion that leaves one column flattens the row when checked with the start document', () => {
+  const doc = pageDocument(parseXml(`<page>${row('<p>Left</p>', '<p>Right</p>')}</page>`))
+  const at: Record<string, number> = {}
+  doc.iterate((node, pos) => {
+    if (node.isText) at[node.param as string] = pos
+  })
+  // The raw change of a peer, as it arrives through collaboration, without local fitting.
+  const changes = ChangeSet.create(doc, { from: at.Left! + 2, to: at.Right! + 2 })
+  const next = changes.apply(doc)
+  expect(Correction.check(changes, next, pageCorrections)).toBeNull()
+  const correction = Correction.check(changes, next, pageCorrections, doc)!
+  expect(printXml(readDocument(correction.apply(next)))).toBe('<page><p>Leght</p></page>')
+})
+
+test('an earlier change in the same paragraph does not hide a deletion that left one column', () => {
+  const doc = pageDocument(parseXml(`<page>${row('<p>Left</p>', '<p>Right</p>')}</page>`))
+  const at: Record<string, number> = {}
+  doc.iterate((node, pos) => {
+    if (node.isText) at[node.param as string] = pos
+  })
+  const changes = ChangeSet.create(doc, [
+    { from: at.Left! + 1, insert: [Leaf.text('x')] },
+    { from: at.Left! + 2, to: at.Right! + 2 }
+  ])
+  const next = changes.apply(doc)
+  const correction = Correction.check(changes, next, pageCorrections, doc)!
+  expect(printXml(readDocument(correction.apply(next)))).toBe('<page><p>Lxeght</p></page>')
 })

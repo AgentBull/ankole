@@ -39,6 +39,10 @@ test('updating a text tile before a native IME range preserves the committed can
   page,
   browserName
 }) => {
+  test.skip(
+    !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
+    'Only the development server serves source modules'
+  )
   test.skip(browserName !== 'chromium', 'Chromium CDP supplies trusted composition events.')
   await page.goto('/')
   await page.evaluate(() => {
@@ -89,6 +93,10 @@ test('a same-paragraph API edit keeps native composition open and commits its ca
   page,
   browserName
 }) => {
+  test.skip(
+    !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
+    'Only the development server serves source modules'
+  )
   test.skip(browserName !== 'chromium', 'Chromium CDP supplies trusted composition events.')
   await page.goto('/test/core/browser/index.html')
   await page.waitForFunction(() => window.coreTestResults)
@@ -182,6 +190,8 @@ test('canceling an IME composition in an empty list item leaves an empty item an
   const items = page.locator('.editor-content > ul > li')
   await expect(items).toHaveCount(2)
   await items.nth(1).click()
+  // Let the editor read the click selection before the IME starts.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
 
   const client = await page.context().newCDPSession(page)
   try {
@@ -192,6 +202,7 @@ test('canceling an IME composition in an empty list item leaves an empty item an
 
     // Composing again in the same empty item commits cleanly and undoes in one step.
     await items.nth(1).click()
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     await client.send('Input.imeSetComposition', { text: 'di er', selectionStart: 5, selectionEnd: 5 })
     await client.send('Input.insertText', { text: '第二项' })
     await expectMarkdown(page, '- 第一项\n- 第二项')
@@ -204,7 +215,7 @@ test('canceling an IME composition in an empty list item leaves an empty item an
   }
 })
 
-test('Escape then ArrowDown from a trailing code block accepts Chinese IME composition immediately', async ({
+test('Escape then ArrowDown from a trailing code block accepts Chinese IME composition in the new paragraph', async ({
   page,
   browserName
 }) => {
@@ -214,12 +225,54 @@ test('Escape then ArrowDown from a trailing code block accepts Chinese IME compo
   await page.keyboard.press('Escape')
   await page.keyboard.press('ArrowDown')
   await expect(page.locator('.editor-selected-block')).toHaveCount(1)
+  // A person starts composing after the new paragraph is drawn.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
 
   const client = await page.context().newCDPSession(page)
   try {
     await client.send('Input.imeSetComposition', { text: 'ni hao', selectionStart: 6, selectionEnd: 6 })
     await client.send('Input.insertText', { text: '你好世界' })
     await expectMarkdown(page, '```ts\nconst count = 1\n```\n\n你好世界')
+    await reopen(page)
+  } finally {
+    await client.detach()
+  }
+})
+
+test('Chromium IME on a selected non-empty paragraph replaces the paragraph with the composed text', async ({
+  page,
+  browserName
+}) => {
+  test.skip(browserName !== 'chromium', 'Playwright exposes IME composition through Chromium CDP only.')
+  await openDocument(page, '前一\n\n后二')
+  await caret(page.locator('.editor-content p').first(), 1)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.editor-selected-block')).toHaveCount(1)
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+
+  const client = await page.context().newCDPSession(page)
+  try {
+    // Browsers send keydown 229 before an IME composition starts; CDP composition does not.
+    // Shift switches Microsoft Pinyin between Chinese and English with keydown 229 and no composition.
+    await client.send('Input.dispatchKeyEvent', {
+      type: 'rawKeyDown',
+      windowsVirtualKeyCode: 229,
+      key: 'Process',
+      code: 'ShiftLeft'
+    })
+    await expect(page.locator('.editor-content p')).toHaveText(['前一', '后二'])
+    await expect(page.locator('.editor-selected-block')).toHaveCount(1)
+    await client.send('Input.dispatchKeyEvent', {
+      type: 'rawKeyDown',
+      windowsVirtualKeyCode: 229,
+      key: 'Process',
+      code: 'KeyZ'
+    })
+    for (const text of ['z', 'zh', 'zhong']) {
+      await client.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length })
+    }
+    await client.send('Input.insertText', { text: '中' })
+    await expectMarkdown(page, '中\n\n后二')
     await reopen(page)
   } finally {
     await client.detach()

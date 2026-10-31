@@ -70,8 +70,7 @@ defmodule Ankole.Pod.Documents.History do
           with {:ok, parsed} <- Kernel.page_restore_comments(content.content, snapshot.content),
                :ok <-
                  checkpoint_in_tx(page, content, DateTime.utc_now(:microsecond), :before_restore),
-               {:ok, page} <-
-                 Ankole.Ash.update(page, :edit, %{title: snapshot.title, icon: snapshot.icon}),
+               {:ok, page} <- Ankole.Ash.update(page, :edit, restored_metadata(page, snapshot)),
                {:ok, %{page: restored, content: content} = result} <-
                  Documents.commit_parsed_in_tx(page, content, actor, parsed, force: true),
                :ok <-
@@ -215,4 +214,10 @@ defmodule Ankole.Pod.Documents.History do
     |> Map.take(@summary_fields -- [:page_id])
     |> Map.put(:author, Serialization.author_json(snapshot.author, profiles))
   end
+
+  # An unchanged title is not written again, so a title saved before the 255-character limit stays.
+  defp restored_metadata(%{title: title}, %{title: title, icon: icon}), do: %{icon: icon}
+
+  defp restored_metadata(_page, snapshot),
+    do: %{title: String.slice(snapshot.title, 0, 255), icon: snapshot.icon}
 end

@@ -67,6 +67,7 @@ test('a dragged page keeps its new place after reload, undo restores it, and the
     await field.press('Enter')
     await expect(link(`Renamed ${suffix}`)).toBeVisible()
 
+    await row(first).hover()
     await row(first)
       .getByRole('button', { name: new RegExp(`^.*${first}.* 的操作$`) })
       .click()
@@ -134,6 +135,8 @@ test('Search focuses its input and result rows keep native link and keyboard beh
     await expect(search).toHaveValue(title)
     const result = page.getByRole('main').getByRole('link', { name: title, exact: true })
     await expect(result).toHaveAttribute('href', destination)
+    // Recent pages stay listed until the debounced query settles.
+    await expect(page.getByRole('main').locator('a[data-pod-list-item]').first()).toHaveAttribute('href', destination)
     await search.press('Tab')
     await expect(result).toBeFocused()
     const bounds = (await result.boundingBox())!

@@ -25,9 +25,9 @@ import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../common/request-errors'
 import { type PageDetail } from './content-api'
 import { contentError } from './content-errors'
-import { documentPlainText } from './state/document-tools'
 import {
   documentMarkdownForExport,
+  documentPlainTextForCopy,
   downloadDocument,
   loadDocumentPrincipals,
   loadDocumentReferences
@@ -68,10 +68,7 @@ export function DocumentMenuItems({
       ]).then(([references, principals]) =>
         format === 'markdown'
           ? documentMarkdownForExport(detail.page.id, xml, title, detail.page.icon, references, principals)
-          : documentPlainText(xml, {
-              resolveReference: ref => references.get(ref),
-              resolvePrincipal: uid => principals.get(uid)
-            })
+          : documentPlainTextForCopy(detail.page.id, xml, references, principals)
       )
       // Start the clipboard write in the click gesture, including while reference titles are loading.
       if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {

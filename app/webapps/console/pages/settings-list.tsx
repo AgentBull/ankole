@@ -35,7 +35,7 @@ import {
 import { settingFocus, settingMatches, settingsScope, settingsSearch } from '../state/settings-search'
 import { requestErrorMessage } from '../../common/request-errors'
 import { settingDecryptedDraft } from '../state/setting-editor-model'
-import { settingDurationParts } from '../state/setting-value-editor'
+import { DURATION_SWITCHES, settingDurationParts } from '../state/setting-value-editor'
 
 function useSettingsTenantName() {
   const context = useConsoleTenant()
@@ -89,9 +89,8 @@ export function SettingsList() {
 
   const duration = (item: AppConfigurationItem) => {
     if (item.key === 'ai_agent.max_output_tokens' && item.value == null) return t('console.settings.no_explicit_limit')
-    if (item.key === 'ai_agent.inactivity_timeout_ms' && item.value === 0) {
-      return t('console.settings.inactivity_timeout_disabled')
-    }
+    const off = DURATION_SWITCHES[item.key]?.off
+    if (off && item.value === 0) return t(off)
     const parts = settingDurationParts(item.key, item.value)
     return parts ? `${parts.amount} ${t(`console.settings.unit_${parts.unit}`)}` : undefined
   }

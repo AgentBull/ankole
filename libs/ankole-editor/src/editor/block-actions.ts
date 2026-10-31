@@ -131,6 +131,18 @@ export function turnBlockInto(editor: Wordgard, pos: number | undefined, type: B
       ? compose(editor.state, spec, state => turnBlock(state, unit.before, type))
       : turnBlock(editor.state, unit.before, type)
   }
+  // A text selection across several blocks stays selected, so the selection toolbar stays open.
+  const { selection } = editor.state
+  if (spec && units.length > 1 && !selection.empty && selection instanceof GardSelection.Text) {
+    const { changes } = editor.state.update(spec)
+    const backward = selection.anchor > selection.head
+    spec = compose(editor.state, spec, () => ({
+      selection: GardSelection.range(
+        changes.mapPos(selection.anchor, backward ? 1 : -1),
+        changes.mapPos(selection.head, backward ? -1 : 1)
+      )
+    }))
+  }
   return step(editor, spec)
 }
 

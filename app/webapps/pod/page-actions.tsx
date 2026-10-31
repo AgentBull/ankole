@@ -89,7 +89,7 @@ export function usePageTrash(onRemoved?: () => void) {
   })
   return useMutation({
     mutationFn: (page: Page) => pageAPI.remove(page.id),
-    onSuccess: (_result, page) => {
+    onSuccess: (result, page) => {
       onRemoved?.()
       const parent =
         page.parent_id &&
@@ -100,9 +100,15 @@ export function usePageTrash(onRemoved?: () => void) {
         const destination = parent ? `/pages/${parent.id}` : `/content/${page.private_owner_uid ? 'private' : 'space'}`
         void navigate({ to: podLocation(destination).pathname })
       }
-      toast.success(t('pod.sidebar.page_trashed', { title: title(page) }), {
-        action: { label: t('pod.sidebar.undo'), onClick: () => restore.mutate(page.id) }
-      })
+      const count = result.descendant_count
+      toast.success(
+        count
+          ? t('pod.sidebar.page_trashed_with_children', { title: title(page), count })
+          : t('pod.sidebar.page_trashed', { title: title(page) }),
+        {
+          action: { label: t('pod.sidebar.undo'), onClick: () => restore.mutate(page.id) }
+        }
+      )
     },
     onError: error => toast.error(requestErrorMessage(contentError(error)))
   })

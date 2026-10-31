@@ -8,6 +8,8 @@ test('command search coalesces a typing burst and opens the current result', asy
   const page = await context.newPage()
   try {
     await page.goto('/')
+    // The shortcut listener mounts with the shell, after navigation resolves.
+    await expect(page.getByRole('button', { name: '搜索或跳转', exact: true })).toBeVisible()
     await page.keyboard.press('ControlOrMeta+k')
     const menu = page.getByRole('dialog', { name: '搜索或跳转', exact: true })
     const input = menu.locator('[cmdk-input]')
@@ -104,7 +106,7 @@ test('a document search keeps its query when opening a result, going back, and r
   }
 })
 
-test('command shortcuts claim real editor selections before link or delete bindings run', async ({ browser }) => {
+test('the link shortcut edits a selected link and every other command shortcut opens search', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
@@ -115,10 +117,13 @@ test('command shortcuts claim real editor selections before link or delete bindi
     const editor = page.locator('.editor-content[contenteditable="true"]')
     await expect(editor).toHaveText(text)
     const menu = page.getByRole('dialog', { name: '搜索或跳转', exact: true })
-    for (const { shortcut, select } of [
-      { shortcut: 'Meta+k', select: true },
-      { shortcut: 'Control+k', select: true },
-      { shortcut: 'Control+k', select: false }
+    const linkForm = page.getByRole('dialog', { name: '编辑链接', exact: true })
+    const mac = await page.evaluate(() => navigator.platform.includes('Mac'))
+    // Control+K on Apple platforms deletes to the line end in the editor, so search claims it there.
+    for (const { shortcut, select, link } of [
+      { shortcut: mac ? 'Meta+k' : 'Control+k', select: true, link: true },
+      { shortcut: mac ? 'Control+k' : 'Meta+k', select: true, link: false },
+      { shortcut: mac ? 'Meta+k' : 'Control+k', select: false, link: false }
     ]) {
       await editor.evaluate((element, select) => {
         element.focus()
@@ -131,14 +136,47 @@ test('command shortcuts claim real editor selections before link or delete bindi
       }, select)
       await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(select ? 'beta' : '')
       await page.keyboard.press(shortcut)
-      await expect(menu.locator('[cmdk-input]')).toBeFocused()
-      await expect(page.getByRole('dialog', { name: '编辑链接', exact: true })).toHaveCount(0)
+      if (link) {
+        await expect(linkForm.getByLabel('链接地址', { exact: true })).toBeFocused()
+        await expect(menu).toHaveCount(0)
+      } else {
+        await expect(menu.locator('[cmdk-input]')).toBeFocused()
+        await expect(linkForm).toHaveCount(0)
+      }
       await expect(editor).toHaveText(text)
       await page.keyboard.press('Escape')
       await expect(editor).toBeFocused()
       await expect(editor).toHaveText(text)
     }
     expect((await request<{ content: { content: string } }>(page, `/pages/${id}`)).content.content).toContain(text)
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
+test('the link shortcut on selected code opens search because code has no links', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    id = await createDocument(page)
+    await request(page, `/pages/${id}/content`, 'PUT', {
+      base_revision: 0,
+      xml: '<page><pre>const answer = 42</pre></page>'
+    })
+    await page.reload()
+    const code = page.locator('.editor-content .editor-code-pre')
+    await expect(code).toHaveText('const answer = 42')
+    await code.click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Shift+Home')
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('const answer = 42')
+    const mac = await page.evaluate(() => navigator.platform.includes('Mac'))
+    await page.keyboard.press(mac ? 'Meta+k' : 'Control+k')
+    await expect(page.getByRole('dialog', { name: '搜索或跳转', exact: true }).locator('[cmdk-input]')).toBeFocused()
+    await expect(page.getByRole('dialog', { name: '编辑链接', exact: true })).toHaveCount(0)
   } finally {
     if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()

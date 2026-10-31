@@ -643,3 +643,23 @@ describe('ChangeSet', () => {
     })
   })
 })
+
+describe('ChangeSet local fitting', () => {
+  const fitLocally = (d: Plot.Doc, insert: Slice = Slice.empty) =>
+    ChangeSet.create(d, { correct: { from: tag(d, 0), to: tag(d, 1), insert, fit: true }, local: true }).apply(d)
+
+  it('closes the wrappers of a replacement that ends between blocks', () => {
+    const d = doc(ul(0, li(p('i1')), li(p('i2')), 1, li(p('i3'))))
+    ist(fitLocally(d, slice('Z')), doc(ul(li(p('Z')), li(p('i3')))), eq)
+  })
+
+  it('drops the closes of nodes whose open tokens a deletion removes', () => {
+    const d = doc(blockquote(ul(li(p('x', 0, '1'), ul(li(p('x', 1, '2')), li(p('x3'))))), p('after')))
+    ist(fitLocally(d), doc(blockquote(ul(li(p('x2'), ul(li(p('x3'))))), p('after'))), eq)
+  })
+
+  it('keeps the rest of an isolating node that a deletion enters', () => {
+    const d = tdoc(table(tr(tdB(p('a', 0, 'b')), tdB(p('c', 1, 'd'), p('e')))))
+    ist(fitLocally(d), tdoc(table(tr(tdB(p('ad')), tdB(p('e'))))), eq)
+  })
+})

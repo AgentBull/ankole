@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test'
 import { test, expect, openDocument, caret, reopen, clipboard } from './helpers'
 
 const source =
@@ -260,8 +261,8 @@ test('column resize has a keyboard route and Escape cancels a pointer preview', 
   const handle = page.getByRole('separator', { name: '调整列宽 1', exact: true })
   await handle.focus()
   await page.keyboard.press('ArrowRight')
+  await expect(editor.locator('.table-block')).toHaveAttribute('data-table-widths', /\d/)
   const widths = await editor.locator('.table-block').getAttribute('data-table-widths')
-  expect(widths).toBeTruthy()
   const box = (await handle.boundingBox())!
   await page.mouse.move(box.x + 4, box.y + 30)
   await page.mouse.down()
@@ -320,4 +321,100 @@ test('nested tables keep editing controls without offering a page-width layout',
   await expect(editor.locator('blockquote tr').last()).toContainText('Nested row')
   await reopen(page)
   await expect(editor.locator('blockquote tr')).toHaveCount(3)
+})
+
+const grid = '| h | i |\n| --- | --- |\n| c1 | c2 |\n| d1 | d2 |'
+// The text of each table cell, row by row.
+const cellTexts = (page: Page) =>
+  page
+    .locator('.editor-content table')
+    .first()
+    .evaluate((table: HTMLTableElement) => [...table.rows].map(row => [...row.cells].map(cell => cell.textContent)))
+
+test('typing over selected cells fills the first cell and empties the others', async ({ page }) => {
+  for (const [key, cells] of [
+    ['Shift+ArrowRight', ['Z', '', 'd1', 'd2']],
+    ['Shift+ArrowDown', ['Z', 'c2', '', 'd2']]
+  ] as const) {
+    await openDocument(page, grid)
+    const editor = page.locator('.editor-content')
+    await caret(editor.getByText('c1', { exact: true }))
+    await page.keyboard.press('Escape')
+    await page.keyboard.press(key)
+    await expect(editor.locator('.wg-selected-cell')).toHaveCount(2)
+    await page.keyboard.type('Z')
+    await expect.poll(() => cellTexts(page)).toEqual([['h', 'i'], cells.slice(0, 2), cells.slice(2)])
+    await reopen(page)
+  }
+})
+
+test('IME composition over selected cells fills the first cell and empties the others', async ({
+  page,
+  browserName
+}) => {
+  test.skip(browserName !== 'chromium', 'Playwright exposes IME composition through Chromium CDP only.')
+  await openDocument(page, grid)
+  const editor = page.locator('.editor-content')
+  await caret(editor.getByText('c1', { exact: true }))
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(editor.locator('.wg-selected-cell')).toHaveCount(2)
+  const client = await page.context().newCDPSession(page)
+  try {
+    await client.send('Input.imeSetComposition', { text: 'ni', selectionStart: 2, selectionEnd: 2 })
+    await client.send('Input.insertText', { text: '你' })
+  } finally {
+    await client.detach()
+  }
+  await expect
+    .poll(() => cellTexts(page))
+    .toEqual([
+      ['h', 'i'],
+      ['你', ''],
+      ['d1', 'd2']
+    ])
+  await reopen(page)
+})
+
+test('pasting over selected cells fills the first cell and keeps the table', async ({ page }) => {
+  await openDocument(page, grid)
+  const editor = page.locator('.editor-content')
+  await caret(editor.getByText('c2', { exact: true }))
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Shift+ArrowDown')
+  const copied = await clipboard(editor, 'copy')
+  // Copied cells form a table. Its cell contents go into the first selected cell as paragraphs.
+  await caret(editor.getByText('c1', { exact: true }))
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Shift+ArrowRight')
+  await clipboard(editor, 'paste', copied)
+  await expect(editor.locator('tr').nth(1).locator('td').first().locator('p')).toHaveText(['c2', 'd2'])
+  await caret(editor.getByText('d1', { exact: true }))
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Shift+ArrowRight')
+  await clipboard(editor, 'paste', { 'text/plain': 'P' })
+  await expect
+    .poll(() => cellTexts(page))
+    .toEqual([
+      ['h', 'i'],
+      ['c2d2', ''],
+      ['P', '']
+    ])
+  await reopen(page)
+})
+
+test('Shift+Down and Shift+Up extend a cell selection down its column beside empty cells', async ({ page }) => {
+  await openDocument(
+    page,
+    '<table><tr><th>h</th><th>i</th></tr><tr><td /><td>c2</td></tr><tr><td /><td>d2</td></tr></table>'
+  )
+  const editor = page.locator('.editor-content')
+  const selected = editor.locator('.wg-selected-cell')
+  await caret(editor.getByText('c2', { exact: true }))
+  await page.keyboard.press('Escape')
+  await expect(selected).toHaveText(['c2'])
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(selected).toHaveText(['c2', 'd2'])
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect(selected).toHaveText(['c2'])
 })

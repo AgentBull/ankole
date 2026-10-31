@@ -178,7 +178,11 @@ export function DocumentPage({
           queueMicrotask(() => root.unmount())
         }
       },
-      acceptFiles: files => uploadFileSubpages(client, detail.page.id, files),
+      // The upload panel shows the rejection's message as it is.
+      acceptFiles: files =>
+        uploadFileSubpages(client, detail.page.id, files).catch(error => {
+          throw new Error(requestErrorMessage(contentError(error)))
+        }),
       uploadAsset: file => uploadDocumentAsset(detail.page.id, file),
       openPage: id => void navigate({ to: podLocation(`/pages/${id}`).pathname }),
       resolveAsset: src =>
@@ -287,7 +291,11 @@ export function DocumentPage({
         )}
       {model.conflict.value && (
         <div className="rounded border border-warning p-4 text-sm" role="alert">
-          <p>{t('pod.content.the_document_has_changed_your_draft_has_been_kept_export')}</p>
+          <p>
+            {isRealtimeAccessDenied(collaborationError)
+              ? t('pod.content.you_can_no_longer_edit_this_page_your_draft_has_been_kept')
+              : t('pod.content.the_document_has_changed_your_draft_has_been_kept_export')}
+          </p>
           <div className="mt-3 flex gap-3">
             <Button variant="outline" size="sm" onClick={() => downloadDraft(model.xml.value, model.title.value)}>
               {t('pod.content.export_draft')}

@@ -1,4 +1,4 @@
-import { state, request, requestWithSharingVersion, login, continuePodEntry } from './fixtures'
+import { closeRealtimeSocket, state, request, requestWithSharingVersion, login, continuePodEntry } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
 import { pageRoute, listRoute } from './routes'
 
@@ -348,9 +348,11 @@ test('reconnecting reconciles directory changes made while offline', async ({ br
     const socket = await connected
     const sidebar = space(page)
     await expect(sidebar.getByRole('link', { name: title, exact: true })).toBeVisible()
-    const closed = socket.waitForEvent('close')
-    await reader.setOffline(true)
+    // Chromium's offline emulation keeps an open socket until its heartbeat times out.
+    const closed = socket.waitForEvent('close', { timeout: 10_000 })
+    await closeRealtimeSocket(page)
     await closed
+    await reader.setOffline(true)
     await request(editor, `/pages/${root}`, 'PATCH', { title: `${title} renamed`, expected_title: title })
     await create(editor, `${title} child`, { parent_id: root })
     await reader.setOffline(false)
