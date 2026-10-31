@@ -171,10 +171,10 @@ export const ListItem = Plot.define('ListItem', {
   cursorBarrier: 'empty',
   defining: true,
   shape: { element: 'li' },
-  // Pasted HTML: a GitHub task item starts with a checkbox. The tag is read when the parser
-  // collects the rules, after Task is defined.
+  // Pasted HTML: a GitHub task item starts with a checkbox, inside its first paragraph in a loose
+  // list. The tag is read when the parser collects the rules, after Task is defined.
   parseRules: (['done', 'todo'] as const).map(task => ({
-    selector: `li.task-list-item:has(> input[type=checkbox]${task === 'done' ? '[checked]' : ''})`,
+    selector: `li.task-list-item:has(> input[type=checkbox]${task === 'done' ? '[checked]' : ''}, > p:first-child > input[type=checkbox]${task === 'done' ? '[checked]' : ''})`,
     precedence: 1,
     get tag(): Plot.Tag<null> {
       return ListItem.withMarks([Task.of(task)])

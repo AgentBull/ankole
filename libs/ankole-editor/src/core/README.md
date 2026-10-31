@@ -113,6 +113,18 @@ Document and selection:
 - Table support introduces `Node.Role.Table` and `Node.Role.TableRow` so cell
   selections and table geometry handle ragged rows and empty tables and keep a
   valid cursor position inside an empty row or table.
+- Change fitting drops a close token when the change deleted its open token and
+  the enclosing level closes later in the input. When the fitter syncs to the
+  input context, it keeps two different isolating nodes, such as two columns,
+  apart. A local sync point between blocks stays at that position.
+- `insertText`, `insertLineBreak`, `enter`, `deleteRange`, `deleteCut`, input
+  replacement, WebKit composition deletion, and drop fit their changes locally,
+  as `deleteSelection` and paste do.
+- A cell selection puts typed, composed, and pasted input in its first cell and
+  empties its other cells.
+- A correction checks the child lists of every plot that a replaced range left
+  in the start document. `Correction.check` takes that start document as an
+  optional argument.
 
 ## Tests
 

@@ -445,7 +445,8 @@ defmodule Ankole.Pod.Pages.Browser do
             type: {:array, :struct},
             constraints: [items: struct_constraints(Ankole.Pod.Page)],
             allow_nil?: false
-          ]
+          ],
+          trash_retention_days: [type: :integer]
         ]
       )
 
@@ -460,8 +461,18 @@ defmodule Ankole.Pod.Pages.Browser do
       run(fn input, context ->
         opts = Map.update!(input.arguments, :scope, &to_string/1)
 
-        Pages.list(context.actor, opts)
-        |> APIError.result(&%{pages: &1})
+        # Trash rows show the days left before the purge job removes them.
+        retention =
+          if opts.scope == "trash",
+            do:
+              Ankole.Repo.transact_repeatable_read_only(&Ankole.Pod.Config.trash_retention_days/0),
+            else: {:ok, nil}
+
+        with {:ok, pages} <- Pages.list(context.actor, opts),
+             {:ok, days} <- retention do
+          {:ok, %{pages: pages, trash_retention_days: days}}
+        end
+        |> APIError.result()
       end)
     end
 
@@ -673,11 +684,15 @@ defmodule Ankole.Pod.Pages.Browser do
     end
 
     action :delete, :map do
-      constraints(fields: [page: @page])
+      constraints(fields: [page: @page, descendant_count: [type: :integer, allow_nil?: false]])
       argument(:id, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        Pages.delete(context.actor, input.arguments.id) |> APIError.result(&%{page: &1})
+        # Count before the subtree is hidden; only Pages that the actor can view are counted.
+        count = Pages.visible_descendant_count(context.actor, input.arguments.id)
+
+        Pages.delete(context.actor, input.arguments.id)
+        |> APIError.result(&%{page: &1, descendant_count: count})
       end)
     end
 

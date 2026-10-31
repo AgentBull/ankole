@@ -1,5 +1,6 @@
 defmodule Ankole.Pod.Pages.Queries do
   @moduledoc "Owns visible page lists, directory cursors, search, and version snapshots."
+  require Ash.Expr
   require Ash.Query
   alias Ankole.Repo
   alias Ankole.Pod.{Access, Files, Page, PageContent, Pages}
@@ -307,15 +308,13 @@ defmodule Ankole.Pod.Pages.Queries do
   end
 
   defp search_pages(%Ankole.AuthZ.Actor{} = actor, query, opts) when is_binary(query) do
-    pattern = "%" <> Repo.escape_like(String.trim(query)) <> "%"
-
     query =
       Page
       |> Ash.Query.for_read(:search, %{
         required_action: Ankole.Attrs.get(opts, :required_action, :page_view)
       })
       |> maybe_filter_embeddable(Ankole.Attrs.get(opts, :embeddable, false))
-      |> Ash.Query.filter(ilike(title, ^pattern) or exists(content, ilike(plain_text, ^pattern)))
+      |> filter_text(query)
       |> Ash.Query.calculate(
         :relevance,
         :float,
@@ -345,6 +344,43 @@ defmodule Ankole.Pod.Pages.Queries do
   end
 
   defp search_pages(_actor, _query, _opts), do: {:error, :invalid_request}
+
+  @doc "Counts the live descendants of a Page that the actor can view, for the Trash notice."
+  def visible_descendant_count(%Ankole.AuthZ.Actor{} = actor, id) do
+    tenant_id = Repo.tenant_id!()
+
+    query =
+      Page
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(
+        is_nil(deleted_at) and
+          fragment(
+            """
+            ? IN (
+              WITH RECURSIVE subtree AS (
+                SELECT child.id FROM pages child
+                WHERE child.tenant_id = ?::text::uuid AND child.parent_id = ?::text::uuid
+                UNION ALL
+                SELECT child.id FROM pages child
+                JOIN subtree parent ON child.parent_id = parent.id
+                WHERE child.tenant_id = ?::text::uuid
+              )
+              SELECT id FROM subtree
+            )
+            """,
+            id,
+            ^tenant_id,
+            ^id,
+            ^tenant_id
+          )
+      )
+      |> Ash.Query.select([:id])
+
+    {:ok, pages} =
+      Repo.transact_repeatable_read_only(fn -> Ankole.Ash.read_authorized(query, actor) end)
+
+    length(pages)
+  end
 
   defp maybe_filter_embeddable(query, true),
     do: Ash.Query.filter(query, type in [:base, :file, :applet])
@@ -502,22 +538,33 @@ defmodule Ankole.Pod.Pages.Queries do
     end
   end
 
-  defp filter_list_title(query, term) when is_binary(term) do
-    pattern = "%#{Repo.escape_like(String.trim(term))}%"
+  defp filter_list_title(query, term) when is_binary(term), do: filter_text(query, term)
+  defp filter_list_title(query, _term), do: query
 
-    Ash.Query.filter(
-      query,
-      ilike(title, ^pattern) or exists(content, ilike(plain_text, ^pattern))
-    )
+  # Every whitespace-separated word must appear in the title or the body, in any order.
+  defp filter_text(query, text) do
+    Enum.reduce(text_patterns(text) || [], query, fn pattern, query ->
+      Ash.Query.filter(
+        query,
+        ilike(title, ^pattern) or exists(content, ilike(plain_text, ^pattern))
+      )
+    end)
   end
 
-  defp filter_list_title(query, _term), do: query
+  # Each word adds a condition, so a pasted paragraph uses only its first 16 distinct words.
+  defp text_patterns(text) when is_binary(text) do
+    case text |> String.split() |> Enum.uniq() |> Enum.take(16) do
+      [] -> nil
+      words -> Enum.map(words, &("%" <> Repo.escape_like(&1) <> "%"))
+    end
+  end
+
+  defp text_patterns(_text), do: nil
 
   defp state_page_ids(scope, actor, term, reachable) do
     uid = Ankole.AuthZ.Actor.uid(actor)
     {anchors, own} = Access.visibility_ids(reachable)
     field = if scope == "recent", do: "visited_at", else: "favorited_at"
-    term = if is_binary(term), do: Repo.escape_like(String.trim(term))
 
     Repo.query!(
       """
@@ -527,11 +574,11 @@ defmodule Ankole.Pod.Pages.Queries do
       WHERE state.tenant_id = $1::text::uuid AND state.principal_uid = $2::text
         AND state.#{field} IS NOT NULL AND p.deleted_at IS NULL
         AND (p.acl_anchor_id = ANY($3::text[]::uuid[]) OR p.id = ANY($4::text[]::uuid[]))
-        AND ($5::text IS NULL OR p.title ILIKE ('%' || $5::text || '%')
-          OR pc.plain_text ILIKE ('%' || $5::text || '%'))
+        AND ($5::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word)
+          FROM unnest($5::text[]) word))
       ORDER BY state.#{field} DESC, p.id LIMIT 200
       """,
-      [Repo.tenant_id!(), uid, anchors, own, term]
+      [Repo.tenant_id!(), uid, anchors, own, text_patterns(term)]
     ).rows
     |> Enum.map(fn [id, visited_at] -> {id, visited_at} end)
   end
@@ -569,8 +616,6 @@ defmodule Ankole.Pod.Pages.Queries do
   end
 
   defp trash_candidates(term, {deleted_at, id}) do
-    term = if is_binary(term), do: Repo.escape_like(String.trim(term))
-
     Repo.query!(
       """
       WITH RECURSIVE hidden_anchors AS (
@@ -588,11 +633,11 @@ defmodule Ankole.Pod.Pages.Queries do
         AND NOT EXISTS (SELECT 1 FROM hidden_anchors h WHERE h.id = p.id)
         AND ($2::timestamp IS NULL OR p.deleted_at < $2::timestamp
           OR (p.deleted_at = $2::timestamp AND p.id > $3::text::uuid))
-        AND ($4::text IS NULL OR p.title ILIKE ('%' || $4::text || '%')
-          OR pc.plain_text ILIKE ('%' || $4::text || '%'))
+        AND ($4::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word)
+          FROM unnest($4::text[]) word))
       ORDER BY p.deleted_at DESC, p.id LIMIT 200
       """,
-      [Repo.tenant_id!(), deleted_at, id, term]
+      [Repo.tenant_id!(), deleted_at, id, text_patterns(term)]
     ).rows
   end
 

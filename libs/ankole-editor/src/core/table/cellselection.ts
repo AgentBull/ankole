@@ -1,7 +1,7 @@
 import { GardState, GardSelection, Transaction } from '../state'
 import { Decoration, Wordgard } from '../editor'
-import { Node, Plot, Pos, Slice, ChangeSet, ValidationError } from '../doc'
-import { Command, moveByUnit, moveByLine, moveByWord, moveToLineSide } from '../command'
+import { Node, Plot, Pos, Slice, ChangeSet, ValidationError, Leaf } from '../doc'
+import { Command, insertText, moveByUnit, moveByLine, moveByWord, moveToLineSide } from '../command'
 
 import { TableMap } from './tablemap'
 
@@ -79,6 +79,43 @@ function moveToRowSide(wg: Wordgard, { dir }: { dir: 'left' | 'right' | 'forward
   return true
 }
 
+// Typing, pasting, or composing over selected cells puts the input in the first cell (the
+// replacement range) and empties the other cells, so that the table keeps its rows and columns.
+function replaceCells(selection: CellSelection, insert: Slice | readonly Leaf[], userEvent: string): Transaction.Spec {
+  const first = selection.replacementRange
+  return {
+    changes: {
+      correct: selection.ranges.map((range, index) => ({ ...range, insert: index ? [] : insert, fit: true })),
+      local: true
+    },
+    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(first.to, 1), -1),
+    scrollIntoView: true,
+    userEvent
+  }
+}
+
+const cellSelectionInput: GardState.Extension = [
+  Command.handler(insertText, ({ state }, input) =>
+    state.selection instanceof CellSelection && !state.readOnly
+      ? replaceCells(state.selection, input.insert ? [Leaf.text(input.insert)] : [], input.userEvent)
+      : false
+  ),
+  Wordgard.pasteHandler.of((wg, _event, slice) => {
+    const { selection } = wg.state
+    if (!(selection instanceof CellSelection) || wg.state.readOnly) return false
+    wg.dispatch(replaceCells(selection, slice, 'input.paste'))
+    return true
+  }),
+  // Runs before the core composition observer, so that the composition starts in the emptied
+  // first cell with the caret at its end.
+  Wordgard.domEventObserver('compositionstart', (_event, wg) => {
+    const { selection } = wg.state
+    if (selection instanceof CellSelection && !wg.state.readOnly) {
+      wg.dispatch(replaceCells(selection, [], 'input.type.compose.start'))
+    }
+  })
+]
+
 const cellSelectionTripleClick = Wordgard.mouseSelectionStyle.of((wg, event) => {
   if (event.detail == 3) {
     const pos = wg.state.doc.resolve(wg.posAtCoords({ x: event.clientX, y: event.clientY }).pos)
@@ -124,9 +161,7 @@ export class CellSelection extends GardSelection {
      */
     readonly headCell: number,
     /** @internal */
-    readonly _ranges: readonly { from: number; to: number }[],
-    /** @internal */
-    readonly anchorRange: number
+    readonly _ranges: readonly { from: number; to: number }[]
   ) {
     super(anchor, head)
   }
@@ -135,8 +170,9 @@ export class CellSelection extends GardSelection {
     return this._ranges
   }
 
+  // The first cell, as for a block selection: the DOM selection, typing, pasting, and composing use it.
   get replacementRange() {
-    return this._ranges[this.anchorRange]!
+    return this._ranges[0]!
   }
 
   get domSelection() {
@@ -246,8 +282,7 @@ export class CellSelection extends GardSelection {
       head,
       anchorCell,
       headCell,
-      cells.map(pos => ({ from: pos + 1, to: map.cellEnd(pos) - 1 })),
-      cells.indexOf(head - (head < anchor ? 0 : toCell.length))
+      cells.map(pos => ({ from: pos + 1, to: map.cellEnd(pos) - 1 }))
     )
   }
 
@@ -319,6 +354,7 @@ export class CellSelection extends GardSelection {
     Command.handler(moveByWord, cursorCommand),
     Command.handler(moveByLine, cursorCommand),
     Command.handler(moveToLineSide, moveToRowSide),
+    cellSelectionInput,
     cellSelectionTripleClick
   ]
 }

@@ -1032,7 +1032,9 @@ class FitLevel {
 
   constructor(
     readonly tag: Plot.Tag,
-    readonly next: FitLevel | null
+    readonly next: FitLevel | null,
+    // The input position of the level's close token, or -1 for a level that the input does not close
+    readonly end = -1
   ) {
     if (!this.tag.type.canBeEmpty) this.flags |= FitFlag.NeedsChild
   }
@@ -1065,6 +1067,8 @@ class ChangeFitter implements Pos.Walker {
   activeContext: Pos | null = null
   activeContextPos = -1
   nextSync = -1
+  // `pos` minus the input position, inside a preserved range
+  inputOffset = 0
   schema: Schema
 
   constructor(
@@ -1101,6 +1105,7 @@ class ChangeFitter implements Pos.Walker {
     }
     this.activeContext = inputPos
     this.activeContextPos = this.pos
+    this.inputOffset = this.pos - from
     this.inputPos = inputPos.advance(to - from, this)
   }
 
@@ -1182,14 +1187,17 @@ class ChangeFitter implements Pos.Walker {
       sync = []
     for (let l = this.stack as FitLevel | null; l; l = l.next) cur.push(l)
     cur.reverse()
-    for (let level: Pos.Plot | null = context.parent; level; level = level.parent) sync.push(level.node.tag)
+    for (let level: Pos.Plot | null = context.parent; level; level = level.parent) sync.push(level)
     sync.reverse()
     while (cur.length > sync.length) {
       this.insertClose()
       cur.pop()
     }
     for (let d = 1; d < Math.min(sync.length, cur.length); d++) {
-      if (!this.schema.sharesContent(sync[d]!.type, cur[d]!.tag.type)) {
+      const { node, end } = sync[d]!,
+        { tag, end: curEnd } = cur[d]!
+      // An isolating input node, such as a column, never takes the content of another one
+      if (!this.schema.sharesContent(node.type, tag.type) || (node.type.isolating && curEnd >= 0 && curEnd != end)) {
         while (cur.length > d) {
           this.insertClose()
           cur.pop()
@@ -1198,9 +1206,11 @@ class ChangeFitter implements Pos.Walker {
       }
     }
     for (let i = cur.length; i < sync.length; i++) {
-      const tag = sync[i]!
-      this.stack = new FitLevel(tag, this.stack)
-      this.patch(0, tag)
+      const { node, end } = sync[i]!
+      // The opened level is a child of its parent, as in `enter`
+      this.stack.flags &= ~FitFlag.NeedsChild
+      this.stack = new FitLevel(node.tag, this.stack, end)
+      this.patch(0, node.tag)
     }
   }
 
@@ -1237,17 +1247,17 @@ class ChangeFitter implements Pos.Walker {
   }
 
   enterPlot(node: Plot) {
-    this.enter(node.tag)
+    this.enter(node.tag, this.pos - this.inputOffset + node.length - 1)
   }
 
-  enter(tag: Plot.Tag) {
+  enter(tag: Plot.Tag, end = -1) {
     if (this.inserting) this.inputDelta++
     if (this.doubleDeleteDelta > 0) {
       this.doubleDeleteDelta--
       this.patch(1)
     } else if (this.fit(tag)) {
       this.stack.flags &= ~FitFlag.NeedsChild
-      this.stack = new FitLevel(tag, this.stack)
+      this.stack = new FitLevel(tag, this.stack, this.inserting ? -1 : end)
       if (this.inserting) this.stackDelta++
     } else {
       this.patch(1)
@@ -1259,6 +1269,11 @@ class ChangeFitter implements Pos.Walker {
     if (this.inserting) this.inputDelta--
     if (this.doubleDeleteDelta < 0) {
       this.doubleDeleteDelta++
+      this.patch(1)
+    } else if (!this.inserting && this.stack.end > this.pos - this.inputOffset) {
+      // The change deleted this node's open token, and the open level still has its own close
+      // ahead: drop this close instead of closing that level
+      this.inputDelta++
       this.patch(1)
     } else if (this.stack.next) {
       if (this.stack.flags & FitFlag.NeedsChild) this.patch(0, this.schema.createDefault(this.stack.tag.type))
@@ -1296,6 +1311,8 @@ class ChangeFitter implements Pos.Walker {
 
 function localSyncPosAfter(pos: Pos) {
   let found = pos.pos
+  // Between blocks, no node continues past the change
+  if (!pos.parent.node.inlineContent) return found
   for (let cx = pos.parent, index = pos.index; ; index = cx.index, cx = cx.parent) {
     if (!cx.parent || (!cx.node.inlineContent && index != cx.node.content.length - 1)) break
     found = cx.after

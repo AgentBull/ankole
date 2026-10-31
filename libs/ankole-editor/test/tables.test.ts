@@ -7,8 +7,9 @@ import { tableSelection } from '../src/editor/table-context'
 import { CellSelection } from '../src/core/table'
 import { parseMarkdown } from '../src/document/markdown'
 import { changeTable, editableTable, colorTableCells, resizeTable, tableCSV, moveTableAxis } from '../src/editor/tables'
+import { moveAxis } from '../src/editor/table-structure'
 import { Align, CellBackground, TableWidths } from '../src/editor/schema'
-import { undo, redo } from '../src/editor/commands'
+import { insertImage, undo, redo } from '../src/editor/commands'
 import { parseXml } from '../src/document/xml'
 import { exportMarkdown, expectReopens, open, press, readTree, select, typeText } from './helpers'
 
@@ -317,4 +318,81 @@ test('logical columns include row spans when a later imported row is wider', () 
   expect(changeTable(editor, 'column_after')).toBe(true)
   expect(editableTable(editor.state)!.width).toBe(4)
   expectReopens(editor)
+})
+
+test('typing over selected cells puts the text in the first cell and empties the others', () => {
+  const row = (a: string, b: string) => `<tr>${[a, b].map(c => (c ? `<td><p>${c}</p></td>` : '<td />')).join('')}</tr>`
+  const page = (rows: string) =>
+    parseXml(`<page><table><tr><th><p>h</p></th><th><p>i</p></th></tr>${rows}</table></page>`)
+  const cases: [string, string, string][] = [
+    ['c1', 'c2', row('ZY', '') + row('d1', 'd2')],
+    ['c1', 'd1', row('ZY', 'c2') + row('', 'd2')],
+    ['c2', 'd1', row('ZY', '') + row('', '')],
+    ['d2', 'c1', row('ZY', '') + row('', '')]
+  ]
+  for (const [anchor, head, rows] of cases) {
+    const editor = open('| h | i |\n| --- | --- |\n| c1 | c2 |\n| d1 | d2 |')
+    select(editor, at(editor, anchor), at(editor, head, 'end'))
+    expect(editor.state.selection).toBeInstanceOf(CellSelection)
+    typeText(editor, 'ZY')
+    expect(readTree(editor)).toEqual(page(rows))
+    expectReopens(editor)
+  }
+})
+
+test('an image inserted over selected cells goes in the first cell and empties the others', () => {
+  const editor = open('| h | i |\n| --- | --- |\n| c1 | c2 |\n| d1 | d2 |')
+  select(editor, at(editor, 'c1'), at(editor, 'd2', 'end'))
+  expect(editor.state.selection).toBeInstanceOf(CellSelection)
+  expect(insertImage(editor, { src: 'x.png' })).toBe(true)
+  expect(readTree(editor)).toEqual(
+    parseXml(
+      '<page><table><tr><th><p>h</p></th><th><p>i</p></th></tr><tr><td><p><img src="x.png" /></p></td><td /></tr><tr><td /><td /></tr></table></page>'
+    )
+  )
+  expectReopens(editor)
+})
+
+test('moves keep merged cells whole', () => {
+  const editor = open(
+    '<table><tr><td>A</td><td colspan="2">AB</td></tr><tr><td rowspan="2">Span</td><td>b</td><td>x</td></tr><tr><td>c</td><td>y</td></tr><tr><td>D</td><td>d</td><td>z</td></tr></table>'
+  )
+  select(editor, at(editor, 'A'))
+  let context = editableTable(editor.state)!
+  expect(moveAxis(context, 'row', 2)).toBeNull()
+  expect(moveAxis(context, 'row', 3)).not.toBeNull()
+  expect(moveAxis(context, 'column', 2)).toBeNull()
+  select(editor, at(editor, 'x'))
+  context = editableTable(editor.state)!
+  expect(moveAxis(context, 'column', 1)).toBeNull()
+  expect(moveAxis(context, 'row', 0)).toBeNull()
+  select(editor, at(editor, 'Span'))
+  context = editableTable(editor.state)!
+  expect(moveAxis(context, 'row', 4)).not.toBeNull()
+  expect(moveAxis(context, 'column', 3)).not.toBeNull()
+  expect(moveTableAxis(editor, 'row', 0)).toBe(true)
+  expect(editableTable(editor.state)!.rows.map(row => row.textContent())).toEqual([
+    'Span\nb\nx',
+    'c\ny',
+    'A\nAB',
+    'D\nd\nz'
+  ])
+})
+
+test('a move check in a 500-row table takes linear time', () => {
+  const rows = Array.from({ length: 500 }, (_, i) => `| r${i} | x | y | z | w |`)
+  const editor = open(['| a | b | c | d | e |', '| --- | --- | --- | --- | --- |', ...rows].join('\n'))
+  select(editor, at(editor, 'r250'))
+  const context = editableTable(editor.state)!
+  // A quadratic check took about 700 ms here. The bound allows for a slow machine.
+  const start = performance.now()
+  for (const [axis, destination] of [
+    ['row', 0],
+    ['row', 400],
+    ['column', 3],
+    ['column', 5]
+  ] as const) {
+    expect(moveAxis(context, axis, destination)).not.toBeNull()
+  }
+  expect(performance.now() - start).toBeLessThan(100)
 })

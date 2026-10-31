@@ -195,7 +195,7 @@ export class PageCollaboration {
             // and undo history through the complete incoming transaction only once.
             const correction = preparePageUpdate(
               incoming.state.update({
-                changes: Correction.check(incoming.changes, incoming.newDoc, pageCorrections) ?? []
+                changes: Correction.check(incoming.changes, incoming.newDoc, pageCorrections, before.doc) ?? []
               })
             )
             const nextPending = transformed.b.compose(correction.changes)

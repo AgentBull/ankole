@@ -5,7 +5,6 @@ import { formats, ImageTitle } from './schema'
 import { GardSelection } from '../core/state'
 import { Image, ImageAlt } from '../core/types'
 import { dispatchStep } from './block-insert'
-import { BlockSelection } from './block-selection'
 
 export type FormatName = keyof typeof formats
 
@@ -27,7 +26,7 @@ export function insertImage(editor: Wordgard, image: { src: string; alt?: string
   if (editor.state.readOnly || editor.composing) return false
   const before = editor.state.doc
   const selection = editor.state.selection
-  const ranges = selection instanceof BlockSelection ? selection.ranges : [selection.replacementRange]
+  const { ranges } = selection
   const { to } = ranges[0]!
   const marks = [
     ...(image.alt === undefined ? [] : [ImageAlt.of(image.alt)]),

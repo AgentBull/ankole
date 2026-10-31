@@ -31,6 +31,12 @@ describe('canonical Markdown', () => {
     ['blank lines', 'a\n\n\n\nb', 'a\n\nb'],
     ['adjacent equal formats', '<u>a</u><u>b</u>', '<u>ab</u>'],
     ['soft breaks', 'English line\nwrapped\n中文\n续行', 'English line wrapped 中文续行'],
+    [
+      'styles keep only text color, background color, and letter case',
+      '<span style="position:fixed;inset:0;z-index:9">a</span> <span style="COLOR:red; margin: 0">b</span>\n\n<p style="background-color: #fff; top: 0">c</p>',
+      'a <span style="COLOR:red">b</span>\n\n<p style="background-color: #fff">c</p>'
+    ],
+    ['soft breaks beside characters outside the BMP', '𠀀\n𠀁 a😀\nb', '𠀀𠀁 a😀 b'],
     ['formats as Markdown where Markdown has syntax', '<strong>x</strong> <em>y</em> <s>z</s>', '**x** *y* ~~z~~'],
     ['white space at an emphasis edge', '<strong>bold </strong>after', '**bold** after'],
     ['an empty title', '[x](u "")', '[x](u)'],

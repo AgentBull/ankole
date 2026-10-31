@@ -184,3 +184,22 @@ test('asking an Agent hands the selected text to the host and leaves the documen
   await expect(toolbar).toBeHidden()
   await expect(page.getByLabel('First Markdown', { exact: true })).toHaveText(before!)
 })
+
+test('a same-editor cut pasted over selected cells fills the first cell and empties the others', async ({ page }) => {
+  const first = page.getByRole('textbox', { name: 'First document', exact: true })
+  await caret(first.locator('p').last())
+  await clipboard(first, 'paste', {
+    'text/html':
+      '<table><tr><th>h</th><th>i</th></tr><tr><td>c1</td><td>c2</td></tr><tr><td>d1</td><td>d2</td></tr></table>'
+  })
+  await caret(first.locator('[data-comment-ids]'), 0)
+  await first.press('Escape')
+  const cut = await clipboard(first, 'cut')
+  await caret(first.getByText('c1', { exact: true }))
+  await first.press('Escape')
+  await first.press('Shift+ArrowRight')
+  await expect(first.locator('.wg-selected-cell')).toHaveCount(2)
+  await clipboard(first, 'paste', cut)
+  await expect(first.locator('tr').nth(1).locator('td')).toHaveText(['Anchored text', ''])
+  await expect(first.locator('td [data-comment-ids]')).toHaveText('Anchored text')
+})

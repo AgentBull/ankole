@@ -51,6 +51,51 @@ test('external rich HTML retains inline formats and table cells after reopening'
   await expect(page.locator('.editor-content table tr').last().locator('td')).toHaveText(['Alpha', '42'])
 })
 
+test('Word list paragraphs paste as nested bullet and numbered lists', async ({ page }) => {
+  const marker = (text: string) =>
+    `<![if !supportLists]><span style="mso-list:Ignore">${text}<span style="font:7.0pt">&nbsp;&nbsp;</span></span><![endif]>`
+  const item = (list: string, level: number, text: string, body: string) =>
+    `<p class=MsoListParagraphCxSpMiddle style="margin-left:${level * 36}pt;mso-list:${list} level${level} lfo1">${marker(text)}${body}</p>`
+  await openDocument(page, 'Replace me')
+  await selectDocument(page)
+  await clipboard(page.getByRole('textbox', { name: '文档编辑器', exact: true }), 'paste', {
+    'text/html': [
+      '<html xmlns:o="urn:schemas-microsoft-com:office:office"><body lang=ZH-CN>',
+      '<p class=MsoNormal>Intro</p>',
+      item('l0', 1, '·', 'First <b>bold</b>'),
+      item('l0', 2, 'o', 'Nested'),
+      item('l0', 1, '·', 'Second'),
+      item('l1', 1, '1.', 'Step one'),
+      item('l1', 1, '2.', 'Step two'),
+      '<p class=MsoNormal>Middle</p>',
+      item('l2', 1, '(1)', 'Paren one'),
+      item('l2', 1, '(2)', 'Paren two'),
+      '<p class=MsoNormal>Han</p>',
+      item('l3', 1, '一、', '甲'),
+      item('l3', 1, '二、', '乙'),
+      '<p class=MsoNormal>Outro</p>',
+      '</body></html>'
+    ].join(''),
+    'text/plain': 'Intro\n·  First bold\no  Nested\n·  Second\n1. Step one\n2. Step two\nOutro'
+  })
+  await expectMarkdown(
+    page,
+    'Intro\n\n- First **bold**\n  - Nested\n- Second\n\n1. Step one\n2. Step two\n\nMiddle\n\n1. Paren one\n2. Paren two\n\nHan\n\n1. 甲\n2. 乙\n\nOutro'
+  )
+})
+
+test('GitHub task lists with paragraph items paste as task lists', async ({ page }) => {
+  const item = (checked: boolean, text: string) =>
+    `<li class="task-list-item enabled"><p><input type="checkbox" class="task-list-item-checkbox"${checked ? ' checked' : ''}> ${text}</p></li>`
+  await openDocument(page, 'Replace me')
+  await selectDocument(page)
+  await clipboard(page.getByRole('textbox', { name: '文档编辑器', exact: true }), 'paste', {
+    'text/html': `<ul class="contains-task-list">${item(true, 'Done')}${item(false, 'Open')}</ul>`,
+    'text/plain': 'Done\nOpen'
+  })
+  await expectMarkdown(page, '- [x] Done\n- [ ] Open')
+})
+
 test('copying part of a formatted paragraph does not copy its neighbors', async ({ page }) => {
   await openDocument(page, 'before **selected** after')
   const text = page.locator('.editor-content strong')

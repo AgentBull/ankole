@@ -63,6 +63,9 @@ defmodule Ankole.Pod.Jobs.PurgePage do
     end
   end
 
+  # 0 retains deleted pages; the job checks again each day in case the setting changes.
+  defp mark_started(_page, 0), do: {:error, {:retention_not_elapsed, 86_400}}
+
   defp mark_started(page, days) do
     remaining_microseconds =
       DateTime.diff(

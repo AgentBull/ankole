@@ -1,4 +1,4 @@
-import { caret, clipboard, expect, openDocument, reopen, test } from './helpers'
+import { caret, clipboard, expect, openDocument, reopen, selectText, test } from './helpers'
 
 const two =
   '<columns>\n  <column>\n    Left\n\n    Left second\n  </column>\n  <column>\n    Right\n  </column>\n</columns>\n\nAfter'
@@ -229,5 +229,22 @@ test('a marquee across columns excludes untouched blocks when copying, cutting a
   await clipboard(body, 'paste', { 'text/plain': 'Replacement' })
   await expect(columns.first().locator('p')).toHaveText(['Replacement', 'Left second'])
   await expect(columns.last().locator('p')).toHaveText(['Right second'])
+  await reopen(page)
+})
+
+test('a text range into the next column joins its text, keeps both columns and undoes in steps', async ({ page }) => {
+  await openDocument(page, two.replace('    Right\n', '    Right\n\n    Right second\n'))
+  const columns = page.locator('.editor-column')
+  await selectText(page, 'Left second', 4, 'Right', 2)
+  await page.keyboard.press('Backspace')
+  await expect(columns.first().locator('p')).toHaveText(['Left', 'Leftght'])
+  await expect(columns.last().locator('p')).toHaveText(['Right second'])
+  await page.keyboard.press('Enter')
+  await expect(columns.first().locator('p')).toHaveText(['Left', 'Left', 'ght'])
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(columns.first().locator('p')).toHaveText(['Left', 'Leftght'])
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(columns.first().locator('p')).toHaveText(['Left', 'Left second'])
+  await expect(columns.last().locator('p')).toHaveText(['Right', 'Right second'])
   await reopen(page)
 })

@@ -24,6 +24,23 @@ export const SETTING_DURATIONS: Record<string, { seconds: number; min: number; m
   'principals.identity_providers.directory_full_sync_interval_minutes': { seconds: 60, min: 1 }
 }
 
+/** Settings where 0 turns the behaviour off; the switch writes 0 and the duration applies only when on. */
+export const DURATION_SWITCHES: Record<string, { on: string; off: string }> = {
+  'ai_agent.inactivity_timeout_ms': {
+    on: 'console.settings.enable_inactivity_timeout',
+    off: 'console.settings.inactivity_timeout_disabled'
+  },
+  'pod.trash_retention_days': {
+    on: 'console.settings.enable_trash_purge',
+    off: 'console.settings.trash_purge_disabled'
+  }
+}
+
+/** Compares retention settings; 0 trash retention keeps pages, so it is the longest. */
+export function retentionLength(key: string, value: unknown): number {
+  return key === 'pod.trash_retention_days' && Number(value) === 0 ? Infinity : Number(value)
+}
+
 export const SETTING_DURATION_UNITS = [
   { id: 'seconds', seconds: 1 },
   { id: 'minutes', seconds: 60 },
@@ -35,8 +52,10 @@ export function settingDurationParts(key: string, value: unknown) {
   const policy = SETTING_DURATIONS[key]
   if (!policy || typeof value !== 'number' || !Number.isFinite(value)) return undefined
   const seconds = value * policy.seconds
+  // A zero value has no exact unit, so it keeps the unit the setting is stored in.
   const unit =
     SETTING_DURATION_UNITS.toReversed().find(unit => seconds > 0 && seconds % unit.seconds === 0) ??
+    SETTING_DURATION_UNITS.find(unit => unit.seconds === policy.seconds) ??
     SETTING_DURATION_UNITS[0]
   return { amount: seconds / unit.seconds, unit: unit.id }
 }

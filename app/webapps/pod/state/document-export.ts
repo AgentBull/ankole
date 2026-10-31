@@ -10,6 +10,7 @@ import {
   documentEmbedIDs,
   documentFilename,
   documentMarkdown,
+  documentPlainText,
   documentPrincipalUIDs,
   documentReferenceIDs,
   type DocumentPrincipalReference,
@@ -102,12 +103,27 @@ export function documentMarkdownForExport(
   const markdown = documentMarkdown(xml, documentHeading(title, icon), {
     resolveReference: ref => references.get(ref),
     resolvePrincipal: uid => principals.get(uid),
-    resolveAsset: source => {
-      // Copies use the reader's login, never the author's browser authentication reference.
-      return readerURL(fileURL(pageID, assetFilePath(source)))
-    }
+    resolveAsset: source => readerAssetURL(pageID, source)
   })
   return withCustomIcon(markdown, isCustomEmojiIcon(icon) ? readerURL(metadataFileURL(icon)) : undefined)
+}
+
+export function documentPlainTextForCopy(
+  pageID: string,
+  xml: string,
+  references: ReadonlyMap<string, DocumentReference> = new Map(),
+  principals: ReadonlyMap<string, DocumentPrincipalReference> = new Map()
+) {
+  return documentPlainText(xml, {
+    resolveReference: ref => references.get(ref),
+    resolvePrincipal: uid => principals.get(uid),
+    resolveAsset: source => readerAssetURL(pageID, source)
+  })
+}
+
+// Copies use the reader's login, never the author's browser authentication reference.
+function readerAssetURL(pageID: string, source: string) {
+  return readerURL(fileURL(pageID, assetFilePath(source)))
 }
 
 function readerURL(path: string) {

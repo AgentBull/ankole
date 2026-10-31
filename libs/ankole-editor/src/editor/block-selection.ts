@@ -78,6 +78,15 @@ export class BlockSelection extends GardSelection {
     return this.ranges[0]!
   }
 
+  // A DOM caret between blocks sends a native IME composition into a neighbouring block, so a
+  // single selected empty paragraph keeps the caret inside it.
+  override get domSelection(): GardSelection['domSelection'] {
+    const blocks = this.blocks
+    if (blocks.length !== 1 || !isEmptyMarklessParagraph(blocks[0]!.node)) return this
+    const pos = blocks[0]!.before + 1
+    return { anchor: pos, head: pos, anchorSide: 1 as const, headSide: 1 as const }
+  }
+
   get ranges() {
     return blockRemovalRanges(this.blocks)
   }
@@ -262,6 +271,38 @@ const enterSelection: Command = ({ state }) => {
   }
 }
 
+// Modifier and input-mode keys, such as Shift in Microsoft Pinyin, also send keydown 229, but no
+// composition follows them.
+const switchesInput = /^(Shift|Control|Alt|Meta|CapsLock|Lang|Convert|NonConvert|KanaMode|Escape|Tab|Arrow)/
+
+/** An IME composition replaces a block selection with an empty paragraph that holds the caret. */
+function composeOverBlocks(wg: Wordgard): false {
+  const { selection } = wg.state
+  if (wg.state.readOnly || !(selection instanceof BlockSelection)) return false
+  const blocks = selection.blocks
+  if (blocks.length === 1 && isEmptyMarklessParagraph(blocks[0]!.node)) {
+    // The DOM caret is already inside the paragraph (see `domSelection`). Redrawing now would
+    // replace the node that the composition started in.
+    wg.dispatch({ selection: GardSelection.cursor(blocks[0]!.before + 1) })
+    return false
+  }
+  wg.dispatch({
+    changes: {
+      correct: selection.ranges.map((range, index) => ({
+        ...range,
+        insert: index ? [] : [T.Paragraph.create()],
+        fit: true
+      })),
+      local: true
+    },
+    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(selection.ranges[0]!.from, 1), 1),
+    userEvent: 'input.type.compose.start',
+    scrollIntoView: true
+  })
+  wg.flush()
+  return false
+}
+
 const selectedBlock = Decoration.Point.attributes({ class: 'editor-selected-block' })
 
 export const blockSelection: GardState.Extension = [
@@ -296,30 +337,13 @@ export const blockSelection: GardState.Extension = [
     })
     return true
   }),
-  Wordgard.domEventHandler('compositionstart', (_event, wg) => {
-    const { selection } = wg.state
-    if (wg.state.readOnly || !(selection instanceof BlockSelection)) return false
-    const blocks = selection.blocks
-    if (blocks.length === 1 && isEmptyMarklessParagraph(blocks[0]!.node)) {
-      wg.dispatch({ selection: GardSelection.cursor(blocks[0]!.before + 1) })
-    } else {
-      wg.dispatch({
-        changes: {
-          correct: selection.ranges.map((range, index) => ({
-            ...range,
-            insert: index ? [] : [T.Paragraph.create()],
-            fit: true
-          })),
-          local: true
-        },
-        selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(selection.ranges[0]!.from, 1), 1),
-        userEvent: 'input.type.compose.start',
-        scrollIntoView: true
-      })
-    }
-    wg.flush()
-    return false
-  }),
+  // Browsers send keydown 229 before compositionstart, while the DOM under the caret can still
+  // change. compositionstart handles a composition without that keydown.
+  Wordgard.domEventHandler(
+    'keydown',
+    (event, wg) => event.keyCode === 229 && !switchesInput.test(event.code) && composeOverBlocks(wg)
+  ),
+  Wordgard.domEventHandler('compositionstart', (_event, wg) => composeOverBlocks(wg)),
   GardSelection.define(
     'blocks',
     BlockSelection,

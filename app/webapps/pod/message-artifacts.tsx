@@ -8,7 +8,7 @@ import { Link } from '@tanstack/react-router'
 import type { ConversationMessage } from './api'
 import { podKeys, type ConversationAttachment } from './api'
 import { podLocation } from '../common/browser-context'
-import { pageAPI, pageQuery, pageSearchQuery, type Page, type PageDetail } from './content-api'
+import { pageAPI, pageQuery, pageSearchQuery, pageTitleMaxLength, type Page, type PageDetail } from './content-api'
 import { pageCreated } from './state/navigation-cache'
 import { ContentError } from './content-primitives'
 import { PagePicker } from './page-picker'
@@ -194,7 +194,13 @@ export function SaveMessageButton({
         </DialogTitle>
         <label className="grid gap-1.5 text-sm">
           <span>{t('pod.content.page_title')}</span>
-          <Input autoFocus value={title} onChange={event => setTitle(event.target.value)} disabled={save.isPending} />
+          <Input
+            autoFocus
+            maxLength={pageTitleMaxLength}
+            value={title}
+            onChange={event => setTitle(event.target.value)}
+            disabled={save.isPending}
+          />
         </label>
         <PagePicker
           autoFocus={false}

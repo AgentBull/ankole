@@ -325,7 +325,7 @@ export class InputState {
         touchesSel = from <= sel.to && to >= sel.from
       if (read) {
         wg.dispatch({
-          changes: { from, to, insert: read, fit: true },
+          changes: { correct: { from, to, insert: read, fit: true }, local: true },
           selection: touchesSel
             ? (cx, changes) => {
                 return GardSelection.near(cx, changes.mapPos(to, 1), -1)
@@ -358,7 +358,10 @@ export class InputState {
       // composition is committed or canceled. This event cannot be
       // canceled, so apply the same deletion to the document.
       if (range && range.from < range.to) {
-        wg.dispatch({ changes: { from: range.from, to: range.to, fit: true }, userEvent: 'input.type.compose' })
+        wg.dispatch({
+          changes: { correct: { from: range.from, to: range.to, fit: true }, local: true },
+          userEvent: 'input.type.compose'
+        })
       }
     } else if (type == 'formatSetBlockTextDirection') {
       if (event.data == 'ltr' || event.data == 'rtl') Command.dispatch(wg, setDirection, event.data)

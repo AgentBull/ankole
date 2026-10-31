@@ -164,7 +164,7 @@ test('table row and column commands preserve simultaneous peer cell edits', asyn
     ownerGate.hold()
     memberGate.hold()
     await editor(owner).locator('td').first().click()
-    await owner.getByRole('button', { name: '表格操作', exact: true }).click()
+    await owner.getByRole('button', { name: '行', exact: true }).click()
     await owner.getByRole('menuitem', { name: '在下方插入行', exact: true }).click()
     await editor(member).locator('td').nth(2).click()
     await member.keyboard.press('End')
@@ -180,7 +180,7 @@ test('table row and column commands preserve simultaneous peer cell edits', asyn
     ownerGate.hold()
     memberGate.hold()
     await editor(owner).locator('td').first().click()
-    await owner.getByRole('button', { name: '表格操作', exact: true }).click()
+    await owner.getByRole('button', { name: '列', exact: true }).click()
     await owner.getByRole('menuitem', { name: '在右侧插入列', exact: true }).click()
     await editor(member).locator('td').nth(4).click()
     await member.keyboard.press('End')
@@ -663,31 +663,28 @@ test('three real sessions render remote selections in either position order and 
         page.locator('[data-document-presence]').getByRole('button', { name: '2 人在线', exact: true })
       ).toBeVisible()
     }
+    // Read every paragraph at once: carets of a moving session briefly share a paragraph.
+    const caretNames = () =>
+      editor(owner)
+        .locator('p')
+        .evaluateAll(paragraphs =>
+          paragraphs.map(paragraph =>
+            Array.from(paragraph.querySelectorAll('.editor-remote-caret-label'), label =>
+              label.getAttribute('data-name')
+            )
+          )
+        )
     // Session order stays stable while selection positions run in both directions.
     await select(twin, 1)
     await select(member, 0)
     await expect(owner.locator('.editor-remote-caret')).toHaveCount(2)
     await expect(owner.locator('.editor-remote-selection')).toHaveCount(2)
-    await expect(editor(owner).locator('p').nth(0).locator('.editor-remote-caret-label')).toHaveAttribute(
-      'data-name',
-      'Browser member'
-    )
-    await expect(editor(owner).locator('p').nth(1).locator('.editor-remote-caret-label')).toHaveAttribute(
-      'data-name',
-      'Browser owner'
-    )
+    await expect.poll(caretNames).toEqual([['Browser member'], ['Browser owner']])
     await select(twin, 0)
     await select(member, 1)
     await expect(owner.locator('.editor-remote-caret')).toHaveCount(2)
     await expect(owner.locator('.editor-remote-selection')).toHaveCount(2)
-    await expect(editor(owner).locator('p').nth(0).locator('.editor-remote-caret-label')).toHaveAttribute(
-      'data-name',
-      'Browser owner'
-    )
-    await expect(editor(owner).locator('p').nth(1).locator('.editor-remote-caret-label')).toHaveAttribute(
-      'data-name',
-      'Browser member'
-    )
+    await expect.poll(caretNames).toEqual([['Browser owner'], ['Browser member']])
     expect((await stored(owner, id)).content.plain_text).toBe('Alpha\nBeta')
     await owner.screenshot({ path: info.outputPath('three-sessions-two-people.png') })
     expect(errors).toEqual([])

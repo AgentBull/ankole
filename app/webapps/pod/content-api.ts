@@ -134,6 +134,9 @@ export async function podRequest<T>(path: string, method = 'GET', body?: unknown
 }
 
 const pagePath = (id: string) => `/pages/${encodeURIComponent(id)}`
+/** The control plane rejects longer Page titles. */
+export const pageTitleMaxLength = 255
+
 export const pageAPI = {
   viewers: (id: string, cursor?: string, signal?: AbortSignal) =>
     podPageViewers({ path: { id }, query: { cursor, limit: 25 }, signal }),

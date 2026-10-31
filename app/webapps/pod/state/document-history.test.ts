@@ -39,3 +39,17 @@ test('history distinguishes native layout and callout styles with the same visib
   const warning = documentComparisonSource('<page><callout kind="warning"><p>Note</p></callout></page>', 'Plan')
   expect(info).not.toBe(warning)
 })
+
+test('text appended after the last line leaves that line unchanged', () => {
+  const before = documentComparisonSource('<page><p>Base line</p><p>Edit 1</p></page>', 'Plan')
+  const current = documentComparisonSource('<page><p>Base line</p><p>Edit 1</p><p>Edit 2</p></page>', 'Plan')
+  const changes = documentChanges(before, current)
+  expect(changes.filter(part => part.kind === 'removed')).toEqual([])
+  expect(changes.filter(part => part.kind === 'added').map(part => part.text.trim())).toEqual(['Edit 2'])
+  expect(
+    changes
+      .filter(part => part.kind !== 'removed')
+      .map(part => part.text)
+      .join('')
+  ).toBe(current)
+})

@@ -1,11 +1,12 @@
 import { expect, test } from 'bun:test'
+import { Command, deleteCut } from '../src/core/command'
 import type { Wordgard } from '../src/core/editor'
 import { parseMarkdown } from '../src/document/markdown'
 import { parseXml } from '../src/document/xml'
 import { applyBlockType } from '../src/editor/block-actions'
 import { isList } from '../src/editor/block-insert'
 import { PageSession } from '../src/editor/page-session'
-import { exportMarkdown, expectReopens, open, press, readTree, select } from './helpers'
+import { exportMarkdown, expectReopens, open, press, readTree, select, typeText } from './helpers'
 
 /** Put the caret in the text node `text`, at `offset`. */
 function caret(editor: Wordgard, text: string, offset: number | 'end' = 0) {
@@ -352,4 +353,54 @@ test('an empty item that takes children keeps a paragraph above them', () => {
   caret(editor, 'y')
   press(editor, 'Tab')
   expect(exportMarkdown(editor)).toBe('- <p />\n  - y')
+})
+
+/** Select from `offset` in the text block `anchor` to `headOffset` in the text block `head`. */
+function selectRange(editor: Wordgard, [anchor, offset, head, headOffset]: Range) {
+  const start = (text: string) => {
+    let found = -1
+    editor.state.doc.iterate((node, pos) => {
+      if (found < 0 && node.isPlot && node.isTextblock && node.textContent() === text) found = pos + 1
+    })
+    if (found < 0) throw new Error(`The page has no text block ${text}`)
+    return found
+  }
+  select(editor, start(anchor) + offset, start(head) + headOffset)
+}
+
+type Range = readonly [string, number, string, number]
+
+test.each<[string, string, Range, string]>([
+  [
+    'a nested item in a table cell',
+    '<table>\n  <tr>\n    <td>\n      - x1\n        - x2\n    </td>\n    <td>\n      y\n    </td>\n  </tr>\n</table>',
+    ['x1', 1, 'x2', 1],
+    '<table>\n  <tr>\n    <td>\n      - x?2\n    </td>\n    <td>\n      y\n    </td>\n  </tr>\n</table>'
+  ],
+  [
+    'a nested item in a callout with a following block',
+    '<callout>\n  - x1\n    - x2\n\n  after\n</callout>',
+    ['x1', 1, 'x2', 1],
+    '<callout>\n  - x?2\n\n  after\n</callout>'
+  ],
+  [
+    'a sublist item and a callout',
+    '- one\n  - two\n\n<callout>\n  inside c\n\n  second c\n</callout>\n\ntail',
+    ['two', 1, 'inside c', 3],
+    '- one\n  - t?ide c\n\n<callout>\n  second c\n</callout>\n\ntail'
+  ],
+  ['an ordered item and its sublist', '1. a1\n   - n1\n   - n2\n2. z9', ['a1', 1, 'n2', 1], '1. a?2\n2. z9'],
+  ['a paragraph and an item with two blocks', 'q1\n\n- l1\n\n  l1b', ['q1', 2, 'l1', 0], 'q1?l1\n\n- l1b']
+])('Backspace, typing and cut over %s keep the unselected structure', (_, source, range, expected) => {
+  const edits: [string, (editor: Wordgard) => unknown][] = [
+    ['', editor => press(editor, 'Backspace')],
+    ['Z', editor => typeText(editor, 'Z')],
+    ['', editor => Command.dispatch(editor, deleteCut)]
+  ]
+  for (const [inserted, edit] of edits) {
+    const editor = open(source)
+    selectRange(editor, range)
+    edit(editor)
+    expect(readTree(editor)).toEqual(readTree(open(expected.replace('?', inserted))))
+  }
 })

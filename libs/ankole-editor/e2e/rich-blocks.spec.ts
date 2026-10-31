@@ -7,7 +7,8 @@ import {
   showSource,
   selectDocument,
   clipboard,
-  replaceDocument
+  replaceDocument,
+  expectMarkdown
 } from './helpers'
 
 test('slash aliases insert media and all six heading levels', async ({ page }) => {
@@ -192,4 +193,29 @@ test('resource copies provide portable images, links and plain text while intern
   await selectDocument(page)
   await clipboard(editor, 'paste', copied)
   await expect(await showSource(page)).toHaveValue(original)
+})
+
+test('the callout icon field writes only the committed IME candidate', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Playwright exposes IME composition through Chromium CDP only.')
+  await openDocument(page, '<callout icon="💡">Important</callout>')
+  await page.getByRole('button', { name: '高亮块样式' }).click()
+  const icon = page.getByRole('textbox', { name: '图标', exact: true })
+  await icon.selectText()
+  const client = await page.context().newCDPSession(page)
+  try {
+    await client.send('Input.imeSetComposition', { text: 'xing', selectionStart: 4, selectionEnd: 4 })
+    await expect(icon).toHaveValue('xing')
+    await expect(page.locator('.callout-icon')).toHaveText('💡')
+    await icon.evaluate(input =>
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }))
+    )
+    await expect(icon).toBeVisible()
+    await client.send('Input.insertText', { text: '星' })
+    await expect(page.locator('.callout-icon')).toHaveText('星')
+  } finally {
+    await client.detach()
+  }
+  await page.keyboard.press('Escape')
+  await expect(icon).toBeHidden()
+  await expectMarkdown(page, '<callout icon="星">\n  Important\n</callout>')
 })

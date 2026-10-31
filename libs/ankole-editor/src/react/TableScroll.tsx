@@ -10,6 +10,9 @@ export function TableScroll() {
   const label = useEditorLabel()
   const state = useEditorState()
   useLayoutEffect(() => {
+    // `nodeDOM` draws a pending transaction and answers for its positions, not for `state`.
+    // The editor renders this component again after it draws that transaction.
+    if (state !== editor.state) return
     const preview = state.field(tableResizePreview)
     const cleanups: (() => void)[] = []
     state.doc.iterate((node, pos) => {

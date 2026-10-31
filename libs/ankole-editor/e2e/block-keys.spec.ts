@@ -1,4 +1,14 @@
-import { caret, expect, expectMarkdown, openDocument, replaceDocument, reopen, selectText, test } from './helpers'
+import {
+  caret,
+  clipboard,
+  expect,
+  expectMarkdown,
+  openDocument,
+  replaceDocument,
+  reopen,
+  selectText,
+  test
+} from './helpers'
 
 // Backspace, Delete, Enter and Tab at block boundaries behave as in Notion (checked by hand on
 // 2026-10-08). The caret is in the text given by `at`. Playwright runs the browsers on this
@@ -517,4 +527,31 @@ test('Shift+Tab lifts a selected child while preserving selected root siblings',
   await page.keyboard.press('ControlOrMeta+z')
   await expect(page.locator('.block-group > p')).toHaveText(['Parent', 'Child'])
   await expect(page.locator('.editor-selected-block')).toHaveText(['Child', 'Root'])
+})
+
+test('pasting over two selected list items keeps the next item at its level', async ({ page }) => {
+  await openDocument(page, '- i1\n- i2\n- i3')
+  await caret(page.locator('.editor-content').getByText('i1', { exact: true }), 1)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(page.locator('.editor-selected-block')).toHaveText(['i1', 'i2'])
+  await clipboard(page.locator('.editor-content'), 'paste', { 'text/plain': 'Z' })
+  await expectMarkdown(page, '- Z\n- i3')
+})
+
+test('typing and cutting over a range keep the structure that Backspace keeps', async ({ page }) => {
+  const source = '- one\n  - two\n\n<callout>\n  inside c\n\n  second c\n</callout>\n\ntail'
+  const kept = (text: string) => `- one\n  - ${text}\n\n<callout>\n  second c\n</callout>\n\ntail`
+  await openDocument(page, source)
+  await selectText(page, 'two', 1, 'inside c', 3)
+  await page.keyboard.type('Z')
+  await expectMarkdown(page, kept('tZide c'))
+  await replaceDocument(page, source)
+  await selectText(page, 'two', 1, 'inside c', 3)
+  await clipboard(page.locator('.editor-content'), 'cut')
+  await expectMarkdown(page, kept('tide c'))
+  await replaceDocument(page, '1. a1\n   - n1\n   - n2\n2. z9')
+  await selectText(page, 'a1', 1, 'n2', 1)
+  await clipboard(page.locator('.editor-content'), 'cut')
+  await expectMarkdown(page, '1. a2\n2. z9')
 })

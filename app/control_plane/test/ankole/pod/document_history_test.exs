@@ -1,6 +1,7 @@
 defmodule Ankole.Pod.DocumentHistoryTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
+  import Ecto.Query, only: [from: 2]
 
   alias Ankole.Pod.{
     Comments,
@@ -96,6 +97,36 @@ defmodule Ankole.Pod.DocumentHistoryTest do
              })
 
     assert length(Repo.all(PageSnapshot)) == 2
+  end
+
+  test "restore keeps a title saved before the length limit and shortens a different long snapshot title",
+       ctx do
+    long = String.duplicate("长", 300)
+    [original] = Repo.all(PageSnapshot)
+
+    Repo.update_all(from(page in Ankole.Pod.Page, where: page.id == ^ctx.page.id),
+      set: [title: long]
+    )
+
+    Repo.update_all(from(snapshot in PageSnapshot, where: snapshot.id == ^original.id),
+      set: [title: long]
+    )
+
+    {:ok, _} = Documents.write(ctx.editor, ctx.page.id, 0, "<page><p>Edited body</p></page>")
+
+    restore = fn ->
+      page = Repo.get!(Ankole.Pod.Page, ctx.page.id)
+      History.restore(ctx.editor, page.id, original.id, page.revision, page.updated_at)
+    end
+
+    assert {:ok, %{page: %{title: ^long}}} = restore.()
+
+    Repo.update_all(from(page in Ankole.Pod.Page, where: page.id == ^ctx.page.id),
+      set: [title: "Short"]
+    )
+
+    assert {:ok, %{page: %{title: shortened}}} = restore.()
+    assert shortened == String.slice(long, 0, 255)
   end
 
   test "restore creates a new OT revision with before and after checkpoints while keeping location and permissions",

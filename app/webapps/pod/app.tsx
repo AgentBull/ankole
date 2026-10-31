@@ -259,25 +259,42 @@ function PodShell() {
     setCommandOpen(true)
   }, [])
   useEffect(() => {
-    const shortcut = (event: KeyboardEvent) => {
-      if (
-        event.isComposing ||
-        event.keyCode === 229 ||
-        event.repeat ||
-        event.altKey ||
-        event.shiftKey ||
-        !(event.metaKey || event.ctrlKey) ||
-        event.key.toLowerCase() !== 'k'
-      ) {
-        return
-      }
+    const commandKey = (event: KeyboardEvent) =>
+      !event.isComposing &&
+      event.keyCode !== 229 &&
+      !event.repeat &&
+      !event.altKey &&
+      !event.shiftKey &&
+      (event.metaKey || event.ctrlKey) &&
+      event.key.toLowerCase() === 'k'
+    // With a text selection in an editable document, the platform shortcut edits a link first.
+    const linkKey = (event: KeyboardEvent) => {
+      const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+      if (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return false
+      return (
+        !!document.activeElement?.matches('.editor-content[contenteditable="true"]') &&
+        window.getSelection()?.isCollapsed === false
+      )
+    }
+    const toggle = (event: KeyboardEvent) => {
       event.preventDefault()
       event.stopPropagation()
       if (commandOpen) setCommandOpen(false)
       else openCommand()
     }
+    const shortcut = (event: KeyboardEvent) => {
+      if (commandKey(event) && !linkKey(event)) toggle(event)
+    }
+    // The editor claims the link shortcut only where it can edit a link, such as outside code.
+    const unclaimedLinkKey = (event: KeyboardEvent) => {
+      if (commandKey(event) && !event.defaultPrevented) toggle(event)
+    }
     window.addEventListener('keydown', shortcut, true)
-    return () => window.removeEventListener('keydown', shortcut, true)
+    window.addEventListener('keydown', unclaimedLinkKey)
+    return () => {
+      window.removeEventListener('keydown', shortcut, true)
+      window.removeEventListener('keydown', unclaimedLinkKey)
+    }
   }, [commandOpen, openCommand])
   useEffect(() => {
     if (!composerLocationKey || commandOpen || focusedChatLocation.current === composerLocationKey) {

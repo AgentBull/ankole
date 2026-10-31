@@ -39,9 +39,13 @@ options:
   selected filename). If creation fails, the UI keeps the form entry open for
   retry.
 
-Users edit Page titles at the top of the canvas. Document titles and bodies form
-a continuous writing area, with synchronization status and online participants
-in the Page header.
+Users edit Page titles at the top of the canvas. A Page title holds at most 255
+characters: title fields stop input there, and the control plane rejects a
+longer title on create or update. Restoring a version keeps the current title
+when the version has the same title, and shortens a different restored title to
+255 characters. Document titles and bodies form a continuous
+writing area, with synchronization status and online participants in the Page
+header.
 
 Page titles and document bodies share one recoverable draft and unsaved-changes
 navigation guard: failed saves keep the user's input, and attempting to navigate
@@ -318,9 +322,13 @@ advancing `updated_at` or recording a content contributor edit, whereas
 read-only viewers adjust presentation locally in session memory. Both the Page
 header and sidebar invoke
 the same Trash action: trashing a Page discards its local draft, navigates to
-its visible parent or content root, and offers Undo, while Trash search matches
-both titles and document bodies before applying the server result limit. Trash
-rows open the standard Page detail view. A top-level deleted Page remains
+its visible parent or content root, and offers Undo. The delete response counts
+the live descendant Pages that the deleting manager can view, and the Undo
+notice names that count. Trash search matches both titles and document bodies
+before applying the server result limit. The Trash list response carries
+`pod.trash_retention_days`, and each row shows the days left before automatic
+purge unless retention is `0` or the purge has started. Trash rows open the
+standard Page detail view. A top-level deleted Page remains
 readable with its document, Base, and file content, but the UI and API reject
 edits and personal-state writes; descendants of a deleted ancestor stay hidden.
 Managers can restore the Page or confirm permanent deletion from either the
@@ -350,10 +358,17 @@ their trigger field.
 
 Clicking the sidebar search icon button or pressing Command/Control+K opens a
 single quick-navigation menu linking to Pages, Chats, and content roots without
-mutating or discarding an unfinished Chat draft. Both the menu and the dedicated
-search view share title-and-body Page search, and the search view persists its
-query in the `q` URL parameter across result clicks, Back navigation, and
-reloads. Search hits, quick-navigation items, and Page references in Chat render
+mutating or discarding an unfinished Chat draft. When text is selected in an
+editable document, the platform link shortcut (Command+K on Apple platforms,
+Control+K elsewhere) opens the editor's link form instead; the menu still opens
+where the editor cannot add a link, such as in code. Control+K on Apple
+platforms always opens the menu, so it never deletes text to the line end. Both the menu and the dedicated
+search view share title-and-body Page search, which matches a Page when every
+whitespace-separated word of the query appears in its title or body in any
+order; only the first 16 distinct words filter. Scoped lists, favorites,
+recents, and Trash filter with the same rule.
+The search view persists its query in the `q` URL parameter across result
+clicks, Back navigation, and reloads. Search hits, quick-navigation items, and Page references in Chat render
 visible ancestor breadcrumbs so users can tell identically named Pages apart,
 alongside consistent per-type Page icons across sidebars, pickers, embeds, and
 Chat messages. Within content lists, `J` and `K` move focus while text inputs
@@ -817,8 +832,10 @@ Read isolation matches each operation's locking needs:
 Every Pod table includes `tenant_id` enforced by composite foreign keys and
 mandatory `Ankole.Repo` tenant context; tenant teardown deletes Base records and
 child rows in batches before deleting Pages. Trashing a Page marks it deleted
-and hides its subtree until `pod.trash_retention_days` elapses (a positive
-integer defaulting to `30`, or `"unlimited"` to disable automatic purge). When
+and hides its subtree until `pod.trash_retention_days` elapses (a non-negative
+integer defaulting to `30`; `0` disables automatic purge, and the purge job
+checks the setting again each day so a later positive value applies to Pages
+already in Trash). When
 purge begins, it stamps a purge-started marker in the same transaction that
 rechecks eligibility—blocking any subsequent restore—cleans Base tables via the
 Base cleanup contract, and deletes page content, file references, grants, and
@@ -834,7 +851,8 @@ Markdown**, and **Copy → Markdown / Plain text**. Export and copy read the
 current editor draft, including edits awaiting OT acknowledgement. Markdown
 includes the title and icon when present; plain text contains only the body.
 Both projections use the canonical document tree. The portable Markdown
-projection flattens layout containers, renders callouts as blockquotes, and
+projection flattens layout containers, omits empty top-level paragraphs,
+renders callouts as blockquotes, and
 renders accessible Page references and `<mention page="…" />` nodes as readable
 titles and links while redacting restricted targets to plain text and rendering
 `<mention principal="…" />` nodes as `@Name` (plain-text copy outputs Page
@@ -853,7 +871,8 @@ Referenced documents, Bases, and Applets remain links to their independent
 Pages, and remote image URLs remain remote URLs.
 
 The desktop statistics footer stays visible while enabled, including during
-typing. Unicode word segmentation counts word-like segments, including Chinese
+typing. Statistics read the plain-text body without resource titles and
+addresses. Unicode word segmentation counts word-like segments, including Chinese
 and Japanese text without spaces. UTF-16 code units count as characters,
 nonempty text lines count as paragraphs, and estimated reading time rounds up
 at 200 segmented words per minute.

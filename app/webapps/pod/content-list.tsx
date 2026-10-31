@@ -4,6 +4,7 @@ import { pageCreated } from './state/navigation-cache'
 import { RiChat3Line, RiDeleteBinLine, RiLockLine } from '@remixicon/react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import type { TFunction } from 'i18next'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../common/browser-context'
@@ -28,6 +29,13 @@ import { CreatePageButton } from './page-create-menu'
 import { PageIcon } from './page-icon'
 import { mergeRecentEntries } from './state/navigation'
 import { pageAncestors } from './state/page-location'
+
+/** Retention 0 keeps Trash rows, and a started purge already shows its own state. */
+function purgeDays(page: Page, retentionDays: number | null | undefined, t: TFunction): string {
+  if (!retentionDays || !page.deleted_at || page.purge_started_at) return ''
+  const left = Date.parse(page.deleted_at) + retentionDays * 86_400_000 - Date.now()
+  return t('pod.content.days_until_permanent_deletion', { count: Math.max(1, Math.ceil(left / 86_400_000)) })
+}
 
 export function ContentListRoute() {
   const { scope = 'space' } = useParams({ strict: false })
@@ -109,6 +117,7 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
   })
   const capabilities = roots.data?.pages[0]
   const rows: Page[] | undefined = pages.data?.pages
+  const retentionDays = pages.data && 'trash_retention_days' in pages.data ? pages.data.trash_retention_days : null
   const pagesByID = new Map(
     [...cachedPages(client), ...(rows ?? []), ...(searched.data?.ancestors ?? [])].map(page => [page.id, page])
   )
@@ -161,7 +170,15 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
               timestamp={
                 rootScope
                   ? ''
-                  : formatPageTimestamp(trash ? (page.deleted_at ?? page.updated_at) : page.updated_at, i18n.language)
+                  : [
+                      formatPageTimestamp(
+                        trash ? (page.deleted_at ?? page.updated_at) : page.updated_at,
+                        i18n.language
+                      ),
+                      trash && purgeDays(page, retentionDays, t)
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
               }
               restoreAction={
                 trash &&

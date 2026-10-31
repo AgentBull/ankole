@@ -213,7 +213,7 @@ test('turn into preserves marked text; converting to a callout keeps the cursor 
   await expect(page.locator('.editor-content h2 strong')).toHaveText('marked')
   await page.keyboard.press('ControlOrMeta+/')
   await page.getByRole('menuitem', { name: '转换为', exact: true }).hover()
-  await page.getByRole('menuitem', { name: /提示块/ }).click()
+  await page.getByRole('menuitem', { name: /高亮块/ }).click()
   await page.keyboard.insertText('!')
   await expect(page.locator('.callout p')).toHaveText('Before marked after!')
   await reopen(page)
@@ -226,7 +226,7 @@ test('a Block menu copy keeps nested callout blocks and unknown elements', async
     '<callout tone="warning">\n  Before\n\n  - one\n    - nested\n\n  <widget key="value">\n    Payload\n  </widget>\n</callout>'
   )
   const widgets = page.locator('.editor-content .unknown-element[data-name="widget"]')
-  await caret(page.locator('.callout > p'))
+  await caret(page.locator('.callout-content > p'))
   await page.keyboard.press('ControlOrMeta+/')
   await page.getByRole('menuitem', { name: /创建副本/ }).click()
   await expect(page.locator('.callout')).toHaveCount(2)

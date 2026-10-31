@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { AppConfigurationItem } from '../api/configuration-types'
 import { settingFocus, settingMatches, settingsScope, settingsSearch } from './settings-search'
 import { settingGroupID, settingOwnerRoute } from './setting-groups'
-import { settingDurationParts } from './setting-value-editor'
+import { retentionLength, settingDurationParts } from './setting-value-editor'
 
 const item = (key: string, value: unknown = null, encrypted = false) =>
   ({ key, value, encrypted }) as AppConfigurationItem
@@ -13,6 +13,14 @@ describe('settings navigation and search', () => {
     expect(settingDurationParts('ai_agent.inactivity_timeout_ms', 125)).toEqual({ amount: 0.125, unit: 'seconds' })
     expect(settingDurationParts('brain.soft_delete_retention_hours', 72)).toEqual({ amount: 3, unit: 'days' })
     expect(settingDurationParts('ai_agent.max_output_tokens', null)).toBeUndefined()
+  })
+
+  test('zero trash retention compares as keeping pages longest', () => {
+    expect(retentionLength('pod.trash_retention_days', 30) < retentionLength('pod.trash_retention_days', 0)).toBe(true)
+    expect(retentionLength('pod.trash_retention_days', 7)).toBe(7)
+    expect(retentionLength('brain.soft_delete_retention_hours', 0)).toBe(0)
+    expect(settingDurationParts('pod.trash_retention_days', 0)).toEqual({ amount: 0, unit: 'days' })
+    expect(settingDurationParts('ai_agent.inactivity_timeout_ms', 0)).toEqual({ amount: 0, unit: 'seconds' })
   })
   test('starts with tenant tasks and preserves an explicit site context', () => {
     expect(settingsScope(new URLSearchParams())).toBe('tenant')

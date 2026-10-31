@@ -38,7 +38,7 @@ export const insertText: Command.Pure<{ from: number; to: number; insert: string
     (from == selection.from && to == selection.to && state.sel.activeMarks) ||
     state.doc.resolve(from).marks(state.doc.resolve(to))
   return {
-    changes: { from, to, insert: insert ? [Leaf.Text.of(insert, marks)] : [], fit: true },
+    changes: { correct: { from, to, insert: insert ? [Leaf.Text.of(insert, marks)] : [], fit: true }, local: true },
     scrollIntoView: true,
     selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1),
     userEvent
@@ -62,7 +62,7 @@ export const insertLineBreak: Command.Pure = ({ state }) => {
   const insertBreak = brk && doc.schema.canContain(parent, brk.type)
   if (!(insertBreak || (parent.preserveWhitespace && sel.to.parent.start == sel.from.parent.start))) return false
   const insert = insertBreak ? brk!.withMarks(state.sel.activeMarks) : Leaf.text('\n', state.sel.activeMarks)
-  const changes = ChangeSet.create(state.doc, { from, to, insert: [insert], fit: true })
+  const changes = ChangeSet.create(state.doc, { correct: { from, to, insert: [insert], fit: true }, local: true })
   const pos = changes.findInserted(t => (insertBreak ? t.type == brk!.type : t.isText))
   return {
     changes,
@@ -91,10 +91,8 @@ export const enter: Command.Pure = ({ state }) => {
     let content: Plot[] = []
     for (let i = wrap.length - 1; i >= 0; i--) content = [wrap[i]!.create(content)]
     const changes = ChangeSet.create(state.doc, {
-      from: from.pos,
-      to: to.pos,
-      insert: content,
-      fit: from.pos != to.pos
+      correct: { from: from.pos, to: to.pos, insert: content, fit: from.pos != to.pos },
+      local: true
     })
     const placed = content.length ? changes.findInserted(t => t == content[0]!.tag) : null
     return {
@@ -194,7 +192,7 @@ export const deleteRange: Command.Pure<{ from: number; to: number; userEvent: st
   { from, to, userEvent }
 ) => {
   if (state.readOnly || from >= to) return false
-  return { changes: { from, to, fit: true }, scrollIntoView: true, userEvent }
+  return { changes: { correct: { from, to, fit: true }, local: true }, scrollIntoView: true, userEvent }
 }
 
 /**
@@ -205,7 +203,7 @@ export const deleteRange: Command.Pure<{ from: number; to: number; userEvent: st
 export const deleteCut: Command.Pure = ({ state }) => {
   if (state.readOnly || state.selection.empty) return false
   return {
-    changes: state.selection.ranges.map(r => ({ from: r.from, to: r.to, fit: true })),
+    changes: { correct: state.selection.ranges.map(r => ({ from: r.from, to: r.to, fit: true })), local: true },
     selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.from, -1), 1),
     scrollIntoView: true,
     userEvent: 'delete.cut'

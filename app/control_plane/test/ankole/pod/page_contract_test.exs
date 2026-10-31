@@ -1,6 +1,7 @@
 defmodule Ankole.Pod.PageContractTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
+  import Ecto.Query, only: [from: 2]
   alias Ankole.Pod.{Documents, Page, PageChange, PageContent, Pages}
 
   setup do
@@ -249,6 +250,30 @@ defmodule Ankole.Pod.PageContractTest do
 
     assert longer > 59 * 86_400
     assert is_nil(Repo.get!(Page, page.id).purge_started_at)
+  end
+
+  test "zero trash retention keeps deleted pages and purges them once a retention is set again",
+       ctx do
+    assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.trash_retention_days", 0)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid)
+    {:ok, page} = Pages.create(actor, %{})
+    {:ok, _} = Pages.delete(actor, page.id)
+
+    assert_enqueued(
+      worker: Ankole.Pod.Jobs.PurgePage,
+      args: %{page_id: page.id, tenant_id: Repo.tenant_id!()}
+    )
+
+    long_ago = DateTime.add(DateTime.utc_now(:microsecond), -400 * 86_400, :second)
+    Repo.update_all(from(p in Page, where: p.id == ^page.id), set: [deleted_at: long_ago])
+    job = %Oban.Job{args: %{"tenant_id" => Repo.tenant_id!(), "page_id" => page.id}}
+
+    assert {:snooze, 86_400} = Ankole.Pod.Jobs.PurgePage.perform(job)
+    assert is_nil(Repo.get!(Page, page.id).purge_started_at)
+
+    assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.trash_retention_days", 30)
+    assert :ok = Ankole.Pod.Jobs.PurgePage.perform(job)
+    assert is_nil(Repo.get(Page, page.id))
   end
 
   test "OT replay retains its configured window and a pruned acknowledged retry never applies again",

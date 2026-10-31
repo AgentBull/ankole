@@ -440,3 +440,40 @@ test('turn-into shortcuts toggle back to a paragraph when pressed again', () => 
     expect(exportMarkdown(editor), digit).toBe('hello')
   }
 })
+
+test('Enter in the only empty paragraph of a callout stays inside, and the next Enter leaves it', () => {
+  const editor = open('pre\n\n<callout tone="warning" icon="🔥">\n  <p />\n</callout>\n\npost')
+  let empty = -1
+  editor.state.doc.iterate((node, pos) => {
+    if (node.isPlot && node.isTextblock && !node.content.length) empty = pos + 1
+  })
+  select(editor, empty)
+  press(editor, 'Enter')
+  expect(exportMarkdown(editor)).toBe(
+    'pre\n\n<callout icon="🔥" tone="warning">\n  <p />\n\n  <p />\n</callout>\n\npost'
+  )
+  press(editor, 'Enter')
+  expect(exportMarkdown(editor)).toBe('pre\n\n<callout icon="🔥" tone="warning">\n  <p />\n</callout>\n\n<p />\n\npost')
+})
+
+test.each([
+  ['<callout tone="info">\n  - a1\n  - a2\n</callout>', '<callout tone="info">\n  - a2\n</callout>'],
+  ['> - a1\n> - a2', '> - a2']
+])('Meta+Backspace at the first item of a list in %p joins the text before the container', (inside, left) => {
+  const editor = open(`top\n\n${inside}`)
+  select(editor, at(editor, 'a1'))
+  press(editor, 'Meta-Backspace')
+  expect(exportMarkdown(editor)).toBe(`topa1\n\n${left}`)
+  expect(editor.state.selection.head).toBe(at(editor, 'topa1', 3))
+})
+
+test.each(['> ---\n>\n> x', '<callout tone="info">\n  ---\n\n  x\n</callout>'])(
+  'Backspace after a divider at the start of %p keeps the text in its container',
+  inside => {
+    const editor = open(`top\n\n${inside}`)
+    const before = editor.state.doc
+    select(editor, at(editor, 'x'))
+    press(editor, 'Backspace')
+    expect(editor.state.doc.eq(before)).toBe(true)
+  }
+)

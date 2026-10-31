@@ -751,7 +751,7 @@ test('document nested paragraphs save their parent relationship and reload as ed
     const parentBox = (await group.locator('p').first().boundingBox())!
     const childBox = (await group.locator('p').last().boundingBox())!
     expect(childBox.x - parentBox.x).toBe(30)
-    await page.mouse.move(parentBox.x - 60, childBox.y + 2)
+    await page.mouse.move(parentBox.x - 40, childBox.y + 2)
     await page.mouse.down()
     await page.mouse.move(childBox.x + 60, childBox.y + childBox.height - 2, { steps: 12 })
     await page.mouse.up()
@@ -762,6 +762,8 @@ test('document nested paragraphs save their parent relationship and reload as ed
       .toBe('<page><p>Parent paragraph</p></page>')
     await page.keyboard.press('ControlOrMeta+z')
     await expect(group.locator(':scope > p')).toHaveText(['Parent paragraph', 'Child paragraph'])
+    // Undo restores the selection, and its toolbar covers the parent paragraph.
+    await page.keyboard.press('Escape')
     await group.locator('p').first().hover()
     await page.getByRole('button', { name: 'Block 菜单', exact: true }).click()
     await page.getByRole('menuitem', { name: '创建副本', exact: true }).click()
@@ -977,9 +979,9 @@ test('document icons persist across reloads and block controls remain reachable 
     await page.reload()
     await expect(icon).toHaveText('🚀')
     await icon.click()
-    await page.getByRole('tab', { name: '自定义 Icon', exact: true }).click()
-    await page.getByRole('button', { name: '上传自定义 Icon', exact: true }).click()
-    const upload = page.getByRole('dialog', { name: '上传自定义 Icon' })
+    await page.getByRole('tab', { name: '自定义图标', exact: true }).click()
+    await page.getByRole('button', { name: '上传自定义图标', exact: true }).click()
+    const upload = page.getByRole('dialog', { name: '上传自定义图标' })
     await upload.locator('input[type="file"]').setInputFiles({
       name: 'page-icon.png',
       mimeType: 'image/png',
@@ -988,9 +990,9 @@ test('document icons persist across reloads and block controls remain reachable 
         'base64'
       )
     })
-    await upload.getByLabel('Icon 名称').fill('page_icon')
-    await expect(upload.locator('[id$="-hint"]')).toHaveText(/此 Icon 可以通过 .*:page_icon:.* 使用/)
-    await upload.getByRole('button', { name: '添加 Icon', exact: true }).click()
+    await upload.getByLabel('图标名称').fill('page_icon')
+    await expect(upload.locator('[id$="-hint"]')).toHaveText(/此图标可以通过 .*:page_icon:.* 使用/)
+    await upload.getByRole('button', { name: '添加图标', exact: true }).click()
     await expect(upload).toHaveCount(0)
     const picture = icon.locator('img')
     await expect(picture).toHaveAttribute('src', /metadata(%2F|\/)custom-emoji(%2F|\/)/)

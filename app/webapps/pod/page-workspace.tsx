@@ -60,7 +60,15 @@ import { podID, principalUID, podLocation, podRouteID } from '../common/browser-
 import { ErrorBoundary } from '../common/error-boundary'
 import { useSearchParams } from '../common/router'
 
-import { contentKeys, pageAPI, pageQuery, pageCommentSummaryQuery, pagesQuery, type PageDetail } from './content-api'
+import {
+  contentKeys,
+  pageAPI,
+  pageQuery,
+  pageCommentSummaryQuery,
+  pagesQuery,
+  pageTitleMaxLength,
+  type PageDetail
+} from './content-api'
 
 import { ContentError } from './content-primitives'
 import { PageChildrenMenu } from './page-navigation'
@@ -638,6 +646,7 @@ function PageWorkspace({
                     ref={titleInput}
                     aria-label={t('pod.content.page_title')}
                     rows={1}
+                    maxLength={pageTitleMaxLength}
                     value={model.title.value}
                     autoFocus={(page.type === 'doc' || page.type === 'base') && !page.title && !chat}
                     disabled={remove.isPending || accessDenied}
@@ -675,7 +684,7 @@ function PageWorkspace({
                 <h1 className="pod-page-title">{page.title || t('pod.content.untitled')}</h1>
               )}
             </div>
-            {!!loadError && (
+            {!!loadError && model.hasUnsavedChanges.value && (
               <p className="mb-3 text-sm">{t('pod.content.could_not_load_the_latest_page_state_your_unsaved_draft')}</p>
             )}
             <ContentError error={loadError} retry={accessDenied ? undefined : reload} />
@@ -831,7 +840,12 @@ function PageWorkspace({
               }}>
               {t('pod.content.download_draft_and_leave')}
             </Button>
-            <Button variant="destructive" onClick={() => blocker.proceed?.()}>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                model.discard()
+                blocker.proceed?.()
+              }}>
               {t('pod.content.discard_changes_and_leave')}
             </Button>
           </DialogFooter>

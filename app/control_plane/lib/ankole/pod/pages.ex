@@ -16,6 +16,7 @@ defmodule Ankole.Pod.Pages do
   defdelegate navigation(actor, active_page_id), to: Queries
   defdelegate navigation_entries(actor, ids), to: Queries
   defdelegate search(actor, query, opts \\ %{}), to: Queries
+  defdelegate visible_descendant_count(actor, id), to: Queries
   defdelegate list(actor, opts \\ %{}), to: Queries
   defdelegate can_create_private?(actor), to: Queries
   defdelegate reconcile_versions(actor, page_ids, table_ids), to: Queries
@@ -817,7 +818,8 @@ defmodule Ankole.Pod.Pages do
         Ankole.Job.schedule_in_tx(
           Ankole.Pod.Jobs.PurgePage,
           %{tenant_id: Repo.tenant_id!(), page_id: page.id},
-          DateTime.add(page.deleted_at, days * 86_400, :second)
+          # With 0 retention the job first checks after a day and keeps the page while it stays 0.
+          DateTime.add(page.deleted_at, max(days, 1) * 86_400, :second)
         )
 
       error ->

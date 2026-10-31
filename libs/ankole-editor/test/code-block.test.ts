@@ -69,3 +69,10 @@ test('the language picker searches labels, names, and aliases', () => {
   expect(filterCodeLanguages('golang').map(option => option.id)).toEqual(['go'])
   expect(filterCodeLanguages('').map(option => option.id)[0]).toBe('plaintext')
 })
+
+test('an exact alias ranks before languages that only contain the query', () => {
+  expect(filterCodeLanguages('ts')[0]?.id).toBe('typescript')
+  expect(filterCodeLanguages('js')[0]?.id).toBe('javascript')
+  expect(filterCodeLanguages('java')[0]?.id).toBe('java')
+  expect(filterCodeLanguages('TS').map(option => option.id)).toContain('kotlin')
+})

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, Input } from '@ankole/uikit'
 import { CalloutIcon, CalloutTone, calloutMenu, openCalloutMenu, tones } from '../blocks/callout'
@@ -12,6 +12,8 @@ export function CalloutMenu() {
   const label = useEditorLabel()
   const pos = useEditorState(state => state.field(calloutMenu, false) ?? null)
   const panel = useRef<HTMLDivElement>(null)
+  // The icon field shows an IME candidate here and writes it to the page when the composition ends.
+  const [draft, setDraft] = useState<string | null>(null)
   const close = () => editor.dispatch({ effects: openCalloutMenu.of(null) })
   const position = useAnchoredOverlay({
     open: pos !== null,
@@ -35,7 +37,7 @@ export function CalloutMenu() {
       aria-label={label('callout_style')}
       style={position ?? { visibility: 'hidden' }}
       onKeyDown={event => {
-        if (event.key === 'Escape') {
+        if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
           close()
           editor.focus()
         }
@@ -44,8 +46,16 @@ export function CalloutMenu() {
         {label('callout_icon')}
         <Input
           aria-label={label('callout_icon')}
-          value={node?.mark(CalloutIcon) ?? '💡'}
-          onChange={event => set(CalloutIcon.of(event.target.value))}
+          value={draft ?? node?.mark(CalloutIcon) ?? '💡'}
+          onChange={event => {
+            if ((event.nativeEvent as InputEvent).isComposing) return setDraft(event.target.value)
+            setDraft(null)
+            set(CalloutIcon.of(event.target.value))
+          }}
+          onCompositionEnd={event => {
+            setDraft(null)
+            set(CalloutIcon.of(event.currentTarget.value))
+          }}
         />
       </label>
       <div className="callout-icon-options">

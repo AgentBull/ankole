@@ -44,7 +44,7 @@ import {
   RiLayoutColumnLine,
   RiTableLine
 } from '@remixicon/react'
-import { contentKeys, podRequest, type PageDetail } from './content-api'
+import { contentKeys, pageTitleMaxLength, podRequest, type PageDetail } from './content-api'
 import { ErrorBoundary } from '../common/error-boundary'
 import { useContent } from './content-context'
 import { ContentError } from './content-primitives'
@@ -1056,6 +1056,7 @@ function CopyTableButton({
               ref={titleInput}
               autoFocus
               aria-label={t('pod.content.page_title')}
+              maxLength={pageTitleMaxLength}
               value={title}
               disabled={copy.isPending}
               onChange={event => setTitle(event.target.value)}

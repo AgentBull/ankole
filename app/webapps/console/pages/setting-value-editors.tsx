@@ -18,6 +18,8 @@ import { JSONField, LabeledField } from '../console-form'
 import {
   AI_GATEWAY_COMPACTION_FIELDS,
   aiGatewayCompactionDraft,
+  DURATION_SWITCHES,
+  retentionLength,
   serializeAIGatewayCompactionDraft,
   settingEditorKind,
   settingStringDraft,
@@ -101,19 +103,15 @@ function DurationSettingEditor({ item, value, onChange }: SettingValueEditorProp
   const units = SETTING_DURATION_UNITS
   const [unitID, setUnitID] = useState<string>(() => settingDurationParts(item.key, Number(value))?.unit ?? 'seconds')
   const unit = units.find(candidate => candidate.id === unitID)!
-  const watchdog = item.key === 'ai_agent.inactivity_timeout_ms'
-  const enabled = !watchdog || value !== '0'
+  const toggle = DURATION_SWITCHES[item.key]
+  const enabled = !toggle || value !== '0'
   const numeric = value.trim() === '' ? '' : String((Number(value) * policy.seconds) / unit.seconds)
   return (
     <div className="grid gap-3">
-      {watchdog ? (
+      {toggle ? (
         <label className="flex items-center gap-3">
-          <Switch
-            checked={enabled}
-            onCheckedChange={next => onChange(next ? '' : '0')}
-            aria-label={t('console.settings.enable_inactivity_timeout')}
-          />
-          {t(enabled ? 'console.settings.enable_inactivity_timeout' : 'console.settings.inactivity_timeout_disabled')}
+          <Switch checked={enabled} onCheckedChange={next => onChange(next ? '' : '0')} aria-label={t(toggle.on)} />
+          {t(enabled ? toggle.on : toggle.off)}
         </label>
       ) : null}
       {enabled ? (
@@ -162,8 +160,8 @@ function DurationSettingEditor({ item, value, onChange }: SettingValueEditorProp
         })}
       </p>
       {['pod.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&
-      numeric !== '' &&
-      Number(value) < Number(item.value) ? (
+      value.trim() !== '' &&
+      retentionLength(item.key, value) < retentionLength(item.key, item.value) ? (
         <p role="status" className="text-sm text-warning-foreground">
           {t('console.settings.value_change', {
             current: item.value,

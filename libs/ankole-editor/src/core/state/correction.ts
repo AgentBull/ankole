@@ -10,7 +10,15 @@ enum CorrectionEvent {
 
 type PlanElt = { node: Pos.Node; correction: Correction }
 
-function scanChanges(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Correction[]) {
+// The number of parent levels above the start of the range that the range leaves in `doc`. A change
+// that replaces the range also changes the child lists of the plots at those levels.
+function rangeClimb(doc: Plot.Doc, from: number, to: number) {
+  let climb = 0
+  for (let parent = doc.resolve(from).parent; parent.parent && to > parent.end; parent = parent.parent) climb++
+  return climb
+}
+
+function scanChanges(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Correction[], startDoc?: Plot.Doc) {
   const childList: Correction[] = [],
     content: Correction[] = [],
     marks: Correction[] = []
@@ -18,7 +26,9 @@ function scanChanges(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Co
   for (const c of corrections) buckets[c.event]!.push(c)
 
   const plan: PlanElt[] = []
+  // Plots checked for content corrections, and plots checked for child-list corrections
   const queried: Set<number> = new Set(),
+    childListQueried: Set<number> = new Set(),
     newNode = childList.concat(content)
   let updateWalker: Pos.Walker | undefined
   const { schema } = doc
@@ -56,6 +66,7 @@ function scanChanges(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Co
   const changeWalker: Pos.Walker = {
     enterPlot(node, pos, parent, index) {
       queried.add(pos)
+      childListQueried.add(pos)
       this.skip(node, pos, parent, index)
     },
     skip(node, pos, parent, index) {
@@ -71,18 +82,20 @@ function scanChanges(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Co
   }
 
   let pos = doc.resolve(0)
-  for (let i = 0, { sections } = changes; i < sections.length;) {
+  for (let i = 0, posA = 0, { sections } = changes; i < sections.length;) {
     let len = sections[i++]!,
       ins = sections[i++]!
     if (ins == -1 || (ins == -2 && !updateWalker)) {
       if (i == sections.length) break
       pos = pos.advance(len)
+      posA += len
     } else if (ins == -2) {
       while (i < sections.length && sections[i + 1] == -2) {
         len += sections[i++]!
         i++
       }
       pos = pos.walk(len, updateWalker!)
+      posA += len
     } else {
       while (i < sections.length && sections[i + 1]! >= 0) {
         len += sections[i++]!
@@ -90,17 +103,30 @@ function scanChanges(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Co
       }
       const start = pos.pos,
         end = start + ins
+      // A deletion that joins blocks can show as a change in one text block of `doc`. The child
+      // lists of the plots that the deleted range left in the start document changed too.
+      let climb = startDoc && len ? rangeClimb(startDoc, posA, posA + len) : 0
+      posA += len
       for (let checkChildList = childList!.length > 0, parent = pos.parent; ;) {
-        if (queried.has(parent.start - 1)) break
-        queried.add(parent.start - 1)
+        const key = parent.start - 1,
+          seen = queried.has(key)
+        // An earlier change checked this plot and its ancestors, but maybe not the child lists that
+        // this change still has to check
+        if (seen && !checkChildList) break
         if (checkChildList) {
-          for (const correction of childList!) {
+          if (!childListQueried.has(key)) {
+            childListQueried.add(key)
+            for (const correction of childList!) {
+              if (schema.matchNode(parent.node.type, correction.query)) plan.push({ node: parent, correction })
+            }
+          }
+          if (start >= parent.start && end <= parent.end && climb-- <= 0) checkChildList = false
+        }
+        if (!seen) {
+          queried.add(key)
+          for (const correction of content!) {
             if (schema.matchNode(parent.node.type, correction.query)) plan.push({ node: parent, correction })
           }
-          if (start >= parent.start && end <= parent.end) checkChildList = false
-        }
-        for (const correction of content!) {
-          if (schema.matchNode(parent.node.type, correction.query)) plan.push({ node: parent, correction })
         }
         if (!parent.parent || (!content!.length && !checkChildList)) break
         parent = parent.parent
@@ -157,7 +183,12 @@ export class Correction {
   extend(tr: Transaction) {
     if (!tr.docChanged || tr.annotation(Transaction.remote)) return null
     let plan = planCache.get(tr)
-    if (!plan) planCache.set(tr, (plan = scanChanges(tr.changes, tr.newDoc, tr.startState.facet(corrections))))
+    if (!plan) {
+      planCache.set(
+        tr,
+        (plan = scanChanges(tr.changes, tr.newDoc, tr.startState.facet(corrections), tr.startState.doc))
+      )
+    }
     const changes: ChangeSet.Spec[] = []
     for (const elt of plan) {
       if (elt.correction == this) {
@@ -216,11 +247,13 @@ export class Correction {
    * given list of corrections. Return a change set if any changes
    * need to be made. (This isn't how you normally use corrections,
    * but can be useful in a situation where you aren't working with
-   * an editor state transaction.)
+   * an editor state transaction.) Pass the document before the
+   * changes as `startDoc` so that a deletion that joined blocks
+   * also checks the plots that it left.
    */
-  static check(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Correction[]) {
+  static check(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Correction[], startDoc?: Plot.Doc) {
     if (!corrections.length || changes.empty) return null
-    const plan = scanChanges(changes, doc, corrections),
+    const plan = scanChanges(changes, doc, corrections, startDoc),
       changed: ChangeSet.Spec[] = []
     for (const c of corrections) {
       for (const elt of plan) {

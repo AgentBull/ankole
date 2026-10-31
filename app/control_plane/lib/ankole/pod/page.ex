@@ -63,7 +63,7 @@ defmodule Ankole.Pod.Page do
       public?: true,
       allow_nil?: false,
       default: "",
-      constraints: [trim?: false, allow_empty?: true]
+      constraints: [trim?: false, allow_empty?: true, max_length: 255]
     )
 
     attribute(:icon, :string, public?: true, constraints: [trim?: false, allow_empty?: true])

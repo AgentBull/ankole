@@ -46,7 +46,9 @@ export const DocumentToolsModel = createModel((draft: InstanceType<typeof PageDr
     return clearTimer
   })
 
-  const plainText = computed(() => (showStats.value ? documentPlainText(debouncedXml.value) : ''))
+  const plainText = computed(() =>
+    showStats.value ? documentPlainText(debouncedXml.value, { omitResources: true }) : ''
+  )
   const stats = computed(() => {
     if (!showStats.value) return { words: 0, characters: 0, paragraphs: 0, readingTime: 0 }
     return textStats(selectedText.value || plainText.value)

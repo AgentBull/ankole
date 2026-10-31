@@ -43,6 +43,18 @@ const valueHints: Record<string, string> = {
 // Empty values of these attributes show nothing and equal a missing attribute.
 const optionalText = new Set(['alt', 'lang', 'meta', 'style', 'title'])
 
+// A style keeps only declarations that change the look of text in place. Others, such as
+// `position: fixed`, could cover the page for every reader.
+const keptStyles = new Set(['color', 'background-color', 'text-transform'])
+
+export function keptStyle(style: string): string {
+  const declarations = style.split(';').filter(declaration => declaration.trim())
+  const kept = declarations.filter(declaration =>
+    keptStyles.has(/^\s*([a-z-]+)\s*:/i.exec(declaration)?.[1]!.toLowerCase() ?? '')
+  )
+  return kept.length === declarations.length ? style : kept.map(declaration => declaration.trim()).join('; ')
+}
+
 type Count = { nodes: number }
 type Atom = { value?: string; node?: Element; marks: Mark[]; style: string; link: Element | null; comments: string[] }
 
@@ -103,10 +115,11 @@ function normalizeAttributes(node: Element, rule: ElementRule | undefined): Reco
   }
   if (node.name === 'page' && entries.length) throw new TreeError('page 没有属性', node, '页面标题等信息不写在正文里。')
   const kept: [string, string][] = []
-  for (const [key, value] of entries) {
+  for (const [key, raw] of entries) {
     checkAttributeName(key, node)
-    checkCharacters(value, node)
+    checkCharacters(raw, node)
     const known = rule && Object.hasOwn(rule.attributes, key)
+    const value = known && key === 'style' ? keptStyle(raw) : raw
     const pattern = known ? rule.attributes[key] : null
     if (pattern && !pattern.test(value)) {
       throw new TreeError(
@@ -320,8 +333,8 @@ function flatten(
       )
     } else if (child.name === 'span' && Object.keys(child.attrs).every(key => key === 'style')) {
       count(child, depth, state)
-      const style = child.attrs.style ?? ''
-      checkCharacters(style, child)
+      checkCharacters(child.attrs.style ?? '', child)
+      const style = keptStyle(child.attrs.style ?? '')
       flatten(
         child.children,
         { ...context, style: joinStyle(context.style, style) },
@@ -387,9 +400,14 @@ const decorated = (atom: Atom) =>
   atom.marks.some(mark => mark === 'code' || mark === 'u' || mark === 's' || mark === 'mark')
 
 function neighbour(atoms: Atom[], index: number, own: string, direction: 1 | -1): string | null {
+  // Scan from the edge only: a text with many line breaks would make a full scan quadratic.
   const edge = (value: string, spaceVisible: boolean) => {
-    const characters = [...(spaceVisible ? value : value.replace(/[ \t\r\n]/g, ''))]
-    return direction < 0 ? characters.at(-1) : characters[0]
+    for (let i = direction < 0 ? value.length - 1 : 0; i >= 0 && i < value.length; i += direction) {
+      if (!spaceVisible && /[ \t\r\n]/.test(value[i]!)) continue
+      const pair = direction < 0 && i > 0 ? value.codePointAt(i - 1)! : 0
+      return String.fromCodePoint(pair > 0xffff ? pair : value.codePointAt(i)!)
+    }
+    return undefined
   }
   const found = edge(own, false)
   if (found) return found

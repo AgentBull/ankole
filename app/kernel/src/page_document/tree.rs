@@ -432,6 +432,34 @@ struct Atom {
     node: Option<Element>,
     context: Context,
 }
+/// A style keeps only declarations that change the look of text in place. A value with only kept
+/// declarations stays as written, so stored pages keep their canonical form.
+pub(super) fn kept_style(style: &str) -> String {
+    let declarations: Vec<&str> = style
+        .split(';')
+        .filter(|declaration| !declaration.trim_matches(js_whitespace).is_empty())
+        .collect();
+    let kept: Vec<&str> = declarations
+        .iter()
+        .copied()
+        .filter(|declaration| {
+            let name = declaration
+                .split_once(':')
+                .map_or("", |(name, _)| name.trim_matches(js_whitespace));
+            ["color", "background-color", "text-transform"]
+                .iter()
+                .any(|kept| name.eq_ignore_ascii_case(kept))
+        })
+        .collect();
+    if kept.len() == declarations.len() {
+        style.into()
+    } else {
+        kept.iter()
+            .map(|declaration| declaration.trim_matches(js_whitespace))
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+}
 pub(super) fn join_style(outer: &str, inner: &str) -> String {
     if outer.trim_matches(js_whitespace).is_empty() {
         inner.into()
@@ -512,7 +540,7 @@ fn flatten(
             let mut next = context.clone();
             next.style = join_style(
                 &context.style,
-                node.attrs.get("style").map_or("", String::as_str),
+                &kept_style(node.attrs.get("style").map_or("", String::as_str)),
             );
             flatten(node.children, &next, out, parent, depth + 1, size)?;
         } else if node.name == "a" {
