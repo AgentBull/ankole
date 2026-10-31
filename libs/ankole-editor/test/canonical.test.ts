@@ -36,6 +36,11 @@ describe('canonical Markdown', () => {
       '<span style="position:fixed;inset:0;z-index:9">a</span> <span style="COLOR:red; margin: 0">b</span>\n\n<p style="background-color: #fff; top: 0">c</p>',
       'a <span style="COLOR:red">b</span>\n\n<p style="background-color: #fff">c</p>'
     ],
+    [
+      'a style comment does not hide a kept declaration',
+      '<span style="color:red; /* note */ background-color:blue; margin:0">a</span> <span style="color:red; /* open">b</span>',
+      '<span style="color:red; background-color:blue">a</span> <span style="color:red; /* open">b</span>'
+    ],
     ['soft breaks beside characters outside the BMP', '𠀀\n𠀁 a😀\nb', '𠀀𠀁 a😀 b'],
     ['formats as Markdown where Markdown has syntax', '<strong>x</strong> <em>y</em> <s>z</s>', '**x** *y* ~~z~~'],
     ['white space at an emphasis edge', '<strong>bold </strong>after', '**bold** after'],

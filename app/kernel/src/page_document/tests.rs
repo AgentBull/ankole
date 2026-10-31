@@ -9,6 +9,24 @@ fn corpus() -> Value {
 }
 
 #[test]
+fn kept_style_ignores_css_comments() {
+    for (style, kept) in [
+        (
+            "color:red; /* note */ background-color:blue; margin:0",
+            "color:red; background-color:blue",
+        ),
+        (
+            "color:red; /* note */ background-color:blue",
+            "color:red; /* note */ background-color:blue",
+        ),
+        ("color:red; /* open", "color:red; /* open"),
+        ("/* only */ margin:0", ""),
+    ] {
+        assert_eq!(tree::kept_style(style), kept, "{style}");
+    }
+}
+
+#[test]
 fn span_marks_follow_xml_attribute_limits() {
     for name in ["ColSpan", "RowSpan"] {
         for value in [0, 10_000] {

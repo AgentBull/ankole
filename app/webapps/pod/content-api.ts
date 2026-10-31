@@ -134,8 +134,20 @@ export async function podRequest<T>(path: string, method = 'GET', body?: unknown
 }
 
 const pagePath = (id: string) => `/pages/${encodeURIComponent(id)}`
-/** The control plane rejects longer Page titles. */
-export const pageTitleMaxLength = 255
+const pageTitleMaxLength = 255
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+/**
+ * The control plane rejects a Page title longer than 255 characters, and it counts the characters
+ * that people see (grapheme clusters). An input `maxLength` counts UTF-16 units instead.
+ */
+export function limitPageTitle(title: string): string {
+  let count = 0
+  for (const { index } of graphemes.segment(title)) {
+    if (count++ === pageTitleMaxLength) return title.slice(0, index)
+  }
+  return title
+}
 
 export const pageAPI = {
   viewers: (id: string, cursor?: string, signal?: AbortSignal) =>

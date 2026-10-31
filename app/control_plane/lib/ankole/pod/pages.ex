@@ -166,10 +166,12 @@ defmodule Ankole.Pod.Pages do
           else: page.updated_at
 
       with :ok <- record_document_edit(page, changes, actor, now) do
+        # An unchanged value is not sent, so a legacy title above the length limit allows icon edits.
         Ankole.Ash.update(
           page,
           :edit,
           changes
+          |> Map.filter(fn {key, value} -> Map.fetch!(page, key) != value end)
           |> Map.put(:children_view, children_view)
           |> Map.put(:updated_at, updated_at)
         )

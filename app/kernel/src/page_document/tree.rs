@@ -435,7 +435,8 @@ struct Atom {
 /// A style keeps only declarations that change the look of text in place. A value with only kept
 /// declarations stays as written, so stored pages keep their canonical form.
 pub(super) fn kept_style(style: &str) -> String {
-    let declarations: Vec<&str> = style
+    let uncommented = without_css_comments(style);
+    let declarations: Vec<&str> = uncommented
         .split(';')
         .filter(|declaration| !declaration.trim_matches(js_whitespace).is_empty())
         .collect();
@@ -460,6 +461,21 @@ pub(super) fn kept_style(style: &str) -> String {
             .join("; ")
     }
 }
+
+// A CSS comment, closed or open to the end, is not part of a declaration name.
+fn without_css_comments(style: &str) -> String {
+    let mut out = String::new();
+    let mut rest = style;
+    while let Some(start) = rest.find("/*") {
+        out.push_str(&rest[..start]);
+        rest = rest[start + 2..]
+            .find("*/")
+            .map_or("", |end| &rest[start + 2 + end + 2..]);
+    }
+    out.push_str(rest);
+    out
+}
+
 pub(super) fn join_style(outer: &str, inner: &str) -> String {
     if outer.trim_matches(js_whitespace).is_empty() {
         inner.into()

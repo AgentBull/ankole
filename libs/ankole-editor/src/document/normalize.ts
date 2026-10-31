@@ -48,7 +48,11 @@ const optionalText = new Set(['alt', 'lang', 'meta', 'style', 'title'])
 const keptStyles = new Set(['color', 'background-color', 'text-transform'])
 
 export function keptStyle(style: string): string {
-  const declarations = style.split(';').filter(declaration => declaration.trim())
+  // A CSS comment, closed or open to the end, is not part of a declaration name.
+  const declarations = style
+    .replace(/\/\*[\s\S]*?(\*\/|$)/g, '')
+    .split(';')
+    .filter(declaration => declaration.trim())
   const kept = declarations.filter(declaration =>
     keptStyles.has(/^\s*([a-z-]+)\s*:/i.exec(declaration)?.[1]!.toLowerCase() ?? '')
   )
