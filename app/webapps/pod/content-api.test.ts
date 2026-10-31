@@ -18,6 +18,14 @@ test('an edit over the limit keeps the existing title and shortens only the inse
   expect(limitPageTitle(`a${family.repeat(2)}${previous.slice(1)}`, previous)).toBe(`a${family}${previous.slice(1)}`)
 })
 
+test('an edit keeps the previous title when no whole inserted character fits', () => {
+  // A zero-width joiner after the existing man emoji would join a family that no longer fits
+  const man = `${'a'.repeat(253)}👨`
+  expect(limitPageTitle(`${man}\u200d👩`, man)).toBe(man)
+  const full = `${'a'.repeat(251)}test`
+  expect(limitPageTitle(`${'a'.repeat(251)}👨‍👩‍👧`, full)).toBe(full)
+})
+
 test('a legacy title above the limit can still lose text', () => {
   const legacy = 'a'.repeat(300)
   expect(limitPageTitle(legacy.slice(1), legacy)).toBe(legacy.slice(1))

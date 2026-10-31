@@ -140,7 +140,8 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 /**
  * The control plane rejects a Page title longer than 255 code points, while an input `maxLength`
  * counts UTF-16 units and can split a character. Like `maxLength`, this function keeps the text
- * around an edit of `previous` and shortens only the inserted text, whole grapheme clusters at a time.
+ * around an edit of `previous` and shortens only the inserted text, at a grapheme cluster boundary of
+ * the edited title. When no inserted grapheme cluster fits, it keeps `previous`.
  */
 export function limitPageTitle(title: string, previous = ''): string {
   const next = [...title]
@@ -150,14 +151,15 @@ export function limitPageTitle(title: string, previous = ''): string {
   while (start < before.length && next[start] === before[start]) start++
   let end = 0
   while (end < Math.min(before.length, next.length) - start && next.at(-1 - end) === before.at(-1 - end)) end++
-  let room = pageTitleMaxLength - start - end
-  let inserted = ''
-  for (const { segment } of graphemes.segment(next.slice(start, next.length - end).join(''))) {
-    room -= [...segment].length
-    if (room < 0) break
-    inserted += segment
+  // Deleting text from a legacy title above the limit inserts nothing
+  if (start + end === next.length) return title
+  let cut = start
+  let offset = 0
+  for (const { segment } of graphemes.segment(title)) {
+    if (offset > start && offset <= pageTitleMaxLength - end) cut = offset
+    offset += [...segment].length
   }
-  return next.slice(0, start).join('') + inserted + next.slice(next.length - end).join('')
+  return cut === start ? previous : next.slice(0, cut).join('') + next.slice(next.length - end).join('')
 }
 
 export const pageAPI = {
