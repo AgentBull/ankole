@@ -73,6 +73,9 @@ test('Word list paragraphs paste as nested bullet and numbered lists', async ({ 
       '<p class=MsoNormal>Han</p>',
       item('l3', 1, '一、', '甲'),
       item('l3', 1, '二、', '乙'),
+      '<p class=MsoNormal>Later</p>',
+      item('l4', 1, '(4)', 'Four'),
+      item('l4', 1, '(5)', 'Five'),
       '<p class=MsoNormal>Outro</p>',
       '</body></html>'
     ].join(''),
@@ -80,7 +83,7 @@ test('Word list paragraphs paste as nested bullet and numbered lists', async ({ 
   })
   await expectMarkdown(
     page,
-    'Intro\n\n- First **bold**\n  - Nested\n- Second\n\n1. Step one\n2. Step two\n\nMiddle\n\n1. Paren one\n2. Paren two\n\nHan\n\n1. 甲\n2. 乙\n\nOutro'
+    'Intro\n\n- First **bold**\n  - Nested\n- Second\n\n1. Step one\n2. Step two\n\nMiddle\n\n1. Paren one\n2. Paren two\n\nHan\n\n1. 甲\n2. 乙\n\nLater\n\n4. Four\n5. Five\n\nOutro'
   )
 })
 

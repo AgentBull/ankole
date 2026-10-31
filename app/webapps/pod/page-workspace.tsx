@@ -66,7 +66,7 @@ import {
   pageQuery,
   pageCommentSummaryQuery,
   pagesQuery,
-  pageTitleMaxLength,
+  limitPageTitle,
   type PageDetail
 } from './content-api'
 
@@ -646,12 +646,13 @@ function PageWorkspace({
                     ref={titleInput}
                     aria-label={t('pod.content.page_title')}
                     rows={1}
-                    maxLength={pageTitleMaxLength}
                     value={model.title.value}
                     autoFocus={(page.type === 'doc' || page.type === 'base') && !page.title && !chat}
                     disabled={remove.isPending || accessDenied}
                     placeholder={t('pod.content.untitled')}
-                    onChange={event => (model.title.value = event.target.value.replace(/\n/g, ' '))}
+                    onChange={event =>
+                      (model.title.value = limitPageTitle(event.target.value.replace(/\n/g, ' '), model.title.value))
+                    }
                     onCompositionStart={() => setTitleComposing(true)}
                     onCompositionEnd={() => setTitleComposing(false)}
                     onKeyDown={event => {

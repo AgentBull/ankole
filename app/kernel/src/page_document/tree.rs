@@ -435,7 +435,8 @@ struct Atom {
 /// A style keeps only declarations that change the look of text in place. A value with only kept
 /// declarations stays as written, so stored pages keep their canonical form.
 pub(super) fn kept_style(style: &str) -> String {
-    let declarations: Vec<&str> = style
+    let (uncommented, open) = without_css_comments(style);
+    let declarations: Vec<&str> = uncommented
         .split(';')
         .filter(|declaration| !declaration.trim_matches(js_whitespace).is_empty())
         .collect();
@@ -451,7 +452,7 @@ pub(super) fn kept_style(style: &str) -> String {
                 .any(|kept| name.eq_ignore_ascii_case(kept))
         })
         .collect();
-    if kept.len() == declarations.len() {
+    if kept.len() == declarations.len() && !open {
         style.into()
     } else {
         kept.iter()
@@ -460,6 +461,23 @@ pub(super) fn kept_style(style: &str) -> String {
             .join("; ")
     }
 }
+
+// A CSS comment, closed or open to the end, is not part of a declaration name. An open comment
+// would hide a style joined after it, so the caller rewrites a style with one.
+fn without_css_comments(style: &str) -> (String, bool) {
+    let mut out = String::new();
+    let mut rest = style;
+    while let Some(start) = rest.find("/*") {
+        out.push_str(&rest[..start]);
+        match rest[start + 2..].find("*/") {
+            Some(end) => rest = &rest[start + 2 + end + 2..],
+            None => return (out, true),
+        }
+    }
+    out.push_str(rest);
+    (out, false)
+}
+
 pub(super) fn join_style(outer: &str, inner: &str) -> String {
     if outer.trim_matches(js_whitespace).is_empty() {
         inner.into()

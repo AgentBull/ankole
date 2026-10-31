@@ -29,9 +29,15 @@ defmodule Ankole.Pod.PagesTest do
              Pages.update(actor, page.id, %{title: "First title", expected_title: ""})
   end
 
-  test "a Page title holds at most 255 characters", ctx do
+  test "a Page title holds at most 255 code points", ctx do
     actor = actor_fixture(ctx.owner)
     longest = String.duplicate("标", 255)
+    # An accented letter is one character of two code points, which the Pod client also counts
+    accented = String.duplicate("e\u0301", 127)
+
+    assert {:error, _} = Pages.create(actor, %{title: accented <> "e\u0301"})
+    assert {:ok, %{title: title}} = Pages.create(actor, %{title: accented <> "e"})
+    assert title == accented <> "e"
 
     assert {:error, _} = Pages.create(actor, %{title: longest <> "x"})
     assert {:ok, page} = Pages.create(actor, %{title: longest})
@@ -42,6 +48,19 @@ defmodule Ankole.Pod.PagesTest do
 
     assert {:ok, %{title: "Short"}} =
              Pages.update(actor, page.id, %{title: "Short", expected_title: longest})
+  end
+
+  test "a legacy title above 255 characters stays while the icon changes", ctx do
+    actor = actor_fixture(ctx.owner)
+    {:ok, page} = Pages.create(actor, %{title: "Legacy"})
+    legacy = String.duplicate("标", 300)
+
+    Ankole.Repo.query!("UPDATE pages SET title = $1 WHERE id = $2", [
+      legacy,
+      Ecto.UUID.dump!(page.id)
+    ])
+
+    assert {:ok, %{title: ^legacy, icon: "📌"}} = Pages.update(actor, page.id, %{icon: "📌"})
   end
 
   test "moving the first Space page into Private establishes its owner's access", ctx do

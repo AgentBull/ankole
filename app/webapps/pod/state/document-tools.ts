@@ -72,7 +72,9 @@ export function documentAssets(xml: string): string[] {
 export function documentMarkdown(xml: string, title: string, projection: DocumentProjection = {}): string {
   const page = walkDocument(xml, node => {
     const asset = assetSource(node)
-    if (asset && projection.resolveAsset) node.attrs[asset[0]] = projection.resolveAsset(asset[1])
+    // A resolved file address follows its link text or image, as a page link's address does.
+    const resolved = asset && projection.resolveAsset ? projection.resolveAsset(asset[1]) : null
+    if (asset && resolved) node.attrs[asset[0]] = resolved
     if (node.name === 'a' && node.attrs.href?.startsWith('ankole:page/')) {
       const reference = projection.resolveReference?.(node.attrs.href.slice('ankole:page/'.length))
       if (reference) node.attrs.href = reference.href
@@ -192,7 +194,9 @@ function plainTextNodes(nodes: DocumentNode[], projection: DocumentProjection): 
     }
     if (node.name === 'br') text += '\n'
     const asset = assetSource(node)
-    if (asset && projection.resolveAsset) node.attrs[asset[0]] = projection.resolveAsset(asset[1])
+    // A resolved file address follows its link text or image, as a page link's address does.
+    const resolved = asset && projection.resolveAsset ? projection.resolveAsset(asset[1]) : null
+    if (asset && resolved) node.attrs[asset[0]] = resolved
     const resource = projection.omitResources ? null : resourceText(node)
     if (resource !== null) {
       if (!firstBlock) text += '\n'
@@ -201,6 +205,7 @@ function plainTextNodes(nodes: DocumentNode[], projection: DocumentProjection): 
     }
     if (node.name === 'img' && !projection.omitResources) {
       text += node.attrs.alt ? `(image: ${node.attrs.alt})` : '(image)'
+      if (resolved) text += ` (${resolved})`
     }
     if (node.name === 'mention' && node.attrs.page) {
       const reference = projection.resolveReference?.(node.attrs.page)
@@ -221,6 +226,7 @@ function plainTextNodes(nodes: DocumentNode[], projection: DocumentProjection): 
       }
     }
     node.children.forEach(visit)
+    if (node.name === 'a' && resolved && !projection.omitResources) text += ` (${resolved})`
     if (node.name === 'a' && node.attrs.href?.startsWith('ankole:page/')) {
       const reference = projection.resolveReference?.(node.attrs.href.slice('ankole:page/'.length))
       if (reference) text += ` (${reference.href})`

@@ -8,7 +8,7 @@ import { Link } from '@tanstack/react-router'
 import type { ConversationMessage } from './api'
 import { podKeys, type ConversationAttachment } from './api'
 import { podLocation } from '../common/browser-context'
-import { pageAPI, pageQuery, pageSearchQuery, pageTitleMaxLength, type Page, type PageDetail } from './content-api'
+import { limitPageTitle, pageAPI, pageQuery, pageSearchQuery, type Page, type PageDetail } from './content-api'
 import { pageCreated } from './state/navigation-cache'
 import { ContentError } from './content-primitives'
 import { PagePicker } from './page-picker'
@@ -196,9 +196,8 @@ export function SaveMessageButton({
           <span>{t('pod.content.page_title')}</span>
           <Input
             autoFocus
-            maxLength={pageTitleMaxLength}
             value={title}
-            onChange={event => setTitle(event.target.value)}
+            onChange={event => setTitle(limitPageTitle(event.target.value, title))}
             disabled={save.isPending}
           />
         </label>

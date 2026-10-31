@@ -48,11 +48,17 @@ const optionalText = new Set(['alt', 'lang', 'meta', 'style', 'title'])
 const keptStyles = new Set(['color', 'background-color', 'text-transform'])
 
 export function keptStyle(style: string): string {
-  const declarations = style.split(';').filter(declaration => declaration.trim())
+  // A CSS comment, closed or open to the end, is not part of a declaration name. An open comment
+  // would hide a style joined after it, so a style with one is rewritten.
+  let open = false
+  const declarations = style
+    .replace(/\/\*[\s\S]*?(\*\/|$)/g, (_, close: string) => ((open ||= !close), ''))
+    .split(';')
+    .filter(declaration => declaration.trim())
   const kept = declarations.filter(declaration =>
     keptStyles.has(/^\s*([a-z-]+)\s*:/i.exec(declaration)?.[1]!.toLowerCase() ?? '')
   )
-  return kept.length === declarations.length ? style : kept.map(declaration => declaration.trim()).join('; ')
+  return kept.length === declarations.length && !open ? style : kept.map(declaration => declaration.trim()).join('; ')
 }
 
 type Count = { nodes: number }

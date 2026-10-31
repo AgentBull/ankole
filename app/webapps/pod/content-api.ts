@@ -134,8 +134,32 @@ export async function podRequest<T>(path: string, method = 'GET', body?: unknown
 }
 
 const pagePath = (id: string) => `/pages/${encodeURIComponent(id)}`
-/** The control plane rejects longer Page titles. */
-export const pageTitleMaxLength = 255
+const pageTitleMaxLength = 255
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+/**
+ * The control plane rejects a Page title longer than 255 code points, while an input `maxLength`
+ * counts UTF-16 units and can split a character. Like `maxLength`, this function keeps the text
+ * around an edit of `previous` and shortens only the inserted text, at a grapheme cluster boundary of
+ * the edited title. When no inserted grapheme cluster fits, it keeps `previous`.
+ */
+export function limitPageTitle(title: string, previous = ''): string {
+  const next = [...title]
+  if (next.length <= pageTitleMaxLength) return title
+  const before = [...previous]
+  let start = 0
+  while (start < before.length && next[start] === before[start]) start++
+  let end = 0
+  while (end < Math.min(before.length, next.length) - start && next.at(-1 - end) === before.at(-1 - end)) end++
+  // Deleting text from a legacy title above the limit inserts nothing
+  if (start + end === next.length) return title
+  const boundaries = [0]
+  for (const { segment } of graphemes.segment(title)) boundaries.push(boundaries.at(-1)! + [...segment].length)
+  // The kept text after the edit starts at a grapheme cluster boundary
+  end = next.length - boundaries.find(boundary => boundary >= next.length - end)!
+  const cut = boundaries.findLast(boundary => boundary > start && boundary <= pageTitleMaxLength - end) ?? start
+  return cut === start ? previous : next.slice(0, cut).join('') + next.slice(next.length - end).join('')
+}
 
 export const pageAPI = {
   viewers: (id: string, cursor?: string, signal?: AbortSignal) =>

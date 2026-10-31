@@ -56,7 +56,7 @@ import {
   pagesQuery,
   pageChildrenQuery,
   cachedPages,
-  pageTitleMaxLength,
+  limitPageTitle,
   type Page,
   type NavigationPage
 } from './content-api'
@@ -874,12 +874,11 @@ export function PageRenameField({
         variant="inline"
         className={cn('pod-tree-rename', className)}
         aria-label={t('pod.sidebar.rename_label', { title: page.title || t('pod.content.untitled') })}
-        maxLength={pageTitleMaxLength}
         value={value}
         disabled={rename.isPending}
         placeholder={t('pod.content.untitled')}
         onFocus={event => event.currentTarget.select()}
-        onChange={event => setValue(event.target.value)}
+        onChange={event => setValue(limitPageTitle(event.target.value, value))}
         onBlur={() => submit(false)}
         onKeyDown={event => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return

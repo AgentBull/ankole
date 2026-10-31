@@ -43,6 +43,9 @@ function listsFrom(doc: Document, run: HTMLElement[]): Node[] {
     lists.length = level
     if (!lists[level - 1]) {
       const list = doc.createElement(orderedMarker.test(marker) ? 'ol' : 'ul')
+      // A list that a Word selection starts at `4.` or `(4)` keeps that number.
+      const first = /^\s*[(（]?(\d{1,9})[.)）、．]/.exec(marker)?.[1]
+      if (list.localName === 'ol' && first && Number(first) !== 1) list.setAttribute('start', String(Number(first)))
       const parent = level === 1 ? root : lists[level - 2]!.lastElementChild
       ;(parent ?? root).append(list)
       lists[level - 1] = list

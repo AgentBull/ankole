@@ -102,7 +102,7 @@ Normalization (`N`) strips only differences that are invisible to a reader: if t
 
 - `N` sorts attributes by name in Unicode code-point order.
 - If a known attribute has a value outside those permitted in section 2, `N` reports an error.
-- In a `style` value, `N` keeps only the `color`, `background-color`, and `text-transform` declarations. `N` drops every other declaration instead of reporting an error, so a stored page with other styles still opens. A value with only kept declarations stays as written; otherwise `N` joins the kept declarations with `; `, and a value with none of them is empty.
+- In a `style` value, `N` keeps only the `color`, `background-color`, and `text-transform` declarations. `N` drops every other declaration instead of reporting an error, so a stored page with other styles still opens. A value with only kept declarations and no unclosed `/*` comment stays as written; otherwise `N` joins the kept declarations with `; `, and a value with none of them is empty.
 - When the vocabulary declares `alt`, `title`, `lang`, `meta`, or `style` on an element and its value is `""`, `N` drops the attribute. `N` also drops `start="1"` on `ol`, `width="1000"` on `column`, `colspan="1"` and `rowspan="1"` on `th` and `td`, and `view="both"` and `theme="auto"` on `mermaid`.
 - Missing a required attribute on an element is an error.
 
@@ -599,7 +599,7 @@ Body text keeps a 28px line because CJK text needs more leading than Latin text;
   - For browser-applied edits—plain typing, composition updates, and inline deletes—the editor defers DOM re-rendering between `beforeinput` and `input`; any layout measurement during that window observes the previous render.
 - **Paste and copy**:
   - Pasting HTML preserves headings, flat and nested lists, quotes, tables, task items (`aria-checked` or GitHub task-list markup), code blocks (`data-language`), links (`href`, `title`), and images (`src`, `alt`, `title`).
-  - Microsoft Word list paragraphs (`mso-list` styles) become nested lists: the `mso-list` level sets the nesting, a new list id starts a new list, a numbered or lettered marker makes the list numbered, and the typed marker text is removed.
+  - Microsoft Word list paragraphs (`mso-list` styles) become nested lists: the `mso-list` level sets the nesting, a new list id starts a new list, a numbered or lettered marker makes the list numbered, a first number other than 1 becomes the list's `start`, and the typed marker text is removed.
   - Inline formatting recognizes vocabulary format tags plus `<b>`, `<i>`, `<del>`, and `<strike>`; CSS `font-weight` maps to bold only for `bold` and `700`.
   - Inline styles retain only `text-transform` and alignment (`data-align` or `text-align`, ignoring `start` and mapping `end` to `right`); all other inline styles and all block styles are stripped.
   - Callouts and embeds are recognized from HTML only in the exact markup written by the editor.
