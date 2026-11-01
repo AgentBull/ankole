@@ -3,7 +3,8 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
   @moduletag sandbox: false
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Pod.{Access, Bases, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Bases, Pages}
 
   setup %{tenant: tenant} do
     owner = human_fixture().principal
@@ -20,7 +21,13 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
 
     {:ok, group} = Access.space_group()
     for grant <- Access.grants(group_id: group.id), do: AuthZ.delete_permission_grant(grant.id)
-    [grant] = Access.grants(principal_uid: viewer.uid)
+
+    [grant] =
+      Access.grants(
+        principal_uid: viewer.uid,
+        resource_pattern: "tenant_console:**",
+        action: "update"
+      )
 
     on_exit(fn ->
       Repo.with_tenant(tenant.id, fn ->
@@ -87,7 +94,8 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
     assert {:ok, _} = Repo.transact(fn -> revoker.() end)
     send(pid, :continue)
     assert {:error, :forbidden} = Task.await(mover, 5_000)
-    assert {:ok, %{parent_id: nil}} = Pages.fetch(source.id)
+    assert {:ok, unchanged} = Pages.fetch(source.id)
+    assert unchanged.parent_id == source.parent_id
   end
 
   for revocation <- [:wildcard, :membership] do
@@ -302,7 +310,7 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
       Ankole.SessionsCase.agent_fixture(%{worker_provider_id: worker_provider.provider_id}).principal
 
     assert {:ok, %{"provider_id" => model_provider_id}} =
-             Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "primary")
+             Ankole.AIGateway.ModelProfiles.get_model_profile(agent.uid, "primary")
 
     on_exit(fn ->
       Ankole.SessionsCase.stop_new_drivers(drivers)

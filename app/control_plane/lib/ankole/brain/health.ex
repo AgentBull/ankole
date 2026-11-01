@@ -21,9 +21,7 @@ defmodule Ankole.Brain.Health do
 
   @internal_error "internal_error"
   @public_reasons ~w(
-    not_found provider_disabled invalid_embedding_model_ref
-    brain_maintainer_agent_not_configured brain_maintainer_agent_disabled agent_not_found
-    invalid_model_profile
+    not_found provider_disabled invalid_embedding_model_ref invalid_model_profile
   )
 
   @doc """
@@ -33,12 +31,11 @@ defmodule Ankole.Brain.Health do
   def snapshot do
     %{
       enabled: safe(fn -> Config.enabled?() end, false),
-      maintainer_agent_uid: safe(fn -> Config.maintainer_agent_uid() end, nil),
       config: config_statuses(),
       search_indexes: Ankole.Brain.SearchIndexes.configuration_status(),
       models: %{
         embedding: model_status(safe(fn -> Config.embedding_model() end, nil)),
-        rerank: model_status(safe(fn -> Config.rerank_model() end, nil)),
+        rerank: profile_model_status("rerank"),
         web_fetch: profile_model_status("web_fetch"),
         extraction: profile_model_status("light"),
         dreaming: profile_model_status("heavy")
@@ -141,7 +138,7 @@ defmodule Ankole.Brain.Health do
   end
 
   defp profile_model_status(profile) do
-    case safe(fn -> Config.maintainer_model_profile(profile) end, {:error, :internal_error}) do
+    case safe(fn -> Config.effective_model_profile(profile) end, {:error, :internal_error}) do
       {:ok, model} ->
         model
         |> model_status()
@@ -154,7 +151,7 @@ defmodule Ankole.Brain.Health do
         %{
           configured: false,
           profile: profile,
-          profile_error: public_reason(reason, "maintainer_profile")
+          profile_error: public_reason(reason, "model_profile")
         }
     end
   end

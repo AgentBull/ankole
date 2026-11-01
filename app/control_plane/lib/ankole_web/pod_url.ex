@@ -16,6 +16,34 @@ defmodule AnkoleWeb.PodURL do
     end
   end
 
+  def tenant_origin(%Tenants.Tenant{} = tenant) do
+    if @host_policy do
+      apply(@host_policy, :pod_origin, [tenant])
+    else
+      uri = URI.parse(AnkoleWeb.Endpoint.url())
+
+      URI.to_string(%URI{
+        scheme: uri.scheme || "http",
+        host: tenant.slug <> "." <> domain(),
+        port: uri.port
+      })
+    end
+  end
+
+  def current_tenant_url(path) when is_binary(path) do
+    normalized_path = if String.starts_with?(path, "/"), do: path, else: "/" <> path
+
+    base =
+      with tenant_id when is_binary(tenant_id) <- Ankole.Repo.tenant_id(),
+           {:ok, %Tenants.Tenant{} = tenant} <- Tenants.get(tenant_id) do
+        String.trim_trailing(tenant_origin(tenant), "/")
+      else
+        _ -> String.trim_trailing(AnkoleWeb.Endpoint.url(), "/")
+      end
+
+    base <> normalized_path
+  end
+
   def site_origin(conn) do
     if @host_policy do
       apply(@host_policy, :canonical_origin, [:site])

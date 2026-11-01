@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '../tenant-context'
-import { isRecord, uuidV4 } from '@agentbull/active-support'
+import { uuidV4 } from '@agentbull/active-support'
 import { ActorLabel } from '../actor-label'
 import {
   Badge,
@@ -21,16 +21,12 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  clearHumanAccessRestrictionMutation,
   disableHumanAccessMutation,
   getHumanAccessOptions,
-  listPrincipalGroupsOptions,
-  listPrincipalsOptions,
   restoreHumanAccessMutation,
   retryHumanWorkCleanupMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { GetHumanAccessResponse } from '../api/v2/generated/types.gen'
-import { fromDocument } from '../api/json-api'
 import { ErrorBlock } from '../../common/error-block'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -38,32 +34,8 @@ import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../co
 import { AgentLink } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
 import { AccessReviewModel } from '../state/access-review-model'
-import { principalGroupDisplayName } from '../state/principal-group-text'
-import { principalLabel } from '../state/principal-label'
 
 type RestrictionItem = GetHumanAccessResponse['restrictions'][number]
-
-/** Summarizes a group or grant condition without dumping raw JSON blocks or `"true"` noise. */
-export function formatConditionSummary(condition: unknown): string | null {
-  if (condition == null || condition === true || condition === 'true' || condition === '') return null
-  if (typeof condition === 'string') return condition.trim() || null
-  if (typeof condition === 'number' || typeof condition === 'boolean') return String(condition)
-  if (Array.isArray(condition)) {
-    const parts = condition.map(item => formatConditionSummary(item)).filter((item): item is string => Boolean(item))
-    return parts.length > 0 ? parts.join(', ') : null
-  }
-  if (isRecord(condition)) {
-    const entries = Object.entries(condition)
-      .map(([key, value]) => {
-        const formatted = formatConditionSummary(value)
-        if (formatted === null) return `${key}: true`
-        return `${key}: ${formatted}`
-      })
-      .filter(Boolean)
-    return entries.length > 0 ? entries.join(' · ') : null
-  }
-  return String(condition)
-}
 
 export function HumanAccessSection({ uid }: { uid: string }) {
   useSignals()
@@ -75,20 +47,6 @@ export function HumanAccessSection({ uid }: { uid: string }) {
 
   const access = useQuery({ ...getHumanAccessOptions({ path: { uid } }), refetchInterval: 15000 })
   const state = access.data
-
-  const groups = useQuery({
-    ...listPrincipalGroupsOptions(),
-    select: document => fromDocument(document),
-    enabled: Boolean(state && state.status !== 'active')
-  })
-  const principals = useQuery({
-    ...listPrincipalsOptions({ query: { include_disabled: true } }),
-    select: document => fromDocument(document),
-    enabled: Boolean(state && state.status !== 'active')
-  })
-
-  const groupByID = new Map((groups.data ?? []).map(group => [group.id, group]))
-  const principalByUID = new Map((principals.data ?? []).map(principal => [principal.id, principal]))
 
   const onError = (error: unknown) => toast.error(requestErrorMessage(error))
   const disable = useMutation({
@@ -105,8 +63,6 @@ export function HumanAccessSection({ uid }: { uid: string }) {
     ...restoreHumanAccessMutation(),
     onSuccess: () => {
       restoreModel.reason.value = ''
-      restoreModel.approvedFingerprint.value = undefined
-      restoreModel.identityVerified.value = false
       toast.success(t('console.human_access.saved'))
     },
     onError
@@ -201,97 +157,25 @@ export function HumanAccessSection({ uid }: { uid: string }) {
             <div className="grid gap-4">
               <p className="text-sm text-muted-foreground">{t('console.human_access.restore_hint')}</p>
               {activeRestrictions.map(item => (
-                <RestrictionClearCard key={item.id} disabled={pending} restriction={item} uid={uid} />
+                <RestrictionCard key={item.id} restriction={item} />
               ))}
               {activeRestrictions.some(item => item.source !== 'manual') ? (
                 <p className="text-sm text-muted-foreground">{t('console.human_access.provider_check')}</p>
               ) : null}
 
-              <div className="grid gap-4 border border-border bg-card p-4">
-                <details className="border border-border p-4" open>
-                  <summary className="cursor-pointer text-sm font-medium">
-                    {t('console.human_access.permissions')}
-                  </summary>
-                  <p className="my-3 text-sm text-muted-foreground">{t('console.human_access.permissions_hint')}</p>
-                  <div className="grid gap-3 text-sm">
-                    {state.permission_review.permissions.groups.map(group => {
-                      const fullGroup = groupByID.get(group.id)
-                      const groupLabel = fullGroup
-                        ? principalGroupDisplayName(t, fullGroup)
-                        : t(`console.principal_groups.builtin_${group.name}_name`, { defaultValue: group.name })
-                      const conditionText = formatConditionSummary(group.condition)
-                      return (
-                        <div key={group.id} className="grid gap-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium">{groupLabel}</span>
-                            <Badge variant="outline">
-                              {t(`console.principal_groups.kind_${group.kind}`, {
-                                defaultValue: humanizeTechnicalLabel(group.kind)
-                              })}
-                            </Badge>
-                          </div>
-                          {conditionText ? (
-                            <p className="text-xs text-muted-foreground">
-                              {t('console.permission_grants.condition')}:{' '}
-                              <code className="break-all">{conditionText}</code>
-                            </p>
-                          ) : null}
-                        </div>
-                      )
-                    })}
-                    {state.permission_review.permissions.grants.map(grant => {
-                      const grantPrincipal = grant.principal_uid ? principalByUID.get(grant.principal_uid) : undefined
-                      const grantGroup = grant.group_id ? groupByID.get(grant.group_id) : undefined
-                      const ownerDisplay = grant.principal_uid
-                        ? grantPrincipal
-                          ? principalLabel(grantPrincipal)
-                          : grant.principal_uid
-                        : grant.group_id
-                          ? grantGroup
-                            ? principalGroupDisplayName(t, grantGroup)
-                            : grant.group_id
-                          : '—'
-                      const conditionText = formatConditionSummary(grant.condition)
-                      return (
-                        <div key={grant.id} className="grid gap-1 border-t border-border pt-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <code className="text-xs">{grant.resource_pattern}</code>
-                            <Badge variant="secondary">{grant.action}</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground">{ownerDisplay}</p>
-                          {conditionText ? (
-                            <p className="text-xs text-muted-foreground">
-                              {t('console.permission_grants.condition')}:{' '}
-                              <code className="break-all">{conditionText}</code>
-                            </p>
-                          ) : null}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </details>
-
-                <label className="flex items-start gap-3 text-sm">
-                  <Checkbox
-                    checked={restoreModel.identityVerified.value}
-                    onCheckedChange={checked => {
-                      restoreModel.identityVerified.value = checked === true
-                    }}
-                  />
-                  <span>{t('console.human_access.identity_confirm')}</span>
-                </label>
-                <label className="flex items-start gap-3 text-sm">
-                  <Checkbox
-                    checked={restoreModel.approvedFingerprint.value === state.permission_review.fingerprint}
-                    onCheckedChange={checked => {
-                      restoreModel.approvedFingerprint.value =
-                        checked === true ? state.permission_review.fingerprint : undefined
-                    }}
-                  />
-                  <span>{t('console.human_access.permissions_confirm')}</span>
-                </label>
+              <form
+                aria-label={t('console.human_access.restore')}
+                className="grid gap-4 border border-border bg-card p-4"
+                onSubmit={event => {
+                  event.preventDefault()
+                  restore.mutate({
+                    path: { uid },
+                    body: { data: { reason: restoreModel.reason.value.trim(), operation_id: uuidV4() } }
+                  })
+                }}>
                 <LabeledField label={t('console.human_access.reason')} required>
                   <Textarea
+                    required
                     maxLength={2000}
                     rows={2}
                     value={restoreModel.reason.value}
@@ -300,32 +184,10 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                     }}
                   />
                 </LabeledField>
-                <Button
-                  className="justify-self-start"
-                  disabled={
-                    pending ||
-                    !restoreModel.hasReason.value ||
-                    restoreModel.approvedFingerprint.value !== state.permission_review.fingerprint ||
-                    !restoreModel.identityVerified.value ||
-                    activeRestrictions.length > 0
-                  }
-                  type="button"
-                  onClick={() =>
-                    restore.mutate({
-                      path: { uid },
-                      body: {
-                        data: {
-                          reason: restoreModel.reason.value.trim(),
-                          operation_id: uuidV4(),
-                          identity_verified: true,
-                          review_fingerprint: restoreModel.approvedFingerprint.value!
-                        }
-                      }
-                    })
-                  }>
+                <Button className="justify-self-start" disabled={pending} type="submit">
                   {t('console.human_access.restore')}
                 </Button>
-              </div>
+              </form>
             </div>
           ) : null}
 
@@ -450,28 +312,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
   )
 }
 
-function RestrictionClearCard({
-  disabled,
-  restriction,
-  uid
-}: {
-  disabled: boolean
-  restriction: RestrictionItem
-  uid: string
-}) {
-  const { t } = useTranslation()
-  const [reason, setReason] = useState('')
-  const clear = useMutation({
-    ...clearHumanAccessRestrictionMutation(),
-    onSuccess: () => {
-      setReason('')
-      toast.success(t('console.human_access.saved'))
-    },
-    onError: error => toast.error(requestErrorMessage(error))
-  })
-  const pending = disabled || clear.isPending
-  const blockedByProvider = restriction.source !== 'manual' && !restriction.recovery_verified_at
-
+function RestrictionCard({ restriction }: { restriction: RestrictionItem }) {
   return (
     <div className="grid gap-3 border border-border bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-2 text-sm">
@@ -487,30 +328,6 @@ function RestrictionClearCard({
         <span className="text-xs text-muted-foreground">
           {formatConsoleDate(restriction.recovery_verified_at ?? restriction.inserted_at)}
         </span>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-        <LabeledField label={t('console.human_access.reason')} required>
-          <Textarea
-            disabled={blockedByProvider}
-            maxLength={2000}
-            rows={2}
-            value={reason}
-            onChange={event => setReason(event.target.value)}
-          />
-        </LabeledField>
-        <Button
-          disabled={pending || !reason.trim() || blockedByProvider}
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() =>
-            clear.mutate({
-              path: { uid, restriction_id: restriction.id },
-              body: { data: { reason: reason.trim(), operation_id: uuidV4() } }
-            })
-          }>
-          {t('console.human_access.clear')}
-        </Button>
       </div>
     </div>
   )

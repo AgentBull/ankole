@@ -1,22 +1,26 @@
 defmodule Ankole.Pod.Bases.Delete do
   @moduledoc "Marks a table before its idempotent shard and metadata cleanup."
   require Ash.Query
-  alias Ankole.Pod.{Access, BaseRepo, BaseTable, Bases, Jobs.PurgePage}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{BaseRepo, BaseTable, Bases, Jobs.PurgePage}
   alias Ankole.Pod.Bases.{Physical, Write}
   alias Ankole.Repo
 
   def table(actor, id, authority) do
-    with {:ok, table} <- Access.write(authority, fn -> mark(actor, id) end),
+    with {:ok, table} <- Access.write(authority, fn -> mark_in_tx(actor, id) end),
          {:ok, _} <- cleanup(id) do
       Bases.broadcast_schema([%{id: id, data_version: table.data_version + 1}])
       {:ok, table}
     end
   end
 
-  defp mark(actor, id) do
+  def mark_in_tx(actor, id) do
     with {:ok, write} <- Write.open(actor, id, :delete_table),
-         table = write.table,
-         false <- referenced?(write),
+         do: mark_in_tx(write)
+  end
+
+  def mark_in_tx(%Write{table: table} = write) do
+    with false <- referenced?(write),
          {:ok, table} <- Ankole.Ash.update(table, :begin_delete, %{}),
          {:ok, _} <- PurgePage.new(%{table_id: table.id}) |> Oban.insert(),
          do: {:ok, table},

@@ -199,7 +199,7 @@ if (
 `
   )
   await run(['bun', 'install'], consumer)
-  await run(['bun', 'node_modules/typescript/bin/tsc', '--noEmit'], consumer)
+  await run(['bun', 'check', '--noEmit'], consumer)
   await run(['bun', 'smoke.ts'], consumer)
   await run(['bun', 'run', 'build'], consumer)
   await run(['bun', 'run', 'test:e2e', 'e2e/embedding.spec.ts'], project, {

@@ -121,6 +121,21 @@ defmodule Ankole.Brain.SourceLearningTest do
     assert {:ok, %{status: :learned, claims: 1}} = SourceLearning.learn(source.id)
   end
 
+  test "a Pod with only primary extracts Source facts as its system Principal", context do
+    assert Repo.aggregate(Ankole.Principals.Agent, :count) == 0
+    assert {:ok, _} = ModelProfiles.put_default_model_profile(:tenant, "light", nil)
+    system_uid = configure_brain_maintainer_profile!("primary", "brain-source", "primary-extract")
+    File.write!(context.path, "Cobalt shipment arrived on time.")
+    set_items(context.items_holder, [valid_item("Cobalt shipment arrived on time")])
+
+    assert {:ok, %{status: :learned, claims: 1}} = SourceLearning.learn(context.source.id)
+
+    assert [%{author: %Ankole.ActorRef{uid: "ankole_brain"}}] = source_claims(context.source)
+
+    assert [%{subject_uid: ^system_uid, origin: :brain, model: "brain-source/primary-extract"}] =
+             Repo.all(Ankole.AIGateway.Schemas.UsageRecord)
+  end
+
   test "the Source owns its media body and instance write paths cannot take it over",
        %{source: source, path: path, items_holder: holder} do
     File.write!(path, "Source-owned body.")
@@ -192,7 +207,7 @@ defmodule Ankole.Brain.SourceLearningTest do
     assert Enum.any?(prompts, &String.contains?(&1, tail_marker))
   end
 
-  test "a URL Source uses the maintainer profile and the maintainer execution policy", %{
+  test "a URL Source uses the Pod web_fetch profile and system execution identity", %{
     items_holder: holder
   } do
     test_pid = self()
@@ -261,10 +276,10 @@ defmodule Ankole.Brain.SourceLearningTest do
     refute Repo.get_by(Object, title: "Script Shell Source")
   end
 
-  test "a URL Source without a web_fetch profile fails without asking a Worker",
-       %{maintainer_uid: maintainer_uid} do
+  test "a URL Source without a web_fetch profile fails without asking a Worker" do
+    %{principal: agent} = agent_fixture()
     route = "brain-web-fetch-#{System.unique_integer([:positive])}"
-    :ok = put_ready_worker!(maintainer_uid, route)
+    :ok = put_ready_worker!(agent.uid, route)
     :ok = WorkerRoute.register_local_worker(route, self())
     on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
@@ -279,14 +294,23 @@ defmodule Ankole.Brain.SourceLearningTest do
     refute_receive {:actor_lane, _envelope}
   end
 
-  test "a disabled maintainer Agent prevents URL fetching", %{maintainer_uid: maintainer_uid} do
+  test "a disabled Agent does not prevent Pod URL fetching" do
     test_pid = self()
-    url = "https://example.com/disabled-maintainer-source"
+    url = "https://example.com/disabled-agent-source"
+    %{principal: agent} = agent_fixture()
 
     base_url =
       start_upstream_server(fn request ->
-        send(test_pid, {:disabled_maintainer_provider_request, request})
-        {:json, 500, %{"error" => "must not be called"}}
+        send(test_pid, {:disabled_agent_provider_request, request})
+
+        {:json, 200,
+         %{
+           "data" => %{
+             "url" => request.body["url"],
+             "title" => "Independent URL Source",
+             "content" => "Available after Agent disablement"
+           }
+         }}
       end)
 
     {:ok, _provider} =
@@ -305,14 +329,14 @@ defmodule Ankole.Brain.SourceLearningTest do
       SourceLearning.register_source(%{
         upstream_id: url,
         kind: "url",
-        name: "Disabled Maintainer URL Source"
+        name: "Independent URL Source"
       })
 
     assert {:ok, %{status: :disabled}} =
-             Ankole.PrincipalsFixtures.disable_principal_fixture(maintainer_uid)
+             Ankole.PrincipalsFixtures.disable_principal_fixture(agent.uid)
 
-    assert {:error, :brain_maintainer_agent_disabled} = SourceLearning.learn(source.id)
-    refute_receive {:disabled_maintainer_provider_request, _request}
+    assert {:ok, %{status: :learned, claims: 0}} = SourceLearning.learn(source.id)
+    assert_receive {:disabled_agent_provider_request, _request}
   end
 
   test "an archive during extraction fences every late write", %{source: source, path: path} do

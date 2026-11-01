@@ -90,7 +90,7 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
              Ankole.Sessions.Ambient.resolve(third_event, process_at)
 
     assert fresh.id == third_event.id
-    assert Repo.get!(AgentWorker, agent.uid).state == :absent
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
   end
 
   test "expires a queued ambient opportunity without starting a worker turn", %{
@@ -120,7 +120,7 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
 
     assert completed_event.id == event.id
     refute_receive {:actor_lane, _envelope}, 50
-    assert Repo.get!(AgentWorker, agent.uid).state == :absent
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
   end
 
   test "does not stale an ambient scene on an exact provider redelivery", %{
@@ -140,7 +140,7 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
              emit_entry(agent.uid, "bot", entry, now: base_time)
 
     assert {:ok, %{status: :duplicate}} =
-             Observe.emit_entry(agent.uid, "bot", entry,
+             Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, "bot").id, entry,
                now: DateTime.add(base_time, 20, :second)
              )
 

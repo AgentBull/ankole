@@ -12,6 +12,94 @@ import type { RPCRequester } from '../src/lanes/rpc_lane'
 import { FakeDrive } from './support/fake-drive'
 
 describe('Pod Agent CLI', () => {
+  it('addresses frozen chat attachments by conversation, message, and position', async () => {
+    expect(
+      await commandFromArgs([
+        'chat',
+        'attachment',
+        'get',
+        'conversation',
+        'message',
+        '2',
+        '--to',
+        'downloads/report.txt'
+      ])
+    ).toEqual({
+      operation: 'chat.attachment.get',
+      params: {
+        conversation_id: 'conversation',
+        message_id: 'message',
+        position: 2,
+        local_path: 'downloads/report.txt'
+      },
+      cwd: process.cwd()
+    })
+    for (const position of ['-1', '1.5', 'NaN', '9007199254740992']) {
+      await expect(
+        commandFromArgs(['chat', 'attachment', 'get', 'conversation', 'message', position, '--to', 'file'])
+      ).rejects.toThrow()
+    }
+  })
+
+  it('parses and bridges document/file comment read and write operations', async () => {
+    expect(await commandFromArgs(['comments', 'list', 'page-1', '--status', 'open', '--limit', '10'])).toEqual({
+      operation: 'comments.list',
+      params: { id: 'page-1', status: 'open', limit: 10 },
+      cwd: process.cwd()
+    })
+    expect(await commandFromArgs(['comments', 'show', '--page', 'page-1', '--comment', 'comment-1'])).toEqual({
+      operation: 'comments.show',
+      params: { id: 'page-1', comment_id: 'comment-1' },
+      cwd: process.cwd()
+    })
+    expect(await commandFromArgs(['comments', 'reply', 'page-1', 'root-1', 'Fixed in the updated table.'])).toEqual({
+      operation: 'comments.reply',
+      params: { id: 'page-1', root_id: 'root-1', body: 'Fixed in the updated table.' },
+      cwd: process.cwd()
+    })
+    expect(await commandFromArgs(['comments', 'resolve', 'page-1', 'root-1', '--version', '3', '--reopen'])).toEqual({
+      operation: 'comments.resolve',
+      params: { id: 'page-1', comment_id: 'root-1', version: 3, resolved: false },
+      cwd: process.cwd()
+    })
+    await expect(commandFromArgs(['comments', 'reply', 'page-1', 'root-1', '   '])).rejects.toThrow()
+    await expect(commandFromArgs(['comments', 'list', 'page-1', '--status', 'bogus'])).rejects.toThrow()
+
+    const root = await mkdtemp(join(tmpdir(), 'pod-cli-comments-'))
+    const calls: { method: string; operation: string; retry: unknown }[] = []
+    const rpc = (async (method, payload, _frame, opts) => {
+      const req = payload as { operation: string }
+      calls.push({ method, operation: req.operation, retry: opts?.retryOnDisconnect })
+      return create(JSONPassthroughResponseSchema, {
+        bodyJson: jsonBytes({ result: { threads: [], revision: 1 } })
+      })
+    }) as RPCRequester
+    const bridge = startPodCLIBridge({ rpc, drive: new FakeDrive(root).drive(), socketRoot: root })
+    try {
+      await requestSocketLineBridge(
+        bridge.socketPath,
+        JSON.stringify({ operation: 'comments.list', params: { id: 'page-1' }, cwd: root }),
+        'bad response'
+      )
+      await requestSocketLineBridge(
+        bridge.socketPath,
+        JSON.stringify({
+          operation: 'comments.reply',
+          params: { id: 'page-1', root_id: 'root-1', body: 'Done' },
+          cwd: root
+        }),
+        'bad response'
+      )
+      expect(calls).toEqual([
+        { method: 'pod.read', operation: 'comments.list', retry: true },
+        { method: 'pod.write', operation: 'comments.reply', retry: false }
+      ])
+    } finally {
+      bridge.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('uses the active Agent turn and converts document Markdown at the Worker boundary', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-cli-'))
     const calls: { method: string; payload: Record<string, unknown>; frame: unknown; retry: unknown }[] = []

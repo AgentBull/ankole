@@ -58,7 +58,10 @@ export function SharePopover({
   })
   const existing = new Set(room.participants.map(member => member.uid))
   const canParticipate = room.canManage || existing.has(room.viewer.uid)
-  const callable = new Set(agents.data?.agents.map(agent => agent.uid))
+  const callable = new Set([
+    ...(agents.data?.agents.map(agent => agent.uid) ?? []),
+    ...room.agents.filter(agent => agent.canChat).map(agent => agent.uid)
+  ])
   const availablePeople = (query === search ? (people.data?.teammates ?? []) : []).filter(
     person => !existing.has(person.uid)
   )

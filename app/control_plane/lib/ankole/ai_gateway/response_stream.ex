@@ -1639,6 +1639,7 @@ defmodule Ankole.AIGateway.ResponseStream do
           CredentialAttempts.runtime(state.attempt_context),
           state.subject_type,
           event,
+          caller: Map.get(state, :caller),
           aggregate_includes_tool_usage?: hosted?
         )
     end

@@ -423,7 +423,7 @@ defmodule Ankole.Brain.RecallTest do
     {:ok, _agent2} =
       Ankole.Principals.create_agent(%{
         worker_provider_id: worker_provider_fixture().provider_id,
-        handle: unique_uid("owned-agent"),
+        uid: unique_uid("owned-agent"),
         display_name: "Owned",
         role: "Analyst",
         owner_principal_uid: pure_owner.uid

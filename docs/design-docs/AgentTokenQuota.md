@@ -17,37 +17,37 @@ control plane checks the Agent's quota before settling the Job failure.
 
 ## What Counts
 
-AIGateway counts a request toward an Agent's quota when the request carries an
-Agent token (`subject_type` is `agent`) and uses the `llm` capability. This
-covers every model call in a control-plane Session—including scheduled,
-Workflow, and ambient runs—as well as every request from a Background Agent Job.
-If one of those requests starts compaction through a `compaction_trigger` item
-(including a remote compaction call from Codex), that compaction is part of the
-request's own model work and counts the same way.
+AIGateway records every classified LLM provider round in
+`ai_gateway_usage_records`, but only rows whose origin is `agent` or `codex`
+count toward an Agent's quota window. Agent credentials therefore cover every
+model call in a control-plane Session—including scheduled, Workflow, and ambient
+runs—as well as Background Agent Jobs. If an Agent request starts compaction
+through a `compaction_trigger` item, that compaction keeps the Agent or Codex
+origin and counts the same way.
 
-Backend model calls from an Applet run under the Agent recorded in the Applet
-Page's `created_by` field. They pass `subject_type: "agent"`, check that
-Agent's quota, and record usage under that Agent, while the Applet's own
-invocation time and memory limits continue to apply.
+The ledger has six origins, assigned in this priority order:
+
+1. `codex` for an Agent subject using the Codex protocol;
+2. `agent` for every other Agent subject;
+3. `oidc_human` for an OIDC Human subject, including explicit compaction;
+4. `compaction` for an internal `compaction.summary` caller;
+5. `applet` for an internal `pod_applet` caller; and
+6. `brain` for `brain` and phase-specific `brain.*` callers.
+
+Explicit subject credentials always take precedence over a caller label. Only
+unbound control-plane calls use caller-based classification. Automatic
+compaction and `/compact` write `compaction` rows and never enter an Agent
+window. Brain calls execute as `ankole_brain` and Applet calls as `system`,
+with each tenant's system Principals owning separate ledger rows and neither
+consuming an Agent quota. Embedding, rerank, web search, web fetch, and image
+generation do not write these LLM usage rows.
 
 For each provider round that ends with `response.completed` or
 `response.incomplete`, the ledger records `usage.input_tokens` and
 `usage.output_tokens` as that provider reported them, and counts their sum.
 Cached input tokens remain part of `input_tokens` without separate weighting,
-and Ankole counts raw tokens equally regardless of which model ran.
-
-The following requests do not count toward an Agent's quota:
-
-- Brain model calls, which run in the control plane as the maintainer Agent with
-  a `caller` label and no `subject_type`.
-- Compaction that the control plane starts on its own—both automatic compaction
-  inside a stateful Response and manual compaction triggered from the Console or
-  a chat command—because these calls also run in-process without `subject_type`.
-- Tool usage for `embedding`, `rerank`, `web_search`, `web_fetch`, and
-  `image_generate`.
-- Requests authenticated with an OIDC Human token.
-
-The ledger starts empty at deployment.
+and Ankole counts raw tokens equally regardless of which model ran. The ledger
+starts empty at deployment.
 
 The quota acts as a soft limit: AIGateway checks accumulated usage before
 dispatching a request and rejects the request when usage is already at or above
@@ -64,8 +64,8 @@ enforced by a plugin.
 | Field | Meaning |
 | --- | --- |
 | `id` | UUIDv7 primary key |
-| `subject_uid` | The Agent Principal |
-| `origin` | `agent` for a control-plane Session or Applet, `codex` for a Background Agent Job request |
+| `subject_uid` | The executing Agent, Human, or system Principal |
+| `origin` | `agent`, `codex`, `oidc_human`, `compaction`, `applet`, or `brain`; only the first two enter Agent quota windows |
 | `model` | The resolved `provider_id/model` selector |
 | `input_tokens`, `output_tokens` | Non-negative provider usage of the round |
 | `session_id` | The Session whose Turn made the round; `job:<id>` for a Background Agent Job; NULL when unknown |

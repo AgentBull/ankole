@@ -206,8 +206,13 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
   defp body_text(presentation, fallback_text) do
     prompt =
       case presentation["prompt"] do
-        text when is_binary(text) and text != "" -> text
-        _missing -> fallback_or_presentation(presentation, fallback_text)
+        text when is_binary(text) and text != "" ->
+          Ankole.Plugins.MarkdownChunks.unescape_plain_tildes(text)
+
+        _missing ->
+          presentation
+          |> fallback_or_presentation(fallback_text)
+          |> Ankole.Plugins.MarkdownChunks.unescape_plain_tildes()
       end
 
     case truncate(prompt, @body_chars) do

@@ -13,6 +13,8 @@ defmodule Ankole.Conversations.Delivery.Jobs.Dispatch do
   import Ecto.Query
 
   def schedule_in_tx(args, nil) do
+    args = Ankole.Job.arguments(:tenant, args)
+
     {:ok, _} =
       Oban.cancel_all_jobs(
         from job in Oban.Job,

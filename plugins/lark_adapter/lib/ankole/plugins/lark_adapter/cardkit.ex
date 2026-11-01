@@ -1797,7 +1797,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
          {:ok, operation} <- Delivery.operation_for_signal(event),
-         text <- ReplyPresentation.fallback_text(request.presentation),
+         text <-
+           request.presentation
+           |> ReplyPresentation.fallback_text()
+           |> Ankole.Kernel.repair_generated_markdown()
+           |> Ankole.Plugins.MarkdownChunks.unescape_plain_tildes(),
          {operation, text} <- undelivered_plain_text(event, operation, text),
          {:ok, result} <-
            send_plain_text_chunks(

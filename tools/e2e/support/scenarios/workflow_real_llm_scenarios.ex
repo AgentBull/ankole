@@ -24,7 +24,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
       wait_for_completed_final_reply: 3
     ]
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AppConfigure
   alias Ankole.BackgroundAgentJobs.Schemas.Job, as: BackgroundAgentJob
   alias Ankole.Repo

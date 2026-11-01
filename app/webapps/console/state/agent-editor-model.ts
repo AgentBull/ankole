@@ -1,8 +1,6 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 
-// The transliteration table is ~0.5 MB, so it loads on demand: the editor
-// preloads it on initialize, and handle derivation upgrades from the ASCII-only
-// fallback as soon as the table lands.
+// Slug editors load the transliteration table on demand.
 type Transliterate = (value: string) => string
 
 let transliterate: Transliterate | undefined
@@ -18,7 +16,7 @@ export function preloadTransliteration(): Promise<void> {
 export type AgentMemoryDisclosureMode = 'strict' | 'relaxed'
 
 export type AgentEditorDraft = {
-  handle: string
+  uid: string
   displayName: string
   avatarURL: string
   role: string
@@ -29,8 +27,8 @@ export type AgentEditorDraft = {
 
 export type AgentEditorDraftError =
   | 'display_name_required'
-  | 'handle_invalid'
-  | 'handle_required'
+  | 'uid_invalid'
+  | 'uid_required'
   | 'role_required'
   | 'owner_required'
   | 'worker_provider_required'
@@ -38,15 +36,13 @@ export type AgentEditorDraftError =
 // Shared with the editor's `pattern` attribute, so the browser reports the
 // same rule the model enforces. HTML patterns imply the ^…$ anchors and
 // compile with the `v` flag, which requires the escaped hyphen in the class.
-export const agentHandleInputPattern = '[a-z0-9][a-z0-9._\\-]{0,95}'
-const agentHandlePattern = new RegExp(`^(?:${agentHandleInputPattern})$`)
+export const agentUIDInputPattern = '[a-z0-9][a-z0-9._@+\\-]{0,95}'
+const agentUIDPattern = new RegExp(`^(?:${agentUIDInputPattern})$`)
 
-export function agentHandleError(
-  handle: string
-): Extract<AgentEditorDraftError, 'handle_invalid' | 'handle_required'> | undefined {
-  const normalizedHandle = handle.trim()
-  if (!normalizedHandle) return 'handle_required'
-  if (!agentHandlePattern.test(normalizedHandle)) return 'handle_invalid'
+export function agentUIDError(uid: string): Extract<AgentEditorDraftError, 'uid_invalid' | 'uid_required'> | undefined {
+  const normalizedUID = uid.trim()
+  if (!normalizedUID) return 'uid_required'
+  if (!agentUIDPattern.test(normalizedUID)) return 'uid_invalid'
   return undefined
 }
 
@@ -71,13 +67,9 @@ export function deriveSlugWithTransliteration(
   return initial
 }
 
-export function agentHandleFromDisplayName(displayName: string): string {
-  return slugFromDisplayName(displayName, 96)
-}
-
 export const AgentEditorModel = createModel(() => {
   const sourceKey = signal<string>()
-  const handle = signal('')
+  const uid = signal('')
   const displayName = signal('')
   const avatarURL = signal('')
   const role = signal('')
@@ -90,7 +82,7 @@ export const AgentEditorModel = createModel(() => {
     const initial = initialDraft.value
     return Boolean(
       initial &&
-      (handle.value !== initial.handle ||
+      (uid.value !== initial.uid ||
         displayName.value !== initial.displayName ||
         avatarURL.value !== initial.avatarURL ||
         role.value !== initial.role ||
@@ -99,11 +91,10 @@ export const AgentEditorModel = createModel(() => {
         groupMemoryDisclosureMode.value !== initial.groupMemoryDisclosureMode)
     )
   })
-  let handleManuallyEdited = false
 
   return {
     sourceKey,
-    handle,
+    uid,
     displayName,
     avatarURL,
     role,
@@ -113,11 +104,10 @@ export const AgentEditorModel = createModel(() => {
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: AgentEditorDraft) {
-      void preloadTransliteration()
       if (sourceKey.value === nextSourceKey) return
       batch(() => {
         sourceKey.value = nextSourceKey
-        handle.value = draft.handle
+        uid.value = draft.uid
         displayName.value = draft.displayName
         avatarURL.value = draft.avatarURL
         role.value = draft.role
@@ -126,7 +116,6 @@ export const AgentEditorModel = createModel(() => {
         groupMemoryDisclosureMode.value = draft.groupMemoryDisclosureMode
         initialDraft.value = { ...draft }
         validationError.value = undefined
-        handleManuallyEdited = false
       })
     },
     clearValidation() {
@@ -136,7 +125,7 @@ export const AgentEditorModel = createModel(() => {
       initialDraft.value = draft
         ? { ...draft }
         : {
-            handle: handle.value,
+            uid: uid.value,
             displayName: displayName.value,
             avatarURL: avatarURL.value,
             role: role.value,
@@ -145,39 +134,20 @@ export const AgentEditorModel = createModel(() => {
             groupMemoryDisclosureMode: groupMemoryDisclosureMode.value
           }
     },
-    setDisplayName(value: string, deriveHandle: boolean) {
-      batch(() => {
-        displayName.value = value
-        if (deriveHandle && !handleManuallyEdited) {
-          handle.value = agentHandleFromDisplayName(value)
-          // Before the table lands, non-Latin input derives an empty or
-          // partial handle; re-derive from the current name once it loads.
-          if (!transliterate) {
-            void preloadTransliteration().then(() => {
-              if (!handleManuallyEdited) handle.value = agentHandleFromDisplayName(displayName.value)
-            })
-          }
-        }
-        if (
-          validationError.value === 'display_name_required' ||
-          validationError.value === 'handle_required' ||
-          validationError.value === 'handle_invalid'
-        ) {
-          validationError.value = undefined
-        }
-      })
+    setDisplayName(value: string) {
+      displayName.value = value
+      if (validationError.value === 'display_name_required') validationError.value = undefined
     },
-    setHandle(value: string) {
-      handleManuallyEdited = true
-      handle.value = value.toLowerCase()
-      if (validationError.value === 'handle_required' || validationError.value === 'handle_invalid') {
+    setUID(value: string) {
+      uid.value = value.toLowerCase()
+      if (validationError.value === 'uid_required' || validationError.value === 'uid_invalid') {
         validationError.value = undefined
       }
     },
     draftError(mode: 'new' | 'edit'): AgentEditorDraftError | undefined {
       if (!displayName.value.trim()) return 'display_name_required'
-      const handleError = agentHandleError(handle.value)
-      if (handleError) return handleError
+      const uidError = agentUIDError(uid.value)
+      if (uidError) return uidError
       if (!role.value.trim()) return 'role_required'
       if (!ownerPrincipalUID.value.trim()) return 'owner_required'
       if (mode === 'new' && !workerProviderID.value) return 'worker_provider_required'

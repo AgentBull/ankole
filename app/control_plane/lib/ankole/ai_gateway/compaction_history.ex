@@ -9,7 +9,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
   alias Ankole.AIGateway.UpstreamCompaction
   alias Ankole.AIGateway.Schemas.Message
 
-  @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
+  @opaque_ref_keys ~w(agent_computer_path node_id object_id content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
 
   def dropped_opaque_messages(history, truncated_history) do

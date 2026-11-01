@@ -42,6 +42,64 @@ defmodule Ankole.Pod.BasesContractTest do
     %{uid: human.uid, human: human, page: page, table: table}
   end
 
+  test "a committed Principal rename repairs physical Base references after a storage failure",
+       ctx do
+    actor = actor_fixture(ctx.human)
+    {:ok, user} = Bases.create_field(actor, ctx.table.id, %{name: "Owner", type: "user"})
+
+    {:ok, %{records: [record]}} =
+      Bases.write_records(actor, ctx.table.id, %{
+        creates: [%{data: %{user.id => [ctx.uid]}}]
+      })
+
+    {:ok, _} =
+      Bases.create_field(actor, ctx.table.id, %{
+        name: "Related",
+        type: "link",
+        config: %{"table_id" => ctx.table.id}
+      })
+
+    assert {:ok, %{table: %{storage_mode: :physical}}} = Bases.get_table(actor, ctx.table.id)
+    shard = Ankole.Pod.BaseRepo.shard!()
+    physical = Ankole.Pod.BaseRepo.table(ctx.table.id)
+    [schema, name] = String.split(physical, ".")
+    parked = "\"rename_repair_fixture\""
+
+    Ankole.Pod.BaseRepo.with_shard(shard, fn ->
+      Ankole.Pod.BaseRepo.query!("ALTER TABLE #{physical} RENAME TO #{parked}", [])
+    end)
+
+    try do
+      assert {:ok, %{principal: renamed, base_repair_error: error}} =
+               Ankole.Principals.rename(ctx.uid, "renamed-base-owner@example.com")
+
+      assert is_binary(error)
+      assert {:error, :not_found} = Ankole.Principals.get_principal(ctx.uid)
+      assert renamed.uid == "renamed-base-owner@example.com"
+    after
+      Ankole.Pod.BaseRepo.with_shard(shard, fn ->
+        Ankole.Pod.BaseRepo.query!("ALTER TABLE #{schema}.#{parked} RENAME TO #{name}", [])
+      end)
+    end
+
+    new_uid = "renamed-base-owner@example.com"
+
+    assert {:ok, [_changed]} =
+             Bases.repair_principal_references(Repo.tenant_id!(), ctx.uid, new_uid)
+
+    new_actor = actor_fixture(new_uid)
+
+    assert {:ok, %{records: [repaired]}} =
+             Bases.query(new_actor, ctx.table.id, %{ids: [record.id]})
+
+    assert repaired["data"][user.id] == [new_uid]
+    assert repaired["created_by"] == to_string(Ankole.ActorRef.from_actor(new_actor))
+    assert repaired["updated_by"] == to_string(Ankole.ActorRef.from_actor(new_actor))
+    assert {:ok, []} = Bases.repair_principal_references(Repo.tenant_id!(), ctx.uid, new_uid)
+    assert {:ok, %{records: [same]}} = Bases.query(new_actor, ctx.table.id, %{ids: [record.id]})
+    assert same == repaired
+  end
+
   test "physical record and aggregate queries enforce the tenant statement timeout", ctx do
     actor = actor_fixture(ctx.uid)
 
@@ -495,7 +553,7 @@ defmodule Ankole.Pod.BasesContractTest do
       try do
         result =
           try do
-            Ankole.Pod.Access.write(
+            Ankole.Files.Access.write(
               nil,
               fn ->
                 Ankole.Pod.Bases.Schema.update_field_in_tx(actor, field.id, %{

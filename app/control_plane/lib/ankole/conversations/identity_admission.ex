@@ -210,6 +210,7 @@ defmodule Ankole.Conversations.IdentityAdmission do
       metadata:
         %{
           "alternate_external_ids" => subject_alternates(author),
+          "binding_id" => fact.binding_id,
           "agent_uid" => fact.agent_uid,
           "binding_name" => fact.binding_name,
           "adapter" => fact.adapter,
@@ -361,10 +362,11 @@ defmodule Ankole.Conversations.IdentityAdmission do
   defp ensure_signal_source_membership(%Binding{} = binding, principal_uid) do
     group_attrs = %{
       name: signal_source_group_name(binding),
-      display_name: "#{binding.name} @ #{binding.agent_uid}",
+      display_name: binding.name,
       domain: :signal_source,
       metadata: %{
         "signals" => %{
+          "binding_id" => binding.id,
           "agent_uid" => binding.agent_uid,
           "binding_name" => binding.name
         }
@@ -381,7 +383,7 @@ defmodule Ankole.Conversations.IdentityAdmission do
   #
   @spec signal_source_group_name(Binding.t()) :: String.t()
   defp signal_source_group_name(%Binding{} = binding) do
-    String.downcase("signal_source:#{binding.agent_uid}:#{binding.name}")
+    "signal_source:#{binding.id}"
   end
 
   defp put_missing(map, _key, nil), do: map

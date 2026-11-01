@@ -237,7 +237,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
         Ankole.PrincipalsFixtures.actor_fixture(a.uid),
         page.id,
         "file",
-        0,
+        nil,
         "report.pdf",
         "account A report",
         "application/pdf"
@@ -294,7 +294,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
         Ankole.PrincipalsFixtures.actor_fixture(a.uid),
         page.id,
         "file",
-        0,
+        nil,
         "report.pdf",
         "private A",
         "application/pdf"

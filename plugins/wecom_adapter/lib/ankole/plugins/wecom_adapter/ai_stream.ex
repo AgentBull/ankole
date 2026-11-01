@@ -37,6 +37,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Plugins.WeComAdapter.Markdown
   alias Ankole.Plugins.WeComAdapter.Delivery
+  alias Ankole.Plugins.WeComAdapter.TemplateCard
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Conversations.Delivery.PreviewAdapter
@@ -72,12 +73,18 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   # terminal reply reports the first one as the created entry.
   @impl true
   def surface_ids(checkpoint) when is_map(checkpoint) do
-    checkpoint
-    |> Map.get("pages", [])
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(& &1["stream_id"])
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.map(&{:entry, &1})
+    page_ids =
+      checkpoint
+      |> Map.get("pages", [])
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(& &1["stream_id"])
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.map(&{:entry, &1})
+
+    case checkpoint["card_task_id"] do
+      task_id when is_binary(task_id) and task_id != "" -> page_ids ++ [{:entry, task_id}]
+      _ -> page_ids
+    end
   end
 
   @impl true
@@ -180,7 +187,9 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
              checkpoint,
              final?,
              repaint?
-           ) do
+           ),
+         {:ok, checkpoint} <-
+           maybe_send_presentation_card(client, event, presentation, checkpoint, final?) do
       checkpoint =
         build_stream_checkpoint(checkpoint, page_records, presentation, request, final?, wrote?)
 
@@ -294,7 +303,11 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
         if skip? do
           {:ok, prior, wrote?}
         else
-          display = Markdown.display_chunk(page.source, fence_open?)
+          display =
+            page.source
+            |> Markdown.display_chunk(fence_open?)
+            |> Ankole.Kernel.repair_generated_markdown()
+
           content = render_page_content(presentation, display, tail?, seal?, final?, page)
 
           case Bot.reply_stream(client, req_id, stream_id, content, finish: seal?) do
@@ -393,11 +406,24 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
 
   defp terminal_state_line(presentation) do
     case presentation["state"] do
-      "continued" -> "⏸ 已暂停，后续处理续接于下一张卡片"
-      "failed" -> "⚠️ 出错"
-      "stopped" -> "⏹ 已停止"
-      "awaiting_input" -> "⏸ 等待输入"
-      _completed -> nil
+      "continued" ->
+        "⏸ 已暂停，后续处理续接于下一张卡片"
+
+      "failed" ->
+        "⚠️ 出错"
+
+      "stopped" ->
+        "⏹ 已停止"
+
+      "awaiting_input" ->
+        case presentation["interaction_status"] do
+          "answered" -> "✅ #{presentation["interaction_answer"] || "已确认"}"
+          "superseded" -> "⏹ #{presentation["interaction_answer"] || "操作已失效"}"
+          _pending -> "⏸ 等待输入"
+        end
+
+      _completed ->
+        nil
     end
   end
 
@@ -555,6 +581,18 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
          {:ok, delivery} <- Delivery.resolve_delivery(event.conversation_id) do
       {records, failure} = deliver_plain_chunks(client, delivery, chunks, ledger)
 
+      {checkpoint, failure} =
+        case failure do
+          nil ->
+            case send_presentation_card(client, delivery, event, presentation, checkpoint) do
+              {:ok, updated_checkpoint} -> {updated_checkpoint, nil}
+              {:error, _reason} = error -> {checkpoint, error}
+            end
+
+          _existing_failure ->
+            {checkpoint, failure}
+        end
+
       checkpoint =
         checkpoint
         |> Map.merge(%{
@@ -646,6 +684,42 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   end
 
   defp page_stream_id(%Signal{id: id}, index), do: "ankole:#{id}:#{index}"
+
+  defp maybe_send_presentation_card(client, event, presentation, checkpoint, true) do
+    if is_binary(checkpoint["card_task_id"]) do
+      {:ok, checkpoint}
+    else
+      case TemplateCard.render_presentation(presentation, event.id) do
+        {:card, _task_id, _card} ->
+          with {:ok, delivery} <- Delivery.resolve_delivery(event.conversation_id) do
+            send_presentation_card(client, delivery, event, presentation, checkpoint)
+          end
+
+        :none ->
+          {:ok, checkpoint}
+      end
+    end
+  end
+
+  defp maybe_send_presentation_card(_client, _event, _presentation, checkpoint, _final?),
+    do: {:ok, checkpoint}
+
+  defp send_presentation_card(client, delivery, event, presentation, checkpoint) do
+    if is_binary(checkpoint["card_task_id"]) do
+      {:ok, checkpoint}
+    else
+      case TemplateCard.render_presentation(presentation, event.id) do
+        {:card, task_id, card} ->
+          case Bot.send_template_card(client, delivery.chat_target, delivery.chat_type, card) do
+            {:ok, _ack} -> {:ok, Map.put(checkpoint, "card_task_id", task_id)}
+            {:error, _reason} = error -> error
+          end
+
+        :none ->
+          {:ok, checkpoint}
+      end
+    end
+  end
 
   # Provider errors use the same retry policy as plain intent delivery;
   # deterministic degrades already returned the non-retryable fallback shape

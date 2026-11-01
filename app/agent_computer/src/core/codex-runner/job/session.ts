@@ -140,6 +140,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private leadRuntimeProgressVersion = 0
   private activeTurnUpdateInFlight = false
   private compaction: CompactionHandshake | undefined
+  private compactionSeq = 0
+  private readonly initialJobMetadata: JSONObject | undefined
 
   constructor(
     private readonly turnStart: TurnStart,
@@ -151,7 +153,10 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     this.appliedEventIDs.add(turnStart.signal.signal_id)
     this.runtimeThreadID = job.runtimeThreadId || undefined
     this.originalHumanRequest = stringValue(turnStart.request_context?.original_human_request)
-    this.legacyThreadReplay = jsonObjectFromBytes(job.metadataJson, 'Job metadata')?.legacy_thread_replay === true
+    this.initialJobMetadata = jsonObjectFromBytes(job.metadataJson, 'Job metadata') ?? undefined
+    this.legacyThreadReplay = this.initialJobMetadata?.legacy_thread_replay === true
+    const savedCompactionSeq = Number(this.initialJobMetadata?.cli_compaction_seq ?? 0)
+    this.compactionSeq = Number.isSafeInteger(savedCompactionSeq) && savedCompactionSeq >= 0 ? savedCompactionSeq : 0
     this.modelProfile = codexJobModelProfile(turnStart)
     this.expectedSkillNames = prepared.skills.loadable.map(skill => skill.skillName).sort(compareCodePointStrings)
     this.skillUsage = new CodexSkillUsageTracker({
@@ -298,6 +303,16 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
   private async resumeExistingThread(): Promise<'none' | 'resumed' | 'replayed' | 'recreated'> {
     if (!this.runtimeThreadID || !this.client || !this.runtimeLease) return 'none'
+    if (this.shouldRecycleColdIdleThread()) {
+      this.opts.logger?.info(
+        'worker.codex_job_cold_idle_recycle',
+        'Recycling cold large Codex Job thread instead of replaying an uncached transcript',
+        { job_id: this.jobID, thread_id: this.runtimeThreadID }
+      )
+      await this.runtimeLease.runtime.retireRoot(this.runtimeThreadID, this)
+      this.legacyThreadReplay = false
+      return this.replaceLostThread()
+    }
     const resumedThreadID = this.runtimeThreadID
     try {
       await this.runtimeLease.runtime.resumeRoot(resumedThreadID, this, async () => {
@@ -324,6 +339,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           }
         ]
       })
+      this.publishCliContextId()
       return 'resumed'
     } catch (error) {
       const decision = transitionCodexRecovery({
@@ -447,10 +463,12 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         status: 'running',
         runtimeThreadId: this.runtimeThreadID,
         metadataJson: jsonBytes({
+          paused_at: null,
           codex_user_agent: stringValue(initializeResponse.userAgent),
           job_project_cwd: project.root,
           job_workspace: project.root,
           codex_app_server_pid: this.client?.processID,
+          cli_compaction_seq: this.compactionSeq,
           mcp_server_names: skills.mcpServers.map(server => server.name).sort(compareCodePointStrings),
           ...(this.legacyThreadReplay ? { legacy_thread_replay: false } : {}),
           ...(this.recreatedThreadOnResume
@@ -588,7 +606,30 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     )
     this.runtimeThreadID = stringValue(jsonObject(started.thread).id)
     if (!this.runtimeThreadID) throw new Error('codex app-server did not return a thread id')
+    this.compactionSeq = 0
+    this.publishCliContextId()
     await this.runtimeLease.runtime.registerRoot(this.runtimeThreadID, this)
+  }
+
+  private publishCliContextId(): void {
+    if (!this.runtimeThreadID) return
+    this.opts.updateCliContextId?.(`${this.jobID}:thread:${this.runtimeThreadID}:cmp:${this.compactionSeq}`)
+  }
+
+  private shouldRecycleColdIdleThread(): boolean {
+    const pausedAtRaw = stringValue(this.initialJobMetadata?.paused_at)
+    if (!pausedAtRaw) return false
+    const pausedMs = Date.parse(pausedAtRaw)
+    if (!Number.isFinite(pausedMs)) return false
+    const idleMs = Date.now() - pausedMs
+    const minIdleMs = this.opts.coldIdleRecycleMs ?? 10 * 60_000
+    if (idleMs < minIdleMs) return false
+
+    const usage = jsonObject(this.initialJobMetadata?.latest_token_usage)
+    const lastCallTokens = Number(jsonObject(usage.last_model_call).total_tokens ?? 0)
+    const contextTokens = Number.isFinite(lastCallTokens) ? lastCallTokens : 0
+    const minTokens = this.opts.coldIdleMinTokens ?? 128_000
+    return contextTokens >= minTokens
   }
 
   private async startCodexTurn(input: string): Promise<void> {
@@ -865,6 +906,9 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       this.latestTokenUsage = projection.usage
     } else if (projection.type === 'turn_diff') {
       this.activeFilesChanged = projection.filesChanged
+    } else if (projection.type === 'compaction_completed' && !this.compaction) {
+      this.compactionSeq += 1
+      this.publishCliContextId()
     } else if (projection.type === 'turn_completed' && !this.finalizing && !this.waitingOnUserInput) {
       const threadID = projection.threadID ?? this.runtimeThreadID
       if (threadID && projection.turnID) {
@@ -909,6 +953,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     const compaction = this.compaction
     if (!compaction || (compaction.turnID !== undefined && projection.turnID !== compaction.turnID)) return false
     if (projection.codexTurnStatus === 'completed') {
+      this.compactionSeq += 1
+      this.publishCliContextId()
       compaction.resolve()
     } else {
       compaction.reject(
@@ -1044,7 +1090,14 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           await this.interrupt()
         }
         await appServer.respondError(message.id, -32002, 'Background agent Job is waiting for parent input')
-        this.scheduleClaimedCommit('waiting_on_user', { metadata: { pending_user_input: pending } })
+        this.scheduleClaimedCommit('waiting_on_user', {
+          metadata: {
+            pending_user_input: pending,
+            paused_at: new Date().toISOString(),
+            cli_compaction_seq: this.compactionSeq,
+            ...(this.latestTokenUsage ? { latest_token_usage: this.latestTokenUsage } : {})
+          }
+        })
       } catch (error) {
         this.waitingOnUserInput = false
         this.rejectDone(toError(error))

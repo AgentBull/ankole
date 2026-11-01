@@ -251,7 +251,7 @@ function InlinePrincipalMention({
   const disabled = resolved.access === 'disabled'
   const isAgent = resolved.kind === 'agent'
   const displayName = (resolved.name ?? '').trim() || uid
-  const copyValue = isAgent ? (resolved.handle ? `@${resolved.handle}` : '') : (resolved.email ?? '')
+  const copyValue = isAgent ? (resolved.principal_uid ? `@${resolved.principal_uid}` : '') : (resolved.email ?? '')
 
   const copyContact = async () => {
     if (!copyValue || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return
@@ -308,7 +308,7 @@ function InlinePrincipalMention({
               {disabled && <Badge variant="outline">{t('pod.mention.disabled_badge')}</Badge>}
             </div>
             {isAgent
-              ? resolved.handle && <p className="truncate text-xs text-fg-tertiary">@{resolved.handle}</p>
+              ? resolved.principal_uid && <p className="truncate text-xs text-fg-tertiary">@{resolved.principal_uid}</p>
               : resolved.job_title && <p className="truncate text-xs text-fg-secondary">{resolved.job_title}</p>}
           </div>
         </div>
@@ -319,7 +319,7 @@ function InlinePrincipalMention({
           <div>
             <Button type="button" variant="outline" size="xs" onClick={() => void copyContact()}>
               {copied ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
-              {copied ? t('pod.mention.copied') : t(isAgent ? 'pod.mention.copy_handle' : 'pod.mention.copy_email')}
+              {copied ? t('pod.mention.copied') : t(isAgent ? 'pod.mention.copy_uid' : 'pod.mention.copy_email')}
             </Button>
           </div>
         )}
@@ -410,7 +410,7 @@ export function createMentionHostAdapters({
                 const isAgent = candidate.kind === 'agent'
                 const displayName = candidate.name.trim() || candidate.principal_uid
                 const subtitle = isAgent
-                  ? [candidate.handle ? `@${candidate.handle}` : '', candidate.role ?? ''].filter(Boolean).join(' · ')
+                  ? [`@${candidate.principal_uid}`, candidate.role ?? ''].filter(Boolean).join(' · ')
                   : [candidate.job_title ?? '', candidate.email ?? ''].filter(Boolean).join(' · ')
                 items.push({
                   target: { principal: candidate.principal_uid },

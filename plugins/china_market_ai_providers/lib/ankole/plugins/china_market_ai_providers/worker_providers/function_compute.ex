@@ -153,7 +153,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute 
           spec.agent_uid,
           template,
           Map.merge(labels(provider), %{
-            "ankole-agent" => ProviderKind.hash16(spec.agent_uid),
+            "ankole-agent" => ProviderKind.agent_hash(spec.agent_uid),
             "ankole-generation" => spec.generation,
             "ankole.tenant" => Ankole.Repo.tenant_id!()
           }),
@@ -194,7 +194,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute 
     filter =
       if uid_or_all == :all,
         do: labels(provider),
-        else: Map.put(labels(provider), "ankole-agent", ProviderKind.hash16(uid_or_all))
+        else: Map.put(labels(provider), "ankole-agent", ProviderKind.agent_hash(uid_or_all))
 
     with {:ok, items, rows} <-
            AgentWorkers.inventory_with_workers(provider.provider_id, uid_or_all, fn ->
@@ -319,6 +319,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute 
 
   defp observation({:ended, row}, _rows, _uid) do
     %{
+      tenant_id: row.tenant_id,
       agent_uid: row.agent_uid,
       generation: row.generation,
       instance_ref: row.instance_ref,
@@ -330,7 +331,13 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute 
 
   defp observation(item, rows, uid) do
     meta = item["metadata"]
-    row = Enum.find(rows, &(ProviderKind.hash16(&1.agent_uid) == meta["ankole-agent"]))
+
+    row =
+      Enum.find(
+        rows,
+        &(ProviderKind.agent_hash(&1.tenant_id, &1.agent_uid) == meta["ankole-agent"])
+      )
+
     helper? = meta["ankole-task"] == "storage"
 
     selected_helper? =
@@ -340,7 +347,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute 
       helper? and (uid != :all or selected_helper?) ->
         nil
 
-      uid != :all and meta["ankole-agent"] != ProviderKind.hash16(uid) ->
+      uid != :all and meta["ankole-agent"] != ProviderKind.agent_hash(uid) ->
         nil
 
       true ->
@@ -354,6 +361,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute 
         {:ok, started, _} = DateTime.from_iso8601(item["endAt"])
 
         %{
+          tenant_id: meta["ankole.tenant"],
           agent_uid: if(helper?, do: nil, else: if(row, do: row.agent_uid, else: nil)),
           generation: meta["ankole-generation"],
           instance_ref: item["sandboxID"],

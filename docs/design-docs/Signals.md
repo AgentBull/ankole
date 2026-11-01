@@ -161,7 +161,7 @@ only their internal producers may dispatch or control; if a WebhookEndpoint or
 Binding targets either prefix, validation fails with `invalid_signal_target`.
 
 Delivery routing stays separate from execution targeting. `reply_route` can
-carry `binding_name` (persisted as `reply_binding_name`), `conversation_id`,
+carry `binding_id`, `binding_name` (persisted as `reply_binding_name`), `conversation_id`,
 `provider_thread_id`, and `provider_message_id`, while the Signal's `source`
 continues to name the producer namespace. Internal producers never synthesize a
 Binding to identify themselves, and a Binding does not own a Conversation.
@@ -224,17 +224,20 @@ altering the requester's authorization.
 
 ## Bindings
 
-`Ankole.Signals.Binding` defines a routing rule connecting one Agent to one
-adapter, and `Ankole.Signals.Bindings` manages its configuration and lifecycle.
+`Ankole.Signals.Binding` defines a tenant's adapter routing rule, and
+`Ankole.Signals.Bindings` manages its configuration and lifecycle.
 Resource actions persist configuration updates, disabling, and deletion inside
 the caller's transaction: typed JSON attributes reject invalid runtime values
 before SQL, `BindingFilters` compiles and checks CEL expressions, and `Target`
 validates route targets. Adapter save hooks run after commit—if a hook fails,
 Ankole logs the failure without failing the committed save, and delivery or
 preview wakeups proceed independently. Each `signal_bindings` row stores the
-Agent, binding name, adapter, configuration reference, filter, target, policies,
-and enabled flag; rows are uniquely identified by `(agent_uid, name)` and
-always queried under tenant scope.
+binding ID, routing mode, optional Agent, binding name, adapter, configuration
+reference, filter, target, policies, and enabled flag. All reads use tenant
+scope. `ai_colleague` mode requires a colleague target and is unique on
+`(tenant_id, agent_uid, name)`. `sender_personal_assistant` mode uses a null
+Agent target and is unique on `(tenant_id, name)` within that mode. The binding
+ID identifies configuration independently of each event's execution target.
 
 Creating or re-enabling a Binding invokes the site's `:enable_signal_binding`
 Plugin hooks inside the write transaction with `agent_uid`, `name`, `adapter`,
@@ -243,8 +246,10 @@ preserves its admission, and both messaging adapters and CloudEvents share the
 same write boundary and row-lock order.
 
 Bindings store only a `config_ref` pointer rather than raw provider secrets,
-which adapters read through their own AppConfigure contracts. Updating `config`
-applies as a patch where omitted keys retain their stored values. Console edit
+which adapters read through their own AppConfigure contracts. Configuration
+keys include the tenant and binding ID. Updating `config` through PATCH
+preserves omitted keys; PUT replaces the configuration and can repair a missing
+or broken stored value. Console edit
 reads strip encrypted secret values—listing only which secret paths are
 populated—and omitting or sending an empty secret field preserves the existing
 encrypted value.
@@ -264,9 +269,9 @@ adapters, `cloudevents` carries no group-message or sender-mapping policies.
 In the Console JSON:API, `GET /api/v2/signal-adapters` and
 `GET /api/v2/signal-bindings` (guarded by `read` on
 `site_console:signal_bindings`) serve the adapter catalog and binding list.
-Per-Agent routes expose read, edit, and delete at
-`/api/v2/agents/:agent_uid/signal-bindings/:binding_name` and create or enable
-at `PUT /api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name`,
+Read, edit, and delete use `/api/v2/signal-bindings/:id`; create or enable uses
+`PUT /api/v2/signal-bindings/:adapter_id/:binding_name` with the routing mode and
+optional `agent_uid` in the body,
 delegating commit and adapter-hook authority to `Ankole.Signals.Bindings` (and
 omitting secrets from edit responses). Editing a Binding on the same Agent
 requires `update` on `site_console:agent:<agent_uid>:signal_bindings`; moving a
@@ -275,6 +280,25 @@ Binding to another Agent checks `delete` on the source Agent's resource and
 if either check fails. Operators requeue failed deliveries via
 `POST /api/v2/agents/:agent_uid/signal-deliveries/requeue`, which enforces the
 durable Outbox admission rules.
+
+### Shared Personal-Assistant Bots
+
+Lark and Slack support `sender_personal_assistant` routing. A shared binding
+defaults to the filter `signal.channel.kind == 'im_dm'` and manual identity
+review. Observe requires `im_dm` for this routing mode even when the operator
+changes the binding filter. IdentityAdmission resolves an active member of the binding's tenant
+before `ensure_personal_assistant` finds or creates the member's assistant.
+The resolved assistant UID enters the ordinary observation, Signal and
+Conversation path. Guests cannot enter this route.
+
+Card clicks, reactions and withdrawals recover the execution target from their
+source Signal and external Conversation mirror. Observe fills in missing
+channel kind before evaluating filters. Previews, durable replies, callbacks
+and scheduled replies resolve credentials by binding ID, so a shared and a
+dedicated binding with the same name remain distinct. Shared Bot credentials
+stay in the control plane; Worker environment injection applies only to
+dedicated AI-colleague bindings. Shared binding management requires the
+tenant's `site_console:signal_bindings` resource permission.
 
 ### Filters
 
@@ -574,15 +598,15 @@ When a sender matches no Principal, `unmatched_sender_policy` governs admission:
   (preserving the unmapped sender under `metadata.unmatched_sender` for adapters
   that require a recipient address), whereas unaddressed group chatter is
   dropped silently.
-- `create_standalone`: provisions a new Human Principal with a fresh UUIDv7 and
-  admits the message under that account. Without an identity binding or verified
-  contact match, Ankole creates a separate Principal even if the raw provider ID
-  matches an existing Principal UID.
+- `create_standalone`: provisions a Human Principal using the normalized external
+  primary ID and admits the message under that account. Ankole selects an existing
+  Principal only through an identity binding or contact match. A name collision
+  returns `principal_uid_taken` for an operator to resolve.
 
 Messages from disabled Humans are dropped silently without sending a notice.
 When admission succeeds, Ankole locks the Human row, captures `access_version`
 on the observation (preserved across inbound batches and ambient triage), and
-adds the Principal to the Binding's `signal_source:<agent_uid>:<binding_name>`
+adds the Principal to the Binding's `signal_source:<binding_id>`
 AuthZ group. Comparing that group against the directory-synced
 `<provider_id>:members:all` group distinguishes external guests from
 organization members on a given source.
@@ -606,9 +630,9 @@ bot APIs for stable bot IDs. Rotating tokens therefore preserves tenant
 ownership; if an existing credential has expired and blocks cross-tenant
 verification, an operator must repair or delete that configuration first.
 
-Adapters whose configuration keys hash `[agent_uid, binding_name]` store secrets
-in AppConfigure's global table because `agent_uid` is globally unique, and
-deleting an Agent purges its owned configurations. At runtime, adapter worker
+Adapters store secrets in AppConfigure's global table under keys derived from
+the tenant and binding ID. Deleting a binding purges its owned configuration.
+At runtime, adapter worker
 processes always enter the Binding's tenant context before reading or writing
 domain tables.
 

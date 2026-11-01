@@ -17,11 +17,11 @@ defmodule Ankole.PodChatWorkspaceMaterial do
     model = %{provider_id: provider_id, model: "fixture-model"}
 
     for uid <- [agent.uid, colleague.uid] do
-      {:ok, _} = Ankole.AIAgent.ModelProfiles.put_model_profile(uid, "primary", model)
+      {:ok, _} = Ankole.AIGateway.ModelProfiles.put_model_profile(uid, "primary", model)
     end
 
     {:ok, _} =
-      Ankole.AIAgent.ModelProfiles.put_model_profile(
+      Ankole.AIGateway.ModelProfiles.put_model_profile(
         colleague.uid,
         "careful",
         Map.put(model, :description, "Browser workspace material")

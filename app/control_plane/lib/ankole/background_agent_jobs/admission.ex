@@ -11,6 +11,10 @@ defmodule Ankole.BackgroundAgentJobs.Admission do
   alias Ankole.Signals.Signal
 
   def admit_attempt_in_tx(%Job{} = snapshot, %Signal{} = event, prepare, opts) do
+    # Capturing the initial runtime projection reads the private Drive skill
+    # catalog. Its tree/root locks must precede Principal, Worker and Job locks.
+    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Files.lock_drive(snapshot.agent_uid)
     # Principal rows precede the Worker, slot, and Job locks.
     access_result = admission_access(event, snapshot)
     worker = AgentWorkers.lock_in_tx(snapshot.agent_uid)

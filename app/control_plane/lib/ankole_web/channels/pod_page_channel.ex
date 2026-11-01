@@ -16,9 +16,11 @@ defmodule AnkoleWeb.PodPageChannel do
            {:ok, detail} <- Pages.get(socket.assigns.actor, id) do
         AnkoleWeb.PodChannel.subscribe(socket)
         Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-page:" <> id)
+        Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> id)
 
         session = Ankole.Ecto.UUIDv7.autogenerate()
-        profile = JSON.author_profiles([socket.assigns.uid])[socket.assigns.uid]
+        author = Ankole.ActorRef.from_actor(socket.assigns.actor)
+        profile = JSON.author_profiles([author])[author]
         if detail.page.type == :doc, do: send(self(), :track_presence)
 
         {:ok, Map.put(JSON.detail_json(detail), :presence_session, session),
@@ -95,7 +97,7 @@ defmodule AnkoleWeb.PodPageChannel do
     end
   end
 
-  def handle_info({:page_committed, _id}, socket) do
+  def handle_info({:node_committed, _id}, socket) do
     if allowed?(socket) do
       case with_tenant(socket, fn -> latest(socket) end) do
         {:ok, result} ->
@@ -122,11 +124,11 @@ defmodule AnkoleWeb.PodPageChannel do
 
   defp update_presence(socket, selection) do
     with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
-         {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "page_view") do
+         {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view") do
       if is_nil(selection) or selection["revision"] == page.revision do
         editing =
           not is_nil(selection) and
-            match?({:ok, _}, Pages.authorize(socket.assigns.actor, page.id, "page_edit"))
+            match?({:ok, _}, Pages.authorize(socket.assigns.actor, page.id, "node_edit"))
 
         meta = %{
           socket.assigns.presence_meta
@@ -153,7 +155,7 @@ defmodule AnkoleWeb.PodPageChannel do
           with_tenant(socket, fn ->
             match?(
               {:ok, _},
-              Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "page_edit")
+              Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_edit")
             )
           end)
 
@@ -209,7 +211,7 @@ defmodule AnkoleWeb.PodPageChannel do
     do: Documents.since(socket.assigns.actor, socket.assigns.page_id, socket.assigns.revision)
 
   defp latest(socket) do
-    with {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "page_view"),
-         do: {:ok, %{revision: page.revision, changes: []}}
+    with {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view"),
+         do: {:ok, %{revision: page.revision, object_id: page.object_id, changes: []}}
   end
 end

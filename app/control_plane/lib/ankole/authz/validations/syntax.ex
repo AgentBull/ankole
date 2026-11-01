@@ -13,8 +13,8 @@ defmodule Ankole.AuthZ.Validations.Syntax do
           :ok
 
         {value, :condition} ->
-          if Ash.Changeset.get_attribute(changeset, :action) in ~w(page_view page_write_records page_edit page_manage page_comment),
-            do: Ankole.AuthZ.Input.validate_pod_condition_source(value),
+          if Ash.Changeset.get_attribute(changeset, :action) in ~w(node_view node_contribute node_edit node_manage node_comment),
+            do: Ankole.AuthZ.Input.validate_drive_condition_source(value),
             else: Ankole.AuthZ.Input.validate_condition_syntax(value)
 
         {value, :resource_pattern} ->

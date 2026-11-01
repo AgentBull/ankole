@@ -24,8 +24,13 @@ defmodule Ankole.Kernel.ObjectStore do
 
   alias Ankole.Kernel, as: NativeKernel
 
+  @doc "Maximum upload size for this backend, enforced by every native writer."
+  def write_limit(store), do: NativeKernel.object_store_write_limit_nif(store)
+
   @type store :: NativeKernel.object_store()
   @type error :: %{required(String.t()) => String.t()}
+  @type written_object :: %{sha256: String.t(), size: non_neg_integer()}
+  @write_chunk_bytes 8 * 1024 * 1024
 
   @doc "Opens a store. Opening does no network I/O."
   @spec open(map()) :: {:ok, store()} | {:error, error()}
@@ -40,6 +45,19 @@ defmodule Ankole.Kernel.ObjectStore do
   @spec read(store(), String.t()) :: {:ok, binary()} | {:error, error()}
   def read(store, key) when is_binary(key) do
     call(&NativeKernel.object_store_read_nif(store, key, self(), &1))
+  end
+
+  @doc """
+  Reads exactly `length` bytes starting at the zero-based `offset`.
+
+  Both arguments are unsigned 64-bit integers. Their sum must fit in 64 bits.
+  An empty range returns an empty binary without checking that the object exists.
+  A non-empty range extending past the object returns a storage error.
+  """
+  @spec read_range(store(), String.t(), non_neg_integer(), non_neg_integer()) ::
+          {:ok, binary()} | {:error, error()}
+  def read_range(store, key, offset, length) when is_binary(key) do
+    call(&NativeKernel.object_store_read_range_nif(store, key, offset, length, self(), &1))
   end
 
   @doc "Copies one object into a local file."
@@ -63,6 +81,55 @@ defmodule Ankole.Kernel.ObjectStore do
     call(&NativeKernel.object_store_write_from_file_nif(store, key, path, self(), &1))
   end
 
+  @doc """
+  Writes an Enumerable of binaries and returns its SHA-256 and byte size after close.
+
+  The calling process consumes the source once, waiting for each native write
+  before requesting another chunk. Source exceptions propagate; cancellation,
+  errors, and owner exit abort the writer. Backends without multipart support
+  buffer the object in native memory.
+  """
+  @spec write_stream(store(), String.t(), Enumerable.t()) ::
+          {:ok, written_object()} | {:error, error()}
+  def write_stream(store, key, source) when is_binary(key) do
+    ref = make_ref()
+
+    with {:ok, writer} <- NativeKernel.object_store_writer_open_nif(store, key, ref) do
+      try do
+        with :ok <- await(ref),
+             {:ok, digest, size} <- write_chunks(writer, source),
+             :ok <- call(&NativeKernel.object_store_writer_close_nif(writer, &1)) do
+          {:ok, %{sha256: Base.encode16(:crypto.hash_final(digest), case: :lower), size: size}}
+        end
+      after
+        NativeKernel.object_store_writer_abort_nif(writer)
+      end
+    end
+  end
+
+  defp write_chunks(writer, source) do
+    Enum.reduce_while(source, {:ok, :crypto.hash_init(:sha256), 0}, fn
+      bytes, {:ok, digest, size} when is_binary(bytes) ->
+        case write_chunk(writer, bytes) do
+          :ok -> {:cont, {:ok, :crypto.hash_update(digest, bytes), size + byte_size(bytes)}}
+          {:error, _} = error -> {:halt, error}
+        end
+
+      _, _ ->
+        raise ArgumentError, "object store streams must yield binaries"
+    end)
+  end
+
+  defp write_chunk(_writer, ""), do: :ok
+
+  defp write_chunk(writer, bytes) when byte_size(bytes) > @write_chunk_bytes do
+    <<chunk::binary-size(@write_chunk_bytes), rest::binary>> = bytes
+    with :ok <- write_chunk(writer, chunk), do: write_chunk(writer, rest)
+  end
+
+  defp write_chunk(writer, bytes),
+    do: call(&NativeKernel.object_store_writer_write_nif(writer, bytes, &1))
+
   @doc "Deletes one object. Deleting a missing object succeeds."
   @spec delete(store(), String.t()) :: :ok | {:error, error()}
   def delete(store, key) when is_binary(key) do
@@ -74,12 +141,16 @@ defmodule Ankole.Kernel.ObjectStore do
 
     case start_native.(ref) do
       :ok ->
-        receive do
-          {:object_store, ^ref, result} -> result
-        end
+        await(ref)
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp await(ref) do
+    receive do
+      {:object_store, ^ref, result} -> result
     end
   end
 end

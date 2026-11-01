@@ -436,14 +436,11 @@ Driver only at durable step boundaries. Explicit edits, supplements, and message
 removals travel through the revision path while preserving the original trigger
 and frozen authorization snapshot.
 
-Terminal validation distinguishes between withdrawing the turn's trigger and
-deleting background context. If an explicit input source was withdrawn,
-validation returns `:signal_canceled` and cancels the turn. If only a background
-Message that the turn read was deleted, validation returns
-`:signal_context_canceled`, stops the turn, and posts a `context_withdrawn`
-notice instead of the drafted answer. Edits to background Messages do not
-invalidate a running request, and in both withdrawal cases, already completed
-model history stays intact.
+Terminal validation cancels the turn with `:signal_canceled` when an explicit
+input source was withdrawn. Editing or withdrawing background context leaves
+the running task and its answer valid: the model works from the context already
+read for that request. Future context reads omit withdrawn messages, while
+completed model history and committed tool effects remain intact.
 
 Completion resolves the turn's public presentation once. Silent completion emits
 nothing; a visible native result commits as a public Message inside the
@@ -503,10 +500,58 @@ relies on withdrawn authorization.
 An explicit `signal::<uuid>` retry must reference retained terminal work
 belonging to the same Agent and a valid Session, with no newer user input in
 between; it restores the declared model anchor rather than merging an unrelated
-branch. Resetting a Session closes its active model history and starts a fresh
+branch. Resetting a Session (`command.new` or a kernel-produced
+`session.reset_due` Signal) closes its active model history and starts a fresh
 branch, while leaving shared public conversation history intact and readable
 under the new branch's watermark. Neither retry nor reset affects another
 Agent's Session in a shared room.
+
+On conversation admission (`Sessions.WakeRecycle`, configured through
+`sessions.wake_recycle`), Ankole automatically rotates an active model
+conversation onto a successor branch when the predecessor has completed at least
+one Response and either (a) idle time since the last completed Response reaches
+`min_cold_gap_seconds` (default `3,600` seconds, after upstream prompt caches
+have expired) with cumulative input context at or above `min_context_tokens`
+(default `128,000` tokens), or (b) an external IM conversation sits idle for at
+least `im_max_idle_seconds` (default `259,200` seconds / 72 hours):
+
+- Rotation skips explicit resets (`command.new`), interactive card callbacks and
+  answers (`signal.action.invoked`, `conversation.action_card.executed`, or a
+  payload carrying `answered_interaction_id`), background callback Signals
+  (`background_agent_job.*` and `workflow.run.*`), Sessions with open or waiting
+  `BackgroundAgentJob` or `Workflow.Run` records, Sessions with another running
+  Signal, and crash retries of an already attempted Signal
+  (`signal.last_attempt_at != nil`).
+- When rotating inside `Admission.admit_in_tx/5`, Ankole closes the predecessor
+  AIGateway conversation, carries forward unresolved `InteractionState` and
+  `ActionCard` checkpoints, opens the successor conversation with
+  `metadata["wake_briefing"]` recording `previous_conversation_id`, `reason`,
+  `recycled_at`, `idle_gap_seconds`, and `previous_context_tokens`, and leaves
+  public `conversation_messages` untouched.
+- Before the successor's first model request (`AIGateway.visible_response_chain/2`
+  empty), `Sessions.WakeBriefing` injects a deterministic `<wake-briefing>` block
+  capped at `8,000` `o200k_base` tokens (`200` tokens for XML framing, up to
+  `2,200` tokens for `<brain-memory>` entity cards and open threads, up to
+  `3,600` tokens for `<recent-messages>` covering up to `25` room messages
+  bounded by the admitted trigger watermark and excluding withdrawn reply
+  targets, up to `600` tokens for
+  `<recent-actions>` covering up to `12` predecessor tool trajectories, and up
+  to `1,400` tokens for `<objects-in-play>` covering live re-reads of up to `3`
+  Pages, Drive files, or `/workspace` files touched within two hours at up to
+  `450` tokens per `<object>`). Workspace file re-reads call
+  `WorkerFiles.stream_prefix/3` to read at most `16,384` bytes under a `500 ms`
+  timeout only when `AgentWorkers.ready_worker/1` reports a `ready` Worker.
+  An unavailable or timed-out Worker yields `status="worker_offline_not_reread"`;
+  missing files, size rejections and other read failures yield `missing`,
+  `file_too_large` and `unavailable`, respectively. Ankole removes an incomplete
+  UTF-8 character at the end of a text prefix and rejects malformed bytes
+  inside it as `binary_not_inlined`. Briefing reads do not start Workers.
+- Session Drivers propagate the active model context identity
+  (`<model_conversation_id>:cmp:<latest_checkpoint_id|root>`) through
+  `prepare_open` and `run_command` RPCs into the Worker's
+  `ANKOLE_RUNTIME_CLI_CONTEXT_FILE` (`context-generation.json`), giving Worker
+  CLIs a context identity tied strictly to model history rotation and compaction
+  rather than per-turn workspace epochs.
 
 Workers are stateless, rebuildable compute, whereas Session workspace IDs are
 durable integers that survive provider restarts. In Runtime Fabric protocol v10,

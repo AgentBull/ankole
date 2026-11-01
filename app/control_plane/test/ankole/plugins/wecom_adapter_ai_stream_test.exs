@@ -381,6 +381,46 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     refute_receive {:bot_frame, "aibot_send_msg", _req2, _body2}, 50
   end
 
+  test "awaiting_input sends a button_interaction template_card and tracks card_task_id on surface_ids" do
+    event = setup_stream_binding(fresh_anchor_metadata())
+
+    awaiting =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("answer.delta", %{"text" => "Approve permission update?"})
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "Grant Charlie view access",
+        "controls" => [
+          %{
+            "id" => "confirm",
+            "type" => "button",
+            "label" => "Confirm & Execute",
+            "interaction_id" => "action_card:card-1",
+            "source_signal_id" => event.id,
+            "control_id" => "action-card-decision",
+            "selected_option_id" => "confirm",
+            "option_value" => "confirm",
+            "revision" => 1
+          }
+        ]
+      })
+
+    assert {:ok, result} = finalize(request(event, awaiting, :awaiting_input))
+    frames = collect_frames([])
+
+    assert Enum.any?(frames, fn {cmd, _req, body} ->
+             cmd == "aibot_send_msg" and body["msgtype"] == "template_card" and
+               body["template_card"]["card_type"] == "button_interaction"
+           end)
+
+    checkpoint = result.reply_preview_checkpoint
+    assert checkpoint["card_task_id"] == "ankole:#{event.id}"
+
+    assert {:entry, "ankole:#{event.id}"} in Ankole.Plugins.WeComAdapter.AIStream.surface_ids(
+             checkpoint
+           )
+  end
+
   defp collect_frames(acc) do
     receive do
       {:bot_frame, cmd, req, body} -> collect_frames(acc ++ [{cmd, req, body}])

@@ -59,12 +59,13 @@ describe('drive client', () => {
       )
     }))
 
-  it('marks page-file reads for Pod authorization on the control plane', () =>
+  it('addresses shared files by stable node ID', () =>
     withAgentHome(async agentHome => {
       const fake = new FakeDrive(agentHome)
       fake.put('pages/report/notes.txt', 'notes')
-      await fake.drive().get('pages/report/notes.txt', join(agentHome, 'notes.txt'), { pod: true })
-      expect(fake.calls.find(call => call.method === 'files.get')?.payload).toMatchObject({ podDrive: true })
+      const nodeId = fake.files.get('pages/report/notes.txt')!.nodeId
+      await fake.drive().get(nodeId, join(agentHome, 'notes.txt'), { node: true })
+      expect(fake.calls.find(call => call.method === 'files.get')?.payload).toMatchObject({ nodeId, path: '' })
     }))
 
   it('validates drive paths with the control-plane rules', () => {
@@ -382,19 +383,19 @@ describe('installed Skills cache', () => {
 })
 
 describe('ankole-files', () => {
-  it('accepts --pod before or after the path without consuming positional values', () => {
+  it('accepts --node before or after the path without consuming positional values', () => {
     for (const args of [
-      ['get', '--pod', 'pages/p/a.txt'],
-      ['get', 'pages/p/a.txt', '--pod']
+      ['get', '--node', 'pages/p/a.txt'],
+      ['get', 'pages/p/a.txt', '--node']
     ]) {
       expect(commandFromArgs(args, '/agents/a')).toEqual({
         operation: 'get',
         path: 'pages/p/a.txt',
         cwd: '/agents/a',
-        pod: true
+        node: true
       })
     }
-    expect(() => commandFromArgs(['put', 'a', 'b', '--pod'])).toThrow('unknown option --pod')
+    expect(() => commandFromArgs(['put', 'a', 'b', '--node'])).toThrow('unknown option --node')
   })
   it('parses its commands relative to the working directory', () => {
     expect(commandFromArgs(['list', 'inbox', '--limit', '5', '--after', 'inbox/a.txt'], '/agents/a')).toEqual({

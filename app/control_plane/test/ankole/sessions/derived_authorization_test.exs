@@ -15,14 +15,15 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
   end
 
   for kind <- [:workflow_task, :scheduled] do
-    test "human-owned #{kind} enforces tool names, arguments and the native ingress IP", ctx do
+    test "human-owned #{kind} uses Agent tool capabilities and retains trusted ingress context",
+         ctx do
       source = native_source(ctx)
       run = derived_run(unquote(kind), source)
       assert run.kind == unquote(kind)
       assert run.event.authorization_kind == "human"
       assert run.event.human_uid == ctx.human.uid
       call = call("web_fetch", %{"urls" => ["https://example.com"], "result_offset" => 0})
-      assert {:error, %{failure_kind: "forbidden"}} = Tools.prepare(run, call)
+      assert {:ok, _, _} = Tools.prepare(run, call)
 
       grant(
         ctx.human.uid,
@@ -33,13 +34,13 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
 
       assert {:ok, _, %{"result_offset" => 0}} = Tools.prepare(run, call)
 
-      assert {:error, %{failure_kind: "forbidden"}} =
+      assert {:ok, _, %{"result_offset" => 10}} =
                Tools.prepare(
                  run,
                  call("web_fetch", %{"urls" => ["https://example.com"], "result_offset" => 10})
                )
 
-      assert {:error, %{failure_kind: "forbidden"}} =
+      assert {:ok, _, _} =
                Tools.prepare(
                  run,
                  call("create_background_job", %{"title" => "Report", "task" => "Research"})
@@ -63,7 +64,8 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     end
   end
 
-  test "closing guest collaboration rejects a running guest's previously granted tools", ctx do
+  test "Guest collaboration settings do not replace the executing Agent's tool capabilities",
+       ctx do
     guest = Ankole.PrincipalsFixtures.human_fixture(%{membership: :guest}).principal
     source = native_source(%{ctx | human: guest})
     run = derived_run(:workflow_task, source)
@@ -71,7 +73,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     call = call("web_fetch", %{"urls" => ["https://example.com"], "result_offset" => 0})
     assert {:ok, _, _} = Tools.prepare(run, call)
     assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.allow_external_guests", false)
-    assert {:error, %{failure_kind: "forbidden"}} = Tools.prepare(run, call)
+    assert {:ok, _, _} = Tools.prepare(run, call)
   end
 
   test "nested work follows its persisted source and refuses foreign or cyclic provenance", ctx do
@@ -174,7 +176,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
            }
   end
 
-  test "a human-owned background job intersects Pod reads and writes and retains ingress IP",
+  test "a human-owned background job uses Agent Drive permissions and retains ingress IP",
        ctx do
     source = native_source(ctx)
     attempt = job_attempt(source)
@@ -191,33 +193,43 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
                grants: [%{principal_uid: owner.uid, role: "manage"}]
              })
 
-    pattern = "pod:**:#{page.id}:page"
+    pattern = "drive:**:#{page.id}:node"
     condition = ~s(context.request.ip == "10.20.1.10" && context.request.surface == "agent_rpc")
     agent_grants = page_grants(ctx.agent.uid, pattern)
-    refute page.id in rpc_page_ids(attempt)
-    assert {:error, %{"code" => "forbidden"}} = rpc_update(attempt, page.id, "Denied", page.title)
+    assert page.id in rpc_page_ids(attempt)
+
+    assert {:ok, %{"result" => %{"title" => "Agent only"}}} =
+             rpc_update(attempt, page.id, "Agent only", page.title)
 
     Enum.each(agent_grants, fn grant ->
       assert {:ok, _} = AuthZ.delete_permission_grant(grant.id)
     end)
 
-    page_grants(ctx.agent.uid, pattern, condition)
+    agent_grants = page_grants(ctx.agent.uid, pattern, condition)
     human_grants = page_grants(ctx.human.uid, pattern, condition)
-    assert page.id in rpc_page_ids(attempt)
 
     assert {:ok, %{"result" => %{"title" => "Allowed"}}} =
-             rpc_update(attempt, page.id, "Allowed", page.title)
+             rpc_update(attempt, page.id, "Allowed", "Agent only")
 
     Enum.each(human_grants, fn grant ->
+      assert {:ok, _} = AuthZ.delete_permission_grant(grant.id)
+    end)
+
+    assert page.id in rpc_page_ids(attempt)
+
+    assert {:ok, %{"result" => %{"title" => "Still allowed"}}} =
+             rpc_update(attempt, page.id, "Still allowed", "Allowed")
+
+    Enum.each(agent_grants, fn grant ->
       assert {:ok, _} = AuthZ.delete_permission_grant(grant.id)
     end)
 
     refute page.id in rpc_page_ids(attempt)
 
     assert {:error, %{"code" => "forbidden"}} =
-             rpc_update(attempt, page.id, "Denied again", "Allowed")
+             rpc_update(attempt, page.id, "Denied", "Still allowed")
 
-    assert {:ok, %{page: %{title: "Allowed"}}} =
+    assert {:ok, %{page: %{title: "Still allowed"}}} =
              Pages.get(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id)
   end
 
@@ -237,14 +249,14 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
                grants: [%{principal_uid: owner.uid, role: "manage"}]
              })
 
-    page_grants(ctx.agent.uid, "pod:**:#{page.id}:page")
+    page_grants(ctx.agent.uid, "drive:**:#{page.id}:node")
     assert page.id in rpc_page_ids(attempt)
 
     assert {:ok, %{"result" => %{"title" => "Service write"}}} =
              rpc_update(attempt, page.id, "Service write", page.title)
   end
 
-  test "background hosted reads enforce the human's tool grant before returning rendered content",
+  test "background hosted reads ignore Human invoke grants while retaining instruction validity",
        ctx do
     attempt = ctx |> native_source() |> job_attempt()
 
@@ -259,7 +271,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
 
     rpc = rpc_context(attempt)
 
-    assert {:error, %{"code" => "forbidden"}} =
+    assert {:ok, _} =
              ReadToolBroker.handle_read(attempt.job_ref, request, rpc)
 
     permission =
@@ -276,7 +288,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     assert output =~ "Report content"
     assert {:ok, _} = AuthZ.delete_permission_grant(permission.id)
 
-    assert {:error, %{"code" => "forbidden"}} =
+    assert {:ok, _} =
              ReadToolBroker.handle_read(attempt.job_ref, request, rpc)
   end
 
@@ -303,6 +315,21 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
 
     assert {:error, %{"code" => "signal_not_owned"}} =
              ReadToolBroker.handle_read(wrong_turn, request, rpc_context(attempt))
+  end
+
+  test "tool calls reject a disabled Agent and a stale Human instruction", ctx do
+    run = ctx |> native_source() |> then(&derived_run(:workflow_task, &1))
+    call = call("web_fetch", %{"urls" => ["https://example.com"]})
+    assert {:ok, _, _} = Tools.prepare(run, call)
+
+    stale = %{
+      run
+      | event: %{run.event | human_access_version: run.event.human_access_version + 1}
+    }
+
+    assert {:error, %{failure_kind: "forbidden"}} = Tools.prepare(stale, call)
+    assert {:ok, _} = Ankole.Principals.delete_agent(ctx.agent.uid)
+    assert {:error, _} = Tools.prepare(run, call)
   end
 
   defp native_source(ctx) do
@@ -384,10 +411,10 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
 
   defp job_attempt(source) do
     assert {:ok, primary} =
-             Ankole.AIAgent.ModelProfiles.resolve_runtime_profile(source.agent_uid, "primary")
+             Ankole.AIGateway.ModelProfiles.resolve_runtime_profile(source.agent_uid, "primary")
 
     assert {:ok, _} =
-             Ankole.AIAgent.ModelProfiles.put_model_profile(
+             Ankole.AIGateway.ModelProfiles.put_model_profile(
                source.agent_uid,
                "coding",
                Map.take(primary, ["provider_id", "model", "provider_options"])
@@ -448,7 +475,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     do: %{"name" => name, "call_id" => Ecto.UUID.generate(), "arguments" => Torque.encode!(args)}
 
   defp page_grants(uid, resource, condition \\ "true"),
-    do: Enum.map(["page_view", "page_edit"], &grant(uid, resource, &1, condition))
+    do: Enum.map(["node_view", "node_edit"], &grant(uid, resource, &1, condition))
 
   defp grant(uid, resource, action, condition) do
     assert {:ok, grant} =

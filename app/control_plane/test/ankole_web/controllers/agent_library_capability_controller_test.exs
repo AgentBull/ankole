@@ -220,7 +220,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
   test "a Skill disable sends one scoped control to each active Job turn", %{conn: conn} do
     %{principal: agent} = background_agent_fixture()
-    {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "coding")
+    {:ok, profile} = Ankole.AIGateway.ModelProfiles.get_model_profile(agent.uid, "coding")
 
     :ok =
       Ankole.SessionsCase.cache_actor_runtime_models(profile["provider_id"])

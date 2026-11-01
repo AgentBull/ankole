@@ -77,6 +77,7 @@ defmodule AnkoleWeb.Endpoint do
 
   plug :webhook_callback_body
   plug :applet_route_body
+  plug :drive_upload_body
 
   plug Plug.Parsers,
     parsers: [
@@ -119,6 +120,35 @@ defmodule AnkoleWeb.Endpoint do
 
   defp applet_route_body(conn, opts),
     do: AnkoleWeb.Plugs.AppletRouteBody.call(conn, AnkoleWeb.Plugs.AppletRouteBody.init(opts))
+
+  # Plug streams multipart file parts to temporary files. Only Drive byte
+  # endpoints use the object backend's bound; JSON and other uploads keep
+  # their existing limits. Controllers still enforce the exact file size.
+  defp drive_upload_body(%Plug.Conn{method: "POST", path_info: path} = conn, _opts) do
+    drive_upload? =
+      case path do
+        ["api", "v2", "drive", _tenant, "uploads"] -> true
+        ["api", "v2", "pod", "pages", _id, "files"] -> true
+        ["api", "v2", "pod", "file-pages"] -> true
+        ["api", "v2", "pod", "attachments"] -> true
+        _ -> false
+      end
+
+    if drive_upload? do
+      with {:ok, limit} <- Ankole.Files.upload_limit() do
+        options =
+          Plug.Parsers.init(parsers: [{:multipart, length: limit + 1024 * 1024}], pass: ["*/*"])
+
+        Plug.Parsers.call(conn, options)
+      else
+        _ -> conn
+      end
+    else
+      conn
+    end
+  end
+
+  defp drive_upload_body(conn, _opts), do: conn
 
   defp session_cookies(conn, opts),
     do: AnkoleWeb.SessionCookies.call(conn, AnkoleWeb.SessionCookies.init(opts))

@@ -171,6 +171,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
 
         context =
           AdapterContext.new(
+            binding_id: binding.id,
             agent_uid: binding.agent_uid,
             binding_name: binding.name,
             adapter: binding.adapter,

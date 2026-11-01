@@ -38,6 +38,7 @@ defmodule Ankole.Pod.PageComment do
     attribute(:deleted_by, Ankole.Ash.Types.ActorRef)
     attribute(:version, :integer, allow_nil?: false, default: 1, constraints: [min: 1])
     attribute(:quote, :string, constraints: [trim?: false, allow_empty?: true])
+    attribute(:anchor, Ankole.Ash.Types.JSONMap)
     attribute(:anchor_revision, :integer, constraints: [min: 0])
     attribute(:resolved_at, :utc_datetime_usec)
     attribute(:resolved_by, Ankole.Ash.Types.ActorRef)
@@ -72,6 +73,7 @@ defmodule Ankole.Pod.PageComment do
         :activity_at,
         :activity_by,
         :quote,
+        :anchor,
         :anchor_revision,
         :created_at,
         :updated_at
@@ -89,6 +91,7 @@ defmodule Ankole.Pod.PageComment do
       accept([
         :body,
         :quote,
+        :anchor,
         :anchor_revision,
         :resolved_at,
         :resolved_by,

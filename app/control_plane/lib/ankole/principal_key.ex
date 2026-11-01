@@ -1,6 +1,6 @@
 defmodule Ankole.PrincipalKey do
   @moduledoc """
-  Canonical installation-wide Principal UID normalization.
+  Canonical tenant-local Principal UID normalization.
 
   Principal UIDs are lowercase text keys shared by humans, agents, and
   principal-owned rows. This module owns that normalization outside Ecto so

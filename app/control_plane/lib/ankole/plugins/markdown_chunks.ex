@@ -171,4 +171,18 @@ defmodule Ankole.Plugins.MarkdownChunks do
   def degrade_task_lists(text) do
     Regex.replace(~r/(^\s*[-*+] )\[[ xX]\]\s+/m, text, "\\1")
   end
+
+  @doc """
+  Removes CommonMark backslash escapes before `~` in prose while leaving code
+  spans and fenced code blocks untouched, for plain-text channels that do not
+  interpret CommonMark backslash escapes.
+  """
+  @spec unescape_plain_tildes(String.t()) :: String.t()
+  def unescape_plain_tildes(text) when is_binary(text) do
+    rewrite_prose(text, fn prose, _marker ->
+      String.replace(prose, "\\~", "~")
+    end)
+  end
+
+  def unescape_plain_tildes(_text), do: ""
 end

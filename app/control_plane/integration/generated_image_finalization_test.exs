@@ -14,7 +14,7 @@ defmodule Ankole.Sessions.GeneratedImageFinalizationIntegrationTest do
   test "byte preparation holds no Session lock and a lost writer can recover without another model request",
        %{tenant: tenant} do
     %{principal: agent} = Ankole.SessionsCase.agent_fixture()
-    {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "primary")
+    {:ok, profile} = Ankole.AIGateway.ModelProfiles.get_model_profile(agent.uid, "primary")
 
     on_exit(fn ->
       Repo.with_tenant(tenant.id, fn ->

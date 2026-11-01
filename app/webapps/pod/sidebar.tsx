@@ -16,7 +16,15 @@ import {
   TabsList,
   TabsTrigger
 } from '@ankole/uikit'
-import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSearchLine, RiSettings3Line } from '@remixicon/react'
+import {
+  RiAddLine,
+  RiRobot2Line,
+  RiChat3Line,
+  RiDeleteBinLine,
+  RiHome5Line,
+  RiSearchLine,
+  RiSettings3Line
+} from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -47,7 +55,7 @@ export function routeSidebarTab(
 ): 'home' | 'chat' | undefined {
   if (state?.keepSidebarTab) return state.keepSidebarTab
   if (pathname.startsWith('/pages/') || pathname.startsWith('/content/')) return 'home'
-  if (pathname === '/' || pathname.startsWith('/conversations/')) return 'chat'
+  if (pathname === '/' || pathname === '/colleagues' || pathname.startsWith('/conversations/')) return 'chat'
   return undefined
 }
 
@@ -183,6 +191,14 @@ export function PodSidebar({
             </TabsContent>
             <TabsContent value="chat" className="pod-conversations px-2 pb-3 text-[13px] leading-5">
               <ErrorBoundary variant="inline" resetKeys={[pathname]}>
+                <Link
+                  to="/colleagues"
+                  onClick={closeMobile}
+                  aria-current={pathname === '/colleagues' ? 'page' : undefined}
+                  className="nav-row mb-2 flex items-center gap-2 px-2 py-1.5">
+                  <RiRobot2Line className="size-4" aria-hidden />
+                  <span>{t('pod.colleagues.title')}</span>
+                </Link>
                 <ConversationMenu />
               </ErrorBoundary>
             </TabsContent>

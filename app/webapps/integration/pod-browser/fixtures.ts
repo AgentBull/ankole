@@ -40,6 +40,7 @@ type State = {
   chat_text: string
   chat_attachment_name: string
   publish_v2_files: unknown[]
+  publish_v1_files: unknown[]
   owner: Identity
   member: Identity
   viewer: Identity

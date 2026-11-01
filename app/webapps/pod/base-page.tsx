@@ -191,7 +191,7 @@ function BaseWorkspace({
       ])
     }
   })
-  const hasTableActions = detail.actions.includes('page_edit') || detail.actions.includes('page_manage')
+  const hasTableActions = detail.actions.includes('node_edit') || detail.actions.includes('node_manage')
   return (
     <section className="pod-base min-w-0" data-inline={!!inline}>
       <div className="pod-base-sources" aria-label={t('pod.content.table')}>
@@ -212,7 +212,7 @@ function BaseWorkspace({
                 variant="ghost"
                 className={table.id === tableID ? 'font-semibold' : undefined}
                 aria-pressed={table.id === tableID}
-                onDoubleClick={() => detail.actions.includes('page_edit') && setRenaming(table.id)}
+                onDoubleClick={() => detail.actions.includes('node_edit') && setRenaming(table.id)}
                 onClick={() => {
                   setSelected(table.id)
                   inline?.configure({}, table.id)
@@ -226,12 +226,12 @@ function BaseWorkspace({
                     ⋯
                   </DropdownMenuTrigger>
                   <DropdownMenuContent>
-                    {detail.actions.includes('page_edit') && (
+                    {detail.actions.includes('node_edit') && (
                       <DropdownMenuItem onClick={() => setRenaming(table.id)}>
                         {t('pod.sidebar.rename')}
                       </DropdownMenuItem>
                     )}
-                    {detail.actions.includes('page_manage') && (
+                    {detail.actions.includes('node_manage') && (
                       <DropdownMenuItem
                         variant="destructive"
                         onClick={() => {
@@ -247,7 +247,7 @@ function BaseWorkspace({
             </div>
           )
         )}
-        {detail.actions.includes('page_edit') && (
+        {detail.actions.includes('node_edit') && (
           <Button
             size="sm"
             variant="ghost"
@@ -379,8 +379,8 @@ function TableWorkspace({
       viewSaving.current = false
     }
   })
-  const editable = page.actions.includes('page_write_records')
-  const schemaEditable = page.actions.includes('page_edit')
+  const editable = page.actions.includes('node_contribute')
+  const schemaEditable = page.actions.includes('node_edit')
   const configure = (config: ViewConfig) => {
     if (viewSaving.current) return
     const next = schema.data ? sanitizeViewConfig(config, schema.data.fields) : config
@@ -968,7 +968,7 @@ function CopyTableButton({
     setOpen(true)
   }
   const destinations = useQuery({
-    ...pageSearchQuery('', { required_action: 'page_edit' }),
+    ...pageSearchQuery('', { required_action: 'node_edit' }),
     enabled: open
   })
   const initialTarget = useQuery({ ...pageQuery(parentID ?? ''), enabled: open && Boolean(parentID) })
@@ -976,7 +976,7 @@ function CopyTableButton({
     ...new Map(
       [
         ...(destinations.data?.pages ?? []),
-        ...(initialTarget.data?.actions.includes('page_edit')
+        ...(initialTarget.data?.actions.includes('node_edit')
           ? [{ ...initialTarget.data.page, role: initialTarget.data.role, actions: initialTarget.data.actions }]
           : []),
         ...(selectedTarget ? [selectedTarget] : [])
@@ -1063,7 +1063,7 @@ function CopyTableButton({
           </label>
           <PagePicker
             label={t('pod.content.save_to')}
-            requiredAction="page_edit"
+            requiredAction="node_edit"
             selected={parent}
             disabled={copy.isPending}
             autoFocus={false}

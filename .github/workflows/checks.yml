@@ -2,16 +2,15 @@ name: Repository checks
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: checks-${{ github.ref }}
-  cancel-in-progress: true
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   bun-static:

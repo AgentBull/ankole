@@ -4,16 +4,18 @@ defmodule Ankole.Signals.ConsoleBinding do
     subtype_of: :map,
     constraints: [
       fields: [
+        id: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
+        routing_mode: [
+          type: :atom,
+          constraints: [one_of: [:ai_colleague, :sender_personal_assistant]],
+          allow_nil?: false
+        ],
         adapter: [
           type: :string,
           constraints: [trim?: false, allow_empty?: true],
           allow_nil?: false
         ],
-        agent_uid: [
-          type: :string,
-          constraints: [trim?: false, allow_empty?: true],
-          allow_nil?: false
-        ],
+        agent_uid: [type: :string],
         config_key: [type: :string, constraints: [trim?: false, allow_empty?: true]],
         config_ref: [
           type: :string,

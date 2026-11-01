@@ -192,7 +192,8 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
           MapHelpers.optional_text(presentation, "answer")
       end
 
-    add_body(blocks, text)
+    repaired = if is_binary(text), do: Ankole.Kernel.repair_generated_markdown(text), else: text
+    add_body(blocks, repaired)
   end
 
   defp add_receipts(blocks, receipts) do

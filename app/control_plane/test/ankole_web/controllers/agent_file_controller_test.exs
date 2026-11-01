@@ -4,296 +4,325 @@ defmodule AnkoleWeb.AgentFileControllerTest do
   import Ecto.Query
   import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
-
-  alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
+  alias Ankole.{AuthZ, Files, Repo}
   alias Ankole.AuthZ.Grant
-  alias Ankole.Files
-  alias Ankole.Repo
-  alias Ankole.Setup.Config, as: SetupConfig
 
-  setup do
-    Registry.clear_for_test()
-
-    {:ok, false} =
-      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
-
-    :ok = SetupConfig.delete_bootstrap_activation_code()
-
-    %{principal: agent} = agent_fixture()
-    %{agent_uid: agent.uid}
-  end
-
-  test "lists the folders and files of one folder", %{conn: conn, agent_uid: agent_uid} do
-    conn = console_conn(conn)
-
-    drive_file_fixture(agent_uid, "reports/q3.md", "Q3")
-    drive_file_fixture(agent_uid, "reports/archive/q2.md", "Q2")
-    drive_file_fixture(agent_uid, "notes.txt", "notes")
-
-    assert %{"file_listing" => root} =
-             conn
-             |> recycle_api()
-             |> api_get(~p"/api/v2/agents/#{agent_uid}/files")
-             |> json_response(200)
-
-    assert root["folders"] == [%{"name" => "reports", "path" => "reports"}]
-    assert [%{"path" => "notes.txt", "size" => 5, "source" => "agent"}] = root["files"]
-
-    assert %{"file_listing" => reports} =
-             conn
-             |> recycle_api()
-             |> api_get(~p"/api/v2/agents/#{agent_uid}/files?path=reports")
-             |> json_response(200)
-
-    assert reports["folders"] == [%{"name" => "archive", "path" => "reports/archive"}]
-    assert [%{"path" => "reports/q3.md", "content_type" => "text/markdown"}] = reports["files"]
-  end
-
-  test "lists projected origins and keeps them after a move", %{conn: conn, agent_uid: agent_uid} do
-    conn = console_conn(conn)
-    signal = Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid)
-    conversation_id = signal.conversation_id
-    message_id = signal.message_id
-    {:ok, %{sha256: sha256}} = Files.store("received")
-
-    assert {:ok, _} =
-             Files.commit(agent_uid, [
-               %{
-                 path: "inbox/attachment.txt",
-                 sha256: sha256,
-                 source: "inbound",
-                 conversation_id: conversation_id,
-                 message_id: message_id
-               }
-             ])
-
-    assert %{"moved_files" => 1} =
-             conn
-             |> recycle_api()
-             |> api_post(~p"/api/v2/agents/#{agent_uid}/file-moves", %{
-               from_path: "inbox/attachment.txt",
-               to_path: "kept/attachment.txt"
-             })
-             |> json_response(201)
-
-    assert %{
-             "file_listing" => %{
-               "files" => [
-                 %{
-                   "path" => "kept/attachment.txt",
-                   "conversation_id" => ^conversation_id,
-                   "message_id" => ^message_id
-                 }
-               ]
-             }
-           } =
-             conn
-             |> recycle_api()
-             |> api_get(~p"/api/v2/agents/#{agent_uid}/files?path=kept")
-             |> json_response(200)
-  end
-
-  test "answers 404 for an Agent that does not exist", %{conn: conn} do
-    conn = console_conn(conn)
-
-    assert %{"errors" => [%{"code" => "not_found"}]} =
-             conn
-             |> recycle_api()
-             |> api_get(~p"/api/v2/agents/agent-missing/files")
-             |> json_response(404)
-  end
-
-  test "uploads a file and downloads it again without a Worker", %{
+  test "site operators browse public, Human private, Agent private and conversation roots", %{
     conn: conn,
-    agent_uid: agent_uid
+    tenant: tenant
   } do
     conn = console_conn(conn)
+    %{principal: human} = human_fixture()
+    %{principal: agent} = agent_fixture()
+    signal = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
+
+    {:ok, conversation} =
+      Repo.transact(fn -> Files.ensure_conversation_root_in_tx(signal.conversation_id) end)
+
+    {:ok, human_root} = Files.private_root(human.uid)
+    {:ok, agent_root} = Files.private_root(agent.uid)
+    {:ok, public} = Files.public_root()
+    result = conn |> api_get("/api/v2/drive/#{tenant.id}/nodes") |> json_response(200)
+    ids = MapSet.new(Enum.map(result["nodes"], & &1["id"]))
+
+    assert Enum.all?(
+             [public.id, human_root.id, agent_root.id, conversation.id],
+             &MapSet.member?(ids, &1)
+           )
+  end
+
+  test "same-name folder uploads create a distinct folder without a conflict", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    conn = console_conn(conn)
+    {:ok, root} = Files.public_root()
+
+    ids =
+      for _ <- 1..2 do
+        response =
+          conn
+          |> recycle_api()
+          |> api_post("/api/v2/drive/#{tenant.id}/nodes", %{
+            parent_id: root.id,
+            name: "reports",
+            kind: "folder"
+          })
+          |> json_response(201)
+
+        response["id"]
+      end
+
+    assert length(Enum.uniq(ids)) == 2
+
+    assert Ankole.Files.Nodes.list_children(root.id)
+           |> Enum.filter(&(&1.id in ids))
+           |> Enum.map(& &1.name) == ["reports", "reports (1)"]
+  end
+
+  test "uploads and browses a different tenant while its Worker is offline", %{conn: conn} do
+    conn = console_conn(conn)
+    other = Ankole.DataCase.create_tenant()
+
+    {agent, root} =
+      Repo.with_tenant(other.id, fn ->
+        %{principal: agent} = agent_fixture()
+        {:ok, root} = Files.private_root(agent.uid)
+        {agent, root}
+      end)
+
+    uploaded =
+      conn
+      |> recycle_api()
+      |> multipart("/api/v2/drive/#{other.id}/uploads",
+        parent_id: root.id,
+        name: "brief.txt",
+        file: build_upload!("brief")
+      )
+      |> json_response(200)
 
     assert %{
-             "uploaded_file" => %{"path" => "inbox/brief.txt", "size" => 5, "source" => "console"}
-           } =
+             "uploaded_file" => %{
+               "id" => id,
+               "object_id" => object_id,
+               "size" => 5,
+               "name" => "brief.txt"
+             }
+           } = uploaded
+
+    assert is_binary(object_id)
+
+    assert conn
+           |> recycle_api()
+           |> get("/api/v2/drive/#{other.id}/nodes/#{id}/content")
+           |> response(200) == "brief"
+
+    assert %{"nodes" => [%{"id" => ^id, "size" => 5}], "ancestors" => [%{"id" => root_id}]} =
              conn
              |> recycle_api()
-             |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
-               path: "inbox/brief.txt",
-               file: build_upload!("brief")
+             |> api_get("/api/v2/drive/#{other.id}/nodes?parent_id=#{root.id}")
+             |> json_response(200)
+
+    assert root_id == root.id
+
+    assert Repo.with_tenant(other.id, fn ->
+             {:ok, _, bytes} = Files.read(agent.uid, "brief.txt")
+             bytes
+           end) == "brief"
+  end
+
+  test "owner filtering accepts named Principal IDs", %{conn: conn, tenant: tenant} do
+    conn = console_conn(conn)
+    %{principal: agent} = agent_fixture(%{uid: "ops+team@example.com"})
+    {:ok, root} = Files.private_root(agent.uid)
+    query = URI.encode_query(%{"owner_uid" => agent.uid})
+
+    assert %{"nodes" => [%{"id" => root_id}]} =
+             conn
+             |> recycle_api()
+             |> api_get("/api/v2/drive/#{tenant.id}/nodes?#{query}")
+             |> json_response(200)
+
+    assert root_id == root.id
+  end
+
+  test "nested Console breadcrumbs contain each node name in root-to-leaf order", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    conn = console_conn(conn)
+    %{principal: agent} = agent_fixture()
+    drive_file_fixture(agent.uid, "projects/releases/notes.txt", "notes")
+    {:ok, root} = Files.private_root(agent.uid)
+    [projects] = Ankole.Files.Nodes.list_children(root.id)
+    [releases] = Ankole.Files.Nodes.list_children(projects.id)
+
+    result =
+      conn
+      |> api_get("/api/v2/drive/#{tenant.id}/nodes?parent_id=#{releases.id}")
+      |> json_response(200)
+
+    assert result["ancestors"] == [
+             %{"id" => root.id, "name" => root.name},
+             %{"id" => projects.id, "name" => "projects"},
+             %{"id" => releases.id, "name" => "releases"}
+           ]
+  end
+
+  @tag timeout: 120_000
+  test "streaming backend multipart uploads exceed the old 128 MiB parser ceiling", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    conn = console_conn(conn)
+    %{principal: agent} = agent_fixture()
+    {:ok, root} = Files.private_root(agent.uid)
+    size = 128 * 1024 * 1024 + 1
+    upload = build_upload!(<<>>)
+    {:ok, io} = File.open(upload.path, [:write, :binary])
+    {:ok, _} = :file.position(io, size - 1)
+    :ok = IO.binwrite(io, "Z")
+    :ok = File.close(io)
+
+    assert %{"uploaded_file" => %{"id" => id, "size" => ^size}} =
+             conn
+             |> recycle_api()
+             |> multipart("/api/v2/drive/#{tenant.id}/uploads",
+               parent_id: root.id,
+               name: "large.bin",
+               file: upload
              )
              |> json_response(200)
 
     download =
       conn
       |> recycle_api()
-      |> api_get(~p"/api/v2/agents/#{agent_uid}/files/content?path=inbox/brief.txt")
+      |> put_req_header("range", "bytes=-1")
+      |> get("/api/v2/drive/#{tenant.id}/nodes/#{id}/content")
 
-    assert response(download, 200) == "brief"
-    assert [disposition] = get_resp_header(download, "content-disposition")
-    assert disposition =~ "brief.txt"
-
-    assert %{"error" => %{"code" => "not_found"}} =
-             conn
-             |> recycle_api()
-             |> api_get(~p"/api/v2/agents/#{agent_uid}/files/content?path=inbox/missing.txt")
-             |> json_response(404)
+    assert response(download, 206) == "Z"
+    assert get_resp_header(download, "content-range") == ["bytes #{size - 1}-#{size - 1}/#{size}"]
   end
 
-  test "downloads the exact path when file names have leading or trailing spaces", %{
+  test "node IDs survive moves and deleting a folder hides its subtree", %{
     conn: conn,
-    agent_uid: agent_uid
+    tenant: tenant
   } do
     conn = console_conn(conn)
-    drive_file_fixture(agent_uid, "report.txt", "ordinary file")
+    %{principal: agent} = agent_fixture()
+    file = drive_file_fixture(agent.uid, "drafts/a.md", "A")
+    {:ok, root} = Files.private_root(agent.uid)
 
-    for {path, content} <- [{" report.txt", "leading space"}, {"report.txt ", "trailing space"}] do
-      drive_file_fixture(agent_uid, path, content)
-
-      assert conn
-             |> recycle_api()
-             |> api_get(~p"/api/v2/agents/#{agent_uid}/files/content?path=#{path}")
-             |> response(200) == content
-    end
-  end
-
-  test "uploads preserve spaces in a path and leave the ordinary name unchanged", %{
-    conn: conn,
-    agent_uid: agent_uid
-  } do
-    conn = console_conn(conn)
-    drive_file_fixture(agent_uid, "report.txt", "ordinary file")
-
-    for {path, content} <- [{" report.txt", "leading space"}, {"report.txt ", "trailing space"}] do
-      assert %{"uploaded_file" => %{"path" => ^path}} =
-               conn
-               |> recycle_api()
-               |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
-                 path: path,
-                 file: build_upload!(content)
-               )
-               |> json_response(200)
-
-      assert {:ok, _file, ^content} = Files.read(agent_uid, path)
-      assert {:ok, _file, "ordinary file"} = Files.read(agent_uid, "report.txt")
-    end
-  end
-
-  test "rejects an upload over the transfer limit", %{conn: conn, agent_uid: agent_uid} do
-    conn = console_conn(conn)
-
-    oversize = :binary.copy(<<0>>, Ankole.WorkerFiles.max_transfer_bytes() + 1)
-
-    assert %{"error" => %{"code" => "file_too_large"}} =
+    assert %{"id" => folder_id} =
              conn
              |> recycle_api()
-             |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
-               path: "huge.bin",
-               file: build_upload!(oversize)
-             )
-             |> json_response(422)
-
-    assert {:ok, %{files: []}} = Files.list(agent_uid)
-  end
-
-  test "rejects uploads and moves that make one path both a file and a folder", %{
-    conn: conn,
-    agent_uid: agent_uid
-  } do
-    conn = console_conn(conn)
-    drive_file_fixture(agent_uid, "existing", "kept")
-    drive_file_fixture(agent_uid, "from/value.txt", "moved")
-
-    assert %{"error" => %{"code" => "path_conflict"}} =
-             conn
-             |> recycle_api()
-             |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
-               path: "existing/child.txt",
-               file: build_upload!("rejected")
-             )
-             |> json_response(409)
-
-    assert %{"errors" => [%{"code" => "path_conflict"}]} =
-             conn
-             |> recycle_api()
-             |> api_post(~p"/api/v2/agents/#{agent_uid}/file-moves", %{
-               from_path: "from",
-               to_path: "existing"
-             })
-             |> json_response(409)
-
-    assert {:ok, _file, "kept"} = Files.read(agent_uid, "existing")
-    assert {:ok, _file, "moved"} = Files.read(agent_uid, "from/value.txt")
-    assert {:error, :not_found} = Files.fetch(agent_uid, "existing/child.txt")
-  end
-
-  test "moves a folder and deletes it", %{conn: conn, agent_uid: agent_uid} do
-    conn = console_conn(conn)
-
-    drive_file_fixture(agent_uid, "drafts/a.md", "a")
-    drive_file_fixture(agent_uid, "drafts/b.md", "b")
-
-    assert %{"moved_files" => 2} =
-             conn
-             |> recycle_api()
-             |> api_post(~p"/api/v2/agents/#{agent_uid}/file-moves", %{
-               from_path: "drafts",
-               to_path: "final"
+             |> api_post("/api/v2/drive/#{tenant.id}/nodes", %{
+               parent_id: root.id,
+               name: "final",
+               kind: "folder"
              })
              |> json_response(201)
 
-    assert {:ok, %{files: files}} = Files.list(agent_uid)
-    assert Enum.map(files, & &1.path) == ["final/a.md", "final/b.md"]
-
-    assert %{"deleted_files" => 2} =
+    assert %{"id" => id} =
              conn
              |> recycle_api()
-             |> api_delete(~p"/api/v2/agents/#{agent_uid}/files?path=final")
+             |> api_patch("/api/v2/drive/#{tenant.id}/nodes/#{file.id}", %{
+               parent_id: folder_id,
+               name: "renamed.md"
+             })
              |> json_response(200)
 
-    assert {:ok, %{files: []}} = Files.list(agent_uid)
+    assert id == file.id
+    assert {:ok, %{id: ^id}, "A"} = Files.read(agent.uid, "final/renamed.md")
+
+    assert %{"id" => ^folder_id} =
+             conn
+             |> recycle_api()
+             |> api_delete("/api/v2/drive/#{tenant.id}/nodes/#{folder_id}")
+             |> json_response(200)
+
+    assert {:error, :not_found} = Files.read(agent.uid, "final/renamed.md")
+
+    assert conn
+           |> recycle_api()
+           |> get("/api/v2/drive/#{tenant.id}/nodes/#{id}/content")
+           |> response(404)
   end
 
-  test "requires the Agent's files permission", %{conn: conn, agent_uid: agent_uid} do
-    %{principal: other_agent} = agent_fixture()
+  test "pagination uses stable names and collision uploads get new nodes", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    conn = console_conn(conn)
+    %{principal: agent} = agent_fixture()
+    {:ok, root} = Files.private_root(agent.uid)
+
+    for name <- ["b.txt", "a.txt", "a.txt"] do
+      assert conn
+             |> recycle_api()
+             |> multipart("/api/v2/drive/#{tenant.id}/uploads",
+               parent_id: root.id,
+               name: name,
+               file: build_upload!(name)
+             )
+             |> json_response(200)
+    end
+
+    url = "/api/v2/drive/#{tenant.id}/nodes?parent_id=#{root.id}&limit=2"
+
+    assert %{"nodes" => first, "next_after" => cursor} =
+             conn |> recycle_api() |> api_get(url) |> json_response(200)
+
+    assert length(first) == 2
+    assert is_binary(cursor)
+
+    assert %{"nodes" => [last], "next_after" => nil} =
+             conn
+             |> recycle_api()
+             |> api_get(url <> "&after=" <> URI.encode_www_form(cursor))
+             |> json_response(200)
+
+    assert Enum.uniq_by(first ++ [last], & &1["id"]) == first ++ [last]
+    assert Enum.uniq_by(first ++ [last], & &1["name"]) == first ++ [last]
+  end
+
+  test "site_console drive permission and CEL apply across all spaces", %{
+    conn: conn,
+    tenant: tenant
+  } do
     {conn, admin_uid} = console_conn_with_principal(conn)
+    %{principal: agent} = agent_fixture()
+    file = drive_file_fixture(agent.uid, "notes.txt", "notes")
+    {:ok, root} = Files.private_root(agent.uid)
 
     Repo.delete_all(
       from grant in Grant,
         where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
     )
 
-    assert {:ok, _grant} =
-             AuthZ.create_permission_grant(%{
-               principal_uid: admin_uid,
-               resource_pattern: "site_console:agent:#{other_agent.uid}:files",
-               action: "read",
-               condition: "true",
-               metadata: %{}
-             })
+    {:ok, _} =
+      AuthZ.create_permission_grant(%{
+        principal_uid: admin_uid,
+        resource_pattern: "site_console:drive",
+        action: "read",
+        condition: "true",
+        metadata: %{}
+      })
 
-    assert %{"errors" => [%{"code" => "forbidden"}]} =
-             conn
-             |> recycle_api()
-             |> api_get(~p"/api/v2/agents/#{agent_uid}/files")
-             |> json_response(403)
-
-    assert %{"error" => %{"code" => "forbidden"}} =
-             conn
-             |> recycle_api()
-             |> api_get(~p"/api/v2/agents/#{agent_uid}/files/content?path=notes.txt")
-             |> json_response(403)
-
-    assert %{"error" => %{"code" => "forbidden"}} =
-             conn
-             |> recycle_api()
-             |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
-               path: "notes.txt",
-               file: build_upload!("denied")
-             )
-             |> json_response(403)
+    {:ok, _} =
+      AuthZ.create_permission_grant(%{
+        principal_uid: admin_uid,
+        resource_pattern: "site_console:drive",
+        action: "update",
+        condition: "false",
+        metadata: %{}
+      })
 
     assert conn
            |> recycle_api()
-           |> api_get(~p"/api/v2/agents/#{other_agent.uid}/files")
+           |> api_get("/api/v2/drive/#{tenant.id}/nodes")
            |> json_response(200)
+
+    assert conn
+           |> recycle_api()
+           |> get("/api/v2/drive/#{tenant.id}/nodes/#{file.id}/content")
+           |> response(200) == "notes"
+
+    assert conn
+           |> recycle_api()
+           |> multipart("/api/v2/drive/#{tenant.id}/uploads",
+             parent_id: root.id,
+             name: "denied.txt",
+             file: build_upload!("denied")
+           )
+           |> json_response(403)
+
+    assert conn
+           |> recycle_api()
+           |> api_delete("/api/v2/drive/#{tenant.id}/nodes/#{file.id}")
+           |> json_response(403)
+
+    assert {:ok, _, "notes"} = Files.read(agent.uid, "notes.txt")
   end
 
   defp build_upload!(content) do
@@ -366,4 +395,5 @@ defmodule AnkoleWeb.AgentFileControllerTest do
   defp api_get(conn, path), do: api_request(conn, :get, path)
   defp api_post(conn, path, body), do: api_request(conn, :post, path, body)
   defp api_delete(conn, path), do: api_request(conn, :delete, path)
+  defp api_patch(conn, path, body), do: api_request(conn, :patch, path, body)
 end

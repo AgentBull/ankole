@@ -108,7 +108,7 @@ defmodule Ankole.AgentWorkers.Cloudflare do
     }
 
     # The platform can pull a cold image before it sets the idle timeout.
-    case request(provider, :put, worker_path(spec.agent_uid),
+    case request(provider, :put, worker_path(provider, spec.agent_uid),
            json: body,
            receive_timeout: :timer.minutes(5)
          ) do
@@ -133,7 +133,9 @@ defmodule Ankole.AgentWorkers.Cloudflare do
       grace_seconds: provider.settings["stopGraceSeconds"]
     }
 
-    case request(provider, :delete, worker_path(instance.agent_uid), json: body) do
+    case request(provider, :delete, worker_path(provider, instance.tenant_id, instance.agent_uid),
+           json: body
+         ) do
       {:ok, %{status: status}} when status in [200, 202, 404] -> :ok
       other -> error(other)
     end
@@ -156,7 +158,7 @@ defmodule Ankole.AgentWorkers.Cloudflare do
   end
 
   def list_instances(provider, agent_uid) do
-    case request(provider, :get, worker_path(agent_uid),
+    case request(provider, :get, worker_path(provider, agent_uid),
            params: [provider_id: provider.provider_id]
          ) do
       {:ok, %{status: 200, body: worker}} -> {:ok, [observation(worker)]}
@@ -167,7 +169,7 @@ defmodule Ankole.AgentWorkers.Cloudflare do
 
   @impl true
   def current_storage_ref(provider, agent_uid) do
-    case request(provider, :get, storage_path(agent_uid),
+    case request(provider, :get, storage_path(provider, agent_uid),
            params: [provider_id: provider.provider_id]
          ) do
       {:ok, %{status: 200, body: %{"storage_ref" => ref, "reason" => reason}}} ->
@@ -183,7 +185,7 @@ defmodule Ankole.AgentWorkers.Cloudflare do
 
   @impl true
   def delete_storage(provider, agent_uid, _storage_ref) do
-    case request(provider, :delete, storage_path(agent_uid),
+    case request(provider, :delete, storage_path(provider, agent_uid),
            params: [provider_id: provider.provider_id]
          ) do
       {:ok, %{status: 200}} -> {:ok, nil}
@@ -202,6 +204,7 @@ defmodule Ankole.AgentWorkers.Cloudflare do
     {:ok, started_at, _offset} = DateTime.from_iso8601(worker["started_at"])
 
     %{
+      tenant_id: worker["tenant_id"],
       agent_uid: worker["agent_uid"],
       generation: worker["generation"],
       instance_ref: nil,
@@ -215,11 +218,18 @@ defmodule Ankole.AgentWorkers.Cloudflare do
   defp phase("running"), do: :running
   defp phase("terminating"), do: :terminating
 
-  defp worker_path(agent_uid),
-    do: "/agents/" <> URI.encode(agent_uid, &URI.char_unreserved?/1) <> "/worker"
+  defp worker_path(provider, agent_uid),
+    do: worker_path(provider, Ankole.Repo.tenant_id!(), agent_uid)
 
-  defp storage_path(agent_uid),
-    do: "/agents/" <> URI.encode(agent_uid, &URI.char_unreserved?/1) <> "/storage"
+  defp worker_path(provider, tenant_id, agent_uid),
+    do: "/agents/" <> storage_key(provider, tenant_id, agent_uid) <> "/worker"
+
+  defp storage_path(provider, agent_uid),
+    do: "/agents/" <> storage_key(provider, Ankole.Repo.tenant_id!(), agent_uid) <> "/storage"
+
+  defp storage_key(provider, tenant_id, agent_uid),
+    do:
+      "ankole-#{provider.runtime.installation}-#{Ankole.AgentWorkers.ProviderKind.agent_hash(tenant_id, agent_uid)}"
 
   defp request(provider, method, path, opts \\ []) do
     [

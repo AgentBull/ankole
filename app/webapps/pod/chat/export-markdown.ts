@@ -22,6 +22,26 @@ export function messageMarkdown(message: Pick<ConversationMessage, 'text' | 'lin
   return lines.join('\n')
 }
 
+export function selectionToMarkdown(messages: ConversationMessage[], options: { title?: string } = {}): string {
+  const ordered = [...messages].sort((a, b) => a.seq - b.seq)
+  const lines: string[] = []
+  if (options.title?.trim()) {
+    lines.push(`# ${options.title.trim()}`, '')
+  }
+  for (const message of ordered) {
+    const name = message.authorDisplayName || message.authorType
+    lines.push(`## ${name} · ${message.createdAt}`, '', messageMarkdown(message))
+    for (const attachment of message.attachments) {
+      lines.push(`- ${attachment.name}`)
+    }
+    if (message.attachments.length > 0) {
+      lines.push('')
+    }
+  }
+  const normalized = lines.join('\n').trimEnd()
+  return `${normalized}\n`
+}
+
 export function conversationMarkdown(detail: ConversationDetail): string {
   const lines = [`# ${detail.conversation.title}`, '']
   for (const message of detail.messages) {
@@ -32,11 +52,15 @@ export function conversationMarkdown(detail: ConversationDetail): string {
   return lines.join('\n')
 }
 
-export function downloadMarkdown(detail: ConversationDetail) {
-  const url = URL.createObjectURL(new Blob([conversationMarkdown(detail)], { type: 'text/markdown;charset=utf-8' }))
+export function downloadMarkdownString(markdown: string, filenameBase: string) {
+  const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }))
   const link = document.createElement('a')
   link.href = url
-  link.download = `${detail.conversation.title.replace(/[/\\:*?"<>|]/g, '_') || 'conversation'}.md`
+  link.download = `${filenameBase.replace(/[/\\:*?"<>|]/g, '_').trim() || 'conversation'}.md`
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+export function downloadMarkdown(detail: ConversationDetail) {
+  downloadMarkdownString(conversationMarkdown(detail), detail.conversation.title || 'conversation')
 }

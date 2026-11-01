@@ -155,12 +155,13 @@ paths:
   address to a Principal;
 - enterprise directory sync or OIDC login binds the provider-verified email
   address, admitting synced employees automatically; or
-- `create_standalone` creates a new Human Principal with a fresh UUIDv7 and
-  binds the sender address (since DMARC runs first, any sender passing DMARC can
+- `create_standalone` creates a new Human Principal named by the normalized sender
+  address and binds that address (since DMARC runs first, any sender passing DMARC can
   open a standalone account when `create_standalone` is enabled).
 
 Even if a sender address happens to match an existing Principal UID string,
-Ankole never selects that Principal without an `email` identity binding. Under
+Ankole never selects that Principal without an `email` identity binding. A new
+account whose name is already occupied returns `principal_uid_taken`. Under
 `manual_review`, an unmatched sender receives the fixed localized mapping notice
 as a threaded reply (`In-Reply-To` pointing to the held message, addressed
 strictly to the sender recorded on the notice row while ignoring any untrusted

@@ -95,7 +95,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     %{principal: agent} =
       Sandbox.unboxed_run(Repo, fn ->
         Ankole.PrincipalsFixtures.agent_fixture(%{
-          handle: label,
+          uid: label,
           display_name: label,
           role: "Quota Race Agent",
           options: %{}
@@ -201,7 +201,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       end)
     end)
 
-    for operation <- [&Observe.emit_entry/4, &Observe.emit_entry_removed/4] do
+    for operation <- [&Observe.emit_entry/3, &Observe.emit_entry_removed/3] do
       holder =
         hold_transaction(fn ->
           :ok =
@@ -213,7 +213,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
           {:ok, :released}
         end)
 
-      waiter = start_unboxed(fn -> operation.(agent.uid, binding.name, entry, now: now) end)
+      waiter = start_unboxed(fn -> operation.(binding.id, entry, now: now) end)
 
       refute holder.backend_pid == waiter.backend_pid
       assert_blocked_by(waiter, holder)
@@ -231,7 +231,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
       on_exit_in_tenant(fn ->
         Sandbox.unboxed_run(Repo, fn ->
-          {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "heavy")
+          {:ok, profile} = Ankole.AIGateway.ModelProfiles.get_model_profile(agent.uid, "heavy")
 
           delete_agent_jobs!(agent.uid)
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
@@ -533,7 +533,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
       on_exit_in_tenant(fn ->
         Sandbox.unboxed_run(Repo, fn ->
-          {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "primary")
+          {:ok, profile} = Ankole.AIGateway.ModelProfiles.get_model_profile(agent.uid, "primary")
           delete_agent_jobs!(agent.uid)
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
           Ankole.AIGateway.ProviderConfigs.delete_provider(profile["provider_id"])
@@ -603,7 +603,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       assert {:ok, receipt} = finish(first)
       assert {:ok, repeated} = finish(second)
       assert_persisted_equal(repeated, receipt)
-      name = Repo.get!(Ankole.Principals.Principal, run.agent_uid).display_name
+      name = Repo.get_by!(Ankole.Principals.Principal, uid: run.agent_uid).display_name
       assert length(String.split(name, "+tool")) == 2
     end
   end
@@ -626,7 +626,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         WorkerRoute.unregister_local_worker(route)
 
         Sandbox.unboxed_run(Repo, fn ->
-          {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "heavy")
+          {:ok, profile} = Ankole.AIGateway.ModelProfiles.get_model_profile(agent.uid, "heavy")
 
           Repo.delete_all(
             from(j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid)

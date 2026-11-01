@@ -2,8 +2,8 @@ defmodule Ankole.Principals.WorkAccess do
   @moduledoc """
   Human authorization retained by each durable work owner.
 
-  The recorded Human of a work row can belong to another tenant, so the
-  Principal reads and locks here use the `:read_across_tenants` action.
+  The recorded Human belongs to the work tenant. Reads and locks use that
+  tenant context; the audit actor may belong to a different tenant.
   """
   require Ash.Query
   alias Ankole.Principals.Principal
@@ -17,17 +17,15 @@ defmodule Ankole.Principals.WorkAccess do
   def list_for_human(uid) do
     Enum.flat_map(Owner.entries(), fn {kind, schema} ->
       schema
-      |> Ash.Query.for_read(:work_across_tenants)
       |> Ash.Query.filter(human_uid == ^uid)
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(@list_limit)
-      |> Ankole.Ash.read_across_tenants!()
+      |> Ankole.Ash.read!()
       |> Enum.map(&projection(kind, &1))
     end)
   end
 
-  # The work belongs to the selected tenant; its recorded Human can belong to
-  # another tenant or no longer exist after that tenant was deleted.
+  # Work review uses the selected tenant and its current members.
   def list_unresolved do
     Enum.flat_map(Owner.entries(), fn {kind, schema} ->
       schema
@@ -86,15 +84,17 @@ defmodule Ankole.Principals.WorkAccess do
     schema = Owner.schema(kind)
     authorization = if is_nil(human_uid), do: service(), else: from_sender(human_uid)
     subject_uid = human_uid || actor_uid.uid
-    subject = read_principal(subject_uid)
+
+    subject =
+      if human_uid,
+        do: read_principal(human_uid),
+        else: Repo.with_tenant(actor_uid.tenant_id, fn -> read_principal(actor_uid.uid) end)
 
     with %Principal{} <- subject,
          true <- is_nil(human_uid) or authorization.authorization_kind == "human",
-         true <-
-           is_nil(human_uid) or subject.tenant_id == Repo.tenant_id!() or
-             subject.uid == actor_uid.uid,
          :ok <- check_in_tx(authorization),
          %{} = work <- Owner.lock(schema, id),
+         :ok <- check_execution_target(work.agent_uid, authorization),
          true <- reauthorizable?(kind, work),
          true <- work.authorization_kind != "human" or not is_nil(human_uid),
          previous_authorization = fields(work),
@@ -171,7 +171,10 @@ defmodule Ankole.Principals.WorkAccess do
         %{authorization_kind: "human", human_uid: uid, human_access_version: version}
 
       %Principal{type: :agent, status: :active} ->
-        service()
+        case Ankole.Principals.authority_uid(uid) do
+          ^uid -> service()
+          owner_uid -> from_sender(owner_uid)
+        end
 
       _ ->
         fields(nil)
@@ -180,6 +183,15 @@ defmodule Ankole.Principals.WorkAccess do
 
   def from_sender(_uid), do: fields(nil)
   def service, do: %{authorization_kind: "service", human_uid: nil, human_access_version: nil}
+
+  def check_execution_target(uid, %{authorization_kind: "service"}) when is_binary(uid) do
+    case Ankole.Principals.get_agent_record!(uid) do
+      %{type: :personal_assistant} -> {:error, :personal_assistant_requires_human_work}
+      _ -> :ok
+    end
+  end
+
+  def check_execution_target(_uid, _authorization), do: :ok
 
   def from_observation(%{"principal_uid" => uid, "human_access_version" => version})
       when is_binary(uid) and is_integer(version),
@@ -203,7 +215,7 @@ defmodule Ankole.Principals.WorkAccess do
          human_uid: uid,
          human_access_version: version
        }),
-       do: Repo.across_tenants(fn -> Ankole.Principals.HumanAccess.check(uid, version) end) == :ok
+       do: Ankole.Principals.HumanAccess.check(uid, version) == :ok
 
   defp valid_subject_now?(%{authorization_kind: "service"}), do: true
   defp valid_subject_now?(_), do: false
@@ -308,9 +320,8 @@ defmodule Ankole.Principals.WorkAccess do
 
   defp read_principals(uids) do
     Principal
-    |> Ash.Query.for_read(:read_across_tenants)
     |> Ash.Query.filter(uid in ^uids)
-    |> Ankole.Ash.read_across_tenants!()
+    |> Ankole.Ash.read!()
   end
 
   # Principal locks have the first rank of the work lock order; the UID order
@@ -319,10 +330,9 @@ defmodule Ankole.Principals.WorkAccess do
     uids = uids |> Enum.uniq() |> Enum.sort()
 
     Principal
-    |> Ash.Query.for_read(:read_across_tenants)
     |> Ash.Query.filter(uid in ^uids)
     |> Ash.Query.sort(uid: :asc)
     |> Ash.Query.lock(:for_update)
-    |> Ankole.Ash.read_across_tenants!(lock_identity: {"principals", uids})
+    |> Ankole.Ash.read!(lock_identity: {"principals", uids})
   end
 end

@@ -97,6 +97,7 @@ defmodule Ankole.AgentWorkers.DockerAPITest do
                      "ankole.worker=1",
                      "ankole.installation=prod",
                      "ankole.provider=local",
+                     "ankole.tenant=#{Ankole.Repo.tenant_id!()}",
                      "ankole.agent-uid=agent-a"
                    ]
                  }
@@ -107,7 +108,11 @@ defmodule Ankole.AgentWorkers.DockerAPITest do
               "State" => "running",
               "Status" => "Up 2 minutes",
               "Created" => 1_780_000_000,
-              "Labels" => %{"ankole.agent-uid" => @agent, "ankole.generation" => @generation}
+              "Labels" => %{
+                "ankole.tenant" => Ankole.Repo.tenant_id!(),
+                "ankole.agent-uid" => @agent,
+                "ankole.generation" => @generation
+              }
             }
           ])
 
@@ -154,12 +159,14 @@ defmodule Ankole.AgentWorkers.DockerAPITest do
     labels = %{
       "ankole.installation" => "prod",
       "ankole.provider" => "local",
-      "ankole.agent-uid" => @agent
+      "ankole.agent-uid" => @agent,
+      "ankole.tenant" => Ankole.Repo.tenant_id!()
     }
 
     for foreign <- [
           Map.put(labels, "ankole.provider", "other"),
-          Map.put(labels, "ankole.agent-uid", "other")
+          Map.put(labels, "ankole.agent-uid", "other"),
+          Map.put(labels, "ankole.tenant", Ecto.UUID.generate())
         ] do
       stub(fn conn ->
         assert conn.method == "GET"
@@ -211,7 +218,8 @@ defmodule Ankole.AgentWorkers.DockerAPITest do
             "Labels" => %{
               "ankole.installation" => "prod",
               "ankole.provider" => "local",
-              "ankole.agent-uid" => @agent
+              "ankole.agent-uid" => @agent,
+              "ankole.tenant" => Ankole.Repo.tenant_id!()
             }
           })
 

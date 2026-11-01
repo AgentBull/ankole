@@ -30,7 +30,7 @@ defmodule Ankole.OIDCFixtures do
         "per_channel" => 10_000
       })
 
-    email = String.downcase(principal_uid) <> "@oidc-fixture.test"
+    email = Repo.get_by!(Principals.HumanUser, principal_uid: principal_uid).email
 
     {:ok, _} =
       Repo.transact(fn ->

@@ -77,6 +77,7 @@ defmodule Ankole.Brain.PatternsTest do
     assert updated.body =~ "shared review"
     assert evidence(page.slug) == Enum.drop(context.slugs, 1)
     assert Repo.aggregate(ObjectVersion, :count) == 1
+    assert [%{author: %Ankole.ActorRef{uid: "ankole_brain"}}] = Repo.all(ObjectVersion)
     assert List.last(requests(context.state))["messages"] |> inspect() =~ page.slug
 
     assert {:ok, visible} = Recall.recall(context.owner.uid, %{query: "renewal approval"})

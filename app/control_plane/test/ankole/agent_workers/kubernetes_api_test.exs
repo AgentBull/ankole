@@ -209,7 +209,7 @@ defmodule Ankole.AgentWorkers.KubernetesAPITest do
       case path(conn) do
         "pods" ->
           assert conn.query_params["labelSelector"] =~
-                   "ankole.io/agent=#{ProviderKind.hash16(@agent)}"
+                   "ankole.io/agent=#{ProviderKind.agent_hash(@agent)}"
 
           foreign =
             put_in(
@@ -410,6 +410,27 @@ defmodule Ankole.AgentWorkers.KubernetesAPITest do
     end
   end
 
+  test "shared PVC mount paths distinguish same-named Agents in different tenants", %{
+    provider: provider
+  } do
+    provider = put_in(provider.settings["storage"], %{"sharedClaim" => "shared"})
+
+    paths =
+      for tenant <- [Ecto.UUID.generate(), Ecto.UUID.generate()] do
+        Ankole.Repo.with_tenant(tenant, fn ->
+          spec = WorkerBootstrap.agent_worker_spec(provider, @agent, @generation, "test-token")
+          pod = Kubernetes.pod_manifest(provider, spec, nil)
+          [container] = pod["spec"]["containers"]
+          mount = Enum.find(container["volumeMounts"], &(&1["name"] == "home"))
+          expected = ProviderKind.storage_name("prod", @agent)
+          assert mount["subPath"] == expected
+          expected
+        end)
+      end
+
+    assert Enum.uniq(paths) == paths
+  end
+
   test "a shared cleanup Pod has no Worker probes and reports why it cannot start", %{
     provider: provider
   } do
@@ -439,6 +460,12 @@ defmodule Ankole.AgentWorkers.KubernetesAPITest do
           body = Ankole.JSON.decode!(body)
           [container] = body["spec"]["containers"]
           refute Map.has_key?(container, "livenessProbe")
+
+          assert Enum.find(container["env"], &(&1["name"] == "ANKOLE_WORKER_STORAGE_NAME"))[
+                   "value"
+                 ] ==
+                   ProviderKind.storage_name("prod", @agent)
+
           Agent.update(state, fn _ -> Map.put(body, "status", %{"phase" => "Pending"}) end)
           conn |> Plug.Conn.put_status(201) |> Req.Test.json(body)
 
@@ -499,7 +526,7 @@ defmodule Ankole.AgentWorkers.KubernetesAPITest do
   defp storage_metadata do
     metadata("cache")
     |> put_in(["labels", "ankole.io/task"], "storage")
-    |> put_in(["labels", "ankole.io/agent"], ProviderKind.hash16(@agent))
+    |> put_in(["labels", "ankole.io/agent"], ProviderKind.agent_hash(@agent))
   end
 
   defp stub(fun), do: Req.Test.stub(@cluster, &fun.(Plug.Conn.fetch_query_params(&1)))
@@ -525,6 +552,7 @@ defmodule Ankole.AgentWorkers.KubernetesAPITest do
       "namespace" => @namespace,
       "creationTimestamp" => "2026-10-07T00:00:00Z",
       "labels" => %{
+        "ankole.tenant" => Ankole.Repo.tenant_id!(),
         "ankole.io/installation" => "prod",
         "ankole.io/provider" => "cluster",
         "ankole.io/generation" => @generation

@@ -120,7 +120,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   Returns the global name for one conversation preview.
   """
   def via_tuple(%Signal{} = event),
-    do: {:global, {__MODULE__, event.agent_uid, event.session_id}}
+    do: {:global, {__MODULE__, event.tenant_id, event.agent_uid, event.session_id}}
 
   def via_tuple(signal_id),
     do: via_tuple(PreviewStates.load_signal(signal_id))
@@ -1745,6 +1745,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
       delivery_class: :generic,
       status: :pending,
       possible_duplicate: false,
+      binding_id: event.reply_binding_id,
       binding_name: event.reply_binding_name,
       outbound_key: Keyword.fetch!(opts, :outbound_key),
       operation: operation,
@@ -1783,7 +1784,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp binding_for_event(%Signal{} = event) do
-    Ankole.Signals.Bindings.get_binding(event.agent_uid, event.reply_binding_name)
+    Ankole.Signals.Bindings.get_binding(event.reply_binding_id)
   end
 
   defp created_provider_message_id(result) when is_map(result) do

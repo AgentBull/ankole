@@ -176,13 +176,13 @@ defmodule Ankole.AIAgent.Library do
   @doc """
   Seeds writable library state inside a caller-owned transaction.
   """
-  @spec seed_agent_library_in_tx(String.t()) :: :ok | {:error, term()}
-  def seed_agent_library_in_tx(agent_uid) do
+  @spec seed_agent_library_in_tx(String.t(), atom()) :: :ok | {:error, term()}
+  def seed_agent_library_in_tx(agent_uid, type \\ :ai_colleague) do
     now = DateTime.utc_now(:microsecond)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, sources} <- shipped_skill_sources(),
-         :ok <- seed_agent_documents_in_tx(agent_uid),
+         :ok <- seed_agent_documents_in_tx(agent_uid, type),
          {:ok, _result} <- sync_agent_skills_in_tx(agent_uid, sources, now) do
       :ok
     end
@@ -582,7 +582,7 @@ defmodule Ankole.AIAgent.Library do
     |> SourceReader.hash()
   end
 
-  defp seed_agent_documents_in_tx(agent_uid) do
+  defp seed_agent_documents_in_tx(agent_uid, type) do
     with {:ok, specs} <-
            @agent_document_kinds
            |> Enum.map(&agent_document_spec/1)
@@ -593,7 +593,7 @@ defmodule Ankole.AIAgent.Library do
             agent_uid: agent_uid,
             path: spec.path,
             source_kind: spec.kind,
-            content: spec.fallback,
+            content: seed_document_content(spec, type),
             metadata: %{"source" => "app_template"}
           }
         end)
@@ -604,6 +604,13 @@ defmodule Ankole.AIAgent.Library do
       end
     end
   end
+
+  defp seed_document_content(%{path: path, kind: kind}, :personal_assistant)
+       when kind in ["soul", "mission"] do
+    SourceReader.load_personal_assistant_template(path)
+  end
+
+  defp seed_document_content(spec, _type), do: spec.fallback
 
   defp upsert_agent_document_in_tx(agent_uid, spec, content, metadata) do
     Ankole.Ash.create(AgentLibraryContainerEntry, :put, %{

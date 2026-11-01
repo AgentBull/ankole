@@ -1,15 +1,11 @@
 name: Publish RuntimeFabric image pair
 
 on:
-  # A push to main releases only after the "Repository checks" workflow of that
-  # revision succeeds. The `release_gate` job admits the checked revision; it
-  # skips a revision whose only changes since the last release are
-  # documentation, the website, or the changelog, because such a commit adds no
-  # changelog version and none of those paths is copied by
-  # app/control_plane/Dockerfile or app/agent_computer/Dockerfile.
-  workflow_run:
-    workflows: ["Repository checks"]
-    types: [completed]
+  # Every push to main runs static repository checks and the release gate in
+  # this single workflow so the queued image and GitHub Release jobs are visible
+  # immediately on the commit. Documentation-only pushes still run static checks
+  # while `release_gate` skips image builds and release publication.
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -27,18 +23,21 @@ env:
   WORKER_IMAGE: ghcr.io/agentbull/ankole-agent-computer-worker
   FUNCTION_RUNTIME_IMAGE: ghcr.io/agentbull/ankole-function-runtime
   LATEST_TAG: main-latest
-  # A `workflow_run` event runs on the default branch; the checked revision is
-  # `head_sha`, not `github.sha`.
-  RELEASE_REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
-  STAGING_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+  RELEASE_REVISION: ${{ github.sha }}
+  STAGING_TAG: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
+  checks:
+    name: Repository checks
+    uses: ./.github/workflows/checks.yml
+    permissions:
+      contents: read
+
   release_gate:
     name: Admit the checked revision
     runs-on: ubuntu-latest
-    # Every completed "Repository checks" run on main arrives here; only a green
-    # run of a push passes. A manual dispatch passes as before.
-    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') }}
+    permissions:
+      contents: read
     outputs:
       admitted: ${{ steps.decide.outputs.admitted }}
 
@@ -59,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_EVENT_NAME}" != "workflow_run" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" != "push" ]]; then
             echo "admitted=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -100,11 +99,15 @@ jobs:
 
   inspect_existing:
     name: Inspect immutable release tags
-    needs: release_gate
-    if: ${{ needs.release_gate.outputs.admitted == 'true' }}
+    needs:
+      - checks
+      - release_gate
+    if: ${{ needs.checks.result == 'success' && needs.release_gate.outputs.admitted == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       base_exists: ${{ steps.inspect.outputs.base_exists }}
+      base_recipe: ${{ steps.inspect.outputs.base_recipe }}
+      reused_base_digest: ${{ steps.inspect.outputs.reused_base_digest }}
       control_plane_exists: ${{ steps.inspect.outputs.control_plane_exists }}
       worker_exists: ${{ steps.inspect.outputs.worker_exists }}
       function_runtime_exists: ${{ steps.inspect.outputs.function_runtime_exists }}
@@ -172,6 +175,36 @@ jobs:
         run: |
           set -euo pipefail
 
+          recipe_from_files() {
+            {
+              sha256sum < app/agent_computer/Dockerfile.base | awk '{print $1}'
+              sha256sum < app/agent_computer/scripts/pdf-inspector-1.25.2-tables.patch | awk '{print $1}'
+            } | sha256sum | awk '{print $1}'
+          }
+
+          recipe_from_commit() {
+            local rev="$1"
+            {
+              git show "${rev}:app/agent_computer/Dockerfile.base" | sha256sum | awk '{print $1}'
+              git show "${rev}:app/agent_computer/scripts/pdf-inspector-1.25.2-tables.patch" | sha256sum | awk '{print $1}'
+            } | sha256sum | awk '{print $1}'
+          }
+
+          multiarch_digest() {
+            local ref="$1"
+            local metadata digest
+            metadata="$(docker buildx imagetools inspect "${ref}" --format '{{json .}}' 2>/dev/null)" || return 1
+            digest="$(jq -r '
+              if (.image["linux/amd64"] != null and .image["linux/arm64"] != null) then
+                (.manifest.digest // empty)
+              else
+                empty
+              end
+            ' <<<"${metadata}")"
+            [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+            printf '%s\n' "${digest}"
+          }
+
           inspect_ref() {
             local output_name="$1"
             local image="$2"
@@ -186,7 +219,42 @@ jobs:
             fi
           }
 
-          inspect_ref base_exists "${BASE_IMAGE}"
+          base_recipe="$(recipe_from_files)"
+          echo "base_recipe=${base_recipe}" >> "${GITHUB_OUTPUT}"
+
+          reused_base_digest=""
+          if digest="$(multiarch_digest "${BASE_IMAGE}:${RELEASE_REVISION}")"; then
+            reused_base_digest="${digest}"
+            echo "Reusing existing immutable OS base ${BASE_IMAGE}:${RELEASE_REVISION} (${digest})"
+          elif digest="$(multiarch_digest "${BASE_IMAGE}:recipe-${base_recipe}")"; then
+            reused_base_digest="${digest}"
+            echo "Reusing OS base recipe ${BASE_IMAGE}:recipe-${base_recipe} (${digest})"
+          else
+            lock_entry="$(tr -d '[:space:]' < app/agent_computer/base-image.lock 2>/dev/null || true)"
+            if [[ "${lock_entry}" =~ ^ghcr\.io/agentbull/ankole-agent-os-base:([0-9a-f]{40})@(sha256:[0-9a-f]{64})$ ]]; then
+              locked_rev="${BASH_REMATCH[1]}"
+              locked_digest="${BASH_REMATCH[2]}"
+              if git fetch --quiet --depth=1 origin "${locked_rev}" 2>/dev/null; then
+                locked_recipe="$(recipe_from_commit "${locked_rev}" 2>/dev/null || true)"
+                if [[ "${locked_recipe}" == "${base_recipe}" ]] \
+                  && digest="$(multiarch_digest "${BASE_IMAGE}@${locked_digest}")" \
+                  && [[ "${digest}" == "${locked_digest}" ]]; then
+                  reused_base_digest="${locked_digest}"
+                  echo "Reusing pinned OS base from base-image.lock (${locked_rev} -> ${locked_digest})"
+                fi
+              fi
+            fi
+          fi
+
+          if [[ -n "${reused_base_digest}" ]]; then
+            echo "base_exists=true" >> "${GITHUB_OUTPUT}"
+            echo "reused_base_digest=${reused_base_digest}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "base_exists=false" >> "${GITHUB_OUTPUT}"
+            echo "reused_base_digest=" >> "${GITHUB_OUTPUT}"
+            echo "OS base recipe ${base_recipe} is not published yet; building ${BASE_IMAGE}"
+          fi
+
           inspect_ref control_plane_exists "${CONTROL_PLANE_IMAGE}"
           inspect_ref worker_exists "${WORKER_IMAGE}"
           inspect_ref function_runtime_exists "${FUNCTION_RUNTIME_IMAGE}"
@@ -262,13 +330,53 @@ jobs:
       - name: Publish immutable multi-platform OS base manifest
         if: ${{ needs.inspect_existing.outputs.base_exists != 'true' }}
         shell: bash
+        env:
+          BASE_RECIPE: ${{ needs.inspect_existing.outputs.base_recipe }}
         run: |
           set -euo pipefail
 
           docker buildx imagetools create \
             --tag "${BASE_IMAGE}:${RELEASE_REVISION}" \
+            --tag "${BASE_IMAGE}:recipe-${BASE_RECIPE}" \
             "${BASE_IMAGE}:${STAGING_TAG}-base-amd64" \
             "${BASE_IMAGE}:${STAGING_TAG}-base-arm64"
+
+      - name: Alias reused multi-platform OS base manifest
+        if: ${{ needs.inspect_existing.outputs.base_exists == 'true' }}
+        shell: bash
+        env:
+          BASE_RECIPE: ${{ needs.inspect_existing.outputs.base_recipe }}
+          REUSED_BASE_DIGEST: ${{ needs.inspect_existing.outputs.reused_base_digest }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${REUSED_BASE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Reused OS base digest is invalid: ${REUSED_BASE_DIGEST}" >&2
+            exit 1
+          fi
+
+          ensure_base_tag() {
+            local target_ref="$1"
+            local existing_metadata existing_digest
+            if existing_metadata="$(docker buildx imagetools inspect "${target_ref}" --format '{{json .}}' 2>/dev/null)"; then
+              existing_digest="$(jq -r '.manifest.digest // empty' <<<"${existing_metadata}")"
+              if [[ "${existing_digest}" == "${REUSED_BASE_DIGEST}" ]]; then
+                echo "Tag ${target_ref} already points to ${REUSED_BASE_DIGEST}"
+                return 0
+              fi
+              if [[ "${target_ref}" == "${BASE_IMAGE}:${RELEASE_REVISION}" ]]; then
+                echo "Immutable base tag ${target_ref} already points to ${existing_digest}, not ${REUSED_BASE_DIGEST}" >&2
+                exit 1
+              fi
+            fi
+
+            docker buildx imagetools create \
+              --tag "${target_ref}" \
+              "${BASE_IMAGE}@${REUSED_BASE_DIGEST}"
+          }
+
+          ensure_base_tag "${BASE_IMAGE}:${RELEASE_REVISION}"
+          ensure_base_tag "${BASE_IMAGE}:recipe-${BASE_RECIPE}"
 
       - name: Resolve OS base digest
         id: resolve
@@ -643,7 +751,7 @@ jobs:
     # A manual dispatch on main publishes too: a changelog-only release
     # promotion is not admitted by `release_gate`, and the immutable-version
     # check still rejects any attempt to re-release an existing version.
-    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.verify_pair.result == 'success' && (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
+    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.verify_pair.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
     permissions:
       contents: write
       packages: write

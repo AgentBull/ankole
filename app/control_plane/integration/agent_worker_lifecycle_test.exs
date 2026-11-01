@@ -51,7 +51,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
 
     {:ok, provider} =
       Sandbox.unboxed_run(Repo, fn ->
-        worker = Repo.get!(AgentWorker, agent.uid)
+        worker = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
         Providers.load(worker.provider_id)
       end)
 
@@ -94,7 +94,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
       end)
 
     assert_paused(first)
-    intent = Repo.get!(AgentWorker, uid)
+    intent = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert intent.state == :starting
     assert intent.generation != nil
     assert intent.instance_seen_at == nil
@@ -111,7 +111,61 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     release(first)
     assert :ok = finish(first)
     assert [%{generation: ^generation}] = instances(provider, uid)
-    assert Repo.get!(AgentWorker, uid).generation == generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == generation
+  end
+
+  test "renaming a disabled paused Worker destroys the old instance and starts the new name", %{
+    uid: uid,
+    provider: provider
+  } do
+    tenant_id = Repo.tenant_id!()
+    new_uid = "renamed+#{uid}@example.com"
+
+    on_exit(fn ->
+      Repo.with_tenant(tenant_id, fn ->
+        assert {:ok, true} =
+                 wait_until(deadline(30_000), fn ->
+                   for object <- instances(provider, new_uid),
+                       do: assert(:ok = Docker.delete_instance(provider, object, :now))
+
+                   instances(provider, new_uid) == []
+                 end)
+
+        assert {:ok, nil} = Docker.delete_storage(provider, new_uid, nil)
+
+        Sandbox.unboxed_run(Repo, fn ->
+          delete_agent_fixture_rows(new_uid, provider.provider_id)
+        end)
+      end)
+    end)
+
+    assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
+    worker = Repo.get_by!(AgentWorker, agent_uid: uid)
+    name = wait_for_entrypoint!(provider, uid, worker.generation)
+    docker!(["pause", name])
+    assert [%{phase: :paused}] = instances(provider, uid)
+
+    assert {:ok, _} = Ankole.Principals.disable_agent(uid)
+    assert {:error, :worker_rename_pending} = Ankole.Principals.rename(uid, new_uid)
+
+    assert {:ok, true} =
+             wait_until(deadline(30_000), fn ->
+               assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
+               AgentWorkers.get_agent_worker!(uid).state == :absent
+             end)
+
+    assert [] = instances(provider, uid)
+    assert {:ok, %{principal: %{uid: ^new_uid}}} = Ankole.Principals.rename(uid, new_uid)
+    assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
+    assert is_nil(AgentWorkers.get_agent_worker!(uid))
+
+    assert {:ok, _} = Ankole.Principals.enable_agent(new_uid)
+    assert :ok = AgentWorkers.request(new_uid)
+    assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(new_uid) end)
+    replacement = AgentWorkers.get_agent_worker!(new_uid)
+    new_name = wait_for_entrypoint!(provider, new_uid, replacement.generation)
+    refute new_name == name
+    assert docker!(["exec", new_name, "printenv", "WORKER_ID"]) == new_uid <> "\n"
   end
 
   test "a crash after Engine accepted create completes the same container", %{
@@ -125,7 +179,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
       end)
 
     assert_paused(crashed)
-    intent = Repo.get!(AgentWorker, uid)
+    intent = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert {:ok, token} = AgentWorkers.credential(intent)
     assert [%{generation: generation, instance_ref: instance_ref}] = instances(provider, uid)
     assert generation == intent.generation
@@ -133,7 +187,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     waiting = start_unboxed(fn -> reconcile(uid) end)
     assert :ok = finish(waiting)
     Task.shutdown(crashed.task, :brutal_kill)
-    row = Repo.get!(AgentWorker, uid)
+    row = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert row.generation == generation
     assert row.token_digest == :crypto.hash(:sha256, token)
     assert row.instance_seen_at != nil
@@ -153,12 +207,12 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
       end)
 
     assert_paused(crashed)
-    generation = Repo.get!(AgentWorker, uid).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: uid).generation
     assert {:ok, []} = Docker.list_instances(provider, uid)
     Task.shutdown(crashed.task, :brutal_kill)
     assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
     assert [%{generation: ^generation}] = instances(provider, uid)
-    assert Repo.get!(AgentWorker, uid).generation == generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == generation
   end
 
   test "a discovered instance reference commits before a create retry can deliver a contract", %{
@@ -172,7 +226,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
       end)
 
     assert_paused(crashed)
-    assert Repo.get!(AgentWorker, uid).instance_ref == nil
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).instance_ref == nil
     [object] = instances(provider, uid)
     Task.shutdown(crashed.task, :brutal_kill)
 
@@ -185,7 +239,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     assert_paused(retry)
     # This query uses another PostgreSQL connection. An uncommitted row
     # update in the retry transaction would still read as nil here.
-    saved = Repo.get!(AgentWorker, uid)
+    saved = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert saved.instance_ref == object.instance_ref
     assert saved.generation == object.generation
     assert saved.instance_seen_at != nil
@@ -214,10 +268,10 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
       end)
 
     assert :ok = finish(deleting)
-    assert Repo.get!(AgentWorker, uid).state == :deleting
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).state == :deleting
     release(pulling)
     assert :ok = finish(pulling)
-    assert Repo.get(AgentWorker, uid) == nil
+    assert Repo.get_by(AgentWorker, agent_uid: uid) == nil
     assert instances(provider, uid) == []
   end
 
@@ -248,7 +302,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     assert {:ok, true} =
              wait_until(deadline(30_000), fn ->
                assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
-               is_nil(Repo.get(AgentWorker, uid))
+               is_nil(Repo.get_by(AgentWorker, agent_uid: uid))
              end)
 
     assert instances(provider, uid) == []
@@ -264,7 +318,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
       end)
 
     assert_paused(crashed)
-    generation = Repo.get!(AgentWorker, uid).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: uid).generation
     Task.shutdown(crashed.task, :brutal_kill)
 
     assert {:ok, :ok} =
@@ -272,12 +326,12 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
                Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
              end)
 
-    assert Repo.get!(AgentWorker, uid).generation == generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == generation
 
     assert {:ok, true} =
              wait_until(deadline(30_000), fn ->
                assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
-               is_nil(Repo.get(AgentWorker, uid))
+               is_nil(Repo.get_by(AgentWorker, agent_uid: uid))
              end)
 
     assert instances(provider, uid) == []
@@ -302,10 +356,10 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     assert {:ok, true} =
              wait_until(deadline(30_000), fn ->
                assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
-               Repo.get!(AgentWorker, uid).generation != nil
+               Repo.get_by!(AgentWorker, agent_uid: uid).generation != nil
              end)
 
-    generation = Repo.get!(AgentWorker, uid).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: uid).generation
     release(sweep)
     assert :ok = finish(sweep)
     assert [%{generation: ^generation}] = instances(provider, uid)
@@ -317,7 +371,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     provider: provider
   } do
     assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert first.instance_seen_at != nil
     name = wait_for_entrypoint!(provider, uid, first.generation)
     write_markers!(name)
@@ -367,7 +421,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     provider: provider
   } do
     assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
     name = wait_for_entrypoint!(provider, uid, first.generation)
     write_markers!(name)
 
@@ -406,7 +460,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     assert {:ok, worker} =
              wait_until(deadline(30_000), fn ->
                assert :ok = Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
-               worker = Repo.get!(AgentWorker, uid)
+               worker = Repo.get_by!(AgentWorker, agent_uid: uid)
                if worker.generation && worker.generation != generation, do: worker
              end)
 

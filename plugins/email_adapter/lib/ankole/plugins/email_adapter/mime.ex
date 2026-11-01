@@ -159,19 +159,80 @@ defmodule Ankole.Plugins.EmailAdapter.Mime do
   @spec decode_quoted_printable(binary()) :: binary()
   defp decode_quoted_printable(body) do
     body
-    |> String.replace(~r/[ \t]+(\r?\n)/, "\\1")
-    |> String.replace(~r/=\r?\n/, "")
-    |> then(
-      &Regex.replace(~r/=([0-9A-Fa-f]{2})/, &1, fn _all, hex -> <<String.to_integer(hex, 16)>> end)
-    )
+    |> :binary.split("\n", [:global])
+    |> unfold_qp_lines(<<>>)
+    |> decode_qp_hex(<<>>)
   end
 
-  defp decode_base64(body) do
-    cleaned = String.replace(body, ~r/[^A-Za-z0-9+\/=]/, "")
+  defp unfold_qp_lines([last], acc), do: <<acc::binary, last::binary>>
 
-    case Base.decode64(cleaned, padding: false) do
-      {:ok, decoded} -> decoded
-      :error -> cleaned |> String.trim_trailing("=") |> Base.decode64!(padding: false)
+  defp unfold_qp_lines([line | rest], acc) do
+    {content, ending} =
+      if byte_size(line) > 0 and :binary.last(line) == ?\r do
+        {binary_part(line, 0, byte_size(line) - 1), "\r\n"}
+      else
+        {line, "\n"}
+      end
+
+    trimmed = trim_trailing_lwsp(content, byte_size(content))
+
+    if byte_size(trimmed) > 0 and :binary.last(trimmed) == ?= do
+      soft = binary_part(trimmed, 0, byte_size(trimmed) - 1)
+      unfold_qp_lines(rest, <<acc::binary, soft::binary>>)
+    else
+      unfold_qp_lines(rest, <<acc::binary, trimmed::binary, ending::binary>>)
+    end
+  end
+
+  defp trim_trailing_lwsp(bin, len) when len > 0 do
+    if :binary.at(bin, len - 1) in [?\s, ?\t],
+      do: trim_trailing_lwsp(bin, len - 1),
+      else: binary_part(bin, 0, len)
+  end
+
+  defp trim_trailing_lwsp(_bin, 0), do: <<>>
+
+  defp decode_qp_hex(<<>>, acc), do: acc
+
+  defp decode_qp_hex(bin, acc) do
+    case :binary.match(bin, "=") do
+      :nomatch ->
+        <<acc::binary, bin::binary>>
+
+      {offset, 1} ->
+        prefix = binary_part(bin, 0, offset)
+        tail = binary_part(bin, offset, byte_size(bin) - offset)
+        decode_qp_escape(tail, <<acc::binary, prefix::binary>>)
+    end
+  end
+
+  defp decode_qp_escape(<<?=, h1, h2, rest::binary>>, acc)
+       when (h1 in ?0..?9 or h1 in ?A..?F or h1 in ?a..?f) and
+              (h2 in ?0..?9 or h2 in ?A..?F or h2 in ?a..?f) do
+    byte = hex_nibble(h1) * 16 + hex_nibble(h2)
+    decode_qp_hex(rest, <<acc::binary, byte>>)
+  end
+
+  defp decode_qp_escape(<<?=, rest::binary>>, acc) do
+    decode_qp_hex(rest, <<acc::binary, ?=>>)
+  end
+
+  defp hex_nibble(c) when c in ?0..?9, do: c - ?0
+  defp hex_nibble(c) when c in ?A..?F, do: c - ?A + 10
+  defp hex_nibble(c) when c in ?a..?f, do: c - ?a + 10
+
+  defp decode_base64(body) do
+    case Base.decode64(body, ignore: :whitespace, padding: false) do
+      {:ok, decoded} ->
+        decoded
+
+      :error ->
+        cleaned = String.replace(body, ~r/[^A-Za-z0-9+\/=]/, "")
+
+        case Base.decode64(cleaned, padding: false) do
+          {:ok, decoded} -> decoded
+          :error -> cleaned |> String.trim_trailing("=") |> Base.decode64!(padding: false)
+        end
     end
   rescue
     _exception -> ""
@@ -204,23 +265,105 @@ defmodule Ankole.Plugins.EmailAdapter.Mime do
 
   defp split_multipart(body, boundary) do
     delimiter = "--" <> boundary
+    delim_len = byte_size(delimiter)
 
-    body
-    |> String.split(~r/(?:^|\r?\n)#{Regex.escape(delimiter)}/)
-    |> Enum.drop(1)
-    |> Enum.reduce_while([], fn segment, parts ->
-      cond do
-        String.starts_with?(segment, "--") ->
-          {:halt, parts}
+    boundaries =
+      body
+      |> :binary.matches(delimiter)
+      |> collect_line_boundaries(body, delim_len, 0, [])
 
-        true ->
-          content = segment |> String.replace(~r/\A[^\r\n]*\r?\n/, "", global: false)
-          {headers, part_body} = split_headers(content)
-          {:cont, [build_part(headers, part_body) | parts]}
-      end
-    end)
-    |> Enum.reverse()
+    collect_multipart_parts(boundaries, body, [])
   end
+
+  defp collect_line_boundaries([], _body, _delim_len, _cursor, acc), do: Enum.reverse(acc)
+
+  defp collect_line_boundaries([{0, _len} | rest], body, delim_len, 0, acc) do
+    if valid_boundary_tail?(body, delim_len) do
+      collect_line_boundaries(rest, body, delim_len, delim_len, [{0, delim_len} | acc])
+    else
+      collect_line_boundaries(rest, body, delim_len, 0, acc)
+    end
+  end
+
+  defp collect_line_boundaries([{pos, _len} | rest], body, delim_len, cursor, acc) do
+    after_delim = pos + delim_len
+
+    cond do
+      pos >= 2 and pos - 2 >= cursor and binary_part(body, pos - 2, 2) == "\r\n" and
+          valid_boundary_tail?(body, after_delim) ->
+        collect_line_boundaries(rest, body, delim_len, after_delim, [{pos - 2, after_delim} | acc])
+
+      pos >= 1 and pos - 1 >= cursor and :binary.at(body, pos - 1) == ?\n and
+          valid_boundary_tail?(body, after_delim) ->
+        collect_line_boundaries(rest, body, delim_len, after_delim, [{pos - 1, after_delim} | acc])
+
+      true ->
+        collect_line_boundaries(rest, body, delim_len, cursor, acc)
+    end
+  end
+
+  defp valid_boundary_tail?(body, pos) do
+    size = byte_size(body)
+
+    idx =
+      if pos + 2 <= size and binary_part(body, pos, 2) == "--" do
+        pos + 2
+      else
+        pos
+      end
+
+    only_lwsp_to_eol?(body, idx, size)
+  end
+
+  defp only_lwsp_to_eol?(_body, idx, size) when idx >= size, do: true
+
+  defp only_lwsp_to_eol?(body, idx, size) do
+    case :binary.at(body, idx) do
+      b when b in [?\s, ?\t] -> only_lwsp_to_eol?(body, idx + 1, size)
+      ?\n -> true
+      ?\r -> idx + 1 >= size or :binary.at(body, idx + 1) == ?\n
+      _other -> false
+    end
+  end
+
+  defp collect_multipart_parts([], _body, parts), do: Enum.reverse(parts)
+
+  defp collect_multipart_parts([{_start, after_delim} | rest], body, parts) do
+    next_start =
+      case rest do
+        [{start, _next_after} | _] -> start
+        [] -> byte_size(body)
+      end
+
+    segment_len = next_start - after_delim
+
+    if segment_len >= 2 and binary_part(body, after_delim, 2) == "--" do
+      Enum.reverse(parts)
+    else
+      content = strip_boundary_line(body, after_delim, next_start, after_delim)
+      {headers, part_body} = split_headers(content)
+      collect_multipart_parts(rest, body, [build_part(headers, part_body) | parts])
+    end
+  end
+
+  defp strip_boundary_line(body, start, limit, idx) when idx < limit do
+    case :binary.at(body, idx) do
+      ?\n ->
+        binary_part(body, idx + 1, limit - (idx + 1))
+
+      ?\r ->
+        if idx + 1 < limit and :binary.at(body, idx + 1) == ?\n do
+          binary_part(body, idx + 2, limit - (idx + 2))
+        else
+          binary_part(body, start, limit - start)
+        end
+
+      _other ->
+        strip_boundary_line(body, start, limit, idx + 1)
+    end
+  end
+
+  defp strip_boundary_line(body, start, limit, _idx), do: binary_part(body, start, limit - start)
 
   defp split_headers(raw) do
     {header_block, body} =

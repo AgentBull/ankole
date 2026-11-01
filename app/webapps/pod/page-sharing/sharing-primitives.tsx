@@ -120,7 +120,7 @@ export function availableRolesForPage(pageType?: PageType): Partial<Record<PageR
       manage: t('pod.sharing.role_manage')
     }
   }
-  if (pageType === 'doc') {
+  if (pageType === 'doc' || pageType === 'file') {
     return {
       view: t('pod.sharing.role_view'),
       contribute: t('pod.sharing.role_comment'),

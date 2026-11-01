@@ -149,7 +149,8 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
       assert email == human.human_user.email
 
       agent_row = Enum.find(listed, &(&1["id"] == agent.principal.uid))
-      assert agent_row["attributes"]["handle"] == agent.agent.handle
+      assert agent_row["id"] == agent.principal.uid
+      refute Map.has_key?(agent_row["attributes"], "handle")
 
       assert {200, %{"data" => all}} =
                request(conn, :get, "/api/v2/principals?include_disabled=true")
@@ -183,12 +184,23 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
       assert group_id == group.id
       assert %{"name" => ^name, "member_count" => 1, "grant_count" => 0} = group_attributes
 
-      assert {200, %{"data" => [%{"id" => grant_id, "attributes" => grant_attributes}]}} =
+      assert {200, %{"data" => grants}} =
                request(conn, :get, "/api/v2/principals/#{human.uid}/grants")
+
+      assert %{"id" => grant_id, "attributes" => grant_attributes} =
+               Enum.find(grants, &(&1["id"] == grant.id))
 
       assert grant_id == grant.id
       assert grant_attributes["principal_uid"] == human.uid
       refute Map.has_key?(grant_attributes, "metadata")
+
+      private_grants = Enum.reject(grants, &(&1["id"] == grant.id))
+      assert length(private_grants) == 5
+
+      assert Enum.all?(private_grants, fn row ->
+               row["attributes"]["principal_uid"] == human.uid and
+                 row["attributes"]["resource_pattern"] == "drive:private:#{human.uid}:**"
+             end)
 
       assert {404, _} = request(conn, :get, "/api/v2/principals/missing-principal")
     end
@@ -203,10 +215,10 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
                  }
                })
 
-      assert {:ok, _} = Ecto.UUID.cast(uid)
+      assert uid == "new.user@example.com"
       assert [] == Principals.principal_site_credentials(uid)
 
-      assert {400, %{"errors" => [_ | _]}} =
+      assert {409, %{"errors" => [%{"code" => "principal_uid_taken"}]}} =
                request(conn, :post, "/api/v2/principals", %{
                  data: %{membership: "member", email: "new.user@example.com"}
                })
@@ -512,7 +524,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
           title: "Shared page"
         })
 
-      for action <- Ankole.Pod.Access.page_actions() do
+      for action <- Ankole.Files.Access.page_actions() do
         assert {400, %{"errors" => [%{"source" => %{"pointer" => "/data/attributes/action"}}]}} =
                  request(
                    conn,
@@ -520,7 +532,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
                    "/api/v2/permission-grants",
                    resource("permission_grant", %{
                      principal_uid: owner.uid,
-                     resource_pattern: "pod:space:**",
+                     resource_pattern: "drive:space:**",
                      action: action
                    })
                  )
@@ -529,10 +541,10 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
       assert {:ok, grant} =
                AuthZ.create_permission_grant(%{
                  principal_uid: owner.uid,
-                 resource_pattern: "pod:**:#{page.id}:**",
-                 target_page_id: page.id,
+                 resource_pattern: "drive:**:#{page.id}:**",
+                 target_node_id: page.id,
                  target_scope: "container",
-                 action: "page_view",
+                 action: "node_view",
                  description: "shared space"
                })
 
@@ -552,7 +564,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
                  data: %{type: "permission_grant", attributes: %{description: "team share"}}
                })
 
-      assert %{"action" => "page_view", "description" => "team share"} = kept
+      assert %{"action" => "node_view", "description" => "team share"} = kept
 
       response = request(conn, :delete, "/api/v2/permission-grants/#{grant.id}")
       assert {422, _} = response

@@ -1,15 +1,11 @@
 defmodule Ankole.AIGateway.UsageLedger do
   @moduledoc """
-  Append-only Agent token ledger behind the Agent token quota.
+  Append-only token ledger for Agent and control-plane LLM calls.
 
-  One row records the provider usage of one counted round. A request counts when
-  its `subject_type` is `agent` and it uses the `llm` capability. An Agent token
-  and the conversation loop give `agent`. Brain and compaction pass no
-  `subject_type` and never reach the ledger.
-
-  A ledger write failure logs a warning and returns `:ok`. The provider round
-  already happened, so failing the response would destroy a delivered answer to
-  protect a soft limit.
+  Explicit subject credentials determine the origin before internal caller
+  labels. Only Agent and Codex rows count toward Agent token quota windows;
+  Brain, Applet, OIDC Human, and automatic compaction rows remain ledger-only.
+  A ledger write failure never discards an already delivered provider response.
   """
 
   require Ash.Query
@@ -19,21 +15,17 @@ defmodule Ankole.AIGateway.UsageLedger do
   alias Ankole.AIGateway.Schemas.UsageRecord
   alias Ankole.Logging
 
-  @doc """
-  Records one provider round of an Agent request.
-
-  `round` is the streaming terminal event or the non-streaming response body.
-  `aggregate_includes_tool_usage?` names a hosted composite round, whose image
-  generation tokens do not count. Any other round, capability, or subject type
-  is not counted.
-  """
+  @doc "Records one completed provider round of a classified LLM request."
   @spec record(map() | nil, String.t() | nil, map(), keyword()) :: :ok
   def record(runtime, subject_type, round, opts \\ [])
 
-  def record(%{"capability" => "llm"} = runtime, "agent", round, opts) when is_map(round) do
-    with %{} = response <- counted_round(round),
+  def record(%{"capability" => "llm"} = runtime, subject_type, round, opts)
+      when is_map(round) do
+    with origin when not is_nil(origin) <-
+           origin(runtime, subject_type, Keyword.get(opts, :caller)),
+         %{} = response <- counted_round(round),
          %{} = usage <- CredentialAttempts.model_usage(response, opts) do
-      insert(runtime, usage)
+      insert(runtime, usage, origin)
     else
       _uncounted -> :ok
     end
@@ -41,14 +33,15 @@ defmodule Ankole.AIGateway.UsageLedger do
 
   def record(_runtime, _subject_type, _round, _opts), do: :ok
 
-  @doc """
-  Sums the tokens of one Agent from `window_started_at` onwards.
-  """
+  @doc "Sums Agent and Codex tokens from `window_started_at` onwards."
   @spec window_tokens(String.t(), DateTime.t()) :: non_neg_integer()
   def window_tokens(subject_uid, %DateTime{} = window_started_at) when is_binary(subject_uid) do
     totals =
       UsageRecord
-      |> Ash.Query.filter(subject_uid == ^subject_uid and inserted_at >= ^window_started_at)
+      |> Ash.Query.filter(
+        subject_uid == ^subject_uid and inserted_at >= ^window_started_at and
+          origin in [:agent, :codex]
+      )
       |> Ankole.Ash.aggregate!([
         {:input, :sum, field: :input_tokens, default: 0},
         {:output, :sum, field: :output_tokens, default: 0}
@@ -67,12 +60,12 @@ defmodule Ankole.AIGateway.UsageLedger do
 
   defp counted_round(_round), do: nil
 
-  defp insert(runtime, usage) do
+  defp insert(runtime, usage, origin) do
     request_context = Map.get(runtime, "request_context") || %{}
 
     attrs = %{
       subject_uid: Map.get(runtime, "subject_uid"),
-      origin: origin(runtime),
+      origin: origin,
       model: "#{Map.get(runtime, "provider_id")}/#{Map.get(runtime, "model")}",
       input_tokens: tokens(usage, "input_tokens"),
       output_tokens: tokens(usage, "output_tokens"),
@@ -114,20 +107,26 @@ defmodule Ankole.AIGateway.UsageLedger do
   defp write_failed(attrs, reason) do
     Logging.warning(
       "ai_gateway.usage_ledger.write_failed",
-      "agent token usage row not recorded",
+      "LLM usage row not recorded",
       %{subject_uid: attrs.subject_uid, reason: reason}
     )
 
     :ok
   end
 
-  # A Background Agent Job reaches AIGateway through the Codex client, which
-  # declares its own client identity headers. The conversation loop declares none.
-  defp origin(runtime) do
+  defp origin(runtime, "agent", _caller) do
     if ChatGPTProtocol.codex_client?(Map.get(runtime, "request_context", %{})),
       do: :codex,
       else: :agent
   end
+
+  defp origin(_runtime, "oidc_human", _caller), do: :oidc_human
+  defp origin(_runtime, nil, "compaction.summary"), do: :compaction
+  defp origin(_runtime, nil, "pod_applet"), do: :applet
+  defp origin(_runtime, nil, "brain"), do: :brain
+
+  defp origin(_runtime, nil, "brain." <> _stage), do: :brain
+  defp origin(_runtime, _subject_type, _caller), do: nil
 
   defp tokens(usage, key) do
     case Map.get(usage, key) do

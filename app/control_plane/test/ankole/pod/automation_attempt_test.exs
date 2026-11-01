@@ -26,7 +26,7 @@ defmodule Ankole.Pod.AutomationAttemptTest do
         ]
       })
 
-    for {kind, expected_schema} <- [{:service, :allowed}, {:human, :denied}] do
+    for kind <- [:service, :human] do
       {job, run} = attempt(agent, human, kind)
 
       proof = %Proto.AutomationAttemptRef{
@@ -50,9 +50,7 @@ defmodule Ankole.Pod.AutomationAttemptTest do
           type: "text"
         })
 
-      if expected_schema == :allowed,
-        do: assert(match?({:ok, _}, result)),
-        else: assert(result == {:error, "forbidden"})
+      assert {:ok, _} = result
 
       assert {:ok, _} = rpc(ctx, "pod.read", "base.schema", %{id: table.id})
 
@@ -121,7 +119,7 @@ defmodule Ankole.Pod.AutomationAttemptTest do
              AutomationJobs.authorize_attempt_actor(proof, %{worker_id: agent.uid})
   end
 
-  test "Pod file RPCs keep the attempt Human intersection and reject missing proof" do
+  test "Pod file RPCs use the executing Agent permissions and reject missing proof" do
     owner = human_fixture().principal
     human = human_fixture().principal
     agent = Ankole.SessionsCase.agent_fixture().principal
@@ -144,10 +142,10 @@ defmodule Ankole.Pod.AutomationAttemptTest do
 
           {:ok, _} =
             Ankole.Files.commit(owner.uid, [
-              %{path: "project/" <> path, sha256: stored.sha256, source: "agent"}
+              Map.merge(stored, %{path: "project/" <> path, source: "agent"})
             ])
 
-          %{path: path, sha256: stored.sha256}
+          %{path: path, object_id: stored.object_id, source_path: "project/" <> path}
         end
       )
 
@@ -173,35 +171,30 @@ defmodule Ankole.Pod.AutomationAttemptTest do
       for {path, bytes} <- [{"dist/main.js", "export {}"}, {"src/main.tsx", "private source"}] do
         target = "#{kind}/" <> path
 
-        request =
-          SessionsCase.rpc_request("automation-file", "files.get", %Proto.FilesGetRequest{
-            pod_drive: true,
-            path: "pages/#{page.id}/" <> path,
-            home_relative_path: target,
-            automation_attempt: proof
-          })
+        assert {:ok, response} =
+                 rpc(%{route: route, agent: agent, proof: proof}, "pod.read", "files.download", %{
+                   id: page.id,
+                   path: path,
+                   home_relative_path: target
+                 })
 
-        {:ok, envelope} = SessionsCase.handle_rpc(request, route, agent.uid)
-
-        if kind == :human and path == "src/main.tsx" do
-          assert SessionsCase.rpc_error_payload!(envelope)["code"] == "forbidden"
-          refute Map.has_key?(Ankole.WorkerFilesFake.files(fake), target)
-        else
-          response = SessionsCase.rpc_response_payload!(envelope, Proto.FilesGetResponse)
-          assert response.file.path == "pages/#{page.id}/" <> path
-          assert response.file.sha256 == Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
-          assert Ankole.WorkerFilesFake.files(fake)[target] == bytes
-        end
+        assert response["path"] == path
+        assert response["sha256"] == Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+        assert Ankole.WorkerFilesFake.files(fake)[target] == bytes
       end
 
       {:ok, _} = AutomationJobs.finish_attempt(run.id, run.attempt_id, %{status: "succeeded"})
     end
 
     missing =
-      SessionsCase.rpc_request("missing-proof", "files.get", %Proto.FilesGetRequest{
-        pod_drive: true,
-        path: "pages/#{page.id}/src/main.tsx",
-        home_relative_path: "missing.tsx"
+      SessionsCase.rpc_request("missing-proof", "pod.read", %Proto.PodRequest{
+        operation: "files.download",
+        params_json:
+          Torque.encode!(%{
+            id: page.id,
+            path: "src/main.tsx",
+            home_relative_path: "missing.tsx"
+          })
       })
 
     {:ok, envelope} = SessionsCase.handle_rpc(missing, route, agent.uid)

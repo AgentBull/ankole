@@ -1,21 +1,12 @@
-import { beforeAll, describe, expect, test } from 'bun:test'
-import {
-  AgentEditorModel,
-  agentHandleError,
-  agentHandleFromDisplayName,
-  preloadTransliteration
-} from './agent-editor-model'
-
-// handle derivation upgrades from an ASCII-only fallback once the on-demand
-// transliteration table loads; the assertions cover the loaded behavior.
-beforeAll(() => preloadTransliteration())
+import { describe, expect, test } from 'bun:test'
+import { AgentEditorModel, agentUIDError } from './agent-editor-model'
 
 describe('AgentEditorModel', () => {
-  test('reports the required display name, handle, role, and owner before submission', () => {
+  test('reports the required display name, uid, role, and owner before submission', () => {
     const model = new AgentEditorModel()
 
     model.initialize('new', {
-      handle: '',
+      uid: '',
       displayName: '',
       avatarURL: '',
       ownerPrincipalUID: '',
@@ -26,8 +17,8 @@ describe('AgentEditorModel', () => {
     expect(model.draftError('new')).toBe('display_name_required')
 
     model.displayName.value = 'Research Analyst'
-    expect(model.draftError('new')).toBe('handle_required')
-    model.handle.value = 'research-analyst'
+    expect(model.draftError('new')).toBe('uid_required')
+    model.uid.value = 'research-analyst'
     model.role.value = '  '
     expect(model.draftError('new')).toBe('role_required')
     expect(model.draftError('edit')).toBe('role_required')
@@ -44,10 +35,10 @@ describe('AgentEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('derives an editable handle from the display name', () => {
+  test('requires an explicit uid independent of the display name', () => {
     const model = new AgentEditorModel()
     model.initialize('new', {
-      handle: '',
+      uid: '',
       displayName: '',
       avatarURL: '',
       ownerPrincipalUID: 'operator',
@@ -56,43 +47,41 @@ describe('AgentEditorModel', () => {
       role: 'Research Analyst'
     })
 
-    model.setDisplayName('Research Analyst', true)
-    expect(model.handle.value).toBe('research-analyst')
+    model.setDisplayName('Research Analyst')
+    expect(model.uid.value).toBe('')
 
-    model.setDisplayName('Research Director', true)
-    expect(model.handle.value).toBe('research-director')
+    model.setDisplayName('Research Director')
+    expect(model.uid.value).toBe('')
 
-    model.setHandle('research-lead')
-    model.setDisplayName('Research Lead', true)
-    expect(model.handle.value).toBe('research-lead')
+    model.setUID('research-lead')
+    model.setDisplayName('Research Lead')
+    expect(model.uid.value).toBe('research-lead')
 
-    model.setDisplayName('Research Manager', true)
-    expect(model.handle.value).toBe('research-lead')
+    model.setDisplayName('Research Manager')
+    expect(model.uid.value).toBe('research-lead')
     model[Symbol.dispose]()
   })
 
-  test('normalizes generated handles and rejects an invalid manual handle', () => {
-    expect(agentHandleFromDisplayName('  Caf\u00e9 & Research  ')).toBe('cafe-research')
-    expect(agentHandleFromDisplayName('\u7814\u7a76\u5206\u6790\u5e08')).toBe('yanjiufenxishi')
-    expect(agentHandleFromDisplayName('AI \u7814\u7a76 Analyst')).toBe('ai-yanjiu-analyst')
-    expect(agentHandleFromDisplayName('\u0391\u03b8\u03ae\u03bd\u03b1 Research')).toBe('athina-research')
-    expect(agentHandleError('')).toBe('handle_required')
-    expect(agentHandleError('invalid handle')).toBe('handle_invalid')
-    expect(agentHandleError('valid-agent')).toBeUndefined()
+  test('accepts email-like uids and rejects invalid or overlong names', () => {
+    expect(agentUIDError('')).toBe('uid_required')
+    expect(agentUIDError('invalid uid')).toBe('uid_invalid')
+    expect(agentUIDError('valid-agent')).toBeUndefined()
+    expect(agentUIDError('research+daily@example.test')).toBeUndefined()
+    expect(agentUIDError('a'.repeat(97))).toBe('uid_invalid')
 
     const model = new AgentEditorModel()
     model.initialize('new', {
-      handle: '',
-      displayName: 'Invalid handle Agent',
+      uid: '',
+      displayName: 'Invalid uid Agent',
       avatarURL: '',
       ownerPrincipalUID: 'operator',
       groupMemoryDisclosureMode: 'strict' as const,
       workerProviderID: 'docker',
       role: 'Research Analyst'
     })
-    model.setHandle('Invalid handle')
-    expect(model.handle.value).toBe('invalid handle')
-    expect(model.draftError('new')).toBe('handle_invalid')
+    model.setUID('Invalid uid')
+    expect(model.uid.value).toBe('invalid uid')
+    expect(model.draftError('new')).toBe('uid_invalid')
     model[Symbol.dispose]()
   })
 })

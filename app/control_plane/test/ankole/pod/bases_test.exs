@@ -664,7 +664,7 @@ defmodule Ankole.Pod.BasesTest do
     {:ok, report} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), %{title: "Report"})
 
-    Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-access:" <> Repo.tenant_id!())
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-access:" <> Repo.tenant_id!())
 
     assert {:ok, copied} =
              Bases.copy_table(
@@ -828,8 +828,15 @@ defmodule Ankole.Pod.BasesTest do
 
     new_path = hd(record["data"][copied_field.id])["path"]
     assert String.starts_with?(new_path, "pages/#{copied.page.id}/attachments/")
-    assert {:ok, before} = Ankole.Files.fetch(:pod, path)
-    assert {:ok, after_file} = Ankole.Files.fetch(:pod, new_path)
+    assert {:ok, before} = Ankole.Pod.Files.fetch_file(ctx.page.id, uploaded.file.path)
+
+    assert {:ok, after_file} =
+             Ankole.Pod.Files.fetch_file(
+               copied.page.id,
+               String.replace_prefix(new_path, "pages/#{copied.page.id}/", "")
+             )
+
+    assert before.object_id == after_file.object_id
     assert before.sha256 == after_file.sha256
   end
 

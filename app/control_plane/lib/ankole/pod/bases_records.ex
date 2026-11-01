@@ -10,6 +10,42 @@ defmodule Ankole.Pod.Bases.Records do
   alias Ankole.Pod.{BaseRecord, Query, Values}
   alias Ankole.Pod.Bases.{Write, Physical, Links}
 
+  @doc "Rewrites inline authors and user fields during the Principal rename transaction."
+  def rename_principal_in_tx(table, fields, {identity_tenant, old_uid}, new_uid) do
+    tenant = Repo.tenant_id!()
+    old_actor = to_string(ActorRef.from_principal(%{tenant_id: identity_tenant, uid: old_uid}))
+    new_actor = to_string(ActorRef.from_principal(%{tenant_id: identity_tenant, uid: new_uid}))
+
+    authors =
+      Repo.query!(
+        "UPDATE base_records SET created_by=CASE WHEN created_by=$3 THEN $4 ELSE created_by END, updated_by=CASE WHEN updated_by=$3 THEN $4 ELSE updated_by END WHERE tenant_id=$1::text::uuid AND table_id=$2::text::uuid AND (created_by=$3 OR updated_by=$3)",
+        [tenant, table.id, old_actor, new_actor]
+      ).num_rows
+
+    users =
+      for field <- fields, field.type == :user do
+        Repo.query!(
+          """
+          UPDATE base_records SET
+            data=jsonb_set(data,ARRAY[$3::text],
+              (SELECT jsonb_agg(CASE WHEN value=$4 THEN $5 ELSE value END ORDER BY n)
+               FROM jsonb_array_elements_text(data->$3) WITH ORDINALITY AS item(value,n)),false),
+            versions=jsonb_set(versions,ARRAY[$3::text],to_jsonb(COALESCE((versions->>$3)::bigint,0)+1))
+          WHERE tenant_id=$1::text::uuid AND table_id=$2::text::uuid AND (data->$3) ? $4
+          """,
+          [tenant, table.id, field.id, old_uid, new_uid]
+        ).num_rows
+      end
+
+    if authors + Enum.sum(users) == 0 do
+      {:ok, []}
+    else
+      %Write{table: table, tables: %{table.id => table}}
+      |> Write.touch(table.id, resync: true)
+      |> Write.finish()
+    end
+  end
+
   def prepare(write, attrs) when is_map(attrs) do
     creates = Ankole.Attrs.get(attrs, :creates, [])
     updates = Ankole.Attrs.get(attrs, :updates, [])

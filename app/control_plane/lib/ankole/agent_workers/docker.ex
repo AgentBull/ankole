@@ -169,7 +169,13 @@ defmodule Ankole.AgentWorkers.Docker do
         "ankole.installation=#{provider.runtime.installation}",
         "ankole.provider=#{provider.provider_id}"
       ] ++
-        if(agent_uid_or_all == :all, do: [], else: ["ankole.agent-uid=#{agent_uid_or_all}"])
+        if(agent_uid_or_all == :all,
+          do: [],
+          else: [
+            "ankole.tenant=#{Ankole.Repo.tenant_id!()}",
+            "ankole.agent-uid=#{agent_uid_or_all}"
+          ]
+        )
 
     case request(provider, :get, "/containers/json",
            params: [all: true, filters: Ankole.JSON.encode!(%{"label" => labels})]
@@ -327,6 +333,7 @@ defmodule Ankole.AgentWorkers.Docker do
     do: %{
       "ankole.installation" => provider.runtime.installation,
       "ankole.provider" => provider.provider_id,
+      "ankole.tenant" => Ankole.Repo.tenant_id!(),
       "ankole.agent-uid" => agent_uid
     }
 
@@ -339,6 +346,7 @@ defmodule Ankole.AgentWorkers.Docker do
     labels = container["Labels"]
 
     %{
+      tenant_id: labels["ankole.tenant"],
       agent_uid: labels["ankole.agent-uid"],
       generation: labels["ankole.generation"],
       instance_ref: container["Id"],

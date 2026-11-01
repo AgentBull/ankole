@@ -697,8 +697,7 @@ defmodule Ankole.BrowserSessionsTest do
   defp restore(uid) do
     [restriction] = HumanAccess.restrictions(uid)
     {:ok, _} = HumanAccess.clear_restriction(uid, restriction.id, nil, "verified", "clear")
-    {:ok, review} = AuthZ.restoration_review(uid)
-    {:ok, restored} = HumanAccess.restore(uid, review.fingerprint, nil, "verified", "restore")
+    {:ok, restored} = HumanAccess.restore(uid, nil, "verified", "restore")
     restored
   end
 

@@ -85,11 +85,17 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
           %{human_access_version: human.access_version, platform_subject: "forged"}
         ] do
       assert {:error, {:invalid_ingress_author_authority, _}} =
-               Observe.emit_entry(agent.uid, "boundary", dm_entry(author))
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "boundary").id,
+                 dm_entry(author)
+               )
     end
 
     assert {:error, {:invalid_ingress_attr_key, :sender_key}} =
-             Observe.emit_entry(agent.uid, "boundary", dm_entry(%{}, %{sender_key: human.uid}))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "boundary").id,
+               dm_entry(%{}, %{sender_key: human.uid})
+             )
 
     assert Repo.aggregate(Message, :count) == 0
     assert Repo.aggregate(InboundBatch, :count) == 0
@@ -102,10 +108,16 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
 
     assert {:ok, %{status: :held_unmapped_sender}} =
-             Observe.emit_entry(agent.uid, "lark-adm", dm_entry(stranger_author()))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+               dm_entry(stranger_author())
+             )
 
     assert {:ok, %{status: :held_unmapped_sender}} =
-             Observe.emit_entry(agent.uid, "lark-adm", dm_entry(stranger_author()))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+               dm_entry(stranger_author())
+             )
 
     assert Repo.aggregate(Message, :count) == 0
     assert {:error, :not_found} = Principals.resolve_platform_subject("lark-main", "ou_stranger")
@@ -131,7 +143,10 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
       })
 
     assert {:ok, %{status: :ignored_unmapped_sender}} =
-             Observe.emit_entry(agent.uid, "lark-adm", entry)
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+               entry
+             )
 
     assert Repo.aggregate(Message, :count) == 0
     assert Repo.aggregate(MappingRequest, :count) == 0
@@ -155,7 +170,9 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
         })
 
       assert {:ok, %{status: :ignored, inbound_batch: batch}} =
-               Observe.emit_entry(agent.uid, name, input, now: base_time())
+               Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, name).id, input,
+                 now: base_time()
+               )
 
       assert [stored] = batch.entries
       assert stored["text"] == input.text
@@ -184,21 +201,27 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     %{principal: human, human_user: user} = human_fixture()
     binding_fixture(agent.uid, "b18-known", :ignore)
     membership_count = Repo.aggregate(Membership, :count)
-    original = Repo.get!(Principals.Principal, human.uid)
+    original = Repo.get_by!(Principals.Principal, uid: human.uid)
 
     assert {:ok, %{status: :ignored}} =
              Observe.emit_entry(
-               agent.uid,
-               "b18-known",
+               Ankole.Signals.get_agent_binding!(agent.uid, "b18-known").id,
                dm_entry(stranger_author(%{email: user.email}), %{
                  channel: %{kind: :im_group, reply_mode: :entry}
                })
              )
 
-    Ankole.DataCase.assert_persisted_equal(Repo.get!(Principals.Principal, human.uid), original)
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get_by!(Principals.Principal, uid: human.uid),
+      original
+    )
+
     assert {:error, :not_found} = Principals.resolve_platform_subject("lark-main", "ou_stranger")
     assert Repo.aggregate(Membership, :count) == membership_count
-    refute Repo.get_by(Group, name: String.downcase("signal_source:#{agent.uid}:b18-known"))
+
+    refute Repo.get_by(Group,
+             name: "signal_source:#{Ankole.Signals.get_agent_binding!(agent.uid, "b18-known").id}"
+           )
 
     assert {:ok, %{identity: identity}} =
              Principals.upsert_platform_subject_human(%{
@@ -210,12 +233,11 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
              })
 
     assert identity.principal_uid == human.uid
-    original = Repo.get!(Principals.Principal, human.uid)
+    original = Repo.get_by!(Principals.Principal, uid: human.uid)
 
     assert {:ok, %{status: :ignored}} =
              Observe.emit_entry(
-               agent.uid,
-               "b18-known",
+               Ankole.Signals.get_agent_binding!(agent.uid, "b18-known").id,
                dm_entry(stranger_author(), %{
                  channel: %{kind: :im_group, reply_mode: :entry}
                })
@@ -226,9 +248,16 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
       identity
     )
 
-    Ankole.DataCase.assert_persisted_equal(Repo.get!(Principals.Principal, human.uid), original)
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get_by!(Principals.Principal, uid: human.uid),
+      original
+    )
+
     assert Repo.aggregate(Membership, :count) == membership_count
-    refute Repo.get_by(Group, name: String.downcase("signal_source:#{agent.uid}:b18-known"))
+
+    refute Repo.get_by(Group,
+             name: "signal_source:#{Ankole.Signals.get_agent_binding!(agent.uid, "b18-known").id}"
+           )
   end
 
   test "replying to the Agent still requires real identity admission under ignore" do
@@ -247,8 +276,7 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
 
     assert {:ok, %{status: :held_unmapped_sender}} =
              Observe.emit_entry(
-               agent.uid,
-               "b18-reply",
+               Ankole.Signals.get_agent_binding!(agent.uid, "b18-reply").id,
                dm_entry(stranger_author(), %{
                  channel: %{kind: :im_group, reply_mode: :entry},
                  reply_to_provider_message_id: target.provider_message_id
@@ -286,8 +314,7 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
 
     assert {:ok, %{status: :held_unmapped_sender}} =
              Observe.emit_entry(
-               agent.uid,
-               "b18-thread",
+               Ankole.Signals.get_agent_binding!(agent.uid, "b18-thread").id,
                dm_entry(stranger_author(), %{
                  provider_thread_id: "b18-thread",
                  reply_to_provider_message_id: "b18-root",
@@ -307,14 +334,20 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     author = stranger_author(%{email: human_user.email})
 
     assert {:ok, %{status: :held_unmapped_sender}} =
-             Observe.emit_entry(agent.uid, "lark-adm", dm_entry(author))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+               dm_entry(author)
+             )
 
     assert {:error, :not_found} = Principals.resolve_platform_subject("lark-main", "ou_stranger")
     [request] = Repo.all(MappingRequest)
     assert {:ok, _} = Principals.MappingRequests.bind_request(request.id, human.uid)
 
     assert {:ok, %{status: :accepted}} =
-             Observe.emit_entry(agent.uid, "lark-adm", dm_entry(author))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+               dm_entry(author)
+             )
 
     assert {:ok, matched} = Principals.resolve_platform_subject("lark-main", "ou_stranger")
     assert matched.uid == human.uid
@@ -328,17 +361,24 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     author = stranger_author(%{id: human.uid, platform_subject: human.uid})
 
     assert {:ok, %{status: :held_unmapped_sender}} =
-             Observe.emit_entry(agent.uid, "lark-adm", dm_entry(author))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+               dm_entry(author)
+             )
 
     assert [request] = Repo.all(MappingRequest)
     assert request.external_id == human.uid
 
-    assert {:ok, %{status: :accepted}} =
-             Observe.emit_entry(agent.uid, "lark-auto", dm_entry(author))
+    assert {:ok, %{status: :ignored_unmapped_sender}} =
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-auto").id,
+               dm_entry(author)
+             )
 
-    assert {:ok, standalone} = Principals.resolve_platform_subject("lark-main", human.uid)
-    refute standalone.uid == human.uid
-    assert Repo.get!(Ankole.Principals.Principal, human.uid).display_name == human.display_name
+    assert {:error, :not_found} = Principals.resolve_platform_subject("lark-main", human.uid)
+
+    assert Repo.get_by!(Ankole.Principals.Principal, uid: human.uid).display_name ==
+             human.display_name
   end
 
   test "binding a sender in one tenant neither admits nor clears the other tenant's pending sender" do
@@ -355,7 +395,10 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     binding_fixture(agent_a.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
 
     assert {:ok, %{status: :held_unmapped_sender}} =
-             Observe.emit_entry(agent_a.uid, "lark-adm", dm_entry(stranger_author()))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent_a.uid, "lark-adm").id,
+               dm_entry(stranger_author())
+             )
 
     [request_a] = Repo.all(MappingRequest)
 
@@ -365,7 +408,10 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
         binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
 
         assert {:ok, %{status: :held_unmapped_sender}} =
-                 Observe.emit_entry(agent.uid, "lark-adm", dm_entry(stranger_author()))
+                 Observe.emit_entry(
+                   Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+                   dm_entry(stranger_author())
+                 )
 
         {agent, Repo.one!(MappingRequest)}
       end)
@@ -374,7 +420,10 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     assert {:ok, _} = MappingRequests.bind_request(request_a.id, human_a.uid)
 
     assert {:ok, %{status: :accepted}} =
-             Observe.emit_entry(agent_a.uid, "lark-adm", dm_entry(stranger_author()))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent_a.uid, "lark-adm").id,
+               dm_entry(stranger_author())
+             )
 
     assert Repo.aggregate(MappingRequest, :count) == 0
 
@@ -385,7 +434,10 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
                Principals.resolve_platform_subject("lark-main", "ou_stranger")
 
       assert {:ok, %{status: :held_unmapped_sender}} =
-               Observe.emit_entry(agent_b.uid, "lark-adm", dm_entry(stranger_author()))
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent_b.uid, "lark-adm").id,
+                 dm_entry(stranger_author())
+               )
 
       assert Repo.one!(MappingRequest).id == request_b.id
       assert Repo.aggregate(Message, :count) == 0
@@ -397,9 +449,12 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :create_standalone)
 
     assert {:ok, %{status: :accepted}} =
-             Observe.emit_entry(agent.uid, "lark-adm", dm_entry(stranger_author()))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+               dm_entry(stranger_author())
+             )
 
-    group_name = String.downcase("signal_source:#{agent.uid}:lark-adm")
+    group_name = "signal_source:#{Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id}"
     group = Repo.get_by!(Group, name: group_name)
     assert group.domain == :signal_source
     assert group.kind == :static
@@ -410,7 +465,10 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
 
     # A second message from the same sender does not duplicate anything.
     assert {:ok, %{status: :accepted}} =
-             Observe.emit_entry(agent.uid, "lark-adm", dm_entry(stranger_author()))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+               dm_entry(stranger_author())
+             )
 
     assert Repo.aggregate(Membership, :count) >= 1
     assert [_group] = Repo.all(from(group in Group, where: group.name == ^group_name))
@@ -422,7 +480,7 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
 
     # A same-named group in another domain makes the synced group write fail
     # with a domain mismatch, so the admission cannot complete.
-    group_name = String.downcase("signal_source:#{agent.uid}:lark-adm")
+    group_name = "signal_source:#{Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id}"
 
     assert {:ok, _group} =
              Ankole.AuthZ.create_principal_group(%{
@@ -434,7 +492,10 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
              })
 
     assert {:error, {:signal_source_group, _reason}} =
-             Observe.emit_entry(agent.uid, "lark-adm", dm_entry(stranger_author()))
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-adm").id,
+               dm_entry(stranger_author())
+             )
 
     assert Repo.aggregate(Message, :count) == 0
   end

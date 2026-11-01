@@ -3,14 +3,14 @@ defmodule Ankole.Pod.Metadata do
   Tenant-wide Pod files under `metadata/`, outside any Page directory.
 
   Page icons reference the shared custom-emoji library by drive path. Listing
-  the library requires space `page_view`, uploading requires space `page_edit`,
+  the library requires space `node_view`, uploading requires space `node_edit`,
   and reading an individual custom-emoji file requires an active Pod Principal.
   """
 
   import Bitwise, only: [band: 2]
 
   alias Ankole.Files, as: Drive
-  alias Ankole.Pod.Access
+  alias Ankole.Files.Access
 
   @custom_emoji "metadata/custom-emoji/"
   @max_emoji_bytes 1024 * 1024
@@ -23,19 +23,19 @@ defmodule Ankole.Pod.Metadata do
   @doc "Lists the shared custom emojis and whether the caller may add one."
   def custom_emojis(%Ankole.AuthZ.Actor{} = actor) do
     with {:ok, bits} <- Access.space_bits(actor),
-         :ok <- authorize_bits(bits, "page_view"),
+         :ok <- authorize_bits(bits, "node_view"),
          {:ok, files} <- list_all() do
       {:ok,
        %{
          custom_emojis: Enum.map(files, &entry/1),
-         can_upload: authorized?(bits, "page_edit")
+         can_upload: authorized?(bits, "node_edit")
        }}
     end
   end
 
   @doc "Stores one image in the shared custom-emoji library."
   def upload_custom_emoji(%Ankole.AuthZ.Actor{} = actor, name, source, content_type) do
-    with :ok <- authorize(actor, "page_edit"),
+    with :ok <- authorize(actor, "node_edit"),
          {:ok, header} <- read_validated_header(source),
          :ok <- check_type(content_type, header),
          :ok <- check_name(name),
@@ -43,11 +43,12 @@ defmodule Ankole.Pod.Metadata do
       path = @custom_emoji <> stored.sha256 <> "/" <> name
 
       Access.write(actor.turn_authority, fn ->
-        upload = %{path: path, sha256: stored.sha256, source: "pod", content_type: content_type}
+        Ankole.AdvisoryLock.lock!(Ankole.Repo, "pod-metadata:#{Ankole.Repo.tenant_id!()}")
+        upload = %{path: path, object: stored, source: "pod", content_type: content_type}
 
         with {:ok, existing} <- list_all(),
              :ok <- check_unique_shortcode(existing, name, path),
-             {:ok, _} <- Drive.commit_in_tx(:pod, [upload], []) do
+             {:ok, _} <- Ankole.Pod.Files.commit_files_in_tx(nil, [upload], []) do
           {:ok,
            %{
              path: path,
@@ -63,38 +64,22 @@ defmodule Ankole.Pod.Metadata do
 
   @doc "Copies one custom emoji into a local file for the HTTP response."
   def read_to_file(%Ankole.AuthZ.Actor{} = actor, path, local_path) do
-    with {:ok, _principal} <- Access.principal(actor),
-         {:ok, relative} <- normalize(path),
-         {:ok, file} <- fetch(relative),
-         :ok <- Drive.read_content_to_file(file.sha256, local_path) do
+    with {:ok, file} <- resolve(actor, path),
+         :ok <- Drive.read_object_to_file(file.object_id, local_path) do
       {:ok, %{name: Path.basename(file.path), content_type: file.content_type}}
     end
   end
 
-  defp list_all do
-    collect(String.trim_trailing(@custom_emoji, "/"), nil, [])
+  @doc "Resolves one custom emoji after checking the current Pod Principal."
+  def resolve(%Ankole.AuthZ.Actor{} = actor, path) do
+    with {:ok, _principal} <- Access.principal(actor),
+         {:ok, relative} <- normalize(path),
+         do: fetch(relative)
   end
 
-  defp collect(prefix, cursor, acc) do
-    case Drive.list(:pod, prefix, limit: 500, after: cursor) do
-      {:ok, %{files: files, next_after: next}} ->
-        acc = [files | acc]
+  defp list_all, do: Ankole.Pod.Files.list_files(nil, String.trim_trailing(@custom_emoji, "/"))
 
-        if next,
-          do: collect(prefix, next, acc),
-          else: {:ok, acc |> Enum.reverse() |> List.flatten()}
-
-      error ->
-        error
-    end
-  end
-
-  defp fetch(relative) do
-    case Drive.fetch(:pod, relative) do
-      {:ok, file} -> {:ok, file}
-      {:error, _} -> {:error, :not_found}
-    end
-  end
+  defp fetch(relative), do: Ankole.Pod.Files.fetch_file(nil, relative)
 
   defp normalize(path) when is_binary(path) do
     with {:ok, relative} <- Ankole.Files.Path.normalize(path),

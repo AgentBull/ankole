@@ -47,7 +47,8 @@ import {
   getSiteAppConfigurationOptions,
   updateSiteAppConfigurationMutation,
   updateSiteAppConfigurationGroupMutation,
-  testSiteAuthenticationMailMutation
+  testSiteAuthenticationMailMutation,
+  listAiGatewayProvidersOptions
 } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { fromDocument } from '../api/json-api'
 import {
@@ -68,6 +69,13 @@ import { SettingsList, SettingsTenantContext } from './settings-list'
 import { settingsScope, settingsSearch } from '../state/settings-search'
 import { SettingEditorModel, syncConsoleLocaleIfPrivileged } from '../state/setting-editor-model'
 import { SettingGroupEditorModel } from '../state/setting-group-editor-model'
+import {
+  BRAIN_KEYS,
+  brainModelValue,
+  brainSettingsValidationError,
+  embeddingSignatureChanged
+} from '../state/brain-setting-editor'
+import { aiGatewayProviders } from '../state/provider-settings'
 import { useEditorDraft } from '../use-editor-draft'
 import { OBSERVABILITY_TRACE_KEYS } from '../state/observability-setting-editor'
 import { BrainSettingsEditor } from './brain-settings-editor'
@@ -450,6 +458,12 @@ export function SettingGroupDrawer() {
   const groupID = params.group ?? ''
   const group = settingGroup(groupID)
   const [restoreItem, setRestoreItem] = useState<AppConfigurationItem>()
+  const [embeddingChangeOpen, setEmbeddingChangeOpen] = useState(false)
+  const providers = useBaseQuery({
+    ...listAiGatewayProvidersOptions(),
+    select: aiGatewayProviders,
+    enabled: groupID === 'brain'
+  })
   const writing =
     useIsMutating({
       mutationKey: SETTING_MUTATION_KEY
@@ -488,6 +502,7 @@ export function SettingGroupDrawer() {
     decrypt.reset()
     update.reset()
     setRestoreItem(undefined)
+    setEmbeddingChangeOpen(false)
   }, [decrypt.reset, update.reset, sourceKey])
 
   const revealHeaders = () => {
@@ -521,14 +536,8 @@ export function SettingGroupDrawer() {
       .catch(error => toast.error(requestErrorMessage(error)))
   }
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!event.currentTarget.reportValidity()) {
-      focusFirstInvalidControl(event.currentTarget)
-      return
-    }
-    if (draftStatus !== 'ready') return
-    return model
+  const save = () =>
+    model
       .save(
         items,
         t,
@@ -539,6 +548,28 @@ export function SettingGroupDrawer() {
         }
       )
       .catch(error => toast.error(requestErrorMessage(error)))
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!event.currentTarget.reportValidity()) {
+      focusFirstInvalidControl(event.currentTarget)
+      return
+    }
+    if (draftStatus !== 'ready') return
+    const embedding = model.brainModels.value[BRAIN_KEYS.embeddingModel]
+    if (
+      embedding &&
+      !brainSettingsValidationError(model.drafts.value, model.brainModels.value) &&
+      embeddingSignatureChanged(
+        items.find(item => item.key === BRAIN_KEYS.embeddingModel)?.value,
+        brainModelValue(embedding, true),
+        providers.data ?? []
+      )
+    ) {
+      setEmbeddingChangeOpen(true)
+      return
+    }
+    return save()
   }
 
   const busy = saving || update.isPending
@@ -724,6 +755,26 @@ export function SettingGroupDrawer() {
         </DrawerContent>
       </Drawer>
 
+      <Dialog open={embeddingChangeOpen} onOpenChange={setEmbeddingChangeOpen}>
+        <DialogContent closeLabel={t('common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('console.settings.embedding_change_title')}</DialogTitle>
+            <DialogDescription>{t('console.settings.embedding_change_hint')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>{t('common.cancel')}</DialogClose>
+            <Button
+              type="button"
+              onClick={() => {
+                setEmbeddingChangeOpen(false)
+                void save()
+              }}>
+              {t('console.settings.embedding_change_confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={Boolean(restoreItem)}
         onOpenChange={open => !open && !update.isPending && setRestoreItem(undefined)}>
@@ -737,6 +788,10 @@ export function SettingGroupDrawer() {
                   ? t('console.settings.restore_default_description', { key: restoreItem.key })
                   : t('console.settings.restore_unset_description', { key: restoreItem?.key })}
               {restoreItem ? <SettingFallback item={restoreItem} /> : null}
+              {restoreItem?.key === BRAIN_KEYS.embeddingModel &&
+              embeddingSignatureChanged(restoreItem.value, restoreItem.fallback_value, providers.data ?? []) ? (
+                <p>{t('console.settings.embedding_change_hint')}</p>
+              ) : null}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -783,7 +838,7 @@ function SettingFallback({ item }: { item: AppConfigurationItem }) {
         fallback: display(Boolean(item.fallback_present), item.fallback_value),
         source: t(`console.settings.source_${item.fallback_source ?? 'missing'}`)
       })}
-      {['pod.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&
+      {['drive.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&
       retentionLength(item.key, item.fallback_value) < retentionLength(item.key, item.value) ? (
         <span className="mt-2 block text-warning-foreground">{t('console.settings.retention_warning')}</span>
       ) : null}

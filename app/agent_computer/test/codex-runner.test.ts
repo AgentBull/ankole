@@ -111,7 +111,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toBeUndefined()
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
-        codex_user_agent: 'codex-cli 0.164.0',
+        codex_user_agent: 'codex-cli 0.166.0',
         job_project_cwd: jobProjectFor(fixture.root),
         job_workspace: jobProjectFor(fixture.root),
         projected_tool_names: ['web_search', 'web_fetch', 'skill_view', 'request_parent_input'],
@@ -147,10 +147,12 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe(response().task)
 
       const threadStart = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8'))
-      expect(threadStart.config.developer_instructions).toContain('chats/mock:dm:alice/')
+      expect(threadStart.config.developer_instructions).toContain('ankole-pod chat attachment get')
       expect(threadStart.developerInstructions).toBe(threadStart.config.developer_instructions)
       expect(threadStart.developerInstructions).toContain(tracedTurnStart.request_context!.original_human_request)
-      expect(readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')).toContain('chats/mock:dm:alice/')
+      expect(readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')).toContain(
+        'ankole-pod chat attachment get'
+      )
       expect(threadStart.config.model_providers.ankole_aigateway.http_headers).toMatchObject({
         traceparent,
         'x-ankole-observability-user-id': Buffer.from(observabilityUserID).toString('base64url')
@@ -422,6 +424,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const fixture = prepareFixture('unused: the first turn overflows', { compactFirstTurn: true })
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
+    const contextIds: string[] = []
     const itemTypes = (turnID: string) =>
       turnUpserts
         .filter(update => update.runtimeTurnId === turnID && update.turnItemsJson)
@@ -429,7 +432,10 @@ describe('@ankole/agent-computer Codex job runner', () => {
         .map(entry => entry.item.type)
 
     try {
-      const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
+      const result = await runCodexJob(turnStart(), {
+        ...options(fixture.root, statusUpdates, turnUpserts),
+        updateCliContextId: contextId => contextIds.push(contextId)
+      })
 
       expect(result).toBeUndefined()
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
@@ -449,6 +455,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(turnUpserts.filter(update => update.runtimeTurnId === 'turn-compact').at(-1)?.status).toBe('completed')
       expect(itemTypes('turn-compact')).toEqual(['contextCompaction'])
       expect(itemTypes('turn-2')).toEqual(['userMessage', 'contextCompaction', 'agentMessage'])
+      expect(contextIds.map(id => id.split(':cmp:')[1])).toEqual(['0', '1', '2'])
     } finally {
       fixture.cleanup()
     }
@@ -559,6 +566,42 @@ describe('@ankole/agent-computer Codex job runner', () => {
       fixture.cleanup()
     }
   })
+
+  for (const [lastCallTokens, recycled] of [
+    [140_000, true],
+    [32_000, false]
+  ] as const) {
+    it(`uses the last context size for cold resume (${lastCallTokens} tokens) and acknowledges the pause`, async () => {
+      const fixture = prepareFixture('Resumed successfully')
+      try {
+        await runCodexJob(turnStart(), options(fixture.root, [], []))
+        const updates: RecordedStatusUpdate[] = []
+        await runCodexJob(
+          turnStart(),
+          options(fixture.root, updates, [], () =>
+            create(BackgroundAgentJobResponseSchema, {
+              ...response(),
+              status: 'running',
+              attempts: 2,
+              runtimeThreadId: 'thread-1',
+              metadataJson: jsonBytes({
+                paused_at: new Date(Date.now() - 11 * 60_000).toISOString(),
+                latest_token_usage: {
+                  last_model_call: { total_tokens: lastCallTokens },
+                  thread_total: { total_tokens: 900_000 }
+                }
+              })
+            })
+          )
+        )
+        expect(parsedJSON(updates[0]?.metadataJson)?.paused_at).toBeNull()
+        expect(parsedJSON(updates[0]?.metadataJson)?.runtime_checkpoint_recreated === true).toBe(recycled)
+        expect(existsSync(join(codexHomeFor(fixture.root), 'thread-resume.json'))).toBe(!recycled)
+      } finally {
+        fixture.cleanup()
+      }
+    })
+  }
 
   it('replaces an unknown persisted thread once and records the new durable anchor', async () => {
     const fixture = prepareFixture('done after recovery', { resumeError: 'No rollout found for thread' })
@@ -775,7 +818,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(persistedItems).not.toContain('"answers"')
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       const resumed = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-resume.json'), 'utf8'))
-      expect(resumed.config.developer_instructions).toContain('chats/mock:dm:alice/')
+      expect(resumed.config.developer_instructions).toContain('ankole-pod chat attachment get')
       expect(resumed.config.developer_instructions).toContain(continuation.request_context!.original_human_request)
       const injected = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'inject-items.json'), 'utf8'))
       expect(injected.items).toEqual([
@@ -1044,7 +1087,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       const replacement = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8'))
       expect(replacement.developerInstructions).toContain('Original request B: preserve my reserved action.')
       expect(replacement.developerInstructions).not.toContain('Original request A.')
-      expect(replacement.developerInstructions).toContain('chats/mock:dm:alice/')
+      expect(replacement.developerInstructions).toContain('ankole-pod chat attachment get')
       expect(Number(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8'))).toBe(2)
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
     } finally {
@@ -1416,7 +1459,7 @@ function turnStart(skills: RuntimeSkillSummary[] = []): TurnStart {
       mission: 'MISSION',
       design: '',
       confidentialityPolicy: '',
-      conversation: { driveDirectory: 'chats/mock:dm:alice' },
+      conversation: {},
       skills,
       skillsPrompt: fakeSkillsPrompt(skills)
     }),
@@ -1531,7 +1574,7 @@ function writeFakeCodex(path: string, firstResponse: string, behavior: FakeCodex
     `#!/usr/bin/env bun
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 if (process.argv.includes('--version')) {
-  console.log('codex-cli 0.164.0')
+  console.log('codex-cli 0.166.0')
   process.exit(0)
 }
 let buffer = ''
@@ -1572,7 +1615,7 @@ function handle(message) {
   }
   if (message.method === 'initialize') {
     writeFileSync(process.env.CODEX_HOME + '/initialize-started.txt', 'started')
-    const response = { id: message.id, result: { userAgent: 'codex-cli 0.164.0' } }
+    const response = { id: message.id, result: { userAgent: 'codex-cli 0.166.0' } }
     if (initializeDelayMs) return setTimeout(() => write(response), initializeDelayMs)
     return write(response)
   }

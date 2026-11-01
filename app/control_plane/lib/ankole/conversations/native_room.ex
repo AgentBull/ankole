@@ -2,8 +2,16 @@ defmodule Ankole.Conversations.NativeRoom do
   @moduledoc false
   require Ash.Query
   require Ash.Expr
-  alias Ankole.{Conversations, Repo}
-  alias Ankole.Conversations.{Conversation, Message, Native, Participant, Queries}
+  alias Ankole.{AIGateway, Conversations, Repo}
+
+  alias Ankole.Conversations.{
+    Conversation,
+    Message,
+    ModelPreferences,
+    Native,
+    Participant,
+    Queries
+  }
 
   def list(actor, opts) do
     if Native.active_human?(actor) do
@@ -16,8 +24,8 @@ defmodule Ankole.Conversations.NativeRoom do
 
   defp list_in_tx(actor, opts) do
     uid = Ankole.AuthZ.Actor.uid(actor)
-    {:ok, reachable} = Ankole.Pod.Access.reachable_anchors(actor)
-    {containers, pages} = Ankole.Pod.Access.visibility_ids(reachable)
+    {:ok, reachable} = Ankole.Files.Access.reachable_anchors(actor)
+    pages = Ankole.Files.visible_node_ids(reachable)
     pattern = if opts[:query], do: "%" <> Repo.escape_like(opts[:query]) <> "%"
     order = Keyword.get(opts, :order, :pinned)
 
@@ -31,11 +39,7 @@ defmodule Ankole.Conversations.NativeRoom do
                 conversation_id == parent(id) and principal_uid == ^uid and role != :observer
               )) or
              (native_access_scope == :anchor_page and
-                exists(
-                  Ankole.Pod.Page,
-                  id == parent(page_id) and is_nil(deleted_at) and
-                    (acl_anchor_id in ^containers or id in ^pages)
-                )))
+                page_id in ^pages))
       )
       |> order_rooms(order, uid)
 
@@ -139,15 +143,25 @@ defmodule Ankole.Conversations.NativeRoom do
 
   defp project_rooms(conversations, actor, reachable) do
     ids = Enum.map(conversations, & &1.id)
-    members = Participant |> Ash.Query.filter(conversation_id in ^ids) |> Ankole.Ash.read!()
+
+    members =
+      Participant
+      |> Ash.Query.filter(conversation_id in ^ids)
+      |> Ash.Query.sort(principal_uid: :asc)
+      |> Ankole.Ash.read!()
 
     principals =
       Ankole.Principals.list_principals!(
-        query: [filter: [uid: [in: Enum.map(members, & &1.principal_uid)]]]
+        query: [
+          filter: [uid: [in: Enum.map(members, & &1.principal_uid)]],
+          load: [agent: :owner_principal]
+        ]
       )
       |> Map.new(&{&1.uid, &1})
 
     grouped = Enum.group_by(members, & &1.conversation_id)
+    names = Map.new(principals, fn {uid, principal} -> {uid, display_name(principal)} end)
+    callable = callable_agents(actor, Map.values(principals))
     uid = Ankole.AuthZ.Actor.uid(actor)
     admin? = Ankole.AuthZ.pod_admin?(uid)
     page_ids = conversations |> Enum.map(& &1.page_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
@@ -169,6 +183,8 @@ defmodule Ankole.Conversations.NativeRoom do
           agents: agents,
           participants: participants,
           member_principals: principals,
+          member_names: names,
+          callable_agents: callable,
           owner?:
             conversation.created_by == uid or admin? or
               (conversation.native_access_scope == :anchor_page and
@@ -209,6 +225,38 @@ defmodule Ankole.Conversations.NativeRoom do
     |> Ash.Query.filter(conversation_id == ^id)
     |> Ash.Query.sort(principal_uid: :asc)
     |> Ankole.Ash.read!()
+  end
+
+  def callable_agents(actor, principals) do
+    uids = for %{type: :agent, uid: uid} <- principals, do: uid
+    checks = Enum.map(uids, &%{resource: "agent:#{&1}", action: "chat"})
+    context = Map.put(Ankole.AuthZ.Actor.request_context(actor), "surface", "conversation")
+
+    case Ankole.AuthZ.authorize_checks(actor, checks, context) do
+      {:ok, allowed} ->
+        uids |> Enum.zip(allowed) |> Enum.filter(&elem(&1, 1)) |> MapSet.new(&elem(&1, 0))
+
+      {:error, _} ->
+        MapSet.new()
+    end
+  end
+
+  def assistant_names(messages) do
+    uids =
+      messages
+      |> Enum.flat_map(fn message ->
+        [message.author_uid | Enum.map(message.mentions, & &1["uid"])]
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    Ankole.Principals.list_principals!(
+      query: [
+        filter: Ash.Expr.expr(uid in ^uids and agent.type == :personal_assistant),
+        load: [agent: :owner_principal]
+      ]
+    )
+    |> Map.new(&{&1.uid, display_name(&1)})
   end
 
   def participant(id, uid), do: Conversations.get_participant!(id, uid)
@@ -426,7 +474,7 @@ defmodule Ankole.Conversations.NativeRoom do
         (conversation.native_access_scope == :anchor_page and
            match?(
              {:ok, _},
-             Ankole.Pod.Pages.authorize(actor, conversation.page_id, "page_manage")
+             Ankole.Files.authorize_node(actor, conversation.page_id, "node_manage")
            ))
 
   defp require_member_or_owner(actor, conversation) do
@@ -470,9 +518,79 @@ defmodule Ankole.Conversations.NativeRoom do
     end
   end
 
-  def display_name(principal) do
-    name = principal.display_name
-    if is_binary(name) and String.trim(name) != "", do: name, else: principal.uid
+  defdelegate display_name(principal), to: Ankole.Principals
+
+  def find_anchor_page_conversation_id(page_id, agent_uid)
+      when is_binary(page_id) and is_binary(agent_uid) do
+    Conversation
+    |> Ash.Query.filter(
+      kind == :native and page_id == ^page_id and native_access_scope == :anchor_page and
+        exists(
+          Participant,
+          conversation_id == parent(id) and principal_uid == ^agent_uid and role == :agent
+        )
+    )
+    |> Ash.Query.sort(last_activity_at: :desc, id: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read_one!()
+    |> case do
+      %Conversation{id: id} -> id
+      nil -> nil
+    end
+  end
+
+  def ensure_anchor_page_conversation_in_tx(actor, agent, conv_id, page_id, title_hint, now) do
+    :ok = Repo.require_transaction()
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
+    existing =
+      Conversation
+      |> Ash.Query.filter(id == ^conv_id)
+      |> Ash.Query.select([:id])
+      |> Ankole.Ash.read_one!()
+
+    if existing do
+      conversation = Queries.lock_conversation(conv_id)
+      {:ok, _} = join_speaker(conversation, actor)
+      {:ok, conversation} = promote(conversation)
+      {:ok, conversation, false}
+    else
+      title =
+        case String.trim(title_hint || "") do
+          "" -> "Page discussion"
+          text -> String.slice(text, 0, 80)
+        end
+
+      with {:ok, _} <-
+             Ankole.Ash.create(
+               Conversation,
+               :ensure_native,
+               %{
+                 id: conv_id,
+                 title: title,
+                 created_by: human_uid,
+                 page_id: page_id,
+                 last_activity_at: now
+               },
+               touch_update_defaults?: false
+             ),
+           %Conversation{} = conversation <- Queries.lock_conversation(conv_id),
+           {:ok, conversation} <-
+             Ankole.Ash.update(conversation, :set_access_scope, %{
+               native_access_scope: :anchor_page
+             }),
+           {:ok, _} <- join(conv_id, human_uid, :owner),
+           {:ok, _} <- join(conv_id, agent.uid, :agent, true),
+           {:ok, conversation} <- ModelPreferences.initialize(conversation, agent.uid, nil),
+           {:ok, _} <-
+             AIGateway.ensure_conversation_in_tx(
+               agent.uid,
+               Ankole.Sessions.Key.conversation(conv_id)
+             ) do
+        {:ok, conversation, true}
+      end
+    end
   end
 
   def notice_added(_actor, _conversation, []), do: :ok

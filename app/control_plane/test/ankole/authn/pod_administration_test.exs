@@ -35,13 +35,11 @@ defmodule Ankole.Principals.PodAdministrationTest do
              HumanAccess.restrict_from_provider(member.uid, "lark", "suspended", "freeze")
 
     verify_healthy_directory(member.uid)
-    assert {:ok, review} = AuthZ.restoration_review(member.uid)
 
     assert {:ok, restored} =
              PodAdministration.restore(
                Actor.new(admin),
                member.uid,
-               review.fingerprint,
                "reviewed"
              )
 
@@ -61,13 +59,10 @@ defmodule Ankole.Principals.PodAdministrationTest do
     assert {:ok, _} =
              HumanAccess.restrict_from_provider(member.uid, "lark", "suspended", "freeze")
 
-    assert {:ok, review} = AuthZ.restoration_review(member.uid)
-
     assert {:error, :provider_recovery_not_verified} =
              PodAdministration.restore(
                Actor.new(admin),
                member.uid,
-               review.fingerprint,
                "reviewed"
              )
 
@@ -80,12 +75,40 @@ defmodule Ankole.Principals.PodAdministrationTest do
              PodAdministration.restore(
                Actor.new(admin),
                member.uid,
-               review.fingerprint,
                "reviewed"
              )
 
     assert Enum.all?(HumanAccess.restrictions(member.uid), &is_nil(&1.cleared_at))
     assert {:ok, %{status: :disabled}} = Principals.get_principal(member.uid)
+  end
+
+  test "restoration requires permission to update the member" do
+    editor = human_fixture().principal
+    member = human_fixture().principal
+    assert {:ok, _} = HumanAccess.disable(member.uid, "hold", nil, "disable")
+
+    input =
+      Ash.ActionInput.for_action(
+        Ankole.Principals.PodAdminOperations,
+        :restore_member,
+        %{uid: member.uid, reason: "return"},
+        tenant: Repo.tenant_id!()
+      )
+
+    assert {:error, %Ash.Error.Forbidden{}} =
+             Ankole.Ash.run_action_authorized(input, Actor.new(editor))
+
+    assert {:ok, %{status: :disabled}} = Principals.get_principal(member.uid)
+
+    assert {:ok, _} =
+             AuthZ.create_permission_grant(%{
+               principal_uid: editor.uid,
+               resource_pattern: "tenant_console:principal:#{member.uid}",
+               action: "update"
+             })
+
+    assert {:ok, %{ok: true}} = Ankole.Ash.run_action_authorized(input, Actor.new(editor))
+    assert {:ok, %{status: :active}} = Principals.get_principal(member.uid)
   end
 
   test "principal editors cannot grant themselves Pod administration" do

@@ -34,7 +34,7 @@ without automatic detection.
 | Feishu and DingTalk adapters | Verify and interpret provider events, user state, and directory coverage. |
 | IdentityProviders and Directory | Run complete syncs, reconcile provider membership, and submit offboarding facts. |
 | Principals | Store Human access state, disable reasons, identity links, and the persistent revocation fact. |
-| AuthZ | Decide permissions, protect manual administrator operations, and control restored permissions. |
+| AuthZ | Decide permissions, authorize administrator operations. |
 | Console and OIDC authentication | Reject disabled Humans and revoked credentials at their own request boundaries. |
 | OIDC | Provide standard logout notifications and Introspection, and own Client/session records and notification delivery. |
 | Signals, Sessions, Schedule, Background Agent Jobs, Workflow, and Automation Jobs | Store the Human association of work, check it at execution admission, and stop future execution. |
@@ -53,23 +53,27 @@ offboarding.
 
 ## Tenant boundaries
 
-Every Human Principal belongs to one home tenant. When a site administrator
-authorizes work inside another tenant, that work still records the authenticated
-administrator's `human_uid`. Across all six work tables, `human_uid` is stored
-as a plain text reference without a database foreign key; if a referenced Human
-is missing, admission treats the authorization as revoked, and deleting
-the administrator's home tenant neither erases the recorded `human_uid` nor
-requires the target tenant to clean up first.
+Every Human Principal belongs to one tenant. Across all work tables,
+`human_uid` identifies a Human in the work's tenant and is stored without a
+foreign key so historical authorization survives removal of the Human row.
+An absent Human fails fresh admission. Site Console service work records its
+administrator through a complete audit ActorRef and uses service authorization.
 
-Disabling a Human stops future work associated with that `human_uid` across
-every tenant on the site. Tenant deletion follows the same revocation path and
-finishes durable work cleanup before deleting the Human rows. Other tenants
-retain their stopped work records together with their original authorization
-metadata: operators in those tenants can explicitly reauthorize paused cron
+Disabling a Human stops future work associated with that tenant and `human_uid`.
+Tenant deletion follows the same revocation path and finishes durable work
+cleanup before deleting the Human rows. Operators can explicitly reauthorize paused cron
 rules from the work-review list, whereas terminal tasks and cancelled jobs must
 be recreated through their owning subsystem. `WorkCleanup` records each
 completed `access_version` sweep in Human access history, and tenant deletion
 processes cleanup in bounded, retry-safe batches.
+
+A personal assistant's work carries its owner's `human_uid` and access version,
+while the assistant remains the execution target. Disabling or offboarding the
+owner, or changing them to guest, disables the assistant in the same lifecycle
+operation. Existing admitted attempts finish under the ordinary contract;
+retries and future runs require fresh owner admission. Restoring an active
+member enables their existing assistant. Service work and dedicated channel
+bindings require an AI colleague target.
 
 Suspending an entire tenant rejects new work admissions and marks Human OIDC
 tokens inactive, while allowing already admitted attempts (and the Agent
@@ -79,7 +83,7 @@ credentials they use) to finish and recover across process restarts.
 
 Suspending a Human preserves the Human Principal, immutable provider subject
 IDs, personal site credentials, and contact bindings so an administrator can
-later restore the same account after reviewing identity and permissions.
+later restore the same account with its current permissions.
 
 Offboarding a Human preserves the departed Principal UID, immutable enterprise
 subject IDs, historical work attribution, and audit records, while releasing
@@ -136,7 +140,7 @@ simultaneously, clearing one restriction never clears another.
 | Confirmed removal from the configured admission scope | Disable the Human with a scope-removal reason. |
 | Absence from a complete, trusted admission directory | Disable after the complete-sync checks below; record directory removal, not departure. |
 | Timeout, missing permission, failed page, or unknown coverage | Report a sync failure; do not infer departure. |
-| Return to the directory, unfreeze, or return to employment | Make recovery eligible for review; do not restore access automatically. |
+| Return to the directory, unfreeze, or return to employment | Make recovery eligible for administrator action; do not restore access automatically. |
 
 An identity provider's directory-read scope and Ankole's application-admission
 scope are distinct settings: a narrowed read scope by itself proves neither
@@ -157,7 +161,7 @@ tables:
   and contact bindings, whereas `:offboarded` releases unshared personal site
   credentials and tenant email or phone bindings.
 - **`human_access_events`** appends immutable audit records for restrictions,
-  `released_identifiers` watermarks, permission-review approvals, and cleanup
+  `released_identifiers` watermarks, administrator restorations, and cleanup
   sweeps, deduplicating repeated upstream deliveries via a unique
   `(source, operation_id, principal_uid)` key.
 - **`identity_directory_events`** persists inbound provider webhook events
@@ -422,44 +426,20 @@ credentials.
 
 ## Restore Access Explicitly
 
-Restoring a disabled Human requires an authorized administrator, an explicit
-audit reason, verified identity, and clearance of every active restriction. When
-an upstream provider caused a restriction, current provider state must confirm
-that the user is active again, though an upstream provider update never restores
-Ankole access on its own.
+An authorized administrator restores a disabled Human by submitting an audit
+reason. Ankole records the actor and reason, clears eligible restrictions, and
+sets the Human to `active` in one transaction. If a restriction lacks the
+required provider evidence, the transaction rolls back and keeps all
+restrictions and the `disabled` state intact.
 
-Before a Human can return to `active`, an administrator must review and approve
-their effective permissions in AuthZ (covering direct grants, static group
-memberships, computed groups, and current directory memberships) so prior
-administrator roles or sensitive grants cannot silently reactivate. Any revoked
-grants are deleted from active AuthZ tables and preserved in audit history
-rather than left as active rows marked historical.
-
-`AuthZ.restoration_review/1` builds this review snapshot for the selected
-tenant: it returns current direct grants, static memberships, computed group
-definitions and their candidate grants, and all Userset grants (sorted by ID,
-with source Page and action, target Page and scope, resource pattern, action,
-and condition, including recursive paths). Because computed groups and grant
-conditions evaluate per request and can inspect the Principal's display name and
-avatar URL, the review fingerprint hashes all of these rules alongside the
-Human's display name and avatar URL without claiming that every conditional rule
-matches every resource. Even a seemingly cosmetic directory change to the
-display name or avatar URL invalidates the fingerprint and requires a fresh
-approval. After removing any unwanted grants or memberships in the AuthZ
-editors, the administrator approves the current fingerprint; the restore
-transaction verifies that the fingerprint has not drifted and records the
-approved rules and identity check using standard AuthZ primitives.
+The restored account uses its current direct grants, group memberships, and
+computed authorization rules. Administrators are responsible for the access they
+restore and can edit grants or memberships through the ordinary AuthZ editors.
 
 A provider-originated restriction can be cleared only when a complete, `healthy`
 directory snapshot (with any pending scope or large-removal review already
-approved) observes the subject as active; neither a partial sync nor an OAuth
-login profile suffices, and clearing a provider restriction neither clears a
-separate manual restriction nor restores access by itself.
-
-Pod administrators clear all eligible restrictions and restore the Human inside
-one atomic transaction. If any restriction lacks healthy recovery evidence or
-the permission fingerprint check fails, the transaction rolls back and keeps all
-restrictions and the `disabled` state intact.
+approved) observes the subject as active. A provider update makes recovery
+eligible; the administrator still initiates restoration.
 
 After restoration, the person must sign in anew: pre-disablement browser
 sessions, OIDC tokens, cancelled jobs, and paused schedules remain invalid or
@@ -468,7 +448,12 @@ upstream tool authorizations must be re-established rather than reusing stale
 local CLI profiles. Historical authorship, completed task outputs, drive files,
 and Brain knowledge stay attributed to the original Principal UID under standard
 data permissions; offboarding never widens access to private items, alters
-retention policies, or rotates shared enterprise bot credentials.
+retention policies, or rotates shared enterprise bot credentials. A disabled
+Human's private Drive root remains durable and inaccessible until their account
+is restored. Member-to-Guest changes likewise preserve private content while
+Guest authorization denies the entire private tree. Site Console operators with
+`site_console:drive` may administer that content through the explicit Console
+entry points; tenant administration grants do not open private content.
 
 ## Console and Operations
 

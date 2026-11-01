@@ -6,7 +6,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
   import Ankole.E2E.Harness
   import Ankole.E2E.WaitHelpers
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.E2E.DockerWorker
   alias Ankole.E2E.FakeOpenAIState
@@ -44,7 +44,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
                ]) == "JOB_FILE_BEFORE"
              end)
 
-    before = Repo.get!(AgentWorker, uid)
+    before = Repo.get_by!(AgentWorker, agent_uid: uid)
     running = Repo.get!(Job, job.id)
     assert running.status == :running
     assert is_binary(running.runtime_thread_id)
@@ -65,7 +65,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
 
     assert {:ok, rejoined} =
              wait_until(deadline(30_000), fn ->
-               worker = Repo.get!(AgentWorker, uid)
+               worker = Repo.get_by!(AgentWorker, agent_uid: uid)
 
                (worker.state == :ready and worker.transport_route != before.transport_route) &&
                  worker
@@ -138,7 +138,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     assert {:ok, _reply, _message} =
              wait_for_completed_final_reply(ctx.container, notice.id, deadline(60_000))
 
-    old = Repo.get!(AgentWorker, uid)
+    old = Repo.get_by!(AgentWorker, agent_uid: uid)
     old_container = DockerWorker.container_name(uid)
     {:ok, provider} = Providers.load(old.provider_id)
     config = provider.settings |> Map.put("idleReleaseAfter", "1s") |> Ankole.JSON.encode!()
@@ -147,7 +147,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     # Use the real demand deadline. A sandbox transaction would freeze now().
     assert {:ok, true} =
              wait_until(deadline(360_000), fn ->
-               Repo.get!(AgentWorker, uid).state == :absent
+               Repo.get_by!(AgentWorker, agent_uid: uid).state == :absent
              end)
 
     assert DockerWorker.container_info(old_container) == nil
@@ -168,7 +168,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     assert completed.runtime_thread_id == waiting.runtime_thread_id
     assert completed.workspace_owner_job_id == waiting.workspace_owner_job_id
     assert completed.result["output_text"] =~ "CHAOS_JOB_FINISHED"
-    assert Repo.get!(AgentWorker, uid).generation != old.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation != old.generation
     assert DockerWorker.exec!(ctx.container, ["cat", path]) == "JOB_FILE_BEFOREJOB_FILE_AFTER"
 
     [resume | _] = Enum.filter(FakeOpenAIState.requests(), &(&1.kind == :job_finish))

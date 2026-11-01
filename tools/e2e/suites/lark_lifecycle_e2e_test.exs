@@ -1,7 +1,7 @@
 defmodule Ankole.E2E.LarkLifecycleE2ETest do
   @moduledoc """
   Turn lifecycle under interruption: malformed streams, recalls, /stop, /new,
-  steering, ambient decisions, entry lifecycle, and daily session reset.
+  steering, ambient decisions, entry lifecycle, and cold-wake session recycle.
   """
 
   use Ankole.DataCase, async: false
@@ -59,7 +59,7 @@ defmodule Ankole.E2E.LarkLifecycleE2ETest do
 
     run_recalled_entry_lifecycle(ctx, direct.message.conversation_id)
     run_old_conversation_recall_after_new(ctx)
-    run_daily_session_reset(ctx)
+    run_cold_wake_session_recycle(ctx)
     run_new_command(ctx, direct.message.conversation_id)
 
     counters = FakeOpenAIState.counters()

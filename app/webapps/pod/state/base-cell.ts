@@ -2,7 +2,7 @@ import { batch, createModel, signal } from '@preact/signals-react'
 import type { Value, Versions } from '@ankole/applet-sdk/types'
 
 /** The edit owns its starting versions and failed value across remote refetches. */
-export const BaseCellModel = createModel(() => {
+function createBaseCell() {
   const error = signal<unknown>()
   const attempt = signal<{ value: Value }>()
   const pending = signal(false)
@@ -55,4 +55,6 @@ export const BaseCellModel = createModel(() => {
       }
     }
   }
-})
+}
+
+export const BaseCellModel = createModel(createBaseCell)

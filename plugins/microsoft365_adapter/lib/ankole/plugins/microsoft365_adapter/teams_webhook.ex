@@ -89,6 +89,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
           {:ok, %{"appID" => ^app_id} = config} ->
             context =
               AdapterContext.new(
+                binding_id: binding.id,
                 agent_uid: binding.agent_uid,
                 binding_name: binding.name,
                 adapter: binding.adapter,

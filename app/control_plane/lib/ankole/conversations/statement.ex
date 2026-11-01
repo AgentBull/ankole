@@ -3,7 +3,9 @@ defmodule Ankole.Conversations.Statement do
   @enforce_keys [:signal]
   defstruct [:signal, :completion, :outcome, :text, :notice, :now]
 
-  def text(%__MODULE__{completion: %{final_text: text, clarify_prompt: prompt}}) do
+  def text(%__MODULE__{completion: %{final_text: text} = completion}) do
+    prompt = Map.get(completion, :clarify_prompt) || Map.get(completion, :action_card_prompt)
+
     case prompt do
       %{"fallback_visible_text" => fallback} ->
         if text in [nil, ""], do: fallback, else: text <> "\n\n" <> fallback

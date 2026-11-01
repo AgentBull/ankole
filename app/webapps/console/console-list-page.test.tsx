@@ -195,7 +195,7 @@ describe('AgentCell', () => {
         {
           id: 'agent-raw-uid',
           type: 'agent',
-          attributes: { display_name: 'Research Bot', handle: 'research-bot', status: 'active' }
+          attributes: { display_name: 'Research Bot', uid: 'research-bot', status: 'active' }
         }
       ]
     })

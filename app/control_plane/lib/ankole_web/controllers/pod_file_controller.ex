@@ -1,30 +1,22 @@
 defmodule AnkoleWeb.PodFileController do
   @moduledoc "Files accessed through their owning Pod page."
   use AnkoleWeb, :controller
-  import AnkoleWeb.PodResponse, only: [respond: 2, error: 2, send_sandboxed_file: 5]
+  import AnkoleWeb.PodResponse, only: [respond: 2, error: 2, send_sandboxed_object: 5]
 
   alias Ankole.Pod.Files
-  alias Ankole.WorkerFiles
 
   def download(conn, %{"id" => id, "path" => path} = params) do
-    local_path = Ankole.Files.temp_path()
-
-    try do
-      case Files.read_to_file(actor(conn), id, path, local_path, params["sha256"]) do
-        {:ok, file} ->
-          send_sandboxed_file(
-            conn,
-            local_path,
-            Path.basename(path),
-            file.content_type,
-            params["download"] == "true"
-          )
-
-        {:error, reason} ->
-          error(conn, reason)
-      end
-    after
-      File.rm(local_path)
+    with {:ok, file} <- Files.resolve_read(actor(conn), id, path, params["sha256"]),
+         {:ok, object} <- Ankole.Files.fetch_object(file.object_id) do
+      send_sandboxed_object(
+        conn,
+        object,
+        Path.basename(path),
+        file.content_type,
+        params["download"] == "true"
+      )
+    else
+      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -34,22 +26,21 @@ defmodule AnkoleWeb.PodFileController do
     body = conn.body_params
 
     with %Plug.Upload{} = file <- Ankole.Attrs.get(body, :file),
-         {:ok, stat} <- File.stat(file.path),
-         true <- stat.size <= WorkerFiles.max_transfer_bytes() do
+         :ok <- assert_upload_size(file) do
       respond(
         conn,
         Files.upload(
           actor(conn),
           id,
           Ankole.Attrs.get(body, :role, "file"),
-          revision(body),
+          Ankole.Attrs.get(body, :base_object_id),
           file.filename,
           {:file, file.path},
           file.content_type
         )
       )
     else
-      false -> error(conn, :file_too_large)
+      {:error, reason} -> error(conn, reason)
       _ -> error(conn, :missing_file)
     end
   end
@@ -58,8 +49,7 @@ defmodule AnkoleWeb.PodFileController do
     body = conn.body_params
 
     with %Plug.Upload{} = file <- Ankole.Attrs.get(body, :file),
-         {:ok, stat} <- File.stat(file.path),
-         true <- stat.size <= WorkerFiles.max_transfer_bytes() do
+         :ok <- assert_upload_size(file) do
       attrs = Map.take(body, ["parent_id", "private_owner_uid"])
 
       result =
@@ -79,13 +69,17 @@ defmodule AnkoleWeb.PodFileController do
         end
       )
     else
-      false -> error(conn, :file_too_large)
+      {:error, reason} -> error(conn, reason)
       _ -> error(conn, :missing_file)
     end
   end
 
-  defp actor(conn), do: conn.assigns.authz_actor
+  defp assert_upload_size(%Plug.Upload{path: path}) do
+    with {:ok, maximum} <- Ankole.Files.upload_limit(),
+         {:ok, stat} <- File.stat(path) do
+      if stat.size <= maximum, do: :ok, else: {:error, :file_too_large}
+    end
+  end
 
-  defp revision(body),
-    do: body |> Ankole.Attrs.get(:base_revision) |> Ankole.Attrs.integer_value()
+  defp actor(conn), do: conn.assigns.authz_actor
 end

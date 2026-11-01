@@ -216,6 +216,13 @@ worker.onmessage=event=>{console.log(event.data);worker.terminate()};`
     let invalidDigest = false
     const rpc = (async (_method, raw) => {
       const payload = raw as RPCRequestInit<'pod.read'>
+      if (payload.operation === 'files.download') {
+        const params = jsonObjectFromBytes(payload.paramsJson!, 'params')!
+        const file = files.files.get(`pages/page/${params.path}`)!
+        if (params.sha256 !== file.sha256) throw new Error('Applet publication changed; pull again')
+        await writeFile(join(root, params.home_relative_path as string), file.content)
+        return respond({ file: { object_id: file.objectId } })
+      }
       expect(payload.operation).toBe('files.manifest')
       return respond({
         revision: 4,

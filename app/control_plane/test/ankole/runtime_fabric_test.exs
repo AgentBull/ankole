@@ -43,9 +43,9 @@ defmodule Ankole.RuntimeFabricTest do
   end
 
   test "runtime fabric rejects a mismatched protocol version" do
-    envelope = %V1.Envelope{protocol_version: 5, message_id: "old-version"}
+    envelope = %V1.Envelope{protocol_version: 10, message_id: "old-version"}
 
-    assert {:error, {:unsupported_protocol_version, 5}} =
+    assert {:error, {:unsupported_protocol_version, 10}} =
              envelope |> RuntimeFabric.encode_envelope() |> RuntimeFabric.decode_and_validate()
 
     assert {:ok, %{protocol_version: version}} =
@@ -58,7 +58,7 @@ defmodule Ankole.RuntimeFabricTest do
     golden_dir = Path.expand("../../../kernel/proto/golden", __DIR__)
 
     for type <- [:workspace_open, :workspace_ready, :tool_call, :tool_status, :tool_result] do
-      bytes = File.read!(Path.join(golden_dir, "#{type}.v10.bin"))
+      bytes = File.read!(Path.join(golden_dir, "#{type}.v11.bin"))
       assert {:ok, envelope} = Ankole.RuntimeFabric.V1.Envelope.decode(bytes)
       assert {^type, value} = envelope.body
       assert value.run.signal_id == "input-1"
@@ -99,7 +99,7 @@ defmodule Ankole.RuntimeFabricTest do
 
     assert {:ok, %{body: {:turn_start, %{agent_context: context}}}} =
              Ankole.RuntimeFabric.V1.Envelope.decode(
-               File.read!(Path.join(golden_dir, "turn_start.v10.bin"))
+               File.read!(Path.join(golden_dir, "turn_start.v11.bin"))
              )
 
     assert context.conversation.timezone == "Asia/Shanghai"
@@ -124,7 +124,7 @@ defmodule Ankole.RuntimeFabricTest do
 
     assert {:ok, %{body: {:turn_start, %{mode: "adopt"}}}} =
              Ankole.RuntimeFabric.V1.Envelope.decode(
-               File.read!(Path.join(golden_dir, "turn_adopt.v10.bin"))
+               File.read!(Path.join(golden_dir, "turn_adopt.v11.bin"))
              )
   end
 
@@ -132,7 +132,7 @@ defmodule Ankole.RuntimeFabricTest do
     golden_dir = Path.expand("../../../kernel/proto/golden", __DIR__)
 
     with_field =
-      golden_dir |> Path.join("turn_start.v10.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("turn_start.v11.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:turn_start, %V1.TurnStart{} = turn_start} = with_field.body
 
@@ -168,7 +168,7 @@ defmodule Ankole.RuntimeFabricTest do
 
     request =
       golden_dir
-      |> Path.join("rpc_read_tool_request.v10.bin")
+      |> Path.join("rpc_read_tool_request.v11.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
 
@@ -183,7 +183,7 @@ defmodule Ankole.RuntimeFabricTest do
 
     response =
       golden_dir
-      |> Path.join("rpc_read_tool_response.v10.bin")
+      |> Path.join("rpc_read_tool_response.v11.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
 
@@ -197,6 +197,37 @@ defmodule Ankole.RuntimeFabricTest do
              "output" => "Prefer page-by-page verification.",
              "details" => %{"name" => "pdf"}
            }
+  end
+
+  test "Drive golden payloads preserve node identity and reserve the removed Pod selector" do
+    dir = Path.expand("../../../kernel/proto/golden", __DIR__)
+
+    {:rpc_request, request} =
+      dir
+      |> Path.join("rpc_files_get_request.v11.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
+      |> Map.fetch!(:body)
+
+    assert request.method == "files.get"
+    decoded = V1.FilesGetRequest.decode!(request.payload)
+    assert decoded.node_id == "019a0000-0000-7000-8000-000000000001"
+    assert decoded.home_relative_path == "downloads/report.txt"
+    refute Map.has_key?(decoded, :pod_drive)
+    assert V1.FilesGetRequest.decode!(<<24, 1>>).node_id == ""
+
+    {:rpc_response, response} =
+      dir
+      |> Path.join("rpc_files_get_response.v11.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
+      |> Map.fetch!(:body)
+
+    file = V1.FilesGetResponse.decode!(response.payload).file
+    assert file.node_id == decoded.node_id
+    assert file.object_id == "019a0000-0000-7000-8000-000000000002"
+    assert file.size == 5_000_000_000
+    refute Map.has_key?(%V1.ConversationInfo{}, :drive_directory)
   end
 
   @tag :regenerate_golden
@@ -288,7 +319,7 @@ defmodule Ankole.RuntimeFabricTest do
        }},
       {"workspace_open",
        %V1.Envelope{
-         message_id: "workspace_open.v10.bin",
+         message_id: "workspace_open.v11.bin",
          body:
            {:workspace_open,
             %V1.WorkspaceOpen{
@@ -316,7 +347,7 @@ defmodule Ankole.RuntimeFabricTest do
        }},
       {"tool_call",
        %V1.Envelope{
-         message_id: "tool_call.v10.bin",
+         message_id: "tool_call.v11.bin",
          body:
            {:tool_call,
             %V1.ToolCall{
@@ -326,6 +357,29 @@ defmodule Ankole.RuntimeFabricTest do
               name: "command",
               arguments_json: Torque.encode!(%{command: "printf done"}),
               mode: "probe"
+            }}
+       }},
+      {"rpc_files_get_response",
+       %V1.Envelope{
+         message_id: "golden-rpc-files-get-response-1",
+         body:
+           {:rpc_response,
+            %V1.RPCResponse{
+              request_id: "golden-rpc-files-get-1",
+              payload:
+                %V1.FilesGetResponse{
+                  file: %V1.DriveFile{
+                    path: "report.txt",
+                    node_id: "019a0000-0000-7000-8000-000000000001",
+                    object_id: "019a0000-0000-7000-8000-000000000002",
+                    size: 5_000_000_000,
+                    content_type: "text/plain",
+                    mode: 420
+                  }
+                }
+                |> V1.FilesGetResponse.encode!()
+                |> elem(0)
+                |> IO.iodata_to_binary()
             }}
        }},
       {"rpc_read_tool_response",

@@ -49,7 +49,7 @@ defmodule Ankole.Pod.Pages.Browser do
     type: {:array, :atom},
     allow_nil?: false,
     constraints: [
-      items: [one_of: [:page_view, :page_write_records, :page_edit, :page_manage, :page_comment]]
+      items: [one_of: [:node_view, :node_contribute, :node_edit, :node_manage, :node_comment]]
     ]
   ]
   @subject [
@@ -74,7 +74,7 @@ defmodule Ankole.Pod.Pages.Browser do
   @grant [
     principal_uid: [type: PrincipalKey],
     group_id: [type: UUIDv7],
-    source_page_id: [type: UUIDv7],
+    source_node_id: [type: UUIDv7],
     source_action: [type: :string],
     target_scope: [type: :string, constraints: [match: ~r/\A(container|self)\z/]],
     condition: [type: :string, constraints: [trim?: false]],
@@ -90,7 +90,7 @@ defmodule Ankole.Pod.Pages.Browser do
   @sharing_remove [
     principal_uid: [type: PrincipalKey],
     group_id: [type: UUIDv7],
-    source_page_id: [type: UUIDv7],
+    source_node_id: [type: UUIDv7],
     source_action: [type: :string],
     target_scope: [
       type: :string,
@@ -168,6 +168,7 @@ defmodule Ankole.Pod.Pages.Browser do
     ]
   ]
   @navigation_fields [
+    name: [type: :string, allow_nil?: false],
     id: [type: UUIDv7, allow_nil?: false],
     has_children: [type: :boolean, allow_nil?: false],
     parent_id: [type: UUIDv7],
@@ -175,11 +176,11 @@ defmodule Ankole.Pod.Pages.Browser do
     type: [
       type: :atom,
       allow_nil?: false,
-      constraints: [one_of: [:doc, :base, :applet, :file]]
+      constraints: [one_of: [:doc, :base, :applet, :file, :folder]]
     ],
     title: [type: :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false]],
     icon: [type: :string],
-    position: [type: :string, allow_nil?: false],
+    position: [type: :string],
     inherit_permissions: [type: :boolean, allow_nil?: false],
     role: @role,
     actions: @actions
@@ -242,7 +243,7 @@ defmodule Ankole.Pod.Pages.Browser do
     type: [
       type: :atom,
       allow_nil?: false,
-      constraints: [one_of: [:doc, :base, :applet, :file]]
+      constraints: [one_of: [:doc, :base, :applet, :file, :folder]]
     ],
     title: [type: :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false]],
     icon: [type: :string, constraints: [allow_empty?: true, trim?: false]],
@@ -263,7 +264,7 @@ defmodule Ankole.Pod.Pages.Browser do
     membership: [type: :atom, constraints: [one_of: [:member, :guest]]],
     email: [type: :string],
     job_title: [type: :string, constraints: [allow_empty?: true, trim?: false]],
-    handle: [type: :string],
+    aliases: [type: {:array, :string}],
     role: [type: :string, constraints: [allow_empty?: true, trim?: false]]
   ]
 
@@ -279,7 +280,7 @@ defmodule Ankole.Pod.Pages.Browser do
       allow_nil?: false,
       constraints: [one_of: [:ok, :trashed, :restricted]]
     ],
-    type: [type: :atom, constraints: [one_of: [:doc, :base, :applet, :file]]],
+    type: [type: :atom, constraints: [one_of: [:doc, :base, :applet, :file, :folder]]],
     title: [type: :string, constraints: [allow_empty?: true, trim?: false]],
     icon: [type: :string, constraints: [allow_empty?: true, trim?: false]],
     private_owner_uid: [type: PrincipalKey],
@@ -305,7 +306,7 @@ defmodule Ankole.Pod.Pages.Browser do
     membership: [type: :atom, constraints: [one_of: [:member, :guest]]],
     email: [type: :string],
     job_title: [type: :string, constraints: [allow_empty?: true, trim?: false]],
-    handle: [type: :string],
+    aliases: [type: {:array, :string}],
     role: [type: :string, constraints: [allow_empty?: true, trim?: false]]
   ]
 
@@ -465,7 +466,9 @@ defmodule Ankole.Pod.Pages.Browser do
         retention =
           if opts.scope == "trash",
             do:
-              Ankole.Repo.transact_repeatable_read_only(&Ankole.Pod.Config.trash_retention_days/0),
+              Ankole.Repo.transact_repeatable_read_only(
+                &Ankole.Files.Config.trash_retention_days/0
+              ),
             else: {:ok, nil}
 
         with {:ok, pages} <- Pages.list(context.actor, opts),
@@ -557,8 +560,8 @@ defmodule Ankole.Pod.Pages.Browser do
 
       argument(:required_action, :atom,
         allow_nil?: false,
-        default: :page_view,
-        constraints: [one_of: [:page_view, :page_edit]]
+        default: :node_view,
+        constraints: [one_of: [:node_view, :node_edit]]
       )
 
       run(fn input, context ->
@@ -604,7 +607,7 @@ defmodule Ankole.Pod.Pages.Browser do
       constraints(fields: [page: @page])
 
       argument(:type, :atom,
-        constraints: [one_of: [:doc, :base, :file]],
+        constraints: [one_of: [:doc, :base, :file, :folder]],
         default: :doc
       )
 
@@ -616,18 +619,18 @@ defmodule Ankole.Pod.Pages.Browser do
       argument(:saved_from_message_id, UUIDv7)
       argument(:children_view, :map, constraints: [fields: @children_view_fields])
       argument(:xml, :string, constraints: [trim?: false])
-      argument(:attachment_path, :string, constraints: [trim?: false])
+      argument(:attachment_position, :integer, constraints: [min: 0])
 
       run(fn input, context ->
         result =
-          if input.arguments[:attachment_path] do
+          if input.arguments[:attachment_position] do
             Ankole.Pod.Files.create_from_message(context.actor, input.arguments)
           else
             Pages.create(context.actor, input.arguments)
           end
 
         with {:ok, page} <- result do
-          Ankole.Pod.Access.authorize_with_permissions(context.actor, page)
+          Ankole.Files.Access.authorize_with_permissions(context.actor, page)
         end
         |> APIError.result(&%{page: &1})
       end)
@@ -826,7 +829,8 @@ defmodule Ankole.Pod.Pages.Browser do
               items: [
                 fields: [
                   id: [type: UUIDv7, allow_nil?: false],
-                  revision: [type: :integer, allow_nil?: false]
+                  revision: [type: :integer, allow_nil?: false],
+                  object_id: [type: UUIDv7]
                 ]
               ]
             ]

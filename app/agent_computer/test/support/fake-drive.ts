@@ -1,11 +1,22 @@
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Drive } from '../../src/drive/drive'
 import { type RPCRequester } from '../../src/lanes/rpc_lane'
 
-export type FakeDriveFile = { content: Buffer; sha256: string; contentType: string; source: string; mode: number }
+export type FakeDriveFile = {
+  nodeId: string
+  objectId: string
+  content: Buffer
+  sha256: string
+  contentType: string
+  source: string
+  mode: number
+}
 
 type WireFile = {
+  nodeId: string
+  objectId: string
   path: string
   sha256: string
   size: bigint
@@ -36,6 +47,8 @@ export class FakeDrive {
   put(path: string, content: string | Buffer, opts: { source?: string; mode?: number; contentType?: string } = {}) {
     const bytes = Buffer.isBuffer(content) ? content : Buffer.from(content)
     this.files.set(path, {
+      nodeId: this.files.get(path)?.nodeId ?? randomUUID(),
+      objectId: randomUUID(),
       content: bytes,
       sha256: sha256(bytes),
       contentType: opts.contentType ?? 'application/octet-stream',
@@ -83,7 +96,9 @@ export class FakeDrive {
   }
 
   private get(payload: Record<string, unknown>) {
-    const path = String(payload.path)
+    const path = payload.nodeId
+      ? ([...this.files].find(([, file]) => file.nodeId === payload.nodeId)?.[0] ?? '')
+      : String(payload.path)
     const file = this.files.get(path)
     if (!file) throw new Error(`file not found: ${path}`)
     const target = join(this.agentHome, String(payload.homeRelativePath))
@@ -107,14 +122,15 @@ export class FakeDrive {
       const path = String(upsert.path)
       const homeRelativePath = String(upsert.homeRelativePath ?? '')
       const declared = String(upsert.sha256 ?? '')
-      const known = declared ? [...this.files.values()].find(file => file.sha256 === declared) : undefined
-      const content = known && homeRelativePath === '' ? known.content : this.readLocal(homeRelativePath, path)
+      const content = this.readLocal(homeRelativePath, path)
       if (declared && sha256(content) !== declared) throw new Error(`sha256 mismatch for ${path}`)
       this.files.set(path, {
+        nodeId: this.files.get(path)?.nodeId ?? randomUUID(),
+        objectId: randomUUID(),
         content,
         sha256: sha256(content),
-        contentType: String(upsert.contentType || known?.contentType || 'application/octet-stream'),
-        source: path.startsWith('sent/') ? 'sent' : 'agent',
+        contentType: String(upsert.contentType || 'application/octet-stream'),
+        source: 'agent',
         mode: Number(upsert.mode || 0o644)
       })
       return this.wire(path)
@@ -131,6 +147,8 @@ export class FakeDrive {
     const file = this.files.get(path)!
     return {
       path,
+      nodeId: file.nodeId,
+      objectId: file.objectId,
       sha256: file.sha256,
       size: BigInt(file.content.byteLength),
       contentType: file.contentType,

@@ -10,8 +10,6 @@ defmodule Ankole.Sessions.Queue do
   and provider-visible effects can commit together. AIGateway owns model facts.
   """
 
-  import Ash.Expr, only: [expr: 1]
-
   alias Ankole.Signals
   alias Ankole.Signals.Signal
   alias Ankole.Signals.Sanitizer
@@ -89,10 +87,9 @@ defmodule Ankole.Sessions.Queue do
   open and never pass through `complete_signal_in_tx/3`.
   """
   @spec ensure_event_source_live_in_tx(Signal.t(), DateTime.t()) ::
-          :ok | {:error, :signal_canceled | :signal_context_canceled}
+          :ok | {:error, :signal_canceled}
   def ensure_event_source_live_in_tx(%Signal{} = signal, %DateTime{} = now) do
-    with :ok <- reject_tombstoned_event_source(signal, now),
-         do: reject_withdrawn_background(signal)
+    reject_tombstoned_event_source(signal, now)
   end
 
   @doc """
@@ -255,25 +252,5 @@ defmodule Ankole.Sessions.Queue do
 
         if tombstones == [], do: :ok, else: {:error, :signal_canceled}
     end
-  end
-
-  defp reject_withdrawn_background(%Signal{conversation_id: nil}), do: :ok
-
-  defp reject_withdrawn_background(signal) do
-    declared = if is_map(signal.data), do: List.wrap(signal.data["message_ids"]), else: []
-    explicit_ids = [signal.message_id | declared]
-    background = Ankole.Sessions.ModelHistory.read_message_ids_in_tx(signal) -- explicit_ids
-
-    {:ok, messages} =
-      Ankole.Conversations.list_messages(
-        query: [
-          filter: expr(conversation_id == ^signal.conversation_id and id in ^background),
-          select: [:id]
-        ]
-      )
-
-    existing = Enum.map(messages, & &1.id)
-
-    if background -- existing == [], do: :ok, else: {:error, :signal_context_canceled}
   end
 end

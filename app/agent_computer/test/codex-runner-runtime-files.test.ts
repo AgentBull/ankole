@@ -6,13 +6,12 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     const content = renderCodexJobAgents({
       jobRoot: '/agents/agent-1/jobs/job-1',
       soul: 'SOUL',
-      mission: 'MISSION',
-      driveDirectory: 'chats/lark:dm:alice'
+      mission: 'MISSION'
     }).content
     expect(content).toContain('/agents/agent-1/jobs/job-1')
-    expect(content).toContain('Source conversation drive directory: chats/lark:dm:alice/')
+    expect(content).toContain('private Drive with ankole-files put')
     expect(content).toContain('The Job workspace is a temporary working directory.')
-    expect(content).toContain('Do not read or write them.')
+    expect(content).toContain('ankole-pod chat attachment get')
   })
 
   it('renders the Job start time in the installation timezone it labels', () => {

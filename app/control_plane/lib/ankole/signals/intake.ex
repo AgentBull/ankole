@@ -141,7 +141,7 @@ defmodule Ankole.Signals.Intake do
          {:ok, data} <- JSONPayload.normalize(Ankole.Attrs.get(attrs, :data, %{})),
          {:ok, extensions} <-
            JSONPayload.normalize_map(Ankole.Attrs.get(attrs, :extensions) || %{}),
-         {:ok, route} <- reply_route(Ankole.Attrs.get(attrs, :reply_route)) do
+         {:ok, route} <- reply_route(Ankole.Attrs.get(attrs, :reply_route), target.agent_uid) do
       sender = Ankole.Attrs.get(attrs, :sender)
 
       authorization =
@@ -249,11 +249,25 @@ defmodule Ankole.Signals.Intake do
   defp same_producer(%Signal{producer: producer} = signal, producer), do: {:ok, signal}
   defp same_producer(_signal, _producer), do: {:error, :signal_producer_conflict}
 
-  defp reply_route(nil), do: {:ok, %{}}
+  defp reply_route(nil, _uid), do: {:ok, %{}}
 
-  defp reply_route(route) when is_map(route) do
+  defp reply_route(route, uid) when is_map(route) do
+    binding_id = Ankole.Attrs.get(route, :binding_id)
+    name = Ankole.Attrs.get(route, :binding_name)
+
+    binding_id =
+      if is_nil(binding_id) and is_binary(name) do
+        case Ankole.Signals.get_agent_binding!(uid, name) do
+          nil -> nil
+          binding -> binding.id
+        end
+      else
+        binding_id
+      end
+
     {:ok,
      %{
+       reply_binding_id: binding_id,
        reply_binding_name: Ankole.Attrs.get(route, :binding_name),
        conversation_id: Ankole.Attrs.get(route, :conversation_id),
        provider_thread_id: Ankole.Attrs.get(route, :provider_thread_id),
@@ -261,7 +275,7 @@ defmodule Ankole.Signals.Intake do
      }}
   end
 
-  defp reply_route(_route), do: {:error, :invalid_reply_route}
+  defp reply_route(_route, _uid), do: {:error, :invalid_reply_route}
 
   defp producer(nil), do: {:ok, :external}
   defp producer(value) when value in [:kernel, "kernel"], do: {:ok, :kernel}

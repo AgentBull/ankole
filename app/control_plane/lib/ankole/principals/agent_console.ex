@@ -18,7 +18,6 @@ defmodule Ankole.Principals.AgentConsole do
   def create_in_tx(arguments, %Principal{} = operator) do
     attrs =
       Map.merge(arguments, %{
-        uid: Ash.UUIDv7.generate(),
         created_by: Ankole.ActorRef.from_principal(operator)
       })
 
@@ -85,7 +84,8 @@ defmodule Ankole.Principals.AgentConsole do
   def rejection(:token_quota_not_writable_at_creation),
     do: {"options.ai_agent.token_quota is set through the token quota route after creation", []}
 
-  def rejection(reason), do: Providers.Errors.rejection(reason)
+  def rejection(reason),
+    do: Principals.describe_refusal(reason) || Providers.Errors.rejection(reason)
 
   defp present(agent, principal, conversation_ids \\ []) do
     %{

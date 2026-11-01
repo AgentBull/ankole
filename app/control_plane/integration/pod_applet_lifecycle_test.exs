@@ -504,7 +504,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
       file.id,
       %{
         "name" => "too-large.bin",
-        "baseRevision" => 0,
+        "baseObjectId" => nil,
         "bytes" => %{"__ankole_bytes" => Base.encode64(bytes)}
       }
     ]
@@ -554,7 +554,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
       })
 
     {:ok, _} =
-      Ankole.AIAgent.ModelProfiles.put_model_profile(agent, "primary", %{
+      Ankole.AIGateway.ModelProfiles.put_model_profile(agent, "primary", %{
         provider_id: provider_id(Repo.tenant_id!()),
         model: "gpt-5.5"
       })
@@ -685,10 +685,10 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
           {:ok, _} =
             Drive.commit(uid, [
-              %{path: "publish/#{page.id}/#{path}", sha256: blob.sha256, source: "pod"}
+              Map.merge(blob, %{path: "publish/#{page.id}/#{path}", source: "pod"})
             ])
 
-          %{path: path, sha256: blob.sha256}
+          %{path: path, object_id: blob.object_id, source_path: "publish/#{page.id}/#{path}"}
         end
       )
 

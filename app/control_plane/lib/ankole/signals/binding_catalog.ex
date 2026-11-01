@@ -1,7 +1,6 @@
 defmodule Ankole.Signals.BindingCatalog do
   @moduledoc false
 
-  alias Ankole.Principals
   alias Ankole.Plugins.ConfigSecrets
   alias Ankole.Signals.Adapters
   alias Ankole.Signals.Adapters.Definition
@@ -148,13 +147,8 @@ defmodule Ankole.Signals.BindingCatalog do
     SubjectNamespace.provider_ids(adapter_id)
   end
 
-  @spec get_binding_configuration(String.t(), String.t()) ::
-          {:ok, %{binding: Binding.t(), config: map(), stored_secret_paths: [String.t()]}}
-          | {:error, term()}
-  def get_binding_configuration(agent_uid, binding_name)
-      when is_binary(agent_uid) and is_binary(binding_name) do
-    with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
-         %Binding{} = binding <- Ankole.Signals.get_binding!(principal.uid, binding_name),
+  def get_binding_configuration(id) do
+    with %Binding{} = binding <- Ankole.Signals.get_binding!(id),
          {:ok, config} <- Ankole.Signals.Bindings.stored_binding_config(binding) do
       with {:ok, fields} <- binding_fields(binding) do
         {config, stored_secret_paths} = ConfigSecrets.redact(fields, config)
@@ -167,7 +161,4 @@ defmodule Ankole.Signals.BindingCatalog do
       {:error, _reason} = error -> error
     end
   end
-
-  def get_binding_configuration(_agent_uid, _binding_name),
-    do: {:error, :binding_not_found}
 end

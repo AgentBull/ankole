@@ -69,26 +69,21 @@ defmodule Ankole.Sessions.Tools do
     end
   end
 
-  def authorize_call(
-        %{
-          agent_uid: agent_uid,
-          event: %{authorization_kind: "human", human_uid: uid} = event
-        },
-        name,
-        args
-      ) do
-    context =
-      event
-      |> Ankole.Conversations.request_context()
-      |> Map.merge(%{"args" => args, "surface" => "agent_tool"})
-
-    with {:ok, principal} <- Ankole.Principals.get_principal(uid),
-         actor = Ankole.AuthZ.Actor.new(principal, authn: context["authn"] || %{}),
-         :ok <- Ankole.AuthZ.Checks.ActorGuardrail.check(actor, :agent),
-         do: Ankole.AuthZ.authorize(actor, "agent:#{agent_uid}:tool:#{name}", "invoke", context)
+  def authorize_call(%{agent_uid: uid, event: event}, _name, _args) when is_map(event) do
+    with true <- Ankole.Principals.WorkAccess.valid_now?(event),
+         :ok <- authorize_agent(uid),
+         do: :ok,
+         else: (_ -> {:error, :forbidden})
   end
 
-  def authorize_call(_run, _name, _args), do: :ok
+  def authorize_call(%{agent_uid: uid}, _name, _args), do: authorize_agent(uid)
+  def authorize_call(_run, _name, _args), do: {:error, :forbidden}
+
+  defp authorize_agent(uid) do
+    with {:ok, %{type: :agent} = principal} <- Ankole.Principals.get_principal(uid),
+         do: Ankole.AuthZ.Checks.ActorGuardrail.check(Ankole.AuthZ.Actor.new(principal), :agent),
+         else: (_ -> {:error, :forbidden})
+  end
 
   defp execute_authorized(run, call, tool, args) do
     owner = tool.executor

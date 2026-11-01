@@ -5,8 +5,6 @@ import {
   Alert,
   AlertDescription,
   Button,
-  buttonVariants,
-  cn,
   Input,
   Select,
   SelectContent,
@@ -93,13 +91,13 @@ export function SignalsListPage() {
     .filter(binding => showDisabled || binding.enabled)
     .filter(binding => {
       const adapterLabel = localizedText(adapterByID.get(binding.adapter)?.display_name, i18n.language)
-      const agent = agentByUID.get(binding.agent_uid)
+      const agent = binding.agent_uid ? agentByUID.get(binding.agent_uid) : undefined
       return matchesResourceSearch(
         searchQuery,
         binding.name,
         binding.agent_uid,
         agent?.display_name,
-        agent?.handle,
+        agent?.uid,
         binding.adapter,
         adapterLabel,
         binding.unaddressed_group_message_policy,
@@ -107,18 +105,19 @@ export function SignalsListPage() {
       )
     })
   const stoppedDeliveries = signals.data?.delivery_failures ?? []
-  const hasAgents = activeAgents(scope.agents).length > 0
   const disableBinding = useMutation({
     ...disableSignalBindingMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.signals.disabled', { name: variables.path.name }))
+      toast.success(
+        t('console.signals.disabled', { name: rows.find(binding => binding.id === variables.path.id)?.name ?? '' })
+      )
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const enableBinding = useMutation({
     ...updateSignalBindingMutation(),
-    onSuccess: (_data, variables) => {
-      toast.success(t('console.signals.enabled', { name: variables.path.binding_name }))
+    onSuccess: data => {
+      toast.success(t('console.signals.enabled', { name: data.signal_binding.name }))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -135,11 +134,7 @@ export function SignalsListPage() {
       title={t('console.signals.title')}
       description={t('console.signals.description')}
       createTo={
-        hasAgents
-          ? scope.agentUID
-            ? `new?${new URLSearchParams({ agent: scope.agentUID, return_agent: scope.agentUID })}`
-            : 'new'
-          : undefined
+        scope.agentUID ? `new?${new URLSearchParams({ agent: scope.agentUID, return_agent: scope.agentUID })}` : 'new'
       }
       createLabel={t('console.signals.new')}
       columns={[
@@ -154,18 +149,9 @@ export function SignalsListPage() {
       count={rows.length}
       emptyTitle={t(showDisabled ? 'console.signals.empty_title' : 'console.signals.empty_active_title')}
       emptyIcon={<RiBroadcastLine aria-hidden />}
-      emptyDescription={
-        hasAgents
-          ? t(showDisabled ? 'console.signals.empty_description' : 'console.signals.empty_active_description')
-          : t('console.signals.empty_no_agents_description')
-      }
-      emptyAction={
-        hasAgents ? undefined : (
-          <Link className={cn(buttonVariants({ size: 'sm' }))} to="/agents/new">
-            {t('console.agents.new')}
-          </Link>
-        )
-      }
+      emptyDescription={t(
+        showDisabled ? 'console.signals.empty_description' : 'console.signals.empty_active_description'
+      )}
       error={signals.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
@@ -203,16 +189,17 @@ export function SignalsListPage() {
         ) : undefined
       }>
       {rows.map(binding => (
-        <TableRow key={`${binding.agent_uid}:${binding.adapter}:${binding.name}`}>
+        <TableRow key={binding.id}>
           <TableCell className="font-mono text-xs">
-            <Link
-              data-row-link
-              className="text-foreground"
-              {...linkTarget(editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID))}>
+            <Link data-row-link className="text-foreground" {...linkTarget(editTo(binding.id, scope.agentUID))}>
               {binding.name}
             </Link>
           </TableCell>
-          <AgentCell uid={binding.agent_uid} />
+          {binding.agent_uid ? (
+            <AgentCell uid={binding.agent_uid} />
+          ) : (
+            <TableCell>{t('console.signals.sender_personal_assistant')}</TableCell>
+          )}
           <TableCell>
             {localizedText(adapterByID.get(binding.adapter)?.display_name, i18n.language) ?? binding.adapter}
           </TableCell>
@@ -234,10 +221,11 @@ export function SignalsListPage() {
                       pending: enableBinding.isPending,
                       onAction: () =>
                         enableBinding.mutate({
-                          path: { agent_uid: binding.agent_uid, binding_name: binding.name },
+                          path: { id: binding.id },
                           body: {
                             data: {
-                              target_agent_uid: binding.agent_uid,
+                              agent_uid: binding.agent_uid,
+                              routing_mode: binding.routing_mode,
                               config: {},
                               group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
                               unmatched_sender_policy: binding.unmatched_sender_policy
@@ -258,12 +246,8 @@ export function SignalsListPage() {
                   }
                 : undefined
             }
-            onDelete={
-              binding.enabled
-                ? () => disableBinding.mutate({ path: { agent_uid: binding.agent_uid, name: binding.name } })
-                : undefined
-            }
-            editTo={editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID)}
+            onDelete={binding.enabled ? () => disableBinding.mutate({ path: { id: binding.id } }) : undefined}
+            editTo={editTo(binding.id, scope.agentUID)}
             editLabel={t('common.edit')}
           />
         </TableRow>
@@ -357,15 +341,14 @@ export function SignalBindingEditorPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(SignalBindingEditorModel)
-  const params = useParams({ strict: false }) as { agent?: string; adapter?: string; name?: string }
+  const params = useParams({ strict: false }) as { id?: string }
   const [searchParams] = useSearchParams()
   const locale = i18n.language
 
-  const sourceAgentUID = params.agent ?? searchParams.get('agent') ?? ''
+  const sourceAgentUID = searchParams.get('agent') ?? ''
   const returnAgentUID = searchParams.get('return_agent') ?? ''
-  const lockedAdapter = params.adapter
-  const lockedName = params.name
-  const editing = Boolean(lockedName)
+  const bindingID = params.id
+  const editing = Boolean(bindingID)
   const returnPath = signalBindingReturnPath(returnAgentUID)
 
   const agents = useQuery(agentListOptions())
@@ -379,9 +362,9 @@ export function SignalBindingEditorPage() {
   const adapterGroups = groupSignalAdapters(signalAdapters)
   const bindingDetail = useQuery({
     ...getSignalBindingOptions({
-      path: { agent_uid: sourceAgentUID, binding_name: lockedName ?? '' }
+      path: { id: bindingID ?? '' }
     }),
-    enabled: editing && Boolean(sourceAgentUID),
+    enabled: editing,
     retry: false
   })
   const currentBinding = bindingDetail.data?.signal_binding
@@ -394,7 +377,7 @@ export function SignalBindingEditorPage() {
     agents.data !== undefined && signalAdapters.length > 0 && (!editing || bindingDetail.data !== undefined)
   const bindingDraft = useMemo(() => {
     if (!sourceReady) return undefined
-    const adapterID = currentBinding?.adapter ?? lockedAdapter
+    const adapterID = currentBinding?.adapter
     const adapter = signalAdapters.find(item => item.adapter_id === adapterID) ?? signalAdapters[0]
     const draft =
       editing && currentBinding ? formFromBinding(currentBinding, bindingDetail.data?.config) : formFromAdapter(adapter)
@@ -404,30 +387,30 @@ export function SignalBindingEditorPage() {
       agentUID: editing ? (currentBinding?.agent_uid ?? '') : defaultAgentUID,
       ...draft
     }
-  }, [bindingDetail.data?.config, currentBinding, defaultAgentUID, editing, lockedAdapter, signalAdapters, sourceReady])
+  }, [bindingDetail.data?.config, currentBinding, defaultAgentUID, editing, signalAdapters, sourceReady])
   const draftStatus = useEditorDraft(model, {
-    sourceKey: `binding:${sourceAgentUID}:${lockedAdapter ?? ''}:${lockedName ?? 'new'}`,
+    sourceKey: bindingID ? `binding:${bindingID}` : `new:${sourceAgentUID}`,
     source: bindingDraft,
     absent: () => editing && requestErrorCode(bindingDetail.error) === 'not_found'
   })
 
   const createBinding = useMutation({
     ...putSignalBindingMutation(),
-    onSuccess: (_data, variables) => {
-      finishSignalBindingSave(t('console.signals.saved', { name: variables.path.binding_name }), returnPath, navigate)
+    onSuccess: data => {
+      finishSignalBindingSave(t('console.signals.saved', { name: data.signal_binding.name }), returnPath, navigate)
     }
   })
   const updateBinding = useMutation({
     ...updateSignalBindingMutation(),
-    onSuccess: (_data, variables) => {
-      finishSignalBindingSave(t('console.signals.saved', { name: variables.path.binding_name }), returnPath, navigate)
+    onSuccess: data => {
+      finishSignalBindingSave(t('console.signals.saved', { name: data.signal_binding.name }), returnPath, navigate)
     }
   })
 
   const submit = () => {
     model.clearValidation()
     const targetAgentUID = model.agentUID.value
-    if (!targetAgentUID) {
+    if (model.routingMode.value === 'ai_colleague' && !targetAgentUID) {
       model.validationError.value = t('console.signals.target_agent_required')
       return
     }
@@ -452,17 +435,20 @@ export function SignalBindingEditorPage() {
     const body = {
       config: editing ? model.configPatch.value : model.config.value,
       group_message_mode: groupMessageMode,
-      unmatched_sender_policy: unmatchedSenderPolicy
+      unmatched_sender_policy:
+        model.routingMode.value === 'sender_personal_assistant' ? ('manual_review' as const) : unmatchedSenderPolicy,
+      routing_mode: model.routingMode.value,
+      agent_uid: model.routingMode.value === 'ai_colleague' ? targetAgentUID : null
     }
     if (editing) {
       updateBinding.mutate({
-        body: { data: { ...body, target_agent_uid: targetAgentUID } },
-        path: { agent_uid: sourceAgentUID, binding_name: name }
+        body: { data: body },
+        path: { id: bindingID! }
       })
     } else {
       createBinding.mutate({
         body: { data: body },
-        path: { adapter_id: activeAdapter.adapter_id, agent_uid: targetAgentUID, binding_name: name }
+        path: { adapter_id: activeAdapter.adapter_id, binding_name: name }
       })
     }
   }
@@ -499,20 +485,43 @@ export function SignalBindingEditorPage() {
       ) : null}
       <FormSection title={t('console.signals.section_basic')} description={t('console.signals.section_basic_hint')}>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-          <LabeledField label={t('console.signals.target_agent')} required>
-            <Select value={targetAgentUID || null} onValueChange={value => model.selectAgent(String(value))}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t('console.signals.select_agent')} />
-              </SelectTrigger>
-              <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
-                {agentList.map(agent => (
-                  <SelectItem key={agent.uid} value={agent.uid}>
-                    {agent.display_name ? `${agent.display_name} · ${agent.handle}` : agent.handle}
+          {activeAdapter && ['lark', 'slack'].includes(activeAdapter.adapter_id) ? (
+            <LabeledField
+              label={t('console.signals.routing_mode')}
+              description={t('console.signals.routing_mode_hint')}>
+              <Select
+                value={model.routingMode.value}
+                onValueChange={value => {
+                  if (value === 'ai_colleague' || value === 'sender_personal_assistant') model.selectRoutingMode(value)
+                }}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ai_colleague">{t('console.signals.ai_colleague')}</SelectItem>
+                  <SelectItem value="sender_personal_assistant">
+                    {t('console.signals.sender_personal_assistant')}
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </LabeledField>
+                </SelectContent>
+              </Select>
+            </LabeledField>
+          ) : null}
+          {model.routingMode.value === 'ai_colleague' ? (
+            <LabeledField label={t('console.signals.target_agent')} required>
+              <Select value={targetAgentUID || null} onValueChange={value => model.selectAgent(String(value))}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={t('console.signals.select_agent')} />
+                </SelectTrigger>
+                <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
+                  {agentList.map(agent => (
+                    <SelectItem key={agent.uid} value={agent.uid}>
+                      {agent.display_name ? `${agent.display_name} · ${agent.uid}` : agent.uid}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </LabeledField>
+          ) : null}
           <LabeledField label={t('console.signals.adapter')} required={!editing}>
             {editing ? (
               <ReadOnlyValue>
@@ -570,7 +579,7 @@ export function SignalBindingEditorPage() {
                     onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
                   />
                 ) : null}
-                {activeAdapter.unmatched_sender_policy_field ? (
+                {model.routingMode.value === 'ai_colleague' && activeAdapter.unmatched_sender_policy_field ? (
                   <ConfigField
                     field={activeAdapter.unmatched_sender_policy_field}
                     locale={locale}
@@ -600,8 +609,8 @@ export function SignalBindingEditorPage() {
   )
 }
 
-function editTo(agentUID: string, adapter: string, name: string, returnAgentUID: string): string {
-  const path = `/signals/${encodeURIComponent(agentUID)}/${encodeURIComponent(adapter)}/${encodeURIComponent(name)}`
+function editTo(bindingID: string, returnAgentUID: string): string {
+  const path = `/signals/${encodeURIComponent(bindingID)}`
   if (!returnAgentUID) return path
   return `${path}?${new URLSearchParams({ return_agent: returnAgentUID }).toString()}`
 }
@@ -622,6 +631,7 @@ export function finishSignalBindingSave(
 
 function emptyForm(): SignalBindingAdapterDraft {
   return {
+    routingMode: 'ai_colleague',
     adapterID: '',
     name: '',
     groupMessageMode: '',
@@ -633,6 +643,7 @@ function emptyForm(): SignalBindingAdapterDraft {
 function formFromAdapter(adapter: SignalAdapterItem | undefined): SignalBindingAdapterDraft {
   if (!adapter) return emptyForm()
   return {
+    routingMode: 'ai_colleague',
     adapterID: adapter.adapter_id,
     name: `${adapter.adapter_id}-main`,
     groupMessageMode: defaultGroupMessageMode(adapter),
@@ -643,6 +654,7 @@ function formFromAdapter(adapter: SignalAdapterItem | undefined): SignalBindingA
 
 function formFromBinding(binding: SignalBindingItem, config: unknown): SignalBindingAdapterDraft {
   return {
+    routingMode: binding.routing_mode,
     adapterID: binding.adapter,
     name: binding.name,
     groupMessageMode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),

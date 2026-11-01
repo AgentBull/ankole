@@ -15,119 +15,84 @@ defmodule Ankole.Sessions.ChatDriveTest do
 
   setup {Ankole.SessionsCase, :use_mock_signal_provider_plugin}
 
-  test "the same received bytes and filename have separate channel paths and provenance" do
+  test "the same received object has separate shared conversation nodes" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     {:ok, stored} = Attachments.store_attachment(%{"name" => "private.txt"}, "private content")
 
-    for provider_conversation_id <- ["mock:dm:alice", "mock:dm:bob", ".", ".."] do
-      input = input!(agent.uid, provider_conversation_id, attachments: [stored])
-      conversation_id = input.conversation_id
-      path = Files.chat_path(conversation_id, stored["path"])
-      assert [%{"path" => ^path}] = get_in(input.data, ["entry", "attachments"])
+    nodes =
+      for provider_id <- ["mock:dm:alice", "mock:dm:bob", ".", ".."] do
+        input = input!(agent.uid, provider_id, attachments: [stored])
+        assert [attachment] = get_in(input.data, ["entry", "attachments"])
+        assert attachment["object_id"] == stored["object_id"]
+        assert {:ok, conversation_id} = Files.node_conversation_id(attachment["node_id"])
+        assert conversation_id == input.conversation_id
+        assert {:ok, _} = Files.authorize_node(agent.uid, attachment["node_id"], "node_view")
+        run = prepare_run(input)
+        assert Ankole.JSON.encode!(Prompt.user(run, input)) =~ "ankole-pod chat attachment get"
+        attachment["node_id"]
+      end
 
-      assert {:ok, %{conversation_id: ^conversation_id, message_id: message_id},
-              "private content"} =
-               Files.read(agent.uid, path)
-
-      assert message_id == input.message_id
-
-      run = prepare_run(input)
-      messages = Prompt.user(run, input)
-      assert Ankole.JSON.encode!(messages) =~ path
-    end
-
-    assert {:error, :not_found} = Files.fetch(agent.uid, stored["path"])
+    assert length(Enum.uniq(nodes)) == 4
+    assert {:ok, "private content"} = Files.read_object(stored["object_id"])
   end
 
-  test "reply_attachment retains the original drive path and refuses a foreign conversation file" do
+  test "reply_attachment freezes an authorized node and refuses a foreign conversation root" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     input = input!(agent.uid, "mock:dm:alice")
-    run = prepare_run(input)
-
-    assert Prompt.system(Map.put(run, :available_tool_names, Enum.map(run.tools, & &1.name))) =~
-             "This is a private conversation with the other person."
-
     other = input!(agent.uid, "mock:dm:bob")
-    own = Files.chat_path(input.conversation_id, "report.txt")
-    foreign = Files.chat_path(other.conversation_id, "report.txt")
-    drive_file_fixture(agent.uid, own, "Alice report")
-    drive_file_fixture(agent.uid, foreign, "Bob report")
-    drive_file_fixture(agent.uid, "shared/report.txt", "Shared report")
+    run = prepare_run(input)
+    own = conversation_file!(input.conversation_id, "report.txt", "Alice report")
+    foreign = conversation_file!(other.conversation_id, "report.txt", "Bob report")
+    private = drive_file_fixture(agent.uid, "shared/report.txt", "Shared report")
 
-    # The Agent can read its whole drive. The channel restriction applies at delivery.
-    assert {:ok, _file, "Bob report"} = Files.read(agent.uid, foreign)
-
-    {:ok, _} =
-      Ankole.AuthZ.create_permission_grant(%{
-        principal_uid: input.human_uid,
-        resource_pattern: "agent:#{agent.uid}:tool:reply_attachment",
-        action: "invoke"
-      })
-
-    {run, call} = response_call(run, "reply_attachment", %{"drive_path" => foreign})
+    {run, call} = response_call(run, "reply_attachment", %{"node_id" => foreign.id})
     assert {:ok, tool, args} = Tools.prepare(run, call)
-    assert tool.executor == Ankole.Sessions.Presentation
-    refute Tools.needs_worker?(run, call)
     assert %{is_error: true, output: error} = Tools.execute(run, call, tool, args)
-    assert error =~ "file_channel_mismatch"
+    assert error =~ "attachment_conversation_mismatch"
 
-    assert {:error, :receipt_not_found} =
-             Ankole.Sessions.Receipts.fetch("resp_#{run.model_response.id}", call["call_id"])
-
-    for path <- [own, "shared/report.txt"] do
-      {run, call} = response_call(run, "reply_attachment", %{"drive_path" => path})
+    for file <- [own, private] do
+      {run, call} = response_call(run, "reply_attachment", %{"node_id" => file.id})
       {:ok, tool, args} = Tools.prepare(run, call)
 
-      assert %{is_error: false, details: %{"attachments" => [%{"path" => ^path}]}} =
+      assert %{is_error: false, details: %{"attachments" => [attachment]}} =
                Tools.execute(run, call, tool, args)
+
+      assert attachment["node_id"] == file.id
+      assert attachment["object_id"] == file.object_id
     end
 
-    assert {:ok, %{files: []}} = Files.list(agent.uid, "sent")
     assert Repo.aggregate(Intent, :count) == 0
-
-    assert {:error, %{failure_kind: "invalid_arguments"}} =
-             Tools.prepare(run, Map.put(call, "arguments", ~s({"path":"report.txt"})))
   end
 
-  test "send_message checks the actual destination and rolls back all posts on rejection" do
+  test "send_message checks each node's actual root and rolls back all posts on rejection" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     input = input!(agent.uid, "mock:dm:alice")
     target = input!(agent.uid, "mock:dm:bob")
     run = prepare_run(input)
-    path = Files.chat_path(input.conversation_id, "report.txt")
-    drive_file_fixture(agent.uid, path, "Alice report")
-
-    {:ok, _} =
-      Ankole.AuthZ.create_permission_grant(%{
-        principal_uid: input.human_uid,
-        resource_pattern: "agent:#{agent.uid}:tool:send_message",
-        action: "invoke"
-      })
+    file = conversation_file!(input.conversation_id, "report.txt", "Alice report")
 
     {run, call} =
       response_call(run, "send_message", %{
         "destination" => %{"binding" => "bot", "conversation_id" => target.conversation_id},
         "text" => "Here is the report.",
-        "attachments" => [path]
+        "attachments" => [file.id]
       })
 
     {:ok, tool, args} = Tools.prepare(run, call)
     assert %{is_error: true, output: error} = Tools.execute(run, call, tool, args)
-    assert error =~ "file_channel_mismatch"
+    assert error =~ "attachment_conversation_mismatch"
     assert Repo.aggregate(Intent, :count) == 0
+    private = drive_file_fixture(agent.uid, "shared/report.txt", "Report")
 
-    for delivery_path <- [path, "shared/report.txt"] do
-      drive_file_fixture(agent.uid, delivery_path, "Report")
-      destination = if delivery_path == path, do: input, else: target
-
+    for {file, destination} <- [{file, input}, {private, target}] do
       {run, call} =
         response_call(run, "send_message", %{
           "destination" => %{"binding" => "bot", "conversation_id" => destination.conversation_id},
           "text" => "Report.",
-          "attachments" => [delivery_path]
+          "attachments" => [file.id]
         })
 
       {:ok, tool, args} = Tools.prepare(run, call)
@@ -137,51 +102,40 @@ defmodule Ankole.Sessions.ChatDriveTest do
     assert Repo.aggregate(Intent, :count) == 4
   end
 
-  test "the Delivery rejects channel-prefix confusion, encoded channel mismatch, and missing destinations" do
+  test "a display path cannot disguise a conversation attachment as a private file" do
     %{principal: agent} = agent_fixture()
-    {:ok, stored} = Files.store("report")
-
-    conversation_id =
-      Ankole.ExternalConversationsFixtures.external_conversation_id("mock:dm:alice/bob")
-
-    other_id = Ankole.ExternalConversationsFixtures.external_conversation_id("mock:dm:alice")
-    path = Files.chat_path(conversation_id, "report.txt")
-    assert path == "chats/#{conversation_id}/report.txt"
+    binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+    source = input!(agent.uid, "mock:dm:alice/bob")
+    other = input!(agent.uid, "mock:dm:alice")
+    file = conversation_file!(source.conversation_id, "report.txt", "report")
+    {:ok, attachment} = Ankole.Conversations.Delivery.Attachment.from_node(agent.uid, file.id)
 
     attrs = %{
       agent_uid: agent.uid,
       binding_name: "bot",
       operation: :post,
       outbound_key: "attachment",
-      payload: %{
-        "attachments" => [%{"path" => path, "blob_ref" => stored.sha256, "name" => "report.txt"}]
-      }
+      payload: %{"attachments" => [Map.put(attachment, "path", "shared/report.txt")]}
     }
 
-    for channel_id <- [
-          nil,
-          "",
-          other_id,
-          conversation_id <> "-extra",
-          String.replace(conversation_id, "-", "%2D")
-        ] do
-      assert {:error, {:file_channel_mismatch, ^path}} =
-               Ankole.SignalsFixtures.commit_delivery(
-                 Map.put(attrs, :conversation_id, channel_id)
-               )
+    for id <- [nil, other.conversation_id] do
+      assert {:error, :attachment_conversation_mismatch} =
+               Ankole.SignalsFixtures.commit_delivery(Map.put(attrs, :conversation_id, id))
     end
 
-    assert Repo.aggregate(Intent, :count) == 0
-
-    assert {:ok, row} =
+    assert {:ok, _} =
              Ankole.SignalsFixtures.commit_delivery(
-               Map.put(attrs, :conversation_id, conversation_id)
+               Map.put(attrs, :conversation_id, source.conversation_id)
              )
-
-    assert row.conversation_id == conversation_id
   end
 
-  test "a Background Job keeps its source conversation drive directory" do
+  defp conversation_file!(id, name, bytes) do
+    {:ok, stored} = Files.store(bytes)
+    {:ok, file} = Repo.transact(fn -> Files.create_conversation_file_in_tx(id, name, stored) end)
+    file
+  end
+
+  test "a Background Job keeps its conversation context without a private path alias" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     input = input!(agent.uid, "mock:dm:alice")
@@ -205,8 +159,8 @@ defmodule Ankole.Sessions.ChatDriveTest do
     session_id = Ankole.BackgroundAgentJobs.job_session_id(job.id)
     assert {:ok, context} = Context.resolve(agent.uid, session_id)
 
-    assert TurnEnvelope.agent_context(context).conversation.drive_directory ==
-             "chats/#{input.conversation_id}"
+    assert TurnEnvelope.agent_context(context).conversation.timezone ==
+             context.conversation.timezone
 
     assert TurnEnvelope.agent_context(context).conversation.pod_instructions == ""
     assert TurnEnvelope.agent_context(context).conversation.page_id == ""
@@ -237,6 +191,13 @@ defmodule Ankole.Sessions.ChatDriveTest do
   end
 
   defp response_call(run, name, args) do
+    {:ok, _} =
+      Ankole.AuthZ.upsert_permission_grant(%{
+        principal_uid: run.event.human_uid,
+        resource_pattern: "agent:#{run.agent_uid}:tool:#{name}",
+        action: "invoke"
+      })
+
     call = %{
       "type" => "function_call",
       "name" => name,

@@ -5,7 +5,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
   @moduletag sandbox: false
   import Ankole.PrincipalsFixtures, only: [agent_fixture: 0]
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1, openai_response_stream_events: 3]
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message

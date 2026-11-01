@@ -90,8 +90,13 @@ defmodule Ankole.Plugins.LineAdapter.Presentation do
   defp template_text(presentation) do
     prompt =
       case presentation["prompt"] do
-        text when is_binary(text) and text != "" -> text
-        _missing -> ReplyPresentation.fallback_text(presentation)
+        text when is_binary(text) and text != "" ->
+          Ankole.Plugins.MarkdownChunks.unescape_plain_tildes(text)
+
+        _missing ->
+          presentation
+          |> ReplyPresentation.fallback_text()
+          |> Ankole.Plugins.MarkdownChunks.unescape_plain_tildes()
       end
 
     case truncate(prompt, @template_text_units) do

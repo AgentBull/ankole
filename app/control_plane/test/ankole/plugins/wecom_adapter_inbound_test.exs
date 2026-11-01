@@ -8,6 +8,7 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
   defp consumer do
     context =
       AdapterContext.new(
+        binding_id: Ecto.UUID.generate(),
         agent_uid: "agent-1",
         binding_name: "wecom",
         adapter: "wecom",
@@ -231,6 +232,18 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
            }
 
     assert foreign_input.source_event_id != input.source_event_id
+
+    # ActionCard clicks scope dedup identity per operator so an unauthorized clicker cannot block an authorized approver.
+    ac_key =
+      "ank2:" <>
+        Torque.encode!(["action_card:card-99", 1, "action-card-decision", "confirm", "confirm"])
+
+    ac_bob = put_in(body, ["event", "key"], ac_key)
+    ac_alice = ac_bob |> put_in(["from", "userid"], "alice")
+
+    assert {:ok, bob_input} = Inbound.normalize_card_action(%Event{card_event | body: ac_bob})
+    assert {:ok, alice_input} = Inbound.normalize_card_action(%Event{card_event | body: ac_alice})
+    assert bob_input.source_event_id != alice_input.source_event_id
   end
 
   test "provider_conversation_id percent-encodes the chat target" do

@@ -1,15 +1,10 @@
 defmodule Ankole.Files.RPCBrokerTest do
   use Ankole.DataCase, async: true
-
   import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
-
-  alias Ankole.Files
+  alias Ankole.{Files, SessionsCase, WorkerFilesFake}
   alias Ankole.Files.RPCBroker
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SessionsCase
-  alias Ankole.WorkerFiles
-  alias Ankole.WorkerFilesFake
 
   setup do
     %{principal: agent} = agent_fixture()
@@ -17,34 +12,29 @@ defmodule Ankole.Files.RPCBrokerTest do
     {:ok, _worker} = SessionsCase.admit_worker(route, %{worker_id: agent.uid})
 
     %{
-      agent_uid: agent.uid,
+      uid: agent.uid,
       route: route,
       ctx: %{route: route, worker_id: agent.uid, request_id: "files-test"}
     }
   end
 
-  test "lists a folder in pages", %{agent_uid: agent_uid, ctx: ctx} do
-    for name <- ["a.txt", "b.txt", "c.txt"], do: drive_file_fixture(agent_uid, "docs/" <> name)
+  test "lists stable node and object identities across pagination", %{uid: uid, ctx: ctx} do
+    for name <- ["a.txt", "b.txt", "c.txt"], do: drive_file_fixture(uid, "docs/" <> name)
 
-    assert {:ok,
-            %FabricProto.FilesListResponse{
-              files: page,
-              next_after: "docs/b.txt",
-              revision: revision
-            }} =
+    assert {:ok, %{files: files, next_after: "docs/b.txt", revision: revision}} =
              RPCBroker.handle_list(
-               agent_uid,
+               uid,
                %FabricProto.FilesListRequest{prefix: "docs", limit: 2},
                ctx
              )
 
-    assert Enum.map(page, & &1.path) == ["docs/a.txt", "docs/b.txt"]
+    assert Enum.map(files, & &1.path) == ["docs/a.txt", "docs/b.txt"]
+    assert Enum.all?(files, &(is_binary(&1.node_id) and is_binary(&1.object_id)))
     assert byte_size(revision) == 64
 
-    assert {:ok,
-            %FabricProto.FilesListResponse{files: [last], next_after: "", revision: ^revision}} =
+    assert {:ok, %{files: [last], next_after: "", revision: ^revision}} =
              RPCBroker.handle_list(
-               agent_uid,
+               uid,
                %FabricProto.FilesListRequest{prefix: "docs", limit: 2, after: "docs/b.txt"},
                ctx
              )
@@ -52,271 +42,160 @@ defmodule Ankole.Files.RPCBrokerTest do
     assert last.path == "docs/c.txt"
   end
 
-  test "returns public conversation and message IDs in file listings", %{
-    agent_uid: agent_uid,
-    ctx: ctx
-  } do
-    %{message: message} =
-      Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid)
-      |> then(fn signal ->
-        Ankole.Conversations.External.get_message(
-          signal.conversation_id,
-          signal.provider_message_id
-        )
-      end)
-
-    {:ok, %{sha256: sha256}} = Files.store("origin")
-
-    assert {:ok, _} =
-             Files.commit(agent_uid, [
-               %{
-                 path: "inbox/origin.txt",
-                 sha256: sha256,
-                 source: "inbound",
-                 conversation_id: message.conversation_id,
-                 message_id: message.id
-               }
-             ])
-
-    assert {:ok, %FabricProto.FilesListResponse{files: [file]}} =
-             RPCBroker.handle_list(
-               agent_uid,
-               %FabricProto.FilesListRequest{},
-               ctx
-             )
-
-    assert file.conversation_id == message.conversation_id
-    assert file.message_id == message.id
-  end
-
-  test "writes a drive file into the Agent Home of the calling Worker", %{
-    agent_uid: agent_uid,
+  test "downloads a current authorized node into the calling Worker", %{
+    uid: uid,
     route: route,
     ctx: ctx
   } do
-    file = drive_file_fixture(agent_uid, "inbox/abc/photo.png", "png bytes", "inbound")
-    fake = WorkerFilesFake.start!(route)
+    file = drive_file_fixture(uid, "report.txt", "bytes")
+    worker = WorkerFilesFake.start!(route)
 
-    assert {:ok, %FabricProto.FilesGetResponse{file: wire}} =
+    assert {:ok, %{file: downloaded}} =
              RPCBroker.handle_get(
-               agent_uid,
+               uid,
                %FabricProto.FilesGetRequest{
-                 path: file.path,
-                 home_relative_path: "sessions/10000/drive/inbox/abc/photo.png"
+                 node_id: file.id,
+                 home_relative_path: "local/report.txt"
                },
                ctx
              )
 
-    assert wire.sha256 == Base.encode16(file.sha256, case: :lower)
+    assert downloaded.node_id == file.id
+    assert WorkerFilesFake.files(worker)["local/report.txt"] == "bytes"
+  end
 
-    assert WorkerFilesFake.files(fake) == %{
-             "sessions/10000/drive/inbox/abc/photo.png" => "png bytes"
-           }
+  test "path and node reads retain the executing Agent's conditional authentication context", %{
+    uid: uid,
+    route: route,
+    ctx: ctx
+  } do
+    file = drive_file_fixture(uid, "conditional/secret.txt", "conditional bytes")
+    worker = WorkerFilesFake.start!(route)
 
-    assert {:error, %{"code" => "not_found"}} =
+    assert :ok =
+             Ankole.Repo.transact_top_level(fn ->
+               Files.lock_tree_in_tx()
+               {:ok, node} = Files.fetch_node(file.id)
+
+               {:ok, _} =
+                 Files.Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
+
+               Files.Access.put_role(
+                 %{principal_uid: uid},
+                 "drive:**:#{file.id}:node",
+                 "view",
+                 %{
+                   condition:
+                     ~s|has(context.request.authn.surface) && context.request.authn.surface == "agent_rpc"|
+                 }
+               )
+             end)
+
+    assert {:error, :forbidden} = Files.fetch(uid, file.path)
+    assert {:ok, %{files: []}} = Files.list(uid, "conditional")
+    assert {:error, :forbidden} = Files.authorize_node(actor_fixture(uid), file.id, "node_view")
+
+    assert {:ok, %{files: [listed]}} =
+             RPCBroker.handle_list(uid, %FabricProto.FilesListRequest{prefix: "conditional"}, ctx)
+
+    assert listed.node_id == file.id
+
+    for request <- [
+          %FabricProto.FilesGetRequest{path: file.path, home_relative_path: "by-path.txt"},
+          %FabricProto.FilesGetRequest{node_id: file.id, home_relative_path: "by-node.txt"}
+        ] do
+      assert {:ok, %{file: downloaded}} = RPCBroker.handle_get(uid, request, ctx)
+      assert downloaded.node_id == file.id
+      assert WorkerFilesFake.files(worker)[request.home_relative_path] == "conditional bytes"
+    end
+  end
+
+  test "rejects another Agent's private node", %{uid: uid, ctx: ctx} do
+    %{principal: other} = agent_fixture()
+    file = drive_file_fixture(other.uid, "private.txt", "private")
+
+    assert {:error, %{"code" => "forbidden"}} =
              RPCBroker.handle_get(
-               agent_uid,
-               %FabricProto.FilesGetRequest{path: "inbox/missing.png", home_relative_path: "x"},
+               uid,
+               %FabricProto.FilesGetRequest{node_id: file.id, home_relative_path: "stolen.txt"},
                ctx
              )
   end
 
-  test "keeps the code of a Worker error", %{agent_uid: agent_uid, route: route, ctx: ctx} do
-    file = drive_file_fixture(agent_uid, "docs/a.txt", "a")
-    WorkerFilesFake.start!(route, fail: %{"pull" => {"path_outside_home", "outside"}})
-
-    assert {:error, %{"code" => "path_outside_home", "message" => "outside"}} =
-             RPCBroker.handle_get(
-               agent_uid,
-               %FabricProto.FilesGetRequest{path: file.path, home_relative_path: "docs/a.txt"},
-               ctx
-             )
-  end
-
-  test "commits a file pulled from the calling Worker and names sent copies as sent", %{
-    agent_uid: agent_uid,
+  test "streams every write once and never deduplicates by digest", %{
+    uid: uid,
     route: route,
     ctx: ctx
   } do
-    WorkerFilesFake.start!(route,
-      files: %{"sessions/10000/out/report.txt" => "report body"}
-    )
+    worker = WorkerFilesFake.start!(route, files: %{"local/a" => "same", "local/b" => "same"})
 
-    sha256 = Base.encode16(:crypto.hash(:sha256, "report body"), case: :lower)
+    request = %FabricProto.FilesCommitRequest{
+      upserts: [upsert("a", "local/a", "same"), upsert("b", "local/b", "same")]
+    }
 
-    assert {:ok, %FabricProto.FilesCommitResponse{files: [saved], deleted: 0}} =
-             RPCBroker.handle_commit(
-               agent_uid,
-               %FabricProto.FilesCommitRequest{
-                 upserts: [
-                   %FabricProto.FilesCommitUpsert{
-                     path: "reports/report.txt",
-                     home_relative_path: "sessions/10000/out/report.txt",
-                     sha256: sha256
-                   }
-                 ]
-               },
-               ctx
-             )
-
-    assert {saved.source, saved.sha256} == {"agent", sha256}
-
-    # A reply attachment pins a drive file under sent/ by digest alone.
-    assert {:ok, %FabricProto.FilesCommitResponse{files: [sent]}} =
-             RPCBroker.handle_commit(
-               agent_uid,
-               %FabricProto.FilesCommitRequest{
-                 upserts: [
-                   %FabricProto.FilesCommitUpsert{
-                     path: "sent/#{String.slice(sha256, 0, 16)}/report.txt",
-                     sha256: sha256
-                   }
-                 ]
-               },
-               ctx
-             )
-
-    assert {sent.source, sent.sha256} == {"sent", sha256}
-    assert {:ok, _file, "report body"} = Files.read(agent_uid, "reports/report.txt")
+    assert {:ok, %{files: [a, b]}} = RPCBroker.handle_commit(uid, request, ctx)
+    assert a.object_id != b.object_id
+    assert a.sha256 == b.sha256
+    assert length(WorkerFilesFake.pushes(worker)) == 2
+    assert Enum.all?(WorkerFilesFake.pushes(worker), &(&1.bundle_paths == []))
+    assert {:ok, _, "same"} = Files.read(uid, "a")
+    assert {:ok, _, "same"} = Files.read(uid, "b")
   end
 
-  test "skips the transfer for content that the Agent's drive already names", %{
-    agent_uid: agent_uid,
+  test "rejects digest and size mismatches before committing references", %{
+    uid: uid,
     route: route,
     ctx: ctx
   } do
-    file = drive_file_fixture(agent_uid, "a.txt", "known")
-    sha256 = Base.encode16(file.sha256, case: :lower)
-    WorkerFilesFake.start!(route, fail: %{"push" => {"file_not_found", "no transfer expected"}})
-
-    assert {:ok, %FabricProto.FilesCommitResponse{files: [copy]}} =
-             RPCBroker.handle_commit(
-               agent_uid,
-               %FabricProto.FilesCommitRequest{
-                 upserts: [
-                   %FabricProto.FilesCommitUpsert{
-                     path: "b.txt",
-                     home_relative_path: "local/b.txt",
-                     sha256: sha256
-                   }
-                 ]
-               },
-               ctx
-             )
-
-    assert copy.path == "b.txt"
-  end
-
-  test "rejects a pulled file whose digest differs from the declared one", %{
-    agent_uid: agent_uid,
-    route: route,
-    ctx: ctx
-  } do
-    WorkerFilesFake.start!(route, files: %{"local/c.txt" => "actual"})
+    WorkerFilesFake.start!(route, files: %{"local/file" => "actual"})
 
     assert {:error, %{"code" => "sha256_mismatch"}} =
              RPCBroker.handle_commit(
-               agent_uid,
+               uid,
                %FabricProto.FilesCommitRequest{
-                 upserts: [
-                   %FabricProto.FilesCommitUpsert{
-                     path: "c.txt",
-                     home_relative_path: "local/c.txt",
-                     sha256: String.duplicate("ab", 32)
-                   }
-                 ]
+                 upserts: [upsert("bad", "local/file", "expected")]
                },
                ctx
              )
 
-    assert {:error, :not_found} = Files.fetch(agent_uid, "c.txt")
+    assert {:error, :not_found} = Files.fetch(uid, "bad")
+
+    assert {:error, %{"code" => "file_size_mismatch"}} =
+             RPCBroker.handle_commit(
+               uid,
+               %FabricProto.FilesCommitRequest{
+                 upserts: [%{upsert("bad", "local/file", "actual") | size: 99}]
+               },
+               ctx
+             )
+
+    assert {:error, :not_found} = Files.fetch(uid, "bad")
   end
 
-  test "bundles the missing files of one folder and transfers a repeated content once", %{
-    agent_uid: agent_uid,
+  test "preserves Worker failures and commits no node on relay failure", %{
+    uid: uid,
     route: route,
     ctx: ctx
   } do
-    contents = [
-      {"jobs/7/a.txt", "same"},
-      {"jobs/7/copy.txt", "same"},
-      {"jobs/7/sub/b.txt", "bee"},
-      {"notes.txt", "top"}
-    ]
+    WorkerFilesFake.start!(route, fail: %{"push" => {"file_not_found", "missing source"}})
 
-    fake =
-      WorkerFilesFake.start!(route,
-        files:
-          Map.new(contents, fn {path, content} ->
-            {path, content}
-          end)
-      )
-
-    assert {:ok, %FabricProto.FilesCommitResponse{files: files}} =
+    assert {:error, %{"code" => "file_not_found"}} =
              RPCBroker.handle_commit(
-               agent_uid,
+               uid,
                %FabricProto.FilesCommitRequest{
-                 upserts: Enum.map(contents, fn {path, content} -> upsert(path, content) end)
+                 upserts: [upsert("missing", "local/missing", "missing")]
                },
                ctx
              )
 
-    assert Enum.map(files, & &1.path) == Enum.map(contents, &elem(&1, 0))
-
-    assert Enum.sort_by(WorkerFilesFake.pushes(fake), & &1.home_relative_path) == [
-             %{home_relative_path: "jobs", bundle_paths: ["7/a.txt", "7/sub/b.txt"]},
-             %{home_relative_path: "notes.txt", bundle_paths: []}
-           ]
-
-    for {path, content} <- contents,
-        do: assert({:ok, _file, ^content} = Files.read(agent_uid, path))
+    assert {:error, :not_found} = Files.fetch(uid, "missing")
   end
 
-  test "keeps every bundle within the transfer bound by the declared sizes", %{
-    agent_uid: agent_uid,
-    route: route,
-    ctx: ctx
-  } do
-    half = div(WorkerFiles.max_transfer_bytes(), 2)
-
-    contents = [
-      {"jobs/7/a.txt", "a", half},
-      {"jobs/7/b.txt", "b", half},
-      {"jobs/7/c.txt", "c", 1}
-    ]
-
-    fake =
-      WorkerFilesFake.start!(route,
-        files:
-          Map.new(contents, fn {path, content, _size} ->
-            {path, content}
-          end)
-      )
-
-    assert {:ok, %FabricProto.FilesCommitResponse{files: [_, _, _]}} =
-             RPCBroker.handle_commit(
-               agent_uid,
-               %FabricProto.FilesCommitRequest{
-                 upserts:
-                   Enum.map(contents, fn {path, content, size} ->
-                     %{upsert(path, content) | size: size}
-                   end)
-               },
-               ctx
-             )
-
-    assert WorkerFilesFake.pushes(fake) == [
-             %{home_relative_path: "jobs/7/a.txt", bundle_paths: []},
-             %{home_relative_path: "jobs", bundle_paths: ["7/b.txt", "7/c.txt"]}
-           ]
-  end
-
-  defp upsert(path, content) do
-    %FabricProto.FilesCommitUpsert{
+  defp upsert(path, local, content),
+    do: %FabricProto.FilesCommitUpsert{
       path: path,
-      home_relative_path: path,
-      sha256: Base.encode16(:crypto.hash(:sha256, content), case: :lower),
-      size: byte_size(content)
+      home_relative_path: local,
+      size: byte_size(content),
+      sha256: Base.encode16(:crypto.hash(:sha256, content), case: :lower)
     }
-  end
 end

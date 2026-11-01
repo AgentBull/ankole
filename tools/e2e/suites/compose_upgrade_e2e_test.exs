@@ -21,7 +21,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
                "/api/v2/agents",
                %{
                  data: %{
-                   handle: "fresh-install-agent",
+                   uid: "fresh-install-agent",
                    display_name: "Fresh installation Agent",
                    role: "Verify installation",
                    owner_principal_uid: owner
@@ -47,6 +47,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
       ])
 
     assert String.split(extensions) == ["pg_search", "vector"]
+    assert_pg_search_version!(deployment)
 
     assert compose_query!(deployment, "SELECT to_json(current_setting('server_encoding'))") ==
              "UTF8"
@@ -71,7 +72,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     {deployment, owner} = Compose.start!(:source) |> Compose.setup_admin!()
 
     workers =
-      for handle <- ["automatic-worker-a", "automatic-worker-b"] do
+      for name <- ["automatic-worker-a", "automatic-worker-b"] do
         assert %{"uid" => uid} =
                  Compose.api!(
                    deployment,
@@ -79,8 +80,8 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
                    "/api/v2/agents",
                    %{
                      data: %{
-                       handle: handle,
-                       display_name: handle,
+                       uid: name,
+                       display_name: name,
                        role: "Verify automatic startup",
                        owner_principal_uid: owner
                      }
@@ -235,6 +236,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     ])
 
     deployment = Compose.upgrade!(old)
+    assert_pg_search_version!(deployment)
 
     assert %{"data" => %{"id" => ^uid, "attributes" => %{"worker_provider_id" => "docker"}}} =
              Compose.api!(deployment, :get, "/api/v2/agents/#{uid}")
@@ -289,10 +291,11 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     end
 
     target_conversation_id = Ecto.UUID.generate()
+    pod = Compose.pod_client!(deployment)
 
     assert %{"conversation" => %{"id" => ^target_conversation_id}} =
              Compose.api!(
-               deployment,
+               pod,
                :post,
                "/api/v2/pod/conversations",
                %{
@@ -312,7 +315,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
              wait_until(deadline(120_000), fn ->
                detail =
                  Compose.api!(
-                   deployment,
+                   pod,
                    :get,
                    "/api/v2/pod/conversations/#{target_conversation_id}"
                  )
@@ -361,11 +364,13 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     assert worker["provider_id"] == "docker"
 
     name =
-      Ankole.AgentWorkers.ProviderKind.instance_name(
-        deployment.project,
-        uid,
-        worker["generation"]
-      )
+      Ankole.Repo.with_tenant(deployment.tenant_id, fn ->
+        Ankole.AgentWorkers.ProviderKind.instance_name(
+          deployment.project,
+          uid,
+          worker["generation"]
+        )
+      end)
 
     assert {:ok, command_pid} =
              wait_until(deadline(30_000), fn ->
@@ -616,6 +621,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     ])
 
     deployment = Compose.upgrade!(old, lark_base_url: "http://host.docker.internal:#{port}")
+    assert_pg_search_version!(deployment)
 
     assert %{"id" => ^workspace_id, "kind" => "conversation"} =
              compose_query!(deployment, """
@@ -656,7 +662,8 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
       })
     end
 
-    Compose.api!(deployment, :put, "/api/v2/agents/#{uid}/signal-bindings/lark/compose-real", %{
+    Compose.api!(deployment, :put, "/api/v2/signal-bindings/lark/compose-real", %{
+      "agent_uid" => uid,
       data: %{
         config: %{
           appID: app_id,
@@ -712,11 +719,13 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
              end)
 
     name =
-      Ankole.AgentWorkers.ProviderKind.instance_name(
-        deployment.project,
-        uid,
-        worker["generation"]
-      )
+      Ankole.Repo.with_tenant(deployment.tenant_id, fn ->
+        Ankole.AgentWorkers.ProviderKind.instance_name(
+          deployment.project,
+          uid,
+          worker["generation"]
+        )
+      end)
 
     pid_deadline = deadline(180_000)
 
@@ -1004,6 +1013,18 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
       Compose.compose!(deployment, ["exec", "-T", "control-plane", "/app/bin/ankole", "rpc", code])
 
     IO.puts("Compose public OpenRouter reachability (no credentials): #{String.trim(result)}")
+  end
+
+  defp assert_pg_search_version!(deployment) do
+    assert compose_query!(
+             deployment,
+             "SELECT to_json(extversion) FROM pg_extension WHERE extname='pg_search'"
+           ) == "0.26.4"
+
+    assert compose_query!(
+             deployment,
+             "SELECT to_json(version) FROM paradedb.version_info()"
+           ) == "0.26.4"
   end
 
   defp compose_query!(deployment, sql) do

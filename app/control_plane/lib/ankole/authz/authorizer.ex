@@ -27,7 +27,7 @@ defmodule Ankole.AuthZ.Authorizer do
         check when check in [:public, :guardrail] ->
           {:authorized, state}
 
-        :pod_filter ->
+        :drive_filter ->
           case pod_filter(state.actor, subject) do
             {:ok, %{filter: filter}} ->
               {:filter, state, filter}
@@ -53,7 +53,7 @@ defmodule Ankole.AuthZ.Authorizer do
 
   @impl true
   def add_calculations(
-        %{context: %{private: %{pod_authorization: {actor, _policy}}}} = query,
+        %{context: %{private: %{drive_authorization: {actor, _policy}}}} = query,
         %{actor: actor} = state,
         _context
       ),
@@ -61,10 +61,10 @@ defmodule Ankole.AuthZ.Authorizer do
 
   def add_calculations(query, state, _context) do
     case Ankole.AuthZ.Dsl.rule(state.resource, state.action) do
-      %{check: :pod_filter} ->
+      %{check: :drive_filter} ->
         with :ok <- Ankole.AuthZ.Checks.ActorGuardrail.check(state.actor, :pod),
-             {:ok, policy} <- Ankole.AuthZ.Checks.PodAnchorFilter.check(state.actor, query) do
-          {:ok, Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(query, state.actor, policy),
+             {:ok, policy} <- Ankole.AuthZ.Checks.DriveAnchorFilter.check(state.actor, query) do
+          {:ok, Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(query, state.actor, policy),
            state}
         else
           _ -> forbidden()
@@ -79,10 +79,10 @@ defmodule Ankole.AuthZ.Authorizer do
   defp guardrail(_actor, _scope, :public), do: {:error, :forbidden}
   defp guardrail(actor, scope, _check), do: Ankole.AuthZ.Checks.ActorGuardrail.check(actor, scope)
 
-  defp pod_filter(actor, %{context: %{private: %{pod_authorization: {actor, policy}}}}),
+  defp pod_filter(actor, %{context: %{private: %{drive_authorization: {actor, policy}}}}),
     do: {:ok, policy}
 
-  defp pod_filter(actor, query), do: Ankole.AuthZ.Checks.PodAnchorFilter.check(actor, query)
+  defp pod_filter(actor, query), do: Ankole.AuthZ.Checks.DriveAnchorFilter.check(actor, query)
 
   defp forbidden, do: {:error, Ash.Error.Forbidden.exception([])}
 end

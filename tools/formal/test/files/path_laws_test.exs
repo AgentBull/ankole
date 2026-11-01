@@ -35,19 +35,17 @@ defmodule Ankole.Formal.Files.PathLawsTest do
         next =>
           simp only [Lynx.Except.bind_eq_ok] at hs
           rcases hs with ⟨parts, hparts, utf8, hutf8, rest⟩
-          rcases rest with ⟨budget, hb, noNul, hn, allValid, ha, hout⟩
+          rcases rest with ⟨budget, hb, allValid, ha, hout⟩
           have budgetTrue : budget = Lynx.Term.true := by
-            split at hn
+            split at ha
             next =>
-              simp only [Except.ok.injEq] at hn
-              subst noNul
               simp only [Except.ok.injEq] at ha
               subst allValid
               simp [Lynx.Term.isMember, Lynx.Except.guard] at hout
               subst segments
               simp at requires
             next => rfl
-            next => simp at hn
+            next => simp at ha
           subst budget
           split at hb <;> simp_all [«successful_normalization_respects_utf8_and_budget:ensures/1»,
             Erlang.erlang.«is_binary/1», Erlang.erlang.«byte_size/1», Erlang.erlang.«is_integer/1»,

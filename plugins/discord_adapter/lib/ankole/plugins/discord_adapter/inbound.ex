@@ -126,8 +126,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
     client = client_for(consumer, event)
 
     Observe.emit_entry_with_attachments(
-      consumer.context.agent_uid,
-      consumer.context.binding_name,
+      consumer.context.binding_id,
       input,
       &Attachments.materialize_attachments(
         &1,
@@ -151,7 +150,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
          channel_id when is_binary(channel_id) <-
            MapHelpers.optional_text(reaction, "channel_id"),
          {reaction_key, raw_key} <- Emoji.reaction_key(map(reaction, "emoji")) do
-      Observe.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
+      Observe.emit_reaction(consumer.context.binding_id, %{
         source_event_id: "discord:gateway:#{gateway_session_id}:#{gateway_sequence}",
         provider_conversation_id: provider_conversation_id(bot.id, channel_id),
         provider_message_id: message_id,
@@ -187,7 +186,6 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
          channel_id when is_binary(channel_id) <-
            MapHelpers.optional_text(interaction, "channel_id"),
          user_id when is_binary(user_id) <- MapHelpers.optional_text(user, "id"),
-         {:ok, principal} <- Principals.resolve_platform_subject("discord", user_id),
          channel <- provider_conversation_id(bot.id, channel_id),
          {:ok, value} <-
            ActionToken.resolve(
@@ -196,8 +194,9 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
              consumer.context.binding_name,
              message_id,
              prefix: "dc1"
-           ) do
-      Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+           ),
+         {:ok, operator_principal_uid} <- resolve_action_operator("discord", user_id, value) do
+      Observe.emit_action(consumer.context.binding_id, %{
         source_event_id: interaction_id,
         action_id: interaction_id,
         provider_conversation_id: channel,
@@ -208,7 +207,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
           "name" => "discord_component",
           "value" => value,
           "operator_id" => user_id,
-          "operator_principal_uid" => principal.uid,
+          "operator_principal_uid" => operator_principal_uid,
           "provider_message_id" => message_id
         },
         raw_payload: %{"interaction_id" => interaction_id}
@@ -236,6 +235,18 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
   end
 
   defp emit_action(_consumer, _event), do: {:ok, %{status: :ignored_invalid_interaction}}
+
+  defp resolve_action_operator(provider, external_id, value) do
+    case Principals.resolve_platform_subject(provider, external_id) do
+      {:ok, principal} ->
+        {:ok, principal.uid}
+
+      {:error, :not_found} ->
+        if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]),
+          do: {:ok, nil},
+          else: {:error, :not_found}
+    end
+  end
 
   # A guild interaction carries the clicking human in `member.user`; a DM
   # interaction carries it in `user`.

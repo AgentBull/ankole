@@ -4,7 +4,8 @@ defmodule Ankole.Pod.TargetedGraphTest do
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Snapshot
-  alias Ankole.Pod.{Access, Page, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Page, Pages}
 
   test "targeted rights match the full graph through conditional Userset cycles" do
     owner = human_fixture().principal
@@ -18,26 +19,26 @@ defmodule Ankole.Pod.TargetedGraphTest do
     {:ok, child} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{parent_id: a.id})
 
-    grant(%{principal_uid: viewer.uid}, a.id, "self", "page_view")
+    grant(%{principal_uid: viewer.uid}, a.id, "self", "node_view")
 
     conditional =
       grant(
-        %{source_page_id: a.id, source_action: "page_view"},
+        %{source_node_id: a.id, source_action: "node_view"},
         b.id,
         "container",
-        "page_edit",
+        "node_edit",
         ~s(context.request.ip == "10.0.0.1")
       )
 
     unconditional =
-      grant(%{source_page_id: b.id, source_action: "page_edit"}, a.id, "container", "page_manage")
+      grant(%{source_node_id: b.id, source_action: "node_edit"}, a.id, "container", "node_manage")
 
-    grant(%{source_page_id: child.id, source_action: "page_manage"}, e.id, "self", "page_view")
-    grant(%{source_page_id: child.id, source_action: "page_manage"}, e.id, "self", "page_comment")
-    grant(%{source_page_id: e.id, source_action: "page_comment"}, b.id, "self", "page_comment")
-    grant(%{source_page_id: c.id, source_action: "page_view"}, d.id, "container", "page_view")
-    grant(%{source_page_id: d.id, source_action: "page_view"}, c.id, "container", "page_view")
-    assert {:ok, snapshot} = Snapshot.build_pod_context_snapshot(viewer.uid)
+    grant(%{source_node_id: child.id, source_action: "node_manage"}, e.id, "self", "node_view")
+    grant(%{source_node_id: child.id, source_action: "node_manage"}, e.id, "self", "node_comment")
+    grant(%{source_node_id: e.id, source_action: "node_comment"}, b.id, "self", "node_comment")
+    grant(%{source_node_id: c.id, source_action: "node_view"}, d.id, "container", "node_view")
+    grant(%{source_node_id: d.id, source_action: "node_view"}, c.id, "container", "node_view")
+    assert {:ok, snapshot} = Snapshot.build_drive_context_snapshot(viewer.uid)
     ids = Enum.map(snapshot["grants"], & &1["id"])
     assert conditional.id in ids
     refute unconditional.id in ids
@@ -55,6 +56,20 @@ defmodule Ankole.Pod.TargetedGraphTest do
       assert {:ok, context} =
                Access.context_snapshot(
                  Ankole.PrincipalsFixtures.actor_fixture(actor_context(viewer.uid, ip))
+               )
+
+      assert {:ok, %{}} =
+               Access.reachable_anchors(
+                 Ankole.PrincipalsFixtures.actor_fixture(actor_context(viewer.uid, ip)),
+                 target_ids: [],
+                 context: context
+               )
+
+      assert {:ok, %{}} =
+               Access.reachable_trashed(
+                 Ankole.PrincipalsFixtures.actor_fixture(actor_context(viewer.uid, ip)),
+                 [],
+                 context: context
                )
 
       for {page, expected} <- [
@@ -78,11 +93,11 @@ defmodule Ankole.Pod.TargetedGraphTest do
         assert Access.page_bits(page, targeted) == expected
 
         for {action, bit} <- [
-              {"page_view", 1},
-              {"page_write_records", 2},
-              {"page_edit", 4},
-              {"page_manage", 8},
-              {"page_comment", 16}
+              {"node_view", 1},
+              {"node_contribute", 2},
+              {"node_edit", 4},
+              {"node_manage", 8},
+              {"node_comment", 16}
             ] do
           if Bitwise.band(expected, bit) == 0 do
             assert {:error, :forbidden} =
@@ -144,7 +159,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                shared_child.id,
-               "page_view"
+               "node_view"
              )
   end
 
@@ -163,16 +178,16 @@ defmodule Ankole.Pod.TargetedGraphTest do
     {:ok, nested_source} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{parent_id: nested.id})
 
-    grant(%{principal_uid: viewer.uid}, source.id, "self", "page_view")
-    grant(%{principal_uid: viewer.uid}, nested_source.id, "self", "page_view")
-    grant(%{source_page_id: source.id, source_action: "page_view"}, a.id, "self", "page_manage")
-    grant(%{source_page_id: source.id, source_action: "page_view"}, b.id, "self", "page_manage")
+    grant(%{principal_uid: viewer.uid}, source.id, "self", "node_view")
+    grant(%{principal_uid: viewer.uid}, nested_source.id, "self", "node_view")
+    grant(%{source_node_id: source.id, source_action: "node_view"}, a.id, "self", "node_manage")
+    grant(%{source_node_id: source.id, source_action: "node_view"}, b.id, "self", "node_manage")
 
     grant(
-      %{source_page_id: nested_source.id, source_action: "page_view"},
+      %{source_node_id: nested_source.id, source_action: "node_view"},
       a.id,
       "self",
-      "page_edit"
+      "node_edit"
     )
 
     assert {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), nested.id)
@@ -214,7 +229,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
              Access.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                Repo.get!(Page, a.id),
-               "page_manage",
+               "node_manage",
                trash: true
              )
 
@@ -222,44 +237,40 @@ defmodule Ankole.Pod.TargetedGraphTest do
              Access.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                Repo.get!(Page, b.id),
-               "page_manage",
+               "node_manage",
                trash: true
              )
   end
 
-  test "targeted and batched rights retain the interactive Human intersection" do
+  test "targeted and batched rights retain the executing Agent permissions" do
     owner = human_fixture().principal
     human = human_fixture().principal
     agent = agent_fixture(%{owner_principal_uid: owner.uid}).principal
     page = private_page(owner)
-    grant(%{principal_uid: agent.uid}, page.id, "container", "page_manage")
-    grant(%{principal_uid: human.uid}, page.id, "self", "page_view")
+    grant(%{principal_uid: agent.uid}, page.id, "container", "node_manage")
+    grant(%{principal_uid: human.uid}, page.id, "self", "node_view")
 
-    assert_equivalent(Ankole.AuthZ.Actor.new(agent, interactive_principal: human), page.id, 0)
+    assert_equivalent(Ankole.AuthZ.Actor.new(agent), page.id, 8)
 
-    grant(%{principal_uid: agent.uid}, page.id, "self", "page_view")
+    grant(%{principal_uid: agent.uid}, page.id, "self", "node_view")
 
-    assert_equivalent(Ankole.AuthZ.Actor.new(agent, interactive_principal: human), page.id, 1)
+    assert_equivalent(Ankole.AuthZ.Actor.new(agent), page.id, 9)
 
     assert {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id)
 
     assert {:ok, context} =
              Access.context_snapshot(
-               Ankole.PrincipalsFixtures.actor_fixture(
-                 Ankole.AuthZ.Actor.new(agent, interactive_principal: human)
-               )
+               Ankole.PrincipalsFixtures.actor_fixture(Ankole.AuthZ.Actor.new(agent))
              )
 
     assert {:ok, rights} =
              Access.reachable_trashed(
-               Ankole.PrincipalsFixtures.actor_fixture(
-                 Ankole.AuthZ.Actor.new(agent, interactive_principal: human)
-               ),
+               Ankole.PrincipalsFixtures.actor_fixture(Ankole.AuthZ.Actor.new(agent)),
                [page.id],
                context: context
              )
 
-    assert Access.page_bits(Repo.get!(Page, page.id), rights) == 1
+    assert Access.page_bits(Repo.get!(Page, page.id), rights) == 9
   end
 
   defp assert_equivalent(uid, id, expected) do
@@ -285,12 +296,12 @@ defmodule Ankole.Pod.TargetedGraphTest do
   end
 
   defp grant(subject, target, scope, action, condition \\ "true") do
-    suffix = if scope == "container", do: "**", else: "page"
+    suffix = if scope == "container", do: "**", else: "node"
 
     assert {:ok, grant} =
              AuthZ.create_permission_grant(
                Map.merge(subject, %{
-                 resource_pattern: "pod:**:#{target}:#{suffix}",
+                 resource_pattern: "drive:**:#{target}:#{suffix}",
                  action: action,
                  condition: condition
                })

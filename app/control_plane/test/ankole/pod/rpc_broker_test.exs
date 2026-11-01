@@ -36,6 +36,86 @@ defmodule Ankole.Pod.RPCBrokerTest do
     }
   end
 
+  test "file relays use the object-store upload ceiling and the committed object size", ctx do
+    bytes = :binary.copy("a", Ankole.WorkerFiles.max_transfer_bytes() + 1)
+    {:ok, maximum} = Ankole.Files.upload_limit()
+    assert maximum > byte_size(bytes)
+    actor = actor_fixture(ctx.agent)
+
+    {:ok, page} =
+      Pages.create(actor, %{type: "file", title: "large.bin", private_owner_uid: ctx.agent})
+
+    {:ok, document} = Pages.create(actor, %{type: "doc", private_owner_uid: ctx.agent})
+    worker = WorkerFilesFake.start!(ctx.route, files: %{"large.bin" => bytes})
+
+    assert {:ok, %{"result" => %{"file" => %{"size" => size}}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("files.upload", %{
+                 id: page.id,
+                 role: "file",
+                 base_object_id: nil,
+                 home_relative_path: "large.bin"
+               }),
+               ctx.ctx
+             )
+
+    assert size == byte_size(bytes)
+
+    assert {:ok, %{"result" => %{"size" => ^size}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("files.download", %{
+                 id: page.id,
+                 path: "large.bin",
+                 home_relative_path: "received.bin"
+               }),
+               ctx.ctx
+             )
+
+    assert WorkerFilesFake.files(worker)["received.bin"] == bytes
+
+    {:ok, node} = Ankole.Files.fetch_node(page.id)
+    {:ok, signal} = Ankole.Signals.get_signal(ctx.ref.signal_id)
+    {:ok, message} = Ankole.Conversations.get_message(signal.message_id)
+
+    assert {:ok, _} =
+             Repo.transact_top_level(fn ->
+               Ankole.Ash.update(message, :resolve_attachments, %{
+                 attachments: [
+                   %{"object_id" => node.object_id, "name" => "frozen.bin", "size" => 1}
+                 ]
+               })
+             end)
+
+    assert {:ok, _} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("chat.attachment.get", %{
+                 conversation_id: message.conversation_id,
+                 message_id: message.id,
+                 position: 0,
+                 home_relative_path: "frozen.bin"
+               }),
+               ctx.ctx
+             )
+
+    assert WorkerFilesFake.files(worker)["frozen.bin"] == bytes
+
+    assert {:error, %{"code" => "validation_failed"}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.write", %{
+                 id: document.id,
+                 base_revision: 0,
+                 xml_home_relative_path: "large.bin"
+               }),
+               ctx.ctx
+             )
+
+    assert {:ok, %{revision: 0}} = Pages.fetch(document.id)
+  end
+
   test "directory RPC lists nested children and searches their authorized breadcrumbs", ctx do
     actor = actor_fixture(ctx.owner)
     {:ok, parent} = Pages.create(actor, %{title: "Project", private_owner_uid: ctx.owner})
@@ -138,6 +218,16 @@ defmodule Ankole.Pod.RPCBrokerTest do
           grants: [%{principal_uid: ctx.agent, role: "edit"}]
         })
 
+      expected_object =
+        if operation == "files.upload" do
+          {:ok, uploaded} =
+            Files.upload(actor_fixture(ctx.owner), page.id, "file", nil, "Unchanged", "original")
+
+          uploaded.file.object_id
+        else
+          nil
+        end
+
       WorkerFilesFake.start!(ctx.route,
         files: %{"source.xml" => "<page><p>New content</p></page>"},
         push_result: {"read_failed", "Worker could not complete the source read"}
@@ -146,6 +236,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
       params = %{
         id: page.id,
         base_revision: 0,
+        base_object_id: expected_object,
         xml_home_relative_path: "source.xml",
         home_relative_path: "source.xml"
       }
@@ -157,6 +248,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
                Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
       assert detail.page.revision == 0
+      assert detail.page.object_id == expected_object
     end
   end
 
@@ -226,7 +318,8 @@ defmodule Ankole.Pod.RPCBrokerTest do
              )
   end
 
-  test "Human-driven sharing requires manage access for both the Human and Agent", ctx do
+  test "Human-driven sharing uses the executing Agent grants independently of Human grants",
+       ctx do
     {source, _parent} = page_request(ctx)
     assert {:ok, _run} = Ankole.Sessions.Admission.admit(source, source)
     ref = %RunRef{agent_uid: ctx.agent, session_id: source.session_id, signal_id: source.id}
@@ -250,20 +343,23 @@ defmodule Ankole.Pod.RPCBrokerTest do
       grants: [%{principal_uid: ctx.agent, role: "manage"}]
     }
 
-    assert {:error, %{"code" => "forbidden"}} =
-             RPCBroker.handle_write(ref, request("pages.set_sharing", params), ctx.ctx)
+    assert {:ok, _} = RPCBroker.handle_write(ref, request("pages.set_sharing", params), ctx.ctx)
 
+    # The initiating Human's access is not intersected with the Agent's grants.
+    # Removing Agent manage still rejects the same operation.
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(colleague.uid, page.id, %{
         grants: [
-          %{principal_uid: ctx.agent, role: "manage"},
+          %{principal_uid: ctx.agent, role: "edit"},
           %{principal_uid: ctx.owner, role: "manage"}
         ]
       })
 
     {:ok, sharing} = Pages.sharing(colleague_actor, page.id)
     params = %{params | sharing_version: sharing.sharing_version}
-    assert {:ok, _} = RPCBroker.handle_write(ref, request("pages.set_sharing", params), ctx.ctx)
+
+    assert {:error, %{"code" => "forbidden"}} =
+             RPCBroker.handle_write(ref, request("pages.set_sharing", params), ctx.ctx)
   end
 
   test "document RPC transfers canonical XML over the signed relay and keeps CAS at its owner",
@@ -362,25 +458,22 @@ defmodule Ankole.Pod.RPCBrokerTest do
         Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
         page.id,
         "file",
-        0,
+        nil,
         "report.txt",
         "saved bytes"
       )
 
     fake = WorkerFilesFake.start!(ctx.route)
 
-    request = %FabricProto.FilesGetRequest{
-      pod_drive: true,
-      path: "pages/#{page.id}/report.txt",
-      home_relative_path: "received/report.txt"
-    }
+    request =
+      request("files.download", %{
+        id: page.id,
+        path: "report.txt",
+        home_relative_path: "received/report.txt"
+      })
 
     assert {:error, %{"code" => "forbidden"}} =
-             Ankole.Files.RPCBroker.handle_get(
-               ctx.agent,
-               request,
-               Map.put(ctx.ctx, :turn_ref, ctx.ref)
-             )
+             RPCBroker.handle_read(ctx.ref, request, ctx.ctx)
 
     assert WorkerFilesFake.files(fake) == %{}
 
@@ -389,12 +482,8 @@ defmodule Ankole.Pod.RPCBrokerTest do
         grants: [%{principal_uid: ctx.agent, role: "view"}]
       })
 
-    assert {:ok, %FabricProto.FilesGetResponse{}} =
-             Ankole.Files.RPCBroker.handle_get(
-               ctx.agent,
-               request,
-               Map.put(ctx.ctx, :turn_ref, ctx.ref)
-             )
+    assert {:ok, %{"result" => %{"object_id" => _}}} =
+             RPCBroker.handle_read(ctx.ref, request, ctx.ctx)
 
     assert WorkerFilesFake.files(fake) == %{"received/report.txt" => "saved bytes"}
   end
@@ -891,10 +980,10 @@ defmodule Ankole.Pod.RPCBrokerTest do
 
           {:ok, _} =
             Ankole.Files.commit(ctx.agent, [
-              %{path: "publish/#{applet.id}/#{path}", sha256: blob.sha256, source: "agent"}
+              Map.merge(blob, %{path: "publish/#{applet.id}/#{path}", source: "agent"})
             ])
 
-          %{path: path, sha256: blob.sha256}
+          %{path: path, object_id: blob.object_id, source_path: "publish/#{applet.id}/#{path}"}
         end
       )
 

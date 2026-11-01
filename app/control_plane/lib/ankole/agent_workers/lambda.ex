@@ -5,6 +5,7 @@ defmodule Ankole.AgentWorkers.Lambda do
   alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.Lambda.Client
   alias Ankole.AgentWorkers.Lambda.Images
+  alias Ankole.AgentWorkers.ProviderKind
   alias Ankole.AgentWorkers.ProviderKind.Definition
   alias Ankole.AgentWorkers.Providers.Configuration, as: C
 
@@ -128,7 +129,9 @@ defmodule Ankole.AgentWorkers.Lambda do
       # The run hook accepts exactly these keys; the image supplies Skill roots.
       contract =
         spec.env
-        |> Map.take(~w(WORKER_ID ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY))
+        |> Map.take(
+          ~w(WORKER_ID ANKOLE_WORKER_STORAGE_NAME ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY)
+        )
         |> Map.merge(%{
           "ANKOLE_RUNTIME_FABRIC_ENDPOINT" => env["ANKOLE_RUNTIME_FABRIC_ENDPOINT"],
           "ANKOLE_WORKER_STORAGE" => "nfs",
@@ -136,7 +139,12 @@ defmodule Ankole.AgentWorkers.Lambda do
         })
 
       with {:ok, body} <-
-             run_request(image, contract, token({spec.agent_uid, spec.generation}), 28_800) do
+             run_request(
+               image,
+               contract,
+               token({Ankole.Repo.tenant_id!(), spec.agent_uid, spec.generation}),
+               28_800
+             ) do
         case Client.request(provider, :post, "/microvms", body) do
           {:ok, %{"microvmId" => id}} ->
             {:ok, id}
@@ -170,7 +178,12 @@ defmodule Ankole.AgentWorkers.Lambda do
     with {:ok, instances} <- listed(provider) do
       # Only this Agent's references are checked, so one bad row cannot stop
       # the other Agents on the provider.
-      worker = Enum.find(rows(provider), &(&1.agent_uid == uid))
+      worker =
+        Enum.find(
+          rows(provider),
+          &(&1.tenant_id == Ankole.Repo.tenant_id!() and &1.agent_uid == uid)
+        )
+
       ref = worker && worker.instance_ref
 
       with {:ok, instances} <- saved_instance(provider, worker, ref, instances) do
@@ -290,7 +303,9 @@ defmodule Ankole.AgentWorkers.Lambda do
   defp start_storage_deletion(provider, uid, ref) do
     client_token =
       token(
-        if ref, do: {uid, :delete_storage, ref["previousMicrovmId"]}, else: {uid, :delete_storage}
+        if ref,
+          do: {Ankole.Repo.tenant_id!(), uid, :delete_storage, ref["previousMicrovmId"]},
+          else: {Ankole.Repo.tenant_id!(), uid, :delete_storage}
       )
 
     with :ok <- Images.prepare(provider, "storage"),
@@ -300,6 +315,8 @@ defmodule Ankole.AgentWorkers.Lambda do
              image,
              %{
                "WORKER_ID" => uid,
+               "ANKOLE_WORKER_STORAGE_NAME" =>
+                 ProviderKind.storage_name(provider.runtime.installation, uid),
                "ANKOLE_WORKER_STORAGE" => "nfs",
                "ANKOLE_WORKER_NFS_SOURCE" => nfs_source(provider)
              },
@@ -398,6 +415,7 @@ defmodule Ankole.AgentWorkers.Lambda do
 
   defp observe(instance, worker) do
     %{
+      tenant_id: worker && worker.tenant_id,
       agent_uid: worker && worker.agent_uid,
       generation: worker && worker.generation,
       instance_ref: instance["microvmId"],

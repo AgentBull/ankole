@@ -7,13 +7,14 @@ import { createPageMetadata, pageMetadata } from './page-metadata'
 
 const row = (id: string): NavigationPage => ({
   id,
+  name: id,
   title: id,
   icon: '📄',
   type: 'doc',
   position: id,
   inherit_permissions: true,
   has_children: false,
-  actions: ['page_view'],
+  actions: ['node_view'],
   role: 'view'
 })
 const directory = (pages: NavigationPage[], next_cursor: string | null = null) => ({

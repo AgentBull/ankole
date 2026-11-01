@@ -22,7 +22,7 @@ defmodule Ankole.Signals.BindingConfigTest do
   setup do
     %{principal: agent} = agent_fixture()
     binding = binding_fixture(agent.uid, "config-owner", :ignore, adapter: "line")
-    key = Config.binding_config_key(agent.uid, binding.name)
+    key = Config.binding_config_key(Repo.tenant_id!(), binding.id)
 
     binding =
       binding |> Ecto.Changeset.change(config_ref: "app-config://#{key}") |> Repo.update!()
@@ -30,7 +30,7 @@ defmodule Ankole.Signals.BindingConfigTest do
     %{
       binding: binding,
       key: key,
-      intent: %Intent{agent_uid: agent.uid, binding_name: binding.name}
+      intent: %Intent{binding_id: binding.id, agent_uid: agent.uid, binding_name: binding.name}
     }
   end
 
@@ -57,7 +57,7 @@ defmodule Ankole.Signals.BindingConfigTest do
     assert {:error, :binding_config_not_found} = Bindings.delivery_config(intent, Config)
 
     assert {:error, :binding_not_found} =
-             Bindings.delivery_config(%{intent | binding_name: "absent"}, Config)
+             Bindings.delivery_config(%{intent | binding_id: Ecto.UUID.generate()}, Config)
   end
 
   test "configuration references use the declared app-config URI", %{binding: binding} do
@@ -94,7 +94,7 @@ defmodule Ankole.Signals.BindingConfigTest do
 
   test "Email missing configuration needs operator action", %{binding: binding, intent: intent} do
     email_key =
-      Ankole.Plugins.EmailAdapter.Config.binding_config_key(binding.agent_uid, binding.name)
+      Ankole.Plugins.EmailAdapter.Config.binding_config_key(Repo.tenant_id!(), binding.id)
 
     binding
     |> Ecto.Changeset.change(adapter: "email", config_ref: "app-config://#{email_key}")
@@ -175,9 +175,10 @@ defmodule Ankole.Signals.BindingConfigTest do
         assert is_nil(blocked.next_attempt_at)
 
         assert {:ok, %{binding: updated}} =
-                 Bindings.update_binding(saved.agent_uid, saved.agent_uid, saved.name, %{
-                   "config" => %{"channelSecret" => "raise"}
-                 })
+                 Bindings.update_binding(
+                   Ankole.Signals.get_agent_binding!(saved.agent_uid, saved.name).id,
+                   %{"agent_uid" => saved.agent_uid, "config" => %{"channelSecret" => "raise"}}
+                 )
 
         assert {:ok, %{"channelSecret" => "raise"}} = Bindings.stored_binding_config(updated)
 

@@ -124,8 +124,8 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
       namespace: namespace
     } do
       crashed = create_until(uid, "/api/v1/namespaces/#{namespace}/secrets")
-      generation = Repo.get!(AgentWorker, uid).generation
-      assert Repo.get!(AgentWorker, uid).instance_seen_at == nil
+      generation = Repo.get_by!(AgentWorker, agent_uid: uid).generation
+      assert Repo.get_by!(AgentWorker, agent_uid: uid).instance_seen_at == nil
 
       assert {:ok, [%{generation: ^generation, instance_present?: false}]} =
                Kubernetes.list_instances(provider, uid)
@@ -142,8 +142,8 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
       end
 
       resumed = create_until(uid, "/api/v1/namespaces/#{namespace}/pods")
-      assert Repo.get!(AgentWorker, uid).generation == generation
-      assert Repo.get!(AgentWorker, uid).state == @state
+      assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == generation
+      assert Repo.get_by!(AgentWorker, agent_uid: uid).state == @state
 
       assert {:ok, [%{generation: ^generation, instance_present?: true}]} =
                Kubernetes.list_instances(provider, uid)
@@ -161,7 +161,7 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
                      uid
                    )
 
-                   Repo.get(AgentWorker, uid) == nil
+                   Repo.get_by(AgentWorker, agent_uid: uid) == nil
                  end)
 
         assert {:ok, []} = Kubernetes.list_instances(provider, uid)
@@ -169,7 +169,7 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
         assert :ok = result
 
         assert %AgentWorker{generation: ^generation, instance_seen_at: %DateTime{}} =
-                 Repo.get!(AgentWorker, uid)
+                 Repo.get_by!(AgentWorker, agent_uid: uid)
       end
     end
   end
@@ -180,7 +180,7 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
     # PVC finalizers finish after the Pod disappears. The row must survive
     # this expected retry, with its generation already settled.
     assert %AgentWorker{state: :deleting, generation: nil, last_error: reason} =
-             Repo.get!(AgentWorker, uid)
+             Repo.get_by!(AgentWorker, agent_uid: uid)
 
     assert reason =~ name
   end

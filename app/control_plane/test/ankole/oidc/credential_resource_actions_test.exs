@@ -21,6 +21,17 @@ defmodule Ankole.OIDC.CredentialResourceActionsTest do
     %{session: session}
   end
 
+  test "an unconsumed authorization Code follows its Principal rename", ctx do
+    code = code(ctx.session)
+
+    assert {:ok, %{principal: renamed}} =
+             Ankole.Principals.rename(ctx.session.principal_uid, "renamed-code-owner")
+
+    assert {:ok, grant} = CodeStore.take(code.digest)
+    assert grant.data.subject == renamed.uid
+    assert grant.data.claims["session_id"] == ctx.session.id
+  end
+
   test "Code consumption commits once and finalization cannot replace its replay facts", ctx do
     code = code(ctx.session)
     assert {:ok, grant} = CodeStore.take(code.digest)

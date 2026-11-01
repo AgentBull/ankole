@@ -232,7 +232,7 @@ defmodule Ankole.MixProject do
       {:ecto, "3.14.2"},
       {:ecto_sql, "~> 3.14"},
       {:postgrex, ">= 0.22.4"},
-      {:phoenix_html, "~> 4.3"},
+      {:phoenix_html, "~> 4.4"},
       {:phoenix_live_reload, "~> 1.7.0", only: :dev},
       {:opentelemetry_api, "~> 1.5"},
       {:opentelemetry, "~> 1.7"},

@@ -27,20 +27,31 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
   def resolve(presentation, agent_uid, state, client)
       when is_map(presentation) and is_binary(agent_uid) and is_map(state) do
     answer = presentation["answer"] || ""
-    urls = image_urls(answer)
 
-    unresolved_urls =
-      Enum.reject(urls, fn url ->
-        match?(%{"status" => status} when status in ["ready", "failed"], state[url])
-      end)
-
-    if unresolved_urls == [] do
-      {:ok, apply_resolved(presentation, state), state}
+    if not String.contains?(answer, "![") do
+      {:ok, Map.put(presentation, "answer", answer), state}
     else
-      with {:ok, ssrf_filter?} <- SSRFFilter.enabled?(),
-           {:ok, state} <-
-             resolve_urls(unresolved_urls, state, client, ssrf_filter?) do
-        {:ok, apply_resolved(presentation, state), state}
+      segments = MarkdownSegmenter.code_segments(answer)
+      urls = image_urls(segments)
+
+      unresolved_urls =
+        Enum.reject(urls, fn url ->
+          match?(%{"status" => status} when status in ["ready", "failed"], state[url])
+        end)
+
+      cond do
+        urls == [] ->
+          {:ok, Map.put(presentation, "answer", answer), state}
+
+        unresolved_urls == [] ->
+          {:ok, apply_resolved_segments(presentation, segments, state), state}
+
+        true ->
+          with {:ok, ssrf_filter?} <- SSRFFilter.enabled?(),
+               {:ok, state} <-
+                 resolve_urls(unresolved_urls, state, client, ssrf_filter?) do
+            {:ok, apply_resolved_segments(presentation, segments, state), state}
+          end
       end
     end
   end
@@ -49,10 +60,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
   def apply_resolved(presentation, state) when is_map(presentation) and is_map(state) do
     answer = presentation["answer"] || ""
 
+    if map_size(state) == 0 or not String.contains?(answer, "![") do
+      Map.put(presentation, "answer", answer)
+    else
+      apply_resolved_segments(presentation, MarkdownSegmenter.code_segments(answer), state)
+    end
+  end
+
+  defp apply_resolved_segments(presentation, segments, state) do
     rendered =
-      answer
-      |> MarkdownSegmenter.code_segments()
-      |> Enum.map_join(fn
+      Enum.map_join(segments, fn
         {:code, source} ->
           source
 
@@ -75,9 +92,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
     Map.put(presentation, "answer", rendered)
   end
 
-  defp image_urls(answer) do
-    answer
-    |> MarkdownSegmenter.code_segments()
+  defp image_urls(segments) do
+    segments
     |> Enum.flat_map(fn
       {:code, _source} ->
         []

@@ -193,6 +193,7 @@ defmodule Ankole.AIGateway do
             runtime,
             Keyword.get(opts, :subject_type),
             Map.fetch!(upstream_response, :body),
+            caller: Keyword.get(opts, :caller),
             aggregate_includes_tool_usage?: Map.has_key?(prepared_request, :hosted_tools)
           )
 

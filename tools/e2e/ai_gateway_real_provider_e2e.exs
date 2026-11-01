@@ -70,7 +70,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   @xiaomi_mimo_llm_model "mimo-v2.5"
   @zai_coding_plan_llm_model "glm-4.7"
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
@@ -1692,7 +1692,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     case Principals.create_agent(%{
            worker_provider_id: worker_provider.provider_id,
-           handle: "e2e-#{suffix}",
+           uid: "e2e-#{suffix}",
            display_name: uid,
            role: "AIGateway E2E Agent",
            options: options,

@@ -52,7 +52,7 @@ AppConfigure는 제품 설정을 PostgreSQL에 저장하며 대부분의 변경�
 | `pod.allow_external_guests` | 테넌트 | 초대받은 외부 게스트가 공유된 Pod 페이지에 접근하도록 허용할지 여부(기본값 `true`) |
 | `pod.applet.limits` | 테넌트 | Applet 실행 한도(기본값 `timeout_ms: 60000`, `heap_mb: 128`) |
 | `pod.base.limits` | 테넌트 | Base 쿼리 및 레코드 한도(기본값 `query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
-| `pod.trash_retention_days` | 테넌트 | 휴지통으로 이동한 페이지를 영구 삭제하기 전까지 보관하는 일수(양의 정수, 기본값 `30`) |
+| `drive.trash_retention_days` | 테넌트  삭제된 Drive 노드를 자동으로 영구 삭제하기 전까지 보관하는 일수. 기본값은 `30`이며, `0`으로 설정하면 무기한 보관 |
 | `pod.ot_replay_window` | 테넌트 | OT 재생을 위해 보관하는 최근 문서 변경 배치 수(기본값 `1000`) |
 
 ### Workflow

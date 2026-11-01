@@ -118,7 +118,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
     {:ok, page} = Ankole.Pod.Pages.create(actor, %{title: "Trash row"})
     {:ok, _} = Ankole.Pod.Pages.delete(actor, page.id)
-    function = {Ankole.Kernel, :authz_evaluate_pod_context, 1}
+    function = {Ankole.Kernel, :authz_evaluate_drive_context, 1}
     :erlang.trace_pattern(function, true, [:call_count])
 
     try do
@@ -132,7 +132,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
       assert response["trash_retention_days"] == 30
       assert [%{"id" => id, "actions" => actions}] = response["pages"]
       assert id == page.id
-      assert "page_manage" in actions
+      assert "node_manage" in actions
       assert :erlang.trace_info(function, :call_count) == {:call_count, 1}
     after
       :erlang.trace_pattern(function, false, [:call_count])
@@ -168,7 +168,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              "can_create_space" => true
            } = owner |> recycle_json() |> get("/api/v2/pod/pages/children") |> json_response(200)
 
-    assert actions == ~w(page_view page_write_records page_edit page_manage page_comment)
+    assert actions == ~w(node_view node_contribute node_edit node_manage node_comment)
 
     assert %{"pages" => [%{"id" => ^private_id, "has_children" => true}], "next_cursor" => nil} =
              owner
@@ -297,7 +297,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     assert %{"content" => %{"content" => ^xml}, "role" => "manage", "actions" => actions} =
              json_response(read, 200)
 
-    assert actions == ~w(page_view page_write_records page_edit page_manage page_comment)
+    assert actions == ~w(node_view node_contribute node_edit node_manage node_comment)
 
     human = Ankole.PrincipalsFixtures.human_fixture().principal
 
@@ -322,7 +322,10 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              |> send_json(:post, "/pages/#{id}/move", %{parent_id: nil})
              |> json_response(403)
 
-    assert {:ok, %{page: %{private_owner_uid: ^uid}, content: %{content: ^xml}}} =
+    assert {:ok, private_root} = Ankole.Files.private_root(uid)
+    private_root_id = private_root.id
+
+    assert {:ok, %{page: %{parent_id: ^private_root_id}, content: %{content: ^xml}}} =
              Ankole.Pod.Pages.get(Ankole.PrincipalsFixtures.actor_fixture(uid), id)
   end
 
@@ -340,10 +343,12 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
 
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
-        source_page_id: source.id,
-        source_action: "page_view",
-        resource_pattern: "pod:**:#{target.id}:**",
-        action: "page_write_records"
+        source_node_id: source.id,
+        source_action: "node_view",
+        resource_pattern: "drive:**:#{target.id}:**",
+        target_node_id: target.id,
+        target_scope: "container",
+        action: "node_contribute"
       })
 
     sharing =
@@ -352,13 +357,13 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
       |> get("/api/v2/pod/pages/#{target.id}/sharing")
       |> json_response(200)
 
-    assert [%{"actions" => ["page_write_records"]}] = sharing["grants"]
+    assert [%{"actions" => ["node_contribute"]}] = sharing["grants"]
 
     grants =
       Enum.map(sharing["grants"], fn grant ->
         Map.take(
           grant,
-          ~w(principal_uid group_id source_page_id source_action target_scope condition actions)
+          ~w(principal_uid group_id source_node_id source_action target_scope condition actions)
         )
       end)
 
@@ -373,8 +378,8 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
 
     assert id == target.id
     reader = Ankole.PrincipalsFixtures.actor_fixture(human.uid)
-    assert {:error, :forbidden} = Ankole.Pod.Pages.authorize(reader, target.id, "page_view")
-    assert {:ok, _} = Ankole.Pod.Pages.authorize(reader, target.id, "page_write_records")
+    assert {:error, :forbidden} = Ankole.Pod.Pages.authorize(reader, target.id, "node_view")
+    assert {:ok, _} = Ankole.Pod.Pages.authorize(reader, target.id, "node_contribute")
   end
 
   test "sharing accepts one rule meaning and rejects conflicting role and actions", %{conn: conn} do
@@ -385,8 +390,8 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
 
     for rule <- [
           %{role: "view"},
-          %{actions: ["page_write_records"]},
-          %{role: "contribute", actions: ["page_write_records", "page_view", "page_comment"]}
+          %{actions: ["node_contribute"]},
+          %{role: "contribute", actions: ["node_contribute", "node_view", "node_comment"]}
         ] do
       {:ok, sharing} = Ankole.Pod.Pages.sharing(actor, page.id)
 
@@ -403,7 +408,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     owner
     |> send_json(:put, "/pages/#{page.id}/sharing", %{
       sharing_version: sharing.sharing_version,
-      grants: [%{principal_uid: human.uid, role: "view", actions: ["page_write_records"]}]
+      grants: [%{principal_uid: human.uid, role: "view", actions: ["node_contribute"]}]
     })
     |> json_response(422)
 
@@ -433,7 +438,10 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     children =
       for number <- 1..202 do
         {:ok, child} =
-          Ankole.Pod.Pages.create(actor, %{parent_id: source.id, title: "Child #{number}"})
+          Ankole.Pod.Pages.create(actor, %{
+            parent_id: source.id,
+            title: "Child #{String.pad_leading(to_string(number), 3, "0")}"
+          })
 
         child
       end
@@ -562,7 +570,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
       |> get("/api/v2/pod/pages/search", %{
         query: "needle",
         exclude_subtree_of: source.id,
-        required_action: "page_edit"
+        required_action: "node_edit"
       })
       |> json_response(200)
 
@@ -692,11 +700,11 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     {:ok, secret} =
       Ankole.Pod.Pages.create(actor, %{private_owner_uid: uid, title: "Secret Source"})
 
-    {:ok, %{id: group_id}} = Ankole.Pod.Access.space_group()
+    {:ok, %{id: group_id}} = Ankole.Files.Access.space_group()
 
     {:ok, :ok} =
       Ankole.Repo.transact_top_level(fn ->
-        {:ok, Ankole.Pod.Access.put_role(%{group_id: group_id}, "pod:space:**", "view")}
+        {:ok, Ankole.Files.Access.put_role(%{group_id: group_id}, "drive:space:**", "view")}
       end)
 
     {:ok, _} =
@@ -709,17 +717,21 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
 
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
-        source_page_id: secret.id,
-        source_action: "page_view",
-        resource_pattern: "pod:**:#{child.id}:page",
-        action: "page_view"
+        source_node_id: secret.id,
+        source_action: "node_view",
+        resource_pattern: "drive:**:#{child.id}:node",
+        target_node_id: child.id,
+        target_scope: "self",
+        action: "node_view"
       })
 
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: viewer.uid,
-        resource_pattern: "pod:**:#{child.id}:page",
-        action: "page_edit",
+        resource_pattern: "drive:**:#{child.id}:node",
+        target_node_id: child.id,
+        target_scope: "self",
+        action: "node_edit",
         condition: "context.request.ip == \"10.0.0.1\""
       })
 
@@ -728,8 +740,10 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: partial.uid,
-        resource_pattern: "pod:**:#{child.id}:page",
-        action: "page_write_records"
+        resource_pattern: "drive:**:#{child.id}:node",
+        target_node_id: child.id,
+        target_scope: "self",
+        action: "node_contribute"
       })
 
     manager_sharing =
@@ -1091,35 +1105,39 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     assert [%{"role" => "edit", "target_scope" => "self"}] = alice_grants
 
     alice_grant_ids_before =
-      Ankole.Pod.Access.page_grants(doc.id)
+      Ankole.Files.Access.page_grants(doc.id)
       |> Enum.filter(&(&1.principal_uid == alice.uid))
       |> MapSet.new(& &1.id)
 
     assert {:ok, _} = Ankole.PrincipalsFixtures.disable_principal_fixture(departed.uid)
 
-    # Custom unconditional grant conferring page_view appears in read-only overview, while disabled principals are omitted.
+    # Custom unconditional grant conferring node_view appears in read-only overview, while disabled principals are omitted.
     custom_editor =
       Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Custom View+Edit"}).principal
 
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: custom_editor.uid,
-        resource_pattern: "pod:**:#{doc.id}:page",
-        action: "page_view"
+        resource_pattern: "drive:**:#{doc.id}:node",
+        target_node_id: doc.id,
+        target_scope: "self",
+        action: "node_view"
       })
 
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: custom_editor.uid,
-        resource_pattern: "pod:**:#{doc.id}:page",
-        action: "page_edit"
+        resource_pattern: "drive:**:#{doc.id}:node",
+        target_node_id: doc.id,
+        target_scope: "self",
+        action: "node_edit"
       })
 
-    {:ok, %{id: all_humans_id}} = Ankole.Pod.Access.space_group()
+    {:ok, %{id: all_humans_id}} = Ankole.Files.Access.space_group()
 
     {:ok, :ok} =
       Ankole.Repo.transact_top_level(fn ->
-        {:ok, Ankole.Pod.Access.put_role(%{group_id: all_humans_id}, "pod:space:**", "view")}
+        {:ok, Ankole.Files.Access.put_role(%{group_id: all_humans_id}, "drive:space:**", "view")}
       end)
 
     viewer_conn = session_conn_for(conn, viewer, "readonly-viewer")
@@ -1151,14 +1169,14 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
                Enum.find(manager_view["grants"], &(&1["principal_uid"] == departed.uid))
 
       grant_fields =
-        ~w(principal_uid group_id source_page_id source_action target_scope condition actions)
+        ~w(principal_uid group_id source_node_id source_action target_scope condition actions)
 
       narrowed_grants =
         Enum.map(manager_view["grants"], fn row ->
           base = Map.take(row, grant_fields)
 
           if row["principal_uid"] == departed.uid do
-            base |> Map.put("role", "view") |> Map.put("actions", ["page_view"])
+            base |> Map.put("role", "view") |> Map.put("actions", ["node_view"])
           else
             base
           end
@@ -1174,7 +1192,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
                |> json_response(200)
 
       alice_grant_ids_after =
-        Ankole.Pod.Access.page_grants(doc.id)
+        Ankole.Files.Access.page_grants(doc.id)
         |> Enum.filter(&(&1.principal_uid == alice.uid))
         |> MapSet.new(& &1.id)
 
@@ -1227,18 +1245,31 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
       {:ok, true} = Ankole.AppConfigure.put_tenant_by_key("pod.allow_external_guests", true)
     end
 
-    # File and Applet reject self-scoped contribute grants while accepting self view/edit/manage and container contribute.
+    # File readers can receive commenting on the file itself; Applets have no such surface.
     {:ok, file_page} = Ankole.Pod.Pages.create(actor, %{type: :file, title: "Spec PDF"})
     {:ok, applet_page} = Ankole.Pod.Pages.create(actor, %{type: :applet, title: "Dashboard App"})
 
-    for typed_page <- [file_page, applet_page] do
-      assert %{"errors" => [%{"code" => "invalid_grants"}]} =
-               owner
-               |> send_json(:patch, "/pages/#{typed_page.id}/sharing", %{
-                 upserts: [%{principal_uid: alice.uid, role: "contribute", target_scope: "self"}]
-               })
-               |> json_response(422)
+    assert %{
+             "grants" => [
+               %{"role" => "contribute", "target_scope" => "self", "actions" => actions}
+             ]
+           } =
+             owner
+             |> send_json(:patch, "/pages/#{file_page.id}/sharing", %{
+               upserts: [%{principal_uid: alice.uid, role: "contribute", target_scope: "self"}]
+             })
+             |> json_response(200)
 
+    assert "node_comment" in actions
+
+    assert %{"errors" => [%{"code" => "invalid_grants"}]} =
+             owner
+             |> send_json(:patch, "/pages/#{applet_page.id}/sharing", %{
+               upserts: [%{principal_uid: alice.uid, role: "contribute", target_scope: "self"}]
+             })
+             |> json_response(422)
+
+    for typed_page <- [file_page, applet_page] do
       assert %{"grants" => _} =
                owner
                |> send_json(:patch, "/pages/#{typed_page.id}/sharing", %{
@@ -1256,7 +1287,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
                |> json_response(200)
     end
 
-    # retain_manager preserves self-scoped manage without adding container manage, and retains both Agent and Human on interactive Agent turns.
+    # retain_manager preserves self-scoped manage without adding container manage, and retains only the executing Agent on Agent turns.
     {:ok, self_managed} = Ankole.Pod.Pages.create(actor, %{title: "Self Scoped Anchor"})
 
     {:ok, sv} = Ankole.Pod.Pages.sharing(actor, self_managed.id)
@@ -1271,7 +1302,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              |> json_response(200)
 
     owner_scopes =
-      Ankole.Pod.Access.page_grants(self_managed.id)
+      Ankole.Files.Access.page_grants(self_managed.id)
       |> Enum.filter(&(&1.principal_uid == uid))
       |> MapSet.new(& &1.target_scope)
 
@@ -1280,7 +1311,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     agent =
       Ankole.PrincipalsFixtures.agent_fixture(%{
         owner_principal_uid: uid,
-        handle: "sharing_agent",
+        uid: "sharing_agent",
         display_name: "Sharing Agent"
       }).principal
 
@@ -1288,15 +1319,15 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     {:ok, agent_page} = Ankole.Pod.Pages.create(actor, %{title: "Interactive Agent Anchor"})
 
     interactive_actor =
-      Ankole.AuthZ.Actor.new(agent, interactive_principal: actor.principal)
+      Ankole.AuthZ.Actor.new(agent)
 
     assert {:ok, _} =
              Ankole.Pod.Pages.update_sharing(interactive_actor, agent_page.id, %{
                inherit_permissions: false
              })
 
-    assert {:ok, _} = Ankole.Pod.Pages.authorize(interactive_actor, agent_page.id, "page_manage")
-    assert {:ok, _} = Ankole.Pod.Pages.authorize(actor, agent_page.id, "page_manage")
+    assert {:ok, _} = Ankole.Pod.Pages.authorize(interactive_actor, agent_page.id, "node_manage")
+    assert {:error, :forbidden} = Ankole.Pod.Pages.authorize(actor, agent_page.id, "node_manage")
   end
 
   defp session_conn_for(conn, principal, external_id) do

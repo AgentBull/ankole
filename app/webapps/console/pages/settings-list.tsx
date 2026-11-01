@@ -121,16 +121,19 @@ export function SettingsList() {
     let route = settingOwnerRoute(item.key)
     if (!route) return null
     if (item.key.startsWith('ai_agent.library.')) route += `&defaults_scope=${scope}`
+    if (item.key.startsWith('ai_gateway.')) route += `?defaults_scope=${scope}`
     const label =
       item.key === 'saas.require_invitation_code'
         ? 'owner_invitations'
         : item.key === 'plugins.enabled_ids'
           ? 'owner_control_plane_plugins'
-          : item.key.startsWith('ai_agent.library.')
-            ? 'owner_library'
-            : item.key.startsWith('signals.')
-              ? 'owner_signals'
-              : 'owner_identity'
+          : item.key.startsWith('ai_gateway.')
+            ? 'owner_model_profiles'
+            : item.key.startsWith('ai_agent.library.')
+              ? 'owner_library'
+              : item.key.startsWith('signals.')
+                ? 'owner_signals'
+                : 'owner_identity'
     return (
       <Link className="link text-xs" {...linkTarget(route)}>
         {t(`console.settings.${label}`)}
@@ -259,7 +262,7 @@ export function SettingsList() {
                   !item.encrypted &&
                   item.kind !== 'pattern' &&
                   (group.id !== 'brain' ||
-                    ['brain.embedding_model', 'brain.search_tokenizer', 'brain.maintainer_agent_uid'].includes(
+                    ['brain.embedding_model', 'brain.search_tokenizer', 'ai_gateway.model_profiles.rerank'].includes(
                       item.key
                     ))
               )
@@ -407,7 +410,7 @@ function AgentSettingInspection({ item }: { item: AppConfigurationItem }) {
         <SelectContent>
           {(agents.data ?? []).map(agent => (
             <SelectItem key={agent.uid} value={agent.uid}>
-              {agent.display_name || agent.handle}
+              {agent.display_name || agent.uid}
             </SelectItem>
           ))}
         </SelectContent>

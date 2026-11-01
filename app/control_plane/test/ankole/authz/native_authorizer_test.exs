@@ -29,7 +29,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
     assert {:ok, %{displayName: _}} = Ankole.Ash.run_action_authorized(input, actor)
   end
 
-  test "Page reads use the native anchor filter and preserve the intersection of interactive subjects" do
+  test "Page reads apply the native anchor filter to the executing Principal" do
     owner = human_fixture().principal
     other = human_fixture().principal
 
@@ -61,12 +61,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
              end)
 
     assert Enum.map(pages, & &1.id) == [private.id]
-    combined = %{other_actor | interactive_principal: owner}
-
-    assert {:ok, []} =
-             Repo.transact_repeatable_read_only(fn ->
-               Ankole.Ash.read_authorized(Ash.Query.filter(Page, id == ^private.id), combined)
-             end)
+    assert {:error, :forbidden} = Pages.authorize(Actor.new(owner), private.id, "node_view")
   end
 
   test "authentication facts enter the real CEL permission engine" do
@@ -98,7 +93,9 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
              Repo.transact_repeatable_read_only(fn ->
                {{:ok, pages, executed}, queries} =
                  capture_authorization_queries(fn ->
-                   Ankole.Ash.read_authorized(Ash.Query.for_read(Page, :list_roots), owner,
+                   Ankole.Ash.read_authorized(
+                     Ash.Query.for_read(Page, :list_roots) |> Ash.Query.filter(not is_root),
+                     owner,
                      return_query?: true
                    )
                  end)
@@ -106,7 +103,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
                assert Enum.map(pages, &{&1.id, &1.role}) == [{private.id, "manage"}]
                assert Enum.frequencies(queries) == %{snapshot: 1, graph: 1}
                assert length(executed.after_action) == 1
-               assert {^owner, _policy} = executed.context.private.pod_authorization
+               assert {^owner, _policy} = executed.context.private.drive_authorization
 
                {{:ok, [], executed}, queries} =
                  capture_authorization_queries(fn ->
@@ -114,7 +111,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
                  end)
 
                assert Enum.frequencies(queries) == %{snapshot: 1, graph: 1}
-               assert {^outsider, _policy} = executed.context.private.pod_authorization
+               assert {^outsider, _policy} = executed.context.private.drive_authorization
                {:ok, :checked}
              end)
   end
@@ -130,7 +127,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
         fn _, _, metadata, _ ->
           if self() == caller do
             cond do
-              String.contains?(metadata.query, "WITH subject AS") ->
+              String.contains?(metadata.query, "WITH execution AS") ->
                 send(caller, {handler, :snapshot})
 
               String.contains?(metadata.query, "SELECT graph.anchor_id") ->
@@ -160,7 +157,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
     end
   end
 
-  test "Bases writes, schema changes and copies keep the interactive Human permission intersection" do
+  test "Agent writes, schema changes and copies use its own grants" do
     owner = human_fixture().principal
     outsider = human_fixture().principal
     agent = agent_fixture().principal
@@ -181,68 +178,45 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
         name: "Protected"
       })
 
-    for action <- ~w(page_view page_write_records page_edit page_manage page_comment) do
+    for action <- ~w(node_view node_contribute node_edit node_manage node_comment) do
       {:ok, _} =
         AuthZ.create_permission_grant(%{
           principal_uid: agent.uid,
-          resource_pattern: "pod:**:#{parent.id}:**",
+          resource_pattern: "drive:**:#{parent.id}:**",
           action: action
         })
     end
 
-    actor = Actor.new(agent, interactive_principal: outsider)
+    actor = Actor.new(agent)
+    outsider_actor = Actor.new(outsider)
     batch = %{creates: [%{data: %{}}]}
-
-    assert {:ok, _} =
-             Bases.get_table(Ankole.PrincipalsFixtures.actor_fixture(agent.uid), table.id)
-
-    assert {:error, :forbidden} =
-             Bases.write_records(
-               Ankole.PrincipalsFixtures.actor_fixture(actor),
-               table.id,
-               batch
-             )
-
-    assert {:error, :forbidden} =
-             Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(actor), table.id, %{
-               name: "Denied",
-               type: "text"
-             })
-
-    assert {:error, :forbidden} =
-             Bases.copy_table(Ankole.PrincipalsFixtures.actor_fixture(actor), table.id, %{
-               parent_id: parent.id
-             })
-
-    assert Repo.aggregate(BaseRecord, :count) == 0
-    refute Repo.get_by(BaseField, table_id: table.id, name: "Denied")
-
-    assert {:ok, %{records: [record]}} =
-             Bases.write_records(
-               Ankole.PrincipalsFixtures.actor_fixture(Actor.new(agent)),
-               table.id,
-               batch
-             )
-
+    assert {:error, :forbidden} = Bases.write_records(outsider_actor, table.id, batch)
+    assert {:ok, %{records: [record]}} = Bases.write_records(actor, table.id, batch)
     assert Repo.get_by!(BaseRecord, id: record.id, table_id: table.id).created_by.uid == agent.uid
+
+    assert {:ok, field} =
+             Bases.create_field(actor, table.id, %{name: "Agent field", type: "text"})
+
+    assert Repo.get!(BaseField, field.id).name == "Agent field"
+    assert {:ok, _} = Bases.copy_table(actor, table.id, %{parent_id: parent.id})
   end
 
-  test "domain point checks require both the Agent and its interactive Human" do
+  test "domain point checks authorize only the executing Principal" do
     agent = agent_fixture().principal
     human = human_fixture().principal
 
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: agent.uid,
-        resource_pattern: "tenant_console:pod_space",
+        resource_pattern: "tenant_console:drive_space",
         action: "update"
       })
 
-    actor = Actor.new(agent, interactive_principal: human)
-    assert :ok = AuthZ.authorize(Actor.primary(actor), "tenant_console:pod_space", "update")
+    actor = Actor.new(agent)
+    assert :ok = AuthZ.authorize(actor, "tenant_console:drive_space", "update")
 
     assert {:error, {:forbidden, "update"}} =
-             AuthZ.authorize(actor, "tenant_console:pod_space", "update")
+             AuthZ.authorize(Actor.new(human), "tenant_console:drive_space", "update")
   end
 
   test "grant targets include accepted changeset attributes and reject malformed resource segments" do
@@ -309,35 +283,35 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
     end
   end
 
-  test "Agent and interactive Human evaluate their own authentication evidence" do
+  test "Human authentication conditions do not constrain an Agent's own grants" do
     agent = agent_fixture().principal
     human = human_fixture().principal
+    actor = Actor.new(agent, authn: %{"surface" => "agent_rpc"})
 
-    actor =
-      Actor.new(agent,
-        interactive_principal: human,
-        authn: %{"surface" => "agent_rpc"},
-        interactive_authn: %{
-          "surface" => "agent_rpc",
-          "provider_scope" => "tenant",
-          "amr" => ["oidc"]
-        }
+    human_actor =
+      Actor.new(human,
+        authn: %{"surface" => "pod", "provider_scope" => "tenant", "amr" => ["oidc"]}
       )
 
-    assert Actor.primary(actor).authn == %{"surface" => "agent_rpc"}
-    assert Actor.interactive(actor).authn["provider_scope"] == "tenant"
+    {:ok, _} =
+      AuthZ.create_permission_grant(%{
+        principal_uid: human.uid,
+        resource_pattern: "tenant_console:drive_space",
+        action: "update",
+        condition: ~s(context.request.authn.provider_scope == "tenant")
+      })
 
-    for principal <- [agent, human] do
-      {:ok, _} =
-        AuthZ.create_permission_grant(%{
-          principal_uid: principal.uid,
-          resource_pattern: "tenant_console:pod_space",
-          action: "update",
-          condition: ~s(context.request.authn.provider_scope == "tenant")
-        })
-    end
+    assert {:error, _} = AuthZ.authorize(actor, "tenant_console:drive_space", "update")
+    assert :ok = AuthZ.authorize(human_actor, "tenant_console:drive_space", "update")
 
-    assert {:error, _} = AuthZ.authorize(actor, "tenant_console:pod_space", "update")
-    assert :ok = AuthZ.authorize(Actor.interactive(actor), "tenant_console:pod_space", "update")
+    {:ok, _} =
+      AuthZ.create_permission_grant(%{
+        principal_uid: agent.uid,
+        resource_pattern: "tenant_console:drive_space",
+        action: "update"
+      })
+
+    assert :ok = AuthZ.authorize(actor, "tenant_console:drive_space", "update")
+    assert {:error, _} = AuthZ.authorize(Actor.new(human), "tenant_console:drive_space", "update")
   end
 end

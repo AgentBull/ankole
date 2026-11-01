@@ -13,10 +13,11 @@ defmodule Ankole.Tenants.Jobs.Delete do
   # PostgreSQL foreign keys; Agent and Worker rows use their lifecycle owner.
   @tables ~w(
     base_records base_views base_fields base_tables
-    page_user_states page_changes page_comments page_snapshots page_daily_activity page_contents permission_grants pages
-    external_message_refs conversation_messages conversation_participants
+    pod_files message_attachments delivery_attachments
+    page_user_states page_changes page_comments page_snapshots page_daily_activity page_contents permission_grants pages drive_nodes
+    conversation_action_cards external_message_refs conversation_messages conversation_participants
     cron_schedules session_ambient_judgments scheduled_events
-    sessions agent_computer_worker_envs drive_files
+    sessions agent_computer_worker_envs
     agent_library_container_entries agent_plugin_overrides agent_skill_lessons agent_skills
     ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records
     app_configurations automation_job_runs signal_webhook_endpoints
@@ -34,11 +35,11 @@ defmodule Ankole.Tenants.Jobs.Delete do
     workflow_agent_calls delivery_previews signals ai_gateway_messages automation_jobs
     background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups
     workflow_runs ai_gateway_conversations background_agent_jobs brain_objects
-    oidc_clients human_users
+    oidc_clients human_users file_objects
   )
   # Keep cleanup's completion evidence and its referenced Human until the
   # final transaction removes both; earlier batches must not erase the proof.
-  @batch_tables @tables -- ["human_access_events", "human_users"]
+  @batch_tables @tables -- ["human_access_events", "human_users", "file_objects"]
 
   if Mix.env() == :test do
     @doc false
@@ -128,23 +129,24 @@ defmodule Ankole.Tenants.Jobs.Delete do
   defp delete_batches(_tenant_id, [], _deadline), do: false
 
   defp delete_batches(tenant_id, [table | remaining] = tables, deadline) do
-    if System.monotonic_time(:millisecond) >= deadline do
-      true
-    else
-      %{num_rows: count} = delete_batch(tenant_id, table)
-      delete_batches(tenant_id, if(count > 0, do: tables, else: remaining), deadline)
+    %{num_rows: count} = delete_batch(tenant_id, table)
+
+    cond do
+      count == 0 -> delete_batches(tenant_id, remaining, deadline)
+      System.monotonic_time(:millisecond) >= deadline -> true
+      true -> delete_batches(tenant_id, tables, deadline)
     end
   end
 
   # Delete leaves first so one parent cannot cascade through an unbounded subtree.
-  defp delete_batch(tenant_id, "pages") do
+  defp delete_batch(tenant_id, "drive_nodes") do
     Ecto.Adapters.SQL.query!(
       Repo,
       """
-      DELETE FROM pages WHERE tenant_id = $1::text::uuid AND ctid IN (
-        SELECT page.ctid FROM pages AS page
+      DELETE FROM drive_nodes WHERE tenant_id = $1::text::uuid AND ctid IN (
+        SELECT page.ctid FROM drive_nodes AS page
         WHERE page.tenant_id = $1::text::uuid AND NOT EXISTS (
-          SELECT 1 FROM pages AS child
+          SELECT 1 FROM drive_nodes AS child
           WHERE child.tenant_id = page.tenant_id AND child.parent_id = page.id
         ) LIMIT 200
       )
@@ -156,7 +158,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   defp delete_batch(tenant_id, table) when table in ["permission_grants", "principal_groups"] do
     {:ok, result} =
       Repo.transact(fn ->
-        Ankole.Pod.Pages.lock_tree()
+        Ankole.Files.lock_tree_in_tx()
         {:ok, delete_rows(tenant_id, table)}
       end)
 
@@ -184,7 +186,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   end
 
   defp finish_in_tx(tenant) do
-    Ankole.Pod.Pages.lock_tree()
+    Ankole.Files.lock_tree_in_tx()
 
     case Tenants.Tenant
          |> Ash.Query.filter(id == ^tenant.id)
@@ -201,6 +203,8 @@ defmodule Ankole.Tenants.Jobs.Delete do
              Ankole.Principals.WorkCleanup.pending_for_tenant(1) != [] do
           {:ok, :resources_pending}
         else
+          :ok = Ankole.Files.enqueue_tenant_object_deletions_in_tx()
+
           for table <- @tables ++ ["principals"] do
             Ecto.Adapters.SQL.query!(
               Repo,
@@ -210,7 +214,6 @@ defmodule Ankole.Tenants.Jobs.Delete do
           end
 
           {:ok, _} = Ankole.Ash.destroy(locked, :delete_in_tx)
-          {:ok, _} = Ankole.Files.Jobs.CollectUnreferenced.new(%{}) |> Oban.insert()
           {:ok, :finished}
         end
     end

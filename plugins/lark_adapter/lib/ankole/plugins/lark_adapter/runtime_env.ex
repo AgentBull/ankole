@@ -20,7 +20,9 @@ defmodule Ankole.Plugins.LarkAdapter.RuntimeEnv do
 
   @spec resolve_worker_env(Binding.t()) ::
           {:ok, %{String.t() => String.t()}} | {:error, term()}
-  def resolve_worker_env(%Binding{} = binding) do
+  def resolve_worker_env(%Binding{routing_mode: :sender_personal_assistant}), do: {:ok, %{}}
+
+  def resolve_worker_env(%Binding{routing_mode: :ai_colleague} = binding) do
     with {:ok, true} <- AgentPlugins.effective_enabled?(binding.agent_uid, "lark"),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          {:ok, token} <-

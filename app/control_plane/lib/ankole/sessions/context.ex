@@ -8,7 +8,7 @@ defmodule Ankole.Sessions.Context do
   """
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.Providers
   alias Ankole.Sessions.AgentConfig
   alias Ankole.AIGateway.Schemas.Conversation

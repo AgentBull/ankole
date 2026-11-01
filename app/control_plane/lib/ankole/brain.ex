@@ -20,6 +20,12 @@ defmodule Ankole.Brain do
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Repo
 
+  defdelegate principal_page_slug(type, uid), to: Ankole.Brain.Scope
+
+  defdelegate rename_principal_references_in_tx(old_uid, new_uid, principal_type),
+    to: Ankole.Brain.PrincipalReferences,
+    as: :rename_in_tx
+
   # The Console API (`AnkoleWeb.JSONAPI.ConsoleRouter`). An Object slug can
   # contain `/`, so an Object operation takes the slug in the query or in the
   # body, not in the path.

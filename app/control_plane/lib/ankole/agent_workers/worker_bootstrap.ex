@@ -14,6 +14,9 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap do
     env =
       %{
         "WORKER_ID" => agent_uid,
+        "ANKOLE_WORKER_TENANT_ID" => Ankole.Repo.tenant_id!(),
+        "ANKOLE_WORKER_STORAGE_NAME" =>
+          Ankole.AgentWorkers.ProviderKind.storage_name(provider.runtime.installation, agent_uid),
         "ANKOLE_RUNTIME_FABRIC_ENDPOINT" =>
           get_in(provider.settings, ["endpoints", "runtimeFabricUrl"]) ||
             provider.runtime.runtime_fabric_endpoint,
@@ -24,6 +27,7 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap do
       |> maybe_put_env("ANKOLE_ENV", System.get_env("ANKOLE_ENV"))
 
     %AgentWorkerSpec{
+      tenant_id: Ankole.Repo.tenant_id!(),
       agent_uid: agent_uid,
       generation: generation,
       image: provider.runtime.image,
@@ -50,7 +54,7 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap do
 
   @doc "Environment variables owned by the launch contract or the image entrypoint."
   def contract_env_names do
-    ~w(WORKER_ID ANKOLE_RUNTIME_FABRIC_ENDPOINT ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
+    ~w(WORKER_ID ANKOLE_WORKER_STORAGE_NAME ANKOLE_WORKER_TENANT_ID ANKOLE_RUNTIME_FABRIC_ENDPOINT ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
       ANKOLE_WORKER_STORAGE ANKOLE_WORKER_TASK ANKOLE_WORKER_NFS_SOURCE
       ANKOLE_WORKER_ADAPTER_URL ANKOLE_WORKER_BOOTSTRAP ANKOLE_VERSION ANKOLE_ENV
       HOME CODEX_HOME CODEX_SQLITE_HOME)

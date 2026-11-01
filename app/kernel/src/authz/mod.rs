@@ -13,10 +13,12 @@ pub(crate) mod cel;
 mod decision;
 mod resource_pattern;
 
-pub use cel::{condition_free_variables, validate_condition_source, validate_pod_condition_source};
+pub use cel::{
+    condition_free_variables, validate_condition_source, validate_drive_condition_source,
+};
 pub use decision::{
     AuthzBatchSnapshot, AuthzDecision, AuthzDiagnostic, AuthzSnapshot, SnapshotComputedGroup,
     SnapshotGrant, SnapshotPrincipal, authorize, authorize_all, authorize_all_value,
-    authorize_checks_value, authorize_value, evaluate_pod_context_value,
+    authorize_checks_value, authorize_value, evaluate_drive_context_value,
 };
 pub use resource_pattern::{pattern_matches, validate_pattern_source};

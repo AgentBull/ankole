@@ -200,7 +200,7 @@ defmodule Ankole.E2E.SlackLifecycleTest do
              })
 
     assert {:ok, %{synced_channels: 1, marked_left: 0}} =
-             Channels.sync_binding(agent.uid, binding_name)
+             Channels.sync_binding(Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id)
 
     assert %Conversation{principal_group_id: group_id} =
              External.get_conversation("slack:C1")
@@ -213,6 +213,7 @@ defmodule Ankole.E2E.SlackLifecycleTest do
 
     context =
       AdapterContext.new(
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
         agent_uid: agent.uid,
         binding_name: binding_name,
         adapter: "slack",

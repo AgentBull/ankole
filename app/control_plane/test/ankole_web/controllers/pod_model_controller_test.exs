@@ -4,7 +4,7 @@ defmodule AnkoleWeb.PodModelControllerTest do
   @moduletag host: :pod
   import Ankole.SessionsCase, only: [agent_fixture: 1]
   alias Ankole.{Conversations, Repo}
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.Sessions.Admission
   alias Ankole.Signals.Signal
 

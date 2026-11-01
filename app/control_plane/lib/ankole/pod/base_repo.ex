@@ -35,7 +35,7 @@ defmodule Ankole.Pod.BaseRepo do
 
   def run(shard, fun, opts \\ []) do
     :ok = Repo.require_transaction()
-    deadline = Keyword.get(opts, :deadline, Ankole.Pod.Access.deadline())
+    deadline = Keyword.get(opts, :deadline, Ankole.Files.Access.deadline())
     timezone = Keyword.get(opts, :timezone, "UTC")
 
     with_shard(shard, fn ->

@@ -19,6 +19,8 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   # Other provider-visible effects have separate lifecycle owners.
   @channel_reply_event_types ~w(
     conversation.message.addressed
+    conversation.action_card.executed
+    pod.page_comment.addressed
     im.message.may_intervene
     signal.action.invoked
     command.new
@@ -123,7 +125,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   def valid_handoff_owner?(%Signal{} = current, %Signal{} = new_owner) do
     channel_reply_eligible?(new_owner) and
       current.agent_uid == new_owner.agent_uid and
-      current.reply_binding_name == new_owner.reply_binding_name and
+      current.reply_binding_id == new_owner.reply_binding_id and
       current.session_id == new_owner.session_id and
       current.conversation_id == new_owner.conversation_id
   end
@@ -647,30 +649,29 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   the blocked `recovery_state` marker, and the checkpoint notification lets
   the recovery scan attempt the preview again.
   """
-  @spec wake_blocked(String.t(), String.t()) :: :ok | {:error, term()}
-  def wake_blocked(agent_uid, binding_name)
-      when is_binary(agent_uid) and is_binary(binding_name) do
+  @spec wake_blocked(String.t()) :: :ok | {:error, term()}
+  def wake_blocked(binding_id)
+      when is_binary(binding_id) do
     case Repo.transact_top_level(fn ->
-           wake_blocked_in_tx(agent_uid, binding_name)
+           wake_blocked_in_tx(binding_id)
          end) do
       {:ok, _result} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
-  def wake_blocked(_agent_uid, _binding_name),
+  def wake_blocked(_binding_id),
     do: {:error, :invalid_signal_binding}
 
   @doc false
-  def wake_blocked_in_tx(agent_uid, binding_name) do
+  def wake_blocked_in_tx(binding_id) do
     signal_ids =
       PreviewState
       |> Ash.Query.filter(
         fragment("?->'recovery_state'->>'state' = 'blocked'", checkpoint) and
           exists(
             Signal,
-            id == parent(signal_id) and agent_uid == ^agent_uid and
-              reply_binding_name == ^binding_name
+            id == parent(signal_id) and reply_binding_id == ^binding_id
           )
       )
       |> Ash.Query.select([:signal_id])
@@ -678,7 +679,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
       |> Enum.map(& &1.signal_id)
 
     Ankole.Signals.lock_signals_in_tx(
-      [id: [in: signal_ids], agent_uid: agent_uid, reply_binding_name: binding_name],
+      [id: [in: signal_ids], reply_binding_id: binding_id],
       sort: [id: :asc]
     )
     |> Enum.reduce_while({:ok, :ok}, fn event, acc ->

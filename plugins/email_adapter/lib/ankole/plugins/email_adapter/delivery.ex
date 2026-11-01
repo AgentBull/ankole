@@ -69,7 +69,17 @@ defmodule Ankole.Plugins.EmailAdapter.Delivery do
             "Auto-Submitted" => "auto-generated"
           })
 
-        body = encode(headers, intent.fallback_visible_text || "", attachments)
+        visible_text =
+          case intent do
+            %Intent{delivery_class: :durable_ai_reply, fallback_visible_text: raw}
+            when is_binary(raw) ->
+              Ankole.Plugins.MarkdownChunks.unescape_plain_tildes(raw)
+
+            _other ->
+              intent.fallback_visible_text || ""
+          end
+
+        body = encode(headers, visible_text, attachments)
 
         {:ok,
          %{

@@ -17,7 +17,7 @@ export type PrincipalDraftError = 'display_name_required' | 'email_invalid'
 const emailSchema = z.email()
 
 /** Shared draft for the create and edit pages of a Pod human member. */
-export const PrincipalEditorModel = createModel(() => {
+function createPrincipalEditor() {
   let source = Symbol()
   const sourceKey = signal<string>()
   const displayName = signal('')
@@ -92,4 +92,6 @@ export const PrincipalEditorModel = createModel(() => {
       return body
     }
   }
-})
+}
+
+export const PrincipalEditorModel = createModel(createPrincipalEditor)

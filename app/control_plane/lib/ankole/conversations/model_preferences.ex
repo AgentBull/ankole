@@ -3,7 +3,7 @@ defmodule Ankole.Conversations.ModelPreferences do
 
   require Ash.Query
   alias Ankole.Principals
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Conversations.Conversation
   alias Ankole.Sessions.{Commands, Queue}

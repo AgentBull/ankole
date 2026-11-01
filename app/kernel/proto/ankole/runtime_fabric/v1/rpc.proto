@@ -95,6 +95,8 @@ message DriveFile {
   string updated_at = 7;
   string conversation_id = 8;
   string message_id = 9;
+  string node_id = 10;
+  string object_id = 11;
 }
 
 // A live Automation Job attempt; the Worker identity comes from the connection.
@@ -119,10 +121,12 @@ message FilesListResponse {
 }
 
 message FilesGetRequest {
+  reserved 3;
+  reserved "pod_drive";
   string path = 1;
   string home_relative_path = 2;
-  // Read a page-owned Pod path with the current turn or Automation Job attempt.
-  bool pod_drive = 3;
+  // A node ID reads the current object from any authorized Drive space.
+  string node_id = 5;
   AutomationAttemptRef automation_attempt = 4;
 }
 
@@ -138,16 +142,15 @@ message PodRequest {
   AutomationAttemptRef automation_attempt = 3;
 }
 
-// One file to name at `path`. The control plane pulls `home_relative_path`
-// unless the Agent's drive already holds the content named by `sha256`.
+// One local file to name at `path`. Every write creates an immutable object.
+// sha256, when supplied, verifies the transferred bytes; it is not a lookup key.
 message FilesCommitUpsert {
   string path = 1;
   string home_relative_path = 2;
   string sha256 = 3;
   string content_type = 4;
   uint32 mode = 5;
-  // Size of the local file; the control plane groups transfers by it and
-  // checks the bytes it receives.
+  // Declared local size, checked against the received bytes.
   uint64 size = 6;
 }
 
@@ -166,8 +169,9 @@ message FilesCommitResponse {
 // agent conversation context
 
 message ConversationInfo {
+  reserved 1, 2, 3, 5;
+  reserved "id", "key", "started_at", "origin_channel", "drive_directory";
   string timezone = 4;
-  string drive_directory = 5;
   string page_id = 6;
   string pod_instructions = 7;
 }
@@ -425,6 +429,9 @@ message WorkerFileTransferRequest {
   // big-endian path length, the UTF-8 path relative to that directory, an
   // 8-byte big-endian content length, and the content, in this order.
   repeated string bundle_paths = 7;
+  // Single-file push only: transfer at most this many bytes from offset zero.
+  // Zero requests the whole file. max_bytes bounds the transferred prefix.
+  uint64 prefix_bytes = 8;
 }
 
 message WorkerFileTransferResponse {

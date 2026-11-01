@@ -2,7 +2,8 @@
 //! comrak wikilinks. Comrak owns code and inline boundaries. This module only
 //! recognizes the deliberately small audience grammar at those boundaries.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use comrak::nodes::{LineColumn, NodeValue, Sourcepos};
 use comrak::{Arena, Options, parse_document};
@@ -91,10 +92,38 @@ pub fn analyze_json(source: &str) -> Result<String, String> {
 }
 
 pub fn analyze(source: &str) -> Result<Analysis, AnalysisError> {
+    analyze_with_references(source, |_, _| {})
+}
+
+/// Rewrites only audience values and parsed wikilink destinations. Source
+/// offsets preserve prose, code examples, labels and whitespace byte for byte.
+pub fn rewrite_references(
+    source: &str,
+    replacements: &HashMap<String, String>,
+) -> Result<String, AnalysisError> {
+    let mut edits = Vec::new();
+    analyze_with_references(source, |target, range| {
+        if let Some(replacement) = replacements.get(target) {
+            edits.push((range, replacement));
+        }
+    })?;
+    edits.sort_by_key(|(range, _)| range.start);
+    let mut rewritten = source.to_string();
+    for (range, replacement) in edits.into_iter().rev() {
+        rewritten.replace_range(range, replacement);
+    }
+    Ok(rewritten)
+}
+
+fn analyze_with_references(
+    source: &str,
+    mut reference: impl FnMut(&str, Range<usize>),
+) -> Result<Analysis, AnalysisError> {
     let arena = Arena::new();
     let mut options = Options::default();
     options.extension.wikilinks_title_after_pipe = true;
     let root = parse_document(&arena, source, &options);
+    let lines = source_lines(source);
 
     let mut code_blocks = Vec::new();
     let mut inline_code = Vec::new();
@@ -112,6 +141,35 @@ pub fn analyze(source: &str) -> Result<Analysis, AnalysisError> {
             NodeValue::HtmlBlock(_) => html_blocks.push(range),
             NodeValue::WikiLink(link) => {
                 let target = link.url.trim();
+                let reported = lines[range.start.line - 1].start + range.start.column - 1;
+                let marker: &[u8] = if link.embed { b"![[" } else { b"[[" };
+                // Comrak 0.59 inserts up to three spaces for a partially consumed
+                // indentation tab, but includes those spaces in inline columns.
+                // Locate this parsed delimiter in the original bytes. A wikilink
+                // cannot contain an unescaped [[, so this window is unambiguous.
+                let start = (reported.saturating_sub(3)..=reported)
+                    .rev()
+                    .find(|&offset| {
+                        source.as_bytes().get(offset..offset + marker.len()) == Some(marker)
+                    })
+                    .ok_or(AnalysisError {
+                        code: "invalid_source_position",
+                        line: range.start.line,
+                    })?;
+                // Comrak has already recognized [[destination|label]]. Its
+                // destination ends at the first unescaped separator or bracket.
+                let inner = start + marker.len();
+                let mut end = inner;
+                let bytes = source.as_bytes();
+                while end < bytes.len() && !matches!(bytes[end], b'|' | b']') {
+                    if bytes[end] == b'\\' && end + 1 < bytes.len() {
+                        end += 1;
+                    }
+                    end += 1;
+                }
+                let raw = &source[inner..end];
+                let leading = raw.len() - raw.trim_start().len();
+                reference(target, inner + leading..inner + raw.trim_end().len());
                 if !target.is_empty() && seen_wikilinks.insert(target.to_string()) {
                     wikilinks.push(target.to_string());
                 }
@@ -120,7 +178,6 @@ pub fn analyze(source: &str) -> Result<Analysis, AnalysisError> {
         }
     }
 
-    let lines = source_lines(source);
     let mut tags = Vec::new();
     let mut tag_lines = HashSet::new();
 
@@ -140,6 +197,11 @@ pub fn analyze(source: &str) -> Result<Analysis, AnalysisError> {
             && !in_html_block
             && let Some(tag) = parse_tag_line(line.text)
         {
+            if let AudienceTag::Open(scope) = &tag {
+                let start =
+                    line.start + line.text.find('"').expect("parsed scope opening quote") + 1;
+                reference(scope, start..start + scope.len());
+            }
             tag_lines.insert(line.number);
             tags.push(TagToken {
                 line: line.number,

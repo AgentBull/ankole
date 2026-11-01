@@ -46,57 +46,68 @@ defmodule Ankole.Sessions.ReceiptsTest do
     run: run
   } do
     operation = fn repo ->
-      repo.update!(change(repo.get!(Principal, run.agent_uid), display_name: "Tool write"))
+      repo.update!(
+        change(repo.get_by!(Principal, uid: run.agent_uid), display_name: "Tool write")
+      )
+
       {:ok, Tools.result(%{"ok" => true}), []}
     end
 
     assert {:ok, receipt} =
              Receipts.execute(run, "resp_1", "call_1", prepare_operation(operation))
 
-    Repo.update!(change(Repo.get!(Principal, run.agent_uid), display_name: "Operator edit"))
+    Repo.update!(
+      change(Repo.get_by!(Principal, uid: run.agent_uid), display_name: "Operator edit")
+    )
 
     assert {:ok, recovered} =
              Receipts.execute(run, "resp_1", "call_1", prepare_operation(operation))
 
     assert_persisted_equal(recovered, receipt)
 
-    assert Repo.get!(Principal, run.agent_uid).display_name == "Operator edit"
+    assert Repo.get_by!(Principal, uid: run.agent_uid).display_name == "Operator edit"
   end
 
   test "a failed tool transaction commits neither domain writes nor a receipt (G3)", %{run: run} do
-    original = Repo.get!(Principal, run.agent_uid).display_name
+    original = Repo.get_by!(Principal, uid: run.agent_uid).display_name
 
     operation = fn repo ->
-      repo.update!(change(repo.get!(Principal, run.agent_uid), display_name: "Rolled back"))
+      repo.update!(
+        change(repo.get_by!(Principal, uid: run.agent_uid), display_name: "Rolled back")
+      )
+
       {:error, :failed}
     end
 
     assert {:error, :failed} =
              Receipts.execute(run, "resp_1", "call_1", prepare_operation(operation))
 
-    assert Repo.get!(Principal, run.agent_uid).display_name == original
+    assert Repo.get_by!(Principal, uid: run.agent_uid).display_name == original
     assert {:error, :receipt_not_found} = Receipts.fetch("resp_1", "call_1")
   end
 
   test "failed preparation rolls back provisional facts before a commit function exists", %{
     run: run
   } do
-    original = Repo.get!(Principal, run.agent_uid).display_name
+    original = Repo.get_by!(Principal, uid: run.agent_uid).display_name
 
     prepare = fn ->
-      Repo.update!(change(Repo.get!(Principal, run.agent_uid), display_name: "Provisional"))
+      Repo.update!(
+        change(Repo.get_by!(Principal, uid: run.agent_uid), display_name: "Provisional")
+      )
+
       {:error, :preparation_failed}
     end
 
     assert {:error, :preparation_failed} =
              Receipts.execute(run, "resp_prepare", "call_1", prepare)
 
-    assert Repo.get!(Principal, run.agent_uid).display_name == original
+    assert Repo.get_by!(Principal, uid: run.agent_uid).display_name == original
     assert {:error, :receipt_not_found} = Receipts.fetch("resp_prepare", "call_1")
   end
 
   test "invalid durable JSON rolls back the tool effect and its receipt", %{run: run} do
-    principal = Repo.get!(Principal, run.agent_uid)
+    principal = Repo.get_by!(Principal, uid: run.agent_uid)
 
     for value <- [:runtime_atom, {:runtime_tuple, 1}, self()] do
       operation = fn _repo ->
@@ -110,7 +121,7 @@ defmodule Ankole.Sessions.ReceiptsTest do
                Receipts.execute(run, "resp_invalid_json", "call_1", prepare_operation(operation))
 
       assert [%{path: "result"}] = Ankole.Ash.validation_details(error)
-      assert Repo.get!(Principal, run.agent_uid).display_name == principal.display_name
+      assert Repo.get_by!(Principal, uid: run.agent_uid).display_name == principal.display_name
       assert {:error, :receipt_not_found} = Receipts.fetch("resp_invalid_json", "call_1")
     end
   end
@@ -259,7 +270,7 @@ defmodule Ankole.Sessions.ReceiptsTest do
     secret = "private-notification-token-/srv/private/receipt"
 
     operation = fn repo ->
-      repo.update!(change(repo.get!(Principal, run.agent_uid), display_name: "Committed"))
+      repo.update!(change(repo.get_by!(Principal, uid: run.agent_uid), display_name: "Committed"))
       {:ok, Tools.result(%{"ok" => true}), [fn -> raise secret end]}
     end
 
@@ -293,7 +304,7 @@ defmodule Ankole.Sessions.ReceiptsTest do
     assert log =~ "receipts_test.exs"
     refute log =~ secret
 
-    assert Repo.get!(Principal, run.agent_uid).display_name == "Committed"
+    assert Repo.get_by!(Principal, uid: run.agent_uid).display_name == "Committed"
   end
 
   test "a drive attachment records its source and rejects a changed source before delivery (G1, G3)",
@@ -309,7 +320,7 @@ defmodule Ankole.Sessions.ReceiptsTest do
     call = %{
       "name" => "reply_attachment",
       "call_id" => "attachment-1",
-      "arguments" => ~s({"drive_path":"reports/q3.txt"})
+      "arguments" => Ankole.JSON.encode!(%{"node_id" => original.id})
     }
 
     run =
@@ -345,8 +356,8 @@ defmodule Ankole.Sessions.ReceiptsTest do
     result = Tools.execute(run, call, selected, args)
     refute result.is_error
     assert [attachment] = result.details["attachments"]
-    assert attachment["path"] == "reports/q3.txt"
-    assert attachment["blob_ref"] == Base.encode16(original.sha256, case: :lower)
+    assert attachment["node_id"] == original.id
+    assert attachment["object_id"] == original.object_id
 
     assert {%{run: completed, pending: empty_pending}, commands} =
              Turn.step(turn, {:completed, {:tool, "attachment-1"}, result})
@@ -366,7 +377,7 @@ defmodule Ankole.Sessions.ReceiptsTest do
     Ankole.FilesFixtures.drive_file_fixture(run.agent_uid, "reports/q3.txt", "operator revision")
     assert Tools.execute(run, call, selected, args) == result
 
-    assert {:error, {:reply_attachment_not_in_drive, "reports/q3.txt"}} =
+    assert {:error, {:reply_attachment_not_in_drive, "q3.txt"}} =
              Ankole.Conversations.Delivery.Attachment.verify_in_drive(run.agent_uid, [attachment])
 
     assert {:error, %Ankole.Sessions.ToolResult{failure_kind: "invalid_arguments"}} =
@@ -375,7 +386,11 @@ defmodule Ankole.Sessions.ReceiptsTest do
     assert {:error, %Ankole.Sessions.ToolResult{failure_kind: "invalid_arguments"}} =
              Tools.prepare(
                run,
-               Map.put(call, "arguments", ~s({"drive_path":"reports/q3.txt","mimeType":""}))
+               Map.put(
+                 call,
+                 "arguments",
+                 Ankole.JSON.encode!(%{"node_id" => original.id, "mimeType" => ""})
+               )
              )
   end
 

@@ -27,11 +27,11 @@ function appletDetail(deletedAt: string | null): PageDetail {
       created_at: '2026-10-30T10:00:00Z',
       updated_at: '2026-10-30T11:00:00Z',
       deleted_at: deletedAt,
-      actions: ['page_view'],
+      actions: ['node_view'],
       role: 'view'
     },
     ancestors: [],
-    actions: ['page_view'],
+    actions: ['node_view'],
     role: 'view',
     child_count: 0
   }

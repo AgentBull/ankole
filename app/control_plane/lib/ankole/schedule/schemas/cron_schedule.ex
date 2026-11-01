@@ -96,7 +96,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   end
 
   identities do
-    identity(:idempotency, [:agent_uid, :owner_session_id, :idempotency_key], all_tenants?: true)
+    identity(:idempotency, [:agent_uid, :owner_session_id, :idempotency_key])
   end
 
   calculations do

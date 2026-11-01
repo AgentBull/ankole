@@ -203,20 +203,20 @@ defmodule Ankole.Pod.AppletsTest do
 
     context = %{"applet" => %{"pageId" => page.id}, "method" => "POST"}
 
-    write = fn bytes, revision ->
+    write = fn bytes, object_id ->
       Applets.Capabilities.call(context, actor, "file.write", [
         target.id,
         %{
           "name" => "data.txt",
-          "baseRevision" => revision,
+          "baseObjectId" => object_id,
           "bytes" => %{"__ankole_bytes" => Base.encode64(bytes)}
         }
       ])
     end
 
-    assert {:ok, _} = write.("before trash", 0)
+    assert {:ok, %{"objectId" => object_id}} = write.("before trash", nil)
     assert {:ok, _} = Pages.delete(actor, page.id)
-    assert {:error, %{code: "not_found", status: 404}} = write.("after trash", 1)
+    assert {:error, %{code: "not_found", status: 404}} = write.("after trash", object_id)
     assert {:ok, _, "before trash"} = Files.read(actor, target.id, "data.txt")
   end
 
@@ -310,7 +310,7 @@ defmodule Ankole.Pod.AppletsTest do
              )
   end
 
-  test "file capabilities preserve bytes, full paths, document URLs and revision conflicts",
+  test "file capabilities preserve bytes, full paths, document URLs and object conflicts",
        ctx do
     {:ok, file} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
@@ -329,12 +329,12 @@ defmodule Ankole.Pod.AppletsTest do
     source = """
     export default {
       'POST /file': async r => {
-        const result = await AnkoleRuntime.file.write('#{file.id}', {name:'data.bin',bytes:new Uint8Array([0,255,42]),baseRevision:r.body.revision});
+        const result = await AnkoleRuntime.file.write('#{file.id}', {name:'data.bin',bytes:new Uint8Array([0,255,42]),baseObjectId:r.body.objectId});
         const read = await AnkoleRuntime.file.read(result.path);
-        return {...result,bytes:Array.from(read.bytes),list:await AnkoleRuntime.file.list('#{file.id}')};
+        return {...result,readObjectId:read.objectId,bytes:Array.from(read.bytes),list:await AnkoleRuntime.file.list('#{file.id}')};
       },
       'POST /image':()=>AnkoleRuntime.file.write('#{doc.id}',{name:'image.png',contentType:'image/png',bytes:new Uint8Array([1,2,3])}),
-      'GET /write':()=>AnkoleRuntime.file.write('#{file.id}',{name:'bad',bytes:new Uint8Array([1]),baseRevision:1})
+      'GET /write':()=>AnkoleRuntime.file.write('#{file.id}',{name:'bad',bytes:new Uint8Array([1])})
     }
     """
 
@@ -344,7 +344,7 @@ defmodule Ankole.Pod.AppletsTest do
              Applets.call(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                page.id,
-               request("POST", "/file", %{"revision" => 0})
+               request("POST", "/file", %{"objectId" => nil})
              )
 
     assert result["bytes"] == [0, 255, 42]
@@ -352,12 +352,31 @@ defmodule Ankole.Pod.AppletsTest do
     assert result["mime"] == "application/octet-stream"
     assert result["path"] == "pages/#{file.id}/data.bin"
     assert hd(result["list"]["files"])["path"] == result["path"]
+    assert hd(result["list"]["files"])["objectId"] == result["objectId"]
+    assert result["readObjectId"] == result["objectId"]
+    assert {:ok, _} = Ecto.UUID.cast(result["objectId"])
 
     assert {:ok, %{"status" => 409}} =
              Applets.call(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                page.id,
-               request("POST", "/file", %{"revision" => 0})
+               request("POST", "/file", %{"objectId" => nil})
+             )
+
+    assert {:ok, %{"status" => 200, "body" => replaced}} =
+             Applets.call(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               request("POST", "/file", %{"objectId" => result["objectId"]})
+             )
+
+    assert replaced["objectId"] != result["objectId"]
+
+    assert {:ok, %{"status" => 409}} =
+             Applets.call(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               request("POST", "/file", %{"objectId" => result["objectId"]})
              )
 
     assert {:ok, %{"body" => %{"url" => "ankole:asset/" <> _}}} =
@@ -594,10 +613,10 @@ defmodule Ankole.Pod.AppletsTest do
 
         {:ok, _} =
           Drive.commit(uid, [
-            %{path: "publish/#{page.id}/#{path}", sha256: blob.sha256, source: "agent"}
+            Map.merge(blob, %{path: "publish/#{page.id}/#{path}", source: "agent"})
           ])
 
-        %{path: path, sha256: blob.sha256}
+        %{path: path, object_id: blob.object_id, source_path: "publish/#{page.id}/#{path}"}
       end)
 
     Files.publish(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, revision, manifest)

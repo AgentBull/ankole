@@ -42,7 +42,7 @@ defmodule Ankole.Pod.MentionsTest do
     agent =
       agent_fixture(%{
         owner_principal_uid: owner.uid,
-        handle: "research_bot",
+        uid: "research_bot",
         display_name: "Research Colleague",
         role: "Deep Research Specialist"
       }).principal
@@ -402,8 +402,8 @@ defmodule Ankole.Pod.MentionsTest do
         upserts: [%{principal_uid: ctx.guest.uid, role: "view", target_scope: "self"}]
       })
 
-    assert {:error, :forbidden} = Pages.authorize(guest_actor, parent.id, "page_view")
-    assert {:ok, _} = Pages.authorize(guest_actor, child.id, "page_view")
+    assert {:error, :forbidden} = Pages.authorize(guest_actor, parent.id, "node_view")
+    assert {:ok, _} = Pages.authorize(guest_actor, child.id, "node_view")
 
     assert {:ok, guest_subjects} = Pages.subjects(guest_actor)
     subject_uids = MapSet.new(guest_subjects, & &1.principal_uid)
@@ -420,7 +420,7 @@ defmodule Ankole.Pod.MentionsTest do
     assert {:ok, member_search} =
              Pages.mention_candidates(owner_actor, %{query: "@research_bot", category: :principal})
 
-    assert [%{principal_uid: agent_uid, handle: "research_bot"}] = member_search.principals
+    assert [%{principal_uid: agent_uid}] = member_search.principals
     assert agent_uid == ctx.agent.uid
 
     assert {:ok, wildcard_search} =

@@ -5,7 +5,7 @@ defmodule Ankole.AIGateway.ResponseFixtures do
   import ExUnit.Callbacks, only: [on_exit: 1]
   import Ankole.AIGatewayCase, only: [start_response_run: 1, start_upstream_server: 1]
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CompactionPolicy
   alias Ankole.AIGateway.ProviderConfigs

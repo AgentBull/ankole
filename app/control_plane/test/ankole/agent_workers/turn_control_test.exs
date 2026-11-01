@@ -48,7 +48,7 @@ defmodule Ankole.AgentWorkers.TurnControlTest do
       assert :ok = TurnControl.dispatch([control])
 
       assert %AgentWorker{state: :stale, transport_route: nil} =
-               Repo.get!(AgentWorker, agent.uid)
+               Repo.get_by!(AgentWorker, agent_uid: agent.uid)
     end
 
     test "a control for an Agent without a connected Worker is not sent" do

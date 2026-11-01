@@ -75,7 +75,7 @@ export function AgentFilter({ scope }: { scope: AgentScope }) {
         <SelectItem value={null}>{t('console.all_agents')}</SelectItem>
         {scope.agents.map(agent => (
           <SelectItem key={agent.uid} value={agent.uid}>
-            {agent.display_name} · {agent.handle}
+            {agent.display_name} · {agent.uid}
           </SelectItem>
         ))}
       </SelectContent>

@@ -3,12 +3,13 @@ defmodule Ankole.Pod.Pages.Queries do
   require Ash.Expr
   require Ash.Query
   alias Ankole.Repo
-  alias Ankole.Pod.{Access, Files, Page, PageContent, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Files, Page, PageContent, Pages}
 
   def list_children(%Ankole.AuthZ.Actor{} = actor, parent_id, opts \\ %{}) do
     Repo.transact_repeatable_read_only(fn ->
-      with {:ok, access} <- Ankole.Pod.Access.Graph.navigation_access(actor),
-           policy = Ankole.AuthZ.Checks.PodAnchorFilter.policy(access.reachable),
+      with {:ok, access} <- Ankole.Files.Access.Graph.navigation_access(actor),
+           policy = Ankole.AuthZ.Checks.DriveAnchorFilter.policy(access.reachable),
            :ok <- visible_directory_parent(actor, parent_id, policy),
            {:ok, directory} <- read_directory(actor, parent_id, opts, access, policy) do
         if Ankole.Attrs.get(opts, :details, false) in [true, "true"] do
@@ -24,9 +25,9 @@ defmodule Ankole.Pod.Pages.Queries do
     if is_nil(page.deleted_at) do
       Page
       |> Ash.Query.filter(parent_id == ^page.id)
-      |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(
+      |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(
         actor,
-        Ankole.AuthZ.Checks.PodAnchorFilter.policy(reachable)
+        Ankole.AuthZ.Checks.DriveAnchorFilter.policy(reachable)
       )
       |> Ankole.Ash.count!(actor: actor, authorize?: true)
     else
@@ -41,13 +42,13 @@ defmodule Ankole.Pod.Pages.Queries do
   """
   def readable_ancestors_in_tx(%Ankole.AuthZ.Actor{} = actor, %Page{} = page, reachable) do
     with {:ok, path} <- Access.path(page),
-         ids = path |> Enum.drop(-1) |> Enum.map(& &1.id),
+         ids = path |> Enum.drop(-1) |> Enum.reject(&is_nil(&1.parent_id)) |> Enum.map(& &1.id),
          {:ok, readable} <-
            Page
            |> Ash.Query.filter(id in ^ids)
-           |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(
+           |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(
              actor,
-             Ankole.AuthZ.Checks.PodAnchorFilter.policy(reachable)
+             Ankole.AuthZ.Checks.DriveAnchorFilter.policy(reachable)
            )
            |> Ankole.Ash.read_authorized(actor) do
       by_id = Map.new(readable, &{&1.id, &1})
@@ -66,23 +67,33 @@ defmodule Ankole.Pod.Pages.Queries do
 
   def navigation(%Ankole.AuthZ.Actor{} = actor, active_page_id) do
     Repo.transact_repeatable_read_only(fn ->
-      with {:ok, access} <- Ankole.Pod.Access.Graph.navigation_access(actor),
-           policy = Ankole.AuthZ.Checks.PodAnchorFilter.policy(access.reachable),
+      with {:ok, access} <- Ankole.Files.Access.Graph.navigation_access(actor),
+           policy = Ankole.AuthZ.Checks.DriveAnchorFilter.policy(access.reachable),
            {:ok, space} <- read_directory(actor, nil, %{scope: "space"}, access, policy),
            {:ok, private} <- read_directory(actor, nil, %{scope: "private"}, access, policy) do
         path = navigation_path(active_page_id, access.reachable)
 
+        root =
+          case Ankole.Files.root(active_page_id) do
+            {:ok, root} -> root
+            _ -> nil
+          end
+
         path =
-          if path != [] and hd(path).private_owner_uid not in [nil, Ankole.AuthZ.Actor.uid(actor)],
-            do: [],
-            else: path
+          if root &&
+               root.private_owner_uid not in [
+                 nil,
+                 Ankole.Principals.authority_uid(Ankole.AuthZ.Actor.uid(actor))
+               ],
+             do: [],
+             else: path
 
         ids = Enum.map(path, & &1.id)
 
         path_query =
           Page
           |> Ash.Query.filter(id in ^ids)
-          |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(actor, policy)
+          |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(actor, policy)
           |> Ash.Query.aggregate(:has_children, :exists, :children,
             query: [filter: policy.filter],
             authorize?: false
@@ -96,7 +107,7 @@ defmodule Ankole.Pod.Pages.Queries do
               |> Map.new(&{&1.id, &1})
 
         path = Enum.map(path, &Map.fetch!(path_pages, &1.id))
-        scope = if List.first(path) && hd(path).private_owner_uid, do: "private", else: "space"
+        scope = if root && root.private_owner_uid, do: "private", else: "space"
 
         Enum.reduce_while(Enum.drop(path, -1), {:ok, []}, fn parent, {:ok, directories} ->
           case read_directory(actor, parent.id, %{}, access, policy) do
@@ -129,12 +140,12 @@ defmodule Ankole.Pod.Pages.Queries do
 
   def navigation_entries(actor, ids) do
     Repo.transact_repeatable_read_only(fn ->
-      with {:ok, access} <- Ankole.Pod.Access.Graph.navigation_access(actor) do
-        policy = Ankole.AuthZ.Checks.PodAnchorFilter.policy(access.reachable)
+      with {:ok, access} <- Ankole.Files.Access.Graph.navigation_access(actor) do
+        policy = Ankole.AuthZ.Checks.DriveAnchorFilter.policy(access.reachable)
 
         Page
         |> Ash.Query.filter(id in ^ids)
-        |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(actor, policy)
+        |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(actor, policy)
         |> Ash.Query.aggregate(:has_children, :exists, :children,
           query: [filter: policy.filter],
           authorize?: false
@@ -158,7 +169,7 @@ defmodule Ankole.Pod.Pages.Queries do
              path,
              &(is_nil(&1.deleted_at) and Bitwise.band(Access.page_bits(&1, reachable), 1) != 0)
            ) do
-      path
+      Enum.reject(path, &is_nil(&1.parent_id))
     else
       _ -> []
     end
@@ -170,7 +181,7 @@ defmodule Ankole.Pod.Pages.Queries do
     query =
       Page
       |> Ash.Query.filter(id == ^id)
-      |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(actor, policy)
+      |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(actor, policy)
 
     case Ankole.Ash.read_one_authorized(query, actor) do
       {:ok, nil} -> {:error, :not_found}
@@ -180,7 +191,7 @@ defmodule Ankole.Pod.Pages.Queries do
   end
 
   defp read_directory(actor, parent_id, opts, access, policy) do
-    uid = Ankole.AuthZ.Actor.uid(actor)
+    uid = Ankole.Principals.authority_uid(Ankole.AuthZ.Actor.uid(actor))
     limit = Ankole.Attrs.get(opts, :limit, 200)
     limit = if is_integer(limit), do: max(1, min(limit, 200)), else: 200
     cursor = Ankole.Attrs.get(opts, :cursor)
@@ -192,34 +203,37 @@ defmodule Ankole.Pod.Pages.Queries do
 
     query = Page |> Ash.Query.for_read(if(parent_id, do: :list_children, else: :list_roots))
 
+    root = if owner, do: Ankole.Files.private_root(owner), else: Ankole.Files.public_root()
+
+    parent_id =
+      parent_id ||
+        case root do
+          {:ok, node} -> node.id
+          _ -> nil
+        end
+
     query =
       if parent_id,
         do: Ash.Query.filter(query, parent_id == ^parent_id),
-        else: Ash.Query.filter(query, is_nil(parent_id))
-
-    query =
-      cond do
-        parent_id -> query
-        owner -> Ash.Query.filter(query, private_owner_uid == ^owner)
-        true -> Ash.Query.filter(query, is_nil(private_owner_uid))
-      end
+        else: Ash.Query.filter(query, false)
 
     query =
       query
-      |> Ash.Query.sort(position: :asc, id: :asc)
+      |> Ash.Query.sort(position: :asc_nils_last, name: :asc, id: :asc)
       |> Ash.Query.select([
         :id,
         :tenant_id,
         :parent_id,
         :private_owner_uid,
         :position,
+        :name,
         :title,
         :icon,
         :type,
         :acl_anchor_id,
         :inherit_permissions
       ])
-      |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(actor, policy)
+      |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(actor, policy)
       # Apply the caller's visibility filter without resolving grants again.
       |> Ash.Query.aggregate(:has_children, :exists, :children,
         query: [filter: policy.filter],
@@ -254,7 +268,7 @@ defmodule Ankole.Pod.Pages.Queries do
     creator_uids =
       meta_by_id
       |> Map.values()
-      |> Enum.map(& &1.created_by.uid)
+      |> Enum.flat_map(fn row -> if row.created_by, do: [row.created_by.uid], else: [] end)
       |> Enum.uniq()
 
     names_by_uid =
@@ -281,7 +295,7 @@ defmodule Ankole.Pod.Pages.Queries do
 
     Map.new(pages, fn page ->
       meta = Map.fetch!(meta_by_id, page.id)
-      creator_uid = meta.created_by.uid
+      creator_uid = meta.created_by && meta.created_by.uid
 
       {page.id,
        %{
@@ -308,17 +322,20 @@ defmodule Ankole.Pod.Pages.Queries do
   end
 
   defp search_pages(%Ankole.AuthZ.Actor{} = actor, query, opts) when is_binary(query) do
+    term = String.trim(query)
+
     query =
       Page
+      |> Ash.Query.filter(not is_root)
       |> Ash.Query.for_read(:search, %{
-        required_action: Ankole.Attrs.get(opts, :required_action, :page_view)
+        required_action: Ankole.Attrs.get(opts, :required_action, :node_view)
       })
       |> maybe_filter_embeddable(Ankole.Attrs.get(opts, :embeddable, false))
-      |> filter_text(query)
+      |> filter_text(term)
       |> Ash.Query.calculate(
         :relevance,
         :float,
-        Ash.Expr.expr(fragment("similarity(?, ?::text)", title, ^String.trim(query)))
+        Ash.Expr.expr(fragment("similarity(?, ?::text)", title, ^term))
       )
       |> then(fn built ->
         Ash.Query.sort(built, [
@@ -330,7 +347,14 @@ defmodule Ankole.Pod.Pages.Queries do
       |> Ash.Query.limit(30)
 
     with {:ok, query} <- exclude_subtree(query, Ankole.Attrs.get(opts, :exclude_subtree_of)),
-         {:ok, pages} <- read_pages(query, actor),
+         {:ok, reachable} <- Access.reachable_anchors(actor),
+         policy =
+           Ankole.AuthZ.Checks.DriveAnchorFilter.policy(
+             reachable,
+             Ankole.Attrs.get(opts, :required_action, :node_view)
+           ),
+         query = Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(query, actor, policy),
+         {:ok, pages} <- read_search_pages(query, actor, term),
          {:ok, ancestors} <- ancestors(actor, pages),
          do:
            {:ok,
@@ -347,39 +371,87 @@ defmodule Ankole.Pod.Pages.Queries do
 
   @doc "Counts the live descendants of a Page that the actor can view, for the Trash notice."
   def visible_descendant_count(%Ankole.AuthZ.Actor{} = actor, id) do
-    tenant_id = Repo.tenant_id!()
-
-    query =
-      Page
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(
-        is_nil(deleted_at) and
-          fragment(
-            """
-            ? IN (
-              WITH RECURSIVE subtree AS (
-                SELECT child.id FROM pages child
-                WHERE child.tenant_id = ?::text::uuid AND child.parent_id = ?::text::uuid
-                UNION ALL
-                SELECT child.id FROM pages child
-                JOIN subtree parent ON child.parent_id = parent.id
-                WHERE child.tenant_id = ?::text::uuid
-              )
-              SELECT id FROM subtree
-            )
-            """,
-            id,
-            ^tenant_id,
-            ^id,
-            ^tenant_id
-          )
-      )
-      |> Ash.Query.select([:id])
-
     {:ok, pages} =
-      Repo.transact_repeatable_read_only(fn -> Ankole.Ash.read_authorized(query, actor) end)
+      Repo.transact_repeatable_read_only(fn ->
+        ids = id |> Ankole.Files.descendant_node_ids() |> List.delete(id)
+
+        query =
+          Page
+          |> Ash.Query.for_read(:read)
+          |> Ash.Query.filter(id in ^ids and is_nil(deleted_at))
+          |> Ash.Query.select([:id])
+
+        Ankole.Ash.read_authorized(query, actor)
+      end)
 
     length(pages)
+  end
+
+  defp read_search_pages(query, actor, ""), do: read_pages(query, actor)
+
+  defp read_search_pages(query, actor, term) do
+    tenant = Repo.tenant_id!()
+    patterns = text_patterns(term)
+
+    # Every result matches at least one word in an indexed branch. Each branch
+    # applies the same all-word filter, authorization, exclusions, ordering, and
+    # limit, so merging their bounded results preserves the global ranking.
+    branches = [
+      Ash.Query.filter(
+        query,
+        type in [:doc, :base, :applet] and
+          fragment(
+            "/* pod_search:title */ ? IN (SELECT p.id FROM pages p WHERE p.tenant_id = ?::text::uuid AND p.title ILIKE ANY(?::text[]))",
+            id,
+            ^tenant,
+            ^patterns
+          )
+      ),
+      Ash.Query.filter(
+        query,
+        type in [:file, :folder] and
+          fragment("/* pod_search:name */ ? ILIKE ANY(?::text[])", name, ^patterns)
+      ),
+      Ash.Query.filter(
+        query,
+        fragment(
+          "/* pod_search:body */ ? IN (SELECT c.page_id FROM page_contents c WHERE c.tenant_id = ?::text::uuid AND c.plain_text ILIKE ANY(?::text[]))",
+          id,
+          ^tenant,
+          ^patterns
+        )
+      )
+    ]
+
+    branches
+    |> Enum.reduce_while({:ok, []}, fn branch, {:ok, matches} ->
+      case read_pages(branch, actor) do
+        {:ok, pages} -> {:cont, {:ok, matches ++ pages}}
+        error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, pages} ->
+        {:ok, pages |> Enum.uniq_by(& &1.id) |> Enum.sort(&search_before?/2) |> Enum.take(30)}
+
+      error ->
+        error
+    end
+  end
+
+  defp search_before?(left, right) do
+    left_relevance = Map.fetch!(left.calculations, :relevance)
+    right_relevance = Map.fetch!(right.calculations, :relevance)
+
+    if left_relevance == right_relevance do
+      case DateTime.compare(left.updated_at, right.updated_at) do
+        :eq -> left.id <= right.id
+        :gt -> true
+        :lt -> false
+      end
+    else
+      left_relevance > right_relevance
+    end
   end
 
   defp maybe_filter_embeddable(query, true),
@@ -388,58 +460,16 @@ defmodule Ankole.Pod.Pages.Queries do
   defp maybe_filter_embeddable(query, _embeddable), do: query
 
   defp ancestors(actor, pages) do
-    ids = Enum.map(pages, & &1.id)
-
-    ancestors =
-      Repo.query!(
-        """
-        WITH RECURSIVE ancestors AS (
-          SELECT parent.id, parent.parent_id FROM pages child
-          JOIN pages parent ON parent.id = child.parent_id AND parent.tenant_id = child.tenant_id
-          WHERE child.tenant_id = $1::text::uuid AND child.id = ANY($2::text[]::uuid[])
-          UNION
-          SELECT parent.id, parent.parent_id FROM pages parent
-          JOIN ancestors child ON parent.id = child.parent_id
-          WHERE parent.tenant_id = $1::text::uuid
-        )
-        SELECT id::text FROM ancestors
-        """,
-        [Repo.tenant_id!(), ids]
-      ).rows
-      |> Enum.map(&hd/1)
-
-    Page |> Ash.Query.filter(id in ^ancestors) |> read_pages(actor)
+    ids = Ankole.Files.ancestor_node_ids(Enum.map(pages, & &1.id))
+    Page |> Ash.Query.filter(id in ^ids) |> read_pages(actor)
   end
 
   defp exclude_subtree(query, nil), do: {:ok, query}
 
   defp exclude_subtree(query, source_id) do
     with {:ok, source_id} <- Ecto.UUID.cast(source_id) do
-      tenant_id = Repo.tenant_id!()
-
-      {:ok,
-       Ash.Query.filter(
-         query,
-         fragment(
-           """
-           ? NOT IN (
-             WITH RECURSIVE subtree AS (
-               SELECT source.id FROM pages source
-               WHERE source.tenant_id = ?::text::uuid AND source.id = ?::text::uuid
-               UNION ALL
-               SELECT child.id FROM pages child
-               JOIN subtree parent ON child.parent_id = parent.id
-               WHERE child.tenant_id = ?::text::uuid
-             )
-             SELECT id FROM subtree
-           )
-           """,
-           id,
-           ^tenant_id,
-           ^source_id,
-           ^tenant_id
-         )
-       )}
+      excluded = Ankole.Files.descendant_node_ids(source_id)
+      {:ok, Ash.Query.filter(query, id not in ^excluded)}
     else
       :error -> {:error, :invalid_request}
     end
@@ -499,9 +529,9 @@ defmodule Ankole.Pod.Pages.Queries do
         Page
         |> Ash.Query.filter(id in ^ids)
         |> Ash.Query.set_context(%{pod_state_order: ids, pod_visited_at: visited_at})
-        |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(
+        |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(
           actor,
-          Ankole.AuthZ.Checks.PodAnchorFilter.policy(reachable)
+          Ankole.AuthZ.Checks.DriveAnchorFilter.policy(reachable)
         )
 
       {:ok, query}
@@ -509,7 +539,7 @@ defmodule Ankole.Pod.Pages.Queries do
   end
 
   defp list_query("shared", actor, _term) do
-    uid = Ankole.AuthZ.Actor.uid(actor)
+    uid = Ankole.Principals.authority_uid(Ankole.AuthZ.Actor.uid(actor))
 
     with {:ok, context} <- Access.context_snapshot(actor),
          {:ok, reachable} <- Access.reachable_anchors(actor, context: context),
@@ -521,22 +551,32 @@ defmodule Ankole.Pod.Pages.Queries do
        |> Ash.Query.filter(
          id in ^shared and (is_nil(private_owner_uid) or private_owner_uid != ^uid)
        )
-       |> Ankole.AuthZ.Checks.PodAnchorFilter.apply_policy(
+       |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(
          actor,
-         Ankole.AuthZ.Checks.PodAnchorFilter.policy(reachable)
+         Ankole.AuthZ.Checks.DriveAnchorFilter.policy(reachable)
        )}
     end
   end
 
   defp list_query(scope, actor, _term) do
-    uid = Ankole.AuthZ.Actor.uid(actor)
-
     case scope do
-      "space" -> {:ok, Ash.Query.filter(Page, is_nil(parent_id) and is_nil(private_owner_uid))}
-      "private" -> {:ok, Ash.Query.filter(Page, is_nil(parent_id) and private_owner_uid == ^uid)}
-      _ -> {:ok, Ash.Query.new(Page)}
+      "space" ->
+        root_query(Ankole.Files.public_root())
+
+      "private" ->
+        root_query(
+          Ankole.Files.private_root(
+            Ankole.Principals.authority_uid(Ankole.AuthZ.Actor.uid(actor))
+          )
+        )
+
+      _ ->
+        {:ok, Ash.Query.filter(Page, not is_root)}
     end
   end
+
+  defp root_query({:ok, root}), do: {:ok, Ash.Query.filter(Page, parent_id == ^root.id)}
+  defp root_query(_), do: {:ok, Ash.Query.filter(Page, false)}
 
   defp filter_list_title(query, term) when is_binary(term), do: filter_text(query, term)
   defp filter_list_title(query, _term), do: query
@@ -563,22 +603,22 @@ defmodule Ankole.Pod.Pages.Queries do
 
   defp state_page_ids(scope, actor, term, reachable) do
     uid = Ankole.AuthZ.Actor.uid(actor)
-    {anchors, own} = Access.visibility_ids(reachable)
+    visible = Ankole.Files.visible_node_ids(reachable)
     field = if scope == "recent", do: "visited_at", else: "favorited_at"
 
     Repo.query!(
       """
       SELECT p.id::text, state.visited_at FROM page_user_states state
-      JOIN pages p ON p.tenant_id = $1::text::uuid AND p.id = state.page_id
+      JOIN pod_page_nodes p ON p.tenant_id = $1::text::uuid AND p.id = state.page_id
       LEFT JOIN page_contents pc ON pc.tenant_id = p.tenant_id AND pc.page_id = p.id
       WHERE state.tenant_id = $1::text::uuid AND state.principal_uid = $2::text
         AND state.#{field} IS NOT NULL AND p.deleted_at IS NULL
-        AND (p.acl_anchor_id = ANY($3::text[]::uuid[]) OR p.id = ANY($4::text[]::uuid[]))
-        AND ($5::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word)
-          FROM unnest($5::text[]) word))
+        AND p.id = ANY($3::text[]::uuid[])
+        AND ($4::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word)
+          FROM unnest($4::text[]) word))
       ORDER BY state.#{field} DESC, p.id LIMIT 200
       """,
-      [Repo.tenant_id!(), uid, anchors, own, text_patterns(term)]
+      [Repo.tenant_id!(), uid, visible, text_patterns(term)]
     ).rows
     |> Enum.map(fn [id, visited_at] -> {id, visited_at} end)
   end
@@ -606,7 +646,7 @@ defmodule Ankole.Pod.Pages.Queries do
 
         {:ok,
          Enum.map(allowed, fn {id, bits} ->
-           Ankole.Pod.Access.Graph.project_permissions(Map.fetch!(by_id, id), bits)
+           Ankole.Files.Access.Graph.project_permissions(Map.fetch!(by_id, id), bits)
          end)}
       else
         [id, deleted_at] = List.last(candidates)
@@ -618,44 +658,27 @@ defmodule Ankole.Pod.Pages.Queries do
   defp trash_candidates(term, {deleted_at, id}) do
     Repo.query!(
       """
-      WITH RECURSIVE hidden_anchors AS (
-        SELECT child.id FROM pages child
-        JOIN pages parent ON parent.tenant_id = $1::text::uuid
-          AND parent.id = child.parent_anchor_id AND parent.deleted_at IS NOT NULL
-        WHERE child.tenant_id = $1::text::uuid AND child.is_acl_anchor
-        UNION
-        SELECT child.id FROM pages child JOIN hidden_anchors h ON child.parent_anchor_id = h.id
-        WHERE child.tenant_id = $1::text::uuid AND child.is_acl_anchor
-      )
-      SELECT p.id::text, p.deleted_at FROM pages p
+      SELECT p.id::text, p.deleted_at FROM pod_page_nodes p
       LEFT JOIN page_contents pc ON pc.tenant_id = p.tenant_id AND pc.page_id = p.id
       WHERE p.tenant_id = $1::text::uuid AND p.deleted_at IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM hidden_anchors h WHERE h.id = p.id)
+        AND NOT (p.id = ANY($5::text[]::uuid[]))
         AND ($2::timestamp IS NULL OR p.deleted_at < $2::timestamp
           OR (p.deleted_at = $2::timestamp AND p.id > $3::text::uuid))
         AND ($4::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word)
           FROM unnest($4::text[]) word))
       ORDER BY p.deleted_at DESC, p.id LIMIT 200
       """,
-      [Repo.tenant_id!(), deleted_at, id, text_patterns(term)]
+      [
+        Repo.tenant_id!(),
+        deleted_at,
+        id,
+        text_patterns(term),
+        Ankole.Files.hidden_trashed_node_ids()
+      ]
     ).rows
   end
 
-  defp shared_root_ids(ids, reachable) do
-    {anchors, own} = Access.visibility_ids(reachable)
-
-    Repo.query!(
-      """
-      SELECT p.id::text FROM pages p
-      LEFT JOIN pages parent ON parent.tenant_id = $1::text::uuid AND parent.id = p.parent_id
-      WHERE p.tenant_id = $1::text::uuid AND p.id = ANY($2::text[]::uuid[])
-        AND (parent.id IS NULL OR NOT (parent.acl_anchor_id = ANY($3::text[]::uuid[])
-          OR parent.id = ANY($4::text[]::uuid[])))
-      """,
-      [Repo.tenant_id!(), ids, anchors, own]
-    ).rows
-    |> Enum.map(&hd/1)
-  end
+  defp shared_root_ids(ids, reachable), do: Ankole.Files.shared_root_node_ids(ids, reachable)
 
   def can_create_private?(%Ankole.AuthZ.Actor{} = actor) do
     match?({:ok, %{type: :human, membership: :member}}, Access.principal(actor))
@@ -671,7 +694,7 @@ defmodule Ankole.Pod.Pages.Queries do
         pages =
           for page <- pages,
               Bitwise.band(Access.page_bits(page, reachable), 1) != 0,
-              do: Map.take(page, [:id, :revision])
+              do: Map.take(page, [:id, :revision, :object_id])
 
         with {:ok, tables} <- Ankole.Pod.Bases.reconcile_versions(table_ids, reachable),
              do: {:ok, %{pages: pages, tables: tables}}

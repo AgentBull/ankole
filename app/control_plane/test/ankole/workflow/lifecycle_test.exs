@@ -19,6 +19,28 @@ defmodule Ankole.WorkflowTest do
 
   @memo_budget_bytes 6 * 1_024 * 1_024
 
+  test "renaming an inactive Agent preserves its Workflow-owned Session" do
+    %{principal: agent} = agent_fixture()
+    run = run_fixture(agent.uid)
+    {:ok, call} = insert_call(run, 0, %{"type" => "string"})
+
+    assert {:ok, workspace} =
+             Repo.transact(fn ->
+               Ankole.Sessions.Workspaces.ensure_in_tx(
+                 agent.uid,
+                 Workflow.task_session_id(call.id)
+               )
+             end)
+
+    assert {:ok, _} = Ankole.Principals.disable_agent(agent.uid)
+
+    assert {:ok, %{principal: renamed}} =
+             Ankole.Principals.rename(agent.uid, "renamed-workflow-owner")
+
+    assert Repo.reload!(workspace).agent_uid == renamed.uid
+    assert Repo.reload!(call).agent_uid == renamed.uid
+  end
+
   for {name, outcome} <- [
         {"success", %{"ok" => true, "value" => "done"}},
         {"retry",

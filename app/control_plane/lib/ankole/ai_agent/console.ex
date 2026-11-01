@@ -1,5 +1,5 @@
 defmodule Ankole.AIAgent.Console do
-  @moduledoc "The Console actions for Agent model profiles and token quotas."
+  @moduledoc "The Console actions for model profiles and Agent token quotas."
   use Ankole.Ash.OperationResource,
     authorizers: [Ankole.AuthZ.Authorizer],
     domain: Ankole.AIAgent,
@@ -31,6 +31,54 @@ defmodule Ankole.AIAgent.Console do
       action: "update"
     )
 
+    allow(:defaults_model_profiles,
+      resource: "site_console:model_profiles",
+      action: "read",
+      permissions: &__MODULE__.Actions.default_read_permissions/4
+    )
+
+    allow(:put_default_model_profile,
+      resource: "site_console:model_profiles",
+      action: "update",
+      permissions: &__MODULE__.Actions.default_permissions/4
+    )
+
+    allow(:delete_default_model_profile,
+      resource: "site_console:model_profiles",
+      action: "delete",
+      permissions: &__MODULE__.Actions.default_permissions/4
+    )
+
+    allow(:put_default_provider_hosted,
+      resource: "site_console:model_profiles",
+      action: "update",
+      permissions: &__MODULE__.Actions.default_provider_hosted_permissions/4
+    )
+
+    allow(:system_principals,
+      resource: "site_console:model_profiles",
+      action: "read",
+      permissions: &__MODULE__.Actions.default_permissions/4
+    )
+
+    allow(:system_model_profiles,
+      resource: "site_console:model_profiles",
+      action: "read",
+      permissions: &__MODULE__.Actions.default_permissions/4
+    )
+
+    allow(:put_system_model_profile,
+      resource: "site_console:model_profiles",
+      action: "update",
+      permissions: &__MODULE__.Actions.default_permissions/4
+    )
+
+    allow(:delete_system_model_profile,
+      resource: "site_console:model_profiles",
+      action: "delete",
+      permissions: &__MODULE__.Actions.default_permissions/4
+    )
+
     allow(:token_quota, resource: "site_console:agent:{agent_uid}:token_quota", action: "read")
 
     allow(:put_token_quota,
@@ -52,6 +100,12 @@ defmodule Ankole.AIAgent.Console do
   @provider_hosted_fields [
     web_search: [type: :boolean, allow_nil?: false],
     image_generate: [type: :boolean, allow_nil?: false]
+  ]
+  @configuration_fields [
+    overrides: [type: :map, allow_nil?: false],
+    inherited: [type: :map, allow_nil?: false],
+    effective: [type: :map, allow_nil?: false],
+    provider_hosted: [type: :map, allow_nil?: false]
   ]
   @profile_fields [
     provider_id: [type: :string],
@@ -91,43 +145,127 @@ defmodule Ankole.AIAgent.Console do
   end
 
   actions do
-    action :model_profiles, :map do
+    action :system_principals, :map do
       transaction?(false)
 
       constraints(
         fields: [
-          model_profiles: [type: :map, allow_nil?: false],
-          provider_hosted: [
-            type: :map,
+          system_principals: [
+            type: {:array, :map},
             allow_nil?: false,
-            constraints: [fields: @provider_hosted_fields]
+            constraints: [
+              items: [
+                fields: [
+                  uid: [type: :string, allow_nil?: false],
+                  purpose: [type: :string, allow_nil?: false]
+                ]
+              ]
+            ]
           ]
         ]
       )
 
+      run(__MODULE__.Actions)
+    end
+
+    action :system_model_profiles, :map do
+      transaction?(false)
+      constraints(fields: @configuration_fields)
+      argument(:uid, :string, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
+    action :put_system_model_profile, :map do
+      transaction?(false)
+      constraints(fields: @configuration_fields)
+      argument(:uid, :string, allow_nil?: false)
+      argument(:profile, :string, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false, constraints: [fields: @profile_fields])
+      run(__MODULE__.Actions)
+    end
+
+    action :delete_system_model_profile, :map do
+      transaction?(false)
+      constraints(fields: @configuration_fields)
+      argument(:uid, :string, allow_nil?: false)
+      argument(:profile, :string, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
+    action :model_profiles, :map do
+      transaction?(false)
+
+      constraints(fields: @configuration_fields)
+
       argument(:agent_uid, :string, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
+    action :defaults_model_profiles, :map do
+      transaction?(false)
+
+      constraints(fields: @configuration_fields)
+
+      argument(:defaults_scope, :atom,
+        constraints: [one_of: [:global, :tenant]],
+        default: :tenant,
+        allow_nil?: false
+      )
+
+      run(__MODULE__.Actions)
+    end
+
+    action :put_default_model_profile, :map do
+      transaction?(false)
+
+      constraints(fields: @configuration_fields)
+
+      argument(:defaults_scope, :atom,
+        constraints: [one_of: [:global, :tenant]],
+        default: :tenant,
+        allow_nil?: false
+      )
+
+      argument(:profile, :string, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false, constraints: [fields: @profile_fields])
+      run(__MODULE__.Actions)
+    end
+
+    action :delete_default_model_profile, :map do
+      transaction?(false)
+
+      constraints(fields: @configuration_fields)
+
+      argument(:defaults_scope, :atom,
+        constraints: [one_of: [:global, :tenant]],
+        default: :tenant,
+        allow_nil?: false
+      )
+
+      argument(:profile, :string, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
+    action :put_default_provider_hosted, :map do
+      transaction?(false)
+
+      constraints(fields: @configuration_fields)
+
+      argument(:defaults_scope, :atom,
+        constraints: [one_of: [:global, :tenant]],
+        default: :tenant,
+        allow_nil?: false
+      )
+
+      argument(:web_search, :boolean)
+      argument(:image_generate, :boolean)
       run(__MODULE__.Actions)
     end
 
     action :put_model_profile, :map do
       transaction?(false)
 
-      constraints(
-        fields: [
-          model_profile: [
-            type: :map,
-            allow_nil?: false,
-            constraints: [
-              fields:
-                @profile_fields ++
-                  [
-                    profile: [type: :string, allow_nil?: false],
-                    configured: [type: :boolean, allow_nil?: false]
-                  ]
-            ]
-          ]
-        ]
-      )
+      constraints(fields: @configuration_fields)
 
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:profile, :string, allow_nil?: false)
@@ -138,22 +276,7 @@ defmodule Ankole.AIAgent.Console do
     action :delete_model_profile, :map do
       transaction?(false)
 
-      constraints(
-        fields: [
-          model_profile: [
-            type: :map,
-            allow_nil?: false,
-            constraints: [
-              fields:
-                @profile_fields ++
-                  [
-                    profile: [type: :string, allow_nil?: false],
-                    configured: [type: :boolean, allow_nil?: false]
-                  ]
-            ]
-          ]
-        ]
-      )
+      constraints(fields: @configuration_fields)
 
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:profile, :string, allow_nil?: false)

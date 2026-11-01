@@ -587,8 +587,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
 
   defp remove_source_entry!(agent_uid, input, source_event_id, opts \\ []) do
     Observe.emit_entry_removed(
-      agent_uid,
-      "bot",
+      Ankole.Signals.get_agent_binding!(agent_uid, "bot").id,
       lifecycle_entry(%{
         source_event_id: source_event_id,
         provider_conversation_id:

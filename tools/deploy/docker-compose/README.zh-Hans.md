@@ -124,21 +124,27 @@ PostgreSQL 容器采用 `C.utf8` 区域设置，使全新空卷初始化为 `UTF
 printf 'RELEASE_COOKIE=%s\n' "$(openssl rand -hex 32)" >> .env
 ```
 
-每次升级前请完整备份 PostgreSQL、文件存储、所有 Agent Home 卷以及 `.env` 密钥。当前 PostgreSQL 镜像内置 `pg_search` `0.25.11`，启动新版控制面前须先在数据库内升级扩展 SQL：
+每次升级前请完整备份 PostgreSQL、文件存储、所有 Agent Home 卷以及 `.env` 密钥。
+如果旧版独享卷的名称不含租户身份，请在下方最后一步启动控制面之前，先完成
+[Agent Home 存储迁移](../../../docs/upgrades/unified-drive.md#agent-home-storage-names)。
+默认 PostgreSQL 镜像为 `amd64` 和 `arm64` 架构提供 `pg_search` `0.26.4`。
+启动控制面前，先在数据库内升级扩展 SQL，并确认已安装的扩展和已加载的动态库均为 `0.26.4`：
 
 ```sh
 docker compose pull
 docker compose stop
 docker compose up -d postgresql
 docker compose exec postgresql psql -U ankole -d ankole -v ON_ERROR_STOP=1 \
-  -c "ALTER EXTENSION pg_search UPDATE TO '0.25.11'"
+  -c "ALTER EXTENSION pg_search UPDATE TO '0.26.4'" \
+  -c "SELECT extversion FROM pg_extension WHERE extname = 'pg_search'" \
+  -c "SELECT * FROM paradedb.version_info()"
 docker compose up -d --force-recreate
 docker compose ps
 ```
 
 `docker compose stop` 会在执行迁移前停掉旧版控制面，同时保留 Docker 网络使在途 Worker 不断网；待两个迁移服务全部成功后，新版控制面才会启动。升级完成后，各 Agent 的 Worker 会自动重连，镜像变更的旧 Worker 则会在空闲后自动替换。单机升级期间会有短暂服务中断。回退旧版镜像不会反向撤销已执行的数据库迁移；若旧版应用依赖旧表结构，请使用升级前的数据库备份进行恢复。扩展与动态库版本核验方法详见[数据库镜像说明](../../devkit/postgres-for-ankole/README.md)。
 
-从早期共享池化 Worker 版本升级时，`migrate-agent-homes` 服务会先停止所有挂载旧卷 `ankole_agents_data` 的容器，再将每个现存 Agent 的主目录复制到各自的独享卷、将属主统一改为 `uid 1000`，并在旧卷内写入完成标记（已删除 Agent 遗留的孤立目录会被跳过，旧卷本身予以保留）。执行前请确保宿主机剩余磁盘空间不少于 `ankole_agents_data` 的已用容量。若任一目录复制失败，迁移服务会报错退出并阻止控制面启动；修复后再次运行 `docker compose up` 会仅重试未完成的目录，不会覆盖已迁移完成的数据。
+从早期共享池化 Worker 版本升级时，`migrate-agent-homes` 服务会等待数据库迁移成功，再停止所有挂载旧卷 `ankole_agents_data` 的容器。随后，它会将每个现存 Agent 的主目录复制到包含租户身份的独享卷，写入租户归属标签，将属主统一改为 `uid 1000`，并在旧卷内写入完成标记。已删除 Agent 遗留的目录会被跳过，旧卷本身予以保留。执行前请确保宿主机剩余磁盘空间不少于 `ankole_agents_data` 的已用容量。若任一目录复制失败，迁移服务会报错退出并阻止控制面启动；修复后再次运行 `docker compose up` 会仅重试未完成的目录，不会覆盖已迁移完成的数据。
 
 在每个 Worker 内部，`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接，用户文件、会话文件与 Job 工作区均保留在 Agent Home 中；控制面的共享 Agent 云盘则存放在 `files_data` 卷中。若从尚未引入云盘的旧版本升级，请一次性运行以下命令，将已安装的 Skill、Automation Job 脚本及待发送的旧版附件导入云盘：
 

@@ -66,7 +66,8 @@ defmodule Ankole.AIGateway.Events do
   end
 
   defp topic(subject_uid, conversation_id),
-    do: "ai_gateway:subject:#{subject_uid}:conversation:#{conversation_id}"
+    do:
+      "ai_gateway:#{Ankole.Repo.tenant_id!()}:subject:#{subject_uid}:conversation:#{conversation_id}"
 
   defp response_id(id), do: "resp_#{id}"
   defp optional_response_id(nil), do: nil

@@ -19,7 +19,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Skeleton,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -32,18 +31,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { browserSession } from '../common/api/generated/sdk.gen'
+import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 import { unusedProviderID } from '../common/identity-provider'
 import { ConfigFields, defaultConfig, localizedText, setPath } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
-import { authenticationRef, podID, principalUID } from '../common/browser-context'
+import { authenticationRef, podID, principalUID, replacePrincipalUID } from '../common/browser-context'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { availableLocaleIDs, loadLocale, nativeLocaleLabel } from '../common/i18n'
 import * as api from './api/generated/sdk.gen'
-import type { PodAdminMembersResponse, PodMemberAccessReviewResponse } from './api/generated/types.gen'
-import { cachedPages, contentKeys, type PageDetail } from './content-api'
+import { PrincipalRename } from '../common/principal-rename'
+import type { PodAdminAgentsResponse, PodAdminMembersResponse } from './api/generated/types.gen'
 import {
   PodSettingsModel,
-  formatPermissionCondition,
   parseAllowedDomains,
   resolveInvitationExpiryISO,
   type InvitationExpiryPreset
@@ -56,6 +55,7 @@ type Member = PodAdminMembersResponse['members'][number]
 const keys = {
   settings: ['pod-admin-settings'],
   members: ['pod-admin-members'],
+  agents: ['pod-admin-agents'],
   invitations: ['pod-admin-invitations'],
   providers: ['pod-admin-providers']
 }
@@ -87,6 +87,7 @@ export function PodSettings() {
         </Tabs>
         {model.section.value === 'general' && <GeneralSettings model={model} />}
         {model.section.value === 'members' && <Members model={model} />}
+        {model.section.value === 'agents' && <ManagedAgents />}
         {model.section.value === 'invitations' && <Invitations model={model} />}
         {model.section.value === 'providers' && <Providers model={model} />}
         {tabs.map(slot => (
@@ -94,6 +95,87 @@ export function PodSettings() {
         ))}
       </div>
     </div>
+  )
+}
+
+function RenameMember({ member }: { member: Member }) {
+  const client = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (newUID: string) =>
+      api.renamePodMember({ path: { uid: member.uid }, body: { data: { new_uid: newUID } } }),
+    onSuccess: result => {
+      if (principalUID() === member.uid) {
+        replacePrincipalUID(result.uid)
+        client.setQueryData<BrowserSessionResponse>(
+          ['pod-session', authenticationRef() ?? '', podID() ?? ''],
+          session => session && { ...session, principalUID: result.uid }
+        )
+      }
+      return client.invalidateQueries()
+    }
+  })
+  return <PrincipalRename uid={member.uid} mutation={mutation} />
+}
+
+function ManagedAgents() {
+  const { t } = useTranslation()
+  const client = useQueryClient()
+  const agents = useQuery({ queryKey: keys.agents, queryFn: () => api.podAdminAgents() })
+  const refresh = () => client.invalidateQueries({ queryKey: keys.agents })
+  return (
+    <section className="grid gap-4">
+      <p className="text-sm text-muted-foreground">{t('pod.settings.agents_hint')}</p>
+      <ErrorBlock error={agents.error} />
+      {agents.data?.agents.map(agent => (
+        <ManagedAgent key={agent.uid} agent={agent} onSuccess={refresh} />
+      ))}
+    </section>
+  )
+}
+
+function ManagedAgent({
+  agent,
+  onSuccess
+}: {
+  agent: PodAdminAgentsResponse['agents'][number]
+  onSuccess: () => Promise<unknown>
+}) {
+  const { t } = useTranslation()
+  const rename = useMutation({
+    mutationFn: (newUID: string) =>
+      api.renamePodAgent({ path: { uid: agent.uid }, body: { data: { new_uid: newUID } } }),
+    onSuccess
+  })
+  const status = useMutation({
+    mutationFn: () =>
+      agent.status === 'active'
+        ? api.disablePodAgent({ path: { uid: agent.uid } })
+        : api.enablePodAgent({ path: { uid: agent.uid } }),
+    onSuccess
+  })
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2>{agent.displayName}</h2>
+          <Badge variant={agent.status === 'active' ? 'success' : 'secondary'}>
+            {t(`console.status.${agent.status}`)}
+          </Badge>
+        </div>
+        <p className="break-all text-sm text-muted-foreground">
+          @{agent.uid} · {t('pod.settings.agent_owner', { uid: agent.ownerUID })}
+        </p>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <ErrorBlock error={status.error} />
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={status.isPending} onClick={() => status.mutate()}>
+            {t(agent.status === 'active' ? 'common.disable' : 'common.enable')}
+          </Button>
+          <PrincipalRename uid={agent.uid} agent mutation={rename} />
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -344,11 +426,6 @@ function Members({ model }: { model: Model }) {
       return refresh()
     }
   })
-  const review = useQuery({
-    queryKey: ['pod-member-review', model.selectedUID.value],
-    queryFn: () => api.podMemberAccessReview({ path: { uid: model.selectedUID.value } }),
-    enabled: model.memberAction.value === 'restore' && Boolean(model.selectedUID.value)
-  })
   const change = useMutation({
     mutationFn: () =>
       model.memberAction.value === 'restore'
@@ -356,8 +433,6 @@ function Members({ model }: { model: Model }) {
             path: { uid: model.selectedUID.value },
             body: {
               data: {
-                reviewFingerprint: review.data!.review.permission_review.fingerprint,
-                identityVerified: model.identityVerified.value,
                 reason: model.reason.value
               }
             }
@@ -379,7 +454,6 @@ function Members({ model }: { model: Model }) {
   const select = (member: Member, action: 'suspended' | 'offboarded' | 'restore') => {
     change.reset()
     model.reason.value = ''
-    model.identityVerified.value = false
     model.memberAction.value = action
     model.selectedUID.value = member.uid
   }
@@ -476,6 +550,7 @@ function Members({ model }: { model: Model }) {
             </CardHeader>
             <CardContent className="grid gap-3">
               <div className="flex flex-wrap gap-2">
+                <RenameMember member={member} />
                 <Button
                   variant="outline"
                   disabled={role.isPending || member.membership === 'guest' || member.status !== 'active'}
@@ -591,27 +666,7 @@ function Members({ model }: { model: Model }) {
             </p>
           )}
           <p className="text-sm text-muted-foreground">{t(`pod.settings.${model.memberAction.value}_description`)}</p>
-          <ErrorBlock error={change.error ?? review.error} />
-          {model.memberAction.value === 'restore' &&
-            (review.isPending ? (
-              <div className="grid gap-2" aria-busy="true">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-16 w-full" />
-              </div>
-            ) : (
-              review.data && <PermissionReview review={review.data.review.permission_review} />
-            ))}
-          {model.memberAction.value === 'restore' && (
-            <label className="flex items-start gap-3 text-sm">
-              <Checkbox
-                checked={model.identityVerified.value}
-                onCheckedChange={value => {
-                  model.identityVerified.value = value === true
-                }}
-              />
-              <span>{t('pod.settings.identity_verified')}</span>
-            </label>
-          )}
+          <ErrorBlock error={change.error} />
           <form
             className="grid gap-3"
             onSubmit={event => {
@@ -641,10 +696,7 @@ function Members({ model }: { model: Model }) {
               <Button
                 type="submit"
                 variant={model.memberAction.value === 'offboarded' ? 'destructive' : 'default'}
-                disabled={
-                  change.isPending ||
-                  (model.memberAction.value === 'restore' && (!model.identityVerified.value || !review.data))
-                }>
+                disabled={change.isPending}>
                 {t(`pod.settings.${model.memberAction.value}`)}
               </Button>
             </DialogFooter>
@@ -652,120 +704,6 @@ function Members({ model }: { model: Model }) {
         </DialogContent>
       </Dialog>
     </section>
-  )
-}
-
-const uuidInPattern = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
-
-function PermissionReview({ review }: { review: PodMemberAccessReviewResponse['review']['permission_review'] }) {
-  const { t } = useTranslation()
-  const client = useQueryClient()
-  const { permissions } = review
-  if (permissions.groups.length === 0 && permissions.grants.length === 0 && permissions.userset_grants.length === 0) {
-    return null
-  }
-  const pagesByID = new Map(cachedPages(client).map(page => [page.id, page]))
-  const pageLabel = (id: string) => {
-    const cached = pagesByID.get(id) ?? client.getQueryData<PageDetail>(contentKeys.page(id))?.page
-    if (cached) return cached.title?.trim() || t('pod.content.untitled')
-    return t('pod.content.page', { value1: id.slice(0, 8) })
-  }
-  const actionLabel = (action: string) => {
-    switch (action) {
-      case 'page_view':
-        return t('pod.content.can_view')
-      case 'page_write_records':
-        return t('pod.content.can_contribute')
-      case 'page_comment':
-        return t('pod.document.can_comment')
-      case 'page_edit':
-        return t('pod.content.can_edit')
-      case 'page_manage':
-        return t('pod.content.full_access')
-      default:
-        return humanizeTechnicalLabel(action)
-    }
-  }
-  const scopeLabel = (scope: string) => {
-    switch (scope) {
-      case 'container':
-        return t('pod.content.sharing_scope_container')
-      case 'self':
-        return t('pod.content.sharing_scope_self')
-      default:
-        return humanizeTechnicalLabel(scope)
-    }
-  }
-  const groupKindLabel = (kind: string) => {
-    switch (kind) {
-      case 'static':
-        return t('console.principal_groups.kind_static')
-      case 'computed':
-        return t('console.principal_groups.kind_computed')
-      default:
-        return humanizeTechnicalLabel(kind)
-    }
-  }
-  const resourceLabel = (pattern: string) => {
-    if (pattern === 'pod:space:**' || pattern === 'pod:space:*') return t('pod.content.space')
-    if (pattern === 'pod:private:**' || pattern === 'pod:private:*') return t('pod.content.private')
-    if (pattern === 'site_console:**') return t('pod.sidebar.site_console')
-    const pageMatch = uuidInPattern.exec(pattern)
-    if (pageMatch) {
-      const label = pageLabel(pageMatch[1]!)
-      return pattern.endsWith(':**') ? `${label} (${t('pod.content.sharing_scope_container')})` : label
-    }
-    if (pattern.startsWith('agent:')) {
-      return `${t('pod.content.agent_kind')} ${pattern.slice('agent:'.length, 'agent:'.length + 8)}`
-    }
-    return pattern
-  }
-  return (
-    <details open className="grid gap-3 border border-border p-3 text-sm">
-      <summary className="cursor-pointer font-medium">{t('pod.settings.permissions')}</summary>
-      <p className="text-xs text-muted-foreground">{t('pod.settings.permissions_hint')}</p>
-      {permissions.groups.map(group => {
-        const condition = formatPermissionCondition(group.condition)
-        return (
-          <div key={group.id} className="grid gap-1">
-            <div>
-              <strong>{group.name}</strong> · {groupKindLabel(group.kind)}
-            </div>
-            {condition && <p className="font-mono text-xs text-muted-foreground break-all">{condition}</p>}
-          </div>
-        )
-      })}
-      {permissions.grants.map(grant => {
-        const condition = formatPermissionCondition(grant.condition)
-        return (
-          <div key={grant.id} className="grid gap-1">
-            <div>
-              <span className="font-medium">{resourceLabel(grant.resource_pattern)}</span> ·{' '}
-              <span>{actionLabel(grant.action)}</span>
-            </div>
-            {condition && <p className="font-mono text-xs text-muted-foreground break-all">{condition}</p>}
-          </div>
-        )
-      })}
-      {permissions.userset_grants.map(grant => {
-        const condition = formatPermissionCondition(grant.condition)
-        return (
-          <div key={grant.id} className="grid gap-1">
-            <div>
-              {t('pod.settings.userset_grant_summary', {
-                action: actionLabel(grant.action),
-                target: pageLabel(grant.target_page_id),
-                scope: scopeLabel(grant.target_scope),
-                sourceAction: actionLabel(grant.source_action),
-                source: pageLabel(grant.source_page_id),
-                defaultValue: '{$action} on {$target} ({$scope}) when the member has {$sourceAction} on {$source}'
-              })}
-            </div>
-            {condition && <p className="font-mono text-xs text-muted-foreground break-all">{condition}</p>}
-          </div>
-        )
-      })}
-    </details>
   )
 }
 

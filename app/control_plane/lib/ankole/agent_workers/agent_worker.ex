@@ -3,6 +3,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
   use Ankole.Ash.Resource,
     authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
+    tenant_in_primary_key: true,
     domain: Ankole.AgentWorkers,
     extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource]
 
@@ -82,6 +83,10 @@ defmodule Ankole.AgentWorkers.AgentWorker do
   end
 
   json_api do
+    primary_key do
+      keys([:agent_uid])
+    end
+
     type("agent_worker")
     derive_filter?(false)
     derive_sort?(false)

@@ -141,8 +141,10 @@ During an inbound Turn, `<agent_environment_info>` exposes the public
 Conversation UUID. Because Feishu message events omit sender display names,
 identity admission projects any Contact-synced display name onto the event, and
 for group turns the prompt renderer formats `speaker` as `name(uid)` (or
-`uid(uid)` when no name is known). Human Principal UIDs remain opaque UUIDv7s,
-separate from provider-scoped Lark IDs and `email` bindings.
+`uid(uid)` when no name is known). Identity admission uses an existing binding,
+matching contact information, or the external primary ID to select or create a
+Human within the binding's tenant. Provider-scoped Lark IDs and `email` bindings
+keep their credential meaning when the Principal is renamed.
 
 Inbound content covers plain text, rich posts, stickers, images, files, audio,
 media, video, locations, shared chats, and shared user cards:

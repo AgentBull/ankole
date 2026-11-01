@@ -12,7 +12,7 @@ defmodule Ankole.E2E.Harness do
   import ExUnit.Assertions
   import ExUnit.Callbacks
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.OpaqueContent
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
@@ -146,6 +146,15 @@ defmodule Ankole.E2E.Harness do
           Repo.delete_all(from(c in Ankole.AppConfigure.AppConfig, where: c.scope not in ^scopes))
           # Shared conversations contain the committed fixture statements.
           Repo.delete_all(from(c in Conversation, where: c.id not in ^conversations))
+
+          for uid <- uids do
+            assert {:ok, :ok} =
+                     Repo.transact(fn ->
+                       :ok = Ankole.Files.delete_private_root_in_tx(uid)
+                       {:ok, :ok}
+                     end)
+          end
+
           # The owner foreign key is RESTRICT. Delete Agents before their Humans.
           Repo.delete_all(
             from(p in Principals.Principal, where: p.uid in ^uids and p.type == :agent)
@@ -513,7 +522,7 @@ defmodule Ankole.E2E.Harness do
   end
 
   defp worker_identity(agent_uid) do
-    case Repo.get(AgentWorker, agent_uid) do
+    case Repo.get_by(AgentWorker, agent_uid: agent_uid) do
       %AgentWorker{generation: generation, incarnation_id: incarnation_id} ->
         %{generation: generation, incarnation_id: incarnation_id}
 
@@ -611,9 +620,7 @@ defmodule Ankole.E2E.Harness do
     assert {:ok, %{principal: _agent} = result} =
              Principals.create_agent(
                attrs
-               |> Map.delete(:uid)
-               |> Map.delete("uid")
-               |> Map.put_new_lazy(:handle, fn ->
+               |> Map.put_new_lazy(:uid, fn ->
                  "e2e-agent-#{System.unique_integer([:positive])}"
                end)
                |> Map.put(:owner_principal_uid, owner.uid)
@@ -1034,13 +1041,14 @@ defmodule Ankole.E2E.Harness do
 
     assert [
              %{
-               "path" => "reports/chaos-report.txt",
-               "blob_ref" => blob_ref,
+               "object_id" => object_id,
+               "node_id" => node_id,
                "name" => "chaos-report.txt"
              }
            ] = intent.payload["attachments"]
 
-    assert is_binary(blob_ref)
+    assert {:ok, ^object_id} = Ecto.UUID.cast(object_id)
+    assert {:ok, ^node_id} = Ecto.UUID.cast(node_id)
 
     sent = dispatch_succeeded!(intent)
 
@@ -1062,10 +1070,13 @@ defmodule Ankole.E2E.Harness do
   Runs one intent dispatch pass and asserts this row succeeded; returns the
   updated row (with `created_provider_message_id` from the provider response).
   """
-  def dispatch_succeeded!(%Intent{outbound_key: key}) do
+  def dispatch_succeeded!(%Intent{outbound_key: key} = intent) do
     results = run_intent_dispatch!()
 
-    sent = Repo.get_by!(Intent, outbound_key: key)
+    [sent] =
+      Ankole.Conversations.list_intents!(
+        query: [filter: Map.take(intent, [:agent_uid, :binding_name, :outbound_key])]
+      )
 
     assert sent.status == :sent,
            "intent #{key} did not dispatch successfully: #{inspect(sent)} jobs=#{inspect(results)}"

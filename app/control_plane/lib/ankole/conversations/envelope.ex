@@ -24,7 +24,7 @@ defmodule Ankole.Conversations.Envelope do
 
     attrs = %{
       source_work: event_authorization(fact, type),
-      agent_uid: binding.agent_uid,
+      agent_uid: fact.agent_uid,
       binding_name: binding.name,
       session_id: session_id,
       source_event_id: fact.source_event_id,
@@ -40,7 +40,7 @@ defmodule Ankole.Conversations.Envelope do
       binding
       |> im_envelope(fact, type, channel, entry, now)
       |> maybe_ambient_batch_payload(type, attrs, fact, channel, now)
-      |> Ankole.Conversations.Attachments.scope_payload(fact.conversation_id)
+      |> Ankole.Conversations.Attachments.prepare_payload_in_tx(fact.conversation_id)
 
     message_ids = current_message_ids(fact, entry)
     message_id = current_message_id(entry) || List.last(message_ids)
@@ -59,11 +59,12 @@ defmodule Ankole.Conversations.Envelope do
         |> Map.put("message_id", message_id)
         |> Map.put("text", Map.get(fact, :text)),
       message_id: message_id,
-      target: %{agent_uid: binding.agent_uid, session_id: session_id},
+      target: %{agent_uid: fact.agent_uid, session_id: session_id},
       sender: Map.get(fact, :sender_key),
       authorization: attrs.source_work,
       available_at: available_at,
       reply_route: %{
+        binding_id: binding.id,
         binding_name: binding.name,
         conversation_id: fact.conversation_id,
         provider_thread_id: fact.provider_thread_id,
@@ -162,7 +163,7 @@ defmodule Ankole.Conversations.Envelope do
     data =
       %{
         "session" => %{
-          "agent_uid" => binding.agent_uid,
+          "agent_uid" => fact.agent_uid,
           "session_id" =>
             Map.get(fact, :session_id) || Ankole.Sessions.Key.conversation(fact.conversation_id),
           "binding_name" => binding.name
@@ -301,11 +302,11 @@ defmodule Ankole.Conversations.Envelope do
 
   defp envelope_subject(_fact), do: nil
 
-  defp event_authorization(_fact, "im.message.may_intervene"),
-    do: Ankole.Principals.WorkAccess.service()
+  defp event_authorization(fact, "im.message.may_intervene"),
+    do: Ankole.Principals.WorkAccess.from_sender(fact.agent_uid)
 
-  defp event_authorization(_fact, "conversation.message.removed"),
-    do: Ankole.Principals.WorkAccess.service()
+  defp event_authorization(fact, "conversation.message.removed"),
+    do: Ankole.Principals.WorkAccess.from_sender(fact.agent_uid)
 
   defp event_authorization(fact, _type) do
     if Map.has_key?(fact, :finalized_batch_id),

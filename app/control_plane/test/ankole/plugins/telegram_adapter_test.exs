@@ -265,7 +265,12 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert {:ok, 12} =
                Dispatcher.process_updates(
                  updates,
-                 consumer("owner-agent", "telegram-main"),
+                 consumer(
+                   "owner-agent",
+                   "telegram-main",
+                   %{"botToken" => "test-only-token"},
+                   Ecto.UUID.generate()
+                 ),
                  %{id: "77", username: "AnkoleBot"},
                  nil
                )
@@ -292,7 +297,14 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         client_opts: [base_url: "https://telegram.test", plug: {Req.Test, __MODULE__}]
       )
 
-      consumer = consumer("owner-agent", "telegram-main")
+      consumer =
+        consumer(
+          "owner-agent",
+          "telegram-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
+
       config = %{"botToken" => "100:first-secret"}
 
       assert {:ok, first} = start_connection_owner(ConnectionReconciler, config, [consumer])
@@ -303,12 +315,12 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
       refute owner_serves?(
                ConnectionReconciler,
-               {"owner-agent", "telegram-main"},
+               consumer.context.binding_id,
                %{"botToken" => "200:rotated-secret"},
                [consumer]
              )
 
-      assert :ok = ConnectionReconciler.stop({"owner-agent", "telegram-main"})
+      assert :ok = ConnectionReconciler.stop(consumer.context.binding_id)
 
       assert {:ok, second} =
                start_connection_owner(
@@ -322,7 +334,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       refute second == first
       refute Process.alive?(first)
       assert eventually(fn -> Ankole.SignalsFixtures.owner_status(second).state == :blocked end)
-      assert :ok = ConnectionReconciler.stop({"owner-agent", "telegram-main"})
+      assert :ok = ConnectionReconciler.stop(consumer.context.binding_id)
     end
 
     test "normal stop and owner kill both stop a held poll; the bot has one owner" do
@@ -355,7 +367,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
           config: config,
           consumer:
             Map.put(
-              consumer("owner-agent", to_string(mode), config),
+              consumer("owner-agent", to_string(mode), config, Ecto.UUID.generate()),
               :tenant_id,
               Repo.tenant_id!()
             )
@@ -402,11 +414,11 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         client_opts: [base_url: "https://telegram.test", plug: {Req.Test, __MODULE__}]
       )
 
-      key = {"auth-agent", "telegram-auth"}
+      key = Ecto.UUID.generate()
 
       assert {:ok, owner} =
                start_connection_owner(ConnectionReconciler, %{"botToken" => "707:auth-secret"}, [
-                 consumer(elem(key, 0), elem(key, 1))
+                 consumer("auth-agent", "telegram-auth", %{"botToken" => "test-only-token"}, key)
                ])
 
       assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).state == :blocked end),
@@ -429,7 +441,14 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     end
 
     test "projects private, addressed group, and forum-topic messages with stable identities" do
-      consumer = consumer("agent-a", "telegram-main")
+      consumer =
+        consumer(
+          "agent-a",
+          "telegram-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
+
       bot = %{id: "77", username: "AnkoleBot"}
 
       assert {:ok, dm} =
@@ -482,7 +501,14 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     end
 
     test "rejects channels, bots, anonymous senders, and Business messages" do
-      consumer = consumer("agent-a", "telegram-main")
+      consumer =
+        consumer(
+          "agent-a",
+          "telegram-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
+
       bot = %{id: "77", username: "AnkoleBot"}
 
       channel = private_message(100, "hello") |> put_in(["chat", "type"], "channel")
@@ -507,7 +533,14 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     end
 
     test "keeps an over-limit media fact but never invents a readable attachment path" do
-      consumer = consumer("agent-a", "telegram-main")
+      consumer =
+        consumer(
+          "agent-a",
+          "telegram-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
+
       bot = %{id: "77", username: "AnkoleBot"}
 
       message =
@@ -526,7 +559,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert attachment["materialization_state"] == "provider_download_limit"
       assert attachment["restriction"] =~ "20 MB"
       refute Map.has_key?(attachment, "attachment_id")
-      refute Map.has_key?(attachment, "blob_ref")
+      refute Map.has_key?(attachment, "object_id")
       refute Map.has_key?(attachment, "path")
 
       %{principal: agent} = agent_fixture()
@@ -922,7 +955,9 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert first_uid == first_agent.uid
 
       assert {:ok, _disabled} =
-               Ankole.Signals.Bindings.disable_binding(first_agent.uid, "telegram-one")
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(first_agent.uid, "telegram-one").id
+               )
 
       assert {:ok, _binding} =
                Ankole.Signals.Bindings.put_binding(
@@ -970,7 +1005,9 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).state == :blocked end)
 
       assert {:ok, _binding} =
-               Ankole.Signals.Bindings.disable_binding(agent.uid, "telegram-disabled")
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "telegram-disabled").id
+               )
 
       assert %{stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
@@ -1408,6 +1445,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert :unknown =
                Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
+                 binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "telegram-unknown").id,
                  binding_name: "telegram-unknown",
                  outbound_key: "unknown-1",
                  operation: :post,
@@ -1446,6 +1484,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert :unknown =
                Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
+                 binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "telegram-partial").id,
                  binding_name: "telegram-partial",
                  outbound_key: "partial-1",
                  operation: :post,
@@ -1478,9 +1517,15 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     end)
   end
 
-  defp consumer(agent_uid, binding_name, config \\ %{"botToken" => "test-only-token"}) do
+  defp consumer(
+         agent_uid,
+         binding_name,
+         config \\ %{"botToken" => "test-only-token"},
+         binding_id \\ nil
+       ) do
     Inbound.chat_consumer(
       AdapterContext.new(
+        binding_id: binding_id || Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
         agent_uid: agent_uid,
         binding_name: binding_name,
         adapter: "telegram",

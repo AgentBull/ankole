@@ -52,18 +52,17 @@ defmodule Ankole.Conversations.Observe do
   `{:ok, %{status: :filtered}}` (a successful no-op, not an error), and the actor
   runtime is woken only when the signal actually produced new Signal.
   """
-  @spec emit_entry(String.t(), String.t(), FactNormalizer.entry_input(), keyword()) ::
+  @spec emit_entry(String.t(), FactNormalizer.entry_input(), keyword()) ::
           ingress_result()
-  def emit_entry(agent_uid, binding_name, input, options \\ []) when is_map(input) do
+  def emit_entry(binding_id, input, options \\ []) when is_map(input) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, binding} <- Bindings.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Bindings.get_binding(binding_id),
          {:ok, attrs} <- FactNormalizer.entry(binding, input, now),
          {:ok, fact} <- Observation.entry(attrs),
+         fact = fact |> resolve_existing_conversation() |> then(&Reference.enrich/1),
          :match <- BindingFilters.match?(binding.filters, fact) do
-      fact = fact |> resolve_existing_conversation() |> then(&Reference.enrich(&1))
-
-      case admit_entry(binding, fact, now) do
+      case admit_entry(binding, fact, now) |> route_entry(binding) do
         {:ok, fact} ->
           Repo.transact_top_level(
             fn -> accept_entry_in_tx(binding, fact, now) end,
@@ -79,6 +78,7 @@ defmodule Ankole.Conversations.Observe do
       end
     else
       :no_match -> {:ok, %{status: :filtered}}
+      {:ignored, status} -> {:ok, %{status: status}}
       {:error, _reason} = error -> error
     end
   end
@@ -91,16 +91,16 @@ defmodule Ankole.Conversations.Observe do
   `options[:provider_lifecycle_kind]` for diagnostics, while the actor-facing
   contract remains `conversation.message.removed`.
   """
-  @spec emit_entry_removed(String.t(), String.t(), FactNormalizer.removal_input(), keyword()) ::
+  @spec emit_entry_removed(String.t(), FactNormalizer.removal_input(), keyword()) ::
           ingress_result()
-  def emit_entry_removed(agent_uid, binding_name, input, options \\ []) do
+  def emit_entry_removed(binding_id, input, options \\ []) do
     provider_lifecycle_kind =
       Keyword.get(options, :provider_lifecycle_kind) ||
         Map.get(input, :provider_lifecycle_kind)
 
     provider_lifecycle_kind = normalize_provider_lifecycle_kind(provider_lifecycle_kind)
 
-    emit_lifecycle(agent_uid, binding_name, input, provider_lifecycle_kind, options)
+    emit_lifecycle(binding_id, input, provider_lifecycle_kind, options)
   end
 
   @doc """
@@ -112,20 +112,23 @@ defmodule Ankole.Conversations.Observe do
   (`:ignored_unknown_entry`) rather than treated as an error, since the gateway
   has no entry to attach it to.
   """
-  @spec emit_reaction(String.t(), String.t(), FactNormalizer.reaction_input(), keyword()) ::
+  @spec emit_reaction(String.t(), FactNormalizer.reaction_input(), keyword()) ::
           ingress_result()
-  def emit_reaction(agent_uid, binding_name, input, options \\ []) when is_map(input) do
+  def emit_reaction(binding_id, input, options \\ []) when is_map(input) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, binding} <- Bindings.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Bindings.get_binding(binding_id),
          {:ok, attrs} <- FactNormalizer.reaction(binding, input, now),
          {:ok, fact} <- Observation.reaction(attrs),
-         :match <- BindingFilters.match?(binding.filters, fact) do
+         fact = resolve_existing_conversation(fact),
+         :match <- BindingFilters.match?(binding.filters, fact),
+         {:ok, fact} <- route_followup(binding, fact) do
       Repo.transact_top_level(fn ->
         accept_reaction_in_tx(binding, fact, now)
       end)
     else
       :no_match -> {:ok, %{status: :filtered}}
+      {:ignored, status} -> {:ok, %{status: status}}
       {:error, _reason} = error -> error
     end
   end
@@ -150,70 +153,87 @@ defmodule Ankole.Conversations.Observe do
   @doc """
   Concrete adapter API for provider actions such as card clicks.
   """
-  @spec emit_action(String.t(), String.t(), FactNormalizer.action_input(), keyword()) ::
+  @spec emit_action(String.t(), FactNormalizer.action_input(), keyword()) ::
           ingress_result()
-  def emit_action(agent_uid, binding_name, input, options \\ []) when is_map(input) do
+  def emit_action(binding_id, input, options \\ []) when is_map(input) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, binding} <- Bindings.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Bindings.get_binding(binding_id),
          {:ok, attrs} <- FactNormalizer.action(binding, input, now),
          {:ok, fact} <- Observation.action(attrs),
-         :match <- BindingFilters.match?(binding.filters, fact) do
+         fact = resolve_existing_conversation(fact),
+         :match <- BindingFilters.match?(binding.filters, fact),
+         {:ok, fact} <- route_followup(binding, fact) do
       Repo.transact_top_level(
         fn -> accept_action_in_tx(binding, fact, now) end,
         after_commit: &__MODULE__.publish_committed/1
       )
     else
       :no_match -> {:ok, %{status: :filtered}}
+      {:ignored, status} -> {:ok, %{status: status}}
       {:error, _reason} = error -> error
     end
   end
 
   @doc false
   def accept_action_in_tx(binding, fact, now) do
-    # Keep the same channel -> Session -> Signal lock order as
-    # ordinary message ingress. Managed callbacks take the session lock so
-    # an answer and a newer turn have one deterministic winner.
-    with {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
-         {:ok, channel} <- conversation_in_tx(fact),
-         {:ok, acceptance} <- Interactions.accept_in_tx(binding, fact, now) do
-      case acceptance do
-        :duplicate ->
-          {:ok, %{status: :duplicate_action}}
+    # Keep the same tree -> channel -> root -> Principal -> Session -> Signal lock order
+    # across all managed callbacks so Action Cards and ordinary answers compose cleanly.
+    with :ok <- Ankole.Files.lock_tree_in_tx(),
+         {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
+         {:ok, channel} <- conversation_in_tx(fact) do
+      if managed_action_card_callback?(fact) do
+        Ankole.Conversations.ActionCards.accept_external_in_tx(binding, fact, channel, now)
+      else
+        with {:ok, acceptance} <- Interactions.accept_in_tx(binding, fact, now) do
+          case acceptance do
+            :duplicate ->
+              {:ok, %{status: :duplicate_action}}
 
-        :stale ->
-          {:ok, %{status: :stale_action}}
+            :stale ->
+              {:ok, %{status: :stale_action}}
 
-        {:accepted, resolution} ->
-          fact = %{
-            fact
-            | action: accepted_reply_action(fact.action, resolution),
-              sender_key: Map.get(fact.action, "operator_principal_uid")
-          }
+            {:accepted, resolution} ->
+              fact = %{
+                fact
+                | action: accepted_reply_action(fact.action, resolution),
+                  sender_key: Map.get(fact.action, "operator_principal_uid")
+              }
 
-          append_action_event(binding, fact, channel, now)
+              append_action_event(binding, fact, channel, now)
 
-        :unmanaged ->
-          append_action_event(binding, fact, channel, now)
+            :unmanaged ->
+              append_action_event(binding, fact, channel, now)
+          end
+        end
       end
     end
   end
 
+  defp managed_action_card_callback?(fact) do
+    value = get_in(fact.action || %{}, ["value"]) || %{}
+
+    Map.get(value, "version") ==
+      Ankole.Conversations.Delivery.ReplyPresentation.action_protocol() and
+      Ankole.Conversations.ActionCards.action_card_interaction_id?(
+        Map.get(value, "interactionId")
+      )
+  end
+
   @doc "Commits pending and final attachment observations with one time anchor."
   @spec emit_entry_with_attachments(
-          String.t(),
           String.t(),
           map(),
           ([map()] -> [map()]),
           keyword()
         ) ::
           ingress_result()
-  def emit_entry_with_attachments(agent_uid, binding_name, input, materialize, opts \\ []) do
+  def emit_entry_with_attachments(binding_id, input, materialize, opts \\ []) do
     if Attachments.attachments_need_bytes?(input.attachments) do
       observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now(:microsecond))
       pending = attachment_observation(input, "pending", observed_at)
 
-      case emit_entry(agent_uid, binding_name, pending, opts) do
+      case emit_entry(binding_id, pending, opts) do
         {:ok, %{message_observation: %{message: %{attachments: attachments}}}}
         when is_list(attachments) ->
           attachments = materialize.(attachments)
@@ -221,13 +241,13 @@ defmodule Ankole.Conversations.Observe do
           input
           |> Map.put(:attachments, attachments)
           |> attachment_observation(Attachments.materialization_state(attachments), observed_at)
-          |> then(&emit_entry(agent_uid, binding_name, &1, opts))
+          |> then(&emit_entry(binding_id, &1, opts))
 
         result ->
           result
       end
     else
-      emit_entry(agent_uid, binding_name, input, opts)
+      emit_entry(binding_id, input, opts)
     end
   end
 
@@ -284,20 +304,23 @@ defmodule Ankole.Conversations.Observe do
     }
   end
 
-  defp emit_lifecycle(agent_uid, binding_name, input, provider_lifecycle_kind, options) do
+  defp emit_lifecycle(binding_id, input, provider_lifecycle_kind, options) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, binding} <- Bindings.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Bindings.get_binding(binding_id),
          constructor <- lifecycle_constructor(provider_lifecycle_kind),
          {:ok, attrs} <- constructor.(binding, input, now),
          {:ok, fact} <- Observation.lifecycle(attrs),
-         :match <- BindingFilters.match?(binding.filters, fact) do
+         fact = resolve_existing_conversation(fact),
+         :match <- BindingFilters.match?(binding.filters, fact),
+         {:ok, fact} <- route_followup(binding, fact) do
       Repo.transact_top_level(
         fn -> accept_lifecycle_in_tx(binding, fact, now) end,
         after_commit: &__MODULE__.publish_committed/1
       )
     else
       :no_match -> {:ok, %{status: :filtered}}
+      {:ignored, status} -> {:ok, %{status: status}}
       {:error, _reason} = error -> error
     end
   end
@@ -311,6 +334,10 @@ defmodule Ankole.Conversations.Observe do
     |> Map.get(:runtime_retractions, %{})
     |> Map.get(:canceled_signal_ids, [])
     |> Enum.each(&Preview.stop/1)
+
+    if is_map(result[:action_card_outcome]) do
+      Ankole.Conversations.ActionCards.publish_after_commit(result.action_card_outcome)
+    end
 
     Envelope.publish_committed(result)
   end
@@ -332,7 +359,9 @@ defmodule Ankole.Conversations.Observe do
   # late receive before writing anything.
   @doc false
   def accept_entry_in_tx(binding, fact, now) do
-    with {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
+    with :ok <- Ankole.Files.lock_tree_in_tx(),
+         {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
+         :ok <- lock_entry_consumers(binding, fact),
          :ok <- lock_entry(fact) do
       case active_tombstone?(fact, now) do
         true ->
@@ -345,6 +374,27 @@ defmodule Ankole.Conversations.Observe do
                {:ok, result} <- apply_entry_policy(binding, fact, policy, now) do
             {:ok, result}
           end
+      end
+    end
+  end
+
+  defp lock_entry_consumers(binding, fact) do
+    with {:ok, policy} <- entry_policy(binding, fact) do
+      case policy do
+        {:signal, type, command} when not is_nil(command) ->
+          {target, _command} = resolve_retry_target(binding, fact, type, command)
+
+          sessions =
+            Enum.map([fact, target], fn entry ->
+              {entry.agent_uid,
+               Map.get(entry, :session_id) ||
+                 Ankole.Sessions.Key.conversation(entry.conversation_id)}
+            end)
+
+          Ankole.Sessions.Queue.lock_sessions_in_tx(sessions)
+
+        _ ->
+          Ankole.Conversations.InputRevisions.lock_attachment_supplement_in_tx(fact)
       end
     end
   end
@@ -376,7 +426,7 @@ defmodule Ankole.Conversations.Observe do
          completed_events <-
            Ankole.Signals.signals_for_entry_in_tx(
              fact.agent_uid,
-             fact.binding_name,
+             fact.binding_id,
              fact.conversation_id,
              fact.provider_message_id
            ),
@@ -564,7 +614,7 @@ defmodule Ankole.Conversations.Observe do
 
   defp resolve_explicit_retry_target(binding, fact, command, signal_id) do
     case Delivery.durable_reply_surface_exists_in_tx?(
-           binding.agent_uid,
+           fact.agent_uid,
            binding.name,
            fact.conversation_id,
            signal_id
@@ -576,7 +626,7 @@ defmodule Ankole.Conversations.Observe do
 
   defp resolve_reply_retry_target(binding, fact, command, provider_provider_message_id) do
     case Delivery.resolve_durable_reply_signal_in_tx(
-           binding.agent_uid,
+           fact.agent_uid,
            binding.name,
            fact.conversation_id,
            provider_provider_message_id
@@ -660,10 +710,10 @@ defmodule Ankole.Conversations.Observe do
 
   @tombstone_ttl_seconds 86_400
 
-  defp bind_conversation_in_tx(binding, fact, now) do
+  defp bind_conversation_in_tx(_binding, fact, now) do
     with {:ok, conversation} <-
            External.observe_conversation_in_tx(
-             binding,
+             %{agent_uid: if(fact.agent_uid == "system", do: nil, else: fact.agent_uid)},
              %{
                provider_conversation_id: fact.provider_conversation_id,
                title: fact.channel_name,
@@ -740,14 +790,100 @@ defmodule Ankole.Conversations.Observe do
 
   defp resolve_existing_conversation(fact) do
     case External.get_conversation(fact.provider_conversation_id) do
-      %Conversation{id: id} -> %{fact | conversation_id: id}
-      nil -> fact
+      %Conversation{} = conversation ->
+        %{
+          fact
+          | conversation_id: conversation.id,
+            channel_kind:
+              if(fact.channel_kind in [nil, :unknown],
+                do: conversation.external_kind,
+                else: fact.channel_kind
+              ),
+            channel_metadata:
+              Map.merge(conversation.metadata || %{}, fact.channel_metadata || %{})
+        }
+
+      nil ->
+        fact
+    end
+  end
+
+  defp route_entry({:ok, %{channel_kind: kind} = fact}, %Binding{
+         routing_mode: :sender_personal_assistant
+       })
+       when kind != :im_dm,
+       do: {:held, fact, :filtered, false}
+
+  defp route_entry({:ok, fact}, %Binding{routing_mode: :sender_personal_assistant}) do
+    uid = get_in(fact.author || %{}, ["principal_uid"])
+
+    with {:ok, %{type: :human, status: :active, membership: :member}} <-
+           Ankole.Principals.get_principal(uid),
+         {:ok, %{principal: assistant}} <- Ankole.Principals.ensure_personal_assistant(uid) do
+      {:ok, %{fact | agent_uid: assistant.uid}}
+    else
+      {:ok, _} -> {:held, fact, :ignored_non_member, false}
+      {:error, :not_found} -> {:held, fact, :ignored_unmapped_sender, false}
+      error -> error
+    end
+  end
+
+  defp route_entry(result, _binding), do: result
+
+  defp route_followup(%Binding{routing_mode: :ai_colleague}, fact), do: {:ok, fact}
+
+  defp route_followup(binding, %Observation{kind: :action} = fact) do
+    source_id = get_in(fact.action || %{}, ["value", "sourceSignalId"])
+
+    source =
+      case Ecto.UUID.cast(source_id) do
+        {:ok, id} -> Ankole.Signals.get_signal!(id)
+        :error -> nil
+      end
+
+    cond do
+      match?(
+        %Signal{reply_binding_id: id, conversation_id: conversation_id}
+        when id == binding.id and conversation_id == fact.conversation_id,
+        source
+      ) ->
+        {:ok, %{fact | agent_uid: source.agent_uid, session_id: source.session_id}}
+
+      is_binary(source_id) ->
+        {:ignored, :stale_action}
+
+      true ->
+        route_existing_assistant(fact)
+    end
+  end
+
+  defp route_followup(_binding, fact), do: route_existing_assistant(fact)
+
+  defp route_existing_assistant(fact) do
+    case get_in(fact.channel_metadata || %{}, ["dm_peer_principal_uid"]) do
+      uid when is_binary(uid) ->
+        case Ankole.Principals.personal_assistant(uid) do
+          %{uid: assistant_uid} -> {:ok, %{fact | agent_uid: assistant_uid}}
+          nil -> {:ignored, :ignored_unknown_entry}
+        end
+
+      _ ->
+        {:ignored, :ignored_unknown_entry}
     end
   end
 
   # The notice needs a channel mirror row to route the reply; the held entry
   # itself is never mirrored.
   defp notify_held_sender(fact, now) do
+    # Admission notices are system messages when no assistant has been selected.
+    fact =
+      if is_nil(fact.agent_uid) do
+        {:ok, system} = Ankole.Principals.system_principal()
+        %{fact | agent_uid: system.uid}
+      else
+        fact
+      end
+
     case Repo.transact_top_level(fn -> notify_held_sender_in_tx(fact, now) end) do
       {:ok, _intent} ->
         :ok
@@ -765,7 +901,7 @@ defmodule Ankole.Conversations.Observe do
 
   @doc false
   def notify_held_sender_in_tx(fact, now) do
-    with {:ok, binding} <- Bindings.get_binding(fact.agent_uid, fact.binding_name),
+    with {:ok, binding} <- Bindings.get_binding(fact.binding_id),
          {:ok, fact} <- bind_conversation_in_tx(binding, fact, now) do
       Delivery.commit_in_tx(held_notice_attrs(fact))
     end
@@ -776,6 +912,7 @@ defmodule Ankole.Conversations.Observe do
 
     %{
       agent_uid: fact.agent_uid,
+      binding_id: fact.binding_id,
       binding_name: fact.binding_name,
       outbound_key: outbound_key,
       operation: :reply,

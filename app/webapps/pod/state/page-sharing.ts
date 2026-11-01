@@ -34,7 +34,7 @@ export function buildRemoveTarget(grant: SharingGrantShape) {
   return {
     principal_uid: grant.principal_uid ?? null,
     group_id: grant.group_id ?? null,
-    source_page_id: grant.source_page_id ?? null,
+    source_node_id: grant.source_node_id ?? null,
     source_action: grant.source_action ?? null,
     condition: grant.condition?.trim() || 'true',
     target_scope: grant.target_scope ?? 'container'

@@ -2,23 +2,21 @@ defmodule Ankole.Brain.Config do
   @moduledoc """
   AppConfigure declarations and typed reads for the `brain.*` key group.
 
-  The embedding model is site-wide. Each tenant selects its rerank model. The Agent selected by
-  `brain.maintainer_agent_uid` is the execution identity and usage owner for
-  all Brain model calls. It also supplies `light` for extraction, `heavy` for
-  Dreaming, and `web_fetch` for URL Source learning.
+  The embedding model is site-wide because all Brain rows share one vector
+  space. Brain calls execute as the tenant's `ankole_brain` Principal, whose
+  model profiles inherit the Pod and Site defaults owned by AIGateway.
   """
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
   alias Ankole.Logging
   alias Ankole.Principals
 
+  @execution_subject_uid "ankole_brain"
   @enabled_key "brain.enabled"
-  @maintainer_agent_uid_key "brain.maintainer_agent_uid"
   @embedding_model_key "brain.embedding_model"
-  @rerank_model_key "brain.rerank_model"
   @search_tokenizer_key "brain.search_tokenizer"
   @chunking_key "brain.chunking"
   @forgetting_key "brain.forgetting"
@@ -66,15 +64,6 @@ defmodule Ankole.Brain.Config do
           "Whether BrainV3 is enabled. Disabling stops memory tools, context injection, and all Brain background tasks; stored data stays unchanged."
       ),
       Definition.new!(
-        key: @maintainer_agent_uid_key,
-        encrypted: false,
-        scope: :tenant,
-        schema: optional_non_empty_string_schema(),
-        default_value: nil,
-        description:
-          "Active Agent responsible for Brain maintenance. All Brain model calls run as this Agent and attribute usage to it. Its light profile extracts knowledge, its heavy profile runs Dreaming, and its web_fetch profile fetches URL Sources. Empty or disabled stops Brain model calls and URL Source fetching until the Agent is enabled or replaced."
-      ),
-      Definition.new!(
         key: @embedding_model_key,
         encrypted: false,
         scope: :global,
@@ -82,15 +71,6 @@ defmodule Ankole.Brain.Config do
         default_value: nil,
         description:
           "Site-wide embedding model as {provider_id, model, dimensions, provider_options?}. Empty disables vector retrieval projections."
-      ),
-      Definition.new!(
-        key: @rerank_model_key,
-        encrypted: false,
-        scope: :tenant,
-        schema: model_schema(),
-        default_value: nil,
-        description:
-          "Tenant rerank model as {provider_id, model, provider_options?}. Empty skips rerank and keeps the fusion order."
       ),
       Definition.new!(
         key: @search_tokenizer_key,
@@ -183,31 +163,19 @@ defmodule Ankole.Brain.Config do
   @spec enabled?() :: boolean()
   def enabled?, do: get_or_default(@enabled_key)
 
-  @doc "Returns the Agent responsible for Brain maintenance, or nil."
-  @spec maintainer_agent_uid() :: String.t() | nil
-  def maintainer_agent_uid, do: get_or_default(@maintainer_agent_uid_key)
+  @doc "Returns the tenant's ankole_brain Principal UID used by Brain model calls."
+  @spec execution_subject_uid() :: {:ok, String.t()} | {:error, term()}
+  def execution_subject_uid do
+    with {:ok, principal} <- Principals.system_principal(@execution_subject_uid),
+         do: {:ok, principal.uid}
+  end
 
-  @doc "Returns the execution identity and usage owner for Brain model calls."
-  @spec maintainer_subject_uid() :: {:ok, String.t()} | {:error, term()}
-  def maintainer_subject_uid do
-    case maintainer_agent_uid() do
-      agent_uid when is_binary(agent_uid) ->
-        case Principals.get_agent(agent_uid) do
-          {:ok, %{principal: %{status: :active} = principal}} ->
-            {:ok, principal.uid}
-
-          {:ok, %{principal: %{status: :disabled}}} ->
-            {:error, :brain_maintainer_agent_disabled}
-
-          {:error, :not_found} ->
-            {:error, :agent_not_found}
-
-          {:error, _reason} = error ->
-            error
-        end
-
-      nil ->
-        {:error, :brain_maintainer_agent_not_configured}
+  @doc "Returns the audit author for Brain maintenance writes; a missing service Principal is an error."
+  @spec execution_author!() :: Ankole.ActorRef.t()
+  def execution_author! do
+    case Principals.system_principal(@execution_subject_uid) do
+      {:ok, principal} -> Ankole.ActorRef.from_principal(principal)
+      {:error, reason} -> raise "Brain system Principal unavailable: #{inspect(reason)}"
     end
   end
 
@@ -215,29 +183,17 @@ defmodule Ankole.Brain.Config do
   @spec embedding_model() :: map() | nil
   def embedding_model, do: get_or_default(@embedding_model_key)
 
-  @doc "Returns the configured rerank model map or nil."
+  @doc "Returns ankole_brain's effective rerank model map or nil."
   @spec rerank_model() :: map() | nil
-  def rerank_model, do: get_or_default(@rerank_model_key)
+  def rerank_model, do: profile_or_nil("rerank")
 
-  @doc """
-  Lists stored Brain model settings that reference a Provider.
-
-  The site row and the row of each tenant are read in the caller's
-  transaction.
-  """
+  @doc "Lists stored site embedding settings that reference a Provider."
   @spec model_provider_references(String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def model_provider_references(provider_id) do
-    query = [query: [filter: [key: [in: [@embedding_model_key, @rerank_model_key]]]]]
+    query = [query: [filter: [key: [eq: @embedding_model_key]]]]
 
-    reads =
-      [AppConfigure.list_site_configs(query)] ++
-        Enum.map(
-          Ankole.Tenants.map_all(fn -> AppConfigure.list_app_configs(query) end),
-          &elem(&1, 1)
-        )
-
-    with {:ok, rows} <- Ankole.Attrs.collect_results(reads) do
-      provider_references(List.flatten(rows), provider_id)
+    with {:ok, rows} <- AppConfigure.list_site_configs(query) do
+      provider_references(rows, provider_id)
     end
   end
 
@@ -247,10 +203,7 @@ defmodule Ankole.Brain.Config do
            {:ok, value} <-
              Ankole.AppConfigure.Codec.load(definition, row.scope, row.key, row.value) do
         if match?(%{"provider_id" => ^provider_id}, value),
-          do:
-            {:cont,
-             {:ok,
-              [if(row.scope == "global", do: row.key, else: row.scope <> ":" <> row.key) | refs]}},
+          do: {:cont, {:ok, [row.key | refs]}},
           else: {:cont, {:ok, refs}}
       else
         error -> {:halt, error}
@@ -262,23 +215,30 @@ defmodule Ankole.Brain.Config do
     end
   end
 
-  @doc "Returns the maintainer Agent's configured web-fetch profile or nil."
+  @doc "Returns ankole_brain's effective web-fetch model or nil."
   @spec web_fetch_model() :: map() | nil
-  def web_fetch_model, do: maintainer_profile_or_nil("web_fetch")
+  def web_fetch_model, do: profile_or_nil("web_fetch")
 
-  @doc "Returns the maintainer Agent's light profile for extraction or nil."
+  @doc "Returns ankole_brain's effective light model for extraction or nil."
   @spec extraction_model() :: map() | nil
-  def extraction_model, do: maintainer_profile_or_nil("light")
+  def extraction_model, do: profile_or_nil("light")
 
-  @doc "Returns the maintainer Agent's heavy profile for Dreaming or nil."
+  @doc "Returns ankole_brain's effective heavy model for Dreaming or nil."
   @spec dreaming_model() :: map() | nil
-  def dreaming_model, do: maintainer_profile_or_nil("heavy")
+  def dreaming_model, do: profile_or_nil("heavy")
 
-  @doc "Reads one model profile from the Agent responsible for Brain maintenance."
-  @spec maintainer_model_profile(String.t()) :: {:ok, map()} | {:error, term()}
-  def maintainer_model_profile(profile) when is_binary(profile) do
-    with {:ok, agent_uid} <- maintainer_subject_uid() do
-      ModelProfiles.get_model_profile(agent_uid, profile)
+  @doc "Reads one effective ankole_brain model profile, with heavy falling back to primary."
+  @spec effective_model_profile(String.t()) :: {:ok, map()} | {:error, term()}
+  def effective_model_profile(profile) when is_binary(profile) do
+    with {:ok, configuration} <-
+           ModelProfiles.system_model_profile_configuration(@execution_subject_uid),
+         %{value: %{} = model} <- Map.get(configuration.effective, profile) do
+      {:ok, model}
+    else
+      %{value: nil} when profile == "heavy" -> effective_model_profile("primary")
+      %{value: nil} -> {:error, :model_profile_not_configured}
+      nil -> {:error, :invalid_model_profile}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -373,22 +333,20 @@ defmodule Ankole.Brain.Config do
     value
   end
 
-  defp maintainer_profile_or_nil(profile) do
-    case maintainer_model_profile(profile) do
-      {:ok, model} -> model
-      {:error, _reason} -> nil
+  defp profile_or_nil(profile) do
+    case effective_model_profile(profile) do
+      {:ok, model} ->
+        model
+
+      {:error, :system_principal_missing} ->
+        raise "Brain system Principal unavailable: :system_principal_missing"
+
+      {:error, _reason} ->
+        nil
     end
   end
 
-  defp optional_non_empty_string_schema do
-    Schema.new(fn
-      nil -> {:ok, nil}
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, :not_optional_non_empty_string}
-    end)
-  end
-
-  defp model_schema(opts \\ []) do
+  defp model_schema(opts) do
     require_dimensions? = Keyword.get(opts, :require_dimensions, false)
 
     allowed_keys =

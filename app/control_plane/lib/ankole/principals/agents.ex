@@ -5,13 +5,12 @@ defmodule Ankole.Principals.Agents do
 
   alias Ankole.AgentWorkers
   alias Ankole.AIAgent.Library
-  alias Ankole.Pod.Access
+  alias Ankole.Files.Access
   alias Ankole.Principals
   alias Ankole.Principals.{Agent, Humans, Principal}
   alias Ankole.Repo
 
   @agent_fields [
-    :handle,
     :type,
     :role,
     :options,
@@ -23,23 +22,163 @@ defmodule Ankole.Principals.Agents do
   @owned_ai_agent_keys ~w(models provider_hosted token_quota)
 
   def create_agent(attrs) when is_map(attrs) do
-    with {:ok, _handle} <- Humans.required_text(attrs, :handle) do
-      attrs = attrs |> Map.delete("uid") |> Map.put(:uid, Ash.UUIDv7.generate())
-      Repo.transact_top_level(fn -> create_agent_in_tx(attrs) end)
+    Repo.transact_top_level(fn -> create_agent_in_tx(attrs) end)
+  end
+
+  def personal_assistant(owner_uid) do
+    Agent
+    |> Ash.Query.filter(type == :personal_assistant and owner_principal_uid == ^owner_uid)
+    |> Ash.Query.load(:principal)
+    |> Ankole.Ash.read_one!()
+  end
+
+  def ensure_personal_assistant(owner_uid) do
+    result =
+      Repo.transact_top_level(fn ->
+        Ankole.Files.lock_tree_in_tx()
+
+        with {:ok, %Principal{type: :human, status: :active, membership: :member} = owner} <-
+               Humans.get_principal(owner_uid),
+             {:ok, result} <- find_or_create_personal_assistant_in_tx(owner),
+             {:ok, %{principal: %Principal{membership: :member}}} <-
+               Humans.lock_active_human_in_tx(owner.uid) do
+          {:ok, result}
+        else
+          {:ok, %Principal{status: :disabled}} -> {:error, :human_access_revoked}
+          {:ok, _} -> {:error, :personal_assistant_requires_member}
+          error -> error
+        end
+      end)
+
+    case Ankole.Errors.reason(result) do
+      {:error, :personal_assistant_exists} ->
+        agent = personal_assistant(owner_uid)
+        {:ok, %{principal: agent.principal, agent: agent}}
+
+      _ ->
+        result
+    end
+  end
+
+  defp find_or_create_personal_assistant_in_tx(owner) do
+    case personal_assistant(owner.uid) do
+      %Agent{} = agent -> {:ok, %{principal: agent.principal, agent: agent}}
+      nil -> create_personal_assistant_in_tx(owner)
+    end
+  end
+
+  defp create_personal_assistant_in_tx(owner) do
+    with {:ok, locale} <- Ankole.I18n.configured_default_locale() do
+      create_agent_in_tx(%{
+        uid: owner.uid <> "_assistant",
+        type: :personal_assistant,
+        display_name: if(String.starts_with?(locale, "zh"), do: "助理", else: "Assistant"),
+        role: "Personal assistant",
+        owner_principal_uid: owner.uid,
+        created_by: Ankole.ActorRef.from_principal(owner),
+        group_memory_disclosure_mode: :strict
+      })
+    end
+  end
+
+  defp grant_assistant_owner_in_tx(%Agent{type: :personal_assistant} = agent) do
+    with {:ok, _} <-
+           Ankole.AuthZ.Grants.create_permission_grant(%{
+             principal_uid: agent.owner_principal_uid,
+             resource_pattern: "agent:#{agent.uid}",
+             action: "chat",
+             condition: "true"
+           }) do
+      Access.put_role(
+        %{principal_uid: agent.owner_principal_uid},
+        "drive:private:#{agent.uid}:**",
+        "manage"
+      )
+    end
+  end
+
+  defp grant_assistant_owner_in_tx(_agent), do: :ok
+
+  def authority_uid(uid) do
+    case Principals.get_agent_record!(uid) do
+      %Agent{type: :personal_assistant, owner_principal_uid: owner_uid} -> owner_uid
+      _ -> uid
+    end
+  end
+
+  def display_name(%Principal{type: :agent} = principal) do
+    name = short_name(principal)
+
+    agent =
+      if match?(%Agent{}, principal.agent),
+        do: principal.agent,
+        else: Principals.get_agent_record!(principal.uid)
+
+    case agent do
+      %Agent{type: :personal_assistant, owner_principal_uid: owner_uid} ->
+        owner =
+          case agent.owner_principal do
+            %Principal{} = owner ->
+              owner
+
+            _ ->
+              {:ok, owner} = Humans.get_principal(owner_uid)
+              owner
+          end
+
+        {:ok, locale} = Ankole.I18n.configured_default_locale()
+        owner_name = short_name(owner)
+
+        if String.starts_with?(locale, "zh"),
+          do: "#{name}（#{owner_name}的助理）",
+          else: "#{name} (#{owner_name}'s assistant)"
+
+      _ ->
+        name
+    end
+  end
+
+  def display_name(principal), do: short_name(principal)
+
+  defp short_name(principal) do
+    name = principal.display_name
+    if is_binary(name) and String.trim(name) != "", do: name, else: principal.uid
+  end
+
+  def assistant_aliases(principal),
+    do: Enum.uniq(["ai", "assistant", "pa", "助理", "个人助理", "我的助理", short_name(principal)])
+
+  def sync_personal_assistant_in_tx(%Principal{} = owner) do
+    case personal_assistant(owner.uid) do
+      nil ->
+        :ok
+
+      %Agent{principal: principal} ->
+        action =
+          if owner.status == :active and owner.membership == :member,
+            do: :enable_in_tx,
+            else: :disable_in_tx
+
+        with {:ok, _} <- Ankole.Ash.update(principal, action, %{}),
+             do: AgentWorkers.reconcile(principal.uid)
     end
   end
 
   def create_agent_in_tx(attrs) do
+    Ankole.Files.lock_tree_in_tx()
     agent_attrs = Humans.take_attrs(attrs, @agent_fields)
     provider_id = Ankole.Attrs.get(attrs, :worker_provider_id)
 
     with :ok <- Ankole.Plugins.Hook.before_commit_in_tx(:create_agent, attrs),
          {:ok, provider_id} <- Ankole.AgentWorkers.Providers.select_in_tx(provider_id),
          :ok <- validate_agent_owner(agent_attrs),
+         :ok <- validate_assistant_owner(agent_attrs),
          :ok <- reject_token_quota_at_creation(agent_attrs),
          {:ok, principal} <- Humans.insert_principal(agent_principal_attrs(attrs)),
          {:ok, agent} <- insert_agent(principal.uid, agent_attrs),
-         :ok <- Library.seed_agent_library_in_tx(principal.uid),
+         :ok <- grant_assistant_owner_in_tx(agent),
+         :ok <- Library.seed_agent_library_in_tx(principal.uid, agent.type),
+         :ok <- lock_assistant_owner_in_tx(agent),
          :ok <- AgentWorkers.insert_in_tx(principal.uid, provider_id) do
       {:ok, %{principal: principal, agent: agent}}
     end
@@ -111,9 +250,28 @@ defmodule Ankole.Principals.Agents do
   def enable_agent_in_tx(uid) do
     with {:ok, principal} <- Humans.lock_principal_in_tx(uid),
          :ok <- Humans.ensure_principal_type(principal, :agent),
+         :ok <- validate_assistant_owner(Principals.get_agent_record!(uid)),
          conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(principal.uid),
          {:ok, principal} <- Ankole.Ash.update(principal, :enable_in_tx, %{}) do
       {:ok, {principal, conversation_ids}}
+    end
+  end
+
+  def disable_agent(uid) do
+    case Repo.transact_top_level(
+           fn ->
+             with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid),
+                  {:ok, principal} <- Humans.lock_principal_in_tx(uid),
+                  :ok <- Humans.ensure_principal_type(principal, :agent),
+                  conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(uid),
+                  {:ok, principal} <- Ankole.Ash.update(principal, :disable_in_tx, %{}) do
+               {:ok, {principal, conversation_ids}}
+             end
+           end,
+           after_commit: &publish_agent_deletion/1
+         ) do
+      {:ok, {principal, _}} -> {:ok, principal}
+      error -> error
     end
   end
 
@@ -128,6 +286,9 @@ defmodule Ankole.Principals.Agents do
   end
 
   def delete_agent_in_tx(uid) do
+    Ankole.Files.lock_tree_in_tx()
+    Ankole.Files.lock_root_ids_in_tx(Ankole.Files.root_ids_for_principal(uid))
+
     with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid),
          {:ok, principal} <- Humans.lock_principal_in_tx(uid),
          :ok <- Humans.ensure_principal_type(principal, :agent),
@@ -146,6 +307,7 @@ defmodule Ankole.Principals.Agents do
         Access.grants(principal_uid: principal.uid, action: [in: Access.page_actions()])
         |> Access.remove_grants()
 
+        :ok = Ankole.Files.delete_private_root_in_tx(principal.uid)
         :ok = Ankole.Conversations.delete_for_agent_in_tx(principal.uid)
         :ok = AgentWorkers.mark_deleting_in_tx(principal.uid)
         :ok = Ankole.Signals.Bindings.delete_agent_config_rows_in_tx(principal.uid)
@@ -196,6 +358,26 @@ defmodule Ankole.Principals.Agents do
     end
   end
 
+  defp validate_assistant_owner(%{type: :personal_assistant, owner_principal_uid: owner_uid}) do
+    case Humans.get_principal(owner_uid) do
+      {:ok, %Principal{type: :human, status: :active, membership: :member}} -> :ok
+      _ -> {:error, :personal_assistant_requires_member}
+    end
+  end
+
+  defp validate_assistant_owner(_attrs), do: :ok
+
+  defp lock_assistant_owner_in_tx(%Agent{type: :personal_assistant} = agent) do
+    with {:ok, %{principal: %Principal{membership: :member}}} <-
+           Humans.lock_active_human_in_tx(agent.owner_principal_uid) do
+      :ok
+    else
+      _ -> {:error, :personal_assistant_requires_member}
+    end
+  end
+
+  defp lock_assistant_owner_in_tx(_agent), do: :ok
+
   # The Agent row is locked before the merge, so a token quota or model profile
   # written while this update waits is merged in, not overwritten. The
   # Principal row lock above comes first; the owned-option services take only
@@ -203,12 +385,28 @@ defmodule Ankole.Principals.Agents do
   defp update_agent_row(uid, attrs) do
     case lock_agent_in_tx(uid) do
       %Agent{} = agent ->
-        with {:ok, attrs} <- keep_owned_agent_options(agent, attrs) do
+        with :ok <- validate_subtype_update(agent, attrs),
+             {:ok, attrs} <- keep_owned_agent_options(agent, attrs) do
           Ankole.Ash.update(agent, :profile_in_tx, attrs)
         end
 
       nil ->
         {:error, :not_agent}
+    end
+  end
+
+  defp validate_subtype_update(agent, attrs) do
+    cond do
+      Map.get(attrs, :type, agent.type) != agent.type ->
+        {:error, :agent_type_immutable}
+
+      agent.type == :personal_assistant and
+          Map.get(attrs, :owner_principal_uid, agent.owner_principal_uid) !=
+            agent.owner_principal_uid ->
+        {:error, :personal_assistant_owner_immutable}
+
+      true ->
+        :ok
     end
   end
 

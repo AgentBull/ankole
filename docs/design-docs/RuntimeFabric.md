@@ -276,10 +276,12 @@ Every Worker generation receives a fresh 32-byte random credential encoded as
 `base64url`; `agent_workers` stores its SHA-256 digest for admission alongside
 an encrypted copy for retrying instance creation within the same generation.
 
-Starting a Worker container requires four environment variables:
+Starting a Worker container requires these environment variables:
 
 ```text
 WORKER_ID=<agent_uid>
+ANKOLE_WORKER_TENANT_ID=<tenant_id>
+ANKOLE_WORKER_STORAGE_NAME=<tenant-qualified storage name>
 ANKOLE_RUNTIME_FABRIC_ENDPOINT=ws://control-plane:4000/runtime-fabric/worker
 ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=<credential of this generation>
 ANKOLE_WORKER_STORAGE=<mounted | nfs | adapter>
@@ -295,11 +297,12 @@ via `ANKOLE_WORKER_ADAPTER_URL` (`adapter`). Because Agent Home is fixed at
 During WebSocket upgrade, the Worker passes its credential as the Phoenix auth
 token in `Sec-WebSocket-Protocol` (never in the URL), validates the endpoint,
 copies the key into process memory, and scrubs it from the environment inherited
-by child processes. `RuntimeFabricSocket.connect/3` compares the token's SHA-256
-digest in constant time and admits the socket only when `agent_workers` is
+by child processes. The credential's globally unique SHA-256 digest locates an
+`agent_workers` row and its tenant. `RuntimeFabricSocket.connect/3` then checks
+`worker_id` against that row's Agent UID and admits the socket only when it is
 `starting`, `stale`, or `ready`—rejecting `absent`, `paused`, `draining`, or
 `deleting` rows as well as credentials from superseded generations—and binds the
-verified generation and `worker_id` (the Agent UID) on the socket so message
+verified tenant, generation and `worker_id` (the Agent UID) on the socket so message
 bodies never carry an Agent ID.
 
 On channel join, the Worker sends `incarnation_id`, `max_slots`, and
@@ -600,18 +603,23 @@ control plane itself is the caller):
   `bundle_paths` is set, a multi-file binary bundle rooted at
   `home_relative_path` (encoding each file in requested order as a 4-byte
   big-endian UTF-8 path length, the relative path, an 8-byte big-endian byte
-  length, and raw file bytes)—to a one-time relay URL.
+  length, and raw file bytes)—to a one-time relay URL. For a single file,
+  a positive `prefix_bytes` requests at most that many bytes from offset zero;
+  zero requests the whole file. `max_bytes` bounds the bytes transferred in
+  either mode, and the response reports the transferred byte count.
 
 Higher-level drive RPCs ([Files](Files.md)) build on these primitives:
-`files.get` pulls a drive blob onto the calling Worker's disk, and
+`files.get` reads a private path or an authorized Drive node onto the calling Worker's disk, and
 `files.commit` pushes files from that same Worker's disk. Every request
 specifies `home_relative_path` relative to `/workspace` without repeating the
 Agent UID (for example, `sessions/10000/drive/inbox/0123456789abcdef/file.png`);
 the Worker rejects paths that escape `/workspace` and returns the transferred
 byte count (`size`).
 
-`Ankole.WorkerFiles` enforces a `100 MiB` ceiling per file or bundle in both
-directions: oversized pulls fail on the control plane before sending the RPC,
+`Ankole.WorkerFiles` defaults to `100 MiB` per file or bundle. Drive and Pod
+file uploads supply the configured object backend's bound; downloads supply the
+stored object's byte size. Document XML and other callers retain the default.
+Oversized pulls fail on the control plane before sending the RPC,
 oversized pushes fail on the Worker before uploading (and the HTTP relay also
 rejects bodies above `max_bytes` with HTTP `413`), and out-of-order or
 mismatched bundle paths fail validation on the control plane. Cross-runtime
@@ -630,8 +638,10 @@ text only):
 
 ## Transfer Files Safely
 
-Each HTTP relay transfer streams chunks directly between disk and socket so
-large files never buffer in control-plane RAM:
+Each HTTP relay transfer streams chunks between the caller and the Worker.
+Drive uploads feed the native object writer directly; PostgreSQL, WebDAV and D1
+object backends buffer whole objects natively and enforce their smaller bounds
+(see [Files](Files.md#byte-writes-reads-and-collection)):
 
 1. The control-plane Pod handling the drive RPC opens a supervised, short-lived
    in-memory relay session identified by a random `transfer_id` and 32-byte
@@ -674,29 +684,23 @@ Saving or delivering message attachments needs neither an Actor turn nor a
 running Worker—for example, a messaging adapter can persist an inbound
 attachment even when the message does not wake an Agent:
 
-- **Inbound attachments**: (1) A provider adapter receives a remote attachment
-  ref or byte stream; (2) the control plane allocates a numeric attachment ID
-  and writes a pending observation row in PostgreSQL; (3) the adapter writes the
-  blob via `Conversations.Attachments.store_attachment/3`; and (4) the adapter
-  updates the observation row with `blob_ref` and the drive `path` under
-  `chats/<conversation_id>/inbox/` (or marks materialization failed).
-- **Outbound attachments**: (1) The model writes its file to the drive and calls
-  `reply_attachment` with `drive_path` (Ankole never scrapes file paths out of
-  model prose); (2) the control-plane tool records the path and current digest,
-  and (3) the Driver writes the structured result to the Response tape; (4)
-  `Conversations.Delivery` verifies that the drive still maps that path to the
-  expected content; (5) the Run terminal transaction inserts attachment delivery
-  intents, enforcing that files under `chats/<conversation_id>/` target only
-  that Conversation UUID while paths outside `chats/` remain shareable; (6) the
-  provider adapter streams bytes by `blob_ref` to the upstream platform; and (7)
-  Conversations records the public Agent Message and external ref once the
-  provider confirms delivery.
+- **Inbound attachments**: the adapter observes a pending provider identity,
+  streams bytes into a tenant object, then persists the completed object and
+  Message attachment relation. The conversation root can hold a node referring
+  to the same object. Retry identity is a provider/Message identity, not a hash.
+- **Outbound attachments**: `reply_attachment` accepts a Drive `node_id`. The
+  control plane checks the executing Agent's node view permission and captures
+  the current object. Terminal commit creates Delivery attachment relations;
+  pending, failed and unknown outcomes retain those references. Provider
+  confirmation transfers the hold to Message attachment rows in the same
+  transaction. Later rename, overwrite or deletion of the node does not change
+  the sent bytes. File paths do not confer authority or restrict destinations.
 
-Completed hosted `image_generation_call` items follow one dedicated shortcut:
-AIGateway owns the generated image bytes, and during turn adoption
-`Sessions.Presentation` files them into the Agent's drive under
-`chats/<conversation_id>/generated/` (or `generated/` when no source
-Conversation exists).
+Completed hosted image generation uses the same ownership: conversation files
+belong to its root, and images without a conversation belong to the Agent's
+private root. Model context names a frozen attachment by conversation ID,
+Message ID and position, using `ankole-pod chat attachment get`. Pod-managed resources use the Pod
+file RPC, while shared Drive files use `files.get` with `node_id`.
 
 ## Keep Agent Skills in Sync
 

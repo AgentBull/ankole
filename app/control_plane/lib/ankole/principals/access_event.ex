@@ -50,7 +50,7 @@ defmodule Ankole.Principals.AccessEvent do
   end
 
   identities do
-    identity(:operation, [:source, :operation_id, :principal_uid], all_tenants?: true)
+    identity(:operation, [:source, :operation_id, :principal_uid])
   end
 
   actions do

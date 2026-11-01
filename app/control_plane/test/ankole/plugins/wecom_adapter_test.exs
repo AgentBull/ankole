@@ -176,6 +176,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
 
       context =
         AdapterContext.new(
+          binding_id: binding.id,
           agent_uid: binding.agent_uid,
           binding_name: binding.name,
           adapter: "wecom",
@@ -190,7 +191,9 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert {:ok, _binding} =
-               Ankole.Signals.Bindings.disable_binding(binding.agent_uid, binding.name)
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(binding.agent_uid, binding.name).id
+               )
 
       assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
@@ -247,6 +250,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     struct!(
       %Intent{
         agent_uid: binding.agent_uid,
+        binding_id: binding.id,
         binding_name: binding.name,
         outbound_key: "test-key-#{System.unique_integer([:positive])}",
         conversation_id: external_conversation_id("wecom:wr-g1"),
@@ -468,7 +472,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
             %{
               "name" => "a.png",
               "path" => "sent/abababababababab/a.png",
-              "blob_ref" => "abababababababababababababababababababababababababababababababab"
+              "object_id" => "019a2ee2-45d1-7cb5-b54d-d62a7d0f6b86"
             }
           ]
         }
@@ -656,7 +660,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     assert {:ok, principal} = Ankole.Principals.resolve_platform_subject(provider_id, "alice")
     assert principal.display_name == "Alice"
 
-    human_user = Repo.get!(Ankole.Principals.HumanUser, principal.uid)
+    human_user = Repo.get_by!(Ankole.Principals.HumanUser, principal_uid: principal.uid)
     assert human_user.email == "alice@acme.example"
   end
 

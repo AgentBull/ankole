@@ -55,7 +55,10 @@ defmodule AnkoleWeb.AIGatewayFilesController do
         |> put_resp_header(
           "content-disposition",
           "attachment; filename*=UTF-8''" <>
-            URI.encode(artifact.filename || "image", &URI.char_unreserved?/1)
+            URI.encode(
+              Ankole.Files.file_name(artifact.filename || "image"),
+              &URI.char_unreserved?/1
+            )
         )
         |> send_resp(200, artifact.payload)
 

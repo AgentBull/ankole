@@ -38,13 +38,21 @@ import './chat.css'
 export function ChatRoute() {
   const { conversationID } = useParams({ strict: false })
   const location = useLocation()
+  const colleagueUID = new URLSearchParams(location.searchStr).get('agent') ?? undefined
   const fullID = podRouteID(conversationID)
   const locationKey = (location.state as { __TSR_key?: string } | null)?.__TSR_key ?? location.href
-  return <ChatPage key={fullID ?? conversationID ?? locationKey} conversationID={fullID ?? conversationID} />
+  return (
+    <ChatPage
+      key={fullID ?? conversationID ?? locationKey}
+      conversationID={fullID ?? conversationID}
+      colleagueUID={colleagueUID}
+    />
+  )
 }
 
 export function ChatPage({
   conversationID: requestedConversationID,
+  colleagueUID,
   pageID,
   accessScope,
   pageHeader,
@@ -54,6 +62,7 @@ export function ChatPage({
   onExitConversation
 }: {
   conversationID?: string
+  colleagueUID?: string
   pageID?: string
   accessScope?: 'participants' | 'anchor_page'
   pageHeader?: ReactNode
@@ -130,12 +139,26 @@ export function ChatPage({
   })
   const data = detail.data,
     history = useChatHistory(conversationID, data)
-  const availableAgents = agents.data?.agents ?? []
-  const selected = model.selectedAgentUID.value
+  const assistant = agents.data?.personalAssistant
+  const availableAgents = [...(agents.data?.agents ?? []), ...(assistant ? [assistant] : [])]
+  const selected = colleagueUID ?? model.selectedAgentUID.value
+  const personalAssistant = !!agents.data?.personalAssistantAvailable && !selected
   const agentUID =
     data?.conversation.agents.find(agent => agent.uid === model.targetAgentUID.value)?.uid ??
     data?.conversation.agents[0]?.uid ??
-    (availableAgents.some(agent => agent.uid === selected) ? selected : (availableAgents[0]?.uid ?? ''))
+    (personalAssistant
+      ? (assistant?.uid ?? '')
+      : selected
+        ? (availableAgents.find(agent => agent.uid === selected)?.uid ?? '')
+        : (availableAgents[0]?.uid ?? ''))
+  const callableAgents = [
+    ...new Map(
+      [...availableAgents, ...(data?.conversation.agents.filter(agent => agent.canChat) ?? [])].map(agent => [
+        agent.uid,
+        agent
+      ])
+    ).values()
+  ]
   const commands = useChatCommands({
     model,
     drafts,
@@ -144,8 +167,9 @@ export function ChatPage({
     accessScope,
     data,
     agentUID,
-    agentsError: agents.isError,
-    callableAgentUIDs: availableAgents.map(agent => agent.uid),
+    agentsError: !agents.isSuccess,
+    personalAssistant,
+    callableAgentUIDs: callableAgents.map(agent => agent.uid),
     refresh: () => refreshConversationDetail(client, conversationID!)
   })
   const remove = useMutation({
@@ -223,7 +247,8 @@ export function ChatPage({
   const composer = (
     <Composer
       model={model}
-      agents={availableAgents}
+      agents={callableAgents}
+      personalAssistant={personalAssistant}
       agentsLoaded={agents.isSuccess}
       agentUID={agentUID}
       detail={data}
@@ -264,7 +289,12 @@ export function ChatPage({
             </p>
           )}
           {agents.isError && <RequestFailure error={agents.error} retry={() => void agents.refetch()} />}
-          {!agents.isPending && !agents.isError && !availableAgents.length && (
+          {agents.isSuccess && selected && !agentUID && (
+            <p role="status" className="pod-chat-status">
+              {t('pod.chat.selected_agent_unavailable')}
+            </p>
+          )}
+          {!agents.isPending && !agents.isError && !availableAgents.length && !personalAssistant && (
             <p className="pod-chat-status">{t('pod.chat.no_agents')}</p>
           )}
           {!!failure && <RequestFailure error={failure} action={retry} sendFailure />}
@@ -369,6 +399,7 @@ export function ChatPage({
               activity={activity}
               retryTime={retryTime}
               conversationID={conversationID}
+              conversationTitle={data.conversation.title}
               onRefresh={() => void refreshConversationDetail(client, conversationID)}
               retryableMessageIDs={data.pendingQueues.flatMap(queue =>
                 queue.retryableMessageID ? [queue.retryableMessageID] : []
@@ -391,6 +422,7 @@ export function ChatPage({
               }
               readOnlyReason={t('pod.chat_room.answer_unavailable')}
               onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
+              onResolveActionCard={(cardID, decision) => actions.resolveActionCard.mutateAsync({ cardID, decision })}
               onComposeAnswer={
                 !model.editing.value && !actions.answer.isPending
                   ? (interactionID, text) => {

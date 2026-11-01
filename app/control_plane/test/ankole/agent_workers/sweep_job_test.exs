@@ -93,7 +93,7 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
     create_object!(provider, mismatched, "gen-stray")
     missing = agent_in!(provider, :ready)
     started_by_hand = agent_in!(provider, :paused)
-    generation = Repo.get!(AgentWorker, started_by_hand).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: started_by_hand).generation
     create_object!(provider, started_by_hand, generation)
     Repo.delete_all(Oban.Job)
 
@@ -143,8 +143,8 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
     assert {:error, {:invalid_worker_provider_config, _}} =
              perform_job(ReconcileJob, %{agent_uid: affected})
 
-    assert Repo.get!(AgentWorker, affected).last_error =~ "unknown"
-    assert Repo.get!(AgentWorker, affected).last_error_kind == "rejected"
+    assert Repo.get_by!(AgentWorker, agent_uid: affected).last_error =~ "unknown"
+    assert Repo.get_by!(AgentWorker, agent_uid: affected).last_error_kind == "rejected"
   end
 
   defp agent_in!(provider, state, opts \\ []) do

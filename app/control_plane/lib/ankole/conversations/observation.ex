@@ -15,6 +15,7 @@ defmodule Ankole.Conversations.Observation do
   defstruct [
     :kind,
     :agent_uid,
+    :binding_id,
     :binding_name,
     :adapter,
     :source_event_id,

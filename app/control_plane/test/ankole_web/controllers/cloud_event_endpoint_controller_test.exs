@@ -57,7 +57,8 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
     saved =
       conn
       |> recycle_api()
-      |> json_api(:put, "/api/v2/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
+      |> json_api(:put, "/api/v2/signal-bindings/cloudevents/issues", %{
+        "agent_uid" => agent.uid,
         "config" => %{
           "webhook_endpoint_id" => id,
           "target_kind" => "session",
@@ -112,7 +113,8 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
     saved =
       conn
       |> recycle_api()
-      |> json_api(:put, "/api/v2/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
+      |> json_api(:put, "/api/v2/signal-bindings/cloudevents/issues", %{
+        "agent_uid" => agent.uid,
         "config" => %{
           "webhook_endpoint_id" => created["webhook_endpoint"]["id"],
           "target_kind" => "session",

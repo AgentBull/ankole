@@ -5,6 +5,19 @@ defmodule Ankole.Conversations.InputRevisions do
   alias Ankole.Conversations.MessageInput
   alias Ankole.Conversations.Delivery.Deletion
 
+  @doc "Locks attachment-supplement consumers before the mirrored file objects."
+  def lock_attachment_supplement_in_tx(fact) do
+    :ok =
+      Ankole.Signals.lock_target_in_tx(%{
+        agent_uid: fact.agent_uid,
+        session_id: fact_session_id(fact)
+      })
+
+    event_for_supplement_source_entry(fact, fact.provider_message_id)
+    latest_attachment_supplement_event(fact)
+    :ok
+  end
+
   @doc """
   Retracts one provider source entry from live Signal inside a transaction.
   """
@@ -205,6 +218,7 @@ defmodule Ankole.Conversations.InputRevisions do
       authorization: Ankole.Principals.WorkAccess.fields(event),
       sender: event.sender_key,
       reply_route: %{
+        binding_id: event.reply_binding_id,
         binding_name: event.reply_binding_name,
         conversation_id: event.conversation_id,
         provider_thread_id: event.provider_thread_id,

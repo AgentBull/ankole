@@ -1,11 +1,19 @@
 import { Button, toast } from '@ankole/uikit'
-import { RiCheckLine, RiDoubleQuotesL, RiEditLine, RiFileCopyLine, RiRestartLine } from '@remixicon/react'
+import {
+  RiCheckboxMultipleLine,
+  RiCheckLine,
+  RiDoubleQuotesL,
+  RiEditLine,
+  RiFileCopyLine,
+  RiRestartLine
+} from '@remixicon/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export function MessageActions({
   text,
   onQuote,
+  onSelectMessage,
   onEdit,
   editDisabledReason,
   onRetry,
@@ -14,6 +22,7 @@ export function MessageActions({
 }: {
   text: string
   onQuote?: (text: string) => void
+  onSelectMessage?: () => void
   onEdit?: () => void
   editDisabledReason?: string
   onRetry?: () => void
@@ -65,6 +74,16 @@ export function MessageActions({
             onQuote(selected.trim() ? selected : text)
           }}>
           <RiDoubleQuotesL aria-hidden />
+        </Button>
+      )}
+      {onSelectMessage && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          title={t('pod.chat_timeline.select_messages', { defaultValue: 'Select messages' })}
+          aria-label={t('pod.chat_timeline.select_messages', { defaultValue: 'Select messages' })}
+          onClick={onSelectMessage}>
+          <RiCheckboxMultipleLine aria-hidden />
         </Button>
       )}
       {onEdit && (

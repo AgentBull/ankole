@@ -82,4 +82,10 @@ parentThreadId?: string | null,
  * Optional ancestor thread filter. Returns spawned descendants at any depth, excluding the
  * ancestor itself. Mutually exclusive with `parentThreadId`.
  */
-ancestorThreadId?: string | null, };
+ancestorThreadId?: string | null,
+/**
+ * Return only persistent threads attached to this thread, including empty threads.
+ * Mutually exclusive with parentThreadId and ancestorThreadId.
+ * Omitting this filter keeps attached threads hidden from ordinary listings.
+ */
+attachedToThreadId?: string | null, };

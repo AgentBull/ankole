@@ -24,11 +24,6 @@ defmodule Ankole.Brain.Jobs.TickTest do
   end
 
   test "a delayed tick evaluates the immutable insertion minute", %{tenant: tenant} do
-    %{principal: maintainer} = Ankole.PrincipalsFixtures.agent_fixture()
-
-    assert {:ok, _} =
-             Ankole.AppConfigure.put_tenant_by_key("brain.maintainer_agent_uid", maintainer.uid)
-
     assert {:ok, "Etc/UTC"} = Ankole.AppConfigure.put_tenant_by_key("system.timezone", "UTC")
 
     assert :ok =

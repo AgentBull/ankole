@@ -176,8 +176,8 @@ defmodule AnkoleWeb.JSONAPI.SiteTenantsTest do
         "/api/v2/agents",
         Jason.encode!(%{
           data: %{
-            "handle" => "operator",
-            "display_name" => "Operator",
+            "uid" => "operator",
+            "display_name" => "Operator #{tenant_id}",
             "role" => "Research",
             "owner_principal_uid" => owner.uid,
             "worker_provider_id" => provider.provider_id
@@ -189,9 +189,8 @@ defmodule AnkoleWeb.JSONAPI.SiteTenantsTest do
 
     left = create.(first.id, first_owner)
     right = create.(second_id, second_owner)
-    assert left["handle"] == right["handle"]
-    assert left["uid"] != right["uid"]
-    assert {:ok, _} = Ecto.UUID.cast(left["uid"])
+    assert left["uid"] == "operator"
+    assert left["uid"] == right["uid"]
 
     assert %{"tenant_id" => first_id, "uid" => ^admin_uid} = right["created_by"]
 
@@ -212,13 +211,17 @@ defmodule AnkoleWeb.JSONAPI.SiteTenantsTest do
       |> put_req_header("x-ankole-tenant", second_id)
       |> get("/api/v2/agents/" <> left["uid"])
 
-    assert [%{"code" => "not_found"}] = json_response(response, 404)["errors"]
+    assert json_response(response, 200)["data"]["attributes"]["display_name"] ==
+             right["display_name"]
 
     # Simulate reuse of the HTTP process after a request for the other tenant.
     Repo.put_tenant_id(second_id)
     response = auth |> v2() |> get("/api/v2/agents")
     assert %{"data" => [%{"id" => left_uid}]} = json_response(response, 200)
     assert left_uid == left["uid"]
+
+    assert hd(json_response(response, 200)["data"])["attributes"]["display_name"] ==
+             left["display_name"]
   end
 
   test "an invalid data context is rejected while site resources ignore that header", %{

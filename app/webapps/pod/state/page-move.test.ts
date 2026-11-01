@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Page } from '../content-api'
-import { canMovePage, dropAvailability, dropRequest, rootRequest, stepRequest } from './page-move'
+import { canMovePage, positionOrder, dropAvailability, dropRequest, rootRequest, stepRequest } from './page-move'
 
 function page(id: string, actions: Page['actions'], values: Partial<Page> = {}): Page {
   return {
@@ -23,14 +23,14 @@ function page(id: string, actions: Page['actions'], values: Partial<Page> = {}):
   }
 }
 
-const root = page('R', ['page_view', 'page_edit'])
-const a = page('A', ['page_view', 'page_edit'], { parent_id: 'R', position: 'A' })
-const b = page('B', ['page_view', 'page_edit'], { parent_id: 'R', position: 'B' })
-const c = page('C', ['page_view', 'page_edit'], { parent_id: 'R', position: 'C' })
-const nested = page('N', ['page_view', 'page_edit'], { parent_id: 'A' })
-const table = page('T', ['page_view', 'page_edit'], { parent_id: 'R', type: 'base', position: 'D' })
-const readOnly = page('V', ['page_view'], { role: 'view', position: 'V' })
-const mine = page('P', ['page_view', 'page_edit'], { private_owner_uid: 'me', position: 'P' })
+const root = page('R', ['node_view', 'node_edit'])
+const a = page('A', ['node_view', 'node_edit'], { parent_id: 'R', position: 'A' })
+const b = page('B', ['node_view', 'node_edit'], { parent_id: 'R', position: 'B' })
+const c = page('C', ['node_view', 'node_edit'], { parent_id: 'R', position: 'C' })
+const nested = page('N', ['node_view', 'node_edit'], { parent_id: 'A' })
+const table = page('T', ['node_view', 'node_edit'], { parent_id: 'R', type: 'base', position: 'D' })
+const readOnly = page('V', ['node_view'], { role: 'view', position: 'V' })
+const mine = page('P', ['node_view', 'node_edit'], { private_owner_uid: 'me', position: 'P' })
 const pages = [root, a, b, c, nested, table, readOnly, mine]
 
 test('a path node outside the loaded siblings cannot skip unloaded pages with a step move', () => {
@@ -69,9 +69,23 @@ test('steps stop at the ends of the loaded siblings', () => {
 })
 
 test('management can move a source without granting edit access to a destination', () => {
-  const manager = page('M', ['page_view', 'page_manage'], { role: 'manage' })
+  const manager = page('M', ['node_view', 'node_manage'], { role: 'manage' })
   expect(canMovePage(manager)).toBe(true)
   expect(dropAvailability([...pages, manager], manager, a, 'inside')).toBe('available')
   expect(dropAvailability([...pages, manager], a, manager, 'inside')).toBe('blocked')
   expect(canMovePage(page('unknown', undefined, { role: 'manage' }))).toBe(false)
+})
+
+test('folder destinations use contribute, file leaves reject children, and unsorted names use C ordering', () => {
+  const folder = page('folder', ['node_view', 'node_contribute'], { type: 'folder' })
+  const file = page('file', ['node_view', 'node_edit'], { type: 'file' })
+  expect(dropAvailability([...pages, folder, file], a, folder, 'inside')).toBe('available')
+  expect(dropAvailability([...pages, folder, file], a, file, 'inside')).toBe('blocked')
+  const unordered = [
+    page('emoji', [], { position: null, name: '😀' }),
+    page('bmp', [], { position: null, name: '\uE000' }),
+    page('ascii', [], { position: null, name: 'A' }),
+    page('explicit', [], { position: 'V', name: 'Z' })
+  ]
+  expect(unordered.sort(positionOrder).map(page => page.id)).toEqual(['explicit', 'ascii', 'bmp', 'emoji'])
 })

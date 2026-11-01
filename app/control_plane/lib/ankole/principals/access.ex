@@ -1,5 +1,5 @@
 defmodule Ankole.Principals.Access do
-  @moduledoc "Console access review and recovery operations."
+  @moduledoc "Console access and recovery operations."
   use Ankole.Ash.OperationResource,
     authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
@@ -88,8 +88,6 @@ defmodule Ankole.Principals.Access do
         constraints: [min_length: 1, max_length: 200]
       )
 
-      argument(:review_fingerprint, :string, allow_nil?: false)
-      argument(:identity_verified, :boolean, allow_nil?: false)
       transaction?(false)
       run(__MODULE__.Actions)
     end

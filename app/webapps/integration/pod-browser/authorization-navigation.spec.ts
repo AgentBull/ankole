@@ -66,7 +66,7 @@ test('document sharing grants comment access without editing or management, and 
 
     await memberPage.goto(pageRoute(id))
     const detail = await request<{ actions: string[]; page: { revision: number } }>(memberPage, `/pages/${id}`)
-    expect(detail.actions.toSorted()).toEqual(['page_comment', 'page_view', 'page_write_records'])
+    expect(detail.actions.toSorted()).toEqual(['node_comment', 'node_view', 'node_contribute'])
     await expect(memberPage.getByRole('textbox', { name: '页面标题', exact: true })).toHaveCount(0)
     await expect(memberPage.getByRole('button', { name: '分享', exact: true })).toHaveCount(1)
     await memberPage.getByRole('button', { name: '分享', exact: true }).click()
@@ -130,7 +130,7 @@ test('document sharing grants comment access without editing or management, and 
       memberPage,
       `/pages/${id}`
     )
-    expect(final.actions).toEqual(['page_view'])
+    expect(final.actions).toEqual(['node_view'])
     expect(final.page.title).toBe(title)
     expect(final.content.plain_text).toBe('')
   } finally {
@@ -336,8 +336,8 @@ test('sharing offers useful roles and preserves read-only advanced grants throug
     const grants = [
       { principal_uid: state.viewer.uid, role: 'manage', target_scope: 'container', condition: 'true' },
       {
-        source_page_id: sourceID,
-        source_action: 'page_view',
+        source_node_id: sourceID,
+        source_action: 'node_view',
         role: 'view',
         target_scope: 'self',
         condition: expression
@@ -378,11 +378,11 @@ test('sharing offers useful roles and preserves read-only advanced grants throug
     await expect(viewerPage.locator('code')).toHaveText(expression)
     const saved = await request<{
       inherit_permissions: boolean
-      grants: { principal_uid?: string; source_page_id?: string; condition: string; target_scope: string }[]
+      grants: { principal_uid?: string; source_node_id?: string; condition: string; target_scope: string }[]
     }>(ownerPage, `/pages/${targetID}/sharing`)
     expect(saved.inherit_permissions).toBe(true)
     expect(saved.grants.some(grant => grant.principal_uid === state.member.uid)).toBe(true)
-    expect(saved.grants.find(grant => grant.source_page_id === sourceID)).toMatchObject({
+    expect(saved.grants.find(grant => grant.source_node_id === sourceID)).toMatchObject({
       condition: expression,
       target_scope: 'self'
     })
@@ -405,8 +405,8 @@ test('sharing offers useful roles and preserves read-only advanced grants throug
     )
     await advanced.getByRole('button', { name: '移除', exact: true }).click()
     expect((await removedSharing).status()).toBe(200)
-    const removed = await request<{ grants: { source_page_id?: string }[] }>(ownerPage, `/pages/${targetID}/sharing`)
-    expect(removed.grants.some(grant => grant.source_page_id === sourceID)).toBe(false)
+    const removed = await request<{ grants: { source_node_id?: string }[] }>(ownerPage, `/pages/${targetID}/sharing`)
+    expect(removed.grants.some(grant => grant.source_node_id === sourceID)).toBe(false)
   } finally {
     if (targetID) await request(ownerPage, `/pages/${targetID}`, 'DELETE')
     if (sourceID) await request(ownerPage, `/pages/${sourceID}`, 'DELETE')

@@ -724,11 +724,6 @@ defmodule Ankole.Sessions.Turn do
 
   defp failed(turn, :signal_canceled, _now), do: {turn, [:read_withdrawal]}
 
-  defp failed(turn, :signal_context_canceled, _now) do
-    {turn, commands} = finalize(%{turn | observing?: false}, :stopped, :signal_context_canceled)
-    {turn, [:cancel_current | commands]}
-  end
-
   defp failed(turn, reason, _now) do
     case Run.type(turn.run).failure(reason) do
       {:workflow_failure, error} ->

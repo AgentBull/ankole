@@ -88,6 +88,8 @@ export function ModelProfileEditorCard({
     description: string
     replacesProfile: boolean
     onChange: (checked: boolean) => void
+    onReset?: () => void
+    resetLabel?: string
   }
   /** When set, the delete action asks for confirmation before it fires. */
   deleteConfirm?: { title: string; description?: string; confirmLabel: string }
@@ -182,6 +184,16 @@ export function ModelProfileEditorCard({
               />
               {providerHosted.label}
             </label>
+          ) : null}
+          {providerHosted?.onReset ? (
+            <Button
+              disabled={disabled || providerHosted.pending}
+              size="xs"
+              type="button"
+              variant="ghost"
+              onClick={providerHosted.onReset}>
+              {providerHosted.resetLabel}
+            </Button>
           ) : null}
           {onSave ? (
             <SaveButton

@@ -141,7 +141,11 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                Ankole.Signals.Bindings.put_binding(second_agent.uid, "whatsapp", "wa-two", attrs)
 
       assert first_uid == first_agent.uid
-      assert {:ok, _disabled} = Ankole.Signals.Bindings.disable_binding(first_agent.uid, "wa-one")
+
+      assert {:ok, _disabled} =
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(first_agent.uid, "wa-one").id
+               )
 
       assert {:ok, _binding} =
                Ankole.Signals.Bindings.put_binding(second_agent.uid, "whatsapp", "wa-two", attrs)
@@ -292,6 +296,12 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   end
 
   describe "inbound projection" do
+    setup do
+      agent_fixture(%{uid: "agent-a"})
+      {:ok, _} = put_whatsapp_binding("agent-a", "wa-main")
+      :ok
+    end
+
     test "projects text, captions, locations, documents, and stable channel identities" do
       consumer = consumer("agent-a", "wa-main")
 
@@ -543,7 +553,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert %{attachments: [kept]} = observation_snapshot(redelivered.message_observation)
       assert kept["materialization_state"] == "complete"
-      assert kept["blob_ref"] == attachment["blob_ref"]
+      assert kept["object_id"] == attachment["object_id"]
       refute_received {:whatsapp_request, "/media/media-photo/bytes"}
     end
 
@@ -578,7 +588,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
         message_snapshot(conversation_id: @channel_id, provider_message_id: large["id"])
 
       assert attachment["restriction"] =~ "25 MB"
-      refute Map.has_key?(attachment, "blob_ref")
+      refute Map.has_key?(attachment, "object_id")
     end
 
     test "a materialization task that cannot start fails the request so Meta delivers again" do
@@ -608,7 +618,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert metadata["attachment_materialization"]["state"] == "pending"
       assert is_integer(pending["attachment_id"])
-      refute Map.has_key?(pending, "blob_ref")
+      refute Map.has_key?(pending, "object_id")
     end
   end
 
@@ -830,7 +840,9 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       parent = self()
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_whatsapp_binding(agent.uid, "wa-files")
-      {:ok, %{sha256: blob_ref}} = Ankole.Files.store("report bytes")
+      {:ok, stored} = Ankole.Files.store("report bytes")
+      {:ok, object} = Repo.transact(fn -> Ankole.Files.complete_object_in_tx(stored) end)
+      object_id = object.id
 
       Req.Test.stub(__MODULE__, fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -844,7 +856,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       end)
 
       intent =
-        attachment_intent(agent.uid, "wa-files", "report.pdf", "application/pdf", 12, blob_ref)
+        attachment_intent(agent.uid, "wa-files", "report.pdf", "application/pdf", 12, object_id)
 
       assert {:ok, %{created_provider_message_id: "wamid.file-1", payload: payload}} =
                Delivery.deliver(intent)
@@ -897,6 +909,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       intent = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "wa-errors").id,
         binding_name: "wa-errors",
         outbound_key: "errors-1",
         operation: :post,
@@ -975,6 +988,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       intent = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "wa-partial").id,
         binding_name: "wa-partial",
         outbound_key: "partial-1",
         operation: :post,
@@ -1006,6 +1020,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       intent = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "wa-window").id,
         binding_name: "wa-window",
         outbound_key: "window-1",
         operation: :post,
@@ -1059,6 +1074,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       follow_up = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "wa-reopen").id,
         binding_name: "wa-reopen",
         outbound_key: "reopen-1",
         operation: :post,
@@ -1126,6 +1142,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       follow_up = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "wa-late").id,
         binding_name: "wa-late",
         outbound_key: "late-1",
         operation: :post,
@@ -1201,6 +1218,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       follow_up = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "wa-monotonic").id,
         binding_name: "wa-monotonic",
         outbound_key: "monotonic-1",
         operation: :post,
@@ -1225,6 +1243,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       intent = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "wa-moved").id,
         binding_name: "wa-moved",
         outbound_key: "moved-1",
         operation: :post,
@@ -1453,10 +1472,11 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
          name,
          mime_type,
          size,
-         blob_ref \\ String.duplicate("ab", 32)
+         object_id \\ "019a2ee2-45d1-7cb5-b54d-d62a7d0f6b86"
        ) do
     %Intent{
       agent_uid: agent_uid,
+      binding_id: Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
       binding_name: binding_name,
       outbound_key: "attachment-#{name}",
       operation: :post,
@@ -1464,8 +1484,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       payload: %{
         "attachments" => [
           %{
-            "path" => "sent/#{String.slice(blob_ref, 0, 16)}/#{name}",
-            "blob_ref" => blob_ref,
+            "path" => "sent/#{String.slice(object_id, 0, 16)}/#{name}",
+            "object_id" => object_id,
             "name" => name,
             "size" => size,
             "mime_type" => mime_type
@@ -1518,6 +1538,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   defp consumer(agent_uid, binding_name, config \\ nil) do
     Inbound.chat_consumer(
       AdapterContext.new(
+        binding_id: Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
         agent_uid: agent_uid,
         binding_name: binding_name,
         adapter: "whatsapp",

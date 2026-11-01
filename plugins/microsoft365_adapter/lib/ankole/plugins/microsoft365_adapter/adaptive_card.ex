@@ -33,6 +33,64 @@ defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
   def attachment(card_content),
     do: %{"contentType" => @content_type, "content" => card_content}
 
+  @spec render_reply_presentation(map() | nil, String.t() | nil) :: {:ok, map()} | :none
+  def render_reply_presentation(presentation, source_signal_id)
+      when is_map(presentation) and is_binary(source_signal_id) and source_signal_id != "" do
+    normalized = ReplyPresentation.normalize(presentation)
+
+    locked? =
+      normalized["state"] != "awaiting_input" or
+        normalized["interaction_status"] in ["answered", "superseded"]
+
+    actions =
+      normalized
+      |> Map.get("actions", [])
+      |> Enum.flat_map(&presentation_submit_action(&1, source_signal_id))
+
+    if locked? or actions == [] do
+      :none
+    else
+      answer = MapHelpers.optional_text(normalized, "answer")
+      prompt = MapHelpers.optional_text(normalized, "prompt")
+
+      body =
+        []
+        |> add_body(answer)
+        |> then(fn blocks ->
+          if is_binary(prompt) and prompt != answer, do: add_body(blocks, prompt), else: blocks
+        end)
+
+      {:ok, card(body, actions)}
+    end
+  end
+
+  def render_reply_presentation(_presentation, _source_signal_id), do: :none
+
+  defp presentation_submit_action(%{"type" => "button"} = action, source_signal_id) do
+    if action["disabled"] == true do
+      []
+    else
+      case ReplyPresentation.callback_value(source_signal_id, action) do
+        {:ok, callback_value} ->
+          [
+            %{
+              "type" => "Action.Submit",
+              "title" => truncate(to_string(action["label"] || action["selected_option_id"]), 75),
+              "data" => %{
+                "v" => ReplyPresentation.action_protocol(),
+                "value" => callback_value
+              }
+            }
+          ]
+
+        {:error, _} ->
+          []
+      end
+    end
+  end
+
+  defp presentation_submit_action(_action, _source_signal_id), do: []
+
   defp render_interactive(output) do
     body =
       []

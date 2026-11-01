@@ -1,0 +1,62 @@
+[
+  {
+    "name": "structural double literal newlines and list/heading markers",
+    "input": "结论如下：\\n\\n### 核心指标\\n- 第一项\\n- 第二项\\n  * 子项 A\\n1. 步骤一\\n2. 步骤二",
+    "expected": "结论如下：\n\n### 核心指标\n- 第一项\n- 第二项\n  * 子项 A\n1. 步骤一\n2. 步骤二"
+  },
+  {
+    "name": "preserves Windows paths, prose backslash-n, and escaped backslashes",
+    "input": "目录 C:\\new\\node\\next 与正则 \\\\n\\n- 列表不触发（前一斜杠已转义？不对：\\\\n 是字面量反斜杠加 n），以及 \\\\n\\\\n 保持原样",
+    "expected": "目录 C:\\new\\node\\next 与正则 \\\\n\n- 列表不触发（前一斜杠已转义？不对：\\\\n 是字面量反斜杠加 n），以及 \\\\n\\\\n 保持原样"
+  },
+  {
+    "name": "preserves inline and display LaTeX math with nabla and neq",
+    "input": "高斯定律 $\\nabla \\cdot \\mathbf{E} \\neq 0$ 以及拉普拉斯方程：\\n\\n$$\\nabla^2 \\phi + \\tilde{x} \\sim \\tilde{y}$$",
+    "expected": "高斯定律 $\\nabla \\cdot \\mathbf{E} \\neq 0$ 以及拉普拉斯方程：\n\n$$\\nabla^2 \\phi + \\tilde{x} \\sim \\tilde{y}$$"
+  },
+  {
+    "name": "moves trailing whitespace outside strong closing delimiter",
+    "input": "- **金额： **203 元\\n- **税率：  **6%",
+    "expected": "- **金额：** 203 元\n- **税率：**  6%"
+  },
+  {
+    "name": "valid strong span followed by broken strong span does not cross-match",
+    "input": "**已完成** 模块以及 **待确认 **事项",
+    "expected": "**已完成** 模块以及 **待确认** 事项"
+  },
+  {
+    "name": "escaped asterisks are untouched",
+    "input": "保持转义 \\*\\*不加粗 \\*\\* 与 \\**不加粗 ** 原样",
+    "expected": "保持转义 \\*\\*不加粗 \\*\\* 与 \\**不加粗 ** 原样"
+  },
+  {
+    "name": "escapes single-tilde strikethrough while preserving double-tilde GFM strikethrough",
+    "input": "提升约 ~50%~ 至 ~60%~，淘汰 ~~旧版方案~~；会话 dm:@ops~agent 与 dm:@ops~human 正常显示",
+    "expected": "提升约 \\~50%\\~ 至 \\~60%\\~，淘汰 ~~旧版方案~~；会话 dm:@ops\\~agent 与 dm:@ops\\~human 正常显示"
+  },
+  {
+    "name": "skips inline code, fenced code blocks, 4-space indented code, links, images, HTML, and wikilinks",
+    "input": "行内 `**a **` 与 `~50%~` 与 `x\\n\\ny`，链接 [文档](https://example.com/a\\n\\nb/~v1~) 和 ![图](https://example.com/img\\n\\n1.png) 与 [[Page|**label **~1~]] 与 <span data-x=\"a\\n\\nb\">ok</span>：\n\n```mermaid\ngraph TD\n  A[**节点 **] --> B[~50%~]\n```\n\n    **缩进代码块 **\n    line1\\n\\nline2\n    ~keep~",
+    "expected": "行内 `**a **` 与 `~50%~` 与 `x\\n\\ny`，链接 [文档](https://example.com/a\\n\\nb/~v1~) 和 ![图](https://example.com/img\\n\\n1.png) 与 [[Page|**label **~1~]] 与 <span data-x=\"a\\n\\nb\">ok</span>：\n\n```mermaid\ngraph TD\n  A[**节点 **] --> B[~50%~]\n```\n\n    **缩进代码块 **\n    line1\\n\\nline2\n    ~keep~"
+  },
+  {
+    "name": "preserves reference links, images, and definition destinations",
+    "input": "[**label **][ref] and ![~image~][ref]\n\n[ref]: https://example.com/\\n\\nreport \"**title **\"",
+    "expected": "[**label **][ref] and ![~image~][ref]\n\n[ref]: https://example.com/\\n\\nreport \"**title **\""
+  },
+  {
+    "name": "preserves unused reference definitions while repairing ordinary text",
+    "input": "[unused]: /docs/\\n\\nreport\n\nSummary\\n\\n- **amount **10",
+    "expected": "[unused]: /docs/\\n\\nreport\n\nSummary\n\n- **amount** 10"
+  },
+  {
+    "name": "preserves CommonMark lazy blockquote continuations",
+    "input": "> 引用首行\n惰性续行保持合法 CommonMark 不拆分",
+    "expected": "> 引用首行\n惰性续行保持合法 CommonMark 不拆分"
+  },
+  {
+    "name": "newly exposed indented code block after structural newline recovery stays protected",
+    "input": "示例：\\n\\n    **indented **code ~tilde~",
+    "expected": "示例：\n\n    **indented **code ~tilde~"
+  }
+]

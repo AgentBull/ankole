@@ -117,7 +117,7 @@ test('effectiveCollaboratorPreview deduplicates direct and inherited collaborato
           rule_kind: 'role',
           target_scope: 'container',
           condition: 'true',
-          actions: ['page_view', 'page_comment', 'page_write_records', 'page_edit'],
+          actions: ['node_view', 'node_comment', 'node_contribute', 'node_edit'],
           inactive_in_private: false
         },
         {
@@ -129,19 +129,19 @@ test('effectiveCollaboratorPreview deduplicates direct and inherited collaborato
           rule_kind: 'role',
           target_scope: 'container',
           condition: 'true',
-          actions: ['page_view'],
+          actions: ['node_view'],
           inactive_in_private: true
         },
         {
           kind: 'userset',
           name: 'Source page',
-          source_page_id: 'src',
-          source_action: 'page_view',
+          source_node_id: 'src',
+          source_action: 'node_view',
           role: 'view',
           rule_kind: 'advanced',
           target_scope: 'self',
           condition: 'true',
-          actions: ['page_view'],
+          actions: ['node_view'],
           inactive_in_private: false
         },
         {
@@ -152,7 +152,7 @@ test('effectiveCollaboratorPreview deduplicates direct and inherited collaborato
           rule_kind: 'role',
           target_scope: 'self',
           condition: 'true',
-          actions: ['page_view'],
+          actions: ['node_view'],
           inactive_in_private: false
         }
       ]
@@ -170,8 +170,8 @@ test('buildRemoveTarget normalizes scope and condition for granular removal', ()
     buildRemoveTarget({
       kind: 'userset',
       name: 'Restricted',
-      source_page_id: 'source-id',
-      source_action: 'page_view',
+      source_node_id: 'source-id',
+      source_action: 'node_view',
       role: 'view',
       target_scope: 'self',
       condition: ' context.request.ip == "10.0.0.1" '
@@ -179,8 +179,8 @@ test('buildRemoveTarget normalizes scope and condition for granular removal', ()
   ).toEqual({
     principal_uid: null,
     group_id: null,
-    source_page_id: 'source-id',
-    source_action: 'page_view',
+    source_node_id: 'source-id',
+    source_action: 'node_view',
     condition: 'context.request.ip == "10.0.0.1"',
     target_scope: 'self'
   })
@@ -201,7 +201,7 @@ test('partitionSharingGrants and sortCandidateSubjects group rules and push bloc
         rule_kind: 'role',
         target_scope: 'container',
         condition: 'true',
-        actions: ['page_view', 'page_comment', 'page_write_records', 'page_edit'],
+        actions: ['node_view', 'node_comment', 'node_contribute', 'node_edit'],
         inactive_in_private: false
       },
       {
@@ -212,7 +212,7 @@ test('partitionSharingGrants and sortCandidateSubjects group rules and push bloc
         rule_kind: 'advanced',
         target_scope: 'container',
         condition: 'true',
-        actions: ['page_view', 'page_edit'],
+        actions: ['node_view', 'node_edit'],
         inactive_in_private: false
       },
       {
@@ -223,7 +223,7 @@ test('partitionSharingGrants and sortCandidateSubjects group rules and push bloc
         rule_kind: 'role',
         target_scope: 'container',
         condition: 'true',
-        actions: ['page_view', 'page_comment', 'page_write_records'],
+        actions: ['node_view', 'node_comment', 'node_contribute'],
         inactive_in_private: false
       }
     ],

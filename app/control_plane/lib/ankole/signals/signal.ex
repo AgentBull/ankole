@@ -69,6 +69,7 @@ defmodule Ankole.Signals.Signal do
 
     attribute(:source, :string, allow_nil?: false, public?: true)
     attribute(:subject, :string, public?: true)
+    attribute(:reply_binding_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:reply_binding_name, :string, public?: true)
     attribute(:session_id, :string, allow_nil?: false, public?: true)
     attribute(:source_event_id, :string, allow_nil?: false, public?: true)
@@ -167,6 +168,7 @@ defmodule Ankole.Signals.Signal do
         :agent_uid,
         :source,
         :subject,
+        :reply_binding_id,
         :reply_binding_name,
         :session_id,
         :source_event_id,

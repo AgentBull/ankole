@@ -61,13 +61,12 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSessionTest do
         })
       end)
 
-    assert %{"error" => %{"code" => "forbidden"}} =
-             other_conn
-             |> readiness()
-             |> json_response(403)
+    response = readiness(other_conn)
+    assert %{"error" => %{"code" => "forbidden"}} = json_response(response, 403)
 
     assert %{"error" => %{"code" => "unauthorized"}} =
-             other_conn
+             response
+             |> recycle()
              |> put_req_header("x-ankole-authentication", "malformed-reference")
              |> readiness()
              |> json_response(401)

@@ -32,7 +32,7 @@ defmodule AnkoleWeb.PodSocket do
 
   def connect(_, _, _), do: :error
   @impl true
-  def id(socket), do: "pod:#{socket.assigns.tenant_id}:#{socket.assigns.uid}"
+  def id(socket), do: "drive:#{socket.assigns.tenant_id}:#{socket.assigns.uid}"
 
   defp request_context(address, info) do
     ip = AnkoleWeb.Endpoint.client_ip(address, Map.get(info, :x_headers, []))
@@ -62,7 +62,7 @@ defmodule AnkoleWeb.PodSocket do
              Ankole.BrowserSessions.identity(attrs.authentication, attrs.tenant_id),
            true <- uid == attrs.uid,
            {:ok, principal} <- Ankole.Principals.get_principal(uid),
-           {:ok, _} <- Ankole.Pod.Access.principal(Ankole.AuthZ.Actor.new(principal)),
+           {:ok, _} <- Ankole.Files.Access.principal(Ankole.AuthZ.Actor.new(principal)),
            do: true,
            else: (_ -> false)
     end)

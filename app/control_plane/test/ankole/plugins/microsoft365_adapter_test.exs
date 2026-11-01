@@ -31,6 +31,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   alias Ankole.Signals.BindingMembership
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @app_id "11111111-2222-3333-4444-555555555555"
   @app_id_b "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
@@ -447,6 +448,51 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert [%{"contentType" => "application/vnd.microsoft.card.adaptive"}] =
                card_activity["attachments"]
+
+      # awaiting_input reply_presentation renders an Adaptive Card on :post/:reply/:edit
+      signal_id = Ecto.UUID.generate()
+
+      awaiting_presentation =
+        ReplyPresentation.new()
+        |> ReplyPresentation.apply_event("interaction.request", %{
+          "revision" => 1,
+          "prompt" => "Approve sharing Policy Doc?",
+          "controls" => [
+            %{
+              "id" => "confirm",
+              "type" => "button",
+              "label" => "Confirm & Execute",
+              "interaction_id" => "action_card:card-teams-1",
+              "source_signal_id" => signal_id,
+              "control_id" => "action-card-decision",
+              "selected_option_id" => "confirm",
+              "option_value" => "confirm",
+              "revision" => 1
+            }
+          ]
+        })
+        |> ReplyPresentation.checkpoint()
+
+      awaiting_post = %{
+        base
+        | operation: :post,
+          source_signal_id: signal_id,
+          payload: %{"reply_presentation" => awaiting_presentation}
+      }
+
+      assert {:ok, [%{activity: awaiting_activity}]} =
+               Delivery.requests_for_intent(awaiting_post, channel_target)
+
+      assert [
+               %{
+                 "contentType" => "application/vnd.microsoft.card.adaptive",
+                 "content" => ac_content
+               }
+             ] =
+               awaiting_activity["attachments"]
+
+      assert [%{"type" => "Action.Submit", "title" => "Confirm & Execute"}] =
+               ac_content["actions"]
     end
 
     test "delivery target requires a mirrored serviceUrl and attachments are rejected" do
@@ -534,6 +580,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert :unknown =
                Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
+                 binding_id: binding.id,
                  binding_name: binding.name,
                  operation: :post,
                  conversation_id:
@@ -604,26 +651,9 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
         end
       end)
 
-      assert {:ok, %{group_id: group_id}} =
-               TeamsChannels.refresh_conversation(
-                 first_agent.uid,
-                 first_binding_name,
-                 conversation_id
-               )
-
-      assert {:ok, %{group_id: ^group_id}} =
-               TeamsChannels.refresh_conversation(
-                 second_agent.uid,
-                 second_binding_name,
-                 conversation_id
-               )
-
-      group = Repo.get!(Group, group_id)
-      assert BindingMembership.joined?(group.metadata, first_agent.uid, first_binding_name)
-      assert BindingMembership.joined?(group.metadata, second_agent.uid, second_binding_name)
-
       first_context =
         AdapterContext.new(
+          binding_id: Ankole.Signals.get_agent_binding!(first_agent.uid, first_binding_name).id,
           agent_uid: first_agent.uid,
           binding_name: first_binding_name,
           adapter: "teams",
@@ -632,11 +662,28 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       second_context =
         AdapterContext.new(
+          binding_id: Ankole.Signals.get_agent_binding!(second_agent.uid, second_binding_name).id,
           agent_uid: second_agent.uid,
           binding_name: second_binding_name,
           adapter: "teams",
           user_name: "Teams"
         )
+
+      assert {:ok, %{group_id: group_id}} =
+               TeamsChannels.refresh_conversation(
+                 first_context.binding_id,
+                 conversation_id
+               )
+
+      assert {:ok, %{group_id: ^group_id}} =
+               TeamsChannels.refresh_conversation(
+                 second_context.binding_id,
+                 conversation_id
+               )
+
+      group = Repo.get!(Group, group_id)
+      assert BindingMembership.joined?(group.metadata, first_context)
+      assert BindingMembership.joined?(group.metadata, second_context)
 
       removed = %{
         "type" => "conversationUpdate",
@@ -652,8 +699,8 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                )
 
       group = Repo.get!(Group, group_id)
-      refute BindingMembership.joined?(group.metadata, first_agent.uid, first_binding_name)
-      assert BindingMembership.joined?(group.metadata, second_agent.uid, second_binding_name)
+      refute BindingMembership.joined?(group.metadata, first_context)
+      assert BindingMembership.joined?(group.metadata, second_context)
 
       assert {:ok, %{status: :all_participants_left}} =
                TeamsChannels.handle_conversation_update(
@@ -662,7 +709,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                )
 
       group = Repo.get!(Group, group_id)
-      refute BindingMembership.joined?(group.metadata, second_agent.uid, second_binding_name)
+      refute BindingMembership.joined?(group.metadata, second_context)
     end
   end
 
@@ -706,7 +753,9 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       stub_team_sync(parent, %{})
 
       assert {:ok, %{synced_team_channels: 1, synced_group_chats: 1}} =
-               TeamsChannels.sync_binding(agent_a.uid, "teams-shard-a")
+               TeamsChannels.sync_binding(
+                 Ankole.Signals.get_agent_binding!(agent_a.uid, "teams-shard-a").id
+               )
 
       assert_received {:listed_team, "team-shard-a"}
       refute_received {:listed_team, _other_team}
@@ -715,7 +764,9 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       refute_received {:listed_members, _other_conversation}
 
       assert {:ok, %{synced_team_channels: 1, synced_group_chats: 1}} =
-               TeamsChannels.sync_binding(agent_b.uid, "teams-shard-b")
+               TeamsChannels.sync_binding(
+                 Ankole.Signals.get_agent_binding!(agent_b.uid, "teams-shard-b").id
+               )
 
       assert_received {:listed_team, "team-shard-b"}
       refute_received {:listed_team, _other_team}
@@ -744,7 +795,9 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       stub_team_sync(parent, %{"team-dead" => {:error, 404}})
 
       assert {:error, {:team_sync_failed, failures}} =
-               TeamsChannels.sync_binding(agent.uid, "teams-partial")
+               TeamsChannels.sync_binding(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "teams-partial").id
+               )
 
       assert [%{team_id: "team-dead", reason: %MicrosoftOpenAPI.Error{status: 404}}] = failures
 
@@ -1765,6 +1818,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   defp chat_consumer(overrides \\ %{}) do
     context =
       AdapterContext.new(
+        binding_id: Ecto.UUID.generate(),
         agent_uid: "agent-1",
         binding_name: "teams",
         adapter: "teams",

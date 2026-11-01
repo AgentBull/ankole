@@ -12,7 +12,22 @@ defmodule Ankole.Pod do
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
-  defdelegate principal(uid), to: Ankole.Pod.Access
+  defdelegate principal(uid), to: Ankole.Files.Access
+
+  defdelegate rename_principal_mentions_in_tx(old_uid, new_uid),
+    to: Ankole.Pod.Documents.PrincipalMentions,
+    as: :rename_in_tx
+
+  defdelegate publish_principal_rename(page_ids),
+    to: Ankole.Pod.Documents.PrincipalMentions,
+    as: :publish
+
+  defdelegate rename_inline_principal_in_tx(old_uid, new_uid), to: Ankole.Pod.Bases
+  defdelegate repair_principal_references(tenant_id, old_uid, new_uid), to: Ankole.Pod.Bases
+
+  defdelegate publish_base_principal_rename(changes),
+    to: Ankole.Pod.Bases,
+    as: :publish_principal_rename
 
   resources do
     resource(Ankole.Principals.PodAdminOperations)
@@ -21,6 +36,8 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.Files.Browser)
     resource(Ankole.Pod.Chat.Browser)
     resource(Ankole.Pod.Page)
+    resource(Ankole.Pod.Properties)
+    resource(Ankole.Pod.PodFile)
     resource(Ankole.Pod.PageContent)
     resource(Ankole.Pod.PageChange)
     resource(Ankole.Pod.PageDailyActivity)
@@ -70,9 +87,13 @@ defmodule Ankole.Pod do
         route(:get, "/members", :members, name: "podAdminMembers")
         route(:post, "/members", :create_member, name: "createPodMember")
         route(:patch, "/members/:uid", :change_membership, name: "changePodMembership")
+        route(:post, "/members/:uid/rename", :rename_member, name: "renamePodMember")
+        route(:get, "/agents", :agents, name: "podAdminAgents")
+        route(:post, "/agents/:uid/disable", :disable_agent, name: "disablePodAgent")
+        route(:post, "/agents/:uid/enable", :enable_agent, name: "enablePodAgent")
+        route(:post, "/agents/:uid/rename", :rename_agent, name: "renamePodAgent")
         route(:put, "/members/:uid/administrator", :set_admin, name: "setPodAdministrator")
         route(:post, "/members/:uid/restrictions", :disable_member, name: "disablePodMember")
-        route(:get, "/members/:uid/access", :access_review, name: "podMemberAccessReview")
         route(:post, "/members/:uid/restorations", :restore_member, name: "restorePodMember")
 
         route(:delete, "/members/:uid/credentials/:credential_id", :unbind_credential,
@@ -99,6 +120,11 @@ defmodule Ankole.Pod do
 
       base_route "/", Ankole.Pod.Chat.Browser do
         route(:get, "/agents", :agents, name: "podAgents")
+
+        route(:post, "/personal-assistant", :ensure_personal_assistant,
+          name: "ensurePodPersonalAssistant"
+        )
+
         route(:get, "/teammates", :teammates, name: "podChatTeammates", query_params: [:query])
 
         route(:get, "/conversations", :list,
@@ -129,6 +155,22 @@ defmodule Ankole.Pod do
           "/conversations/:id/interactions/:interaction_id/answer",
           :answer_interaction,
           name: "answerConversationInteraction"
+        )
+
+        route(
+          :post,
+          "/conversations/:id/action-cards/:card_id/resolve",
+          :resolve_action_card,
+          name: "resolveConversationActionCard"
+        )
+
+        route(:get, "/action-cards/:card_id", :show_action_card, name: "getPodActionCard")
+
+        route(
+          :post,
+          "/action-cards/:card_id/resolve",
+          :resolve_standalone_action_card,
+          name: "resolvePodActionCard"
         )
 
         route(:delete, "/conversations/:id", :delete,

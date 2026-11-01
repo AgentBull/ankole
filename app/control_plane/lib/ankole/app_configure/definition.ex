@@ -129,10 +129,13 @@ defmodule Ankole.AppConfigure.Definition do
     end
   end
 
-  # Defaults are effective runtime values, not rows to backfill. Validating them
-  # here lets resolution trust the definition instead of rechecking every read.
+  # Defaults are effective runtime values, not rows to backfill. A nil default
+  # represents an absent optional value even when persisted rows must be non-nil.
   defp fetch_default(attrs, schema) do
     case Map.fetch(attrs, :default_value) do
+      {:ok, nil} ->
+        {:ok, true, nil}
+
       {:ok, value} ->
         with {:ok, parsed} <- Schema.validate(schema, value),
              {:ok, _value} <- Schema.ensure_json_value(parsed) do

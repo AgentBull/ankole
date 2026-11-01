@@ -164,7 +164,9 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert first_uid == first_agent.uid
 
       assert {:ok, _disabled} =
-               Ankole.Signals.Bindings.disable_binding(first_agent.uid, "line-one")
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(first_agent.uid, "line-one").id
+               )
 
       assert {:ok, _binding} =
                Ankole.Signals.Bindings.put_binding(second_agent.uid, "line", "line-two", attrs)
@@ -185,7 +187,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
   describe "inbound projection" do
     test "projects direct and group messages with stable identities and mention removal" do
-      consumer = consumer("agent-a", "line-main")
+      consumer = consumer("agent-a", "line-main", nil, Ecto.UUID.generate())
 
       assert {:ok, dm} =
                Inbound.normalize_message_receive(
@@ -388,7 +390,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
     end
 
     test "ignores standby events, unattributed group messages, and unsupported types" do
-      consumer = consumer("agent-a", "line-main")
+      consumer = consumer("agent-a", "line-main", nil, Ecto.UUID.generate())
 
       standby = message_event(user_source(), text_message("hello")) |> Map.put("mode", "standby")
 
@@ -418,7 +420,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
     end
 
     test "keeps an over-limit or external media fact but never invents a readable path" do
-      consumer = consumer("agent-a", "line-main")
+      consumer = consumer("agent-a", "line-main", nil, Ecto.UUID.generate())
 
       large =
         message_event(user_source(), %{
@@ -434,7 +436,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       assert attachment["materialization_state"] == "provider_download_limit"
       assert attachment["restriction"] =~ "25 MB"
-      refute Map.has_key?(attachment, "blob_ref")
+      refute Map.has_key?(attachment, "object_id")
 
       external =
         message_event(user_source(), %{
@@ -537,7 +539,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       assert %{attachments: [kept]} = observation_snapshot(redelivered.message_observation)
       assert kept["materialization_state"] == "complete"
-      assert kept["blob_ref"] == attachment["blob_ref"]
+      assert kept["object_id"] == attachment["object_id"]
       assert kept["attachment_id"] == attachment["attachment_id"]
       refute_received {:line_request, "/v2/bot/message/m-photo/content"}
 
@@ -676,7 +678,9 @@ defmodule Ankole.Plugins.LineAdapterTest do
       # Agent, so nothing is downloaded again, and the drive of the new Agent
       # gets its own entry for them.
       assert {:ok, _disabled} =
-               Ankole.Signals.Bindings.disable_binding(first_agent.uid, "line-moved")
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(first_agent.uid, "line-moved").id
+               )
 
       %{principal: second_agent} = agent_fixture()
       assert {:ok, _binding} = put_line_binding(second_agent.uid, "line-moved")
@@ -690,7 +694,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert %{attachments: [kept]} = observation_snapshot(moved.message_observation)
       assert kept["attachment_id"] == pending["attachment_id"]
       assert kept["materialization_state"] == "complete"
-      assert kept["blob_ref"] == first_copy["blob_ref"]
+      assert kept["object_id"] == first_copy["object_id"]
 
       assert_stored_attachment!(
         second_agent.uid,
@@ -1048,6 +1052,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       intent = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "line-send").id,
         binding_name: "line-send",
         outbound_key: "send-1",
         operation: :post,
@@ -1205,6 +1210,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       aged = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "line-aged").id,
         binding_name: "line-aged",
         outbound_key: "aged-1",
         operation: :post,
@@ -1316,9 +1322,10 @@ defmodule Ankole.Plugins.LineAdapterTest do
     )
   end
 
-  defp consumer(agent_uid, binding_name, config \\ nil) do
+  defp consumer(agent_uid, binding_name, config \\ nil, binding_id \\ nil) do
     Inbound.chat_consumer(
       AdapterContext.new(
+        binding_id: binding_id || Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
         agent_uid: agent_uid,
         binding_name: binding_name,
         adapter: "line",

@@ -14,7 +14,7 @@ defmodule AnkoleWeb.PodStream do
       id: conversation.id,
       session: Ankole.Sessions.Key.conversation(conversation.id),
       actor: conn.assigns.authz_actor,
-      access_topic: "pod-access:" <> Ankole.Repo.tenant_id!(),
+      access_topic: "drive-access:" <> Ankole.Repo.tenant_id!(),
       agents: %{},
       buffers: %{},
       flush_at: nil,
@@ -254,7 +254,7 @@ defmodule AnkoleWeb.PodStream do
 
           agent = %{
             model: model && model.id,
-            name: principal.display_name,
+            name: Ankole.Principals.display_name(principal),
             activity: snapshot,
             response: nil,
             snapshot_watermark: nil,

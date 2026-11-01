@@ -51,7 +51,11 @@ defmodule Ankole.Conversations.ObserveTest do
       input = Map.put(group_entry(), "text", "shadow text")
 
       assert {:error, {:invalid_ingress_attr_key, "text"}} =
-               Observe.emit_entry(agent.uid, "lark-main", input, now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+                 input,
+                 now: @base_time
+               )
     end
 
     test "rejects string keys in the internal channel envelope" do
@@ -61,7 +65,11 @@ defmodule Ankole.Conversations.ObserveTest do
       input = put_in(group_entry(), [:channel, "kind"], "im_group")
 
       assert {:error, {:invalid_ingress_channel_attr_key, "kind"}} =
-               Observe.emit_entry(agent.uid, "lark-main", input, now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+                 input,
+                 now: @base_time
+               )
     end
 
     test "rejects a key collision while it normalizes an ingress JSON field" do
@@ -73,7 +81,11 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:error,
               {:invalid_ingress_json, :author, {:duplicate_normalized_key, "display_name"}}} =
-               Observe.emit_entry(agent.uid, "lark-main", input, now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+                 input,
+                 now: @base_time
+               )
     end
   end
 
@@ -97,7 +109,7 @@ defmodule Ankole.Conversations.ObserveTest do
       {agent, worker_provider_id} =
         Sandbox.unboxed_run(Repo, fn ->
           %{principal: agent} = agent_fixture()
-          worker = Repo.get!(Ankole.AgentWorkers.AgentWorker, agent.uid)
+          worker = Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: agent.uid)
           {agent, worker.provider_id}
         end)
 
@@ -176,7 +188,11 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "lark-main", :ignore)
 
       assert {:ok, %{status: :ignored}} =
-               Observe.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+                 group_entry(),
+                 now: @base_time
+               )
 
       assert Repo.aggregate(ConversationMessage, :count) == 0
       assert Repo.aggregate(Signal, :count) == 0
@@ -193,8 +209,7 @@ defmodule Ankole.Conversations.ObserveTest do
                 message_observation: %{message: entry, external_ref: entry_ref}
               }} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    formatted_content: %{"format" => "markdown", "body" => "hello"}
                  }),
@@ -235,8 +250,7 @@ defmodule Ankole.Conversations.ObserveTest do
                 inbound_batch: first_batch
               }} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{attachments: [attachment]}),
                  now: @base_time
                )
@@ -255,8 +269,9 @@ defmodule Ankole.Conversations.ObserveTest do
       materialized_attachment =
         attachment
         |> Map.put(:attachment_id, attachment_id)
-        |> Map.put(:blob_ref, stored["blob_ref"])
-        |> Map.put(:path, stored["path"])
+        |> Map.put(:object_id, stored["object_id"])
+        |> Map.put(:sha256, stored["sha256"])
+        |> Map.put(:size, stored["size"])
 
       assert {:ok,
               %{
@@ -266,8 +281,7 @@ defmodule Ankole.Conversations.ObserveTest do
                 }
               }} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-attachment-materialized",
                    attachments: [materialized_attachment],
@@ -281,8 +295,7 @@ defmodule Ankole.Conversations.ObserveTest do
       assert {:ok,
               %{message_observation: %{message: second_entry, external_ref: _second_entry_ref}}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-attachment-2",
                    provider_message_id: "msg-attachment-2",
@@ -314,8 +327,7 @@ defmodule Ankole.Conversations.ObserveTest do
                 message_observation: %{message: entry, external_ref: _entry_ref}
               }} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{formatted_content: rich_content}),
                  now: @base_time
                )
@@ -330,8 +342,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-current-addressed",
                    provider_message_id: "msg-current-addressed",
@@ -389,8 +400,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :recorded}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-observed-question",
                    provider_message_id: "msg-observed-question",
@@ -406,8 +416,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-bare-mention",
                    provider_message_id: "msg-bare-mention",
@@ -530,7 +539,11 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
       assert {:ok, %{status: :recorded, inbound_batch: batch}} =
-               Observe.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+                 group_entry(),
+                 now: @base_time
+               )
 
       due_at = DateTime.add(@base_time, 15_000, :millisecond)
 
@@ -555,7 +568,11 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
       assert {:ok, %{inbound_batch: batch}} =
-               Observe.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+                 group_entry(),
+                 now: @base_time
+               )
 
       assert Repo.aggregate(Signal, :count) == 0
 
@@ -600,8 +617,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: first}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-ambient-first",
                    provider_message_id: "msg-ambient-first",
@@ -614,8 +630,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: second}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-ambient-second",
                    provider_message_id: "msg-ambient-second",
@@ -687,7 +702,11 @@ defmodule Ankole.Conversations.ObserveTest do
       })
 
       assert {:ok, %{status: :recorded, inbound_batch: batch}} =
-               Observe.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+                 group_entry(),
+                 now: @base_time
+               )
 
       assert {:ok, [%{status: :accepted, signal: input}]} =
                finalize_due_inbound_batch_events(now: batch.available_at)
@@ -704,7 +723,11 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
       assert {:ok, %{status: :recorded, inbound_batch: batch}} =
-               Observe.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+                 group_entry(),
+                 now: @base_time
+               )
 
       insert_message_observation!(
         "msg-history-old",
@@ -774,8 +797,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    source_event_id: "evt-stale-batch-old",
                    provider_message_id: "msg-stale-batch-old",
@@ -831,8 +853,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: addressed_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    source_event_id: "evt-stale-batch-trigger",
                    provider_message_id: "msg-stale-batch-trigger",
@@ -863,8 +884,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: first}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-ambient-remove-first",
                    provider_message_id: "msg-ambient-remove-first",
@@ -877,8 +897,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: second}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-ambient-remove-second",
                    provider_message_id: "msg-ambient-remove-second",
@@ -891,8 +910,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{updated_inbound_batches: 1, lifecycle_events: []}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  lifecycle_entry(%{
                    source_event_id: "recall-ambient-remove-first",
                    provider_message_id: "msg-ambient-remove-first"
@@ -930,8 +948,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    source_event_id: "evt-neutral-before-recall",
                    provider_message_id: "msg-neutral-before-recall",
@@ -943,8 +960,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: addressed_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-recalled-mention",
@@ -961,8 +977,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{updated_inbound_batches: 1, lifecycle_events: []}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{
                    source_event_id: "recall-addressed-trigger",
                    provider_message_id: "msg-recalled-mention"
@@ -990,8 +1005,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: dm_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-dm",
                    provider_message_id: "dm-msg-1",
@@ -1018,8 +1032,7 @@ defmodule Ankole.Conversations.ObserveTest do
       # A provider cannot claim internal Agent authority or replace the DM peer.
       assert {:error, {:invalid_ingress_author_authority, "principal_uid"}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-dm-self-echo",
                    provider_message_id: "dm-msg-self-echo",
@@ -1042,8 +1055,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: mention_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-mention",
                    provider_message_id: "msg-mention",
@@ -1068,8 +1080,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :ignored, inbound_batch: batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{reply_to_provider_message_id: "missing-target"}),
                  now: @base_time
                )
@@ -1101,8 +1112,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: reply_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-compare-quality",
                    provider_message_id: "msg-compare-quality",
@@ -1147,8 +1157,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :recorded}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "slack-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "slack-main").id,
                  group_entry(%{
                    source_event_id: "evt-thread-root",
                    provider_message_id: "msg-thread-root",
@@ -1183,8 +1192,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: reply_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "slack-main",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "slack-main").id,
                  group_entry(%{
                    source_event_id: "evt-human-thread-reply",
                    provider_message_id: "msg-human-thread-reply",
@@ -1223,8 +1231,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :recorded}} =
                Observe.emit_entry(
-                 agent_a.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent_a.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-agent-a-parent",
                    provider_message_id: "msg-agent-a-parent",
@@ -1242,17 +1249,16 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert attachment_id >= 10_000
 
-      assert Map.delete(stored_attachment, "attachment_id") ==
-               Map.put(
-                 attachment,
-                 "path",
-                 Ankole.Files.chat_path(conversation_id!("lark:chat:group-a"), attachment["path"])
-               )
+      assert Map.take(stored_attachment, Map.keys(attachment)) == attachment
+
+      assert {:ok, source_conversation_id} =
+               Ankole.Files.node_conversation_id(stored_attachment["node_id"])
+
+      assert source_conversation_id == conversation_id!("lark:chat:group-a")
 
       assert {:ok, %{status: :accepted}} =
                Observe.emit_entry(
-                 agent_b.uid,
-                 "lark-main",
+                 Ankole.Signals.get_agent_binding!(agent_b.uid, "lark-main").id,
                  group_entry(%{
                    source_event_id: "evt-agent-b-reply",
                    provider_message_id: "msg-agent-b-reply",
@@ -1287,8 +1293,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:error, :missing_signal_type} =
                Observe.emit_entry(
-                 agent.uid,
-                 "webhook",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "webhook").id,
                  webhook_entry(%{signal_type: nil}),
                  now: @base_time
                )
@@ -1302,7 +1307,11 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "lark-main", :ignore, unavailable_reason: "adapter missing")
 
       assert {:error, {:binding_unavailable, "adapter missing"}} =
-               Observe.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+                 group_entry(),
+                 now: @base_time
+               )
     end
 
     test "CEL binding filters can admit or filter ingress before mirror and signal writes" do
@@ -1316,7 +1325,9 @@ defmodule Ankole.Conversations.ObserveTest do
       )
 
       assert {:ok, %{status: :filtered}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -1357,8 +1368,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :filtered}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    author: %{platform_subject: "lark:user:bob", display_name: "Bob"},
@@ -1421,8 +1431,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:error, {:invalid_binding_filter, reason}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "runtime-error",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "runtime-error").id,
                  group_entry(%{explicit: true}),
                  now: @base_time
                )
@@ -1452,6 +1461,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       context =
         AdapterContext.new(
+          binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
           agent_uid: agent.uid,
           binding_name: "lark-main",
           adapter: "lark",
@@ -1465,7 +1475,7 @@ defmodule Ankole.Conversations.ObserveTest do
                  metadata: %{"tenant_key" => "tenant-a"}
                })
 
-      assert {:ok, _} = Ecto.UUID.cast(observed.principal.uid)
+      assert observed.principal.uid == "ou_alice"
       assert observed.identity.provider == "lark-main"
       assert observed.identity.external_id == "ou_alice"
     end
@@ -1513,12 +1523,15 @@ defmodule Ankole.Conversations.ObserveTest do
       explicit = group_entry(%{explicit: true})
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent_a.uid, "bot-a", explicit, now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent_a.uid, "bot-a").id,
+                 explicit,
+                 now: @base_time
+               )
 
       assert {:ok, %{status: :accepted}} =
                Observe.emit_entry(
-                 agent_b.uid,
-                 "bot-b",
+                 Ankole.Signals.get_agent_binding!(agent_b.uid, "bot-b").id,
                  %{explicit | source_event_id: "evt-1-b"},
                  now: DateTime.add(@base_time, 1, :second)
                )
@@ -1546,14 +1559,15 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
       assert {:ok, %{status: :accepted}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-2",
@@ -1573,8 +1587,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, _} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{source_event_id: "warmup", provider_message_id: "warmup"}),
                  now: @base_time
                )
@@ -1587,8 +1600,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{signal: compress_event}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{explicit: true, text: "/compress release notes"}),
                  now: @base_time
                )
@@ -1602,8 +1614,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{signal: input}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-steer-1",
@@ -1637,8 +1648,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{signal: retry_command}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: false,
                    source_event_id: "evt-retry-reply",
@@ -1670,8 +1680,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{signal: retry_command}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-retry-explicit",
@@ -1697,8 +1706,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{signal: retry_command}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-retry-invalid",
@@ -1722,8 +1730,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{signal: retry_command}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-retry-unresolved-reply",
@@ -1750,8 +1757,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{signal: retry_command}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-retry-bare",
@@ -1831,8 +1837,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{signal: help_event}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{explicit: true, text: "/llm"}),
                  now: @base_time
                )
@@ -1843,8 +1848,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{signal: turn_event}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-llm-empty-body",
@@ -1876,8 +1880,7 @@ defmodule Ankole.Conversations.ObserveTest do
           ] do
         assert {:ok, %{status: :accepted}} =
                  Observe.emit_entry(
-                   agent.uid,
-                   "bot",
+                   Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                    group_entry(%{
                      explicit: true,
                      source_event_id: event_id,
@@ -1934,14 +1937,15 @@ defmodule Ankole.Conversations.ObserveTest do
         })
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
-               Observe.emit_entry(agent.uid, "bot", first, now: @base_time)
+               Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, "bot").id, first,
+                 now: @base_time
+               )
 
       duplicate_at = DateTime.add(@base_time, 100, :millisecond)
 
       assert {:ok, %{status: :accepted, inbound_batch: duplicate_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  %{first | source_event_id: "evt-duplicate-delivery-2"},
                  now: duplicate_at
                )
@@ -1981,15 +1985,16 @@ defmodule Ankole.Conversations.ObserveTest do
         })
 
       assert {:ok, %{status: :accepted, inbound_batch: batch}} =
-               Observe.emit_entry(agent.uid, "bot", fact, now: @base_time)
+               Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, "bot").id, fact,
+                 now: @base_time
+               )
 
       assert {:ok, [%{signal: first_event}]} =
                finalize_due_inbound_batch_events(now: batch.available_at)
 
       assert {:ok, %{status: :duplicate, inbound_batch: nil}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  fact,
                  now: DateTime.add(batch.available_at, 1, :second)
                )
@@ -2013,14 +2018,15 @@ defmodule Ankole.Conversations.ObserveTest do
         })
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
-               Observe.emit_entry(agent.uid, "bot", first, now: @base_time)
+               Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, "bot").id, first,
+                 now: @base_time
+               )
 
       edited_at = DateTime.add(@base_time, 100, :millisecond)
 
       assert {:ok, %{status: :accepted, inbound_batch: edited_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  %{
                    first
                    | source_event_id: "evt-edited-delivery-2",
@@ -2061,8 +2067,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: poisoned_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-poisoned-batch",
@@ -2075,8 +2080,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: good_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-good-batch",
@@ -2112,8 +2116,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :ignored}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    source_event_id: "evt-alice-neutral",
                    provider_message_id: "msg-alice-neutral",
@@ -2125,8 +2128,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :ignored}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    source_event_id: "evt-bob-neutral",
                    provider_message_id: "msg-bob-neutral",
@@ -2138,8 +2140,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: addressed_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-bob-mention",
@@ -2183,8 +2184,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-inline-preview-alice",
@@ -2209,8 +2209,7 @@ defmodule Ankole.Conversations.ObserveTest do
                 finalized_signals: [first_event]
               }} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-inline-preview-bob",
@@ -2236,8 +2235,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: first_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-text",
@@ -2251,8 +2249,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: updated_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    source_event_id: "evt-image",
                    provider_message_id: "msg-image",
@@ -2306,8 +2303,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: first_batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-pending-text",
@@ -2335,7 +2331,9 @@ defmodule Ankole.Conversations.ObserveTest do
         })
 
       assert {:ok, %{inbound_batch: pending_batch}} =
-               Observe.emit_entry(agent.uid, "bot", pending, now: attachment_at)
+               Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, "bot").id, pending,
+                 now: attachment_at
+               )
 
       assert pending_batch.id == first_batch.id
 
@@ -2344,7 +2342,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       materialized_at = DateTime.add(attachment_at, 2_000, :millisecond)
       {:ok, stored} = Attachments.store_attachment(%{"name" => "chart.png"}, "png")
-      materialized_path = stored["path"]
+      materialized_path = "chats/#{conversation_id!("lark:chat:group-a")}/chart.png"
 
       materialized =
         pending
@@ -2352,11 +2350,17 @@ defmodule Ankole.Conversations.ObserveTest do
           :metadata,
           Attachments.put_attachment_materialization(pending.metadata, "complete", attachment_at)
         )
-        |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
+        |> put_in([:attachments, Access.at(0), :object_id], stored["object_id"])
+        |> put_in([:attachments, Access.at(0), :sha256], stored["sha256"])
+        |> put_in([:attachments, Access.at(0), :size], stored["size"])
         |> put_in([:attachments, Access.at(0), :path], materialized_path)
 
       assert {:ok, %{inbound_batch: materialized_batch}} =
-               Observe.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 materialized,
+                 now: materialized_at
+               )
 
       assert materialized_batch.available_at ==
                DateTime.add(attachment_at, 1_200, :millisecond)
@@ -2365,7 +2369,7 @@ defmodule Ankole.Conversations.ObserveTest do
                finalize_due_inbound_batch_events(now: materialized_at)
 
       assert get_in(input.data, ["entry", "text"]) == "inspect this"
-      drive_path = Ankole.Files.chat_path(input.conversation_id, materialized_path)
+      drive_path = hd(get_in(input.data, ["entry", "attachments"]))["path"]
 
       assert [
                %{
@@ -2406,7 +2410,9 @@ defmodule Ankole.Conversations.ObserveTest do
         })
 
       assert {:ok, %{inbound_batch: pending_batch}} =
-               Observe.emit_entry(agent.uid, "bot", pending, now: @base_time)
+               Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, "bot").id, pending,
+                 now: @base_time
+               )
 
       # Keep the input pending while this domain test checks attachment redelivery.
       Ankole.SessionsCase.stub_driver(%{
@@ -2419,12 +2425,14 @@ defmodule Ankole.Conversations.ObserveTest do
 
       materialized_at = DateTime.add(pending_batch.available_at, 1, :second)
 
-      materialized_path = stored["path"]
+      materialized_path = "chats/#{conversation_id!("lark:chat:group-a")}/chart.png"
 
       materialized =
         pending
         |> put_in([:metadata, "attachment_materialization", "state"], "complete")
-        |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
+        |> put_in([:attachments, Access.at(0), :object_id], stored["object_id"])
+        |> put_in([:attachments, Access.at(0), :sha256], stored["sha256"])
+        |> put_in([:attachments, Access.at(0), :size], stored["size"])
         |> put_in([:attachments, Access.at(0), :path], materialized_path)
 
       assert {:ok,
@@ -2432,15 +2440,18 @@ defmodule Ankole.Conversations.ObserveTest do
                 status: :input_superseded,
                 signal: refreshed_event
               }} =
-               Observe.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 materialized,
+                 now: materialized_at
+               )
 
       assert refreshed_event.id == pending_event.id
       assert refreshed_event.available_at == materialized_at
       assert Repo.aggregate(Signal, :count) == 1
       assert Repo.aggregate(InboundBatch, :count) == 1
 
-      drive_path =
-        Ankole.Files.chat_path(refreshed_event.conversation_id, materialized_path)
+      drive_path = hd(get_in(refreshed_event.data, ["entry", "attachments"]))["path"]
 
       assert [
                %{
@@ -2454,7 +2465,11 @@ defmodule Ankole.Conversations.ObserveTest do
       redelivered_at = DateTime.add(materialized_at, 1, :second)
 
       assert {:ok, %{status: :duplicate}} =
-               Observe.emit_entry(agent.uid, "bot", materialized, now: redelivered_at)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 materialized,
+                 now: redelivered_at
+               )
 
       assert Repo.get!(Signal, refreshed_event.id).available_at == materialized_at
     end
@@ -2467,8 +2482,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: batch}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    text: long_text
@@ -2501,7 +2515,7 @@ defmodule Ankole.Conversations.ObserveTest do
           attachments: [%{"provider_ref" => "lark:image:deferred", "name" => "chart.png"}]
         })
 
-      emit = &Observe.emit_entry(agent.uid, "bot", &1)
+      emit = &Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, "bot").id, &1)
       supervisor = start_supervised!({Task.Supervisor, max_children: 0})
 
       assert {:error, :max_children} =
@@ -2556,7 +2570,8 @@ defmodule Ankole.Conversations.ObserveTest do
              }
 
       assert stored["attachment_id"] == attachment_id
-      assert {:ok, _reference, "image bytes"} = Ankole.Files.read(agent.uid, stored["path"])
+
+      assert {:ok, "image bytes"} = Ankole.Files.read_object(stored["object_id"])
 
       assert {:ok, %{message_observation: %{message: %{attachments: [^stored]}}}} =
                Observe.emit_entry_deferred(
@@ -2584,7 +2599,10 @@ defmodule Ankole.Conversations.ObserveTest do
           metadata: Attachments.put_attachment_materialization(%{}, "pending", observed_at)
         })
 
-      assert {:ok, _pending} = Observe.emit_entry(agent.uid, "bot", pending, now: observed_at)
+      assert {:ok, _pending} =
+               Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, "bot").id, pending,
+                 now: observed_at
+               )
 
       %{attachments: [%{"attachment_id" => attachment_id}]} =
         message_snapshot!(
@@ -2593,7 +2611,7 @@ defmodule Ankole.Conversations.ObserveTest do
         )
 
       {:ok, stored} = Attachments.store_attachment(%{"name" => "chart.png"}, <<137, 80, 78, 71>>)
-      path = stored["path"]
+      path = "chats/#{conversation_id!("lark:chat:group-a")}/chart.png"
 
       complete =
         pending
@@ -2601,12 +2619,16 @@ defmodule Ankole.Conversations.ObserveTest do
           :metadata,
           Attachments.put_attachment_materialization(%{}, "complete", observed_at)
         )
-        |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
+        |> put_in([:attachments, Access.at(0), :object_id], stored["object_id"])
+        |> put_in([:attachments, Access.at(0), :sha256], stored["sha256"])
+        |> put_in([:attachments, Access.at(0), :size], stored["size"])
         |> put_in([:attachments, Access.at(0), :path], path)
         |> put_in([:attachments, Access.at(0), :materialization_state], "complete")
 
       assert {:ok, _complete} =
-               Observe.emit_entry(agent.uid, "bot", complete,
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 complete,
                  now: DateTime.add(observed_at, 1, :second)
                )
 
@@ -2619,7 +2641,7 @@ defmodule Ankole.Conversations.ObserveTest do
         |> put_in([:attachments, Access.at(0), :materialization_state], "failed")
 
       assert {:ok, _late} =
-               Observe.emit_entry(agent.uid, "bot", failed,
+               Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent.uid, "bot").id, failed,
                  now: DateTime.add(observed_at, 2, :second)
                )
 
@@ -2630,11 +2652,11 @@ defmodule Ankole.Conversations.ObserveTest do
                )
 
       assert kept["attachment_id"] == attachment_id
-      drive_path = Ankole.Files.chat_path(conversation_id!("lark:chat:group-a"), path)
-      assert kept["path"] == drive_path
-      assert kept["blob_ref"] == stored["blob_ref"]
+      assert kept["object_id"] == stored["object_id"]
       assert kept["materialization_state"] == "complete"
-      assert {:ok, %{source: "inbound"}} = Ankole.Files.fetch(agent.uid, drive_path)
+
+      assert {:ok, %{source: "inbound"}} =
+               Ankole.Files.authorize_node(agent.uid, kept["node_id"], "node_view")
     end
   end
 
@@ -2650,14 +2672,14 @@ defmodule Ankole.Conversations.ObserveTest do
     uid = Map.get(author, :agent_uid) || Map.get(author, :principal_uid)
 
     author =
-      case uid && Ecto.UUID.cast(uid) do
-        :error ->
+      case uid && Ankole.Principals.get_principal(uid) do
+        {:error, :not_found} ->
           kind = if Map.has_key?(author, :agent_uid), do: :agent, else: :human
 
           %{principal: principal} =
             if kind == :agent,
-              do: agent_fixture(%{display_name: author[:display_name]}),
-              else: human_fixture(%{display_name: author[:display_name]})
+              do: agent_fixture(%{uid: uid, display_name: author[:display_name]}),
+              else: human_fixture(%{uid: uid, display_name: author[:display_name]})
 
           Map.put(author, if(kind == :agent, do: :agent_uid, else: :principal_uid), principal.uid)
 

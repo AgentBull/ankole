@@ -56,69 +56,90 @@ AIGateway exposes six capability kinds:
 - `web_fetch`
 - `image_generate`
 
-Each Agent can configure fixed model profiles for `primary`, `light`, `heavy`,
-`coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`.
-Embedding and rerank are not Agent profiles: `embedding` is a site-wide Brain
-setting, and `rerank` is a tenant-level Brain setting. Authorized callers can
-also pass a direct `provider_id/raw-model-id` selector. Both profiles and direct
-selectors point to one provider row without pinning a specific credential inside
-that provider's pool.
+`Ankole.AIGateway.ModelProfiles` owns model and capability configuration at
+three layers: Site defaults, Pod overrides, and sparse subject overrides. Agents
+store overrides in `agents.options`; registered system Principals store them in
+AppConfigure under `system:<uid>`. Site, Pod, and system Principals expose
+`primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`,
+`web_fetch`, `image_generate`, and `rerank`; Agents expose the same slots except
+`rerank`. Pod and Site rows live in AppConfigure under
+`ai_gateway.model_profiles.<slot>` and `ai_gateway.provider_hosted.<capability>`.
+Deleting a row restores inheritance; storing `nil` is invalid because only a
+missing row may advance fallback to the next layer.
 
-Each tenant's Brain designates one active maintainer Agent:
+Resolution first merges each slot across `Agent -> Pod -> Site`,
+`system Principal -> Pod -> Site`, or `Pod -> Site` for Human calls, then applies
+`coding -> heavy -> primary` and
+`light -> primary`. A single effective `primary` therefore serves the basic LLM
+paths, while embedding, web fetching, reranking, and other specialized
+capabilities require their own configuration. `brain.embedding_model` remains a
+Site-only setting because Brain shares one physical vector space. Brain uses the
+effective heavy profile for Dreaming and falls back to effective primary when
+heavy is absent.
 
-- Its `light` profile runs knowledge extraction, its `heavy` profile runs
-  Dreaming, and its `web_fetch` profile backs URL Source learning (if
-  `web_fetch` is unconfigured or fails upstream, URL Source learning returns a
-  fetch error; Brain fetches URL sources through AIGateway without requesting a
-  Worker).
-- Every Brain model call runs under the maintainer Agent's `subject_uid`—including
-  embedding and rerank calls, which pair that Agent identity with the site's
-  embedding selector or the tenant's rerank selector—so execution policy and
-  observed usage attach to that Agent.
-- If the maintainer Agent is disabled, Brain reports the execution identity as
-  unhealthy and halts model calls and URL fetching until an operator re-enables
-  or replaces the Agent. Already-stored knowledge and pure-text recall do not
-  depend on that execution identity and remain available.
+The owner exposes three distinct reads:
 
-Alongside fixed profiles, an Agent can store custom LLM profiles in the same
-`agents.options["ai_agent"]["models"]` map (with no separate database entity).
-Each custom profile name must match `[a-z][a-z0-9_-]{0,63}`, avoid all fixed
-profile names, remain immutable after creation, and include a non-empty
-description. Custom profiles apply only to `llm`—they cannot configure
-embedding, rerank, web search, web fetch, or image generation.
+- **Overrides** are the sparse values persisted at the current layer.
+- **Inherited** values are the next layer's values for the same slot, without
+  cross-slot fallback, and identify their source.
+- **Effective** values contain the merged result plus `source` and
+  `resolved_from_profile`. Model directories, runtime resolution, and both
+  Console editors consume this form; the browser never reconstructs fallback.
 
-OIDC Clients likewise store Client-scoped custom LLM aliases in a single map on
-the Client row using the same name, description, provider, model,
-context-length, and request-option contract (again with no separate alias
-entity). OIDC Humans can select only aliases defined on their current Client;
-they cannot request a raw `provider_id/raw-model-id`, a fixed Agent profile, or
-an alias belonging to an Agent or another Client.
+New Session Turns and first Background Agent Job admission freeze the effective
+model and tools for that run. Editing a default affects the next resolution or
+stateless gateway request, not an already frozen Turn or Job. `/v1/models` and
+the Codex `/models` manifest include inherited and fallback selectors even when
+an Agent has no fixed-slot overrides.
 
-In the Agent Console, `Model profiles` and `Custom model profiles` appear as
-sibling sections sharing the same provider, model, context-length, and
-request-option form (with custom profiles adding the immutable name and
-description, and `coding` designating the default model for Background Agent
-Jobs), alongside a sibling `Token quota` section that configures the Agent's
-period and token limit (see [Agent Token Quota](AgentTokenQuota.md)). Tenant
-Console routes under `/api/v2/agents/:agent_uid` read and update model profiles,
-provider-hosted capabilities, and token quotas through typed domain actions
-guarded by Principal/AuthZ, returning typed configuration and usage views.
+Agents and system Principals execute with their own effective three-layer
+configuration. Human Principals resolve the Pod's effective configuration, so
+control-plane compaction can run without an Agent binding. Brain executes as
+`ankole_brain` and reads its effective `light`, `heavy`, `web_fetch`, and `rerank`
+slots. This includes reranking during Agent-initiated recall. The `default` and
+`rerank.default` capability selectors resolve a system Principal's effective
+rerank slot; Agent and Human rerank calls use the Pod slot. Pod Applets execute
+as `system`, accept only built-in LLM slots, and do not consult a creator Agent
+or its quota. OIDC-bound external requests use their explicit model binding.
 
-`GET /models` tailors its catalog to the caller's token:
+Provider-hosted switches inherit from Pod and Site for system Principals;
+system overrides accept only the nine fixed slots, with no custom aliases.
+Without subject overrides, every effective slot matches the Pod configuration.
 
-- **Agent token**: exposes each custom profile configured on that Agent as an
-  alias with its description (hidden from other Agents and human
-  administrators).
-- **OIDC Human token**: exposes only aliases configured on the active OIDC
-  Client and resolves each alias through that Client's profile.
-- **Direct `provider_id/raw-model-id` selectors**: appear only for subjects
-  whose contract permits direct provider selection.
+Alongside fixed profiles, an Agent can store custom LLM profiles in
+`agents.options["ai_agent"]["models"]`. Each custom name matches
+`[a-z][a-z0-9_-]{0,63}`, avoids the eight Agent fixed slots, is immutable, and
+has a non-empty description. The name `rerank` is a valid custom LLM alias; it
+does not collide with the Pod/Site rerank capability, whose default selectors
+are `default` and `rerank.default`. OIDC Clients use the same custom-alias
+contract and still resolve external Human requests through the Client's model
+binding. Custom aliases never configure embedding, rerank, web search, web
+fetch, or image generation.
 
-The `coding` profile is a standard AIGateway profile holding `provider_id`,
-`model`, and request-level `provider_options`, and `chatgpt_subscription` is an
-ordinary provider kind—there is no separate Codex runtime mode and no account ID
-stored on a Job. When `coding` is not configured, AIGateway falls back to
-`heavy`; if neither `coding` nor `heavy` is configured, Job creation fails.
+The Console's `/model-profiles` page edits Pod and Site defaults through
+`/api/v2/model-profiles`, including rerank and Provider-hosted switches. Agent
+routes under `/api/v2/agents/:agent_uid` return overrides, inherited values,
+and effective values, and allow every fixed-slot override to be deleted.
+The System Principals section lists the code registry and uses
+`/api/v2/system-principals/:uid/model-profiles` to read each configuration, PUT
+an override at `/:profile`, or DELETE it to restore inheritance. These operations
+use the same permissions as Pod defaults and reject unregistered UIDs. All
+editors share the provider, model, context-length, and request-option form.
+Profile writes and deletions return the complete configuration so the editor
+can refresh inherited and fallback fields while preserving unsaved edits.
+When configuration queries refresh, fixed-slot editors also update untouched
+fields and preserve unsaved slot drafts.
+The Pod page uses the Console's selected tenant; Site defaults apply across Pods.
+The readiness model step links to Pod defaults when the Pod has no Agent.
+Provider deletion checks Agent options and every Site, Pod, and `system:<uid>`
+profile row before allowing the operation. Tenant-owned references include the
+tenant ID, together with the Agent or system Principal UID when applicable, so
+operators can identify the configuration that must change.
+
+The `coding` profile holds `provider_id`, `model`, and request-level
+`provider_options`, and `chatgpt_subscription` is an ordinary provider kind.
+When coding and heavy are absent, the effective primary handles Job creation;
+only a missing value along the whole fallback chain rejects it.
 
 ## Bind a Codex Job to Its Model Snapshot
 
@@ -604,7 +625,9 @@ OIDC Human token, signed with the installation's `RS256` key and typed as
 `at+jwt`:
 
 - **Agent tokens** (`Ankole.AIGateway.Tokens`): carry audience
-  `ankole.ai_gateway`, scope `ai_gateway`, and a default 30-day lifetime.
+  `ankole.ai_gateway`, scope `ai_gateway`, `tenant_id`, the Agent uid in `sub`,
+  and a default 30-day lifetime. Authentication binds the claimed tenant before
+  resolving the Agent name.
   Workers obtain their Agent token—and the AIGateway base URL—over an
   authenticated RuntimeFabric RPC. Operators can point Workers at a specific
   AIGateway URL via `ANKOLE_AI_GATEWAY_BASE_URL` (the Helm chart sets the
@@ -612,7 +635,8 @@ OIDC Human token, signed with the installation's `RS256` key and typed as
   ingress, or external URL; if unset, the RuntimeFabric broker uses the Phoenix
   endpoint URL, and AIGateway never classifies URLs as internal vs external).
 - **OIDC Human tokens** (`Ankole.OIDC.Tokens`): include the `ankole.ai_gateway`
-  audience only when granted the `ai_gateway.write` scope.
+  audience only when granted the `ai_gateway.write` scope. Authentication resolves
+  `client_id` first and looks up `sub` inside that Client's tenant.
 
 Both token services build on `Ankole.TokenSigning`. On incoming HTTP and
 WebSocket connections, the Phoenix authentication plug verifies the JWT
@@ -626,7 +650,9 @@ open WebSocket—re-verifies that the Principal and OIDC Client are active, chec
 scopes and group memberships, and resolves the requested Client model alias
 before provider selection; policy changes take effect on the next request
 without interrupting an already-running stream. Every runtime query scopes
-conversations, messages, and artifacts to the caller's `subject_uid`. Because
+conversations, messages, and artifacts to the caller's `(tenant_id, subject_uid)`.
+Personal assistants use their own execution identity for these records and for
+usage metering. Because
 OIDC Human requests use the Human Principal's UID as `subject_uid`, stateful
 Responses belong privately to that Human: the same Human can resume a stored
 Response from another authorized OIDC Client, and deleting an OIDC Client never
@@ -647,17 +673,16 @@ it appends one row to `ai_gateway_usage_records` for each counted provider
 round.
 
 Applet backend calls to `AnkoleRuntime.ai.generateText` run in-process under the
-Agent Principal recorded in the Applet Page's `created_by` field. The adapter
-resolves only Agent model profiles (rejecting raw `provider/model` selectors and
+tenant's `system` Principal. The adapter resolves only built-in LLM slots from
+that Principal's effective configuration (rejecting raw `provider/model` selectors and
 falling back from a missing `light` profile to `primary`), validates reasoning
-effort against the resolved model, checks and records the creator Agent's token
-quota (returning `429` `agent_token_quota_exceeded` when exhausted), maps
-upstream provider errors to `ai_unavailable`, and returns the generated text,
-`stop`/`length` finish reason, and input/output token counts without ever
-exposing credentials to the Applet isolate. The Applet invocation owns its
-overall timeout and cancellation: just like streaming calls, native
-non-streaming requests monitor their BEAM owner process and drop active upstream
-I/O immediately if the capability process exits.
+effort against the resolved model, and records LLM usage with origin `applet`
+without checking an Agent quota. It maps upstream provider errors to
+`ai_unavailable` and returns the generated text, `stop`/`length` finish reason,
+and input/output token counts without ever exposing credentials to the Applet
+isolate. The Applet invocation owns its overall timeout and cancellation: just
+like streaming calls, native non-streaming requests monitor their BEAM owner
+process and drop active upstream I/O immediately if the capability process exits.
 
 ## Create a Response without Storing It
 
@@ -1393,9 +1418,9 @@ rules:
   clarification, and current input—returning a single plan with filtered input
   and injection positions without adding memory after the budget check (earlier
   checkpoint packs never enter a new summary, and legacy checkpoints without
-  `brain_context_pack` replay unpacked until the daily `04:30` conversation
-  reset replaces them; if the fitted result still exceeds budget, AIGateway skips
-  artifact creation and falls through to automatic overflow).
+  `brain_context_pack` replay unpacked until conversation rotation or an explicit
+  reset starts a fresh conversation; if the fitted result still exceeds budget,
+  AIGateway skips artifact creation and falls through to automatic overflow).
 - Manual `/compress` runs without waiting for `threshold` and can summarize a
   short history with fewer rows than `tail_rows` as long as a safe completed
   prefix exists; otherwise it replies `Nothing to compress.` without writing a
@@ -1624,6 +1649,10 @@ multi-round Ankole Response (public IDs, item projection, terminal validation,
 tool continuations, task monitors, deadlines, PostgreSQL commits, downstream
 credit, and Elixir/native-owner failure terminals, including turning a Rust task
 panic reported as `native_stream_panicked` into an immediate owner failure).
+
+The NIF entry points parse model and hosted-tool request specifications on a
+temporary 8 MiB stack on the calling scheduler thread. This accommodates nested
+tool schemas without depending on the BEAM dirty scheduler's native stack size.
 
 Chunks crossing the NIF boundary tag their origin as `Provider` (normalized
 upstream frames, which are the only chunks that record upstream progress or

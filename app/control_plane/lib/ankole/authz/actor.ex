@@ -1,20 +1,16 @@
 defmodule Ankole.AuthZ.Actor do
-  @moduledoc "An explicit Principal, interactive subject, turn authority, and authentication evidence."
+  @moduledoc "The executing Principal, turn authority, and authentication evidence."
   @enforce_keys [:principal]
   defstruct [
     :principal,
-    :interactive_principal,
     :turn_authority,
-    authn: %{},
-    interactive_authn: %{}
+    authn: %{}
   ]
 
   @type t :: %__MODULE__{
           principal: struct(),
-          interactive_principal: struct() | nil,
           turn_authority: term(),
-          authn: map(),
-          interactive_authn: map()
+          authn: map()
         }
 
   def new(principal, opts \\ []),
@@ -57,18 +53,4 @@ defmodule Ankole.AuthZ.Actor do
 
   def request_context(%__MODULE__{authn: authn}),
     do: Map.merge(Map.take(authn, ["surface", "ip"]), %{"authn" => authn})
-
-  def primary(%__MODULE__{} = actor),
-    do: %{actor | interactive_principal: nil, interactive_authn: %{}}
-
-  def interactive(%__MODULE__{interactive_principal: nil}), do: nil
-
-  def interactive(%__MODULE__{interactive_principal: principal} = actor),
-    do: %{
-      actor
-      | principal: principal,
-        interactive_principal: nil,
-        authn: actor.interactive_authn,
-        interactive_authn: %{}
-    }
 end

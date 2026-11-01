@@ -478,32 +478,38 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   end
 
   defp select_page_groups(groups, limit, bytes) do
+    budget = bytes - @page_reserve_bytes
+    base_bytes = encoded_bytes(%{format: "ankole_chatml", version: 1, messages: []})
+
     groups
     |> Enum.reverse()
-    |> Enum.reduce_while({[], 0}, fn group, {selected, count} ->
-      candidate = [group | selected]
+    |> Enum.reduce_while({[], 0, base_bytes, false}, fn group,
+                                                        {selected, count, used_bytes,
+                                                         has_messages?} ->
+      {next_bytes, next_has_messages?} =
+        add_group_messages_bytes(used_bytes, has_messages?, group.messages)
 
       cond do
         count >= limit ->
-          {:halt, {selected, count}}
+          {:halt, {selected, count, used_bytes, has_messages?}}
 
-        trajectory_messages_bytes(candidate) > bytes - @page_reserve_bytes ->
-          {:halt, {selected, count}}
+        next_bytes > budget ->
+          {:halt, {selected, count, used_bytes, has_messages?}}
 
         true ->
-          {:cont, {candidate, count + 1}}
+          {:cont, {[group | selected], count + 1, next_bytes, next_has_messages?}}
       end
     end)
     |> elem(0)
   end
 
-  defp trajectory_messages_bytes(groups) do
-    Ankole.JSON.encode!(%{
-      format: "ankole_chatml",
-      version: 1,
-      messages: Enum.flat_map(groups, & &1.messages)
-    })
-    |> byte_size()
+  defp add_group_messages_bytes(used_bytes, has_messages?, []),
+    do: {used_bytes, has_messages?}
+
+  defp add_group_messages_bytes(used_bytes, has_messages?, messages) do
+    inner_bytes = encoded_bytes(messages) - 2
+    separator = if has_messages?, do: 1, else: 0
+    {used_bytes + separator + inner_bytes, true}
   end
 
   defp bound_group(messages, bytes) do

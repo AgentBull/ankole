@@ -13,7 +13,13 @@ defmodule Ankole.Plugins.TelegramAdapter.Presentation do
   def render(presentation, signal_id)
       when is_map(presentation) and is_binary(signal_id) do
     presentation = ReplyPresentation.normalize(presentation)
-    text = ReplyPresentation.fallback_text(presentation)
+
+    text =
+      presentation
+      |> ReplyPresentation.fallback_text()
+      |> Ankole.Kernel.repair_generated_markdown()
+      |> Ankole.Plugins.MarkdownChunks.unescape_plain_tildes()
+
     keyboard = inline_keyboard(presentation, signal_id)
 
     chunks(text)

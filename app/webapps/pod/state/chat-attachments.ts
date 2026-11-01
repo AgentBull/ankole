@@ -16,7 +16,7 @@ export type AttachmentSnapshot = { attachments: string[]; attachmentIDs: string[
 type Upload = typeof uploadAttachment
 
 /** The conversation draft owns selected Files and their upload lifetime. */
-export const ChatAttachments = createModel((upload: Upload = uploadAttachment) => {
+function createChatAttachments(upload: Upload = uploadAttachment) {
   const files = signal<AttachmentDraft[]>([])
   const requests = new Map<string, AbortController>()
   const hasFiles = computed(() => files.value.length > 0)
@@ -82,14 +82,18 @@ export const ChatAttachments = createModel((upload: Upload = uploadAttachment) =
     },
     rejected(error: unknown, ids: string[] = []) {
       if (error instanceof InternalAPIError && requestErrorCode(error.payload) === 'attachment_expired') {
-        this.expired(ids)
+        batch(() => {
+          for (const id of ids) update(id, { state: 'failed', receipt: undefined })
+        })
       }
     },
     dispose() {
       for (const file of files.peek()) remove(file.id)
     }
   }
-})
+}
+
+export const ChatAttachments = createModel(createChatAttachments)
 export type ChatAttachments = InstanceType<typeof ChatAttachments>
 
 export function isPreviewImage(type: string | undefined): boolean {

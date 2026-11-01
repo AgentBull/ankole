@@ -11,9 +11,9 @@ import { finishSignalBindingSave, SignalBindingEditorPage, SignalsListPage } fro
 describe('Signal Routing editor navigation', () => {
   test('does not turn the binding owner into a list filter', async () => {
     const listHTML = await renderSignalsList('/signals', undefined)
-    const editorHTML = await renderSignalEditor('/signals/agent-a/lark/lark-main')
+    const editorHTML = await renderSignalEditor('/signals/binding-a')
 
-    expect(listHTML).toContain('href="/signals/agent-a/lark/lark-main"')
+    expect(listHTML).toContain('href="/signals/binding-a"')
     expect(listHTML).not.toContain('return_agent')
     expect(editorHTML).toContain('href="/signals"')
     expect(editorHTML).not.toContain('href="/signals?agent=agent-a"')
@@ -21,9 +21,9 @@ describe('Signal Routing editor navigation', () => {
 
   test('preserves an explicit list filter separately from the binding owner', async () => {
     const listHTML = await renderSignalsList('/signals?agent=agent-b', 'agent-b', 'agent-b')
-    const editorHTML = await renderSignalEditor('/signals/agent-b/lark/lark-main?return_agent=agent-b')
+    const editorHTML = await renderSignalEditor('/signals/binding-a?return_agent=agent-b')
 
-    expect(listHTML).toContain('href="/signals/agent-b/lark/lark-main?return_agent=agent-b"')
+    expect(listHTML).toContain('href="/signals/binding-a?return_agent=agent-b"')
     expect(editorHTML).toContain('href="/signals?agent=agent-b"')
   })
 
@@ -53,11 +53,11 @@ describe('Signal Routing editor navigation', () => {
 })
 
 describe('Signal Routing empty state', () => {
-  test('routes the operator to Agent creation while the instance has no Agent', async () => {
+  test('offers shared Bot configuration before an AI colleague exists', async () => {
     const html = await renderEmptySignalsList([])
 
-    expect(html).toContain('href="/agents/new"')
-    expect(html).not.toContain('href="/signals/new"')
+    expect(html).toContain('href="/signals/new"')
+    expect(html).not.toContain('href="/agents/new"')
   })
 
   test('offers rule creation in the empty state once an Agent exists', async () => {
@@ -94,7 +94,6 @@ function agentItem(uid: string): AgentItem {
     status: 'active',
     type: 'ai_colleague',
     uid,
-    handle: uid,
     updated_at: '2026-08-14T00:00:00Z'
   }
 }
@@ -110,7 +109,7 @@ function renderSignalsList(initialEntry: string, agentUID: string | undefined, b
 }
 
 function renderSignalEditor(initialEntry: string) {
-  return renderRoute(freshQueryClient(), initialEntry, 'signals/$agent/$adapter/$name', <SignalBindingEditorPage />)
+  return renderRoute(freshQueryClient(), initialEntry, 'signals/$id', <SignalBindingEditorPage />)
 }
 
 async function renderRoute(queryClient: QueryClient, initialEntry: string, path: string, element: React.ReactNode) {
@@ -143,6 +142,8 @@ function signalBindingResponse(agentUID: string) {
     delivery_failures: [],
     signal_bindings: [
       {
+        id: 'binding-a',
+        routing_mode: 'ai_colleague',
         adapter: 'lark',
         agent_uid: agentUID,
         config_key: `signal:${agentUID}:lark:lark-main`,

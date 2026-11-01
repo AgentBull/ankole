@@ -48,6 +48,12 @@ defmodule Ankole.AgentWorkers.Decision do
       current.phase == :exited ->
         :delete_now
 
+      facts.worker.drain_reason == "rename" and not idle?(facts) ->
+        wait(facts.worker)
+
+      facts.worker.drain_reason == "rename" ->
+        :delete_now
+
       current.phase == :paused and pause_release?(facts.definition, facts.worker.drain_reason) ->
         :mark_paused
 

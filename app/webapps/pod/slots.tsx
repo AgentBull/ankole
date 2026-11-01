@@ -15,4 +15,4 @@ export interface PodAppSlots {
 
 export const PodSlotsContext = createContext<PodAppSlots>({})
 export const usePodSlots = () => useContext(PodSlotsContext)
-export const podSettingsSections = ['general', 'members', 'invitations', 'providers'] as const
+export const podSettingsSections = ['general', 'members', 'agents', 'invitations', 'providers'] as const

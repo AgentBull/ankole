@@ -7,7 +7,8 @@ defmodule Ankole.Pod.Pages.Mentions do
   require Ash.Expr
   require Ash.Query
   alias Ankole.{AuthZ, Repo}
-  alias Ankole.Pod.{Access, Files, Page, PageContent, Pages, PageUserState}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Files, Page, PageContent, Pages, PageUserState}
   alias Ankole.Pod.Pages.Collaborators
 
   @max_candidates_limit 30
@@ -90,7 +91,12 @@ defmodule Ankole.Pod.Pages.Mentions do
        %{
          space_name: Collaborators.current_space_name(),
          pages: resolve_pages(actor, page_ids, reachable, context),
-         principals: resolve_principals(principal_uids, visible_uids)
+         principals:
+           resolve_principals(
+             principal_uids,
+             visible_uids,
+             readable_mentions(visible_uids, context_page_id, reachable)
+           )
        }}
     end
   end
@@ -271,10 +277,10 @@ defmodule Ankole.Pod.Pages.Mentions do
   end
 
   defp visible_pages_query(reachable) do
-    {containers, own} = Access.visibility_ids(reachable)
+    ids = Ankole.Files.visible_node_ids(reachable)
 
     Page
-    |> Ash.Query.filter(is_nil(deleted_at) and (acl_anchor_id in ^containers or id in ^own))
+    |> Ash.Query.filter(id in ^ids and not is_root)
   end
 
   defp maybe_exclude_page(query, nil), do: query
@@ -334,10 +340,15 @@ defmodule Ankole.Pod.Pages.Mentions do
       actor_uid = AuthZ.Actor.uid(actor)
       priority_uids = context_collaborator_uids(current_page_id, reachable)
 
+      assistant =
+        Ankole.Principals.personal_assistant(
+          Ankole.Principals.authority_uid(AuthZ.Actor.uid(actor))
+        )
+
       principals =
         Ankole.Principals.list_principals!(
           query: [
-            filter: principal_search_filter(term, visible_uids),
+            filter: principal_search_filter(term, visible_uids, assistant),
             load: [:human_user, :agent],
             sort: [uid: :asc]
           ]
@@ -363,12 +374,19 @@ defmodule Ankole.Pod.Pages.Mentions do
         {entries, length(principals)}
       else
         needle = String.downcase(term)
-        handle_needle = String.trim_leading(needle, "@")
+        uid_needle = String.trim_leading(needle, "@")
 
         matched =
           principals
           |> Enum.flat_map(fn principal ->
-            case score_principal_match(principal, needle, handle_needle, priority_uids, is_guest?) do
+            score =
+              if assistant && principal.uid == assistant.uid &&
+                   assistant_alias_match?(assistant, term),
+                 do: {4, 1.0, 1.0},
+                 else:
+                   score_principal_match(principal, needle, uid_needle, priority_uids, is_guest?)
+
+            case score do
               nil ->
                 []
 
@@ -395,7 +413,9 @@ defmodule Ankole.Pod.Pages.Mentions do
     end
   end
 
-  defp principal_search_filter(term, visible_uids) do
+  defp principal_search_filter(term, visible_uids, assistant) do
+    assistant_uid = if assistant, do: assistant.uid
+
     base_expr =
       case visible_uids do
         :all ->
@@ -406,21 +426,29 @@ defmodule Ankole.Pod.Pages.Mentions do
           Ash.Expr.expr(status == :active and type in [:human, :agent] and uid in ^visible_list)
       end
 
+    kinds = Ash.Expr.expr(type == :human or agent.type == :ai_colleague)
+    kinds = if assistant, do: Ash.Expr.expr(^kinds or uid == ^assistant_uid), else: kinds
+    base_expr = Ash.Expr.expr(^base_expr and ^kinds)
+
     if term == "" do
       base_expr
     else
       contains_pattern = "%" <> Repo.escape_like(term) <> "%"
-      handle_term = String.trim_leading(term, "@")
-      handle_pattern = "%" <> Repo.escape_like(handle_term) <> "%"
+      uid_term = String.trim_leading(term, "@")
+      uid_pattern = "%" <> Repo.escape_like(uid_term) <> "%"
 
       match_expr =
-        principal_term_expr(visible_uids != :all, contains_pattern, handle_term, handle_pattern)
+        principal_term_expr(visible_uids != :all, contains_pattern, uid_term, uid_pattern)
 
-      Ash.Expr.expr(^base_expr and ^match_expr)
+      if assistant_alias_match?(assistant, term) do
+        Ash.Expr.expr(^base_expr and (^match_expr or uid == ^assistant_uid))
+      else
+        Ash.Expr.expr(^base_expr and ^match_expr)
+      end
     end
   end
 
-  defp principal_term_expr(true, contains_pattern, "", _handle_pattern) do
+  defp principal_term_expr(true, contains_pattern, "", _uid_pattern) do
     Ash.Expr.expr(
       ilike(display_name, ^contains_pattern) or
         ilike(type(uid, :string), ^contains_pattern) or
@@ -428,16 +456,16 @@ defmodule Ankole.Pod.Pages.Mentions do
     )
   end
 
-  defp principal_term_expr(true, contains_pattern, _handle_term, handle_pattern) do
+  defp principal_term_expr(true, contains_pattern, _uid_term, uid_pattern) do
     Ash.Expr.expr(
       ilike(display_name, ^contains_pattern) or
         ilike(type(uid, :string), ^contains_pattern) or
-        ilike(agent.handle, ^handle_pattern) or
+        ilike(type(uid, :string), ^uid_pattern) or
         ilike(agent.role, ^contains_pattern)
     )
   end
 
-  defp principal_term_expr(false, contains_pattern, "", _handle_pattern) do
+  defp principal_term_expr(false, contains_pattern, "", _uid_pattern) do
     Ash.Expr.expr(
       ilike(display_name, ^contains_pattern) or
         ilike(type(uid, :string), ^contains_pattern) or
@@ -447,20 +475,32 @@ defmodule Ankole.Pod.Pages.Mentions do
     )
   end
 
-  defp principal_term_expr(false, contains_pattern, _handle_term, handle_pattern) do
+  defp principal_term_expr(false, contains_pattern, _uid_term, uid_pattern) do
     Ash.Expr.expr(
       ilike(display_name, ^contains_pattern) or
         ilike(type(uid, :string), ^contains_pattern) or
         ilike(human_user.email, ^contains_pattern) or
         ilike(human_user.job_title, ^contains_pattern) or
-        ilike(agent.handle, ^handle_pattern) or
+        ilike(type(uid, :string), ^uid_pattern) or
         ilike(agent.role, ^contains_pattern)
     )
+  end
+
+  defp assistant_alias_match?(nil, _term), do: false
+
+  defp assistant_alias_match?(assistant, term) do
+    needle = term |> String.trim_leading("@") |> String.downcase()
+
+    Enum.any?(Ankole.Principals.assistant_aliases(assistant.principal), fn name ->
+      String.contains?(String.downcase(name), needle)
+    end)
   end
 
   defp mentionable_principal?(%{type: :human}), do: true
 
-  defp mentionable_principal?(%{type: :agent, agent: %{type: :ai_colleague}}), do: true
+  defp mentionable_principal?(%{type: :agent, agent: %{type: type}})
+       when type in [:ai_colleague, :personal_assistant], do: true
+
   defp mentionable_principal?(_), do: false
 
   defp principal_visible?(_principal, :all), do: true
@@ -468,9 +508,9 @@ defmodule Ankole.Pod.Pages.Mentions do
   defp principal_visible?(%{uid: uid}, %MapSet{} = visible_uids),
     do: MapSet.member?(visible_uids, uid)
 
-  defp score_principal_match(principal, needle, handle_needle, priority_uids, is_guest?) do
+  defp score_principal_match(principal, needle, uid_needle, priority_uids, is_guest?) do
     fields = principal_search_fields(principal, is_guest?)
-    tier = principal_match_tier(fields, needle, handle_needle)
+    tier = principal_match_tier(fields, needle, uid_needle)
 
     if tier == 0 do
       nil
@@ -497,37 +537,37 @@ defmodule Ankole.Pod.Pages.Mentions do
       email: email,
       email_local: email |> String.split("@", parts: 2) |> List.first(""),
       job: job,
-      handle: String.downcase((principal.agent && principal.agent.handle) || ""),
+      uid: principal.uid,
       role: String.downcase((principal.agent && principal.agent.role) || "")
     }
   end
 
-  defp principal_match_tier(fields, needle, handle_needle) do
+  defp principal_match_tier(fields, needle, uid_needle) do
     cond do
-      exact_principal_match?(fields, needle, handle_needle) -> 4
-      prefix_principal_match?(fields, needle, handle_needle) -> 3
-      primary_substring_match?(fields, needle, handle_needle) -> 2
+      exact_principal_match?(fields, needle, uid_needle) -> 4
+      prefix_principal_match?(fields, needle, uid_needle) -> 3
+      primary_substring_match?(fields, needle, uid_needle) -> 2
       secondary_substring_match?(fields, needle) -> 1
       true -> 0
     end
   end
 
-  defp exact_principal_match?(fields, needle, handle_needle) do
+  defp exact_principal_match?(fields, needle, uid_needle) do
     fields.name == needle or
-      non_empty_equal?(fields.handle, handle_needle) or
+      non_empty_equal?(fields.uid, uid_needle) or
       non_empty_equal?(fields.email_local, needle)
   end
 
-  defp prefix_principal_match?(fields, needle, handle_needle) do
+  defp prefix_principal_match?(fields, needle, uid_needle) do
     String.starts_with?(fields.name, needle) or
-      non_empty_prefix?(fields.handle, handle_needle) or
+      non_empty_prefix?(fields.uid, uid_needle) or
       non_empty_prefix?(fields.email, needle)
   end
 
-  defp primary_substring_match?(fields, needle, handle_needle) do
+  defp primary_substring_match?(fields, needle, uid_needle) do
     word_prefix_match?(fields.name, needle) or
       String.contains?(fields.name, needle) or
-      non_empty_contains?(fields.handle, handle_needle)
+      non_empty_contains?(fields.uid, uid_needle)
   end
 
   defp secondary_substring_match?(fields, needle) do
@@ -593,20 +633,16 @@ defmodule Ankole.Pod.Pages.Mentions do
       email: if(is_guest?, do: nil, else: principal.human_user && principal.human_user.email),
       job_title:
         if(is_guest?, do: nil, else: principal.human_user && principal.human_user.job_title),
-      handle: principal.agent && principal.agent.handle,
+      aliases:
+        if(principal.agent && principal.agent.type == :personal_assistant,
+          do: Ankole.Principals.assistant_aliases(principal),
+          else: []
+        ),
       role: principal.agent && principal.agent.role
     }
   end
 
-  defp principal_display_name(principal) do
-    case principal.display_name do
-      value when is_binary(value) ->
-        if String.trim(value) == "", do: principal.uid, else: value
-
-      _ ->
-        principal.uid
-    end
-  end
+  defp principal_display_name(principal), do: Ankole.Principals.display_name(principal)
 
   # --- Resolution (Pages & Principals) ---
 
@@ -721,9 +757,40 @@ defmodule Ankole.Pod.Pages.Mentions do
     }
   end
 
-  defp resolve_principals([], _visible_uids), do: []
+  defp readable_mentions(:all, _page_id, _reachable), do: MapSet.new()
+  defp readable_mentions(_uids, nil, _reachable), do: MapSet.new()
 
-  defp resolve_principals(principal_uids, visible_uids) do
+  defp readable_mentions(_uids, page_id, reachable) do
+    with {:ok, page} <- Pages.fetch(page_id),
+         {:ok, _} <- Access.authorize_reachable(page, "node_view", reachable) do
+      content =
+        PageContent
+        |> Ash.Query.filter(page_id == ^page.id)
+        |> Ash.Query.select([:content])
+        |> Ankole.Ash.read_one!()
+
+      comments =
+        Ankole.Pod.PageComment
+        |> Ash.Query.filter(page_id == ^page.id and is_nil(deleted_at))
+        |> Ash.Query.select([:body])
+        |> Ankole.Ash.read!()
+
+      texts = [if(content, do: content.content, else: "") | Enum.map(comments, &(&1.body || ""))]
+
+      Enum.reduce(texts, MapSet.new(), fn text, acc ->
+        @principal_mention_regex
+        |> Regex.scan(text, capture: :all_but_first)
+        |> List.flatten()
+        |> Enum.reduce(acc, &MapSet.put(&2, &1))
+      end)
+    else
+      _ -> MapSet.new()
+    end
+  end
+
+  defp resolve_principals([], _visible_uids, _readable_mentions), do: []
+
+  defp resolve_principals(principal_uids, visible_uids, readable_mentions) do
     is_guest? = visible_uids != :all
 
     valid_uids =
@@ -749,7 +816,9 @@ defmodule Ankole.Pod.Pages.Mentions do
       with {:ok, uid} <- Ankole.Ecto.PrincipalKey.cast(raw_uid),
            %{} = principal <- Map.get(principals_by_uid, uid),
            true <- mentionable_principal?(principal),
-           true <- principal_visible?(principal, visible_uids) do
+           true <-
+             principal_visible?(principal, visible_uids) or
+               readable_assistant?(principal, readable_mentions) do
         principal
         |> principal_candidate_json(is_guest?)
         |> Map.put(:access, if(principal.status == :disabled, do: :disabled, else: :ok))
@@ -758,6 +827,11 @@ defmodule Ankole.Pod.Pages.Mentions do
       end
     end)
   end
+
+  defp readable_assistant?(%{uid: uid, agent: %{type: :personal_assistant}}, mentions),
+    do: MapSet.member?(mentions, uid)
+
+  defp readable_assistant?(_principal, _mentions), do: false
 
   defp restricted_principal(uid) do
     %{
@@ -769,7 +843,6 @@ defmodule Ankole.Pod.Pages.Mentions do
       membership: nil,
       email: nil,
       job_title: nil,
-      handle: nil,
       role: nil
     }
   end

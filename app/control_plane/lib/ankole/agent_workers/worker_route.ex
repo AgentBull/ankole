@@ -37,7 +37,7 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
 
   @doc "Returns the tracker topic of one Worker."
   @spec topic(String.t()) :: String.t()
-  def topic(worker_id), do: "worker/" <> worker_id
+  def topic(worker_id), do: "worker/#{Ankole.Repo.tenant_id!()}/#{worker_id}"
 
   @doc "Returns the metadata required to fence one admitted connection."
   @spec directory_meta(String.t()) :: map()

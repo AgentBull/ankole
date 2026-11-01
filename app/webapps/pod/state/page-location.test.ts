@@ -23,17 +23,17 @@ function page(id: string, actions: Page['actions'], parent_id: string | null = n
 
 test('move destinations omit the source, all its descendants, read-only pages', () => {
   const pages = [
-    page('root', ['page_view', 'page_edit']),
-    page('source', ['page_view', 'page_edit'], 'root'),
-    page('child', ['page_view', 'page_edit'], 'source'),
-    page('grandchild', ['page_view', 'page_edit'], 'child'),
-    page('sibling', ['page_view', 'page_edit'], 'root'),
-    page('readonly', ['page_view']),
+    page('root', ['node_view', 'node_edit']),
+    page('source', ['node_view', 'node_edit'], 'root'),
+    page('child', ['node_view', 'node_edit'], 'source'),
+    page('grandchild', ['node_view', 'node_edit'], 'child'),
+    page('sibling', ['node_view', 'node_edit'], 'root'),
+    page('readonly', ['node_view']),
     page('unknown-actions', undefined, null, { role: 'manage' }),
-    page('base', ['page_view', 'page_edit'], null, { type: 'base' }),
-    page('deleted', ['page_view', 'page_edit'], null, { deleted_at: '2026-10-18' }),
-    page('shared', ['page_view', 'page_edit']),
-    page('manage-without-edit', ['page_view', 'page_manage'], null, { role: 'manage' })
+    page('base', ['node_view', 'node_edit'], null, { type: 'base' }),
+    page('deleted', ['node_view', 'node_edit'], null, { deleted_at: '2026-10-18' }),
+    page('shared', ['node_view', 'node_edit']),
+    page('manage-without-edit', ['node_view', 'node_manage'], null, { role: 'manage' })
   ]
   expect(moveDestinations(pages, 'source').map(page => page.id)).toEqual(['root', 'sibling', 'base', 'shared'])
 })
@@ -41,7 +41,7 @@ test('move destinations omit the source, all its descendants, read-only pages', 
 test('a malformed visible cycle cannot hang the destination picker', () => {
   expect(
     moveDestinations(
-      [page('one', ['page_edit'], 'two'), page('two', ['page_edit'], 'one'), page('valid', ['page_edit'])],
+      [page('one', ['node_edit'], 'two'), page('two', ['node_edit'], 'one'), page('valid', ['node_edit'])],
       'other'
     ).map(page => page.id)
   ).toEqual(['valid'])

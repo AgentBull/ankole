@@ -6,7 +6,7 @@ defmodule Ankole.E2E.PodSkillLessonsRealLLMTest do
 
   import Ankole.E2E.Harness
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AuthZ.Actor
   alias Ankole.E2E.PodContentStory
@@ -70,7 +70,7 @@ defmodule Ankole.E2E.PodSkillLessonsRealLLMTest do
                })
     end
 
-    owner_uid = Repo.get!(Agent, agent.uid).owner_principal_uid
+    owner_uid = Repo.get_by!(Agent, uid: agent.uid).owner_principal_uid
     assert {:ok, owner} = Ankole.Principals.get_principal(owner_uid)
 
     for {resource, action} <- [

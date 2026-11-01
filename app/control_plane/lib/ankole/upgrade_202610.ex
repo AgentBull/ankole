@@ -345,8 +345,8 @@ defmodule Ankole.Upgrade202610 do
     Enum.reduce_while(bindings, :ok, fn binding, :ok ->
       new_key =
         Map.fetch!(config_modules, binding.adapter).binding_config_key(
-          binding.agent_uid,
-          binding.name
+          binding.tenant_id,
+          binding.id
         )
 
       result =
@@ -600,53 +600,55 @@ defmodule Ankole.Upgrade202610 do
     Repo.across_tenants(fn ->
       Repo.all(
         from intent in Intent,
-          where: intent.status != :sent,
+          join: attachment in Ankole.Conversations.DeliveryAttachment,
+          on:
+            attachment.tenant_id == intent.tenant_id and attachment.agent_uid == intent.agent_uid and
+              attachment.binding_name == intent.binding_name and
+              attachment.outbound_key == intent.outbound_key,
+          where: intent.status in [:pending, :failed, :unknown],
           where:
             fragment(
-              "jsonb_path_exists(?, '$.attachments[*].user_files_relative_path') OR jsonb_path_exists(?, '$.attachments[*].agent_computer_path')",
-              intent.payload,
-              intent.payload
+              "jsonb_exists_any(?, ARRAY['user_files_relative_path', 'agent_computer_path'])",
+              attachment.metadata
             ),
+          distinct: true,
           order_by: [intent.agent_uid, intent.binding_name, intent.outbound_key]
       )
     end)
   end
 
   defp import_attachments(root, intent, report) do
-    # The upgrade runs with dispatch stopped. The row lock also makes repeat
-    # imports safe and keeps a completed send's audit payload unchanged.
+    keys = Map.take(intent, [:agent_uid, :binding_name, :outbound_key])
+    [intent] = Ankole.Conversations.list_intents!(query: [filter: keys])
+
     result =
-      with {:ok, attachments, upserts} <-
+      with {:ok, attachments, count} <-
              convert_attachments(root, intent.agent_uid, intent.payload["attachments"] || []) do
         Repo.transact(fn repo ->
-          current =
-            Intent
-            |> where(
-              [entry],
-              entry.agent_uid == ^intent.agent_uid and entry.binding_name == ^intent.binding_name and
-                entry.outbound_key == ^intent.outbound_key
-            )
-            |> lock("FOR UPDATE")
-            |> repo.one!()
+          :ok = Files.lock_tree_in_tx()
+          :ok = Files.lock_root_ids_in_tx(Files.root_ids_for_principal(intent.agent_uid))
 
-          if current.status == :sent do
+          Intent
+          |> where(
+            [entry],
+            entry.agent_uid == ^intent.agent_uid and entry.binding_name == ^intent.binding_name and
+              entry.outbound_key == ^intent.outbound_key
+          )
+          |> lock("FOR UPDATE")
+          |> repo.one!()
+
+          [current] = Ankole.Conversations.list_intents!(query: [filter: keys])
+
+          if current.status in [:sent, :expired] do
             {:ok, 0}
           else
             with true <- current.payload == intent.payload || {:error, :intent_changed},
-                 {:ok, _result} <-
-                   Files.commit_in_tx(current.agent_uid, Enum.uniq_by(upserts, & &1.path), []),
+                 {:ok, attachments} <- import_attachment_nodes(current.agent_uid, attachments),
                  {:ok, _row} <-
                    Ankole.Ash.update(current, :import_attachments, %{
                      payload: Map.put(current.payload, "attachments", attachments)
-                   }),
-                 {:ok, _intent} <-
-                   Ankole.Conversations.Delivery.commit_in_tx(%{
-                     agent_uid: current.agent_uid,
-                     binding_name: current.binding_name,
-                     outbound_key: current.outbound_key,
-                     operation: current.operation
                    }) do
-              {:ok, length(upserts)}
+              {:ok, count}
             end
           end
         end)
@@ -662,35 +664,63 @@ defmodule Ankole.Upgrade202610 do
   end
 
   defp convert_attachments(root, agent_uid, attachments) do
-    Enum.reduce_while(attachments, {:ok, [], []}, fn attachment, {:ok, converted, upserts} ->
-      if is_binary(attachment["blob_ref"]) do
-        {:cont, {:ok, [attachment | converted], upserts}}
+    Enum.reduce_while(attachments, {:ok, [], 0}, fn attachment, {:ok, converted, count} ->
+      if is_binary(attachment["object_id"]) do
+        {:cont, {:ok, [attachment | converted], count}}
       else
         with {:ok, local_path} <- legacy_attachment_path(root, agent_uid, attachment),
              {:ok, stored} <- Files.store({:file, local_path}) do
-          name = attachment["name"] || Path.basename(local_path)
-          path = Files.content_path("sent", stored.sha256, name)
-
-          converted_attachment =
+          attachment =
             attachment
             |> Map.drop(["agent_computer_path", "user_files_relative_path"])
-            |> Map.merge(%{"blob_ref" => stored.sha256, "path" => path, "size" => stored.size})
+            |> Map.merge(%{
+              "object_id" => stored.object_id,
+              "sha256" => stored.sha256,
+              "name" => attachment["name"] || Path.basename(local_path),
+              "size" => stored.size
+            })
 
-          upsert = %{
-            path: path,
-            sha256: stored.sha256,
-            source: "sent",
-            content_type: attachment["mime_type"]
-          }
-
-          {:cont, {:ok, [converted_attachment | converted], [upsert | upserts]}}
+          {:cont, {:ok, [attachment | converted], count + 1}}
         else
           error -> {:halt, error}
         end
       end
     end)
     |> case do
-      {:ok, converted, upserts} -> {:ok, Enum.reverse(converted), Enum.reverse(upserts)}
+      {:ok, converted, count} -> {:ok, Enum.reverse(converted), count}
+      error -> error
+    end
+  end
+
+  defp import_attachment_nodes(agent_uid, attachments) do
+    Enum.reduce_while(attachments, {:ok, []}, fn attachment, {:ok, acc} ->
+      if is_binary(attachment["node_id"]) do
+        {:cont, {:ok, [attachment | acc]}}
+      else
+        stored =
+          if is_binary(attachment["sha256"]),
+            do: %{
+              object_id: attachment["object_id"],
+              sha256: attachment["sha256"],
+              size: attachment["size"]
+            },
+            else: attachment["object_id"]
+
+        case Files.create_private_file_in_tx(agent_uid, attachment["name"], stored, %{
+               source: "sent",
+               content_type: attachment["mime_type"]
+             }) do
+          {:ok, file} ->
+            {:cont,
+             {:ok, [Map.merge(attachment, %{"node_id" => file.id, "path" => file.path}) | acc]}}
+
+          error ->
+            {:halt, error}
+        end
+      end
+    end)
+    |> case do
+      {:ok, attachments} -> {:ok, Enum.reverse(attachments)}
       error -> error
     end
   end
@@ -808,8 +838,8 @@ defmodule Ankole.Upgrade202610 do
     with {:ok, path} <- Files.normalize_path(path),
          {:error, :not_found} <- Files.fetch(agent_uid, path),
          :ok <- within_transfer_limit(local_path),
-         {:ok, %{sha256: sha256}} <- Files.store({:file, local_path}) do
-      {:ok, %{path: path, sha256: sha256, source: "agent", mode: mode}}
+         {:ok, stored} <- Files.store({:file, local_path}) do
+      {:ok, Map.merge(stored, %{path: path, source: "agent", mode: mode})}
     else
       {:ok, _file} -> :exists
       {:error, reason} -> {:error, reason}

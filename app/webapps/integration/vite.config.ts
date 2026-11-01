@@ -20,7 +20,7 @@ export default defineConfig(async env => {
               (!/^\/(\?|$|pages\/|conversations\/|content\/)/.test(request.url ?? '') &&
                 !request.url?.startsWith('/providers') &&
                 !request.url?.startsWith('/brain') &&
-                !/^\/(settings|tenants|webhooks|files|schedules|library|agent-library|worker-env|worker-providers|identity|access|oidc-clients)(\/|\?|$)/.test(
+                !/^\/(model-profiles|settings|tenants|webhooks|drive|schedules|library|agent-library|worker-env|worker-providers|identity|access|oidc-clients)(\/|\?|$)/.test(
                   request.url ?? ''
                 ) &&
                 !request.url?.startsWith('/console-home') &&

@@ -237,6 +237,15 @@ defmodule Ankole.AppConfigure.Cache do
 
   defp assert_scope!("agent:" <> _), do: Repo.tenant_id!()
 
+  defp assert_scope!("system:" <> uid) do
+    Repo.tenant_id!()
+
+    unless Ankole.Principals.SystemServices.registered?(uid),
+      do: raise(ArgumentError, "unknown system Principal")
+
+    :ok
+  end
+
   defp invalidate(scope, key, tenant_id) do
     new_refresh_generation()
     :ets.delete(@table, cache_key(scope, key, tenant_id))

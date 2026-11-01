@@ -500,6 +500,7 @@ export class Leaf<Param = unknown> extends BaseTag<Param> implements Node.Shared
 
   /** Create a text node with the given text and mark set. */
   static text(text: string, marks: Mark.Set = Mark.none) {
+    if (!text) throw new Error('Cannot create empty text nodes')
     return Leaf.Text.of(text, marks)
   }
 

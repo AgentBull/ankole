@@ -7,17 +7,20 @@ import { podKeys, chatError, type ConversationDetail } from '../api'
 import {
   updateConversation,
   updateConversationParticipants,
-  answerConversationInteraction
+  answerConversationInteraction,
+  resolveConversationActionCard
 } from '../api/generated/sdk.gen'
 import type {
   UpdateConversationData,
   UpdateConversationParticipantsData,
-  AnswerConversationInteractionData
+  AnswerConversationInteractionData,
+  ResolveConversationActionCardData
 } from '../api/generated/types.gen'
 
 export type RoomUpdate = NonNullable<UpdateConversationData['body']>['data']
 export type ParticipantUpdate = NonNullable<UpdateConversationParticipantsData['body']>['data']
 export type InteractionAnswer = NonNullable<AnswerConversationInteractionData['body']>['data']
+export type ActionCardDecision = NonNullable<ResolveConversationActionCardData['body']>['data']['decision']
 
 export function useRoomActions(id: string) {
   const client = useQueryClient()
@@ -48,7 +51,16 @@ export function useRoomActions(id: string) {
       else onError(error)
     }
   })
-  return { update, participants, answer }
+  const resolveActionCard = useMutation({
+    mutationFn: ({ cardID, decision }: { cardID: string; decision: ActionCardDecision }) =>
+      resolveConversationActionCard({ path: { id, card_id: cardID }, body: { data: { decision } } }),
+    onSuccess,
+    onError: error => {
+      if (requestErrorCode(error) === 'action_card_not_pending') void refreshConversationQueries(client, id)
+      else onError(error)
+    }
+  })
+  return { update, participants, answer, resolveActionCard }
 }
 
 export const teammatesKey = () => [...podKeys.agents, 'teammates'] as const

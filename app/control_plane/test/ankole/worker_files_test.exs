@@ -56,6 +56,22 @@ defmodule Ankole.WorkerFilesTest do
     assert_receive {:DOWN, ^monitor, :process, ^session, _reason}, 1_000
   end
 
+  test "stream_prefix transfers a bounded prefix without rejecting a larger source", %{
+    route: route
+  } do
+    worker = ready_worker(route)
+    content = String.duplicate("large workspace text\n", 2_000)
+    WorkerFilesFake.start!(route, files: %{"large.txt" => content})
+
+    assert {:ok, %{"size" => 16_384, "body" => body}} =
+             WorkerFiles.stream_prefix("large.txt", 16_384, worker: worker)
+
+    assert body |> Enum.to_list() |> IO.iodata_to_binary() == binary_part(content, 0, 16_384)
+
+    assert {:error, %{"code" => "file_too_large"}} =
+             WorkerFiles.stream("large.txt", worker: worker, max_bytes: 16_384)
+  end
+
   test "push relay rejects a body over the byte bound before reading it", %{route: route} do
     worker = ready_worker(route)
     max_bytes = WorkerFiles.max_transfer_bytes()
@@ -356,7 +372,7 @@ defmodule Ankole.WorkerFilesTest do
 
   defp ready_worker(route) do
     %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
-    %{Repo.get!(AgentWorker, agent.uid) | state: :ready, transport_route: route}
+    %{Repo.get_by!(AgentWorker, agent_uid: agent.uid) | state: :ready, transport_route: route}
   end
 
   defp temp_file!(content) do

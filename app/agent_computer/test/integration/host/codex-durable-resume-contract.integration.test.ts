@@ -182,7 +182,7 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
           {
             type: 'message',
             role: 'developer',
-            content: [{ type: 'input_text', text: codexJobDriveContext('chats/mock:dm:alice') }]
+            content: [{ type: 'input_text', text: codexJobDriveContext() }]
           }
         ]
       })
@@ -200,7 +200,7 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
       expect(toolCalls.map(call => call.callId)).toEqual(['call_first', 'call_resume'])
       expect(toolCalls.map(call => call.tool)).toEqual(['ankole_echo', 'ankole_echo'])
       const resumedRequest = requests.find(request => JSON.stringify(request).includes('AFTER_RESUME'))
-      expect(JSON.stringify(resumedRequest)).toContain('Source conversation drive directory: chats/mock:dm:alice/')
+      expect(JSON.stringify(resumedRequest)).toContain('ankole-pod chat attachment get')
       expect(JSON.stringify(resumedRequest)).toContain('The Job workspace is a temporary working directory.')
 
       const durableFiles = recursiveFiles(codexHome)

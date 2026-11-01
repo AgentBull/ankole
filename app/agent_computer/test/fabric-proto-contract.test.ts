@@ -5,6 +5,9 @@ import { readFileSync } from 'node:fs'
 import { decodeEnvelope, ProtocolVersion } from '../src/fabric/envelope_proto'
 import {
   ReadToolRequestSchema,
+  FilesGetRequestSchema,
+  FilesGetResponseSchema,
+  ConversationInfoSchema,
   JSONPassthroughResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { turnStartFromEnvelope } from '../src/lanes/session_lane'
@@ -17,8 +20,27 @@ import { turnStartFromEnvelope } from '../src/lanes/session_lane'
  * check owns generated-code staleness.
  */
 describe('RuntimeFabric generated codec contract', () => {
+  it('decodes Drive node/object references and ignores the retired Pod selector', () => {
+    const envelope = decodeEnvelope(goldenBytes('rpc_files_get_request.v11.bin'))
+    if (envelope.body.case !== 'rpcRequest') throw new Error('expected request')
+    expect(envelope.protocolVersion).toBe(11)
+    expect(envelope.body.value.method).toBe('files.get')
+    const request = fromBinary(FilesGetRequestSchema, envelope.body.value.payload)
+    expect(request.nodeId).toBe('019a0000-0000-7000-8000-000000000001')
+    expect(request.homeRelativePath).toBe('downloads/report.txt')
+    expect(request).not.toHaveProperty('podDrive')
+    expect(fromBinary(FilesGetRequestSchema, new Uint8Array([24, 1])).nodeId).toBe('')
+    expect(fromBinary(ConversationInfoSchema, new Uint8Array())).not.toHaveProperty('driveDirectory')
+    const reply = decodeEnvelope(goldenBytes('rpc_files_get_response.v11.bin'))
+    if (reply.body.case !== 'rpcResponse') throw new Error('expected response')
+    const file = fromBinary(FilesGetResponseSchema, reply.body.value.payload).file!
+    expect(file.nodeId).toBe(request.nodeId)
+    expect(file.objectId).toBe('019a0000-0000-7000-8000-000000000002')
+    expect(file.size).toBe(5_000_000_000n)
+  })
+
   it('decodes the golden turn_start bytes into the worker DTO', () => {
-    const envelope = decodeEnvelope(goldenBytes('turn_start.v10.bin'))
+    const envelope = decodeEnvelope(goldenBytes('turn_start.v11.bin'))
     const turnStart = turnStartFromEnvelope(envelope)
 
     expect(envelope.protocolVersion).toBe(ProtocolVersion.CURRENT)
@@ -70,7 +92,7 @@ describe('RuntimeFabric generated codec contract', () => {
       ['tool_status', 'toolStatus'],
       ['tool_result', 'toolResult']
     ] as const) {
-      const envelope = decodeEnvelope(goldenBytes(`${name}.v10.bin`))
+      const envelope = decodeEnvelope(goldenBytes(`${name}.v11.bin`))
       expect(envelope.protocolVersion).toBe(ProtocolVersion.CURRENT)
       if (envelope.body.case !== body) throw new Error(`expected ${body}`)
       expect(envelope.body.value.run).toEqual({
@@ -79,22 +101,22 @@ describe('RuntimeFabric generated codec contract', () => {
         signalId: 'input-1'
       })
     }
-    const open = decodeEnvelope(goldenBytes('workspace_open.v10.bin'))
+    const open = decodeEnvelope(goldenBytes('workspace_open.v11.bin'))
     if (open.body.case !== 'workspaceOpen') throw new Error('expected workspaceOpen')
     expect(open.body.value.agentContext?.soul).toBe('Agent instructions')
     expect(open.body.value.agentContext?.skills).toMatchObject([
       { skillName: 'design-md', skillRoot: 'library', relativePath: 'skills/design-md' }
     ])
-    const ready = decodeEnvelope(goldenBytes('workspace_ready.v10.bin'))
+    const ready = decodeEnvelope(goldenBytes('workspace_ready.v11.bin'))
     if (ready.body.case !== 'workspaceReady') throw new Error('expected workspaceReady')
     expect(ready.body.value.reason).toBe(1)
-    const call = decodeEnvelope(goldenBytes('tool_call.v10.bin'))
+    const call = decodeEnvelope(goldenBytes('tool_call.v11.bin'))
     if (call.body.case !== 'toolCall') throw new Error('expected toolCall')
     expect(call.body.value).toMatchObject({ responseId: 'response-1', callId: 'call-1', mode: 'probe' })
-    const status = decodeEnvelope(goldenBytes('tool_status.v10.bin'))
+    const status = decodeEnvelope(goldenBytes('tool_status.v11.bin'))
     if (status.body.case !== 'toolStatus') throw new Error('expected toolStatus')
     expect(status.body.value.state).toBe('unknown')
-    const result = decodeEnvelope(goldenBytes('tool_result.v10.bin'))
+    const result = decodeEnvelope(goldenBytes('tool_result.v11.bin'))
     if (result.body.case !== 'toolResult') throw new Error('expected toolResult')
     expect(result.body.value.images).toHaveLength(1)
     expect(result.body.value.images[0]).toEqual(
@@ -108,17 +130,17 @@ describe('RuntimeFabric generated codec contract', () => {
     expect(JSON.parse(new TextDecoder().decode(result.body.value.contentJson))).toEqual([
       { type: 'text', text: 'done' }
     ])
-    expect(turnStartFromEnvelope(decodeEnvelope(goldenBytes('turn_adopt.v10.bin'))).mode).toBe('adopt')
+    expect(turnStartFromEnvelope(decodeEnvelope(goldenBytes('turn_adopt.v11.bin'))).mode).toBe('adopt')
   })
 
   it('decodes the shared read-tool request and owner result golden bytes', () => {
-    const requestEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_request.v10.bin'))
+    const requestEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_request.v11.bin'))
     if (requestEnvelope.body.case !== 'rpcRequest') throw new Error('expected request')
     expect(requestEnvelope.body.value.method).toBe('tools.read')
     const request = fromBinary(ReadToolRequestSchema, requestEnvelope.body.value.payload)
     expect(request.name).toBe('skill_view')
     expect(JSON.parse(new TextDecoder().decode(request.argumentsJson))).toEqual({ name: 'pdf' })
-    const responseEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_response.v10.bin'))
+    const responseEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_response.v11.bin'))
     if (responseEnvelope.body.case !== 'rpcResponse') throw new Error('expected response')
     const response = fromBinary(JSONPassthroughResponseSchema, responseEnvelope.body.value.payload)
     expect(JSON.parse(new TextDecoder().decode(response.bodyJson))).toEqual({

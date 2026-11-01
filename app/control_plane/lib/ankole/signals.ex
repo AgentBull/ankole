@@ -31,7 +31,7 @@ defmodule Ankole.Signals do
       route(
         Ankole.Signals.ConsoleOperations,
         :get,
-        "/agents/:agent_uid/signal-bindings/:binding_name",
+        "/signal-bindings/:id",
         :console_get_binding,
         name: "get_signal_binding"
       )
@@ -39,7 +39,7 @@ defmodule Ankole.Signals do
       route(
         Ankole.Signals.ConsoleOperations,
         :put,
-        "/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name",
+        "/signal-bindings/:adapter_id/:binding_name",
         :console_put_binding,
         name: "put_signal_binding"
       )
@@ -47,7 +47,7 @@ defmodule Ankole.Signals do
       route(
         Ankole.Signals.ConsoleOperations,
         :patch,
-        "/agents/:agent_uid/signal-bindings/:binding_name",
+        "/signal-bindings/:id",
         :console_update_binding,
         name: "update_signal_binding"
       )
@@ -66,8 +66,8 @@ defmodule Ankole.Signals do
         route(:delete, "/:id", :cancel_operator_endpoint, name: "cancel_webhook_endpoint")
       end
 
-      base_route "/agents/:agent_uid/signal-bindings", Binding do
-        route(:delete, "/:name", :console_disable, name: "disable_signal_binding")
+      base_route "/signal-bindings", Binding do
+        route(:delete, "/:id", :console_disable, name: "disable_signal_binding")
       end
     end
   end
@@ -85,7 +85,14 @@ defmodule Ankole.Signals do
     end
 
     resource Ankole.Signals.Binding do
-      define(:get_binding, action: :read, get_by: [:agent_uid, :name], not_found_error?: false)
+      define(:get_binding, action: :read, get_by: [:id], not_found_error?: false)
+
+      define(:get_agent_binding,
+        action: :read,
+        get_by: [:agent_uid, :name],
+        not_found_error?: false
+      )
+
       define(:list_bindings, action: :read)
     end
 
@@ -109,9 +116,9 @@ defmodule Ankole.Signals do
   end
 
   @doc "Reads a Binding with a share lock inside the caller-owned transaction."
-  def share_binding_in_tx(agent_uid, binding_name) do
+  def share_binding_in_tx(binding_id) do
     Ankole.Signals.Binding
-    |> Ash.Query.filter(agent_uid == ^agent_uid and name == ^binding_name)
+    |> Ash.Query.filter(id == ^binding_id)
     |> Ash.Query.lock("FOR SHARE")
     |> Ankole.Ash.read_one!()
   end
@@ -227,20 +234,17 @@ defmodule Ankole.Signals do
   end
 
   @doc """
-  Counts, in every tenant, the admitted open Signals of a Human whose work
+  Counts, in the work tenant, the admitted open Signals of a Human whose work
   access version is older than `version`. Access cleanup lets these attempts
   finish.
   """
   def count_admitted_attempts_for_human(uid, version) do
-    Ankole.Repo.across_tenants(fn ->
-      Signal
-      |> Ash.Query.for_read(:work_across_tenants)
-      |> Ash.Query.filter(
-        human_uid == ^uid and human_access_version < ^version and
-          status in [:queued, :running] and not is_nil(last_attempt_at)
-      )
-      |> Ankole.Ash.count!()
-    end)
+    Signal
+    |> Ash.Query.filter(
+      human_uid == ^uid and human_access_version < ^version and
+        status in [:queued, :running] and not is_nil(last_attempt_at)
+    )
+    |> Ankole.Ash.count!()
   end
 
   @transitions [
@@ -299,14 +303,14 @@ defmodule Ankole.Signals do
         ) :: [Signal.t()]
   def signals_for_entry_in_tx(
         agent_uid,
-        binding_name,
+        binding_id,
         conversation_id,
         provider_message_id
       )
       when is_binary(provider_message_id) and provider_message_id != "" do
     Signal
     |> Ash.Query.filter(
-      agent_uid == ^agent_uid and reply_binding_name == ^binding_name and
+      agent_uid == ^agent_uid and reply_binding_id == ^binding_id and
         conversation_id == ^conversation_id and status == :completed and
         (provider_message_id == ^provider_message_id or
            fragment(
@@ -329,7 +333,7 @@ defmodule Ankole.Signals do
 
   def signals_for_entry_in_tx(
         _agent_uid,
-        _binding_name,
+        _binding_id,
         _conversation_id,
         _provider_message_id
       ),

@@ -6,12 +6,18 @@ defmodule Ankole.Pod.Chat.Presentation do
   def detail(detail) do
     artifacts = detail.artifacts
     saved = detail.saved_pages
+    assistant_names = detail.assistant_names
 
     messages =
       Enum.map(
         detail.messages,
         &Map.put(
-          message_json(&1, detail.interaction_states),
+          message_json(
+            &1,
+            detail.interaction_states,
+            Map.get(detail, :action_card_states, %{}),
+            assistant_names
+          ),
           :savedPages,
           Map.get(saved, &1.id, [])
         )
@@ -74,12 +80,16 @@ defmodule Ankole.Pod.Chat.Presentation do
       Enum.map(members, fn member ->
         principal = Map.fetch!(detail.member_principals, member.principal_uid)
 
-        Map.merge(agent(principal), %{
-          role: to_string(member.role),
-          mayIntervene: member.may_intervene,
-          modelProfile:
-            if(member.role == :agent, do: ModelPreferences.logical(conversation, principal.uid))
-        })
+        Map.merge(
+          project_agent(principal, principal.agent, detail.member_names[principal.uid]),
+          %{
+            canChat: MapSet.member?(detail.callable_agents, principal.uid),
+            role: to_string(member.role),
+            mayIntervene: member.may_intervene,
+            modelProfile:
+              if(member.role == :agent, do: ModelPreferences.logical(conversation, principal.uid))
+          }
+        )
       end)
 
     %{
@@ -103,24 +113,40 @@ defmodule Ankole.Pod.Chat.Presentation do
       participants: projected,
       agent:
         case Map.get(detail, :agent) do
-          nil -> nil
-          principal -> agent(principal)
+          nil ->
+            nil
+
+          principal ->
+            project_agent(principal, principal.agent, detail.member_names[principal.uid])
         end,
       lastActivityAt: timestamp(conversation.last_activity_at),
       rowStatus: row_status(detail)
     }
   end
 
-  def agent(principal),
-    do: %{
+  def agent(principal) do
+    agent = if principal.type == :agent, do: Ankole.Principals.get_agent_record!(principal.uid)
+    project_agent(principal, agent, NativeRoom.display_name(principal))
+  end
+
+  defp project_agent(principal, agent, name) do
+    %{
       uid: principal.uid,
-      displayName: NativeRoom.display_name(principal),
+      displayName: name,
       avatarURL: principal.avatar_url,
       type: to_string(principal.type),
+      agentType: if(agent, do: to_string(agent.type)),
+      role: if(agent, do: agent.role),
+      aliases:
+        if(agent && agent.type == :personal_assistant,
+          do: Ankole.Principals.assistant_aliases(principal),
+          else: []
+        ),
       active: principal.status == :active,
       mayIntervene: false,
       modelProfile: nil
     }
+  end
 
   defp row_status(%{conversation: conversation, agents: agents, viewer: viewer} = detail) do
     cond do
@@ -133,7 +159,7 @@ defmodule Ankole.Pod.Chat.Presentation do
       ) ->
         "streaming"
 
-      pending_interactions(detail) != [] ->
+      pending_interactions(detail) != [] or Map.get(detail, :has_prepared_action_card?, false) ->
         "waiting_choice"
 
       Enum.any?(detail.linked_jobs, &(&1.status in [:queued, :running, :waiting_on_user])) or
@@ -158,7 +184,7 @@ defmodule Ankole.Pod.Chat.Presentation do
       agentUID: input.agent_uid,
       authorUID: input.human_uid,
       text: input.data["text"] || "",
-      attachments: get_in(input.data, ["entry", "attachments"]) || [],
+      attachments: attachments_with_positions(get_in(input.data, ["entry", "attachments"]) || []),
       links: Map.get(messages, input.message_id, %{links: []}).links,
       mentions:
         Enum.map(Map.get(messages, input.message_id, %{mentions: []}).mentions, fn mention ->
@@ -172,7 +198,7 @@ defmodule Ankole.Pod.Chat.Presentation do
       deliveryMode: input.data["delivery_mode"] || "steer"
     }
 
-  defp message_json(message, interactions) do
+  defp message_json(message, interactions, action_cards, assistant_names) do
     rich = message.rich_content || %{}
 
     rich =
@@ -188,19 +214,38 @@ defmodule Ankole.Pod.Chat.Presentation do
           rich
       end
 
+    rich =
+      case rich["action_card"] do
+        %{} = card ->
+          Map.put(
+            rich,
+            "action_card",
+            Map.merge(card, Map.get(action_cards, message.id, %{}))
+          )
+
+        _ ->
+          rich
+      end
+
     %{
       id: message.id,
       seq: message.seq,
       authorType: to_string(message.author_type),
       authorUID: message.author_uid,
-      authorDisplayName: message.author_display_name || "",
+      authorDisplayName: assistant_names[message.author_uid] || message.author_display_name || "",
       authorArchived: message.author_type == :agent and is_nil(message.author_uid),
       kind: to_string(message.kind),
       text: message.text || "",
       links: message.links,
-      mentions: message.mentions,
+      mentions:
+        Enum.map(message.mentions, fn mention ->
+          case assistant_names[mention["uid"]] do
+            nil -> mention
+            name -> Map.put(mention, "displayName", name)
+          end
+        end),
       richContent: rich,
-      attachments: message.attachments,
+      attachments: attachments_with_positions(message.attachments),
       createdAt: timestamp(message.created_at),
       signalID: message.signal_id,
       replyToMessageID: message.reply_to_message_id
@@ -237,10 +282,13 @@ defmodule Ankole.Pod.Chat.Presentation do
       pageIDs: Enum.uniq(Enum.reject([conversation.page_id | page_ids], &is_nil/1)),
       attachments:
         for message <- messages, message.attachments != [] do
-          %{messageID: message.id, attachments: message.attachments}
+          %{messageID: message.id, attachments: attachments_with_positions(message.attachments)}
         end
     }
   end
+
+  defp attachments_with_positions(attachments),
+    do: Enum.with_index(attachments, &Map.put(&1, "position", &2))
 
   def execution(actor, id, kind, run_id, cursor \\ nil) do
     Ankole.Repo.transact_repeatable_read_only(fn ->

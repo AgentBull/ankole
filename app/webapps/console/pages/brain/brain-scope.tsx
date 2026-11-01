@@ -179,7 +179,7 @@ export function BrainScopeSelector({
   const principalCandidates = (principals.data ?? []).map(principal => ({
     id: principal.id,
     label: principalLabel(principal),
-    description: principal.email ?? principal.handle
+    description: principal.email ?? principal.id
   }))
 
   const handleModeChange = (nextMode: string | null) => {

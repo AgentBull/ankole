@@ -40,7 +40,7 @@ import { EditorNotFound, LabeledField, ResourceEditorPage, StatusIndicator } fro
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { SinglePrincipalPicker } from '../principal-picker'
 import {
-  agentHandleInputPattern,
+  agentUIDInputPattern,
   AgentEditorModel,
   type AgentEditorDraft,
   type AgentMemoryDisclosureMode
@@ -55,6 +55,8 @@ import { ModelProfilesModel } from '../state/model-profiles-model'
 import { TokenQuotaEditor } from './token-quota-editor'
 import { TokenQuotaEditorModel } from '../state/token-quota-editor-model'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
+import { PrincipalRename } from '../../common/principal-rename'
+import { renameAgentMutation } from '../api/v2/generated/@tanstack/react-query.gen'
 import { AgentFilesLink } from './agent-files'
 import { AgentWorkerProvider, WorkerProviderSelect } from './agent-worker-provider'
 import {
@@ -73,7 +75,7 @@ export function AgentsListPage() {
   const rows = (agents.data ?? []).filter(agent =>
     matchesResourceSearch(
       searchQuery,
-      agent.handle,
+      agent.uid,
       agent.uid,
       agent.display_name,
       agent.role,
@@ -91,7 +93,7 @@ export function AgentsListPage() {
   const enableAgent = useMutation({
     ...enableAgentMutation(),
     onSuccess: data => {
-      toast.success(t('console.agents.enabled', { id: data.handle }))
+      toast.success(t('console.agents.enabled', { id: data.uid }))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -103,7 +105,7 @@ export function AgentsListPage() {
       createTo="new"
       createLabel={t('console.agents.new')}
       columns={[
-        t('console.agents.handle'),
+        t('console.agents.uid'),
         t('console.agents.display_name'),
         t('console.agents.role'),
         t('console.agents.status')
@@ -131,7 +133,7 @@ export function AgentsListPage() {
           <TableRow key={agent.uid}>
             <TableCell className="font-mono text-xs">
               <Link data-row-link className="text-foreground" to={encodeURIComponent(agent.uid)}>
-                {agent.handle}
+                {agent.uid}
               </Link>
             </TableCell>
             <TableCell>{agent.display_name}</TableCell>
@@ -165,12 +167,12 @@ export function AgentsListPage() {
                 disabled
                   ? {
                       title: t('console.agents.delete_title'),
-                      description: t('console.agents.delete_description', { id: agent.handle }),
+                      description: t('console.agents.delete_description', { id: agent.uid }),
                       confirmLabel: t('common.delete')
                     }
                   : {
                       title: t('console.agents.disable_title'),
-                      description: t('console.agents.disable_description', { id: agent.handle }),
+                      description: t('console.agents.disable_description', { id: agent.uid }),
                       confirmLabel: t('common.disable'),
                       icon: <RiPauseCircleLine />
                     }
@@ -182,7 +184,7 @@ export function AgentsListPage() {
                     onSuccess: () =>
                       toast.success(
                         t(disabled ? 'console.agents.deleted' : 'console.agents.disabled_toast', {
-                          id: agent.handle
+                          id: agent.uid
                         })
                       )
                   }
@@ -220,7 +222,7 @@ function AgentEditor({ uid }: { uid?: string }) {
   const [customProfilesDirty, setCustomProfilesDirty] = useState(false)
   const [workerEnvDirty, setWorkerEnvDirty] = useState(false)
   const displayNameInput = useRef<HTMLInputElement>(null)
-  const handleInput = useRef<HTMLInputElement>(null)
+  const uidInput = useRef<HTMLInputElement>(null)
   const roleInput = useRef<HTMLInputElement>(null)
   const mode = uid ? 'edit' : 'new'
 
@@ -263,7 +265,7 @@ function AgentEditor({ uid }: { uid?: string }) {
   const createAgent = useMutation({
     ...createAgentMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.handle }))
+      toast.success(t('console.agents.saved', { id: response.uid }))
 
       // Land on the new agent's editor so model profiles can be configured next.
       if (response.uid) void navigate({ to: `/agents/${encodeURIComponent(response.uid)}` })
@@ -272,8 +274,15 @@ function AgentEditor({ uid }: { uid?: string }) {
   const updateAgent = useMutation({
     ...updateAgentMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.handle }))
+      toast.success(t('console.agents.saved', { id: response.uid }))
       model.markSaved(formFromAgent(response))
+    }
+  })
+
+  const renameAgent = useMutation({
+    ...renameAgentMutation(),
+    onSuccess: result => {
+      void navigate({ to: `/agents/${encodeURIComponent(result.uid)}` })
     }
   })
 
@@ -284,7 +293,7 @@ function AgentEditor({ uid }: { uid?: string }) {
       model.validationError.value = draftError
       match(draftError)
         .with('display_name_required', () => displayNameInput.current?.focus())
-        .with('handle_required', 'handle_invalid', () => handleInput.current?.focus())
+        .with('uid_required', 'uid_invalid', () => uidInput.current?.focus())
         .with('role_required', () => roleInput.current?.focus())
         // The owner picker renders no focusable ref; its inline error is the signal.
         .with('owner_required', 'worker_provider_required', () => undefined)
@@ -292,7 +301,6 @@ function AgentEditor({ uid }: { uid?: string }) {
       return
     }
     const body = {
-      handle: model.handle.value.trim(),
       display_name: model.displayName.value.trim(),
       avatar_url: blankToNull(model.avatarURL.value),
       role: model.role.value.trim(),
@@ -301,7 +309,7 @@ function AgentEditor({ uid }: { uid?: string }) {
     }
     if (mode === 'new') {
       createAgent.mutate({
-        body: { data: { ...body, worker_provider_id: model.workerProviderID.value } }
+        body: { data: { ...body, uid: model.uid.value.trim(), worker_provider_id: model.workerProviderID.value } }
       })
       return
     }
@@ -309,19 +317,18 @@ function AgentEditor({ uid }: { uid?: string }) {
   }
 
   // Blur-time required and pattern feedback comes from LabeledField; these
-  // carry only the submit-time decisions of the draft model, which also
-  // covers values the model derives without a keystroke, such as the handle.
+  // carry the submit-time decisions of the draft model.
   // Required messages reuse the shared template, so the text never changes
   // between blur and submit.
   const draftError = model.validationError.value
   const requiredText = (labelKey: string) => t('common.field_required', { field: t(labelKey) })
   const displayNameError =
     draftError === 'display_name_required' ? requiredText('console.agents.display_name') : undefined
-  const handleError =
-    draftError === 'handle_required'
-      ? requiredText('console.agents.handle')
-      : draftError === 'handle_invalid'
-        ? t('console.agents.handle_invalid')
+  const uidError =
+    draftError === 'uid_required'
+      ? requiredText('console.agents.uid')
+      : draftError === 'uid_invalid'
+        ? t('console.agents.uid_invalid')
         : undefined
   const roleError = draftError === 'role_required' ? requiredText('console.agents.role') : undefined
   const ownerError = draftError === 'owner_required' ? requiredText('console.agents.owner') : undefined
@@ -337,7 +344,7 @@ function AgentEditor({ uid }: { uid?: string }) {
   return (
     <ResourceEditorPage
       title={
-        mode === 'new' ? t('console.agents.new') : selectedAgent?.display_name || selectedAgent?.handle || (uid ?? '')
+        mode === 'new' ? t('console.agents.new') : selectedAgent?.display_name || selectedAgent?.uid || (uid ?? '')
       }
       description={t('console.agents.editor_description')}
       backTo="/agents"
@@ -367,6 +374,17 @@ function AgentEditor({ uid }: { uid?: string }) {
       supplementary={
         mode === 'edit' && selectedAgent ? (
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
+            <div>
+              <PrincipalRename
+                uid={selectedAgent.uid}
+                agent
+                mutation={{
+                  ...renameAgent,
+                  mutateAsync: newUID =>
+                    renameAgent.mutateAsync({ path: { uid: selectedAgent.uid }, body: { data: { new_uid: newUID } } })
+                }}
+              />
+            </div>
             <AgentWorkerProvider agent={selectedAgent} providers={workerProviders.data ?? []} />
             <AgentLibraryEditor agentUID={selectedAgent.uid} model={libraryModel} />
             <ModelProfilesEditor
@@ -374,8 +392,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               error={modelProfiles.error}
               loading={modelProfiles.isLoading}
               model={modelProfilesModel}
-              profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
-              providerHosted={modelProfiles.data?.provider_hosted ?? { web_search: true, image_generate: true }}
+              configuration={modelProfiles.data}
               providers={providers.data ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data?.models ?? []}
@@ -384,7 +401,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               agentUID={selectedAgent.uid}
               error={modelProfiles.error}
               loading={modelProfiles.isLoading}
-              profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
+              profiles={recordValue(modelProfiles.data?.overrides) ?? {}}
               providers={providers.data ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data?.models ?? []}
@@ -423,27 +440,29 @@ function AgentEditor({ uid }: { uid?: string }) {
             required
             ref={displayNameInput}
             value={model.displayName.value}
-            onChange={event => model.setDisplayName(event.target.value, mode === 'new')}
+            onChange={event => model.setDisplayName(event.target.value)}
           />
         </LabeledField>
         <LabeledField
-          label={t('console.agents.handle')}
-          description={t('console.agents.handle_hint')}
-          error={handleError}
-          invalidError={t('console.agents.handle_invalid')}
+          label={t('console.agents.uid')}
+          description={t('console.agents.uid_hint')}
+          error={uidError}
+          invalidError={t('console.agents.uid_invalid')}
           required>
           <Input
-            aria-invalid={handleError ? true : undefined}
+            aria-invalid={uidError ? true : undefined}
             aria-required="true"
             required
             autoCapitalize="none"
             autoComplete="off"
             maxLength={96}
-            pattern={agentHandleInputPattern}
-            ref={handleInput}
+            pattern={agentUIDInputPattern}
+            readOnly={mode === 'edit'}
+            autoCorrect="off"
+            ref={uidInput}
             spellCheck={false}
-            value={model.handle.value}
-            onChange={event => model.setHandle(event.target.value)}
+            value={model.uid.value}
+            onChange={event => model.setUID(event.target.value)}
           />
         </LabeledField>
         <LabeledField
@@ -479,7 +498,7 @@ function AgentEditor({ uid }: { uid?: string }) {
             candidates={owners.map(principal => ({
               id: principal.id,
               label: principalLabel(principal),
-              description: principal.email ?? principal.handle
+              description: principal.email ?? principal.id
             }))}
             value={model.ownerPrincipalUID.value}
             onChange={ownerUID => {
@@ -524,7 +543,7 @@ function AgentEditor({ uid }: { uid?: string }) {
 
 function emptyAgentForm(workerProviderID: string): AgentEditorDraft {
   return {
-    handle: '',
+    uid: '',
     displayName: '',
     avatarURL: '',
     role: '',
@@ -536,7 +555,7 @@ function emptyAgentForm(workerProviderID: string): AgentEditorDraft {
 
 type AgentFormSource = Pick<
   AgentItem,
-  | 'handle'
+  | 'uid'
   | 'display_name'
   | 'avatar_url'
   | 'role'
@@ -547,7 +566,7 @@ type AgentFormSource = Pick<
 
 function formFromAgent(agent: AgentFormSource): AgentEditorDraft {
   return {
-    handle: agent.handle,
+    uid: agent.uid,
     displayName: agent.display_name ?? '',
     avatarURL: agent.avatar_url ?? '',
     role: agent.role,

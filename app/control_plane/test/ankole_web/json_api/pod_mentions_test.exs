@@ -10,9 +10,11 @@ defmodule AnkoleWeb.JSONAPI.PodMentionsTest do
     colleague =
       Ankole.PrincipalsFixtures.human_fixture(%{
         display_name: "Elena Engineer",
-        email: "elena@example.com",
+        email: "elena.identity@example.com",
         job_title: "Frontend Lead"
       }).principal
+
+    assert {:ok, _} = Ankole.Principals.update_human(colleague.uid, %{email: "elena@example.com"})
 
     outsider =
       Ankole.PrincipalsFixtures.human_fixture(%{
@@ -30,7 +32,7 @@ defmodule AnkoleWeb.JSONAPI.PodMentionsTest do
     agent =
       Ankole.PrincipalsFixtures.agent_fixture(%{
         owner_principal_uid: owner_uid,
-        handle: "planner_agent",
+        uid: "planner_agent",
         display_name: "Planner Agent",
         role: "Roadmap Assistant"
       }).principal
@@ -66,7 +68,7 @@ defmodule AnkoleWeb.JSONAPI.PodMentionsTest do
       |> get("/api/v2/pod/mentions/candidates", %{query: "Planner", category: "principal"})
       |> json_response(200)
 
-    assert [%{"principal_uid" => agent_uid, "kind" => "agent", "handle" => "planner_agent"}] =
+    assert [%{"principal_uid" => agent_uid, "kind" => "agent"}] =
              member_candidates["principals"]
 
     assert agent_uid == agent.uid
@@ -81,7 +83,7 @@ defmodule AnkoleWeb.JSONAPI.PodMentionsTest do
              %{
                "id" => shared_id,
                "title" => "Release Checklist",
-               "ancestors" => ["Engineering"]
+               "ancestors" => ["Space", "Engineering"]
              }
            ] = member_page_candidates["pages"]
 

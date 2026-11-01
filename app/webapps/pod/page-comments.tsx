@@ -1,5 +1,6 @@
 import type { EditorHandle } from '@ankole/block-editor'
 import {
+  Badge,
   Button,
   Select,
   SelectContent,
@@ -26,6 +27,7 @@ import {
 } from './content-api'
 import { ContentError } from './content-primitives'
 import { CommentThread, CommentComposer } from './comment-thread'
+import { formatFileAnchorLabel, type FileCommentAnchor } from './file-comment-anchors'
 import { isRealtimeAccessDenied } from './realtime'
 import type { PageCommentsModel } from './state/page-comments'
 import type { PageDraftModel } from './state/page-draft'
@@ -62,11 +64,12 @@ export function PageComments({
   close(event?: PanelInputEvent): void
   returnFocus: RefObject<HTMLButtonElement | null>
   selectAnchor(threadID?: string): void
-  reveal(id: string): HTMLElement | null
+  reveal(id: string, fileAnchor?: FileCommentAnchor | null): HTMLElement | null
 }) {
   useSignals()
   const { t } = useTranslation()
   const client = useQueryClient()
+  const isFile = detail.page.type === 'file'
   const [status, setStatus] = useState<'open' | 'resolved' | 'all' | 'unread'>('open')
   const effectiveStatus = focused || selectedThreads.length ? 'all' : status
   const requestedIDs = selectedThreads.length ? selectedThreads : focused ? [focused] : []
@@ -88,10 +91,10 @@ export function PageComments({
   const listedRevision = revisions.length ? Math.min(...revisions) : undefined
   const documentRevision = draft.revision.value
   useEffect(() => {
-    if (listedRevision !== undefined && listedRevision < documentRevision) {
+    if (!isFile && listedRevision !== undefined && listedRevision < documentRevision) {
       void client.invalidateQueries({ queryKey: contentKeys.comments(detail.page.id) })
     }
-  }, [listedRevision, documentRevision, client, detail.page.id])
+  }, [isFile, listedRevision, documentRevision, client, detail.page.id])
   const loading = (!selectedThreads.length && query.isPending) || requested.some(result => result.isPending)
   const error = requested.find(result => result.error)?.error ?? (!selectedThreads.length ? query.error : null)
   const retry = () => {
@@ -99,17 +102,22 @@ export function PageComments({
     requested.forEach(result => void result.refetch())
   }
   const denied = isRealtimeAccessDenied(error)
-  const canComment = detail.actions.includes('page_comment') && !denied
+  const canComment = detail.actions.includes('node_comment') && !denied
   const anchor = model.anchor.value
   const editorState = useSyncExternalStore(editor?.subscribe ?? noSubscription, editor?.drawn ?? noEditor)
-  const selection = useMemo(() => (editorState ? (anchor?.read?.(editorState) ?? null) : null), [anchor, editorState])
+  const docSelection = useMemo(
+    () => (!isFile && editorState ? (anchor?.read?.(editorState) ?? null) : null),
+    [isFile, anchor, editorState]
+  )
+  const fileSelection = isFile ? (anchor?.fileAnchor ?? null) : null
+  const hasSelection = isFile ? Boolean(fileSelection) : Boolean(docSelection)
   const content = useRef<HTMLDivElement>(null)
-  const revealOnClose = useRef<string | null>(null)
-  const locate = (id: string) => {
+  const revealOnClose = useRef<{ id: string; fileAnchor?: FileCommentAnchor | null } | null>(null)
+  const locate = (id: string, fileAnchor?: FileCommentAnchor | null) => {
     if (mobile) {
-      revealOnClose.current = id
+      revealOnClose.current = { id, fileAnchor }
       close()
-    } else reveal(id)
+    } else reveal(id, fileAnchor)
   }
   const refresh = () => client.invalidateQueries({ queryKey: contentKeys.page(detail.page.id) })
   const acknowledge = useMutation({
@@ -121,17 +129,26 @@ export function PageComments({
       content.current?.querySelector<HTMLElement>(`[data-thread-id="${focused}"]`)?.scrollIntoView({ block: 'nearest' })
     }
   }, [focused, visibleThreads.length])
-  const confirmedSelection = () => {
+  const confirmedDocSelection = () => {
     const range = editor ? model.anchor.value?.read?.(editor.editor.state) : null
     if (!range) throw new Error(t('pod.document.reselect_quote'))
     if (!draft.bodyReady.value) throw new Error(t('pod.document.wait_for_save'))
     return { base_revision: draft.revision.value, from: range.from, to: range.to }
   }
-  const add = async (body: string) => {
-    const anchor = model.anchor.value
-    const selection = anchor ? confirmedSelection() : undefined
-    const result = await pageAPI.comment(detail.page.id, { body, ...selection })
-    model.sent('new', body, anchor)
+  const confirmedFileSelection = () => {
+    const current = model.anchor.value
+    if (!current?.fileAnchor) throw new Error(t('pod.document.reselect_quote'))
+    return { anchor: current.fileAnchor, ...(current.quote ? { quote: current.quote } : {}) }
+  }
+  const add = async (body: string, mentionedAgentUIDs: string[]) => {
+    const currentAnchor = model.anchor.value
+    const anchorPayload = currentAnchor ? (isFile ? confirmedFileSelection() : confirmedDocSelection()) : undefined
+    const result = await pageAPI.comment(detail.page.id, {
+      body,
+      ...anchorPayload,
+      ...(mentionedAgentUIDs.length ? { mentioned_agent_uids: mentionedAgentUIDs } : {})
+    })
+    model.sent('new', body, currentAnchor)
     clearSelection()
     focus(result.comment.id)
     await refresh()
@@ -212,18 +229,18 @@ export function PageComments({
                   canComment={canComment}
                   focused={focused === thread.id}
                   unread={thread.unread}
-                  hasSelection={!!selection}
-                  anchorPending={!!selection && !draft.bodyReady.value}
+                  hasSelection={hasSelection}
+                  anchorPending={!isFile && !!docSelection && !draft.bodyReady.value}
                   refresh={refresh}
-                  reveal={() => locate(thread.id)}
+                  reveal={fileAnchor => locate(thread.id, fileAnchor)}
                   selectAnchor={() => selectAnchor(thread.id)}
                   reanchor={async () => {
-                    const anchor = model.anchor.value
+                    const current = model.anchor.value
                     await pageAPI.anchorComment(detail.page.id, thread.id, {
-                      ...confirmedSelection(),
+                      ...(isFile ? confirmedFileSelection() : confirmedDocSelection()),
                       version: thread.version
                     })
-                    if (model.anchor.value === anchor) model.capture(null)
+                    if (model.anchor.value === current) model.capture(null)
                     await refresh()
                   }}
                 />
@@ -238,9 +255,16 @@ export function PageComments({
         <div className="pod-comments-compose max-h-[45%] shrink-0 overflow-auto border-t border-border px-4 py-3">
           {model.anchor.value && (
             <div className="pod-comment-draft-quote">
-              <blockquote className="mb-3 block max-h-[100px] overflow-auto border-l-2 border-border pl-2 text-start text-xs leading-normal whitespace-pre-wrap text-fg-secondary [overflow-wrap:anywhere]">
-                {selection?.quote ?? model.anchor.value.quote}
-              </blockquote>
+              {model.anchor.value.fileAnchor && (
+                <div className="mb-1.5">
+                  <Badge variant="outline">{formatFileAnchorLabel(model.anchor.value.fileAnchor)}</Badge>
+                </div>
+              )}
+              {(docSelection?.quote ?? model.anchor.value.quote) && (
+                <blockquote className="mb-3 block max-h-[100px] overflow-auto border-l-2 border-border pl-2 text-start text-xs leading-normal whitespace-pre-wrap text-fg-secondary [overflow-wrap:anywhere]">
+                  {docSelection?.quote ?? model.anchor.value.quote}
+                </blockquote>
+              )}
               <Button variant="ghost" size="xs" onClick={() => model.capture(null)}>
                 {t('pod.document.comment_whole_page')}
               </Button>
@@ -251,12 +275,12 @@ export function PageComments({
               {t('pod.document.use_selection')}
             </Button>
           )}
-          {canComment && anchor && !selection && (
+          {canComment && anchor && !hasSelection && (
             <p className="text-xs" role="status">
               {t('pod.document.reselect_quote')}
             </p>
           )}
-          {selection && !draft.bodyReady.value && (
+          {!isFile && docSelection && !draft.bodyReady.value && (
             <p className="text-xs" role="status">
               {t('pod.document.wait_for_save')}
             </p>
@@ -266,7 +290,7 @@ export function PageComments({
             draftKey="new"
             label={t('pod.document.new_comment')}
             disabled={!canComment}
-            submitDisabled={!!anchor && (!selection || !draft.bodyReady.value)}
+            submitDisabled={!!anchor && (!hasSelection || (!isFile && !draft.bodyReady.value))}
             send={add}
             refresh={refresh}
           />
@@ -282,8 +306,9 @@ export function PageComments({
           className="pod-comments-sheet min-h-0 shrink-0 max-w-none data-[side=right]:w-[min(400px,calc(100vw-16px))] data-[side=right]:sm:max-w-none"
           showCloseButton={false}
           finalFocus={() => {
-            const id = revealOnClose.current
-            return (id && reveal(id)) || returnFocus.current
+            const pending = revealOnClose.current
+            revealOnClose.current = null
+            return (pending && reveal(pending.id, pending.fileAnchor)) || returnFocus.current
           }}>
           <SheetTitle className="sr-only">{t('pod.document.comments')}</SheetTitle>
           {body}

@@ -1,3 +1,4 @@
+import { canCreateChild } from './state/page-location'
 import { usePageMetadata, usePagesMetadata } from './use-page-metadata'
 import { useTranslation } from 'react-i18next'
 import {
@@ -36,6 +37,8 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { Link, createLink, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import { RiArrowRightSLine, RiChat3Line, RiMoreFill, RiNodeTree, RiShareLine, RiLoader4Line } from '@remixicon/react'
 import { authenticationRef, podID, podLocation, podRouteID } from '../common/browser-context'
+import { BdiLabel } from '../common/bidi-file-name'
+import { sanitizeRenameValue, stripBidi } from '../common/bidi'
 import { requestErrorMessage, requestErrorCode, requestErrorDetails } from '../common/request-errors'
 import { InternalAPIError } from '../common/internal-api-client'
 import { podKeys } from './api'
@@ -678,7 +681,7 @@ function PageTreeRow({
     return restore
   }
   const label = page.title || t('pod.content.untitled')
-  const canEdit = page.actions?.includes('page_edit') === true
+  const canEdit = canCreateChild(page)
   const canMove = canMovePage(page)
   const drag = useTreeItemDrag<HTMLAnchorElement, HTMLDivElement>({
     tree: pageTree,
@@ -763,10 +766,10 @@ function PageTreeRow({
               onClick={onNavigate}
               current={active}
               activeProps={{}}
-              title={label}>
+              title={stripBidi(label)}>
               <PageIcon page={page} />
-              <span className="truncate text-left" dir="auto">
-                {label}
+              <span className="min-w-0 truncate text-left" dir="auto">
+                <BdiLabel value={page.title} fallback={t('pod.content.untitled')} />
               </span>
             </SidebarLink>
           )}
@@ -819,7 +822,7 @@ export function PageRenameField({
   const { t } = useTranslation()
   const client = useQueryClient()
   const page = usePageMetadata(sourcePage)
-  const [value, setValue] = useState(page.title)
+  const [value, setValue] = useState(() => sanitizeRenameValue(page.title))
   const expectedTitle = useRef(page.title)
   const [conflictingTitle, setConflictingTitle] = useState<string | null>(null)
   const finished = useRef(false)

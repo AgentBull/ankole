@@ -2,23 +2,22 @@ defmodule Ankole.Brain.ModelCalls do
   @moduledoc """
   One-shot stateless model calls for Brain system tasks.
 
-  Extraction and Dreaming use the maintainer Agent's model profiles. Calls run
-  as that Agent, so model usage belongs to it. Calls are stateless: no
-  conversation rows, no history.
+  Calls execute as `ankole_brain` using its effective model profiles. They
+  do not create conversation rows or history.
   """
 
   alias Ankole.AIGateway
   alias Ankole.Brain.Config
   alias Ankole.JSON
 
-  # Runs one prompt against a resolved model profile and returns the output text.
-  #
   @spec complete_text(map(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   defp complete_text(model, prompt, opts) when is_map(model) and is_binary(prompt) do
     request = request(model, prompt, opts)
 
-    with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
-      case AIGateway.create_response(subject_uid, request, Keyword.take(opts, [:caller])) do
+    with {:ok, subject_uid} <- Config.execution_subject_uid() do
+      opts = opts |> Keyword.take([:caller]) |> Keyword.put_new(:caller, "brain")
+
+      case AIGateway.create_response(subject_uid, request, opts) do
         {:ok, %{body: body}} -> AIGateway.completed_output_text(body)
         {:error, _reason} = error -> error
       end

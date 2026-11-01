@@ -39,6 +39,36 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   alias Ankole.AgentWorkers.WorkerBootstrap
   alias Ankole.AgentWorkers.WorkerRoute
 
+  @doc "Registers the renamed Worker and lets reconciliation delete the old storage."
+  def rename_worker_in_tx(%AgentWorker{state: :absent} = worker, new_uid) do
+    with :ok <- AgentWorkers.mark_deleting_in_tx(worker.agent_uid),
+         :ok <- AgentWorkers.insert_in_tx(new_uid, worker.provider_id),
+         {:ok, _job} <- %{agent_uid: worker.agent_uid} |> new() |> Oban.insert() do
+      :ok
+    end
+  end
+
+  @doc "Drains and deletes an inactive Agent's instance before an explicit rename."
+  def prepare_rename(agent_uid) do
+    Repo.transact_top_level(
+      fn ->
+        with {:ok, %{type: :agent, status: :disabled}} <-
+               Ankole.Principals.lock_principal_in_tx(agent_uid) do
+          case AgentWorkers.lock_in_tx(agent_uid) do
+            nil -> {:error, :agent_worker_not_found}
+            %{state: :absent} = worker -> {:ok, worker}
+            %{state: :deleting} -> {:error, :agent_uid_pending_deletion}
+            worker -> Ankole.Ash.update(worker, :drain, %{drain_reason: "rename"})
+          end
+        else
+          {:ok, _principal} -> {:error, :agent_must_be_disabled}
+          error -> error
+        end
+      end,
+      after_commit: &enqueue/1
+    )
+  end
+
   @max_steps 12
 
   def enqueue(agent, opts \\ [])

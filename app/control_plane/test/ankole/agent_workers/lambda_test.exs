@@ -96,8 +96,9 @@ defmodule Ankole.AgentWorkers.LambdaTest do
     contract = Ankole.JSON.decode!(first["runHookPayload"])
 
     assert Enum.sort(Map.keys(contract)) ==
-             ~w(ANKOLE_RUNTIME_FABRIC_ENDPOINT ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY ANKOLE_WORKER_NFS_SOURCE ANKOLE_WORKER_STORAGE WORKER_ID)
+             ~w(ANKOLE_RUNTIME_FABRIC_ENDPOINT ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY ANKOLE_WORKER_NFS_SOURCE ANKOLE_WORKER_STORAGE ANKOLE_WORKER_STORAGE_NAME WORKER_ID)
 
+    assert contract["ANKOLE_WORKER_STORAGE_NAME"] == ProviderKind.storage_name("prod", @uid)
     assert contract["WORKER_ID"] == @uid
     assert contract["ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY"] == "worker-secret"
 
@@ -177,7 +178,7 @@ defmodule Ankole.AgentWorkers.LambdaTest do
     stub(provider, &Req.Test.json(&1, Map.put(fixture("microvm"), "state", "TERMINATED")))
     assert {:ok, [%{phase: :exited}]} = Lambda.list_instances(provider, uid)
 
-    Repo.get!(AgentWorker, uid)
+    Repo.get_by!(AgentWorker, agent_uid: uid)
     |> Ecto.Changeset.change(instance_seen_at: DateTime.utc_now())
     |> Repo.update!()
 
@@ -225,7 +226,7 @@ defmodule Ankole.AgentWorkers.LambdaTest do
 
     assert :ok = Lambda.delete_instance(provider, orphan, :now)
     assert_receive {:committed_worker, uid}
-    assert Repo.get!(AgentWorker, uid).instance_ref == @ref
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).instance_ref == @ref
   end
 
   test "an unattributed VM younger than one sweep interval is not deleted", %{
@@ -507,7 +508,7 @@ defmodule Ankole.AgentWorkers.LambdaTest do
     assert {:snooze, 15} = perform_job(ReconcileJob, %{agent_uid: agent.uid})
 
     assert %{state: :absent, generation: nil, last_error_kind: "pending"} =
-             Repo.get!(AgentWorker, agent.uid)
+             Repo.get_by!(AgentWorker, agent_uid: agent.uid)
 
     assert {:wait, :preparing} =
              Ankole.AgentWorkers.workspace_status(agent.uid)
@@ -657,9 +658,9 @@ defmodule Ankole.AgentWorkers.LambdaTest do
   end
 
   defp save_ref!(provider) do
-    %{principal: agent} = agent_fixture(%{handle: @uid, worker_provider_id: provider.provider_id})
+    %{principal: agent} = agent_fixture(%{uid: @uid, worker_provider_id: provider.provider_id})
 
-    Repo.get!(AgentWorker, agent.uid)
+    Repo.get_by!(AgentWorker, agent_uid: agent.uid)
     |> Ecto.Changeset.change(
       state: :starting,
       generation: "gen0000001",

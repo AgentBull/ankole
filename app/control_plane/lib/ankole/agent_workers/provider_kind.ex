@@ -5,6 +5,10 @@ defmodule Ankole.AgentWorkers.ProviderKind do
   A kind translates requests. Reconciliation owns lifecycle decisions. A
   successful delete request does not prove absence; only a subsequent list
   can permit another instance to write the Agent's storage.
+
+  Agent-scoped callbacks run in the owning `Ankole.Repo` tenant context.
+  Site-wide inventory returns the tenant with each observed Agent so callers
+  can reconcile equal names independently.
   """
 
   alias Ankole.AgentWorkers.ProviderKind.Definition
@@ -18,6 +22,7 @@ defmodule Ankole.AgentWorkers.ProviderKind do
   @type observation :: %{
           optional(:instance_present?) => boolean(),
           optional(:sandbox_name) => String.t(),
+          required(:tenant_id) => String.t() | nil,
           required(:agent_uid) => String.t() | nil,
           required(:generation) => String.t() | nil,
           required(:instance_ref) => String.t() | nil,
@@ -99,15 +104,6 @@ defmodule Ankole.AgentWorkers.ProviderKind do
     end
   end
 
-  @doc "Returns the Worker kinds removed by a change to the Plugin selection."
-  def disabled_kinds(registry, previous, selected) do
-    for {kind, %{plugin_id: plugin_id}} <- registry,
-        plugin_id != nil,
-        plugin_id in previous and plugin_id not in selected,
-        into: %{},
-        do: {kind, plugin_id}
-  end
-
   @doc false
   def validate_adapter_declaration(%{id: id, module: module})
       when is_binary(id) and is_atom(module) do
@@ -159,11 +155,14 @@ defmodule Ankole.AgentWorkers.ProviderKind do
   end
 
   @spec storage_name(String.t(), String.t()) :: String.t()
-  def storage_name(installation, agent_uid), do: "ankole-#{installation}-#{hash16(agent_uid)}"
+  def storage_name(installation, agent_uid), do: "ankole-#{installation}-#{agent_hash(agent_uid)}"
 
   @spec instance_name(String.t(), String.t(), String.t()) :: String.t()
   def instance_name(installation, agent_uid, generation),
     do: storage_name(installation, agent_uid) <> "-" <> generation
+
+  def agent_hash(uid), do: agent_hash(Ankole.Repo.tenant_id!(), uid)
+  def agent_hash(tenant_id, uid), do: hash16(tenant_id <> ":" <> uid)
 
   @spec hash16(String.t()) :: String.t()
   def hash16(agent_uid),

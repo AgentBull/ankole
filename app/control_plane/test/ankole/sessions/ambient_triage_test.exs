@@ -1,7 +1,7 @@
 defmodule Ankole.Sessions.AmbientTriageTest do
   use Ankole.SessionsCase
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIAgent.TokenQuota
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Schemas.Conversation, as: ModelConversation

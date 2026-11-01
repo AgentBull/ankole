@@ -64,11 +64,10 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     %{principal: first_agent} = agent_fixture()
     %{principal: second_agent} = agent_fixture()
     shared_config = dingtalk_config("ding_concurrent_shared")
-    first_config_key = "signals.dingtalk.bindings." <> first_agent.uid
     cache_pid = Process.whereis(AppConfigureCache)
     parent = self()
 
-    assert {:ok, %{binding: %Binding{}}} =
+    assert {:ok, %{binding: %Binding{}, config_key: first_config_key}} =
              Bindings.put_binding(
                first_agent.uid,
                "dingtalk",
@@ -223,6 +222,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
       context =
         AdapterContext.new(
+          binding_id: binding.id,
           agent_uid: binding.agent_uid,
           binding_name: binding.name,
           adapter: "dingtalk",
@@ -237,7 +237,9 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert {:ok, _binding} =
-               Ankole.Signals.Bindings.disable_binding(binding.agent_uid, binding.name)
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(binding.agent_uid, binding.name).id
+               )
 
       assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
@@ -319,6 +321,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     struct!(
       %Intent{
         agent_uid: binding.agent_uid,
+        binding_id: binding.id,
         binding_name: binding.name,
         outbound_key: "test-key-#{System.unique_integer([:positive])}",
         conversation_id: external_conversation_id("dingtalk:cidG"),
@@ -467,7 +470,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
           "attachments" => [
             %{
               "path" => "sent/abababababababab/program.exe",
-              "blob_ref" => "abababababababababababababababababababababababababababababababab",
+              "object_id" => "019a2ee2-45d1-7cb5-b54d-d62a7d0f6b86",
               "name" => "program.exe"
             }
           ]
@@ -791,7 +794,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     assert {:ok, principal} = Principals.resolve_platform_subject(provider_id, "staff-1")
     assert principal.display_name == "Ada Ling"
 
-    human_user = Repo.get!(Ankole.Principals.HumanUser, principal.uid)
+    human_user = Repo.get_by!(Ankole.Principals.HumanUser, principal_uid: principal.uid)
     assert human_user.email == "ada@corp.example"
   end
 
@@ -837,7 +840,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     # The departed subject is disabled directly — a full sync only upserts and
     # would have left the Principal active forever.
     assert {:error, _disabled} = Principals.resolve_platform_subject(provider_id, "staff-2")
-    assert Repo.get!(Ankole.Principals.Principal, principal.uid).status == :disabled
+    assert Repo.get_by!(Ankole.Principals.Principal, uid: principal.uid).status == :disabled
   end
 
   test "departure records provider evidence once and disables the last administrator" do
@@ -870,7 +873,9 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       assert {:ok, _} = IdentityProvider.handle_contact_event("user_leave_org", event, [consumer])
     end
 
-    assert %{status: :disabled, access_version: 2} = Repo.get!(Ankole.Principals.Principal, uid)
+    assert %{status: :disabled, access_version: 2} =
+             Repo.get_by!(Ankole.Principals.Principal, uid: uid)
+
     [restriction] = HumanAccess.restrictions(uid)
     assert restriction.source == "provider:" <> provider_id
     assert restriction.reason == "departure"
@@ -952,8 +957,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     assert {:ok, _} =
              HumanAccess.clear_restriction(uid, restriction.id, nil, "verified", "clear-complete")
 
-    assert Repo.get!(Ankole.Principals.Principal, uid).status == :disabled
-    assert Repo.get!(Ankole.Principals.Principal, missing.principal.uid).status == :active
+    assert Repo.get_by!(Ankole.Principals.Principal, uid: uid).status == :disabled
+    assert Repo.get_by!(Ankole.Principals.Principal, uid: missing.principal.uid).status == :active
 
     assert Enum.any?(
              HumanAccess.restrictions(uid),

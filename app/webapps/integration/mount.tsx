@@ -36,6 +36,7 @@ import { AgentLibraryEditor } from '../console/pages/agent-library-editor'
 import { AgentLibraryEditorModel } from '../console/state/agent-library-editor-model'
 import { WorkerEnvAgentSection } from '../console/pages/worker-env-agent-section'
 import { AgentLibraryPage, AgentPluginDetailPage } from '../console/pages/agent-library'
+import { ModelProfilesPage } from '../console/pages/model-profiles'
 
 await loadLocale('en-US')
 const setupSurface = window.location.pathname.startsWith('/setup-repair')
@@ -47,7 +48,7 @@ const consoleSurface =
   provider ||
   home ||
   brain ||
-  /^\/(settings|tenants|webhooks|files|schedules|library|agent-library|worker-env|worker-providers|identity|access|oidc-clients)(\/|$)/.test(
+  /^\/(model-profiles|settings|tenants|webhooks|drive|schedules|library|agent-library|worker-env|worker-providers|identity|access|oidc-clients)(\/|$)/.test(
     window.location.pathname
   )
 const client = createQueryClient(consoleSurface ? createConsoleMutationCache() : undefined)
@@ -88,6 +89,7 @@ const app = setupSurface ? (
       component: BrainObjectsPage
     })
     const routeTree = rootRoute.addChildren([
+      createRoute({ getParentRoute: () => rootRoute, path: '/model-profiles', component: ModelProfilesPage }),
       createRoute({ getParentRoute: () => rootRoute, path: '/agent-library', component: AgentLibraryPage }),
       createRoute({
         getParentRoute: () => rootRoute,
@@ -111,7 +113,7 @@ const app = setupSurface ? (
           component: WorkerProviderEditorPage
         }),
         createRoute({ getParentRoute: () => regressionNavRoute, path: '/webhooks', component: WebhooksPage }),
-        createRoute({ getParentRoute: () => regressionNavRoute, path: '/files/$uid', component: AgentFilesPage }),
+        createRoute({ getParentRoute: () => regressionNavRoute, path: '/drive', component: AgentFilesPage }),
         createRoute({ getParentRoute: () => regressionNavRoute, path: '/schedules', component: SchedulesListPage }),
         createRoute({
           getParentRoute: () => regressionNavRoute,

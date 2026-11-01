@@ -6,7 +6,7 @@ defmodule Ankole.AppConfigure.Resolution do
   @enforce_keys [:value, :source]
   defstruct [:value, :source, :scope]
 
-  @type source :: :agent | :tenant | :global | :default
+  @type source :: :agent | :system | :tenant | :global | :default
   @type t :: %__MODULE__{
           value: term(),
           source: source(),

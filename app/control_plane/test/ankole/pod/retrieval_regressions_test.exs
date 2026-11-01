@@ -2,7 +2,8 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
-  alias Ankole.Pod.{Bases, Page, Pages, PageUserState}
+  alias Ankole.Pod.{Bases, Pages, PageUserState, Properties}
+  alias Ankole.Files.Schemas.Node
 
   for scope <- ~w(all space private shared recent favorites) do
     @scope scope
@@ -75,6 +76,127 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
     end
   end
 
+  test "search uses each kind's displayed title and includes body and empty-title matches" do
+    owner = human_fixture().principal
+    actor = actor_fixture(owner)
+    {:ok, root} = Ankole.Files.Nodes.private_root(owner.uid)
+
+    pod_pages =
+      for kind <- ~w(doc base applet) do
+        {:ok, page} =
+          Pages.create(actor, %{
+            parent_id: root.id,
+            type: kind,
+            title: "Needle%_ #{kind}",
+            skip_default_table: true
+          })
+
+        page
+      end
+
+    nodes =
+      for kind <- [:file, :folder] do
+        {:ok, node} =
+          Ankole.Files.Nodes.create(actor, %{
+            parent_id: root.id,
+            kind: kind,
+            name: "Needle%_ #{kind}"
+          })
+
+        assert {:ok, _} =
+                 Repo.transact_top_level(fn ->
+                   Pages.ensure_properties_in_tx(node.id, %{title: "Stale display title"})
+                 end)
+
+        node
+      end
+
+    {:ok, body} =
+      Pages.create(actor, %{
+        parent_id: root.id,
+        title: "",
+        xml: "<page><p>Needle%_ body</p></page>"
+      })
+
+    {:ok, empty} =
+      Ankole.Files.Nodes.create(actor, %{parent_id: root.id, kind: :folder, name: "No properties"})
+
+    {:ok, _} = Pages.create(actor, %{parent_id: root.id, title: "NeedleXY distractor"})
+    assert {:ok, %{pages: matches}} = Pages.search(actor, "  nEeDlE%_  ")
+    assert MapSet.new(matches, & &1.id) == MapSet.new(pod_pages ++ nodes ++ [body], & &1.id)
+    assert {:ok, %{pages: []}} = Pages.search(actor, "Stale display title")
+    assert {:ok, %{pages: all}} = Pages.search(actor, " ")
+    assert Enum.any?(all, &(&1.id == empty.id and &1.title == empty.name))
+    assert Enum.any?(all, &(&1.id == body.id and &1.title == ""))
+  end
+
+  test "search merges all three branches with the same global top-30 ranking" do
+    owner = human_fixture().principal
+    actor = actor_fixture(owner)
+    {:ok, root} = Ankole.Files.Nodes.private_root(owner.uid)
+
+    titled =
+      for _ <- 1..12 do
+        {:ok, page} =
+          Pages.create(actor, %{
+            parent_id: root.id,
+            title: "Needle",
+            xml: "<page><p>Needle body</p></page>"
+          })
+
+        page.id
+      end
+
+    named =
+      for index <- 1..12 do
+        {:ok, node} =
+          Ankole.Files.Nodes.create(
+            actor,
+            %{parent_id: root.id, kind: :file, name: "Needle #{index}"}
+          )
+
+        node.id
+      end
+
+    body =
+      for index <- 1..20 do
+        {:ok, page} =
+          Pages.create(actor, %{
+            parent_id: root.id,
+            title: "Body #{index}",
+            xml: "<page><p>Needle body</p></page>"
+          })
+
+        page.id
+      end
+
+    ids = titled ++ named ++ body
+    now = DateTime.utc_now(:microsecond)
+    Repo.update_all(from(n in Node, where: n.id in ^ids), set: [updated_at: now])
+    Repo.update_all(from(p in Properties, where: p.id in ^ids), set: [updated_at: now])
+
+    expected =
+      Repo.query!(
+        """
+        SELECT p.id::text FROM pod_page_nodes p
+        WHERE p.tenant_id = $1::text::uuid AND p.id = ANY($2::text[]::uuid[])
+          AND (p.title ILIKE '%needle%' OR EXISTS (
+            SELECT 1 FROM page_contents c WHERE c.tenant_id = p.tenant_id
+              AND c.page_id = p.id AND c.plain_text ILIKE '%needle%'))
+        ORDER BY similarity(p.title, 'needle') DESC, p.updated_at DESC, p.id ASC LIMIT 30
+        """,
+        [Repo.tenant_id!(), ids]
+      ).rows
+      |> Enum.map(&hd/1)
+
+    assert {:ok, %{pages: actual}} = Pages.search(actor, "needle")
+    assert Enum.map(actual, & &1.id) == expected
+    assert length(actual) == 30
+    assert Enum.any?(actual, &(&1.id in titled))
+    assert Enum.any?(actual, &(&1.id in named))
+    assert Enum.any?(actual, &(&1.id in body))
+  end
+
   test "destination search checks editable access before the result limit" do
     owner = human_fixture().principal
     reader = human_fixture().principal
@@ -108,7 +230,7 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
         ]
       })
 
-    for actions <- [~w(page_view page_manage), ~w(page_edit)] do
+    for actions <- [~w(node_view node_manage), ~w(node_edit)] do
       {:ok, partial} =
         Pages.create(owner_actor, %{parent_id: root.id, title: "Needle destination"})
 
@@ -127,10 +249,10 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
     refute Enum.any?(ordinary, &(&1.id == editable.id))
 
     assert {:ok, %{pages: [found]}} =
-             Pages.search(reader_actor, "Needle destination", %{required_action: "page_edit"})
+             Pages.search(reader_actor, "Needle destination", %{required_action: "node_edit"})
 
     assert found.id == editable.id
-    assert "page_edit" in found.actions
+    assert "node_edit" in found.actions
   end
 
   for scope <- ~w(recent favorites), hidden <- [:revoked, :deleted] do
@@ -237,7 +359,7 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
                [visible_table.id, hidden_table.id, deleted_table.id, visible_table.id, "invalid"]
              )
 
-    assert pages == [Map.take(visible, [:id, :revision])]
+    assert pages == [Map.take(visible, [:id, :revision, :object_id])]
     assert tables == [Map.take(visible_table, [:id, :data_version])]
   end
 
@@ -301,7 +423,9 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
     {:ok, second} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), second.id)
 
     Repo.update!(
-      Ecto.Changeset.change(first, updated_at: DateTime.add(second.updated_at, 60, :second))
+      Ecto.Changeset.change(Repo.get_by!(Properties, id: first.id),
+        updated_at: DateTime.add(second.updated_at, 60, :second)
+      )
     )
 
     assert {:ok, pages} =
@@ -344,14 +468,14 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
           title: "Newer page #{index}",
           position: Integer.to_string(index),
           parent_id: parent.id,
-          acl_anchor_id: parent.id,
+          acl_anchor_id: parent.acl_anchor_id,
           created_by: Ankole.ActorRef.from_principal(creator),
           created_at: time,
           updated_at: time
         }
       end
 
-    assert {^count, nil} = Repo.insert_all(Page, pages)
+    insert_pages(pages, count)
 
     states =
       Enum.map(pages, fn page ->
@@ -368,6 +492,13 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
   end
 
   defp insert_trash(owner, count, attrs, time) do
+    {:ok, root} =
+      if uid = attrs[:private_owner_uid],
+        do: Ankole.Files.Nodes.private_root(uid),
+        else: Ankole.Files.Nodes.public_root()
+
+    attrs = Map.delete(attrs, :private_owner_uid)
+
     rows =
       for index <- 1..count do
         id = Ankole.Ecto.UUIDv7.autogenerate()
@@ -379,6 +510,8 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
             type: :file,
             title: "Deleted #{index}",
             position: Integer.to_string(index),
+            parent_id: root.id,
+            parent_anchor_id: root.id,
             acl_anchor_id: id,
             created_by: Ankole.ActorRef.from_principal(owner),
             created_at: time,
@@ -389,6 +522,25 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
         )
       end
 
-    assert {^count, nil} = Repo.insert_all(Page, rows)
+    insert_pages(rows, count)
+  end
+
+  defp insert_pages(rows, count) do
+    nodes =
+      Enum.map(rows, fn row ->
+        row
+        |> Map.drop([:type, :title, :position])
+        |> Map.put(:kind, row.type)
+        |> Map.put(:name, row.title)
+      end)
+
+    properties =
+      Enum.map(
+        rows,
+        &Map.take(&1, [:id, :tenant_id, :title, :position, :created_at, :updated_at])
+      )
+
+    assert {^count, nil} = Repo.insert_all(Node, nodes)
+    assert {^count, nil} = Repo.insert_all(Properties, properties)
   end
 end

@@ -6,6 +6,7 @@ defmodule Ankole.AuthZ.RuntimeBoundariesTest do
   alias Ankole.AuthZ
   alias Ankole.Brain.Scope
   alias Ankole.Conversations.Native
+  alias Ankole.Principals.WorkAccess
   alias Ankole.Sessions.{Tool, Tools}
 
   test "guest world exclusion applies to enumeration, direct disclosure, and writes" do
@@ -24,7 +25,7 @@ defmodule Ankole.AuthZ.RuntimeBoundariesTest do
     assert {:error, :forbidden} = Scope.validate_writable("world", guest.uid)
   end
 
-  test "Console administration does not grant chat or tool execution" do
+  test "Console administration does not grant chat or repair invalid work authority" do
     human = human_fixture().principal
     agent = agent_fixture(%{owner_principal_uid: human.uid}).principal
     assert {:ok, _} = first_site_admin_fixture(human.uid)
@@ -42,43 +43,30 @@ defmodule Ankole.AuthZ.RuntimeBoundariesTest do
     grant(human.uid, "agent:#{agent.uid}", "chat")
     assert {:ok, _} = Native.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), attrs)
 
-    run = %{
-      kind: :main,
-      agent_uid: agent.uid,
-      event: %{authorization_kind: "human", human_uid: human.uid}
-    }
+    tool = clarify_tool()
+    event = WorkAccess.from_sender(human.uid)
+    run = %{kind: :main, agent_uid: agent.uid, event: event, tools: [tool]}
+    call = %{"name" => "clarify", "arguments" => ~s({"question":"Choose"})}
 
-    assert {:error, {:forbidden, "invoke"}} =
-             Tools.authorize_call(run, "kubectl", %{"op" => "get"})
+    assert {:ok, ^tool, %{"question" => "Choose"}} = Tools.prepare(run, call)
 
-    grant(
-      human.uid,
-      "agent:#{agent.uid}:tool:kubectl",
-      "invoke",
-      ~s(context.request.args.op == "get")
-    )
+    invalid = %{run | event: %{event | human_access_version: event.human_access_version - 1}}
+    assert {:error, %{failure_kind: "forbidden"}} = Tools.prepare(invalid, call)
 
-    assert :ok = Tools.authorize_call(run, "kubectl", %{"op" => "get"})
-
-    assert {:error, {:forbidden, "invoke"}} =
-             Tools.authorize_call(run, "kubectl", %{"op" => "delete"})
-
-    assert {:error, {:forbidden, "invoke"}} = Tools.authorize_call(run, "shell", %{"op" => "get"})
+    assert {:error, %{failure_kind: "unknown_tool"}} =
+             Tools.prepare(run, %{"name" => "kubectl", "arguments" => ~s({"op":"get"})})
   end
 
-  test "tool authorization sees normalized arguments before dispatch" do
+  test "tool arguments normalize before dispatch under the Agent authority" do
     human = human_fixture().principal
     agent = agent_fixture(%{owner_principal_uid: human.uid}).principal
 
-    tool =
-      Tools.Session.declarations()
-      |> Enum.find(&(&1["name"] == "clarify"))
-      |> Tool.new(Tools.Session)
+    tool = clarify_tool()
 
     run = %{
       kind: :main,
       agent_uid: agent.uid,
-      event: %{authorization_kind: "human", human_uid: human.uid},
+      event: WorkAccess.from_sender(human.uid),
       tools: [tool]
     }
 
@@ -92,8 +80,17 @@ defmodule Ankole.AuthZ.RuntimeBoundariesTest do
     call = %{"name" => "clarify", "arguments" => ~s({"question":"  Choose  "})}
     assert {:ok, ^tool, %{"question" => "Choose"}} = Tools.prepare(run, call)
 
-    refused = %{call | "arguments" => ~s({"question":"Other"})}
-    assert {:error, %{failure_kind: "forbidden"}} = Tools.prepare(run, refused)
+    other = %{call | "arguments" => ~s({"question":"Other"})}
+    assert {:ok, ^tool, %{"question" => "Other"}} = Tools.prepare(run, other)
+
+    invalid = %{call | "arguments" => ~s({"question":"   "})}
+    assert {:error, %{failure_kind: "invalid_arguments"}} = Tools.prepare(run, invalid)
+  end
+
+  defp clarify_tool do
+    Tools.Session.declarations()
+    |> Enum.find(&(&1["name"] == "clarify"))
+    |> Tool.new(Tools.Session)
   end
 
   defp grant(uid, resource, action, condition \\ "true") do

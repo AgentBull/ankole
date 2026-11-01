@@ -52,7 +52,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
 
   test "a signed XML relay cannot commit after its RunRef closes", ctx do
     page = shared_page(ctx, "doc")
-    Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-page:" <> page.id)
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> page.id)
 
     request =
       pod_request("pages.write", %{
@@ -74,20 +74,28 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
              Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
     assert Repo.aggregate(PageChange, :count) == 0
-    refute_receive {:page_committed, _id}, 100
+    refute_receive {:node_committed, _id}, 100
   end
 
   test "a signed file relay cannot commit after its JobTurnRef attempt is replaced", ctx do
     page = shared_page(ctx, "file")
+    # First content is authorized by the parent; later overwrites use the file's edit grant.
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: ctx.agent,
+        resource_pattern: "drive:**:#{page.parent_id}:node",
+        action: "node_contribute"
+      })
+
     %{job: job, run: run} = admit_job(ctx)
-    Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-page:" <> page.id)
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> page.id)
 
     task =
       delayed_rpc(
         ctx,
         pod_request("files.upload", %{
           id: page.id,
-          base_revision: 0,
+          base_object_id: nil,
           home_relative_path: "report.txt",
           name: "report.txt"
         }),
@@ -117,7 +125,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
     assert {:ok, %{revision: 0, files: []}} =
              Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
-    refute_receive {:page_committed, _id}, 100
+    refute_receive {:node_committed, _id}, 100
   end
 
   test "every Pod RPC write retains its final transaction fence", ctx do
@@ -159,7 +167,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
             {"dist/index.html", "<!doctype html><p>Published</p>"}
           ] do
         {:ok, stored} = Ankole.Files.store(content)
-        %{path: path, sha256: stored.sha256, source: "agent"}
+        Map.merge(stored, %{path: path, source: "agent", source_path: path})
       end
 
     assert {:ok, _} = Ankole.Files.commit(ctx.agent, publish_files)
@@ -193,7 +201,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
              operation
     end
 
-    assert Repo.aggregate(Page, :count) == 2
+    assert Repo.aggregate(Ankole.Pod.Properties, :count) == 2
     assert Repo.get!(Page, database.id).title == "Shared"
     assert Repo.aggregate(BaseRecord, :count) == 0
 

@@ -416,8 +416,8 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     assert {:ok, grant} =
              Ankole.AuthZ.create_permission_grant(%{
                principal_uid: bob.uid,
-               resource_pattern: "pod:**:#{page.id}:page",
-               action: "page_view"
+               resource_pattern: "drive:**:#{page.id}:node",
+               action: "node_view"
              })
 
     assert {:ok, detail} =
@@ -457,8 +457,8 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: viewer.uid,
-        resource_pattern: "pod:**:#{page.id}:page",
-        action: "page_view"
+        resource_pattern: "drive:**:#{page.id}:node",
+        action: "node_view"
       })
 
     {:ok, room} =
@@ -640,8 +640,8 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     assert {:ok, _} =
              Ankole.AuthZ.create_permission_grant(%{
                principal_uid: bob.uid,
-               resource_pattern: "pod:**:#{page.id}:page",
-               action: "page_view"
+               resource_pattern: "drive:**:#{page.id}:node",
+               action: "node_view"
              })
 
     assert {:ok, detail} =
@@ -693,8 +693,8 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     assert {:ok, _} =
              Ankole.AuthZ.create_permission_grant(%{
                principal_uid: bob.uid,
-               resource_pattern: "pod:**:#{page.id}:page",
-               action: "page_view"
+               resource_pattern: "drive:**:#{page.id}:node",
+               action: "node_view"
              })
 
     assert {:ok, detail} =

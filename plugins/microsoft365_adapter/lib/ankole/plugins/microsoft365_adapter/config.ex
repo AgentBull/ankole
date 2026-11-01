@@ -65,9 +65,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   def chat_config_key(id), do: "signals.teams.bindings.#{id}"
 
   @spec binding_config_key(String.t(), String.t()) :: String.t()
-  def binding_config_key(agent_uid, binding_name)
-      when is_binary(agent_uid) and is_binary(binding_name) do
-    Ankole.Signals.Bindings.binding_config_key("signals.teams.bindings", agent_uid, binding_name)
+  def binding_config_key(tenant_id, binding_id)
+      when is_binary(tenant_id) and is_binary(binding_id) do
+    Ankole.Signals.Bindings.binding_config_key("signals.teams.bindings", tenant_id, binding_id)
   end
 
   @spec subscription_state_key(String.t()) :: String.t()

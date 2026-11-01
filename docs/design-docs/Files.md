@@ -1,182 +1,168 @@
 # Files
 
-Drive references and access grants belong to the Agent's tenant, whereas
-content-addressed blob bytes and object-store settings belong to the site. When
-a tenant is deleted, Ankole removes that tenant's file references, and the
-garbage collector deletes blob bytes only when no drive path, Message
-attachment, or uncompleted Delivery intent references them across any tenant. A
-blob that another tenant still references remains in storage.
+`Ankole.Files` owns the tenant Drive: one durable node tree, its access rules,
+trash lifecycle and immutable file objects. Pod owns document, Base and Applet
+semantics attached to those nodes. PostgreSQL is the authority; Worker caches
+and local paths can be rebuilt. Workers never receive object-store credentials.
 
-Each Agent owns a drive in the control plane, and each tenant also owns one Pod
-drive for page content. Both drives share the same file service, blob store, and
-garbage collector. An Agent's drive stores received attachments, generated
-images, outbound reply attachments, installed Skills, Automation scripts, and
-published deliverables, and it remains accessible even when the Agent has no
-running Worker. Separately, each Agent has a persistent Home directory at
-`/workspace` for temporary Session and Job working directories and Codex thread
-files. Home persistence supports execution resume rather than durable file
-delivery; see [Agent Workers](AgentWorkers.md#files-and-isolation).
+## Ownership and storage
 
-`Ankole.Files` owns the drive: PostgreSQL maps relative paths to content
-digests, and an object store holds the raw bytes.
-
-## What PostgreSQL Stores
-
-| Table | Columns | Meaning |
-| --- | --- | --- |
-| `files` | `sha256` (primary key), `size`, `deleting`, `created_at`, `last_referenced_at` | One distinct byte content |
-| `drive_files` | `tenant_id`, nullable `agent_uid`, `path`, `sha256`, `mode`, `content_type`, `source`, `conversation_id`, `message_id`, timestamps; unique `(tenant_id, agent_uid, path) NULLS NOT DISTINCT` | One file in an Agent drive or the tenant's Pod drive |
-
-Both tables back Ash resources in the `Ankole.Files` domain. `Blob` actions
-manage storage refreshes, reference renewals, garbage-collection marking, and
-final deletion, using the same live-reference predicate for both marking and
-removal. `DriveFile` actions handle path upserts and moves under the composite
-natural key. Because `drive_files` has no single-column primary key, AshPostgres
-defines no `destroy` action on it; instead, `DriveFile.remove_paths_in_tx/1`
-deletes a path or subtree with a single tenant-scoped `DELETE ... RETURNING`
-statement inside the caller's transaction.
-
-Top-level callers run `Ankole.Files.commit/3`, `move/3`, `delete/2`, `list/3`
-(with `snapshot: true`), and garbage-collection batches inside
-`Repo.transact_top_level/2`. Callers in another domain that already own a
-transaction compose file writes through `commit_in_tx/3`.
-
-Drive paths and metadata follow six invariants:
-
-- Every row names a file; folders exist only as shared `/` path prefixes with no
-  dedicated folder rows. Paths are relative, contain at most 1024 bytes, allow
-  at most 255 bytes per segment, and forbid empty, `.`, or `..` segments. A file
-  path cannot also act as a parent prefix (`a` and `a/b` cannot coexist).
-- Identical byte content is stored once in `files`. If two Agents receive the
-  same attachment or one Agent writes the same bytes to two paths, Ankole
-  inserts only `drive_files` rows.
-- `source` is one of `inbound`, `generated`, `sent`, `agent`, `console`, or
-  `pod`.
-- `conversation_id` and `message_id` record the public origin of a projected
-  attachment. Both the Console listing and the Files RPC return these IDs, path
-  moves preserve them, and files without a Message origin expose `null` in the
-  Console API.
-- `content_type` stores the declared MIME type (from the IM provider,
-  `reply_attachment`, image generation, or the file extension); the file service
-  never sniffs file bytes.
-- `drive_files` rows cascade when an Agent Principal is deleted, removing the
-  Agent's entire drive in the same transaction. Each Agent can read and write
-  only its own Agent drive.
-
-The tenant's Pod drive sets `agent_uid` to `NULL` and stores page files under
-`pages/<page-id>/`. `Ankole.Pod.Files` checks page permissions before every read
-or write. Although an Agent can target the Pod drive through the `files.get`
-RPC, the control plane still enforces that Agent's permissions on the target
-page, so sharing a page file never requires exposing an Agent's personal drive
-to a Human.
-
-The Pod drive also owns a tenant-wide `metadata/` namespace for files that
-belong to the Pod rather than to a Page. `metadata/custom-emoji/<sha256>/<icon
-name>` holds the shared picture library that Page icons use, where the name is
-an ASCII shortcode such as `:my_icon:`, and a Page stores that relative path in
-its `icon` value. Space `page_view` reads the library and
-space `page_edit` adds to it through `/api/v2/pod/metadata/custom-emojis` and
-`/api/v2/pod/metadata/files/content`. Purging a Page leaves these paths in
-place, because they have no Page owner and stay available to the whole Pod.
-
-Replacing a file page advances the page revision and updates the file reference
-in one transaction, while document assets and Base attachments embed their full
-SHA-256 digest in their paths. Publishing an Applet atomically replaces `src/`,
-`dist/`, and the optional `server/main.js` under the new page revision after
-inspecting the backend bundle; publishing an Applet without a backend removes
-any earlier `server/` references. In the browser, the Applet host loads only
-`dist/`, while the control plane loads the backend from the same authorized
-revision and manifest. Readers with `page_view` can list and read only
-`dist/**` and `assets/**`; listing or reading `src/**`, `server/**`,
-`applet.env.json`, `package.json`, `bun.lock`, or `tsconfig.json` requires
-`page_edit`. If a concurrent publication changes the manifest during loading,
-the server rejects digest reads against the stale manifest so the host can
-restart from the new revision. Purging a page or deleting a tenant removes
-`server/` together with the other page paths, leaving unreferenced blobs to the
-garbage collector.
-
-When a Human saves a visible Conversation attachment to Pod, Ankole adds a Pod
-reference to the Message's original content digest rather than copying bytes, so
-moving or overwriting the file in an Agent's drive never alters the saved
-attachment. Similarly, removing an image from a document or moving a page to the
-trash keeps its blobs referenced until page purge deletes the `pages/<page-id>/`
-paths, after which normal live-reference and grace-period collection applies;
-see [Pod Content Model](PodContentModel.md).
-
-Several Agent-drive prefixes carry reserved meanings:
-
-| Prefix | Writer |
+| Table | Purpose |
 | --- | --- |
-| `chats/<channel>/inbox/<digest>/<file name>` | Adapter ingress for a received attachment |
-| `chats/<channel>/inbox/<message ID>/<digest>/<file name>` | A native Human Message attachment |
-| `chats/<channel>/generated/<digest>/<file name>` | AIGateway image generation in a channel conversation |
-| `generated/<digest>/<file name>` | AIGateway image generation without a source channel |
-| `sent/<digest>/<file name>` | Outbound reply attachment committed by the Worker (source `sent`) |
-| `skills/<name>/…` | Console upload or `ankole-files put` |
-| `automation/<folder>-<suffix>/…` | Automation Job registration |
+| `drive_nodes` | Real folder, file, doc, base and applet nodes; topology, name, ACL anchors, trash state and the file's current `object_id` |
+| `file_objects` | Tenant-owned immutable bytes: UUID, storage key, SHA-256, size and completion time |
+| `message_attachments` | Frozen Message references by `(tenant_id, message_id, position)` |
+| `delivery_attachments` | Pending Delivery references by intent identity and position |
+| `pod_files` | Pod-managed resources by `(tenant_id, node_id, path)`; a nullable node identifies tenant metadata such as custom emoji |
+| `pages` | Optional Pod properties keyed by the same node ID |
 
-Here `<digest>` is the first 16 lowercase hexadecimal characters of the content
-SHA-256. Uploading the same bytes with the same filename inside one adapter
-channel or one native Message maps to the exact same path, making retries
-idempotent. Each new native Message includes its `<message ID>` in the prefix so
-it receives clean uploaded bytes even if the Agent modified an earlier copy, and
-separate channels keep independent paths and provenance for identical bytes.
+Every object reference is a tenant-scoped composite foreign key with `RESTRICT`
+on object deletion. A Message attachment's optional node pointer may be cleared
+when its node is removed, while its object reference still retains the bytes.
+Pod resource rows cascade when their owning node is permanently deleted.
+`pod_page_nodes` is a read-only SQL view joining nodes and Pod properties; it is
+not a second topology or a materialized copy.
 
-## Conversation Files and Delivery
+Object keys are `tenants/<tenant-id>/objects/<uuidv7>`. A new write always gets a
+new key and row, even for identical bytes. SHA-256 is calculated during upload
+for integrity and Pod resource idempotency; it is not an object identity or a
+deduplication index. Multiple nodes or attachments can explicitly reference one
+existing object without copying it. Objects are never shared across tenants.
 
-Each conversation channel owns one drive directory at `chats/<channel>/`, whose
-channel ID stays stable across Session resets. Ankole leaves colons and
-URI-unreserved characters literal and percent-encodes all other bytes (including
-encoding each dot when a channel ID is `.` or `..`), preventing any channel ID
-from injecting extra path segments. Received attachments, generated images, and
-channel deliverables live under `chats/<channel>/`, while paths outside `chats/`
-hold shared files, installed Skills, and Automation scripts.
+There is no file version table or recovery API. Overwriting a file changes its
+node's `object_id`; the last successful commit wins. Already-sent attachments
+retain their original object reference. Document history remains Pod's
+`PageSnapshot` feature. An empty file has no object until its first write.
 
-Because the Worker acts as the Agent's personal computer, the Agent can read and
-write across its entire Home directory and drive; Ankole does not enforce
-filesystem or drive read isolation between conversations of the same Agent.
-Instead, the main system prompt names the active workspace and channel drive
-directory, instructing the Agent to keep temporary scratch work in the
-workspace, write durable or outbound deliverables into its `chats/<channel>/`
-directory, and leave other conversations' directories untouched (additionally
-marking DM conversations as private). When a Background Agent Job starts or
-resumes, it receives its originating conversation's drive directory in the same
-way.
+Drive publishes committed node changes on `drive-node:<id>` after the top-level
+transaction succeeds. Pod's page channel consumes that event for both runtime
+and browser writes. File readers compare `object_id` when reconciling missed
+events. Pod file replacement accepts the manifest's `base_object_id` (null for
+an empty file) and rejects a stale value with `manifest_changed`; runtime writes
+use last-commit-wins semantics. Pod document and Applet revisions describe their
+own content, independently of file objects.
 
-At the shared Delivery commit boundary, the control plane enforces outbound
-channel confinement: any attachment under `chats/<channel>/` may be delivered
-only to that exact `<channel>`, covering final replies, `send_message`,
-generated images, and scheduled delivery targets. Files outside `chats/` may be
-delivered to any channel. Because this check inspects the target path rather
-than tracking byte lineage, an Agent that copies or moves a file outside
-`chats/` can deliver it elsewhere; the system prompt rules together with this
-path gate form the supported boundary.
+## Tree and access
 
-## Bytes
+Every tenant has a public root. Members and Agents have private roots initialized
+with their owner's `manage` role; Guests have none. Membership demotion preserves
+a private root but revokes its owner's
+access according to the offboarding rules. Each conversation has a folder root;
+current participants receive view and contribute bits from the authorization
+snapshot, with no persistent grants generated from membership.
 
-Object storage keys every blob at `blobs/<sha256 hex>`. The Rust kernel's
-`object_store` module (built on OpenDAL) executes all reads and writes on the
-kernel's Tokio runtime and supports `fs`, `s3` (including Cloudflare R2),
-`azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and `webdav`.
-Large blobs cross the BEAM-to-Rust boundary through temporary local files, while
-the `d1`, `postgresql`, and `webdav` backends buffer complete objects in native
-memory. `Ankole.ObjectStore` opens the configured backend once per node, and
-only `Ankole.Files` and its garbage-collection job invoke it.
+Names are unique among live siblings. `Ankole.Files.Path` rejects empty, `.` and
+`..` segments, slashes, ASCII/C1 control characters, Unicode bidirectional
+override, embedding, isolate, and mark characters (`U+202A..U+202E`,
+`U+2066..U+2069`, `U+200E`, `U+200F`, `U+061C`), and segments over 255 bytes
+across Drive node creation, rename, upload, and staged chat attachment writes.
+For untrusted external IM attachment filenames and historical entries,
+`Ankole.Files.sanitize_display_path/1` strips bidirectional and control
+characters before prompt formatting, `Content-Disposition` headers, and UI
+display, while browser views wrap rendered names in `<bdi>` isolation. Private
+runtime paths are
+relative and at most 1024 bytes. Roots cannot be moved, renamed or trashed. Files
+are leaves. A node has one parent and one ACL owner; moves recompute affected ACL
+anchors and prevent cycles. Ordinary browser/RPC name collisions receive a
+suffix. Pod display titles can remain empty or duplicated; their Drive names are
+normalized. Renaming a doc, base or applet through Drive updates its Pod title
+through the narrow content-owner callback.
 
-If a control-plane node exits mid-write, an incomplete upload can leave
-unreferenced data in the backend:
+The five permission bits retain role masks 1, 19, 23 and 31:
 
-- **`fs`:** writes stage into `<root>/.tmp` before an atomic rename, and opening
-  the store deletes `.tmp` files left untouched for more than one day.
-- **`s3`:** large writes use multipart uploads and abort on write error, but a
-  terminated process cannot send the abort request; configure a bucket lifecycle
-  rule to abort incomplete multipart uploads automatically.
-- **`sftp`:** writes stage to a sibling file `blobs/<digest>.<uuid>.tmp` and
-  atomically rename it onto the target (requiring server-side atomic replacement
-  such as OpenSSH `posix-rename`). Failed writes delete the `.tmp` file, whereas
-  process termination can leave `blobs/<digest>.<uuid>.tmp` behind; remove stale
-  `.tmp` files during a maintenance window while all control-plane writers are
-  stopped.
+| Bit | Action | Meaning |
+| --- | --- | --- |
+| 1 | `node_view` | Read content and visible descendants |
+| 2 | `node_contribute` | Add children to a folder/conversation, or write Base records and attachments |
+| 4 | `node_edit` | Edit existing content or structure, rename, move and trash |
+| 8 | `node_manage` | Manage access |
+| 16 | `node_comment` | Comment |
+
+Creating directly under the public or private root requires edit. Creating a
+subpage of a doc/base/applet also requires edit because it changes document
+structure. Initial content for an empty file requires contribute on its parent;
+subsequent writes require edit on the file. File contribution grants no other
+operation. An editor's temporary-file rename over an existing file therefore
+requires edit on the destination.
+
+Resource authorization evaluates one executing Principal. Human instruction
+validity remains guarded by `turn_authority`, `WorkAccess`, and Automation
+`AttemptAccess`; Human authentication conditions are not intersected with an
+Agent's resource grants. See [AuthZ](AuthZ.md) for administrative and delegated
+access, and [Pod Content Model](PodContentModel.md) for document operations.
+
+Topology changes acquire the tenant tree lock, resolve affected private roots
+while holding that lock, acquire those root locks in sorted order, and then
+acquire instruction/runtime and row locks. Node-ID content uploads transfer
+bytes outside the transaction; their short commit transaction takes a shared
+tree lock before resolving its root. This allows concurrent content writes
+while preventing an ancestor from moving to another space between root
+selection and commit. Private path writes already know their immutable private
+root and serialize with its snapshot lock. They revalidate existence after
+acquiring that lock: a concurrent move or delete returns `path_changed` instead
+of silently creating a replacement under a higher-ranked lock. Skill catalog
+snapshots share the private-root lock.
+
+Trash hides a subtree immediately. Purge retains a marked root until the
+content-owner callback has removed Base physical tables and Pod data, then
+removes grants and nodes. Interrupted cleanup is retryable. Permanent Principal
+and tenant deletion use the same content-owner boundary.
+
+## Byte writes, reads and collection
+
+1. `Files.store/1` creates an incomplete object row before byte transfer.
+2. An OpenDAL writer consumes the source once, hashing and counting while it
+   writes. The native queue is bounded, uses 8 MiB parts, and acknowledges each
+   chunk before requesting the next. Owner exit or failure aborts the writer.
+3. The transaction that attaches the object locks its row, verifies the upload
+   receipt, sets `completed_at`, and inserts the reference together. Failed
+   attachment leaves an incomplete object for collection.
+
+The hourly collector considers objects older than 24 hours and checks all four
+reference owners centrally. In one PostgreSQL transaction it deletes the
+unreferenced row and inserts a site-scoped `DeleteObject` Oban job containing
+the storage key. Composite foreign keys resolve reference/collection races.
+The job retries byte deletion independently; keys are never reused. Tenant
+cleanup enqueues the same deletion jobs before deleting its object rows.
+
+`Files.read_object_range/3` clips the requested length to the completed object's
+stored size and returns empty bytes at or beyond EOF. It delegates nonempty
+ranges to `ObjectStore.read_range/3`, which reads the offset and length directly through
+OpenDAL. HTTP file endpoints fetch metadata once and send 1 MiB chunks without
+a full control-plane download. They support single closed/open/suffix byte
+ranges, 206, 416, ETag, If-None-Match and If-Range, including empty files.
+Multi-range or malformed Range headers are ignored and return the full response.
+Applet index HTML is read in full only because the host injects its shell.
+
+OpenDAL supports `fs`, `s3` (including R2), `azblob`, `d1`, `cos`, `postgresql`,
+`oss`, `tos`, `gcs`, `sftp`, and `webdav`. Native buffering depends on the backend:
+
+| Backend | Write bound | Basis |
+| --- | --- | --- |
+| D1 | 2,000,000 bytes | Its single BLOB/row bound; no object sharding |
+| PostgreSQL, WebDAV | 100 MiB | Whole-object native buffering; preserve a bounded memory cost |
+| Other backends | No Ankole 100 MiB ceiling | Streaming writer; provider limits still apply |
+
+The protocol's numeric byte bound fits JavaScript's exact integer range. It
+is not a claim that every backend accepts a file of that size. Files RPC, Pod
+file transfer and HTTP multipart paths use the backend bound for uploads and
+the stored object's size for downloads. Other Worker file operations retain
+their default 100 MiB policy, including document XML transfer.
+
+On macOS arm64, isolated native file uploads of 100 MiB peaked at about 482 MiB
+RSS for PostgreSQL and 247 MiB for WebDAV; at 256 MiB they reached about 1.24 GiB
+and 788 MiB respectively. These are local single-process measurements against
+local PostgreSQL and WsgiDAV, not production capacity or concurrency promises.
+D1 rejects oversized writes before remote I/O. Local fs and S3-compatible
+streaming tests cover incremental digest, abort, and range reads; a sparse 5 GiB
+fs object verifies a tail range without allocating the whole object.
+
+For S3-compatible storage, configure lifecycle cleanup of abandoned multipart
+uploads. Process termination may also leave backend temporary files; use the
+backend's documented cleanup procedure. The 24-hour database collector cannot
+abort a provider-side multipart upload whose process died before completion.
+
+## Configuration
 
 Object-store selection is a node bootstrap setting configured through
 environment variables:
@@ -231,198 +217,100 @@ multi-replica deployments require shared network or object storage. Local
 development defaults to `var/ankole-dev/files`, and automated tests isolate
 storage into one directory per test partition.
 
-## Writes
+## Worker access
 
-Writing a file to a drive takes two steps:
+A personal assistant uses its own private root for runtime files, Skills,
+Library documents and execution outputs. Pod's Private navigation resolves the
+assistant's same-tenant owner instead, allowing business tools to work with the
+owner's documents. These roots have separate owners and lifecycles. Creation
+grants the Human owner management access to the assistant's runtime root.
 
-1. **`store/1`** persists the blob bytes: it upserts the `files` row (clearing
-   `deleting` and refreshing `last_referenced_at`) and writes the object to the
-   store.
-2. **`commit/4`** binds stored digests to drive paths and removes deleted paths
-   in one PostgreSQL transaction. For each digest, it runs a row-locking update
-   that skips rows marked `deleting`, preventing a blob already claimed by
-   garbage collection from gaining a new path reference. If any digest is
-   missing or marked `deleting`, `commit/4` rolls back the entire transaction
-   with `{:blob_missing, sha256}`.
+The runtime uses `ankole-files` against the same Drive tree while the FUSE
+release gate is unresolved:
 
-Commits, moves, and deletes all acquire the same per-Agent transaction lock
-before reading or mutating paths, and both `commit` and `move` validate the
-complete resulting path tree to reject file-versus-parent prefix collisions
-atomically. Consequently, deleting `a` and creating `a/b` (or vice versa) within
-a single commit succeeds cleanly.
+- `ankole-files list [<folder>] [--after <path>]` lists private files with stable
+  `node_id`, current `object_id`, and a manifest revision for cache preparation.
+- `ankole-files get <private-path> [--output <local-path>]` reads private files;
+  `ankole-files get <node-id> --node` reads another shared file after node access
+  checks.
+- `ankole-files put <local-path> <private-path>` uploads every write; it never
+  skips transfer by looking up a hash.
+- `ankole-files rm <private-path>` trashes the matching file or subtree.
 
-Every hour, the Oban cron job `Ankole.Files.Jobs.CollectUnreferenced` sweeps old
-`files` rows that have no drive path, Conversation attachment, or uncompleted
-Delivery attachment reference. It first marks eligible rows `deleting` and then processes marked rows in
-batches of 100: it deletes the database row only if that row remains
-unreferenced, and then deletes the object from storage. If a new write
-calls `store/1` on a marked digest before removal, `store/1` clears `deleting`.
-A 24-hour grace period protects newly stored blobs between `store/1` and
-`commit/4`.
+Files RPC transfers bytes through a signed, one-time WorkerFiles relay. Every
+upload verifies declared size and an optional caller digest before committing;
+there is no hash shortcut, transfer bundle, or second staging upload. A Worker
+has only its execution credentials and relay URL. The RuntimeFabric protocol requires
+a coordinated control-plane/Worker upgrade.
 
-## Worker Access
+The final design's FUSE release requires actual mounts on all six supported
+Worker providers. Current Kubernetes isolation lacks the required mount access,
+so FUSE is postponed as required by gate C1. No `/drive` mount or inode cache is
+advertised as shipped, and the security baseline is unchanged. See
+[Agent Workers](AgentWorkers.md) for provider evidence and the remaining gate.
 
-Workers never hold object-store credentials. Instead, three RuntimeFabric RPCs
-in the `worker_agent` scope expose the drive belonging to the connection's
-Agent:
+## Attachments and Pod resources
 
-| Method | Result |
-| --- | --- |
-| `files.list` | Lists files under a prefix in path order with pagination; passing an exact file path returns that single file |
-| `files.get` | Streams one drive file to a target path inside the calling Worker's Agent Home |
-| `files.commit` | Binds files from the calling Worker's Agent Home to drive paths and removes deleted drive paths |
+Conversation attachments freeze the object in `message_attachments`, addressed
+by Message ID and position. Display name, MIME type and legacy JSON fields do
+not keep an object alive. Two equally named attachments remain distinct.
+Downloads authorize current conversation membership, or current `node_view`
+on the host node of an `anchor_page` conversation, then read the frozen object, even if the original node was overwritten, renamed or deleted. The
+runtime command is `ankole-pod chat attachment get <conversation-id>
+<message-id> <position> --to <local-path>`. Saving an attachment creates a node
+referencing the same object.
 
-File bytes never travel inside JSON/Protobuf RPC payloads; instead, the control
-plane streams them over the calling Worker's
-[WorkerFiles relay](RuntimeFabric.md#worker-files), with a 100 MiB cap per
-transfer. During `files.commit`, the control plane skips transferring any digest
-already present in that Agent's drive, and it transfers shared bytes only once
-even when several upserts in the batch share a digest. Files under the same
-top-level folder of Agent Home are packed into relay bundles of up to
-100 MiB using each upsert's declared byte size, while a single file in its own
-top-level group transfers unbundled.
+`reply_attachment` accepts `node_id`; `send_message` accepts attachment node
+IDs. The control plane authorizes node view and captures the current completed
+object. Pending, failed and unknown Delivery intents retain relational object
+references. Confirmed delivery transfers that hold to the public Message in the
+same transaction; expired references are cleared while presentation metadata is
+retained. A file's path is not an authority or a delivery confinement rule.
 
-On the control plane, `WorkerFiles.with_received_file/3` streams a single
-incoming file into a temporary local file and waits for both the stream EOF and
-the final Worker RPC response before invoking the domain callback. Both stream
-reception and the callback execute in the caller's BEAM process under the
-caller's tenant context, and `with_received_file/3` deletes the temporary file
-on every exit path. Relay failures return their declared error tuples, unexpected
-exceptions propagate, and Pod or drive callers still enforce path validation,
-authorization, SHA-256 verification, and durable commits. Multi-file bundles use
-their own dedicated receiver.
+Inbound attachments and generated images with a conversation belong to its
+root. Generated images without a conversation belong to the Agent private root.
+Giving the same object to multiple nodes is explicit reference sharing, not
+hash deduplication. Presentation never searches model prose for attachments.
 
-Inside a turn, the `ankole-files` CLI exposes these operations to the model:
+Screenshots embedded in documents, Base cell attachments and Applet source
+remain Pod-managed `pod_files`; they do not clutter Drive listings. Pod checks
+node view for `dist/` and `assets/`, and node edit for source and server files.
+Applet publication binds all object references and its manifest atomically.
+Custom emoji have no node owner and survive individual page purge. These
+resources are accessible through `ankole-pod`, including `applet pull`.
 
-- `ankole-files list [<folder>] [--after <path>]` (when truncated, pass the
-  returned `next_after` value to `--after` for the next page)
-- `ankole-files get <drive path> [--output <local path>]` (defaults to
-  `drive/<path>` inside the current workspace)
-- `ankole-files put <local path> <drive path>` (uploads a single file or all
-  regular files under a directory while skipping symlinks)
-- `ankole-files rm <drive path>`
+## Skills and Automation
 
-## Attachments
+Installed Skills remain under `skills/<name>/` in the Agent private tree.
+Drive snapshots synchronize their authoritative catalog and preserve operator
+enablement. Workers cache a manifest of path, object ID and mode, verify received
+hashes and sizes, and fail preparation if a multi-page manifest changes.
 
-Before downloading an inbound attachment, IM adapters record a pending
-observation. `Conversations.Attachments` manages attachment persistence,
-download outcomes, redelivery deduplication, and stable numeric attachment IDs
-in PostgreSQL. After streaming the bytes through
-`Conversations.Attachments.store_attachment/3`, the adapter records a completed
-or failed observation under the same provider identity. Completed attachments
-record `blob_ref`, drive `path`, and byte `size`, and later webhook redeliveries
-cannot overwrite stored bytes with a pending or failed state. The same rule
-applies to an ignored group entry that has no Message: its inbound batch entry
-keeps the stored bytes of the last observation of that provider message.
+Automation registration writes its source to a fresh `automation/<name>/`
+private directory. Every run materializes that directory and selected Skills
+into an isolated execution directory in Agent Home. Human employment and
+`access_version` validate the instruction; Drive access uses the Agent executor.
+See [Automation Jobs](AutomationJobs.md).
 
-Inbound paths are scoped by the public Conversation UUID at
-`chats/<conversation_id>/inbox/<digest>/<filename>` rather than raw provider
-room or message IDs. When multiple Agents observe or read the same Message,
-`Conversations.Attachments` links the shared blob into each Agent's drive
-separately, where the model can fetch it via `ankole-files get` (and where
-vision input reads from the same file owner).
+## Site Console
 
-For outbound files, the `reply_attachment` tool accepts only a `drive_path`
-(plus an optional display name and MIME type), so an Agent must upload local
-workspace files with `ankole-files put` first. When `reply_attachment` runs, the
-control plane records the drive path and its current SHA-256 digest; Delivery
-payloads carry `path`, `blob_ref`, `name`, `mime_type`, and `size` directly
-without duplicating the file under `sent/`.
-
-At the terminal turn commit, the control plane verifies both that the Agent's
-drive still maps `drive_path` to that exact digest and that any path under
-`chats/<conversation_id>/` matches the destination Conversation. If the Agent
-changed or deleted the file beforehand, the control plane rejects the
-attachment. Outbound adapters then fetch confirmed bytes by `blob_ref`; if the
-blob is missing from object storage, delivery fails with
-`attachment_file_missing`.
-
-Committing a Delivery intent locks and refreshes every referenced `files` row,
-and garbage collection checks uncompleted Delivery references across all
-tenants. Consequently, an unsent Delivery intent retains its blob bytes even if
-the Agent deletes the last drive path, releasing that hold only once the
-provider confirms delivery or the intent is deleted.
-
-Generated images belong to AIGateway, and `Sessions.Presentation` writes their
-bytes into the Agent's drive under `chats/<conversation_id>/generated/` (or
-shared `generated/` when there is no source Conversation). Presentation never
-parses model prose to auto-attach file paths.
-
-## Skills and Automation Scripts
-
-An Agent-installed Skill lives in the drive subtree `skills/<name>/`. Under the
-same per-Agent lock used for path writes, the control plane reads Skill
-manifests from the drive to synchronize the Skill catalog, committing catalog
-updates only after all manifest reads succeed and preserving any operator
-`enabled_override`. Cached files on a Worker never define the authoritative
-catalog.
-
-While the control plane reads `SKILL.md` instructions directly from the drive on
-demand, updated Skill helper scripts and MCP configurations take effect when the
-Worker prepares the next Turn or Automation run.
-
-Before starting a Turn or Automation Job run, the Worker synchronizes its local
-`installed-skills/` cache with the drive one preparation at a time (serializing
-both the drive listing and the local index write, though a failed sync never
-blocks the next attempt):
-
-1. Every `files.list` page includes a manifest digest computed across all paths,
-   content hashes, and file modes under the drive transaction lock, and the
-   Worker requires every page in the walk to report the identical manifest
-   digest.
-2. Using a local index of `(size, mtime, digest)` to avoid re-hashing unchanged
-   files, the Worker deletes indexed files removed from the drive, downloads
-   added or modified files, updates file permissions even when bytes are
-   unchanged, and leaves untracked local files alone.
-3. Every downloaded file must match its listed digest, size, and mode on disk.
-   If the drive changes mid-walk or a download fails, preparation aborts before
-   execution starts (which an Automation Job records as a retryable
-   infrastructure failure), allowing the next attempt to read the new revision.
-
-An Automation Job script lives in its registered `drive_prefix` under
-`automation/` and must contain `main.ts`. During registration, the Worker copies
-the local directory to a fresh `automation/<folder>-<suffix>/` prefix: if the
-control plane explicitly rejects registration, the Worker deletes that folder,
-whereas if the RPC outcome is indeterminate, the Worker leaves the folder intact
-and instructs the caller to list existing jobs before retrying. On each run, the Worker copies the script folder and its installed Skills into a
-fresh run directory in Agent Home, executes `main.ts` there, and deletes the run
-directory afterward so later cache updates cannot change that run's Skill files;
-see [Automation Jobs](AutomationJobs.md).
-
-## Console
-
-The Agent files page in the Console provides a full drive browser (listing
-folders, downloading, uploading files or entire folders, moving, renaming, and
-deleting) backed directly by `Ankole.Files`, so every operation works even when
-the Agent has no running Worker:
-
-- Selecting files or a directory uploads them into the current folder while
-  preserving relative paths inside an uploaded directory (for example, uploading
-  a Skill directory populates `skills/<name>/` in one step).
-- Clicking a filename downloads its bytes.
-- **Rename** changes a file or folder's leaf name within the same parent folder,
-  whereas **Move** changes its parent folder while keeping the leaf name; both
-  update every path under a moved folder in a single transaction regardless of
-  subtree size, and if a move fails, the dialog retains the entered destination
-  for easy retry.
-- Folder listings return up to 1,000 child folders and 1,000 files; if a folder
-  contains more entries, the API marks the response `truncated` and the UI notes
-  that the listing is partial.
+The Console Drive browser lists all roots of the selected tenant, including
+Human and Agent private roots and conversation roots, without an online Worker.
+It supports breadcrumbs, cursor pagination, folder creation, upload of files
+and directory trees, download, move, rename and trash. Roots are immutable.
 
 | Route | Operation |
 | --- | --- |
-| `GET /api/v2/agents/:agent_uid/files?path=` | List folders and files inside one folder |
-| `GET /api/v2/agents/:agent_uid/files/content?path=` | Download one file |
-| `POST /api/v2/agents/:agent_uid/files` | Upload one file (multipart: `path`, `file`) |
-| `POST /api/v2/agents/:agent_uid/file-moves` | Move or rename a file or folder |
-| `DELETE /api/v2/agents/:agent_uid/files?path=` | Delete a file, or a folder and every file inside it |
+| `GET /api/v2/drive/:tenant_id/nodes` | List roots or children by `parent_id`, optionally `after` and `limit` |
+| `POST /api/v2/drive/:tenant_id/nodes` | Create a folder or empty file |
+| `PATCH /api/v2/drive/:tenant_id/nodes/:id` | Move or rename |
+| `DELETE /api/v2/drive/:tenant_id/nodes/:id` | Trash a subtree |
+| `POST /api/v2/drive/:tenant_id/uploads` | Multipart `parent_id`, `name`, `file` |
+| `GET /api/v2/drive/:tenant_id/nodes/:id/content` | Download current file bytes |
 
-Metadata endpoints run through the `Ankole.Files` Ash domain and JSON:API, while
-multipart uploads and raw downloads use the two byte-transfer routes above; the
-Console calls both through a single HTTP client sharing session, CSRF, and
-tenant headers. If the destination path of a move already exists, the server
-rejects the move and leaves both source and destination untouched (there is no
-overwrite option).
-
-Console file operations check the AuthZ resource `site_console:agent:<uid>:files`
-with actions `read`, `update`, and `delete`.
+These actions check `site_console:drive` in the privileged tenant using read,
+update or delete. Creating and uploading use update, preserving existing
+administrative action semantics and CEL conditions. Site administration does
+not grant an Agent runtime access. `tenant_console` retains its existing scope.
+See [the upgrade guide](../upgrades/unified-drive.md) before applying the one-time
+migration; old writers must be stopped before topology and object ownership move.

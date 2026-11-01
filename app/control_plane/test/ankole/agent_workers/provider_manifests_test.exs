@@ -21,9 +21,9 @@ defmodule Ankole.AgentWorkers.ProviderManifestsTest do
   test "instance names use the installation, Agent hash, and generation; storage omits generation" do
     home = ProviderKind.storage_name("prod", "agent-a")
     name = ProviderKind.instance_name("prod", "agent-a", "gen0000001")
-    assert home == "ankole-prod-#{ProviderKind.hash16("agent-a")}"
+    assert home == "ankole-prod-#{ProviderKind.agent_hash("agent-a")}"
     assert name == home <> "-gen0000001"
-    assert String.length(ProviderKind.hash16("agent-a")) == 16
+    assert String.length(ProviderKind.agent_hash("agent-a")) == 16
     assert String.length(name) <= 63
   end
 
@@ -117,7 +117,7 @@ defmodule Ankole.AgentWorkers.ProviderManifestsTest do
     assert pod["metadata"]["name"] == name
     assert pod["metadata"]["labels"]["ankole.io/provider"] == "local"
     assert pod["metadata"]["labels"]["ankole.tenant"] == @tenant_id
-    assert pod["metadata"]["labels"]["ankole.io/agent"] == ProviderKind.hash16("agent-a")
+    assert pod["metadata"]["labels"]["ankole.io/agent"] == ProviderKind.agent_hash("agent-a")
     assert pod["metadata"]["labels"]["ankole.io/generation"] == "gen0000001"
     assert pod["metadata"]["annotations"]["ankole.io/agent-uid"] == "agent-a"
     assert pod["metadata"]["ownerReferences"] == [owner()]
@@ -159,7 +159,7 @@ defmodule Ankole.AgentWorkers.ProviderManifestsTest do
     assert secret["stringData"] == %{"ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => "token-a"}
   end
 
-  test "Kubernetes mounts shared home by full Agent UID and cache PVC by Agent identity" do
+  test "Kubernetes mounts shared home and cache PVC by tenant-qualified Agent identity" do
     base = provider(Kubernetes)
 
     provider =
@@ -178,7 +178,7 @@ defmodule Ankole.AgentWorkers.ProviderManifestsTest do
 
     [worker] = pod["spec"]["containers"]
 
-    assert %{"name" => "home", "mountPath" => "/workspace", "subPath" => "agent-a"} in worker[
+    assert %{"name" => "home", "mountPath" => "/workspace", "subPath" => home} in worker[
              "volumeMounts"
            ]
   end

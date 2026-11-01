@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { EXTERNAL_TRANSLATION_GUARD_ATTRS, withExternalTranslationGuardClass } from './external-translation-guard'
 
 /**
  * The react-markdown pipeline behind `MarkdownBody`. It lives in its own
@@ -28,7 +29,9 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => () => clearTimeout(timer.current), [])
   return (
-    <div className="my-2 overflow-hidden border border-border bg-card">
+    <div
+      {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+      className={withExternalTranslationGuardClass('my-2 overflow-hidden border border-border bg-card')}>
       <div className="flex justify-end border-b border-border px-2 py-1">
         <Button
           variant="ghost"
@@ -61,7 +64,12 @@ const COMPONENTS: Components = {
   p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
   strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
   a: ({ children, href }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="link">
+    <a
+      {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={withExternalTranslationGuardClass('link')}>
       {children}
     </a>
   ),
@@ -71,7 +79,12 @@ const COMPONENTS: Components = {
     const href = typeof src === 'string' && src ? src : undefined
     const label = alt?.trim() || href
     return href ? (
-      <a href={href} target="_blank" rel="noreferrer" className="link">
+      <a
+        {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className={withExternalTranslationGuardClass('link')}>
         {label}
       </a>
     ) : (
@@ -92,10 +105,18 @@ const COMPONENTS: Components = {
   h5: ({ children }) => <h5 className="mt-3 mb-1.5 text-sm font-semibold first:mt-0">{children}</h5>,
   h6: ({ children }) => <h6 className="mt-3 mb-1.5 text-sm font-semibold first:mt-0">{children}</h6>,
   code: ({ children, className }) => (
-    <code className={cn('bg-muted px-1 py-0.5 font-mono text-[0.8125em]', className)}>{children}</code>
+    <code
+      {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+      className={cn(withExternalTranslationGuardClass('bg-muted px-1 py-0.5 font-mono text-[0.8125em]'), className)}>
+      {children}
+    </code>
   ),
   pre: ({ children }) => (
-    <pre className="my-2 max-h-96 overflow-auto border border-border bg-card p-3 font-mono text-xs leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-xs">
+    <pre
+      {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+      className={withExternalTranslationGuardClass(
+        'my-2 max-h-96 overflow-auto border border-border bg-card p-3 font-mono text-xs leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-xs'
+      )}>
       {children}
     </pre>
   ),

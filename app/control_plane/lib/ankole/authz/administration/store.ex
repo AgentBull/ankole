@@ -21,7 +21,7 @@ defmodule Ankole.AuthZ.Store do
   @max_external_directory_ancestor_depth 100
 
   def delete_operator_group(name) do
-    Ankole.Pod.Pages.lock_tree()
+    Ankole.Files.lock_tree_in_tx()
 
     with {:ok, group} <- lock_group_by_name(name),
          :ok <- ensure_operator_group(group),
@@ -207,7 +207,7 @@ defmodule Ankole.AuthZ.Store do
   # the one installation-wide admin lock order (group, then principal).
   def ensure_can_disable_principal(principal_uid, admin_group_name \\ "siteadmin") do
     with {:ok, _} <- Ankole.Tenants.lock_administration(),
-         :ok <- Ankole.Pod.Pages.lock_tree(),
+         :ok <- Ankole.Files.lock_tree_in_tx(),
          {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
          admin_groups <- lock_admin_groups_for_update(admin_group_name),
          {:ok, principal} <- fetch_principal_for_update(principal_uid) do

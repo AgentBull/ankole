@@ -31,8 +31,11 @@ defmodule Ankole.Conversations.Assertions do
       end)
 
     case Repo.one(query) do
-      nil -> nil
-      {m, r} -> observation_snapshot(%{message: m, external_ref: r})
+      nil ->
+        nil
+
+      {m, r} ->
+        observation_snapshot(%{message: Ankole.Conversations.get_message!(m.id), external_ref: r})
     end
   end
 

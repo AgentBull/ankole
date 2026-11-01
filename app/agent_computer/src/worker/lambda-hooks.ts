@@ -6,6 +6,7 @@ const readyFile = '/run/ankole-entry-ready'
 const task = process.env.ANKOLE_WORKER_TASK
 const allowedKeys = new Set([
   'WORKER_ID',
+  'ANKOLE_WORKER_STORAGE_NAME',
   'ANKOLE_RUNTIME_FABRIC_ENDPOINT',
   'ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY',
   'ANKOLE_WORKER_STORAGE',
@@ -26,7 +27,7 @@ function contract(payload: string): Record<string, string> {
     if (!allowedKeys.has(key) || typeof entry !== 'string') throw new Error('Invalid contract field')
   }
   const env = value as Record<string, string>
-  if (!/^[a-z0-9][a-z0-9._-]{0,95}$/.test(env.WORKER_ID ?? '')) throw new Error('Invalid Agent UID')
+  if (!/^[a-z0-9][a-z0-9._@+-]{0,95}$/.test(env.WORKER_ID ?? '')) throw new Error('Invalid Agent UID')
   if (env.ANKOLE_WORKER_STORAGE !== 'nfs' || !env.ANKOLE_WORKER_NFS_SOURCE) {
     throw new Error('NFS source is required')
   }

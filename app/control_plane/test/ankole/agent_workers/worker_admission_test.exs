@@ -11,7 +11,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
       route = unique_route()
       assert {:ok, admitted} = admit_worker(route, %{worker_id: agent.uid})
       assert :ok = WorkerAdmission.expire_connection(agent.uid)
-      assert Repo.get!(AgentWorker, agent.uid).transport_route == route
+      assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).transport_route == route
 
       state_changed_at = DateTime.add(DateTime.utc_now(:microsecond), -120, :second)
 
@@ -25,7 +25,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
       )
 
       assert :ok = WorkerAdmission.expire_connection(agent.uid)
-      expired = Repo.get!(AgentWorker, agent.uid)
+      expired = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
       assert expired.transport_route == nil
       assert expired.generation == admitted.generation
       assert expired.state == if(state == :draining, do: :draining, else: :stale)
@@ -35,7 +35,11 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
         else: assert(DateTime.compare(expired.state_changed_at, state_changed_at) == :gt)
 
       assert :ok = WorkerAdmission.expire_connection(agent.uid)
-      Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, agent.uid), expired)
+
+      Ankole.DataCase.assert_persisted_equal(
+        Repo.get_by!(AgentWorker, agent_uid: agent.uid),
+        expired
+      )
     end
   end
 
@@ -49,14 +53,14 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
              admit_worker(route, %{worker_id: uid, capacity: %{"available_slots" => 1}})
 
     assert_receive {:worker_changed, ^uid}
-    assert Repo.get!(AgentWorker, uid).state == :ready
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).state == :ready
 
     assert {:ok, _} = report_capacity(worker, route, 0)
     assert_receive {:worker_changed, ^uid}
-    assert AgentWorker.available_slots(Repo.get!(AgentWorker, uid)) == 0
+    assert AgentWorker.available_slots(Repo.get_by!(AgentWorker, agent_uid: uid)) == 0
     assert {:ok, _} = report_capacity(worker, route, 1)
     assert_receive {:worker_changed, ^uid}
-    assert AgentWorker.available_slots(Repo.get!(AgentWorker, uid)) == 1
+    assert AgentWorker.available_slots(Repo.get_by!(AgentWorker, agent_uid: uid)) == 1
     assert {:ok, _} = report_capacity(worker, route, 1)
     refute_receive {:worker_changed, ^uid}, 50
 
@@ -70,10 +74,10 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
              )
 
     assert_receive {:worker_changed, ^uid}
-    assert Repo.get!(AgentWorker, uid).state == :draining
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).state == :draining
     assert {:ok, :marked_stale} = WorkerAdmission.mark_route_unusable(route, :socket_closed)
     assert_receive {:worker_changed, ^uid}
-    assert Repo.get!(AgentWorker, uid).transport_route == nil
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).transport_route == nil
   end
 
   test "a former connection or process changes neither capacity nor the wake stream (G6)" do
@@ -87,7 +91,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
              report_capacity(%{worker | incarnation_id: "former"}, route, 2)
 
     assert %AgentWorker{capacity: %{"available_slots" => 4}} =
-             Repo.get!(AgentWorker, worker.agent_uid)
+             Repo.get_by!(AgentWorker, agent_uid: worker.agent_uid)
 
     refute_receive {:worker_changed, _uid}, 50
   end
@@ -101,7 +105,11 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
     assert {:error, :worker_incarnation_active} =
              admit_worker(unique_route(), %{worker_id: agent.uid, incarnation_id: "competing"})
 
-    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, agent.uid), worker)
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get_by!(AgentWorker, agent_uid: agent.uid),
+      worker
+    )
+
     refute_receive {:worker_changed, _uid}, 50
   end
 
@@ -154,7 +162,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
   test "a join owns its transaction and runs only as a top-level call" do
     %{principal: agent} = agent_fixture()
     :ok = provision_worker(agent.uid)
-    generation = Repo.get!(AgentWorker, agent.uid).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: agent.uid).generation
     auth = %{transport_route: unique_route(), worker_id: agent.uid, generation: generation}
     ready = %{incarnation_id: "nested", max_slots: 1, available_slots: 1}
 
@@ -162,7 +170,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
       Repo.transact(fn -> WorkerAdmission.admit_join(ready, auth) end)
     end
 
-    assert Repo.get!(AgentWorker, agent.uid).state == :starting
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :starting
   end
 
   defp report_capacity(worker, route, available_slots) do

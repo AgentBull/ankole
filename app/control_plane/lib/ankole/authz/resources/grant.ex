@@ -1,5 +1,5 @@
 defmodule Ankole.AuthZ.Grant do
-  @moduledoc "Permission grant owned by one Principal, one group, or one Page audience."
+  @moduledoc "Permission grant owned by one Principal, one group, or one Drive node audience."
   use Ankole.Ash.Resource,
     authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
@@ -32,9 +32,9 @@ defmodule Ankole.AuthZ.Grant do
   @fields [
     :principal_uid,
     :group_id,
-    :source_page_id,
+    :source_node_id,
     :source_action,
-    :target_page_id,
+    :target_node_id,
     :target_scope,
     :resource_pattern,
     :action,
@@ -51,9 +51,9 @@ defmodule Ankole.AuthZ.Grant do
     default_fields([
       :principal_uid,
       :group_id,
-      :source_page_id,
+      :source_node_id,
       :source_action,
-      :target_page_id,
+      :target_node_id,
       :target_scope,
       :resource_pattern,
       :action,
@@ -76,8 +76,8 @@ defmodule Ankole.AuthZ.Grant do
     foreign_key_names([
       {:principal_uid, "permission_grants_principal_uid_fkey"},
       {:group_id, "permission_grants_group_id_fkey"},
-      {:source_page_id, "permission_grants_source_page_fkey"},
-      {:target_page_id, "permission_grants_target_page_fkey"}
+      {:source_node_id, "permission_grants_source_node_fkey"},
+      {:target_node_id, "permission_grants_target_node_fkey"}
     ])
 
     unique_index_names([
@@ -85,19 +85,19 @@ defmodule Ankole.AuthZ.Grant do
        "permission_grants_principal_natural_index"},
       {[:group_id, :resource_pattern, :action, :condition],
        "permission_grants_group_natural_index"},
-      {[:source_page_id, :source_action, :resource_pattern, :action, :condition],
+      {[:source_node_id, :source_action, :resource_pattern, :action, :condition],
        "permission_grants_userset_natural_index"}
     ])
 
     identity_wheres_to_sql(
       principal_rule: "principal_uid IS NOT NULL",
       group_rule: "group_id IS NOT NULL",
-      userset_rule: "source_page_id IS NOT NULL"
+      userset_rule: "source_node_id IS NOT NULL"
     )
 
     check_constraints do
       check_constraint(:principal_uid, "permission_grants_owner_shape")
-      check_constraint(:resource_pattern, "permission_grants_pod_action_shape")
+      check_constraint(:resource_pattern, "permission_grants_drive_action_shape")
       check_constraint(:resource_pattern, "permission_grants_resource_pattern_present")
       check_constraint(:action, "permission_grants_action_present")
       check_constraint(:action, "permission_grants_action_no_colon")
@@ -116,9 +116,9 @@ defmodule Ankole.AuthZ.Grant do
 
     attribute(:principal_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
     attribute(:group_id, Ankole.Ash.Types.UUIDv7, public?: true)
-    attribute(:source_page_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:source_node_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:source_action, :string, public?: true)
-    attribute(:target_page_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:target_node_id, Ankole.Ash.Types.UUIDv7, public?: true)
 
     attribute(:target_scope, :string,
       public?: true,
@@ -136,12 +136,11 @@ defmodule Ankole.AuthZ.Grant do
   identities do
     identity(
       :userset_rule,
-      [:source_page_id, :source_action, :resource_pattern, :action, :condition],
-      where: expr(not is_nil(source_page_id))
+      [:source_node_id, :source_action, :resource_pattern, :action, :condition],
+      where: expr(not is_nil(source_node_id))
     )
 
     identity(:principal_rule, [:principal_uid, :resource_pattern, :action, :condition],
-      all_tenants?: true,
       where: expr(not is_nil(principal_uid))
     )
 

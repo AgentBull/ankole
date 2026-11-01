@@ -132,7 +132,7 @@ export function SchedulesListPage() {
       row.binding_name,
       row.agent_uid,
       agent?.display_name,
-      agent?.handle,
+      agent?.uid,
       row.owner_session_id,
       row.status,
       scheduleStatusLabel(t, row.status),
@@ -759,8 +759,8 @@ export function ScheduleCronEditorPage() {
             <ReadOnlyValue>
               {selectedAgent
                 ? selectedAgent.display_name
-                  ? `${selectedAgent.display_name} · ${selectedAgent.handle}`
-                  : selectedAgent.handle
+                  ? `${selectedAgent.display_name} · ${selectedAgent.uid}`
+                  : selectedAgent.uid
                 : agentUID || '—'}
             </ReadOnlyValue>
           ) : (
@@ -771,7 +771,7 @@ export function ScheduleCronEditorPage() {
               <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
                 {agentList.map(agent => (
                   <SelectItem key={agent.uid} value={agent.uid}>
-                    {agent.display_name} · {agent.handle}
+                    {agent.display_name} · {agent.uid}
                   </SelectItem>
                 ))}
               </SelectContent>

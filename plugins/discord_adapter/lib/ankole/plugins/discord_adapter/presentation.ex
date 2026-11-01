@@ -19,7 +19,12 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
   def render(presentation, signal_id)
       when is_map(presentation) and is_binary(signal_id) do
     presentation = ReplyPresentation.normalize(presentation)
-    text = ReplyPresentation.fallback_text(presentation)
+
+    text =
+      presentation
+      |> ReplyPresentation.fallback_text()
+      |> Ankole.Kernel.repair_generated_markdown()
+
     components = components(presentation, signal_id)
 
     chunks(text)

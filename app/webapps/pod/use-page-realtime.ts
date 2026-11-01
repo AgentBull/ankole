@@ -8,7 +8,7 @@ import { isRealtimeAccessDenied, type PodRealtime } from './realtime'
 const pageJoinTimeoutMs = 10_000
 
 /** File and Applet publications share invalidation; document OT owns its own connection. */
-export function usePageRealtime(pageID: string, revision: number) {
+export function usePageRealtime(pageID: string, revision: number, objectID?: string | null) {
   const { realtime } = useContent()
   const client = useQueryClient()
   const [revoked, setRevoked] = useState(false)
@@ -16,8 +16,15 @@ export function usePageRealtime(pageID: string, revision: number) {
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     setError(undefined)
-    return watchPageRealtime(realtime, client, pageID, revision, { revoked: () => setRevoked(true), failed: setError })
-  }, [pageID, revision, realtime, client, attempt])
+    return watchPageRealtime(
+      realtime,
+      client,
+      pageID,
+      revision,
+      { revoked: () => setRevoked(true), failed: setError },
+      objectID
+    )
+  }, [pageID, revision, objectID, realtime, client, attempt])
   return { revoked, error, retry: () => setAttempt(value => value + 1) }
 }
 
@@ -26,7 +33,8 @@ export function watchPageRealtime(
   client: QueryClient,
   pageID: string,
   revision: number,
-  page: { revoked(): void; failed(error: Error): void }
+  page: { revoked(): void; failed(error: Error): void },
+  objectID?: string | null
 ) {
   let disposed = false
   let timedOut = false
@@ -55,14 +63,17 @@ export function watchPageRealtime(
       if (disposed || timedOut) return handle.close()
       close = handle.close
       handle.on('changes', () => void client.invalidateQueries({ queryKey: contentKeys.page(pageID) }))
+      handle.on('comments_changed', () => void client.invalidateQueries({ queryKey: contentKeys.comments(pageID) }))
       handle.on('access_revoked', revoke)
       void handle.ready.then(() => clearTimeout(joining), failed)
     })
     .catch(failed)
-  const unwatch = realtime.watchVersion('pages', pageID, next => {
+  const unwatch = realtime.watchVersion('pages', pageID, (next, nextObjectID) => {
     if (disposed) return
     if (next === undefined) revoke()
-    else if (next !== revision) void client.invalidateQueries({ queryKey: contentKeys.page(pageID) })
+    else if (objectID === undefined ? next !== revision : nextObjectID !== objectID) {
+      void client.invalidateQueries({ queryKey: contentKeys.page(pageID) })
+    }
   })
   return () => {
     disposed = true

@@ -252,7 +252,16 @@ defmodule Ankole.Pod.CopyRegressionTest do
     assert row["data"][fields["Mixed"].id] == row["data"][fields["Files"].id]
     path = hd(row["data"][fields["Mixed"].id])["path"]
     assert String.starts_with?(path, "pages/#{copied.page.id}/attachments/")
-    assert {:ok, _} = Ankole.Files.fetch(:pod, path)
+
+    assert {:ok, copied_file} =
+             Ankole.Pod.Files.fetch_file(
+               copied.page.id,
+               String.replace_prefix(path, "pages/#{copied.page.id}/", "")
+             )
+
+    assert {:ok, original_file} = Ankole.Pod.Files.fetch_file(ctx.page.id, uploaded.file.path)
+    assert copied_file.object_id == original_file.object_id
+    assert {:ok, "bytes"} = Ankole.Files.read_object(copied_file.object_id)
   end
 
   test "links become independent text and their formulas adopt the copied value type",

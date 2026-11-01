@@ -1,7 +1,19 @@
 import { Button, toast } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiFileTextLine } from '@remixicon/react'
 import { Link } from '@tanstack/react-router'
-import { Children, isValidElement, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from 'react'
+import {
+  Children,
+  createContext,
+  isValidElement,
+  lazy,
+  Suspense,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -9,27 +21,61 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import { podLocation, podRouteID } from '../../common/browser-context'
+import { ErrorBoundary } from '../../common/error-boundary'
+import {
+  EXTERNAL_TRANSLATION_GUARD_ATTRS,
+  withExternalTranslationGuardClass
+} from '../../common/external-translation-guard'
 import { CodeBlockView } from './code-block-view'
 import { ZoomableImage } from './zoomable-image'
 import { cjkAutolinks } from './cjk-autolinks'
+import { repairGeneratedMarkdown } from './repair-generated-markdown'
 
-export default function MarkdownRenderer({ text }: { text: string }) {
+const LazyMermaidDiagram = lazy(() => import('./mermaid/mermaid-diagram'))
+const StreamingMarkdownContext = createContext(false)
+
+const HUMAN_REMARK_PLUGINS = [remarkGfm, remarkMath, cjkAutolinks]
+const AGENT_REMARK_PLUGINS = [remarkGfm, remarkMath, repairGeneratedMarkdown, cjkAutolinks]
+
+export default function MarkdownRenderer({
+  text,
+  generated = false,
+  streaming = false
+}: {
+  text: string
+  generated?: boolean
+  streaming?: boolean
+}) {
   return (
-    <Markdown
-      remarkPlugins={[remarkGfm, remarkMath, cjkAutolinks]}
-      rehypePlugins={[rehypeKatex]}
-      components={components}
-      urlTransform={url => (url.startsWith('ankole:page/') ? url : defaultUrlTransform(url))}>
-      {text}
-    </Markdown>
+    <StreamingMarkdownContext.Provider value={streaming}>
+      <Markdown
+        remarkPlugins={generated ? AGENT_REMARK_PLUGINS : HUMAN_REMARK_PLUGINS}
+        rehypePlugins={[rehypeKatex]}
+        components={components}
+        urlTransform={url => (url.startsWith('ankole:page/') ? url : defaultUrlTransform(url))}>
+        {text}
+      </Markdown>
+    </StreamingMarkdownContext.Provider>
   )
 }
 
 function CodeBlock({ children }: { children?: ReactNode }) {
+  const streaming = useContext(StreamingMarkdownContext)
   const child = Children.toArray(children).find(isValidElement)
   if (!isValidElement<{ children?: ReactNode; className?: string }>(child)) return <pre>{children}</pre>
   const language = /language-([^\s]+)/.exec(child.props.className ?? '')?.[1]
-  return <CodeBlockView code={String(child.props.children ?? '').replace(/\n$/, '')} language={language} />
+  const code = String(child.props.children ?? '').replace(/\n$/, '')
+  if (language?.toLowerCase() === 'mermaid') {
+    const fallback = <CodeBlockView code={code} language="mermaid" />
+    return (
+      <ErrorBoundary resetKeys={[code]} fallback={fallback}>
+        <Suspense fallback={fallback}>
+          <LazyMermaidDiagram code={code} streaming={streaming} />
+        </Suspense>
+      </ErrorBoundary>
+    )
+  }
+  return <CodeBlockView code={code} language={language} />
 }
 
 function Table({ children }: { children?: ReactNode }) {
@@ -97,7 +143,10 @@ const components: Components = {
     if (href.startsWith('ankole:page/')) {
       const page = podRouteID(href.slice('ankole:page/'.length))
       return page ? (
-        <Link className="pod-chat-page-pill" to={podLocation(`/pages/${page}`).pathname}>
+        <Link
+          {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+          className={withExternalTranslationGuardClass('pod-chat-page-pill')}
+          to={podLocation(`/pages/${page}`).pathname}>
           <RiFileTextLine aria-hidden />
           {children}
         </Link>
@@ -106,11 +155,25 @@ const components: Components = {
       )
     }
     return (
-      <a href={href} target="_blank" rel="noreferrer" className="link">
+      <a
+        {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className={withExternalTranslationGuardClass('link')}>
         {children}
       </a>
     )
   },
+  span: ({ node: _node, className, ...props }) =>
+    typeof className === 'string' && /(?:^|\s)katex(?:-display)?(?:\s|$)/.test(className) ? (
+      <span {...EXTERNAL_TRANSLATION_GUARD_ATTRS} className={withExternalTranslationGuardClass(className)} {...props} />
+    ) : (
+      <span className={className} {...props} />
+    ),
+  code: ({ node: _node, className, ...props }) => (
+    <code {...EXTERNAL_TRANSLATION_GUARD_ATTRS} className={withExternalTranslationGuardClass(className)} {...props} />
+  ),
   img: ({ src, alt }) => (typeof src === 'string' && src ? <ZoomableImage src={src} alt={alt} /> : <span>{alt}</span>),
   pre: CodeBlock,
   table: Table,

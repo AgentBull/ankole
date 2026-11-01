@@ -21,7 +21,16 @@ defmodule Ankole.Conversations.IMGroupProjectionTest do
 
   setup do
     %{principal: agent} = agent_fixture()
-    context = AdapterContext.new(agent_uid: agent.uid, binding_name: "group", adapter: "slack")
+    binding = binding_fixture(agent.uid, "group", :ignore, adapter: "slack")
+
+    context =
+      AdapterContext.new(
+        binding_id: binding.id,
+        agent_uid: agent.uid,
+        binding_name: "group",
+        adapter: "slack"
+      )
+
     %{agent: agent, context: context}
   end
 
@@ -105,7 +114,14 @@ defmodule Ankole.Conversations.IMGroupProjectionTest do
   } do
     %{principal: second_agent} = agent_fixture()
     %{principal: human} = human_fixture()
-    second = %{first | agent_uid: second_agent.uid, binding_name: "second"}
+    second_binding = binding_fixture(second_agent.uid, "second", :ignore, adapter: "slack")
+
+    second = %{
+      first
+      | binding_id: second_binding.id,
+        agent_uid: second_agent.uid,
+        binding_name: "second"
+    }
 
     assert {:ok, group} =
              IMGroupProjection.ensure_group("slack-main", "C1", %{}, first, opts(:replace))
@@ -158,7 +174,7 @@ defmodule Ankole.Conversations.IMGroupProjectionTest do
     end)
 
     binding = binding_fixture(agent.uid, "slack-projection", :ignore, adapter: "slack")
-    key = Config.binding_config_key(agent.uid, binding.name)
+    key = Config.binding_config_key(Repo.tenant_id!(), binding.id)
 
     assert {:ok, _} =
              AppConfigure.put_global_by_key(key, %{
@@ -195,7 +211,10 @@ defmodule Ankole.Conversations.IMGroupProjectionTest do
     sync =
       Task.async(fn ->
         Repo.with_tenant(tenant_id, fn ->
-          Channels.refresh_channel(agent.uid, binding.name, "C1")
+          Channels.refresh_channel(
+            Ankole.Signals.get_agent_binding!(agent.uid, binding.name).id,
+            "C1"
+          )
         end)
       end)
 

@@ -1,7 +1,8 @@
 defmodule Ankole.Pod.Applets.Capabilities do
   @moduledoc "The only bridge from Applet code to authorized Pod domain operations."
 
-  alias Ankole.Pod.{Access, Bases, Files, Pages, Serialization}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Bases, Files, Pages, Serialization}
   alias Ankole.Pod.Applets.AI
 
   def call(context, %Ankole.AuthZ.Actor{} = actor, operation, args) do
@@ -12,7 +13,7 @@ defmodule Ankole.Pod.Applets.Capabilities do
     else
       outcome =
         with {:ok, page} <- Pages.fetch(context["applet"]["pageId"]),
-             {:ok, _} <- Access.authorize(actor, page, "page_view", trash: false),
+             {:ok, _} <- Access.authorize(actor, page, "node_view", trash: false),
              do: dispatch(page, actor, operation, args)
 
       result(outcome)
@@ -76,14 +77,14 @@ defmodule Ankole.Pod.Applets.Capabilities do
        ]) do
     with {:ok, bytes} <- Base.decode64(encoded),
          true <- byte_size(bytes) <= Ankole.WorkerFiles.max_transfer_bytes(),
-         {:ok, page} <- Pages.authorize(actor, id, "page_view"),
+         {:ok, page} <- Pages.authorize(actor, id, "node_view"),
          {:ok, role} <- upload_role(page.type),
          {:ok, result} <-
            Files.upload(
              actor,
              id,
              role,
-             file["baseRevision"],
+             file["baseObjectId"],
              name,
              bytes,
              file["contentType"],
@@ -117,6 +118,7 @@ defmodule Ankole.Pod.Applets.Capabilities do
   defp file_entry(id, file),
     do: %{
       path: "pages/#{id}/#{file.path}",
+      objectId: file.object_id,
       sha256: file.sha256,
       size: file.size,
       contentType: file.content_type

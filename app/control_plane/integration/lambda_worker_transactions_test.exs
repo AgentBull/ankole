@@ -123,9 +123,9 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     create = start_database_task(fn -> ReconcileJob.perform(%Oban.Job{args: args}) end)
 
     assert_receive {:create_pending, pending}, 5_000
-    assert Repo.get!(AgentWorker, uid).generation != nil
-    assert Repo.get!(AgentWorker, uid).instance_ref == nil
-    assert %DateTime{} = Repo.get!(AgentWorker, uid).create_sent_at
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation != nil
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).instance_ref == nil
+    assert %DateTime{} = Repo.get_by!(AgentWorker, agent_uid: uid).create_sent_at
 
     # The create holds no database lock while RunMicrovm is pending. The sweep
     # finishes at once and leaves the young, still unattributed VM alone.
@@ -134,13 +134,16 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
 
     send(pending, :finish_create)
     assert :ok = Task.await(create.task, 5_000)
-    assert Repo.get!(AgentWorker, uid).instance_ref == fixtures["microvm"]["microvmId"]
+
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).instance_ref ==
+             fixtures["microvm"]["microvmId"]
+
     assert :ok = SweepJob.perform(%Oban.Job{args: %{"objects" => true}})
     refute Agent.get(platform, & &1.deleted)
 
     # A VM that nobody owns and that started more than one sweep ago is an
     # orphan.
-    Repo.delete!(Repo.get!(AgentWorker, uid))
+    Repo.delete!(Repo.get_by!(AgentWorker, agent_uid: uid))
     Agent.update(platform, &%{&1 | started: System.system_time(:second) - 600})
     assert :ok = SweepJob.perform(%Oban.Job{args: %{"objects" => true}})
     assert Agent.get(platform, & &1.deleted)
@@ -152,7 +155,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
   } do
     api = install_platform(provider, [unowned_vm("young-orphan", System.system_time(:second))])
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).instance_ref != nil
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).instance_ref != nil
     assert length(Agent.get(api, & &1.calls)) == 1
   end
 
@@ -163,7 +166,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     api = install_platform(provider, [])
     Agent.update(api, &%{&1 | mode: :error})
     assert {:error, {:lambda_api, 500, _}} = reconcile(uid)
-    worker = Repo.get!(AgentWorker, uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert worker.instance_ref == nil
     assert %DateTime{} = worker.create_sent_at
     generation = worker.generation
@@ -175,8 +178,8 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
         ] do
       Agent.update(api, &%{&1 | mode: :success, instances: [unowned_vm("possible", started)]})
       assert {:error, :lambda_waiting_for_provider_orphans} = reconcile(uid)
-      assert Repo.get!(AgentWorker, uid).generation == generation
-      assert Repo.get!(AgentWorker, uid).create_sent_at == worker.create_sent_at
+      assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == generation
+      assert Repo.get_by!(AgentWorker, agent_uid: uid).create_sent_at == worker.create_sent_at
       assert length(Agent.get(api, & &1.calls)) == 1
     end
 
@@ -184,7 +187,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     terminated = unowned_vm("terminated", nil) |> Map.put("state", "TERMINATED")
     Agent.update(api, &%{&1 | instances: [old, terminated]})
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation == generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == generation
     [retry, first] = Agent.get(api, & &1.calls)
     assert retry["clientToken"] == first["clientToken"]
   end
@@ -208,10 +211,10 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     assert {:ok, [%{agent_uid: ^other_uid}]} = Lambda.list_instances(provider, :all)
     Agent.update(api, &%{&1 | mode: :error})
     assert {:error, {:lambda_api, 500, _}} = reconcile(uid)
-    generation = Repo.get!(AgentWorker, uid).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: uid).generation
     Agent.update(api, &%{&1 | mode: :success})
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation == generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == generation
     assert {:ok, objects} = Lambda.list_instances(provider, :all)
     assert MapSet.new(objects, & &1.agent_uid) == MapSet.new([uid, other_uid])
   end
@@ -228,23 +231,23 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     second_args = Ankole.Job.arguments(:tenant, %{agent_uid: other.uid})
     first = start_database_task(fn -> ReconcileJob.perform(%Oban.Job{args: first_args}) end)
     assert_receive {:run_pending, ^uid, first_request}, 5_000
-    intent = Repo.get!(AgentWorker, uid)
+    intent = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert %DateTime{} = intent.create_sent_at
     assert intent.instance_ref == nil
 
     second = start_database_task(fn -> ReconcileJob.perform(%Oban.Job{args: second_args}) end)
     assert_receive {:run_pending, other_uid, second_request}, 5_000
     assert other_uid == other.uid
-    assert Repo.get!(AgentWorker, other.uid).create_sent_at != nil
-    assert Repo.get!(AgentWorker, other.uid).instance_ref == nil
+    assert Repo.get_by!(AgentWorker, agent_uid: other.uid).create_sent_at != nil
+    assert Repo.get_by!(AgentWorker, agent_uid: other.uid).instance_ref == nil
 
     send(first_request, :finish_run)
     send(second_request, :finish_run)
     assert :ok = Task.await(first.task, 5_000)
     assert :ok = Task.await(second.task, 5_000)
 
-    assert Repo.get!(AgentWorker, uid).instance_ref !=
-             Repo.get!(AgentWorker, other.uid).instance_ref
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).instance_ref !=
+             Repo.get_by!(AgentWorker, agent_uid: other.uid).instance_ref
   end
 
   test "a ready storage helper is deleted once before its committed Worker row", %{
@@ -257,19 +260,19 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
              Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
     assert :ok = reconcile(uid)
-    ref = Repo.get!(AgentWorker, uid).storage_ref
+    ref = Repo.get_by!(AgentWorker, agent_uid: uid).storage_ref
     assert %{"microvmId" => _} = ref
     Agent.update(api, &%{&1 | delete_mode: :hold})
 
     args = Ankole.Job.arguments(:tenant, %{"agent_uid" => uid})
     deletion = start_database_task(fn -> ReconcileJob.perform(%Oban.Job{args: args}) end)
     assert_receive {:storage_delete_pending, pending}, 5_000
-    assert %{state: :deleting, storage_ref: ^ref} = Repo.get!(AgentWorker, uid)
+    assert %{state: :deleting, storage_ref: ^ref} = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert Agent.get(api, & &1.deletes) == [ref["microvmId"]]
 
     send(pending, :accept_delete)
     assert :ok = Task.await(deletion.task, 5_000)
-    assert Repo.get(AgentWorker, uid) == nil
+    assert Repo.get_by(AgentWorker, agent_uid: uid) == nil
     assert :ok = reconcile(uid)
     assert Agent.get(api, & &1.deletes) == [ref["microvmId"]]
     assert length(Agent.get(api, & &1.calls)) == 1
@@ -285,17 +288,17 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
              Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
     assert :ok = reconcile(uid)
-    ref = Repo.get!(AgentWorker, uid).storage_ref
+    ref = Repo.get_by!(AgentWorker, agent_uid: uid).storage_ref
     Agent.update(api, &%{&1 | delete_mode: :error})
 
     assert {:error, {:lambda_api, 503, "InternalServerException"}} = reconcile(uid)
 
     assert %{state: :deleting, storage_ref: ^ref, last_error_kind: "transient"} =
-             Repo.get!(AgentWorker, uid)
+             Repo.get_by!(AgentWorker, agent_uid: uid)
 
     Agent.update(api, &%{&1 | delete_mode: :success})
     assert :ok = reconcile(uid)
-    assert Repo.get(AgentWorker, uid) == nil
+    assert Repo.get_by(AgentWorker, agent_uid: uid) == nil
     assert Agent.get(api, & &1.deletes) == [ref["microvmId"], ref["microvmId"]]
     assert length(Agent.get(api, & &1.calls)) == 1
   end
@@ -310,23 +313,30 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
              Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
     assert :ok = reconcile(uid)
-    first_ref = Repo.get!(AgentWorker, uid).storage_ref
+    first_ref = Repo.get_by!(AgentWorker, agent_uid: uid).storage_ref
     [first] = Agent.get(api, & &1.calls)
 
     Agent.update(api, &put_in(&1.instances[first_ref["microvmId"]]["state"], "TERMINATED"))
     assert :ok = reconcile(uid)
-    assert %{"previousMicrovmId" => previous_id} = Repo.get!(AgentWorker, uid).storage_ref
+
+    assert %{"previousMicrovmId" => previous_id} =
+             Repo.get_by!(AgentWorker, agent_uid: uid).storage_ref
+
     assert previous_id == first_ref["microvmId"]
 
     Agent.update(api, &%{&1 | run_mode: :lost_response})
     assert {:error, {:lambda_unreachable, _}} = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).storage_ref == %{"previousMicrovmId" => previous_id}
+
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).storage_ref == %{
+             "previousMicrovmId" => previous_id
+           }
+
     [second, ^first] = Agent.get(api, & &1.calls)
     refute second["clientToken"] == first["clientToken"]
 
     Agent.update(api, &%{&1 | run_mode: :success})
     assert :ok = reconcile(uid)
-    second_ref = Repo.get!(AgentWorker, uid).storage_ref
+    second_ref = Repo.get_by!(AgentWorker, agent_uid: uid).storage_ref
     refute second_ref == first_ref
     [retry, ^second, ^first] = Agent.get(api, & &1.calls)
     assert retry == second
@@ -335,7 +345,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     Agent.update(api, &put_in(&1.instances[second_ref["microvmId"]]["state"], "TERMINATED"))
     assert :ok = reconcile(uid)
     assert :ok = reconcile(uid)
-    third_ref = Repo.get!(AgentWorker, uid).storage_ref
+    third_ref = Repo.get_by!(AgentWorker, agent_uid: uid).storage_ref
     refute third_ref in [first_ref, second_ref]
     [third, ^retry, ^second, ^first] = Agent.get(api, & &1.calls)
     refute third["clientToken"] in [first["clientToken"], second["clientToken"]]

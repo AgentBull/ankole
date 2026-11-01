@@ -551,18 +551,15 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     |> Ankole.Ash.read_one!()
   end
 
-  # Finds every agent model profile still pointing at this provider, returned as
-  # "agent_uid:profile" labels. A non-empty list blocks the disable so an
-  # operator cannot silently break agents that depend on the provider; profiles
-  # live inside each agent's `options` JSON, so the database filters and expands
-  # only matching JSONB profile entries.
+  # A non-empty reference list blocks Provider disable or deletion. Agent
+  # profiles live in JSONB; defaults and system overrides use AppConfigure envelopes.
   @doc false
   def provider_references(provider_id) do
-    %{rows: rows} =
+    %{rows: agent_rows} =
       SQL.query!(
         Repo,
         """
-        SELECT agent.uid || ':' || profile.key AS reference
+        SELECT 'tenant:' || agent.tenant_id::text || ':agent:' || agent.uid || ':' || profile.key AS reference
         FROM agents AS agent
         CROSS JOIN LATERAL jsonb_each(
           CASE
@@ -576,14 +573,35 @@ defmodule Ankole.AIGateway.ProviderConfigs do
           'lax $.ai_agent.models.*.provider_id'::jsonpath
         ) @> jsonb_build_array($1::text)
           AND profile.value @> jsonb_build_object('provider_id', $1::text)
-        ORDER BY reference
+        """,
+        [provider_id]
+      )
+
+    %{rows: default_rows} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT key AS reference
+        FROM site_app_configurations
+        WHERE scope = 'global' AND key LIKE 'ai_gateway.model_profiles.%'
+          AND value -> 'value' ->> 'provider_id' = $1
+        UNION ALL
+        SELECT CASE WHEN scope LIKE 'system:%'
+          THEN 'tenant:' || tenant_id::text || ':' || scope
+          ELSE scope END || ':' || key AS reference
+        FROM app_configurations
+        WHERE (scope LIKE 'tenant:%' OR scope LIKE 'system:%')
+          AND key LIKE 'ai_gateway.model_profiles.%'
+          AND value -> 'value' ->> 'provider_id' = $1
         """,
         [provider_id]
       )
 
     with {:ok, brain_references} <-
            Ankole.Brain.Config.model_provider_references(provider_id) do
-      Enum.map(rows, fn [reference] -> reference end) ++ brain_references
+      (Enum.map(agent_rows, fn [reference] -> reference end) ++
+         Enum.map(default_rows, fn [reference] -> reference end) ++ brain_references)
+      |> Enum.sort()
     end
   end
 

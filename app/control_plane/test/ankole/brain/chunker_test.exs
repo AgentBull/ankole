@@ -31,8 +31,11 @@ defmodule Ankole.Brain.ChunkerTest do
   end
 
   describe "chunk_text/2" do
-    test "short text is a single chunk" do
-      assert [%{text: "short text", index: 0}] = Chunker.chunk_text("short text", @chunking)
+    test "short text is a single chunk with exact token_count" do
+      assert [%{text: "short text", index: 0, token_count: token_count}] =
+               Chunker.chunk_text("short text", @chunking)
+
+      assert token_count == Chunker.estimate_tokens("short text")
     end
 
     test "blank text produces no chunks" do
@@ -82,8 +85,55 @@ defmodule Ankole.Brain.ChunkerTest do
       assert length(chunks) > 1
 
       for chunk <- chunks do
-        assert Chunker.estimate_tokens(chunk.text) <= 60
+        assert chunk.token_count <= 60
+        assert chunk.token_count == Chunker.estimate_tokens(chunk.text)
       end
+    end
+
+    test "attaches exact token_count across overlapped multi-chunk splits" do
+      paragraph = Enum.map_join(1..150, " ", fn i -> "Sentence #{i} carries context." end)
+      chunks = Chunker.chunk_text(paragraph, @chunking)
+      assert length(chunks) > 1
+
+      for chunk <- chunks do
+        assert chunk.token_count == Chunker.estimate_tokens(chunk.text)
+      end
+    end
+
+    test "rejects invalid chunking bounds" do
+      assert_raise ArgumentError, ~r/chunk_size must be positive/, fn ->
+        Chunker.chunk_text("hello", Map.put(@chunking, "chunk_size", 0))
+      end
+
+      assert_raise ArgumentError, ~r/chunk_overlap must be less than chunk_size/, fn ->
+        Chunker.chunk_text(
+          "hello",
+          Map.merge(@chunking, %{"chunk_size" => 10, "chunk_overlap" => 10})
+        )
+      end
+    end
+
+    test "handles zero overlap, CRLF paragraphs, flag graphemes, and irreducible emoji caps" do
+      no_overlap_cfg = Map.merge(@chunking, %{"chunk_size" => 10, "chunk_overlap" => 0})
+      crlf_text = Enum.map_join(1..8, "\r\n\r\n", fn i -> "Paragraph #{i} has five words." end)
+      no_overlap_chunks = Chunker.chunk_text(crlf_text, no_overlap_cfg)
+      assert length(no_overlap_chunks) > 1
+
+      flag_text = String.duplicate("中文🇺🇸段落。\n", 12)
+
+      flag_chunks =
+        Chunker.chunk_text(flag_text, %{
+          "chunk_size" => 20,
+          "chunk_overlap" => 4,
+          "max_chars" => 6_000,
+          "max_tokens" => 1_500
+        })
+
+      assert length(flag_chunks) > 1
+
+      tiny_cap = Map.put(@chunking, "max_tokens", 1)
+      emoji_chunks = Chunker.chunk_text("👨‍👩‍👧‍👦👨‍👩‍👧‍👦", tiny_cap)
+      assert Enum.map(emoji_chunks, & &1.text) == ["👨‍👩‍👧‍👦", "👨‍👩‍👧‍👦"]
     end
   end
 

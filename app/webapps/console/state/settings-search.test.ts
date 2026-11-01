@@ -16,10 +16,12 @@ describe('settings navigation and search', () => {
   })
 
   test('zero trash retention compares as keeping pages longest', () => {
-    expect(retentionLength('pod.trash_retention_days', 30) < retentionLength('pod.trash_retention_days', 0)).toBe(true)
-    expect(retentionLength('pod.trash_retention_days', 7)).toBe(7)
+    expect(retentionLength('drive.trash_retention_days', 30) < retentionLength('drive.trash_retention_days', 0)).toBe(
+      true
+    )
+    expect(retentionLength('drive.trash_retention_days', 7)).toBe(7)
     expect(retentionLength('brain.soft_delete_retention_hours', 0)).toBe(0)
-    expect(settingDurationParts('pod.trash_retention_days', 0)).toEqual({ amount: 0, unit: 'days' })
+    expect(settingDurationParts('drive.trash_retention_days', 0)).toEqual({ amount: 0, unit: 'days' })
     expect(settingDurationParts('ai_agent.inactivity_timeout_ms', 0)).toEqual({ amount: 0, unit: 'seconds' })
   })
   test('starts with tenant tasks and preserves an explicit site context', () => {

@@ -130,7 +130,7 @@ test('deleting and restoring an audience source updates a separate directory for
     const target = await create(editor, `Audience target ${label}`, { parent_id: targetParent })
     await requestWithSharingVersion(editor, `/pages/${target}/sharing`, 'PUT', {
       inherit_permissions: false,
-      grants: [{ source_page_id: source, source_action: 'page_view', role: 'view' }]
+      grants: [{ source_node_id: source, source_action: 'node_view', role: 'view' }]
     })
     await page.goto(pageRoute(targetParent))
     await space(page)

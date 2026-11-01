@@ -12,7 +12,7 @@ defmodule Ankole.SessionsCase do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Sessions.Queue
@@ -60,7 +60,7 @@ defmodule Ankole.SessionsCase do
       alias Ankole.AIGateway.ProviderConfigs, warn: false
       alias Ankole.AIGateway.StatefulResponses, warn: false
       alias Ankole.RuntimeFabric.V1, as: FabricProto, warn: false
-      alias Ankole.AIAgent.ModelProfiles, warn: false
+      alias Ankole.AIGateway.ModelProfiles, warn: false
       alias Ankole.AIGateway.Schemas.Conversation, warn: false
       alias Ankole.AIGateway.Schemas.Message, warn: false
       alias Ankole.Sessions.Queue, warn: false
@@ -219,7 +219,7 @@ defmodule Ankole.SessionsCase do
     auth = %{
       transport_route: route,
       worker_id: agent_uid,
-      generation: Repo.get!(AgentWorker, agent_uid).generation
+      generation: Repo.get_by!(AgentWorker, agent_uid: agent_uid).generation
     }
 
     admitted =
@@ -256,7 +256,7 @@ defmodule Ankole.SessionsCase do
   def provision_worker(agent_uid) do
     {:ok, config} = AgentWorkersConfig.fetch()
 
-    case Repo.get(AgentWorker, agent_uid) do
+    case Repo.get_by(AgentWorker, agent_uid: agent_uid) do
       %AgentWorker{state: state} when state in [:starting, :stale, :ready] ->
         :ok
 
@@ -490,17 +490,12 @@ defmodule Ankole.SessionsCase do
   end
 
   def binding_fixture(agent_uid, name, policy, opts \\ []) do
-    {:ok, binding} =
-      Ankole.SignalsFixtures.raw_binding_fixture(%{
-        agent_uid: agent_uid,
-        name: name,
-        adapter: Keyword.get(opts, :adapter, "lark"),
-        config_ref: "app-config://#{name}",
-        filters: %{},
-        unaddressed_group_message_policy: policy
-      })
-
-    binding
+    Ankole.SignalsFixtures.binding_fixture(
+      agent_uid,
+      name,
+      policy,
+      Keyword.put_new(opts, :unmatched_sender_policy, :manual_review)
+    )
   end
 
   def use_mock_signal_provider_plugin(_context) do
@@ -536,7 +531,7 @@ defmodule Ankole.SessionsCase do
   end
 
   defp observe_emit_entry(agent_uid, binding_name, input, opts, false) do
-    Observe.emit_entry(agent_uid, binding_name, input, opts)
+    Observe.emit_entry(Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id, input, opts)
   end
 
   defp observe_emit_entry(agent_uid, binding_name, input, opts, true) do
@@ -556,7 +551,11 @@ defmodule Ankole.SessionsCase do
       )
 
     try do
-      case Observe.emit_entry(agent_uid, binding_name, input, opts) do
+      case Observe.emit_entry(
+             Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
+             input,
+             opts
+           ) do
         {:ok, _result} = ok ->
           ok
 
@@ -727,7 +726,7 @@ defmodule Ankole.SessionsCase do
   def wait_for_worker(worker_id, worker_task, attempts \\ 100)
 
   def wait_for_worker(worker_id, worker_task, attempts) when attempts > 0 do
-    case Repo.get(AgentWorker, worker_id) do
+    case Repo.get_by(AgentWorker, agent_uid: worker_id) do
       %AgentWorker{state: :ready} = worker ->
         worker
 

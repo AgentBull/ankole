@@ -34,7 +34,8 @@ done
 postgres=$(docker ps -q --filter "label=com.docker.compose.project=$project" \
   --filter "label=com.docker.compose.service=postgresql")
 test -n "$postgres"
-existing=$(docker exec "$postgres" psql -U ankole -d ankole -XAtc 'SELECT uid FROM agents')
+existing=$(docker exec "$postgres" psql -U ankole -d ankole -XAt -F : \
+  -c 'SELECT tenant_id,uid FROM agents ORDER BY tenant_id,uid')
 
 agents=$(docker run --rm --network none --entrypoint sh \
   --mount "type=volume,source=$legacy,target=/source" "$image" -ec '
@@ -51,12 +52,18 @@ for agent in $agents; do
     echo "Invalid Agent directory: $agent" >&2
     exit 1
   fi
-  if ! printf '%s\n' "$existing" | grep -Fxq "$agent"; then
+  tenants=$(printf '%s\n' "$existing" | awk -F : -v agent="$agent" '$2 == agent { print $1 }')
+  if [ -z "$tenants" ]; then
     printf 'Skipped the Home of a deleted Agent: %s\n' "$agent"
     continue
   fi
+  if [ "$(printf '%s\n' "$tenants" | wc -l)" -ne 1 ]; then
+    printf 'Agent Home %s matches multiple tenants; assign its files to the correct tenant before retrying.\n' "$agent" >&2
+    exit 1
+  fi
+  tenant=$tenants
   # Keep this name equal to AgentWorkers.ProviderKind.storage_name/2.
-  hash=$(printf '%s' "$agent" | sha256sum | cut -c1-16)
+  hash=$(printf '%s' "$tenant:$agent" | sha256sum | cut -c1-16)
   target="ankole-$installation-$hash"
   marker=$(docker run --rm --network none --entrypoint sh \
     --mount "type=volume,source=$legacy,target=/source" "$image" -ec '
@@ -64,7 +71,10 @@ for agent in $agents; do
       if [ -f "$marker" ]; then cat "$marker"; fi
     ' -- "$agent")
   if [ -n "$marker" ]; then
-    test "$marker" = "$target"
+    if [ "$marker" != "$target" ]; then
+      printf 'Agent Home %s was already copied to %s; migrate that dedicated volume to %s and update its marker before retrying.\n' "$agent" "$marker" "$target" >&2
+      exit 1
+    fi
     # An Agent may have been deleted since migration. Do not create it again.
     continue
   fi
@@ -72,11 +82,13 @@ for agent in $agents; do
   docker volume create --driver local \
     --label "ankole.installation=$installation" \
     --label "ankole.provider=$provider" \
+    --label "ankole.tenant=$tenant" \
     --label "ankole.agent-uid=$agent" "$target" >/dev/null
   test "$(docker volume inspect --format '{{.Driver}}' "$target")" = local
   test "$(docker volume inspect --format '{{len .Options}}' "$target")" = 0
   test "$(docker volume inspect --format '{{index .Labels "ankole.installation"}}' "$target")" = "$installation"
   test "$(docker volume inspect --format '{{index .Labels "ankole.provider"}}' "$target")" = "$provider"
+  test "$(docker volume inspect --format '{{index .Labels "ankole.tenant"}}' "$target")" = "$tenant"
   test "$(docker volume inspect --format '{{index .Labels "ankole.agent-uid"}}' "$target")" = "$agent"
   docker run --rm --network none --entrypoint sh \
     --mount "type=volume,source=$legacy,target=/source" \

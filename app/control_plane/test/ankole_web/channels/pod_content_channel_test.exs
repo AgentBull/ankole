@@ -53,7 +53,13 @@ defmodule AnkoleWeb.PodContentChannelTest do
     send(socket.channel_pid, :periodic_access)
     refute_push "access_changed", %{}, 100
 
-    grant = Repo.get_by!(Ankole.AuthZ.Grant, principal_uid: ctx.reader.uid, action: "page_view")
+    grant =
+      Repo.get_by!(Ankole.AuthZ.Grant,
+        principal_uid: ctx.reader.uid,
+        target_node_id: parent.id,
+        action: "node_view"
+      )
+
     Repo.update!(Ecto.Changeset.change(grant, condition: "false"))
     send(socket.channel_pid, :periodic_access)
     assert_push "access_changed", %{}, 1_000
@@ -83,7 +89,7 @@ defmodule AnkoleWeb.PodContentChannelTest do
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, target.id, %{
         inherit_permissions: false,
-        grants: [%{source_page_id: source.id, source_action: "page_view", role: "view"}]
+        grants: [%{source_node_id: source.id, source_action: "node_view", role: "view"}]
       })
 
     assert {:ok, %{pages: [%{id: target_id}]}} = Pages.list_children(reader, target_parent.id)
@@ -140,17 +146,19 @@ defmodule AnkoleWeb.PodContentChannelTest do
 
     assert {:ok, grant} =
              Ankole.AuthZ.create_permission_grant(%{
-               source_page_id: source.id,
-               source_action: "page_view",
-               resource_pattern: "pod:**:#{target.id}:page",
-               action: "page_view"
+               source_node_id: source.id,
+               source_action: "node_view",
+               resource_pattern: "drive:**:#{target.id}:node",
+               target_node_id: target.id,
+               target_scope: "self",
+               action: "node_view"
              })
 
     assert_push "access_changed", %{}, 1_000
-    assert {:ok, _} = Pages.authorize(reader, target.id, "page_view")
+    assert {:ok, _} = Pages.authorize(reader, target.id, "node_view")
     assert {:ok, _} = Ankole.AuthZ.delete_permission_grant(grant.id)
     assert_push "access_changed", %{}, 1_000
-    assert {:error, :forbidden} = Pages.authorize(reader, target.id, "page_view")
+    assert {:error, :forbidden} = Pages.authorize(reader, target.id, "node_view")
     send(socket.channel_pid, :periodic_access)
     refute_push "access_changed", %{}, 100
   end
@@ -201,8 +209,10 @@ defmodule AnkoleWeb.PodContentChannelTest do
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: ctx.reader.uid,
-        resource_pattern: "pod:**:#{page.id}:page",
-        action: "page_view",
+        resource_pattern: "drive:**:#{page.id}:node",
+        target_node_id: page.id,
+        target_scope: "self",
+        action: "node_view",
         condition: ~s(context.request.ip == "10.0.0.1")
       })
 
@@ -236,8 +246,10 @@ defmodule AnkoleWeb.PodContentChannelTest do
       {:ok, grant} =
         Ankole.AuthZ.create_permission_grant(%{
           principal_uid: ctx.reader.uid,
-          resource_pattern: "pod:**:#{page.id}:page",
-          action: "page_view",
+          resource_pattern: "drive:**:#{page.id}:node",
+          target_node_id: page.id,
+          target_scope: "self",
+          action: "node_view",
           condition:
             ~s(context.request.ip == "10.0.0.1" && context.request.surface == "pod_browser")
         })
@@ -400,7 +412,13 @@ defmodule AnkoleWeb.PodContentChannelTest do
 
     assert_push "comments_changed", %{}, 1_000
 
-    grant = Repo.get_by!(Ankole.AuthZ.Grant, principal_uid: ctx.reader.uid, action: "page_view")
+    grant =
+      Repo.get_by!(Ankole.AuthZ.Grant,
+        principal_uid: ctx.reader.uid,
+        target_node_id: page.id,
+        action: "node_view"
+      )
+
     Repo.delete!(grant)
     reference = Process.monitor(socket.channel_pid)
     send(socket.channel_pid, {:comments_committed, page.id})
@@ -429,7 +447,14 @@ defmodule AnkoleWeb.PodContentChannelTest do
              )
 
     reference = Process.monitor(socket.channel_pid)
-    grant = Repo.get_by!(Ankole.AuthZ.Grant, principal_uid: ctx.reader.uid, action: "page_view")
+
+    grant =
+      Repo.get_by!(Ankole.AuthZ.Grant,
+        principal_uid: ctx.reader.uid,
+        target_node_id: page.id,
+        action: "node_view"
+      )
+
     Repo.delete!(grant)
     push(socket, "sync", %{"revision" => 0})
     assert_push "access_revoked", %{}, 1_000
@@ -614,7 +639,70 @@ defmodule AnkoleWeb.PodContentChannelTest do
     end
   end
 
-  test "file and applet revision notifications use the same authorized socket", ctx do
+  test "runtime and Pod file writes refresh the same open page, and rollback stays silent", ctx do
+    alias Ankole.Files
+    agent = agent_fixture().principal
+    actor = actor_fixture(agent)
+    file = Ankole.FilesFixtures.drive_file_fixture(agent.uid, "shared.txt", "original")
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(agent.uid, file.id, %{
+        grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
+      })
+
+    {:ok, before} = Pages.fetch(file.id)
+
+    assert {:ok, _, _socket} =
+             subscribe_and_join(
+               authenticated_socket(ctx.reader),
+               PodPageChannel,
+               "page:#{file.id}"
+             )
+
+    {:ok, stored} = Files.store("path write")
+
+    assert {:ok, %{files: [written]}} =
+             Files.commit(agent.uid, [Map.put(stored, :path, "shared.txt")])
+
+    object_id = written.object_id
+    assert_push "changes", %{object_id: ^object_id}, 1_000
+
+    assert {:ok, %{pages: [version]}} =
+             Pages.reconcile_versions(actor_fixture(ctx.reader), [file.id], [])
+
+    assert version.object_id == object_id
+    assert version.revision == before.revision
+
+    assert {:ok, node_write} = Files.write_node(actor, file.id, "node write")
+    object_id = node_write.object_id
+    assert_push "changes", %{object_id: ^object_id}, 1_000
+
+    assert {:ok, uploaded} =
+             Ankole.Pod.Files.upload(
+               actor,
+               file.id,
+               "file",
+               object_id,
+               "shared.txt",
+               "Pod upload"
+             )
+
+    object_id = uploaded.file.object_id
+    assert_push "changes", %{object_id: ^object_id}, 1_000
+
+    {:ok, pending} = Files.store("rolled back")
+
+    assert {:error, :cancelled} =
+             Repo.transact_top_level(fn ->
+               assert {:ok, _} = Files.commit_node_object_in_tx(actor, file.id, pending)
+               {:error, :cancelled}
+             end)
+
+    refute_push "changes", _, 100
+    assert {:ok, %{object_id: ^object_id}} = Files.fetch_node(file.id)
+  end
+
+  test "applet revision notifications use the same authorized socket", ctx do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{type: "applet"})
 

@@ -116,16 +116,182 @@ defmodule AnkoleWeb.JSONAPI.AgentModelsTest do
     conn = console_conn(conn)
     path = "/api/v2/agents/#{agent.uid}"
 
-    assert %{"provider_hosted" => %{"web_search" => true, "image_generate" => true}} =
-             conn |> send_v2(:get, path <> "/model-profiles") |> json_response(200)
+    assert %{
+             "provider_hosted" => %{
+               "effective" => %{
+                 "web_search" => %{"value" => true, "source" => "default"},
+                 "image_generate" => %{"value" => true, "source" => "default"}
+               }
+             }
+           } = conn |> send_v2(:get, path <> "/model-profiles") |> json_response(200)
 
     assert %{"provider_hosted" => %{"web_search" => false, "image_generate" => true}} =
              conn
              |> send_v2(:put, path <> "/provider-hosted", %{"web_search" => false})
              |> json_response(200)
 
-    assert %{"provider_hosted" => %{"web_search" => false, "image_generate" => true}} =
-             conn |> send_v2(:get, path <> "/model-profiles") |> json_response(200)
+    assert %{
+             "provider_hosted" => %{
+               "overrides" => %{"web_search" => false},
+               "effective" => %{
+                 "web_search" => %{"value" => false, "source" => "agent"},
+                 "image_generate" => %{"value" => true, "source" => "default"}
+               }
+             }
+           } = conn |> send_v2(:get, path <> "/model-profiles") |> json_response(200)
+  end
+
+  test "Pod and Site defaults expose inheritance and restore it through DELETE", %{conn: conn} do
+    assert {:ok, _provider} =
+             Ankole.AIGateway.ProviderConfigs.create_provider(%{
+               provider_id: "default-model-profiles",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               }
+             })
+
+    conn = console_conn(conn)
+
+    conn =
+      send_v2(conn, :put, ~p"/api/v2/model-profiles/primary", %{
+        "defaults_scope" => "global",
+        "attrs" => %{"provider_id" => "default-model-profiles", "model" => "site-primary"}
+      })
+
+    assert %{
+             "overrides" => %{"primary" => %{"model" => "site-primary"}},
+             "effective" => %{
+               "primary" => %{"source" => "global", "resolved_from_profile" => "primary"},
+               "light" => %{"source" => "global", "resolved_from_profile" => "primary"}
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> send_v2(:put, ~p"/api/v2/model-profiles/primary", %{
+        "defaults_scope" => "tenant",
+        "attrs" => %{"provider_id" => "default-model-profiles", "model" => "pod-primary"}
+      })
+
+    assert %{
+             "inherited" => %{
+               "primary" => %{
+                 "source" => "global",
+                 "value" => %{"model" => "site-primary"}
+               }
+             },
+             "effective" => %{
+               "primary" => %{
+                 "source" => "tenant",
+                 "value" => %{"model" => "pod-primary"}
+               }
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> send_v2(:delete, ~p"/api/v2/model-profiles/primary?defaults_scope=tenant")
+
+    assert %{
+             "overrides" => %{},
+             "effective" => %{
+               "primary" => %{"source" => "global", "resolved_from_profile" => "primary"}
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> send_v2(:delete, ~p"/api/v2/model-profiles/primary?defaults_scope=global")
+
+    assert %{
+             "overrides" => %{},
+             "effective" => %{
+               "primary" => %{
+                 "source" => "default",
+                 "resolved_from_profile" => "primary",
+                 "value" => nil
+               }
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> send_v2(:put, ~p"/api/v2/model-profiles/provider-hosted", %{
+        "defaults_scope" => "tenant",
+        "web_search" => false
+      })
+
+    assert %{
+             "provider_hosted" => %{
+               "overrides" => %{"web_search" => false},
+               "effective" => %{"web_search" => %{"value" => false, "source" => "tenant"}}
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> send_v2(:put, ~p"/api/v2/model-profiles/provider-hosted", %{
+        "defaults_scope" => "tenant",
+        "web_search" => nil
+      })
+
+    assert %{
+             "provider_hosted" => %{
+               "overrides" => %{},
+               "effective" => %{"web_search" => %{"value" => true, "source" => "default"}}
+             }
+           } = json_response(conn, 200)
+  end
+
+  test "Agent profile writes return effective fallbacks and DELETE returns the inherited model",
+       %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    provider_id = "agent-inheritance-console"
+
+    assert {:ok, _} =
+             Ankole.AIGateway.ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai",
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    for profile <- Ankole.AIGateway.ModelProfiles.agent_profiles() do
+      assert {:ok, _} = Ankole.AIGateway.ModelProfiles.put_model_profile(agent.uid, profile, nil)
+    end
+
+    assert {:ok, _} =
+             Ankole.AIGateway.ModelProfiles.put_default_model_profile(:tenant, "primary", %{
+               provider_id: provider_id,
+               model: "pod-primary"
+             })
+
+    conn = console_conn(conn)
+    path = "/api/v2/agents/#{agent.uid}/model-profiles/primary"
+
+    saved =
+      conn
+      |> send_v2(:put, path, %{
+        "attrs" => %{"provider_id" => provider_id, "model" => "agent-primary"}
+      })
+      |> json_response(200)
+
+    assert saved["overrides"]["primary"]["model"] == "agent-primary"
+    assert saved["effective"]["light"]["value"]["model"] == "agent-primary"
+    assert saved["effective"]["coding"]["resolved_from_profile"] == "primary"
+
+    deleted = conn |> send_v2(:delete, path) |> json_response(200)
+    refute Map.has_key?(deleted["overrides"], "primary")
+
+    assert %{"value" => %{"model" => "pod-primary"}, "source" => "tenant"} =
+             deleted["effective"]["primary"]
+
+    assert deleted["effective"]["light"]["value"]["model"] == "pod-primary"
   end
 
   test "an operator cannot read or change an Agent from another tenant", %{conn: conn} do
@@ -146,10 +312,106 @@ defmodule AnkoleWeb.JSONAPI.AgentModelsTest do
 
     assert {:ok, capabilities} =
              Repo.with_tenant(other.id, fn ->
-               Ankole.AIAgent.ModelProfiles.provider_hosted_capabilities(agent.uid)
+               Ankole.AIGateway.ModelProfiles.provider_hosted_capabilities(agent.uid)
              end)
 
-    assert capabilities == %{}
+    assert capabilities == %{"web_search" => true, "image_generate" => true}
+  end
+
+  test "operators configure each registered system Principal through the Pod permissions", %{
+    conn: conn
+  } do
+    conn = console_conn(conn)
+
+    assert %{"system_principals" => services} =
+             conn |> send_v2(:get, "/api/v2/system-principals") |> json_response(200)
+
+    assert Enum.map(services, & &1["uid"]) == Ankole.Principals.SystemServices.uids()
+
+    assert {:ok, _} =
+             Ankole.AIGateway.ProviderConfigs.create_provider(%{
+               provider_id: "system-profiles",
+               provider_kind: "openrouter",
+               credential_pool: %{"entries" => [%{"label" => "Test", "api_key" => "test"}]}
+             })
+
+    for uid <- Ankole.Principals.SystemServices.uids() do
+      path = "/api/v2/system-principals/#{uid}/model-profiles"
+      assert %{"overrides" => overrides} = conn |> send_v2(:get, path) |> json_response(200)
+      assert overrides == %{}
+
+      assert %{
+               "overrides" => %{"rerank" => %{"model" => "rerank"}},
+               "effective" => %{"rerank" => %{"source" => "system"}}
+             } =
+               conn
+               |> send_v2(:put, path <> "/rerank", %{
+                 "attrs" => %{"provider_id" => "system-profiles", "model" => "rerank"}
+               })
+               |> json_response(200)
+
+      assert %{"overrides" => overrides} =
+               conn |> send_v2(:delete, path <> "/rerank") |> json_response(200)
+
+      assert overrides == %{}
+
+      assert %{"errors" => [_ | _]} =
+               conn
+               |> send_v2(:put, path <> "/custom", %{
+                 "attrs" => %{"provider_id" => "system-profiles", "model" => "llm"}
+               })
+               |> json_response(422)
+    end
+
+    for method <- [:get, :put, :delete] do
+      suffix = if method == :get, do: "", else: "/primary"
+
+      assert %{"errors" => [_ | _]} =
+               conn
+               |> send_v2(method, "/api/v2/system-principals/unknown/model-profiles" <> suffix, %{
+                 "attrs" => %{"provider_id" => "system-profiles", "model" => "llm"}
+               })
+               |> json_response(422)
+    end
+  end
+
+  test "a non-admin browser cannot read or change system model profiles", %{conn: conn} do
+    console_conn(conn)
+    member = human_fixture().principal
+
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{})
+      |> AnkoleWeb.Session.put_tenant_session(%{
+        principal_uid: member.uid,
+        provider_id: "local",
+        external_id: member.uid
+      })
+      |> with_console_csrf()
+      |> get(~p"/api/v2/browser/session")
+
+    assert conn.status == 200
+
+    for {method, path} <- [
+          {:get, "/api/v2/system-principals"},
+          {:get, "/api/v2/system-principals/ankole_brain/model-profiles"},
+          {:put, "/api/v2/system-principals/ankole_brain/model-profiles/light"},
+          {:delete, "/api/v2/system-principals/ankole_brain/model-profiles/light"}
+        ] do
+      assert %{"error" => %{"code" => "forbidden"}} =
+               conn
+               |> send_v2(method, path, %{
+                 "attrs" => %{"provider_id" => "unused", "model" => "unused"}
+               })
+               |> json_response(403)
+    end
+
+    assert {:ok, %{overrides: overrides}} =
+             Repo.with_tenant(member.tenant_id, fn ->
+               Ankole.AIGateway.ModelProfiles.system_model_profile_configuration("ankole_brain")
+             end)
+
+    assert overrides == %{}
   end
 
   defp record_agent_usage(agent_uid, input_tokens, output_tokens) do

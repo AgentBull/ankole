@@ -10,7 +10,7 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
     :ok
   end
 
-  test "the Console requires identity and current permission review and never revives old credentials",
+  test "a Console administrator restores current permissions directly without reviving old credentials",
        %{conn: conn, tenant: tenant} do
     {conn, admin_uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
@@ -31,7 +31,7 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
 
     assert disabled["status"] == "disabled"
     assert disabled["access_version"] == person.access_version + 1
-    assert [%{"source" => "manual", "id" => restriction_id}] = disabled["restrictions"]
+    assert [%{"source" => "manual", "id" => _restriction_id}] = disabled["restrictions"]
     assert [%{"state" => "available"}] = disabled["cleanup_jobs"]
 
     assert conn
@@ -39,38 +39,7 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
            |> v2_post(~p"/api/v2/principals/#{uid}/access-disables", body)
            |> json_response(201) == disabled
 
-    restore = %{
-      reason: "Verified return",
-      operation_id: "console-restore",
-      review_fingerprint: disabled["permission_review"]["fingerprint"],
-      identity_verified: true
-    }
-
-    assert conn
-           |> recycle_api()
-           |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", restore)
-           |> json_response(409)
-           |> get_in(["errors", Access.at(0), "code"]) == "active_restrictions"
-
-    clear = %{reason: "Departure restriction no longer applies", operation_id: "clear"}
-
-    assert conn
-           |> recycle_api()
-           |> v2_post(
-             ~p"/api/v2/principals/#{uid}/access-restrictions/#{restriction_id}/clear",
-             clear
-           )
-           |> json_response(201)
-           |> Map.fetch!("status") == "disabled"
-
-    assert conn
-           |> recycle_api()
-           |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", %{
-             restore
-             | identity_verified: false
-           })
-           |> json_response(409)
-           |> get_in(["errors", Access.at(0), "code"]) == "identity_review_required"
+    restore = %{reason: "Verified return", operation_id: "console-restore"}
 
     Repo.put_tenant_id(tenant.id)
 
@@ -88,43 +57,21 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
     assert {:ok, _} =
              AuthZ.create_permission_grant(%{
                principal_uid: uid,
-               resource_pattern: "pod:**:#{source.id}:**",
-               action: "page_view"
+               resource_pattern: "drive:**:#{source.id}:**",
+               target_node_id: source.id,
+               target_scope: "container",
+               action: "node_view"
              })
 
-    assert {:ok, userset} =
+    assert {:ok, _} =
              AuthZ.create_permission_grant(%{
-               source_page_id: source.id,
-               source_action: "page_view",
-               resource_pattern: "pod:**:#{target.id}:**",
-               action: "page_view"
+               source_node_id: source.id,
+               source_action: "node_view",
+               resource_pattern: "drive:**:#{target.id}:**",
+               target_node_id: target.id,
+               target_scope: "container",
+               action: "node_view"
              })
-
-    assert conn
-           |> recycle_api()
-           |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", restore)
-           |> json_response(409)
-           |> get_in(["errors", Access.at(0), "code"]) == "permission_review_changed"
-
-    state =
-      conn |> recycle_api() |> v2_get(~p"/api/v2/principals/#{uid}/access") |> json_response(200)
-
-    assert state["permission_review"]["permissions"]["grants"] != []
-
-    assert state["permission_review"]["permissions"]["userset_grants"] == [
-             %{
-               "id" => userset.id,
-               "source_page_id" => source.id,
-               "source_action" => "page_view",
-               "target_page_id" => target.id,
-               "target_scope" => "container",
-               "resource_pattern" => "pod:**:#{target.id}:**",
-               "action" => "page_view",
-               "condition" => "true"
-             }
-           ]
-
-    restore = %{restore | review_fingerprint: state["permission_review"]["fingerprint"]}
 
     restored =
       conn
@@ -133,16 +80,17 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
       |> json_response(201)
 
     assert restored["status"] == "active"
+    refute Map.has_key?(restored, "permission_review")
+    assert Enum.all?(restored["restrictions"], & &1["cleared_at"])
     Repo.put_tenant_id(tenant.id)
     assert {:error, :human_access_revoked} = HumanAccess.check(uid, person.access_version)
+    assert {:ok, _} = Ankole.Pod.Pages.authorize(actor_fixture(uid), target.id, "node_view")
 
     assert Enum.any?(
              restored["history"],
              &(&1["action"] == "restore" and
                  &1["actor"] == %{"tenant_id" => tenant.id, "uid" => admin_uid} and
-                 &1["details"]["identity_verified"] == true and
-                 &1["details"]["approved_permissions"]["userset_grants"] ==
-                   state["permission_review"]["permissions"]["userset_grants"])
+                 &1["reason"] == "Verified return")
            )
 
     assert conn
@@ -151,34 +99,17 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
            |> json_response(201) == restored
   end
 
-  test "unrelated private Page sharing does not change a member restoration review" do
-    person = human_fixture().principal
-    owner = human_fixture().principal
-    actor = actor_fixture(owner.uid)
-    assert {:ok, source} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: owner.uid})
-    assert {:ok, target} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: owner.uid})
-
-    assert {:ok, _} =
-             Principals.PodAdministration.disable(actor, person.uid, :suspended, "review")
-
-    assert {:ok, before} = AuthZ.restoration_review(person.uid)
-
-    assert {:ok, _} =
-             AuthZ.create_permission_grant(%{
-               source_page_id: source.id,
-               source_action: "page_view",
-               resource_pattern: "pod:**:#{target.id}:**",
-               action: "page_view"
-             })
-
-    assert {:ok, after_sharing} = AuthZ.restoration_review(person.uid)
-    assert after_sharing.fingerprint == before.fingerprint
-    assert after_sharing.permissions["userset_grants"] == []
-  end
-
   test "read and mutations require a live Console administrator", %{conn: conn, tenant: tenant} do
     %{principal: person} = human_fixture()
     assert conn |> v2_get(~p"/api/v2/principals/#{person.uid}/access") |> json_response(401)
+
+    assert conn
+           |> v2_post(~p"/api/v2/principals/#{person.uid}/access-restorations", %{
+             reason: "return",
+             operation_id: "unauthorized-restore"
+           })
+           |> json_response(401)
+
     {admin, admin_uid} = console_conn_with_principal(conn)
 
     assert admin

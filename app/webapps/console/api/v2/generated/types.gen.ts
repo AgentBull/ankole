@@ -59,7 +59,7 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
-  agent_uid: string
+  agent_uid?: string | null
   /**
    * Field included by default.
    */
@@ -78,6 +78,10 @@ export type SignalBindingType = {
    * Field included by default.
    */
   name: string
+  /**
+   * Field included by default.
+   */
+  routing_mode: 'ai_colleague' | 'sender_personal_assistant'
   /**
    * Field included by default.
    */
@@ -668,11 +672,11 @@ export type PermissionGrant = {
     /**
      * Field included by default.
      */
-    source_page_id?: string | null
+    source_node_id?: string | null
     /**
      * Field included by default.
      */
-    target_page_id?: string | null
+    target_node_id?: string | null
     /**
      * Field included by default.
      */
@@ -881,26 +885,6 @@ export type HumanAccess = {
   type: string
 }
 
-/**
- * A "Resource object" representing a files_operation
- */
-export type FilesOperation = {
-  /**
-   * An attributes object for a files_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a files_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -950,7 +934,7 @@ export type SignalBinding = {
     /**
      * Field included by default.
      */
-    agent_uid: string
+    agent_uid?: string | null
     /**
      * Field included by default.
      */
@@ -969,6 +953,10 @@ export type SignalBinding = {
      * Field included by default.
      */
     name: string
+    /**
+     * Field included by default.
+     */
+    routing_mode: 'ai_colleague' | 'sender_personal_assistant'
     /**
      * Field included by default.
      */
@@ -1446,10 +1434,6 @@ export type Principal = {
     /**
      * Field included by default.
      */
-    handle?: string | null
-    /**
-     * Field included by default.
-     */
     has_external_identity?: boolean | null
     /**
      * Field included by default.
@@ -1463,6 +1447,7 @@ export type Principal = {
      * Field included by default.
      */
     type: 'human' | 'agent' | 'system'
+    uid: string
   }
   id: string
   /**
@@ -1482,6 +1467,10 @@ export type AgentWorker = {
    * An attributes object for a agent_worker
    */
   attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: string
     /**
      * Field included by default.
      */
@@ -2888,10 +2877,6 @@ export type Agent = {
     /**
      * Field included by default.
      */
-    handle: string
-    /**
-     * Field included by default.
-     */
     inserted_at: string
     /**
      * Field included by default.
@@ -2911,7 +2896,11 @@ export type Agent = {
      * Field included by default.
      */
     status?: 'active' | 'disabled' | null
-    type: 'ai_colleague'
+    type: 'ai_colleague' | 'personal_assistant'
+    /**
+     * Field included by default.
+     */
+    uid: string
     /**
      * Field included by default.
      */
@@ -2972,6 +2961,26 @@ export type OidcLogoutDeliveryType = {
    * Field included by default.
    */
   status: 'pending' | 'delivering' | 'failed' | 'delivered'
+}
+
+/**
+ * A "Resource object" representing a drive_operation
+ */
+export type DriveOperation = {
+  /**
+   * An attributes object for a drive_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a drive_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
 }
 
 /**
@@ -3045,10 +3054,6 @@ export type AgentType = {
    * Field included by default.
    */
   group_memory_disclosure_mode: 'strict' | 'relaxed'
-  /**
-   * Field included by default.
-   */
-  handle: string
   /**
    * Field included by default.
    */
@@ -4254,6 +4259,47 @@ export type ListBrainObjectVersionsResponses = {
 
 export type ListBrainObjectVersionsResponse = ListBrainObjectVersionsResponses[keyof ListBrainObjectVersionsResponses]
 
+export type ListDefaultModelProfilesData = {
+  body?: never
+  path?: never
+  query?: {
+    defaults_scope?: 'global' | 'tenant'
+  }
+  url: '/api/v2/model-profiles'
+}
+
+export type ListDefaultModelProfilesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListDefaultModelProfilesError = ListDefaultModelProfilesErrors[keyof ListDefaultModelProfilesErrors]
+
+export type ListDefaultModelProfilesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListDefaultModelProfilesResponse =
+  ListDefaultModelProfilesResponses[keyof ListDefaultModelProfilesResponses]
+
 export type RetryOidcLogoutDeliveryData = {
   body?: never
   path: {
@@ -4537,6 +4583,7 @@ export type ListBrainPrincipalKnowledgeResponses = {
       conversation_id?: string | null
       created_at: string
       expired_at?: string | null
+      graded_by?: string | null
       graded_confidence?: number | null
       graded_quality?: string | null
       holder?: string | null
@@ -4546,6 +4593,7 @@ export type ListBrainPrincipalKnowledgeResponses = {
       object_slug?: string | null
       provenance?: string | null
       resolved_at?: string | null
+      resolved_by?: string | null
       resolved_outcome?: boolean | null
       resolved_quality?: string | null
       since_date?: string | null
@@ -4637,34 +4685,6 @@ export type SupersedeBrainClaimResponses = {
 }
 
 export type SupersedeBrainClaimResponse = SupersedeBrainClaimResponses[keyof SupersedeBrainClaimResponses]
-
-export type DisableSignalBindingData = {
-  body?: never
-  path: {
-    name: string
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v2/agents/{agent_uid}/signal-bindings/{name}'
-}
-
-export type DisableSignalBindingErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type DisableSignalBindingError = DisableSignalBindingErrors[keyof DisableSignalBindingErrors]
-
-export type DisableSignalBindingResponses = {
-  /**
-   * Success
-   */
-  200: SignalBindingType
-}
-
-export type DisableSignalBindingResponse = DisableSignalBindingResponses[keyof DisableSignalBindingResponses]
 
 export type ApproveBrainMergeSuggestionData = {
   /**
@@ -4981,6 +5001,144 @@ export type UpdatePrincipalGroupResponses = {
 
 export type UpdatePrincipalGroupResponse = UpdatePrincipalGroupResponses[keyof UpdatePrincipalGroupResponses]
 
+export type ListSystemModelProfilesData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/system-principals/{uid}/model-profiles'
+}
+
+export type ListSystemModelProfilesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListSystemModelProfilesError = ListSystemModelProfilesErrors[keyof ListSystemModelProfilesErrors]
+
+export type ListSystemModelProfilesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListSystemModelProfilesResponse = ListSystemModelProfilesResponses[keyof ListSystemModelProfilesResponses]
+
+export type DeleteSystemModelProfileData = {
+  body?: never
+  path: {
+    profile: string
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/system-principals/{uid}/model-profiles/{profile}'
+}
+
+export type DeleteSystemModelProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteSystemModelProfileError = DeleteSystemModelProfileErrors[keyof DeleteSystemModelProfileErrors]
+
+export type DeleteSystemModelProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type DeleteSystemModelProfileResponse =
+  DeleteSystemModelProfileResponses[keyof DeleteSystemModelProfileResponses]
+
+export type PutSystemModelProfileData = {
+  /**
+   * Request body for the put_system_model_profile operation on agent_model_configuration resource
+   */
+  body: {
+    data: {
+      attrs: {
+        context_length?: number | null
+        description?: string | null
+        model?: string | null
+        provider_id?: string | null
+        provider_options?: {
+          [key: string]: unknown
+        } | null
+      }
+    }
+  }
+  path: {
+    profile: string
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/system-principals/{uid}/model-profiles/{profile}'
+}
+
+export type PutSystemModelProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutSystemModelProfileError = PutSystemModelProfileErrors[keyof PutSystemModelProfileErrors]
+
+export type PutSystemModelProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PutSystemModelProfileResponse = PutSystemModelProfileResponses[keyof PutSystemModelProfileResponses]
+
 export type BackgroundActivityJobsData = {
   body?: never
   path: {
@@ -5293,6 +5451,7 @@ export type ShowBrainObjectResponses = {
         } | null
         claim: string
         graded_at?: string | null
+        graded_by?: string | null
         graded_confidence?: number | null
         graded_quality?: string | null
         holder?: string | null
@@ -5300,6 +5459,7 @@ export type ShowBrainObjectResponses = {
         kind?: string | null
         provenance?: string | null
         resolved_at?: string | null
+        resolved_by?: string | null
         resolved_outcome?: boolean | null
         resolved_quality?: string | null
         since_date?: string | null
@@ -5458,42 +5618,6 @@ export type GetHumanAccessResponses = {
       reason: string
       source: string
     }>
-    permission_review: {
-      fingerprint: string
-      permissions: {
-        grants: Array<{
-          action: string
-          condition?: unknown | null
-          group_id?: string | null
-          id: string
-          principal_uid?: string | null
-          resource_pattern: string
-        }>
-        groups: Array<{
-          condition?: unknown | null
-          domain: string
-          id: string
-          kind: string
-          name: string
-        }>
-        principal: {
-          access_version: number
-          avatar_url?: string | null
-          display_name?: string | null
-          uid: string
-        }
-        userset_grants: Array<{
-          action: string
-          condition: unknown
-          id: string
-          resource_pattern: string
-          source_action: string
-          source_page_id: string
-          target_page_id: string
-          target_scope: string
-        }>
-      }
-    }
     restrictions: Array<{
       cleared_at?: string | null
       disposition: string
@@ -5618,6 +5742,105 @@ export type ForgetBrainObjectResponses = {
 }
 
 export type ForgetBrainObjectResponse = ForgetBrainObjectResponses[keyof ForgetBrainObjectResponses]
+
+export type DeleteDefaultModelProfileData = {
+  body?: never
+  path: {
+    profile: string
+  }
+  query?: {
+    defaults_scope?: 'global' | 'tenant'
+  }
+  url: '/api/v2/model-profiles/{profile}'
+}
+
+export type DeleteDefaultModelProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteDefaultModelProfileError = DeleteDefaultModelProfileErrors[keyof DeleteDefaultModelProfileErrors]
+
+export type DeleteDefaultModelProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type DeleteDefaultModelProfileResponse =
+  DeleteDefaultModelProfileResponses[keyof DeleteDefaultModelProfileResponses]
+
+export type PutDefaultModelProfileData = {
+  /**
+   * Request body for the put_default_model_profile operation on agent_model_configuration resource
+   */
+  body: {
+    data: {
+      attrs: {
+        context_length?: number | null
+        description?: string | null
+        model?: string | null
+        provider_id?: string | null
+        provider_options?: {
+          [key: string]: unknown
+        } | null
+      }
+      defaults_scope: 'global' | 'tenant'
+    }
+  }
+  path: {
+    profile: string
+  }
+  query?: never
+  url: '/api/v2/model-profiles/{profile}'
+}
+
+export type PutDefaultModelProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutDefaultModelProfileError = PutDefaultModelProfileErrors[keyof PutDefaultModelProfileErrors]
+
+export type PutDefaultModelProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PutDefaultModelProfileResponse = PutDefaultModelProfileResponses[keyof PutDefaultModelProfileResponses]
 
 export type ListCronScheduleRunsData = {
   body?: never
@@ -5764,16 +5987,17 @@ export type DeleteAgentModelProfileResponses = {
    * Success
    */
   200: {
-    model_profile: {
-      configured: boolean
-      context_length?: number | null
-      description?: string | null
-      model?: string | null
-      profile: string
-      provider_id?: string | null
-      provider_options?: {
-        [key: string]: unknown
-      } | null
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      [key: string]: unknown
     }
   }
 }
@@ -5819,16 +6043,17 @@ export type PutAgentModelProfileResponses = {
    * Success
    */
   200: {
-    model_profile: {
-      configured: boolean
-      context_length?: number | null
-      description?: string | null
-      model?: string | null
-      profile: string
-      provider_id?: string | null
-      provider_options?: {
-        [key: string]: unknown
-      } | null
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      [key: string]: unknown
     }
   }
 }
@@ -5872,12 +6097,14 @@ export type ListSignalBindingsResponses = {
     }>
     signal_bindings: Array<{
       adapter: string
-      agent_uid: string
+      agent_uid?: string | null
       config_key?: string | null
       config_ref: string
       enabled: boolean
       filters?: unknown | null
+      id: string
       name: string
+      routing_mode: 'ai_colleague' | 'sender_personal_assistant'
       target?: unknown | null
       unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
       unavailable_reason?: string | null
@@ -6021,6 +6248,74 @@ export type CancelBackgroundAgentJobResponses = {
 export type CancelBackgroundAgentJobResponse =
   CancelBackgroundAgentJobResponses[keyof CancelBackgroundAgentJobResponses]
 
+export type DeleteDriveNodeData = {
+  body?: never
+  path: {
+    id: string
+    tenant_id: string
+  }
+  query?: never
+  url: '/api/v2/drive/{tenant_id}/nodes/{id}'
+}
+
+export type DeleteDriveNodeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteDriveNodeError = DeleteDriveNodeErrors[keyof DeleteDriveNodeErrors]
+
+export type DeleteDriveNodeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+  }
+}
+
+export type DeleteDriveNodeResponse = DeleteDriveNodeResponses[keyof DeleteDriveNodeResponses]
+
+export type MoveDriveNodeData = {
+  /**
+   * Request body for the move_drive_node operation on drive_operation resource
+   */
+  body?: {
+    data: {
+      name?: string | null
+      parent_id?: string | null
+    }
+  }
+  path: {
+    id: string
+    tenant_id: string
+  }
+  query?: never
+  url: '/api/v2/drive/{tenant_id}/nodes/{id}'
+}
+
+export type MoveDriveNodeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MoveDriveNodeError = MoveDriveNodeErrors[keyof MoveDriveNodeErrors]
+
+export type MoveDriveNodeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+  }
+}
+
+export type MoveDriveNodeResponse = MoveDriveNodeResponses[keyof MoveDriveNodeResponses]
+
 export type RunIdentityProviderSyncData = {
   body?: never
   path: {
@@ -6150,42 +6445,6 @@ export type DisableHumanAccessResponses = {
       reason: string
       source: string
     }>
-    permission_review: {
-      fingerprint: string
-      permissions: {
-        grants: Array<{
-          action: string
-          condition?: unknown | null
-          group_id?: string | null
-          id: string
-          principal_uid?: string | null
-          resource_pattern: string
-        }>
-        groups: Array<{
-          condition?: unknown | null
-          domain: string
-          id: string
-          kind: string
-          name: string
-        }>
-        principal: {
-          access_version: number
-          avatar_url?: string | null
-          display_name?: string | null
-          uid: string
-        }
-        userset_grants: Array<{
-          action: string
-          condition: unknown
-          id: string
-          resource_pattern: string
-          source_action: string
-          source_page_id: string
-          target_page_id: string
-          target_scope: string
-        }>
-      }
-    }
     restrictions: Array<{
       cleared_at?: string | null
       disposition: string
@@ -6399,105 +6658,35 @@ export type ApproveIdentityDirectoryResponses = {
 export type ApproveIdentityDirectoryResponse =
   ApproveIdentityDirectoryResponses[keyof ApproveIdentityDirectoryResponses]
 
-export type GetSignalBindingData = {
+export type ListSystemPrincipalsData = {
   body?: never
-  path: {
-    binding_name: string
-    agent_uid: string
-  }
+  path?: never
   query?: never
-  url: '/api/v2/agents/{agent_uid}/signal-bindings/{binding_name}'
+  url: '/api/v2/system-principals'
 }
 
-export type GetSignalBindingErrors = {
+export type ListSystemPrincipalsErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type GetSignalBindingError = GetSignalBindingErrors[keyof GetSignalBindingErrors]
+export type ListSystemPrincipalsError = ListSystemPrincipalsErrors[keyof ListSystemPrincipalsErrors]
 
-export type GetSignalBindingResponses = {
+export type ListSystemPrincipalsResponses = {
   /**
    * Success
    */
   200: {
-    config: unknown
-    signal_binding: {
-      adapter: string
-      agent_uid: string
-      config_key?: string | null
-      config_ref: string
-      enabled: boolean
-      filters?: unknown | null
-      name: string
-      target?: unknown | null
-      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
-      unavailable_reason?: string | null
-      unmatched_sender_policy: 'manual_review' | 'create_standalone'
-    }
-    stored_secret_paths: Array<string>
+    system_principals: Array<{
+      purpose: string
+      uid: string
+    }>
   }
 }
 
-export type GetSignalBindingResponse = GetSignalBindingResponses[keyof GetSignalBindingResponses]
-
-export type UpdateSignalBindingData = {
-  /**
-   * Request body for the update_signal_binding operation on signals_operation resource
-   */
-  body: {
-    data: {
-      config: {
-        [key: string]: unknown
-      }
-      filters?: unknown | null
-      group_message_mode?: string | null
-      target?: unknown | null
-      target_agent_uid: string
-      unmatched_sender_policy?: string | null
-    }
-  }
-  path: {
-    binding_name: string
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v2/agents/{agent_uid}/signal-bindings/{binding_name}'
-}
-
-export type UpdateSignalBindingErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type UpdateSignalBindingError = UpdateSignalBindingErrors[keyof UpdateSignalBindingErrors]
-
-export type UpdateSignalBindingResponses = {
-  /**
-   * Success
-   */
-  200: {
-    signal_binding: {
-      adapter: string
-      agent_uid: string
-      config_key?: string | null
-      config_ref: string
-      enabled: boolean
-      filters?: unknown | null
-      name: string
-      target?: unknown | null
-      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
-      unavailable_reason?: string | null
-      unmatched_sender_policy: 'manual_review' | 'create_standalone'
-    }
-  }
-}
-
-export type UpdateSignalBindingResponse = UpdateSignalBindingResponses[keyof UpdateSignalBindingResponses]
+export type ListSystemPrincipalsResponse = ListSystemPrincipalsResponses[keyof ListSystemPrincipalsResponses]
 
 export type RestoreBrainObjectData = {
   /**
@@ -6652,6 +6841,102 @@ export type ListAutomationJobsResponses = {
 
 export type ListAutomationJobsResponse = ListAutomationJobsResponses[keyof ListAutomationJobsResponses]
 
+export type RenameAgentData = {
+  /**
+   * Request body for the rename_agent operation on agent resource
+   */
+  body: {
+    data: {
+      new_uid: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{uid}/rename'
+}
+
+export type RenameAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RenameAgentError = RenameAgentErrors[keyof RenameAgentErrors]
+
+export type RenameAgentResponses = {
+  /**
+   * Success
+   */
+  201: {
+    base_repair_error?: string | null
+    uid: string
+  }
+}
+
+export type RenameAgentResponse = RenameAgentResponses[keyof RenameAgentResponses]
+
+export type PutSignalBindingData = {
+  /**
+   * Request body for the put_signal_binding operation on signals_operation resource
+   */
+  body: {
+    data: {
+      agent_uid?: string | null
+      config: {
+        [key: string]: unknown
+      }
+      filters?: unknown | null
+      group_message_mode?: string | null
+      routing_mode?: 'ai_colleague' | 'sender_personal_assistant' | null
+      target?: unknown | null
+      unmatched_sender_policy?: string | null
+    }
+  }
+  path: {
+    binding_name: string
+    adapter_id: string
+  }
+  query?: never
+  url: '/api/v2/signal-bindings/{adapter_id}/{binding_name}'
+}
+
+export type PutSignalBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutSignalBindingError = PutSignalBindingErrors[keyof PutSignalBindingErrors]
+
+export type PutSignalBindingResponses = {
+  /**
+   * Success
+   */
+  200: {
+    signal_binding: {
+      adapter: string
+      agent_uid?: string | null
+      config_key?: string | null
+      config_ref: string
+      enabled: boolean
+      filters?: unknown | null
+      id: string
+      name: string
+      routing_mode: 'ai_colleague' | 'sender_personal_assistant'
+      target?: unknown | null
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    }
+  }
+}
+
+export type PutSignalBindingResponse = PutSignalBindingResponses[keyof PutSignalBindingResponses]
+
 export type ListAgentModelProfilesData = {
   body?: never
   path: {
@@ -6675,12 +6960,17 @@ export type ListAgentModelProfilesResponses = {
    * Success
    */
   200: {
-    model_profiles: {
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
       [key: string]: unknown
     }
     provider_hosted: {
-      image_generate: boolean
-      web_search: boolean
+      [key: string]: unknown
     }
   }
 }
@@ -7478,62 +7768,6 @@ export type ResumeCronScheduleResponses = {
 
 export type ResumeCronScheduleResponse = ResumeCronScheduleResponses[keyof ResumeCronScheduleResponses]
 
-export type PutSignalBindingData = {
-  /**
-   * Request body for the put_signal_binding operation on signals_operation resource
-   */
-  body: {
-    data: {
-      config: {
-        [key: string]: unknown
-      }
-      filters?: unknown | null
-      group_message_mode?: string | null
-      target?: unknown | null
-      unmatched_sender_policy?: string | null
-    }
-  }
-  path: {
-    binding_name: string
-    adapter_id: string
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v2/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}'
-}
-
-export type PutSignalBindingErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PutSignalBindingError = PutSignalBindingErrors[keyof PutSignalBindingErrors]
-
-export type PutSignalBindingResponses = {
-  /**
-   * Success
-   */
-  200: {
-    signal_binding: {
-      adapter: string
-      agent_uid: string
-      config_key?: string | null
-      config_ref: string
-      enabled: boolean
-      filters?: unknown | null
-      name: string
-      target?: unknown | null
-      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
-      unavailable_reason?: string | null
-      unmatched_sender_policy: 'manual_review' | 'create_standalone'
-    }
-  }
-}
-
-export type PutSignalBindingResponse = PutSignalBindingResponses[keyof PutSignalBindingResponses]
-
 export type RetryHumanWorkCleanupData = {
   body?: never
   path: {
@@ -7581,42 +7815,6 @@ export type RetryHumanWorkCleanupResponses = {
       reason: string
       source: string
     }>
-    permission_review: {
-      fingerprint: string
-      permissions: {
-        grants: Array<{
-          action: string
-          condition?: unknown | null
-          group_id?: string | null
-          id: string
-          principal_uid?: string | null
-          resource_pattern: string
-        }>
-        groups: Array<{
-          condition?: unknown | null
-          domain: string
-          id: string
-          kind: string
-          name: string
-        }>
-        principal: {
-          access_version: number
-          avatar_url?: string | null
-          display_name?: string | null
-          uid: string
-        }
-        userset_grants: Array<{
-          action: string
-          condition: unknown
-          id: string
-          resource_pattern: string
-          source_action: string
-          source_page_id: string
-          target_page_id: string
-          target_scope: string
-        }>
-      }
-    }
     restrictions: Array<{
       cleared_at?: string | null
       disposition: string
@@ -8097,7 +8295,6 @@ export type GetBrainHealthResponses = {
       grading?: {
         [key: string]: unknown
       } | null
-      maintainer_agent_uid?: string | null
       models: {
         dreaming: {
           configured: boolean
@@ -8432,6 +8629,54 @@ export type CreateBrainObjectResponses = {
 
 export type CreateBrainObjectResponse = CreateBrainObjectResponses[keyof CreateBrainObjectResponses]
 
+export type PutDefaultProviderHostedData = {
+  /**
+   * Request body for the put_default_provider_hosted operation on agent_model_configuration resource
+   */
+  body: {
+    data: {
+      defaults_scope: 'global' | 'tenant'
+      image_generate?: boolean | null
+      web_search?: boolean | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/model-profiles/provider-hosted'
+}
+
+export type PutDefaultProviderHostedErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutDefaultProviderHostedError = PutDefaultProviderHostedErrors[keyof PutDefaultProviderHostedErrors]
+
+export type PutDefaultProviderHostedResponses = {
+  /**
+   * Success
+   */
+  200: {
+    effective: {
+      [key: string]: unknown
+    }
+    inherited: {
+      [key: string]: unknown
+    }
+    overrides: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PutDefaultProviderHostedResponse =
+  PutDefaultProviderHostedResponses[keyof PutDefaultProviderHostedResponses]
+
 export type ForkBrainObjectData = {
   /**
    * Request body for the fork_brain_object operation on brain_object resource
@@ -8713,10 +8958,8 @@ export type RestoreHumanAccessData = {
    */
   body: {
     data: {
-      identity_verified: boolean
       operation_id: string
       reason: string
-      review_fingerprint: string
     }
   }
   path: {
@@ -8764,42 +9007,6 @@ export type RestoreHumanAccessResponses = {
       reason: string
       source: string
     }>
-    permission_review: {
-      fingerprint: string
-      permissions: {
-        grants: Array<{
-          action: string
-          condition?: unknown | null
-          group_id?: string | null
-          id: string
-          principal_uid?: string | null
-          resource_pattern: string
-        }>
-        groups: Array<{
-          condition?: unknown | null
-          domain: string
-          id: string
-          kind: string
-          name: string
-        }>
-        principal: {
-          access_version: number
-          avatar_url?: string | null
-          display_name?: string | null
-          uid: string
-        }
-        userset_grants: Array<{
-          action: string
-          condition: unknown
-          id: string
-          resource_pattern: string
-          source_action: string
-          source_page_id: string
-          target_page_id: string
-          target_scope: string
-        }>
-      }
-    }
     restrictions: Array<{
       cleared_at?: string | null
       disposition: string
@@ -9306,43 +9513,6 @@ export type UpdateOidcClientResponses = {
 
 export type UpdateOidcClientResponse = UpdateOidcClientResponses[keyof UpdateOidcClientResponses]
 
-export type MoveAgentFilesData = {
-  /**
-   * Request body for the move_agent_files operation on files_operation resource
-   */
-  body: {
-    data: {
-      from_path: string
-      to_path: string
-    }
-  }
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v2/agents/{agent_uid}/file-moves'
-}
-
-export type MoveAgentFilesErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MoveAgentFilesError = MoveAgentFilesErrors[keyof MoveAgentFilesErrors]
-
-export type MoveAgentFilesResponses = {
-  /**
-   * Success
-   */
-  201: {
-    moved_files: number
-  }
-}
-
-export type MoveAgentFilesResponse = MoveAgentFilesResponses[keyof MoveAgentFilesResponses]
-
 export type UpdateBrainSourceData = {
   /**
    * Request body for the update_brain_source operation on brain_source resource
@@ -9376,6 +9546,136 @@ export type UpdateBrainSourceResponses = {
 }
 
 export type UpdateBrainSourceResponse = UpdateBrainSourceResponses[keyof UpdateBrainSourceResponses]
+
+export type DisableSignalBindingData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/signal-bindings/{id}'
+}
+
+export type DisableSignalBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DisableSignalBindingError = DisableSignalBindingErrors[keyof DisableSignalBindingErrors]
+
+export type DisableSignalBindingResponses = {
+  /**
+   * Success
+   */
+  200: SignalBindingType
+}
+
+export type DisableSignalBindingResponse = DisableSignalBindingResponses[keyof DisableSignalBindingResponses]
+
+export type GetSignalBindingData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/signal-bindings/{id}'
+}
+
+export type GetSignalBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetSignalBindingError = GetSignalBindingErrors[keyof GetSignalBindingErrors]
+
+export type GetSignalBindingResponses = {
+  /**
+   * Success
+   */
+  200: {
+    config: unknown
+    signal_binding: {
+      adapter: string
+      agent_uid?: string | null
+      config_key?: string | null
+      config_ref: string
+      enabled: boolean
+      filters?: unknown | null
+      id: string
+      name: string
+      routing_mode: 'ai_colleague' | 'sender_personal_assistant'
+      target?: unknown | null
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    }
+    stored_secret_paths: Array<string>
+  }
+}
+
+export type GetSignalBindingResponse = GetSignalBindingResponses[keyof GetSignalBindingResponses]
+
+export type UpdateSignalBindingData = {
+  /**
+   * Request body for the update_signal_binding operation on signals_operation resource
+   */
+  body?: {
+    data: {
+      agent_uid?: string | null
+      config?: {
+        [key: string]: unknown
+      } | null
+      filters?: unknown | null
+      group_message_mode?: string | null
+      routing_mode?: 'ai_colleague' | 'sender_personal_assistant' | null
+      target?: unknown | null
+      unmatched_sender_policy?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/signal-bindings/{id}'
+}
+
+export type UpdateSignalBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateSignalBindingError = UpdateSignalBindingErrors[keyof UpdateSignalBindingErrors]
+
+export type UpdateSignalBindingResponses = {
+  /**
+   * Success
+   */
+  200: {
+    signal_binding: {
+      adapter: string
+      agent_uid?: string | null
+      config_key?: string | null
+      config_ref: string
+      enabled: boolean
+      filters?: unknown | null
+      id: string
+      name: string
+      routing_mode: 'ai_colleague' | 'sender_personal_assistant'
+      target?: unknown | null
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    }
+  }
+}
+
+export type UpdateSignalBindingResponse = UpdateSignalBindingResponses[keyof UpdateSignalBindingResponses]
 
 export type ListOidcLoginSourcesData = {
   body?: never
@@ -10021,7 +10321,6 @@ export type UpdateAgentData = {
       avatar_url?: string | null
       display_name?: string | null
       group_memory_disclosure_mode?: 'strict' | 'relaxed' | null
-      handle?: string | null
       options?: {
         [key: string]: unknown
       } | null
@@ -10742,6 +11041,95 @@ export type EnqueueBrainDreamResponses = {
 
 export type EnqueueBrainDreamResponse = EnqueueBrainDreamResponses[keyof EnqueueBrainDreamResponses]
 
+export type ListDriveNodesData = {
+  body?: never
+  path: {
+    tenant_id: string
+  }
+  query?: {
+    after?: string
+    limit?: number
+    owner_uid?: string
+    parent_id?: string
+    relative_path?: string
+  }
+  url: '/api/v2/drive/{tenant_id}/nodes'
+}
+
+export type ListDriveNodesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListDriveNodesError = ListDriveNodesErrors[keyof ListDriveNodesErrors]
+
+export type ListDriveNodesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ancestors: Array<{
+      id: string
+      name: string
+    }>
+    next_after?: string | null
+    nodes: Array<{
+      content_type?: string | null
+      conversation_id?: string | null
+      id: string
+      kind: string
+      name: string
+      object_id?: string | null
+      parent_id?: string | null
+      private_owner_uid?: string | null
+      size: number
+      updated_at: string
+    }>
+  }
+}
+
+export type ListDriveNodesResponse = ListDriveNodesResponses[keyof ListDriveNodesResponses]
+
+export type CreateDriveNodeData = {
+  /**
+   * Request body for the create_drive_node operation on drive_operation resource
+   */
+  body: {
+    data: {
+      kind?: 'folder' | 'file' | null
+      name: string
+      parent_id: string
+    }
+  }
+  path: {
+    tenant_id: string
+  }
+  query?: never
+  url: '/api/v2/drive/{tenant_id}/nodes'
+}
+
+export type CreateDriveNodeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateDriveNodeError = CreateDriveNodeErrors[keyof CreateDriveNodeErrors]
+
+export type CreateDriveNodeResponses = {
+  /**
+   * Success
+   */
+  201: {
+    id: string
+  }
+}
+
+export type CreateDriveNodeResponse = CreateDriveNodeResponses[keyof CreateDriveNodeResponses]
+
 export type RetireAgentSkillLessonData = {
   body?: never
   path: {
@@ -10769,6 +11157,43 @@ export type RetireAgentSkillLessonResponses = {
 }
 
 export type RetireAgentSkillLessonResponse = RetireAgentSkillLessonResponses[keyof RetireAgentSkillLessonResponses]
+
+export type RenameHumanData = {
+  /**
+   * Request body for the rename_human operation on principal resource
+   */
+  body: {
+    data: {
+      new_uid: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/rename'
+}
+
+export type RenameHumanErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RenameHumanError = RenameHumanErrors[keyof RenameHumanErrors]
+
+export type RenameHumanResponses = {
+  /**
+   * Success
+   */
+  201: {
+    base_repair_error?: string | null
+    uid: string
+  }
+}
+
+export type RenameHumanResponse = RenameHumanResponses[keyof RenameHumanResponses]
 
 export type CreateIdentityMappingData = {
   /**
@@ -10803,84 +11228,6 @@ export type CreateIdentityMappingResponses = {
 }
 
 export type CreateIdentityMappingResponse = CreateIdentityMappingResponses[keyof CreateIdentityMappingResponses]
-
-export type DeleteAgentFilesData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query: {
-    path: string
-  }
-  url: '/api/v2/agents/{agent_uid}/files'
-}
-
-export type DeleteAgentFilesErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type DeleteAgentFilesError = DeleteAgentFilesErrors[keyof DeleteAgentFilesErrors]
-
-export type DeleteAgentFilesResponses = {
-  /**
-   * Success
-   */
-  200: {
-    deleted_files: number
-  }
-}
-
-export type DeleteAgentFilesResponse = DeleteAgentFilesResponses[keyof DeleteAgentFilesResponses]
-
-export type ListAgentFilesData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: {
-    path?: string
-  }
-  url: '/api/v2/agents/{agent_uid}/files'
-}
-
-export type ListAgentFilesErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ListAgentFilesError = ListAgentFilesErrors[keyof ListAgentFilesErrors]
-
-export type ListAgentFilesResponses = {
-  /**
-   * Success
-   */
-  200: {
-    file_listing: {
-      files: Array<{
-        content_type: string
-        conversation_id?: string | null
-        message_id?: string | null
-        path: string
-        size: number
-        source: 'inbound' | 'generated' | 'sent' | 'agent' | 'console' | 'pod'
-        updated_at: string
-      }>
-      folders: Array<{
-        name: string
-        path: string
-      }>
-      path: string
-      truncated: boolean
-    }
-  }
-}
-
-export type ListAgentFilesResponse = ListAgentFilesResponses[keyof ListAgentFilesResponses]
 
 export type ListAgentsData = {
   body?: never
@@ -10940,12 +11287,12 @@ export type CreateAgentData = {
       avatar_url?: string | null
       display_name: string
       group_memory_disclosure_mode?: 'strict' | 'relaxed' | null
-      handle: string
       options?: {
         [key: string]: unknown
       } | null
       owner_principal_uid: string
       role: string
+      uid: string
       worker_provider_id?: string | null
     }
   }
@@ -11158,42 +11505,6 @@ export type ClearHumanAccessRestrictionResponses = {
       reason: string
       source: string
     }>
-    permission_review: {
-      fingerprint: string
-      permissions: {
-        grants: Array<{
-          action: string
-          condition?: unknown | null
-          group_id?: string | null
-          id: string
-          principal_uid?: string | null
-          resource_pattern: string
-        }>
-        groups: Array<{
-          condition?: unknown | null
-          domain: string
-          id: string
-          kind: string
-          name: string
-        }>
-        principal: {
-          access_version: number
-          avatar_url?: string | null
-          display_name?: string | null
-          uid: string
-        }
-        userset_grants: Array<{
-          action: string
-          condition: unknown
-          id: string
-          resource_pattern: string
-          source_action: string
-          source_page_id: string
-          target_page_id: string
-          target_scope: string
-        }>
-      }
-    }
     restrictions: Array<{
       cleared_at?: string | null
       disposition: string

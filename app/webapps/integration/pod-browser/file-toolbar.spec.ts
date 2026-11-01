@@ -2,6 +2,57 @@ import { state, request } from './fixtures'
 import { expect, test } from '@playwright/test'
 import { pageRoute } from './routes'
 
+test('replacing a Markdown file clears the old section selection and anchors new comments to the new object', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto(pageRoute(state.report_id))
+    id = (
+      await request<{ page: { id: string } }>(page, '/pages', 'POST', { type: 'file', title: 'Versioned sections' })
+    ).page.id
+    await page.goto(pageRoute(id))
+    const input = page.locator('input[type="file"]')
+    await expect(input).toBeEnabled()
+    await input.setInputFiles({
+      name: 'notes.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('# Original\nOld content.\n')
+    })
+    await page.getByRole('button', { name: '# Original', exact: true }).click()
+    const selection = page.getByTestId('file-comment-selection-bar')
+    await expect(selection).toContainText('Old content.')
+    await input.setInputFiles({
+      name: 'notes.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('# Replacement\nNew content.\n')
+    })
+    await expect(page.getByRole('button', { name: '# Replacement', exact: true })).toBeVisible()
+    await expect(selection).toHaveCount(0)
+    await page.getByRole('button', { name: '# Replacement', exact: true }).click()
+    await selection.getByRole('button', { name: '批注所选内容', exact: true }).click()
+    const comments = page.getByRole('complementary', { name: '评论', exact: true })
+    await comments.getByRole('textbox', { name: '添加评论…', exact: true }).fill('Review the new version.')
+    await comments.getByRole('button', { name: '发送', exact: true }).click()
+    await expect(comments.getByText('Review the new version.', { exact: true })).toBeVisible()
+    const manifest = await request<{ files: { object_id: string }[] }>(page, `/pages/${id}/files`)
+    const result = await request<{ threads: { anchor: { object_id: string; heading: string }; quote: string }[] }>(
+      page,
+      `/pages/${id}/comments`
+    )
+    expect(result.threads[0]).toMatchObject({
+      anchor: { object_id: manifest.files[0].object_id, heading: 'Replacement' }
+    })
+    expect(result.threads[0].quote).toContain('New content.')
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
 test('keyboard file selection keeps a failed upload, freezes pending work, and leaves download above the real preview', async ({
   browser
 }) => {
@@ -35,6 +86,7 @@ test('keyboard file selection keeps a failed upload, freezes pending work, and l
       await route.continue()
     })
     const choose = page.getByRole('button', { name: '选择上传文件', exact: true })
+    await expect(choose).toBeEnabled()
     await choose.focus()
     const chooser = page.waitForEvent('filechooser')
     await choose.press('Enter')

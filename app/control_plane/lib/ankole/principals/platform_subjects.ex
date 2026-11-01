@@ -265,16 +265,21 @@ defmodule Ankole.Principals.PlatformSubjects do
                    |> Ankole.Ash.exists?() do
               {:ok, {:selected, uid}}
             else
-              _ -> {:ok, {:new, Ash.UUIDv7.generate()}}
+              _ -> new_subject_uid(attrs)
             end
 
           [] ->
-            {:ok, {:new, Ash.UUIDv7.generate()}}
+            new_subject_uid(attrs)
 
           _ ->
             {:error, :ambiguous_contact_identity}
         end
     end
+  end
+
+  defp new_subject_uid(attrs) do
+    with {:ok, uid} <- Principals.normalize_uid(Ankole.Attrs.get(attrs, :external_id)),
+         do: {:ok, {:new, uid}}
   end
 
   defp email_owner_uids(email) do

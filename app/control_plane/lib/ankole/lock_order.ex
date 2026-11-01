@@ -75,11 +75,20 @@ defmodule Ankole.LockOrder do
       "workflow_agent_calls" => 8,
       "automation_job_runs" => 8,
       "sessions" => 10,
-      "signals" => 11
+      "signals" => 11,
+      "conversation_action_cards" => 11,
+      "drive_nodes" => 12,
+      "file_objects" => 12,
+      "pod_files" => 12,
+      "pages" => 12
     }
     # A trigger references its consumer. Lock the consumer before its cron rule,
-    # including when both belong to the parent-work rank.
-    @row_dependencies %{"automation_jobs" => "cron_schedules"}
+    # including when both belong to the parent-work rank. Likewise, Action Cards
+    # always lock before their source Signal row at rank 11.
+    @row_dependencies %{
+      "automation_jobs" => "cron_schedules",
+      "conversation_action_cards" => "signals"
+    }
 
     def check_query(%Ecto.Query{lock: nil}, _identity), do: :ok
 
@@ -118,7 +127,8 @@ defmodule Ankole.LockOrder do
       check_control_plane_lock!()
 
       cond do
-        String.starts_with?(key, "pod-tree:") -> check(2, {:pod_tree, key})
+        String.starts_with?(key, "drive-tree:") -> check(2, {:drive_tree, key})
+        String.starts_with?(key, "drive-root:") -> check(2.5, {:drive_root, key})
         String.contains?(key, ":running_slots:") -> check(6, {:slots, key})
         true -> :ok
       end
@@ -135,6 +145,7 @@ defmodule Ankole.LockOrder do
                     "work lock order violation: #{inspect(lock)} at rank #{rank} after rank #{previous}"
             end
 
+            check_root_order!(lock, held)
             check_row_dependency!(lock, held)
 
             Process.put(@key, %{state | rank: rank, held: MapSet.put(held, lock)})
@@ -146,6 +157,16 @@ defmodule Ankole.LockOrder do
           :ok
       end
     end
+
+    defp check_root_order!({:drive_root, key}, held) do
+      if Enum.any?(held, fn
+           {:drive_root, previous} -> previous > key
+           _ -> false
+         end),
+         do: raise(ArgumentError, "Drive root locks must be acquired in node ID order")
+    end
+
+    defp check_root_order!(_lock, _held), do: :ok
 
     defp check_row_dependency!({:row, table, _} = lock, held) do
       case @row_dependencies[table] do

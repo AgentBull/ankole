@@ -7,6 +7,7 @@ const body = async (response: Response): Promise<Record<string, unknown>> => res
 const token = 'adapter-token'
 const provider = 'cf-one'
 const object: WorkerObject = {
+  tenant_id: 'tenant-1',
   agent_uid: 'agent-1',
   generation: 'gen1',
   phase: 'running',
@@ -51,7 +52,7 @@ const createBody = {
   provider_id: provider,
   generation: 'gen1',
   image: 'worker-a',
-  env: { WORKER_ID: 'agent-1' },
+  env: { WORKER_ID: 'agent-1', ANKOLE_WORKER_TENANT_ID: 'tenant-1' },
   instance: 'standard-3',
   storage_ref: backupRecord
 }

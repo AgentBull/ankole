@@ -99,7 +99,8 @@ defmodule Ankole.Sessions.ToolsTest do
       |> Enum.find(&(&1["name"] == "clarify"))
       |> Ankole.Sessions.Tool.new(Tools.Session)
 
-    run = %{tools: [tool]}
+    agent = Ankole.SessionsCase.agent_fixture().principal
+    run = %{tools: [tool], agent_uid: agent.uid}
 
     args = %{
       "question" => "  Choose one  ",
@@ -181,7 +182,8 @@ defmodule Ankole.Sessions.ToolsTest do
       |> Enum.find(&(&1["name"] == "todo"))
       |> Ankole.Sessions.Tool.new(Tools.Session)
 
-    run = %{tools: [tool], todo: [], pages: %{}, web_cache: %{}}
+    agent = Ankole.SessionsCase.agent_fixture().principal
+    run = %{tools: [tool], agent_uid: agent.uid, todo: [], pages: %{}, web_cache: %{}}
     item = fn id, content -> %{"id" => id, "content" => content, "status" => "pending"} end
 
     write = fn run, args ->
@@ -283,7 +285,7 @@ defmodule Ankole.Sessions.ToolsTest do
       result = invoke(run, "skill_view", %{"name" => skill["skill_name"]}, "view")
       refute result.is_error
       assert result.output =~ "directory=\"/repo/app/library/#{skill["relative_path"]}\""
-      assert Repo.get(AgentWorker, run.agent_uid) == nil
+      assert Repo.get_by(AgentWorker, agent_uid: run.agent_uid) == nil
       unavailable = invoke(run, "skill_view", %{"name" => "not-enabled"}, "missing")
       assert unavailable.is_error
       assert unavailable.output =~ "skill is not enabled for this turn: not-enabled"
@@ -291,7 +293,7 @@ defmodule Ankole.Sessions.ToolsTest do
 
     test "creating a Job stores its source and sending, listing, stopping keep the domain owner (G1, G4)",
          %{run: run} do
-      worker = Repo.get!(Ankole.AgentWorkers.AgentWorker, run.agent_uid)
+      worker = Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: run.agent_uid)
 
       created =
         invoke(
@@ -339,7 +341,7 @@ defmodule Ankole.Sessions.ToolsTest do
       refute stopped.is_error, inspect(stopped)
       assert Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, id).status == :stopped
 
-      assert Repo.get!(Ankole.AgentWorkers.AgentWorker, run.agent_uid) ==
+      assert Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: run.agent_uid) ==
                worker
     end
 

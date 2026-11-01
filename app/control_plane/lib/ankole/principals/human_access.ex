@@ -15,17 +15,15 @@ defmodule Ankole.Principals.HumanAccess do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
 
-  @doc "Returns the access, permission review, history, and cleanup state of a Human."
+  @doc "Returns the access, history, and cleanup state of a Human."
   def console_view(uid) do
-    with {:ok, %{type: :human} = principal} <- Principals.get_principal(uid),
-         {:ok, review} <- AuthZ.restoration_review(uid) do
+    with {:ok, %{type: :human} = principal} <- Principals.get_principal(uid) do
       {:ok,
        %{
          uid: uid,
          status: principal.status,
          access_version: principal.access_version,
          access_revoked_at: principal.access_revoked_at,
-         permission_review: review,
          restrictions:
            Enum.map(
              restrictions(uid),
@@ -84,7 +82,7 @@ defmodule Ankole.Principals.HumanAccess do
       do: :ok
 
   def check(uid, version) when is_binary(uid) and is_integer(version) do
-    case Principals.get_principal_across_tenants(uid) do
+    case Principals.get_principal(uid) do
       {:ok, principal} -> check(principal, version)
       _ -> {:error, :human_access_revoked}
     end
@@ -300,6 +298,7 @@ defmodule Ankole.Principals.HumanAccess do
            persist_restriction(restriction, Map.put(attrs, :principal_uid, principal.uid)),
          {:ok, disabled} <-
            Ankole.Ash.update(principal, :revoke_human_in_tx, %{}),
+         :ok <- Principals.sync_personal_assistant_in_tx(disabled),
          {:ok, released} <- release_for_disposition(principal, attrs.disposition),
          {:ok, _event} <-
            record(principal, disabled, "disable", Map.put(attrs, :released_identifiers, released)),
@@ -436,45 +435,53 @@ defmodule Ankole.Principals.HumanAccess do
     end
   end
 
-  def restore(uid, review_fingerprint, actor_uid, reason, operation_id) do
+  def restore(uid, actor_uid, reason, operation_id) do
     Repo.transact_top_level(fn ->
-      restore_in_tx(uid, review_fingerprint, actor_uid, reason, operation_id)
+      restore_in_tx(uid, actor_uid, reason, operation_id)
     end)
   end
 
   @doc false
-  def restore_in_tx(uid, review_fingerprint, actor_uid, reason, operation_id) do
-    Store.lock_built_in_admin_group_for_update(Ankole.AuthZ.Root.admin_group_name())
+  def restore_in_tx(uid, actor_uid, reason, operation_id) do
+    Store.lock_admin_groups_for_update()
 
     with {:ok, %Principal{type: :human, status: :disabled} = principal} <-
            Principals.lock_principal_in_tx(uid),
          :ok <- tenant_allows_restoration(principal.tenant_id),
-         false <-
-           AccessRestriction
-           |> Ash.Query.filter(principal_uid == ^principal.uid and is_nil(cleared_at))
-           |> Ankole.Ash.exists?(),
-         {:ok, %{fingerprint: ^review_fingerprint} = review} <- AuthZ.restoration_review(uid),
-         {:ok, restored} <-
-           Ankole.Ash.update(principal, :enable_in_tx, %{}),
+         :ok <- clear_restorable_restrictions(uid, actor_uid, reason),
+         {:ok, restored} <- Ankole.Ash.update(principal, :enable_in_tx, %{}),
+         :ok <- Principals.sync_personal_assistant_in_tx(restored),
          {:ok, _} <-
            record(principal, restored, "restore", %{
              source: "manual",
              reason: reason,
              actor: actor_uid,
-             operation_id: operation_id,
-             details: %{
-               "approved_permissions" => review.permissions,
-               "identity_verified" => true
-             }
+             operation_id: operation_id
            }) do
       {:ok, restored}
     else
-      true -> {:error, :active_restrictions}
       {:ok, %Principal{type: :human, status: :active} = principal} -> {:ok, principal}
       {:ok, %Principal{}} -> {:error, :not_human}
-      {:ok, %{fingerprint: _}} -> {:error, :permission_review_changed}
       error -> error
     end
+  end
+
+  defp clear_restorable_restrictions(uid, actor_uid, reason) do
+    uid
+    |> restrictions()
+    |> Enum.filter(&is_nil(&1.cleared_at))
+    |> Enum.reduce_while(:ok, fn restriction, :ok ->
+      case clear_restriction_in_tx(
+             uid,
+             restriction.id,
+             actor_uid,
+             reason,
+             Ankole.Ecto.UUIDv7.autogenerate()
+           ) do
+        {:ok, _} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp tenant_allows_restoration(tenant_id) do

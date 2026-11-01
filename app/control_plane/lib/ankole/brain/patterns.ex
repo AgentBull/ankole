@@ -185,6 +185,7 @@ defmodule Ankole.Brain.Patterns do
 
   defp write_pattern(pattern, existing) do
     attrs = %{title: pattern.title, body: pattern.body}
+    author = Config.execution_author!()
 
     result =
       case existing do
@@ -198,7 +199,8 @@ defmodule Ankole.Brain.Patterns do
           Objects.update_object_in_tx(
             pattern.slug,
             Map.put(attrs, :expected_content_hash, object.content_hash),
-            :system
+            :system,
+            author: author
           )
 
         %Object{} ->

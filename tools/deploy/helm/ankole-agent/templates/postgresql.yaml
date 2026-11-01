@@ -69,6 +69,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/pgsql/18/data
+            - name: shared-memory
+              mountPath: /dev/shm
           readinessProbe:
             exec:
               command:
@@ -97,8 +99,12 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if or .Values.postgresql.persistence.existingClaim (not .Values.postgresql.persistence.enabled) }}
       volumes:
+        - name: shared-memory
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.postgresql.sharedMemorySize | quote }}
+        {{- if or .Values.postgresql.persistence.existingClaim (not .Values.postgresql.persistence.enabled) }}
         - name: data
           {{- if .Values.postgresql.persistence.existingClaim }}
           persistentVolumeClaim:
@@ -106,7 +112,7 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
-      {{- end }}
+        {{- end }}
       {{- with .Values.postgresql.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

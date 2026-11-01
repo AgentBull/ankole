@@ -1,22 +1,31 @@
 import { useMutation, Link } from '../tenant-context'
 import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
-import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { recordValue } from '@agentbull/active-support'
 import { Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQueryClient } from '@tanstack/react-query'
-import { useMemo, type ComponentProps } from 'react'
+import { useLayoutEffect, useMemo, type ComponentProps } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 import { putAgentProviderHostedMutation } from '../api/v2/generated/@tanstack/react-query.gen'
-import { deleteAgentModelProfile, putAgentModelProfile } from '../api/v2/generated/sdk.gen'
+import {
+  deleteAgentModelProfile,
+  putAgentModelProfile,
+  deleteDefaultModelProfile,
+  putDefaultModelProfile,
+  deleteSystemModelProfile,
+  putSystemModelProfile
+} from '../api/v2/generated/sdk.gen'
+import type { ListAgentModelProfilesResponse } from '../api/v2/generated/types.gen'
 import type { AgentItem } from '../api/agents'
 import type { AIGatewayProviderKindItem } from '../state/provider-settings'
-import type { ModelProfileWriteRequest, ProviderHostedCapabilities } from '../state/model-profiles-model'
+import type { ModelProfileWriteRequest } from '../state/model-profiles-model'
 import { ErrorBlock } from '../../common/error-block'
 import {
-  draftFromProfile,
+  draftsFromEffective,
+  resolvedProviderHosted,
   ModelProfilesModel,
   PROFILE_NAMES,
   type ModelProfileSubmission,
@@ -24,18 +33,31 @@ import {
   type ProfileName
 } from '../state/model-profiles-model'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
-import { profileUsesConfigurableModel } from './model-profile-options'
 import { useEditorDraft } from '../use-editor-draft'
 import type { AIGatewayProviderItem } from '../state/provider-settings'
-
-const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
 
 export function modelProfileLabel(t: TFunction, profile: ProfileName) {
   return t(`console.models.${profile}_label`)
 }
 
-function profileDescription(t: TFunction, profile: ProfileName) {
+export function profileDescription(t: TFunction, profile: ProfileName) {
   return t(`console.models.${profile}_description`)
+}
+
+export function profileSourceDescription(t: TFunction, profile: ProfileName, entry: unknown) {
+  const resolved = recordValue(entry)
+  const source = typeof resolved?.source === 'string' ? resolved.source : 'default'
+  const sourceLabel = t(`console.models.source_${source}`)
+  const resolvedFrom = resolved?.resolved_from_profile
+
+  if (typeof resolvedFrom === 'string' && resolvedFrom !== profile) {
+    return t('console.models.fallback_source', {
+      profile: modelProfileLabel(t, resolvedFrom as ProfileName),
+      source: sourceLabel
+    })
+  }
+
+  return t('console.models.effective_source', { source: sourceLabel })
 }
 
 type ModelProfilesEditorProps = {
@@ -43,8 +65,7 @@ type ModelProfilesEditorProps = {
   error: unknown
   loading: boolean
   model?: InstanceType<typeof ModelProfilesModel>
-  profiles: JSONObject
-  providerHosted: ProviderHostedCapabilities
+  configuration: ListAgentModelProfilesResponse | undefined
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: AIGatewayModelCatalogEntry[]
@@ -55,6 +76,22 @@ type ProfilePersistence = { submission: ModelProfileSubmission } & (
   | { action: 'cleared' }
 )
 
+export function useModelProfilesDraft(
+  model: InstanceType<typeof ModelProfilesModel>,
+  sourceKey: string,
+  configuration: ListAgentModelProfilesResponse | undefined
+) {
+  const drafts = useMemo(() => configuration && draftsFromEffective(configuration.effective), [configuration])
+  const status = useEditorDraft(model, { sourceKey, source: drafts })
+
+  useLayoutEffect(() => {
+    // Refresh inherited slots while the model preserves each unsaved draft.
+    if (status === 'ready' && drafts) model.initialize(sourceKey, drafts)
+  }, [drafts, model, sourceKey, status])
+
+  return status
+}
+
 export function ModelProfilesEditor(props: ModelProfilesEditorProps) {
   return <AgentModelProfilesEditor key={props.agent.uid} {...props} />
 }
@@ -64,8 +101,7 @@ function AgentModelProfilesEditor({
   error,
   loading,
   model: externalModel,
-  profiles,
-  providerHosted,
+  configuration,
   providers,
   providerKinds,
   modelCatalog
@@ -75,19 +111,9 @@ function AgentModelProfilesEditor({
   const queryClient = useQueryClient()
   const internalModel = useModel(ModelProfilesModel)
   const model = externalModel ?? internalModel
-  const modelProfileDrafts = useMemo(
-    () =>
-      loading
-        ? undefined
-        : Object.fromEntries(
-            PROFILE_NAMES.map(profile => [profile, draftFromProfile(recordValue(profiles[profile]) ?? {})])
-          ),
-    [loading, profiles]
-  )
-  const draftStatus = useEditorDraft(model, {
-    sourceKey: `agent:${agent.uid}`,
-    source: modelProfileDrafts
-  })
+  const providerHosted = resolvedProviderHosted(configuration?.provider_hosted)
+  const providerHostedOverrides = recordValue(configuration?.provider_hosted.overrides) ?? {}
+  const draftStatus = useModelProfilesDraft(model, `agent:${agent.uid}`, configuration)
 
   const saveProviderHosted = useMutation({
     ...putAgentProviderHostedMutation(),
@@ -113,7 +139,15 @@ function AgentModelProfilesEditor({
         saveProviderHosted.mutate({
           path: { agent_uid: agent.uid },
           body: { data: { [capability]: next } }
-        })
+        }),
+      onReset: Object.hasOwn(providerHostedOverrides, capability)
+        ? () =>
+            saveProviderHosted.mutate({
+              path: { agent_uid: agent.uid },
+              body: { data: { [capability]: null } }
+            })
+        : undefined,
+      resetLabel: t('console.models.restore_inheritance')
     }
   }
 
@@ -138,14 +172,15 @@ function AgentModelProfilesEditor({
           <Skeleton className="h-48 w-full" />
           <Skeleton className="h-48 w-full" />
         </div>
-      ) : (
+      ) : configuration ? (
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
           {PROFILE_NAMES.map(profile => (
             <ProfileEditor
               key={profile}
-              agentUID={agent.uid}
+              target={{ agentUID: agent.uid }}
               profile={profile}
               model={model}
+              configuration={configuration}
               providers={providers}
               providerKinds={providerKinds}
               modelCatalog={modelCatalog}
@@ -153,23 +188,25 @@ function AgentModelProfilesEditor({
             />
           ))}
         </div>
-      )}
+      ) : null}
     </section>
   )
 }
 
-function ProfileEditor({
-  agentUID,
+export function ProfileEditor({
+  target,
   profile,
   model,
+  configuration,
   providers,
   providerKinds,
   modelCatalog,
   providerHosted
 }: {
-  agentUID: string
+  target: { agentUID: string } | { defaultsScope: 'tenant' | 'global' } | { systemUID: string }
   profile: ProfileName
   model: InstanceType<typeof ModelProfilesModel>
+  configuration: ListAgentModelProfilesResponse
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: AIGatewayModelCatalogEntry[]
@@ -186,24 +223,44 @@ function ProfileEditor({
     providerOptions: signals.providerOptions.value,
     error: signals.error.value
   }
-  const required = REQUIRED_PROFILES.has(profile)
-  const configured = Boolean(draft.providerID && (!profileUsesConfigurableModel(profile) || draft.model))
+  const hasOverride = Object.hasOwn(configuration.overrides, profile)
   const persist = useMutation({
     mutationFn: async (input: ProfilePersistence) => {
-      const path = { agent_uid: agentUID, profile }
+      if ('agentUID' in target) {
+        const path = { agent_uid: target.agentUID, profile }
+        const response =
+          input.action === 'saved'
+            ? await putAgentModelProfile({ path, body: { data: { attrs: input.body } }, throwOnError: true })
+            : await deleteAgentModelProfile({ path, throwOnError: true })
+        return response.data
+      }
+
+      if ('systemUID' in target) {
+        const path = { uid: target.systemUID, profile }
+        const response =
+          input.action === 'saved'
+            ? await putSystemModelProfile({ path, body: { data: { attrs: input.body } }, throwOnError: true })
+            : await deleteSystemModelProfile({ path, throwOnError: true })
+        return response.data
+      }
+
       const response =
         input.action === 'saved'
-          ? await putAgentModelProfile({ path, body: { data: { attrs: input.body } }, throwOnError: true })
-          : await deleteAgentModelProfile({ path, throwOnError: true })
+          ? await putDefaultModelProfile({
+              path: { profile },
+              body: { data: { defaults_scope: target.defaultsScope, attrs: input.body } },
+              throwOnError: true
+            })
+          : await deleteDefaultModelProfile({
+              path: { profile },
+              query: { defaults_scope: target.defaultsScope },
+              throwOnError: true
+            })
       return response.data
     }
   })
-  const finishPersistence = (response: { model_profile?: unknown }, input: ProfilePersistence) => {
-    const result = model.markSaved(
-      profile,
-      draftFromProfile(recordValue(response.model_profile) ?? {}),
-      input.submission
-    )
+  const finishPersistence = (response: ListAgentModelProfilesResponse, input: ProfilePersistence) => {
+    const result = model.markSaved(profile, response.effective, input.submission)
     const messageKey = result.hasUnsavedChanges ? `${input.action}_with_unsaved_changes` : input.action
     const message = t(`console.models.${messageKey}`, { profile: modelProfileLabel(t, profile) })
     if (result.hasUnsavedChanges) toast.info(message)
@@ -228,6 +285,12 @@ function ProfileEditor({
       { onSuccess: finishPersistence }
     )
   }
+  const inherited = recordValue(configuration.inherited[profile])
+  const inheritedHint =
+    hasOverride && recordValue(inherited?.value)
+      ? t('console.models.inherited_source', { source: t(`console.models.source_${inherited?.source}`) })
+      : ''
+
   return (
     <div className="grid min-w-0 gap-2">
       <ErrorBlock error={persist.error} />
@@ -236,36 +299,23 @@ function ProfileEditor({
         label={modelProfileLabel(t, profile)}
         draft={draft}
         dirty={signals.dirty.value}
-        required={required}
-        hint={profileDescription(t, profile)}
+        hint={`${profileDescription(t, profile)} ${profileSourceDescription(t, profile, configuration.effective[profile])} ${inheritedHint}`}
         persistencePending={persist.isPending}
         providerHosted={providerHosted}
-        deleteConfirm={
-          required
-            ? undefined
-            : {
-                title: t('console.models.clear_title'),
-                description: t('console.models.clear_description', { profile: modelProfileLabel(t, profile) }),
-                confirmLabel: t('console.models.clear')
-              }
-        }
-        deleteDisabled={required ? !signals.dirty.value : !configured}
-        deleteLabel={required ? t('common.reset', { defaultValue: 'Reset' }) : t('console.models.clear')}
+        deleteConfirm={{
+          title: t('console.models.clear_title'),
+          description: t('console.models.clear_description', { profile: modelProfileLabel(t, profile) }),
+          confirmLabel: t('console.models.restore_inheritance')
+        }}
+        deleteDisabled={!hasOverride}
+        deleteLabel={t('console.models.restore_inheritance')}
         providers={providers}
         providerKinds={providerKinds}
         modelCatalog={modelCatalog}
         onUpdate={patch => model.update(profile, patch)}
         onSave={submit}
-        onDelete={
-          required
-            ? signals.dirty.value
-              ? () => model.reset(profile)
-              : undefined
-            : () =>
-                persist.mutate(
-                  { action: 'cleared', submission: model.submission(profile) },
-                  { onSuccess: finishPersistence }
-                )
+        onDelete={() =>
+          persist.mutate({ action: 'cleared', submission: model.submission(profile) }, { onSuccess: finishPersistence })
         }
       />
     </div>

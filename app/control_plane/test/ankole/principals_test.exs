@@ -20,8 +20,7 @@ defmodule Ankole.PrincipalsTest do
                  job_title: " Research Lead "
                })
 
-      assert {:ok, _} = Ecto.UUID.cast(principal.uid)
-      refute principal.uid == "alice"
+      assert principal.uid == "alice@example.com"
       assert principal.type == :human
       assert principal.status == :active
       assert principal.display_name == "Alice"
@@ -95,15 +94,14 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, %{principal: principal, agent: agent}} =
                Principals.create_agent(%{
                  worker_provider_id: context.worker_provider_id,
-                 handle: " Research-Agent ",
+                 uid: " Research-Agent ",
                  display_name: "Research Agent",
                  role: " Research Analyst ",
                  owner_principal_uid: owner.uid
                })
 
-      assert {:ok, _} = Ecto.UUID.cast(principal.uid)
-      assert String.at(principal.uid, 14) == "7"
-      assert agent.handle == "research-agent"
+      assert principal.uid == "research-agent"
+      assert agent.uid == "research-agent"
       assert principal.type == :agent
       assert principal.status == :active
       assert agent.uid == principal.uid
@@ -119,7 +117,7 @@ defmodule Ankole.PrincipalsTest do
                wanted_until: nil,
                provider_id: provider_id
              } =
-               Repo.get!(AgentWorker, principal.uid)
+               Repo.get_by!(AgentWorker, agent_uid: principal.uid)
 
       assert provider_id == context.worker_provider_id
       assert_enqueued(worker: ReconcileJob, args: %{"agent_uid" => principal.uid})
@@ -129,8 +127,7 @@ defmodule Ankole.PrincipalsTest do
       %{principal: owner} = human_fixture()
 
       attrs = %{
-        uid: Ankole.Kernel.gen_uuid_v7(),
-        handle: unique_uid("agent"),
+        uid: unique_uid("agent"),
         display_name: "Agent",
         role: "Research Analyst",
         owner_principal_uid: owner.uid,
@@ -140,7 +137,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, :cancelled} =
                Repo.transact(fn repo ->
                  {:ok, %{principal: principal}} = Principals.create_agent_in_tx(attrs)
-                 assert repo.get!(AgentWorker, principal.uid).initial_start_pending
+                 assert repo.get_by!(AgentWorker, agent_uid: principal.uid).initial_start_pending
                  assert_enqueued(worker: ReconcileJob, args: %{agent_uid: principal.uid})
                  {:error, :cancelled}
                end)
@@ -150,15 +147,25 @@ defmodule Ankole.PrincipalsTest do
       assert Principals.list_agents() == []
     end
 
-    test "create_agent/1 explicitly rejects a request with only the retired uid field" do
-      assert {:error, {:missing, :handle}} = Principals.create_agent(%{uid: "old-request-name"})
+    test "create_agent/1 requires an explicit uid", context do
+      %{principal: owner} = human_fixture()
+
+      assert {:error, error} =
+               Principals.create_agent(%{
+                 worker_provider_id: context.worker_provider_id,
+                 owner_principal_uid: owner.uid,
+                 display_name: "Research",
+                 role: "Research"
+               })
+
+      assert %{uid: [_]} = errors_on(error)
     end
 
     test "create_agent/1 requires an owner principal", context do
       assert {:error, changeset} =
                Principals.create_agent(%{
                  worker_provider_id: context.worker_provider_id,
-                 handle: unique_uid("ownerless-agent"),
+                 uid: unique_uid("ownerless-agent"),
                  display_name: "Ownerless Agent",
                  role: "Research Analyst"
                })
@@ -173,7 +180,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, :agent_owner_must_be_human} =
                Principals.create_agent(%{
                  worker_provider_id: context.worker_provider_id,
-                 handle: unique_uid("agent-owned-agent"),
+                 uid: unique_uid("agent-owned-agent"),
                  display_name: "Agent-owned Agent",
                  role: "Research Analyst",
                  owner_principal_uid: other_agent.uid
@@ -182,7 +189,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, :agent_owner_not_found} =
                Principals.create_agent(%{
                  worker_provider_id: context.worker_provider_id,
-                 handle: unique_uid("ghost-owned-agent"),
+                 uid: unique_uid("ghost-owned-agent"),
                  display_name: "Ghost-owned Agent",
                  role: "Research Analyst",
                  owner_principal_uid: "no-such-principal"
@@ -191,7 +198,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, %{agent: agent}} =
                Principals.create_agent(%{
                  worker_provider_id: context.worker_provider_id,
-                 handle: unique_uid("owned-agent"),
+                 uid: unique_uid("owned-agent"),
                  display_name: "Owned Agent",
                  role: "Research Analyst",
                  owner_principal_uid: owner.uid
@@ -205,7 +212,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, role_changeset} =
                Principals.create_agent(%{
                  worker_provider_id: context.worker_provider_id,
-                 handle: unique_uid("roleless-agent"),
+                 uid: unique_uid("roleless-agent"),
                  display_name: "Roleless Agent",
                  role: " "
                })
@@ -215,7 +222,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, options_changeset} =
                Principals.create_agent(%{
                  worker_provider_id: context.worker_provider_id,
-                 handle: unique_uid("bad-options-agent"),
+                 uid: unique_uid("bad-options-agent"),
                  display_name: "Bad Options Agent",
                  role: "Research Analyst",
                  options: "not-a-map"
@@ -230,7 +237,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, %{agent: agent}} =
                Principals.create_agent(%{
                  worker_provider_id: context.worker_provider_id,
-                 handle: unique_uid("created-agent"),
+                 uid: unique_uid("created-agent"),
                  display_name: "Created Agent",
                  role: "Research Analyst",
                  owner_principal_uid: creator.uid,
@@ -241,12 +248,11 @@ defmodule Ankole.PrincipalsTest do
     end
 
     test "update_agent/2 updates mutable agent fields without changing uid" do
-      %{principal: principal} = agent_fixture(%{handle: unique_uid("mutable-agent")})
+      %{principal: principal} = agent_fixture(%{uid: unique_uid("mutable-agent")})
 
       assert {:ok, %{principal: updated_principal, agent: updated_agent}} =
                Principals.update_agent(principal.uid, %{
                  uid: "ignored",
-                 handle: "new-handle",
                  display_name: "New Name",
                  role: "Customer Success Operator",
                  options: %{"temperature" => 0.2}
@@ -255,14 +261,13 @@ defmodule Ankole.PrincipalsTest do
       assert updated_principal.uid == principal.uid
       assert updated_principal.display_name == "New Name"
       assert updated_agent.uid == principal.uid
-      assert updated_agent.handle == "new-handle"
       assert updated_agent.role == "Customer Success Operator"
       assert updated_agent.options == %{"temperature" => 0.2}
     end
 
     test "list_active_agents/0 excludes disabled agents" do
-      active = agent_fixture(%{handle: unique_uid("active-agent")})
-      disabled = agent_fixture(%{handle: unique_uid("disabled-agent")})
+      active = agent_fixture(%{uid: unique_uid("active-agent")})
+      disabled = agent_fixture(%{uid: unique_uid("disabled-agent")})
 
       assert {:ok, _principal} =
                Ankole.PrincipalsFixtures.disable_principal_fixture(disabled.principal.uid)
@@ -279,38 +284,39 @@ defmodule Ankole.PrincipalsTest do
     end
   end
 
-  test "same contacts and handles coexist across tenants while handle edits preserve identity", %{
+  test "same meaningful names coexist across tenants and profile edits keep identity", %{
     tenant: tenant
   } do
     other = Ankole.DataCase.create_tenant()
     Repo.put_tenant_id(tenant.id)
     first = human_fixture(%{email: "same@example.com", mobile: "+14155550901"})
-    first_agent = agent_fixture(%{handle: "same-agent", owner_principal_uid: first.principal.uid})
+    first_agent = agent_fixture(%{uid: "same-agent", owner_principal_uid: first.principal.uid})
 
     second_agent =
       Repo.with_tenant(other.id, fn ->
         second = human_fixture(%{email: "same@example.com", mobile: "+14155550901"})
-        refute first.principal.uid == second.principal.uid
-        assert {:error, :not_found} = Principals.get_principal(first.principal.uid)
+        assert first.principal.uid == second.principal.uid
+        assert {:ok, local} = Principals.get_principal(first.principal.uid)
+        assert local.tenant_id == other.id
 
         agent_fixture(%{
-          handle: "same-agent",
+          uid: "same-agent",
           owner_principal_uid: second.principal.uid,
           created_by: Ankole.ActorRef.from_principal(first.principal)
         })
       end)
 
-    refute first_agent.principal.uid == second_agent.principal.uid
+    assert first_agent.principal.uid == second_agent.principal.uid
 
     assert {:ok, %{agent: renamed}} =
-             Principals.update_agent(first_agent.principal.uid, %{handle: "renamed-agent"})
+             Principals.update_agent(first_agent.principal.uid, %{display_name: "New label"})
 
     assert renamed.uid == first_agent.agent.uid
-    assert renamed.handle == "renamed-agent"
+    assert renamed.uid == "same-agent"
 
     Repo.with_tenant(other.id, fn ->
       assert {:ok, %{agent: untouched}} = Principals.get_agent(second_agent.principal.uid)
-      assert untouched.handle == "same-agent"
+      assert untouched.uid == "same-agent"
       assert untouched.created_by == Ankole.ActorRef.from_principal(first.principal)
     end)
   end
@@ -383,8 +389,7 @@ defmodule Ankole.PrincipalsTest do
                })
 
       assert observed.identity.external_id == "alias.person@example.com"
-      assert {:ok, _} = Ecto.UUID.cast(observed.principal.uid)
-      refute observed.principal.uid == "alias.person@example.com"
+      assert observed.principal.uid == observed.identity.external_id
 
       Enum.each(external_ids, fn external_id ->
         assert {:ok, principal} =
@@ -541,10 +546,12 @@ defmodule Ankole.PrincipalsTest do
 
       refute joined.principal.uid == owner.principal.uid
       assert joined.principal.uid == bystander.uid
-      assert joined.human_user.email == Repo.get!(Principals.HumanUser, bystander.uid).email
+
+      assert joined.human_user.email ==
+               Repo.get_by!(Principals.HumanUser, principal_uid: bystander.uid).email
     end
 
-    test "equal external subject ids in different providers create distinct opaque identities" do
+    test "equal external subject ids in different providers require an explicit mapping on a name conflict" do
       assert {:ok, first} =
                Principals.upsert_platform_subject_human(%{
                  provider: "slack-main",
@@ -552,19 +559,19 @@ defmodule Ankole.PrincipalsTest do
                  display_name: "Slack Person"
                })
 
-      assert {:ok, second} =
+      assert first.principal.uid == "12345"
+
+      assert {:error, :principal_uid_taken} =
                Principals.upsert_platform_subject_human(%{
                  provider: "dingtalk-main",
                  external_id: "12345",
                  display_name: "DingTalk Person"
                })
+               |> Ankole.Errors.reason()
 
-      refute first.principal.uid == second.principal.uid
-      refute first.principal.uid == "12345"
       assert {:ok, slack} = Principals.resolve_platform_subject("slack-main", "12345")
-      assert {:ok, dingtalk} = Principals.resolve_platform_subject("dingtalk-main", "12345")
       assert slack.uid == first.principal.uid
-      assert dingtalk.uid == second.principal.uid
+      assert {:error, :not_found} = Principals.resolve_platform_subject("dingtalk-main", "12345")
     end
 
     test "an email sender subject is not a registered contact email" do
@@ -573,15 +580,16 @@ defmodule Ankole.PrincipalsTest do
                  Principals.create_human_in_tx(%{email: "owner@corp.example"})
                end)
 
-      assert {:ok, sender} =
+      assert {:error, :principal_uid_taken} =
                Principals.upsert_platform_subject_human(%{
                  provider: "email",
                  external_id: "owner@corp.example",
                  display_name: "Owner"
                })
+               |> Ankole.Errors.reason()
 
-      refute sender.principal.uid == local.uid
-      assert Repo.get!(Ankole.Principals.Principal, local.uid).display_name == local.display_name
+      assert Repo.get_by!(Ankole.Principals.Principal, uid: local.uid).display_name ==
+               local.display_name
 
       assert [pending] =
                Principals.SiteCredentials.pending_memberships(%{
@@ -602,10 +610,8 @@ defmodule Ankole.PrincipalsTest do
       assert matched.human_user.email == "owner@corp.example"
       refute matched.created?
 
-      assert {:ok, unchanged_sender} =
+      assert {:error, :not_found} =
                Principals.resolve_platform_subject("email", "owner@corp.example")
-
-      assert unchanged_sender.uid == sender.principal.uid
     end
 
     test "upsert_platform_subject_human/1 drops a conflicting email from a bound subject" do

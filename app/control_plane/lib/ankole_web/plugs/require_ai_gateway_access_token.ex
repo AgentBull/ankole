@@ -55,7 +55,7 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
 
   defp authenticate_agent_claims(conn, claims, source) do
     with {:ok, %{"sub" => agent_uid} = claims} <- AgentTokens.validate_api_key_claims(claims),
-         {:ok, principal} <- put_subject_tenant(agent_uid),
+         {:ok, principal} <- put_subject_tenant(claims["tenant_id"], agent_uid),
          :agent <- principal.type,
          :active <- principal.status,
          :ok <- authorize_non_client_origin(conn, source) do
@@ -82,7 +82,9 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
   end
 
   defp authenticate_oidc_claims(conn, token, claims, source) do
-    with {:ok, principal} <- put_subject_tenant(claims["sub"]),
+    with {:ok, client} <-
+           Ankole.Repo.across_tenants(fn -> OIDC.get_client(claims["client_id"]) end),
+         {:ok, principal} <- put_subject_tenant(client.tenant_id, claims["sub"]),
          {:ok, grant} <- Grant.authorize_claims(token, claims, conn.body_params["model"]),
          :ok <- authorize_client_origin(conn, source, grant.client),
          {:ok, actor} <-
@@ -118,10 +120,8 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
     end
   end
 
-  # The verified token subject is globally unique; it establishes the tenant.
-  defp put_subject_tenant(uid) do
-    with {:ok, tenant_id} <- Principals.resolve_tenant(uid),
-         :ok <- Ankole.Repo.put_tenant_id(tenant_id),
+  defp put_subject_tenant(tenant_id, uid) do
+    with :ok <- Ankole.Repo.put_tenant_id(tenant_id),
          do: Principals.get_principal(uid)
   end
 

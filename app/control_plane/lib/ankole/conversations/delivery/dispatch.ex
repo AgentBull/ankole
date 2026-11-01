@@ -200,6 +200,8 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   @doc false
   def claim_in_tx(agent_uid, binding_name, outbound_key, %Adapter{} = adapter, now) do
+    :ok = Ankole.Files.lock_tree_in_tx()
+
     with %Intent{} = intent <-
            Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(
              agent_uid,
@@ -421,7 +423,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   defp resolve_registered_adapter(%Intent{} = intent) do
     with {:ok, binding} <-
-           Ankole.Signals.Bindings.get_binding(intent.agent_uid, intent.binding_name) do
+           Ankole.Signals.Bindings.get_binding(intent.binding_id) do
       Adapters.fetch_delivery(binding.adapter)
     end
   end
@@ -452,7 +454,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   defp claim_intent(intent, conversation, adapter, now) do
     with :ok <- dispatchable_intent?(intent, now),
-         :ok <- attachments_migrated(intent),
+         :ok <- attachment_objects_ready(intent),
          {:ok, intent} <- degrade_threaded_reply(intent, adapter),
          :ok <- intent_supported?(intent, conversation, adapter),
          {:ok, sending_intent} <- mark_intent_sending(intent, now) do
@@ -463,17 +465,15 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     end
   end
 
-  # Legacy bytes must enter Files through Upgrade202610.import_agent_home/1 before a new send.
-  # This gate keeps the stored attempt count and recovery evidence unchanged.
-  defp attachments_migrated(%Intent{payload: payload}) do
-    legacy? =
+  defp attachment_objects_ready(%Intent{payload: payload}) do
+    needs_import? =
       Enum.any?(Map.get(payload, "attachments", []), fn attachment ->
-        not is_binary(attachment["blob_ref"]) and
+        is_nil(attachment["object_id"]) and
           (Map.has_key?(attachment, "user_files_relative_path") or
              Map.has_key?(attachment, "agent_computer_path"))
       end)
 
-    if legacy?, do: {:error, :attachment_migration_required}, else: :ok
+    if needs_import?, do: {:error, :attachment_migration_required}, else: :ok
   end
 
   # The committed intent names what the conversation wants; the bound adapter decides
@@ -640,7 +640,10 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
         PreviewAdapter.finalize_intent(preview, project_reply_interaction(intent))
 
       nil ->
-        Adapter.deliver(adapter, project_reply_interaction(intent))
+        Adapter.deliver(
+          adapter,
+          intent |> project_reply_interaction() |> repair_outbound_ai_reply()
+        )
     end
   end
 
@@ -650,9 +653,55 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
         PreviewAdapter.finalize_intent(preview, project_reply_interaction(intent))
 
       nil ->
-        Adapter.reconcile(adapter, project_reply_interaction(intent))
+        Adapter.reconcile(
+          adapter,
+          intent |> project_reply_interaction() |> repair_outbound_ai_reply()
+        )
     end
   end
+
+  defp repair_outbound_ai_reply(%Intent{delivery_class: :durable_ai_reply} = intent) do
+    payload =
+      case intent.payload do
+        %{} = map ->
+          map
+          |> maybe_repair_map_text("text")
+          |> maybe_repair_presentation_answer()
+
+        other ->
+          other
+      end
+
+    fallback =
+      if is_binary(intent.fallback_visible_text),
+        do: Ankole.Kernel.repair_generated_markdown(intent.fallback_visible_text),
+        else: intent.fallback_visible_text
+
+    %{intent | payload: payload, fallback_visible_text: fallback}
+  end
+
+  defp repair_outbound_ai_reply(%Intent{} = intent), do: intent
+
+  defp maybe_repair_map_text(map, key) do
+    case Map.get(map, key) do
+      value when is_binary(value) and value != "" ->
+        Map.put(map, key, Ankole.Kernel.repair_generated_markdown(value))
+
+      _other ->
+        map
+    end
+  end
+
+  defp maybe_repair_presentation_answer(%{"reply_presentation" => %{} = presentation} = payload) do
+    repaired =
+      presentation
+      |> maybe_repair_map_text("answer")
+      |> maybe_repair_map_text("prompt")
+
+    Map.put(payload, "reply_presentation", repaired)
+  end
+
+  defp maybe_repair_presentation_answer(payload), do: payload
 
   defp terminal_reply_preview(
          %Adapter{reply_preview: %PreviewAdapter{} = preview},
@@ -716,6 +765,8 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   @doc false
   def finalize_in_tx(intent, phase, result, conversation, now) do
+    :ok = Ankole.Files.lock_tree_in_tx()
+
     case refetch_claimed_intent(intent, Atom.to_string(phase)) do
       {:ok, current_intent} ->
         record_outcome(phase, result, current_intent, conversation, now)

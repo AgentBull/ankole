@@ -85,6 +85,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'console.nav.group_work',
     items: [
       { to: '/agents', label: 'console.nav.agents', icon: RiRobot2Line },
+      { to: '/drive', label: 'console.drive.title', icon: RiTerminalBoxLine },
       { to: '/conversations', label: 'console.nav.conversations', icon: RiChat3Line },
       { to: '/background-agent-jobs', label: 'console.nav.background_agent_jobs', icon: RiGitBranchLine },
       { to: '/automation-jobs', label: 'console.nav.automation_jobs', icon: RiCodeSSlashLine },
@@ -103,6 +104,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'console.nav.group_connections',
     items: [
+      { to: '/model-profiles', label: 'console.nav.model_profiles', icon: RiSettings3Line },
       { to: '/providers', label: 'console.nav.providers', icon: RiSparkling2Line },
       { to: '/worker-providers', label: 'console.worker_providers.title', icon: RiServerLine },
       { to: '/signals', label: 'console.nav.signals', icon: RiBroadcastLine },

@@ -381,6 +381,91 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                )
     end
 
+    test "decodes quoted-printable soft breaks, trailing LWSP, base64 noise, and multipart boundaries" do
+      raw =
+        Enum.join(
+          [
+            "MIME-Version: 1.0",
+            ~s(Content-Type: multipart/mixed; boundary="b-1"),
+            "",
+            "preamble before first boundary with inline --b-1 token",
+            "--b-1  ",
+            "Content-Type: text/plain; charset=utf-8",
+            "Content-Transfer-Encoding: quoted-printable",
+            "",
+            "Line1=20=E4=B8=AD=E6=96=87=   ",
+            "Line2 trailing spaces   ",
+            "Literal =ZZ and mid-line --b-1 text",
+            "--b-1",
+            ~s(Content-Type: application/octet-stream; name="bin.dat"),
+            "Content-Disposition: attachment; filename=bin.dat",
+            "Content-Transfer-Encoding: base64",
+            "",
+            "YWJj\r\n ZGVm===!@#",
+            "--b-1--",
+            "epilogue ignored"
+          ],
+          "\r\n"
+        )
+
+      parsed = Mime.parse(raw)
+
+      assert [
+               %Mime.Part{
+                 type: "text",
+                 subtype: "plain",
+                 body: "Line1 中文Line2 trailing spaces\r\nLiteral =ZZ and mid-line --b-1 text"
+               },
+               %Mime.Part{
+                 type: "application",
+                 subtype: "octet-stream",
+                 disposition: "attachment",
+                 disposition_params: %{"filename" => "bin.dat"},
+                 body: "abcdef"
+               }
+             ] = parsed.parts
+    end
+
+    test "preserves nested multiparts whose boundary shares a prefix with the outer boundary" do
+      raw =
+        Enum.join(
+          [
+            "MIME-Version: 1.0",
+            ~s(Content-Type: multipart/mixed; boundary="part"),
+            "",
+            "--part",
+            ~s(Content-Type: multipart/alternative; boundary="part-alt"),
+            "",
+            "--part-alt",
+            "Content-Type: text/plain; charset=utf-8",
+            "Content-Transfer-Encoding: quoted-printable",
+            "",
+            "Plain ==41 line",
+            "--part-not-a-boundary",
+            "--part-alt--",
+            "--part--   ",
+            "epilogue"
+          ],
+          "\r\n"
+        )
+
+      parsed = Mime.parse(raw)
+
+      assert [
+               %Mime.Part{
+                 type: "multipart",
+                 subtype: "alternative",
+                 parts: [
+                   %Mime.Part{
+                     type: "text",
+                     subtype: "plain",
+                     body: "Plain =A line\r\n--part-not-a-boundary"
+                   }
+                 ]
+               }
+             ] = parsed.parts
+    end
+
     test "keeps a forward that starts with its marker, including quoted lines inside it" do
       body =
         "---------- Forwarded message ---------\nFrom: ops <ops@example.org>\nDate: Thu\n\n故障详情\n> 用户报告\n> 无法登录"
@@ -759,7 +844,10 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                message_snapshot(provider_message_id: "owner1@corp.example")
 
       assert uid == external.uid
-      assert Repo.get!(Ankole.Principals.HumanUser, local.uid).email == "owner@corp.example"
+
+      assert Repo.get_by!(Ankole.Principals.HumanUser, principal_uid: local.uid).email ==
+               "owner@corp.example"
+
       assert Principals.principal_site_credentials(local.uid) == []
       assert MappingRequests.list_requests() == []
     end
@@ -869,7 +957,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       )
 
       consumer = bound_consumer(agent.uid, "mail", "create_standalone")
-      key = {agent.uid, "mail"}
+      key = Ankole.Signals.get_agent_binding!(agent.uid, "mail").id
 
       assert {:ok, blocked} =
                start_connection_owner(ConnectionReconciler, validated_config(), [consumer])
@@ -934,6 +1022,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       intent = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "mail").id,
         binding_name: "mail",
         outbound_key: "reply-1",
         operation: :reply,
@@ -1014,6 +1103,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       intent = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "mail").id,
         binding_name: "mail",
         outbound_key: "reply-tls",
         operation: :reply,
@@ -1083,6 +1173,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       intent = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "mail").id,
         binding_name: "mail",
         outbound_key: "reply-big",
         operation: :reply,
@@ -1096,7 +1187,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
             %{
               "name" => "big.bin",
               "path" => "sent/abababababababab/big.bin",
-              "blob_ref" => "abababababababababababababababababababababababababababababababab",
+              "object_id" => "019a2ee2-45d1-7cb5-b54d-d62a7d0f6b86",
               "size" => 30_000_000
             }
           ]
@@ -1126,6 +1217,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       intent = %Intent{
         agent_uid: agent.uid,
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "mail").id,
         binding_name: "mail",
         outbound_key: "reply-2",
         operation: :reply,
@@ -1191,6 +1283,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
     Inbound.chat_consumer(
       AdapterContext.new(
+        binding_id: Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
         agent_uid: agent_uid,
         binding_name: binding_name,
         adapter: "email",
@@ -1293,6 +1386,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       intent
       |> Map.take([
         :agent_uid,
+        :binding_id,
         :binding_name,
         :outbound_key,
         :operation,

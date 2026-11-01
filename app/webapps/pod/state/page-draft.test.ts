@@ -26,11 +26,11 @@ describe('page drafts', () => {
     model.load('page', '<page/>', 0, 'Original')
     model.title.value = 'First edit'
     model.title.value = 'Latest edit'
-    model.titleSaved('First edit')
+    model.titleSaved('First edit', 'First edit')
     model.load('page', '<page/>', 0, 'First edit')
     expect(model.title.value).toBe('Latest edit')
     expect(model.titleDirty.value).toBe(true)
-    model.titleSaved('Latest edit')
+    model.titleSaved('Latest edit', 'Latest edit')
     expect(model.dirty.value).toBe(false)
   })
 
@@ -55,7 +55,7 @@ describe('page drafts', () => {
     model.xml.value = '<page><p>Changed</p></page>'
     model.saved(model.xml.value, 1, false)
     expect(model.dirty.value).toBe(true)
-    model.titleSaved('Unsaved title')
+    model.titleSaved('Unsaved title', 'Unsaved title')
     expect(model.dirty.value).toBe(false)
   })
 
@@ -296,4 +296,17 @@ test('unavailable browser storage leaves the draft available and reports the rec
     if (originalStorage) Object.defineProperty(globalThis, 'sessionStorage', originalStorage)
     else Reflect.deleteProperty(globalThis, 'sessionStorage')
   }
+})
+
+test('a canonical saved title settles the submitted draft without overwriting a newer edit', () => {
+  const model = new PageDraftModel()
+  model.load('page', '', 1, 'Original')
+  model.title.value = 'A\u202a title'
+  model.titleSaved('A title', 'A\u202a title')
+  expect(model.title.value).toBe('A title')
+  expect(model.titleDirty.value).toBe(false)
+  model.title.value = 'Next edit'
+  model.titleSaved('Older title', 'Older\u200e title')
+  expect(model.title.value).toBe('Next edit')
+  expect(model.titleDirty.value).toBe(true)
 })

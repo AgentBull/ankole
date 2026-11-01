@@ -244,6 +244,10 @@
         "image": {
           "$ref": "#/$defs/image"
         },
+        "sharedMemorySize": {
+          "type": "string",
+          "minLength": 1
+        },
         "auth": {
           "type": "object",
           "required": ["username", "database"],

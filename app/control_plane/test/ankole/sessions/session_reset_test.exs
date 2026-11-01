@@ -4,187 +4,12 @@ defmodule Ankole.Sessions.SessionResetTest do
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Run
-  alias Ankole.Schedule
   alias Ankole.Sessions.SessionReset
+  alias Ankole.Schedule
 
   setup {Ankole.SessionsCase, :use_mock_signal_provider_plugin}
 
   describe "session reset inputs" do
-    test "daily reset enqueuer uses AppConfigure timezone and the 04:30 boundary" do
-      %{principal: agent} = agent_fixture()
-      session_id = "manual-session:daily-reset"
-
-      assert {:ok, "Asia/Shanghai"} =
-               Ankole.AppConfigure.put_tenant_by_key("system.timezone", "Asia/Shanghai")
-
-      assert {:ok, _workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
-
-      assert {:ok, conversation} =
-               Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
-
-      Repo.update_all(
-        from(stored in Conversation, where: stored.id == ^conversation.id),
-        set: [
-          inserted_at: ~U[2026-06-25 20:00:00.000000Z],
-          updated_at: ~U[2026-06-25 20:00:00.000000Z]
-        ]
-      )
-
-      assert {:ok,
-              %{
-                status: :enqueued,
-                boundary_at: boundary_at,
-                timezone: "Asia/Shanghai",
-                due_sessions: 1,
-                signals: [reset_event]
-              }} =
-               SessionReset.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
-
-      assert DateTime.compare(boundary_at, ~U[2026-06-25 20:30:00Z]) == :eq
-      assert reset_event.type == "session.reset_due"
-      assert reset_event.session_id == session_id
-      assert reset_event.data["reset"]["timezone"] == "Asia/Shanghai"
-      assert reset_event.data["reset"]["local_time"] == "04:30"
-      assert reset_event.data["reset"]["boundary_at"] == "2026-06-25T20:30:00Z"
-
-      assert {:ok, %{signals: [same_reset_event]}} =
-               SessionReset.enqueue_daily_session_resets(now: ~U[2026-06-25 20:31:00.000000Z])
-
-      assert same_reset_event.id == reset_event.id
-
-      assert Repo.aggregate(
-               from(input in Signal, where: input.type == "session.reset_due"),
-               :count
-             ) == 1
-    end
-
-    test "daily reset never enumerates BackgroundAgentJob execution sessions" do
-      %{principal: agent} = Ankole.AIGatewayCase.background_agent_fixture()
-      source = Ankole.WorkFixtures.service_source(agent.uid)
-
-      assert {:ok, %{job: job}} =
-               Ankole.BackgroundAgentJobs.create_with_dispatch(%{
-                 "source_signal_id" => source.id,
-                 "agent_uid" => agent.uid,
-                 "owner_session_id" => source.session_id,
-                 "source_tool_call_id" => "daily-reset-exclusion",
-                 "title" => "Keep the Job session outside daily reset",
-                 "task" => "Complete the background work.",
-                 "reply_route" => %{"binding_name" => "control-plane:test"}
-               })
-
-      session_id = Ankole.BackgroundAgentJobs.job_session_id(job.id)
-
-      assert {:ok, _workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
-
-      assert {:ok, conversation} =
-               Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
-
-      Repo.update_all(
-        from(stored in Conversation, where: stored.id == ^conversation.id),
-        set: [
-          inserted_at: ~U[2026-06-25 20:00:00.000000Z],
-          updated_at: ~U[2026-06-25 20:00:00.000000Z]
-        ]
-      )
-
-      assert {:ok, %{due_sessions: 0, signals: []}} =
-               SessionReset.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
-    end
-
-    test "daily reset never enumerates AIGateway conversations without actor session identity" do
-      %{principal: agent} = agent_fixture()
-      conversation_key = "stateful-responses-api:#{Ecto.UUID.generate()}"
-
-      assert {:ok, conversation} =
-               Ankole.AIGatewayCase.ensure_conversation(agent.uid, conversation_key)
-
-      Repo.update_all(
-        from(stored in Conversation, where: stored.id == ^conversation.id),
-        set: [
-          inserted_at: ~U[2026-06-25 20:00:00.000000Z],
-          updated_at: ~U[2026-06-25 20:00:00.000000Z]
-        ]
-      )
-
-      assert {:ok, %{due_sessions: 0, signals: []}} =
-               SessionReset.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
-    end
-
-    test "EnqueueDailySessionResets Oban job appends due reset actor events" do
-      %{principal: agent} = agent_fixture()
-      session_id = "manual-session:daily-reset-job"
-
-      assert {:ok, "Asia/Shanghai"} =
-               Ankole.AppConfigure.put_tenant_by_key("system.timezone", "Asia/Shanghai")
-
-      assert {:ok, _workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
-
-      assert {:ok, conversation} =
-               Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
-
-      Repo.update_all(
-        from(stored in Conversation, where: stored.id == ^conversation.id),
-        set: [
-          inserted_at: ~U[2026-06-25 20:00:00.000000Z],
-          updated_at: ~U[2026-06-25 20:00:00.000000Z]
-        ]
-      )
-
-      assert :ok =
-               perform_job(Ankole.Sessions.Jobs.EnqueueDailySessionResets, %{})
-
-      assert [
-               %Signal{
-                 producer: :kernel,
-                 type: "session.reset_due",
-                 session_id: ^session_id,
-                 data: data
-               }
-             ] = Repo.all(from(event in Signal, where: event.type == "session.reset_due"))
-
-      assert data["reset"]["timezone"] == "Asia/Shanghai"
-      assert data["reset"]["local_time"] == "04:30"
-    end
-
-    test "daily reset enqueuer records the configured reset time in the event payload" do
-      %{principal: agent} = agent_fixture()
-      session_id = "manual-session:daily-reset-custom-time"
-
-      assert {:ok, "Asia/Shanghai"} =
-               Ankole.AppConfigure.put_tenant_by_key("system.timezone", "Asia/Shanghai")
-
-      assert {:ok, _workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
-
-      assert {:ok, conversation} =
-               Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
-
-      Repo.update_all(
-        from(stored in Conversation, where: stored.id == ^conversation.id),
-        set: [
-          inserted_at: ~U[2026-06-25 15:00:00.000000Z],
-          updated_at: ~U[2026-06-25 15:00:00.000000Z]
-        ]
-      )
-
-      assert {:ok,
-              %{
-                status: :enqueued,
-                boundary_at: boundary_at,
-                timezone: "Asia/Shanghai",
-                signals: [reset_event]
-              }} =
-               SessionReset.enqueue_daily_session_resets(
-                 now: ~U[2026-06-25 16:01:00.000000Z],
-                 reset_time: ~T[00:00:00]
-               )
-
-      assert DateTime.compare(boundary_at, ~U[2026-06-25 16:00:00Z]) == :eq
-      assert reset_event.data["reset"]["timezone"] == "Asia/Shanghai"
-      assert reset_event.data["reset"]["local_time"] == "00:00"
-      assert reset_event.data["reset"]["boundary_at"] == "2026-06-25T16:00:00Z"
-    end
-
     test "completed reset makes a predecessor clarification callback stale without a successor turn" do
       %{principal: agent} = agent_fixture()
       %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
@@ -336,8 +161,7 @@ defmodule Ankole.Sessions.SessionResetTest do
 
       assert {:ok, %{status: :stale_action}} =
                Observe.emit_action(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  clarification_action_input(
                    source_event,
                    human.uid,

@@ -3,7 +3,7 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AppConfigure.Registry
@@ -34,10 +34,48 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
              "model_profiles" => %{
                "complete" => false,
                "agent_uid" => nil,
-               "missing_profiles" => ["primary", "light", "heavy"]
+               "missing_profiles" => ["primary"]
              },
              "worker" => %{"complete" => false, "ready_count" => 0}
            } = json_response(conn, 200)
+  end
+
+  test "Pod primary readies the model step before an Agent is created", %{conn: conn} do
+    provider_id = "readiness-pod-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_default_model_profile(:tenant, "primary", %{
+               provider_id: provider_id,
+               model: "openai/gpt-5.6-sol"
+             })
+
+    conn = console_conn(conn)
+
+    assert %{
+             "agent" => %{"complete" => false, "uid" => nil},
+             "model_profiles" => %{"complete" => true, "missing_profiles" => []}
+           } = conn |> api_get(~p"/api/v2/console-readiness") |> json_response(200)
+
+    %{principal: agent} = agent_fixture(%{display_name: "Inherited Agent"})
+    agent_uid = agent.uid
+
+    assert %{
+             "agent" => %{"complete" => true, "uid" => ^agent_uid},
+             "model_profiles" => %{
+               "complete" => true,
+               "agent_uid" => ^agent_uid,
+               "missing_profiles" => []
+             }
+           } = conn |> api_get(~p"/api/v2/console-readiness") |> json_response(200)
   end
 
   test "an Agent is ready for native work without an external message channel", %{conn: conn} do

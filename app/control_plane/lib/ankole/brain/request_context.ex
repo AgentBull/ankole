@@ -149,10 +149,17 @@ defmodule Ankole.Brain.RequestContext do
 
     with {:ok, channels} <- disclosure_channels(event),
          {:ok, present_uids} <- strict_present_uids(channels, asker, event.agent_uid) do
-      if is_nil(asker) and not Enum.any?(channels, &im_channel?/1) do
-        Access.open_disclosure()
-      else
-        %{mode: :strict, asker_uid: asker, present_uids: present_uids}
+      owner_uid = Ankole.Principals.authority_uid(event.agent_uid)
+
+      cond do
+        channels == [] and owner_uid != event.agent_uid ->
+          %{mode: :strict, asker_uid: owner_uid, present_uids: [owner_uid]}
+
+        is_nil(asker) and not Enum.any?(channels, &im_channel?/1) ->
+          Access.open_disclosure()
+
+        true ->
+          %{mode: :strict, asker_uid: asker, present_uids: present_uids}
       end
     else
       {:error, _unresolved_recipient_set} -> closed_disclosure()
@@ -326,7 +333,7 @@ defmodule Ankole.Brain.RequestContext do
         {:ok, Scope.principal(asker)}
 
       _other ->
-        {:ok, Scope.principal(agent_uid)}
+        {:ok, Scope.principal(Ankole.Principals.authority_uid(agent_uid))}
     end
   end
 end

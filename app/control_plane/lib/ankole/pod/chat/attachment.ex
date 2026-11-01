@@ -5,7 +5,9 @@ defmodule Ankole.Pod.Chat.Attachment do
     constraints: [
       fields: [
         path: [type: :string, allow_nil?: false],
-        blob_ref: [type: :string, allow_nil?: false],
+        object_id: [type: :uuid, allow_nil?: false],
+        node_id: [type: :uuid],
+        position: [type: :integer, allow_nil?: false, constraints: [min: 0]],
         name: [type: :string, allow_nil?: false],
         size: [type: :integer, allow_nil?: false],
         mime_type: [type: :string],

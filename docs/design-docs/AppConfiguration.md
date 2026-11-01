@@ -155,8 +155,8 @@ dedicated editor.
 
 ## Site, Pod, and Tenant Values
 
-Stored rows use one of three scopes: `global`, `tenant:<tenant_id>`, or
-`agent:<agent_uid>`. Each definition's ownership policy governs which scopes
+Stored rows use `global`, `tenant:<tenant_id>`, `agent:<agent_uid>`, or
+`system:<uid>` scopes. Each definition's ownership policy governs which scopes
 AppConfigure reads and accepts:
 
 - A `global` definition accepts only site-wide values in `site_app_configurations`
@@ -170,17 +170,22 @@ AppConfigure reads and accepts:
   first (when the caller passes `agent_id`), then the current tenant's value,
   then the site value, and finally the code default.
 
-When resolving a `pod`, `tenant`, or Agent value, the caller must hold an active
-`Ankole.Repo` tenant context (and any `agent_id` must belong to that tenant); a
-request payload cannot select a different tenant.
+System scopes accept registered system Principal UIDs and the nine fixed
+`ai_gateway.model_profiles.<slot>` keys. ModelProfiles merges those overrides
+with Pod and Site slots. Provider-hosted switches and custom aliases have no
+system layer.
+
+When resolving a `pod`, `tenant`, Agent, or system Principal value, the caller
+must hold an active `Ankole.Repo` tenant context (and any `agent_id` must belong
+to that tenant); a request payload cannot select a different tenant.
 
 Some namespaces narrow write access further. Identity-provider settings
 (`principals.identity_providers.*`) belong strictly to `tenant:<id>` without
 inheriting a site default, and the generic settings endpoints reject writes to
 these keys so the identity-provider subsystem can validate platform application
-assignments. Conversely, Signal binding secrets use `global` scope because each
-key embeds a hash of the globally unique Agent UID and binding name, and the
-Signal binding lifecycle deletes them when the binding is removed.
+assignments. Signal binding secrets use `global` scope and a key derived from
+the tenant and binding ID. The binding lifecycle owns these secrets and deletes
+them when the binding is removed.
 
 The Console writes site values through `/api/v2/site/app-configurations` and
 workspace values through `/api/v2/app-configurations` under the same validation
@@ -191,8 +196,16 @@ During fallback resolution, AppConfigure moves to the next scope tier only when
 no row exists at the current tier. If a row is corrupt or cannot be decrypted,
 AppConfigure returns an error rather than masking the failure with a fallback
 value. `Ankole.AppConfigure.Resolution` returns both the resolved value and its
-source (`agent`, `tenant`, `global`, or `default`). OS environment variables
+source (`agent`, `system`, `tenant`, `global`, or `default`). OS environment variables
 never override an AppConfigure key.
+
+AIGateway owns the tenant-scoped `ai_gateway.model_profiles.<slot>` and
+`ai_gateway.provider_hosted.<capability>` keys. Their schemas reject `nil` rows;
+the dedicated model-profile API deletes the current layer's row to restore
+inheritance. Model profiles merge each slot across the Agent or system Principal,
+Pod, and Site before applying cross-slot fallback. Overrides, same-slot inherited
+values, and final effective values are separate read contracts. Effective entries
+retain `source` and `resolved_from_profile` metadata for runtime and Console consumers.
 
 ## Feature policies
 
@@ -248,11 +261,11 @@ AppConfigure separates site and tenant data into two PostgreSQL tables:
 - Global rows live in the site-owned `site_app_configurations` table
   (`SiteConfig` Ash resource), where `scope` is `"global"` and `{scope, key}` is
   the natural primary key.
-- Tenant and Agent rows live in the tenant-owned `app_configurations` table
-  (`AppConfig` Ash resource), which requires `tenant_id`, accepts `tenant:<id>`
-  or `agent:<uid>` scopes, uses `{tenant_id, scope, key}` as its natural primary
-  key, and enforces tenant isolation through `Ankole.Repo` on every read and
-  write.
+- Tenant, Agent, and system Principal rows live in the tenant-owned
+  `app_configurations` table (`AppConfig` Ash resource), which requires
+  `tenant_id` and accepts `tenant:<id>`, `agent:<uid>`, or registered
+  `system:<uid>` scopes. It uses `{tenant_id, scope, key}` as its natural primary
+  key and enforces tenant isolation through `Ankole.Repo` on every read and write.
 
 Both tables store `scope`, `key`, JSONB `value`, `inserted_at`, and
 `updated_at`, with PostgreSQL constraints validating both `scope` and the JSONB
@@ -310,6 +323,11 @@ another scope or key fails decryption. Moreover, the ETS cache stores encrypted
 rows in sealed form; AppConfigure decrypts a secret only when serving a typed
 domain read or an authorized Console decryption request.
 
+Principal rename moves Agent overrides within the current tenant from
+`agent:<old_uid>` to `agent:<new_uid>`. AppConfigure decrypts each encrypted value
+under its old scope and encrypts it under the new scope in the rename transaction;
+Worker environment secrets follow the same rule through their owning subsystem.
+
 ## Read and Change Values
 
 Subsystems read and write statically declared keys through these public
@@ -319,6 +337,8 @@ functions:
 - `put_global/2`
 - `delete_global/1`
 - `put_tenant_by_key/2`, `delete_tenant_by_key/1`, and their `_in_tx` forms
+- `get_override_by_key/2` for a single layer without inheritance, including `{:system, uid}`
+- `put_system_by_key/3` and `delete_system_by_key/2` for registered system model slots
 - `generate/1`
 
 Dynamic pattern keys use the corresponding `*_by_key` functions, and the

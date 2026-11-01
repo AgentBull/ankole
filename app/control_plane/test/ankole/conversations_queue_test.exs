@@ -741,7 +741,7 @@ defmodule Ankole.ConversationsQueueTest do
 
   test "an explicit retry captures the currently selected usable model instead of the failed profile",
        ctx do
-    alias Ankole.AIAgent.ModelProfiles
+    alias Ankole.AIGateway.ModelProfiles
     {:ok, heavy} = ModelProfiles.get_model_profile(ctx.agent.uid, "heavy")
 
     assert {:ok, _} =

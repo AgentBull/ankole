@@ -113,7 +113,7 @@ defmodule Ankole.AuthZ.Checks.GrantCheck do
   defp normalize(:provider_id, value), do: {:ok, value |> String.trim() |> String.downcase()}
 
   defp normalize(:model_profile, value),
-    do: {:ok, Ankole.AIAgent.ModelProfiles.canonicalize_profile(value)}
+    do: {:ok, Ankole.AIGateway.ModelProfiles.canonicalize_profile(value)}
 
   defp normalize(:string, value), do: {:ok, String.trim(value)}
 end

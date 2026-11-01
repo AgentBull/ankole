@@ -134,8 +134,7 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
 
   defp emit_with_materialization(input, bytes, consumer) do
     Observe.emit_entry_with_attachments(
-      consumer.context.agent_uid,
-      consumer.context.binding_name,
+      consumer.context.binding_id,
       input,
       &Attachments.materialize_attachments(&1, "email", fn attachment ->
         download_attachment(attachment, bytes)

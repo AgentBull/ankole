@@ -80,16 +80,33 @@ defmodule Ankole.Conversations.Delivery.Interactions do
         %DateTime{} = now
       )
       when is_binary(provider_message_id) and provider_message_id != "" do
-    Ankole.Signals.signals_for_entry_in_tx(
-      removed_event.agent_uid,
-      removed_event.reply_binding_name,
-      removed_event.conversation_id,
-      provider_message_id
-    )
-    |> Enum.filter(&(&1.session_id == removed_event.session_id))
-    |> Enum.map(&PreviewStates.load(Ankole.Signals.lock_signal_in_tx(&1.id)))
-    |> Enum.reject(&is_nil/1)
-    |> supersede_events_in_tx(removed_event, now)
+    candidates =
+      Ankole.Signals.signals_for_entry_in_tx(
+        removed_event.agent_uid,
+        removed_event.reply_binding_id,
+        removed_event.conversation_id,
+        provider_message_id
+      )
+      |> Enum.filter(&(&1.session_id == removed_event.session_id))
+
+    locked_cards =
+      Ankole.Conversations.ActionCards.lock_prepared_for_signals_in_tx(
+        Enum.map(candidates, & &1.id)
+      )
+
+    with {:ok, superseded} <-
+           candidates
+           |> Enum.map(&PreviewStates.load(Ankole.Signals.lock_signal_in_tx(&1.id)))
+           |> Enum.reject(&is_nil/1)
+           |> supersede_events_in_tx(removed_event, now),
+         :ok <-
+           Ankole.Conversations.ActionCards.cancel_locked_for_signals_in_tx(
+             locked_cards,
+             Enum.map(superseded, & &1.id),
+             now
+           ) do
+      {:ok, superseded}
+    end
   end
 
   def supersede_removed_source_in_tx(%Signal{}, %DateTime{}), do: {:ok, []}
@@ -113,6 +130,21 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   end
 
   def supersede_for_session_reset_in_tx(%Signal{}, %DateTime{}), do: {:ok, []}
+
+  @doc """
+  Supersedes predecessor reply interactions when cold-wake rotation closes the
+  previous model conversation.
+
+  Action Cards remain actionable across rotation (`InteractionState.supersedable_by?/2`
+  preserves `action_card:*`), while predecessor `clarify` questions become superseded.
+  """
+  @spec supersede_for_wake_recycle_in_tx(Signal.t(), DateTime.t()) ::
+          {:ok, [Signal.t()]} | {:error, term()}
+  def supersede_for_wake_recycle_in_tx(%Signal{} = wake_event, %DateTime{} = now) do
+    wake_event
+    |> older_reply_interaction_events()
+    |> supersede_events_in_tx(wake_event, now)
+  end
 
   @doc "Projects a native card's durable result for the room timeline."
   def native_interaction(signal_id, interaction_id) when is_binary(signal_id) do
@@ -182,7 +214,9 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   def accept_native_in_tx(actor, conversation_id, interaction_id, attrs) do
     alias Ankole.Conversations.{Native, Queries}
 
-    with [signal_id, id] <- String.split(interaction_id, ":", parts: 2),
+    with false <- Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id),
+         :ok <- Ankole.Files.lock_tree_in_tx(),
+         [signal_id, id] <- String.split(interaction_id, ":", parts: 2),
          {:ok, signal_id} <- Ecto.UUID.cast(signal_id),
          {:ok, %Signal{conversation_id: ^conversation_id} = source} <-
            Ankole.Signals.get_signal(signal_id),
@@ -219,10 +253,12 @@ defmodule Ankole.Conversations.Delivery.Interactions do
                  Ankole.Attrs.get(mention, :type) in [:human, "human"]
                end),
              target_agent_uid: source.agent_uid,
+             answered_interaction_id: interaction_id,
              delivery_mode: "steer"
            }) do
       {:ok, result}
     else
+      true -> {:error, :invalid_reply_interaction}
       false -> {:error, :conversation_not_found}
       nil -> {:error, :interaction_not_pending}
       %{} -> {:error, :interaction_not_pending}
@@ -417,8 +453,8 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   defp source_event_filter(binding, fact, callback) do
     [
       id: callback.source_signal_id,
-      agent_uid: binding.agent_uid,
-      reply_binding_name: binding.name,
+      agent_uid: fact.agent_uid,
+      reply_binding_id: binding.id,
       session_id: fact.session_id
     ]
   end

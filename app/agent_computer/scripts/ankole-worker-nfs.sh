@@ -19,9 +19,9 @@ mount -t nfs4 -o nfsvers=4.1,hard -- "$ANKOLE_WORKER_NFS_SOURCE" /run/ankole-efs
 if [ "${ANKOLE_WORKER_TASK:-worker}" = delete_storage ]; then
   mount --bind /run/ankole-efs /workspace
 else
-  test ! -L "/run/ankole-efs/$WORKER_ID"
-  mkdir -p "/run/ankole-efs/$WORKER_ID"
-  chown 1000:1000 "/run/ankole-efs/$WORKER_ID"
-  mount --bind "/run/ankole-efs/$WORKER_ID" /workspace
+  test ! -L "/run/ankole-efs/${ANKOLE_WORKER_STORAGE_NAME:?}"
+  mkdir -p "/run/ankole-efs/${ANKOLE_WORKER_STORAGE_NAME:?}"
+  chown 1000:1000 "/run/ankole-efs/${ANKOLE_WORKER_STORAGE_NAME:?}"
+  mount --bind "/run/ankole-efs/${ANKOLE_WORKER_STORAGE_NAME:?}" /workspace
 fi
 umount /run/ankole-efs

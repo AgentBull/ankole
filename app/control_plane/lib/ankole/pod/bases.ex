@@ -26,8 +26,9 @@ defmodule Ankole.Pod.Bases do
       table.record_count <= @inline_max_rows and
         (table.storage_mode == :physical or table.record_bytes <= @inline_max_bytes)
 
+  alias Ankole.Files.Access
+
   alias Ankole.Pod.{
-    Access,
     BaseRepo,
     Config,
     BaseField,
@@ -46,9 +47,83 @@ defmodule Ankole.Pod.Bases do
 
   defdelegate rename_table(actor, id, name, authority \\ nil), to: Ankole.Pod.Bases.Schema
 
+  @doc "Updates inline Base records within the control-plane rename transaction."
+  def rename_inline_principal_in_tx(old_uid, new_uid) do
+    identity_tenant = Repo.tenant_id!()
+
+    BaseTable
+    |> Ash.Query.for_read(:across_tenants)
+    |> Ash.Query.filter(storage_mode == :inline and is_nil(deleting_at))
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_across_tenants!()
+    |> Enum.reduce_while({:ok, []}, fn table, {:ok, changes} ->
+      result =
+        Repo.with_tenant(table.tenant_id, fn ->
+          user_fields = if table.tenant_id == identity_tenant, do: fields(table.id), else: []
+          Records.rename_principal_in_tx(table, user_fields, {identity_tenant, old_uid}, new_uid)
+        end)
+
+      case result do
+        {:ok, changed} -> {:cont, {:ok, changed ++ changes}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  @doc "Retries user fields in the identity tenant and complete ActorRefs across Base shards."
+  def repair_principal_references(tenant_id, old_uid, new_uid) do
+    Repo.with_tenant(tenant_id, fn ->
+      Repo.transact_top_level(
+        fn ->
+          tables =
+            BaseTable
+            |> Ash.Query.for_read(:across_tenants)
+            |> Ash.Query.filter(storage_mode == :physical and is_nil(deleting_at))
+            |> Ash.Query.sort(id: :asc)
+            |> Ash.Query.lock("FOR KEY SHARE")
+            |> Ankole.Ash.read_across_tenants!()
+
+          Enum.reduce_while(tables, {:ok, []}, fn table, {:ok, changes} ->
+            case repair_physical_principal(table, {tenant_id, old_uid}, new_uid) do
+              {:ok, nil} -> {:cont, {:ok, changes}}
+              {:ok, changed} -> {:cont, {:ok, [changed | changes]}}
+              {:error, _} = error -> {:halt, error}
+            end
+          end)
+        end,
+        after_commit: &publish_principal_rename/1
+      )
+    end)
+  rescue
+    error -> {:error, Exception.message(error)}
+  end
+
+  defp repair_physical_principal(table, {identity_tenant, _uid} = identity, new_uid) do
+    Repo.with_tenant(table.tenant_id, fn ->
+      user_fields = if table.tenant_id == identity_tenant, do: fields(table.id), else: []
+
+      BaseRepo.run(BaseRepo.shard!(), fn ->
+        with {:ok, table} <- Physical.state(table),
+             do: Physical.rename_principal(table, user_fields, identity, new_uid)
+      end)
+    end)
+  end
+
+  def publish_principal_rename(changes) do
+    Enum.each(changes, fn table ->
+      broadcast_result(table.id, %{
+        data_version: table.data_version,
+        resync: true,
+        changed_ids: [],
+        deleted_ids: []
+      })
+    end)
+  end
+
   def list_tables(%Ankole.AuthZ.Actor{} = actor, page_id) do
     Repo.transact_top_level(fn ->
-      with {:ok, %{type: :base}} <- Pages.authorize(actor, page_id, "page_view") do
+      with {:ok, %{type: :base}} <- Pages.authorize(actor, page_id, "node_view") do
         tables =
           BaseTable
           |> Ash.Query.filter(page_id == ^page_id and is_nil(deleting_at))
@@ -78,7 +153,7 @@ defmodule Ankole.Pod.Bases do
 
   @doc false
   def create_table_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, attrs) do
-    with {:ok, %{type: :base} = page} <- Pages.authorize(actor, page_id, "page_edit"),
+    with {:ok, %{type: :base} = page} <- Pages.authorize(actor, page_id, "node_edit"),
          do: init_table_in_tx(page, attrs),
          else: (
            {:ok, _} -> {:error, :invalid_page_type}
@@ -262,10 +337,10 @@ defmodule Ankole.Pod.Bases do
       when intent in [:read, :write_records, :manage_schema, :delete_table] do
     action =
       case intent do
-        :read -> "page_view"
-        :write_records -> "page_write_records"
-        :manage_schema -> "page_edit"
-        :delete_table -> "page_manage"
+        :read -> "node_view"
+        :write_records -> "node_contribute"
+        :manage_schema -> "node_edit"
+        :delete_table -> "node_manage"
       end
 
     with {:ok, _} <- Pages.authorize(actor, table.page_id, action), do: {:ok, table}
@@ -287,16 +362,7 @@ defmodule Ankole.Pod.Bases do
       |> Ankole.Ash.read!()
 
     page_ids = Enum.map(tables, & &1.page_id)
-    {anchors, own} = Ankole.Pod.Access.visibility_ids(reachable)
-
-    visible =
-      Ankole.Pod.Page
-      |> Ash.Query.filter(
-        id in ^page_ids and is_nil(deleted_at) and (acl_anchor_id in ^anchors or id in ^own)
-      )
-      |> Ash.Query.select([:id])
-      |> Ankole.Ash.read!()
-      |> MapSet.new(& &1.id)
+    visible = Ankole.Files.visible_node_ids(reachable, page_ids) |> MapSet.new()
 
     tables = Enum.filter(tables, &MapSet.member?(visible, &1.page_id))
     {physical, inline} = Enum.split_with(tables, &(&1.storage_mode == :physical))

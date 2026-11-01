@@ -52,7 +52,7 @@ AppConfigure 将产品参数保存在 PostgreSQL，多数修改影响后续任�
 | `pod.allow_external_guests` | 租户 | 是否允许受邀外部访客访问共享的 Pod 页面；默认 `true` |
 | `pod.applet.limits` | 租户 | Applet（小应用）运行限制（默认 `timeout_ms: 60000`、`heap_mb: 128`） |
 | `pod.base.limits` | 租户 | Base 查询与记录限制（默认 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
-| `pod.trash_retention_days` | 租户 | 已删除页面在自动彻底清理前保留的天数（正整数，默认 `30`） |
+| `drive.trash_retention_days` | 租户  Ankole 在自动彻底删除前保留已删除 Drive 节点的天数；默认 `30`，设为 `0` 时无限期保留 |
 | `pod.ot_replay_window` | 租户 | 为协同文档 OT 重放保留的最近变更批次数；默认 `1000` |
 
 ### Workflow

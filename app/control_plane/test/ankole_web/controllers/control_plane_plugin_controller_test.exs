@@ -141,7 +141,9 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
              |> json_response(422)
   end
 
-  test "an assigned Worker prevents disabling its Plugin through the Console", %{conn: conn} do
+  test "disabling an assigned Worker's Plugin preserves its data and takes effect on restart", %{
+    conn: conn
+  } do
     alias Ankole.AgentWorkers.{AgentWorker, Providers}
     alias Ankole.Plugins.VercelWorkerProvider.Provider, as: Vercel
 
@@ -156,11 +158,11 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
         credentials: %{"token" => "test"}
       })
 
-    Repo.insert!(%AgentWorker{
-      agent_uid: "plugin-console-worker",
-      provider_id: provider.provider_id,
-      state: :deleting
-    })
+    %{principal: agent} =
+      Ankole.PrincipalsFixtures.agent_fixture(%{worker_provider_id: provider.provider_id})
+
+    worker = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
+    assert {:ok, runtime} = Providers.load(provider.provider_id)
 
     response =
       conn
@@ -169,12 +171,20 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
         id: "vercel-worker-provider",
         enabled: false
       })
-      |> json_response(409)
+      |> json_response(200)
+      |> Map.fetch!("control_plane_plugins")
+      |> Enum.find(&(&1["id"] == "vercel-worker-provider"))
 
-    assert [%{"detail" => detail}] = response["errors"]
-    assert detail =~ provider.provider_id
+    assert %{
+             "configured_enabled" => false,
+             "active" => true,
+             "restart_required" => true
+           } = response
+
     assert {:ok, ids} = Ankole.Plugins.enabled_ids()
-    assert "vercel-worker-provider" in ids
+    refute "vercel-worker-provider" in ids
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid) == worker
+    assert {:ok, ^runtime} = Providers.load(provider.provider_id)
   end
 
   defp api(conn, method, path, data \\ nil) do

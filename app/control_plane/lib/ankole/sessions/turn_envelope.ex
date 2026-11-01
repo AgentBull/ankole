@@ -93,12 +93,7 @@ defmodule Ankole.Sessions.TurnEnvelope do
       conversation: %FabricProto.ConversationInfo{
         timezone: context.conversation.timezone,
         page_id: Map.get(context.conversation, :page_id) || "",
-        pod_instructions: Ankole.Sessions.Prompt.pod_instructions(context.conversation),
-        drive_directory:
-          case Map.get(context.conversation, :origin_channel) do
-            %{id: channel_id} -> Ankole.Files.chat_directory(channel_id)
-            _no_channel -> ""
-          end
+        pod_instructions: Ankole.Sessions.Prompt.pod_instructions(context.conversation)
       },
       soul: soul["content"],
       mission: mission["content"],

@@ -186,7 +186,7 @@ defmodule Ankole.E2E.ComposeDeployment do
       "-v",
       "ON_ERROR_STOP=1",
       "-c",
-      "ALTER EXTENSION pg_search UPDATE"
+      "ALTER EXTENSION pg_search UPDATE TO '0.26.4'"
     ])
 
     try do
@@ -434,6 +434,19 @@ defmodule Ankole.E2E.ComposeDeployment do
   def api!(deployment, method, path, body \\ nil, expected_status \\ 200) do
     {response, _deployment} = request!(deployment, method, path, body, expected_status)
     response.body
+  end
+
+  def pod_client!(deployment) do
+    {session, deployment} = browser_request!(deployment, :get, "/session")
+
+    account =
+      Enum.find(session.body["accounts"], &(&1["tenant"]["id"] == deployment.tenant_id))
+
+    assert account, "The signed-in Human must have an account in the deployment's Pod"
+    deployment = %{deployment | origin: String.trim_trailing(account["podURL"], "/")}
+    {page, deployment} = request!(deployment, :get, "/")
+    [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, page.body)
+    %{deployment | csrf: csrf}
   end
 
   def compose!(deployment, args) do

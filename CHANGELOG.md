@@ -1,5 +1,141 @@
 # Changelog
 
+## Version 2.0.0-alpha.44 (2026-11-01)
+
+- Keep tenant identity in Session processes, delivery scheduling, and Kubernetes
+  shared-volume paths. Upgrade legacy System identities and preserve Delivery
+  attachments through Principal renames. Typed mentions and attribution follow
+  the renamed Principal. Compose copies pooled Agent Homes to tenant-qualified
+  volumes after schema migration, with matching ownership labels.
+- Cold wake briefings read real file prefixes, preserve UTF-8 at the read boundary,
+  and omit withdrawn quoted messages. Codex resumes evaluate the last context
+  size before clearing their pause marker.
+- File comments bind selections to the previewed object version, support
+  file-specific comment grants, and recognize CommonMark headings. Page-chat
+  readers can download attachments through current host-page access.
+- Shared personal-assistant Bots enforce direct messages. Initial chat mentions
+  acquire locks together, owner status changes reconcile assistant Workers, and
+  generic clarification replies reject approval-card identifiers.
+- Canonical titles settle autosave without discarding newer edits. Principal
+  renames refresh browser identity, and approval cards show grant and participant
+  details. Chat drafts remain editable while a send awaits confirmation.
+- Scope legacy per-Agent Console file grants to that Agent's private Drive.
+  Preserve read and nested-file creation, merge replacement and deletion under
+  `node_edit`, and reject ambiguous Agent targets before migration. Global file
+  grants remain global; equivalent rules are deduplicated. Initialize owner
+  permissions for private roots without a legacy Pod Page so upgraded Agents
+  can read their Skill catalog.
+
+- Upgrade bundled Codex to 0.166.0 and match its app-server protocol
+  declarations. ChatGPT subscription requests send that client version.
+
+- Brain and Pod Applets have independent system model overrides and usage
+  attribution. Configure `ankole_brain` and `system` in Default model profiles.
+  Embedding signature changes ask for confirmation before saving and trigger
+  background re-embedding. Upgrades stop if an existing Principal already uses
+  `ankole_brain`; rename that Principal before retrying the migration.
+- Model-profile migration keeps same-named Agents in different tenants separate.
+  Editors refresh inherited models without discarding unsaved edits, and
+  Provider-reference errors identify the tenant that owns each override.
+- Upgrade the PostgreSQL image to pg_search 0.26.4 to fix scored searches with
+  prepared scope filters. Container deployments allocate 1 GiB of shared memory
+  for parallel queries.
+- Tenant deletion advances past slow empty tables before yielding its batch
+  time slice, so repeated cleanup attempts continue making progress under load.
+
+- Hosted image-generation requests no longer crash the control plane when nested
+  request data exceeds the native scheduler stack.
+- Delete confirmation cards become stale when a concurrent document or Base
+  change commits before the target write lock is acquired.
+- Agent Markdown repair preserves reference links and definitions, and chat
+  excerpts preserve blank lines inside code. Mermaid PNG exports preserve
+  aspect ratio and reject diagrams beyond the canvas pixel budget.
+- CLI guidance appears again after automatic Codex compaction. Truncated output
+  pipes return a nonzero status without printing a stack trace.
+- Page title sanitization preserves combining characters while removing Bidi
+  controls, keeping the client and server's code-point limits consistent.
+- Principal names are unique within each tenant. Human accounts use their email
+  or external identity ID, AI colleagues use the name chosen at creation, and
+  administrators can explicitly rename either. Existing browser sessions remain
+  signed in; failed Base shard reference updates can be retried separately.
+- Principal renames preserve private Brain page access and links through version
+  restores, and update document mentions containing XML-escaped characters or
+  additional attributes.
+- Members can start a New Chat with a personal assistant, created on first use.
+  It uses the owner's collaboration permissions and private documents while
+  keeping its own execution, files, tasks, and usage records. AI colleagues
+  remain available in the shared directory.
+- A tenant can route a shared Feishu or Slack Bot's private messages to each
+  sender's personal assistant. Channel configuration uses binding IDs; API
+  callers must use `uid` when creating AI colleagues and the binding ID routes
+  when reading, changing, or disabling channel bindings.
+- Numbered lists pasted from Microsoft Word keep their starting number.
+
+- Page titles hold at most 255 Unicode code points. Typing or pasting past the
+  limit drops only the excess new text, and existing longer titles stay until
+  they are edited.
+- Setting `drive.trash_retention_days` to `0` keeps deleted Drive nodes in Trash
+  until the setting changes; the Console offers it as a switch.
+- Let authorized administrators restore accounts with a reason, clearing eligible
+  restrictions in the same operation. Restoration uses current permissions and
+  requires a fresh sign-in; old credentials and work remain revoked.
+- Allow administrators to disable Worker Plugins with existing Agent references.
+  The choice takes effect on restart; re-enable the Plugin to resume operations
+  that need its provider kinds.
+- Let tasks finish their answers when a background message is withdrawn.
+  Withdrawing the task's triggering message still cancels the task.
+- Unify files, folders, and Pod pages in Drive. Moving or renaming keeps node
+  links intact, sent attachments keep their original bytes, and the Site Console
+  can manage every space even while Workers are offline. File overwrites replace
+  the current content without file history or hash-based deduplication; document
+  history remains available.
+- Keep open file previews current when Agents replace their bytes. Browser
+  replacements compare object IDs, including changes made through runtime paths.
+  Preserve user text and provider payloads during attachment migration, and
+  include folder names in nested Site Console breadcrumbs.
+- Execute delegated resource access with the Agent's own permissions. Humans
+  still need authority to issue the instruction, but their resource grants and
+  authentication conditions do not constrain the Agent. Guests have no private
+  root; demotion preserves an existing private root while denying access.
+- Stop old writers and Workers and back up PostgreSQL with the object store
+  before the [unified Drive migration](docs/upgrades/unified-drive.md). Deploy
+  matching control-plane and Worker builds for RuntimeFabric protocol 11. FUSE
+  remains deferred until all built-in Worker providers meet its mount prerequisite;
+  Agents continue to use `ankole-files`.
+- Configure model profiles through Site defaults, Pod overrides, and sparse
+  Agent overrides in the Console. Brain, Pod Applets, and local compaction no
+  longer require a maintainer or creator Agent; their LLM usage is recorded
+  separately without consuming Agent quotas. A single primary model covers
+  basic LLM work, while embedding, rerank, and web fetching remain independently
+  configurable. Existing Agents inherit the seeded Pod defaults for every slot
+  without an override, including web fetching. Matching overrides are removed;
+  distinct overrides and custom models are preserved. Back up PostgreSQL before
+  this migration: downgrading requires restoring that backup.
+- Render fenced `mermaid` blocks in Pod Chat inside sandboxed SVG viewers with
+  Diagram/Source switching, PNG export, and double-buffered zoom, repair
+  malformed Agent-generated Markdown fences, GFM tables, and list/bold spacing
+  without altering code or math blocks, guard interactive chat islands against
+  browser translation crashes, and let users select multiple chat messages to
+  export Markdown excerpts, save a Pod document, or generate PNG share cards.
+- Open Pod comments to File nodes with version-bound multimodal anchors (code
+  lines, CSV row ranges, Markdown sections, and media timestamps), wake
+  `@`-mentioned Agents from Document and File comments when both Human and Agent
+  permissions allow, and expose `ankole-pod comments` (`list`, `show`, `reply`,
+  `resolve`) to Agent runtimes.
+- Add `propose_action_card` approval cards so Agents can draft permission
+  changes, page trash/restore operations, Base table deletions, and conversation
+  participant invitations for one-click Human confirmation across Pod Chat,
+  interactive IM channels, and WebUI confirmation links for text-only channels,
+  enforcing optimistic target preconditions and live Human authorization on
+  execution.
+- Replace the daily `04:30` scheduled Session reset with prompt-cache-aware
+  cold-wake conversation rotation (`sessions.wake_recycle` and 10-minute cold
+  `waiting_on_user` Codex Job thread recycling) backed by bounded `<wake-briefing>`
+  context and live `/workspace` re-reads, emit once-per-context CLI subcommand
+  guidance on `stderr` while keeping `stdout` pure JSON (`EPIPE`-safe), and
+  reject Unicode bidirectional override and control characters in Drive and
+  attachment filenames while isolating untrusted external names in `<bdi>`.
+
 ## Version 2.0.0-alpha.43 (2026-10-30)
 
 - Discarding unsaved changes when leaving a Pod document removes the local
@@ -13,8 +149,7 @@
 - Full-width tables in Pod documents extend into the page margins.
 - Markdown export and copy omit empty paragraphs instead of writing `<p />`.
 - Pasting bullet and numbered lists from Microsoft Word, including `(1)` and
-  `一、` numbering, keeps them as nested lists that start at their first
-  number.
+  `一、` numbering, keeps them as nested lists.
 - The code language picker lists exact name and alias matches first, so `ts`
   selects TypeScript.
 - Losing edit permission while editing says so instead of reporting a changed
@@ -62,8 +197,7 @@
   briefly reopening on the same selection.
 - With text selected in a Pod document, Command+K on Apple platforms and
   Control+K elsewhere open the link form; otherwise they still open search.
-- Page titles hold at most 255 Unicode code points. Typing or pasting past the
-  limit drops only the excess new text, and existing longer titles stay until
+- Page titles hold at most 255 characters. Existing longer titles stay until
   they are edited.
 - Moving a Page to Trash names how many subpages moved with it, and Trash rows
   show the days left before permanent deletion.

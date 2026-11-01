@@ -86,10 +86,8 @@ defmodule Ankole.Sessions.TurnRuntimeEnvTest do
     assert {:ok, _} =
              HumanAccess.clear_restriction(human.uid, restriction.id, nil, "verified", "clear")
 
-    assert {:ok, review} = Ankole.AuthZ.restoration_review(human.uid)
-
     assert {:ok, _} =
-             HumanAccess.restore(human.uid, review.fingerprint, nil, "approved", "restore")
+             HumanAccess.restore(human.uid, nil, "approved", "restore")
 
     assert TurnRuntimeEnv.resolve(old_signal) == %{}
 

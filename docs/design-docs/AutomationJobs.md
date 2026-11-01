@@ -49,13 +49,20 @@ calling Worker, the active definition, the running Run, and its current attempt
 UUID, locking the retained Human authorization before locking the definition and
 Run:
 
-- For a `human` definition, the check intersects the Human's and Agent's page
-  permissions and requires the recorded Human access version to remain current.
-- For a `service` definition, the check uses the Agent's page permissions.
+- For a `human` definition, the check requires the recorded Human access version
+  to remain current; resource access uses the Agent's own grants.
+- For a `service` definition, the check uses the Agent's node permissions.
 - For a `review_required` definition, the check rejects Pod access.
 
+Each resource operation authorizes the executing Agent's Principal once. The
+retained Human authorization controls attempt admission and revocation without
+intersecting the Human's Drive grants. `drive_prefix` and other private file
+paths resolve in the Agent's private root; shared resources use stable node IDs.
+Message attachments resolve through their frozen object references and current
+conversation membership.
+
 Every Pod write rechecks the attempt inside the transaction that commits its
-content. A tree write acquires the Pod tree lock before locking the Human and
+content. A tree write acquires the Drive tree lock before locking the Human and
 attempt rows, whereas a content-row write locks the content row after the
 attempt rows. Because `authorize_attempt_actor/2` requires a live matching
 attempt, a stale or completed attempt cannot read or modify Pod data.

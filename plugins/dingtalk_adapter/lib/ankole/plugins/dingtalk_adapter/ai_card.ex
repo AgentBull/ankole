@@ -272,7 +272,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
       seal? = page.pinned_sealed? or not tail? or (final? and state != "awaiting_input")
       error? = tail? and final? and state == "failed"
       prior = Map.get(ledger, page.index)
-      display = Markdown.display_chunk(page.source, fence_open?)
+
+      display =
+        page.source
+        |> Markdown.display_chunk(fence_open?)
+        |> Ankole.Kernel.repair_generated_markdown()
+
       unchanged? = unchanged_page?(prior, page.source, seal?)
       thought = thought_write(checkpoint, presentation, tail?, created?, final?)
 

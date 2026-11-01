@@ -32,7 +32,7 @@ enum Stream {
 // Each host writes CURRENT and rejects an envelope with another version.
 enum ProtocolVersion {
   PROTOCOL_VERSION_UNSPECIFIED = 0;
-  PROTOCOL_VERSION_CURRENT = 10;
+  PROTOCOL_VERSION_CURRENT = 11;
 }
 
 message Envelope {

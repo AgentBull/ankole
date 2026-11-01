@@ -71,13 +71,12 @@ defmodule Ankole.Conversations.Delivery.Recovery do
   end
 
   @doc false
-  @spec wake_blocked_for_binding(String.t(), String.t()) :: :ok | {:error, term()}
-  def wake_blocked_for_binding(agent_uid, binding_name)
-      when is_binary(agent_uid) and is_binary(binding_name) do
+  @spec wake_blocked_for_binding(String.t()) :: :ok | {:error, term()}
+  def wake_blocked_for_binding(binding_id)
+      when is_binary(binding_id) do
     case Ankole.Repo.transact_top_level(fn ->
            wake_blocked_in_tx(
-             agent_uid,
-             binding_name,
+             binding_id,
              DateTime.utc_now(:microsecond)
            )
          end) do
@@ -86,16 +85,14 @@ defmodule Ankole.Conversations.Delivery.Recovery do
     end
   end
 
-  def wake_blocked_for_binding(_agent_uid, _binding_name),
+  def wake_blocked_for_binding(_binding_id),
     do: {:error, :invalid_signal_binding}
 
   @doc false
-  def wake_blocked_in_tx(agent_uid, binding_name, now) do
-    agent_uid = Ankole.PrincipalKey.canonicalize(agent_uid)
-
+  def wake_blocked_in_tx(binding_id, now) do
     Intent
     |> Ash.Query.filter(
-      agent_uid == ^agent_uid and binding_name == ^binding_name and
+      binding_id == ^binding_id and
         delivery_class == :durable_ai_reply and status == :failed and recovery_status == :blocked
     )
     |> Ash.Query.lock(:for_update)

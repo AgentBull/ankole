@@ -1,347 +1,189 @@
 defmodule Ankole.Files.RPCBroker do
-  @moduledoc """
-  RuntimeFabric brokers for the `files.*` RPCs of the Agent's drive.
-
-  The three operations have `worker_agent` scope: a Worker calls them inside a
-  Turn and also while it drains, when there is no Turn. Bytes never travel in
-  the RPC payload. The control plane moves them over the WorkerFiles relay of
-  the calling Worker, found by the RPC's connection, and names a path in the
-  Agent Home relative to that Agent Home.
-  """
-
-  alias Ankole.Files
-  alias Ankole.Files.Schemas.DriveFile
+  @moduledoc "Drive RPCs resolve node identities and stream bytes through the calling Worker's relay."
+  alias Ankole.{Files, Principals, WorkerFiles}
+  alias Ankole.AuthZ.Actor
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers.RPCWire
-  alias Ankole.WorkerFiles
 
   @list_limit 1000
-  # Path length and content length of one bundle entry.
-  @bundle_entry_header_bytes 12
 
-  @doc "Lists drive files under a folder prefix."
   def handle_list(agent_uid, %FabricProto.FilesListRequest{} = request, ctx) do
     limit = if request.limit in [0, nil], do: @list_limit, else: request.limit
 
-    with :ok <- authorize_attempt(request.automation_attempt, ctx),
-         {:ok, %{files: files, next_after: next_after, revision: revision}} <-
-           Files.list(agent_uid, request.prefix,
+    with {:ok, actor} <- actor(agent_uid, request.automation_attempt, ctx),
+         {:ok, page} <-
+           Files.list(actor, request.prefix,
              limit: limit,
              after: presence(request.after),
              snapshot: true
            ) do
       {:ok,
        %FabricProto.FilesListResponse{
-         files: Enum.map(files, &drive_file/1),
-         next_after: next_after || "",
-         revision: revision
+         files: Enum.map(page.files, &drive_file/1),
+         next_after: page.next_after || "",
+         revision: page.revision
        }}
     else
       {:error, reason} -> error(ctx, reason)
     end
   end
 
-  @doc "Writes one drive file into the calling Worker's Agent Home."
   def handle_get(agent_uid, %FabricProto.FilesGetRequest{} = request, ctx) do
-    with {:ok, target} <- home_relative_path(request.home_relative_path),
-         {:ok, file} <- send_requested_file(agent_uid, request, target, ctx) do
+    with {:ok, actor} <- actor(agent_uid, request.automation_attempt, ctx),
+         {:ok, target} <- home_relative_path(request.home_relative_path),
+         {:ok, file} <- requested_file(actor, request),
+         {:ok, opts} <- transfer_opts(ctx),
+         :ok <- send_file(file.object_id, target, opts) do
       {:ok, %FabricProto.FilesGetResponse{file: drive_file(file)}}
     else
       {:error, reason} -> error(ctx, reason)
     end
   end
 
-  defp send_requested_file(_uid, %{pod_drive: true} = request, target, ctx) do
-    with {:ok, actor} <-
-           Ankole.Pod.RPCBroker.actor_for_request(ctx[:turn_ref], request.automation_attempt, ctx),
-         {:ok, page_id, relative} <- Ankole.Pod.Files.parse_path(request.path),
-         {:ok, file} <- send_file({:pod, actor, page_id, relative}, request.path, target, ctx),
-         do: {:ok, Map.put(file, :path, request.path)}
+  defp requested_file(actor, %{node_id: id}) when is_binary(id) and id != "" do
+    with {:ok, node} <- Files.authorize_node(actor, id, "node_view"),
+         true <- node.kind == :file,
+         do: Files.Paths.project(node, node.name),
+         else: (
+           false -> {:error, :not_a_file}
+           error -> error
+         )
   end
 
-  defp send_requested_file(uid, request, target, ctx) do
-    with :ok <- authorize_attempt(request.automation_attempt, ctx),
-         do: send_file(uid, request.path, target, ctx)
-  end
+  defp requested_file(actor, request), do: Files.fetch(actor, request.path)
 
-  defp authorize_attempt(nil, _ctx), do: :ok
-
-  defp authorize_attempt(attempt, ctx) do
-    with {:ok, _actor} <- Ankole.AutomationJobs.authorize_attempt_actor(attempt, ctx), do: :ok
-  end
-
-  @doc """
-  Names files from the calling Worker's Agent Home at drive paths, and removes
-  drive paths, in one transaction.
-
-  A content that the Agent's drive already names is not transferred again, and
-  a content that several upserts declare is transferred once. Files under the
-  same top-level folder of the Agent Home travel in bundles of at most one
-  transfer bound, using each upsert's declared size; a file alone in its group
-  travels by itself. Files committed under `sent/` get the source `sent`;
-  every other Worker commit gets the source `agent`.
-  """
   def handle_commit(agent_uid, %FabricProto.FilesCommitRequest{} = request, ctx) do
-    with :ok <- authorize_attempt(request.automation_attempt, ctx),
-         {:ok, upserts} <- resolve_upserts(agent_uid, request.upserts, ctx),
-         {:ok, _opts} <- transfer_opts(ctx),
-         {:ok, %{files: files, deleted: deleted}} <-
-           Files.commit(agent_uid, upserts, request.deletes) do
+    with {:ok, actor} <- actor(agent_uid, request.automation_attempt, ctx),
+         {:ok, opts} <- transfer_opts(ctx),
+         {:ok, upserts} <- receive_upserts(request.upserts, opts),
+         {:ok, result} <- Files.commit(actor, upserts, request.deletes) do
       {:ok,
-       %FabricProto.FilesCommitResponse{files: Enum.map(files, &drive_file/1), deleted: deleted}}
+       %FabricProto.FilesCommitResponse{
+         files: Enum.map(result.files, &drive_file/1),
+         deleted: result.deleted
+       }}
     else
       {:error, reason} -> error(ctx, reason)
     end
   end
 
-  # Encodes one drive file for the wire.
-  @spec drive_file(DriveFile.t()) :: FabricProto.DriveFile.t()
-  defp drive_file(%DriveFile{} = file) do
-    file
-    |> Map.from_struct()
-    |> Map.update!(:sha256, &Base.encode16(&1, case: :lower))
-    |> drive_file()
+  defp actor(_uid, attempt, ctx) when not is_nil(attempt),
+    do: Ankole.AutomationJobs.authorize_attempt_actor(attempt, ctx)
+
+  defp actor(uid, nil, ctx) do
+    authority = if ref = ctx[:turn_ref], do: {ref, uid}
+
+    with {:ok, principal} <- Principals.get_principal(uid),
+         :ok <- Ankole.AuthZ.validate_turn_authority(authority),
+         do:
+           {:ok,
+            Actor.new(principal, turn_authority: authority, authn: %{"surface" => "agent_rpc"})}
   end
 
-  defp drive_file(%{sha256: digest} = file) do
-    %FabricProto.DriveFile{
-      path: file.path,
-      sha256: digest,
-      size: file.size,
-      content_type: file.content_type,
-      source: file.source,
-      conversation_id: file.conversation_id || "",
-      message_id: file.message_id || "",
-      mode: file.mode,
-      updated_at: DateTime.to_iso8601(file.updated_at)
-    }
+  defp receive_upserts(upserts, opts) do
+    Enum.reduce_while(upserts, {:ok, []}, fn upsert, {:ok, received} ->
+      case receive_upsert(upsert, opts) do
+        {:ok, stored} -> {:cont, {:ok, [stored | received]}}
+        error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, received} -> {:ok, Enum.reverse(received)}
+      error -> error
+    end
   end
 
-  defp send_file(agent_uid, path, target, ctx) do
+  defp receive_upsert(upsert, opts) do
+    with {:ok, path} <- Files.normalize_path(upsert.path),
+         {:ok, source} <- home_relative_path(upsert.home_relative_path),
+         {:ok, maximum} <- Files.upload_limit(),
+         :ok <- declared_size(upsert.size, maximum),
+         {:ok, %{"body" => body}} <-
+           WorkerFiles.stream(source, Keyword.put(opts, :max_bytes, maximum)),
+         {:ok, stored} <- Files.store(body),
+         :ok <- verify_digest(presence(upsert.sha256), stored.sha256),
+         true <- upsert.size == stored.size do
+      {:ok,
+       Map.merge(stored, %{
+         path: path,
+         source: "agent",
+         content_type: presence(upsert.content_type),
+         mode: if(upsert.mode == 0, do: nil, else: upsert.mode)
+       })}
+    else
+      false -> {:error, :file_size_mismatch}
+      error -> error
+    end
+  rescue
+    exception in WorkerFiles.RelayError -> {:error, exception.reason}
+  end
+
+  defp declared_size(size, maximum) when size <= maximum, do: :ok
+  defp declared_size(size, maximum), do: {:error, {:file_too_large, size, maximum}}
+
+  defp send_file(object_id, target, opts) do
     local_path = Files.temp_path()
 
     try do
-      with {:ok, file} <- read_to_file(agent_uid, path, local_path),
-           {:ok, opts} <- transfer_opts(ctx),
-           {:ok, _transfer} <-
-             WorkerFiles.put(target, {:file, local_path}, opts) do
-        {:ok, file}
-      end
+      with :ok <- copy_object(object_id, local_path),
+           {:ok, _} <-
+             WorkerFiles.put(
+               target,
+               {:file, local_path},
+               Keyword.put(opts, :max_bytes, max(File.stat!(local_path).size, 1))
+             ),
+           do: :ok
     after
       File.rm(local_path)
     end
   end
 
-  defp read_to_file({:pod, actor, page_id, relative}, _path, local_path),
-    do: Ankole.Pod.Files.read_to_file(actor, page_id, relative, local_path)
+  defp copy_object(nil, path), do: File.write(path, "")
+  defp copy_object(id, path), do: Files.read_object_to_file(id, path)
 
-  defp read_to_file(agent_uid, path, local_path),
-    do: Files.read_to_file(agent_uid, path, local_path)
-
-  defp resolve_upserts(agent_uid, upserts, ctx) do
-    with {:ok, planned} <- plan_upserts(agent_uid, upserts),
-         {:ok, received} <- receive_missing(planned, ctx) do
-      {:ok,
-       Enum.map(planned, fn
-         {:known, attrs} -> attrs
-         {:transfer, attrs, transfer} -> Map.put(attrs, :sha256, received[transfer.key])
-       end)}
-    end
-  end
-
-  defp plan_upserts(agent_uid, upserts) do
-    upserts
-    |> Enum.reduce_while({:ok, []}, fn upsert, {:ok, planned} ->
-      case plan_upsert(agent_uid, upsert) do
-        {:ok, plan} -> {:cont, {:ok, [plan | planned]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, planned} -> {:ok, Enum.reverse(planned)}
-      error -> error
-    end
-  end
-
-  defp plan_upsert(agent_uid, %FabricProto.FilesCommitUpsert{} = upsert) do
-    attrs = %{
-      path: upsert.path,
-      source: source_for(upsert.path),
-      content_type: presence(upsert.content_type),
-      mode: if(upsert.mode == 0, do: nil, else: upsert.mode)
+  defp drive_file(file) do
+    %FabricProto.DriveFile{
+      node_id: file.id,
+      object_id: file.object_id || "",
+      path: file.path,
+      sha256: if(file.sha256, do: Base.encode16(file.sha256, case: :lower), else: ""),
+      size: file.size,
+      content_type: file.content_type,
+      source: to_string(file.source),
+      conversation_id: Map.get(file, :conversation_id) || "",
+      message_id: Map.get(file, :message_id) || "",
+      mode: file.mode,
+      updated_at: DateTime.to_iso8601(file.updated_at)
     }
-
-    declared = presence(upsert.sha256)
-
-    if declared && Files.drive_has_content?(agent_uid, declared) do
-      {:ok, {:known, Map.put(attrs, :sha256, declared)}}
-    else
-      with {:ok, source_path} <- home_relative_path(upsert.home_relative_path) do
-        {:ok,
-         {:transfer, attrs,
-          %{
-            key: declared || {:path, source_path},
-            source: source_path,
-            declared: declared,
-            size: upsert.size
-          }}}
-      end
-    end
   end
-
-  defp receive_missing(planned, ctx) do
-    transfers =
-      planned
-      |> Enum.flat_map(fn
-        {:transfer, _attrs, transfer} -> [transfer]
-        {:known, _attrs} -> []
-      end)
-      |> Enum.uniq_by(& &1.key)
-
-    if transfers == [] do
-      {:ok, %{}}
-    else
-      transfers
-      |> transfer_batches()
-      |> Enum.reduce_while({:ok, %{}}, fn batch, {:ok, received} ->
-        case receive_batch(batch, ctx) do
-          {:ok, stored} -> {:cont, {:ok, Map.merge(received, stored)}}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
-    end
-  end
-
-  defp worker_target(ctx), do: %{worker_id: ctx.worker_id, transport_route: ctx.route}
 
   defp transfer_opts(ctx) do
     deadline = Map.get(ctx, :deadline_unix_ms, 0)
-
-    remaining =
-      if deadline > 0,
-        do: min(120_000, deadline - System.system_time(:millisecond)),
-        else: 120_000
+    remaining = if deadline > 0, do: deadline - System.system_time(:millisecond), else: 120_000
 
     if remaining > 0,
-      do: {:ok, [worker: worker_target(ctx), timeout_ms: remaining]},
+      do:
+        {:ok,
+         [worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}, timeout_ms: remaining]},
       else: {:error, :rpc_deadline_exceeded}
   end
 
-  defp transfer_batches(transfers) do
-    {nested, top_level} = Enum.split_with(transfers, &String.contains?(&1.source, "/"))
-
-    nested
-    |> Enum.group_by(&(&1.source |> String.split("/", parts: 2) |> hd()))
-    |> Enum.flat_map(fn {folder, group} -> bundle_batches(folder, group) end)
-    |> Kernel.++(Enum.map(top_level, &{:file, &1}))
-  end
-
-  # Packs one folder's files in order into bundles within the transfer bound.
-  # A file that does not fit with another becomes a batch of its own.
-  defp bundle_batches(folder, transfers) do
-    max_bytes = WorkerFiles.max_transfer_bytes()
-
-    transfers
-    |> Enum.chunk_while(
-      {[], 0},
-      fn transfer, {batch, total} ->
-        bytes = bundle_entry_bytes(folder, transfer)
-
-        cond do
-          batch == [] -> {:cont, {[transfer], bytes}}
-          total + bytes <= max_bytes -> {:cont, {[transfer | batch], total + bytes}}
-          true -> {:cont, Enum.reverse(batch), {[transfer], bytes}}
-        end
-      end,
-      fn
-        {[], _total} -> {:cont, {[], 0}}
-        {batch, _total} -> {:cont, Enum.reverse(batch), {[], 0}}
-      end
-    )
-    |> Enum.map(fn
-      [transfer] -> {:file, transfer}
-      batch -> {:bundle, folder, batch}
-    end)
-  end
-
-  defp bundle_entry_bytes(folder, transfer),
-    do: @bundle_entry_header_bytes + byte_size(bundle_path(folder, transfer)) + transfer.size
-
-  defp bundle_path(folder, transfer),
-    do: String.replace_prefix(transfer.source, folder <> "/", "")
-
-  defp receive_batch({:file, transfer}, ctx) do
-    with {:ok, opts} <- transfer_opts(ctx),
-         {:ok, stored} <- receive_file(transfer.source, opts) do
-      store_verified([{transfer, stored}])
-    end
-  end
-
-  defp receive_batch({:bundle, folder, transfers}, ctx) do
-    target_dir = Files.temp_path()
-    File.mkdir_p!(target_dir)
-
-    try do
-      with {:ok, opts} <- transfer_opts(ctx),
-           {:ok, local_paths} <-
-             WorkerFiles.receive_bundle(
-               folder,
-               Enum.map(transfers, &bundle_path(folder, &1)),
-               target_dir,
-               opts
-             ) do
-        transfers
-        |> Enum.zip(local_paths)
-        |> Enum.reduce_while({:ok, []}, fn {transfer, local_path}, {:ok, stored} ->
-          case Files.store({:file, local_path}) do
-            {:ok, file} -> {:cont, {:ok, [{transfer, file} | stored]}}
-            {:error, _reason} = error -> {:halt, error}
-          end
-        end)
-        |> case do
-          {:ok, stored} -> store_verified(stored)
-          error -> error
-        end
-      end
-    after
-      File.rm_rf(target_dir)
-    end
-  end
-
-  defp store_verified(stored) do
-    Enum.reduce_while(stored, {:ok, %{}}, fn {transfer, file}, {:ok, received} ->
-      case verify_digest(transfer.declared, file.sha256) do
-        :ok -> {:cont, {:ok, Map.put(received, transfer.key, file.sha256)}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp receive_file(source_path, opts) do
-    WorkerFiles.with_received_file(source_path, opts, &Files.store({:file, &1}))
-  end
-
   defp verify_digest(nil, _stored), do: :ok
-  defp verify_digest(declared, stored) when declared == stored, do: :ok
+  defp verify_digest(digest, digest), do: :ok
 
   defp verify_digest(declared, stored),
     do: {:error, {:sha256_mismatch, %{"declared" => declared, "received" => stored}}}
 
-  defp source_for("sent/" <> _rest), do: "sent"
-  defp source_for(_path), do: "agent"
-
   defp home_relative_path(path) do
     case Files.normalize_path(path) do
       {:ok, path} -> {:ok, path}
-      {:error, {:invalid_path, _path}} -> {:error, {:invalid_home_relative_path, path}}
+      {:error, _} -> {:error, {:invalid_home_relative_path, path}}
     end
   end
 
   defp presence(value) when is_binary(value) and value != "", do: value
-  defp presence(_value), do: nil
+  defp presence(_), do: nil
 
-  # A Worker or object store error already names its code, for example the
-  # Worker's `file_not_found`; the caller's recovery depends on it.
   defp error(ctx, %{"code" => code} = reason) when is_binary(code) do
     {:error,
      %{
@@ -352,11 +194,11 @@ defmodule Ankole.Files.RPCBroker do
      }}
   end
 
-  defp error(ctx, reason) do
-    {:error,
-     RPCWire.error_payload(ctx.request_id, reason,
-       fallback_code: "files_rpc_failed",
-       message_style: :tuple_reason
-     )}
-  end
+  defp error(ctx, reason),
+    do:
+      {:error,
+       RPCWire.error_payload(ctx.request_id, reason,
+         fallback_code: "files_rpc_failed",
+         message_style: :tuple_reason
+       )}
 end

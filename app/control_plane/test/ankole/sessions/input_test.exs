@@ -6,6 +6,8 @@ defmodule Ankole.Sessions.InputTest do
     [message] =
       Input.context_messages([
         %{
+          id: Ecto.UUID.generate(),
+          conversation_id: Ecto.UUID.generate(),
           seq: 1,
           author_type: "human",
           author_uid: "alice",
@@ -256,5 +258,28 @@ defmodule Ankole.Sessions.InputTest do
     assert text =~ hd(paths)
     refute text =~ List.last(paths)
     assert text =~ "additional paths can be present under the Artifact discovery roots"
+  end
+
+  test "diagram_rendering_hint distinguishes native WebUI from external IM with or without Worker attachment tools" do
+    assert Input.diagram_rendering_hint(%{tools: []}, %{kind: :native}) =~
+             "diagram_rendering: mermaid_interactive"
+
+    im_without_worker = Input.diagram_rendering_hint(%{tools: []}, %{external_kind: :im_group})
+    assert im_without_worker =~ "diagram_rendering: code_only"
+    refute im_without_worker =~ "reply_attachment"
+
+    im_with_worker =
+      Input.diagram_rendering_hint(
+        %{
+          tools: [
+            %{name: "bash", executor: :worker},
+            %{name: "reply_attachment", executor: Ankole.Sessions.Tools.Message}
+          ]
+        },
+        %{external_kind: :im_dm}
+      )
+
+    assert im_with_worker =~ "diagram_rendering: code_only"
+    assert im_with_worker =~ "reply_attachment"
   end
 end

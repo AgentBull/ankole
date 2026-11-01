@@ -4,7 +4,8 @@ defmodule Ankole.Pod.AnchorPropertyTest do
   import Ankole.PrincipalsFixtures
   import Bitwise
   alias Ankole.AuthZ
-  alias Ankole.Pod.{Access, Page, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Page, Pages}
 
   property "anchor permissions match a page-by-page fixed point through tree and Userset mutations" do
     check all(
@@ -69,46 +70,46 @@ defmodule Ankole.Pod.AnchorPropertyTest do
     {:ok, child} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{parent_id: a.id})
 
-    grant(%{principal_uid: viewer.uid}, a.id, "self", "page_view")
-    grant(%{source_page_id: a.id, source_action: "page_view"}, b.id, "container", "page_view")
-    grant(%{source_page_id: b.id, source_action: "page_view"}, a.id, "self", "page_view")
+    grant(%{principal_uid: viewer.uid}, a.id, "self", "node_view")
+    grant(%{source_node_id: a.id, source_action: "node_view"}, b.id, "container", "node_view")
+    grant(%{source_node_id: b.id, source_action: "node_view"}, a.id, "self", "node_view")
 
     assert {:ok, _} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                a.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:ok, _} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                b.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:error, :forbidden} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                child.id,
-               "page_view"
+               "node_view"
              )
 
-    [seed] = Access.grants(principal_uid: viewer.uid, target_page_id: a.id)
+    [seed] = Access.grants(principal_uid: viewer.uid, target_node_id: a.id)
     assert {:ok, _} = AuthZ.delete_permission_grant(seed.id)
 
     assert {:error, :forbidden} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                a.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:error, :forbidden} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                b.id,
-               "page_view"
+               "node_view"
              )
   end
 
@@ -136,8 +137,8 @@ defmodule Ankole.Pod.AnchorPropertyTest do
                grants: [%{principal_uid: guest.uid, role: "view", target_scope: "self"}]
              })
 
-    grant(%{principal_uid: guest.uid}, private.id, "container", "page_manage")
-    grant(%{principal_uid: outsider.uid}, hidden.id, "container", "page_view")
+    grant(%{principal_uid: guest.uid}, private.id, "container", "node_manage")
+    grant(%{principal_uid: outsider.uid}, hidden.id, "container", "node_view")
 
     assert {:error, :forbidden} =
              Pages.create(Ankole.PrincipalsFixtures.actor_fixture(guest.uid), %{
@@ -148,14 +149,14 @@ defmodule Ankole.Pod.AnchorPropertyTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                private.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:ok, _} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                shared.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:ok, subjects} = Pages.subjects(Ankole.PrincipalsFixtures.actor_fixture(guest.uid))
@@ -166,21 +167,19 @@ defmodule Ankole.Pod.AnchorPropertyTest do
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: agent.uid,
-        resource_pattern: "pod:space:**",
-        action: "page_view"
+        resource_pattern: "drive:space:**",
+        action: "node_view"
       })
 
     assert {:ok, %{agents: []}} = Pages.space(Ankole.PrincipalsFixtures.actor_fixture(guest.uid))
 
     assert {:ok, subjects} =
              Pages.subjects(
-               Ankole.PrincipalsFixtures.actor_fixture(
-                 Ankole.AuthZ.Actor.new(agent, interactive_principal: guest)
-               )
+               Ankole.PrincipalsFixtures.actor_fixture(Ankole.AuthZ.Actor.new(agent))
              )
 
-    refute Enum.any?(subjects, &(Map.get(&1, :principal_uid) == outsider.uid))
-    refute Enum.any?(subjects, &(Map.get(&1, :kind) == :group))
+    assert Enum.any?(subjects, &(Map.get(&1, :principal_uid) == outsider.uid))
+    assert Enum.any?(subjects, &(Map.get(&1, :kind) == :group))
 
     assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.allow_external_guests", false)
 
@@ -188,7 +187,7 @@ defmodule Ankole.Pod.AnchorPropertyTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                shared.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:error, :invalid_grants} =
@@ -213,13 +212,13 @@ defmodule Ankole.Pod.AnchorPropertyTest do
         private_owner_uid: owner.uid
       })
 
-    grant(%{principal_uid: manager.uid}, target.id, "container", "page_manage")
+    grant(%{principal_uid: manager.uid}, target.id, "container", "node_manage")
 
     grant(
-      %{source_page_id: source.id, source_action: "page_view"},
+      %{source_node_id: source.id, source_action: "node_view"},
       target.id,
       "self",
-      "page_view"
+      "node_view"
     )
 
     assert {:ok, sharing} =
@@ -227,7 +226,7 @@ defmodule Ankole.Pod.AnchorPropertyTest do
 
     userset = Enum.find(sharing.grants, &(&1.kind == :userset))
     assert userset.source_page == %{id: source.id, accessible: false, title: nil, icon: nil}
-    grant(%{principal_uid: manager.uid}, source.id, "self", "page_view")
+    grant(%{principal_uid: manager.uid}, source.id, "self", "node_view")
 
     assert {:ok, sharing} =
              Pages.sharing(Ankole.PrincipalsFixtures.actor_fixture(manager.uid), target.id)
@@ -300,7 +299,7 @@ defmodule Ankole.Pod.AnchorPropertyTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                page.id,
-               "page_manage"
+               "node_manage"
              )
            ) do
           assert {:ok, _} =
@@ -350,10 +349,10 @@ defmodule Ankole.Pod.AnchorPropertyTest do
       4 ->
         if page.id != parent.id do
           grant(
-            %{source_page_id: parent.id, source_action: "page_view"},
+            %{source_node_id: parent.id, source_action: "node_view"},
             page.id,
             if(flag, do: "self", else: "container"),
-            "page_view",
+            "node_view",
             if(rem(a, 2) == 0, do: "true", else: ~s(context.request.ip == "10.0.0.1"))
           )
         end
@@ -376,12 +375,12 @@ defmodule Ankole.Pod.AnchorPropertyTest do
   end
 
   defp grant(owner, target, scope, action, condition \\ "true") do
-    suffix = if scope == "container", do: "**", else: "page"
+    suffix = if scope == "container", do: "**", else: "node"
 
     assert {:ok, _} =
              AuthZ.upsert_permission_grant(
                Map.merge(owner, %{
-                 resource_pattern: "pod:**:#{target}:#{suffix}",
+                 resource_pattern: "drive:**:#{target}:#{suffix}",
                  action: action,
                  condition: condition
                })
@@ -389,7 +388,15 @@ defmodule Ankole.Pod.AnchorPropertyTest do
   end
 
   defp verify(viewer, ids, ip) do
-    pages = Repo.all(from p in Page, where: p.id in ^ids) |> Map.new(&{&1.id, &1})
+    pages =
+      Repo.all(
+        from p in Page,
+          where:
+            p.id in ^ids or
+              p.is_root
+      )
+      |> Map.new(&{&1.id, &1})
+
     grants = Access.grants(action: [in: Access.page_actions()])
     {:ok, group} = Access.space_group()
     expected = fixed_point(pages, grants, viewer.uid, group.id, ip, %{})
@@ -403,7 +410,7 @@ defmodule Ankole.Pod.AnchorPropertyTest do
 
     for {id, page} <- pages do
       assert Access.page_bits(page, actual) == expected[id].self_bits
-      local = Enum.any?(grants, &(&1.target_page_id == id))
+      local = Enum.any?(grants, &(&1.target_node_id == id))
       assert page.has_local_acl == local
 
       anchor =
@@ -437,18 +444,21 @@ defmodule Ankole.Pod.AnchorPropertyTest do
                 get_in(previous, [page.parent_id, :container_bits]) || 0
 
               page.private_owner_uid ->
-                0
+                bits(grants, fn g ->
+                  g.resource_pattern == "drive:private:#{page.private_owner_uid}:**" and
+                    subject?(g, uid, group) and condition?(g, ip)
+                end)
 
               true ->
                 bits(grants, fn g ->
-                  g.resource_pattern == "pod:space:**" and subject?(g, uid, group) and
+                  g.resource_pattern == "drive:space:**" and subject?(g, uid, group) and
                     condition?(g, ip)
                 end)
             end
 
           local =
             Enum.filter(grants, fn grant ->
-              grant.target_page_id == id and condition?(grant, ip) and
+              grant.target_node_id == id and condition?(grant, ip) and
                 (subject?(grant, uid, group) or userset?(grant, previous))
             end)
 
@@ -473,12 +483,12 @@ defmodule Ankole.Pod.AnchorPropertyTest do
 
   defp subject?(grant, uid, group), do: grant.principal_uid == uid or grant.group_id == group
   defp condition?(grant, ip), do: grant.condition == "true" or ip == "10.0.0.1"
-  defp userset?(%{source_page_id: nil}, _), do: false
+  defp userset?(%{source_node_id: nil}, _), do: false
 
   defp userset?(grant, previous),
     do:
       band(
-        get_in(previous, [grant.source_page_id, :self_bits]) || 0,
+        get_in(previous, [grant.source_node_id, :self_bits]) || 0,
         Access.action_bit(grant.source_action)
       ) != 0
 end

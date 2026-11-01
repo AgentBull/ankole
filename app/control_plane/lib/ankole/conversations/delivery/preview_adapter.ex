@@ -153,9 +153,9 @@ defmodule Ankole.Conversations.Delivery.PreviewAdapter do
   Resolves the reply-preview adapter that the event's binding declares.
   """
   @spec for_event(Signal.t()) :: t() | nil
-  def for_event(%Signal{agent_uid: agent_uid, reply_binding_name: binding_name})
-      when is_binary(binding_name) do
-    case Bindings.get_binding(agent_uid, binding_name) do
+  def for_event(%Signal{reply_binding_id: id})
+      when is_binary(id) do
+    case Bindings.get_binding(id) do
       {:ok, %Binding{} = binding} -> for_binding(binding)
       {:error, _reason} -> nil
     end
@@ -306,7 +306,7 @@ defmodule Ankole.Conversations.Delivery.PreviewAdapter do
   defp complete_request(%Request{signal: %Signal{id: signal_id}} = request)
        when is_binary(signal_id) do
     with %Signal{} = event <- PreviewStates.load_signal(signal_id) || :signal_not_found,
-         {:ok, binding} <- Bindings.get_binding(event.agent_uid, event.reply_binding_name),
+         {:ok, binding} <- Bindings.get_binding(event.reply_binding_id),
          {:ok, config} <- stored_config(binding) do
       checkpoint =
         adapter_checkpoint(PreviewStates.get(event).checkpoint)

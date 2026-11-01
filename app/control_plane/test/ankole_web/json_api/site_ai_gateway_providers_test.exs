@@ -4,7 +4,7 @@ defmodule AnkoleWeb.JSONAPI.SiteAIGatewayProvidersTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider

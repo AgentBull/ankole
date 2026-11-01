@@ -40,7 +40,7 @@ defmodule Ankole.AIAgent.TokenQuotaTest do
 
     test "a written quota keeps the model profiles of the same Agent", %{agent_uid: agent_uid} do
       assert {:ok, _profile} =
-               Ankole.AIAgent.ModelProfiles.put_provider_hosted_capabilities(agent_uid, %{
+               Ankole.AIGateway.ModelProfiles.put_provider_hosted_capabilities(agent_uid, %{
                  "web_search" => false
                })
 
@@ -52,7 +52,7 @@ defmodule Ankole.AIAgent.TokenQuotaTest do
                "limit_tokens" => 1_000_000
              }
 
-      assert %Agent{options: options} = Repo.get!(Agent, agent_uid)
+      assert %Agent{options: options} = Repo.get_by!(Agent, uid: agent_uid)
       assert get_in(options, ["ai_agent", "provider_hosted", "web_search"]) == false
       assert get_in(options, ["ai_agent", "token_quota", "limit_tokens"]) == 1_000_000
     end

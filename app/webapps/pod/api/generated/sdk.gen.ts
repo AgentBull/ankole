@@ -30,12 +30,27 @@ import type {
   DeleteConversationData,
   DeleteConversationErrors,
   DeleteConversationResponses,
+  DisablePodAgentData,
+  DisablePodAgentErrors,
+  DisablePodAgentResponses,
   DisablePodMemberData,
   DisablePodMemberErrors,
   DisablePodMemberResponses,
+  EnablePodAgentData,
+  EnablePodAgentErrors,
+  EnablePodAgentResponses,
+  EnsurePodPersonalAssistantData,
+  EnsurePodPersonalAssistantErrors,
+  EnsurePodPersonalAssistantResponses,
   ExitPodData,
   ExitPodErrors,
   ExitPodResponses,
+  GetPodActionCardData,
+  GetPodActionCardErrors,
+  GetPodActionCardResponses,
+  PodAdminAgentsData,
+  PodAdminAgentsErrors,
+  PodAdminAgentsResponses,
   PodAdminIdentityProvidersData,
   PodAdminIdentityProvidersErrors,
   PodAdminIdentityProvidersResponses,
@@ -119,9 +134,6 @@ import type {
   PodFilesResponses,
   PodMeData,
   PodMeErrors,
-  PodMemberAccessReviewData,
-  PodMemberAccessReviewErrors,
-  PodMemberAccessReviewResponses,
   PodMentionCandidatesData,
   PodMentionCandidatesErrors,
   PodMentionCandidatesResponses,
@@ -246,9 +258,21 @@ import type {
   ReauthenticatePodMemberData,
   ReauthenticatePodMemberErrors,
   ReauthenticatePodMemberResponses,
+  RenamePodAgentData,
+  RenamePodAgentErrors,
+  RenamePodAgentResponses,
+  RenamePodMemberData,
+  RenamePodMemberErrors,
+  RenamePodMemberResponses,
   RequestPodEmailBindingData,
   RequestPodEmailBindingErrors,
   RequestPodEmailBindingResponses,
+  ResolveConversationActionCardData,
+  ResolveConversationActionCardErrors,
+  ResolveConversationActionCardResponses,
+  ResolvePodActionCardData,
+  ResolvePodActionCardErrors,
+  ResolvePodActionCardResponses,
   RestorePodMemberData,
   RestorePodMemberErrors,
   RestorePodMemberResponses,
@@ -416,6 +440,19 @@ export const podPageMove = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * disablePodAgent operation on pod_admin_operation resource
+ */
+export const disablePodAgent = <ThrowOnError extends boolean = true>(
+  options: Options<DisablePodAgentData, ThrowOnError>
+): RequestResult<DisablePodAgentResponses, DisablePodAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<DisablePodAgentResponses, DisablePodAgentErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/agents/{uid}/disable',
+    ...options
+  })
+
+/**
  * podAdminIdentityProviders operation on pod_admin_operation resource
  */
 export const podAdminIdentityProviders = <ThrowOnError extends boolean = true>(
@@ -554,6 +591,23 @@ export const updateConversation = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * resolvePodActionCard operation on pod_chat_operation resource
+ */
+export const resolvePodActionCard = <ThrowOnError extends boolean = true>(
+  options: Options<ResolvePodActionCardData, ThrowOnError>
+): RequestResult<ResolvePodActionCardResponses, ResolvePodActionCardErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<ResolvePodActionCardResponses, ResolvePodActionCardErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/action-cards/{card_id}/resolve',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podBaseTables operation on pod_base_operation resource
  */
 export const podBaseTables = <ThrowOnError extends boolean = true>(
@@ -586,6 +640,19 @@ export const answerConversationInteraction = <ThrowOnError extends boolean = tru
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * getPodActionCard operation on pod_chat_operation resource
+ */
+export const getPodActionCard = <ThrowOnError extends boolean = true>(
+  options: Options<GetPodActionCardData, ThrowOnError>
+): RequestResult<GetPodActionCardResponses, GetPodActionCardErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<GetPodActionCardResponses, GetPodActionCardErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/action-cards/{card_id}',
+    ...options
   })
 
 /**
@@ -662,6 +729,28 @@ export const podPageViewers = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * resolveConversationActionCard operation on pod_chat_operation resource
+ */
+export const resolveConversationActionCard = <ThrowOnError extends boolean = true>(
+  options: Options<ResolveConversationActionCardData, ThrowOnError>
+): RequestResult<ResolveConversationActionCardResponses, ResolveConversationActionCardErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    ResolveConversationActionCardResponses,
+    ResolveConversationActionCardErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/action-cards/{card_id}/resolve',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podBaseCopy operation on pod_base_operation resource
  */
 export const podBaseCopy = <ThrowOnError extends boolean = true>(
@@ -709,19 +798,6 @@ export const syncPodDirectory = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podMemberAccessReview operation on pod_admin_operation resource
- */
-export const podMemberAccessReview = <ThrowOnError extends boolean = true>(
-  options: Options<PodMemberAccessReviewData, ThrowOnError>
-): RequestResult<PodMemberAccessReviewResponses, PodMemberAccessReviewErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodMemberAccessReviewResponses, PodMemberAccessReviewErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/members/{uid}/access',
-    ...options
-  })
-
-/**
  * podFiles operation on pod_file_operation resource
  */
 export const podFiles = <ThrowOnError extends boolean = true>(
@@ -745,6 +821,23 @@ export const podChatTeammates = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/teammates',
     ...options
+  })
+
+/**
+ * renamePodAgent operation on pod_admin_operation resource
+ */
+export const renamePodAgent = <ThrowOnError extends boolean = true>(
+  options: Options<RenamePodAgentData, ThrowOnError>
+): RequestResult<RenamePodAgentResponses, RenamePodAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RenamePodAgentResponses, RenamePodAgentErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/agents/{uid}/rename',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -869,6 +962,24 @@ export const podBaseFieldCreate = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * ensurePodPersonalAssistant operation on pod_chat_operation resource
+ */
+export const ensurePodPersonalAssistant = <ThrowOnError extends boolean = true>(
+  options?: Options<EnsurePodPersonalAssistantData, ThrowOnError>
+): RequestResult<EnsurePodPersonalAssistantResponses, EnsurePodPersonalAssistantErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<
+    EnsurePodPersonalAssistantResponses,
+    EnsurePodPersonalAssistantErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/personal-assistant',
+    ...options
   })
 
 /**
@@ -1223,6 +1334,32 @@ export const podPageCommentSummary = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/comments/summary',
+    ...options
+  })
+
+/**
+ * enablePodAgent operation on pod_admin_operation resource
+ */
+export const enablePodAgent = <ThrowOnError extends boolean = true>(
+  options: Options<EnablePodAgentData, ThrowOnError>
+): RequestResult<EnablePodAgentResponses, EnablePodAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<EnablePodAgentResponses, EnablePodAgentErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/agents/{uid}/enable',
+    ...options
+  })
+
+/**
+ * podAdminAgents operation on pod_admin_operation resource
+ */
+export const podAdminAgents = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminAgentsData, ThrowOnError>
+): RequestResult<PodAdminAgentsResponses, PodAdminAgentsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAdminAgentsResponses, PodAdminAgentsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/agents',
     ...options
   })
 
@@ -1683,6 +1820,23 @@ export const podMentionCandidates = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/mentions/candidates',
     ...options
+  })
+
+/**
+ * renamePodMember operation on pod_admin_operation resource
+ */
+export const renamePodMember = <ThrowOnError extends boolean = true>(
+  options: Options<RenamePodMemberData, ThrowOnError>
+): RequestResult<RenamePodMemberResponses, RenamePodMemberErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RenamePodMemberResponses, RenamePodMemberErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/rename',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**

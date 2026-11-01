@@ -41,13 +41,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
   test "admin creates a Lark signal binding with the record-only default", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    config_key = LarkConfig.binding_config_key(agent.uid, "lark-main")
-    config_ref = "app-config://#{config_key}"
 
     conn =
       conn
       |> console_conn()
-      |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+      |> put_binding_attributes(agent.uid, "lark", "lark-main", %{
         "config" => %{
           "appID" => "cli_lark_main",
           "appSecret" => "secret-lark-main",
@@ -61,8 +59,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                "agent_uid" => agent_uid,
                "name" => "lark-main",
                "adapter" => "lark",
-               "config_key" => ^config_key,
-               "config_ref" => ^config_ref,
+               "config_key" => config_key,
+               "config_ref" => config_ref,
                "unaddressed_group_message_policy" => "record_only",
                "enabled" => true
              }
@@ -72,6 +70,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     refute conn.resp_body =~ "secret-lark-main"
 
     assert {:ok, binding} = Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
+    assert config_key == LarkConfig.binding_config_key(Repo.tenant_id!(), binding.id)
+    assert config_ref == "app-config://#{config_key}"
     assert binding.adapter == "lark"
     assert binding.unaddressed_group_message_policy == :record_only
 
@@ -133,8 +133,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       updated =
         conn
         |> recycle_api()
-        |> api_put(
-          ~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/#{name}",
+        |> put_binding_attributes(
+          agent.uid,
+          "lark",
+          name,
           Map.put(attributes, "config", lark_config(name))
         )
 
@@ -149,15 +151,16 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
-    create_url = ~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/filters"
-    edit_url = ~p"/api/v2/agents/#{agent.uid}/signal-bindings/filters"
     config = lark_config("filters")
     initial = %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
 
     conn =
       conn
       |> console_conn()
-      |> api_put(create_url, %{"config" => config, "filters" => initial})
+      |> put_binding_attributes(agent.uid, "lark", "filters", %{
+        "config" => config,
+        "filters" => initial
+      })
 
     assert %{"signal_binding" => %{"filters" => ^initial}} = json_response(conn, 200)
     assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters").filters == initial
@@ -166,12 +169,19 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       updated =
         conn
         |> recycle_api()
-        |> api_put(create_url, %{"config" => config, "filters" => filters})
+        |> put_binding_attributes(agent.uid, "lark", "filters", %{
+          "config" => config,
+          "filters" => filters
+        })
 
       assert %{"signal_binding" => %{"filters" => ^filters}} = json_response(updated, 200)
       assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters").filters == filters
 
-      omitted = updated |> recycle_api() |> api_put(create_url, %{"config" => config})
+      omitted =
+        updated
+        |> recycle_api()
+        |> put_binding_attributes(agent.uid, "lark", "filters", %{"config" => config})
+
       assert %{"signal_binding" => %{"filters" => ^filters}} = json_response(omitted, 200)
       assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters").filters == filters
     end
@@ -180,8 +190,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       updated =
         conn
         |> recycle_api()
-        |> api_patch(edit_url, %{
-          "target_agent_uid" => agent.uid,
+        |> api_patch(binding_path(agent.uid, "filters"), %{
+          "agent_uid" => agent.uid,
           "config" => %{},
           "filters" => filters
         })
@@ -192,7 +202,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       omitted =
         updated
         |> recycle_api()
-        |> api_patch(edit_url, %{"target_agent_uid" => agent.uid, "config" => %{}})
+        |> api_patch(binding_path(agent.uid, "filters"), %{
+          "agent_uid" => agent.uid,
+          "config" => %{}
+        })
 
       assert %{"signal_binding" => %{"filters" => ^filters}} = json_response(omitted, 200)
       assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters").filters == filters
@@ -203,15 +216,17 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
-    url = ~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/filters"
     config = lark_config("invalid-filters")
-    config_key = LarkConfig.binding_config_key(agent.uid, "filters")
+    initial_config_count = Repo.aggregate(SiteConfig, :count)
     invalid = %{"cel" => "signal.channel."}
 
     rejected =
       conn
       |> console_conn()
-      |> api_put(url, %{"config" => config, "filters" => invalid})
+      |> put_binding_attributes(agent.uid, "lark", "filters", %{
+        "config" => config,
+        "filters" => invalid
+      })
 
     assert %{
              "errors" => [
@@ -227,14 +242,17 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert detail =~ "Syntax error:"
     assert detail =~ "signal.channel."
     refute Repo.get_by(Binding, agent_uid: agent.uid, name: "filters")
-    refute Repo.get_by(SiteConfig, scope: "global", key: config_key)
+    assert Repo.aggregate(SiteConfig, :count) == initial_config_count
 
     filters = %{"cel" => "true"}
 
     created =
       rejected
       |> recycle_api()
-      |> api_put(url, %{"config" => config, "filters" => filters})
+      |> put_binding_attributes(agent.uid, "lark", "filters", %{
+        "config" => config,
+        "filters" => filters
+      })
 
     assert response(created, 200)
     original = Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters")
@@ -243,7 +261,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     rejected =
       created
       |> recycle_api()
-      |> api_put(url, %{
+      |> put_binding_attributes(agent.uid, "lark", "filters", %{
         "config" => Map.put(config, "userName", "Rejected replacement"),
         "filters" => invalid
       })
@@ -275,7 +293,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     created =
       conn
       |> console_conn()
-      |> api_put(~p"/api/v2/agents/#{source.uid}/signal-bindings/lark/filters", %{
+      |> put_binding_attributes(source.uid, "lark", "filters", %{
         "config" => lark_config("invalid-filter-move"),
         "filters" => filters
       })
@@ -284,11 +302,13 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     original = Repo.get_by!(Binding, agent_uid: source.uid, name: "filters")
     assert {:ok, original_config} = Bindings.binding_config(original, LarkConfig)
 
+    initial_config_count = Repo.aggregate(SiteConfig, :count)
+
     rejected =
       created
       |> recycle_api()
-      |> api_patch(~p"/api/v2/agents/#{source.uid}/signal-bindings/filters", %{
-        "target_agent_uid" => target.uid,
+      |> api_patch(binding_path(source.uid, "filters"), %{
+        "agent_uid" => target.uid,
         "config" => %{"userName" => "Rejected move"},
         "filters" => %{"cel" => "signal.channel."}
       })
@@ -311,10 +331,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:ok, ^original_config} = Bindings.binding_config(stored, LarkConfig)
     refute Repo.get_by(Binding, agent_uid: target.uid, name: "filters")
 
-    refute Repo.get_by(SiteConfig,
-             scope: "global",
-             key: LarkConfig.binding_config_key(target.uid, "filters")
-           )
+    assert Repo.aggregate(SiteConfig, :count) == initial_config_count
   end
 
   test "a missing required connection field names the field in the error", %{conn: conn} do
@@ -323,7 +340,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+      |> put_binding_attributes(agent.uid, "lark", "lark-main", %{
         "config" => %{"appSecret" => "secret-lark-main", "domain" => "feishu"}
       })
 
@@ -352,7 +369,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert response(conn, 200)
 
     assert {:ok, %{status: :accepted, conversation: conversation}} =
-             Observe.emit_entry(agent.uid, "lark-main", group_entry(%{explicit: true}),
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+               group_entry(%{explicit: true}),
                now: base_time()
              )
 
@@ -406,7 +425,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert response(conn, 200)
 
     assert {:ok, %{status: :accepted, conversation: conversation}} =
-             Observe.emit_entry(agent.uid, "lark-main", group_entry(%{explicit: true}),
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+               group_entry(%{explicit: true}),
                now: base_time()
              )
 
@@ -509,7 +530,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> api_get(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main")
+      |> api_get(binding_path(agent.uid, "lark-main"))
 
     assert %{
              "signal_binding" => %{
@@ -532,8 +553,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
-        "target_agent_uid" => agent.uid,
+      |> api_patch(binding_path(agent.uid, "lark-main"), %{
+        "agent_uid" => agent.uid,
         "config" => %{"appSecret" => "", "domain" => "lark"},
         "group_message_mode" => "observe_all"
       })
@@ -549,7 +570,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              Bindings.binding_config(
                %Binding{
                  config_ref:
-                   "app-config://#{LarkConfig.binding_config_key(agent.uid, "lark-main")}"
+                   "app-config://#{LarkConfig.binding_config_key(Repo.tenant_id!(), Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id)}"
                },
                LarkConfig
              )
@@ -564,7 +585,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/missing/default", %{
+      |> put_binding_attributes(agent.uid, "missing", "default", %{
         "config" => %{}
       })
 
@@ -602,7 +623,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              Bindings.binding_config(
                %Binding{
                  config_ref:
-                   "app-config://#{LarkConfig.binding_config_key(agent.uid, "lark-main")}"
+                   "app-config://#{LarkConfig.binding_config_key(Repo.tenant_id!(), Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id)}"
                },
                LarkConfig
              )
@@ -628,8 +649,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
-        "target_agent_uid" => agent.uid,
+      |> api_patch(binding_path(agent.uid, "lark-main"), %{
+        "agent_uid" => agent.uid,
         "config" => %{},
         "group_message_mode" => "observe_all"
       })
@@ -647,7 +668,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              Bindings.binding_config(
                %Binding{
                  config_ref:
-                   "app-config://#{LarkConfig.binding_config_key(agent.uid, "lark-main")}"
+                   "app-config://#{LarkConfig.binding_config_key(Repo.tenant_id!(), Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id)}"
                },
                LarkConfig
              )
@@ -666,7 +687,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> api_put(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+      |> put_binding_attributes(source_agent.uid, "lark", "lark-main", %{
         "config" => lark_config("move"),
         "filters" => %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
       })
@@ -714,7 +735,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> api_put(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+      |> put_binding_attributes(source_agent.uid, "lark", "lark-main", %{
         "config" => lark_config("group-mode-keep"),
         "group_message_mode" => "may_intervene"
       })
@@ -729,8 +750,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> api_patch(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
-        "target_agent_uid" => target_agent.uid,
+      |> api_patch(binding_path(source_agent.uid, "lark-main"), %{
+        "agent_uid" => target_agent.uid,
         "config" => lark_config("group-mode-keep")
       })
 
@@ -751,7 +772,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> api_put(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+      |> put_binding_attributes(source_agent.uid, "lark", "lark-main", %{
         "config" => lark_config("policy-keep"),
         "unmatched_sender_policy" => "create_standalone"
       })
@@ -766,8 +787,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> api_patch(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
-        "target_agent_uid" => target_agent.uid,
+      |> api_patch(binding_path(source_agent.uid, "lark-main"), %{
+        "agent_uid" => target_agent.uid,
         "config" => lark_config("policy-keep"),
         "group_message_mode" => "may_intervene"
       })
@@ -934,7 +955,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       })
 
     assert response(conn, 200)
-    config_key = LarkConfig.binding_config_key(second_agent.uid, "lark-main")
+
+    config_key =
+      LarkConfig.binding_config_key(
+        Repo.tenant_id!(),
+        Ankole.Signals.get_agent_binding!(second_agent.uid, "lark-main").id
+      )
 
     conn =
       conn
@@ -992,7 +1018,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       })
 
     assert response(conn, 200)
-    config_key = "signals.dingtalk.bindings." <> second_agent.uid
+    config_key = json_response(conn, 200)["signal_binding"]["config_key"]
 
     conn =
       conn
@@ -1083,15 +1109,13 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   test "concurrent generic writes cannot race owner-managed Lark and DingTalk configs" do
     %{principal: lark_agent} = agent_fixture()
     %{principal: dingtalk_agent} = agent_fixture()
-    lark_key = LarkConfig.binding_config_key(lark_agent.uid, "lark-main")
-    dingtalk_key = "signals.dingtalk.bindings." <> dingtalk_agent.uid
 
-    assert {:ok, _result} =
+    assert {:ok, %{config_key: lark_key}} =
              Ankole.Signals.Bindings.put_binding(lark_agent.uid, "lark", "lark-main", %{
                "config" => %{"appID" => "cli_concurrent_owner", "appSecret" => "secret"}
              })
 
-    assert {:ok, _result} =
+    assert {:ok, %{config_key: dingtalk_key}} =
              Ankole.Signals.Bindings.put_binding(
                dingtalk_agent.uid,
                "dingtalk",
@@ -1218,16 +1242,21 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     test "a single provider is adopted when the reference is empty", %{conn: conn} do
       %{principal: agent} = agent_fixture()
-      config_key = LarkConfig.binding_config_key(agent.uid, "lark-main")
 
       conn =
         conn
         |> console_conn()
-        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        |> put_binding_attributes(agent.uid, "lark", "lark-main", %{
           "config" => lark_config("adopted")
         })
 
       assert %{"signal_binding" => %{"name" => "lark-main"}} = json_response(conn, 200)
+
+      config_key =
+        LarkConfig.binding_config_key(
+          Repo.tenant_id!(),
+          Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id
+        )
 
       assert {:ok, stored_config} =
                Bindings.binding_config(
@@ -1243,12 +1272,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn: conn
     } do
       %{principal: agent} = agent_fixture()
-      config_key = LarkConfig.binding_config_key(agent.uid, "lark-main")
 
       conn =
         conn
         |> console_conn()
-        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        |> put_binding_attributes(agent.uid, "lark", "lark-main", %{
           "config" => Map.put(lark_config("unknown"), "identityProvider", "lark-main")
         })
 
@@ -1260,11 +1288,17 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        |> put_binding_attributes(agent.uid, "lark", "lark-main", %{
           "config" => Map.put(lark_config("explicit"), "identityProvider", "feishu")
         })
 
       assert %{"signal_binding" => %{"name" => "lark-main"}} = json_response(conn, 200)
+
+      config_key =
+        LarkConfig.binding_config_key(
+          Repo.tenant_id!(),
+          Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id
+        )
 
       assert {:ok, stored_config} =
                Bindings.binding_config(
@@ -1277,8 +1311,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
-          "target_agent_uid" => agent.uid,
+        |> api_patch(binding_path(agent.uid, "lark-main"), %{
+          "agent_uid" => agent.uid,
           "config" => %{"identityProvider" => ":standalone"}
         })
 
@@ -1299,7 +1333,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> console_conn()
-        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        |> put_binding_attributes(agent.uid, "lark", "lark-main", %{
           "config" => lark_config("older")
         })
 
@@ -1315,8 +1349,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
-          "target_agent_uid" => agent.uid,
+        |> api_patch(binding_path(agent.uid, "lark-main"), %{
+          "agent_uid" => agent.uid,
           "config" => %{},
           "group_message_mode" => "observe_all",
           "unmatched_sender_policy" => "manual_review"
@@ -1327,8 +1361,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
-          "target_agent_uid" => agent.uid,
+        |> api_patch(binding_path(agent.uid, "lark-main"), %{
+          "agent_uid" => agent.uid,
           "config" => %{"userName" => "Renamed"}
         })
 
@@ -1340,7 +1374,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-second", %{
+        |> put_binding_attributes(agent.uid, "lark", "lark-second", %{
           "config" => lark_config("second")
         })
 
@@ -1400,7 +1434,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       without_plugin_registry(fn ->
-        api_put(conn, ~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/unavailable", %{
+        put_binding_attributes(conn, agent.uid, "lark", "unavailable", %{
           "config" => %{}
         })
       end)
@@ -1497,8 +1531,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn
       |> recycle_api()
       |> api_patch(
-        "/api/v2/agents/#{source.uid}/signal-bindings/query-move?target_agent_uid=#{target.uid}",
-        %{target_agent_uid: source.uid, config: %{}}
+        binding_path(source.uid, "query-move") <> "?agent_uid=#{target.uid}",
+        %{agent_uid: source.uid, config: %{}}
       )
 
     assert %{"errors" => [%{"code" => "forbidden"}]} = json_response(conn, 403)
@@ -1575,6 +1609,19 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     end
   end
 
+  defp binding_path(agent_uid, name) do
+    binding = Ankole.Signals.get_agent_binding!(agent_uid, name)
+    "/api/v2/signal-bindings/#{binding.id}"
+  end
+
+  defp put_binding_attributes(conn, agent_uid, adapter_id, name, attrs) do
+    api_put(
+      conn,
+      "/api/v2/signal-bindings/#{adapter_id}/#{name}",
+      Map.put(attrs, "agent_uid", agent_uid)
+    )
+  end
+
   defp put_binding(conn, agent_uid, adapter_id, binding_name, config) do
     attrs =
       case adapter_id do
@@ -1582,19 +1629,15 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         _adapter_id -> %{"config" => config}
       end
 
-    api_put(
-      conn,
-      ~p"/api/v2/agents/#{agent_uid}/signal-bindings/#{adapter_id}/#{binding_name}",
-      attrs
-    )
+    put_binding_attributes(conn, agent_uid, adapter_id, binding_name, attrs)
   end
 
   defp patch_binding(conn, source_agent_uid, target_agent_uid, binding_name, config) do
     api_patch(
       conn,
-      ~p"/api/v2/agents/#{source_agent_uid}/signal-bindings/#{binding_name}",
+      binding_path(source_agent_uid, binding_name),
       %{
-        "target_agent_uid" => target_agent_uid,
+        "agent_uid" => target_agent_uid,
         "config" => config,
         "group_message_mode" => "may_intervene"
       }
@@ -1653,7 +1696,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     |> recycle_api()
     |> put_req_header("accept", "application/vnd.api+json")
     |> put_req_header("content-type", "application/vnd.api+json")
-    |> api_delete("/api/v2/agents/#{agent_uid}/signal-bindings/#{name}")
+    |> api_delete(binding_path(agent_uid, name))
   end
 
   defp api_request(conn, method, path, body \\ nil) do

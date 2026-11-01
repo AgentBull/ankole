@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdirAgentSync } from '../src/common/agent-user'
+import { killProcessGroup } from '../src/core/execution/process-group'
 import { createCommandTool } from '../src/tools/computer/command-tool'
 import {
   createContainerComputer,
@@ -426,20 +427,24 @@ describe('computer tools', () => {
     mkdirAgentSync(agentHome, 0o700)
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
     mkdirSync(workspaceRoot, { recursive: true })
+    const pidPath = join(workspaceRoot, 'command.pid')
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
       const tool = createCommandTool(contextFor(computer, { agentHome, workspaceRoot }))
 
       const result = await tool.execute('call-term-immune', {
-        command: "trap '' TERM; while :; do :; done",
+        command: "printf '%s' \"$$\" > command.pid; trap '' TERM; while :; do :; done",
         timeout: 1
       })
       const text = textOf(result)
+      const pid = Number(readFileSync(pidPath, 'utf8'))
 
+      expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }))
       expect(result.details.exitCode).toBe(137)
       expect(text).toContain('exit_code=137')
       expect(text).toContain('command timed out after 1s')
     } finally {
+      if (existsSync(pidPath)) killProcessGroup(Number(readFileSync(pidPath, 'utf8')))
       rmSync(agentHome, { recursive: true, force: true })
     }
   }, 30000)

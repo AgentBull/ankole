@@ -311,7 +311,7 @@ export function IdentityMappingCreatePage() {
           candidates={humanPrincipals.map(principal => ({
             id: principal.id,
             label: principalLabel(principal),
-            description: principal.email ?? principal.handle
+            description: principal.email ?? principal.id
           }))}
           disabled={create.isPending}
           error={principals.error}
@@ -379,7 +379,7 @@ function BindMappingDialog({
               candidates={principals.map(principal => ({
                 id: principal.id,
                 label: principalLabel(principal),
-                description: principal.email ?? principal.handle
+                description: principal.email ?? principal.id
               }))}
               disabled={bind.isPending}
               error={principalsError}

@@ -1,5 +1,5 @@
 defmodule Ankole.AIGateway.Schemas.UsageRecord do
-  @moduledoc "Append-only provider-round token accounting for an Agent quota."
+  @moduledoc "Append-only LLM usage accounting for Agent quotas and control-plane callers."
   use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway
 
   postgres do
@@ -25,7 +25,12 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
     )
 
     attribute(:subject_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
-    attribute(:origin, :atom, allow_nil?: false, constraints: [one_of: [:agent, :codex]])
+
+    attribute(:origin, :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:agent, :codex, :applet, :brain, :oidc_human, :compaction]]
+    )
+
     attribute(:model, :string, allow_nil?: false, constraints: [trim?: false])
     attribute(:input_tokens, :integer, allow_nil?: false, constraints: [min: 0])
     attribute(:output_tokens, :integer, allow_nil?: false, constraints: [min: 0])

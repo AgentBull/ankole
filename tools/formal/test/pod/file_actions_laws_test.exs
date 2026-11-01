@@ -28,7 +28,7 @@ defmodule Ankole.Formal.Pod.FileActionsLawsTest do
 
     law(public_assets_require_view(path),
       requires: public_asset?(path),
-      expects: Files.required_read_action(%{type: :applet}, path) === {:ok, "page_view"},
+      expects: Files.required_read_action(%{type: :applet}, path) === {:ok, "node_view"},
       proof: ~LEAN"""
       simp only [Lynx.apply_eq, «public_assets_require_view:requires/1», «public_asset?/1»] at requires
       simp only [Lynx.apply_eq, «public_assets_require_view:ensures/1»]
@@ -42,7 +42,7 @@ defmodule Ankole.Formal.Pod.FileActionsLawsTest do
 
     law(private_sources_require_edit(path),
       requires: not public_asset?(path) and private_source?(path),
-      expects: Files.required_read_action(%{type: :applet}, path) === {:ok, "page_edit"},
+      expects: Files.required_read_action(%{type: :applet}, path) === {:ok, "node_edit"},
       proof: ~LEAN"""
       simp only [Lynx.apply_eq, «private_sources_require_edit:requires/1», «public_asset?/1», «private_source?/1»] at requires
       simp only [Lynx.Except.bind_eq_ok] at requires
@@ -61,10 +61,10 @@ defmodule Ankole.Formal.Pod.FileActionsLawsTest do
 
   test "normalized Applet paths preserve the view and edit boundary" do
     for path <- ["dist/index.html", "assets/a.png"],
-        do: assert(Files.required_read_action(%{type: :applet}, path) == {:ok, "page_view"})
+        do: assert(Files.required_read_action(%{type: :applet}, path) == {:ok, "node_view"})
 
     for path <- ~w(src/main.ts server/main.ts package.json bun.lock tsconfig.json applet.env.json),
-        do: assert(Files.required_read_action(%{type: :applet}, path) == {:ok, "page_edit"})
+        do: assert(Files.required_read_action(%{type: :applet}, path) == {:ok, "node_edit"})
 
     for path <- ["dist/../server/main.ts", "assets//x", "/dist/x", "src/./secret"],
         do: assert(match?({:error, _}, Ankole.Files.Path.normalize(path)))

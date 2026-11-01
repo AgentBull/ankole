@@ -160,10 +160,10 @@ defmodule AnkoleWeb.PodAppletControllerTest do
 
         {:ok, _} =
           Drive.commit(uid, [
-            %{path: "publish/#{page_id}/#{path}", sha256: blob.sha256, source: "pod"}
+            Map.merge(blob, %{path: "publish/#{page_id}/#{path}", source: "pod"})
           ])
 
-        %{path: path, sha256: blob.sha256}
+        %{path: path, object_id: blob.object_id, source_path: "publish/#{page_id}/#{path}"}
       end
     )
   end

@@ -282,18 +282,23 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
       }
 
       memory =
-        if opening? do
-          pack =
-            Tools.context_pack(context, %{
-              participant_uids: context.participant_uids,
-              recent_text: recent_text
-            })
+        cond do
+          opening? and get_in(request, ["metadata", "wake_briefing_injected"]) == true ->
+            Map.put(memory, "brain_context_pack_claimed", true)
 
-          memory
-          |> Map.put("brain_context_pack", pack_messages(pack))
-          |> Map.put("brain_context_pack_claimed", true)
-        else
-          memory
+          opening? ->
+            pack =
+              Tools.context_pack(context, %{
+                participant_uids: context.participant_uids,
+                recent_text: recent_text
+              })
+
+            memory
+            |> Map.put("brain_context_pack", pack_messages(pack))
+            |> Map.put("brain_context_pack_claimed", true)
+
+          true ->
+            memory
         end
 
       {current_input, memory}
@@ -673,24 +678,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   defp cut_to_token_budget(_line, budget) when budget <= 0, do: ""
 
   defp cut_to_token_budget(line, budget) do
-    graphemes = String.graphemes(line)
-
-    fits? = fn count ->
-      NativeKernel.estimate_o200k_base_tokens(Enum.join(Enum.take(graphemes, count))) <= budget
-    end
-
-    kept = binary_search_count(fits?, 0, length(graphemes))
-    graphemes |> Enum.take(kept) |> Enum.join() |> String.trim_trailing()
-  end
-
-  defp binary_search_count(_fits?, low, high) when low >= high, do: low
-
-  defp binary_search_count(fits?, low, high) do
-    mid = div(low + high + 1, 2)
-
-    if fits?.(mid),
-      do: binary_search_count(fits?, mid, high),
-      else: binary_search_count(fits?, low, mid - 1)
+    NativeKernel.truncate_o200k_base_tokens(line, budget)
   end
 
   defp user_message(text) do

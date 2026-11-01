@@ -83,7 +83,7 @@ finish() {
     fi
     if ! curl --fail-with-body --silent --show-error --request POST \
       --header "Authorization: Bearer ${ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY:?}" \
-      "${ANKOLE_WORKER_ADAPTER_URL:?}/agents/${WORKER_ID:?}/storage/backup"; then
+      "${ANKOLE_WORKER_ADAPTER_URL:?}/agents/${ANKOLE_WORKER_STORAGE_NAME:?}/storage/backup"; then
       echo 'Agent Home backup failed' >&2
       exit 1
     fi

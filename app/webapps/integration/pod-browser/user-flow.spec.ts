@@ -325,7 +325,7 @@ test('Private creation and moves wait for identity after delayed and failed read
       url.pathname === '/api/v2/pod/pages/navigation' ||
       url.searchParams.get('scope') === 'private' ||
       (url.pathname === '/api/v2/pod/pages/search' &&
-        url.searchParams.get('required_action') === 'page_edit' &&
+        url.searchParams.get('required_action') === 'node_edit' &&
         url.searchParams.has('exclude_subtree_of'))
     if (!identityRead || mode === 'pass') {
       await intercepted.continue()

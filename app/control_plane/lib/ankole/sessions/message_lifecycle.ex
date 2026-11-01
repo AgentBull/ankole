@@ -25,15 +25,16 @@ defmodule Ankole.Sessions.MessageLifecycle do
              %{
                "agent_uid" => input.agent_uid,
                "session_id" => input.session_id,
+               "binding_id" => input.reply_binding_id,
                "binding_name" => input.reply_binding_name,
                "provider_message_id" => input.provider_message_id
              },
              now
            ),
          :ok <- Queue.lock_session_in_tx(input.agent_uid, input.session_id),
-         %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(input.id),
          {:ok, superseded_interactions} <-
-           Interactions.supersede_removed_source_in_tx(input, now) do
+           Interactions.supersede_removed_source_in_tx(input, now),
+         %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(input.id) do
       ignore_lifecycle_event(
         input,
         cancelled_checkbacks,
@@ -77,7 +78,7 @@ defmodule Ankole.Sessions.MessageLifecycle do
        when is_binary(provider_message_id) and provider_message_id != "" do
     Ankole.Signals.signals_for_entry_in_tx(
       input.agent_uid,
-      input.reply_binding_name,
+      input.reply_binding_id,
       input.conversation_id,
       provider_message_id
     )
@@ -126,6 +127,7 @@ defmodule Ankole.Sessions.MessageLifecycle do
         Map.merge(
           %{
             agent_uid: input.agent_uid,
+            binding_id: input.reply_binding_id,
             binding_name: input.reply_binding_name,
             conversation_id: input.conversation_id,
             provider_thread_id: input.provider_thread_id,

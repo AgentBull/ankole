@@ -2,12 +2,13 @@ defmodule Ankole.Pod.Bases.Schema do
   @moduledoc """
   Changes Base fields and views and converts the stored record values.
 
-  Each change runs in a top-level transaction through `Ankole.Pod.Access.write/3`.
+  Each change runs in a top-level transaction through `Ankole.Files.Access.write/3`.
   The write result gives the written definition and the changed tables; the
   table rooms get the change after the commit.
   """
   require Ash.Query
-  alias Ankole.Pod.{Access, Bases, BaseField, BaseRepo, BaseTable, BaseView, Formula}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Bases, BaseField, BaseRepo, BaseTable, BaseView, Formula}
   alias Ankole.Pod.Bases.{DDL, Physical, Write}
 
   def delete_table(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil),

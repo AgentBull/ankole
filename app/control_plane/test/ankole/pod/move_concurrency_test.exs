@@ -73,8 +73,8 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
 
             AuthZ.Grants.create_permission_grant(%{
               principal_uid: ctx.viewer.uid,
-              resource_pattern: "pod:**:#{ctx.page.id}:**",
-              action: "page_manage"
+              resource_pattern: "drive:**:#{ctx.page.id}:**",
+              action: "node_manage"
             })
           end)
         end)
@@ -118,8 +118,8 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
             {:ok, _} =
               AuthZ.Grants.create_permission_grant(%{
                 principal_uid: ctx.viewer.uid,
-                resource_pattern: "pod:**:#{ctx.right.id}:**",
-                action: "page_manage"
+                resource_pattern: "drive:**:#{ctx.right.id}:**",
+                action: "node_manage"
               })
 
             send(parent, {:grant_uncommitted, backend_pid()})

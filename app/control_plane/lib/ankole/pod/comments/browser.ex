@@ -5,7 +5,7 @@ defmodule Ankole.Pod.Comments.Browser do
     domain: Ankole.Pod,
     extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
 
-  alias Ankole.Ash.Types.{UUIDv7, ActorRef, Timestamptz}
+  alias Ankole.Ash.Types.{UUIDv7, ActorRef, Timestamptz, JSONMap, PrincipalKey}
   alias Ankole.Pod.{Comments, APIError}
   alias Ankole.Pod.Comments.Activity
 
@@ -34,8 +34,10 @@ defmodule Ankole.Pod.Comments.Browser do
     resolved_at: [type: :utc_datetime_usec],
     resolved_by: [type: ActorRef],
     quote: [type: :string, constraints: [trim?: false, allow_empty?: true]],
+    anchor: [type: JSONMap],
     anchor_revision: [type: :integer],
     anchor_present: [type: :boolean, allow_nil?: false],
+    anchor_outdated: [type: :boolean, allow_nil?: false],
     can_edit: [type: :boolean, allow_nil?: false],
     can_delete: [type: :boolean, allow_nil?: false],
     can_resolve: [type: :boolean, allow_nil?: false],
@@ -155,6 +157,9 @@ defmodule Ankole.Pod.Comments.Browser do
       argument(:base_revision, :integer, constraints: [min: 0])
       argument(:from, :integer, constraints: [min: 0])
       argument(:to, :integer, constraints: [min: 1])
+      argument(:quote, :string, constraints: [trim?: false, max_length: 1_000])
+      argument(:anchor, JSONMap)
+      argument(:mentioned_agent_uids, {:array, PrincipalKey})
 
       run(fn input, context ->
         APIError.result(Comments.create(context.actor, input.arguments.id, input.arguments))
@@ -167,6 +172,7 @@ defmodule Ankole.Pod.Comments.Browser do
       argument(:comment_id, UUIDv7, allow_nil?: false)
       argument(:version, :integer, allow_nil?: false, constraints: [min: 1])
       argument(:body, :string, allow_nil?: false, constraints: [trim?: false, max_length: 20_000])
+      argument(:mentioned_agent_uids, {:array, PrincipalKey})
 
       run(fn input, context ->
         APIError.result(
@@ -222,9 +228,11 @@ defmodule Ankole.Pod.Comments.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
       argument(:comment_id, UUIDv7, allow_nil?: false)
       argument(:version, :integer, allow_nil?: false, constraints: [min: 1])
-      argument(:base_revision, :integer, allow_nil?: false, constraints: [min: 0])
-      argument(:from, :integer, allow_nil?: false, constraints: [min: 0])
-      argument(:to, :integer, allow_nil?: false, constraints: [min: 1])
+      argument(:base_revision, :integer, constraints: [min: 0])
+      argument(:from, :integer, constraints: [min: 0])
+      argument(:to, :integer, constraints: [min: 1])
+      argument(:quote, :string, constraints: [trim?: false, max_length: 1_000])
+      argument(:anchor, JSONMap)
 
       run(fn input, context ->
         APIError.result(

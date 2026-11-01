@@ -5,7 +5,7 @@ defmodule Ankole.Sessions.ModelMetadataTest do
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1, openai_response_stream_events: 3]
   import Ankole.PrincipalsFixtures, only: [agent_fixture: 0]
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs

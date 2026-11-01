@@ -1,10 +1,12 @@
 # Agent Workers
 
 Worker providers belong to the site, whereas Agents and their Worker rows belong
-to individual tenants. Globally unique Agent UIDs act as the ownership keys for
-both runtime routing and storage. Although Docker and Kubernetes attach tenant
-labels to instances for operator diagnostics, those labels never replace
-generation and ownership checks. When a tenant is deleted, Ankole runs the same
+to individual tenants. `(tenant_id, agent_uid)` owns runtime routing and
+storage. Provider operations receive the Agent UID with the required Repo
+tenant context; site inventory returns both fields. Docker and Kubernetes
+names, labels and selectors, serverless instance identifiers, storage prefixes
+and cloud directory names use the complete identity. Generation checks fence
+each instance independently. When a tenant is deleted, Ankole runs the same
 Agent cleanup path to release every Worker instance, persistent Home, and cache.
 
 Each Agent gets its own dedicated Worker and persistent Home mounted at
@@ -18,6 +20,13 @@ and demand requests; `ReconcileJob` and `SweepJob` drive the instance lifecycle;
 and `WorkerAdmission` tracks live connection state. PostgreSQL persists every
 decision that must survive a process crash, while provider adapters translate
 those committed decisions into platform API calls.
+
+Personal assistants use this full Worker lifecycle under their own UID. An
+explicit Agent rename requires a disabled Principal and an absent instance.
+Reconciliation drains an existing running or paused instance with the `rename`
+reason and removes it through the normal destroy operation. The rename then
+registers a fresh Worker row and schedules deletion of old-name storage; enabling
+the Agent provisions its Worker under the new tenant-qualified name.
 
 ## Providers
 
@@ -82,31 +91,27 @@ the Function Compute bootstrap and OSS recovery binaries.
 To use a Plugin-owned provider kind after setup, an operator must add the
 Plugin ID to `plugins.enabled_ids` and restart the control plane (see
 [Plugins](Plugins.md) for the operator commands). During initial setup, all
-compiled kinds appear in the UI, though an Agent still cannot use a Plugin-owned
-kind until that Plugin is enabled in `plugins.enabled_ids`. Afterward, the kinds
-endpoint lists only active implementations. If a saved provider's Plugin becomes
+compiled kinds are active and appear in the UI. After setup, the kinds endpoint
+lists the implementations active at boot. If a saved provider's Plugin becomes
 inactive, its row stays visible in the Console and its connectivity check names
-the inactive Plugin ID and how to re-enable it; inactive Plugins never trigger
-automatic deletion of running instances or persistent storage. Each provider's
-`selectable` field reflects both the currently active Plugin snapshot and the
-next-start `plugins.enabled_ids` policy (read once per list request without
-cloud I/O), which the Console uses to filter provider choices during Agent
-creation.
+the inactive Plugin ID and how to re-enable it. Provider configuration, Worker
+references, running instances, and persistent storage remain in place. Each
+provider's `selectable` field reflects the active Plugin snapshot, which the
+Console uses to filter provider choices during Agent creation.
 
-Concurrency locks keep Plugin disablement and Agent assignment consistent:
+Administrators may disable a Worker-provider Plugin regardless of existing Worker
+references. Changes take effect on restart; until then, the active kind remains
+usable. Operations that require an inactive kind fail explicitly, and the
+administrator can re-enable the Plugin and restart the control plane to resume
+those operations.
+
+Registry and boot ordering:
 
 - Creating an Agent or assigning a provider acquires the shared Worker provider
-  registry lock and checks the next-start Plugin policy in PostgreSQL, blocking
-  new assignments to a Plugin whose disablement is awaiting restart.
-- Updating `plugins.enabled_ids` acquires the AppConfigure key lock. If the
-  change removes any Worker provider kind, it also acquires the exclusive Worker
-  provider lock and rejects the update if any Worker row in any tenant—including
-  paused or deleting rows—references an affected provider. Enabling a Plugin or
-  changing non-Worker Plugins skips both the Worker lock and the cross-tenant
-  check.
-- Setup flows, Console Plugin controls, and the Plugin configuration API all
-  share this guard, while general Console settings display `plugins.enabled_ids`
-  as read-only.
+  registry lock to coordinate with provider changes and seed import.
+- Updating `plugins.enabled_ids` acquires the AppConfigure key lock. Setup flows
+  and Console Plugin controls use the same Plugin configuration API; general
+  Console settings display the key as read-only.
 - During node boot, Oban starts before Plugins (because Plugin startup can
   enqueue jobs), and provider seed import runs after the Plugin cohort so YAML
   validation can resolve Plugin-owned kinds. If a recovered Oban job runs before
@@ -562,8 +567,7 @@ site-wide target contract).
 When deleting an Agent, reconciliation preserves any unresolved creation state
 until that generation settles, terminates all platform instances, deletes
 persistent Home and cache storage, and finally deletes the `agent_workers` row
-(rows in `deleting` with no assigned provider are deleted immediately). Because
-Agent UIDs are UUIDv7 values, deleted UIDs are never reused.
+(rows in `deleting` with no assigned provider are deleted immediately).
 
 ### New Attempt Readiness
 
@@ -613,6 +617,12 @@ default memory retention on the target platform is unverified, and a provider
 that preserves only filesystem state does not satisfy the memory-pause contract.
 
 ### Docker and Kubernetes
+
+`ProviderKind.storage_name/2` names dedicated Home volumes, Home claims, and
+directories within shared claims. It hashes the tenant ID together with the
+Agent UID. Compose's pooled-Home migration reads the migrated tenant identities,
+copies into those same names, and sets the provider's tenant ownership labels
+before the control plane starts.
 
 Docker targets local development and single-host deployments using the local
 volume driver (so data does not survive losing the host). Its provider schema
@@ -815,6 +825,49 @@ See [CONTRIBUTING](../../CONTRIBUTING.md#run-the-right-checks) for cloud test
 commands and account prerequisites, and record the date, region, image digest,
 command, and outcome for every live verification run.
 
+### Drive FUSE release prerequisite
+
+Drive metadata and immutable objects belong to the control plane. Worker Home
+persistence does not imply that a provider can mount the Drive filesystem.
+`ankole-files` remains the model-facing Drive entry point until every built-in
+provider passes the same end-to-end FUSE contract. No Drive daemon or `/drive`
+mount is part of the current Worker contract.
+
+A self-managed mount needs a usable `/dev/fuse`, kernel FUSE support, and mount
+capability in the root daemon. Model processes must retain uid/gid 1000, no
+capabilities, and the existing restrictions on inspecting or controlling root
+processes. The daemon's selected library and mount options determine whether the
+image also needs libfuse or a `fusermount` helper; those dependencies must be
+checked independently for amd64 and arm64.
+
+| Provider | Current prerequisite and remaining verification |
+| --- | --- |
+| Docker | The adapter does not pass a FUSE device or add `SYS_ADMIN`. Both must be deliberately added and verified through the real adapter before a mount can work. [Docker capabilities](https://docs.docker.com/engine/containers/run/#runtime-privilege-and-linux-capabilities). |
+| Kubernetes | The adapter drops all capabilities and adds only SETUID, SETGID, CHOWN, FOWNER, DAC_OVERRIDE, and KILL. It supplies no FUSE device. The current baseline Pod Security Standard excludes SYS_ADMIN and hostPath. Device provisioning and admission policy therefore need an explicit, reviewed change plus end-to-end evidence; the current security baseline cannot mount Drive FUSE. [Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/). |
+| Cloudflare | The platform documents container FUSE mounts. Ankole's adapter, image, daemon, and container-recreation behavior still need verification together. [FUSE example](https://developers.cloudflare.com/containers/examples/r2-fuse-mount/). |
+| Vercel | Sandbox supports FUSE through system-privileged processes. UID 0 alone does not prove the current Ankole startup process has the needed capabilities. Verify its device, effective capability set, and daemon startup. [Remote mounts](https://vercel.com/docs/sandbox/mount-remote-storage), [privileged processes](https://vercel.com/docs/sandbox/concepts/runtimes#system-privileged-processes). |
+| Lambda MicroVMs | The adapter requests `additionalOsCapabilities: ALL`; AWS documents these extended capabilities for filesystem mounts. This is the MicroVM product, not traditional Lambda Functions. Device availability, kernel support, arm64 daemon mounting, and pause/resume remain target-environment checks. [MicroVM images](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images.html). |
+| Function Compute | The amd64 image includes OSSFS2/FUSE3 for OSS Home, and the platform documents FUSE-based dynamic JuiceFS mounts. Existing Home mounting does not prove a second self-managed Drive daemon works. Verify both AgenticFS and OSS configurations, including pause/resume and open handles. [Dynamic JuiceFS mounts](https://help.aliyun.com/zh/agent-sandbox/mount-juicefs-dynamically). |
+
+A local arm64 Docker prerequisite probe confirmed kernel FUSE support but no
+`/dev/fuse`, `CAP_SYS_ADMIN`, libfuse, or mount helper. The production process
+launcher kept the model at uid/gid 1000 with empty capability sets and rejected
+root-process inspection, ptrace, signalling, and restoring uid 0. This probe used
+an existing image whose build-input hash differed from the edited source tree;
+it is evidence for that image and launcher only. It did not mount FUSE, test
+amd64, or exercise any cloud provider. Platform documentation in the table is
+capability evidence, not an Ankole end-to-end result.
+
+Reuse the existing six provider storage integration suites for release checks.
+Each must verify mounting by root with capability-free model access, empty
+directories, moving a parent while a file descriptor remains open, atomic rename
+replacement preserving the target node ID, offset reads near the end of a large
+object, concurrent Worker writes and close-to-open visibility, permission
+revocation, and lifecycle recovery. Record region, image digest, command, and
+result using the provider-verification convention above. Only a change that
+passes all providers may publish FUSE and remove `ankole-files` and its
+model-visible RPCs together.
+
 ## Worker Process
 
 Each Worker process serves exclusively the Agent named in `WORKER_ID`—receiving
@@ -864,6 +917,25 @@ request, after which a full request runs under the operation's own timeout
 until both handler and socket close, even across bridge replacement. `BUSY` and
 read-timeout errors happen strictly before dispatch—proving the operation never
 ran—and the CLI bridge never auto-retries operations with unknown outcomes.
+
+Before spawning commands in an Agent Session or Codex Job, Agent Computer writes
+the active model context identity (`<conversation_id>:cmp:<checkpoint_id|root>`
+for Sessions, or `<job_id>:thread:<thread_id>:cmp:<compaction_count>` for Codex
+Jobs) to `ANKOLE_RUNTIME_CLI_CONTEXT_FILE`. Both automatic and explicitly requested
+compactions advance the Codex context count once when they complete. Agent Computer
+stores the file with `0600` permissions in a runtime directory outside the workspace
+and points `ANKOLE_RUNTIME_CLI_LEDGER_DIR` at a SQLite ledger (`state.db`) there.
+Worker CLIs (`ankole-pod`,
+`ankole-files`, the `create-webhook-cli` family, and the
+`create-automation-job-cli` family, plus `ankole-browser` for pipe protection)
+install a `stdout` `EPIPE` guard so downstream pipe truncation (`| head`) exits
+with a nonzero status and no stack trace, preserving an existing failure status.
+They read `context-generation.json` with `O_NOFOLLOW` and owner/size checks,
+record `--help` runs in `state.db`, and emit a bounded (`<= 12`
+lines, `<= 1,200` characters) subcommand reference to `stderr` on the first
+successful non-help invocation of each `(contextId, commandKey)` pair while
+keeping `stdout` pure JSON (standalone and Automation runs without a context file
+emit nothing on `stderr`).
 
 For control-plane connectivity, the Worker reconnects after both normal and
 abnormal WebSocket closures, giving each handshake a 10-second open deadline

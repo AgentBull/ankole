@@ -375,7 +375,7 @@ function ScopeSelect({
   onChange,
   scope
 }: {
-  agents: Array<{ uid: string; handle: string; display_name?: string | null }>
+  agents: Array<{ uid: string; display_name?: string | null }>
   onChange: (value: string) => void
   scope: string
 }) {
@@ -389,7 +389,7 @@ function ScopeSelect({
         <SelectItem value={GLOBAL_LIBRARY_SCOPE}>{t('console.agent_library_capabilities.global_defaults')}</SelectItem>
         {agents.map(agent => (
           <SelectItem key={agent.uid} value={agent.uid}>
-            {agent.display_name ? `${agent.display_name} · ${agent.handle}` : agent.handle}
+            {agent.display_name ? `${agent.display_name} · ${agent.uid}` : agent.uid}
           </SelectItem>
         ))}
       </SelectContent>

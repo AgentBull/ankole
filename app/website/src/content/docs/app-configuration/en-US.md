@@ -52,7 +52,7 @@ Ankole ships with the built-in AppConfigure keys listed below, and Control Plane
 | `pod.allow_external_guests` | Tenant | Allow invited external guests to access shared Pod pages; default `true` |
 | `pod.applet.limits` | Tenant | Applet invocation limits (`timeout_ms: 60000`, `heap_mb: 128`) |
 | `pod.base.limits` | Tenant | Base query and record limits (`query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
-| `pod.trash_retention_days` | Tenant | Positive integer days to retain deleted pages before automatic purge (default `30`) |
+| `drive.trash_retention_days` | Tenant  Days Ankole retains deleted Drive nodes before automatic purge; default `30`, `0` keeps them indefinitely |
 | `pod.ot_replay_window` | Tenant | Number of recent document change batches retained for OT replay; default `1000` |
 
 ### Workflows

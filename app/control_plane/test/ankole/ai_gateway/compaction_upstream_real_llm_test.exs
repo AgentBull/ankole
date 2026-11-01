@@ -9,7 +9,7 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
 
   use Ankole.AIGatewayCase, async: false
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.Repo

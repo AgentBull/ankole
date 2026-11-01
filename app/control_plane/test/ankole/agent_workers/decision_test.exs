@@ -7,6 +7,24 @@ defmodule Ankole.AgentWorkers.DecisionTest do
   @target %{image: "worker:2", protocol_version: 7, settings_digest: "template-a"}
   @minute 60_000
 
+  test "rename deletes a paused instance but waits for accepted work to finish" do
+    worker = %{state: :draining, drain_reason: "rename", load: %{"active_tasks" => 0}}
+    assert :delete_now = next(worker: worker, object: :paused, agent: :disabled)
+    assert :delete_now = next(worker: worker, object: :running, agent: :disabled)
+
+    assert {:wait, _} =
+             next(worker: worker, object: :running, agent: :disabled, turn_in_progress?: true)
+
+    assert {:wait, _} =
+             next(
+               worker: %{worker | load: %{"active_tasks" => 1}},
+               object: :running,
+               agent: :disabled
+             )
+
+    assert :delete_now = next(worker: worker, object: :exited, agent: :disabled)
+  end
+
   test "a Secret without an observed Pod cannot settle the current generation" do
     object = %{generation: "gen-a", phase: :exited, instance_present?: false}
 

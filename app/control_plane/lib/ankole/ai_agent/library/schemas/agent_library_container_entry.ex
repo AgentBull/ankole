@@ -49,10 +49,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   end
 
   identities do
-    identity(:active_path, [:agent_uid, :path],
-      all_tenants?: true,
-      where: expr(is_nil(deleted_at))
-    )
+    identity(:active_path, [:agent_uid, :path], where: expr(is_nil(deleted_at)))
   end
 
   actions do

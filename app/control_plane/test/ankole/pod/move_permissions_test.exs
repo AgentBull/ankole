@@ -2,7 +2,8 @@ defmodule Ankole.Pod.MovePermissionsTest do
   use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Pod.{Access, Page, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Page, Pages}
 
   setup do
     owner = human_fixture().principal
@@ -86,7 +87,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.viewer.uid),
                page.id,
-               "page_manage"
+               "node_manage"
              )
   end
 
@@ -215,35 +216,35 @@ defmodule Ankole.Pod.MovePermissionsTest do
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(ctx.editor.uid),
                  page.id,
-                 "page_edit"
+                 "node_edit"
                )
 
       assert {:ok, _} =
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(ctx.editor.uid),
                  destination.id,
-                 "page_edit"
+                 "node_edit"
                )
 
       assert {:error, :forbidden} =
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(ctx.editor.uid),
                  page.id,
-                 "page_manage"
+                 "node_manage"
                )
 
       assert {:error, :forbidden} =
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(ctx.editor.uid),
                  destination.id,
-                 "page_manage"
+                 "node_manage"
                )
 
       assert {:error, :forbidden} =
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                  page.id,
-                 "page_view"
+                 "node_view"
                )
 
       if @source == :private do
@@ -251,14 +252,14 @@ defmodule Ankole.Pod.MovePermissionsTest do
                  Pages.authorize(
                    Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                    child.id,
-                   "page_view"
+                   "node_view"
                  )
       else
         assert {:ok, _} =
                  Pages.authorize(
                    Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                    child.id,
-                   "page_view"
+                   "node_view"
                  )
       end
 
@@ -274,14 +275,14 @@ defmodule Ankole.Pod.MovePermissionsTest do
                  Pages.authorize(
                    Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                    child.id,
-                   "page_view"
+                   "node_view"
                  )
       else
         assert {:ok, _} =
                  Pages.authorize(
                    Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                    child.id,
-                   "page_view"
+                   "node_view"
                  )
       end
 
@@ -296,7 +297,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                  page.id,
-                 "page_view"
+                 "node_view"
                )
 
       if @source == :private do
@@ -304,14 +305,14 @@ defmodule Ankole.Pod.MovePermissionsTest do
                  Pages.authorize(
                    Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                    child.id,
-                   "page_view"
+                   "node_view"
                  )
       else
         assert {:error, :forbidden} =
                  Pages.authorize(
                    Ankole.PrincipalsFixtures.actor_fixture(guest.uid),
                    child.id,
-                   "page_view"
+                   "node_view"
                  )
       end
     end
@@ -324,7 +325,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{parent_id: left.id})
 
-    grant(ctx.viewer, "pod:private:unused:**", "page_manage", ~s(context.request.ip == "never"))
+    grant(ctx.viewer, "drive:private:unused:**", "node_manage", ~s(context.request.ip == "never"))
 
     assert {:ok, _} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), page.id, %{
@@ -334,8 +335,8 @@ defmodule Ankole.Pod.MovePermissionsTest do
     assert {:error, _} =
              AuthZ.create_permission_grant(%{
                principal_uid: ctx.viewer.uid,
-               resource_pattern: "pod:space:**:#{page.id}:page",
-               action: "page_manage"
+               resource_pattern: "drive:space:**:#{page.id}:node",
+               action: "node_manage"
              })
 
     assert {:ok, _} =
@@ -348,13 +349,13 @@ defmodule Ankole.Pod.MovePermissionsTest do
     {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
     {:ok, destination} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
     share(ctx.owner, page, %{inherit_permissions: false})
-    grant(ctx.agent, "pod:**:#{page.id}:**", "page_manage")
+    grant(ctx.agent, "drive:**:#{page.id}:**", "node_manage")
 
     assert {:error, :forbidden} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                page.id,
-               "page_edit"
+               "node_edit"
              )
 
     assert {:ok, _} =
@@ -370,7 +371,12 @@ defmodule Ankole.Pod.MovePermissionsTest do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{parent_id: left.id})
 
-    grant(ctx.viewer, "pod:**:#{left.id}:**", "page_manage", ~s|context.request.ip == "10.0.0.1"|)
+    grant(
+      ctx.viewer,
+      "drive:**:#{left.id}:**",
+      "node_manage",
+      ~s|context.request.ip == "10.0.0.1"|
+    )
 
     assert {:error, :move_requires_manage} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), page.id, %{
@@ -407,18 +413,18 @@ defmodule Ankole.Pod.MovePermissionsTest do
       inherit_permissions: false,
       grants: [
         %{principal_uid: ctx.viewer.uid, role: "view"},
-        %{source_page_id: other.id, source_action: "page_view", role: "view"}
+        %{source_node_id: other.id, source_action: "node_view", role: "view"}
       ]
     })
 
     share(ctx.owner, other, %{
       inherit_permissions: false,
-      grants: [%{source_page_id: source.id, source_action: "page_view", role: "view"}]
+      grants: [%{source_node_id: source.id, source_action: "node_view", role: "view"}]
     })
 
     for target <- [left, right] do
       share(ctx.owner, target, %{
-        grants: [%{source_page_id: source.id, source_action: "page_view", role: "view"}]
+        grants: [%{source_node_id: source.id, source_action: "node_view", role: "view"}]
       })
     end
 
@@ -451,11 +457,11 @@ defmodule Ankole.Pod.MovePermissionsTest do
     assert {:error, _} =
              AuthZ.create_permission_grant(%{
                principal_uid: ctx.viewer.uid,
-               resource_pattern: "pod:private:*:**",
-               action: "page_manage"
+               resource_pattern: "drive:private:*:**",
+               action: "node_manage"
              })
 
-    grant(ctx.viewer, "pod:private:#{ctx.owner.uid}:**", "page_manage")
+    grant(ctx.viewer, "drive:private:#{ctx.owner.uid}:**", "node_manage")
 
     assert {:error, :move_requires_manage} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), page.id, %{
@@ -524,12 +530,10 @@ defmodule Ankole.Pod.MovePermissionsTest do
                parent_id: child.id
              })
 
-    assert {:ok, %{page: moved}} =
+    assert {:error, :not_a_directory} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), page.id, %{
                parent_id: leaf.id
              })
-
-    assert moved.parent_id == leaf.id
 
     assert {:error, :not_found} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), page.id, %{

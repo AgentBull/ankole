@@ -274,7 +274,7 @@ function StoredCustomModelProfileEditor({
       const submission = pendingSubmission.current
       pendingSubmission.current = undefined
       if (submission && variables.path.agent_uid === agentUID) {
-        const result = model.markSaved(draftFromProfile(recordValue(response.model_profile) ?? {}), submission)
+        const result = model.markSaved(draftFromProfile(recordValue(response.overrides[name]) ?? {}), submission)
         if (result.hasUnsavedChanges) toast.info(t('console.models.saved_with_unsaved_changes', { profile: name }))
         else toast.success(t('console.models.saved', { profile: name }))
       }

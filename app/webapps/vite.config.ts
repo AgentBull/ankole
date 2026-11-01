@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 import {
   artifactRoot,
@@ -227,7 +227,8 @@ export default defineConfig(({ command }): UserConfig => ({
     {
       name: 'ankole-precompressed-assets',
       apply: 'build',
-      closeBundle() {
+      closeBundle(error) {
+        if (error || !existsSync(outputPath)) return
         // Plug.Static serves these sidecars without changing Vite's hashed files or manifest.
         for (const file of readdirSync(outputPath, { recursive: true, encoding: 'utf8' })) {
           if (!/\.(css|js|json|map|svg)$/.test(file)) continue

@@ -60,14 +60,14 @@ defmodule Ankole.AgentWorkers.WorkspaceStatusTest do
     assert {:error, :agent_not_active} = AgentWorkers.workspace_status(uid)
     set_row(uid, state: :deleting)
     assert {:error, :agent_worker_unavailable} = AgentWorkers.workspace_status(uid)
-    Repo.delete!(Repo.get!(AgentWorker, uid))
+    Repo.delete!(Repo.get_by!(AgentWorker, agent_uid: uid))
     assert {:error, :agent_worker_unavailable} = AgentWorkers.workspace_status(uid)
   end
 
   test "fixing provider configuration clears rejections across tenants before the next call", %{
     uid: uid
   } do
-    provider_id = Repo.get!(AgentWorker, uid).provider_id
+    provider_id = Repo.get_by!(AgentWorker, agent_uid: uid).provider_id
     other = create_tenant()
 
     other_uid =
@@ -82,7 +82,7 @@ defmodule Ankole.AgentWorkers.WorkspaceStatusTest do
     assert {:ok, _} = Providers.update(provider_id, %{display_name: "Fixed provider"})
 
     for agent_uid <- [uid, other_uid] do
-      worker = Repo.across_tenants(fn -> Repo.get!(AgentWorker, agent_uid) end)
+      worker = Repo.across_tenants(fn -> Repo.get_by!(AgentWorker, agent_uid: agent_uid) end)
       assert worker.last_error == nil and worker.last_error_kind == nil
       assert_enqueued(worker: ReconcileJob, args: %{agent_uid: agent_uid})
     end

@@ -315,7 +315,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp emit_normalized_message(input, consumer, refresh_group?) do
     context = consumer.context
-    result = Observe.emit_entry(context.agent_uid, context.binding_name, input)
+    result = Observe.emit_entry(context.binding_id, input)
 
     if refresh_group? and match?({:ok, _}, result) do
       IMGroups.maybe_enqueue_missing_channel_refresh(consumer, input)
@@ -347,9 +347,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
       context = consumer.context
 
-      Observe.emit_entry_removed(context.agent_uid, context.binding_name, input,
-        provider_lifecycle_kind: :recalled
-      )
+      Observe.emit_entry_removed(context.binding_id, input, provider_lifecycle_kind: :recalled)
     end
   end
 
@@ -381,7 +379,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       }
 
       context = consumer.context
-      Observe.emit_reaction(context.agent_uid, context.binding_name, input)
+      Observe.emit_reaction(context.binding_id, input)
     else
       {:error, :missing_operator_id} ->
         Logging.warning(
@@ -405,10 +403,18 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          %CardAction{} = action,
          %Event{} = event
        ) do
+    decoded_value = action_value(action)
+
     with {:ok, operator_id, operator_aliases, operator_identity} <-
            card_operator_subject(action, event),
          {:ok, operator_principal_uid} <-
-           observe_card_operator(consumer, operator_id, operator_aliases, operator_identity),
+           resolve_card_operator(
+             consumer,
+             operator_id,
+             operator_aliases,
+             operator_identity,
+             decoded_value
+           ),
          {:ok, chat_id} <- required_text_value(action.open_chat_id, "open_chat_id"),
          {:ok, action_id} <- card_action_id(action, event) do
       input = %{
@@ -420,7 +426,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         signal_type: "signal.action.invoked",
         action: %{
           "name" => action_name(action),
-          "value" => action_value(action),
+          "value" => decoded_value,
           "operator_id" => operator_id,
           "operator_principal_uid" => operator_principal_uid,
           "provider_message_id" => action.open_message_id
@@ -429,7 +435,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       }
 
       context = consumer.context
-      Observe.emit_action(context.agent_uid, context.binding_name, input)
+      Observe.emit_action(context.binding_id, input)
     else
       {:error, :missing_operator_id} ->
         Logging.warning(
@@ -1184,6 +1190,35 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp operator_actor_key(value) when is_binary(value) and value != "", do: {:ok, value}
   defp operator_actor_key(_value), do: {:error, :missing_operator_id}
+
+  defp resolve_card_operator(
+         %{config: config} = consumer,
+         operator_id,
+         operator_aliases,
+         operator_identity,
+         decoded_value
+       ) do
+    interaction_id = is_map(decoded_value) && decoded_value["interactionId"]
+
+    if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
+      provider = Config.subject_namespace(config)
+
+      uid =
+        [operator_id | operator_aliases]
+        |> Enum.filter(&(is_binary(&1) and &1 != ""))
+        |> Enum.uniq()
+        |> Enum.find_value(fn id ->
+          case Ankole.Principals.resolve_platform_subject_uid(provider, id) do
+            {:ok, found_uid} -> found_uid
+            _ -> nil
+          end
+        end)
+
+      {:ok, uid}
+    else
+      observe_card_operator(consumer, operator_id, operator_aliases, operator_identity)
+    end
+  end
 
   defp observe_card_operator(
          %{context: context, config: config},

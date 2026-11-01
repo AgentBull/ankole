@@ -16,7 +16,7 @@ defmodule AnkoleWeb.PodRoomChannel do
 
       with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
            {:ok, page_id} <- page_id(topic, socket.assigns.actor),
-           {:ok, _} <- Pages.authorize(socket.assigns.actor, page_id, "page_view", opts) do
+           {:ok, _} <- Pages.authorize(socket.assigns.actor, page_id, "node_view", opts) do
         AnkoleWeb.PodChannel.subscribe(socket)
         Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-room:" <> topic)
         if String.starts_with?(topic, "applet:"), do: send(self(), :track_presence)

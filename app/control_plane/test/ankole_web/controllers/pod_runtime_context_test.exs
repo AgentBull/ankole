@@ -57,7 +57,7 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     assert Repo.aggregate(Signal, :count) == 1
   end
 
-  test "tool authorization restores the original IP and normalized args after run rebuild", ctx do
+  test "tool dispatch uses the Agent across run rebuilds while normalizing arguments", ctx do
     grant(ctx.human, "agent:#{ctx.agent.uid}", "chat")
 
     grant(
@@ -69,18 +69,18 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     )
 
     run = create_run(ctx, @allowed_ip)
-    assert_tool(run, :allowed)
+    assert_tool(run)
     assert {:ok, %{event: event}} = Run.rebuild(run)
     assert {:ok, rebuilt} = Admission.admit(run, event)
     assert rebuilt.epoch > run.epoch
 
-    assert_tool(rebuilt, :allowed)
+    assert_tool(rebuilt)
 
-    denied = create_run(ctx, @other_ip)
-    assert_tool(denied, :denied)
+    other_origin = create_run(ctx, @other_ip)
+    assert_tool(other_origin)
   end
 
-  test "RPC restores the same persisted IP for both the agent and the human", ctx do
+  test "RPC evaluates the executing Agent grants with the persisted ingress IP", ctx do
     grant(ctx.human, "agent:#{ctx.agent.uid}", "chat")
     owner = Ankole.PrincipalsFixtures.human_fixture().principal
 
@@ -95,10 +95,10 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
                grants: [%{principal_uid: owner.uid, role: "manage"}]
              })
 
-    pattern = "pod:**:#{page.id}:page"
+    pattern = "drive:**:#{page.id}:node"
     condition = @ip_condition <> ~s( && context.request.surface == "agent_rpc")
-    human_grant = grant(ctx.human, pattern, "page_view", condition)
-    agent_grant = grant(ctx.agent.uid, pattern, "page_view", condition)
+    human_grant = grant(ctx.human, pattern, "node_view", condition)
+    agent_grant = grant(ctx.agent.uid, pattern, "node_view", condition)
     run = create_run(ctx, @allowed_ip)
 
     assert page.id in rpc_page_ids(run)
@@ -109,8 +109,8 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     refute page.id in rpc_page_ids(denied)
 
     assert {:ok, _} = AuthZ.delete_permission_grant(human_grant.id)
-    refute page.id in rpc_page_ids(rebuilt)
-    grant(ctx.human, pattern, "page_view", condition)
+    assert page.id in rpc_page_ids(rebuilt)
+    grant(ctx.human, pattern, "node_view", condition)
     assert {:ok, _} = AuthZ.delete_permission_grant(agent_grant.id)
     refute page.id in rpc_page_ids(rebuilt)
   end
@@ -143,7 +143,7 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     event = Repo.get!(Signal, original.id)
     assert {:ok, run} = Admission.admit(event, event)
     assert Conversations.request_context(run.event) == %{}
-    assert_tool(run, :denied)
+    assert_tool(run)
 
     for untrusted <- [
           %{event | producer: :external},
@@ -162,12 +162,12 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
       }
 
       assert Conversations.request_context(forged) == %{}
-      assert_tool(%{run | event: forged}, :denied)
+      assert_tool(%{run | event: forged})
     end
 
     historical = %{event | data: Map.delete(event.data, "request_context")}
     assert Conversations.request_context(historical) == %{}
-    assert_tool(%{run | event: historical}, :denied)
+    assert_tool(%{run | event: historical})
   end
 
   defp create_chat(ctx, ip) do
@@ -189,7 +189,7 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     run
   end
 
-  defp assert_tool(run, expected) do
+  defp assert_tool(run) do
     tool =
       Tools.Session.declarations()
       |> Enum.find(&(&1["name"] == "clarify"))
@@ -198,16 +198,10 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     run = %{run | tools: [tool]}
     call = %{"name" => "clarify", "arguments" => ~s({"question":"  Choose  "})}
 
-    case expected do
-      :allowed ->
-        assert {:ok, ^tool, %{"question" => "Choose"}} = Tools.prepare(run, call)
+    assert {:ok, ^tool, %{"question" => "Choose"}} = Tools.prepare(run, call)
 
-        assert {:error, %{failure_kind: "forbidden"}} =
-                 Tools.prepare(run, %{call | "arguments" => ~s({"question":"Other"})})
-
-      :denied ->
-        assert {:error, %{failure_kind: "forbidden"}} = Tools.prepare(run, call)
-    end
+    assert {:ok, ^tool, %{"question" => "Other"}} =
+             Tools.prepare(run, %{call | "arguments" => ~s({"question":"Other"})})
   end
 
   defp rpc_page_ids(run) do

@@ -50,7 +50,6 @@ defmodule Ankole.Brain.ConsoleTypes.BrainHealth do
           ]
         ],
         enabled: [type: :boolean, allow_nil?: false],
-        maintainer_agent_uid: [type: :string, allow_nil?: true],
         search_indexes: [type: :string, allow_nil?: false],
         models: [
           type: :map,
@@ -224,6 +223,8 @@ defmodule Ankole.Brain.ConsoleTypes.BrainPageTake do
         author: [type: Ankole.Ash.Types.ActorRef, allow_nil?: true],
         claim: [type: :string, allow_nil?: false],
         graded_at: [type: :string, allow_nil?: true],
+        graded_by: [type: :string, allow_nil?: true],
+        resolved_by: [type: :string, allow_nil?: true],
         graded_confidence: [type: :float, allow_nil?: true],
         graded_quality: [type: :string, allow_nil?: true],
         holder: [type: :string, allow_nil?: true],
@@ -425,6 +426,8 @@ defmodule Ankole.Brain.ConsoleTypes.BrainClaim do
         conversation_id: [type: :string, allow_nil?: true],
         created_at: [type: :string, allow_nil?: false],
         expired_at: [type: :string, allow_nil?: true],
+        graded_by: [type: :string, allow_nil?: true],
+        resolved_by: [type: :string, allow_nil?: true],
         graded_confidence: [type: :float, allow_nil?: true],
         graded_quality: [type: :string, allow_nil?: true],
         holder: [type: :string, allow_nil?: true],

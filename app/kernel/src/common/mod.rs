@@ -24,7 +24,7 @@ pub use ids::{gen_uuid, gen_uuid_v7, uuid_expand, uuid_shorten};
 pub use jwt::{jwt_sign_pem, jwt_verify_jwk};
 pub use phone::phone_normalize_e164;
 pub use search::{ReciprocalRankFusionResult, reciprocal_rank_fusion};
-pub use token::estimate_o200k_base_tokens;
+pub use token::{estimate_o200k_base_tokens, truncate_o200k_base_tokens};
 #[cfg(feature = "web_proxy")]
 pub(crate) use web_url::validate_host;
 pub use web_url::{

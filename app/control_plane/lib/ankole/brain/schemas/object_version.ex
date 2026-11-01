@@ -75,6 +75,10 @@ defmodule Ankole.Brain.Schemas.ObjectVersion do
     create :snapshot do
       accept([:object_id, :author, :body, :meta, :tags])
     end
+
+    update :rename_references do
+      accept([:body])
+    end
   end
 
   @type t :: %__MODULE__{}

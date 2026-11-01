@@ -13,7 +13,10 @@ defmodule Ankole.Principals.ResourceActionsTest do
                  Ankole.Ash.update(principal, :profile_in_tx, attrs)
                end)
 
-      Ankole.DataCase.assert_persisted_equal(Repo.get!(Principal, principal.uid), principal)
+      Ankole.DataCase.assert_persisted_equal(
+        Repo.get_by!(Principal, uid: principal.uid),
+        principal
+      )
     end
   end
 

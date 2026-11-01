@@ -8,16 +8,26 @@ defmodule AnkoleWeb.PodAppletFrameController do
     relative = if path == [], do: "index.html", else: Enum.join(path, "/")
 
     with {revision, ""} when revision >= 0 <- Integer.parse(value),
-         {:ok, {type, digest, bytes}} <-
-           Files.resolve_applet_frame_asset(conn.assigns.authz_actor, id, revision, relative) do
-      bytes = if relative == "index.html", do: shell(bytes), else: bytes
+         {:ok, file} <-
+           Files.resolve_applet_frame_object(conn.assigns.authz_actor, id, revision, relative),
+         {:ok, object} <- Ankole.Files.fetch_object(file.object_id) do
+      if relative == "index.html" do
+        with {:ok, bytes} <- Ankole.Files.read_object(file.object_id) do
+          bytes = shell(bytes)
+          digest = Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
 
-      digest =
-        if relative == "index.html",
-          do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower),
-          else: digest
-
-      PodResponse.send_applet_frame_asset(conn, bytes, mime(relative, type), digest)
+          PodResponse.send_applet_frame_asset(
+            conn,
+            bytes,
+            mime(relative, file.content_type),
+            digest
+          )
+        else
+          {:error, reason} -> PodResponse.error(conn, reason)
+        end
+      else
+        PodResponse.send_applet_frame_object(conn, object, mime(relative, file.content_type))
+      end
     else
       {:error, {:applet_revision_changed, _}} ->
         conn

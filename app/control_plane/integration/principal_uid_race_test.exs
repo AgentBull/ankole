@@ -36,13 +36,12 @@ defmodule Ankole.PrincipalUidRaceIntegrationTest do
     :ok
   end
 
-  test "two observations of the same provider subject converge on one opaque Principal" do
+  test "two observations of the same provider subject converge on its named Principal" do
     external_id = "race-subject-#{System.unique_integer([:positive])}"
     results = observe_concurrently(["slack-race", "slack-race"], external_id)
     assert Enum.all?(results, &match?({:ok, _observed}, &1))
     [uid] = Enum.map(results, fn {:ok, observed} -> observed.principal.uid end) |> Enum.uniq()
-    assert {:ok, ^uid} = Ecto.UUID.cast(uid)
-    refute uid == external_id
+    assert uid == external_id
 
     assert Repo.aggregate(from(principal in Principal, where: principal.uid == ^uid), :count) == 1
 
@@ -52,25 +51,25 @@ defmodule Ankole.PrincipalUidRaceIntegrationTest do
            ) == 1
   end
 
-  test "different providers observing the same external identifier create distinct opaque Principals" do
+  test "different providers cannot claim a Principal just because their subject names match" do
     external_id = "race-subject-#{System.unique_integer([:positive])}"
     results = observe_concurrently(["slack-race", "dingtalk-race"], external_id)
-    assert Enum.all?(results, &match?({:ok, _observed}, &1))
-    uids = Enum.map(results, fn {:ok, observed} -> observed.principal.uid end) |> Enum.uniq()
-    assert length(uids) == 2
+    assert [{:ok, observed}] = Enum.filter(results, &match?({:ok, _}, &1))
 
-    for uid <- uids do
-      assert {:ok, ^uid} = Ecto.UUID.cast(uid)
-      refute uid == external_id
-    end
+    assert [{:error, :principal_uid_taken}] =
+             results |> Enum.filter(&match?({:error, _}, &1)) |> Enum.map(&Ankole.Errors.reason/1)
 
-    assert Repo.aggregate(from(principal in Principal, where: principal.uid in ^uids), :count) ==
-             2
+    assert observed.principal.uid == external_id
 
     assert Repo.aggregate(
-             from(identity in ExternalIdentity, where: identity.principal_uid in ^uids),
+             from(principal in Principal, where: principal.uid == ^external_id),
              :count
-           ) == 2
+           ) == 1
+
+    assert Repo.aggregate(
+             from(identity in ExternalIdentity, where: identity.principal_uid == ^external_id),
+             :count
+           ) == 1
   end
 
   defp observe_concurrently(providers, external_id) do

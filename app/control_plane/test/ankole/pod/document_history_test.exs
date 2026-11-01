@@ -104,7 +104,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
     long = String.duplicate("长", 300)
     [original] = Repo.all(PageSnapshot)
 
-    Repo.update_all(from(page in Ankole.Pod.Page, where: page.id == ^ctx.page.id),
+    Repo.update_all(from(page in Ankole.Pod.Properties, where: page.id == ^ctx.page.id),
       set: [title: long]
     )
 
@@ -121,7 +121,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
 
     assert {:ok, %{page: %{title: ^long}}} = restore.()
 
-    Repo.update_all(from(page in Ankole.Pod.Page, where: page.id == ^ctx.page.id),
+    Repo.update_all(from(page in Ankole.Pod.Properties, where: page.id == ^ctx.page.id),
       set: [title: "Short"]
     )
 
@@ -262,9 +262,13 @@ defmodule Ankole.Pod.DocumentHistoryTest do
     contributor = human_fixture().principal
 
     assert {:ok, _} =
-             Ankole.Pod.PagesFixtures.set_sharing(ctx.page.private_owner_uid, ctx.page.id, %{
-               grants: [%{principal_uid: contributor.uid, role: "contribute"}]
-             })
+             Ankole.Pod.PagesFixtures.set_sharing(
+               Ankole.AuthZ.Actor.uid(ctx.owner),
+               ctx.page.id,
+               %{
+                 grants: [%{principal_uid: contributor.uid, role: "contribute"}]
+               }
+             )
 
     contributor = actor_fixture(contributor)
     assert {:error, :forbidden} = History.list(contributor, ctx.page.id)
@@ -273,7 +277,9 @@ defmodule Ankole.Pod.DocumentHistoryTest do
     assert {:error, :forbidden} =
              History.restore(contributor, ctx.page.id, original.id, 0, ctx.page.updated_at)
 
-    {:ok, other} = Pages.create(ctx.owner, %{private_owner_uid: ctx.page.private_owner_uid})
+    {:ok, other} =
+      Pages.create(ctx.owner, %{private_owner_uid: Ankole.AuthZ.Actor.uid(ctx.owner)})
+
     assert {:error, :not_found} = History.read(ctx.owner, other.id, original.id)
     tenant = create_tenant()
 
@@ -424,8 +430,8 @@ defmodule Ankole.Pod.DocumentHistoryTest do
     assert {:ok, _} = Pages.purge(ctx.owner, ctx.page.id)
 
     assert :ok =
-             Ankole.Pod.Jobs.PurgePage.perform(%Oban.Job{
-               args: %{"tenant_id" => Repo.tenant_id!(), "page_id" => ctx.page.id}
+             Ankole.Files.Jobs.PurgeNode.perform(%Oban.Job{
+               args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => ctx.page.id}
              })
 
     assert Repo.all(PageSnapshot) == []

@@ -21,18 +21,24 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
 
     on_exit(fn -> restore_fixture(original, [source, middle, final]) end)
 
-    initial_grants =
-      Map.new([source, middle, final], fn tenant ->
-        {tenant.id,
-         Repo.with_tenant(tenant.id, fn -> Repo.all(from g in Grant, order_by: g.id) end)}
-      end)
-
     :ok = set_privileged_tenant(source)
     :ok = Tenants.ensure_scaffold(source)
     %{principal: source_admin} = human_fixture()
-    {:ok, %{admin_group: source_group}} = first_site_admin_fixture(source_admin.uid)
     %{principal: middle_admin} = Repo.with_tenant(middle.id, fn -> human_fixture() end)
     %{principal: final_admin} = Repo.with_tenant(final.id, fn -> human_fixture() end)
+
+    initial_grants =
+      Map.new([source, middle, final], fn tenant ->
+        {tenant.id,
+         Repo.with_tenant(tenant.id, fn ->
+           site_admin = Repo.get_by(Group, name: "siteadmin")
+
+           Repo.all(from g in Grant, order_by: g.id)
+           |> Enum.reject(fn grant -> site_admin && grant.group_id == site_admin.id end)
+         end)}
+      end)
+
+    {:ok, %{admin_group: source_group}} = first_site_admin_fixture(source_admin.uid)
 
     %{
       initial_grants: initial_grants,
@@ -175,15 +181,15 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
     assert {:ok, _} =
              AuthZ.create_permission_grant(%{
                principal_uid: viewer.uid,
-               resource_pattern: "pod:**:#{parent.id}:**",
-               action: "page_view"
+               resource_pattern: "drive:**:#{parent.id}:**",
+               action: "node_view"
              })
 
     assert {:ok, grant} =
              AuthZ.create_permission_grant(%{
                group_id: context.source_group.id,
-               resource_pattern: "pod:**:#{child.id}:**",
-               action: "page_view"
+               resource_pattern: "drive:**:#{child.id}:**",
+               action: "node_view"
              })
 
     assert %{has_local_acl: true, is_acl_anchor: true, acl_anchor_id: child_anchor} =
@@ -205,7 +211,7 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
                Repo.get!(Page, page.id)
 
       assert parent_anchor == parent.id
-      assert {:ok, _} = Pages.authorize(actor_fixture(viewer.uid), page.id, "page_view")
+      assert {:ok, _} = Pages.authorize(actor_fixture(viewer.uid), page.id, "node_view")
     end
   end
 
@@ -277,8 +283,11 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
       current_grants = Repo.all(from g in Grant, order_by: g.id)
       rule_fields = Grant.__schema__(:fields) -- [:updated_at]
 
-      assert Enum.map(current_grants, &Map.take(&1, rule_fields)) ==
-               Enum.map(initial_grants, &Map.take(&1, rule_fields))
+      actual = Enum.map(current_grants, &Map.take(&1, rule_fields))
+      expected = Enum.map(initial_grants, &Map.take(&1, rule_fields))
+
+      assert actual == expected,
+             inspect(%{added: actual -- expected, removed: expected -- actual}, limit: :infinity)
 
       if pod_admin_uid do
         pod_admin = Repo.get_by!(Group, name: "pod_admin", built_in: true)

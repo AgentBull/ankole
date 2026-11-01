@@ -22,15 +22,15 @@ defmodule Ankole.Signals.BindingMembership do
   @spec project(map() | nil, AdapterContext.t(), state(), DateTime.t()) :: map()
   def project(
         metadata,
-        %AdapterContext{agent_uid: agent_uid, binding_name: binding_name},
+        %AdapterContext{binding_id: binding_id, agent_uid: agent_uid, binding_name: binding_name},
         state,
         now \\ DateTime.utc_now(:microsecond)
       )
       when state in [:joined, :left] do
-    agent_uid = String.downcase(agent_uid)
     memberships = memberships(metadata)
 
     membership = %{
+      "binding_id" => binding_id,
       "agent_uid" => agent_uid,
       "binding_name" => binding_name,
       "state" => Atom.to_string(state),
@@ -39,7 +39,7 @@ defmodule Ankole.Signals.BindingMembership do
 
     metadata
     |> map_or_empty()
-    |> put_memberships(Map.put(memberships, key(agent_uid, binding_name), membership))
+    |> put_memberships(Map.put(memberships, binding_id, membership))
   end
 
   @doc """
@@ -69,15 +69,8 @@ defmodule Ankole.Signals.BindingMembership do
   Returns whether one binding has a current joined proof.
   """
   @spec joined?(map() | nil, AdapterContext.t()) :: boolean()
-  def joined?(metadata, %AdapterContext{agent_uid: agent_uid, binding_name: binding_name}) do
-    joined?(metadata, agent_uid, binding_name)
-  end
-
-  @spec joined?(map() | nil, String.t(), String.t()) :: boolean()
-  def joined?(metadata, agent_uid, binding_name)
-      when is_binary(agent_uid) and is_binary(binding_name) do
-    get_in(memberships(metadata), [key(String.downcase(agent_uid), binding_name), "state"]) ==
-      "joined"
+  def joined?(metadata, %AdapterContext{binding_id: id}) do
+    get_in(memberships(metadata), [id, "state"]) == "joined"
   end
 
   @doc """
@@ -121,8 +114,6 @@ defmodule Ankole.Signals.BindingMembership do
     root = metadata |> Map.get(@root_key) |> map_or_empty()
     Map.put(metadata, @root_key, Map.put(root, @memberships_key, memberships))
   end
-
-  defp key(agent_uid, binding_name), do: "#{agent_uid}|#{binding_name}"
 
   defp map_or_empty(value) when is_map(value), do: value
   defp map_or_empty(_value), do: %{}

@@ -2,6 +2,40 @@ import { expect, test, type Page } from '@playwright/test'
 import { login, request, state } from './fixtures'
 import { pageRoute } from './routes'
 
+test('self rename keeps this tab identity and self-management restrictions current', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  const renamed = `rename-${Date.now()}@example.com`
+  try {
+    await page.goto(`${state.base_url}/settings`)
+    await page.getByRole('tab', { name: '成员与管理员', exact: true }).click()
+    const self = page
+      .locator('[data-slot="card"]')
+      .filter({ has: page.getByRole('heading', { name: 'Browser owner', exact: true }) })
+    await expect(self.getByRole('button', { name: '暂停访问', exact: true })).toBeDisabled()
+    await self.getByRole('button', { name: '更改 UID', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByLabel('新 UID', { exact: true }).fill(renamed)
+    await dialog.getByRole('button', { name: '更改 UID', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page.locator('meta[name="ankole-principal"]')).toHaveAttribute('content', renamed)
+    expect((await identity(page)).principalUID).toBe(renamed)
+    await expect(self.getByRole('button', { name: '暂停访问', exact: true })).toBeDisabled()
+    await expect(self.getByRole('button', { name: '办理离职', exact: true })).toBeDisabled()
+  } finally {
+    try {
+      if ((await identity(page)).principalUID === renamed) {
+        await request(page, `/admin/members/${encodeURIComponent(renamed)}/rename`, 'POST', {
+          new_uid: state.owner.uid
+        })
+      }
+    } finally {
+      await context.close()
+    }
+  }
+})
+
 async function identity(page: Page) {
   return page.evaluate(async () => {
     const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)!.content

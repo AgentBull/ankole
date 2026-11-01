@@ -320,10 +320,11 @@ defmodule AnkoleWeb.SpaController do
       "<!DOCTYPE html>\n",
       "<html lang=\"",
       html_escape(locale),
-      "\">\n",
+      "\" translate=\"no\" class=\"notranslate\">\n",
       "  <head>\n",
       "    <meta charset=\"utf-8\">\n",
       "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n",
+      "    <meta name=\"google\" content=\"notranslate\">\n",
       "    <meta name=\"csrf-token\" content=\"",
       get_csrf_token(),
       "\">\n",
@@ -368,8 +369,8 @@ defmodule AnkoleWeb.SpaController do
       Assets.entry_tags(conn, entry),
       Assets.locale_preload_tags(locale),
       "  </head>\n",
-      "  <body>\n",
-      "    <div id=\"ankole-app\"></div>\n",
+      "  <body translate=\"no\" class=\"notranslate\">\n",
+      "    <div id=\"ankole-app\" translate=\"no\" class=\"notranslate\" data-immersive-translate-ignore=\"\"></div>\n",
       "  </body>\n",
       "</html>\n"
     ]

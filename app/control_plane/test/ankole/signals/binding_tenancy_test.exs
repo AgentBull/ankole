@@ -70,8 +70,11 @@ defmodule Ankole.Signals.BindingTenancyTest do
              key: String.replace_prefix(second_binding.config_ref, "app-config://", "")
            )
 
-    assert {:ok, _} = Bindings.disable_binding(first.uid, "main")
-    assert {:ok, _} = Bindings.disable_binding(second.uid, "main")
+    assert {:ok, _} =
+             Bindings.disable_binding(Ankole.Signals.get_agent_binding!(first.uid, "main").id)
+
+    assert {:ok, _} =
+             Bindings.disable_binding(Ankole.Signals.get_agent_binding!(second.uid, "main").id)
 
     other = create_tenant()
 
@@ -107,7 +110,8 @@ defmodule Ankole.Signals.BindingTenancyTest do
     refute first_binding.config_ref == second_binding.config_ref
 
     assert {:ok, _} =
-             Bindings.update_binding(first.uid, first.uid, "main", %{
+             Bindings.update_binding(Ankole.Signals.get_agent_binding!(first.uid, "main").id, %{
+               "agent_uid" => first.uid,
                "config" => %{"botToken" => "xoxb-rotated"}
              })
 
@@ -204,7 +208,9 @@ defmodule Ankole.Signals.BindingTenancyTest do
                  "config" => bot_config(@adapter, "original")
                })
 
-      assert {:ok, _} = Bindings.disable_binding(agent.uid, "main")
+      assert {:ok, _} =
+               Bindings.disable_binding(Ankole.Signals.get_agent_binding!(agent.uid, "main").id)
+
       other = create_tenant()
 
       Repo.with_tenant(other.id, fn ->

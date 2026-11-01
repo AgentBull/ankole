@@ -26,7 +26,7 @@ defmodule AnkoleWeb.PodReviewControllerTest do
           Ankole.PrincipalsFixtures.actor_fixture(uid),
           page.id,
           "file",
-          0,
+          nil,
           name,
           "<script>parent.alert(1)</script>",
           type
@@ -71,7 +71,7 @@ defmodule AnkoleWeb.PodReviewControllerTest do
         Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
         page.id,
         "file",
-        0,
+        nil,
         "report.txt",
         "private",
         "text/plain"

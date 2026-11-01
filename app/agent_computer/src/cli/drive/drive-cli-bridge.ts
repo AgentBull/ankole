@@ -58,7 +58,7 @@ async function executeLine(
     const target = command.output
       ? resolve(command.cwd, command.output)
       : join(opts.workspaceRoot, 'drive', ...command.path.split('/'))
-    const file = await drive.get(command.path, target, { pod: command.pod, frame: opts.frame })
+    const file = await drive.get(command.path, target, { node: command.node, frame: opts.frame })
     return { ok: true, result: { ...listedFile(file), local_path: target } }
   }
 
@@ -85,6 +85,8 @@ async function putTarget(localPath: string, path: string): Promise<string> {
 
 function listedFile(file: DriveFile): Record<string, unknown> {
   return {
+    node_id: file.nodeId,
+    object_id: file.objectId,
     path: file.path,
     size: file.size,
     content_type: file.contentType,

@@ -24,7 +24,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     ]
 
   alias Ankole.Sessions.AgentConfig
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.Signals.Signal
   alias Ankole.AppConfigure
   alias Ankole.BackgroundAgentJobs
@@ -450,7 +450,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
            """
 
     assert get_in(job.metadata, ["codex_user_agent"]) =~
-             "codex_cli_rs/0.164.0 "
+             "codex_cli_rs/0.166.0 "
 
     turns =
       Repo.all(
@@ -495,10 +495,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       DockerWorker.exec!(container, [
         "sh",
         "-lc",
-        "rg -n --glob '*.jsonl' '\"cli_version\":\"0.164.0\"|\"name\":\"exec\"|tool_search_call|tool_search_output|lookup_ptc_marker' #{shell_quote(session_root)}"
+        "rg -n --glob '*.jsonl' '\"cli_version\":\"0.166.0\"|\"name\":\"exec\"|tool_search_call|tool_search_output|lookup_ptc_marker' #{shell_quote(session_root)}"
       ])
 
-    assert session_evidence =~ ~s("cli_version":"0.164.0")
+    assert session_evidence =~ ~s("cli_version":"0.166.0")
     assert session_evidence =~ ~s("name":"exec")
     assert session_evidence =~ "tool_search_call"
     assert session_evidence =~ "tool_search_output"
@@ -569,8 +569,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                1. Call show_background_job_details with the returned Job ID and verify both ANKOLE_CODEX_PPTX_JOB_DONE and ANKOLE_PPTX_AGENTS_CONTEXT in the result.
                2. Create the parent directory for #{pptx_path} if needed. Copy #{@pptx_name} from the exact Job Workspace reported by the completion notification to that path. Do not guess or use another Job directory.
                3. Independently run officecli validate and officecli view in outline mode against #{pptx_path} with the command tool.
-               4. Save the verified file to this conversation's drive with the command tool: run ankole-files put with local path #{inspect(pptx_path)} and a drive path made by appending #{@pptx_name} to the exact "Current drive directory" from your runtime context. Do not use another conversation's directory or an absolute Worker path as the drive path.
-               5. Call reply_attachment with drive_path set to the exact relative path returned by ankole-files put, name=#{inspect(@pptx_name)}, and mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation".
+               4. Save the verified file to your private drive with the command tool: run ankole-files put #{inspect(pptx_path)} #{inspect(@pptx_name)} and keep the returned nodeId.
+               5. Call reply_attachment with node_id set to the nodeId returned by ankole-files put, name=#{inspect(@pptx_name)}, and mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation".
                6. Include ANKOLE_CODEX_PPTX_REAL_OK in your reply.
 
                Do not create the deck yourself and do not use web research.
@@ -728,14 +728,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              |> Enum.reject(&tool_result_error?/1)
 
     refute tool_result_error?(attachment_result)
-    drive_path = Map.fetch!(attachment_result.arguments, "drive_path")
-    assert drive_path == Ankole.Files.chat_path(input.conversation_id, @pptx_name)
+    node_id = Map.fetch!(attachment_result.arguments, "node_id")
 
     assert [attachment] = intent.payload["attachments"]
     assert %{"attachments" => [^attachment]} = attachment_result.result
-    assert attachment["path"] == drive_path
+    assert attachment["node_id"] == node_id
     assert Path.basename(attachment["path"]) == @pptx_name
-    assert is_binary(attachment["blob_ref"])
+    assert is_binary(attachment["object_id"])
     assert attachment["name"] == @pptx_name
 
     assert attachment["mime_type"] ==
@@ -745,15 +744,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     pptx_content = DockerWorker.exec!(container, ["cat", pptx_job_path])
 
-    assert attachment["blob_ref"] ==
-             Base.encode16(:crypto.hash(:sha256, pptx_content), case: :lower)
-
     assert attachment["size"] == byte_size(pptx_content)
-
-    assert {:ok, %{agent_uid: file_agent_uid, path: ^drive_path}, ^pptx_content} =
-             Ankole.Files.read(agent.uid, drive_path)
-
-    assert file_agent_uid == agent.uid
+    assert {:ok, ^pptx_content} = Ankole.Files.read_object(attachment["object_id"])
+    assert {:ok, _} = Ankole.Files.authorize_node(agent.uid, node_id, "node_view")
 
     assert [details_result] = tool_results(wakeup_messages, "show_background_job_details")
     assert details_result.arguments == %{"job_id" => job.id, "result_offset" => 0}
@@ -879,15 +872,16 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     input = signal_by_provider_message_id!(agent.uid, message_id)
     assert input.type == "conversation.message.addressed"
 
-    assert {:ok, %{message: %ConversationMessage{text: text, attachments: [attachment]}}} =
+    assert {:ok,
+            %{message: %ConversationMessage{text: text, attachments: [attachment]} = message}} =
              wait_until(deadline(10_000), fn ->
                case message_observation("lark:#{chat_id}", message_id) do
                  %{
                    message: %ConversationMessage{
-                     attachments: [%{"blob_ref" => blob_ref, "path" => path}]
+                     attachments: [%{"object_id" => object_id, "node_id" => node_id}]
                    }
                  } = entry
-                 when is_binary(blob_ref) and is_binary(path) ->
+                 when is_binary(object_id) and is_binary(node_id) ->
                    entry
 
                  %{message: %ConversationMessage{}} ->
@@ -911,7 +905,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                ~w(provider_ref provider source_message_id file_key download_type resource_type)
              )
 
-    assert is_binary(attachment["blob_ref"])
+    assert is_binary(attachment["object_id"])
 
     drive_path = attachment["path"]
     assert Path.basename(drive_path) == "vision-dog.jpeg"
@@ -924,16 +918,22 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       "vision-dog.jpeg"
     )
 
-    assert {:ok, %{message_id: stored_message_id}} = Ankole.Files.fetch(agent.uid, drive_path)
+    assert {:ok, _node} =
+             Ankole.Files.authorize_node(agent.uid, attachment["node_id"], "node_view")
+
+    stored_message_id = message.id
     assert stored_message_id == input.message_id
 
     assert {:ok, %Signal{} = input} =
              wait_until(deadline(10_000), fn ->
                refreshed = Repo.get!(Signal, input.id)
 
-               if get_in(refreshed.data, ["entry", "attachments"]) == [attachment],
-                 do: refreshed,
-                 else: nil
+               if Enum.map(
+                    get_in(refreshed.data, ["entry", "attachments"]) || [],
+                    & &1["object_id"]
+                  ) == [attachment["object_id"]],
+                  do: refreshed,
+                  else: nil
              end)
 
     assert {:ok, %{status: :driving}} =

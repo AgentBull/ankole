@@ -10,7 +10,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.MaxToolCalls
   alias Ankole.AIGateway.ResponseStream
@@ -2197,7 +2197,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
           "attachments" => [
             %{
               "path" => "sent/abababababababab/report.pdf",
-              "blob_ref" => String.duplicate("ab", 32),
+              "object_id" => "019a2ee2-45d1-7cb5-b54d-d62a7d0f6b86",
+              "node_id" => "019a2ee2-45d1-7cb5-b54d-d62a7d0f6b87",
               "name" => "report.pdf",
               "size" => 1
             }

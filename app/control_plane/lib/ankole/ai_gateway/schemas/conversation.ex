@@ -77,10 +77,7 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
   end
 
   identities do
-    identity(:active_key, [:subject_uid, :conversation_key],
-      all_tenants?: true,
-      where: expr(is_nil(ended_at))
-    )
+    identity(:active_key, [:subject_uid, :conversation_key], where: expr(is_nil(ended_at)))
   end
 
   # Sessions owns these relationships and the console_list read action. They

@@ -27,7 +27,8 @@ defmodule Ankole.Conversations.AttachmentsTest do
         )
 
       assert stored["name"] == "source.txt"
-      assert String.ends_with?(stored["path"], "/stored.txt")
+      assert Ecto.UUID.cast(stored["object_id"]) == {:ok, stored["object_id"]}
+      refute Map.has_key?(stored, "path")
       assert stored["mimetype"] == "text/plain"
       assert stored["materialization_state"] == "complete"
       assert stored["size"] == byte_size("download bytes")
@@ -120,7 +121,7 @@ defmodule Ankole.Conversations.AttachmentsTest do
     test "attachments need bytes until the file service holds every one of them" do
       stored = %{
         "attachment_id" => 10_042,
-        "blob_ref" => String.duplicate("ab", 32),
+        "object_id" => Ecto.UUID.generate(),
         "path" => "inbox/abababababababab/report.pdf"
       }
 
@@ -129,8 +130,8 @@ defmodule Ankole.Conversations.AttachmentsTest do
 
       assert Attachments.attachments_need_bytes?([stored, %{"provider_ref" => "lark:file:fresh"}])
       assert Attachments.attachments_need_bytes?([%{"attachment_id" => 10_042}])
-      assert Attachments.attachments_need_bytes?([Map.delete(stored, "path")])
-      assert Attachments.attachments_need_bytes?([%{stored | "blob_ref" => ""}])
+      refute Attachments.attachments_need_bytes?([Map.delete(stored, "path")])
+      assert Attachments.attachments_need_bytes?([%{stored | "object_id" => ""}])
     end
 
     test "the observation metadata always carries the state and the observed time" do
@@ -212,13 +213,12 @@ defmodule Ankole.Conversations.AttachmentsTest do
     Repo.get_by!(Conversation, id: event.conversation_id)
   end
 
-  describe "link_payload_attachments/3" do
-    test "names every stored attachment that a payload shows in the Agent's drive" do
-      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+  describe "prepare_payload_in_tx/2" do
+    test "pins every stored attachment once in the shared conversation root" do
+      message = mirror_entry!("seed", "provider-alice", @base_time, [])
+      channel_id = message.conversation_id
       entry_file = stored_attachment("report.pdf", "report")
       quoted_file = stored_attachment("chart.png", "chart")
-      batch_file = stored_attachment("notes.txt", "notes")
-      unreplied_file = stored_attachment("pending.txt", "pending")
 
       payload = %{
         "data" => %{
@@ -226,61 +226,50 @@ defmodule Ankole.Conversations.AttachmentsTest do
             "attachments" => [entry_file, %{"name" => "pending.pdf"}],
             "reply_to" => %{"attachments" => [quoted_file]}
           },
-          "entries" => [%{"attachments" => [batch_file, entry_file]}],
-          "unreplied_messages" => [%{"attachments" => [unreplied_file]}]
+          "entries" => [%{"attachments" => [entry_file]}]
         }
       }
 
-      for provider_id <- ["lark:chat:first", "lark:chat:second"] do
-        channel_id = external_conversation_id(provider_id)
-        assert :ok = Attachments.link_payload(agent.uid, payload, channel_id)
+      assert {:ok, prepared} =
+               Repo.transact(fn ->
+                 {:ok, Attachments.prepare_payload_in_tx(payload, channel_id)}
+               end)
 
-        for file <- [entry_file, quoted_file, batch_file, unreplied_file] do
-          path = Ankole.Files.chat_path(channel_id, file["path"])
+      [file, pending] = prepared["data"]["entry"]["attachments"]
+      assert file["node_id"]
+      assert file == hd(hd(prepared["data"]["entries"])["attachments"])
+      assert pending == %{"name" => "pending.pdf"}
+      assert {:ok, "report"} = Ankole.Files.read_object(file["object_id"])
 
-          assert {:ok, %{source: "inbound", conversation_id: ^channel_id}} =
-                   Ankole.Files.fetch(agent.uid, path)
-        end
-
-        assert {:ok, %{files: files}} =
-                 Ankole.Files.list(agent.uid, Ankole.Files.chat_directory(channel_id) <> "/inbox")
-
-        assert length(files) == 4
-      end
-
-      assert {:ok, %{files: []}} = Ankole.Files.list(agent.uid, "inbox")
+      assert {:ok, ^prepared} =
+               Repo.transact(fn ->
+                 {:ok, Attachments.prepare_payload_in_tx(payload, channel_id)}
+               end)
     end
 
-    test "keeps a drive file that its writer named, with its source and provenance" do
+    test "preserves an existing quoted node and its frozen object identity" do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
-      {:ok, %{sha256: sha256}} = Ankole.Files.store("sent chart")
-      path = Ankole.Files.content_path("sent", sha256, "chart.png")
 
-      {:ok, _files} =
-        Ankole.Files.commit(agent.uid, [
-          %{
-            path: path,
-            sha256: sha256,
-            source: "sent",
-            conversation_id: external_conversation_id("test:channel-1")
-          }
-        ])
+      file =
+        Ankole.FilesFixtures.drive_file_fixture(agent.uid, "sent/chart.png", "sent chart", "sent")
 
-      # A person quotes the message that carried the Agent's own attachment.
-      quoted = %{"name" => "chart.png", "blob_ref" => sha256, "path" => path}
+      quoted = %{
+        "name" => "chart.png",
+        "object_id" => file.object_id,
+        "node_id" => file.id,
+        "path" => file.path
+      }
+
       payload = %{"data" => %{"entry" => %{"reply_to" => %{"attachments" => [quoted]}}}}
 
-      assert :ok =
-               Attachments.link_payload(
-                 agent.uid,
-                 payload,
-                 external_conversation_id("test:channel-1")
-               )
-
-      id = external_conversation_id("test:channel-1")
-
-      assert {:ok, %{source: "sent", conversation_id: ^id}} =
-               Ankole.Files.fetch(agent.uid, path)
+      assert {:ok, ^payload} =
+               Repo.transact(fn ->
+                 {:ok,
+                  Attachments.prepare_payload_in_tx(
+                    payload,
+                    external_conversation_id("test:channel-1")
+                  )}
+               end)
     end
   end
 

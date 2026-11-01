@@ -76,7 +76,7 @@ function collectChildren(spec: ContentSpec, mark?: Mark, list: Node[] = []) {
   if (Array.isArray(spec)) {
     for (const elt of spec) collectChildren(elt, mark, list)
   } else if (typeof spec == 'string') {
-    addMark(Leaf.text(spec), mark).pushTo(list)
+    if (spec) addMark(Leaf.text(spec), mark).pushTo(list)
   } else if (spec instanceof Plot) {
     if (spec.tag == InlineFragment || spec.tag == BlockFragment) {
       copyTags(spec.content, list, 0)

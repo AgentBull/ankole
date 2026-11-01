@@ -172,17 +172,15 @@ export function readinessSteps(t: TFunction, readiness: ConsoleReadinessResponse
       complete: readiness.model_profiles.complete,
       detail: readiness.model_profiles.complete
         ? t('console.readiness.profiles_complete')
-        : profileAgentUID
-          ? t('console.readiness.profiles_incomplete', {
-              profiles: new Intl.ListFormat(i18n.language, { type: 'conjunction' }).format(
-                readiness.model_profiles.missing_profiles.map(profile =>
-                  t(`console.models.${profile}_label`, { defaultValue: profile })
-                )
+        : t('console.readiness.profiles_incomplete', {
+            profiles: new Intl.ListFormat(i18n.language, { type: 'conjunction' }).format(
+              readiness.model_profiles.missing_profiles.map(profile =>
+                t(`console.models.${profile}_label`, { defaultValue: profile })
               )
-            })
-          : t('console.readiness.profiles_no_agent'),
+            )
+          }),
       title: t('console.readiness.profiles_title'),
-      to: profileAgentUID ? `/agents/${encodeURIComponent(profileAgentUID)}#model-profiles` : '/agents'
+      to: profileAgentUID ? `/agents/${encodeURIComponent(profileAgentUID)}#model-profiles` : '/model-profiles'
     },
     {
       key: 'worker',

@@ -36,10 +36,31 @@ export type ChatInteraction = {
   answered_by_uid?: string | null
 }
 
+export type ActionCardState = {
+  card_id: string
+  interaction_id?: string
+  action_kind:
+    | 'pod.page.set_sharing'
+    | 'pod.page.delete'
+    | 'pod.page.restore'
+    | 'pod.base.delete_table'
+    | 'conversation.add_participants'
+    | (string & {})
+  summary: string
+  target_node_id?: string | null
+  payload?: Record<string, unknown> | null
+  status?: 'prepared' | 'executed' | 'stale' | 'cancelled'
+  resolved_by_uid?: string | null
+  resolved_by_name?: string | null
+  resolved_at?: string | null
+  resolution_note?: string | null
+}
+
 export type TimelineMessage = Omit<ConversationMessage, 'richContent'> & {
   richContent?: {
     execution?: ExecutionSummary
     clarify?: ClarifyPrompt
+    action_card?: ActionCardState
     event?: {
       type: string
       actor_uid: string

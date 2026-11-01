@@ -33,7 +33,9 @@ test('room actions cancel rename, copy its link, and export the full paged trans
     })
     await row.click({ button: 'right' })
     await page.getByRole('menuitem', { name: '重命名会话', exact: true }).click()
-    const sidebarRename = row.getByRole('textbox', { name: '重命名会话', exact: true })
+    const sidebarRename = page
+      .getByRole('tabpanel', { name: '对话', exact: true })
+      .getByRole('textbox', { name: '重命名会话', exact: true })
     await expect(sidebarRename).toBeFocused()
     await sidebarRename.fill('Cancelled sidebar title')
     await sidebarRename.press('Escape')

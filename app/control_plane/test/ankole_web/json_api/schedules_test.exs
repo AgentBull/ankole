@@ -125,6 +125,8 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
              %{"binding_name" => "lark", "conversation_id" => digest_id}
            ]
 
+    Ankole.SignalsFixtures.binding_fixture(agent.uid, "lark-record", :ignore)
+
     targets = [
       %{"binding_name" => "lark", "conversation_id" => digest_id},
       %{"binding_name" => "lark-record", "conversation_id" => archive_id}
@@ -388,6 +390,8 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
   end
 
   defp conversation!(agent_uid, provider_id) do
+    Ankole.SignalsFixtures.binding_fixture(agent_uid, "lark", :ignore)
+
     assert {:ok, conversation} =
              Ankole.Repo.transact(fn ->
                Ankole.Conversations.External.observe_conversation_in_tx(

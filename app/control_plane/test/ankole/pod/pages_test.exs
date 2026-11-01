@@ -2,7 +2,8 @@ defmodule Ankole.Pod.PagesTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Pod.{Access, Documents, Page, PageChange, PageContent, Pages, PageUserState}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Documents, Page, PageChange, PageContent, Pages, PageUserState}
 
   setup do
     owner = human_fixture().principal
@@ -79,11 +80,12 @@ defmodule Ankole.Pod.PagesTest do
     assert {:ok, %{page: moved}} =
              Pages.move(actor, page.id, %{private_owner_uid: ctx.owner.uid})
 
-    assert moved.private_owner_uid == ctx.owner.uid
+    assert {:ok, %{private_owner_uid: uid}} = Ankole.Files.Nodes.root(moved.id)
+    assert uid == ctx.owner.uid
     assert {:ok, [visible]} = Pages.list(actor, %{scope: "private"})
     assert visible.id == page.id
-    assert {:ok, _} = Pages.authorize(actor, page.id, "page_manage")
-    assert {:ok, _} = Pages.authorize(actor_fixture(ctx.reader.uid), page.id, "page_view")
+    assert {:ok, _} = Pages.authorize(actor, page.id, "node_manage")
+    assert {:ok, _} = Pages.authorize(actor_fixture(ctx.reader.uid), page.id, "node_view")
   end
 
   test "an ancestor path uses one query and still rejects a cycle", ctx do
@@ -111,15 +113,16 @@ defmodule Ankole.Pod.PagesTest do
     on_exit(fn -> :telemetry.detach(handler) end)
 
     assert {:ok, path} = Access.path(leaf)
-    assert Enum.map(path, & &1.id) == [root.id, middle.id, leaf.id]
+    assert Enum.map(path, & &1.id) == [root.parent_id, root.id, middle.id, leaf.id]
     assert_receive :path_query
     refute_receive :path_query
     :telemetry.detach(handler)
 
     Repo.update!(
-      Ecto.Changeset.change(root,
+      Ecto.Changeset.change(Repo.get_by!(Ankole.Files.Schemas.Node, id: root.id),
         parent_id: leaf.id,
         inherit_permissions: false,
+        acl_anchor_id: root.id,
         parent_anchor_id: middle.id
       )
     )
@@ -224,7 +227,7 @@ defmodule Ankole.Pod.PagesTest do
       })
 
     {:ok, child} = Pages.create(editor, %{parent_id: parent.id})
-    assert {:error, :forbidden} = Pages.authorize(editor, child.id, "page_manage")
+    assert {:error, :forbidden} = Pages.authorize(editor, child.id, "node_manage")
     assert {:ok, nil} = Pages.delete_embeds(editor, parent.id, [child.id])
     assert %DateTime{} = Repo.get!(Page, child.id).deleted_at
   end
@@ -302,21 +305,21 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                shared.id,
-               "page_manage"
+               "node_manage"
              )
 
     assert {:error, :forbidden} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                private.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:error, :forbidden} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                shared.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:ok, _} =
@@ -326,14 +329,14 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid),
                shared.id,
-               "page_manage"
+               "node_manage"
              )
 
     assert {:ok, _} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                shared.id,
-               "page_manage"
+               "node_manage"
              )
 
     assert {:ok, _} =
@@ -347,14 +350,14 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                shared.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:error, :forbidden} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                shared.id,
-               "page_edit"
+               "node_edit"
              )
 
     assert {:ok, restricted} =
@@ -366,7 +369,7 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid),
                restricted.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:ok, []} =
@@ -376,7 +379,7 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                restricted.id,
-               "page_manage"
+               "node_manage"
              )
 
     assert Enum.all?(Access.page_grants(restricted.id), &(&1.condition == "true"))
@@ -410,12 +413,10 @@ defmodule Ankole.Pod.PagesTest do
                parent_id: child.id
              })
 
-    assert {:ok, %{page: moved}} =
+    assert {:error, :not_a_directory} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), child.id, %{
                parent_id: leaf.id
              })
-
-    assert moved.parent_id == leaf.id
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, child.id, %{
@@ -431,14 +432,14 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid),
                child.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:ok, _} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                child.id,
-               "page_view"
+               "node_view"
              )
 
     {:ok, shared} =
@@ -524,7 +525,7 @@ defmodule Ankole.Pod.PagesTest do
 
     first = create_child(ctx.owner.uid, root.id, "First")
     second = create_child(ctx.owner.uid, root.id, "Second")
-    assert first.position < second.position
+    assert is_nil(first.position) and is_nil(second.position)
 
     {:ok, private} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
@@ -545,7 +546,8 @@ defmodule Ankole.Pod.PagesTest do
                parent_id: root.id
              })
 
-    assert moved.position > second.position
+    assert {:ok, sorted_second} = Pages.fetch(second.id)
+    assert moved.position > sorted_second.position
 
     assert {:ok, %{pages: children}} =
              Pages.list_children(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
@@ -558,7 +560,10 @@ defmodule Ankole.Pod.PagesTest do
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Root"})
 
     [a, b, c] = for title <- ~w(A B C), do: create_child(ctx.owner.uid, root.id, title)
-    from(p in Page, where: p.id in ^[a.id, b.id]) |> Repo.update_all(set: [position: "V"])
+
+    from(p in Ankole.Pod.Properties, where: p.id in ^[a.id, b.id])
+    |> Repo.update_all(set: [position: "V"])
+
     [first, second] = Enum.sort([a.id, b.id])
 
     assert {:ok, _} =
@@ -606,7 +611,7 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                child.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:ok, []} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid))
@@ -621,7 +626,7 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                child.id,
-               "page_view"
+               "node_view"
              )
 
     {:ok, root} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
@@ -646,7 +651,7 @@ defmodule Ankole.Pod.PagesTest do
     assert {:ok, %{page: page, content: content}} = Pages.get(actor, root.id)
     assert page.id == root.id
     assert page.deleted_at
-    assert "page_manage" in page.actions
+    assert "node_manage" in page.actions
     assert content.plain_text == "Readable body"
     assert {:error, :not_found} = Pages.get(actor, child.id)
     assert {:error, :not_found} = Pages.update(actor, root.id, %{title: "Changed"})
@@ -668,11 +673,11 @@ defmodule Ankole.Pod.PagesTest do
     assert {:error, :cannot_purge} = Pages.purge(actor, root.id)
 
     assert Enum.any?(Repo.all(Oban.Job), fn job ->
-             job.worker == "Ankole.Pod.Jobs.PurgePage" and job.args["page_id"] == root.id and
+             job.worker == "Ankole.Files.Jobs.PurgeNode" and job.args["node_id"] == root.id and
                job.state == "available"
            end)
 
-    assert :ok = Ankole.Pod.Jobs.PurgePage.run(%Oban.Job{args: %{"page_id" => root.id}})
+    assert :ok = Ankole.Files.Jobs.PurgeNode.run(%Oban.Job{args: %{"node_id" => root.id}})
     assert {:error, :not_found} = Pages.fetch(root.id)
     assert {:error, :not_found} = Pages.fetch(child.id)
   end
@@ -716,7 +721,7 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                referenced.id,
-               "page_manage"
+               "node_manage"
              )
 
     assert {:ok, nil} =
@@ -875,7 +880,7 @@ defmodule Ankole.Pod.PagesTest do
       })
 
     {:ok, _} = Pages.state(reader, page.id, %{favorite: true, visited: true})
-    function = {Ankole.Kernel, :authz_evaluate_pod_context, 1}
+    function = {Ankole.Kernel, :authz_evaluate_drive_context, 1}
 
     for scope <- ["recent", "favorites", "shared"] do
       :erlang.trace_pattern(function, true, [:call_count])
@@ -883,7 +888,7 @@ defmodule Ankole.Pod.PagesTest do
       try do
         assert {:ok, [visible]} = Pages.list(reader, %{scope: scope})
         assert visible.id == page.id
-        assert visible.actions == ["page_view"]
+        assert visible.actions == ["node_view"]
         assert :erlang.trace_info(function, :call_count) == {:call_count, 1}
       after
         :erlang.trace_pattern(function, false, [:call_count])
@@ -1009,7 +1014,7 @@ defmodule Ankole.Pod.PagesTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(foreign),
                page.id,
-               "page_view"
+               "node_view"
              )
 
     Repo.with_tenant(other.id, fn ->
@@ -1017,7 +1022,7 @@ defmodule Ankole.Pod.PagesTest do
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(foreign),
                  page.id,
-                 "page_view"
+                 "node_view"
                )
 
       assert {:ok, []} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(foreign))
@@ -1065,7 +1070,7 @@ defmodule Ankole.Pod.PagesTest do
                owner,
                file_child.id,
                "file",
-               0,
+               nil,
                "diagram.png",
                <<137, 80, 78, 71>>,
                "image/png"

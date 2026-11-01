@@ -25,7 +25,7 @@ test('a manager can take a shared private root into their own Private space', as
       inherit_permissions: false,
       grants: [
         { principal_uid: state.owner.uid, role: 'manage' },
-        { principal_uid: state.member.uid, actions: ['page_view', 'page_manage'] }
+        { principal_uid: state.member.uid, actions: ['node_view', 'node_manage'] }
       ]
     })
     await member.goto(state.base_url + pageRoute(id))
@@ -270,7 +270,7 @@ test('destination searches find editable work beyond thirty read-only matches', 
       return (
         url.pathname === '/api/v2/pod/pages/search' &&
         url.searchParams.get('query') === 'Needle destination' &&
-        url.searchParams.get('required_action') === 'page_edit'
+        url.searchParams.get('required_action') === 'node_edit'
       )
     })
     await copy.getByRole('combobox', { name: '保存到', exact: true }).fill('Needle destination')
@@ -345,7 +345,7 @@ test('structure edits and page management do not imply record submission', async
     })
 
     for (const role of ['edit', 'manage']) {
-      const actions = ['page_view', role === 'edit' ? 'page_edit' : 'page_manage']
+      const actions = ['node_view', role === 'edit' ? 'node_edit' : 'node_manage']
       await requestWithSharingVersion(owner, `/pages/${sourceID}/sharing`, 'PUT', {
         inherit_permissions: false,
         grants: [

@@ -3,12 +3,87 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import i18n, { loadLocale } from '../../common/i18n'
 import type { ConversationDetail } from '../api'
+import { client as podClient } from '../api/generated/client.gen'
 import { useChatCommands } from '../chat-commands'
 import { MessageActions } from '../chat/message-actions'
 import { ChatModel } from './chat'
 import { ChatDrafts } from './chat-drafts'
 
 beforeAll(() => loadLocale('en-US'))
+
+test('first personal-assistant send creates the assistant once and retries only the failed message', async () => {
+  const original = podClient.getConfig()
+  const requests: { path: string; body?: { data: Record<string, unknown> } }[] = []
+  const model = new ChatModel()
+  model.draft.value = 'Summarize my notes'
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+  let command!: ReturnType<typeof useChatCommands>
+  let failSend = true
+  podClient.setConfig({
+    baseUrl: 'https://ankole.test',
+    fetch: (async (input: RequestInfo | URL) => {
+      const request = input as Request
+      const path = new URL(request.url).pathname
+      const body = request.body ? await request.json() : undefined
+      requests.push({ path, body })
+      if (path === '/api/v2/pod/personal-assistant') return Response.json({ uid: 'my-assistant' })
+      expect(path).toBe('/api/v2/pod/conversations')
+      expect(body.data.agentUID).toBe('my-assistant')
+      if (failSend) throw new Error('Message delivery unavailable')
+      const response = detail(['my-assistant'])
+      response.conversation.id = body.data.conversationID
+      return Response.json(response)
+    }) as typeof fetch
+  })
+  function Subject() {
+    command = useChatCommands({
+      model,
+      drafts: new ChatDrafts(),
+      agentUID: '',
+      personalAssistant: true,
+      agentsError: false,
+      callableAgentUIDs: [],
+      refresh: async () => undefined
+    })
+    return null
+  }
+  const submit = () =>
+    new Promise<void>(resolve => {
+      const unsubscribe = client.getMutationCache().subscribe(event => {
+        if (event.type === 'updated' && ['success', 'error'].includes(event.mutation.state.status)) {
+          unsubscribe()
+          resolve()
+        }
+      })
+      command.submit()
+    })
+
+  try {
+    renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <Subject />
+      </QueryClientProvider>
+    )
+    expect(command.canSubmit).toBe(true)
+    expect(requests).toHaveLength(0)
+    await submit()
+    expect(model.pending.value?.state).toBe('failed')
+    expect(model.pending.value?.agentUID).toBe('my-assistant')
+    expect(model.draft.value).toBe('Summarize my notes')
+    failSend = false
+    await submit()
+    expect(requests.map(request => request.path)).toEqual([
+      '/api/v2/pod/personal-assistant',
+      '/api/v2/pod/conversations',
+      '/api/v2/pod/conversations'
+    ])
+    expect(requests[2]!.body).toEqual(requests[1]!.body)
+    expect(model.pending.value).toBeUndefined()
+  } finally {
+    podClient.setConfig(original)
+    client.clear()
+  }
+})
 
 function detail(agentUIDs: string[]): ConversationDetail {
   const agents = ['agent-a', 'agent-b'].map(uid => ({

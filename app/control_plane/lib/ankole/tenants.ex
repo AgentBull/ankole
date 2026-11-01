@@ -238,7 +238,7 @@ defmodule Ankole.Tenants do
            }) do
       Repo.with_tenant(tenant.id, fn ->
         with :ok <- ensure_scaffold_in_tx(tenant),
-             :ok <- Ankole.Pod.Access.initialize_space(),
+             :ok <- Ankole.Files.Access.initialize_space(),
              {:ok, _} <- Ankole.Brain.SchemaPacks.install_packs_in_tx(brain_packs) do
           {:ok, tenant}
         end
@@ -256,7 +256,7 @@ defmodule Ankole.Tenants do
            {:ok, _} <- Root.ensure_all_humans_group(),
            {:ok, pod_admin} <- Root.ensure_pod_admin_group(),
            {:ok, _} <- Grants.upsert_pod_admin_grants(pod_admin),
-           {:ok, _} <- Principals.ensure_system_principal_in_tx(),
+           {:ok, _} <- Principals.ensure_system_principals_in_tx(),
            :ok <- ensure_privileged_group(tenant) do
         :ok
       end

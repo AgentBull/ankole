@@ -27,13 +27,15 @@ conversation history only when the control plane commits a message.
 | --- | --- |
 | `conversations` | Public UUID, kind, room mode, access scope, optional Page, custom title, per-Agent model preferences, activity, sequence high water, external platform identity, and standing orders |
 | `conversation_participants` | Conversation, Principal, role, Agent intervention setting, and personal pin, mute, and read position |
-| `conversation_messages` | Public UUID, conversation, sequence, author name snapshot, kind, exact text, attachments, mentions, links, structured content, delivery key, reply reference, and execution provenance |
+| `conversation_messages` | Public UUID, conversation, sequence, author name snapshot, kind, exact text, mentions, links, structured content, delivery key, reply reference, and execution provenance |
+| `message_attachments` | Ordered attachment descriptors, frozen `file_objects` references, and optional source node IDs |
+| `delivery_attachments` | Ordered delivery descriptors and object references while delivery remains pending, failed, or unknown |
 | `external_message_refs` | Platform message/thread/reply IDs, raw author, metadata, reactions, content hash, and observation times for an external Message |
 
 Every table carries a `tenant_id` foreign key, includes `tenant_id` in all
 primary and unique keys, and participates in tenant deletion.
 
-`Ankole.Conversations` is the Ash domain for these four tables as well as the
+`Ankole.Conversations` is the Ash domain for these tables as well as the
 inbound batch, input tombstone, Delivery intent, and preview state resources. It
 defines one code-interface function per resource read or write action; callers
 in other domains, web controllers, and plugins must go through those functions
@@ -47,15 +49,15 @@ top-level entry point inside an already open transaction raises
 `Ankole.Errors.Framework.NestedOperation`; callers that already own a
 transaction must invoke the corresponding `_in_tx` helper instead (such as
 `create_in_tx/2`, `post_in_tx/3`, `detail_in_tx/3`, or
-`Attachments.link_payload_in_tx/3`).
+`Attachments.prepare_payload_in_tx/2`).
 
 Cross-domain reads go through the owning domains' code interfaces. When locking
 Principal or Signal rows, Conversations calls `Principals.lock_principals_in_tx/1`
 and `Signals.lock_signals_in_tx/2`, which register every locked read with
 `Ankole.LockOrder`; conversely, other domains lock a Conversation row through
 `Conversations.lock_conversation_in_tx/2`. Queries filter on related rows using
-resource-backed `exists` expressions rather than declaring Ash relationships,
-keeping underlying Ecto structs unchanged. When one of a Message's native inputs
+resource-backed `exists` expressions. Message attachment projections load their
+ordered relation rows. When one of a Message's native inputs
 is removed, Ankole marks that Message `withdrawn` and excludes it from history,
 model context, and detail reads.
 
@@ -84,6 +86,21 @@ Idempotency and monotonic sequences protect stored conversation history:
 
 ## Native Room Access and Participants
 
+For an active Human member, Pod New Chat defaults to their personal assistant.
+Bootstrap reads an existing assistant without creating one. On first send the
+frontend ensures that assistant, then calls the ordinary Conversation create
+and send path. If sending fails after creation, retry uses the same assistant
+and message draft. Guests use their existing grants and AI-colleague choices.
+The AI Colleagues directory opens dedicated conversations with a selected
+colleague and excludes personal assistants.
+
+Mention candidates include the caller's existing assistant and its local
+`ai`, `assistant`, `pa`, and translated assistant aliases. Shared content can
+resolve another assistant's existing mention without adding it to search
+candidates or granting permission to wake it. Shared attribution uses the
+assistant's short name together with its owner's current display name;
+historical message reads resolve that display from the current Principal.
+
 A native room starts in `room_mode: dm` when created for one Human and one
 Agent. Adding a second Human or Agent promotes the room to `group` permanently;
 a `group` room never reverts to `dm`.
@@ -91,8 +108,8 @@ a `group` room never reverts to `dm`.
 Room visibility follows `native_access_scope`:
 
 - **`participants`** restricts access to explicit active room participants.
-- **`anchor_page`** binds the room to a Pod Page and requires live `page_view`
-  permission on that Page. Any Human who currently holds `page_view` can read
+- **`anchor_page`** binds the room to a Pod Page and requires live `node_view`
+  permission on that Page. Any Human who currently holds `node_view` can read
   the thread and post to join it (the first accepted message adds that Human as
   a participant in the same transaction). Every access check evaluates live Page
   and Principal state, so trashing or revoking access to the Page revokes room
@@ -185,7 +202,7 @@ one transaction:
   has nothing useful to add, whereas an explicitly addressed Agent follows the
   standard reply contract.
 
-On a shared Page-anchored `dm` room, a Human with `page_view` can post a comment
+On a shared Page-anchored `dm` room, a Human with `node_view` can post a comment
 even without `chat` permission on that room's Agent: the message adds the Human
 as a participant, promotes the room to `group`, and creates no Agent Signal
 unless the Human explicitly selects a permitted Agent target.
@@ -266,9 +283,10 @@ notice whenever an input enters `dead_letter`.
 The composite `(conversation, signal_id, delivery_key)` uniqueness constraint
 prevents duplicate Agent messages if completion retries, though an upstream LLM
 call interrupted before recording its journal can still re-execute during crash
-recovery. Native conversation Sessions are exempt from the daily `04:30` model
-conversation reset, and browser refreshes or reconnects always load the visible
-transcript from `Ankole.Conversations` rather than AIGateway model history.
+recovery. Conversation Sessions rotate cold large model contexts according to
+`sessions.wake_recycle` (see [Sessions](Sessions.md)), while browser refreshes
+and reconnects always load the visible transcript from `Ankole.Conversations`
+rather than AIGateway model history.
 
 ## Pod Browser API
 
@@ -301,6 +319,9 @@ expose only active Agents on which the Human holds `chat` permission.
 | `POST /conversations/:id/messages` | Human message with structured mentions, links, and optional Agent target |
 | `POST /conversations/:id/queue` | Queue, stop, or retry command for the selected Agent |
 | `POST /conversations/:id/interactions/:interaction_id/answer` | First accepted choice or message answer to a pending Clarify interaction, with optional references, Human mentions, and attachments |
+| `POST /conversations/:id/action-cards/:card_id/resolve` | Confirm or cancel a native room `ActionCard` and return updated room detail |
+| `GET /action-cards/:card_id` | Inspect a standalone `ActionCard` opened via `/?actionCard=<uuid>` from an external channel |
+| `POST /action-cards/:card_id/resolve` | Confirm or cancel a standalone `ActionCard` from Pod WebUI |
 | `GET /conversations/:id/events` | One SSE connection for room changes and all participating Agents |
 | `GET /agents/:uid/model-profiles` | Available model profiles for that Agent |
 | `GET /conversations/:id/model-profile` | Selected and active profile for the requested Agent |
@@ -327,13 +348,13 @@ When a native Conversation is associated with a Pod Page via `page_id`, it can
 be kept private to explicit participants or shared with Page viewers via
 `anchor_page` scope; both the embedded Page Chat panel and the full-screen Chat
 view render the same room and transcript, and deleting the Page or revoking
-`page_view` immediately revokes `anchor_page` access.
+`node_view` immediately revokes `anchor_page` access.
 
-Tool calls and Pod writes triggered by a message evaluate the addressing Human's
-live permissions intersected with the Agent's permissions (preserving that same
-`WorkAccess` identity across child tasks and requiring a fresh Page read before
-mutating Page content); another participant's broader permissions never widen
-access for that turn. In Pod rooms, generated documents and research reports
+Ankole retains the addressing Human's `WorkAccess` identity across child tasks
+and checks that authority when admitting work. Drive and Pod resource operations
+authorize the executing Agent's Principal as their single subject; another
+participant's permissions never widen that Agent's access. Content writes also
+require the current read revision. In Pod rooms, generated documents and research reports
 default to editable Pod Pages unless the user explicitly asks for a downloadable
 file format, whereas external channels follow their own file-delivery rules.
 
@@ -448,10 +469,27 @@ In the timeline, compact event notices sit alongside attributed messages:
 - Live turn previews track their triggering `sourceMessageID`, and interleaved
   replies link back to the question they answer and restore scroll focus there.
 - Markdown rendering supports syntax-highlighted code, tables, math formulas,
-  Page chips, and image lightboxes. Code text updates immediately while syntax
-  highlighting waits for 150 ms of quiet; a highlighted result appears only for
-  the exact text and language that produced it. Plain-text blocks use the native
-  code presentation without loading the highlighter.
+  Page chips, image lightboxes, and sandboxed Mermaid diagrams. For
+  Agent-authored messages only, a unified remark AST pass (paired with
+  `Ankole.Kernel.repair_generated_markdown/1` on outbound IM delivery) repairs
+  escaped structural newlines, trailing whitespace inside bold delimiters, and
+  accidental single-tilde strikethrough in ordinary text. It preserves code,
+  HTML, inline and reference links, images, reference definitions, and `$` / `$$`
+  math. Human-authored messages use standard Markdown rendering. Pod marks its
+  HTML shell and interactive regions (`pre`, `code`, `.katex`, Mermaid viewers,
+  and choice/approval cards) with `translate="no"` to ask translation tools to
+  leave their DOM unchanged. Fenced `mermaid` blocks render
+  through `pele` into SVG hosted inside an isolated `iframe srcDoc` (`sandbox=""`
+  and `script-src 'none'`), offering Diagram/Source tabs, PNG copy/download, a
+  double-buffered pan/zoom lightbox that keeps the prior bitmap visible until the
+  re-rasterized scale commits, and automatic source-code fallback on incomplete
+  or invalid syntax (external IM adapters preserve fenced `mermaid` code blocks
+  directly). PNG export preserves the diagram's aspect ratio and rejects diagrams
+  that exceed 16 million pixels or 16,384 pixels on either side even at `1x`.
+  Code text updates immediately while syntax highlighting waits for
+  150 ms of quiet; a highlighted result appears only for the exact text and
+  language that produced it. Plain-text blocks use the native code presentation
+  without loading the highlighter.
 - While a turn runs, the active step stays visible above collapsed prior steps
   and reasoning; once the reply commits, the entire execution trace collapses
   above the answer, whereas stopped or failed turns keep their recorded steps
@@ -460,10 +498,16 @@ In the timeline, compact event notices sit alongside attributed messages:
 - Linked Background Agent Jobs and Workflows appear once inside the live turn
   and then attach to the committed reply, opening paged read-only execution logs
   within the room's access boundary.
-- Message actions support copying, quoting, eligible edits, Agent retries, and
-  **Save to Pod** (displaying saved Pages as links beneath the source message).
-  Saving a text message loads the document parser when the user submits the
-  save dialog.
+- Message actions support copying, quoting, eligible edits, Agent retries,
+  **Save to Pod** (displaying saved Pages as links beneath the source message),
+  and multi-message selection. Selecting messages opens a sticky toolbar to copy
+  or download a Markdown excerpt that preserves code-block whitespace, save the
+  excerpt as a Pod document, or render a shareable PNG card from an offscreen
+  CSS-inlined DOM clone with deterministic DPR scaling (`3x` -> `2x` -> `1x`)
+  under the same browser canvas
+  pixel budgets (surfacing an explicit `needsPagination` prompt to narrow the
+  selection or export Markdown when even `1x` exceeds canvas limits). Saving a
+  text message loads the document parser when the user submits the save dialog.
 
 In the composer, users can combine `@` Agent and Human mentions, Page
 references, `/` commands, file attachments, and per-Agent model-profile
@@ -504,6 +548,9 @@ overrides:
   correction message). Saving checks the Agent's queue comparison token: on
   conflict, the composer keeps the local draft while letting the user inspect
   and explicitly load the server version (including reference-only changes).
+  While a message is being sent, the Human can continue editing the draft or
+  select another quotation. Confirmation clears only the captured draft if its
+  text, references, and mentions still match; later edits remain available.
 
 Embedded Page Chat renders the exact same room inside a resizable side panel
 with Page context controls, `participants`-versus-`anchor_page` scope switching,
@@ -624,7 +671,7 @@ earlier-page cursor and the exact covered `seq` interval, letting the browser
 splice older pages into its local cache without dropping newer messages or
 resurrecting withdrawn ones.
 
-## Clarify and Execution History
+## Clarify, Action Cards, and Execution History
 
 When an Agent calls Clarify in a native room, completion commits an Agent
 message with `delivery_key: "clarify:<tool_call_id>"` whose
@@ -647,6 +694,60 @@ Page chips, quotes, or Human mentions; an attachment alone is a valid answer. If
 an unanswered question sits above the loaded 500-message window, the UI surfaces
 it in the timeline's attention banner and smoothly restores it to its inline
 position once the user scrolls back to that message.
+
+When an Agent needs a Human to authorize a high-privilege mutation that exceeds
+the Agent's own grants, calling `propose_action_card` drafts an `ActionCard` row
+(`conversation_action_cards`, lock rank `11`) for one of five typed actions:
+`pod.page.set_sharing`, `pod.page.delete`, `pod.page.restore`,
+`pod.base.delete_table`, or `conversation.add_participants`. Drafting requires the
+Agent to hold `node_view` on the target node (or participate in the target
+native room for `conversation.add_participants`), snapshots optimistic
+preconditions (`expected_sharing_version`, `expected_updated_at` +
+`expected_deleted` + `expected_revision`, `expected_name` +
+`expected_schema_version` + `expected_data_version` + `expected_updated_at`, or
+native room identity), and commits an interactive card
+(`delivery_key: "action_card:<tool_call_id>"`, interaction ID
+`"action_card:<card_id>"`). The Web card displays the proposed grant subjects,
+roles, scopes and conditions, or the named participants to add. Generic native
+clarification endpoints reject ActionCard interaction IDs; resolution belongs
+to the ActionCard operation and its resource authorization checks.
+
+Confirming or canceling an `ActionCard` (`POST .../action-cards/:card_id/resolve`
+in Pod WebUI, or interactive button callbacks `confirm` / `cancel` on external IM
+channels) acquires outer locks in strict rank order before touching the card row:
+`drive-tree` (`2`) and `drive-root` (`2.5`), `Principals` (`3`), `Sessions`
+(`9`/`10`), `Conversations`, `conversation_action_cards` (`11`), `Signals`
+(`11`), and `drive_nodes` / `pages` / Base (`12`). Under those locks,
+`Ankole.Conversations.ActionCards` verifies the confirming Human's live
+Principal permission (`node_manage`, `node_edit`, `:delete_table`, or room
+invite authority) and captured preconditions. For deletion and restoration, it
+reads the target Page and Base versions after acquiring their write locks, so a
+concurrent writer that commits while confirmation waits invalidates the card:
+
+- Matching preconditions execute the domain mutation in the same control-plane
+  transaction, transition the card from `prepared` to `executed` (for
+  `pod.base.delete_table`, `executed` means `Bases.Delete.mark_in_tx/1` committed
+  `deleting_at` and registered the asynchronous shard-drop cleanup job), and
+  enqueue a `conversation.action_card.executed` wakeup Signal for the drafting
+  Agent.
+- Precondition mismatches transition the card to `stale` with an explanatory
+  `resolution_note` in the same transaction without mutating target state,
+  whereas `cancel` transitions it to `cancelled` silently without waking the
+  Agent. Withdrawing the source message cancels an open `prepared` card.
+- External channels follow explicit capability tiers: Tier 1 adapters with
+  `PreviewAdapter.refresh/2` (Feishu/Lark, Slack, Discord, Telegram, and WeCom AI
+  Bot when `response_url` is available) refresh the original card in place to
+  remove buttons and display the outcome; Tier 2 button-callback adapters without
+  preview-adapter card refresh (Microsoft Teams via Adaptive Card `Action.Submit`,
+  LINE, WhatsApp, DingTalk, and WeCom AI Bot fallback) enforce server-side
+  idempotency on the locked card row, reject unlinked external clicks without
+  creating Principal records, and send one settlement receipt
+  (`outbound_key: "action-card-settlement:<card_id>"`, plus at most one duplicate
+  or unauthorized notice per external sender recorded in `notified_senders`);
+  Tier 3 channels without interactive card callbacks (Email and WeCom Customer
+  Service) render a read-only summary with a confirmation link
+  (`https://<slug>.<site>/?actionCard=<card_id>`) that opens the standalone
+  confirmation dialog in Pod WebUI.
 
 On turn completion, `Sessions.Presentation` builds `rich_content.execution` from
 the durable turn journal and tool results, recording the reasoning summary,
@@ -671,28 +772,44 @@ and participant row, nulls Principal and Signal foreign keys independently, and
 displays historical messages under the snapshotted `author_display_name` with an
 archived badge.
 
-Native chat file uploads stage bytes through `Conversations.Attachments` and
-`Files`, issuing a signed upload receipt bound to `(tenant, Human, client file
-ID, SHA-256 digest, filename, size, content_type)`:
+Native chat file uploads stage an immutable `file_objects` object through
+`Conversations.Attachments` and `Files`. Ankole signs a receipt bound to the
+tenant, Human, client upload ID, object ID, checksum, filename, size, and content
+type. Posting a Message verifies that receipt, completes the object, creates a
+file node in the conversation root, and records a `message_attachments` row in
+one transaction. Unused receipts expire after 24 hours; exact retries of an
+accepted Message remain valid. The object collector handles unreferenced staged
+uploads according to the Files lifecycle.
 
-- Posting a Message verifies and binds those receipts in the same transaction;
-  unused receipts expire after 24 hours (while idempotent retries of an already
-  accepted Message remain valid, and unreferenced blobs follow the standard
-  file-collection grace period). Uploading a chat attachment never auto-creates
-  a Pod Page unless a user clicks **Save to Pod**.
-- Only when an Agent admits an input from its queue does the runtime link
-  accepted attachments into that Agent's drive (normalizing image inputs for
-  vision). Browser downloads stream the Message's immutable blob digest gated by
-  current room access, so subsequent edits in an Agent's drive never alter the
-  chat download, and browser refreshes restore committed Message attachments
-  while warning before discarding unsent local `File` selections.
-- Outbound native Agent attachments (`reply_attachment` and hosted
-  `image_generation`) apply the exact same validation and drive-confinement
-  checks as external Delivery, retaining blob digests on the Message so **Save
-  to Pod** references the same blob without copying bytes, and rendering
-  attachment-only replies as visible messages. Inline `ankole:page/<page ID>`
-  URIs are persisted as `{kind: "page", id}` message links whose targets still
-  check `page_view` on read.
+`message_attachments` owns each attachment's position, immutable `object_id`,
+optional `node_id`, and provider/display metadata. The public Message
+`attachments` array is a projection of those rows. Attachments awaiting provider
+download or pointing to provider-only content have metadata with no object yet.
+A later observation preserves the first stable attachment identity and already
+stored bytes. Before a committed Signal becomes prompt-visible, its Messages
+hold the frozen object references and its files belong to the conversation root.
+Ignored group batches keep the existing short-lived staging behavior until they
+are mirrored; unreferenced staged objects follow the Files collection deadline.
+Every participant receives view and contribute access to the conversation root.
+Room ownership alone does not grant node edit or manage access; an Agent reads
+and changes nodes under its own Principal permissions.
+
+Browser downloads identify an attachment by conversation ID, Message ID, and
+zero-based position, so same-name files remain distinct. The Worker command is
+`ankole-pod chat attachment get <conversation_id> <message_id> <position> --to <worker-path>`.
+Both routes read the Message's frozen object through current room membership.
+Changing a file node's content, moving it, or deleting it does not change the
+Message download. Browser refresh restores committed attachment descriptors and
+warns before discarding unsent local `File` selections. **Save to Pod** references
+the same object without copying its bytes.
+
+Outbound native Agent attachments (`reply_attachment` and hosted image
+generation) use the same node authorization and conversation-root destination
+checks as external Delivery. An attachment from a conversation root can only be
+sent to that conversation; an authorized file from another root can be sent to
+any reachable conversation. Message rows freeze the selected object, and
+attachment-only replies are visible statements. Inline `ankole:page/<page ID>`
+URIs become `{kind: "page", id}` links whose targets check `node_view` on read.
 
 Either the room creator or a tenant administrator can delete a group room (other
 Humans leave via the participant endpoint). Room deletion locks every
@@ -768,12 +885,10 @@ orders:
   captured on completed rounds. Editing a background Message mid-turn neither
   interrupts the active turn nor changes the Message's `seq` (so later turns do
   not re-ingest edited messages below `max_seq`).
-- At the terminal commit check, if an explicit triggering Message was withdrawn,
-  the turn aborts with `:signal_canceled`. If only a background Message recorded
-  in this turn's `conversation_read.message_ids` (excluding explicit input IDs)
-  was deleted on the platform, the check returns `:signal_context_canceled`: the
-  turn suppresses its drafted reply and posts a `context_withdrawn` notice
-  instead.
+- At the terminal commit check, withdrawing an explicit triggering Message
+  aborts the turn with `:signal_canceled`. Withdrawing background context leaves
+  the current task and answer valid; future context reads omit that Message,
+  while the model history already consumed by the running task stays intact.
 
 Brain extraction shares a single `Source` and audience per conversation keyed by
 Message `seq`, so having multiple Agents in one room never causes duplicate
@@ -849,7 +964,11 @@ overwriting newer outcomes):
   inventing synthetic IDs; ambiguous provider ACKs stay `unknown` with sanitized
   diagnostics), exact sent text, and public Message UUID, while `failed` and
   `unknown` intents never fabricate public transcript rows and retain referenced
-  attachment blobs even if the Agent's drive or Binding is later deleted.
+  attachment objects even if the source node or Binding is later deleted.
+  `delivery_attachments` also pins objects for pending intents. When an intent
+  becomes sent or expired, Ankole clears its object and node references while
+  retaining the ordered descriptor metadata for audit. A confirmed public
+  Message owns its separate frozen object reference in the same transaction.
 - Immediately before calling an adapter, `Delivery` scrubs configured secrets of
   12 or more characters (skipping shorter strings to avoid false-positive text
   corruptions) and runs public error diagnostics through the same secret

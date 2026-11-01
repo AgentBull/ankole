@@ -1,5 +1,5 @@
 defmodule Ankole.Sessions.TurnTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: true
   alias Ankole.Sessions.Turn
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tools
@@ -504,12 +504,18 @@ defmodule Ankole.Sessions.TurnTest do
       stage: stage
     }
 
-  defp tool_run(calls),
-    do: %{
-      run("", calls)
-      | calls: calls,
+  defp tool_run(calls) do
+    agent = Ankole.SessionsCase.agent_fixture().principal
+    run = run("", calls)
+
+    %{
+      run
+      | agent_uid: agent.uid,
+        event: %{run.event | agent_uid: agent.uid, authorization_kind: "service"},
+        calls: calls,
         tools: [Tool.new(%{"name" => "command", "parameters" => %{"type" => "object"}}, :worker)]
     }
+  end
 
   defp ready_tools(calls, recovered? \\ false) do
     run = %{tool_run(calls) | recovered?: recovered?}

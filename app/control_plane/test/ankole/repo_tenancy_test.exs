@@ -53,41 +53,45 @@ defmodule Ankole.RepoTenancyTest do
     end)
   end
 
-  test "a system Principal is unique within its tenant, with one allowed in another tenant" do
-    attrs = fn ->
-      %{uid: Ankole.Ecto.UUIDv7.autogenerate(), type: :system, display_name: "System"}
-    end
-
-    assert {:ok, _} = create_principal(attrs.())
+  test "registered system Principal names are unique per tenant and reusable across tenants" do
+    own_id = Repo.tenant_id!()
     other = new_tenant()
 
-    assert {:ok, _} =
-             Repo.with_tenant(other.id, fn ->
-               create_principal(attrs.())
-             end)
+    for tenant_id <- [own_id, other.id] do
+      Repo.with_tenant(tenant_id, fn ->
+        for uid <- Ankole.Principals.SystemServices.uids() do
+          assert {:ok, %{tenant_id: ^tenant_id, uid: ^uid, type: :system}} =
+                   Ankole.Principals.system_principal(uid)
 
-    assert {:error, changeset} = create_principal(attrs.())
-    assert %{type: [_]} = errors_on(changeset)
+          assert {:error, _} = create_principal(%{uid: uid, type: :system})
+        end
+
+        assert Repo.aggregate(from(p in Principal, where: p.type == :system), :count) == 2
+      end)
+    end
   end
 
-  test "the authenticated identity locator only establishes a tenant and restores the caller" do
+  test "Principal names resolve only inside the caller's explicit tenant" do
     tenant_id = Repo.tenant_id!()
     other = new_tenant()
 
     principal =
       Repo.with_tenant(other.id, fn ->
         {:ok, principal} =
-          create_principal(%{uid: Ankole.Ecto.UUIDv7.autogenerate(), type: :human})
+          create_principal(%{uid: "same-name@example.com", type: :human})
 
         principal
       end)
 
-    assert {:ok, other.id} == Ankole.Principals.resolve_tenant(principal.uid)
-    assert Repo.tenant_id!() == tenant_id
-    assert Repo.get(Principal, principal.uid) == nil
+    assert {:error, :not_found} = Ankole.Principals.get_principal(principal.uid)
+    assert {:ok, local} = create_principal(%{uid: principal.uid, type: :human})
+    assert {:ok, %{tenant_id: ^tenant_id}} = Ankole.Principals.get_principal(local.uid)
 
-    assert {:error, :not_found} =
-             Ankole.Principals.resolve_tenant(Ankole.Ecto.UUIDv7.autogenerate())
+    assert {:ok, %{tenant_id: other_id}} =
+             Repo.with_tenant(other.id, fn -> Ankole.Principals.get_principal(principal.uid) end)
+
+    assert other_id == other.id
+    assert Repo.tenant_id!() == tenant_id
   end
 
   test "per-call context overrides an all-tenant block for reads and deletes", %{tenant: tenant} do
@@ -498,7 +502,7 @@ defmodule Ankole.RepoTenancyTest do
     )
   end
 
-  test "conflict updates cannot take ownership of another tenant's global key" do
+  test "Principal conflict updates preserve the same name in another tenant" do
     other = new_tenant()
     uid = Ankole.Ecto.UUIDv7.autogenerate()
     now = DateTime.utc_now()
@@ -526,7 +530,7 @@ defmodule Ankole.RepoTenancyTest do
     ]
 
     for action <- actions do
-      assert_raise Ecto.StaleEntryError, fn ->
+      local =
         Repo.insert!(
           AshPostgres.DataLayer.to_ecto(%Principal{
             uid: uid,
@@ -537,12 +541,14 @@ defmodule Ankole.RepoTenancyTest do
             updated_at: now
           }),
           on_conflict: action,
-          conflict_target: [:uid]
+          conflict_target: [:tenant_id, :uid]
         )
-      end
+
+      assert local.tenant_id == Repo.tenant_id!()
+      assert local.display_name == "Changed"
 
       assert Repo.with_tenant(other.id, fn ->
-               Repo.get!(Principal, uid) |> AshPostgres.DataLayer.from_ecto()
+               Repo.get_by!(Principal, uid: uid) |> AshPostgres.DataLayer.from_ecto()
              end) == foreign
     end
 
@@ -555,7 +561,7 @@ defmodule Ankole.RepoTenancyTest do
           updated_at: now
         }),
         on_conflict: [set: [tenant_id: other.id]],
-        conflict_target: [:uid]
+        conflict_target: [:tenant_id, :uid]
       )
     end
   end

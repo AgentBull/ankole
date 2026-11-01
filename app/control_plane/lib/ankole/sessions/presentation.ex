@@ -7,13 +7,12 @@ defmodule Ankole.Sessions.Presentation do
   alias Ankole.Sessions.Queue
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery
-  alias Ankole.Conversations.Attachments
   alias Ankole.Schedule.Delivery, as: ScheduledDelivery
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Schemas.Artifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Sessions.ModelHistory
-  alias Ankole.Conversations.Delivery.{Text, ClarifyPrompt, Attachment}
+  alias Ankole.Conversations.Delivery.{Text, ClarifyPrompt, ActionCardPrompt, Attachment}
   alias Ankole.Files
   alias Ankole.Logging
 
@@ -29,14 +28,14 @@ defmodule Ankole.Sessions.Presentation do
         "activity" => "attachment_prepare",
         "visible_delivery" => true,
         "description" =>
-          "Queue a drive file for provider delivery with the final reply. Save local files with ankole-files put first. A file under chats/<conversation_id>/ can only be delivered to that conversation. Success records the file for delivery; it does not confirm that the provider received it.",
+          "Queue a Drive node for delivery with the final reply. Save local files with ankole-files put first and use its nodeId. A file in a conversation root can only be delivered to that conversation. Success records the selected bytes for delivery; it does not confirm that the provider received them.",
         "parameters" => %{
           "type" => "object",
           "properties" => %{
-            "drive_path" => %{
+            "node_id" => %{
               "type" => "string",
               "minLength" => 1,
-              "description" => "File in the drive to deliver."
+              "description" => "UUID of the Drive file node to deliver."
             },
             "name" => %{
               "type" => "string",
@@ -45,7 +44,7 @@ defmodule Ankole.Sessions.Presentation do
             },
             "mimeType" => %{"type" => "string", "minLength" => 1, "description" => "MIME type."}
           },
-          "required" => ["drive_path"],
+          "required" => ["node_id"],
           "additionalProperties" => false
         },
         "execution_mode" => "sequential",
@@ -57,8 +56,8 @@ defmodule Ankole.Sessions.Presentation do
   end
 
   def start(run, driver) do
-    with {:ok, :linked} <-
-           Ankole.Repo.transact_top_level(fn -> link_input_in_tx(run) end)
+    with {:ok, :current} <-
+           Ankole.Repo.transact_top_level(fn -> check_start_in_tx(run) end)
            |> Ankole.Errors.reason() do
       with :ok <-
              Preview.maybe_start_for(run.event, run.agent_uid, run.conversation.id,
@@ -74,16 +73,8 @@ defmodule Ankole.Sessions.Presentation do
     end
   end
 
-  @doc false
-  def link_input_in_tx(run) do
-    with :ok <- Ankole.Sessions.Fence.check_in_tx(run, :share),
-         :ok <-
-           Attachments.link_payload_in_tx(
-             run.agent_uid,
-             Signal.envelope(run.delivered_event),
-             run.delivered_event.conversation_id
-           ),
-         do: {:ok, :linked}
+  defp check_start_in_tx(run) do
+    with :ok <- Ankole.Sessions.Fence.check_in_tx(run, :share), do: {:ok, :current}
   end
 
   def reply_event(events, fallback) do
@@ -207,23 +198,21 @@ defmodule Ankole.Sessions.Presentation do
     do: {:ok, [], fn -> commit_tool_in_tx(run, call, args) end}
 
   defp commit_tool_in_tx(run, %{"name" => "reply_attachment"}, args) do
-    with {:ok, file} <- Ankole.Files.fetch(run.agent_uid, args["drive_path"]),
-         :ok <- Ankole.Files.verify_delivery(file.path, run.event.conversation_id),
-         digest = Base.encode16(file.sha256, case: :lower),
-         name = args["name"] || Path.basename(file.path) do
+    with {:ok, attachment} <-
+           Attachment.from_node(run.agent_uid, args["node_id"],
+             name: args["name"],
+             mime_type: args["mimeType"]
+           ),
+         :ok <-
+           Delivery.verify_attachment_destination(
+             attachment["node_id"],
+             run.event.conversation_id
+           ) do
       details = %{
         "tool" => "reply_attachment",
         "ok" => true,
         "delivery_state" => "queued",
-        "attachments" => [
-          %{
-            "path" => file.path,
-            "blob_ref" => digest,
-            "name" => name,
-            "mime_type" => args["mimeType"] || file.content_type,
-            "size" => file.size
-          }
-        ]
+        "attachments" => [attachment]
       }
 
       {:ok, Ankole.Sessions.Tools.result(details), []}
@@ -340,6 +329,46 @@ defmodule Ankole.Sessions.Presentation do
     end
   end
 
+  defp post_target_in_tx(
+         %StatementTarget{kind: :native} = target,
+         %{completion: %{action_card_prompt: %{"interactive_output" => output} = prompt}} =
+           statement
+       ) do
+    alias Ankole.Conversations.{ActionCards, Native, PostResult}
+    alias Ankole.Conversations.Delivery.{Interactions, ReplyPresentation}
+    event = statement.signal
+
+    presentation =
+      ReplyPresentation.new(state: "awaiting_input")
+      |> ReplyPresentation.interaction_request(event.id, output)
+
+    final = %{statement | completion: Map.put(statement.completion, :action_card_prompt, nil)}
+
+    with {:ok, card} <- ActionCards.commit_prepared_in_tx(event, target.conversation_id, prompt),
+         {:ok, posted} <- Ankole.Conversations.post_in_tx(target, final),
+         card_json = ActionCards.client_card_state(card),
+         {:ok, message} <-
+           Native.post_native_in_tx(target.conversation_id, event, prompt["body"], :message, [],
+             delivery_key: prompt["interaction_id"],
+             rich_content:
+               if(posted.messages == [],
+                 do: %{
+                   "action_card" => card_json,
+                   "execution" => statement.completion[:execution]
+                 },
+                 else: %{"action_card" => card_json}
+               )
+           ),
+         {:ok, _event} <-
+           Interactions.open_in_tx(
+             event,
+             presentation,
+             statement.now || DateTime.utc_now(:microsecond)
+           ) do
+      {:ok, PostResult.merge(posted, %PostResult{messages: [message]})}
+    end
+  end
+
   defp post_target_in_tx(target, statement),
     do: Ankole.Conversations.post_in_tx(target, statement)
 
@@ -365,6 +394,7 @@ defmodule Ankole.Sessions.Presentation do
       {:ok,
        %{
          artifact_id: artifact.id,
+         object_id: stored.object_id,
          sha256: stored.sha256,
          size: stored.size,
          mime_type: artifact.mime_type,
@@ -435,6 +465,7 @@ defmodule Ankole.Sessions.Presentation do
     final_text = Text.visible_text(final_response.content)
 
     with {:ok, clarify_prompt} <- ClarifyPrompt.from_response_items(source_items),
+         {:ok, action_card_prompt} <- ActionCardPrompt.from_response_items(source_items),
          {:ok, attachments} <- Attachment.attachments_from_response_items(source_items),
          {:ok, generated_image_attachments} <-
            materialize_generated_images(subject_uid, turn_chain, origin, images),
@@ -443,6 +474,7 @@ defmodule Ankole.Sessions.Presentation do
        %{
          final_text: final_text,
          clarify_prompt: clarify_prompt,
+         action_card_prompt: action_card_prompt,
          attachments: attachments
        }}
     end
@@ -506,19 +538,34 @@ defmodule Ankole.Sessions.Presentation do
 
   defp completed_generated_image?(_item), do: false
 
-  # Retried completions keep the same path in the source channel's directory.
+  # The final effect transaction freezes the prepared object in its owning root.
   defp materialize_generated_image(subject_uid, image_id, origin, images) do
     with {:ok, %Artifact{} = artifact} <- Artifacts.get_generated_image(subject_uid, image_id),
-         %{artifact_id: id, sha256: sha256, filename: filename, mime_type: mime, size: size} <-
+         %{
+           artifact_id: id,
+           object_id: object_id,
+           sha256: sha256,
+           filename: filename,
+           mime_type: mime,
+           size: size
+         } <-
            Map.get(images, image_id),
          true <-
            artifact.id == id and Base.encode16(artifact.sha256, case: :lower) == sha256 and
              artifact.mime_type == mime and artifact.byte_size == size,
-         {:ok, file} <- commit_generated_image(subject_uid, filename, sha256, mime, origin) do
+         {:ok, file} <-
+           commit_generated_image(
+             subject_uid,
+             filename,
+             %{object_id: object_id, sha256: sha256, size: size},
+             mime,
+             origin
+           ) do
       {:ok,
        %{
          "path" => file.path,
-         "blob_ref" => Base.encode16(file.sha256, case: :lower),
+         "object_id" => file.object_id,
+         "node_id" => file.id,
          "name" => filename,
          "mime_type" => mime,
          "size" => file.size
@@ -536,25 +583,12 @@ defmodule Ankole.Sessions.Presentation do
   defp generated_image_extension(image_id, mime_type),
     do: {:error, {:unsupported_generated_image_mime_type, image_id, mime_type}}
 
-  defp commit_generated_image(agent_uid, filename, sha256, mime, origin) do
-    channel_id = if origin, do: origin.id
+  defp commit_generated_image(agent_uid, filename, stored, mime, origin) do
+    attrs = %{content_type: mime, source: "generated"}
 
-    with {:ok, %{files: [file]}} <-
-           Files.commit_in_tx(
-             agent_uid,
-             [
-               %{
-                 path:
-                   Files.chat_path(channel_id, Files.content_path("generated", sha256, filename)),
-                 sha256: sha256,
-                 source: "generated",
-                 conversation_id: channel_id,
-                 content_type: mime
-               }
-             ],
-             []
-           ),
-         do: {:ok, file}
+    if origin,
+      do: Files.create_conversation_file_in_tx(origin.id, filename, stored, attrs),
+      else: Files.create_private_file_in_tx(agent_uid, filename, stored, attrs)
   end
 
   defp generated_image_retry(image_id, reason) do

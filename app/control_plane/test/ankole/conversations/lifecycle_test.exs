@@ -148,20 +148,26 @@ defmodule Ankole.Conversations.LifecycleTest do
       binding_fixture(first.uid, "other-route", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(first.uid, "first", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(first.uid, "first").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
       assert Repo.aggregate(Message, :count) == 1
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry_removed(first.uid, "first", lifecycle_entry(%{}),
+               Observe.emit_entry_removed(
+                 Ankole.Signals.get_agent_binding!(first.uid, "first").id,
+                 lifecycle_entry(%{}),
                  now: DateTime.add(@base_time, 1, :second)
                )
 
       for {uid, name} <- [{second.uid, "second"}, {first.uid, "other-route"}] do
         assert {:ok, %{status: :dropped_tombstoned}} =
-                 Observe.emit_entry(uid, name, group_entry(%{explicit: true}),
+                 Observe.emit_entry(
+                   Ankole.Signals.get_agent_binding!(uid, name).id,
+                   group_entry(%{explicit: true}),
                    now: DateTime.add(@base_time, 2, :second)
                  )
       end
@@ -180,8 +186,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :accepted}} =
                Observe.emit_entry_removed(
-                 first.uid,
-                 "first",
+                 Ankole.Signals.get_agent_binding!(first.uid, "first").id,
                  lifecycle_entry(%{}),
                  now: @base_time
                )
@@ -199,8 +204,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :accepted}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{source_event_id: "delete-1"}),
                  now: @base_time
                )
@@ -209,8 +213,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :dropped_tombstoned}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{explicit: true, source_event_id: "evt-late"}),
                  now: DateTime.add(@base_time, 1, :second)
                )
@@ -224,7 +227,9 @@ defmodule Ankole.Conversations.LifecycleTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted, inbound_batch: batch}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -233,8 +238,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{updated_inbound_batches: 1, canceled_signals: 0, lifecycle_events: []}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{source_event_id: "recall-1"}),
                  now: @base_time
                )
@@ -267,8 +271,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{source_event_id: "delete-consumed"}),
                  now: DateTime.add(@base_time, 2, :second)
                )
@@ -295,8 +298,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :accepted}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-batch-a",
@@ -309,8 +311,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :accepted}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    explicit: true,
                    source_event_id: "evt-batch-b",
@@ -338,8 +339,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{
                    source_event_id: "delete-batch-a",
                    provider_message_id: "msg-batch-a"
@@ -361,8 +361,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, _} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{source_event_id: "recall-before-commit"}),
                  now: DateTime.add(@base_time, 1, :second)
                )
@@ -484,8 +483,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :accepted, canceled_signals: 0}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{
                    provider_message_id: "quoted-entry",
                    source_event_id: "withdraw-quoted-entry"
@@ -515,12 +513,15 @@ defmodule Ankole.Conversations.LifecycleTest do
       binding_fixture(agent.uid, "bot", :record_only)
 
       assert {:ok, %{status: :recorded}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(), now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(),
+                 now: @base_time
+               )
 
       assert {:ok, %{canceled_signals: 0, lifecycle_events: []}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{source_event_id: "delete-record-only"}),
                  now: @base_time
                )
@@ -534,7 +535,11 @@ defmodule Ankole.Conversations.LifecycleTest do
       binding_fixture(agent.uid, "bot", :record_only)
 
       assert {:ok, %{status: :recorded}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(), now: @base_time)
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(),
+                 now: @base_time
+               )
 
       jobs =
         for suffix <- [:queued, :running] do
@@ -570,8 +575,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{canceled_signals: 0, retried_signals: 0, lifecycle_events: []}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{source_event_id: "remove-background-agent-job-source"}),
                  now: DateTime.add(@base_time, 1, :second)
                )
@@ -596,8 +600,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :recorded}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    text: "new",
                    provider_time: DateTime.add(@base_time, 10, :second)
@@ -607,8 +610,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :recorded}} =
                Observe.emit_reaction(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  %{
                    provider_conversation_id: "lark:chat:group-a",
                    provider_message_id: "msg-1",
@@ -621,8 +623,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :recorded}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    source_event_id: "evt-old",
                    text: "old",
@@ -648,8 +649,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :ignored_unknown_entry}} =
                Observe.emit_reaction(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  %{
                    provider_conversation_id: "missing-channel",
                    provider_message_id: "missing-message",
@@ -666,8 +666,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{status: :recorded}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    channel: %{
                      kind: :im_group,
@@ -681,8 +680,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, _} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{
                    source_event_id: "delete-sparse-channel",
                    channel: %{}
@@ -704,8 +702,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:error, {:invalid_attachment_payload, preview}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    attachments: [%{provider_ref: "lark:file:file-1", runtime: self()}]
                  }),
@@ -717,8 +714,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:error, {:attachment_not_materialized, _attachment}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    attachments: [%{file_path: "/tmp/host-only.png"}]
                  }),
@@ -729,12 +725,16 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:ok, %{message_observation: %{message: entry}}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{
                    attachments: [
                      %{provider_ref: "lark:file:file-1", name: "report.pdf"},
-                     %{blob_ref: stored["blob_ref"], path: stored["path"]}
+                     %{
+                       object_id: stored["object_id"],
+                       sha256: stored["sha256"],
+                       size: stored["size"],
+                       name: "report.pdf"
+                     }
                    ]
                  }),
                  now: @base_time
@@ -748,7 +748,12 @@ defmodule Ankole.Conversations.LifecycleTest do
                "provider_ref" => "lark:file:file-1"
              } = provider_attachment
 
-      expected_path = Ankole.Files.chat_path(entry.conversation_id, stored["path"])
+      expected_path = local_attachment["path"]
+
+      assert {:ok, local_conversation_id} =
+               Ankole.Files.node_conversation_id(local_attachment["node_id"])
+
+      assert local_conversation_id == entry.conversation_id
 
       assert %{
                "attachment_id" => local_attachment_id,
@@ -767,8 +772,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:error, {:invalid_ingress_json, :metadata, :unsupported_runtime_value}} =
                Observe.emit_entry(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  group_entry(%{explicit: true, metadata: %{"pid" => self()}}),
                  now: @base_time
                )

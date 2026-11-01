@@ -14,7 +14,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Security.SSRFFilter

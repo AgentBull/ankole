@@ -79,7 +79,9 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       )
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
-    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Job, job_id),
+    with :ok <- Ankole.Files.lock_tree_in_tx(),
+         :ok <- Ankole.Files.lock_drive(agent_uid),
+         :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Job, job_id),
          :ok <- lock_agent_slots(agent_uid),
          %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid) do
       claim_attempt(job, expected_attempt, turn_start_spec, max_running_per_agent)
@@ -107,7 +109,9 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       )
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
-    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Job, job_id),
+    with :ok <- Ankole.Files.lock_tree_in_tx(),
+         :ok <- Ankole.Files.lock_drive(agent_uid),
+         :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Job, job_id),
          :ok <- lock_agent_slots(agent_uid),
          %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid) do
       claim_continuation(job, expected_attempt, turn_start_spec, max_running_per_agent)

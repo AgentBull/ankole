@@ -22,7 +22,6 @@ export function codexJobThreadConfig(input: {
   env: Record<string, string>
   runtime: CodexRuntimeConfig
   job?: CodexJobBindingIdentity
-  driveDirectory?: string
   podInstructions?: string
   originalHumanRequest?: string
   turnTracePropagation?: TurnTracePropagation
@@ -32,7 +31,7 @@ export function codexJobThreadConfig(input: {
   const config = mergeConfig(input.projectConfig ?? {}, {
     developer_instructions: [
       input.projectConfig?.developer_instructions,
-      codexJobDriveContext(input.driveDirectory),
+      codexJobDriveContext(),
       input.podInstructions,
       input.originalHumanRequest
     ]

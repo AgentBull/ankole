@@ -1,5 +1,7 @@
 import { formatFileBytes } from '../../common/file-format'
-import { TableRow, useMutation, useQuery, Link, useSearchParams } from '../tenant-context'
+import { BdiLabel } from '../../common/bidi-file-name'
+import { sanitizeFileName, sanitizeRenameValue, stripBidi } from '../../common/bidi'
+import { TableRow, useMutation, useQuery, Link, useSearchParams, useConsoleTenant } from '../tenant-context'
 import {
   Button,
   Dialog,
@@ -29,268 +31,281 @@ import {
   RiUploadCloud2Line
 } from '@remixicon/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useRef, useState, type InputHTMLAttributes } from 'react'
+import { useDeferredValue, useRef, useState, type InputHTMLAttributes } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from '@tanstack/react-router'
 import { linkTarget } from '../../common/router'
+import { dataTenantID } from '../../common/browser-session'
+import { podID } from '../../common/browser-context'
+import { createDriveNode } from '../api/v2/generated/sdk.gen'
 import {
-  deleteAgentFilesMutation,
-  listAgentFilesOptions,
-  moveAgentFilesMutation
+  createDriveNodeMutation,
+  deleteDriveNodeMutation,
+  listDriveNodesOptions,
+  moveDriveNodeMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
-import { downloadAgentFile, uploadAgentFile } from '../api/agent-files'
-import type { AgentFileEntry } from '../api/runtime-types'
-import { agentOptions } from '../api/agents'
+import type { ListDriveNodesResponse } from '../api/v2/generated/types.gen'
+import { downloadDriveFile, uploadDriveFile } from '../api/agent-files'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ResourceListPage, ResourceSearch, ScopeBar } from '../console-list-page'
-import { BackLink } from '../console-page'
 import { formatConsoleDate } from '../console-primitives'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 
-/**
- * The Agent's drive: every file that stays after a conversation. It lives in
- * the control plane, so it is browsable while the Agent has no running Worker.
- */
+type DriveNode = ListDriveNodesResponse['nodes'][number]
+type Ancestor = ListDriveNodesResponse['ancestors'][number]
+
 export function AgentFilesPage() {
   const { t } = useTranslation()
-  const params = useParams({ strict: false })
-  const agentUID = params.uid ?? ''
+  const tenantID = useConsoleTenant()?.id ?? dataTenantID() ?? podID() ?? ''
   const queryClient = useQueryClient()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const path = searchParams.get('path') ?? ''
+  const [params, setParams] = useSearchParams()
+  const parentID = params.get('node') ?? undefined
+  const after = params.get('after') ?? undefined
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
-  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-
-  const agent = useQuery(agentOptions(agentUID))
-  const listing = useQuery(listAgentFilesOptions({ path: { agent_uid: agentUID }, query: path ? { path } : {} }))
-
-  const folders = (listing.data?.file_listing.folders ?? []).filter(folder =>
-    matchesResourceSearch(searchQuery, folder.name, folder.path)
+  const search = effectiveResourceSearchQuery(query, deferredQuery)
+  const [newFolder, setNewFolder] = useState<string>()
+  const listing = useQuery(
+    listDriveNodesOptions({
+      path: { tenant_id: tenantID },
+      query: {
+        parent_id: parentID,
+        owner_uid: params.get('owner') ?? undefined,
+        relative_path: params.get('prefix') ?? undefined,
+        after
+      }
+    })
   )
-  const files = (listing.data?.file_listing.files ?? []).filter(file =>
-    matchesResourceSearch(
-      searchQuery,
-      basename(file.path),
-      file.path,
-      file.content_type,
-      file.source,
-      file.conversation_id,
-      file.message_id
-    )
+  const currentParentID = parentID ?? listing.data?.ancestors.at(-1)?.id
+  const nodes = (listing.data?.nodes ?? []).filter(node =>
+    matchesResourceSearch(search, node.name, node.kind, node.private_owner_uid, node.conversation_id)
   )
-
-  // The files of one upload go one after another and report once: how many
-  // arrived, and the first rejected file with its reason.
+  const navigate = (id?: string) => {
+    setQuery('')
+    setParams(id ? { node: id } : {})
+  }
+  const failure = (error: unknown) => toast.error(requestErrorMessage(error))
+  const move = useMutation({ ...moveDriveNodeMutation(), onError: failure })
+  const remove = useMutation({ ...deleteDriveNodeMutation(), onError: failure })
+  const create = useMutation({
+    ...createDriveNodeMutation(),
+    onSuccess: () => setNewFolder(undefined),
+    onError: failure
+  })
   const upload = useMutation({
-    mutationFn: async (items: UploadItem[]) => {
+    mutationFn: async ({ files }: { files: File[] }) => {
+      if (!currentParentID) throw new Error(t('console.drive.choose_space'))
+      const directories = new Map<string, string>([['', currentParentID]])
       const failures: { name: string; reason: string }[] = []
-      for (const item of items) {
-        const result = await uploadAgentFile(agentUID, item.drivePath, item.file)
-        if (result.error !== undefined) {
-          failures.push({ name: item.drivePath, reason: requestErrorMessage(result.error) })
+      for (const file of files) {
+        const parts = (file.webkitRelativePath || file.name).split('/').map(segment => sanitizeFileName(segment))
+        const name = parts.pop()!
+        let directory = currentParentID
+        let prefix = ''
+        try {
+          for (const part of parts) {
+            prefix = prefix ? `${prefix}/${part}` : part
+            const cached = directories.get(prefix)
+            if (cached) {
+              directory = cached
+              continue
+            }
+            const created = await createDriveNode({
+              path: { tenant_id: tenantID },
+              body: { data: { parent_id: directory, name: part, kind: 'folder' } },
+              throwOnError: true
+            })
+            directory = created.data.id
+            directories.set(prefix, directory)
+          }
+          const result = await uploadDriveFile(tenantID, directory, name, file)
+          if (result.error !== undefined) throw result.error
+        } catch (error) {
+          failures.push({ name: sanitizeFileName(file.name), reason: requestErrorMessage(error) })
         }
       }
-      return { uploaded: items.length - failures.length, failures }
+      return { uploaded: files.length - failures.length, failures }
     },
     onSuccess: ({ uploaded, failures }) => {
-      if (uploaded > 0) toast.success(t('console.agent_files.uploaded', { count: uploaded }))
+      if (uploaded) toast.success(t('console.agent_files.uploaded', { count: uploaded }))
       const [first, ...more] = failures
       if (first) toast.error(t('console.agent_files.upload_failed', first))
-      if (more.length > 0) toast.error(t('console.agent_files.upload_failed_more', { count: more.length }))
+      if (more.length) toast.error(t('console.agent_files.upload_failed_more', { count: more.length }))
     },
     onError: error => {
-      toast.error(requestErrorMessage(error))
+      failure(error)
       void queryClient.invalidateQueries()
     }
   })
-
-  const move = useMutation({
-    ...moveAgentFilesMutation(),
-    onSuccess: (_data, { body }) => {
-      const renamed = parentPath(body.data.from_path) === parentPath(body.data.to_path)
-      toast.success(t(renamed ? 'console.agent_files.renamed' : 'console.agent_files.moved'))
-    },
-    onError: error => toast.error(requestErrorMessage(error))
-  })
-
-  const remove = useMutation({
-    ...deleteAgentFilesMutation(),
-    onSuccess: () => {
-      toast.success(t('console.agent_files.deleted'))
-    },
-    onError: error => toast.error(requestErrorMessage(error))
-  })
-
-  const enterPath = (next: string) => {
-    setQuery('')
-    setSearchParams(next ? { path: next } : {})
-  }
-
-  const agentName = agent.data?.display_name || agentUID
-  const pending = move.isPending || remove.isPending
-
-  // Navigation lives in `subNav` so it stays visible over an empty folder: the
-  // breadcrumbs and the upload action are how the operator leaves it.
-  const subNav = (
-    <ScopeBar>
-      <BackLink to={`/agents/${encodeURIComponent(agentUID)}`} />
-      <Breadcrumbs agentName={agentName} path={path} onNavigate={enterPath} />
-      <div className="ml-auto">
-        <UploadMenu currentPath={path} disabled={upload.isPending} onUpload={items => upload.mutate(items)} />
-      </div>
-    </ScopeBar>
-  )
-
+  const pending = move.isPending || remove.isPending || create.isPending
   return (
     <ResourceListPage
-      title={t('console.agent_files.title', { name: agentName })}
-      description={t('console.agent_files.description')}
-      subNav={subNav}
+      title={t('console.drive.title')}
+      description={t('console.drive.description')}
+      subNav={
+        <ScopeBar>
+          <Breadcrumbs ancestors={listing.data?.ancestors ?? []} onNavigate={navigate} />
+          {currentParentID ? (
+            <div className="ml-auto flex gap-2">
+              <Button size="sm" variant="ghost" disabled={pending} onClick={() => setNewFolder('')}>
+                {t('console.drive.new_folder')}
+              </Button>
+              <UploadMenu disabled={upload.isPending} onUpload={files => upload.mutate({ files })} />
+            </div>
+          ) : null}
+        </ScopeBar>
+      }
       toolbar={
         <ResourceSearch
           label={t('console.agent_files.search')}
-          placeholder={t('console.agent_files.search_placeholder')}
+          placeholder={t('console.drive.search_placeholder')}
           value={query}
           onChange={setQuery}
         />
       }
       columns={[
         t('console.agent_files.name'),
-        t('console.agent_files.source'),
+        t('console.drive.kind'),
         t('console.agent_files.size'),
         t('console.agent_files.modified')
       ]}
       isLoading={listing.isLoading}
-      isEmpty={folders.length === 0 && files.length === 0}
-      count={folders.length + files.length}
+      isEmpty={!nodes.length}
+      count={nodes.length}
       emptyTitle={t('console.agent_files.empty_title')}
-      emptyIcon={<RiFolder3Line aria-hidden />}
       emptyDescription={t('console.agent_files.empty_description')}
+      emptyIcon={<RiFolder3Line aria-hidden />}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
+      error={listing.error}
       footer={
-        listing.data?.file_listing.truncated ? (
-          <p role="status" className="text-sm text-muted-foreground">
-            {t('console.agent_files.truncated')}
-          </p>
-        ) : null
-      }
-      error={agent.error ?? listing.error}>
-      {folders.map(folder => (
-        <PathRow
-          key={folder.path}
-          path={folder.path}
+        <div className="flex gap-2">
+          {after ? (
+            <Button variant="ghost" onClick={() => navigate(currentParentID)}>
+              {t('console.drive.first_page')}
+            </Button>
+          ) : null}
+          {listing.data?.next_after ? (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setParams({ ...(currentParentID ? { node: currentParentID } : {}), after: listing.data!.next_after! })
+              }>
+              {t('console.drive.next_page')}
+            </Button>
+          ) : null}
+        </div>
+      }>
+      {nodes.map(node => (
+        <NodeRow
+          key={node.id}
+          tenantID={tenantID}
+          node={node}
           pending={pending}
-          onNavigate={enterPath}
-          onMove={(to, onSuccess) =>
-            move.mutate(
-              { path: { agent_uid: agentUID }, body: { data: { from_path: folder.path, to_path: to } } },
-              { onSuccess }
-            )
+          onNavigate={navigate}
+          onMove={(attrs, done) =>
+            move.mutate({ path: { tenant_id: tenantID, id: node.id }, body: { data: attrs } }, { onSuccess: done })
           }
-          onDelete={onSuccess =>
-            remove.mutate({ path: { agent_uid: agentUID }, query: { path: folder.path } }, { onSuccess })
-          }
+          onDelete={done => remove.mutate({ path: { tenant_id: tenantID, id: node.id } }, { onSuccess: done })}
         />
       ))}
-      {files.map(file => (
-        <PathRow
-          key={file.path}
-          agentUID={agentUID}
-          file={file}
-          path={file.path}
-          pending={pending}
-          onNavigate={enterPath}
-          onMove={(to, onSuccess) =>
-            move.mutate(
-              { path: { agent_uid: agentUID }, body: { data: { from_path: file.path, to_path: to } } },
-              { onSuccess }
-            )
-          }
-          onDelete={onSuccess =>
-            remove.mutate({ path: { agent_uid: agentUID }, query: { path: file.path } }, { onSuccess })
-          }
-        />
-      ))}
+      <Dialog
+        open={newFolder !== undefined}
+        onOpenChange={open => {
+          if (!open) setNewFolder(undefined)
+        }}>
+        <DialogContent closeLabel={t('common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('console.drive.new_folder')}</DialogTitle>
+          </DialogHeader>
+          <form
+            className="grid gap-4"
+            onSubmit={event => {
+              event.preventDefault()
+              if (currentParentID && newFolder?.trim()) {
+                create.mutate({
+                  path: { tenant_id: tenantID },
+                  body: { data: { parent_id: currentParentID, name: newFolder.trim(), kind: 'folder' } }
+                })
+              }
+            }}>
+            <label className="grid gap-1">
+              {t('console.agent_files.name')}
+              <Input
+                autoFocus
+                required
+                pattern="[^/]+"
+                value={newFolder ?? ''}
+                onChange={event => setNewFolder(event.target.value)}
+              />
+            </label>
+            <DialogFooter>
+              <Button type="submit" disabled={pending}>
+                {t('common.save')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </ResourceListPage>
   )
 }
 
-function Breadcrumbs({
-  agentName,
-  path,
-  onNavigate
-}: {
-  agentName: string
-  path: string
-  onNavigate: (path: string) => void
-}) {
+function Breadcrumbs({ ancestors, onNavigate }: { ancestors: Ancestor[]; onNavigate: (id?: string) => void }) {
   const { t } = useTranslation()
-  const segments = path.split('/').filter(Boolean)
-
   return (
-    <nav aria-label={t('console.agent_files.breadcrumbs')} className="flex flex-wrap items-center gap-1 text-sm">
-      {segments.length === 0 ? (
-        <span className="text-foreground">{agentName}</span>
-      ) : (
-        <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => onNavigate('')}>
-          {agentName}
-        </button>
-      )}
-      {segments.map((segment, index) => {
-        const prefix = segments.slice(0, index + 1).join('/')
-        const isLast = index === segments.length - 1
-        return (
-          <span key={prefix} className="flex items-center gap-1">
-            <span className="text-muted-foreground">/</span>
-            {isLast ? (
-              <span className="text-foreground">{segment}</span>
-            ) : (
-              <button
-                type="button"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={() => onNavigate(prefix)}>
-                {segment}
-              </button>
-            )}
-          </span>
-        )
-      })}
+    <nav
+      aria-label={t('console.agent_files.breadcrumbs')}
+      className="flex min-w-0 flex-wrap items-center gap-1 text-sm">
+      <button type="button" className="link" onClick={() => onNavigate()}>
+        {t('console.drive.all_spaces')}
+      </button>
+      {ancestors.map((node, index) => (
+        <span key={node.id} className="flex min-w-0 items-center gap-1">
+          <span aria-hidden>/</span>
+          {index === ancestors.length - 1 ? (
+            <span aria-current="page" className="min-w-0">
+              <BdiLabel value={node.name} />
+            </span>
+          ) : (
+            <button type="button" className="link min-w-0" onClick={() => onNavigate(node.id)}>
+              <BdiLabel value={node.name} />
+            </button>
+          )}
+        </span>
+      ))}
     </nav>
   )
 }
 
-/** One folder (without `file`) or one file of the listing. */
-function PathRow({
-  agentUID,
-  file,
-  path,
+function NodeRow({
+  tenantID,
+  node,
   pending,
   onNavigate,
   onMove,
   onDelete
 }: {
-  agentUID?: string
-  file?: AgentFileEntry
-  path: string
+  tenantID: string
+  node: DriveNode
   pending: boolean
-  onNavigate: (path: string) => void
-  onMove: (to: string, onSuccess: () => void) => void
-  onDelete: (onSuccess: () => void) => void
+  onNavigate: (id?: string) => void
+  onMove: (attrs: { name?: string; parent_id?: string }, done: () => void) => void
+  onDelete: (done: () => void) => void
 }) {
   const { t } = useTranslation()
-  const name = basename(path)
-  const isFolder = file === undefined
-  const [moveOpen, setMoveOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const [rename, setRename] = useState<string>()
-
-  const handleDownload = async () => {
-    if (!agentUID) return
-    // The response carries the file's own content type; without `parseAs` the
-    // client would return text and JSON files as a string or an object.
-    const result = await downloadAgentFile(agentUID, path)
+  const [moving, setMoving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const isFile = node.kind === 'file'
+  const rootLabel = node.parent_id
+    ? null
+    : node.private_owner_uid
+      ? t('console.drive.private', { id: node.private_owner_uid })
+      : node.conversation_id
+        ? t('console.drive.conversation', { id: node.conversation_id })
+        : t('console.drive.public')
+  const download = async () => {
+    const result = await downloadDriveFile(tenantID, node.id)
     if (result.error !== undefined || !(result.data instanceof Blob)) {
       toast.error(requestErrorMessage(result.error ?? new Error(t('console.agent_files.download_failed'))))
       return
@@ -298,222 +313,213 @@ function PathRow({
     const url = URL.createObjectURL(result.data)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = name
+    anchor.download = sanitizeFileName(node.name)
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
     URL.revokeObjectURL(url)
   }
-
   return (
     <TableRow>
       <TableCell>
-        <div className="flex items-center gap-2">
-          {isFolder ? (
-            <RiFolder3Line className="size-4 text-muted-foreground" aria-hidden />
+        <div className="flex min-w-0 items-center gap-2">
+          {isFile ? (
+            <RiFileLine className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           ) : (
-            <RiFileLine className="size-4 text-muted-foreground" aria-hidden />
+            <RiFolder3Line className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           )}
           {rename !== undefined ? (
             <form
-              className="flex items-center gap-1"
+              className="flex gap-1"
               onSubmit={event => {
                 event.preventDefault()
-                if (pending || !rename.trim() || rename.includes('/')) return
-                if (rename.trim() === name) setRename(undefined)
-                else onMove(joinPath(parentPath(path), rename.trim()), () => setRename(undefined))
+                if (rename.trim() && !pending) onMove({ name: rename.trim() }, () => setRename(undefined))
               }}>
               <Input
+                variant="inline"
                 autoFocus
                 required
                 pattern="[^/]+"
                 aria-label={t('console.agent_files.name')}
                 value={rename}
                 disabled={pending}
-                onFocus={event => event.currentTarget.select()}
                 onChange={event => setRename(event.target.value)}
                 onKeyDown={event => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault()
-                    setRename(undefined)
-                  }
+                  if (event.key === 'Escape') setRename(undefined)
                 }}
               />
-              <Button type="submit" size="icon-sm" variant="ghost" disabled={pending} aria-label={t('common.save')}>
+              <Button type="submit" size="icon-sm" variant="ghost" aria-label={t('common.save')} disabled={pending}>
                 <RiCheckLine />
               </Button>
               <Button
                 type="button"
                 size="icon-sm"
                 variant="ghost"
-                disabled={pending}
                 aria-label={t('common.cancel')}
                 onClick={() => setRename(undefined)}>
                 <RiCloseLine />
               </Button>
             </form>
-          ) : isFolder ? (
-            <button
-              type="button"
-              data-row-link
-              className="text-left"
-              aria-label={t('console.agent_files.open_folder', { name })}
-              onClick={() => onNavigate(path)}>
-              {name}
-            </button>
           ) : (
             <button
               type="button"
               data-row-link
-              className="text-left hover:underline"
-              onClick={() => void handleDownload()}>
-              {name}
+              className="min-w-0 break-all text-left hover:underline"
+              onClick={() => (isFile ? void download() : onNavigate(node.id))}>
+              {rootLabel ?? <BdiLabel value={node.name} />}
             </button>
           )}
         </div>
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground">
-        {file ? (
-          <div className="space-y-1">
-            <div>{t(`console.agent_files.source_${file.source}`)}</div>
-            {file.conversation_id ? (
-              <div>{t('console.agent_files.source_channel', { id: file.conversation_id })}</div>
-            ) : null}
-            {file.message_id ? <div>{t('console.agent_files.source_entry', { id: file.message_id })}</div> : null}
-          </div>
-        ) : (
-          t('console.agent_files.folder')
-        )}
-      </TableCell>
-      <TableCell className="text-xs text-muted-foreground">{file ? formatFileBytes(file.size) || '–' : '–'}</TableCell>
-      <TableCell className="text-xs text-muted-foreground">{file ? formatConsoleDate(file.updated_at) : '–'}</TableCell>
+      <TableCell>{t(`console.drive.kind_${node.kind}`)}</TableCell>
+      <TableCell>{isFile ? formatFileBytes(node.size) : '–'}</TableCell>
+      <TableCell>{formatConsoleDate(node.updated_at)}</TableCell>
       <TableCell className="text-right">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                aria-label={t('common.more_actions')}
-                title={t('common.more_actions')}
-                disabled={pending}
-                size="icon-sm"
-                type="button"
-                variant="ghost"
+        {node.parent_id ? (
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={pending}
+                    aria-label={t('common.more_actions')}
+                  />
+                }>
+                <RiMore2Fill />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {isFile ? (
+                  <DropdownMenuItem onClick={() => void download()}>
+                    <RiDownloadLine />
+                    {t('console.agent_files.download')}
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem onClick={() => setRename(sanitizeRenameValue(node.name))}>
+                  <RiPencilLine />
+                  {t('console.agent_files.rename')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setMoving(true)}>
+                  <RiFolder3Line />
+                  {t('console.agent_files.move')}
+                </DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" onClick={() => setDeleting(true)}>
+                  <RiDeleteBin6Line />
+                  {t('common.delete')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {moving ? (
+              <MoveDialog
+                tenantID={tenantID}
+                node={node}
+                pending={pending}
+                onClose={() => setMoving(false)}
+                onMove={id => onMove({ parent_id: id }, () => setMoving(false))}
               />
-            }>
-            <RiMore2Fill />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            {file ? (
-              <DropdownMenuItem onClick={() => void handleDownload()}>
-                <RiDownloadLine />
-                {t('console.agent_files.download')}
-              </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem onClick={() => setRename(name)}>
-              <RiPencilLine />
-              {t('console.agent_files.rename')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setMoveOpen(true)}>
-              <RiFolder3Line />
-              {t('console.agent_files.move')}
-            </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
-              <RiDeleteBin6Line />
-              {t('common.delete')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <MoveDialog
-          open={moveOpen}
-          onOpenChange={setMoveOpen}
-          path={path}
-          disabled={pending}
-          onConfirm={onMove}
-          t={t}
-        />
-        <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-          <DialogContent closeLabel={t('common.close')}>
-            <DialogHeader>
-              <DialogTitle>
-                {isFolder ? t('console.agent_files.delete_folder_title') : t('console.agent_files.delete_title')}
-              </DialogTitle>
-              <DialogDescription>
-                {isFolder
-                  ? t('console.agent_files.delete_folder_description', { path })
-                  : t('console.agent_files.delete_description', { path })}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <DialogClose render={<Button size="sm" variant="ghost" />}>{t('common.cancel')}</DialogClose>
-              <Button
-                disabled={pending}
-                size="sm"
-                type="button"
-                variant="destructive"
-                onClick={() => onDelete(() => setDeleteOpen(false))}>
-                {t('common.delete')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            <Dialog open={deleting} onOpenChange={setDeleting}>
+              <DialogContent closeLabel={t('common.close')}>
+                <DialogHeader>
+                  <DialogTitle>{t('console.drive.trash_title')}</DialogTitle>
+                  <DialogDescription>
+                    <bdi>{t('console.drive.trash_description', { name: stripBidi(node.name) })}</bdi>
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <DialogClose render={<Button variant="ghost" />}>{t('common.cancel')}</DialogClose>
+                  <Button variant="destructive" disabled={pending} onClick={() => onDelete(() => setDeleting(false))}>
+                    {t('common.delete')}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </>
+        ) : null}
       </TableCell>
     </TableRow>
   )
 }
 
-/** Console route of one folder in an Agent's drive; an empty path is the drive root. */
-export function agentFilesPath(agentUID: string, path = ''): string {
-  const base = `/agents/${encodeURIComponent(agentUID)}/files`
-  return path ? `${base}?${new URLSearchParams({ path })}` : base
-}
-
-/** Link from the Agent editor to this page. */
-export function AgentFilesLink({ agentUID }: { agentUID: string }) {
+function MoveDialog({
+  tenantID,
+  node,
+  pending,
+  onClose,
+  onMove
+}: {
+  tenantID: string
+  node: DriveNode
+  pending: boolean
+  onClose: () => void
+  onMove: (id: string) => void
+}) {
   const { t } = useTranslation()
+  const [parent, setParent] = useState<string>()
+  const [after, setAfter] = useState<string>()
+  const listing = useQuery(
+    listDriveNodesOptions({ path: { tenant_id: tenantID }, query: { parent_id: parent, after } })
+  )
+  const navigate = (id?: string) => {
+    setParent(id)
+    setAfter(undefined)
+  }
   return (
-    <section className="grid gap-4">
-      <div className="grid gap-1">
-        <h3 className="title-section">{t('console.agent_files.section_title')}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">{t('console.agent_files.section_description')}</p>
-      </div>
-      <div>
-        <Link {...linkTarget(agentFilesPath(agentUID))} className="link text-sm">
-          {t('console.agent_files.browse')}
-        </Link>
-      </div>
-    </section>
+    <Dialog
+      open
+      onOpenChange={open => {
+        if (!open) onClose()
+      }}>
+      <DialogContent closeLabel={t('common.close')}>
+        <DialogHeader>
+          <DialogTitle>{t('console.agent_files.move_title')}</DialogTitle>
+        </DialogHeader>
+        <Breadcrumbs ancestors={listing.data?.ancestors ?? []} onNavigate={navigate} />
+        {listing.error ? <p role="alert">{requestErrorMessage(listing.error)}</p> : null}
+        <div className="grid max-h-64 gap-1 overflow-y-auto" aria-busy={listing.isLoading}>
+          {(listing.data?.nodes ?? [])
+            .filter(child => child.kind !== 'file' && child.id !== node.id)
+            .map(child => (
+              <Button key={child.id} variant="ghost" className="justify-start" onClick={() => navigate(child.id)}>
+                <RiFolder3Line />
+                {child.private_owner_uid ?? child.conversation_id ?? <BdiLabel value={child.name} />}
+              </Button>
+            ))}
+          {listing.data?.next_after ? (
+            <Button variant="ghost" onClick={() => setAfter(listing.data!.next_after!)}>
+              {t('console.drive.next_page')}
+            </Button>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            disabled={!parent || parent === node.parent_id || pending || listing.isLoading || Boolean(listing.error)}
+            onClick={() => {
+              if (parent) onMove(parent)
+            }}>
+            {t('console.drive.move_here')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-// A folder picker sets each file's `webkitRelativePath`, which starts with the
-// chosen folder's name, so the upload keeps the folder's inner structure.
 const folderPicker = { webkitdirectory: '' } as InputHTMLAttributes<HTMLInputElement>
-
-function uploadName(file: File): string {
-  return file.webkitRelativePath || file.name
-}
-
-type UploadItem = { file: File; drivePath: string }
-
-function UploadMenu({
-  currentPath,
-  disabled,
-  onUpload
-}: {
-  currentPath: string
-  disabled: boolean
-  onUpload: (items: UploadItem[]) => void
-}) {
+function UploadMenu({ disabled, onUpload }: { disabled: boolean; onUpload: (files: File[]) => void }) {
   const { t } = useTranslation()
   const filesInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
-
   const choose = (input: HTMLInputElement) => {
     const files = Array.from(input.files ?? [])
     input.value = ''
-    if (files.length > 0) onUpload(files.map(file => ({ file, drivePath: joinPath(currentPath, uploadName(file)) })))
+    if (files.length) onUpload(files)
   }
-
   return (
     <>
       <input ref={filesInput} type="file" hidden multiple onChange={event => choose(event.currentTarget)} />
@@ -526,18 +532,15 @@ function UploadMenu({
         onChange={event => choose(event.currentTarget)}
       />
       <DropdownMenu>
-        <DropdownMenuTrigger
-          render={<Button disabled={disabled} size="sm" type="button" variant="outline" aria-busy={disabled} />}>
-          <RiUploadCloud2Line className="size-4" data-icon="inline-start" />
+        <DropdownMenuTrigger render={<Button variant="outline" size="sm" disabled={disabled} aria-busy={disabled} />}>
+          <RiUploadCloud2Line />
           {t(disabled ? 'console.agent_files.uploading' : 'console.agent_files.upload')}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => filesInput.current?.click()}>
-            <RiFileLine />
             {t('console.agent_files.upload_title')}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => folderInput.current?.click()}>
-            <RiFolder3Line />
             {t('console.agent_files.upload_folder')}
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -546,71 +549,18 @@ function UploadMenu({
   )
 }
 
-function MoveDialog({
-  open,
-  onOpenChange,
-  path,
-  disabled,
-  onConfirm,
-  t
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  path: string
-  disabled: boolean
-  onConfirm: (toPath: string, onSuccess: () => void) => void
-  t: (key: string) => string
-}) {
-  const [value, setValue] = useState(parentPath(path))
-  const normalizedValue = joinPath(value, basename(path))
-  const unchanged = normalizedValue === path
+export function agentFilesPath(uid: string, prefix = ''): string {
+  return `/drive?${new URLSearchParams({ owner: uid, ...(prefix ? { prefix } : {}) })}`
+}
 
-  useEffect(() => {
-    if (open) setValue(parentPath(path))
-  }, [open, path])
-
+export function AgentFilesLink({ agentUID }: { agentUID: string }) {
+  const { t } = useTranslation()
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t('common.close')}>
-        <DialogHeader>
-          <DialogTitle>{t('console.agent_files.move_title')}</DialogTitle>
-        </DialogHeader>
-        <form
-          className="contents"
-          onSubmit={event => {
-            event.preventDefault()
-            if (disabled || unchanged) return
-            onConfirm(normalizedValue, () => onOpenChange(false))
-          }}>
-          <label className="grid gap-1 text-sm">
-            <span className="text-muted-foreground">{t('console.agent_files.destination_folder')}</span>
-            <Input placeholder="/" value={value} disabled={disabled} onChange={event => setValue(event.target.value)} />
-          </label>
-          <DialogFooter>
-            <DialogClose render={<Button size="sm" type="button" variant="ghost" />}>{t('common.cancel')}</DialogClose>
-            <Button aria-busy={disabled} disabled={disabled || unchanged} size="sm" type="submit">
-              {t('console.agent_files.move')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <section className="grid gap-2">
+      <h3 className="title-section">{t('console.drive.title')}</h3>
+      <Link {...linkTarget(agentFilesPath(agentUID))} className="link text-sm">
+        {t('console.agent_files.browse')}
+      </Link>
+    </section>
   )
-}
-
-function parentPath(path: string): string {
-  return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
-}
-
-function basename(path: string): string {
-  const segments = path.split('/').filter(Boolean)
-  return segments[segments.length - 1] ?? path
-}
-
-function joinPath(...segments: string[]): string {
-  return segments
-    .flatMap(segment => segment.split('/'))
-    .map(segment => segment.trim())
-    .filter(segment => segment.length > 0)
-    .join('/')
 }

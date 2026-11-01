@@ -21,10 +21,13 @@ defmodule Ankole.Principals.WorkCleanup do
   end
 
   def jobs_for_human(uid) do
+    tenant_id = Repo.tenant_id!()
+
     Repo.all(
       from job in Oban.Job,
         where:
-          job.worker == "Ankole.Principals.WorkCleanup" and
+          fragment("?->>'tenant_id' = ?", job.args, ^tenant_id) and
+            job.worker == "Ankole.Principals.WorkCleanup" and
             fragment("?->>'human_uid' = ?", job.args, ^uid),
         order_by: [desc: job.id],
         limit: 20
@@ -84,10 +87,7 @@ defmodule Ankole.Principals.WorkCleanup do
     with {:ok, principal} <- Ankole.Principals.lock_principal_in_tx(uid) do
       now = DateTime.utc_now()
 
-      results =
-        Repo.across_tenants(fn ->
-          Ankole.Work.Owner.revoke_human_work_in_tx(uid, version, now)
-        end)
+      results = Ankole.Work.Owner.revoke_human_work_in_tx(uid, version, now)
 
       running =
         Ankole.Signals.count_admitted_attempts_for_human(uid, version) +

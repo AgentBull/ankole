@@ -23,7 +23,7 @@ defmodule AnkoleWeb.PodRequestContextTest do
         Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
         page.id,
         "file",
-        0,
+        nil,
         "report.txt",
         "restricted bytes",
         "text/plain"
@@ -71,7 +71,7 @@ defmodule AnkoleWeb.PodRequestContextTest do
         Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
         file.id,
         "file",
-        0,
+        nil,
         "report.txt",
         "restricted bytes",
         "text/plain"
@@ -123,8 +123,10 @@ defmodule AnkoleWeb.PodRequestContextTest do
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: uid,
-        resource_pattern: "pod:**:#{page_id}:page",
-        action: "page_view",
+        resource_pattern: "drive:**:#{page_id}:node",
+        target_node_id: page_id,
+        target_scope: "self",
+        action: "node_view",
         condition:
           ~s(context.request.ip == "10.0.0.1" && context.request.surface == "pod_browser")
       })
@@ -139,10 +141,10 @@ defmodule AnkoleWeb.PodRequestContextTest do
 
           {:ok, _} =
             Drive.commit(uid, [
-              %{path: "publish/#{page_id}/#{path}", sha256: blob.sha256, source: "pod"}
+              Map.merge(blob, %{path: "publish/#{page_id}/#{path}", source: "pod"})
             ])
 
-          %{path: path, sha256: blob.sha256}
+          %{path: path, object_id: blob.object_id, source_path: "publish/#{page_id}/#{path}"}
         end
       )
 

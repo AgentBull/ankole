@@ -324,11 +324,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       end)
 
       stub_client_opts()
-      key = {"auth-agent", "discord-auth"}
+      key = Ecto.UUID.generate()
 
       assert {:ok, owner} =
                start_connection_owner(ConnectionReconciler, %{"botToken" => "bot.auth-secret"}, [
-                 consumer(elem(key, 0), elem(key, 1))
+                 consumer("auth-agent", "discord-auth", %{"botToken" => "test-only-token"}, key)
                ])
 
       assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).state == :blocked end),
@@ -357,7 +357,12 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       assert {:ok, owner} =
                start_connection_owner(ConnectionReconciler, %{"botToken" => "bot.rate-secret"}, [
-                 consumer(elem(key, 0), elem(key, 1))
+                 consumer(
+                   elem(key, 0),
+                   elem(key, 1),
+                   %{"botToken" => "test-only-token"},
+                   Ecto.UUID.generate()
+                 )
                ])
 
       on_exit(fn -> ConnectionReconciler.stop(key) end)
@@ -374,7 +379,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       stub_preflight()
       stub_client_opts()
 
-      consumer = consumer("owner-agent", "discord-main")
+      consumer =
+        consumer(
+          "owner-agent",
+          "discord-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
 
       assert {:ok, first} =
                start_connection_owner(ConnectionReconciler, %{"botToken" => "bot.first-secret"}, [
@@ -390,12 +401,12 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       refute owner_serves?(
                ConnectionReconciler,
-               {"owner-agent", "discord-main"},
+               consumer.context.binding_id,
                %{"botToken" => "bot.rotated-secret"},
                [consumer]
              )
 
-      assert :ok = ConnectionReconciler.stop({"owner-agent", "discord-main"})
+      assert :ok = ConnectionReconciler.stop(consumer.context.binding_id)
 
       assert {:ok, second} =
                start_connection_owner(
@@ -408,7 +419,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       refute second == first
       refute Process.alive?(first)
-      assert :ok = ConnectionReconciler.stop({"owner-agent", "discord-main"})
+      assert :ok = ConnectionReconciler.stop(consumer.context.binding_id)
     end
   end
 
@@ -682,7 +693,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
   describe "inbound projection" do
     test "projects direct and addressed guild messages with stable identities" do
-      consumer = consumer("agent-a", "discord-main")
+      consumer =
+        consumer(
+          "agent-a",
+          "discord-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
 
       assert {:ok, dm} =
                Inbound.normalize_message_create(
@@ -729,7 +746,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     end
 
     test "rejects the bot's own messages, other bots, webhooks, and system notices" do
-      consumer = consumer("agent-a", "discord-main")
+      consumer =
+        consumer(
+          "agent-a",
+          "discord-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
 
       own = dm_message("100", "hello") |> put_in(["author", "id"], "77")
 
@@ -753,7 +776,14 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     end
 
     test "skips a guild message that arrives empty without the message-content intent" do
-      consumer = consumer("agent-a", "discord-main")
+      consumer =
+        consumer(
+          "agent-a",
+          "discord-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
+
       stripped = guild_message("101", nil) |> Map.put("content", "")
 
       assert {:ignore, :empty_message} =
@@ -785,7 +815,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     end
 
     test "keeps an over-limit attachment fact but never invents a readable path" do
-      consumer = consumer("agent-a", "discord-main")
+      consumer =
+        consumer(
+          "agent-a",
+          "discord-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
 
       message =
         dm_message("100", nil)
@@ -805,7 +841,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert attachment["materialization_state"] == "provider_download_limit"
       assert attachment["restriction"] =~ "25 MB"
       refute Map.has_key?(attachment, "attachment_id")
-      refute Map.has_key?(attachment, "blob_ref")
+      refute Map.has_key?(attachment, "object_id")
       refute Map.has_key?(attachment, "path")
     end
 
@@ -992,7 +1028,14 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     end
 
     test "ignores a reaction the bot itself added" do
-      discord_consumer = consumer("agent-a", "discord-main")
+      discord_consumer =
+        consumer(
+          "agent-a",
+          "discord-main",
+          %{"botToken" => "test-only-token"},
+          Ecto.UUID.generate()
+        )
+
       own = reaction_event("900", "77", %{"name" => "👍"})
 
       assert {:ok, [%{status: :ignored_unsupported_sender}]} =
@@ -1062,7 +1105,9 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert first_uid == first_agent.uid
 
       assert {:ok, _disabled} =
-               Ankole.Signals.Bindings.disable_binding(first_agent.uid, "discord-one")
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(first_agent.uid, "discord-one").id
+               )
 
       assert {:ok, _binding} =
                Ankole.Signals.Bindings.put_binding(
@@ -1093,7 +1138,9 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).bot_id == "77" end)
 
       assert {:ok, _binding} =
-               Ankole.Signals.Bindings.disable_binding(agent.uid, "discord-disabled")
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "discord-disabled").id
+               )
 
       assert %{stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
@@ -1532,7 +1579,9 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     end
 
     test "sends a reply attachment as one message and never as a placeholder text" do
-      {:ok, %{sha256: blob_ref}} = Ankole.Files.store("report bytes")
+      {:ok, stored} = Ankole.Files.store("report bytes")
+      {:ok, object} = Repo.transact(fn -> Ankole.Files.complete_object_in_tx(stored) end)
+      object_id = object.id
 
       intent = %Intent{
         agent_uid: "agent-a",
@@ -1545,7 +1594,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           "attachments" => [
             %{
               "path" => "sent/0123456789abcdef/report.pdf",
-              "blob_ref" => blob_ref,
+              "object_id" => object_id,
               "name" => "report.pdf",
               "mime_type" => "application/pdf"
             }
@@ -1601,6 +1650,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert :unknown =
                Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
+                 binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "discord-unknown").id,
                  binding_name: "discord-unknown",
                  outbound_key: "unknown-1",
                  operation: :post,
@@ -1623,6 +1673,8 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert :unknown =
                Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
+                 binding_id:
+                   Ankole.Signals.get_agent_binding!(agent.uid, "discord-missing-id").id,
                  binding_name: "discord-missing-id",
                  outbound_key: "missing-id-1",
                  operation: :post,
@@ -1645,6 +1697,8 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert {:error, {:reply_delivery, :retryable, %{"code" => "discord_api_error"}}} =
                Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
+                 binding_id:
+                   Ankole.Signals.get_agent_binding!(agent.uid, "discord-edit-retry").id,
                  binding_name: "discord-edit-retry",
                  outbound_key: "edit-retry-1",
                  operation: :edit,
@@ -1675,6 +1729,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert :unknown =
                Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
+                 binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "discord-partial").id,
                  binding_name: "discord-partial",
                  outbound_key: "partial-1",
                  operation: :post,
@@ -1707,6 +1762,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert {:ok, _result} =
                Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
+                 binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "discord-delete").id,
                  binding_name: "discord-delete",
                  outbound_key: "delete-1",
                  operation: :delete,
@@ -1721,6 +1777,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert {:ok, _result} =
                Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
+                 binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "discord-delete").id,
                  binding_name: "discord-delete",
                  outbound_key: "edit-missing-1",
                  operation: :edit,
@@ -1753,9 +1810,15 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     end)
   end
 
-  defp consumer(agent_uid, binding_name, config \\ %{"botToken" => "test-only-token"}) do
+  defp consumer(
+         agent_uid,
+         binding_name,
+         config \\ %{"botToken" => "test-only-token"},
+         binding_id \\ nil
+       ) do
     Inbound.chat_consumer(
       AdapterContext.new(
+        binding_id: binding_id || Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
         agent_uid: agent_uid,
         binding_name: binding_name,
         adapter: "discord",

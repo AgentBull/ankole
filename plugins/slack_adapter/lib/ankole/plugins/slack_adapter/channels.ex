@@ -19,11 +19,10 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   alias SlackOpenAPI.{Event, Pagination}
 
   @spec handle_binding_saved(Binding.t(), map()) :: :ok | {:error, term()}
-  def handle_binding_saved(%Binding{agent_uid: agent_uid, name: binding_name}, _config) do
+  def handle_binding_saved(%Binding{id: binding_id}, _config) do
     case ChannelSync.enqueue_binding(
            Ankole.Plugins.SlackAdapter.Jobs.SyncChannels,
-           agent_uid,
-           binding_name,
+           binding_id,
            reason: "binding_saved",
            source: "signal_binding"
          ) do
@@ -36,8 +35,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
           {:ok, Oban.Job.t()} | {:error, term()}
   defp enqueue_channel_refresh(%AdapterContext{} = context, _config, channel_id, opts) do
     %{
-      "agent_uid" => String.downcase(context.agent_uid),
-      "binding_name" => context.binding_name,
+      "binding_id" => context.binding_id,
       "channel_id" => channel_id,
       "reason" => to_string(Keyword.get(opts, :reason, "event"))
     }
@@ -70,9 +68,9 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   def maybe_enqueue_missing_channel_refresh(_consumer, _input), do: :ok
 
-  @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def sync_binding(agent_uid, binding_name) do
-    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
+  @spec sync_binding(String.t()) :: {:ok, map()} | {:error, term()}
+  def sync_binding(binding_id) do
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(binding_id),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          {:ok, channels} <- list_channels(config),
          {:ok, bot_ids} <- list_bot_ids(config),
@@ -93,9 +91,9 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     end
   end
 
-  @spec refresh_channel(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def refresh_channel(agent_uid, binding_name, channel_id) do
-    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
+  @spec refresh_channel(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def refresh_channel(binding_id, channel_id) do
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(binding_id),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, channel} <- fetch_channel(config, channel_id),
@@ -369,6 +367,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   defp binding_context(binding, config) do
     AdapterContext.new(
+      binding_id: binding.id,
       agent_uid: binding.agent_uid,
       binding_name: binding.name,
       adapter: binding.adapter,

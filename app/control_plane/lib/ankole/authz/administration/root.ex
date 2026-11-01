@@ -126,7 +126,7 @@ defmodule Ankole.AuthZ.Root do
   administration to another tenant.
   """
   def delete_site_admin_group_in_tx do
-    Ankole.Pod.Pages.lock_tree()
+    Ankole.Files.lock_tree_in_tx()
 
     case Group
          |> Ash.Query.filter(name == ^@admin_group_name and built_in == true)

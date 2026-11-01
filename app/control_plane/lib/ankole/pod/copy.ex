@@ -9,12 +9,13 @@ defmodule Ankole.Pod.Copy do
   require Ash.Query
   Module.register_attribute(__MODULE__, :raw_sql_scope, persist: true)
   @raw_sql_scope :tenant_schema
-  alias Ankole.{Files, Repo}
+  alias Ankole.Repo
   alias __MODULE__.Projection
   alias Ankole.Pod.Bases.{Physical, Promote}
 
+  alias Ankole.Files.Access
+
   alias Ankole.Pod.{
-    Access,
     Config,
     Bases,
     BaseField,
@@ -30,6 +31,7 @@ defmodule Ankole.Pod.Copy do
     authority = authority || actor.turn_authority
 
     Access.write_tree(authority, fn -> table_in_tx(actor, id, attrs) end,
+      root_ids: fn -> Pages.destination_root_ids(actor, attrs) end,
       timeout: 60_000,
       after_commit: &committed/1
     )
@@ -346,31 +348,20 @@ defmodule Ankole.Pod.Copy do
     fields = Enum.filter(fields, &(&1.type == :attachment))
     paths = Projection.attachment_paths(payload, Enum.map(fields, & &1.id))
 
-    paths
-    |> Enum.chunk_every(200)
-    |> Enum.reduce_while(:ok, fn paths, :ok ->
-      by_source =
-        Map.new(paths, fn path ->
-          {String.replace_prefix(
-             path,
-             Ankole.Pod.Files.prefix(target.page_id) <> "/",
-             Ankole.Pod.Files.prefix(source.page_id) <> "/"
-           ), path}
-        end)
-
-      with {:ok, files} <- Files.fetch_many(:pod, Map.keys(by_source)),
-           true <- length(files) == map_size(by_source),
-           upserts <-
-             Enum.map(files, fn file ->
+    Enum.reduce_while(paths, :ok, fn path, :ok ->
+      with {:ok, target_id, relative} <- Ankole.Pod.Files.parse_path(path),
+           true <- target_id == target.page_id,
+           {:ok, file} <- Ankole.Pod.Files.fetch_file(source.page_id, relative),
+           {:ok, _} <-
+             Ankole.Pod.Files.commit_files_in_tx(target.page_id, [
                %{
-                 path: Map.fetch!(by_source, file.path),
-                 sha256: Base.encode16(file.sha256, case: :lower),
+                 path: relative,
+                 object_id: file.object_id,
                  content_type: file.content_type,
                  mode: file.mode,
                  source: "pod"
                }
-             end),
-           {:ok, _} <- Files.commit_in_tx(:pod, upserts, []) do
+             ]) do
         {:cont, :ok}
       else
         false -> {:halt, {:error, :not_found}}

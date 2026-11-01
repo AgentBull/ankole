@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, expect, jest, test } from 'bun:test'
+import { afterEach, beforeAll, expect, jest, spyOn, test } from 'bun:test'
 import { QueryClient } from '@tanstack/react-query'
 import i18n, { loadLocale } from '../../common/i18n'
 import type { TopicHandle } from '../realtime'
@@ -81,4 +81,59 @@ test('a join that has no handle after 10 seconds offers a reconnection and close
   await Promise.resolve()
   expect(topic.closed).toHaveBeenCalled()
   stop()
+})
+
+test('file reconciliation detects a runtime overwrite even when the Pod revision is unchanged', async () => {
+  const topic = pageTopic()
+  const client = new QueryClient()
+  const invalidate = spyOn(client, 'invalidateQueries').mockResolvedValue()
+  const page = { revoked: jest.fn(), failed: jest.fn() }
+  let reconcile!: (revision: number | undefined, objectID?: string | null) => void
+  const realtime = {
+    ...topic.realtime,
+    watchVersion: (_kind: 'pages' | 'tables', _id: string, changed: typeof reconcile) => {
+      reconcile = changed
+      return () => {}
+    }
+  }
+  const stop = watchPageRealtime(realtime, client, 'file', 0, page, 'original-object')
+  await Promise.resolve()
+  topic.settle.resolve()
+  reconcile(0, 'original-object')
+  expect(invalidate).not.toHaveBeenCalled()
+  reconcile(0, 'runtime-object')
+  expect(invalidate).toHaveBeenCalledTimes(1)
+  reconcile(undefined)
+  expect(page.revoked).toHaveBeenCalledTimes(1)
+  stop()
+  invalidate.mockRestore()
+})
+
+test('initial file content is detected from an empty object reference', async () => {
+  const topic = pageTopic()
+  const client = new QueryClient()
+  const invalidate = spyOn(client, 'invalidateQueries').mockResolvedValue()
+  let reconcile!: (revision: number | undefined, objectID?: string | null) => void
+  const stop = watchPageRealtime(
+    {
+      ...topic.realtime,
+      watchVersion: (_kind, _id, changed) => {
+        reconcile = changed
+        return () => {}
+      }
+    },
+    client,
+    'empty-file',
+    0,
+    { revoked() {}, failed() {} },
+    null
+  )
+  await Promise.resolve()
+  topic.settle.resolve()
+  reconcile(0, null)
+  expect(invalidate).not.toHaveBeenCalled()
+  reconcile(0, 'first-object')
+  expect(invalidate).toHaveBeenCalledTimes(1)
+  stop()
+  invalidate.mockRestore()
 })

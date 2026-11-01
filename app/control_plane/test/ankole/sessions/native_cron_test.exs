@@ -14,6 +14,28 @@ defmodule Ankole.Sessions.NativeCronTest do
     %{human: human, agent: agent, first: first, second: second}
   end
 
+  test "renaming an inactive Agent preserves its Cron-owned Session", ctx do
+    assert {:ok, %{cron_schedule: schedule}} =
+             Schedule.create_cron_schedule(cron_attrs(ctx, [ctx.first.id]),
+               created_by: %{
+                 "principal_uid" => to_string(Ankole.ActorRef.from_principal(ctx.human))
+               }
+             )
+
+    assert {:ok, workspace} =
+             Repo.transact(fn ->
+               Ankole.Sessions.Workspaces.ensure_in_tx(ctx.agent.uid, "cron:#{schedule.id}")
+             end)
+
+    assert {:ok, _} = Ankole.Principals.disable_agent(ctx.agent.uid)
+
+    assert {:ok, %{principal: renamed}} =
+             Ankole.Principals.rename(ctx.agent.uid, "renamed-cron-owner")
+
+    assert Repo.reload!(workspace).agent_uid == renamed.uid
+    assert Repo.reload!(schedule).agent_uid == renamed.uid
+  end
+
   test "native schedules need no external binding and retain a native delivery on update",
        context do
     attrs = cron_attrs(context, [context.first.id])
@@ -163,15 +185,22 @@ defmodule Ankole.Sessions.NativeCronTest do
         )
       end)
 
+    binding =
+      Ankole.SignalsFixtures.binding_fixture(context.agent.uid, "unavailable-binding", :ignore,
+        adapter: "missing-adapter"
+      )
+
     targets = [
       %{"conversation_id" => context.first.id},
       %{
-        "binding_name" => "missing-binding",
+        "binding_id" => binding.id,
+        "binding_name" => binding.name,
         "conversation_id" => external.id,
         "provider_thread_id" => "thread-one"
       },
       %{
-        "binding_name" => "missing-binding",
+        "binding_id" => binding.id,
+        "binding_name" => binding.name,
         "conversation_id" => external.id,
         "provider_thread_id" => "thread-two"
       }

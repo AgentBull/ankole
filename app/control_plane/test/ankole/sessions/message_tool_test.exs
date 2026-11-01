@@ -19,14 +19,7 @@ defmodule Ankole.Sessions.MessageToolTest do
         now: @base_time
       )
 
-    {:ok, _} =
-      Ankole.AuthZ.create_permission_grant(%{
-        principal_uid: input.human_uid,
-        resource_pattern: "agent:#{agent.uid}:tool:send_message",
-        action: "invoke"
-      })
-
-    drive_file_fixture(agent.uid, "reports/weekly.pdf", "%PDF weekly")
+    file = drive_file_fixture(agent.uid, "reports/weekly.pdf", "%PDF weekly")
     {:ok, run} = Admission.admit(input, input)
     {:ok, context} = Context.resolve(run.agent_uid, run.session_id)
     [%{"content" => content}] = Input.messages(%{run | context: context}, input)
@@ -43,7 +36,7 @@ defmodule Ankole.Sessions.MessageToolTest do
         Ankole.JSON.encode!(%{
           "destination" => %{"binding" => "bot", "conversation_id" => input.conversation_id},
           "text" => "Here is the weekly report.",
-          "attachments" => ["reports/weekly.pdf"]
+          "attachments" => [file.id]
         })
     }
 
@@ -57,11 +50,13 @@ defmodule Ankole.Sessions.MessageToolTest do
     assert {:await, wait} = Tools.execute(run, call, tool, args)
 
     rows =
-      Repo.all(
-        from row in Intent,
-          where: row.agent_uid == ^agent.uid and like(row.outbound_key, "tool:%"),
-          order_by: row.outbound_key
+      Ankole.Conversations.list_intents!(
+        query: [
+          filter: [agent_uid: agent.uid],
+          sort: [outbound_key: :asc]
+        ]
       )
+      |> Enum.filter(&String.starts_with?(&1.outbound_key, "tool:"))
 
     assert [text, attachment] = rows
     assert text.payload == %{"text" => "Here is the weekly report."}

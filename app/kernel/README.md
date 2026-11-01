@@ -15,7 +15,9 @@ The current modules are:
 
 - `common/` - AEAD tokens, key derivation, hashing,
   encodings, UUID helpers, JWT helpers, phone normalization, `o200k_base` token
-  estimation, and web URL classification and admission.
+  estimation and budget truncation, and web URL classification and admission.
+- `brain_chunker.rs` - CJK-aware recursive text chunking and exact `o200k_base`
+  token counting for Brain retrieval positions.
 - `web_proxy.rs` - a loopback SOCKS5 TCP proxy for local Chromium that validates
   both the requested host and every resolved IP address before connecting to a
   verified IP.
@@ -28,8 +30,9 @@ The current modules are:
   cancellation, and timeouts.
 - `object_store/` - file-service storage through OpenDAL across local files,
   S3, Azure Blob, D1, COS, PostgreSQL, OSS, TOS, GCS, SFTP, and WebDAV, with
-  bounded retries and per-call timeouts. Large objects stream through local
-  files and write in 8 MiB chunks, though some backends buffer the full object.
+  bounded retries and per-call timeouts. Large writes consume local files or
+  acknowledged binary streams in 8 MiB chunks, though some backends buffer the
+  full object. Byte-range reads return only the requested bytes to the caller.
 - `brain_markdoc/` - analysis of Brain bodies over CommonMark.
 - `model_image/` - validation and conversion of model images.
 - `signals/` - CEL routing-policy evaluation against a supplied context.

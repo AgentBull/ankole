@@ -125,7 +125,7 @@ defmodule AnkoleWeb.PodChatArtifactsTest do
 
     download =
       get(conn, "/api/v2/pod/conversations/#{id}/attachments/#{first_id}", %{
-        path: attachment["path"]
+        position: 0
       })
 
     assert response(download, 200) == bytes

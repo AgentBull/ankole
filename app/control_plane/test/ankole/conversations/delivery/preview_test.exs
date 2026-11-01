@@ -1289,10 +1289,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     refute_receive {:recovery_refresh, _request}
 
     assert :ok =
-             PreviewStates.wake_blocked(
-               signal.agent_uid,
-               signal.reply_binding_name
-             )
+             PreviewStates.wake_blocked(signal.reply_binding_id)
 
     woken =
       Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
@@ -1318,10 +1315,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert permanent["recovery_state"]["detail"]["code"] == 40_201
 
     assert :ok =
-             PreviewStates.wake_blocked(
-               signal.agent_uid,
-               signal.reply_binding_name
-             )
+             PreviewStates.wake_blocked(signal.reply_binding_id)
 
     assert Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint ==
              permanent
@@ -1754,8 +1748,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   defp steer_signal(subject_uid, source_event, suffix) do
     assert {:ok, %{status: :accepted, signal: %Signal{} = steer_event}} =
              Ankole.Conversations.Observe.emit_entry(
-               subject_uid,
-               source_event.reply_binding_name,
+               Ankole.Signals.get_agent_binding!(subject_uid, source_event.reply_binding_name).id,
                group_entry(%{
                  source_event_id: "preview-#{suffix}-event",
                  conversation_id: source_event.conversation_id,

@@ -22,7 +22,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
   describe "credentials" do
     test "retries decrypt the credential and only the current generation's token connects", ctx do
       assert %AgentWorker{token_digest: digest, token_ciphertext: ciphertext} =
-               worker = Repo.get!(AgentWorker, ctx.agent_uid)
+               worker = Repo.get_by!(AgentWorker, agent_uid: ctx.agent_uid)
 
       assert digest == :crypto.hash(:sha256, ctx.token)
       refute ciphertext == ctx.token
@@ -68,7 +68,9 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
       assert {:error, :stale_worker_generation} =
                AgentWorkers.authenticate(ctx.agent_uid, ctx.token)
 
-      assert {:error, :unknown_worker} = AgentWorkers.authenticate("missing-agent", ctx.token)
+      assert {:error, :invalid_worker_credential} =
+               AgentWorkers.authenticate("missing-agent", ctx.token)
+
       assert {:error, :invalid_worker_credential} = AgentWorkers.authenticate(ctx.agent_uid, "")
     end
 
@@ -82,7 +84,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
 
       {:ok, _key} = AppConfigure.put_global(definition, "rotated-installation-key")
 
-      generation = Repo.get!(AgentWorker, ctx.agent_uid).generation
+      generation = Repo.get_by!(AgentWorker, agent_uid: ctx.agent_uid).generation
 
       assert {:ok, %{generation: ^generation, tenant_id: tenant_id}} =
                AgentWorkers.authenticate(ctx.agent_uid, ctx.token)
@@ -97,7 +99,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
               %AgentWorker{state: :ready, transport_route: "route-1", incarnation_id: "inc-1"}} =
                join_worker(ctx.agent_uid, "route-1", "inc-1")
 
-      refute Repo.get!(AgentWorker, ctx.agent_uid).initial_start_pending
+      refute Repo.get_by!(AgentWorker, agent_uid: ctx.agent_uid).initial_start_pending
 
       set_row!(ctx.agent_uid, state: :stale, transport_route: nil)
 
@@ -145,10 +147,10 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
                )
 
       assert %AgentWorker{state: :stale, transport_route: nil} =
-               Repo.get!(AgentWorker, ctx.agent_uid)
+               Repo.get_by!(AgentWorker, agent_uid: ctx.agent_uid)
 
       assert {:error, :stale_transport_route} = heartbeat(ctx.agent_uid, "route-1", "inc-1")
-      assert %AgentWorker{state: :stale} = Repo.get!(AgentWorker, ctx.agent_uid)
+      assert %AgentWorker{state: :stale} = Repo.get_by!(AgentWorker, agent_uid: ctx.agent_uid)
     end
   end
 
@@ -177,7 +179,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
       assert :ok = AgentWorkers.request(ctx.agent_uid)
 
       assert %AgentWorker{wanted_until: %DateTime{} = until} =
-               Repo.get!(AgentWorker, ctx.agent_uid)
+               Repo.get_by!(AgentWorker, agent_uid: ctx.agent_uid)
 
       assert DateTime.diff(until, DateTime.utc_now(), :second) in 290..300
       assert_enqueued(worker: ReconcileJob, args: %{agent_uid: ctx.agent_uid})
@@ -188,7 +190,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
         Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(ctx.agent_uid)} end)
 
       assert :ok = AgentWorkers.request(ctx.agent_uid)
-      assert %AgentWorker{wanted_until: nil} = Repo.get!(AgentWorker, ctx.agent_uid)
+      assert %AgentWorker{wanted_until: nil} = Repo.get_by!(AgentWorker, agent_uid: ctx.agent_uid)
     end
   end
 
@@ -198,7 +200,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
     Repo.delete_all(Oban.Job)
 
     {:ok, _principal} = Principals.delete_agent(ctx.agent_uid)
-    assert %AgentWorker{state: :deleting} = Repo.get!(AgentWorker, ctx.agent_uid)
+    assert %AgentWorker{state: :deleting} = Repo.get_by!(AgentWorker, agent_uid: ctx.agent_uid)
     assert_enqueued(worker: ReconcileJob, args: %{agent_uid: ctx.agent_uid})
   end
 
@@ -214,7 +216,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
       %{
         transport_route: route,
         worker_id: agent_uid,
-        generation: Repo.get!(AgentWorker, agent_uid).generation
+        generation: Repo.get_by!(AgentWorker, agent_uid: agent_uid).generation
       }
     )
   end

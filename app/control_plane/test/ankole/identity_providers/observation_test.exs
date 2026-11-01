@@ -82,7 +82,7 @@ defmodule Ankole.IdentityProviders.ObservationTest do
                invitation_id: created.invitation.id
              )
 
-    assert Repo.get!(Principal, login.principal_uid).membership == :member
+    assert Repo.get_by!(Principal, uid: login.principal_uid).membership == :member
     assert Repo.get!(Ankole.Principals.Invitation, created.invitation.id).used_count == 1
   end
 
@@ -115,7 +115,7 @@ defmodule Ankole.IdentityProviders.ObservationTest do
              )
 
     assert login.principal_uid == guest.uid
-    assert Repo.get!(Principal, guest.uid).membership == :guest
+    assert Repo.get_by!(Principal, uid: guest.uid).membership == :guest
     assert Repo.get!(Ankole.Principals.Invitation, created.invitation.id).used_count == 0
   end
 
@@ -187,15 +187,15 @@ defmodule Ankole.IdentityProviders.ObservationTest do
                  action: "read"
                })
 
-      profile = Repo.get!(HumanUser, uid)
-      principal = Repo.get!(Principal, uid)
+      profile = Repo.get_by!(HumanUser, principal_uid: uid)
+      principal = Repo.get_by!(Principal, uid: uid)
       assert AuthZ.allowed?(uid, "workspace:presence", "read", %{})
 
       stub_login(adapter, :error)
       assert {:ok, %{principal_uid: ^uid}} = Login.complete_oidc_login(provider, "code", [])
-      Ankole.DataCase.assert_persisted_equal(Repo.get!(HumanUser, uid), profile)
-      assert Repo.get!(Principal, uid).display_name == principal.display_name
-      assert Repo.get!(Principal, uid).avatar_url == principal.avatar_url
+      Ankole.DataCase.assert_persisted_equal(Repo.get_by!(HumanUser, principal_uid: uid), profile)
+      assert Repo.get_by!(Principal, uid: uid).display_name == principal.display_name
+      assert Repo.get_by!(Principal, uid: uid).avatar_url == principal.avatar_url
 
       assert Repo.get!(Ankole.Principals.ExternalIdentity, observed.identity.id).metadata[
                "department_ids"
@@ -244,7 +244,11 @@ defmodule Ankole.IdentityProviders.ObservationTest do
         assert {:ok, %{principal_uid: ^uid}} =
                  Login.complete_oidc_login(no_secret_provider, "no-secret", [])
 
-        Ankole.DataCase.assert_persisted_equal(Repo.get!(HumanUser, uid), profile)
+        Ankole.DataCase.assert_persisted_equal(
+          Repo.get_by!(HumanUser, principal_uid: uid),
+          profile
+        )
+
         assert member?(uid, no_secret_group.id)
         assert member?(uid, child.id)
       end
@@ -252,15 +256,20 @@ defmodule Ankole.IdentityProviders.ObservationTest do
       if adapter == "lark" do
         stub_login(adapter, :empty_body)
         assert {:ok, %{principal_uid: ^uid}} = Login.complete_oidc_login(provider, "no-body", [])
-        Ankole.DataCase.assert_persisted_equal(Repo.get!(HumanUser, uid), profile)
+
+        Ankole.DataCase.assert_persisted_equal(
+          Repo.get_by!(HumanUser, principal_uid: uid),
+          profile
+        )
+
         assert member?(uid, child.id)
       end
 
       assert {:ok, _} =
                module.upsert_user(provider, Map.put(subject(adapter), "name", "New Name"))
 
-      assert Repo.get!(Principal, uid).display_name == "New Name"
-      Ankole.DataCase.assert_persisted_equal(Repo.get!(HumanUser, uid), profile)
+      assert Repo.get_by!(Principal, uid: uid).display_name == "New Name"
+      Ankole.DataCase.assert_persisted_equal(Repo.get_by!(HumanUser, principal_uid: uid), profile)
 
       blank =
         subject(adapter)
@@ -277,9 +286,9 @@ defmodule Ankole.IdentityProviders.ObservationTest do
       assert cleared.principal.uid == uid
       assert cleared.principal.display_name == nil
       assert cleared.principal.avatar_url == nil
-      assert Repo.get!(HumanUser, uid).email == nil
-      assert Repo.get!(HumanUser, uid).mobile == nil
-      assert Repo.get!(HumanUser, uid).job_title == nil
+      assert Repo.get_by!(HumanUser, principal_uid: uid).email == nil
+      assert Repo.get_by!(HumanUser, principal_uid: uid).mobile == nil
+      assert Repo.get_by!(HumanUser, principal_uid: uid).job_title == nil
       assert cleared.identity.metadata["department_ids"] == []
       refute member?(uid, child.id)
       refute member?(uid, parent.id)

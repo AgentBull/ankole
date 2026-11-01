@@ -157,8 +157,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
     client = Ankole.Plugins.TelegramAdapter.Config.client(consumer.config)
 
     Observe.emit_entry_with_attachments(
-      consumer.context.agent_uid,
-      consumer.context.binding_name,
+      consumer.context.binding_id,
       input,
       &Attachments.materialize_attachments(
         &1,
@@ -198,7 +197,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
       |> Enum.map(fn item ->
         {reaction_key, raw_key} = reaction_key(item)
 
-        Observe.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
+        Observe.emit_reaction(consumer.context.binding_id, %{
           source_event_id: "#{update_id}:#{action}:#{reaction_key}:#{user_id}",
           provider_conversation_id: channel_id,
           provider_message_id: Integer.to_string(message_id),
@@ -229,8 +228,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
          message_id when is_integer(message_id) <- message["message_id"],
          chat_id when is_integer(chat_id) <- chat["id"],
          user_id when is_integer(user_id) <- from["id"],
-         {:ok, principal} <-
-           Principals.resolve_platform_subject("telegram", Integer.to_string(user_id)),
          channel_id <- provider_conversation_id(bot.id, chat_id, message["message_thread_id"]),
          {:ok, value} <-
            ActionToken.resolve(
@@ -240,8 +237,10 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
              Integer.to_string(message_id),
              prefix: "tg1"
            ),
-         {:ok, _action_result} = result <-
-           Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+         {:ok, operator_principal_uid} <-
+           resolve_action_operator("telegram", Integer.to_string(user_id), value),
+         {:ok, action_result} = result <-
+           Observe.emit_action(consumer.context.binding_id, %{
              source_event_id: Integer.to_string(update_id),
              action_id: callback_id,
              provider_conversation_id: channel_id,
@@ -252,12 +251,24 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
                "name" => "telegram_callback",
                "value" => value,
                "operator_id" => Integer.to_string(user_id),
-               "operator_principal_uid" => principal.uid,
+               "operator_principal_uid" => operator_principal_uid,
                "provider_message_id" => Integer.to_string(message_id)
              },
              raw_payload: %{"update_id" => update_id, "callback_query_id" => callback_id}
            }) do
-      acknowledge_callback(event, callback_id)
+      case action_result do
+        %{status: :unauthorized_action} ->
+          acknowledge_callback(
+            event,
+            callback_id,
+            "You do not have permission to confirm this action card.",
+            true
+          )
+
+        _ ->
+          acknowledge_callback(event, callback_id)
+      end
+
       result
     else
       :ignored_sender ->
@@ -285,16 +296,34 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
     end
   end
 
-  defp acknowledge_callback(event, callback_id, message \\ nil)
+  defp acknowledge_callback(event, callback_id, message \\ nil, show_alert \\ false)
 
-  defp acknowledge_callback(%{"client" => %Client{} = client}, callback_id, message)
+  defp acknowledge_callback(%{"client" => %Client{} = client}, callback_id, message, show_alert)
        when is_binary(callback_id) do
-    body = MapHelpers.compact_map(%{"callback_query_id" => callback_id, "text" => message})
+    body =
+      MapHelpers.compact_map(%{
+        "callback_query_id" => callback_id,
+        "text" => message,
+        "show_alert" => if(show_alert, do: true)
+      })
+
     _result = Client.call(client, "answerCallbackQuery", body)
     :ok
   end
 
-  defp acknowledge_callback(_event, _callback_id, _message), do: :ok
+  defp acknowledge_callback(_event, _callback_id, _message, _show_alert), do: :ok
+
+  defp resolve_action_operator(provider, external_id, value) do
+    case Principals.resolve_platform_subject(provider, external_id) do
+      {:ok, principal} ->
+        {:ok, principal.uid}
+
+      {:error, :not_found} ->
+        if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]),
+          do: {:ok, nil},
+          else: {:error, :not_found}
+    end
+  end
 
   defp message_text(message) do
     cond do

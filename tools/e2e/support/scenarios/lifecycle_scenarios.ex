@@ -693,16 +693,21 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
   end
 
   @doc """
-  Runs a `session.reset_due` barrier and verifies later input uses the successor conversation.
+  Ages a completed IM conversation past `im_max_idle_seconds` and verifies the
+  next message rotates onto a successor `AIGateway` conversation with a wake briefing.
   """
-  def run_daily_session_reset(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
+  def run_cold_wake_session_recycle(%{
+        fake_feishu: fake_feishu,
+        agent: agent,
+        container: container
+      }) do
     mention = lark_bot_mention()
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_daily_reset_seed_1",
-               message_id: "om_daily_reset_seed_1",
-               chat_id: "oc_chaos_daily_reset",
+               event_id: "evt_cold_wake_seed_1",
+               message_id: "om_cold_wake_seed_1",
+               chat_id: "oc_chaos_cold_wake",
                chat_type: "p2p",
                text: "@_user_1 Reply exactly CHAOS_DIRECT_OK. Do not call tools.",
                mentions: [mention],
@@ -710,7 +715,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
                  DateTime.to_unix(DateTime.add(@base_time, 14_100, :millisecond), :millisecond)
              )
 
-    seed_input = signal_by_provider_message_id!(agent.uid, "om_daily_reset_seed_1")
+    seed_input = signal_by_provider_message_id!(agent.uid, "om_cold_wake_seed_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(
@@ -729,29 +734,20 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
       seed_reply,
       "CHAOS_DIRECT_OK",
       :reply,
-      "om_daily_reset_seed_1"
+      "om_cold_wake_seed_1"
     )
 
-    reset_at = DateTime.utc_now(:microsecond)
-    reset_event = append_session_reset_due!(agent.uid, seed_input.session_id, reset_at)
+    aged_at = DateTime.add(DateTime.utc_now(:microsecond), -4 * 86_400, :second)
 
-    assert {:ok, %{status: :driving}} =
-             ensure_input_driver!(reset_event, DateTime.add(reset_at, 1, :second))
-
-    assert_signal_finished!(reset_event.id)
-    closed_conversation = Repo.get!(Conversation, seed_message.conversation_id)
-
-    next_conversation =
-      Ankole.Sessions.ModelHistory.active_conversation(agent.uid, seed_input.session_id)
-
-    assert next_conversation.id != closed_conversation.id
-    assert closed_conversation.ended_at
+    {_, nil} =
+      from(m in Message, where: m.conversation_id == ^seed_message.conversation_id)
+      |> Repo.update_all(set: [inserted_at: aged_at, updated_at: aged_at])
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_daily_reset_after_1",
-               message_id: "om_daily_reset_after_1",
-               chat_id: "oc_chaos_daily_reset",
+               event_id: "evt_cold_wake_after_1",
+               message_id: "om_cold_wake_after_1",
+               chat_id: "oc_chaos_cold_wake",
                chat_type: "p2p",
                text: "@_user_1 Reply exactly CHAOS_DIRECT_OK. Do not call tools.",
                mentions: [mention],
@@ -759,7 +755,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
                  DateTime.to_unix(DateTime.add(@base_time, 14_300, :millisecond), :millisecond)
              )
 
-    after_input = signal_by_provider_message_id!(agent.uid, "om_daily_reset_after_1")
+    after_input = signal_by_provider_message_id!(agent.uid, "om_cold_wake_after_1")
     assert after_input.session_id == seed_input.session_id
 
     assert {:ok, %{status: :driving}} =
@@ -771,8 +767,17 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     assert {:ok, after_reply, after_message} =
              wait_for_completed_final_reply(container, after_input.id, deadline(60_000))
 
+    closed_conversation = Repo.get!(Conversation, seed_message.conversation_id)
+    next_conversation = Repo.get!(Conversation, after_message.conversation_id)
+
+    assert closed_conversation.ended_at != nil
+    assert next_conversation.id != closed_conversation.id
+
+    assert next_conversation.metadata["wake_briefing"]["previous_conversation_id"] ==
+             closed_conversation.id
+
+    assert next_conversation.metadata["wake_briefing"]["reason"] == "im_extended_idle"
     assert after_reply.message.text =~ "CHAOS_DIRECT_OK"
-    assert after_message.conversation_id == next_conversation.id
     assert_signal_completed!(after_input.id)
 
     assert_lark_final_reply(
@@ -780,25 +785,9 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
       after_reply,
       "CHAOS_DIRECT_OK",
       :reply,
-      "om_daily_reset_after_1"
+      "om_cold_wake_after_1"
     )
 
     %{seed: seed_message, after: after_message}
-  end
-
-  defp append_session_reset_due!(agent_uid, session_id, %DateTime{} = now) do
-    assert {:ok, %{signals: signals}} =
-             Ankole.Sessions.SessionReset.enqueue_daily_session_resets(now,
-               now: now,
-               timezone: "Etc/UTC"
-             )
-
-    reset_event =
-      Enum.find(signals, &(&1.agent_uid == agent_uid and &1.session_id == session_id))
-
-    assert reset_event
-    assert reset_event.producer == :kernel
-
-    reset_event
   end
 end

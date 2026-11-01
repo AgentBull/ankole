@@ -77,6 +77,7 @@ describe('SignalBindingEditorModel', () => {
 
     model.initialize('new:agent-a', {
       agentUID: 'agent-a',
+      routingMode: 'ai_colleague',
       adapterID: 'lark',
       name: 'lark-main',
       groupMessageMode: 'addressed_only',
@@ -88,6 +89,7 @@ describe('SignalBindingEditorModel', () => {
     expect(model.dirty.value).toBe(true)
     model.initialize('new:agent-a', {
       agentUID: 'agent-a',
+      routingMode: 'ai_colleague',
       adapterID: 'lark',
       name: 'lark-main',
       groupMessageMode: 'addressed_only',
@@ -104,6 +106,7 @@ describe('SignalBindingEditorModel', () => {
 
     model.initialize('new:agent-a', {
       agentUID: 'agent-a',
+      routingMode: 'ai_colleague',
       adapterID: 'lark',
       name: 'lark-main',
       groupMessageMode: 'addressed_only',
@@ -111,6 +114,7 @@ describe('SignalBindingEditorModel', () => {
       config: { domain: 'example' }
     })
     model.changeAdapter({
+      routingMode: 'ai_colleague',
       adapterID: 'slack',
       name: 'slack-main',
       groupMessageMode: 'observe_all',
@@ -133,6 +137,7 @@ describe('SignalBindingEditorModel', () => {
 
     model.initialize('binding:agent-a:lark:lark-main', {
       agentUID: 'agent-a',
+      routingMode: 'ai_colleague',
       adapterID: 'lark',
       name: 'lark-main',
       groupMessageMode: 'observe_all',

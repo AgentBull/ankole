@@ -1,4 +1,4 @@
-import { isEmpty, isRecord, type JsonObject } from '@agentbull/active-support'
+import { type JsonObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { PodAdminSettingsResponse } from '../api/generated/types.gen'
 
@@ -53,18 +53,6 @@ export function resolveInvitationExpiryISO(
     case 'custom':
       return new Date(customLocal).toISOString()
   }
-}
-
-export function formatPermissionCondition(condition: unknown): string | undefined {
-  if (condition === null || condition === undefined || condition === true) return undefined
-  if (typeof condition === 'string') {
-    const trimmed = condition.trim()
-    return trimmed === '' || trimmed === 'true' ? undefined : trimmed
-  }
-  if (isRecord(condition) && isEmpty(condition)) {
-    return undefined
-  }
-  return JSON.stringify(condition)
 }
 
 function defaultLocalExpiry(now = Date.now()): string {
@@ -176,7 +164,6 @@ export const PodSettingsModel = createModel(() => {
     selectedUID: signal(''),
     memberAction: signal<'suspended' | 'offboarded' | 'restore'>('suspended'),
     reason: signal(''),
-    identityVerified: signal(false),
     invitationEmail,
     invitationRole,
     expiryPreset,

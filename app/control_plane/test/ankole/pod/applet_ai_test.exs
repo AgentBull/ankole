@@ -3,25 +3,18 @@ defmodule Ankole.Pod.AppletAITest do
   alias Ankole.Pod.{Pages, Applets.AI, Applets.Capabilities}
   alias Ankole.AIGateway.Schemas.UsageRecord
 
-  setup do
-    :ok
-  end
-
   test "Applet text keeps original whitespace and Provider citation bytes" do
     agent = agent_fixture().principal.uid
     page = applet(agent)
     text = "\n  first\nsecond " <> <<0xE200::utf8>> <> "cite" <> <<0xE201::utf8>> <> "\n"
 
-    configure(
-      agent,
-      start_upstream_server(fn _ -> {:json, 200, response("completed", text, nil)} end)
-    )
+    configure(start_upstream_server(fn _ -> {:json, 200, response("completed", text, nil)} end))
 
     assert {:ok, %{text: ^text}} =
              AI.generate_text(page, %{"model" => "primary", "prompt" => "Write"})
   end
 
-  test "AI uses the creator Agent profile and quota when a Human invokes the Applet" do
+  test "AI uses the Pod profile and applet ledger when the creator is disabled and over quota" do
     agent = agent_fixture().principal.uid
     page = applet(agent)
     test_pid = self()
@@ -32,13 +25,14 @@ defmodule Ankole.Pod.AppletAITest do
         {:json, 200, response("completed", "Summary", nil)}
       end)
 
-    configure(agent, upstream)
+    configure(upstream)
 
     {:ok, _} =
       Ankole.AIAgent.TokenQuota.put(agent, %{
         "period_days" => 1,
-        "period_start_at" => DateTime.to_iso8601(DateTime.utc_now()),
-        "limit_tokens" => 100
+        "period_start_at" =>
+          DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), -3600, :second)),
+        "limit_tokens" => 1
       })
 
     assert {:ok, _record} =
@@ -50,7 +44,10 @@ defmodule Ankole.Pod.AppletAITest do
                output_tokens: 0
              })
 
-    assert :ok = Ankole.AIAgent.TokenQuota.ensure_available(agent)
+    assert {:error, {:agent_token_quota_exceeded, _}} =
+             Ankole.AIAgent.TokenQuota.ensure_available(agent)
+
+    assert {:ok, _principal} = Ankole.PrincipalsFixtures.disable_principal_fixture(agent)
 
     assert {:ok,
             %{
@@ -77,26 +74,12 @@ defmodule Ankole.Pod.AppletAITest do
     assert request["reasoning"]["effort"] == "low"
     assert request["instructions"] == "Be concise"
 
-    assert [%{subject_uid: ^agent, input_tokens: 7, output_tokens: 3}] =
+    assert {:ok, system} = Ankole.Principals.system_principal()
+
+    assert [%{subject_uid: subject_uid, origin: :applet, input_tokens: 7, output_tokens: 3}] =
              Repo.all(from(r in UsageRecord, where: r.model == "applet-ai-test/gpt-5.5"))
 
-    {:ok, _} =
-      Ankole.AIAgent.TokenQuota.put(agent, %{
-        "period_days" => 1,
-        "period_start_at" =>
-          DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), -3600, :second)),
-        "limit_tokens" => 1
-      })
-
-    assert {:error, %{status: 429, code: "agent_token_quota_exceeded"}} =
-             Capabilities.call(
-               %{"applet" => %{"pageId" => page.id}, "method" => "POST"},
-               viewer(page),
-               "ai.generateText",
-               [%{"model" => "light", "prompt" => "Over quota"}]
-             )
-
-    refute_receive {:applet_ai_request, _}
+    assert subject_uid == system.uid
   end
 
   test "AI returns partial or empty output on length exhaustion" do
@@ -104,7 +87,6 @@ defmodule Ankole.Pod.AppletAITest do
     page = applet(agent)
 
     configure(
-      agent,
       start_upstream_server(fn _ ->
         {:json, 200, response("incomplete", "", %{"reason" => "max_output_tokens"})}
       end)
@@ -114,25 +96,23 @@ defmodule Ankole.Pod.AppletAITest do
              AI.generate_text(page, %{"model" => "primary", "prompt" => "Think"})
   end
 
-  test "missing identity, raw models, unavailable profiles and invalid efforts fail before provider dispatch" do
-    {:ok, page} = Pages.create(actor_fixture(human_fixture().principal.uid), %{type: "applet"})
+  test "Human-created Applets need only a Pod profile and reject unsupported inputs" do
+    owner = human_fixture().principal.uid
+    {:ok, page} = Pages.create(actor_fixture(owner), %{type: "applet"})
 
     assert {:error, %{status: 422, code: "ai_not_configured"}} =
              AI.generate_text(page, %{"model" => "primary", "prompt" => "Hello"})
 
-    agent = agent_fixture().principal.uid
-    page = applet(agent)
     test_pid = self()
 
     configure(
-      agent,
       start_upstream_server(fn request ->
         send(test_pid, {:unexpected_ai, request})
-        {:json, 500, %{}}
+        {:json, 200, response("completed", "Hello", nil)}
       end)
     )
 
-    for model <- ["applet-ai-test/gpt-5.5", "nonexistent-profile", "embedding"] do
+    for model <- ["applet-ai-test/gpt-5.5", "nonexistent-profile", "embedding", "rerank"] do
       assert {:error, %{status: 422, code: "invalid_model"}} =
                AI.generate_text(page, %{"model" => model, "prompt" => "Hello"})
     end
@@ -146,10 +126,52 @@ defmodule Ankole.Pod.AppletAITest do
 
     refute_receive {:unexpected_ai, _}
 
-    {:ok, _} = Ankole.PrincipalsFixtures.disable_principal_fixture(agent)
-
-    assert {:error, %{code: "ai_not_configured"}} =
+    assert {:ok, %{text: "Hello"}} =
              AI.generate_text(page, %{"model" => "primary", "prompt" => "Hello"})
+
+    assert_receive {:unexpected_ai, _}
+  end
+
+  test "Applet and Brain send their own light overrides and keep separate usage origins" do
+    page = applet(agent_fixture().principal.uid)
+    owner = self()
+
+    configure(
+      start_upstream_server(fn request ->
+        send(owner, {:service_model, request.body["model"]})
+        {:json, 200, response("completed", "{\"ok\":true}", nil)}
+      end)
+    )
+
+    for {uid, model} <- [{"system", "applet-light"}, {"ankole_brain", "brain-light"}] do
+      assert {:ok, _} =
+               ModelProfiles.put_system_model_profile(uid, "light", %{
+                 provider_id: "applet-ai-test",
+                 model: model
+               })
+    end
+
+    assert {:ok, _} = AI.generate_text(page, %{"model" => "light", "prompt" => "Summarize"})
+    assert_receive {:service_model, "applet-light"}
+
+    assert {:ok, %{"ok" => true}} =
+             Ankole.Brain.ModelCalls.complete_json(
+               Ankole.Brain.Config.extraction_model(),
+               "Extract"
+             )
+
+    assert_receive {:service_model, "brain-light"}
+
+    assert [%{subject_uid: "system", origin: :applet}] =
+             Repo.all(from(r in UsageRecord, where: r.model == "applet-ai-test/applet-light"))
+
+    assert [%{subject_uid: "ankole_brain", origin: :brain}] =
+             Repo.all(from(r in UsageRecord, where: r.model == "applet-ai-test/brain-light"))
+
+    assert Ankole.AIGateway.UsageLedger.window_tokens(
+             "ankole_brain",
+             DateTime.add(DateTime.utc_now(), -60)
+           ) == 0
   end
 
   defp applet(agent) do
@@ -170,7 +192,7 @@ defmodule Ankole.Pod.AppletAITest do
     actor_fixture(parent.created_by.uid)
   end
 
-  defp configure(agent, upstream) do
+  defp configure(upstream) do
     {:ok, _} =
       ProviderConfigs.create_provider(%{
         provider_id: "applet-ai-test",
@@ -181,7 +203,7 @@ defmodule Ankole.Pod.AppletAITest do
       })
 
     {:ok, _} =
-      ModelProfiles.put_model_profile(agent, "primary", %{
+      ModelProfiles.put_default_model_profile(:tenant, "primary", %{
         provider_id: "applet-ai-test",
         model: "gpt-5.5"
       })

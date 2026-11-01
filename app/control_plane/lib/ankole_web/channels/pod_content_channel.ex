@@ -11,7 +11,7 @@ defmodule AnkoleWeb.PodContentChannel do
         Ankole.Conversations.Events.subscribe_rooms()
       end)
 
-      Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-content:" <> socket.assigns.tenant_id)
+      Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-content:" <> socket.assigns.tenant_id)
 
       case signature(socket) do
         {:ok, signature} ->
@@ -101,7 +101,7 @@ defmodule AnkoleWeb.PodContentChannel do
   def handle_info({:page_updated, id}, socket) do
     if AnkoleWeb.PodSocket.active?(socket.assigns) do
       AnkoleWeb.PodChannel.with_tenant(socket, fn ->
-        case Ankole.Pod.Pages.authorize(socket.assigns.actor, id, "page_view") do
+        case Ankole.Pod.Pages.authorize(socket.assigns.actor, id, "node_view") do
           {:ok, page} ->
             push(socket, "page_updated", Map.take(page, [:id, :title, :icon, :children_view]))
 
@@ -162,7 +162,7 @@ defmodule AnkoleWeb.PodContentChannel do
   defp signature(socket) do
     AnkoleWeb.PodChannel.with_tenant(socket, fn ->
       Ankole.Repo.transact_repeatable_read_only(fn ->
-        Ankole.Pod.Access.Graph.context_signature(socket.assigns.actor)
+        Ankole.Files.Access.Graph.context_signature(socket.assigns.actor)
       end)
     end)
   end

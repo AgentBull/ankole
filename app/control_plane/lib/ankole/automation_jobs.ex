@@ -73,25 +73,21 @@ defmodule Ankole.AutomationJobs do
     as: :authorize_actor_in_tx
 
   @doc """
-  Counts, in every tenant, the running Runs of the automation jobs that one
+  Counts, in the work tenant, the running Runs of the automation jobs that one
   Human authorized with an access version older than `version`.
   """
   @spec count_running_runs_for_human(String.t(), integer()) :: non_neg_integer()
   def count_running_runs_for_human(uid, version) do
     job_ids =
       Job
-      |> Ash.Query.for_read(:work_across_tenants)
       |> Ash.Query.filter(human_uid == ^uid and human_access_version < ^version)
       |> Ash.Query.select([:id])
-      |> Ankole.Ash.read_across_tenants!()
+      |> Ankole.Ash.read!()
       |> Enum.map(& &1.id)
 
-    Repo.across_tenants(fn ->
-      Run
-      |> Ash.Query.for_read(:across_tenants)
-      |> Ash.Query.filter(automation_job_id in ^job_ids and status == :running)
-      |> Ankole.Ash.count!()
-    end)
+    Run
+    |> Ash.Query.filter(automation_job_id in ^job_ids and status == :running)
+    |> Ankole.Ash.count!()
   end
 
   @doc """

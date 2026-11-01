@@ -51,10 +51,33 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
     )
     |> FeishuDispatcher.on_callback(
       @card_action,
-      handler(consumers, &Inbound.handle_card_action/3)
+      card_action_callback(consumers)
     )
     |> register_contact_handlers(consumers)
     |> register_im_group_handlers(consumers)
+  end
+
+  defp card_action_callback(consumers) do
+    inner = handler(consumers, &Inbound.handle_card_action/3)
+
+    fn event_type, %Event{} = event ->
+      case inner.(event_type, event) do
+        {:ok, results} when is_list(results) ->
+          if Enum.any?(results, &match?(%{status: :unauthorized_action}, &1)) do
+            %{
+              "toast" => %{
+                "type" => "warning",
+                "content" => "You do not have permission to confirm this action card."
+              }
+            }
+          else
+            {:ok, results}
+          end
+
+        other ->
+          other
+      end
+    end
   end
 
   defp register_contact_handlers(dispatcher, consumers) do

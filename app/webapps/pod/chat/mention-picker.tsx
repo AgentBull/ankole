@@ -52,8 +52,8 @@ export function MentionPicker({
   const matches = (name: string) => name.toLocaleLowerCase().includes(query.toLocaleLowerCase())
   const options: CompletionOption[] = [
     ...(!pagesOnly && allowAgents
-      ? (agents.data?.agents ?? [])
-          .filter(agent => matches(agent.displayName))
+      ? [...(agents.data?.agents ?? []), ...(agents.data?.personalAssistant ? [agents.data.personalAssistant] : [])]
+          .filter(agent => [agent.displayName, agent.uid, ...(agent.aliases ?? [])].some(matches))
           .map(agent => ({
             id: agent.uid,
             group: t('pod.chat_room.agents'),

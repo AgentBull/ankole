@@ -40,7 +40,7 @@ export function WorkersListPage() {
       searchQuery,
       worker.agent_uid,
       agent?.display_name ?? '',
-      agent?.handle ?? '',
+      agent?.uid ?? '',
       worker.provider_id ?? '',
       worker.state,
       reason(worker)

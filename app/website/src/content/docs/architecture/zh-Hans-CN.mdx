@@ -71,7 +71,7 @@ RuntimeFabric 为每台 Worker 维护一条专属的 Phoenix Channel，在控制
 
 `Ankole.Sessions` 统一管理输入队列、准入控制（Admission）、Driver、Run、内置工具与故障恢复，确保同一个执行会话在同一时刻只运行一个 Run。每次启动执行前，Admission 都会依次核验租户归属、Agent 状态、访问授权与配额。
 
-每个 Agent 在对话中拥有各自独立的执行会话，产出的工作结果对全体对话参与者可见。凡是交互式或由人类触发的回合——包括由人类消息唤醒的 `may_intervene` 主动介入回合（Agent 消息绝不会唤醒其他 Agent）——均在 **`Human ∩ Agent` 权限交集**（`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`）下执行，要求触发回合的人类与执行任务的 Agent 双方同时具备相应访问权限。而无交互人类参与的纯自主回合（如 `cron`、`webhook` 及后台服务触发器）则直接使用 Agent 自身的权限运行。
+每个 Agent 在对话中拥有独立的 Session，其可见输出由对话参与者共享。所有回合都以执行任务的 Agent 访问资源，包括交互回合、人类消息唤醒的 `may_intervene` 回合、定时任务和服务触发的回合。Agent 消息不会唤醒其他 Agent。人类是否在职及指令版本仍决定委托能否继续执行，但资源访问不再与人类的授权取交集。
 
 Cron 定时规则与后台任务均在独立执行会话中运行，完成后再向目标对话发布发言；目标对话在下一轮只会读取这些新发言，不会引入其他执行会话的内部推理过程。
 

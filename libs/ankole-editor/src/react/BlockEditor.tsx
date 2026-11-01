@@ -210,7 +210,7 @@ export function BlockEditor({
 
   return (
     <EditorContext.Provider value={handle}>
-      <div className={`ankole-editor ${className}`}>
+      <div translate="no" data-immersive-translate-ignore="" className={`ankole-editor notranslate ${className}`}>
         {failure !== undefined && <p role="alert">{failure instanceof Error ? failure.message : String(failure)}</p>}
         <fieldset disabled={readOnly} style={{ display: 'contents' }}>
           {toolbar === undefined ? <EditorToolbar /> : toolbar}

@@ -53,7 +53,7 @@ export function BrainPrincipalAuditPage() {
                 principal.status === 'disabled'
                   ? `${principal.display_name} · ${t('console.status.disabled')}`
                   : principalLabel(principal),
-              description: principal.email ?? principal.handle
+              description: principal.email ?? principal.id
             }))}
             error={principals.error}
             isLoading={principals.isLoading}

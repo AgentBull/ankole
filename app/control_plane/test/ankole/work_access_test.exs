@@ -1,6 +1,6 @@
 defmodule Ankole.WorkAccessTest do
   use Ankole.SessionsCase
-  alias Ankole.{AuthZ, AutomationJobs, Schedule, Workflow}
+  alias Ankole.{AutomationJobs, Schedule, Workflow}
   alias Ankole.Principals.HumanAccess
   alias Ankole.Principals.WorkAccess
   alias Ankole.Principals.WorkCleanup
@@ -60,12 +60,9 @@ defmodule Ankole.WorkAccessTest do
     assert {:ok, _} =
              HumanAccess.clear_restriction(human.uid, restriction.id, nil, "Verified", "clear")
 
-    assert {:ok, review} = AuthZ.restoration_review(human.uid)
-
     assert {:ok, _} =
              HumanAccess.restore(
                human.uid,
-               review.fingerprint,
                nil,
                "Approved permissions",
                "restore"
@@ -140,7 +137,7 @@ defmodule Ankole.WorkAccessTest do
 
     assert Repo.with_tenant(other_tenant.id, fn ->
              AutomationJobs.count_running_runs_for_human(human.uid, human.access_version + 1)
-           end) == 1
+           end) == 0
 
     assert {:ok, %{run: workflow}} = Workflow.create_with_dispatch(workflow(source))
 

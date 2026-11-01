@@ -289,7 +289,10 @@ defmodule Ankole.AgentWorkers.Kubernetes do
         |> Enum.map(fn resource ->
           worker_object(resource, pods_by_name[get_in(resource, ["metadata", "name"])])
         end)
-        |> Enum.filter(&(agent_uid_or_all == :all or &1.agent_uid == agent_uid_or_all))
+        |> Enum.filter(
+          &(agent_uid_or_all == :all or
+              {&1.tenant_id, &1.agent_uid} == {Ankole.Repo.tenant_id!(), agent_uid_or_all})
+        )
 
       if agent_uid_or_all == :all,
         do: {:ok, objects},
@@ -409,7 +412,7 @@ defmodule Ankole.AgentWorkers.Kubernetes do
 
       %{"sharedClaim" => claim} ->
         {volume, mount} = claim_mount("home", claim, "/workspace")
-        {volume, Map.put(mount, "subPath", agent_uid)}
+        {volume, Map.put(mount, "subPath", storage_name(provider, agent_uid))}
     end
   end
 
@@ -541,7 +544,11 @@ defmodule Ankole.AgentWorkers.Kubernetes do
                  claim_mount("home", provider.settings["storage"]["sharedClaim"], "/workspace"),
                env = [
                  %{"name" => "WORKER_ID", "value" => agent_uid},
-                 %{"name" => "ANKOLE_WORKER_TASK", "value" => "delete_storage"}
+                 %{"name" => "ANKOLE_WORKER_TASK", "value" => "delete_storage"},
+                 %{
+                   "name" => "ANKOLE_WORKER_STORAGE_NAME",
+                   "value" => storage_name(provider, agent_uid)
+                 }
                ],
                helper =
                  pod(
@@ -632,7 +639,10 @@ defmodule Ankole.AgentWorkers.Kubernetes do
     ] ++
       if(agent_uid_or_all == :all,
         do: [],
-        else: [{"ankole.io/agent", ProviderKind.hash16(agent_uid_or_all)}]
+        else: [
+          {"ankole.tenant", Ankole.Repo.tenant_id!()},
+          {"ankole.io/agent", ProviderKind.agent_hash(agent_uid_or_all)}
+        ]
       )
   end
 
@@ -667,6 +677,7 @@ defmodule Ankole.AgentWorkers.Kubernetes do
     {:ok, started_at, _offset} = DateTime.from_iso8601(timestamp)
 
     %{
+      tenant_id: get_in(resource, ["metadata", "labels", "ankole.tenant"]),
       agent_uid: get_in(resource, ["metadata", "annotations", "ankole.io/agent-uid"]),
       generation: get_in(resource, ["metadata", "labels", "ankole.io/generation"]),
       instance_ref: get_in(resource, ["metadata", "name"]),

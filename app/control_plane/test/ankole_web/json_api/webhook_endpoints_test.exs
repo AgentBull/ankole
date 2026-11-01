@@ -111,15 +111,12 @@ defmodule AnkoleWeb.JSONAPI.WebhookEndpointsTest do
   end
 
   test "disabling an unknown signal binding is not found", %{conn: conn} do
-    %{principal: agent} = agent_fixture()
     conn = console_conn(conn)
 
-    for agent_uid <- [agent.uid, "agt_missing"] do
-      assert %{"errors" => [%{"code" => "not_found"}]} =
-               conn
-               |> request(:delete, "/api/v2/agents/#{agent_uid}/signal-bindings/missing")
-               |> json_response(404)
-    end
+    assert %{"errors" => [%{"code" => "not_found"}]} =
+             conn
+             |> request(:delete, "/api/v2/signal-bindings/#{Ecto.UUID.generate()}")
+             |> json_response(404)
   end
 
   test "a request without the webhook grant changes nothing", %{conn: conn} do

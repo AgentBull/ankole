@@ -4,7 +4,6 @@ defmodule Ankole.Sessions.Tools.Message do
   import Ash.Expr, only: [expr: 1]
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tools
-  alias Ankole.Files
 
   alias Ankole.Signals.Adapters
   alias Ankole.Conversations.Conversation
@@ -16,7 +15,7 @@ defmodule Ankole.Sessions.Tools.Message do
     "name" => "send_message",
     "activity" => "processing",
     "description" =>
-      "Send a message through one of your IM bindings. Use a reachable conversation_id, or a principal_uid when the adapter can resolve that person's existing direct conversation. Attachments name files in your drive. The result reports sent only after provider delivery; failed reports its reason; unknown means the provider may have delivered it; queued means delivery is still pending. Do not resend an unknown message or claim delivery from queued.",
+      "Send a message through one of your IM bindings. Use a reachable conversation_id, or a principal_uid when the adapter can resolve that person's existing direct conversation. Attachments are UUIDs of Drive file nodes; the Agent must be allowed to read each one. The result reports sent only after provider delivery; failed reports its reason; unknown means the provider may have delivered it; queued means delivery is still pending. Do not resend an unknown message or claim delivery from queued.",
     "parameters" => %{
       "type" => "object",
       "properties" => %{
@@ -46,7 +45,7 @@ defmodule Ankole.Sessions.Tools.Message do
         "attachments" => %{
           "type" => "array",
           "maxItems" => 16,
-          "items" => %{"type" => "string", "minLength" => 1}
+          "items" => %{"type" => "string", "format" => "uuid"}
         }
       },
       "required" => ~w(destination text),
@@ -74,7 +73,7 @@ defmodule Ankole.Sessions.Tools.Message do
     key = "tool:#{Run.response_id(run.model_response)}:#{Run.call_id(call)}"
 
     with {:ok, binding} <-
-           Ankole.Signals.Bindings.get_binding(run.agent_uid, destination["binding"]),
+           binding_for_message(run, destination["binding"]),
          {:ok, adapter} <- Adapters.fetch_delivery(binding.adapter),
          true <- MapSet.member?(adapter.capabilities, :post_entry),
          {:ok, channel} <- conversation_in_tx(run, binding, adapter, destination),
@@ -98,10 +97,19 @@ defmodule Ankole.Sessions.Tools.Message do
     end
   end
 
+  defp binding_for_message(run, name) do
+    if run.event.reply_binding_name == name and is_binary(run.event.reply_binding_id) do
+      Ankole.Signals.Bindings.get_binding(run.event.reply_binding_id)
+    else
+      Ankole.Signals.Bindings.get_binding(run.agent_uid, name)
+    end
+  end
+
   defp commit_posts_in_tx(run, binding, channel, posts) do
     Enum.reduce_while(posts, :ok, fn {key, payload, text}, :ok ->
       case Delivery.commit_in_tx(%{
              agent_uid: run.agent_uid,
+             binding_id: binding.id,
              binding_name: binding.name,
              outbound_key: key,
              operation: :post,
@@ -173,7 +181,7 @@ defmodule Ankole.Sessions.Tools.Message do
              query: [
                filter: [
                  agent_uid: run.agent_uid,
-                 reply_binding_name: binding.name,
+                 reply_binding_id: binding.id,
                  conversation_id: id
                ],
                select: [:id],
@@ -196,29 +204,9 @@ defmodule Ankole.Sessions.Tools.Message do
     end
   end
 
-  defp attachment_refs(agent_uid, paths) do
-    Enum.reduce_while(paths, {:ok, []}, fn path, {:ok, refs} ->
-      case Files.fetch(agent_uid, path) do
-        {:ok, file} ->
-          {:cont,
-           {:ok,
-            [
-              %{
-                "path" => file.path,
-                "blob_ref" => Base.encode16(file.sha256, case: :lower),
-                "name" => Path.basename(file.path),
-                "size" => file.size
-              }
-              | refs
-            ]}}
-
-        error ->
-          {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, refs} -> {:ok, Enum.reverse(refs)}
-      error -> error
-    end
+  defp attachment_refs(agent_uid, node_ids) do
+    node_ids
+    |> Enum.map(&Delivery.Attachment.from_node(agent_uid, &1))
+    |> Ankole.Attrs.collect_results()
   end
 end

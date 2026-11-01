@@ -38,7 +38,8 @@ x-logging: &default-logging
 
 services:
   postgresql:
-    image: ${ANKOLE_POSTGRESQL_IMAGE:-ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:002f1569c7d90cc31b74e5eca3225a138d5e3b8a748f32eaa78752304502de71}
+    image: ${ANKOLE_POSTGRESQL_IMAGE:-ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:56457f8111e55e26fa15f750a32682560cbc8afc7a5bb03b706402b4ae7f9971}
+    shm_size: 1gb
     pull_policy: always
     restart: unless-stopped
     command:
@@ -94,10 +95,10 @@ services:
       - ${ANKOLE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - ./migrate-agent-homes.sh:/migrate-agent-homes.sh:ro
     network_mode: none
-    # The migration reads the existing Agents from PostgreSQL.
+    # Tenant-qualified storage names require the migrated Agent identities.
     depends_on:
-      postgresql:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     logging: *default-logging
 
   control-plane:

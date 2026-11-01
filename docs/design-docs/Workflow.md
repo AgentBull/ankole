@@ -241,6 +241,13 @@ current Human access inside its replay-input transaction before invoking the
 function runtime—without waiting for asynchronous offboarding sweeps—and every
 new task dispatch, wake, or retry re-checks Human access at admission.
 
+Workflow tasks and delegated Jobs authorize Drive and Pod resources as the
+executing Agent's Principal. The retained Human authorization controls whether
+work may be admitted; it does not intersect the Agent's resource grants. Private
+file paths resolve in that Agent's private root. References to received files
+use the source Message's frozen attachment object, and moving or replacing the
+source node does not alter those bytes.
+
 If Human access is revoked, Ankole marks the run `cancelled`, cancels unstarted
 calls, and blocks further dispatch, while allowing already admitted task turns
 and Worker turns to finish and record their results without sending an

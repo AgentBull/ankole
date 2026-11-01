@@ -6,7 +6,9 @@ integrations, conversations, and work, and every Principal belongs to exactly
 one tenant. A site administrator can inspect or manage another tenant's data
 without changing their own identity or authorization.
 
-Each standard tenant (`hybrid_tenant = false`) owns one Pod workspace. The
+Each standard tenant (`hybrid_tenant = false`) owns one Pod workspace and one
+public Drive root. Tenant initialization creates that root and seeds its Space
+policy in the same transaction. The
 `tenants` table also defines `hybrid_tenant` (`boolean NOT NULL DEFAULT false`,
 with transitions from `false` to `true` forbidden). When `hybrid_tenant` is
 `true`, tenant creation skips default Agent and welcome Page scaffolding, and
@@ -99,6 +101,24 @@ the affected tables until an operator repairs the shard.
 
 ## Durable ownership
 
+A Principal's full identity is `(tenant_id, uid)`, where `uid` is a normalized,
+meaningful name unique inside the tenant. Humans, AI colleagues and personal
+assistants may share names with Principals in other tenants. Authentication
+entrypoints establish the tenant before resolving a name: browser requests use
+their selected authentication, Agent keys carry a tenant claim, OIDC tokens
+resolve their client, and random Worker credential digests locate a Worker row.
+The Principal, Human, Agent and AgentWorker tables use composite tenant keys.
+UID foreign keys cascade explicit renames within their owning tenant.
+
+Worker resource names, storage prefixes, socket identifiers, PubSub topics and
+Signal binding configuration keys include tenant identity. Session Driver and
+reply preview process names also include the tenant. `Ankole.Job` binds tenant
+jobs to their stored `tenant_id` and includes it in argument-based uniqueness;
+job cancellation matches the same tenant-qualified arguments. Site inventory
+returns tenant-qualified records before entering a tenant's domain operation.
+Human work authorization and cleanup use the work's tenant; a site
+administrator's audit ActorRef keeps the administrator's own tenant.
+
 `Ankole.Tenants` owns the tenant lifecycle, and PostgreSQL stores all tenant
 membership and lifecycle state. Tenant-owned schemas declare their scope through
 `Ankole.Ash.Resource`, and `Ankole.Repo` requires an active tenant context and
@@ -134,6 +154,26 @@ matching `tenant_id` on every map unless wrapped in an explicit
 `Repo.across_tenants` block. Likewise, `Ankole.Repo` does not rewrite raw SQL
 strings or Ecto SQL fragments: the owning domain must supply explicit tenant
 predicates or declare the statement as site-wide.
+
+`TenancyGuardTest` records reviewed raw SQL calls by owning function and checks
+their counts against the source. Drive uses these statements for operations that
+span a tree or several reference tables:
+
+| Owner | Tenant boundary |
+| --- | --- |
+| `Files.Nodes` and `Files.Access` | Recursive ancestry, descendants, trash visibility, and ACL updates bind the active tenant at every table entry. Parent and child joins also match tenant IDs. |
+| `Files.Access.Graph` | The ACL graph loads nodes and grants only for the active tenant; subsequent recursive steps use those scoped sets. |
+| `Files.Paths` | File listing binds the tenant in both recursive branches and joins object metadata by tenant and object ID. |
+| `Files.Objects` | Collection binds the object tenant and checks each durable reference against that same tenant before attempting the foreign-key-protected delete. |
+| `Files.Jobs.PurgeNode` | Each purge batch selects leaves only in the active tenant and checks children within that tenant. |
+| `Pod.Pages.Queries.read_search_pages` | Title and body subqueries bind the active tenant explicitly. Each search branch reads the tenant-scoped Page projection with the caller's Drive authorization policy. |
+
+Root deletion temporarily defers the two ACL-anchor foreign keys within its
+transaction and validates them before returning. It still deletes through the
+tenant-scoped Node resource. `pod_page_nodes` is a read-only projection of
+`drive_nodes` and `pages`, joined by tenant and node ID; tenant cleanup deletes
+its owning tables, not the view. The physical object key has a global uniqueness
+constraint, while `file_objects` and every reference to it remain tenant-owned.
 
 For Ecto queries, `Ankole.Repo` attaches tenant ownership to every tenant-owned
 query source recursively:
@@ -211,9 +251,8 @@ Ankole enforces tenant isolation in `Ankole.Repo` rather than PostgreSQL RLS,
 backed by comprehensive Repo isolation tests across all tenant schemas, query
 shapes, joins, bulk operations, upserts, and stale or cross-tenant structs.
 Site-wide background scans read only minimal target IDs across tenants and then
-enter each tenant's context before running domain logic. As one explicit
-exception grounded in globally unique Principal UIDs, `WorkAccess` bounds its
-cross-tenant authorizer lookup by the selected work tenant.
+enter each tenant's context before running domain logic. `WorkAccess` resolves
+the authorizing Human in the work's tenant.
 
 Process tenant context is always explicit: `Repo.with_tenant/2` restores the
 previous context on exit or raise, and spawned processes never inherit tenancy
@@ -221,14 +260,14 @@ implicitly. Authenticated HTTP plugs and Worker endpoints set the context per
 request, long-lived processes bind it during `init`, and `Ankole.Job` persists
 `tenant_id` in durable job args (cancelling jobs whose tenant has been deleted,
 while site-wide jobs scan across tenants and enter each tenant individually).
-`RuntimeFabric` routes over the single `installation` namespace, relying on
-globally unique `agent_uid` values to separate Agents. Release tasks and Mix
+`RuntimeFabric` routes over the single `installation` namespace and identifies
+each Agent by `(tenant_id, agent_uid)`. Release tasks and Mix
 entry points must likewise enter each target tenant before writing tenant rows,
 and their tests must start with no ambient tenant set in setup.
 
-Within a tenant, natural names, email addresses, external subject bindings, and
-Agent handles are unique, whereas Principal UIDs are globally unique opaque
-identifiers. Historical attribution (`ankole:<tenant-id>:principal/<uid>`) and
+Within a tenant, Principal UIDs, email addresses, and external subject bindings
+are unique. Principal UIDs are meaningful names; different tenants can use the
+same name. Historical attribution (`ankole:<tenant-id>:principal/<uid>`) and
 work authorization (`human_uid`) are stored as plain text without foreign keys
 so audit trails remain readable after Principal deletion, while `WorkAccess`
 verifies live existence, status, and `access_version` before admitting work. By
@@ -420,12 +459,18 @@ replace terminal work through its owning domain, while already admitted attempts
 run to completion). Agent teardown releases Workers and persistent disks, and
 the background deletion job removes database rows in bounded, idempotent
 single-table batches ordered from leaves to parents so foreign-key cascades
-never delete bulk subtrees at once. For Pod content, batches delete
-`base_records`, `base_views`, `base_fields`, `base_tables`, `page_user_states`,
-`page_changes`, `page_contents`, and finally `pages` (deleting leaf pages before
-parent pages), while PostgreSQL constraints and the final destroy transaction
-prevent concurrent stragglers from leaving orphan rows, and the file garbage
-collector reclaims unreferenced blobs.
+never delete bulk subtrees at once. Ankole applies the time budget after a batch
+removes rows and continues past empty tables, so each pass either removes data
+or reaches final cleanup even when database queries are slow.
+Pod content metadata and attachment
+relations are removed before Drive nodes, and Drive node batches select leaves
+before applying their limit. The tenant's Base shard cleanup drops physical
+tables before its schema is removed. The final transaction enumerates the
+remaining `file_objects.storage_key` values and inserts site-owned DeleteObject
+outbox jobs before deleting their metadata. These jobs retain their storage keys
+and can remove the bytes after the tenant itself has been deleted. PostgreSQL
+constraints and the final destroy transaction prevent concurrent stragglers from
+leaving orphan rows.
 
 Interrupted deletion batches resume safely from PostgreSQL state; tenant
 deletion is irreversible and is neither a data export nor an undoable archive.

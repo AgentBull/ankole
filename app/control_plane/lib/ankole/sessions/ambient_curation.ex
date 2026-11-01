@@ -201,7 +201,7 @@ defmodule Ankole.Sessions.AmbientCuration do
        when is_binary(name) and name != "" do
     match?(
       %Binding{unaddressed_group_message_policy: :may_intervene},
-      Ankole.Signals.get_binding!(event.agent_uid, name)
+      Ankole.Signals.get_binding!(event.reply_binding_id)
     )
   end
 

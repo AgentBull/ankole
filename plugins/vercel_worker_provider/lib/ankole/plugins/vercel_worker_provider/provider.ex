@@ -168,7 +168,7 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
       with {:ok, sandboxes} <- sandboxes(provider) do
         collect(sandboxes, fn sandbox ->
           if uid_or_all == :all or
-               sandbox["tags"]["ankole-agent"] == ProviderKind.hash16(uid_or_all),
+               sandbox["tags"]["ankole-agent"] == ProviderKind.agent_hash(uid_or_all),
              do: observe_sandbox(provider, sandbox),
              else: {:ok, []}
         end)
@@ -177,14 +177,27 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
 
     with {:ok, tagged, rows} <-
            AgentWorkers.inventory_with_workers(provider.provider_id, uid_or_all, inventory) do
-      agents = Map.new(rows, &{ProviderKind.hash16(&1.agent_uid), &1.agent_uid})
+      agents =
+        Map.new(
+          rows,
+          &{ProviderKind.agent_hash(&1.tenant_id, &1.agent_uid), {&1.tenant_id, &1.agent_uid}}
+        )
 
       agents =
         if uid_or_all == :all,
           do: agents,
-          else: Map.put(agents, ProviderKind.hash16(uid_or_all), uid_or_all)
+          else:
+            Map.put(
+              agents,
+              ProviderKind.agent_hash(uid_or_all),
+              {Ankole.Repo.tenant_id!(), uid_or_all}
+            )
 
-      objects = Enum.map(tagged, fn {hash, object} -> %{object | agent_uid: agents[hash]} end)
+      objects =
+        Enum.map(tagged, fn {hash, object} ->
+          {tenant_id, uid} = Map.get(agents, hash, {nil, nil})
+          Map.merge(object, %{tenant_id: tenant_id, agent_uid: uid})
+        end)
 
       with {:ok, saved} <- collect(rows, &observe_missing_ref(provider, &1, objects)),
            do: {:ok, objects ++ saved}
@@ -345,7 +358,7 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
                    name(provider, row),
                    session
                  ),
-               do: {:ok, [object]}
+               do: {:ok, [Map.put(object, :tenant_id, row.tenant_id)]}
 
         {:error, {:vercel_api, 404, _, _}} ->
           ended(provider, row, "session not found")
@@ -362,6 +375,7 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
     {:ok,
      [
        %{
+         tenant_id: row.tenant_id,
          agent_uid: row.agent_uid,
          generation: row.generation,
          instance_ref: row.instance_ref,
@@ -492,13 +506,14 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
     do: "/v2/sandboxes/drives/" <> Client.path(storage_name(provider, uid))
 
   defp name(provider, spec),
-    do: ProviderKind.instance_name(provider.runtime.installation, spec.agent_uid, spec.generation)
+    do:
+      "ankole-#{provider.runtime.installation}-#{ProviderKind.agent_hash(spec.tenant_id, spec.agent_uid)}-#{spec.generation}"
 
   defp tags(provider, spec),
     do: %{
       "ankole-installation" => provider.runtime.installation,
       "ankole-provider" => provider.provider_id,
-      "ankole-agent" => ProviderKind.hash16(spec.agent_uid),
+      "ankole-agent" => ProviderKind.agent_hash(spec.agent_uid),
       "ankole-generation" => spec.generation,
       "ankole.tenant" => Ankole.Repo.tenant_id!()
     }

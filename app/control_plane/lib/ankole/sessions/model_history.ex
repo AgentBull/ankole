@@ -49,11 +49,23 @@ defmodule Ankole.Sessions.ModelHistory do
   end
 
   @doc false
-  @spec successor_origin_metadata(Conversation.t()) :: map()
-  def successor_origin_metadata(%Conversation{metadata: metadata}) do
+  @spec successor_origin_metadata(Conversation.t(), Signal.t() | nil) :: map()
+  def successor_origin_metadata(%Conversation{metadata: metadata}, fallback_signal \\ nil) do
     case Map.get(metadata || %{}, "origin") do
-      %{} = origin -> %{"origin" => origin}
-      _other -> %{}
+      %{} = origin when map_size(origin) > 0 ->
+        %{"origin" => origin}
+
+      _other ->
+        case fallback_signal do
+          %Signal{} = signal ->
+            case conversation_origin(signal) do
+              {:ok, %{} = origin} -> %{"origin" => origin}
+              _ -> %{}
+            end
+
+          _ ->
+            %{}
+        end
     end
   end
 
@@ -75,6 +87,33 @@ defmodule Ankole.Sessions.ModelHistory do
          :ok <- Ankole.Brain.ConversationTriggers.conversation_ended_in_tx(session_id) do
       {:ok, conversation}
     end
+  end
+
+  @doc """
+  Computes the model-history context identity used by Worker CLIs to deduplicate
+  first-use command guidance across turns of the same uncompacted conversation.
+
+  Ordinary follow-up turns keep the same `contextId`. A new conversation (`/new`
+  or cold-wake recycle) or a compaction checkpoint advances `contextId`.
+  """
+  @spec cli_context_id(String.t(), Conversation.t() | nil) :: String.t() | nil
+  def cli_context_id(_subject_uid, nil), do: nil
+
+  def cli_context_id(subject_uid, %Conversation{id: conversation_id})
+      when is_binary(subject_uid) and is_binary(conversation_id) do
+    checkpoint_id =
+      case AIGateway.visible_response_chain(subject_uid, conversation_id) do
+        {:ok, visible} ->
+          case Enum.find(Enum.reverse(visible), &(&1.type == :checkpoint)) do
+            %Message{id: id} -> id
+            nil -> "root"
+          end
+
+        _ ->
+          "root"
+      end
+
+    "#{conversation_id}:cmp:#{checkpoint_id}"
   end
 
   # The `conversation_id: nil` clause covers a non-channel-triggering event
@@ -164,33 +203,6 @@ defmodule Ankole.Sessions.ModelHistory do
   def publish_failed_response(%Message{} = response) do
     error = Map.get(response.metadata || %{}, "error", %{"code" => "response_failed"})
     AIGateway.publish_terminal_event(response, :response_failed, %{error: error})
-  end
-
-  @doc "Returns Message IDs read by model calls owned by this Signal."
-  def read_message_ids_in_tx(%Signal{} = signal) do
-    case active_conversation(signal.agent_uid, signal.session_id) do
-      nil ->
-        []
-
-      conversation ->
-        {:ok, rows} =
-          AIGateway.list_conversation_responses_in_tx(signal.agent_uid, conversation.id)
-
-        rows
-        |> Enum.flat_map(fn row ->
-          metadata = AIGateway.response_metadata(row)
-
-          case metadata["conversation_read"] do
-            %{"id" => id, "message_ids" => ids}
-            when id == signal.conversation_id and is_list(ids) ->
-              if metadata["signal_id"] == signal.id, do: ids, else: []
-
-            _ ->
-              []
-          end
-        end)
-        |> Enum.uniq()
-    end
   end
 
   @doc false

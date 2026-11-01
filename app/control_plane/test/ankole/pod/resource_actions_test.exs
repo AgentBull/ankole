@@ -2,7 +2,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
   use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.Pod.{Page, Pages}
+  alias Ankole.Pod.{Page, Pages, Properties}
 
   test "stored predicates protect copy initialization and nonempty personal state" do
     owner = human_fixture().principal
@@ -58,29 +58,33 @@ defmodule Ankole.Pod.ResourceActionsTest do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :applet})
 
+    properties = Repo.get_by!(Properties, id: page.id)
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, second} =
              Repo.transact(fn _ ->
-               with {:ok, first} <- Ankole.Ash.update(page, :advance_revision, %{updated_at: now}),
+               with {:ok, first} <-
+                      Ankole.Ash.update(properties, :advance_revision, %{updated_at: now}),
                     {:ok, second} <-
-                      Ankole.Ash.update(page, :advance_revision, %{updated_at: now}) do
+                      Ankole.Ash.update(properties, :advance_revision, %{updated_at: now}) do
                  assert first.revision == page.revision + 1
                  {:ok, second}
                end
              end)
 
     assert second.revision == page.revision + 2
-    Ankole.DataCase.assert_persisted_equal(Repo.get!(Page, page.id), second)
+    Ankole.DataCase.assert_persisted_equal(Repo.get_by!(Properties, id: page.id), second)
   end
 
   test "editing a page cannot replace its identity, type, attribution, or revision" do
     owner = human_fixture().principal
     {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{})
 
+    properties = Repo.get_by!(Properties, id: page.id)
+
     assert {:error, error} =
              Repo.transact(fn _ ->
-               Ankole.Ash.update(page, :edit, %{
+               Ankole.Ash.update(properties, :edit, %{
                  id: Ankole.Ecto.UUIDv7.autogenerate(),
                  type: :applet,
                  created_by: Ankole.ActorRef.from_principal(owner),

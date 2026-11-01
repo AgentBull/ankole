@@ -147,7 +147,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   defp emit_message(consumer, activity) do
     case normalize_message_receive(activity, consumer) do
       {:ok, input} ->
-        Observe.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
+        Observe.emit_entry(consumer.context.binding_id, input)
 
       {:ignore, reason} ->
         {:ok, %{status: :"ignored_#{reason}", reason: reason}}
@@ -194,7 +194,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
         provider_time: provider_time(activity)
       }
 
-      Observe.emit_entry_removed(consumer.context.agent_uid, consumer.context.binding_name, input,
+      Observe.emit_entry_removed(consumer.context.binding_id, input,
         provider_lifecycle_kind: :deleted
       )
     end
@@ -213,7 +213,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
       |> Enum.map(fn reaction ->
         raw = MapHelpers.optional_text(reaction, "type") || "unknown"
 
-        Observe.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
+        Observe.emit_reaction(consumer.context.binding_id, %{
           source_event_id: reaction_event_id(activity, action, target_id, raw, actor),
           provider_conversation_id: Conversations.conversation_id(base_conversation_id),
           provider_message_id: target_id,
@@ -244,22 +244,38 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
          {:ok, conversation_id} <- provider_conversation_id(activity),
          true <- is_binary(operator) || :missing_operator do
       base_conversation_id = Conversations.base_conversation_id(conversation_id)
-      reply_to = MapHelpers.optional_text(activity, "replyToId")
+      decoded_value = decode_action_value(value)
+
+      reply_to =
+        MapHelpers.optional_text(activity, "replyToId") ||
+          reply_surface_entry_id(consumer, decoded_value)
+
       thread_root = Conversations.thread_root(conversation_id) || reply_to || activity_id
 
-      Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+      operator_principal_uid =
+        case Ankole.Principals.resolve_platform_subject_uid(
+               Config.subject_namespace(consumer.config),
+               operator
+             ) do
+          {:ok, uid} -> uid
+          _ -> nil
+        end
+
+      Observe.emit_action(consumer.context.binding_id, %{
         source_event_id: activity_id,
         action_id: activity_id,
         provider_conversation_id: Conversations.conversation_id(base_conversation_id),
         provider_message_id: reply_to,
         provider_thread_id: Conversations.provider_thread_id(base_conversation_id, thread_root),
         signal_type: "signal.action.invoked",
-        action: %{
-          "name" => MapHelpers.optional_text(value, "action") || "submit",
-          "value" => decode_action_value(value),
-          "operator_id" => operator,
-          "provider_message_id" => reply_to
-        },
+        action:
+          MapHelpers.compact_map(%{
+            "name" => MapHelpers.optional_text(value, "action") || "submit",
+            "value" => decoded_value,
+            "operator_id" => operator,
+            "operator_principal_uid" => operator_principal_uid,
+            "provider_message_id" => reply_to
+          }),
         raw_payload: activity
       })
     else
@@ -276,6 +292,30 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
         error
     end
   end
+
+  defp reply_surface_entry_id(consumer, %{"sourceSignalId" => signal_id})
+       when is_binary(signal_id) do
+    Ankole.Conversations.list_intents!(
+      query: [
+        filter: [
+          agent_uid: consumer.context.agent_uid,
+          binding_name: consumer.context.binding_name,
+          source_signal_id: signal_id,
+          status: :sent,
+          created_provider_message_id: [is_nil: false]
+        ],
+        sort: [inserted_at: :asc],
+        limit: 1,
+        select: [:created_provider_message_id]
+      ]
+    )
+    |> case do
+      [intent] -> intent.created_provider_message_id
+      [] -> nil
+    end
+  end
+
+  defp reply_surface_entry_id(_consumer, _value), do: nil
 
   @doc false
   @spec card_action?(map()) :: boolean()

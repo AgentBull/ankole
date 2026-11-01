@@ -61,6 +61,10 @@ defmodule Ankole.Pod.PageSnapshot do
     destroy :purge do
       require_atomic?(true)
     end
+
+    update :rename_mentions do
+      accept([:content])
+    end
   end
 
   @type t :: %__MODULE__{}

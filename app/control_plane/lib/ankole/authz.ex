@@ -6,10 +6,16 @@ defmodule Ankole.AuthZ do
   deterministic rule evaluation over explicit snapshots.
 
   This module is the AuthZ domain. A write that locks a group, a Principal, or
-  the Pod tree is a generic action that owns its transaction. `Ankole.AuthZ.Store`
+  the Drive tree is a generic action that owns its transaction. `Ankole.AuthZ.Store`
   and `Ankole.AuthZ.Grants` give the same steps to another domain's action.
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
+
+  defdelegate validate_turn_authority(authority), to: Ankole.AuthZ.TurnAuthority, as: :validate
+
+  defdelegate authorize_turn_in_tx(authority),
+    to: Ankole.AuthZ.TurnAuthority,
+    as: :authorize_in_tx
 
   alias Ankole.AuthZ.Decision
   alias Ankole.AuthZ.ExternalBinding
@@ -96,7 +102,6 @@ defmodule Ankole.AuthZ do
 
   defdelegate administrator_recovery_required?(), to: Ankole.AuthZ.Recovery
   defdelegate recover_admin_in_tx(uid), to: Ankole.AuthZ.Recovery
-  defdelegate restoration_review(uid), to: Ankole.AuthZ.Recovery
 
   defdelegate list_principal_groups(), to: Ankole.AuthZ.Groups
   defdelegate get_principal_group(id_or_name), to: Ankole.AuthZ.Groups
@@ -163,7 +168,7 @@ defmodule Ankole.AuthZ do
     to: Decision
 
   defdelegate authorize_checks(principal_uid, checks, context \\ %{}), to: Decision
-  defdelegate evaluate_pod_context(principal_uid, context), to: Decision
+  defdelegate evaluate_drive_context(principal_uid, context), to: Decision
 
   defdelegate authorize_locked_in_tx(actor, record, action, opts \\ []),
     to: Ankole.AuthZ.LockedAccess,

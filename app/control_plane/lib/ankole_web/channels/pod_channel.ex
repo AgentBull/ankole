@@ -7,7 +7,7 @@ defmodule AnkoleWeb.PodChannel do
     do: Ankole.Repo.with_tenant(socket.assigns.tenant_id, fun)
 
   def subscribe(socket) do
-    Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-access:" <> socket.assigns.tenant_id)
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-access:" <> socket.assigns.tenant_id)
     Process.send_after(self(), :periodic_access, 60_000)
     :ok
   end
@@ -21,7 +21,7 @@ defmodule AnkoleWeb.PodChannel do
         AnkoleWeb.PodSocket.active?(socket.assigns) and
           match?(
             {:ok, _},
-            Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "page_view", opts)
+            Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view", opts)
           )
       end)
 

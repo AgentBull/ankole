@@ -5,13 +5,27 @@ import type { BunPlugin } from 'bun'
 import { POD_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import { errorMessage, nodeErrorCode } from '../../common/errors'
+import { emitFirstUseGuidance, installStdoutEpipeGuard, markHelpSeen } from '../cli-guidance'
+
+const POD_FIRST_USE_GUIDANCE = [
+  'ankole-pod writes pure JSON to stdout; run `ankole-pod --help` for full operations and schemas.',
+  '- Read/search pages: `ankole-pod pages.search \'{"query":"..."}\'`, `ankole-pod pages.read \'{"id":"<node-id>","markdown_path":"page.md"}\'`',
+  '- Comments on pages & files: `ankole-pod comments list|show|reply|resolve <node-id> ...`',
+  '- Base tables: `ankole-pod base.tables|base.schema|base.query|base.write \'{"id":"..."}\'`',
+  '- If a write or sharing change is forbidden, draft an Action Card via `propose_action_card` for human confirmation.'
+].join('\n')
 
 export const POD_CLI_HELP = `ankole-pod — durable pages and data in your Pod
 
 Run inside an active Ankole turn or AutomationJob attempt. Each operation uses the Agent's
 Principal permissions. If access is denied, ask a member to share the page
-or add your Agent to the space. Interactive access uses Human ∩ Agent permissions.
+or add your Agent to the space.
 
+  ankole-pod chat attachment get <conversation-id> <message-id> <position> --to <worker-path>
+  ankole-pod comments list <page-id|--page id> [--status open|resolved|all|unread] [--cursor <token>] [--limit <n>]
+  ankole-pod comments show <page-id|--page id> <comment-id|--comment id>
+  ankole-pod comments reply <page-id|--page id> <root-comment-id|--root id> <body|--body text>
+  ankole-pod comments resolve <page-id|--page id> <comment-id|--comment id> --version <n> [--reopen]
   ankole-pod <operation> '<JSON parameters>'
   ankole-pod <operation> --input <JSON file>
   ankole-pod applet init <directory>
@@ -27,7 +41,10 @@ Read operations:
   pages.search     {query, required_action?, exclude_subtree_of?} — searches titles and document text, up to 30 matches
   pages.read       {id} — returns Markdown and the current page revision
   pages.sharing    {id}
+  comments.list    {id, status?: open|resolved|all|unread, cursor?, limit?} — lists document or file comment threads
+  comments.show    {id, comment_id} — returns a comment thread with quote, anchor, and replies
   files.manifest   {id}
+  files.download   {id, path, local_path, sha256?}
   base.tables  {id: base_page_id}
   base.schema  {id: table_id}
   base.query   {id, filter?, sort?, page_size?, page_token?, ids?}
@@ -35,7 +52,7 @@ Read operations:
 
 Write operations:
   pages.set_sharing {id, sharing_version, inherit_permissions?, grants?} — requires manage access
-  pages.create     {type: doc|base|applet|file, title, parent_id?, private_owner_uid?}
+  pages.create     {type: folder|file|doc|base|applet, title, parent_id?, private_owner_uid?}
   pages.update     {id, title?, expected_title?, icon?} — expected_title is required whenever title is supplied
   pages.move       {id, parent_id?, private_owner_uid?}
   pages.delete     {id} — moves the subtree into the trash
@@ -43,7 +60,11 @@ Write operations:
   pages.write      {id, base_revision, markdown} — stale writes are rejected
   pages.append     {id, base_revision, markdown}
   pages.patch      {id, base_revision, edits:[{old_text,new_text,replace_all?}]}
-  files.upload     {id, local_path, role: file|asset|attachment, base_revision?}
+  comments.reply   {id, root_id, body} — replies to an existing root comment thread (requires comment access)
+  comments.resolve {id, comment_id, version, resolved?: boolean} — resolves or reopens a root thread
+  files.upload     {id, local_path, role: file|asset|attachment, base_object_id?}
+    For role=file, pass the current files.manifest entry's object_id as
+    base_object_id; omit it only when the file is empty. Stale replacements fail.
   base.create_table {id: base_page_id, name}
   base.delete_table {id: table_id} — requires manage access
   base.create_field {id: table_id, name, type, config?}
@@ -83,22 +104,23 @@ Base parameter shapes:
   view type: grid|kanban|gallery
 
 Page access:
-  view reads page content and records. contribute also writes records and
-  uploads record attachments. edit changes documents, schemas, and Applet
-  source. manage also changes sharing, deletes tables, and uses the trash.
-  Pass parent_id to pages.create to create a child directly. This requires
-  edit access to the parent page. The child inherits its permissions;
-  creating a page does not grant its creator Full access (manage).
-  Editing content, title, or icon requires edit access. An editor can move a
-  page when its subtree's access stays unchanged. A move that changes access
-  requires Full access (manage) to the source page. Moving under a page
-  also requires edit access to that page. Deleting a page or changing its
-  sharing requires Full access (manage) to that page.
+  view reads content and records. On a Base, contribute writes records and
+  uploads record attachments; edit changes schemas and metadata.
+  Pass parent_id to pages.create to create a child. Folders and conversation
+  roots require contribute; public/private roots, documents, Bases, and Applets
+  require edit. A child inherits permissions; creating it does not grant manage.
+  The first write to an empty file requires contribute on its parent. Replacing
+  file content, renaming, or moving an existing file requires edit. Deleting a
+  file or folder requires edit; deleting a document, Base, or Applet requires
+  manage. Restoring trash and changing sharing require manage.
+  A move that changes the subtree's access requires manage on the source, plus
+  permission to create a child in the destination. Editing document or Applet
+  content, titles, and icons requires edit.
 
 Always read before updating. A record patch carries versions for the fields
 it changes; record deletion carries the whole versions map. A conflict means
 read again and reconsider the change. Do not retry an old write blindly.
-Use ankole-files get pages/<page-id>/<path> --pod to read a page file.
+Use files.download with the page ID and manifest-relative path to read a page file.
 
 Applets export provider = defineApplet(App) from src/main.tsx, use the Pod
 components and @ankole/applet-sdk hooks, and save business data in Base.
@@ -367,6 +389,35 @@ export async function buildApplet(directory: string) {
 }
 
 export async function commandFromArgs(args: string[], cwd = process.cwd()) {
+  if (args[0] === 'chat' && args[1] === 'attachment' && args[2] === 'get') {
+    const [, , , conversationId, messageId, rawPosition, toFlag, destination] = args
+    const position = Number(rawPosition)
+    if (
+      !conversationId ||
+      !messageId ||
+      !rawPosition ||
+      !/^\d+$/.test(rawPosition) ||
+      !Number.isSafeInteger(position) ||
+      toFlag !== '--to' ||
+      !destination ||
+      args.length !== 8
+    ) {
+      throw new Error('Use chat attachment get <conversation-id> <message-id> <position> --to <worker-path>')
+    }
+    return {
+      operation: 'chat.attachment.get',
+      params: {
+        conversation_id: conversationId,
+        message_id: messageId,
+        position,
+        local_path: destination
+      },
+      cwd
+    }
+  }
+  if (args[0] === 'comments') {
+    return parseCommentsCommand(args.slice(1), cwd)
+  }
   if (args[0] === 'page' && args[1] === 'set-sharing') {
     const id = args[2]
     if (!id) throw new Error('Use page set-sharing <page-id> <JSON body> or sharing flags')
@@ -423,6 +474,146 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
   return { operation, params: parseParams(json), cwd }
 }
 
+function parseCommentsCommand(rest: string[], cwd: string) {
+  const [subcommand, ...tail] = rest
+  if (subcommand === 'list') {
+    let id: string | undefined
+    let status: string | undefined
+    let cursor: string | undefined
+    let limit: number | undefined
+    for (let index = 0; index < tail.length; index++) {
+      const arg = tail[index]!
+      if (arg === '--page' || arg === '--id') {
+        id = tail[++index]
+        if (!id) throw new Error(`${arg} requires a page id`)
+      } else if (arg === '--status') {
+        const value = tail[++index]
+        if (!value || !['open', 'resolved', 'all', 'unread'].includes(value)) {
+          throw new Error('--status must be open, resolved, all, or unread')
+        }
+        status = value
+      } else if (arg === '--cursor') {
+        cursor = tail[++index]
+        if (!cursor) throw new Error('--cursor requires a value')
+      } else if (arg === '--limit') {
+        const raw = tail[++index]
+        const parsed = Number(raw)
+        if (!raw || !/^\d+$/.test(raw) || !Number.isSafeInteger(parsed) || parsed <= 0) {
+          throw new Error('--limit requires a positive integer')
+        }
+        limit = parsed
+      } else if (!arg.startsWith('-') && !id) {
+        id = arg
+      } else {
+        throw new Error(`Unknown comments list argument: ${arg}`)
+      }
+    }
+    if (!id) {
+      throw new Error(
+        'Use comments list <page-id> [--status open|resolved|all|unread] [--cursor <token>] [--limit <n>]'
+      )
+    }
+    return {
+      operation: 'comments.list',
+      params: {
+        id,
+        ...(status ? { status } : {}),
+        ...(cursor ? { cursor } : {}),
+        ...(limit !== undefined ? { limit } : {})
+      },
+      cwd
+    }
+  }
+  if (subcommand === 'show') {
+    let id: string | undefined
+    let commentId: string | undefined
+    for (let index = 0; index < tail.length; index++) {
+      const arg = tail[index]!
+      if (arg === '--page' || arg === '--id') {
+        id = tail[++index]
+        if (!id) throw new Error(`${arg} requires a page id`)
+      } else if (arg === '--comment') {
+        commentId = tail[++index]
+        if (!commentId) throw new Error('--comment requires a comment id')
+      } else if (!arg.startsWith('-') && !id) {
+        id = arg
+      } else if (!arg.startsWith('-') && !commentId) {
+        commentId = arg
+      } else {
+        throw new Error(`Unknown comments show argument: ${arg}`)
+      }
+    }
+    if (!id || !commentId) throw new Error('Use comments show <page-id> <comment-id>')
+    return { operation: 'comments.show', params: { id, comment_id: commentId }, cwd }
+  }
+  if (subcommand === 'reply') {
+    let id: string | undefined
+    let rootId: string | undefined
+    let body: string | undefined
+    for (let index = 0; index < tail.length; index++) {
+      const arg = tail[index]!
+      if (arg === '--page' || arg === '--id') {
+        id = tail[++index]
+        if (!id) throw new Error(`${arg} requires a page id`)
+      } else if (arg === '--root') {
+        rootId = tail[++index]
+        if (!rootId) throw new Error('--root requires a root comment id')
+      } else if (arg === '--body') {
+        body = tail[++index]
+        if (!body) throw new Error('--body requires text')
+      } else if (!arg.startsWith('-') && !id) {
+        id = arg
+      } else if (!arg.startsWith('-') && !rootId) {
+        rootId = arg
+      } else if (!arg.startsWith('-') && body === undefined) {
+        body = arg
+      } else {
+        throw new Error(`Unknown comments reply argument: ${arg}`)
+      }
+    }
+    if (!id || !rootId || !body || !body.trim()) {
+      throw new Error('Use comments reply <page-id> <root-comment-id> <body>')
+    }
+    return { operation: 'comments.reply', params: { id, root_id: rootId, body }, cwd }
+  }
+  if (subcommand === 'resolve') {
+    let id: string | undefined
+    let commentId: string | undefined
+    let version: number | undefined
+    let resolved = true
+    for (let index = 0; index < tail.length; index++) {
+      const arg = tail[index]!
+      if (arg === '--page' || arg === '--id') {
+        id = tail[++index]
+        if (!id) throw new Error(`${arg} requires a page id`)
+      } else if (arg === '--comment') {
+        commentId = tail[++index]
+        if (!commentId) throw new Error('--comment requires a comment id')
+      } else if (arg === '--version') {
+        const raw = tail[++index]
+        const parsed = Number(raw)
+        if (!raw || !/^\d+$/.test(raw) || !Number.isSafeInteger(parsed) || parsed < 1) {
+          throw new Error('--version requires a positive integer')
+        }
+        version = parsed
+      } else if (arg === '--reopen') {
+        resolved = false
+      } else if (!arg.startsWith('-') && !id) {
+        id = arg
+      } else if (!arg.startsWith('-') && !commentId) {
+        commentId = arg
+      } else {
+        throw new Error(`Unknown comments resolve argument: ${arg}`)
+      }
+    }
+    if (!id || !commentId || version === undefined) {
+      throw new Error('Use comments resolve <page-id> <comment-id> --version <n> [--reopen]')
+    }
+    return { operation: 'comments.resolve', params: { id, comment_id: commentId, version, resolved }, cwd }
+  }
+  throw new Error('Use comments list|show|reply|resolve ...')
+}
+
 function parseParams(json: string) {
   const params: unknown = JSON.parse(json)
   if (!params || typeof params !== 'object' || Array.isArray(params)) {
@@ -432,15 +623,21 @@ function parseParams(json: string) {
 }
 
 if (import.meta.main) {
+  installStdoutEpipeGuard(process.stdout)
   try {
     const args = process.argv.slice(2)
-    if (args.length === 0 || args.includes('--help') || args.includes('-h')) process.stdout.write(`${POD_CLI_HELP}\n`)
-    else {
+    if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
+      markHelpSeen({ commandKey: 'ankole-pod' })
+      process.stdout.write(`${POD_CLI_HELP}\n`)
+    } else {
       const command = await commandFromArgs(args)
-      if ('local' in command) process.stdout.write(`${JSON.stringify(command.local, null, 2)}\n`)
-      else {
+      if ('local' in command) {
+        await emitFirstUseGuidance({ commandKey: 'ankole-pod', guidance: POD_FIRST_USE_GUIDANCE })
+        process.stdout.write(`${JSON.stringify(command.local, null, 2)}\n`)
+      } else {
         const socket = process.env[POD_CLI_SOCKET_ENV]
         if (!socket) throw new Error('ankole-pod requires an active Ankole turn or AutomationJob attempt')
+        await emitFirstUseGuidance({ commandKey: 'ankole-pod', guidance: POD_FIRST_USE_GUIDANCE })
         const result = await requestSocketLineBridge(socket, JSON.stringify(command), 'Invalid Pod bridge response')
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
       }

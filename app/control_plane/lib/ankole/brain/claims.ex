@@ -400,7 +400,11 @@ defmodule Ankole.Brain.Claims do
           {:ok, Claim.t()} | {:error, term()}
   def consolidate_facts_in_tx(take_attrs, fact_ids, embedding) do
     with :ok <- Repo.require_transaction(),
-         {:ok, take} <- write_take(take_attrs, :system, embedding: embedding) do
+         {:ok, take} <-
+           write_take(take_attrs, :system,
+             embedding: embedding,
+             author: Ankole.Brain.Config.execution_author!()
+           ) do
       Claim
       |> Ash.Query.filter(id in ^fact_ids)
       |> update_claims_in_tx(:consolidate, %{

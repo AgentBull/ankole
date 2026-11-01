@@ -46,12 +46,14 @@ export function settingGroup(id: string) {
 export function settingOwnerRoute(key: string): string | undefined {
   return (
     SETTING_OWNER_ROUTES[key] ??
-    (key.startsWith('principals.identity_providers.') &&
-    key !== 'principals.identity_providers.directory_full_sync_interval_minutes'
-      ? '/identity'
-      : key.startsWith('signals.') && key !== 'signals.show_dead_letter_error_details'
-        ? '/signals'
-        : undefined)
+    (key.startsWith('ai_gateway.model_profiles.') || key.startsWith('ai_gateway.provider_hosted.')
+      ? '/model-profiles'
+      : key.startsWith('principals.identity_providers.') &&
+          key !== 'principals.identity_providers.directory_full_sync_interval_minutes'
+        ? '/identity'
+        : key.startsWith('signals.') && key !== 'signals.show_dead_letter_error_details'
+          ? '/signals'
+          : undefined)
   )
 }
 

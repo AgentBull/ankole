@@ -20,7 +20,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AppConfigure
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job

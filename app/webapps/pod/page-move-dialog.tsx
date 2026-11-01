@@ -1,9 +1,11 @@
+import { canCreateChild } from './state/page-location'
 import { usePageMetadata } from './use-page-metadata'
 import { useTranslation } from 'react-i18next'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useState, type RefObject } from 'react'
 import { principalUID } from '../common/browser-context'
+import { BdiLabel } from '../common/bidi-file-name'
 import { ErrorBoundary } from '../common/error-boundary'
 import { pageAPI, pageQuery, pageSearchQuery, type Page } from './content-api'
 import { pageMoved } from './state/navigation-cache'
@@ -27,7 +29,7 @@ export function MovePageDialog({
   const [target, setTarget] = useState(currentTarget)
   const [selectedSnapshot, setSelectedPage] = useState<Page>()
   const selectedPage = usePageMetadata(selectedSnapshot)
-  const destinations = useQuery(pageSearchQuery('', { exclude_subtree_of: page.id, required_action: 'page_edit' }))
+  const destinations = useQuery(pageSearchQuery('', { exclude_subtree_of: page.id, required_action: 'node_view' }))
   const currentParent = useQuery({ ...pageQuery(page.parent_id ?? ''), enabled: Boolean(page.parent_id) })
   const parent = usePageMetadata(currentParent.data?.page)
   const client = useQueryClient()
@@ -78,7 +80,8 @@ export function MovePageDialog({
               <PagePicker
                 label={t('pod.content.destination')}
                 excludeSubtreeOf={page.id}
-                requiredAction="page_edit"
+                requiredAction="node_view"
+                canSelect={canCreateChild}
                 roots={[
                   ...(canCreateSpace ? [{ id: 'space', title: t('pod.content.space') }] : []),
                   ...(privateTarget && canCreatePrivate
@@ -95,7 +98,7 @@ export function MovePageDialog({
             </Suspense>
             <p className="pod-selected-destination text-sm" aria-live="polite">
               <span className="text-fg-tertiary">{t('pod.content.destination')}: </span>
-              {targetTitle}
+              <BdiLabel value={targetTitle} />
             </p>
             {target !== currentTarget && (
               <p className="text-xs text-fg-tertiary">

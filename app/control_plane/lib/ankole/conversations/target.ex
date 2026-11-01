@@ -5,7 +5,14 @@ defmodule Ankole.Conversations.Target do
   alias Ankole.Sessions.Key
 
   @enforce_keys [:kind]
-  defstruct [:conversation_id, :kind, :binding_name, :provider_thread_id, primary: true]
+  defstruct [
+    :conversation_id,
+    :kind,
+    :binding_id,
+    :binding_name,
+    :provider_thread_id,
+    primary: true
+  ]
 
   def for_reply(event) do
     id = event.conversation_id
@@ -17,12 +24,13 @@ defmodule Ankole.Conversations.Target do
           else: {:error, :reply_route_unavailable}
 
       %Conversation{kind: :external} ->
-        if is_binary(event.reply_binding_name) and event.reply_binding_name != "",
+        if is_binary(event.reply_binding_id),
           do:
             {:ok,
              %__MODULE__{
                kind: :external,
                conversation_id: id,
+               binding_id: event.reply_binding_id,
                binding_name: event.reply_binding_name,
                provider_thread_id: event.provider_thread_id
              }},
@@ -39,6 +47,7 @@ defmodule Ankole.Conversations.Target do
       target = %__MODULE__{
         conversation_id: conversation.id,
         kind: conversation.kind,
+        binding_id: binding_id(agent_uid, item),
         binding_name: Ankole.Attrs.get(item, :binding_name),
         provider_thread_id: Ankole.Attrs.get(item, :provider_thread_id),
         primary: Ankole.Attrs.get(item, :primary) != false
@@ -47,6 +56,25 @@ defmodule Ankole.Conversations.Target do
       if valid_route?(target), do: {:ok, target}, else: {:error, :cron_delivery_route_required}
     else
       _ -> {:error, :conversation_not_found}
+    end
+  end
+
+  defp binding_id(agent_uid, item) do
+    case Ankole.Attrs.get(item, :binding_id) do
+      id when is_binary(id) ->
+        id
+
+      nil ->
+        case Ankole.Attrs.get(item, :binding_name) do
+          name when is_binary(name) ->
+            case Ankole.Signals.get_agent_binding!(agent_uid, name) do
+              nil -> nil
+              binding -> binding.id
+            end
+
+          nil ->
+            nil
+        end
     end
   end
 
@@ -74,11 +102,16 @@ defmodule Ankole.Conversations.Target do
       event.type in Ankole.Conversations.Delivery.Preview.channel_reply_event_types()
   end
 
-  defp valid_route?(%__MODULE__{kind: :native, binding_name: nil, provider_thread_id: nil}),
-    do: true
+  defp valid_route?(%__MODULE__{
+         kind: :native,
+         binding_id: nil,
+         binding_name: nil,
+         provider_thread_id: nil
+       }),
+       do: true
 
-  defp valid_route?(%__MODULE__{kind: :external, binding_name: binding}),
-    do: is_binary(binding) and String.trim(binding) != ""
+  defp valid_route?(%__MODULE__{kind: :external, binding_id: id, binding_name: binding}),
+    do: is_binary(id) and is_binary(binding) and String.trim(binding) != ""
 
   defp valid_route?(_target), do: false
 end

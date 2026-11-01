@@ -24,7 +24,12 @@ defmodule Ankole.Job do
 
       @impl Oban.Worker
       def new(args, opts) do
-        super(Ankole.Job.arguments(unquote(tenancy), args), opts)
+        opts = Oban.Worker.merge_opts(__opts__(), opts)
+
+        super(
+          Ankole.Job.arguments(unquote(tenancy), args),
+          Ankole.Job.options(unquote(tenancy), opts)
+        )
       end
 
       @impl Oban.Worker
@@ -80,6 +85,26 @@ defmodule Ankole.Job do
              with :ok <- schedule_in_tx(worker, args, due_at, opts), do: {:ok, :ok}
            end),
          do: :ok
+  end
+
+  @doc false
+  def options(:site, opts), do: opts
+
+  def options(:tenant, opts) do
+    case Keyword.get(opts, :unique) do
+      unique when is_list(unique) ->
+        fields = Keyword.get(unique, :fields, [:args, :queue, :worker])
+        keys = Keyword.get(unique, :keys, [])
+        keys = if :args in fields and keys == [], do: [], else: Enum.uniq([:tenant_id | keys])
+
+        unique =
+          unique |> Keyword.put(:fields, Enum.uniq([:args | fields])) |> Keyword.put(:keys, keys)
+
+        Keyword.put(opts, :unique, unique)
+
+      _ ->
+        opts
+    end
   end
 
   @doc false

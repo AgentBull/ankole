@@ -217,16 +217,21 @@ printf 'RELEASE_COOKIE=%s\n' "$(openssl rand -hex 32)" >> .env
 ```
 
 Before every upgrade, back up PostgreSQL, the file store, all Agent Homes, and
-your `.env` secrets. Because the PostgreSQL image ships `pg_search` `0.25.11`,
-update the SQL extension version inside PostgreSQL before starting the new
-control plane:
+your `.env` secrets. For per-Agent volumes named without tenant identity, complete
+the [Agent Home storage migration](../../../docs/upgrades/unified-drive.md#agent-home-storage-names)
+before the final control-plane startup below. The default PostgreSQL image includes `pg_search` `0.26.4`
+for both `amd64` and `arm64`. Update the SQL extension version inside PostgreSQL
+before starting the control plane, then verify that both the installed extension
+and the loaded library report `0.26.4`:
 
 ```sh
 docker compose pull
 docker compose stop
 docker compose up -d postgresql
 docker compose exec postgresql psql -U ankole -d ankole -v ON_ERROR_STOP=1 \
-  -c "ALTER EXTENSION pg_search UPDATE TO '0.25.11'"
+  -c "ALTER EXTENSION pg_search UPDATE TO '0.26.4'" \
+  -c "SELECT extversion FROM pg_extension WHERE extname = 'pg_search'" \
+  -c "SELECT * FROM paradedb.version_info()"
 docker compose up -d --force-recreate
 docker compose ps
 ```
@@ -243,9 +248,10 @@ database backup. See the
 and shared-library verification queries.
 
 When upgrading from an earlier release that used pooled Workers, the
-`migrate-agent-homes` service stops any container mounting the legacy
-`ankole_agents_data` volume, copies each active Agent's directory into its own
-dedicated volume, chowns the files to `uid 1000`, and writes a completion marker
+`migrate-agent-homes` service waits for the schema migration, stops any container
+mounting the legacy `ankole_agents_data` volume, copies each active Agent's
+directory into its tenant-qualified dedicated volume, adds its tenant ownership
+label, chowns the files to `uid 1000`, and writes a completion marker
 in the old volume (skipping orphan directories left behind by deleted
 Agents and leaving `ankole_agents_data` intact). Ensure free disk space at least
 matches the used size of `ankole_agents_data`. If any copy fails,

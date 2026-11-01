@@ -64,7 +64,7 @@ defmodule AnkoleWeb.NativeActivityTest do
                })
     end
 
-    {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "primary")
+    {:ok, profile} = Ankole.AIGateway.ModelProfiles.get_model_profile(agent.uid, "primary")
     owner = self()
 
     url =
@@ -423,7 +423,7 @@ defmodule AnkoleWeb.NativeActivityTest do
              })
 
     assert {:ok, _} =
-             Ankole.AIAgent.ModelProfiles.put_model_profile(ctx.agent.uid, "primary", %{
+             Ankole.AIGateway.ModelProfiles.put_model_profile(ctx.agent.uid, "primary", %{
                provider_id: provider_id,
                model: "gpt-5.5"
              })
@@ -591,7 +591,7 @@ defmodule AnkoleWeb.NativeActivityTest do
           else: {:json, 400, %{"error" => %{"message" => "Invalid model request"}}}
       end)
 
-    {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(ctx.agent.uid, "primary")
+    {:ok, profile} = Ankole.AIGateway.ModelProfiles.get_model_profile(ctx.agent.uid, "primary")
 
     assert {:ok, _} =
              Ankole.AIGateway.ProviderConfigs.update_provider(profile["provider_id"], %{
@@ -656,7 +656,7 @@ defmodule AnkoleWeb.NativeActivityTest do
          ]}
       end)
 
-    {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(ctx.agent.uid, "primary")
+    {:ok, profile} = Ankole.AIGateway.ModelProfiles.get_model_profile(ctx.agent.uid, "primary")
 
     assert {:ok, _} =
              Ankole.AIGateway.ProviderConfigs.update_provider(profile["provider_id"], %{

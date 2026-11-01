@@ -7,7 +7,8 @@ defmodule Ankole.Pod.Documents do
   """
   require Ash.Query
   alias Ankole.{ActorRef, Repo}
-  alias Ankole.Pod.{Access, Comments, PageChange, PageContent, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Comments, PageChange, PageContent, Pages}
   alias Ankole.Pod.Documents.{History, Insights}
 
   def write(uid, id, base_revision, xml, authority \\ nil)
@@ -196,7 +197,7 @@ defmodule Ankole.Pod.Documents do
   @doc false
   def since_in_tx(%Ankole.AuthZ.Actor{} = actor, id, revision) do
     with {:ok, page} <- Pages.lock(id, :share),
-         {:ok, _} <- Access.authorize(actor, page, "page_view"),
+         {:ok, _} <- Access.authorize(actor, page, "node_view"),
          true <- page.type == :doc,
          do: {:ok, replay(page, revision)},
          else: (
@@ -245,7 +246,7 @@ defmodule Ankole.Pod.Documents do
 
   defp commit_in_tx(%Ankole.AuthZ.Actor{} = actor, id, fun) do
     with {:ok, page} <- Pages.lock(id),
-         {:ok, _} <- Access.authorize(actor, page, "page_edit"),
+         {:ok, _} <- Access.authorize(actor, page, "node_edit"),
          true <- page.type == :doc,
          {:ok, result} <- fun.(page) do
       {:ok, %{page_id: page.id, result: result}}
@@ -289,7 +290,7 @@ defmodule Ankole.Pod.Documents do
              })
            ),
          {:ok, page} <-
-           Ankole.Ash.update(page, :advance_revision, %{
+           Ankole.Pod.Pages.update_properties_in_tx(page, :advance_revision, %{
              updated_at:
                if(edited or Keyword.get(opts, :force, false), do: now, else: page.updated_at)
            }),

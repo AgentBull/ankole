@@ -6,12 +6,26 @@ export type TreeOperation = 'before' | 'after' | 'inside'
 export type DropAvailability = 'available' | 'blocked' | 'not-available'
 
 export function canMovePage(page: Pick<Page, 'actions'>): boolean {
-  return page.actions?.some(action => action === 'page_edit' || action === 'page_manage') === true
+  return page.actions?.some(action => action === 'node_edit' || action === 'node_manage') === true
 }
 
 /** Sibling order is the server's `C` collation order with the ID as tie-breaker. */
-export function positionOrder(a: Page, b: Page): number {
-  return a.position === b.position ? (a.id < b.id ? -1 : a.id === b.id ? 0 : 1) : a.position < b.position ? -1 : 1
+export function positionOrder(
+  a: Pick<Page, 'position' | 'id' | 'name' | 'title'>,
+  b: Pick<Page, 'position' | 'id' | 'name' | 'title'>
+): number {
+  if (a.position == null && b.position != null) return 1
+  if (b.position == null && a.position != null) return -1
+  if (a.position != null && b.position != null && a.position !== b.position) return a.position < b.position ? -1 : 1
+  const aName = a.name ?? a.title
+  const bName = b.name ?? b.title
+  const left = Array.from(aName, character => character.codePointAt(0)!)
+  const right = Array.from(bName, character => character.codePointAt(0)!)
+  for (let index = 0; index < Math.min(left.length, right.length); index++) {
+    if (left[index] !== right[index]) return left[index]! - right[index]!
+  }
+  if (left.length !== right.length) return left.length - right.length
+  return a.id < b.id ? -1 : a.id === b.id ? 0 : 1
 }
 
 /** The move request for a drop next to or into `target`. */

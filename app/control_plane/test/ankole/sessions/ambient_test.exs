@@ -134,7 +134,7 @@ defmodule Ankole.Sessions.AmbientTest do
     %{principal: agent} = agent_fixture()
     %{principal: human} = human_fixture()
 
-    assert {:ok, _} =
+    assert {:ok, binding} =
              Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: agent.uid,
                name: "room",
@@ -185,6 +185,7 @@ defmodule Ankole.Sessions.AmbientTest do
         conversation_id: room.id,
         message_id: message.id,
         reply_binding_name: "room",
+        reply_binding_id: binding.id,
         type: "im.message.may_intervene",
         data: %{
           "observed_messages" => messages,

@@ -389,9 +389,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         last_seen_at: @base_time
       })
 
-      blob_ref = store_content!(content)
+      object_id = store_content!(content)
 
       intent = %Intent{
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
         agent_uid: agent.uid,
         binding_name: binding_name,
         outbound_key: "large-worker-attachment",
@@ -404,7 +405,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
               "name" => "report.html",
               "mime_type" => "text/html",
               "path" => "sent/0123456789abcdef/report.html",
-              "blob_ref" => blob_ref
+              "object_id" => object_id
             }
           ]
         },
@@ -535,9 +536,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         last_seen_at: @base_time
       })
 
-      blob_ref = store_content!(content)
+      object_id = store_content!(content)
 
       intent = %Intent{
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
         agent_uid: agent.uid,
         binding_name: binding_name,
         outbound_key: "large-worker-attachment-scope",
@@ -550,7 +552,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
               "name" => "report.html",
               "mime_type" => "text/html",
               "path" => "sent/0123456789abcdef/report.html",
-              "blob_ref" => blob_ref
+              "object_id" => object_id
             }
           ]
         },
@@ -592,6 +594,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       on_exit(fn -> delete_tenant_token(config) end)
 
       intent = %Intent{
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
         agent_uid: agent.uid,
         binding_name: binding_name,
         outbound_key: "ai-reply-retraction:message-id:om_retracted_reply",
@@ -831,6 +834,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       id = Ecto.UUID.generate()
 
       intent = %Intent{
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
         agent_uid: agent.uid,
         binding_name: binding_name,
         outbound_key: "native-image:#{id}",
@@ -875,6 +879,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       binding_fixture(agent.uid, binding_name, :ignore)
 
       intent = %Intent{
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
         agent_uid: agent.uid,
         binding_name: binding_name,
         outbound_key: "missing-worker-attachment",
@@ -887,7 +892,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
               "name" => "missing.pdf",
               "mime_type" => "application/pdf",
               "path" => "sent/0123456789abcdef/missing.pdf",
-              "blob_ref" => String.duplicate("ab", 32)
+              "object_id" => "019a2ee2-45d1-7cb5-b54d-d62a7d0f6b86"
             }
           ]
         },
@@ -961,6 +966,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       on_exit(fn -> delete_tenant_token(config) end)
 
       intent = %Intent{
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
         agent_uid: agent.uid,
         binding_name: binding_name,
         outbound_key: "reaction-remove:om_reaction",
@@ -1025,6 +1031,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       on_exit(fn -> delete_tenant_token(config) end)
 
       intent = %Intent{
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
         agent_uid: agent.uid,
         binding_name: binding_name,
         outbound_key: "reaction-remove:om_absent",
@@ -1062,6 +1069,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       on_exit(fn -> delete_tenant_token(config) end)
 
       intent = %Intent{
+        binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
         agent_uid: agent.uid,
         binding_name: binding_name,
         outbound_key: "reaction-add:om_reaction",
@@ -1095,11 +1103,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       binding_fixture(agent.uid, binding_name, :ignore)
 
-      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid, binding_name), config)
       assert {:ok, owner} = start_connection_owner(ConnectionReconciler, config, [consumer])
       on_exit(fn -> ConnectionReconciler.stop(key) end)
 
-      assert {:ok, _binding} = Ankole.Signals.Bindings.disable_binding(agent.uid, binding_name)
+      assert {:ok, _binding} =
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id
+               )
 
       assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
@@ -1116,7 +1127,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       binding_fixture(agent.uid, binding_name, :ignore)
 
-      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid, binding_name), config)
       assert {:ok, old_owner} = start_connection_owner(ConnectionReconciler, config, [consumer])
       on_exit(fn -> ConnectionReconciler.stop(key) end)
 
@@ -1174,6 +1185,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       context =
         AdapterContext.new(
+          binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
           agent_uid: agent.uid,
           binding_name: binding_name,
           adapter: "lark",
@@ -1342,7 +1354,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       group =
         Repo.get_by!(Ankole.AuthZ.Group,
-          name: String.downcase("signal_source:#{agent.uid}:lark")
+          name: "signal_source:#{Ankole.Signals.get_agent_binding!(agent.uid, "lark").id}"
         )
 
       assert Repo.get_by(Ankole.AuthZ.Membership, group_id: group.id, principal_uid: human.uid)
@@ -1398,7 +1410,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Repo.aggregate(Message, :count) == 0
       assert [stored] = batch.entries
       assert stored["metadata"]["attachment_materialization"]["state"] == "complete"
-      assert [%{"blob_ref" => _blob_ref, "path" => _path}] = stored["attachments"]
+      assert [%{"object_id" => object_id, "sha256" => checksum}] = stored["attachments"]
+      assert {:ok, ^object_id} = Ecto.UUID.cast(object_id)
+      assert byte_size(checksum) == 64
+      refute Map.has_key?(hd(stored["attachments"]), "node_id")
 
       assert {:ok, [%{status: :ignored}]} =
                Ankole.SignalsFixtures.finalize_due_inbound_batch_events(now: batch.available_at)
@@ -1431,11 +1446,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  now: addressed_batch.available_at
                )
 
-      file_message =
-        input.message_id
-        |> then(&Repo.get_by!(Message, id: &1))
-        |> Map.fetch!(:reply_to_message_id)
-        |> then(&Repo.get_by!(Message, id: &1))
+      {:ok, addressed_message} = Ankole.Conversations.get_message(input.message_id)
+
+      {:ok, file_message} =
+        Ankole.Conversations.get_message(addressed_message.reply_to_message_id)
 
       assert [attachment] = file_message.attachments
 
@@ -1548,7 +1562,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, [%{status: :accepted, signal: signal}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      assert Repo.get!(Principal, observed.principal.uid).display_name == "Directory User"
+      assert Repo.get_by!(Principal, uid: observed.principal.uid).display_name == "Directory User"
 
       assert signal.human_uid == observed.principal.uid
       assert Repo.get_by!(Message, id: signal.message_id).author_uid == observed.principal.uid
@@ -2476,9 +2490,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:error, :not_found} =
                Principals.resolve_platform_subject("lark-main", "alice.readable@example.com")
 
-      assert {:ok, ^principal_uid} = Ecto.UUID.cast(principal_uid)
+      assert principal_uid == "ou_alice"
 
-      assert Repo.get!(Ankole.Principals.HumanUser, principal_uid).email ==
+      assert Repo.get_by!(Ankole.Principals.HumanUser, principal_uid: principal_uid).email ==
                "alice.readable@example.com"
     end
 
@@ -2689,7 +2703,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, open_id_subject} =
                Principals.resolve_platform_subject("lark-main", "ou_alice_open")
 
-      assert Repo.get!(Ankole.Principals.HumanUser, user_id_subject.uid).email ==
+      assert Repo.get_by!(Ankole.Principals.HumanUser, principal_uid: user_id_subject.uid).email ==
                "card.alice@example.com"
 
       assert user_id_subject.uid == union_id_subject.uid
@@ -2723,8 +2737,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       group = Repo.get!(Group, first_group.id)
       participants = BindingMembership.memberships(group.metadata)
 
-      assert participants["#{first_agent.uid}|lark-a"]["state"] == "joined"
-      assert participants["#{second_agent.uid}|lark-b"]["state"] == "joined"
+      assert participants[Ankole.Signals.get_agent_binding!(first_agent.uid, "lark-a").id][
+               "state"
+             ] == "joined"
+
+      assert participants[Ankole.Signals.get_agent_binding!(second_agent.uid, "lark-b").id][
+               "state"
+             ] == "joined"
+
       assert group.display_name == "Ops Room Renamed"
       group_id = group.id
 
@@ -2837,8 +2857,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       group = Repo.get!(Group, group.id)
       participants = BindingMembership.memberships(group.metadata)
 
-      assert participants["#{first_agent.uid}|lark-a"]["state"] == "left"
-      assert participants["#{second_agent.uid}|lark-b"]["state"] == "left"
+      assert participants[Ankole.Signals.get_agent_binding!(first_agent.uid, "lark-a").id][
+               "state"
+             ] == "left"
+
+      assert participants[Ankole.Signals.get_agent_binding!(second_agent.uid, "lark-b").id][
+               "state"
+             ] == "left"
+
       refute Repo.get_by(Membership, group_id: group.id, principal_uid: member.uid)
     end
 
@@ -2881,8 +2907,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     test "member removed resolves platform subject identity instead of guessing principal uid" do
       %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-remove-agent")})
 
+      %{principal: member} = human_fixture(%{email: "removed-member@example.com"})
+
       assert {:ok, observed} =
                Principals.upsert_platform_subject_human(%{
+                 uid: member.uid,
                  provider: "lark-main",
                  external_id: "ou_remove_external",
                  display_name: "Remove Me"
@@ -2980,8 +3009,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert_enqueued(
         worker: RefreshIMGroup,
         args: %{
-          "agent_uid" => agent.uid,
-          "binding_name" => "lark",
+          "binding_id" => Ankole.Signals.get_agent_binding!(agent.uid, "lark").id,
           "chat_id" => "oc_remove_missing",
           "reason" => "member_removed_missing_identity"
         }
@@ -3041,8 +3069,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert_enqueued(
         worker: RefreshIMGroup,
         args: %{
-          "agent_uid" => agent.uid,
-          "binding_name" => "lark",
+          "binding_id" => Ankole.Signals.get_agent_binding!(agent.uid, "lark").id,
           "chat_id" => "oc_missing_fk",
           "reason" => "missing_channel_principal_group"
         }
@@ -3063,15 +3090,20 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       binding_fixture(agent.uid, "lark-disabled-sync", :ignore)
 
       assert {:ok, _binding} =
-               Ankole.Signals.Bindings.disable_binding(agent.uid, "lark-disabled-sync")
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-disabled-sync").id
+               )
 
       assert {:ok,
               %{
                 status: :skipped_binding_disabled,
-                binding: %{agent_uid: agent_uid, binding_name: "lark-disabled-sync"}
-              }} = IMGroups.sync_binding(agent.uid, "lark-disabled-sync")
+                binding: %{id: binding_id}
+              }} =
+               IMGroups.sync_binding(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "lark-disabled-sync").id
+               )
 
-      assert agent_uid == agent.uid
+      assert binding_id == Ankole.Signals.get_agent_binding!(agent.uid, "lark-disabled-sync").id
     end
 
     test "full sync accepts a scalar member id explicitly typed as user_id" do
@@ -3117,7 +3149,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       binding_fixture(agent.uid, binding_name, :ignore)
 
       assert {:ok, %{synced_chats: 1, marked_left: 0}} =
-               IMGroups.sync_binding(agent.uid, binding_name)
+               IMGroups.sync_binding(
+                 Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id
+               )
 
       assert {:ok, principal_uid} =
                Principals.resolve_platform_subject_uid("lark-main", "scalar_user_id")
@@ -3674,6 +3708,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     id = Ecto.UUID.generate()
 
     %Intent{
+      binding_id: Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
       agent_uid: agent_uid,
       binding_name: binding_name,
       outbound_key: "ai-reply:#{id}",
@@ -3692,10 +3727,15 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     }
   end
 
-  defp adapter_context(agent_uid) do
+  defp adapter_context(agent_uid, binding_name \\ "lark") do
     AdapterContext.new(
+      binding_id:
+        (Ankole.Signals.get_agent_binding!(agent_uid, binding_name) ||
+           Ankole.SignalsFixtures.binding_fixture(agent_uid, binding_name, :ignore,
+             adapter: "lark"
+           )).id,
       agent_uid: agent_uid,
-      binding_name: "lark",
+      binding_name: binding_name,
       adapter: "lark",
       user_name: "Lark Bot"
     )
@@ -3706,6 +3746,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       kind: :chat,
       context:
         AdapterContext.new(
+          binding_id:
+            (Ankole.Signals.get_agent_binding!(agent_uid, binding_name) ||
+               Ankole.SignalsFixtures.binding_fixture(agent_uid, binding_name, :ignore,
+                 adapter: "lark"
+               )).id,
           agent_uid: agent_uid,
           binding_name: binding_name,
           adapter: "lark",
@@ -3759,6 +3804,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
   defp im_context(agent_uid, binding_name) do
     AdapterContext.new(
+      binding_id:
+        (Ankole.Signals.get_agent_binding!(agent_uid, binding_name) ||
+           Ankole.SignalsFixtures.binding_fixture(agent_uid, binding_name, :ignore,
+             adapter: "lark"
+           )).id,
       agent_uid: agent_uid,
       binding_name: binding_name,
       adapter: "lark",
@@ -3947,8 +3997,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   defp store_content!(content) do
-    {:ok, %{sha256: sha256}} = Ankole.Files.store(content)
-    sha256
+    {:ok, stored} = Ankole.Files.store(content)
+    {:ok, object} = Repo.transact(fn -> Ankole.Files.complete_object_in_tx(stored) end)
+    object.id
   end
 
   defp receive_event do

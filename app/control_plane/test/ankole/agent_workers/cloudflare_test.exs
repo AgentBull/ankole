@@ -2,6 +2,7 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AgentWorkers.ProviderKind
   alias Ankole.AgentWorkers.Cloudflare
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.ReconcileJob
@@ -62,7 +63,7 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
     spec = WorkerBootstrap.agent_worker_spec(provider, "agent-1", "gen1", "secret-token", @backup)
 
     stub(fn conn ->
-      assert {conn.method, conn.request_path} == {"PUT", "/agents/agent-1/worker"}
+      assert {conn.method, conn.request_path} == {"PUT", worker_path(provider, "agent-1")}
       {:ok, body, conn} = Plug.Conn.read_body(conn)
 
       assert Ankole.JSON.decode!(body) == %{
@@ -73,6 +74,9 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
                "storage_ref" => @backup,
                "env" => %{
                  "WORKER_ID" => "agent-1",
+                 "ANKOLE_WORKER_TENANT_ID" => Repo.tenant_id!(),
+                 "ANKOLE_WORKER_STORAGE_NAME" =>
+                   ProviderKind.storage_name(provider.runtime.installation, "agent-1"),
                  "ANKOLE_RUNTIME_FABRIC_ENDPOINT" =>
                    "wss://ankole.example.com/runtime-fabric/worker",
                  "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => "secret-token",
@@ -93,11 +97,16 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
   test "deletes one generation without deleting Agent storage or pretending to pause", %{
     provider: provider
   } do
-    object = %{agent_uid: "agent-1", generation: "gen1", instance_ref: nil}
+    object = %{
+      tenant_id: Repo.tenant_id!(),
+      agent_uid: "agent-1",
+      generation: "gen1",
+      instance_ref: nil
+    }
 
     for mode <- [:graceful, :now] do
       stub(fn conn ->
-        assert {conn.method, conn.request_path} == {"DELETE", "/agents/agent-1/worker"}
+        assert {conn.method, conn.request_path} == {"DELETE", worker_path(provider, "agent-1")}
         {:ok, body, conn} = Plug.Conn.read_body(conn)
 
         assert Ankole.JSON.decode!(body) == %{
@@ -118,14 +127,17 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
   end
 
   test "lists only the requested provider including terminating instances", %{provider: provider} do
+    agent_one_path = worker_path(provider, "agent-1")
+    agent_two_path = worker_path(provider, "agent-2")
+
     stub(fn conn ->
       assert conn.query_params["provider_id"] == provider.provider_id
 
       case conn.request_path do
-        "/agents/agent-1/worker" ->
+        ^agent_one_path ->
           Req.Test.json(conn, worker("agent-1", "running"))
 
-        "/agents/agent-2/worker" ->
+        ^agent_two_path ->
           conn |> Plug.Conn.put_status(404) |> Req.Test.json(%{"error" => "worker_not_found"})
 
         "/workers" ->
@@ -194,12 +206,12 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
              token_ciphertext: nil,
              storage_ref: @backup,
              last_error: "backup failed: R2 unavailable"
-           } = Repo.get!(AgentWorker, uid)
+           } = Repo.get_by!(AgentWorker, agent_uid: uid)
   end
 
   test "a failed storage observation cannot end the generation", %{provider: provider} do
     uid = observed_worker(provider)
-    generation = Repo.get!(AgentWorker, uid).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: uid).generation
 
     stub(fn conn ->
       if String.ends_with?(conn.request_path, "/worker"),
@@ -211,7 +223,7 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
              perform_job(ReconcileJob, %{agent_uid: uid})
 
     assert %AgentWorker{state: :draining, generation: ^generation, last_error: reason} =
-             Repo.get!(AgentWorker, uid)
+             Repo.get_by!(AgentWorker, agent_uid: uid)
 
     assert reason =~ "unavailable"
   end
@@ -273,8 +285,12 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
 
   defp stub(fun), do: Req.Test.stub(__MODULE__, &fun.(Plug.Conn.fetch_query_params(&1)))
 
+  defp worker_path(provider, uid),
+    do: "/agents/" <> ProviderKind.storage_name(provider.runtime.installation, uid) <> "/worker"
+
   defp worker(uid, phase),
     do: %{
+      "tenant_id" => Repo.tenant_id!(),
       "agent_uid" => uid,
       "generation" => "gen1",
       "phase" => phase,

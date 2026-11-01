@@ -4,7 +4,7 @@ defmodule Ankole.Principals.Humans do
   require Ash.Query
 
   alias Ankole.Principals
-  alias Ankole.Principals.{HumanUser, Principal}
+  alias Ankole.Principals.{HumanUser, Principal, SystemServices}
   alias Ankole.Repo
 
   @principal_profile_fields [:display_name, :avatar_url]
@@ -29,23 +29,38 @@ defmodule Ankole.Principals.Humans do
     |> Ankole.Ash.read!()
   end
 
-  def system_principal do
-    case Principal |> Ash.Query.filter(type == :system) |> Ankole.Ash.read_one!() do
-      %Principal{} = principal -> {:ok, principal}
-      nil -> {:error, :system_principal_missing}
+  def system_principal, do: system_principal("system")
+
+  def system_principal(uid) do
+    with :ok <- SystemServices.validate(uid) do
+      case Principal
+           |> Ash.Query.filter(uid == ^uid and type == :system)
+           |> Ankole.Ash.read_one!() do
+        %Principal{} = principal -> {:ok, principal}
+        nil -> {:error, :system_principal_missing}
+      end
     end
   end
 
-  def ensure_system_principal_in_tx() do
-    case system_principal() do
+  def ensure_system_principals_in_tx do
+    Enum.reduce_while(SystemServices.uids(), {:ok, []}, fn uid, {:ok, principals} ->
+      case ensure_system_principal_in_tx(uid) do
+        {:ok, principal} -> {:cont, {:ok, [principal | principals]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp ensure_system_principal_in_tx(uid) do
+    case system_principal(uid) do
       {:ok, principal} ->
         {:ok, principal}
 
       {:error, :system_principal_missing} ->
         insert_principal(%{
-          uid: Ash.UUIDv7.generate(),
+          uid: uid,
           type: :system,
-          display_name: "System"
+          display_name: if(uid == "system", do: "System", else: "Ankole Brain")
         })
     end
   end
@@ -137,13 +152,26 @@ defmodule Ankole.Principals.Humans do
   # (people/<uid> or agents/<uid>); the creation transaction keeps that
   # invariant so holder attribution and recall never miss a subject page.
   def insert_principal(attrs) do
+    Ankole.Files.lock_tree_in_tx()
+
     with :ok <- allow_guest_admission(attrs),
          {:ok, principal} <-
            Ankole.Ash.create(Principal, :create_in_tx, attrs),
+         :ok <- ensure_private_root(principal),
          :ok <- ensure_canonical_brain_object(principal) do
       {:ok, principal}
     end
   end
+
+  defp ensure_private_root(%Principal{type: :agent, uid: uid}) do
+    with {:ok, _} <- Ankole.Files.ensure_private_root_in_tx(uid), do: :ok
+  end
+
+  defp ensure_private_root(%Principal{type: :human, membership: :member, uid: uid}) do
+    with {:ok, _} <- Ankole.Files.ensure_private_root_in_tx(uid), do: :ok
+  end
+
+  defp ensure_private_root(_principal), do: :ok
 
   defp ensure_canonical_brain_object(%Principal{type: type} = principal)
        when type in [:human, :agent] do
@@ -190,7 +218,11 @@ defmodule Ankole.Principals.Humans do
   def ensure_principal_type(%Principal{}, :agent), do: {:error, :not_agent}
   def ensure_principal_type(%Principal{}, :human), do: {:error, :not_human}
 
-  def human_principal_attrs(attrs, uid \\ Ash.UUIDv7.generate()) do
+  def human_principal_attrs(attrs, uid \\ nil) do
+    uid =
+      uid || Principals.normalize_email(Ankole.Attrs.get(attrs, :email)) ||
+        Ankole.Attrs.get(attrs, :uid)
+
     attrs
     |> take_attrs([:membership | @principal_profile_fields])
     |> Map.put_new(:membership, :member)
@@ -204,13 +236,17 @@ defmodule Ankole.Principals.Humans do
   def change_human_membership(_uid, _membership), do: {:error, :invalid_membership}
 
   def change_human_membership_in_tx(uid, membership) do
-    Ankole.Pod.Pages.lock_tree()
+    Ankole.Files.lock_tree_in_tx()
 
     with :ok <- allow_guest_admission(%{membership: membership}),
          {:ok, principal} <- lock_principal_in_tx(uid),
          :ok <- ensure_principal_type(principal, :human),
          :ok <- membership_transition_allowed(principal, membership) do
-      Ankole.Ash.update(principal, :membership_in_tx, %{membership: membership})
+      with {:ok, principal} <-
+             Ankole.Ash.update(principal, :membership_in_tx, %{membership: membership}),
+           :ok <- ensure_private_root(principal),
+           :ok <- Principals.sync_personal_assistant_in_tx(principal),
+           do: {:ok, principal}
     end
   end
 

@@ -53,10 +53,18 @@ defmodule Ankole.Brain.PageEdit do
          {:ok, edits} <- validate_edits(Map.get(params, "edits")),
          :ok <- Context.fence(context),
          {:ok, access} <- Access.for_readers(context.querier_uid, context.disclosure),
-         {:ok, visibility} <- LazySkillVisibility.for_querier(context.querier_uid) do
-      Repo.transact_top_level(fn ->
-        edit_page_in_tx(slug, expected_revision, edits, access, visibility, context)
-      end)
+         {:ok, visibility} <- LazySkillVisibility.for_querier(context.querier_uid),
+         {:ok, {updated, spans, updated_spans}} <-
+           Repo.transact_top_level(fn ->
+             edit_page_in_tx(slug, expected_revision, edits, access, visibility, context)
+           end) do
+      {:ok,
+       %{
+         "status" => "updated",
+         "slug" => updated.slug,
+         "revision" => updated.content_hash,
+         "diff" => compact_diff(visible_text(spans), visible_text(updated_spans))
+       }}
     end
   end
 
@@ -176,7 +184,6 @@ defmodule Ankole.Brain.PageEdit do
          :ok <- verify_revision(locked, expected_revision),
          existing_body = normalize_newlines(locked.body),
          {:ok, spans} <- build_spans(existing_body, access, context),
-         before_visible = visible_text(spans),
          {:ok, updated_spans} <- apply_edits(spans, edits),
          new_body = render_spans(updated_spans),
          :ok <-
@@ -191,15 +198,7 @@ defmodule Ankole.Brain.PageEdit do
              author: author
            ),
          {:ok, _reconciled} <- Links.reconcile_object_links_in_tx(updated.slug) do
-      after_visible = visible_text(updated_spans)
-
-      {:ok,
-       %{
-         "status" => "updated",
-         "slug" => updated.slug,
-         "revision" => updated.content_hash,
-         "diff" => compact_diff(before_visible, after_visible)
-       }}
+      {:ok, {updated, spans, updated_spans}}
     end
   end
 

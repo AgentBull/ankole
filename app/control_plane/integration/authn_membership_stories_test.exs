@@ -349,7 +349,9 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     assert [%{identifier: "new-login@example.test", provider: "email_otp"}] =
              Principals.principal_site_credentials(person.uid)
 
-    assert Repo.get!(Ankole.Principals.HumanUser, person.uid).email == "new-login@example.test"
+    assert Repo.get_by!(Ankole.Principals.HumanUser, principal_uid: person.uid).email ==
+             "new-login@example.test"
+
     # The old login address stops authorizing this Pod after its replacement.
     refute BrowserSessions.identity(reference, tenant.id)
     conn = verified

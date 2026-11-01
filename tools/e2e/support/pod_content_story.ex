@@ -7,7 +7,7 @@ defmodule Ankole.E2E.PodContentStory do
   import Ankole.E2E.Harness
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2, wait_for_signal_completed: 3]
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AuthZ.Actor
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -29,7 +29,7 @@ defmodule Ankole.E2E.PodContentStory do
       |> Map.put(:story_deadline, deadline(@story_timeout))
 
     configure_browser_origin!(ctx.server_port, tenant)
-    owner = Repo.get!(Agent, ctx.agent.uid).owner_principal_uid
+    owner = Repo.get_by!(Agent, uid: ctx.agent.uid).owner_principal_uid
     {:ok, owner_principal} = Ankole.Principals.get_principal(owner)
     ctx = Map.put(ctx, :owner_actor, Actor.new(owner_principal))
 
@@ -42,7 +42,7 @@ defmodule Ankole.E2E.PodContentStory do
     assert {:ok, _} =
              Ankole.AuthZ.upsert_permission_grant(%{
                principal_uid: owner,
-               resource_pattern: "tenant_console:pod_space",
+               resource_pattern: "tenant_console:drive_space",
                action: "update",
                condition: "true"
              })

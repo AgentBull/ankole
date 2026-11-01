@@ -54,6 +54,19 @@ defmodule Ankole.Errors do
     }
   end
 
+  defp shape_error(%Ash.Error.Changes.InvalidAttribute{private_vars: vars} = error, _resource) do
+    case vars[:constraint] do
+      "principals_pkey" ->
+        Conflict.exception(reason: :principal_uid_taken)
+
+      "agents_personal_assistant_owner_index" ->
+        Conflict.exception(reason: :personal_assistant_exists)
+
+      _ ->
+        error
+    end
+  end
+
   defp shape_error(error, _resource), do: error
 
   defp class_resource(class) do

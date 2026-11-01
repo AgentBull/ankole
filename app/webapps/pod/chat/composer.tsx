@@ -54,6 +54,7 @@ export function Composer({
   model,
   agents,
   agentsLoaded,
+  personalAssistant = false,
   agentUID,
   detail,
   commands,
@@ -69,6 +70,7 @@ export function Composer({
   model: Model
   agents: PodAgent[]
   agentsLoaded: boolean
+  personalAssistant?: boolean
   agentUID: string
   detail?: ConversationDetail
   commands: ChatCommands
@@ -215,7 +217,9 @@ export function Composer({
         { type: choice.type, uid: choice.uid, displayName: choice.displayName }
       ]
     }
-    if (!detail && choice.type === 'agent' && !model.selectedAgentUID.value) model.selectedAgentUID.value = choice.uid
+    if (!detail && !personalAssistant && choice.type === 'agent' && !model.selectedAgentUID.value) {
+      model.selectedAgentUID.value = choice.uid
+    }
     close()
   }
   const slash = (command: SlashCommand) => {
@@ -412,7 +416,7 @@ export function Composer({
           <InputGroupTextarea
             ref={textarea}
             autoFocus
-            disabled={sending || answering}
+            disabled={answering}
             aria-label={t('pod.chat.message_label')}
             aria-autocomplete="list"
             aria-haspopup="listbox"
@@ -494,47 +498,51 @@ export function Composer({
                 onClick={() => open('slash')}>
                 <RiCommandLine aria-hidden />
               </Button>
-              <Select
-                key={roomAgents.map(agent => agent.uid).join(':')}
-                value={recipientUID}
-                onValueChange={value => {
-                  if (value == null) return
-                  if (conversationID) model.targetAgentUID.value = value === '__listeners__' ? '' : value
-                  else {
-                    model.selectedAgentUID.value = value
-                    model.modelProfile.value = null
-                  }
-                }}
-                disabled={!agentsLoaded || sending || answering || !!answerID || !!model.editing.value}>
-                <SelectTrigger
-                  ref={recipientControl}
-                  size="sm"
-                  variant="ghost"
-                  className="pod-chat-agent-picker"
-                  aria-label={t('pod.chat.choose_agent')}>
-                  <SelectValue placeholder={t('pod.chat.choose_agent')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {conversationID && (group || humanOnly) && (
-                    <SelectItem value="__listeners__">
-                      {t(roomAgents.length ? 'pod.chat_room.listeners' : 'pod.chat_room.people_only')}
-                    </SelectItem>
-                  )}
-                  {recipientAgentUIDs.map(uid => {
-                    const available = roomAgents.some(agent => agent.uid === uid)
-                    const name = recipientNames.get(uid)
-                    return (
-                      <SelectItem key={uid} value={uid} disabled={!available}>
-                        {available
-                          ? name
-                          : name
-                            ? `${name} (${t('pod.chat_room.unavailable')})`
-                            : t('pod.chat_room.unavailable')}
+              {personalAssistant && !conversationID ? (
+                <span className="px-2 text-xs text-fg-secondary">{t('pod.chat.personal_assistant')}</span>
+              ) : (
+                <Select
+                  key={roomAgents.map(agent => agent.uid).join(':')}
+                  value={recipientUID}
+                  onValueChange={value => {
+                    if (value == null) return
+                    if (conversationID) model.targetAgentUID.value = value === '__listeners__' ? '' : value
+                    else {
+                      model.selectedAgentUID.value = value
+                      model.modelProfile.value = null
+                    }
+                  }}
+                  disabled={!agentsLoaded || sending || answering || !!answerID || !!model.editing.value}>
+                  <SelectTrigger
+                    ref={recipientControl}
+                    size="sm"
+                    variant="ghost"
+                    className="pod-chat-agent-picker"
+                    aria-label={t('pod.chat.choose_agent')}>
+                    <SelectValue placeholder={t('pod.chat.choose_agent')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {conversationID && (group || humanOnly) && (
+                      <SelectItem value="__listeners__">
+                        {t(roomAgents.length ? 'pod.chat_room.listeners' : 'pod.chat_room.people_only')}
                       </SelectItem>
-                    )
-                  })}
-                </SelectContent>
-              </Select>
+                    )}
+                    {recipientAgentUIDs.map(uid => {
+                      const available = roomAgents.some(agent => agent.uid === uid)
+                      const name = recipientNames.get(uid)
+                      return (
+                        <SelectItem key={uid} value={uid} disabled={!available}>
+                          {available
+                            ? name
+                            : name
+                              ? `${name} (${t('pod.chat_room.unavailable')})`
+                              : t('pod.chat_room.unavailable')}
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              )}
               {modelAgentUID ? (
                 <ModelControls
                   inline

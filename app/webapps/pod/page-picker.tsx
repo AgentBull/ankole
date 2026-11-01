@@ -17,6 +17,7 @@ export function PagePicker({
   excludeSubtreeOf,
   requiredAction,
   embeddable,
+  canSelect,
   roots = [],
   selected,
   onSelect,
@@ -27,6 +28,7 @@ export function PagePicker({
   excludeSubtreeOf?: Page['id']
   requiredAction?: PageSearchOptions['required_action']
   embeddable?: boolean
+  canSelect?(page: Page): boolean
   roots?: Location[]
   selected?: string
   onSelect(id: string, page?: Page): void
@@ -86,25 +88,27 @@ export function PagePicker({
           </CommandGroup>
         )}
         <CommandGroup>
-          {pages.map(page => {
-            const title = page.title || t('pod.content.untitled')
-            const parent = parentTitle(page)
-            return (
-              <CommandItem
-                key={page.id}
-                value={page.id}
-                keywords={[title, parent]}
-                data-checked={page.id === selected}
-                disabled={disabled}
-                onSelect={() => onSelect(page.id, page)}>
-                <PageIcon page={page} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{title}</span>
-                  {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
-                </span>
-              </CommandItem>
-            )
-          })}
+          {pages
+            .filter(page => !canSelect || canSelect(page))
+            .map(page => {
+              const title = page.title || t('pod.content.untitled')
+              const parent = parentTitle(page)
+              return (
+                <CommandItem
+                  key={page.id}
+                  value={page.id}
+                  keywords={[title, parent]}
+                  data-checked={page.id === selected}
+                  disabled={disabled}
+                  onSelect={() => onSelect(page.id, page)}>
+                  <PageIcon page={page} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{title}</span>
+                    {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
+                  </span>
+                </CommandItem>
+              )
+            })}
         </CommandGroup>
       </CommandList>
       <ContentError error={remote.error} retry={() => void remote.refetch()} />

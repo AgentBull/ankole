@@ -87,7 +87,8 @@ defmodule Ankole.Sessions do
   end
 
   @doc "The shared registry identity for ordinary and background Job drivers."
-  def driver_name(key), do: {Ankole.Sessions.Driver, key.agent_uid, key.session_id}
+  def driver_name(key, tenant_id \\ Ankole.Repo.tenant_id!()),
+    do: {Ankole.Sessions.Driver, tenant_id, key.agent_uid, key.session_id}
 
   @doc "Finds the existing driver without starting it."
   def driver_pid(key), do: :global.whereis_name(driver_name(key))

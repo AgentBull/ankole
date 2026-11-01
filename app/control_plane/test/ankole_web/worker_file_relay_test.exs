@@ -46,7 +46,7 @@ defmodule AnkoleWeb.WorkerFileRelayTest do
     %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
     worker = %{
-      Ankole.Repo.get!(AgentWorker, agent.uid)
+      Ankole.Repo.get_by!(AgentWorker, agent_uid: agent.uid)
       | incarnation_id: "incarnation-relay",
         transport_route: "route-relay"
     }

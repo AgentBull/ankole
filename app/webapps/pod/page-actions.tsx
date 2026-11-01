@@ -1,3 +1,4 @@
+import { canCreateChild } from './state/page-location'
 import { usePageMetadata } from './use-page-metadata'
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
@@ -187,8 +188,9 @@ export function PageMenuItems({
   const { t } = useTranslation()
   const { pageHref } = useContent()
   const copyLink = useCopyPageLink(page.id)
-  const canEdit = page.actions?.includes('page_edit') === true
-  const canManage = page.actions?.includes('page_manage') === true
+  const canEdit = page.actions?.includes('node_edit') === true
+  const canTrash =
+    page.actions?.includes(page.type === 'file' || page.type === 'folder' ? 'node_edit' : 'node_manage') === true
   const canMove = canMovePage(page)
   const up = canMove ? stepRequest(pages, page, -1) : null
   const down = canMove ? stepRequest(pages, page, 1) : null
@@ -206,12 +208,12 @@ export function PageMenuItems({
         {favorited ? <RiStarFill aria-hidden /> : <RiStarLine aria-hidden />}
         {favorited ? t('pod.sidebar.remove_favorite') : t('pod.sidebar.add_favorite')}
       </DropdownMenuItem>
+      {canCreateChild(page) && <CreatePageSubmenu create={createSubpage(page.id)} />}
       {canMove && (
         <>
           <DropdownMenuSeparator />
           {canEdit && (
             <>
-              <CreatePageSubmenu create={createSubpage(page.id)} />
               <DropdownMenuItem onClick={onRename}>
                 <RiPencilLine aria-hidden />
                 {t('pod.sidebar.rename')}
@@ -232,7 +234,7 @@ export function PageMenuItems({
           </DropdownMenuItem>
         </>
       )}
-      {canManage && (
+      {canTrash && (
         <>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => trash(page)}>

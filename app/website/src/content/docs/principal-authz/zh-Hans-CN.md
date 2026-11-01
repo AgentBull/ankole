@@ -15,21 +15,21 @@ order: 106
 
 在关联关系上，一个人员主体对应一条 `HumanUser` 记录、零至多条站点级 `SiteCredential` 记录（存于 `principal_site_credentials`，如通过校验的邮箱验证码地址），以及零至多条租户级 `ExternalIdentity` 记录（存于 `principal_external_identities`，来自外部联邦身份源）；一个 Agent 主体则对应一条 `Agent` 记录。所有类型的主体收敛在同一张核心表中，使整套问责体系完全统一：每一条审计日志、授权规则与权限组成员关系都直接指向同一个稳定的 Principal `uid`。
 
-人员的 `membership` 属性界定了租户内的协作边界：内部成员（`member`）会自动纳入计算式权限组 `all_humans`；外部访客（`guest`）则必须获得显式的 Pod 页面共享或 Agent 授权才能访问对应资源，且不可加入内置管理员组（`siteadmin` 或 `pod_admin`）、不可使用个人空间（Private space），也不会获得 Brain 的 `world` 范围。
+人员的 `membership` 属性界定了租户内的协作边界：内部成员（`member`）会自动纳入计算式权限组 `all_humans`；外部访客（`guest`）则必须获得显式的 Pod 页面共享或 Agent 授权才能访问对应资源，且不可加入内置管理员组（`siteadmin` 或 `pod_admin`）、没有 Private 根目录，也不会获得 Brain 的 `world` 范围。
 
 已停用的主体不存在所谓“部分可用”的中间态——Kernel 对其任何权限请求都会直接返回 `principal_disabled`。因此，只需停用主体本身即可在整个实例范围内一键收回其全部权限，无需逐条删除既有授权规则。
 
 ## grant：谁能做什么
 
-`permission_grants` 表中的每条记录必须且只能归属于以下三类受让人所有者之一（由 `Ankole.AuthZ.Validations.GrantShape` 与 PostgreSQL Check 约束 `num_nonnulls(principal_uid, group_id, source_page_id) = 1` 双重保障）：
+`permission_grants` 表中的每条记录必须且只能归属于以下三类受让人所有者之一（由 `Ankole.AuthZ.Validations.GrantShape` 与 PostgreSQL Check 约束 `num_nonnulls(principal_uid, group_id, source_node_id) = 1` 双重保障）：
 
 - **单个主体**（`principal_uid`）；
 - **单个权限组**（`group_id`）；
-- **Pod 页面 Userset**（`source_page_id` 搭配精确的 `source_action`：`page_view`、`page_write_records`、`page_edit` 或 `page_manage`）。
+- **Drive 节点 Userset**（`source_node_id` 搭配精确的 `source_action`：`node_view`、`node_contribute`、`node_edit`、`node_manage` 或 `node_comment`）。
 
-涉及 Pod ACL 的授权记录还会保存 `target_page_id` 与 `target_scope`（`container` 作用于整棵继承子树，`self` 仅作用于目标页面自身）。每条授权规则包含以下核心字段：
+涉及 Drive ACL 的授权记录还会保存 `target_node_id` 与 `target_scope`（`container` 作用于整棵继承子树，`self` 仅作用于目标节点自身）。每条授权规则包含以下核心字段：
 
-- `resource_pattern`：经 `Input.validate_resource_pattern_syntax` 校验的资源模式，覆盖统一的冒号分隔命名空间——包括 `site_console:**`（站点控制台）、`tenant_console:**`（Pod 管理）、`agent:<uid>` 与 `agent:<uid>:tool:<fn>`（运行时 Agent 与工具调用），以及 `pod:**`（如 `pod:space:**`、`pod:private:<uid>:**`、`pod:**:<page-id>:**`、`pod:**:<page-id>:page`）。系统禁止使用无前缀的裸 `"**"` 通配模式；
+- `resource_pattern`：经 `Input.validate_resource_pattern_syntax` 校验的资源模式，覆盖统一的冒号分隔命名空间——包括 `site_console:**`（站点控制台）、`tenant_console:**`（Pod 管理）、`agent:<uid>`（运行时 Agent 访问），以及 `drive:**`（如 `drive:space:**`、`drive:private:<uid>:**`、`drive:**:<node-id>:**`、`drive:**:<node-id>:node`）。系统禁止使用无前缀的裸 `"**"` 通配模式；
 - `action`：精确动作名字符串，禁止包含冒号；
 - `condition`：CEL 布尔表达式，默认为 `"true"`，写入前经 `Input.validate_condition_syntax` 校验语法；
 - `description` 与 `metadata`：供运维与审计人员查阅的备注信息。
@@ -46,10 +46,10 @@ order: 106
 
 控制面与 Rust Kernel 职责分明，共同确保 AuthZ 成为不可绕过的硬性执行边界：
 
-- **控制面负责维护持久状态、执行 Ash 授权拦截并组装求值快照。** 受保护的 Ash 动作通过 `Ankole.AuthZ.Extension` 在编译期声明所需权限，运行时由 `Ankole.AuthZ.Authorizer` 基于 `%Ankole.AuthZ.Actor{principal, interactive_principal, turn_authority, authn, interactive_authn}` 强制校验。经核验的浏览器会话、OIDC 令牌及 Worker 连接认证事实会注入 `context.request.authn`，供 CEL 条件表达式读取。当上下文中同时存在 `interactive_principal`（例如由人类用户发起的 Agent 回合）时，操作必须同时通过人类与 Agent 双重权限校验（即取交集 `Human ∩ Agent`）。
-- **Rust Kernel 与 PostgreSQL 负责确定性规则求值。** 执行常规权限检查时，`Ankole.AuthZ.Snapshot` 通过单条 SQL 一次性加载主体状态、所属权限组与候选授权规则，随后交由 Rust Kernel 完成资源模式匹配、动态组判定与 CEL 条件求值。对于 Pod 页面访问控制，系统采用 4 位 ACL 锚点图（`page_view=1`、`page_write_records=2`、`page_edit=4`、`page_manage=8`；角色掩码为 `view=1`、`contribute=3`、`edit=7`、`manage=15`）：先在 Rust Kernel 中一次性求值与当前请求相关的 CEL 条件，再由 PostgreSQL 通过 `WITH RECURSIVE`（`UNION` 最小不动点）合并直接授权、权限组继承、容器子树继承与 Userset 传递边。
+- **控制面负责维护持久状态、执行 Ash 授权检查并组装快照。** 受保护的动作通过 `Ankole.AuthZ.Extension` 声明规则，`Ankole.AuthZ.Authorizer` 根据 `%Ankole.AuthZ.Actor{principal, turn_authority, authn}` 校验执行主体。Agent 回合使用 Agent 自己的资源权限。经验证的认证事实写入 `context.request.authn`，适用于该 Agent 的 grant 提供 CEL 条件。`turn_authority` 与 `WorkAccess` 分别检查指令是否仍然有效。
+- **Rust Kernel 与 PostgreSQL 负责确定性规则求值。** 执行常规权限检查时，`Ankole.AuthZ.Snapshot` 通过单条 SQL 一次性加载主体状态、所属权限组与候选授权规则，随后交由 Rust Kernel 完成资源模式匹配、动态组判定与 CEL 条件求值。对于 Drive 节点访问控制，系统采用 5 位 ACL 锚点图（`node_view=1`、`node_contribute=2`、`node_edit=4`、`node_manage=8`、`node_comment=16`；角色掩码为 `view=1`、`contribute=19`、`edit=23`、`manage=31`）：先在 Rust Kernel 中一次性求值与当前请求相关的 CEL 条件，再由 PostgreSQL 通过 `WITH RECURSIVE`（`UNION` 最小不动点）合并直接授权、权限组继承、容器子树继承与 Userset 传递边。
 
-`Ankole.AuthZ` 对外暴露的公开调用入口包括：`authorize(subject, resource, action, context)`、返回布尔值的 `allowed?/4`、返回单动作完整决策 Map 的 `authorize_decision/4`、针对同一资源批量校验多个动作的 `authorize_all_decision/4`、基于单次快照并行校验多组独立“资源 + 动作”对的 `authorize_checks/3`，以及用于求值 Pod 访问上下文的 `evaluate_pod_context/2`。所有入口均自行核查底层快照，绝不采信调用方自报的权限声明。
+`Ankole.AuthZ` 对外暴露的公开调用入口包括：`authorize(subject, resource, action, context)`、返回布尔值的 `allowed?/4`、返回单动作完整决策 Map 的 `authorize_decision/4`、针对同一资源批量校验多个动作的 `authorize_all_decision/4`、基于单次快照并行校验多组独立“资源 + 动作”对的 `authorize_checks/3`，以及用于求值 Drive 访问上下文的 `evaluate_drive_context/2`。所有入口均自行核查底层快照，绝不采信调用方自报的权限声明。
 
 ## 决定状态
 
@@ -67,7 +67,7 @@ order: 106
 AuthZ 之所以无法被 Agent 绕过，是因为运行时在每一道关键入口都部署了硬性校验：
 
 - **AIGateway 边缘**：根据经过验证的访问令牌解析调用方主体，并严格依据该主体的授权规则决定允许访问的模型选择符与上游提供商。
-- **工具装配与派发**：针对 `agent:<uid>:tool:<fn>`（动作为 `invoke`，并传入规范化后的 `context.request.args`）逐一求值；若当前回合由人类用户触发，涉及 Pod 的操作还会强制求取 `Human ∩ Agent` 权限交集。
+- **工具装配与派发**：执行 Agent 必须处于启用状态，工具必须在其声明的目录中，参数和指令也必须有效。工具所属模块按该 Agent 的身份校验实际访问的资源。
 - **会话与后台任务提交**：会话 Driver 在持久化提交前校验租约栅栏（fence）；Worker 上报 Job 操作时，控制面同样会核验持久化的 Job Attempt 栅栏与已认证连接身份。
 - **管理控制台接口**：调用站点控制台（`/api/v2`）与 Pod 管理接口（`/api/v2/pod/admin`）时，必须同时具备经验证的浏览器凭证、有效的 CSRF 令牌，以及当前生效的 `site_console:**` 或 `tenant_console:**` 授权。
 
@@ -76,6 +76,8 @@ AuthZ 之所以无法被 Agent 绕过，是因为运行时在每一道关键入�
 ## 运维界面
 
 站点控制台在 `/api/v2` 下提供面向全局运维的 JSON:API 路由，管理主体、权限组与授权规则（需 `site_console:**` 权限）；Pod 管理员则通过 `/api/v2/pod/admin/*` 管理本租户成员、邀请、租户设置与身份源提供商（需 `tenant_console:**` 权限）：
+
+`site_console:drive` 权限覆盖所选租户的完整 Drive 树，包括成员和 Agent 的 Private 内容。运维人员可根据该权限授予的动作读取、更新或删除内容。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|

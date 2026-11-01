@@ -37,6 +37,7 @@ defmodule Ankole.Conversations.Delivery.Deletion do
       intent
       |> Map.merge(%{
         agent_uid: input.agent_uid,
+        binding_id: input.reply_binding_id,
         binding_name: input.reply_binding_name,
         source_signal_id: input.id
       })

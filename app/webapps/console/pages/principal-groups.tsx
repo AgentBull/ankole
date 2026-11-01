@@ -499,7 +499,7 @@ function GroupMembersSection({ group }: { group: PrincipalGroupRecord }) {
               candidates={(principals.data ?? []).map(principal => ({
                 id: principal.id,
                 label: principalLabel(principal),
-                description: principal.email ?? principal.handle
+                description: principal.email ?? principal.id
               }))}
               excludedIDs={new Set(memberList.map(member => member.uid))}
               error={principals.error}

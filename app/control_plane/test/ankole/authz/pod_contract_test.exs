@@ -19,10 +19,10 @@ defmodule Ankole.AuthZ.PodContractTest do
 
     {:ok, userset} =
       AuthZ.create_permission_grant(%{
-        source_page_id: first.id,
-        source_action: "page_view",
-        resource_pattern: "pod:**:#{target.id}:page",
-        action: "page_view",
+        source_node_id: first.id,
+        source_action: "node_view",
+        resource_pattern: "drive:**:#{target.id}:node",
+        action: "node_view",
         condition: ~s(context.request.ip == "10.0.0.1")
       })
 
@@ -44,29 +44,31 @@ defmodule Ankole.AuthZ.PodContractTest do
       )
 
     on_exit(fn -> :telemetry.detach(handler) end)
-    assert {:ok, snapshot} = Snapshot.build_pod_context_snapshot(owner.uid, %{ip: "10.0.0.1"})
+    assert {:ok, snapshot} = Snapshot.build_drive_context_snapshot(owner.uid, %{ip: "10.0.0.1"})
     assert snapshot["principal"]["membership"] == "member"
     assert group.id in snapshot["staticGroupIDs"]
     assert snapshot["computedGroups"] != []
-    assert Enum.find(snapshot["grants"], &(&1["id"] == userset.id))["hasSourcePage"]
+    assert Enum.find(snapshot["grants"], &(&1["id"] == userset.id))["hasSourceNode"]
     assert Enum.find(snapshot["grants"], &(&1["id"] == direct.id))["condition"] == "true"
     assert_receive {:query, sql}
-    assert sql =~ "WITH subject"
+    assert sql =~ "WITH execution"
+    assert_receive {:query, conversations_sql}
+    assert conversations_sql =~ "conversation_participants"
     refute_receive {:query, _}
     :telemetry.detach(handler)
 
     assert {:ok, ordinary} =
              Snapshot.build_authorization_snapshot(
                owner.uid,
-               "tenant_console:pod_space",
+               "tenant_console:drive_space",
                "update"
              )
 
-    refute Enum.any?(ordinary["grants"], & &1["hasSourcePage"])
+    refute Enum.any?(ordinary["grants"], & &1["hasSourceNode"])
 
     foreign = create_tenant()
 
-    assert Repo.with_tenant(foreign.id, fn -> Snapshot.build_pod_context_snapshot(owner.uid) end) ==
+    assert Repo.with_tenant(foreign.id, fn -> Snapshot.build_drive_context_snapshot(owner.uid) end) ==
              {:error, :not_found}
 
     assert Repo.tenant_id!() == ctx.tenant.id
@@ -84,19 +86,19 @@ defmodule Ankole.AuthZ.PodContractTest do
     {:ok, grant} =
       AuthZ.create_permission_grant(%{
         principal_uid: viewer.uid,
-        resource_pattern: "pod:**:#{page.id}:page",
-        action: "page_view"
+        resource_pattern: "drive:**:#{page.id}:node",
+        action: "node_view"
       })
 
     assert {:ok, _} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                page.id,
-               "page_view"
+               "node_view"
              )
 
     Repo.update_all(from(g in Grant, where: g.id == ^grant.id),
-      set: [condition: ~s(resource == "pod:space")]
+      set: [condition: ~s(resource == "drive:space")]
     )
 
     handler = {__MODULE__, make_ref()}
@@ -115,7 +117,7 @@ defmodule Ankole.AuthZ.PodContractTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
                page.id,
-               "page_view"
+               "node_view"
              )
 
     id = grant.id
@@ -137,22 +139,22 @@ defmodule Ankole.AuthZ.PodContractTest do
     {:ok, grant} =
       AuthZ.create_permission_grant(%{
         principal_uid: owner.uid,
-        resource_pattern: "pod:**:#{first.id}:page",
-        action: "page_view"
+        resource_pattern: "drive:**:#{first.id}:node",
+        action: "node_view"
       })
 
-    assert {grant.target_page_id, grant.target_scope} == {first.id, "self"}
+    assert {grant.target_node_id, grant.target_scope} == {first.id, "self"}
     assert Repo.get!(Page, first.id).has_local_acl
 
     {:ok, updated} =
-      AuthZ.update_permission_grant(grant, %{resource_pattern: "pod:**:#{second.id}:**"})
+      AuthZ.update_permission_grant(grant, %{resource_pattern: "drive:**:#{second.id}:**"})
 
-    assert {updated.target_page_id, updated.target_scope} == {second.id, "container"}
+    assert {updated.target_node_id, updated.target_scope} == {second.id, "container"}
     refute Repo.get!(Page, first.id).has_local_acl
     assert Repo.get!(Page, second.id).has_local_acl
     {:ok, _} = AuthZ.delete_permission_grant(updated.id)
     refute Repo.get!(Page, second.id).has_local_acl
-    assert Repo.get!(Page, second.id).acl_anchor_id == root.id
+    assert Repo.get!(Page, second.id).acl_anchor_id == root.acl_anchor_id
   end
 
   test "Pod grants reject resource-dependent CEL, malformed targets, and bare global wildcards" do
@@ -161,16 +163,16 @@ defmodule Ankole.AuthZ.PodContractTest do
 
     for attrs <- [
           %{resource_pattern: "**", action: "read"},
-          %{resource_pattern: "pod:anything", action: "page_view"},
+          %{resource_pattern: "drive:anything", action: "node_view"},
           %{
-            resource_pattern: "pod:**:#{root.id}:page",
-            action: "page_view",
+            resource_pattern: "drive:**:#{root.id}:node",
+            action: "node_view",
             target_scope: "container"
           },
           %{
-            resource_pattern: "pod:space:**",
-            action: "page_view",
-            condition: ~s(resource == "pod:space")
+            resource_pattern: "drive:space:**",
+            action: "node_view",
+            condition: ~s(resource == "drive:space")
           }
         ] do
       assert {:error, _} =
@@ -222,11 +224,19 @@ defmodule Ankole.AuthZ.PodContractTest do
     assert {:error, :external_guests_disabled} =
              AuthZ.create_permission_grant(%{
                principal_uid: guest.uid,
-               resource_pattern: "pod:**:#{root.id}:page",
-               action: "page_view"
+               resource_pattern: "drive:**:#{root.id}:node",
+               action: "node_view"
              })
 
-    refute Repo.exists?(from g in Grant, where: g.principal_uid == ^guest.uid)
+    assert {:ok, private_root} = Ankole.Files.private_root(guest.uid)
+
+    assert {:error, :forbidden} =
+             Ankole.Files.Nodes.authorize(actor_fixture(demoted), private_root.id, "node_view")
+
+    refute Repo.exists?(
+             from g in Grant,
+               where: g.principal_uid == ^guest.uid and not is_nil(g.target_node_id)
+           )
   end
 
   test "Guest creation and membership actions use the production Principal contract" do
@@ -255,7 +265,7 @@ defmodule Ankole.AuthZ.PodContractTest do
   end
 
   test "wildcard console updates take the Pod tree lock" do
-    for pattern <- ["tenant_console:**", "tenant_console:pod_*", "tenant_console:*"] do
+    for pattern <- ["tenant_console:**", "tenant_console:drive_*", "tenant_console:*"] do
       assert Ankole.AuthZ.Grants.grant_affects_pod?(%{
                resource_pattern: pattern,
                action: "update"

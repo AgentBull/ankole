@@ -34,7 +34,7 @@ defmodule Ankole.AIGatewayCase do
 
       alias Ankole.AIGateway, warn: false
       alias Ankole.AIGateway.ProviderConfigs, warn: false
-      alias Ankole.AIAgent.ModelProfiles, warn: false
+      alias Ankole.AIGateway.ModelProfiles, warn: false
       alias Ankole.Sessions.RPCLane, warn: false
       alias Ankole.AIGateway.Tokens, warn: false
     end
@@ -203,7 +203,7 @@ defmodule Ankole.AIGatewayCase do
       })
 
     {:ok, _profile} =
-      Ankole.AIAgent.ModelProfiles.put_model_profile(fixture.principal.uid, "coding", %{
+      Ankole.AIGateway.ModelProfiles.put_model_profile(fixture.principal.uid, "coding", %{
         provider_id: provider_id,
         model: "openai/gpt-5.6-sol",
         provider_options: %{"reasoningEffort" => "xhigh"}
@@ -215,28 +215,14 @@ defmodule Ankole.AIGatewayCase do
   @doc false
   def configure_brain_maintainer_profile!(profile, provider_id, model)
       when is_binary(profile) and is_binary(provider_id) and is_binary(model) do
-    agent_uid =
-      case Ankole.AppConfigure.get_by_key("brain.maintainer_agent_uid") do
-        {:ok, uid} when is_binary(uid) and uid != "" ->
-          uid
-
-        _missing ->
-          %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
-          agent_uid = agent.uid
-
-          {:ok, ^agent_uid} =
-            Ankole.AppConfigure.put_global_by_key("brain.maintainer_agent_uid", agent_uid)
-
-          agent_uid
-      end
-
     {:ok, _profile} =
-      Ankole.AIAgent.ModelProfiles.put_model_profile(agent_uid, profile, %{
+      Ankole.AIGateway.ModelProfiles.put_default_model_profile(:tenant, profile, %{
         provider_id: provider_id,
         model: model
       })
 
-    agent_uid
+    {:ok, subject_uid} = Ankole.Brain.Config.execution_subject_uid()
+    subject_uid
   end
 
   @doc false

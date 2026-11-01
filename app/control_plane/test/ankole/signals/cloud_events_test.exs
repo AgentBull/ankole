@@ -102,9 +102,10 @@ defmodule Ankole.Signals.CloudEventsTest do
     target = Repo.get_by!(Binding, agent_uid: context.second.uid, name: "shared-name")
 
     assert {:error, :binding_target_conflict} =
-             Bindings.update_binding(context.first.uid, context.second.uid, "shared-name", %{
-               "config" => %{}
-             })
+             Bindings.update_binding(
+               Ankole.Signals.get_agent_binding!(context.first.uid, "shared-name").id,
+               %{"agent_uid" => context.second.uid, "config" => %{}}
+             )
 
     Ankole.DataCase.assert_persisted_equal(
       Repo.get_by!(Binding, agent_uid: source.agent_uid, name: source.name),
@@ -125,21 +126,22 @@ defmodule Ankole.Signals.CloudEventsTest do
       if disabled_target? do
         bind!(context, context.second, name, "disabled-session")
 
-        assert {:ok, _binding} = Bindings.disable_binding(context.second.uid, name)
+        assert {:ok, _binding} =
+                 Bindings.disable_binding(
+                   Ankole.Signals.get_agent_binding!(context.second.uid, name).id
+                 )
       end
 
       assert {:ok, %{binding: moved}} =
                Bindings.update_binding(
-                 context.first.uid,
-                 context.second.uid,
-                 name,
-                 %{"config" => %{}}
+                 Ankole.Signals.get_agent_binding!(context.first.uid, name).id,
+                 %{"agent_uid" => context.second.uid, "config" => %{}}
                )
 
       assert moved.agent_uid == context.second.uid
       assert moved.target == %{"session_id" => "source-session"}
       assert moved.enabled
-      refute Repo.get_by(Binding, agent_uid: context.first.uid, name: name)
+      assert %{enabled: false} = Repo.get_by!(Binding, agent_uid: context.first.uid, name: name)
     end
   end
 
@@ -154,15 +156,21 @@ defmodule Ankole.Signals.CloudEventsTest do
              })
 
     assert {:ok, %{config: config}} =
-             Bindings.get_binding_configuration(context.first.uid, binding.name)
+             Bindings.get_binding_configuration(
+               Ankole.Signals.get_agent_binding!(context.first.uid, binding.name).id
+             )
 
     assert config["target_kind"] == "session"
     assert config["target_id"] == "fixed-events"
 
     assert {:ok, %{binding: updated}} =
-             Bindings.update_binding(context.first.uid, context.first.uid, binding.name, %{
-               "config" => %{"filter_cel" => "signal.type == 'issue.changed'"}
-             })
+             Bindings.update_binding(
+               Ankole.Signals.get_agent_binding!(context.first.uid, binding.name).id,
+               %{
+                 "agent_uid" => context.first.uid,
+                 "config" => %{"filter_cel" => "signal.type == 'issue.changed'"}
+               }
+             )
 
     assert updated.target == %{"session_id" => "fixed-events"}
     assert {:ok, %{signals: [signal]}} = Webhooks.receive_cloudevent(context.token, event())

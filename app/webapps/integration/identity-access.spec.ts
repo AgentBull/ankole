@@ -26,10 +26,10 @@ const access = () => ({
   status: 'active',
   access_version: 1,
   access_revoked_at: null,
-  permission_review: { fingerprint: 'review-one', permissions: { principal: {}, groups: [], grants: [] } },
   restrictions: [] as Array<{
     id: string
     source: string
+    disposition: string
     reason: string
     cleared_at: string | null
     recovery_verified_at: null
@@ -126,9 +126,7 @@ test('the identity editor saves v2 settings, keeps typed field errors, and revie
   await expect(page.getByText('missing-person', { exact: true })).toHaveCount(0)
 })
 
-test('Human access requires an explicit disposition, identity confirmation, and current permission review', async ({
-  page
-}) => {
+test('Human access requires an explicit disposition and restores directly with a reason', async ({ page }) => {
   let state = access()
   await page.route(
     url => url.pathname.startsWith('/api/v2/'),
@@ -150,6 +148,7 @@ test('Human access requires an explicit disposition, identity confirmation, and 
             {
               id: 'restriction-one',
               source: 'manual',
+              disposition: data.disposition,
               reason: data.reason,
               cleared_at: null,
               recovery_verified_at: null,
@@ -159,16 +158,10 @@ test('Human access requires an explicit disposition, identity confirmation, and 
         }
         return route.fulfill({ status: 201, json: state })
       }
-      if (path.endsWith('/clear')) {
-        expect(data.reason).toBe('Cleared manual hold')
-        state = { ...state, restrictions: [] }
-        return route.fulfill({ status: 201, json: state })
-      }
       if (path.endsWith('/access-restorations')) {
         expect(data.reason).toBe('Approved return')
-        expect(data.identity_verified).toBe(true)
-        expect(data.review_fingerprint).toBe('review-one')
-        state = { ...state, status: 'active' }
+        expect(Object.keys(data).sort()).toEqual(['operation_id', 'reason'])
+        state = { ...state, status: 'active', restrictions: [] }
         return route.fulfill({ status: 201, json: state })
       }
       if (path.endsWith('/human-one/access')) return route.fulfill({ json: state })
@@ -190,21 +183,11 @@ test('Human access requires an explicit disposition, identity confirmation, and 
     .check()
   await confirmOffboard.click()
   await expect(offboardDialog).toHaveCount(0)
-  await page
-    .getByRole('textbox', { name: 'Reason for this change (required)', exact: true })
-    .first()
-    .fill('Cleared manual hold')
-  await page.getByRole('button', { name: 'Clear restriction', exact: true }).click()
   const restore = page.getByRole('button', { name: 'Restore account', exact: true })
-  await expect(restore).toBeDisabled()
-  await page
-    .getByRole('checkbox', {
-      name: 'I have independently verified this person’s identity and authorization to return.'
-    })
-    .check()
-  await page.getByRole('checkbox', { name: 'I approve the permission rules shown above.' }).check()
-  await page.getByRole('textbox', { name: 'Reason for this change (required)', exact: true }).fill('Approved return')
+  await expect(restore).toBeEnabled()
+  await page.getByRole('form', { name: 'Restore account' }).getByRole('textbox').fill('Approved return')
   await restore.click()
+  await expect(restore).toHaveCount(0)
   await expect(offboardTrigger).toBeVisible()
 })
 

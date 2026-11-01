@@ -9,7 +9,11 @@ const input: Contract = {
   agentUid: 'agent-1',
   generation: 'gen1',
   image: 'worker-a',
-  env: { WORKER_ID: 'agent-1', ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: 'worker-secret' },
+  env: {
+    WORKER_ID: 'agent-1',
+    ANKOLE_WORKER_TENANT_ID: 'tenant-1',
+    ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: 'worker-secret'
+  },
   instance: 'standard-3',
   storageRef: null
 }
@@ -37,15 +41,20 @@ async function tick() {
 describe('WorkerMachine directory storage contract (WP 3.4)', () => {
   it('starts from the image, registers its provider, and becomes running only after restore', async () => {
     const { worker, container, registry, backups } = machine()
-    expect(await worker.create(input)).toMatchObject({ phase: 'starting', started_at: '2026-10-07T00:00:00.000Z' })
+    expect(await worker.create({ ...input, agentUid: 'tenant-1-agent-1' })).toMatchObject({
+      tenant_id: 'tenant-1',
+      agent_uid: 'agent-1',
+      phase: 'starting',
+      started_at: '2026-10-07T00:00:00.000Z'
+    })
     expect(container.starts).toEqual([
       { image: container.images['worker-a'], enableInternet: true, env: input.env, instance: 'standard-3' }
     ])
-    expect(registry.entries.get('agent-1')).toBe('cf-one')
+    expect(registry.entries.get('tenant-1-agent-1')).toBe('cf-one')
     await worker.restore(authorization)
     expect(await worker.state('cf-one')).toMatchObject({ phase: 'running' })
     expect(backups.restores).toEqual([])
-    expect(backups.removals).toEqual([['agent-1', null]])
+    expect(backups.removals).toEqual([['tenant-1-agent-1', null]])
   })
 
   it('restores only the committed pointer and removes other backups afterwards', async () => {

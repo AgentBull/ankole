@@ -36,6 +36,10 @@ UTF8 编码，而已有存储卷则保持原有数据库编码不变。接入已
 `SHOW server_encoding` 检查编码；若旧库仍为 `SQL_ASCII`，请按
 [备份、转换与恢复](../../../devkit/postgres-for-ankole/README.md)流程完成迁移。
 
+内置 PostgreSQL Pod 将内存卷挂载到 `/dev/shm`，供并行查询使用。
+`postgresql.sharedMemorySize` 默认为 `1Gi`；卷实际占用的内存计入容器内存限制，
+运维人员需根据查询并发量调整两者。
+
 内置 PostgreSQL 仅运行单副本，默认未配置防自愿驱逐保护，生产环境请改用外部
 PostgreSQL 服务。如果必须在 Karpenter 托管节点上运行内置数据库，请为 Pod 添加以下注解：
 
@@ -140,6 +144,9 @@ helm upgrade --install ankole ./tools/deploy/helm/ankole-agent \
 [Brain 版本契约](../../../../docs/design-docs/BrainV3.md#retrieval-index-recovery)。
 升级已有部署（包括内置 PostgreSQL）时，请先停止控制面，按
 [数据库镜像升级说明](../../../devkit/postgres-for-ankole/README.md)更新扩展后再部署新版 Pod。
+
+默认 PostgreSQL 镜像为 `amd64` 和 `arm64` 架构提供 `pg_search` `0.26.4`。
+使用自定义镜像时，请设置其发布摘要；如果通过标签选择镜像，请清空 `postgresql.image.digest`。
 
 安装前，请先连接 `DATABASE_URL` 实际指向的数据库实例并核验版本与扩展：
 
@@ -246,6 +253,9 @@ Pod 彻底退出，切勿使用 `--grace-period=0` 或强制删除 Pod。**在�
 下文步骤准备好原有的共享 PVC，因为新控制面首次启动时会在同一数据库事务中导入 Worker
 提供商种子并将存量 Agent 绑定到该 PVC。
 
+如果旧版为每个 Agent 分配独享 PVC，且名称不含租户身份，请停掉控制面和 Worker，先完成
+[独享 PVC 迁移](../../../../docs/upgrades/unified-drive.md#dedicated-kubernetes-claims)。
+
 每次升级前请先备份 PostgreSQL、Agent Home 存储与文件存储，然后执行：
 
 ```sh
@@ -260,8 +270,9 @@ helm upgrade ankole ./tools/deploy/helm/ankole-agent \
 如果回退应用版本的同时还需要回退数据库结构，请直接恢复数据库备份。
 
 默认的 Worker 提供商使用保留的共享 Agent Home PVC（通常名为
-`<release>-ankole-agent-agents`）。每个 Worker 仅将所属 Agent 的子目录挂载到
-`/workspace`，并通过 `/agents/<agent_uid>` 符号链接指向该路径。若变更了 Helm 发布名称，
+`<release>-ankole-agent-agents`）。每个 Worker 将包含租户身份的存储目录挂载到
+`/workspace`，并通过 `/agents/<agent_uid>` 符号链接指向该路径。升级仅用 Agent UID 命名目录的
+共享卷时，请先完成[共享卷目录迁移](../../../../docs/upgrades/unified-drive.md#kubernetes-shared-agent-homes)。若变更了 Helm 发布名称，
 请通过 `worker.agents.persistence.existingClaim` 显式指向原有 PVC。
 
 旧版池化 Worker 以 root 身份运行，旧 Agent Home 目录权限为 `0700`；新版 Worker 中的命令、

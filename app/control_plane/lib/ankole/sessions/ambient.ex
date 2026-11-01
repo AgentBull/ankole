@@ -285,7 +285,7 @@ defmodule Ankole.Sessions.Ambient do
   defp current_binding_allows_intervention?(%Signal{} = event) do
     binding =
       is_binary(event.reply_binding_name) &&
-        Ankole.Signals.share_binding_in_tx(event.agent_uid, event.reply_binding_name)
+        Ankole.Signals.share_binding_in_tx(event.reply_binding_id)
 
     case binding do
       %Binding{

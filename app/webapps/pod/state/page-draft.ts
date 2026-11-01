@@ -2,7 +2,7 @@ import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { recordValue, safeJsonParse } from '@agentbull/active-support'
 
 /** A draft keeps its own base revision even while remote queries refresh. */
-export const PageDraftModel = createModel((storageKey?: string) => {
+function createPageDraft(storageKey?: string) {
   let reloadVersion = 0
   const xml = signal('<page/>')
   const savedXML = signal('<page/>')
@@ -136,8 +136,9 @@ export const PageDraftModel = createModel((storageKey?: string) => {
         recoveryDrafts.value = [...new Set(recovered)]
       })
     },
-    titleSaved(value: string) {
+    titleSaved(value: string, submitted: string) {
       batch(() => {
+        if (title.value.trim() === submitted) title.value = value
         savedTitle.value = value
         titleBase.value = value
         titleConflict.value = false
@@ -187,4 +188,6 @@ export const PageDraftModel = createModel((storageKey?: string) => {
       reloadVersion++
     }
   }
-})
+}
+
+export const PageDraftModel = createModel(createPageDraft)

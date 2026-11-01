@@ -1,3 +1,6 @@
+import { canCreateChild } from './state/page-location'
+import { BdiLabel } from '../common/bidi-file-name'
+import { stripBidi } from '../common/bidi'
 import { formatFileBytes } from '../common/file-format'
 import { usePagesMetadata } from './use-page-metadata'
 import {
@@ -121,9 +124,11 @@ export function DocumentSubpages({
   const sort = model.sort.value
 
   const hasPotentialChildren = detail.child_count > 0
+  const showEmpty = page.type === 'folder'
+  const canCreate = canCreateChild({ ...page, actions: detail.actions })
   const subpages = useInfiniteQuery({
     ...pageSubpagesQuery(scope, page.id),
-    enabled: hasPotentialChildren && !collapsed
+    enabled: (hasPotentialChildren || showEmpty) && !collapsed
   })
   const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = subpages
   useEffect(() => {
@@ -134,7 +139,7 @@ export function DocumentSubpages({
 
   const favorites = useQuery({
     ...pagesQuery('favorites'),
-    enabled: hasPotentialChildren && !collapsed
+    enabled: (hasPotentialChildren || showEmpty) && !collapsed
   })
   const favoriteIDs = new Set(favorites.data?.pages.map(item => item.id) ?? [])
   const actions = usePageActions()
@@ -146,8 +151,8 @@ export function DocumentSubpages({
   const [dragOverField, setDragOverField] = useState<SubpageField | null>(null)
 
   const rawPages = usePagesMetadata(subpages.data?.pages.flatMap(batch => batch.pages) ?? [])
-  if (!hasPotentialChildren) return null
-  if (!collapsed && subpages.isSuccess && !subpages.hasNextPage && rawPages.length === 0) return null
+  if (!hasPotentialChildren && !showEmpty) return null
+  if (!showEmpty && !collapsed && subpages.isSuccess && !subpages.hasNextPage && rawPages.length === 0) return null
 
   const sortedPages = sortSubpages(rawPages, sort, t('pod.content.untitled'))
 
@@ -385,7 +390,7 @@ export function DocumentSubpages({
             </PopoverContent>
           </Popover>
 
-          {canEdit && (
+          {canCreate && (
             <>
               <input
                 ref={uploadInput}
@@ -431,6 +436,10 @@ export function DocumentSubpages({
                   <span>{t('pod.subpages.new_subpage')}</span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={() => void createChild.submit('folder')}>
+                    <PageIcon page={{ type: 'folder' }} />
+                    {typeLabels.folder}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => void createChild.submit('doc')}>
                     <PageIcon page={{ type: 'doc' }} />
                     {typeLabels.doc}
@@ -452,6 +461,8 @@ export function DocumentSubpages({
         <p role="status" className="py-4 text-xs text-fg-tertiary">
           {t('pod.content.loading')}
         </p>
+      ) : sortedPages.length === 0 ? (
+        <p className="py-4 text-sm text-fg-tertiary">{t('pod.content.no_pages_yet')}</p>
       ) : view === 'list' ? (
         <Table>
           <TableHeader>
@@ -627,7 +638,7 @@ function SubpageListRow({
                 onFocus={prefetch}
                 className="inline-flex max-w-full items-center gap-2 rounded-control py-0.5 text-sm font-medium text-foreground outline-none focus-visible:outline-2 focus-visible:outline-ring">
                 <PageIcon page={item} className="shrink-0" />
-                <span className="truncate">{label}</span>
+                <BdiLabel value={item.title} fallback={t('pod.content.untitled')} />
               </Link>
             )}
           </TableCell>
@@ -656,7 +667,7 @@ function SubpageListRow({
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={t('pod.sidebar.page_actions', { title: label })}
+                      aria-label={t('pod.sidebar.page_actions', { title: stripBidi(label) })}
                       title={t('common.more_actions')}
                       className="opacity-0 transition-opacity group-focus-within/subpage-row:opacity-100 group-hover/subpage-row:opacity-100 aria-expanded:opacity-100"
                     />
@@ -740,7 +751,7 @@ function SubpageGridCard({
                   onPointerEnter={prefetch}
                   onFocus={prefetch}
                   className="block truncate text-sm font-medium text-foreground outline-none after:absolute after:inset-0 focus-visible:underline">
-                  {label}
+                  <BdiLabel value={item.title} fallback={t('pod.content.untitled')} />
                 </Link>
               )}
               <p className="truncate text-xs leading-4 text-fg-tertiary">{subtitle}</p>
@@ -752,7 +763,7 @@ function SubpageGridCard({
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={t('pod.sidebar.page_actions', { title: label })}
+                      aria-label={t('pod.sidebar.page_actions', { title: stripBidi(label) })}
                       title={t('common.more_actions')}
                       className="relative z-10 shrink-0 opacity-0 transition-opacity group-focus-within/subpage-card:opacity-100 group-hover/subpage-card:opacity-100 aria-expanded:opacity-100"
                     />

@@ -19,7 +19,7 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
        )
 
-  test "stores hosted images in the drive as canonical attachments and retries the same paths" do
+  test "stores hosted images as distinct immutable attachments in the conversation root" do
     %{principal: agent} = agent_fixture()
     signal = external_session_signal_fixture(agent.uid)
     signal_id = signal.id
@@ -79,39 +79,18 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
     assert {:ok, completion} =
              prepare_and_commit(turn_ref, "resp_#{response.id}")
 
-    expected_attachments =
-      Enum.map(images, fn {id, mime_type, payload, extension} ->
-        filename = "#{id}.#{extension}"
-        blob_ref = Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
-
-        %{
-          "path" =>
-            "chats/#{conversation_id}/generated/#{String.slice(blob_ref, 0, 16)}/#{filename}",
-          "blob_ref" => blob_ref,
-          "name" => filename,
-          "mime_type" => mime_type,
-          "size" => byte_size(payload)
-        }
-      end)
-
     assert completion.final_text == nil
-    assert completion.attachments == expected_attachments
+    assert length(completion.attachments) == length(images)
     refute Enum.any?(completion.attachments, &String.contains?(&1["name"], prior_image_id))
 
-    for {%{"path" => path, "mime_type" => mime_type}, {_id, _mime, payload, _ext}} <-
-          Enum.zip(expected_attachments, images) do
-      assert {:ok,
-              %{source: "generated", content_type: ^mime_type, conversation_id: ^conversation_id},
-              ^payload} =
-               Files.read(agent.uid, path)
+    for {attachment, {id, mime_type, payload, extension}} <-
+          Enum.zip(completion.attachments, images) do
+      assert attachment["name"] == "#{id}.#{extension}"
+      assert attachment["mime_type"] == mime_type
+      assert attachment["size"] == byte_size(payload)
+      assert is_binary(attachment["node_id"])
+      assert {:ok, ^payload} = Files.read_object(attachment["object_id"])
     end
-
-    assert {:ok, retried} =
-             prepare_and_commit(turn_ref, "resp_#{response.id}")
-
-    assert retried.attachments == expected_attachments
-    assert {:ok, %{files: files}} = Files.list(agent.uid, "chats/#{conversation_id}/generated")
-    assert length(files) == length(images)
   end
 
   test "rejects an image artifact owned by another subject without writing a file" do
@@ -233,7 +212,7 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
              Enum.map(artifacts, &(Artifacts.public_id(&1) <> ".png"))
 
     for attachment <- attachments do
-      assert {:ok, _, @png} = Files.read(agent.uid, attachment["path"])
+      assert {:ok, @png} = Files.read_object(attachment["object_id"])
     end
 
     assert {:error, :run_closed} = Ankole.Sessions.Run.finalize(run)
@@ -274,7 +253,7 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
       hook,
       [:ankole, :repo, :query],
       fn _, _, metadata, _ ->
-        if self() == parent and String.starts_with?(metadata.query, "INSERT INTO files ") do
+        if self() == parent and metadata.query =~ ~r/INSERT INTO "?file_objects"?/ do
           :telemetry.detach(hook)
 
           assert {:ok, _} =
@@ -303,7 +282,7 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
     assert {:ok, {_, recovered}} = Ankole.Sessions.Run.restore(recovered)
     assert {:ok, result} = Ankole.Sessions.Run.finalize(recovered)
     [attachment] = Enum.flat_map(result.posted.intents, &(&1.payload["attachments"] || []))
-    assert {:ok, _, ^replacement} = Files.read(agent.uid, attachment["path"])
+    assert {:ok, ^replacement} = Files.read_object(attachment["object_id"])
     assert Repo.reload!(signal).completed_at
     assert Repo.aggregate(Ankole.AIGateway.Schemas.Message, :count) == 1
   end

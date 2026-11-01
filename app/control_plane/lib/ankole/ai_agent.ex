@@ -4,7 +4,7 @@ defmodule Ankole.AIAgent do
   Agent Plugin overrides, and Console operations.
 
   Other domains read the rows through these defines. The library writes go
-  through `Ankole.AIAgent.Library`, `Ankole.AIAgent.ModelProfiles`, and
+  through `Ankole.AIAgent.Library`, `Ankole.AIGateway.ModelProfiles`, and
   `Ankole.AIAgent.TokenQuota`.
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
@@ -72,6 +72,37 @@ defmodule Ankole.AIAgent do
         route(:put, "/library-documents/:document_kind", :replace_document,
           name: "replace_agent_library_document",
           wrap_in_result?: false
+        )
+      end
+
+      base_route "/model-profiles", Ankole.AIAgent.Console do
+        route(:get, "/", :defaults_model_profiles, name: "list_default_model_profiles")
+
+        route(:put, "/provider-hosted", :put_default_provider_hosted,
+          name: "put_default_provider_hosted"
+        )
+
+        route(:put, "/:profile", :put_default_model_profile, name: "put_default_model_profile")
+
+        route(:delete, "/:profile", :delete_default_model_profile,
+          name: "delete_default_model_profile",
+          query_params: [:defaults_scope]
+        )
+      end
+
+      base_route "/system-principals", Ankole.AIAgent.Console do
+        route(:get, "/", :system_principals, name: "list_system_principals")
+
+        route(:get, "/:uid/model-profiles", :system_model_profiles,
+          name: "list_system_model_profiles"
+        )
+
+        route(:put, "/:uid/model-profiles/:profile", :put_system_model_profile,
+          name: "put_system_model_profile"
+        )
+
+        route(:delete, "/:uid/model-profiles/:profile", :delete_system_model_profile,
+          name: "delete_system_model_profile"
         )
       end
 

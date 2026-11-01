@@ -342,6 +342,7 @@ defmodule Ankole.Conversations.Route do
         {:ok,
          %{
            signal_id: event.id,
+           binding_id: event.reply_binding_id,
            binding_name: event.reply_binding_name,
            conversation_id: event.conversation_id,
            provider_thread_id: event.provider_thread_id,
@@ -463,6 +464,7 @@ defmodule Ankole.Conversations.Route do
       %Signal{} = event ->
         route =
           %{
+            "binding_id" => event.reply_binding_id,
             "binding_name" => event.reply_binding_name,
             "conversation_id" => event.conversation_id,
             "provider_thread_id" => event.provider_thread_id,

@@ -32,9 +32,9 @@ defmodule Ankole.AuthZ.ResourceActionsTest do
 
     for {attrs, field, message} <- [
           {%{principal_uid: human.uid, group_id: group.id, action: "read"}, :principal_uid,
-           "exactly one Principal, group, or source Page is required"},
+           "exactly one Principal, group, or source node is required"},
           {%{action: "read"}, :principal_uid,
-           "exactly one Principal, group, or source Page is required"},
+           "exactly one Principal, group, or source node is required"},
           {%{principal_uid: human.uid, action: "page:view"}, :action, "must not contain colon"}
         ] do
       assert {:error, error} =
@@ -50,6 +50,30 @@ defmodule Ankole.AuthZ.ResourceActionsTest do
     end
 
     assert Repo.aggregate(Grant, :count) == count
+  end
+
+  test "private Drive grant namespaces preserve literal opaque UIDs and reject glob owners" do
+    human = human_fixture().principal
+
+    for uid <- ["ops%41", "用户", "abc:def"] do
+      assert {:ok, grant} =
+               AuthZ.create_permission_grant(%{
+                 principal_uid: human.uid,
+                 resource_pattern: "drive:private:#{uid}:**",
+                 action: "node_view"
+               })
+
+      assert grant.resource_pattern == "drive:private:#{uid}:**"
+    end
+
+    for uid <- ["abc*", "abc?", "abc[1]", "abc{1}"] do
+      assert {:error, _} =
+               AuthZ.create_permission_grant(%{
+                 principal_uid: human.uid,
+                 resource_pattern: "drive:private:#{uid}:**",
+                 action: "node_view"
+               })
+    end
   end
 
   test "static group membership counts unique canonical UIDs within its tenant" do

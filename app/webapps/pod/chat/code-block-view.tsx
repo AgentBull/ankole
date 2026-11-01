@@ -2,6 +2,10 @@ import { Button, cn, toast } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiTextWrap } from '@remixicon/react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  EXTERNAL_TRANSLATION_GUARD_ATTRS,
+  withExternalTranslationGuardClass
+} from '../../common/external-translation-guard'
 import { useDebouncedValue } from '../../common/use-debounced-value'
 
 export function CodeBlockView({ code, language }: { code: string; language?: string }) {
@@ -34,7 +38,11 @@ export function CodeBlockView({ code, language }: { code: string; language?: str
   useEffect(() => () => clearTimeout(timer.current), [])
   const html = highlighted?.code === code && highlighted.language === language ? highlighted.html : undefined
   return (
-    <div className={cn('pod-chat-code code-surface my-3 max-w-full', wrap && 'pod-chat-code-wrap')}>
+    <div
+      {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+      className={withExternalTranslationGuardClass(
+        cn('pod-chat-code code-surface my-3 max-w-full', wrap && 'pod-chat-code-wrap')
+      )}>
       <div className="code-toolbar">
         <span className="mr-auto">{language || t('pod.chat_timeline.plain_text')}</span>
         <div className="flex items-center gap-0.5">

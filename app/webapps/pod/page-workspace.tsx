@@ -1,3 +1,4 @@
+import { canCreateChild } from './state/page-location'
 import { usePageMetadata } from './use-page-metadata'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
 import { PageContent } from './page-content'
@@ -5,6 +6,7 @@ import { DocumentInsights } from './document-insights'
 import { DocumentPage, downloadDraft } from './document-editor'
 import { pageCreated, updatePageMetadata } from './state/navigation-cache'
 import { InternalAPIError } from '../common/internal-api-client'
+import { BdiLabel } from '../common/bidi-file-name'
 import { requestErrorCode, requestErrorDetails } from '../common/request-errors'
 
 import { useTranslation } from 'react-i18next'
@@ -83,6 +85,7 @@ import { DocumentToolsModel } from './state/document-tools-model'
 import { DocumentMenuItems, DocumentStats } from './document-tools'
 import { DocumentHistory } from './document-history'
 import { PageComments } from './page-comments'
+import type { FileCommentSelection, FilePreviewHandle } from './file-comment-anchors'
 import { PageCommentsModel } from './state/page-comments'
 import { MovePageDialog } from './page-move-dialog'
 
@@ -219,6 +222,7 @@ function PageWorkspace({
   const titleInput = useRef<HTMLTextAreaElement>(null)
   const [editorHandle, setEditorHandle] = useState<EditorHandle | null>(null)
   const documentEditor = useRef<Editor | null>(null)
+  const filePreviewRef = useRef<FilePreviewHandle | null>(null)
   const attachEditor = (handle: EditorHandle | null) => {
     documentEditor.current = handle?.editor ?? null
     setEditorHandle(handle)
@@ -246,8 +250,30 @@ function PageWorkspace({
     openComments(selectionReturnThread.current)
     selectionReturnThread.current = null
   }
+  const captureFileCommentSelection = (selection: FileCommentSelection) => {
+    commentDrafts.capture({
+      quote: selection.quote,
+      fileAnchor: selection.anchor
+    })
+    openComments(selectionReturnThread.current)
+    selectionReturnThread.current = null
+  }
   const selectCommentAnchor = (threadID?: string) => {
     selectionReturnThread.current = threadID ?? focusedComment
+    if (page.type === 'file') {
+      const selection = filePreviewRef.current?.currentSelection()
+      if (!selection) {
+        if (isMobile) setComments(false)
+        toast.info(
+          t('pod.document.select_file_region', {
+            defaultValue: 'Select lines, table rows, a Markdown section, or a media timestamp first'
+          })
+        )
+        return
+      }
+      captureFileCommentSelection(selection)
+      return
+    }
     if (isMobile) {
       setComments(false)
       toast.info(t('pod.document.select_text'))
@@ -308,7 +334,8 @@ function PageWorkspace({
   const accessDenied = isRealtimeAccessDenied(loadError)
   const trashed = Boolean(page.deleted_at)
   const toolsAvailable = page.type === 'doc' && !accessDenied && !trashed
-  const commentSummary = useQuery({ ...pageCommentSummaryQuery(page.id), enabled: toolsAvailable })
+  const commentsAvailable = (page.type === 'doc' || page.type === 'file') && !accessDenied && !trashed
+  const commentSummary = useQuery({ ...pageCommentSummaryQuery(page.id), enabled: commentsAvailable })
   useEffect(() => {
     if (!toolsAvailable) return
     const shortcut = (event: KeyboardEvent) => {
@@ -326,11 +353,14 @@ function PageWorkspace({
   }, [toolsAvailable, documentTools, isMobile])
   const navigate = useNavigate()
   const [purging, setPurging] = useState(false)
-  const edit = !trashed && actions.includes('page_edit') && !accessDenied
-  const canManage = !trashed && actions.includes('page_manage') && !accessDenied
-  const canRestore = trashed && actions.includes('page_manage') && !accessDenied
+  const edit = !trashed && actions.includes('node_edit') && !accessDenied
+  const canTrash =
+    !trashed &&
+    actions.includes(page.type === 'file' || page.type === 'folder' ? 'node_edit' : 'node_manage') &&
+    !accessDenied
+  const canRestore = trashed && actions.includes('node_manage') && !accessDenied
   const canMove = canMovePage(detail) && !accessDenied
-  const contentDetail = trashed ? { ...detail, actions: ['page_view' as const] } : detail
+  const contentDetail = trashed ? { ...detail, actions: ['node_view' as const] } : detail
   const restore = useMutation({
     mutationFn: () => pageAPI.restore(page.id),
     onSuccess: async ({ page }) => {
@@ -345,8 +375,8 @@ function PageWorkspace({
   const rename = useMutation({
     scope: { id: `page-title:${page.id}` },
     mutationFn: (title: string) => pageAPI.update(page.id, { title, expected_title: model.titleBase.value }),
-    onSuccess: ({ page }) => {
-      model.titleSaved(page.title)
+    onSuccess: ({ page }, submitted) => {
+      model.titleSaved(page.title, submitted)
       updatePageMetadata(client, { id: page.id, title: page.title })
     },
     onError: error => {
@@ -382,7 +412,7 @@ function PageWorkspace({
     onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.list('favorites') })
   })
   const commentsPanel =
-    comments && toolsAvailable ? (
+    comments && commentsAvailable ? (
       <PageComments
         key="comments"
         detail={detail}
@@ -397,8 +427,11 @@ function PageWorkspace({
         close={closeComments}
         returnFocus={commentsTrigger}
         selectAnchor={selectCommentAnchor}
-        reveal={id => {
+        reveal={(id, fileAnchor) => {
           focusComment(id)
+          if (page.type === 'file') {
+            return fileAnchor ? (filePreviewRef.current?.revealAnchor(fileAnchor) ?? null) : null
+          }
           const instance = documentEditor.current
           return instance && revealComment(instance, id) ? instance.contentDOM : null
         }}
@@ -436,10 +469,10 @@ function PageWorkspace({
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {page.type === 'doc' && <div ref={setPresenceContainer} />}
-            {!accessDenied && !trashed && page.type !== 'doc' && (
+            {!accessDenied && !trashed && page.type !== 'doc' && page.type !== 'file' && (
               <PageChildrenMenu
                 pageID={page.id}
-                canCreate={edit}
+                canCreate={canCreateChild({ ...page, actions })}
                 scope={page.private_owner_uid ? 'private' : 'space'}
                 privateOwner={page.private_owner_uid ?? undefined}
               />
@@ -457,7 +490,7 @@ function PageWorkspace({
                 <span className="@max-[640px]:sr-only">{t('pod.page_chat.title')}</span>
               </Toggle>
             )}
-            {!accessDenied && !trashed && toolsAvailable && (
+            {!accessDenied && !trashed && commentsAvailable && (
               <Toggle
                 size="sm"
                 aria-label={t('pod.document.comments')}
@@ -476,7 +509,7 @@ function PageWorkspace({
                 )}
               </Toggle>
             )}
-            {toolsAvailable && isMobile && !comments && focusedComment && (
+            {commentsAvailable && isMobile && !comments && focusedComment && (
               <Button variant="ghost" size="xs" onClick={() => openComments(focusedComment)}>
                 {t('pod.document.return_to_comment')}
               </Button>
@@ -530,7 +563,7 @@ function PageWorkspace({
                     openHistory={edit ? () => setHistory(true) : undefined}
                   />
                 )}
-                {canManage && (
+                {canTrash && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -682,7 +715,9 @@ function PageWorkspace({
                   />
                 </div>
               ) : (
-                <h1 className="pod-page-title">{page.title || t('pod.content.untitled')}</h1>
+                <h1 className="pod-page-title">
+                  <BdiLabel value={page.title} fallback={t('pod.content.untitled')} />
+                </h1>
               )}
             </div>
             {!!loadError && model.hasUnsavedChanges.value && (
@@ -799,7 +834,11 @@ function PageWorkspace({
                 })()
               ) : (
                 <ErrorBoundary variant="panel" resetKeys={[page.id, page.revision]}>
-                  <PageContent detail={contentDetail} />
+                  <PageContent
+                    detail={contentDetail}
+                    onRequestFileComment={!accessDenied && !trashed ? captureFileCommentSelection : undefined}
+                    filePreviewRef={filePreviewRef}
+                  />
                 </ErrorBoundary>
               ))}
           </div>
@@ -812,7 +851,7 @@ function PageWorkspace({
       </div>
       {isMobile
         ? commentsPanel
-        : toolsAvailable &&
+        : commentsAvailable &&
           (comments || !chat) && <PodPanelPresence animate={commentsMotion.animate}>{commentsPanel}</PodPanelPresence>}
       {!accessDenied && !trashed && !comments && (
         <PageChat

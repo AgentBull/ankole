@@ -141,7 +141,7 @@ defmodule Ankole.Brain.Scope do
       {:ok, {:group, name}} ->
         case AuthZ.get_principal_group(name) do
           {:ok, group} ->
-            if AuthZ.principal_in_group?(writer_uid, group),
+            if AuthZ.principal_in_group?(Principals.authority_uid(writer_uid), group),
               do: :ok,
               else: {:error, {:writer_not_in_scope_group, name}}
 

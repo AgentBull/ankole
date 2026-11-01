@@ -1,7 +1,7 @@
 defmodule AnkoleWeb.PodMetadataController do
   @moduledoc "Tenant-wide Pod metadata files, such as the shared custom-emoji library."
   use AnkoleWeb, :controller
-  import AnkoleWeb.PodResponse, only: [respond: 2, error: 2, send_sandboxed_file: 5]
+  import AnkoleWeb.PodResponse, only: [respond: 2, error: 2, send_sandboxed_object: 5]
 
   alias Ankole.Pod.Metadata
 
@@ -32,24 +32,17 @@ defmodule AnkoleWeb.PodMetadataController do
   end
 
   def download(conn, %{"path" => path} = params) do
-    local = Ankole.Files.temp_path()
-
-    try do
-      case Metadata.read_to_file(conn.assigns.authz_actor, path, local) do
-        {:ok, file} ->
-          send_sandboxed_file(
-            conn,
-            local,
-            file.name,
-            file.content_type,
-            params["download"] == "true"
-          )
-
-        error_result ->
-          respond(conn, error_result)
-      end
-    after
-      File.rm(local)
+    with {:ok, file} <- Metadata.resolve(conn.assigns.authz_actor, path),
+         {:ok, object} <- Ankole.Files.fetch_object(file.object_id) do
+      send_sandboxed_object(
+        conn,
+        object,
+        Path.basename(file.path),
+        file.content_type,
+        params["download"] == "true"
+      )
+    else
+      {:error, reason} -> error(conn, reason)
     end
   end
 

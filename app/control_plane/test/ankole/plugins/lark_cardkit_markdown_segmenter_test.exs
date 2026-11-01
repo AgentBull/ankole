@@ -120,4 +120,19 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitMarkdownSegmenterTest do
                full_pages |> Enum.take(length(settled)) |> Enum.map(& &1.source)
     end
   end
+
+  test "an oversized mermaid fenced block keeps closed ```mermaid fences on every CardKit page" do
+    edges = Enum.map_join(1..200, "\n", fn idx -> "  Node#{idx} --> Node#{idx + 1}" end)
+    markdown = "```mermaid\nflowchart TD\n" <> edges <> "\n```\n"
+
+    pages = MarkdownSegmenter.pages(markdown, max_bytes: 1_024)
+
+    assert length(pages) > 1
+    assert Enum.map_join(pages, & &1.source) == markdown
+
+    assert Enum.all?(pages, fn page ->
+             String.starts_with?(page.content, "```mermaid\n") and
+               Regex.scan(~r/```/, page.content) |> length() |> rem(2) == 0
+           end)
+  end
 end

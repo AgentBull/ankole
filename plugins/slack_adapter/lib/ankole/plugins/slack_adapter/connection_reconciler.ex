@@ -23,6 +23,7 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
       {:ok, config} ->
         context =
           AdapterContext.new(
+            binding_id: binding.id,
             agent_uid: binding.agent_uid,
             binding_name: binding.name,
             adapter: binding.adapter,

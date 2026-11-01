@@ -10,31 +10,65 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Files
-  alias Ankole.Files.Jobs.CollectUnreferenced
-  alias Ankole.Files.Schemas.Blob
+  alias Ankole.Files.Schemas.FileObject
   alias Ankole.Sessions.{Admission, Model, Presentation, Receipts, Run, SessionWorkspace, Tools}
 
   @png Base.decode64!(
          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
        )
 
+  test "a generated image without an origin conversation commits in the Agent private root" do
+    %{principal: agent} = agent_fixture()
+    session_id = "image-generation-#{System.unique_integer([:positive])}"
+
+    assert {:ok, signal} =
+             Repo.transact(fn ->
+               Ankole.Signals.accept_in_tx(%{
+                 producer: :kernel,
+                 sender: agent.uid,
+                 target: %{agent_uid: agent.uid, session_id: session_id},
+                 source: "control-plane://test",
+                 id: session_id,
+                 type: "test.source",
+                 data: %{"text" => "Create an image"},
+                 authorization: Ankole.Principals.WorkAccess.service()
+               })
+             end)
+
+    key = %{agent_uid: agent.uid, session_id: session_id}
+    assert {:ok, run} = Admission.admit(key, signal)
+    assert {:ok, {:preparing, run}} = Model.prepare(run)
+    assert is_nil(Ankole.Conversations.ExternalTarget.origin(run.conversation))
+    {run, artifact, bytes} = completed_image(%{agent: agent, run: run})
+
+    assert {:ok, result} = Run.finalize(run)
+    [attachment] = result.completion.attachments
+    assert attachment["name"] == Artifacts.public_id(artifact) <> ".png"
+    assert {:ok, file} = Files.fetch(agent.uid, attachment["path"])
+    assert file.id == attachment["node_id"]
+    assert file.object_id == attachment["object_id"]
+    assert {:ok, ^bytes} = Files.read_object(file.object_id)
+    assert Repo.reload!(signal).completed_at
+  end
+
   test "finalization projects pending receipt attachments and follow-up text after its journal" do
     ctx = admitted()
     {:ok, stored} = Files.store("pending receipt attachment")
-    path = "chats/#{ctx.signal.conversation_id}/notes.txt"
 
-    assert {:ok, _} =
+    assert {:ok, file} =
              Repo.transact(fn ->
-               Files.commit_in_tx(
-                 ctx.agent.uid,
-                 [%{path: path, sha256: stored.sha256, source: "generated"}],
-                 []
+               Files.create_conversation_file_in_tx(
+                 ctx.signal.conversation_id,
+                 "notes.txt",
+                 stored,
+                 %{source: "generated"}
                )
              end)
 
     attachment = %{
-      "path" => path,
-      "blob_ref" => stored.sha256,
+      "path" => file.path,
+      "object_id" => stored.object_id,
+      "node_id" => file.id,
       "name" => "notes.txt",
       "mime_type" => "text/plain",
       "size" => stored.size
@@ -75,9 +109,9 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
 
     attachments = Enum.flat_map(result.posted.intents, &(&1.payload["attachments"] || []))
     assert length(attachments) == 2
-    assert Enum.any?(attachments, &(&1["path"] == path))
+    assert Enum.any?(attachments, &(&1["node_id"] == file.id))
     image = Enum.find(attachments, &(&1["name"] == Artifacts.public_id(artifact) <> ".png"))
-    assert {:ok, _, ^payload} = Files.read(ctx.agent.uid, image["path"])
+    assert {:ok, ^payload} = Files.read_object(image["object_id"])
     refute Enum.any?(attachments, &String.contains?(&1["name"], prior_id))
     assert Repo.reload!(ctx.signal).completed_at
   end
@@ -120,33 +154,34 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
     assert Repo.reload!(ctx.signal).completed_at
   end
 
-  test "GC-marked prepared bytes retry through admission without losing the completed response" do
+  test "collected prepared bytes retry through admission without losing the completed response" do
     ctx = admitted()
     {run, _artifact, payload} = completed_image(ctx)
-    digest = :crypto.hash(:sha256, payload)
 
     hook =
-      after_blob_row(fn ->
-        age_blob(digest)
-        CollectUnreferenced.mark_unreferenced()
+      after_object_row(fn object ->
+        age_object(object)
+        Files.collect_objects()
       end)
 
     assert {:error, %{"retryable" => true} = error} = Run.finalize(run)
-    assert_receive {^hook, {:ok, 1}}
-    assert Repo.get!(Blob, digest).deleting
+    assert_receive {^hook, {object, {:ok, 1}}}
+    refute Repo.get_by(FileObject, id: object.id)
     refute Repo.reload!(ctx.signal).completed_at
     assert {:ok, %{files: []}} = Files.list(ctx.agent.uid)
     assert Repo.aggregate(Intent, :count) == 0
-    assert CollectUnreferenced.remove_marked(0) == 1
-    assert Repo.get(Blob, digest) == nil
-    assert {:error, _} = Ankole.ObjectStore.read(Files.object_key(digest))
+
+    assert :ok =
+             Files.Jobs.DeleteObject.run(%Oban.Job{args: %{"storage_key" => object.storage_key}})
+
+    assert {:error, _} = Ankole.ObjectStore.read(object.storage_key)
 
     assert {:ok, deferred} = Run.defer_retry(run, error)
     assert {:ok, recovered} = Admission.admit(ctx.key, deferred, now: deferred.available_at)
     assert {:ok, {:boundary, recovered}} = Run.restore(recovered)
     assert {:ok, result} = Run.finalize(recovered)
     [attachment] = Enum.flat_map(result.posted.intents, &(&1.payload["attachments"] || []))
-    assert {:ok, _, ^payload} = Files.read(ctx.agent.uid, attachment["path"])
+    assert {:ok, ^payload} = Files.read_object(attachment["object_id"])
     assert Repo.aggregate(Message, :count) == 1
     assert Repo.reload!(ctx.signal).completed_at
   end
@@ -189,45 +224,45 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
   test "superseded finalization leaves no references and its prepared bytes remain collectable" do
     ctx = admitted()
     {run, _artifact, payload} = completed_image(ctx)
-    digest = :crypto.hash(:sha256, payload)
 
     hook =
-      after_blob_row(fn ->
+      after_object_row(fn _object ->
         Repo.update_all(from(w in SessionWorkspace, where: w.id == ^run.workspace_id),
           inc: [epoch: 1]
         )
       end)
 
     assert {:error, :stale_driver} = Run.finalize(run)
-    assert_receive {^hook, {1, nil}}
+    assert_receive {^hook, {object, {1, nil}}}
     refute Repo.reload!(ctx.signal).completed_at
     assert {:ok, %{files: []}} = Files.list(ctx.agent.uid)
     assert Repo.aggregate(Intent, :count) == 0
-    assert Repo.get!(Blob, digest)
-    assert {:ok, ^payload} = Ankole.ObjectStore.read(Files.object_key(digest))
-    age_blob(digest)
-    assert {:ok, 1} = CollectUnreferenced.mark_unreferenced()
-    assert CollectUnreferenced.remove_marked(0) == 1
-    assert Repo.get(Blob, digest) == nil
-    assert {:error, _} = Ankole.ObjectStore.read(Files.object_key(digest))
+    assert Repo.get_by!(FileObject, id: object.id)
+    assert {:ok, ^payload} = Ankole.ObjectStore.read(object.storage_key)
+    age_object(object)
+    assert {:ok, 1} = Files.collect_objects()
+
+    assert :ok =
+             Files.Jobs.DeleteObject.run(%Oban.Job{args: %{"storage_key" => object.storage_key}})
+
+    assert {:error, _} = Ankole.ObjectStore.read(object.storage_key)
   end
 
   test "an image retry at the admission budget ends explicitly without another upload or reply" do
     ctx = admitted()
-    {run, _artifact, payload} = completed_image(ctx)
-    digest = :crypto.hash(:sha256, payload)
+    {run, _artifact, _payload} = completed_image(ctx)
     Repo.update!(Ecto.Changeset.change(ctx.signal, attempt_count: 5))
 
     hook =
-      after_blob_row(fn ->
-        age_blob(digest)
-        CollectUnreferenced.mark_unreferenced()
+      after_object_row(fn object ->
+        age_object(object)
+        Files.collect_objects()
       end)
 
     assert {:error, %{"retryable" => true} = error} = Run.finalize(run)
-    assert_receive {^hook, {:ok, 1}}
+    assert_receive {^hook, {object, {:ok, 1}}}
     assert {:ok, deferred} = Run.defer_retry(run, error)
-    reject_upload = after_blob_row(fn -> :unexpected_second_upload end)
+    reject_upload = after_object_row(fn _object -> :unexpected_second_upload end)
 
     assert {:ok, %{status: :dead_letter, signal: ended}} =
              Admission.admit(ctx.key, deferred, now: deferred.available_at)
@@ -238,7 +273,7 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
     assert ended.dead_letter_reason["code"] == "conversation_attempts_exhausted"
     refute ended.completed_at
     assert {:ok, :idle} = Run.rebuild(ctx.key, deferred.available_at)
-    assert Repo.get!(Blob, digest).deleting
+    refute Repo.get_by(FileObject, id: object.id)
     refute_received {^reject_upload, _}
     assert {:ok, %{files: []}} = Files.list(ctx.agent.uid)
     assert Enum.all?(Repo.all(Intent), &((&1.payload["attachments"] || []) == []))
@@ -307,13 +342,13 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
     assert Repo.reload!(signal).completed_at == signal.completed_at
   end
 
-  defp age_blob(digest) do
-    Repo.update_all(from(b in Blob, where: b.sha256 == ^digest),
-      set: [last_referenced_at: DateTime.add(DateTime.utc_now(:microsecond), -172_800)]
+  defp age_object(object) do
+    Repo.update_all(from(o in FileObject, where: o.id == ^object.id),
+      set: [created_at: DateTime.add(DateTime.utc_now(:microsecond), -172_800)]
     )
   end
 
-  defp after_blob_row(operation) do
+  defp after_object_row(operation) do
     owner = self()
     hook = {__MODULE__, make_ref()}
 
@@ -322,9 +357,10 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
         hook,
         [:ankole, :repo, :query],
         fn _, _, metadata, _ ->
-          if self() == owner and String.starts_with?(metadata.query, "INSERT INTO files ") do
+          if self() == owner and metadata.query =~ ~r/INSERT INTO "?file_objects"?/ do
             :telemetry.detach(hook)
-            send(owner, {hook, operation.()})
+            object = Repo.one!(from(o in FileObject, order_by: [desc: o.id], limit: 1))
+            send(owner, {hook, {object, operation.(object)}})
           end
         end,
         nil

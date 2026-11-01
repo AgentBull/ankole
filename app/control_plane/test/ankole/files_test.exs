@@ -1,660 +1,203 @@
 defmodule Ankole.FilesTest do
   use Ankole.DataCase, async: true
-
   import Ankole.PrincipalsFixtures
-
-  alias Ankole.Files
-  alias Ankole.Files.Jobs.CollectUnreferenced
-  alias Ankole.Files.Schemas.DriveFile
-  alias Ankole.Files.Schemas.Blob
-  alias Ankole.ObjectStore
+  import Ankole.FilesFixtures
+  alias Ankole.{Files, ObjectStore}
+  alias Ankole.Files.Schemas.{FileObject, Node}
 
   setup do
     %{principal: agent} = agent_fixture()
-    %{agent_uid: agent.uid}
+    %{uid: agent.uid}
   end
 
-  test "content presence follows paths in one drive and tenant", %{agent_uid: agent_uid} do
-    {:ok, stored} = Files.store("shared content presence")
-    refute Files.drive_has_content?(agent_uid, stored.sha256)
-    refute Files.drive_has_content?(agent_uid, "not a digest")
-
-    assert {:ok, _} =
-             Files.commit(agent_uid, [
-               %{path: "first.txt", sha256: stored.sha256, source: "agent"},
-               %{path: "second.txt", sha256: stored.sha256, source: "agent"}
-             ])
-
-    assert Files.drive_has_content?(agent_uid, stored.sha256)
-    assert Files.drive_has_content?(agent_uid, String.upcase(stored.sha256))
-    refute Files.drive_has_content?(:pod, stored.sha256)
-
-    other_tenant = create_tenant()
-
-    refute Repo.with_tenant(other_tenant.id, fn ->
-             Files.drive_has_content?(agent_uid, stored.sha256)
-           end)
-
-    assert {:ok, 1} = Files.delete(agent_uid, "first.txt")
-    assert Files.drive_has_content?(agent_uid, stored.sha256)
-    assert {:ok, 1} = Files.delete(agent_uid, "second.txt")
-    refute Files.drive_has_content?(agent_uid, stored.sha256)
+  test "equal bytes create independent tenant objects and remain incomplete until referenced", %{
+    uid: uid
+  } do
+    {:ok, first} = Files.store("same")
+    {:ok, second} = Files.store("same")
+    assert first.object_id != second.object_id
+    assert first.sha256 == second.sha256
+    assert {:error, :not_found} = Files.fetch_object(first.object_id)
+    row = Repo.get_by!(FileObject, id: first.object_id)
+    assert row.storage_key == "tenants/#{Repo.tenant_id!()}/objects/#{first.object_id}"
+    assert row.completed_at == nil
+    assert {:ok, "same"} = ObjectStore.read(row.storage_key)
+    assert {:ok, %{files: [file]}} = Files.commit(uid, [Map.put(first, :path, "a.txt")])
+    assert file.object_id == first.object_id
+    assert {:ok, %{size: 4, completed_at: %DateTime{}}} = Files.fetch_object(first.object_id)
   end
 
-  describe "Pod drive" do
-    test "keeps Agent and Pod paths separate and replaces a nullable drive key", %{
-      agent_uid: agent_uid
-    } do
-      {:ok, first} = Files.store("first Pod content")
-      {:ok, second} = Files.store("replacement")
-      path = "pages/test/file.txt"
+  test "a streaming source is consumed once and stores its digest with the reference", %{uid: uid} do
+    parent = self()
 
-      assert {:ok, _} = Files.commit(:pod, [%{path: path, sha256: first.sha256, source: "pod"}])
-
-      assert {:ok, _} =
-               Files.commit(agent_uid, [%{path: path, sha256: first.sha256, source: "agent"}])
-
-      assert {:ok, _} = Files.commit(:pod, [%{path: path, sha256: second.sha256, source: "pod"}])
-      assert {:ok, %{agent_uid: nil}, "replacement"} = Files.read(:pod, path)
-      assert {:ok, %{agent_uid: ^agent_uid}, "first Pod content"} = Files.read(agent_uid, path)
-      assert {:ok, %{files: [_file], next_after: nil}} = Files.list(:pod)
-      assert {:ok, %{deleted: 1}} = Files.commit(:pod, [], ["pages/test"])
-      assert {:ok, _file} = Files.fetch(agent_uid, path)
-    end
-
-    test "allows the same Pod path in two tenants without exposing either", %{
-      tenant: first_tenant
-    } do
-      {:ok, stored} = Files.store("one content, two tenants")
-      other_tenant = create_tenant()
-      upsert = %{path: "pages/test/shared.txt", sha256: stored.sha256, source: "pod"}
-
-      assert {:ok, _} = Files.commit(:pod, [upsert])
-
-      Repo.with_tenant(other_tenant.id, fn ->
-        assert {:ok, %{files: []}} = Files.list(:pod)
-        assert {:ok, _} = Files.commit(:pod, [upsert])
-        assert {:ok, %{deleted: 1}} = Files.commit(:pod, [], ["pages"])
+    source =
+      Stream.map(["one", "two", "three"], fn chunk ->
+        send(parent, {:chunk, chunk})
+        chunk
       end)
 
-      assert Repo.tenant_id!() == first_tenant.id
-      assert {:ok, %{files: [_file]}} = Files.list(:pod)
-    end
+    {:ok, stored} = Files.store(source)
+    for part <- ["one", "two", "three"], do: assert_receive({:chunk, ^part})
+    refute_receive {:chunk, _}
+    assert {:ok, _} = Files.commit(uid, [Map.put(stored, :path, "stream.bin")])
+    assert {:ok, object} = Files.fetch_object(stored.object_id)
+    assert object.sha256 == :crypto.hash(:sha256, "onetwothree")
+    assert {:ok, "twot"} = Files.read_object_range(object.id, 3, 4)
+  end
 
-    test "a Pod reference keeps bytes alive for the existing garbage collector" do
-      {:ok, stored} = Files.store("Pod-only reference")
-      digest = Base.decode16!(stored.sha256, case: :lower)
-
-      {:ok, _} =
-        Files.commit(:pod, [%{path: "pages/test/a.txt", sha256: stored.sha256, source: "pod"}])
-
-      Repo.update_all(where(Blob, sha256: ^digest),
-        set: [last_referenced_at: DateTime.add(DateTime.utc_now(), -172_800)]
-      )
-
-      assert {:ok, 0} = CollectUnreferenced.mark_unreferenced()
-      assert %Blob{deleting: false} = Repo.get!(Blob, digest)
+  test "object ranges stop at EOF for stored prefixes, tails and empty files", %{uid: uid} do
+    for content <- ["short UTF-8 文本", ""] do
+      file = drive_file_fixture(uid, "range.txt", content)
+      assert {:ok, object} = Files.fetch_object(file.object_id)
+      assert {:ok, ^content} = Files.read_object_range(object.id, 0, 16_384)
+      assert {:ok, ^content} = Files.read_object_range(object, 0, 16_384)
+      assert {:ok, ""} = Files.read_object_range(object.id, byte_size(content), 100)
+      assert {:ok, ""} = Files.read_object_range(object.id, byte_size(content) + 10, 100)
+      assert {:ok, ""} = Files.read_object_range(object.id, 0, 0)
     end
   end
 
-  describe "store/1" do
-    test "stores one row and one object per content" do
-      assert {:ok, %{sha256: sha256, size: 5}} = Files.store("hello")
-      assert {:ok, %{sha256: ^sha256}} = Files.store("hello")
-
-      digest = Base.decode16!(sha256, case: :lower)
-      assert %Blob{size: 5, deleting: false} = Repo.get!(Blob, digest)
-      assert {:ok, "hello"} = ObjectStore.read(Files.object_key(digest))
-    end
-
-    test "hashes and writes a local file" do
-      path = Path.join(System.tmp_dir!(), "files-test-#{System.unique_integer([:positive])}")
-      File.write!(path, "from a file")
-      on_exit(fn -> File.rm(path) end)
-
-      assert {:ok, %{sha256: sha256, size: 11}} = Files.store({:file, path})
-      assert sha256 == Base.encode16(:crypto.hash(:sha256, "from a file"), case: :lower)
-    end
-
-    test "clears a deleting mark and writes the object again" do
-      {:ok, %{sha256: sha256}} = Files.store("revived")
-      digest = Base.decode16!(sha256, case: :lower)
-      Repo.update_all(where(Blob, sha256: ^digest), set: [deleting: true])
-      :ok = ObjectStore.delete(Files.object_key(digest))
-
-      assert {:ok, _stored} = Files.store("revived")
-      assert %Blob{deleting: false} = Repo.get!(Blob, digest)
-      assert {:ok, "revived"} = ObjectStore.read(Files.object_key(digest))
-    end
-
-    test "storing existing content renews its collection lease and preserves its creation time" do
-      assert {:ok, %{sha256: sha256}} = Files.store("renewed lease")
-      digest = Base.decode16!(sha256, case: :lower)
-      original = Repo.get!(Blob, digest)
-      expired = DateTime.add(original.last_referenced_at, -172_800)
-
-      Repo.update_all(where(Blob, sha256: ^digest),
-        set: [last_referenced_at: expired, deleting: true]
-      )
-
-      assert {:ok, %{sha256: ^sha256}} = Files.store("renewed lease")
-      renewed = Repo.get!(Blob, digest)
-
-      assert renewed.created_at == original.created_at
-      assert DateTime.compare(renewed.last_referenced_at, expired) == :gt
-      refute renewed.deleting
-      assert {:ok, 0} = CollectUnreferenced.mark_unreferenced()
-    end
+  test "overwriting preserves node identity and switches to a fresh immutable object", %{uid: uid} do
+    first = drive_file_fixture(uid, "report.txt", "old")
+    second = drive_file_fixture(uid, "report.txt", "new")
+    assert first.id == second.id
+    assert first.object_id != second.object_id
+    assert {:ok, "old"} = Files.read_object(first.object_id)
+    assert {:ok, %{object_id: id}, "new"} = Files.read(uid, "report.txt")
+    assert id == second.object_id
+    assert Repo.aggregate(from(n in Node, where: n.kind == :file), :count) == 1
   end
 
-  describe "commit/3" do
-    test "subtree paths treat underscores and percent signs as literal characters", %{
-      agent_uid: agent_uid
-    } do
-      {:ok, %{sha256: digest}} = Files.store("literal subtree")
-      paths = ["a_b/x.txt", "a%b/y.txt", "axb/z.txt"]
-
-      assert {:ok, _} =
-               Files.commit(
-                 agent_uid,
-                 Enum.map(paths, &%{path: &1, sha256: digest, source: "agent"})
-               )
-
-      assert {:ok, %{deleted: 1}} = Files.commit(agent_uid, [], ["a_b"])
-      assert {:ok, %{files: [file]}} = Files.list(agent_uid, "a%b")
-      assert file.path == "a%b/y.txt"
-      assert {:ok, %{files: remaining}} = Files.list(agent_uid)
-      assert Enum.map(remaining, & &1.path) == ["a%b/y.txt", "axb/z.txt"]
-    end
-
-    test "names contents at paths and reads them back", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: report}} = Files.store("report body")
-      {:ok, %{sha256: image}} = Files.store(<<137, 80, 78, 71>>)
-
-      assert {:ok, %{files: [first, second], deleted: 0}} =
-               Files.commit(agent_uid, [
-                 %{path: "reports/q3.md", sha256: report, source: "agent"},
-                 %{path: "inbox/abc/photo.png", sha256: image, source: "inbound", mode: 0o600}
-               ])
-
-      assert %DriveFile{path: "reports/q3.md", size: 11, content_type: "text/markdown"} = first
-      assert %DriveFile{content_type: "image/png", mode: 0o600, size: 4} = second
-
-      assert {:ok, %DriveFile{size: 11}, "report body"} = Files.read(agent_uid, "reports/q3.md")
-      assert {:error, :not_found} = Files.fetch(agent_uid, "reports/missing.md")
-    end
-
-    test "replaces the file at an existing path", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: first}} = Files.store("v1")
-      {:ok, %{sha256: second}} = Files.store("version two")
-
-      {:ok, _files} =
-        Files.commit(agent_uid, [%{path: "notes.txt", sha256: first, source: "agent"}])
-
-      {:ok, %{files: [file]}} =
-        Files.commit(agent_uid, [%{path: "notes.txt", sha256: second, source: "console"}])
-
-      assert %DriveFile{source: "console", size: 11} = file
-      assert {:ok, _file, "version two"} = Files.read(agent_uid, "notes.txt")
-    end
-
-    test "deletes paths and folders in the same transaction", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: sha256}} = Files.store("x")
-
-      {:ok, _files} =
-        Files.commit(agent_uid, [
-          %{path: "jobs/10/a.txt", sha256: sha256, source: "agent"},
-          %{path: "jobs/10/sub/b.txt", sha256: sha256, source: "agent"},
-          %{path: "jobs/100/c.txt", sha256: sha256, source: "agent"}
-        ])
-
-      {:ok, %{files: [_file], deleted: 2}} =
-        Files.commit(agent_uid, [%{path: "jobs/10/new.txt", sha256: sha256, source: "agent"}], [
-          "jobs/10/sub",
-          "jobs/10/a.txt"
-        ])
-
-      {:ok, %{files: files}} = Files.list(agent_uid)
-      assert Enum.map(files, & &1.path) == ["jobs/10/new.txt", "jobs/100/c.txt"]
-    end
-
-    test "rejects a content that was never stored", %{agent_uid: agent_uid} do
-      missing = String.duplicate("ab", 32)
-
-      assert {:error, {:blob_missing, ^missing}} =
-               Files.commit(agent_uid, [%{path: "a.txt", sha256: missing, source: "agent"}])
-
-      assert {:ok, %{files: []}} = Files.list(agent_uid)
-    end
-
-    test "rejects a content that collection has marked", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: sha256}} = Files.store("being collected")
-      digest = Base.decode16!(sha256, case: :lower)
-      Repo.update_all(where(Blob, sha256: ^digest), set: [deleting: true])
-
-      assert {:error, {:blob_missing, ^sha256}} =
-               Files.commit(agent_uid, [%{path: "a.txt", sha256: sha256, source: "agent"}])
-    end
-
-    test "rejects invalid paths and sources", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: sha256}} = Files.store("x")
-
-      for path <- ["", "/abs", "a//b", "a/../b", "trailing/", "./a", "nul\0byte"] do
-        assert {:error, {:invalid_path, ^path}} =
-                 Files.commit(agent_uid, [%{path: path, sha256: sha256, source: "agent"}])
-      end
-
-      assert {:error, {:invalid_source, "worker"}} =
-               Files.commit(agent_uid, [%{path: "a", sha256: sha256, source: "worker"}])
-    end
-
-    test "rejects file and folder collisions within one commit", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: sha256}} = Files.store("tree conflict")
-
-      assert {:error, {:path_conflict, "a", "a/b"}} =
-               Files.commit(agent_uid, [
-                 %{path: "a", sha256: sha256, source: "agent"},
-                 %{path: "a/b", sha256: sha256, source: "agent"}
-               ])
-
-      assert {:ok, %{files: []}} = Files.list(agent_uid)
-    end
-
-    test "path conflict checks treat SQL wildcard characters as literal file names", %{
-      agent_uid: agent_uid
-    } do
-      {:ok, %{sha256: sha256}} = Files.store("literal paths")
-
-      assert {:ok, _} =
-               Files.commit(agent_uid, [
-                 %{path: "abc/child", sha256: sha256, source: "agent"},
-                 %{path: "axb/child", sha256: sha256, source: "agent"}
-               ])
-
-      assert {:ok, _} =
-               Files.commit(agent_uid, [
-                 %{path: "a%", sha256: sha256, source: "agent"},
-                 %{path: "a_b", sha256: sha256, source: "agent"}
-               ])
-
-      assert {:error, {:path_conflict, "a%", "a%/nested"}} =
-               Files.commit(agent_uid, [%{path: "a%/nested", sha256: sha256, source: "agent"}])
-    end
-
-    test "rejects an existing ancestor or descendant and rolls back deletes", %{
-      agent_uid: agent_uid
-    } do
-      {:ok, %{sha256: sha256}} = Files.store("kept tree")
-
-      assert {:ok, _files} =
-               Files.commit(agent_uid, [
-                 %{path: "a", sha256: sha256, source: "agent"},
-                 %{path: "keep.txt", sha256: sha256, source: "agent"}
-               ])
-
-      assert {:error, {:path_conflict, "a", "a/b"}} =
-               Files.commit(
-                 agent_uid,
-                 [%{path: "a/b", sha256: sha256, source: "agent"}],
-                 ["keep.txt"]
-               )
-
-      assert {:ok, _file, "kept tree"} = Files.read(agent_uid, "keep.txt")
-      assert {:ok, _file, "kept tree"} = Files.read(agent_uid, "a")
-
-      assert {:ok, _files} =
-               Files.commit(
-                 agent_uid,
-                 [%{path: "a/b", sha256: sha256, source: "agent"}],
-                 ["a"]
-               )
-
-      assert {:error, {:path_conflict, "a", "a/b"}} =
-               Files.commit(agent_uid, [%{path: "a", sha256: sha256, source: "agent"}])
-
-      assert {:ok, _file, "kept tree"} = Files.read(agent_uid, "a/b")
-      assert {:error, :not_found} = Files.fetch(agent_uid, "a")
-
-      assert {:ok, %{deleted: 1}} =
-               Files.commit(
-                 agent_uid,
-                 [%{path: "a", sha256: sha256, source: "agent"}],
-                 ["a"]
-               )
-    end
+  test "the last committed close wins without changing either stored object", %{uid: uid} do
+    file = drive_file_fixture(uid, "same.txt", "original")
+    {:ok, first} = Files.store("first closer")
+    {:ok, last} = Files.store("last closer")
+    assert {:ok, _} = Files.commit(uid, [Map.put(first, :path, file.path)])
+    assert {:ok, _} = Files.commit(uid, [Map.put(last, :path, file.path)])
+    assert {:ok, %{id: id}, "last closer"} = Files.read(uid, file.path)
+    assert id == file.id
+    assert {:ok, "first closer"} = Files.read_object(first.object_id)
   end
 
-  describe "list/3" do
-    test "lists a folder in path order with pagination", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: sha256}} = Files.store("x")
+  test "empty files and folders are distinct persisted nodes", %{uid: uid} do
+    {:ok, root} = Files.private_root(uid)
+    actor = actor_fixture(uid)
+    {:ok, empty} = Files.create_node(actor, %{parent_id: root.id, kind: :file, name: "empty"})
 
-      upserts =
-        for name <- ["skills/b/SKILL.md", "skills/a/SKILL.md", "skills/a/x.py", "skillset/z"] do
-          %{path: name, sha256: sha256, source: "agent"}
-        end
+    {:ok, _folder} =
+      Files.create_node(actor, %{parent_id: root.id, kind: :folder, name: "folder"})
 
-      {:ok, _files} = Files.commit(agent_uid, upserts)
-
-      assert {:ok, %{files: page, next_after: "skills/a/x.py"}} =
-               Files.list(agent_uid, "skills", limit: 2)
-
-      assert Enum.map(page, & &1.path) == ["skills/a/SKILL.md", "skills/a/x.py"]
-
-      assert {:ok, %{files: [%DriveFile{path: "skills/b/SKILL.md"}], next_after: nil}} =
-               Files.list(agent_uid, "skills", limit: 2, after: "skills/a/x.py")
-
-      assert {:ok, 1} = Files.delete(agent_uid, "skills/a/x.py")
-
-      assert {:ok, %{files: [%DriveFile{path: "skills/b/SKILL.md"}], next_after: nil}} =
-               Files.list(agent_uid, "skills", limit: 2, after: "skills/a/x.py")
-
-      assert {:ok, %{files: [], next_after: nil}} =
-               Files.list(agent_uid, "skills", limit: 2, after: "skills/b/SKILL.md")
-    end
-
-    test "keeps drives of different Agents apart", %{agent_uid: agent_uid} do
-      %{principal: other} = agent_fixture()
-      {:ok, %{sha256: sha256}} = Files.store("shared bytes")
-      {:ok, _} = Files.commit(agent_uid, [%{path: "a.txt", sha256: sha256, source: "inbound"}])
-      {:ok, _} = Files.commit(other.uid, [%{path: "b.txt", sha256: sha256, source: "inbound"}])
-
-      assert {:ok, %{files: [%DriveFile{path: "a.txt"}]}} = Files.list(agent_uid)
-      assert {:error, :not_found} = Files.fetch(agent_uid, "b.txt")
-      assert Repo.aggregate(Blob, :count) >= 1
-    end
+    assert {:ok, %{object_id: nil}, ""} = Files.read(uid, "empty")
+    assert {:error, :not_a_file} = Files.read(uid, "folder")
+    assert is_nil(Repo.get_by!(Node, id: empty.id).object_id)
   end
 
-  describe "list_children/3" do
-    test "says when a folder has more children than the bound", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: sha256}} = Files.store("x")
+  test "one commit atomically creates folders, applies writes, and trashes removed nodes", %{
+    uid: uid
+  } do
+    removed = drive_file_fixture(uid, "old/report.txt", "old")
+    {:ok, stored} = Files.store("new")
 
-      {:ok, _files} =
-        Files.commit(agent_uid, [
-          %{path: "inbox/a/one.png", sha256: sha256, source: "inbound"},
-          %{path: "inbox/b/two.png", sha256: sha256, source: "inbound"},
-          %{path: "inbox/c/three.png", sha256: sha256, source: "inbound"},
-          %{path: "inbox/notes.txt", sha256: sha256, source: "agent"}
-        ])
+    assert {:ok, %{files: [new], deleted: 1}} =
+             Files.commit(uid, [Map.put(stored, :path, "new/report.txt")], ["old"])
 
-      assert {:ok, %{folders: ["a", "b", "c"], files: [%DriveFile{}], truncated: false}} =
-               Files.list_children(agent_uid, "inbox")
-
-      assert {:ok, %{folders: ["a", "b"], truncated: true}} =
-               Files.list_children(agent_uid, "inbox", limit: 2)
-    end
+    assert {:error, :not_found} = Files.fetch(uid, "old/report.txt")
+    assert {:ok, %{object_id: id}, "new"} = Files.read(uid, new.path)
+    assert id == stored.object_id
+    assert {:ok, "old"} = Files.read_object(removed.object_id)
   end
 
-  describe "move/4" do
-    test "moves every file of a folder larger than one list page", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: sha256}} = Files.store("page")
-      digest = Base.decode16!(sha256, case: :lower)
-      now = DateTime.utc_now()
+  test "a rejected write rolls back the whole commit including deletes", %{uid: uid} do
+    kept = drive_file_fixture(uid, "keep.txt", "keep")
+    drive_file_fixture(uid, "ancestor", "file")
+    {:ok, stored} = Files.store("child")
 
-      rows =
-        for index <- 1..5_001 do
-          %{
-            tenant_id: Repo.tenant_id!(),
-            agent_uid: agent_uid,
-            path: "jobs/1/node_modules/pkg-#{index}/index.js",
-            sha256: digest,
-            mode: 0o644,
-            content_type: "text/javascript",
-            source: "agent",
-            inserted_at: now,
-            updated_at: now
-          }
-        end
+    assert {:error, :not_a_directory} =
+             Files.commit(uid, [Map.put(stored, :path, "ancestor/child.txt")], ["keep.txt"])
 
-      for chunk <- Enum.chunk_every(rows, 1_000), do: Repo.insert_all(DriveFile, chunk)
-
-      assert {:ok, 5_001} = Files.move(agent_uid, "jobs/1", "jobs/archived")
-      assert Repo.aggregate(where(DriveFile, agent_uid: ^agent_uid), :count) == 5_001
-
-      refute Repo.exists?(
-               from(file in DriveFile,
-                 where: file.agent_uid == ^agent_uid and like(file.path, "jobs/1/%")
-               )
-             )
-    end
-
-    test "moves a folder up into its parent without creating file ancestors",
-         %{agent_uid: agent_uid} do
-      {:ok, %{sha256: outer}} = Files.store("outer")
-      {:ok, %{sha256: inner}} = Files.store("inner")
-
-      {:ok, _files} =
-        Files.commit(agent_uid, [
-          %{path: "a/b/c", sha256: outer, source: "agent"},
-          %{path: "a/b/d/e", sha256: inner, source: "agent"}
-        ])
-
-      assert {:ok, 2} = Files.move(agent_uid, "a/b", "a")
-      assert {:ok, _file, "outer"} = Files.read(agent_uid, "a/c")
-      assert {:ok, _file, "inner"} = Files.read(agent_uid, "a/d/e")
-    end
-
-    test "a move never turns an existing file into a folder or a folder into a file", %{
-      agent_uid: agent_uid
-    } do
-      {:ok, %{sha256: sha256}} = Files.store("move conflict")
-
-      assert {:ok, _files} =
-               Files.commit(agent_uid, [
-                 %{path: "from/x", sha256: sha256, source: "agent"},
-                 %{path: "target", sha256: sha256, source: "agent"},
-                 %{path: "folder/child", sha256: sha256, source: "agent"}
-               ])
-
-      assert {:error, {:path_conflict, "target", "target/x"}} =
-               Files.move(agent_uid, "from", "target")
-
-      assert {:error, {:path_conflict, "folder", "folder/child"}} =
-               Files.move(agent_uid, "from/x", "folder")
-
-      assert {:ok, _file, "move conflict"} = Files.read(agent_uid, "from/x")
-      assert {:ok, _file, "move conflict"} = Files.read(agent_uid, "target")
-      assert {:ok, _file, "move conflict"} = Files.read(agent_uid, "folder/child")
-    end
-
-    test "refuses to replace an existing file", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: moved}} = Files.store("moved")
-      {:ok, %{sha256: kept}} = Files.store("kept")
-
-      {:ok, _files} =
-        Files.commit(agent_uid, [
-          %{path: "from/x.md", sha256: moved, source: "agent"},
-          %{path: "to/x.md", sha256: kept, source: "agent"}
-        ])
-
-      assert {:error, :already_exists} = Files.move(agent_uid, "from", "to")
-      assert {:ok, _file, "moved"} = Files.read(agent_uid, "from/x.md")
-
-      assert {:ok, _file, "kept"} = Files.read(agent_uid, "to/x.md")
-    end
+    assert {:ok, %{id: id}, "keep"} = Files.read(uid, "keep.txt")
+    assert id == kept.id
+    assert {:error, :not_found} = Files.fetch_object(stored.object_id)
   end
 
-  describe "content paths" do
-    test "derive a stable path from the folder, digest, and file name" do
-      sha256 = String.duplicate("0123456789abcdef", 4)
+  test "private paths and object IDs cannot resolve across tenants", %{uid: uid} do
+    file = drive_file_fixture(uid, "private.txt", "private")
+    other = create_tenant()
 
-      assert Files.content_path("inbox", sha256, "Q3 report.pdf") ==
-               "inbox/0123456789abcdef/Q3 report.pdf"
-
-      assert Files.content_path("sent", sha256, "../../etc/passwd") ==
-               "sent/0123456789abcdef/.._.._etc_passwd"
-
-      assert Files.content_path("generated", sha256, "") == "generated/0123456789abcdef/file"
-    end
+    Repo.with_tenant(other.id, fn ->
+      assert {:error, :not_found} = Files.fetch(uid, "private.txt")
+      assert {:error, :not_found} = Files.fetch_object(file.object_id)
+    end)
   end
 
-  test "a paginated folder carries the same complete revision until its contents or mode change",
-       %{agent_uid: uid} do
-    {:ok, %{sha256: sha256}} = Files.store("snapshot #{uid}")
+  test "pagination and prefixes treat SQL wildcard characters literally", %{uid: uid} do
+    for path <- ["a_/1", "a_/2", "a_/3", "aX/wrong", "p%/one", "pX/wrong"] do
+      drive_file_fixture(uid, path)
+    end
 
-    {:ok, _} =
-      Files.commit(uid, [
-        %{path: "script/a.ts", sha256: sha256, source: "agent"},
-        %{path: "script/b.ts", sha256: sha256, source: "agent"}
-      ])
+    assert {:ok, %{files: first, next_after: "a_/2"}} = Files.list(uid, "a_", limit: 2)
+    assert Enum.map(first, & &1.path) == ["a_/1", "a_/2"]
 
-    assert {:ok, %{revision: revision, next_after: after_path}} =
-             Files.list(uid, "script", limit: 1, snapshot: true)
+    assert {:ok, %{files: [%{path: "a_/3"}], next_after: nil}} =
+             Files.list(uid, "a_", limit: 2, after: "a_/2")
 
-    assert {:ok, %{revision: ^revision, next_after: nil}} =
-             Files.list(uid, "script", limit: 1, after: after_path, snapshot: true)
-
-    {:ok, _} = Files.commit(uid, [%{path: "other.txt", sha256: sha256, source: "agent"}])
-    assert {:ok, %{revision: ^revision}} = Files.list(uid, "script", snapshot: true)
-
-    {:ok, _} =
-      Files.commit(uid, [%{path: "script/b.ts", sha256: sha256, source: "agent", mode: 0o755}])
-
-    assert {:ok, %{revision: changed}} = Files.list(uid, "script", snapshot: true)
-    assert changed != revision
+    assert {:ok, %{files: [%{path: "p%/one"}]}} = Files.list(uid, "p%")
   end
 
-  describe "collection" do
-    test "pending attachments survive deletion of their last drive path until delivery", %{
-      agent_uid: uid
-    } do
-      {:ok, %{sha256: sha256}} = Files.store("pending attachment #{uid}")
-      {:ok, _} = Files.commit(uid, [%{path: "report.txt", sha256: sha256, source: "agent"}])
+  test "moving a folder preserves its descendants' IDs and content", %{uid: uid} do
+    file = drive_file_fixture(uid, "before/nested/a.txt", "value")
+    assert {:ok, _} = Files.move(uid, "before", "after")
+    assert {:error, :not_found} = Files.fetch(uid, file.path)
+    assert {:ok, %{id: id}, "value"} = Files.read(uid, "after/nested/a.txt")
+    assert id == file.id
+  end
 
-      attrs = %{
-        agent_uid: uid,
-        binding_name: "test",
-        outbound_key: "attachment",
-        operation: :post,
-        payload: %{"attachments" => [%{"blob_ref" => sha256, "name" => "report.txt"}]}
-      }
+  test "snapshot revisions track object identity even for equal replacement bytes", %{uid: uid} do
+    drive_file_fixture(uid, "skills/a", "equal")
+    drive_file_fixture(uid, "skills/b", "other")
+    {:ok, first} = Files.list(uid, "skills", limit: 1, snapshot: true)
+    {:ok, next} = Files.list(uid, "skills", limit: 1, after: first.next_after, snapshot: true)
+    assert first.revision == next.revision
+    drive_file_fixture(uid, "skills/a", "equal")
+    {:ok, changed} = Files.list(uid, "skills", snapshot: true)
+    refute changed.revision == first.revision
+  end
 
-      assert {:ok, intent} = Ankole.SignalsFixtures.commit_delivery(attrs)
-      {:ok, _} = Files.commit(uid, [], ["report.txt"])
-      digest = Base.decode16!(sha256, case: :lower)
+  test "GC deletes old unreferenced rows and enqueues durable byte deletion", %{uid: uid} do
+    referenced = drive_file_fixture(uid, "kept.txt", "referenced")
+    {:ok, orphan} = Files.store("incomplete orphan")
+    {:ok, young} = Files.store("young")
+    orphan_row = Repo.get_by!(FileObject, id: orphan.object_id)
+    age([referenced.object_id, orphan.object_id])
+    assert {:ok, 1} = Files.collect_objects()
+    refute Repo.get_by(FileObject, id: orphan.object_id)
+    assert Repo.get_by(FileObject, id: young.object_id)
+    assert Repo.get_by(FileObject, id: referenced.object_id)
 
-      Repo.update_all(where(Blob, sha256: ^digest),
-        set: [last_referenced_at: DateTime.add(DateTime.utc_now(), -2, :day)]
-      )
+    assert_enqueued(
+      worker: Files.Jobs.DeleteObject,
+      args: %{"storage_key" => orphan_row.storage_key}
+    )
 
-      assert {:ok, 0} = CollectUnreferenced.mark_unreferenced()
-      Repo.update_all(where(Blob, sha256: ^digest), set: [deleting: true])
-      assert CollectUnreferenced.remove_marked(0) == 0
+    assert :ok = perform_job(Files.Jobs.DeleteObject, %{"storage_key" => orphan_row.storage_key})
+    assert {:error, %{"code" => "not_found"}} = ObjectStore.read(orphan_row.storage_key)
+  end
 
-      assert {:ok, _content} =
-               Ankole.Conversations.Delivery.attachment_content(hd(intent.payload["attachments"]))
+  test "trash keeps the current object referenced while replaced bytes become collectable", %{
+    uid: uid
+  } do
+    old = drive_file_fixture(uid, "a.txt", "old")
+    current = drive_file_fixture(uid, "a.txt", "current")
+    assert {:ok, 1} = Files.delete(uid, "a.txt")
+    age([old.object_id, current.object_id])
+    assert {:ok, 1} = Files.collect_objects()
+    assert {:error, :not_found} = Files.fetch_object(old.object_id)
+    assert {:ok, "current"} = Files.read_object(current.object_id)
+  end
 
-      assert {:ok, _sent} =
-               Repo.transact(fn _repo ->
-                 Ankole.Ash.update(intent, :succeed, %{})
-               end)
-
-      assert {:ok, 1} = CollectUnreferenced.mark_unreferenced()
-      assert CollectUnreferenced.remove_marked(0) == 1
-      # Recommitting a completed idempotency key does not require the old bytes.
-      assert {:ok, %{status: :sent}} = Ankole.SignalsFixtures.commit_delivery(attrs)
-    end
-
-    test "shared external attachments keep their bytes after the receiving Agent is deleted", %{
-      agent_uid: uid
-    } do
-      now = DateTime.utc_now(:microsecond)
-      {:ok, %{sha256: sha256}} = Files.store("shared attachment #{uid}")
-
-      {:ok, c} =
-        Repo.transact(fn ->
-          Ankole.Conversations.External.observe_conversation_in_tx(
-            %{agent_uid: uid},
-            %{
-              provider_conversation_id: "mock:#{uid}",
-              external_kind: :im_group,
-              title: "Shared",
-              reply_mode: :channel
-            },
-            now
-          )
-        end)
-
-      {:ok, %{message: message}} =
-        Repo.transact(fn ->
-          Ankole.Conversations.External.observe_in_tx(
-            c.id,
-            %{
-              agent_uid: uid,
-              provider_message_id: "file",
-              attachments: [%{"name" => "report.txt", "blob_ref" => sha256}]
-            },
-            now
-          )
-        end)
-
-      Repo.delete_all(where(DriveFile, agent_uid: ^uid))
-      Repo.delete!(Repo.get!(Ankole.Principals.Principal, uid))
-      assert Repo.get_by!(Ankole.Conversations.Message, id: message.id).attachments != []
-      digest = Base.decode16!(sha256, case: :lower)
-
-      Repo.update_all(where(Blob, sha256: ^digest),
-        set: [last_referenced_at: DateTime.add(now, -2, :day)]
-      )
-
-      assert {:ok, 0} = CollectUnreferenced.mark_unreferenced()
-      Repo.update_all(where(Blob, sha256: ^digest), set: [deleting: true])
-      assert CollectUnreferenced.remove_marked(0) == 0
-      assert {:ok, "shared attachment " <> ^uid} = ObjectStore.read(Files.object_key(digest))
-    end
-
-    test "an attachment cannot adopt bytes that collection has already claimed", %{agent_uid: uid} do
-      {:ok, %{sha256: sha256}} = Files.store("collected attachment #{uid}")
-      digest = Base.decode16!(sha256, case: :lower)
-      Repo.update_all(where(Blob, sha256: ^digest), set: [deleting: true])
-
-      assert {:error, {:blob_missing, ^sha256}} =
-               Ankole.SignalsFixtures.commit_delivery(%{
-                 agent_uid: uid,
-                 binding_name: "test",
-                 outbound_key: "missing",
-                 operation: :post,
-                 payload: %{"attachments" => [%{"blob_ref" => sha256}]}
-               })
-
-      refute Repo.exists?(
-               from intent in Ankole.Conversations.Delivery.Intent,
-                 where: intent.agent_uid == ^uid and intent.outbound_key == "missing"
-             )
-    end
-
-    test "removes only old unreferenced contents", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: kept}} = Files.store("named")
-      {:ok, %{sha256: young}} = Files.store("young")
-      {:ok, %{sha256: old}} = Files.store("old")
-      {:ok, _} = Files.commit(agent_uid, [%{path: "kept.txt", sha256: kept, source: "agent"}])
-
-      old_time = DateTime.add(DateTime.utc_now(), -2, :day)
-
-      for sha256 <- [kept, old] do
-        digest = Base.decode16!(sha256, case: :lower)
-        Repo.update_all(where(Blob, sha256: ^digest), set: [last_referenced_at: old_time])
-      end
-
-      assert {:ok, 1} = CollectUnreferenced.mark_unreferenced()
-      assert CollectUnreferenced.remove_marked(0) == 1
-
-      old_digest = Base.decode16!(old, case: :lower)
-      assert Repo.get(Blob, old_digest) == nil
-      assert {:error, %{"code" => "not_found"}} = ObjectStore.read(Files.object_key(old_digest))
-
-      assert Repo.get(Blob, Base.decode16!(kept, case: :lower))
-      assert Repo.get(Blob, Base.decode16!(young, case: :lower))
-    end
-
-    test "leaves a marked row that is still referenced", %{agent_uid: agent_uid} do
-      {:ok, %{sha256: sha256}} = Files.store("referenced")
-      {:ok, _} = Files.commit(agent_uid, [%{path: "a.txt", sha256: sha256, source: "agent"}])
-      digest = Base.decode16!(sha256, case: :lower)
-      Repo.update_all(where(Blob, sha256: ^digest), set: [deleting: true])
-
-      assert CollectUnreferenced.remove_marked(0) == 0
-      assert %Blob{deleting: false} = Repo.get(Blob, digest)
-      assert {:ok, _file, "referenced"} = Files.read(agent_uid, "a.txt")
-    end
+  defp age(ids) do
+    Repo.update_all(from(o in FileObject, where: o.id in ^ids),
+      set: [created_at: DateTime.add(DateTime.utc_now(), -172_800)]
+    )
   end
 end

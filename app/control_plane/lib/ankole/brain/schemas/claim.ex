@@ -72,6 +72,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       check_constraint(:audience_scope, "brain_claims_audience_scope_shape")
       check_constraint(:graded_quality, "brain_claims_grade_shape")
       check_constraint(:graded_input_hash, "brain_claims_graded_input_shape")
+      check_constraint(:graded_by, "brain_claims_grader_shape")
       check_constraint(:resolved_quality, "brain_claims_resolution_quality_values")
       check_constraint(:resolved_outcome, "brain_claims_resolution_consistency")
       check_constraint(:embedding, "brain_claims_embedding_state")
@@ -126,6 +127,7 @@ defmodule Ankole.Brain.Schemas.Claim do
     attribute(:graded_quality, :string, public?: true, constraints: [trim?: false])
     attribute(:graded_confidence, :float, public?: true)
     attribute(:graded_at, :utc_datetime_usec)
+    attribute(:graded_by, :string, constraints: [trim?: false])
     attribute(:graded_input_hash, :string, constraints: [trim?: false])
     attribute(:resolved_at, :utc_datetime_usec, public?: true)
     attribute(:resolved_outcome, :boolean, public?: true)
@@ -273,8 +275,8 @@ defmodule Ankole.Brain.Schemas.Claim do
 
     update :record_grade do
       require_atomic?(true)
-      accept([:graded_quality, :graded_confidence, :graded_at, :graded_input_hash])
-      require_attributes([:graded_quality, :graded_confidence, :graded_at])
+      accept([:graded_quality, :graded_confidence, :graded_at, :graded_input_hash, :graded_by])
+      require_attributes([:graded_quality, :graded_confidence, :graded_at, :graded_by])
       change(filter(expr(claim_type == :take and active == true and is_nil(resolved_at))))
     end
 

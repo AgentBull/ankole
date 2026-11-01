@@ -118,7 +118,7 @@ defmodule Ankole.CloudflareWorkerStorageIntegrationTest do
     assert await_worker_state!(uid, nil) == nil
     assert {:ok, []} = Cloudflare.list_instances(provider, uid)
     assert {:ok, nil, nil} = Cloudflare.current_storage_ref(provider, uid)
-    assert_proof!(Repo.get!(AgentWorker, peer_uid), "OTHER-PROVIDER")
+    assert_proof!(Repo.get_by!(AgentWorker, agent_uid: peer_uid), "OTHER-PROVIDER")
     assert {:ok, [remaining]} = Cloudflare.list_instances(peer_provider, :all)
     assert remaining.agent_uid == peer_uid
     assert remaining.generation == peer.generation

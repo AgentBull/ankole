@@ -14,7 +14,7 @@ defmodule Ankole.AgentWorkers.AIGatewayAPIKeyBrokerTest do
 
   test "uses the Agent's provider address and preserves its token scope" do
     %{principal: agent} = agent_fixture()
-    worker = Repo.get!(AgentWorker, agent.uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
 
     assert {:ok, _} =
              Providers.update(worker.provider_id, %{

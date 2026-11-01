@@ -180,8 +180,13 @@ other_pod =
 
 Repo.put_tenant_id(tenant.id)
 
+default_worker_provider = Ankole.PrincipalsFixtures.worker_provider_fixture(%{is_default: true})
+
 agent =
-  Ankole.PrincipalsFixtures.agent_fixture(%{display_name: "Browser content Agent"}).principal
+  Ankole.PrincipalsFixtures.agent_fixture(%{
+    display_name: "Browser content Agent",
+    worker_provider_id: default_worker_provider.provider_id
+  }).principal
 
 # Real preference APIs use this synthetic profile; the browser fixture never runs its model.
 model_provider_id = "pod-browser-model-" <> tenant.id
@@ -197,7 +202,7 @@ model_provider_id = "pod-browser-model-" <> tenant.id
   })
 
 {:ok, _} =
-  Ankole.AIAgent.ModelProfiles.put_model_profile(agent.uid, "careful", %{
+  Ankole.AIGateway.ModelProfiles.put_model_profile(agent.uid, "careful", %{
     description: "Careful browser fixture analysis",
     provider_id: model_provider_id,
     model: "fixture-model"
@@ -352,7 +357,12 @@ publish_files =
     files =
       Enum.map(entries, fn entry ->
         {:ok, stored} = Ankole.Files.store({:file, entry["local_path"]})
-        %{path: entry["path"], sha256: stored.sha256, content_type: entry["content_type"]}
+
+        Map.merge(stored, %{
+          path: entry["path"],
+          source_path: "_pod/browser/#{version}/" <> entry["path"],
+          content_type: entry["content_type"]
+        })
       end)
 
     {:ok, _} =
@@ -464,7 +474,12 @@ backend_files =
     files =
       Enum.map(entries, fn entry ->
         {:ok, stored} = Ankole.Files.store({:file, entry["local_path"]})
-        %{path: entry["path"], sha256: stored.sha256, content_type: entry["content_type"]}
+
+        Map.merge(stored, %{
+          path: entry["path"],
+          source_path: "_pod/backend/#{version}/" <> entry["path"],
+          content_type: entry["content_type"]
+        })
       end)
 
     {:ok, _} =
@@ -798,6 +813,7 @@ state = %{
   backend_record_id: sample.id,
   backend_publish_v2_files: backend_files["v2"],
   publish_v2_files: publish_files["v2"],
+  publish_v1_files: publish_files["v1"] ++ candidates,
   owner: %{
     uid: owner.uid,
     cookies: cookies.(owner),

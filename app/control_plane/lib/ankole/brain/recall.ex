@@ -452,7 +452,7 @@ defmodule Ankole.Brain.Recall do
           Task.async(
             Ankole.Repo.bind_tenant(fn ->
               try do
-                with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
+                with {:ok, subject_uid} <- Config.execution_subject_uid() do
                   AIGateway.create_rerank(subject_uid, %{
                     "model" => model["provider_id"] <> "/" <> model["model"],
                     "query" => query,

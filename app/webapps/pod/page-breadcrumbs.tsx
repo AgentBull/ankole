@@ -6,6 +6,8 @@ import { RiArrowRightSLine, RiMoreFill } from '@remixicon/react'
 import { Link } from '@tanstack/react-router'
 
 import { podLocation } from '../common/browser-context'
+import { BdiLabel } from '../common/bidi-file-name'
+import { stripBidi } from '../common/bidi'
 import type { Page } from './content-api'
 
 // The path speaks in value alone: ancestors are secondary ink and wash on hover, the open Page is full ink at
@@ -59,7 +61,7 @@ export function PageBreadcrumbs({
                   <DropdownMenuItem
                     key={ancestor.id}
                     render={<Link to={podLocation(`/pages/${ancestor.id}`).pathname} />}>
-                    <span className="truncate">{ancestor.title || t('pod.content.untitled')}</span>
+                    <BdiLabel value={ancestor.title} fallback={t('pod.content.untitled')} />
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -69,8 +71,8 @@ export function PageBreadcrumbs({
         )}
         {parent && (
           <li className="flex min-w-0 shrink-[4] items-center">
-            <Link className={crumb} to={podLocation(`/pages/${parent.id}`).pathname} title={parent.title}>
-              <span className="truncate">{parent.title || t('pod.content.untitled')}</span>
+            <Link className={crumb} to={podLocation(`/pages/${parent.id}`).pathname} title={stripBidi(parent.title)}>
+              <BdiLabel value={parent.title} fallback={t('pod.content.untitled')} />
             </Link>
             {separator}
           </li>
@@ -78,8 +80,8 @@ export function PageBreadcrumbs({
         <li
           aria-current="page"
           className="flex min-w-0 items-center px-1.5 text-sm font-medium text-foreground"
-          title={title}>
-          <span className="truncate">{title || t('pod.content.untitled')}</span>
+          title={stripBidi(title)}>
+          <BdiLabel value={title} fallback={t('pod.content.untitled')} />
         </li>
       </ol>
     </nav>

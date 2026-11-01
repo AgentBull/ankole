@@ -105,6 +105,7 @@ defmodule Ankole.Conversations.FactNormalizer do
       {:ok,
        %{
          agent_uid: binding.agent_uid,
+         binding_id: binding.id,
          binding_name: binding.name,
          adapter: binding.adapter,
          source_event_id: source_event_id,
@@ -160,6 +161,7 @@ defmodule Ankole.Conversations.FactNormalizer do
       {:ok,
        %{
          agent_uid: binding.agent_uid,
+         binding_id: binding.id,
          binding_name: binding.name,
          adapter: binding.adapter,
          source_event_id: source_event_id,
@@ -191,6 +193,7 @@ defmodule Ankole.Conversations.FactNormalizer do
       {:ok,
        %{
          agent_uid: binding.agent_uid,
+         binding_id: binding.id,
          binding_name: binding.name,
          adapter: binding.adapter,
          source_event_id: optional_attr_text(input, :source_event_id),
@@ -221,6 +224,7 @@ defmodule Ankole.Conversations.FactNormalizer do
       {:ok,
        %{
          agent_uid: binding.agent_uid,
+         binding_id: binding.id,
          binding_name: binding.name,
          adapter: binding.adapter,
          source_event_id: source_event_id,
@@ -229,7 +233,7 @@ defmodule Ankole.Conversations.FactNormalizer do
          provider_conversation_id: provider_conversation_id,
          provider_message_id: optional_attr_text(input, :provider_message_id),
          provider_thread_id: optional_attr_text(input, :provider_thread_id),
-         sender_key: nil,
+         sender_key: Map.get(action, "operator_principal_uid"),
          channel_kind: normalize_channel_kind(Map.get(channel, :kind)),
          reply_mode: normalize_reply_mode(Map.get(channel, :reply_mode)),
          channel_name: optional_attr_text(channel, :name),
@@ -273,7 +277,7 @@ defmodule Ankole.Conversations.FactNormalizer do
       principal_uid when is_binary(principal_uid) ->
         principal_uid = Ankole.PrincipalKey.canonicalize(principal_uid)
 
-        if principal_uid == Ankole.PrincipalKey.canonicalize(agent_uid) do
+        if principal_uid == agent_uid do
           metadata
         else
           Map.put(metadata, "dm_peer_principal_uid", principal_uid)
@@ -454,6 +458,8 @@ defmodule Ankole.Conversations.FactNormalizer do
   defp normalize_attachment(%{} = attachment) do
     case JSONPayload.normalize_map(attachment, allow_datetime: true) do
       {:ok, normalized} ->
+        normalized = sanitize_attachment_names(normalized)
+
         case durable_attachment?(normalized) do
           true -> {:ok, normalized}
           false -> {:error, {:attachment_not_materialized, Sanitizer.transport(normalized)}}
@@ -467,6 +473,45 @@ defmodule Ankole.Conversations.FactNormalizer do
   defp normalize_attachment(attachment),
     do: {:error, {:invalid_attachment_payload, Sanitizer.transport(attachment)}}
 
+  defp sanitize_attachment_names(attachment) when is_map(attachment) do
+    attachment =
+      Enum.reduce(["name", "filename", "file_name", "title"], attachment, fn key, acc ->
+        case Map.get(acc, key) do
+          value when is_binary(value) ->
+            cond do
+              value == "" ->
+                acc
+
+              String.trim(value) == "" and not Ankole.Files.Path.contains_control_or_bidi?(value) ->
+                Map.put(acc, key, "")
+
+              true ->
+                Map.put(acc, key, Ankole.Files.Path.file_name(value))
+            end
+
+          _ ->
+            acc
+        end
+      end)
+
+    case Map.get(attachment, "path") do
+      value when is_binary(value) ->
+        cond do
+          value == "" ->
+            attachment
+
+          String.trim(value) == "" and not Ankole.Files.Path.contains_control_or_bidi?(value) ->
+            Map.put(attachment, "path", "")
+
+          true ->
+            Map.put(attachment, "path", Ankole.Files.Path.sanitize_display_path(value))
+        end
+
+      _ ->
+        attachment
+    end
+  end
+
   # An attachment is only accepted into durable state once it points at something
   # that will still resolve later: a provider, drive content, or storage
   # reference. A Home path can change and is not an attachment reference.
@@ -474,7 +519,7 @@ defmodule Ankole.Conversations.FactNormalizer do
   # so the mirror does not store a pointer that the Agent cannot fetch again.
   defp durable_attachment?(attachment) do
     Enum.any?(
-      ["provider_ref", "provider_file_id", "provider_uri", "blob_ref", "storage_ref"],
+      ["provider_ref", "provider_file_id", "provider_uri", "object_id", "storage_ref"],
       &present_text?(attachment, &1)
     )
   end

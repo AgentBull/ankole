@@ -153,7 +153,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   end
 
   identities do
-    identity(:idempotency, [:kind, :agent_uid, :session_id, :idempotency_key], all_tenants?: true)
+    identity(:idempotency, [:kind, :agent_uid, :session_id, :idempotency_key])
   end
 
   json_api do

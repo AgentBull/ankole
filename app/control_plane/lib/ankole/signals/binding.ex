@@ -1,15 +1,5 @@
 defmodule Ankole.Signals.Binding do
-  @moduledoc """
-  Per-agent signal ingress route configured by an operator.
-
-  A binding is the unit of "this agent listens to this provider source": it ties
-  an `{agent_uid, name}` to an `adapter` plus a `config_ref` (the provider
-  credential/config the adapter resolves separately). It also carries the
-  admission `filters` (see `BindingFilters`) and the policy for unaddressed group
-  messages. Every `emit_*` call in `Conversations.Observe` is routed by looking up the
-  binding for an `{agent_uid, binding_name}` pair, so the binding is effectively
-  the gateway's routing key.
-  """
+  @moduledoc "A tenant's adapter configuration, with either a fixed colleague or sender-owned assistant route."
 
   use Ankole.Ash.Resource,
     authorizers: [Ankole.AuthZ.Authorizer],
@@ -22,8 +12,9 @@ defmodule Ankole.Signals.Binding do
     resolve_param(:agent_uid, :principal_key)
 
     allow(:console_disable,
-      resource: "site_console:agent:{agent_uid}:signal_bindings",
-      action: "delete"
+      resource: "site_console:signal_bindings",
+      action: "delete",
+      permissions: &Ankole.Signals.ConsoleActions.binding_permissions/4
     )
   end
 
@@ -37,9 +28,14 @@ defmodule Ankole.Signals.Binding do
     repo(Ankole.Repo)
     migrate?(false)
     foreign_key_names([{:agent_uid, "signal_bindings_agent_uid_fkey"}])
-    unique_index_names([{[:agent_uid, :name], "signal_bindings_pkey"}])
+
+    unique_index_names([
+      {[:agent_uid, :name], "signal_bindings_agent_name_index"},
+      {[:name], "signal_bindings_shared_name_index"}
+    ])
 
     check_constraints do
+      check_constraint(:routing_mode, "signal_bindings_routing_target")
       check_constraint(:name, "signal_bindings_name_present")
       check_constraint(:adapter, "signal_bindings_adapter_present")
       check_constraint(:config_ref, "signal_bindings_config_ref_present")
@@ -49,15 +45,19 @@ defmodule Ankole.Signals.Binding do
   end
 
   attributes do
-    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey,
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
       primary_key?: true,
       allow_nil?: false,
+      default: &Ankole.Kernel.gen_uuid_v7/0,
       public?: true
     )
 
-    attribute(:name, :string,
-      constraints: [trim?: true],
-      primary_key?: true,
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
+    attribute(:name, :string, constraints: [trim?: true], allow_nil?: false, public?: true)
+
+    attribute(:routing_mode, Ankole.Ash.Types.State,
+      constraints: [one_of: [:ai_colleague, :sender_personal_assistant]],
+      default: :ai_colleague,
       allow_nil?: false,
       public?: true
     )
@@ -92,6 +92,7 @@ defmodule Ankole.Signals.Binding do
     derive_sort?(false)
 
     default_fields([
+      :routing_mode,
       :agent_uid,
       :name,
       :adapter,
@@ -105,8 +106,7 @@ defmodule Ankole.Signals.Binding do
     ])
 
     primary_key do
-      keys([:agent_uid, :name])
-      delimiter("~")
+      keys([:id])
     end
   end
 
@@ -122,6 +122,9 @@ defmodule Ankole.Signals.Binding do
       upsert?(true)
 
       upsert_fields([
+        :agent_uid,
+        :name,
+        :routing_mode,
         :adapter,
         :config_ref,
         :filters,
@@ -133,6 +136,8 @@ defmodule Ankole.Signals.Binding do
       ])
 
       accept([
+        :id,
+        :routing_mode,
         :agent_uid,
         :name,
         :adapter,
@@ -172,8 +177,7 @@ defmodule Ankole.Signals.Binding do
     # reads as not found.
     action :console_disable, :struct do
       constraints(instance_of: __MODULE__)
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:name, :string, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

@@ -26,6 +26,9 @@ defmodule Ankole.AppConfigure do
   @tenant_scope_prefix "tenant:"
   @agent_scope_prefix "agent:"
 
+  defdelegate rename_agent_in_tx(old_uid, new_uid), to: Ankole.AppConfigure.AgentScope
+  defdelegate publish_agent_rename(keys), to: Ankole.AppConfigure.AgentScope
+
   resources do
     resource(Ankole.AppConfigure.ConsoleOperations)
 
@@ -857,6 +860,20 @@ defmodule Ankole.AppConfigure do
   def ensure_scope(%{scope: :pod} = definition, _scope),
     do: {:error, {:pod_scope_only, definition_key(definition)}}
 
+  def ensure_scope(definition, "system:" <> uid) do
+    key = definition_key(definition)
+
+    with :ok <- Ankole.Principals.SystemServices.validate(uid) do
+      if match?(%Definition{}, definition) and
+           key in Enum.map(
+             Ankole.AIGateway.ModelProfiles.pod_profiles(),
+             &Ankole.AIGateway.ModelProfiles.profile_key/1
+           ),
+         do: :ok,
+         else: {:error, {:invalid_system_configuration_key, key}}
+    end
+  end
+
   def ensure_scope(_definition, _scope), do: :ok
 
   # A tenant does not see a global-scope pattern that its owner manages, and the
@@ -1083,6 +1100,51 @@ defmodule Ankole.AppConfigure do
 
   def get_tenant_by_key_in_tx(key), do: get_by_key_in_tx(key)
 
+  @doc "Stores a registered system Principal's fixed model-slot override."
+  def put_system_by_key(uid, key, value) do
+    with {:ok, scope} <- system_scope(uid),
+         {:ok, definition} <- Registry.require_key(key),
+         :ok <- ensure_scope(definition, scope) do
+      put(scope, key, definition, value)
+    end
+  end
+
+  @doc "Removes a system Principal's override so its model slot inherits from the Pod."
+  def delete_system_by_key(uid, key) do
+    with {:ok, scope} <- system_scope(uid),
+         {:ok, definition} <- Registry.require_key(key),
+         :ok <- ensure_scope(definition, scope) do
+      delete(scope, key)
+    end
+  end
+
+  defp system_scope(uid) do
+    with {:ok, _principal} <- Ankole.Principals.system_principal(uid),
+         do: {:ok, "system:" <> uid}
+  end
+
+  @doc "Reads a persisted override at one layer through the configuration cache, without inheritance."
+  @spec get_override_by_key(:tenant | :global | {:system, String.t()}, String.t()) ::
+          {:ok, term()} | :error | {:error, term()}
+  def get_override_by_key({:system, uid}, key) when is_binary(key) do
+    with :ok <- Ankole.Principals.SystemServices.validate(uid),
+         do: get_scope_override("system:" <> uid, key)
+  end
+
+  def get_override_by_key(layer, key) when layer in [:tenant, :global] and is_binary(key) do
+    get_scope_override(storage_scope(layer), key)
+  end
+
+  defp get_scope_override(scope, key) do
+    with {:ok, registered} <- Registry.require_key(key),
+         :ok <- ensure_scope(registered, scope) do
+      case resolve_scope(scope, key, registered) do
+        :missing -> :error
+        result -> value_result(result)
+      end
+    end
+  end
+
   def delete_tenant_by_key(key) do
     with {:ok, definition} <- Registry.require_key(key),
          :ok <- ensure_scope(definition, tenant_scope()) do
@@ -1093,4 +1155,5 @@ defmodule Ankole.AppConfigure do
   defp source_for_scope(@global_scope), do: :global
   defp source_for_scope(@tenant_scope_prefix <> _), do: :tenant
   defp source_for_scope(@agent_scope_prefix <> _), do: :agent
+  defp source_for_scope("system:" <> _), do: :system
 end

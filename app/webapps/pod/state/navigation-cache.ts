@@ -1,3 +1,4 @@
+import { positionOrder } from './page-move'
 import type { QueryClient, Query, QueryKey, InfiniteData } from '@tanstack/react-query'
 import { contentKeys, pageAPI, type NavigationPage, type Page, type PageDetail } from '../content-api'
 import type {
@@ -50,9 +51,7 @@ export function directoryPages(
       .map(page => [page.id, page])
   )
   for (const page of pages) rows.set(page.id, page)
-  return [...rows.values()].sort((a, b) =>
-    a.position < b.position ? -1 : a.position > b.position ? 1 : a.id.localeCompare(b.id)
-  )
+  return [...rows.values()].sort(positionOrder)
 }
 
 function updateCachedQuery<T>(client: QueryClient, key: QueryKey, update: (data: T) => T) {
@@ -233,7 +232,13 @@ export function pageCreated(client: QueryClient, page: Page) {
   )
   adjustCachedChildCount(client, page.parent_id, 1)
   if (page.actions && page.role) {
-    const row: NavigationPage = { ...page, actions: page.actions, role: page.role, has_children: false }
+    const row: NavigationPage = {
+      ...page,
+      name: page.name ?? page.title,
+      actions: page.actions,
+      role: page.role,
+      has_children: false
+    }
     client.setQueriesData<InfiniteData<PodPageChildrenResponse>>(
       {
         predicate: query => matchesDirectory(query, pageDirectory(page))
@@ -241,7 +246,7 @@ export function pageCreated(client: QueryClient, page: Page) {
       data => {
         if (!data?.pages.length || data.pages.some(batch => batch.pages.some(item => item.id === page.id))) return data
         const tail = data.pages.at(-1)!
-        if (tail.next_cursor && tail.pages.at(-1)!.position < page.position) return data
+        if (tail.next_cursor && positionOrder(tail.pages.at(-1)!, page) < 0) return data
         const pages = [...data.pages]
         pages[pages.length - 1] = {
           ...tail,

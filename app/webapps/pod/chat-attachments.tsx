@@ -4,6 +4,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useRef, type ClipboardEventHandler, type DragEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ConversationAttachment } from './api'
+import { containsBidi, sanitizeFileName, stripBidi } from '../common/bidi'
 import { InternalAPIError } from '../common/internal-api-client'
 import { conversationAttachmentURL } from './native-transfers'
 import type { ChatAttachments } from './state/chat-attachments'
@@ -11,13 +12,31 @@ import { AttachmentPreview } from './attachment-preview'
 
 /** Files that share a long prefix differ at the end, so a long name gives way in the middle and keeps its extension. */
 function AttachmentName({ name }: { name: string }) {
-  const dot = name.lastIndexOf('.')
-  const split = dot > 0 && name.length - dot <= 8 ? dot : name.length
+  const { t } = useTranslation()
+  const hasBidi = containsBidi(name)
+  const clean = stripBidi(name) || 'file'
+  const dot = clean.lastIndexOf('.')
+  const split = dot > 0 && clean.length - dot <= 8 ? dot : clean.length
   return (
-    <>
-      <span className="min-w-0 truncate">{name.slice(0, split)}</span>
-      <span className="shrink-0">{name.slice(split)}</span>
-    </>
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1">
+      <bdi className="inline-flex min-w-0 max-w-full">
+        <span className="min-w-0 truncate">{clean.slice(0, split)}</span>
+        <span className="shrink-0">{clean.slice(split)}</span>
+      </bdi>
+      {hasBidi && (
+        <span
+          role="img"
+          aria-label={t('common.bidi_warning_label', {
+            defaultValue: 'Bidirectional override characters were stripped from this name'
+          })}
+          title={t('common.bidi_warning_label', {
+            defaultValue: 'Bidirectional override characters were stripped from this name'
+          })}
+          className="inline-flex shrink-0 items-center rounded-mini bg-warning/15 px-1 py-0.5 text-[10px] font-medium leading-3 text-warning">
+          Bidi
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -71,10 +90,10 @@ export function ChatAttachmentDrafts({
           <div className="min-w-0 text-xs">
             <a
               href={file.url}
-              download={file.file.name}
+              download={sanitizeFileName(file.file.name)}
               className="flex max-w-48"
-              title={file.file.name}
-              aria-label={t('pod.chat_attachments.download', { name: file.file.name })}>
+              title={sanitizeFileName(file.file.name)}
+              aria-label={t('pod.chat_attachments.download', { name: sanitizeFileName(file.file.name) })}>
               <AttachmentName name={file.file.name} />
             </a>
             {!recovery && (
@@ -165,7 +184,7 @@ export function MessageAttachments({
   return (
     <ul aria-label={t('pod.chat_attachments.files')} className="flex flex-wrap gap-2">
       {attachments.map(attachment => {
-        const url = conversationAttachmentURL(conversationID, messageID, attachment.path)
+        const url = conversationAttachmentURL(conversationID, messageID, attachment.position)
         return (
           <li
             key={attachment.attachment_id ?? attachment.path}
@@ -174,15 +193,15 @@ export function MessageAttachments({
               name={attachment.name}
               type={attachment.content_type ?? attachment.mime_type ?? undefined}
               url={url}
-              downloadURL={conversationAttachmentURL(conversationID, messageID, attachment.path, true)}
+              downloadURL={conversationAttachmentURL(conversationID, messageID, attachment.position, true)}
               conversationID={conversationID}
             />
             <a
-              href={conversationAttachmentURL(conversationID, messageID, attachment.path, true)}
+              href={conversationAttachmentURL(conversationID, messageID, attachment.position, true)}
               className="flex min-w-0 max-w-64 text-xs"
-              download={attachment.name}
-              title={attachment.name}
-              aria-label={t('pod.chat_attachments.download', { name: attachment.name })}>
+              download={sanitizeFileName(attachment.name)}
+              title={sanitizeFileName(attachment.name)}
+              aria-label={t('pod.chat_attachments.download', { name: sanitizeFileName(attachment.name) })}>
               <AttachmentName name={attachment.name} />
             </a>
             {renderAction?.(attachment)}

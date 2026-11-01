@@ -15,21 +15,21 @@ Principal は、人間、Agent、システムサービスに共通する永続�
 
 人間の Principal には、1 つの `HumanUser` 行、0 個以上のサイトスコープの `SiteCredential` 行（`principal_site_credentials`。検証済み Email OTP アドレスなど）、および 0 個以上のテナントスコープの `ExternalIdentity` 行（`principal_external_identities`。Identity Provider から連携された外部 ID）が紐付きます。Agent の Principal には 1 つの `Agent` 行が紐付きます。すべての主体を単一のテーブルに集約することで責任追跡の構造が一本化され、監査ログ、grant、グループメンバーシップのすべてが同じ不変の Principal `uid` を参照します。
 
-人間の `membership` はテナント内の協業範囲を制御します。内部の `member` は computed group である `all_humans` に含まれますが、外部の `guest` は明示的な Pod ページ共有または Agent grant がなければアクセスできず、組み込み管理者グループ（`siteadmin` や `pod_admin`）への参加や Private space の利用も不可で、Brain の `world` スコープも付与されません。
+人間の `membership` はテナント内の協業範囲を制御します。内部の `member` は computed group である `all_humans` に含まれますが、外部の `guest` は明示的な Pod ページ共有または Agent grant がなければアクセスできず、組み込み管理者グループ（`siteadmin` や `pod_admin`）への参加や Private ルートも持たず、Brain の `world` スコープも付与されません。
 
 また、無効化された Principal に部分的な権限が残ることはありません。無効な主体に対しては Kernel が常に `principal_disabled` を返すため、Principal を無効化するだけで、個別の grant を一つずつ剥がさなくてもインスタンス全体で即座に権限が遮断されます。
 
 ## grant: 誰が何をできるか
 
-`permission_grants` テーブルの各行は、次の 3 種類の受領者オーナーのうち厳密に 1 つだけを持ちます（`num_nonnulls(principal_uid, group_id, source_page_id) = 1` として、`Ankole.AuthZ.Validations.GrantShape` および PostgreSQL の CHECK 制約で強制されます）。
+`permission_grants` テーブルの各行は、次の 3 種類の受領者オーナーのうち厳密に 1 つだけを持ちます（`num_nonnulls(principal_uid, group_id, source_node_id) = 1` として、`Ankole.AuthZ.Validations.GrantShape` および PostgreSQL の CHECK 制約で強制されます）。
 
 - Principal（`principal_uid`）
 - Principal group（`group_id`）
-- **Pod ページ Userset**（`source_page_id` と、`page_view`・`page_write_records`・`page_edit`・`page_manage` のいずれかを取る厳密な `source_action` の組）
+- **Drive ノード Userset**（`source_node_id` と、`node_view`・`node_contribute`・`node_edit`・`node_manage`・`node_comment` のいずれかを取る厳密な `source_action` の組）
 
-Pod ACL 向けの grant は、これに加えて `target_page_id` と `target_scope`（配下のサブツリーへ継承する `container`、または対象ページ単体の `self`）も保持します。すべての grant は次のフィールドで構成されます。
+Drive ACL 向けの grant は、これに加えて `target_node_id` と `target_scope`（配下のサブツリーへ継承する `container`、または対象ノード単体の `self`）も保持します。すべての grant は次のフィールドで構成されます。
 
-- `resource_pattern`：`Input.validate_resource_pattern_syntax` で検証されるコロン区切りの統一名前空間パターンです。対象には `site_console:**`（Site Console）、`tenant_console:**`（Pod 管理）、`agent:<uid>` および `agent:<uid>:tool:<fn>`（ランタイム Agent とツール呼び出し）、ならびに `pod:**`（`pod:space:**`、`pod:private:<uid>:**`、`pod:**:<page-id>:**`、`pod:**:<page-id>:page`）があります。なお、無制限の `"**"` 単体パターンは無効として拒否されます。
+- `resource_pattern`：`Input.validate_resource_pattern_syntax` で検証されるコロン区切りの統一名前空間パターンです。対象には `site_console:**`（Site Console）、`tenant_console:**`（Pod 管理）、`agent:<uid>`（ランタイム Agent アクセス）、ならびに `drive:**`（`drive:space:**`、`drive:private:<uid>:**`、`drive:**:<node-id>:**`、`drive:**:<node-id>:node`）があります。なお、無制限の `"**"` 単体パターンは無効として拒否されます。
 - `action`：コロンを含まない厳密な操作名文字列。
 - `condition`：CEL の真偽値式。デフォルトは `"true"` で、`Input.validate_condition_syntax` によって構文検証されます。
 - `description` および `metadata`：オペレーター向けの説明文とメタデータ。
@@ -46,10 +46,10 @@ Principal group は名前付きの集合であり、Principal はグループを
 
 コントロールプレーンと Kernel は明確に役割を分担しており、この分離によって AuthZ を単なる助言ではなく確実な強制機構として機能させています。
 
-- **コントロールプレーンは永続状態、Ash 認可の強制、スナップショットの構築を所有します。** 保護対象の Ash アクションは `Ankole.AuthZ.Extension` でルールを宣言し、実行時には `Ankole.AuthZ.Authorizer` が `%Ankole.AuthZ.Actor{principal, interactive_principal, turn_authority, authn, interactive_authn}` を用いて検査を強制します。検証済みのブラウザー、OIDC、Worker の認証事実は `context.request.authn` に格納され、CEL 条件式から参照できます。人間が起動した Agent Turn のように `interactive_principal` が存在する場合は、Agent と人間の双方が権限検査を通過しなければなりません（`Human ∩ Agent`）。
-- **Kernel と PostgreSQL は決定論的なルール評価を担います。** 通常の権限チェックでは、`Ankole.AuthZ.Snapshot` が単一の SQL 文で Principal、グループメンバーシップ、候補 grant を読み込み、Rust Kernel がリソースパターン、computed group、CEL 条件を評価します。Pod ページについては、4 ビットの ACL アンカーグラフ（`page_view=1`、`page_write_records=2`、`page_edit=4`、`page_manage=8`、ロールマスク `view=1`、`contribute=3`、`edit=7`、`manage=15`）を使い、リクエスト依存の CEL 条件を Rust Kernel で一度評価したうえで、直接 grant、グループ、コンテナ継承、Userset エッジを PostgreSQL の `WITH RECURSIVE`（`UNION` による最小不動点計算）で解決します。
+- **コントロールプレーンは永続状態、Ash の認可、スナップショットの構築を担当します。** 保護対象のアクションは `Ankole.AuthZ.Extension` でルールを宣言し、`Ankole.AuthZ.Authorizer` が `%Ankole.AuthZ.Actor{principal, turn_authority, authn}` の実行主体を検査します。Agent ターンは Agent 自身のリソース権限を使います。検証済みの認証情報は `context.request.authn` に入り、Agent に適用される grant の CEL 条件を評価します。`turn_authority` と `WorkAccess` は指示が有効かを別途確認します。
+- **Kernel と PostgreSQL は決定論的なルール評価を担います。** 通常の権限チェックでは、`Ankole.AuthZ.Snapshot` が単一の SQL 文で Principal、グループメンバーシップ、候補 grant を読み込み、Rust Kernel がリソースパターン、computed group、CEL 条件を評価します。Drive ノードについては、5 ビットの ACL アンカーグラフ（`node_view=1`、`node_contribute=2`、`node_edit=4`、`node_manage=8`、`node_comment=16`、ロールマスク `view=1`、`contribute=19`、`edit=23`、`manage=31`）を使い、リクエスト依存の CEL 条件を Rust Kernel で一度評価したうえで、直接 grant、グループ、コンテナ継承、Userset エッジを PostgreSQL の `WITH RECURSIVE`（`UNION` による最小不動点計算）で解決します。
 
-`Ankole.AuthZ` の公開エントリポイントには、`authorize(subject, resource, action, context)`、真偽値を返す `allowed?/4`、単一アクションの判定マップを返す `authorize_decision/4`、単一リソースに対する複数アクションを一括評価する `authorize_all_decision/4`、同一スナップショット上で独立した複数のリソース・アクション組を評価する `authorize_checks/3`、および Pod コンテキスト評価用の `evaluate_pod_context/2` があります。いずれの関数も、呼び出し元の自己申告を無条件に信頼することはありません。
+`Ankole.AuthZ` の公開エントリポイントには、`authorize(subject, resource, action, context)`、真偽値を返す `allowed?/4`、単一アクションの判定マップを返す `authorize_decision/4`、単一リソースに対する複数アクションを一括評価する `authorize_all_decision/4`、同一スナップショット上で独立した複数のリソース・アクション組を評価する `authorize_checks/3`、および Drive コンテキスト評価用の `evaluate_drive_context/2` があります。いずれの関数も、呼び出し元の自己申告を無条件に信頼することはありません。
 
 ## 決定ステータス
 
@@ -67,7 +67,7 @@ Principal group は名前付きの集合であり、Principal はグループを
 ランタイムの主要な境界すべてで AuthZ が検査されるため、Agent が会話やプロンプトの工夫でこの制限を迂回することはできません。
 
 - **AIGateway：** 検証済みトークンから呼び出しごとの subject を解決し、その subject の grant で利用可能なモデルセレクターと Provider を判定します。
-- **ツール実行と Pod 操作：** ツールの準備・ディスパッチ時に `agent:<uid>:tool:<fn>`（アクション `invoke` および正規化済みの `context.request.args`）を評価し、人間起点の Turn における Pod 操作では `Human ∩ Agent` の権限積集合を適用します。
+- **ツールの準備とディスパッチ**では、実行する Agent が有効であること、ツールが宣言済みのカタログに含まれること、引数と指示が有効であることを確認します。ツールの所有モジュールは Agent の権限で対象リソースを検査します。
 - **セッション Driver と Worker：** 実行セッションの Driver はコミット前に永続 fence を検証し、Worker からの Job 操作では永続 Job attempt fence と認証済み接続の Identity を検証します。
 - **管理コンソール API：** Site Console（`/api/v2`）および Pod 管理（`/api/v2/pod/admin`）の操作には、検証済みのブラウザーセッション証明、CSRF 保護、および有効な `site_console:**` または `tenant_console:**` grant が必須です。
 
@@ -76,6 +76,8 @@ Principal group は名前付きの集合であり、Principal はグループを
 ## 運用者向けの表面
 
 `/api/v2` 配下の Site Console JSON:API ルートが Principal、グループ、grant の管理機能（`site_console:**`）を公開しており、Pod 管理者は `/api/v2/pod/admin/*`（`tenant_console:**`）を通じてテナントのメンバー、招待、設定、Identity Provider を管理します。
+
+`site_console:drive` 権限は、メンバーや Agent の Private コンテンツを含め、選択したテナントの Drive ツリー全体を対象とします。オペレーターは、この権限で付与されたアクションに応じて読み取り、更新、削除を行えます。
 
 | Method | Path | Purpose |
 |---|---|---|

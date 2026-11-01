@@ -97,7 +97,7 @@ defmodule Ankole.EditionFixture.ConformanceTest do
     attrs = %{
       display_name: "Fixture Agent",
       role: "Researcher",
-      handle: "limited-one",
+      uid: "limited-one",
       owner_principal_uid: owner.uid,
       worker_provider_id: provider.provider_id
     }
@@ -105,7 +105,7 @@ defmodule Ankole.EditionFixture.ConformanceTest do
     assert {:ok, _} = Ankole.Principals.create_agent(attrs)
 
     assert {:error, :fixture_quota_exceeded} =
-             Ankole.Principals.create_agent(%{attrs | handle: "over-limit"})
+             Ankole.Principals.create_agent(%{attrs | uid: "over-limit"})
 
     assert length(Ankole.Principals.list_agents()) == 1
     other = Ankole.DataCase.create_tenant()
@@ -113,8 +113,8 @@ defmodule Ankole.EditionFixture.ConformanceTest do
     Repo.with_tenant(other.id, fn ->
       %{principal: owner} = human_fixture()
       attrs = %{attrs | owner_principal_uid: owner.uid}
-      assert {:ok, _} = Ankole.Principals.create_agent(%{attrs | handle: "unlimited-one"})
-      assert {:ok, _} = Ankole.Principals.create_agent(%{attrs | handle: "unlimited-two"})
+      assert {:ok, _} = Ankole.Principals.create_agent(%{attrs | uid: "unlimited-one"})
+      assert {:ok, _} = Ankole.Principals.create_agent(%{attrs | uid: "unlimited-two"})
     end)
   end
 

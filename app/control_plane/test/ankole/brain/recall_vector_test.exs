@@ -43,9 +43,6 @@ defmodule Ankole.Brain.RecallVectorTest do
     %{principal: maintainer} = agent_fixture()
 
     {:ok, _value} =
-      AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer.uid)
-
-    {:ok, _value} =
       AppConfigure.put_global_by_key("brain.embedding_model", %{
         "provider_id" => "brain-embed",
         "model" => "fake-embed",
@@ -104,7 +101,7 @@ defmodule Ankole.Brain.RecallVectorTest do
     refute stale_fact.id in Enum.map(result.claims, & &1.id)
   end
 
-  test "a disabled maintainer Agent leaves stored knowledge available through pure-text recall",
+  test "disabling an Agent does not stop embeddings or pure-text recall",
        %{
          maintainer: maintainer,
          member: member
@@ -119,7 +116,7 @@ defmodule Ankole.Brain.RecallVectorTest do
       write_fact(object, member, "Cobalt shipment remains available in stored knowledge")
 
     {:ok, _value} =
-      AppConfigure.put_global_by_key("brain.rerank_model", %{
+      AppConfigure.put_global_by_key("ai_gateway.model_profiles.rerank", %{
         "provider_id" => "brain-embed",
         "model" => "fake-rerank"
       })
@@ -127,8 +124,7 @@ defmodule Ankole.Brain.RecallVectorTest do
     assert {:ok, %{status: :disabled}} =
              Ankole.PrincipalsFixtures.disable_principal_fixture(maintainer.uid)
 
-    assert {:error, :brain_maintainer_agent_disabled} =
-             Embeddings.embed_texts(["Cobalt shipment"])
+    assert {:ok, {[_vector], _signature}} = Embeddings.embed_texts(["Cobalt shipment"])
 
     assert {:ok, result} = Recall.recall(member.uid, %{query: "Cobalt shipment"})
     assert stored_fact.id in Enum.map(result.claims, & &1.id)

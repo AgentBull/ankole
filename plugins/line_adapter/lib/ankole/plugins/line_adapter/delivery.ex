@@ -83,8 +83,18 @@ defmodule Ankole.Plugins.LineAdapter.Delivery do
       when operation in [:post, :reply, :card] do
     with {:ok, conversation} <- External.fetch_conversation(intent.conversation_id),
          {:ok, target} <- Presentation.parse_channel(conversation.provider_conversation_id) do
+      text =
+        case intent do
+          %Intent{delivery_class: :durable_ai_reply, fallback_visible_text: raw}
+          when is_binary(raw) ->
+            Ankole.Plugins.MarkdownChunks.unescape_plain_tildes(raw)
+
+          _other ->
+            intent.fallback_visible_text
+        end
+
       messages =
-        Presentation.text_messages(intent.fallback_visible_text, quote_token(intent, target)) ++
+        Presentation.text_messages(text, quote_token(intent, target)) ++
           action_messages(intent)
 
       {:ok, requests(target, messages)}

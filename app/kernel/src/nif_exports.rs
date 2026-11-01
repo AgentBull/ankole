@@ -8,9 +8,11 @@ use serde_json::Value as JSONValue;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+mod object_store;
+
 use crate::authz;
+use crate::brain_chunker;
 use crate::common;
-use crate::object_store;
 use crate::signals;
 use crate::universal_ai_client;
 
@@ -50,8 +52,6 @@ impl rustler::Resource for UniversalAIClientStreamResource {
         let _ = self.0.cancel();
     }
 }
-
-pub struct ObjectStoreResource(pub object_store::Store);
 
 /// Retained by the completion sink until the native request ends. The monitor
 /// cancels its I/O if the BEAM owner exits while waiting for a provider.
@@ -105,9 +105,6 @@ impl rustler::Resource for UniversalAIClientRequestResource {
         self.cancel();
     }
 }
-
-#[rustler::resource_impl]
-impl rustler::Resource for ObjectStoreResource {}
 
 /// Holds the Elixir stream ref in an owned environment so Rust-owned async tasks
 /// can tag messages without keeping a BEAM scheduler thread occupied.
@@ -167,12 +164,42 @@ pub fn brain_markdoc_analyze_nif(body: Term<'_>) -> NIFResult<String> {
     crate::brain_markdoc::analyze_json(&body).map_err(error_message)
 }
 
+#[cfg(feature = "brain_markdoc")]
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn brain_markdoc_rewrite_references_nif(
+    body: Term<'_>,
+    replacements: Term<'_>,
+) -> NIFResult<String> {
+    let body = decode_string(body, "body")?;
+    let replacements = replacements
+        .decode::<std::collections::HashMap<String, String>>()
+        .map_err(|_| error_message("reference replacements must map strings to strings"))?;
+    crate::brain_markdoc::rewrite_references(&body, &replacements)
+        .map_err(|error| error_message(format!("{} at line {}", error.code, error.line)))
+}
+
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn page_validate_nif(source: Term<'_>) -> NIFResult<(String, String)> {
     let source = decode_string(source, "source")?;
     // Page normalization is recursive up to the editor's declared depth limit.
     let page = stacker::grow(8 * 1024 * 1024, || crate::page_document::validate(&source))
         .map_err(error_message)?;
+    Ok((page.xml, page.plain_text))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_rename_principal_nif(
+    source: Term<'_>,
+    old: Term<'_>,
+    new: Term<'_>,
+) -> NIFResult<(String, String)> {
+    let source = decode_string(source, "source")?;
+    let old = decode_string(old, "old")?;
+    let new = decode_string(new, "new")?;
+    let page = stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::rename_principal(&source, &old, &new)
+    })
+    .map_err(error_message)?;
     Ok((page.xml, page.plain_text))
 }
 
@@ -263,6 +290,13 @@ pub fn markdown_code_ranges_nif(source: Term<'_>) -> NIFResult<Vec<(usize, usize
     Ok(crate::markdown::code_ranges(&source))
 }
 
+#[cfg(feature = "markdown")]
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn markdown_repair_generated_nif(source: Term<'_>) -> NIFResult<String> {
+    let source = decode_string(source, "source")?;
+    Ok(crate::markdown::repair_generated_markdown(&source))
+}
+
 // CEL's recursive parser needs more stack than BEAM's default dirty CPU stack.
 // Keep compilation, evaluation, and program cleanup on this stack on the same
 // scheduler thread. Host-neutral callers retain their own stack policy.
@@ -297,9 +331,10 @@ pub fn authz_authorize_checks_nif(snapshot: Term<'_>) -> NIFResult<String> {
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn authz_evaluate_pod_context_nif(snapshot: Term<'_>) -> NIFResult<String> {
+pub fn authz_evaluate_drive_context_nif(snapshot: Term<'_>) -> NIFResult<String> {
     let snapshot = decode_json(snapshot, "snapshot")?;
-    let decision = with_cel_stack(|| authz::evaluate_pod_context_value(snapshot)).map_err(error)?;
+    let decision =
+        with_cel_stack(|| authz::evaluate_drive_context_value(snapshot)).map_err(error)?;
     encode_json(decision)
 }
 
@@ -313,9 +348,9 @@ pub fn authz_validate_condition(condition: Term<'_>) -> NIFResult<bool> {
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn authz_validate_pod_condition(condition: Term<'_>) -> NIFResult<bool> {
+pub fn authz_validate_drive_condition(condition: Term<'_>) -> NIFResult<bool> {
     let condition = decode_string(condition, "condition")?;
-    with_cel_stack(|| authz::validate_pod_condition_source(&condition))
+    with_cel_stack(|| authz::validate_drive_condition_source(&condition))
         .map(|_| true)
         .map_err(error)
 }
@@ -368,7 +403,11 @@ pub fn universal_ai_client_open_nif<'a>(
         })
     };
 
-    match universal_ai_client::start_stream(&encoded_spec, sink) {
+    // Model specs include nested tool schemas that exceed a dirty scheduler's stack.
+    let result = stacker::grow(8 * 1024 * 1024, || {
+        universal_ai_client::start_stream(&encoded_spec, sink)
+    });
+    match result {
         Ok(handle) => {
             let resource = ResourceArc::new(UniversalAIClientStreamResource(handle));
             let _ = resource.monitor(Some(env), &owner_pid);
@@ -422,7 +461,10 @@ pub fn universal_ai_client_model_request_nif<'a>(
     let deliver =
         monitored_request_sink(owner_pid, BeamStreamRef::new(request_ref), resource.clone());
 
-    match universal_ai_client::start_model_request(&encoded_spec, deliver) {
+    let result = stacker::grow(8 * 1024 * 1024, || {
+        universal_ai_client::start_model_request(&encoded_spec, deliver)
+    });
+    match result {
         Ok(handle) => {
             if !monitored {
                 resource.cancel();
@@ -497,152 +539,6 @@ fn universal_ai_client_request_sink(
 ///
 /// Opening does no network I/O. The fs scheme creates its root and temporary
 /// directory, which is why the NIF runs on a dirty I/O scheduler.
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn object_store_open_nif<'a>(env: Env<'a>, spec: Term<'a>) -> NIFResult<Term<'a>> {
-    let spec = decode_string(spec, "spec")?;
-
-    match object_store::open(&spec) {
-        Ok(store) => Ok((atoms::ok(), ResourceArc::new(ObjectStoreResource(store))).encode(env)),
-        Err(reason) => Ok((atoms::error(), encode_object_store_error(env, &reason)).encode(env)),
-    }
-}
-
-/// The result arrives later as one `{:object_store, ref, result}` message.
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn object_store_read_nif<'a>(
-    env: Env<'a>,
-    store: ResourceArc<ObjectStoreResource>,
-    key: Term<'a>,
-    owner_pid: LocalPid,
-    request_ref: Term<'a>,
-) -> NIFResult<Term<'a>> {
-    let key = decode_string(key, "key")?;
-    start_object_store_operation(
-        env,
-        &store,
-        object_store::Operation::Read { key },
-        owner_pid,
-        request_ref,
-    )
-}
-
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn object_store_read_to_file_nif<'a>(
-    env: Env<'a>,
-    store: ResourceArc<ObjectStoreResource>,
-    key: Term<'a>,
-    path: Term<'a>,
-    owner_pid: LocalPid,
-    request_ref: Term<'a>,
-) -> NIFResult<Term<'a>> {
-    let key = decode_string(key, "key")?;
-    let path = decode_string(path, "path")?.into();
-    start_object_store_operation(
-        env,
-        &store,
-        object_store::Operation::ReadToFile { key, path },
-        owner_pid,
-        request_ref,
-    )
-}
-
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn object_store_write_nif<'a>(
-    env: Env<'a>,
-    store: ResourceArc<ObjectStoreResource>,
-    key: Term<'a>,
-    bytes: Term<'a>,
-    owner_pid: LocalPid,
-    request_ref: Term<'a>,
-) -> NIFResult<Term<'a>> {
-    let key = decode_string(key, "key")?;
-    let bytes = decode_binary(bytes, "bytes")?.as_slice().to_vec();
-    start_object_store_operation(
-        env,
-        &store,
-        object_store::Operation::Write { key, bytes },
-        owner_pid,
-        request_ref,
-    )
-}
-
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn object_store_write_from_file_nif<'a>(
-    env: Env<'a>,
-    store: ResourceArc<ObjectStoreResource>,
-    key: Term<'a>,
-    path: Term<'a>,
-    owner_pid: LocalPid,
-    request_ref: Term<'a>,
-) -> NIFResult<Term<'a>> {
-    let key = decode_string(key, "key")?;
-    let path = decode_string(path, "path")?.into();
-    start_object_store_operation(
-        env,
-        &store,
-        object_store::Operation::WriteFromFile { key, path },
-        owner_pid,
-        request_ref,
-    )
-}
-
-/// Deleting a missing object succeeds.
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn object_store_delete_nif<'a>(
-    env: Env<'a>,
-    store: ResourceArc<ObjectStoreResource>,
-    key: Term<'a>,
-    owner_pid: LocalPid,
-    request_ref: Term<'a>,
-) -> NIFResult<Term<'a>> {
-    let key = decode_string(key, "key")?;
-    start_object_store_operation(
-        env,
-        &store,
-        object_store::Operation::Delete { key },
-        owner_pid,
-        request_ref,
-    )
-}
-
-fn start_object_store_operation<'a>(
-    env: Env<'a>,
-    store: &ResourceArc<ObjectStoreResource>,
-    operation: object_store::Operation,
-    owner_pid: LocalPid,
-    request_ref: Term<'a>,
-) -> NIFResult<Term<'a>> {
-    let request_ref = BeamStreamRef::new(request_ref);
-    let sink: object_store::ResultSink = Box::new(move |result| {
-        let mut env = OwnedEnv::new();
-        let _ = env.send_and_clear(&owner_pid, |env| {
-            let request_ref = request_ref.encode(env);
-            let result = match result {
-                Ok(object_store::Outcome::Done) => atoms::ok().encode(env),
-                Ok(object_store::Outcome::Bytes(buffer)) => {
-                    (atoms::ok(), binary_from_buf(buffer).release(env)).encode(env)
-                }
-                Err(reason) => {
-                    (atoms::error(), encode_object_store_error(env, &reason)).encode(env)
-                }
-            };
-            (atoms::object_store(), request_ref, result).encode(env)
-        });
-    });
-
-    match object_store::start(&store.0, operation, sink) {
-        Ok(()) => Ok(atoms::ok().encode(env)),
-        Err(reason) => Ok((atoms::error(), encode_object_store_error(env, &reason)).encode(env)),
-    }
-}
-
-fn encode_object_store_error<'a>(env: Env<'a>, error: &object_store::StoreError) -> Term<'a> {
-    encode_json_value(
-        env,
-        &serde_json::json!({"code": error.code, "message": error.message}),
-    )
-}
-
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> NIFResult<bool> {
     let pattern = decode_string(pattern, "pattern")?;
@@ -653,9 +549,41 @@ pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> NI
 
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn estimate_o200k_base_tokens(text: Term<'_>) -> NIFResult<u64> {
-    let text = decode_string(text, "text")?;
+    let text = decode_str(text, "text")?;
 
-    Ok(common::estimate_o200k_base_tokens(&text))
+    Ok(common::estimate_o200k_base_tokens(text))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn truncate_o200k_base_tokens(text: Term<'_>, budget: Term<'_>) -> NIFResult<String> {
+    let text = decode_str(text, "text")?;
+    if text.len() > brain_chunker::MAX_CHUNK_INPUT_BYTES {
+        return Err(error_message(format!(
+            "text exceeds maximum input size of {} bytes",
+            brain_chunker::MAX_CHUNK_INPUT_BYTES
+        )));
+    }
+    let budget = decode_u64(budget, "budget")?;
+
+    Ok(common::truncate_o200k_base_tokens(text, budget))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn brain_chunk_text_with_tokens(
+    text: Term<'_>,
+    chunk_size: Term<'_>,
+    chunk_overlap: Term<'_>,
+    max_chars: Term<'_>,
+    max_tokens: Term<'_>,
+) -> NIFResult<Vec<(String, u64)>> {
+    let text = decode_str(text, "text")?;
+    let chunk_size = decode_usize(chunk_size, "chunk_size")?;
+    let chunk_overlap = decode_usize(chunk_overlap, "chunk_overlap")?;
+    let max_chars = decode_usize(max_chars, "max_chars")?;
+    let max_tokens = decode_u64(max_tokens, "max_tokens")?;
+
+    brain_chunker::chunk_text_with_tokens(text, chunk_size, chunk_overlap, max_chars, max_tokens)
+        .map_err(|err| error_message(err.to_string()))
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -862,6 +790,23 @@ fn decode_optional_string(term: Term<'_>, field: &str) -> NIFResult<Option<Strin
 fn decode_u64(term: Term<'_>, field: &str) -> NIFResult<u64> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be a non-negative integer")))
+}
+
+fn decode_usize(term: Term<'_>, field: &str) -> NIFResult<usize> {
+    term.decode()
+        .map_err(|_| error_message(format!("{field} must be a non-negative integer")))
+}
+
+fn decode_str<'a>(term: Term<'a>, field: &str) -> NIFResult<&'a str> {
+    if !term.is_binary() {
+        return Err(error_message(format!("{field} must be a string")));
+    }
+
+    let binary =
+        Binary::from_term(term).map_err(|_| error_message(format!("{field} must be a string")))?;
+
+    str::from_utf8(binary.as_slice())
+        .map_err(|_| error_message(format!("{field} must be a string")))
 }
 
 fn decode_string(term: Term<'_>, field: &str) -> NIFResult<String> {

@@ -159,7 +159,7 @@ function DurationSettingEditor({ item, value, onChange }: SettingValueEditorProp
                     : t('console.settings.unit_seconds')
         })}
       </p>
-      {['pod.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&
+      {['drive.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&
       value.trim() !== '' &&
       retentionLength(item.key, value) < retentionLength(item.key, item.value) ? (
         <p role="status" className="text-sm text-warning-foreground">

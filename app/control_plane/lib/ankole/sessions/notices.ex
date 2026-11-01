@@ -11,7 +11,6 @@ defmodule Ankole.Sessions.Notices do
   alias Ankole.Logging
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.Queue
-  alias Ankole.Conversations.Delivery.Preview
   alias Ankole.SystemConfig
   alias Ankole.TimeZone
 
@@ -335,38 +334,6 @@ defmodule Ankole.Sessions.Notices do
   end
 
   defp log_notice_failure(result, _status), do: result
-
-  @doc false
-  def commit_context_withdrawal_notice_in_tx(events, fallback, now) do
-    (Enum.reverse(events) ++ [fallback])
-    |> Enum.uniq_by(& &1.id)
-    |> Enum.filter(fn event ->
-      Preview.channel_reply_eligible?(event) and
-        Ankole.Signals.reply_anchor_provider_message_id(event) in Signal.input_provider_message_ids(
-          event
-        )
-    end)
-    |> Enum.reduce_while({:ok, %Ankole.Conversations.PostResult{}}, fn event, _result ->
-      anchor = %{
-        event
-        | provider_message_id: Ankole.Signals.reply_anchor_provider_message_id(event),
-          data: %{}
-      }
-
-      case Queue.ensure_event_source_live_in_tx(anchor, now) do
-        {:error, :signal_canceled} ->
-          {:cont, {:ok, %Ankole.Conversations.PostResult{}}}
-
-        result when result in [:ok, {:error, :signal_context_canceled}] ->
-          {:halt, commit_context_withdrawal_notice(event)}
-      end
-    end)
-  end
-
-  defp commit_context_withdrawal_notice(event) do
-    text = I18n.t("conversations.delivery.reply.context_withdrawn")
-    post_in_tx(event, :stopped, text, %{"reason" => "context_withdrawn"})
-  end
 
   @doc false
   def commit_dead_letter_notice_in_tx(event, reason, completion \\ nil)

@@ -15,6 +15,8 @@ import {
   type ConversationQueueRequest,
   type MessageSubmission
 } from './api'
+import { ensurePodPersonalAssistant } from './api/generated/sdk.gen'
+import type { PodAgentsResponse } from './api/generated/types.gen'
 import { restoreConversationFiles } from './native-transfers'
 import { modelSelectionKey } from './model-controls'
 import { acceptConversationResult, refreshConversationQueries } from './query-cache'
@@ -52,6 +54,7 @@ export function useChatCommands({
   data,
   agentUID,
   agentsError,
+  personalAssistant = false,
   callableAgentUIDs,
   refresh
 }: {
@@ -63,6 +66,7 @@ export function useChatCommands({
   data?: ConversationDetail
   agentUID: string
   agentsError: boolean
+  personalAssistant?: boolean
   callableAgentUIDs: string[]
   refresh(): Promise<ConversationDetail | undefined>
 }) {
@@ -71,8 +75,25 @@ export function useChatCommands({
   const queuePending = useIsMutating({ mutationKey: queueKey }) > 0
   useIsMutating({ mutationKey: modelSelectionKey(conversationID ?? '') })
   const send = useMutation({
-    mutationFn: ({ submission, create }: { submission: MessageSubmission; owner: Model; create: boolean }) =>
-      postMessage(submission, create),
+    mutationFn: async ({
+      submission,
+      owner,
+      create
+    }: {
+      submission: MessageSubmission
+      owner: Model
+      create: boolean
+    }) => {
+      if (create && personalAssistant && !submission.agentUID) {
+        const assistant = await ensurePodPersonalAssistant()
+        client.setQueryData<PodAgentsResponse>(podKeys.agents, current =>
+          current ? { ...current, personalAssistant: assistant } : current
+        )
+        submission.agentUID = assistant.uid
+        owner.resolvePendingAgent(submission.messageID, assistant.uid)
+      }
+      return postMessage(submission, create)
+    },
     onSuccess: async (data, { submission, owner }) => {
       await acceptConversationResult(client, data)
       const outsiders = (submission.mentions ?? []).filter(
@@ -174,7 +195,7 @@ export function useChatCommands({
           (data.conversation.roomMode === 'group' ||
             data.conversation.accessScope === 'anchor_page' ||
             data.conversation.agents.some(agent => agent.active && callableAgentUIDs.includes(agent.uid)))
-        : !!agentUID && !agentsError,
+        : (!!agentUID || personalAssistant) && !agentsError,
       working: !!slot && (slot.workStatus.state !== 'idle' || !!model.liveStreams.value[targetUID]),
       hasQueued: !!slot?.inputs.length,
       hasSubmission: editing
@@ -212,7 +233,8 @@ export function useChatCommands({
     const edit = model.editCommand()
     if (edit) changeQueue(edit)
     else {
-      const submission = model.submit(conversationID, agentUID, () => uuidV4())
+      const recipientUID = agentUID || (personalAssistant ? (model.pending.peek()?.agentUID ?? '') : '')
+      const submission = model.submit(conversationID, recipientUID, () => uuidV4())
       // Release the new-chat slot without treating an unconfirmed create as a saved conversation.
       if (!conversationID && !pageID) drafts.remember(model, submission.conversationID)
       send.mutate({

@@ -23,6 +23,30 @@ pub struct Page {
 pub fn validate(source: &str) -> Result<Page> {
     page(tree::parse(source)?)
 }
+
+pub fn rename_principal(source: &str, old: &str, new: &str) -> Result<Page> {
+    fn visit(node: &mut Element, old: &str, new: &str) -> bool {
+        let mut changed =
+            node.name == "mention" && node.attrs.get("principal").is_some_and(|uid| uid == old);
+        if changed {
+            node.attrs.insert("principal".into(), new.into());
+        }
+        for child in &mut node.children {
+            if let Node::Element(child) = child {
+                changed |= visit(child, old, new);
+            }
+        }
+        changed
+    }
+    let mut root = tree::parse(source)?;
+    let changed = visit(&mut root, old, new);
+    let mut result = page(root)?;
+    if !changed {
+        result.xml = source.to_owned();
+    }
+    Ok(result)
+}
+
 pub fn apply(source: &str, changes: &str) -> Result<Page> {
     if changes.len() > tree::SOURCE_LIMIT * 4 {
         return Err("ChangeSet exceeds the request limit".into());

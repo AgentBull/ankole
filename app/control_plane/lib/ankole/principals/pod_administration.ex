@@ -79,6 +79,19 @@ defmodule Ankole.Principals.PodAdministration do
     end)
   end
 
+  def agents do
+    Principals.list_principals!(query: [filter: [type: :agent], load: [:agent]])
+    |> Enum.map(fn principal ->
+      %{
+        uid: principal.uid,
+        displayName: Principals.display_name(principal),
+        status: principal.status,
+        type: principal.agent.type,
+        ownerUID: principal.agent.owner_principal_uid
+      }
+    end)
+  end
+
   def credential_views(uid),
     do:
       Principals.principal_site_credentials(uid)
@@ -94,39 +107,14 @@ defmodule Ankole.Principals.PodAdministration do
         disposition
       )
 
-  def restore(actor, uid, fingerprint, reason) do
-    audit = Ankole.ActorRef.from_actor(actor)
-
-    Repo.transact_top_level(fn ->
-      Ankole.AuthZ.Store.lock_admin_groups_for_update()
-
-      restrictions =
-        HumanAccess.restrictions(uid)
-        |> Enum.filter(&is_nil(&1.cleared_at))
-
-      with :ok <-
-             Enum.reduce_while(restrictions, :ok, fn restriction, :ok ->
-               case HumanAccess.clear_restriction_in_tx(
-                      uid,
-                      restriction.id,
-                      audit,
-                      reason,
-                      Ankole.Ecto.UUIDv7.autogenerate()
-                    ) do
-                 {:ok, _} -> {:cont, :ok}
-                 error -> {:halt, error}
-               end
-             end),
-           do:
-             HumanAccess.restore_in_tx(
-               uid,
-               fingerprint,
-               audit,
-               reason,
-               Ankole.Ecto.UUIDv7.autogenerate()
-             )
-    end)
-  end
+  def restore(actor, uid, reason),
+    do:
+      HumanAccess.restore(
+        uid,
+        Ankole.ActorRef.from_actor(actor),
+        reason,
+        Ankole.Ecto.UUIDv7.autogenerate()
+      )
 
   def set_admin(uid, true), do: AuthZ.add_principal_to_group(uid, "pod_admin")
   def set_admin(uid, false), do: AuthZ.remove_principal_from_group(uid, "pod_admin")

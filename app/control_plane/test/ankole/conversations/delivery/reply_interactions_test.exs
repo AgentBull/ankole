@@ -84,8 +84,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     assert {:ok, %{status: :accepted, signal: action_event}} =
              Observe.emit_action(
-               agent.uid,
-               "mock",
+               Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
                action_input(action, human.uid, "action-event-1"),
                now: @now
              )
@@ -150,8 +149,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     assert {:ok, %{status: :duplicate_action}} =
              Observe.emit_action(
-               agent.uid,
-               "mock",
+               Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
                action_input(action, human.uid, "action-event-2"),
                now: DateTime.add(@now, 1, :second)
              )
@@ -184,8 +182,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     assert {:ok, %{status: :accepted, signal: action_event}} =
              Observe.emit_action(
-               agent.uid,
-               "mock",
+               Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
                action_input(action, human.uid, "form-action-event"),
                now: @now
              )
@@ -230,8 +227,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     assert {:ok, %{status: :stale_action}} =
              Observe.emit_action(
-               agent.uid,
-               "mock",
+               Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
                action_input(action, human.uid, "late-action-event"),
                now: DateTime.add(@now, 2, :second)
              )
@@ -359,8 +355,19 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
       refute Enum.any?(delivered["actions"], & &1["disabled"])
 
       answer = action_input(action, human.uid, "answer-after-external")
-      assert {:ok, %{status: :accepted}} = Observe.emit_action(agent.uid, "mock", answer)
-      assert {:ok, %{status: :duplicate_action}} = Observe.emit_action(agent.uid, "mock", answer)
+
+      assert {:ok, %{status: :accepted}} =
+               Observe.emit_action(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
+                 answer
+               )
+
+      assert {:ok, %{status: :duplicate_action}} =
+               Observe.emit_action(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
+                 answer
+               )
+
       assert action_event_count(agent.uid) == 1
     end
   end
@@ -405,8 +412,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
       assert {:ok, %{status: :stale_action}} =
                Observe.emit_action(
-                 agent.uid,
-                 "mock",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
                  action_input(action, human.uid, "late-after-superseding")
                )
 
@@ -471,8 +477,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     assert {:ok, %{status: :stale_action}} =
              Observe.emit_action(
-               agent.uid,
-               "mock",
+               Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
                action_input(action, human.uid, "answer-after-reset-barrier"),
                now: DateTime.add(@now, 1, :second)
              )
@@ -512,8 +517,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     assert {:ok, %{status: :stale_action}} =
              Observe.emit_action(
-               agent.uid,
-               "mock",
+               Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
                action_input(stale_action, human.uid, "stale-event"),
                now: @now
              )
@@ -528,8 +532,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     assert {:error, :reply_interaction_operator_unauthorized} =
              Observe.emit_action(
-               agent.uid,
-               "mock",
+               Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
                action_input(action, human.uid, "disabled-human-event"),
                now: @now
              )
@@ -557,8 +560,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     assert {:ok, %{status: :accepted}} =
              Observe.emit_action(
-               agent.uid,
-               "mock",
+               Ankole.Signals.get_agent_binding!(agent.uid, "mock").id,
                action_input(action, human.uid, "card-chain-action", "card-message-2"),
                now: @now
              )

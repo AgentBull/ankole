@@ -232,17 +232,26 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
 
   describe "reply attachment scenario classification" do
     test "classifies stateful command follow-up before reply_attachment tool call" do
+      node_id = "019a2ee2-45d1-7cb5-b54d-d62a7d0f6b86"
+
       request = %{
         "messages" => [
           %{
             "role" => "tool",
             "tool_call_id" => "call_lark_chaos_reply_attachment_command",
-            "content" => "exit_code=0\ncreated reports/chaos-report.txt"
+            "content" =>
+              Ankole.JSON.encode!(%{
+                "exit_code" => 0,
+                "stdout" => Ankole.JSON.encode!(%{"nodeId" => node_id})
+              })
           }
         ]
       }
 
       assert FakeOpenAIScenarios.classify(request) == :reply_attachment
+
+      assert {:tool_call, %{name: "reply_attachment", arguments: %{"node_id" => ^node_id}}} =
+               FakeOpenAIScenarios.action_for(:reply_attachment, 2, request)
     end
 
     test "classifies stateful reply_attachment tool result follow-up" do

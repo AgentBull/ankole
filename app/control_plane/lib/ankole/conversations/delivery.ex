@@ -30,12 +30,21 @@ defmodule Ankole.Conversations.Delivery do
   """
   @spec commit_in_tx(map()) :: {:ok, Intent.t()} | {:error, term()}
   def commit_in_tx(attrs) when is_map(attrs) do
-    with :ok <- verify_attachment_destination(attrs),
+    with {:ok, attrs} <- resolve_binding(attrs),
+         :ok <- verify_attachment_destination(attrs),
          {:ok, %Intent{} = intent} <-
            Ankole.Ash.create(Intent, :commit, attrs),
-         :ok <- reference_attachments(intent),
          :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(intent) do
       {:ok, intent}
+    end
+  end
+
+  defp resolve_binding(%{binding_id: id} = attrs) when is_binary(id), do: {:ok, attrs}
+
+  defp resolve_binding(%{agent_uid: uid, binding_name: name} = attrs) do
+    case Ankole.Signals.get_agent_binding!(uid, name) do
+      %Binding{id: id} -> {:ok, Map.put(attrs, :binding_id, id)}
+      nil -> {:error, :binding_not_found}
     end
   end
 
@@ -44,26 +53,30 @@ defmodule Ankole.Conversations.Delivery do
     conversation_id = attrs[:conversation_id]
 
     Enum.reduce_while(payload["attachments"] || [], :ok, fn attachment, :ok ->
-      case Ankole.Files.verify_delivery(attachment["path"] || "", conversation_id) do
+      result =
+        if is_binary(attachment["object_id"]),
+          do: verify_attachment_destination(attachment["node_id"], conversation_id),
+          else: :ok
+
+      case result do
         :ok -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp reference_attachments(%Intent{status: :sent}), do: :ok
-
-  defp reference_attachments(%Intent{payload: payload}) do
-    references =
-      payload
-      |> Map.get("attachments", [])
-      |> Enum.flat_map(fn
-        %{"blob_ref" => reference} -> [reference]
-        _legacy_attachment -> []
-      end)
-
-    Ankole.Files.reference_contents_in_tx(references)
+  @doc "Restricts a conversation-root file to its owning conversation."
+  def verify_attachment_destination(node_id, conversation_id) when is_binary(node_id) do
+    case Ankole.Files.node_conversation_id(node_id) do
+      {:ok, nil} -> :ok
+      {:ok, ^conversation_id} -> :ok
+      {:ok, _other_conversation} -> {:error, :attachment_conversation_mismatch}
+      error -> error
+    end
   end
+
+  def verify_attachment_destination(_node_id, _conversation_id),
+    do: {:error, :attachment_node_required}
 
   @doc """
   Commits reply-attachment effects adopted by an explicit Agent Turn completion.
@@ -103,22 +116,12 @@ defmodule Ankole.Conversations.Delivery do
     end
   end
 
-  @doc """
-  Reads the bytes of one intent attachment.
-
-  The attachment names its content by `blob_ref`, so the bytes are the ones the
-  Agent attached. `{:error, :attachment_file_missing}` means that the content is
-  missing or unreadable. Uncompleted Delivery references normally prevent
-  collection even when the drive path is removed.
-  An adapter returns that error as it is, and the intent blocks the delivery
-  instead of retrying it.
-  """
+  @doc "Reads the immutable object pinned by an unfinished Delivery attachment."
   @spec attachment_content(map()) :: {:ok, binary()} | {:error, term()}
-  def attachment_content(%{"blob_ref" => blob_ref}) when is_binary(blob_ref) do
-    case Ankole.Files.read_content(blob_ref) do
+  def attachment_content(%{"object_id" => object_id}) when is_binary(object_id) do
+    case Ankole.Files.read_object(object_id) do
       {:ok, content} -> {:ok, content}
       {:error, :not_found} -> {:error, :attachment_file_missing}
-      {:error, {:invalid_sha256, _value}} -> {:error, :attachment_file_missing}
       {:error, _reason} = error -> error
     end
   end
@@ -188,6 +191,7 @@ defmodule Ankole.Conversations.Delivery do
         Map.merge(
           %{
             agent_uid: signal.agent_uid,
+            binding_id: signal.reply_binding_id,
             binding_name: signal.reply_binding_name,
             outbound_key: outbound_key,
             operation: operation,
@@ -247,6 +251,7 @@ defmodule Ankole.Conversations.Delivery do
             Map.merge(
               %{
                 agent_uid: signal.agent_uid,
+                binding_id: routed.reply_binding_id,
                 binding_name: routed.reply_binding_name,
                 outbound_key: outbound_key,
                 operation: operation,
@@ -260,8 +265,7 @@ defmodule Ankole.Conversations.Delivery do
                     session_notice_reply_presentation(
                       routed,
                       terminal_state,
-                      final_text,
-                      metadata
+                      final_text
                     ),
                   "metadata" => reply_metadata(target, Map.put(metadata, "signal_id", signal.id))
                 },
@@ -275,12 +279,7 @@ defmodule Ankole.Conversations.Delivery do
     end
   end
 
-  defp session_notice_reply_presentation(_signal, "stopped", text, %{
-         "reason" => "context_withdrawn"
-       }),
-       do: ReplyPresentation.new() |> ReplyPresentation.terminal("stopped", text)
-
-  defp session_notice_reply_presentation(signal, "stopped", _fallback_text, _metadata) do
+  defp session_notice_reply_presentation(signal, "stopped", _fallback_text) do
     presentation = reply_presentation_checkpoint(signal) |> ReplyPresentation.normalize()
     partial_answer = presentation["answer"] || ""
 
@@ -289,7 +288,7 @@ defmodule Ankole.Conversations.Delivery do
     |> Map.put("answer", partial_answer)
   end
 
-  defp session_notice_reply_presentation(signal, terminal_state, text, _metadata),
+  defp session_notice_reply_presentation(signal, terminal_state, text),
     do: terminal_reply_presentation(signal, terminal_state, text)
 
   @doc """
@@ -386,6 +385,7 @@ defmodule Ankole.Conversations.Delivery do
         Map.merge(
           %{
             agent_uid: routed_event.agent_uid,
+            binding_id: routed_event.reply_binding_id,
             binding_name: routed_event.reply_binding_name,
             outbound_key: outbound_key,
             operation: operation,
@@ -443,6 +443,7 @@ defmodule Ankole.Conversations.Delivery do
         Map.merge(
           %{
             agent_uid: routed_event.agent_uid,
+            binding_id: routed_event.reply_binding_id,
             binding_name: routed_event.reply_binding_name,
             outbound_key: outbound_key,
             operation: operation,
@@ -467,6 +468,7 @@ defmodule Ankole.Conversations.Delivery do
 
   defp default_reply_target(signal) do
     %{
+      binding_id: signal.reply_binding_id,
       binding_name: signal.reply_binding_name,
       conversation_id: signal.conversation_id,
       provider_thread_id: signal.provider_thread_id,
@@ -478,7 +480,8 @@ defmodule Ankole.Conversations.Delivery do
   defp routed_signal(signal, target) do
     routed = %{
       signal
-      | reply_binding_name: target.binding_name,
+      | reply_binding_id: Map.get(target, :binding_id),
+        reply_binding_name: target.binding_name,
         conversation_id: target.conversation_id,
         provider_thread_id: target.provider_thread_id
     }
@@ -665,17 +668,12 @@ defmodule Ankole.Conversations.Delivery do
     end
   end
 
-  defp intent_route_binding(%Signal{reply_binding_name: name} = signal) do
-    binding =
-      if is_binary(name) and name != "",
-        do: Ankole.Signals.get_binding!(signal.agent_uid, name)
+  defp intent_route_binding(%Signal{reply_binding_id: nil}), do: {:error, :binding_not_found}
 
-    case binding do
-      %Binding{} = binding ->
-        {:ok, binding}
-
-      nil ->
-        {:error, {:signal_binding_not_found, signal.agent_uid, signal.reply_binding_name}}
+  defp intent_route_binding(%Signal{} = signal) do
+    case Ankole.Signals.get_binding!(signal.reply_binding_id) do
+      %Binding{} = binding -> {:ok, binding}
+      nil -> {:error, {:signal_binding_not_found, signal.agent_uid, signal.reply_binding_name}}
     end
   end
 
@@ -691,7 +689,7 @@ defmodule Ankole.Conversations.Delivery do
   defdelegate in_flight_recovery_seconds(), to: Ankole.Conversations.Delivery.Recovery
   defdelegate requeueable?(arg1), to: Ankole.Conversations.Delivery.Recovery
   defdelegate requeue(arg1, arg2, arg3, arg4 \\ []), to: Ankole.Conversations.Delivery.Recovery
-  defdelegate wake_blocked_for_binding(arg1, arg2), to: Ankole.Conversations.Delivery.Recovery
+  defdelegate wake_blocked_for_binding(arg1), to: Ankole.Conversations.Delivery.Recovery
 
   defdelegate resolve_durable_reply_signal_in_tx(arg1, arg2, arg3, arg4),
     to: Ankole.Conversations.Delivery.Queries

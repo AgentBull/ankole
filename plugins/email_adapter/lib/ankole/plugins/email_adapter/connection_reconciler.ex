@@ -22,6 +22,7 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionReconciler do
 
         context =
           AdapterContext.new(
+            binding_id: binding.id,
             agent_uid: binding.agent_uid,
             binding_name: binding.name,
             adapter: binding.adapter,
@@ -40,7 +41,7 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionReconciler do
 
   @impl true
   def connection_key(_config, [%{context: %AdapterContext{} = context}]),
-    do: {context.agent_uid, context.binding_name}
+    do: context.binding_id
 
   @impl true
   def owner_child_spec(key, config, [consumer]),

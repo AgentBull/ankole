@@ -9,10 +9,14 @@ defmodule Ankole.Pod.Chat.Browser do
   authz do
     scope(:pod)
     allow(:agents, check: :guardrail)
+    allow(:ensure_personal_assistant, check: :guardrail)
     allow(:teammates, check: :guardrail)
     allow(:update, check: :guardrail)
     allow(:manage_participants, check: :guardrail)
     allow(:answer_interaction, check: :guardrail)
+    allow(:resolve_action_card, check: :guardrail)
+    allow(:show_action_card, check: :guardrail)
+    allow(:resolve_standalone_action_card, check: :guardrail)
     allow(:list, check: :guardrail)
     allow(:show, check: :guardrail)
     allow(:execution, check: :guardrail)
@@ -43,6 +47,22 @@ defmodule Ankole.Pod.Chat.Browser do
     ]
   ]
   @selection [profile: [type: :string], activeProfile: [type: :string], profiles: @profiles]
+  @standalone_action_card [
+    card_id: [type: UUIDv7, allow_nil?: false],
+    interaction_id: [type: :string, allow_nil?: false],
+    action_kind: [type: :string, allow_nil?: false],
+    summary: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+    target_node_id: [type: UUIDv7],
+    payload: [type: :map, allow_nil?: false],
+    status: [type: :string, allow_nil?: false],
+    resolved_by_uid: [type: PrincipalKey],
+    resolved_by_name: [type: :string, constraints: [trim?: false]],
+    resolved_at: [type: :string],
+    resolution_note: [type: :string, constraints: [trim?: false]],
+    conversation_id: [type: UUIDv7, allow_nil?: false],
+    conversation_kind: [type: :string, allow_nil?: false],
+    agent_uid: [type: PrincipalKey, allow_nil?: false]
+  ]
 
   resource do
     require_primary_key?(false)
@@ -56,10 +76,34 @@ defmodule Ankole.Pod.Chat.Browser do
 
   actions do
     action :agents, :map do
-      constraints(fields: [agents: [type: {:array, Ankole.Pod.Chat.Member}, allow_nil?: false]])
+      constraints(
+        fields: [
+          agents: [type: {:array, Ankole.Pod.Chat.Member}, allow_nil?: false],
+          personalAssistant: [type: Ankole.Pod.Chat.Member],
+          personalAssistantAvailable: [type: :boolean, allow_nil?: false]
+        ]
+      )
 
       run(fn _input, context ->
-        {:ok, %{agents: Enum.map(Conversations.agents(context.actor), &Presentation.agent/1)}}
+        owner = Ankole.AuthZ.Actor.principal(context.actor)
+        assistant = Ankole.Principals.personal_assistant(owner.uid)
+
+        {:ok,
+         %{
+           agents: Enum.map(Conversations.agents(context.actor), &Presentation.agent/1),
+           personalAssistant: if(assistant, do: Presentation.agent(assistant.principal)),
+           personalAssistantAvailable:
+             owner.type == :human and owner.status == :active and owner.membership == :member
+         }}
+      end)
+    end
+
+    action :ensure_personal_assistant, Ankole.Pod.Chat.Member do
+      transaction?(false)
+
+      run(fn _input, context ->
+        Ankole.Principals.ensure_personal_assistant(Ankole.AuthZ.Actor.uid(context.actor))
+        |> APIError.result(fn %{principal: principal} -> Presentation.agent(principal) end)
       end)
     end
 
@@ -180,6 +224,59 @@ defmodule Ankole.Pod.Chat.Browser do
           links: links(attrs)
         })
         |> APIError.result(&Presentation.detail/1)
+      end)
+    end
+
+    action :resolve_action_card, Detail do
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:card_id, UUIDv7, allow_nil?: false)
+
+      argument(:decision, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:confirm, :cancel]]
+      )
+
+      run(fn input, context ->
+        attrs = input.arguments
+
+        Conversations.resolve_action_card(
+          context.actor,
+          attrs.id,
+          attrs.card_id,
+          attrs.decision
+        )
+        |> APIError.result(&Presentation.detail/1)
+      end)
+    end
+
+    action :show_action_card, :map do
+      constraints(fields: @standalone_action_card)
+      argument(:card_id, UUIDv7, allow_nil?: false)
+
+      run(fn input, context ->
+        Conversations.get_browser_action_card(context.actor, input.arguments.card_id)
+        |> APIError.result(&standalone_action_card/1)
+      end)
+    end
+
+    action :resolve_standalone_action_card, :map do
+      constraints(fields: @standalone_action_card)
+      argument(:card_id, UUIDv7, allow_nil?: false)
+
+      argument(:decision, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:confirm, :cancel]]
+      )
+
+      run(fn input, context ->
+        attrs = input.arguments
+
+        Conversations.resolve_browser_action_card(
+          context.actor,
+          attrs.card_id,
+          attrs.decision
+        )
+        |> APIError.result(&standalone_action_card/1)
       end)
     end
 
@@ -367,6 +464,24 @@ defmodule Ankole.Pod.Chat.Browser do
 
   defp selection(value),
     do: %{profile: value.profile, activeProfile: value.active_profile, profiles: value.profiles}
+
+  defp standalone_action_card(value),
+    do: %{
+      card_id: value["card_id"],
+      interaction_id: value["interaction_id"],
+      action_kind: value["action_kind"],
+      summary: value["summary"],
+      target_node_id: value["target_node_id"],
+      payload: value["payload"] || %{},
+      status: value["status"],
+      resolved_by_uid: value["resolved_by_uid"],
+      resolved_by_name: value["resolved_by_name"],
+      resolved_at: value["resolved_at"],
+      resolution_note: value["resolution_note"],
+      conversation_id: value["conversation_id"],
+      conversation_kind: value["conversation_kind"],
+      agent_uid: value["agent_uid"]
+    }
 
   defp message(attrs),
     do: %{

@@ -60,10 +60,17 @@ defmodule Ankole.Brain.Tools do
           _ -> nil
         end
 
+      authority_uid = Ankole.Principals.authority_uid(uid)
+
+      disclosure =
+        if authority_uid == uid,
+          do: Ankole.Brain.Access.open_disclosure(),
+          else: %{mode: :strict, asker_uid: authority_uid, present_uids: [authority_uid]}
+
       %__MODULE__{
         querier_uid: uid,
-        disclosure: Ankole.Brain.Access.open_disclosure(),
-        default_write_scope: {:ok, Ankole.Brain.Scope.principal(uid)},
+        disclosure: disclosure,
+        default_write_scope: {:ok, Ankole.Brain.Scope.principal(authority_uid)},
         conversation_id: nil,
         participant_uids: [uid],
         parent_fallback: parent,

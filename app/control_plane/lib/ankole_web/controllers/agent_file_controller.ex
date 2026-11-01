@@ -1,61 +1,50 @@
 defmodule AnkoleWeb.AgentFileController do
-  @moduledoc "Multipart uploads and byte downloads for an Agent drive."
+  @moduledoc "Site Console uploads and byte downloads for any tenant Drive."
   use AnkoleWeb, :controller
   action_fallback :fallback
-  alias Ankole.{Attrs, Files, WorkerFiles}
-  alias Ankole.Files.Schemas.DriveFile
+  alias Ankole.{Attrs, Files}
   alias AnkoleWeb.ConsoleErrors
 
   def download(conn, params) do
-    local_path = Files.temp_path()
-
-    try do
-      with {:ok, agent_uid} <-
-             Attrs.required_text(Map.get(params, "agent_uid"), {:missing, :agent_uid}),
-           {:ok, path} <- required_path(params),
-           {:ok, %DriveFile{} = file} <-
-             Files.console_download(
-               conn.assigns.authz_actor,
-               agent_uid,
-               path,
-               local_path
-             ) do
-        conn
-        |> put_resp_content_type(file.content_type)
-        |> put_resp_header(
-          "content-disposition",
-          "attachment; filename*=UTF-8''" <>
-            URI.encode(Path.basename(file.path), &URI.char_unreserved?/1)
-        )
-        |> send_file(200, local_path)
-      end
-    after
-      File.rm(local_path)
+    with {:ok, tenant_id} <-
+           Attrs.required_text(Map.get(params, "tenant_id"), {:missing, :tenant_id}),
+         {:ok, id} <- required_id(params),
+         {:ok, %{node: node, object: object}} <-
+           Files.console_download(conn.assigns.authz_actor, tenant_id, id) do
+      AnkoleWeb.PodResponse.send_sandboxed_object(
+        conn,
+        object,
+        node.name,
+        node.content_type,
+        true
+      )
     end
   end
 
   def upload(conn, params) do
     body = conn.body_params
 
-    with {:ok, agent_uid} <-
-           Attrs.required_text(Map.get(params, "agent_uid"), {:missing, :agent_uid}),
-         {:ok, path} <- required_path(body),
+    with {:ok, tenant_id} <-
+           Attrs.required_text(Map.get(params, "tenant_id"), {:missing, :tenant_id}),
+         {:ok, parent_id} <- Attrs.required_text(body["parent_id"], {:missing, :parent_id}),
+         {:ok, name} <- Attrs.required_text(body["name"], {:missing, :name}),
          {:ok, upload} <- upload_param(body),
          :ok <- assert_upload_size(upload),
          {:ok, file} <-
            Files.console_upload(
              conn.assigns.authz_actor,
-             agent_uid,
-             path,
+             tenant_id,
+             parent_id,
+             name,
              upload.path,
              upload.content_type
            ) do
-      json(conn, %{uploaded_file: Files.ConsoleActions.file_json(file)})
+      json(conn, %{uploaded_file: file})
     end
   end
 
-  defp required_path(%{"path" => path}) when is_binary(path), do: {:ok, path}
-  defp required_path(_params), do: {:error, {:missing, :path}}
+  defp required_id(%{"id" => id}) when is_binary(id), do: {:ok, id}
+  defp required_id(_params), do: {:error, {:missing, :id}}
 
   defp upload_param(body) do
     case Map.get(body, "file") do
@@ -64,13 +53,10 @@ defmodule AnkoleWeb.AgentFileController do
     end
   end
 
-  # One bound for every file that moves between the drive and a Worker.
   defp assert_upload_size(%Plug.Upload{path: path}) do
-    max_bytes = WorkerFiles.max_transfer_bytes()
-
-    case File.stat!(path).size do
-      size when size > max_bytes -> {:error, {:file_too_large, size, max_bytes}}
-      _size -> :ok
+    with {:ok, max_bytes} <- Files.upload_limit(),
+         {:ok, %{size: size}} <- File.stat(path) do
+      if size > max_bytes, do: {:error, {:file_too_large, size, max_bytes}}, else: :ok
     end
   end
 
@@ -112,6 +98,9 @@ defmodule AnkoleWeb.AgentFileController do
       %{max_bytes: max_bytes}
     ])
   end
+
+  defp error(conn, :invalid_name),
+    do: ConsoleErrors.render(conn, 422, "validation_failed", "invalid file name")
 
   defp error(conn, {:invalid_path, value}),
     do: ConsoleErrors.render(conn, 422, "validation_failed", "invalid path", [%{value: value}])

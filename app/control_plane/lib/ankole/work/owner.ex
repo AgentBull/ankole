@@ -55,23 +55,7 @@ defmodule Ankole.Work.Owner do
       opts = schema.__work_provenance__()
       {module, action} = opts[:revoke_action]
 
-      tenants =
-        schema
-        |> human_work_query(uid, version)
-        |> Ash.Query.select([:tenant_id])
-        |> Ankole.Ash.read_across_tenants!()
-        |> Enum.map(& &1.tenant_id)
-        |> Enum.uniq()
-
-      count =
-        Enum.reduce(tenants, 0, fn tenant_id, count ->
-          {stopped, _} =
-            Ankole.Repo.with_tenant(tenant_id, fn ->
-              apply(module, action, [uid, version, now])
-            end)
-
-          count + stopped
-        end)
+      {count, _} = apply(module, action, [uid, version, now])
 
       {to_string(opts[:cleanup_key]), count}
     end)
@@ -84,21 +68,19 @@ defmodule Ankole.Work.Owner do
         |> human_work_query(uid, version)
         |> unresolved_query(schema)
         |> Ash.Query.select([:id])
-        |> Ankole.Ash.read_across_tenants!()
+        |> Ankole.Ash.read!()
         |> Enum.map(& &1.id)
 
       schema
-      |> Ash.Query.for_read(:work_across_tenants)
       |> Ash.Query.filter(id in ^ids)
       |> Ash.Query.sort(id: :asc)
       |> Ash.Query.lock(:for_update)
-      |> Ankole.Ash.read_across_tenants!(lock_identity: {schema.__schema__(:source), ids})
+      |> Ankole.Ash.read!(lock_identity: {schema.__schema__(:source), ids})
     end)
   end
 
   defp human_work_query(schema, uid, version) do
     schema
-    |> Ash.Query.for_read(:work_across_tenants)
     |> Ash.Query.filter(human_uid == ^uid and human_access_version < ^version)
   end
 end

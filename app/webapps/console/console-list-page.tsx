@@ -565,9 +565,9 @@ export function FilterSwitch({
   )
 }
 
-function formatAgentTooltip(agent: { display_name?: string | null; handle: string }, uid: string) {
-  const label = agent.display_name || agent.handle || uid
-  return agent.handle && agent.display_name ? `${label} (${agent.handle}) · ${uid}` : `${label} · ${uid}`
+function formatAgentTooltip(agent: { display_name?: string | null; uid: string }, uid: string) {
+  const label = agent.display_name || uid
+  return agent.display_name ? `${label} · ${uid}` : uid
 }
 
 /** Resolved Agent name for inline text inside existing links or buttons, falling back to the raw UID. */
@@ -583,7 +583,7 @@ export function AgentName({ className, uid }: { className?: string; uid: string 
   }
   return (
     <span className={className} title={formatAgentTooltip(agent, uid)}>
-      {agent.display_name || agent.handle || uid}
+      {agent.display_name || uid}
     </span>
   )
 }
@@ -605,7 +605,7 @@ export function AgentLink({ className, hash, uid }: { className?: string; hash?:
       hash={hash}
       title={formatAgentTooltip(agent, uid)}
       to={`/agents/${encodeURIComponent(uid)}`}>
-      {agent.display_name || agent.handle || uid}
+      {agent.display_name || uid}
     </Link>
   )
 }
@@ -629,11 +629,9 @@ export function AgentCell({ uid }: { uid: string }) {
         className="link block max-w-44 truncate text-sm"
         title={formatAgentTooltip(agent, uid)}
         to={`/agents/${encodeURIComponent(uid)}`}>
-        {agent.display_name || agent.handle || uid}
+        {agent.display_name || uid}
       </Link>
-      {agent.handle ? (
-        <span className="block max-w-44 truncate font-mono text-xs text-muted-foreground">{agent.handle}</span>
-      ) : null}
+      <span className="block max-w-44 truncate font-mono text-xs text-muted-foreground">{agent.uid}</span>
     </TableCell>
   )
 }

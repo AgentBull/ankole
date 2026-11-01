@@ -2,7 +2,8 @@ defmodule Ankole.Pod.Documents.History do
   @moduledoc "Owns durable document checkpoints and restores under the page row lock."
   require Ash.Query
   alias Ankole.{AuthZ, Kernel, Repo}
-  alias Ankole.Pod.{Access, Documents, PageContent, Pages, PageSnapshot, Serialization}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Documents, PageContent, Pages, PageSnapshot, Serialization}
 
   @checkpoint_seconds 300
   @retention_days 30
@@ -34,7 +35,7 @@ defmodule Ankole.Pod.Documents.History do
           |> Ash.Query.select(@summary_fields)
 
         with {:ok, result} <- Ankole.Ash.read(query, page: pagination) do
-          profiles = Serialization.author_profiles(Enum.map(result.results, & &1.author.uid))
+          profiles = Serialization.author_profiles(Enum.map(result.results, & &1.author))
 
           {:ok,
            %{
@@ -52,7 +53,7 @@ defmodule Ankole.Pod.Documents.History do
     Repo.transact_top_level(fn ->
       with {:ok, page} <- authorized_page(actor, id, :share),
            {:ok, snapshot} <- fetch(page.id, snapshot_id) do
-        profiles = Serialization.author_profiles([snapshot.author.uid])
+        profiles = Serialization.author_profiles([snapshot.author])
         {:ok, %{snapshot: Map.put(present(snapshot, profiles), :content, snapshot.content)}}
       end
     end)
@@ -70,7 +71,12 @@ defmodule Ankole.Pod.Documents.History do
           with {:ok, parsed} <- Kernel.page_restore_comments(content.content, snapshot.content),
                :ok <-
                  checkpoint_in_tx(page, content, DateTime.utc_now(:microsecond), :before_restore),
-               {:ok, page} <- Ankole.Ash.update(page, :edit, restored_metadata(page, snapshot)),
+               {:ok, page} <-
+                 Ankole.Pod.Pages.update_properties_in_tx(
+                   page,
+                   :edit,
+                   restored_metadata(page, snapshot)
+                 ),
                {:ok, %{page: restored, content: content} = result} <-
                  Documents.commit_parsed_in_tx(page, content, actor, parsed, force: true),
                :ok <-
@@ -175,7 +181,7 @@ defmodule Ankole.Pod.Documents.History do
 
   defp authorized_page(actor, id, mode) do
     with {:ok, page} <- Pages.lock(id, mode),
-         {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "page_edit", trash: false),
+         {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_edit", trash: false),
          true <- page.type == :doc,
          do: {:ok, page},
          else: (

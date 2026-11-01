@@ -31,7 +31,13 @@ export async function executeActiveTurn(
   })
   const rpc = throwingRPCRequester(rpcClient, active.abortSignal)
   const drive = new Drive({ agentHome: paths.home, rpc })
-  const cliBridges = startRunCLIBridges({ drive, rpc, turn: turnStart.turn, workspaceRoot })
+  const cliBridges = startRunCLIBridges({
+    drive,
+    rpc,
+    turn: turnStart.turn,
+    workspaceRoot,
+    agentUid: config.workerID
+  })
 
   try {
     const runtimeEnv = { ...turnStart.runtime_env, ...cliBridges.env }
@@ -47,6 +53,7 @@ export async function executeActiveTurn(
       agentInstalledSkillsRoot: paths.installedSkills,
       internalSkillsRoot: config.internalSkillsRoot,
       runtimeEnv,
+      updateCliContextId: cliBridges.updateContextId,
       rpc,
       requestAIGatewayAPIKey: options => requestAIGatewayAPIKey(rpcClient, { ...options, signal: active.abortSignal }),
       logger: workerLogger,

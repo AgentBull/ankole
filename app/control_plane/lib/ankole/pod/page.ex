@@ -1,5 +1,5 @@
 defmodule Ankole.Pod.Page do
-  @moduledoc "One page tree node, its document revision, and its trash state."
+  @moduledoc "Read-only Pod projection of a Drive node and its optional Pod properties."
   use Ankole.Ash.Resource,
     authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
@@ -8,10 +8,10 @@ defmodule Ankole.Pod.Page do
 
   authz do
     scope(:pod)
-    allow(:read, check: :pod_filter)
-    allow(:list_children, check: :pod_filter)
-    allow(:list_roots, check: :pod_filter)
-    allow(:search, check: :pod_filter)
+    allow(:read, check: :drive_filter)
+    allow(:list_children, check: :drive_filter)
+    allow(:list_roots, check: :drive_filter)
+    allow(:search, check: :drive_filter)
   end
 
   json_api do
@@ -21,25 +21,9 @@ defmodule Ankole.Pod.Page do
   end
 
   postgres do
-    table("pages")
+    table("pod_page_nodes")
     repo(Ankole.Repo)
     migrate?(false)
-
-    foreign_key_names([
-      {:parent_id, "pages_tenant_id_parent_id_fkey"},
-      {:acl_anchor_id, "pages_tenant_acl_anchor_fkey"},
-      {:parent_anchor_id, "pages_tenant_parent_anchor_fkey"}
-    ])
-
-    unique_index_names([{[:id], "pages_pkey"}])
-
-    check_constraints do
-      check_constraint(:type, "pages_type_check")
-      check_constraint(:acl_anchor_id, "pages_acl_anchor_shape")
-      check_constraint(:parent_id, "pages_private_owner")
-      check_constraint(:purge_started_at, "pages_purge_state")
-      check_constraint(:children_view, "pages_children_view_object")
-    end
   end
 
   attributes do
@@ -50,13 +34,17 @@ defmodule Ankole.Pod.Page do
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
 
+    attribute(:name, :string, public?: true)
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:object_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:is_root, :boolean, public?: true)
     attribute(:parent_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:private_owner_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
 
     attribute(:type, :atom,
       public?: true,
       allow_nil?: false,
-      constraints: [one_of: [:doc, :base, :applet, :file]]
+      constraints: [one_of: [:folder, :doc, :base, :applet, :file]]
     )
 
     attribute(:title, :string,
@@ -67,7 +55,7 @@ defmodule Ankole.Pod.Page do
     )
 
     attribute(:icon, :string, public?: true, constraints: [trim?: false, allow_empty?: true])
-    attribute(:position, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
+    attribute(:position, :string, public?: true, constraints: [trim?: false])
     attribute(:inherit_permissions, :boolean, public?: true, allow_nil?: false, default: true)
     attribute(:has_local_acl, :boolean, allow_nil?: false, default: false)
     attribute(:is_acl_anchor, :boolean, writable?: false)
@@ -90,7 +78,7 @@ defmodule Ankole.Pod.Page do
       constraints: [max_bytes: 1024]
     )
 
-    attribute(:created_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
+    attribute(:created_by, Ankole.Ash.Types.ActorRef)
     attribute(:deleted_at, Ankole.Ash.Types.Timestamptz, public?: true)
     attribute(:purge_started_at, Ankole.Ash.Types.Timestamptz, public?: true)
     attribute(:created_at, Ankole.Ash.Types.Timestamptz, public?: true, allow_nil?: false)
@@ -102,7 +90,7 @@ defmodule Ankole.Pod.Page do
       public?: true,
       constraints: [
         items: [
-          one_of: [:page_view, :page_write_records, :page_edit, :page_manage, :page_comment]
+          one_of: [:node_view, :node_contribute, :node_edit, :node_manage, :node_comment]
         ]
       ]
     )
@@ -146,99 +134,9 @@ defmodule Ankole.Pod.Page do
     read :search do
       argument(:required_action, :atom,
         allow_nil?: false,
-        default: :page_view,
-        constraints: [one_of: [:page_view, :page_edit]]
+        default: :node_view,
+        constraints: [one_of: [:node_view, :node_edit]]
       )
-    end
-
-    create :create_in_tx do
-      accept([
-        :id,
-        :parent_id,
-        :private_owner_uid,
-        :type,
-        :title,
-        :icon,
-        :position,
-        :inherit_permissions,
-        :has_local_acl,
-        :acl_anchor_id,
-        :parent_anchor_id,
-        :revision,
-        :saved_from_message_id,
-        :children_view,
-        :created_by,
-        :deleted_at,
-        :purge_started_at,
-        :created_at,
-        :updated_at
-      ])
-
-      validate(Ankole.Pod.Validations.PageState)
-      validate(Ankole.Pod.Validations.ChildrenView)
-    end
-
-    update :edit do
-      accept([:title, :icon, :children_view, :updated_at])
-      validate(Ankole.Pod.Validations.ChildrenView)
-    end
-
-    update :move do
-      accept([
-        :parent_id,
-        :private_owner_uid,
-        :position,
-        :updated_at,
-        :acl_anchor_id,
-        :parent_anchor_id
-      ])
-
-      validate(Ankole.Pod.Validations.PageState)
-    end
-
-    update :position do
-      require_atomic?(true)
-      accept([:position])
-    end
-
-    update :sharing do
-      require_atomic?(true)
-      accept([:inherit_permissions, :acl_anchor_id, :parent_anchor_id])
-    end
-
-    update :anchor do
-      require_atomic?(true)
-      accept([:has_local_acl, :acl_anchor_id, :parent_anchor_id])
-    end
-
-    update :trash do
-      require_atomic?(true)
-      accept([:deleted_at, :acl_anchor_id, :parent_anchor_id])
-    end
-
-    update :restore do
-      require_atomic?(true)
-      change(filter(expr(not is_nil(deleted_at) and is_nil(purge_started_at))))
-      accept([:acl_anchor_id, :parent_anchor_id])
-      change(set_attribute(:deleted_at, nil))
-    end
-
-    update :begin_purge do
-      require_atomic?(true)
-      change(filter(expr(not is_nil(deleted_at))))
-      accept([])
-      change(set_attribute(:purge_started_at, &DateTime.utc_now/0))
-    end
-
-    update :advance_revision do
-      require_atomic?(true)
-      accept([:updated_at])
-      change(atomic_update(:revision, expr(revision + 1)))
-    end
-
-    destroy :purge do
-      require_atomic?(true)
-      change(filter(expr(not exists(children, true))))
     end
   end
 

@@ -42,7 +42,7 @@ defmodule Ankole.Sessions.ModelProfileUnavailableTest do
              }
 
       assert %Signal{producer: :kernel, completed_at: %DateTime{}} = Repo.get!(Signal, input.id)
-      assert Repo.get!(AgentWorker, agent.uid).state == :absent
+      assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
     end
 
     test "an ambient message is completed without emitting configuration spam" do
@@ -70,7 +70,7 @@ defmodule Ankole.Sessions.ModelProfileUnavailableTest do
       refute Repo.get_by(Intent, source_signal_id: input.id)
       refute Repo.exists?(Ankole.Sessions.SessionWorkspace)
       refute Repo.exists?(Ankole.AIGateway.Schemas.Conversation)
-      assert Repo.get!(AgentWorker, agent.uid).state == :absent
+      assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
     end
   end
 end

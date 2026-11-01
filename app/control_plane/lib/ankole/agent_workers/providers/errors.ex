@@ -93,14 +93,8 @@ defmodule Ankole.AgentWorkers.Providers.Errors do
     do:
       invalid(
         "Enable Control Plane Plugin #{plugin_id}. If it is not active, restart the control plane.",
-        [%{path: "kind", message: "requires active and configured Plugin #{plugin_id}"}]
+        [%{path: "kind", message: "requires active Plugin #{plugin_id}"}]
       )
-
-  def describe({:worker_provider_plugin_in_use, plugin_id, provider_id}),
-    do:
-      {:conflict,
-       "Plugin #{plugin_id} is required by Agents assigned to Worker provider #{provider_id}, including Agents being deleted",
-       []}
 
   def describe(:worker_runtime_not_configured),
     do: invalid("The Worker image and RuntimeFabric startup configuration are required")

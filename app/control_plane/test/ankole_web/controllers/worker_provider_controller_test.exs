@@ -84,7 +84,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
         Jason.encode!(%{
           data: %{
             worker_provider_id: provider.provider_id,
-            handle: "inactive-plugin-agent",
+            uid: "inactive-plugin-agent",
             display_name: "Inactive",
             role: "Research Analyst",
             owner_principal_uid: owner.uid
@@ -105,7 +105,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     %{principal: owner} = human_fixture()
 
     agent_attrs = %{
-      handle: "new-agent",
+      uid: "new-agent",
       display_name: "New Agent",
       role: "Researcher",
       owner_principal_uid: owner.uid
@@ -114,7 +114,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     assert [%{"code" => "worker_provider_required"}] =
              conn |> post_agent(agent_attrs) |> json_response(422) |> Map.fetch!("errors")
 
-    refute Repo.get_by(Principals.Agent, handle: "new-agent")
+    refute Repo.get_by(Principals.Agent, uid: "new-agent")
     {:ok, _provider} = Providers.create(Map.put(attrs("network: bridge\n"), :is_default, true))
     created = conn |> post_agent(agent_attrs) |> json_response(201)
     assert created["worker_provider_id"] == "local"
@@ -123,7 +123,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     assert %{"errors" => [%{"source" => %{"pointer" => "/data/provider_id"}}]} =
              conn |> assign_provider(agent_uid, nil) |> json_response(400)
 
-    assert Repo.get!(AgentWorker, agent_uid).provider_id == "local"
+    assert Repo.get_by!(AgentWorker, agent_uid: agent_uid).provider_id == "local"
 
     assert %{"data" => %{"attributes" => %{"worker_provider_id" => "local"}}} =
              conn |> json_api() |> get("/api/v2/agents/#{agent_uid}") |> json_response(200)
@@ -143,14 +143,14 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
              |> Map.fetch!("errors")
 
     # This row is the state left by the migration, before an operator assigns it.
-    Repo.get!(AgentWorker, agent_uid)
+    Repo.get_by!(AgentWorker, agent_uid: agent_uid)
     |> Ecto.Changeset.change(provider_id: nil)
     |> Repo.update!()
 
     assert %{"agent_uid" => ^agent_uid, "provider_id" => "local"} =
              conn |> assign_provider(agent_uid, "local") |> json_response(200)
 
-    Repo.get!(AgentWorker, agent_uid)
+    Repo.get_by!(AgentWorker, agent_uid: agent_uid)
     |> Ecto.Changeset.change(state: :deleting)
     |> Repo.update!()
 

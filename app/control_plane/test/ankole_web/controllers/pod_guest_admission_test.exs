@@ -32,7 +32,11 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
       allowed = Ankole.SessionsCase.agent_fixture(%{display_name: "Allowed"}).principal
       hidden = Ankole.SessionsCase.agent_fixture(%{display_name: "Hidden"}).principal
 
-      assert api_response(api_get(conn, "/api/v2/pod/agents"), 200) == %{"agents" => []}
+      assert api_response(api_get(conn, "/api/v2/pod/agents"), 200) == %{
+               "agents" => [],
+               "personalAssistant" => nil,
+               "personalAssistantAvailable" => unquote(membership) == :member
+             }
 
       denied = api_get(conn, "/api/v2/pod/agents/#{hidden.uid}/model-profiles")
       assert api_error(denied, 403)["code"] == "forbidden"
@@ -40,6 +44,8 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
       Ankole.ConversationsFixtures.grant_chat(human.uid, allowed.uid)
 
       assert api_response(api_get(conn, "/api/v2/pod/agents"), 200) == %{
+               "personalAssistant" => nil,
+               "personalAssistantAvailable" => unquote(membership) == :member,
                "agents" => [
                  %{
                    "uid" => allowed.uid,
@@ -47,6 +53,9 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
                    "active" => true,
                    "avatarURL" => allowed.avatar_url,
                    "type" => "agent",
+                   "agentType" => "ai_colleague",
+                   "role" => "Research Analyst",
+                   "aliases" => [],
                    "mayIntervene" => false,
                    "modelProfile" => nil
                  }
@@ -156,7 +165,7 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
     {:ok, false} = AppConfigure.put_tenant_by_key("pod.allow_external_guests", false)
     rejected_bytes = "Rejected guest upload #{Ecto.UUID.generate()}"
     File.write!(local, rejected_bytes)
-    digest = :crypto.hash(:sha256, rejected_bytes) |> Base.encode16(case: :lower)
+    object_count = Repo.aggregate(Ankole.Files.Schemas.FileObject, :count)
 
     denied =
       uploaded
@@ -174,7 +183,7 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
                "text/plain"
              )
 
-    assert {:error, :not_found} = Files.read_content(digest)
+    assert Repo.aggregate(Ankole.Files.Schemas.FileObject, :count) == object_count
 
     member = human_fixture(%{membership: :member}).principal
 
@@ -188,7 +197,10 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
              )
 
     assert is_binary(member_receipt)
-    assert {:ok, ^rejected_bytes} = Files.read_content(digest)
+    assert {:ok, [attachment]} = Attachments.resolve(member.uid, [member_receipt])
+    object = Repo.get_by!(Ankole.Files.Schemas.FileObject, id: attachment["object_id"])
+    assert is_nil(object.completed_at)
+    assert {:ok, ^rejected_bytes} = Ankole.ObjectStore.read(object.storage_key)
   end
 
   defp conversation_attrs(agent_uid) do

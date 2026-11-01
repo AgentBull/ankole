@@ -417,7 +417,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
     delivery = args["delivery"] || %{}
 
     target =
-      Map.take(route, ~w(conversation_id binding_name provider_thread_id))
+      Map.take(route, ~w(conversation_id binding_id binding_name provider_thread_id))
 
     delivery = if target == %{}, do: delivery, else: Map.put_new(delivery, "targets", [target])
 
@@ -464,6 +464,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
   defp idempotency_key(run, %{"name" => "cron"}, %{"action" => "add"} = args, _updates, delivery) do
     input = %{
       "signal_id" => run.signal_id,
+      "binding_id" => run.event.reply_binding_id,
       "binding_name" => run.event.reply_binding_name,
       "name" => String.trim(args["name"]),
       "schedule" => args["schedule"],

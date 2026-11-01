@@ -35,6 +35,46 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
       assert record.output_tokens == 30
     end
 
+    test "subject identity precedes caller labels and only Agent origins enter quota windows" do
+      %{principal: agent} = agent_fixture()
+      %{principal: human} = human_fixture()
+      {:ok, system} = Ankole.Principals.system_principal()
+      window_started_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      record = fn subject_uid, subject_type, caller, request_context ->
+        :ok =
+          UsageLedger.record(
+            %{
+              "capability" => "llm",
+              "subject_uid" => subject_uid,
+              "provider_id" => "ledger-test",
+              "model" => "model",
+              "request_context" => request_context
+            },
+            subject_type,
+            @completed_body,
+            caller: caller
+          )
+      end
+
+      record.(agent.uid, "agent", "compaction.summary", %{})
+
+      record.(agent.uid, "agent", "compaction.summary", %{
+        "headers" => %{"originator" => "codex_cli_rs"}
+      })
+
+      record.(human.uid, "oidc_human", "compaction.summary", %{})
+      record.(system.uid, nil, "compaction.summary", %{})
+      record.(system.uid, nil, "pod_applet", %{})
+      record.(system.uid, nil, "brain.dreaming.calibration", %{})
+
+      assert Enum.sort(Enum.map(usage_records(), & &1.origin)) ==
+               Enum.sort([:agent, :codex, :oidc_human, :compaction, :applet, :brain])
+
+      assert UsageLedger.window_tokens(agent.uid, window_started_at) == 300
+      assert UsageLedger.window_tokens(system.uid, window_started_at) == 0
+    end
+
     test "a Codex client round records the codex origin and its Job attempt" do
       %{principal: agent} = agent_fixture()
       configure_openai_profile!(agent.uid, json_upstream(self()))

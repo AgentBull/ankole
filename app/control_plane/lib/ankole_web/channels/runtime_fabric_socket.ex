@@ -21,11 +21,8 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
   def connect(params, socket, connect_info) do
     with true <- AnkoleWeb.Plugs.RequestHost.worker_allowed?(Map.get(connect_info, :uri)),
          {:ok, worker_id} <- worker_id(params),
-         {:ok, tenant_id} <- Ankole.Principals.resolve_tenant(worker_id),
          {:ok, %{generation: generation, tenant_id: tenant_id}} <-
-           Ankole.Repo.with_tenant(tenant_id, fn ->
-             AgentWorkers.authenticate(worker_id, Map.get(connect_info, :auth_token))
-           end) do
+           AgentWorkers.authenticate(worker_id, Map.get(connect_info, :auth_token)) do
       {:ok,
        assign(socket, %{worker_id: worker_id, worker_generation: generation, tenant_id: tenant_id})}
     else
@@ -34,7 +31,8 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
   end
 
   @impl true
-  def id(socket), do: "runtime_fabric_worker:" <> socket.assigns.worker_id
+  def id(socket),
+    do: "runtime_fabric_worker:#{socket.assigns.tenant_id}:#{socket.assigns.worker_id}"
 
   defp worker_id(%{"worker_id" => worker_id}) when is_binary(worker_id) do
     case String.trim(worker_id) do

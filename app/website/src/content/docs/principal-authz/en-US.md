@@ -15,21 +15,21 @@ A Principal is the durable accountable subject for humans, Agents, and system se
 
 Each human Principal owns one `HumanUser` row, zero or more site-scoped `SiteCredential` rows (`principal_site_credentials`, such as verified Email OTP addresses), and zero or more tenant-scoped `ExternalIdentity` rows (`principal_external_identities`, federated from Identity Providers). Each Agent Principal owns one `Agent` row. Routing every actor through a single `principals` table keeps accountability uniform: every audit entry, permission grant, and group membership references a stable Principal `uid`.
 
-Human `membership` governs collaboration boundaries inside a tenant. Internal `member` humans automatically match the computed `all_humans` group, whereas external `guest` humans require explicit Pod page shares or Agent grants, cannot join built-in administrator groups (`siteadmin` or `pod_admin`), cannot access Private space, and do not receive the Brain `world` scope.
+Human `membership` governs collaboration boundaries inside a tenant. Internal `member` humans automatically match the computed `all_humans` group, whereas external `guest` humans require explicit Pod page shares or Agent grants, cannot join built-in administrator groups (`siteadmin` or `pod_admin`), have no Private root, and do not receive the Brain `world` scope.
 
 When a Principal is disabled, it loses authority everywhere immediately: the kernel returns `principal_disabled` on every check, revoking access across the deployment without requiring operators to hunt down individual grants.
 
 ## The grant: who may do what
 
-Every row in `permission_grants` belongs to exactly one grantee owner (`num_nonnulls(principal_uid, group_id, source_page_id) = 1`), enforced at both the Ash layer (`Ankole.AuthZ.Validations.GrantShape`) and PostgreSQL check constraints:
+Every row in `permission_grants` belongs to exactly one grantee owner (`num_nonnulls(principal_uid, group_id, source_node_id) = 1`), enforced at both the Ash layer (`Ankole.AuthZ.Validations.GrantShape`) and PostgreSQL check constraints:
 
 - a Principal (`principal_uid`),
 - a Principal group (`group_id`), or
-- a **Pod Page Userset** (`source_page_id` paired with a `source_action` of `page_view`, `page_write_records`, `page_edit`, or `page_manage`).
+- a **Drive Node Userset** (`source_node_id` paired with a `source_action` of `node_view`, `node_contribute`, `node_edit`, `node_manage`, or `node_comment`).
 
-Pod ACL grants additionally record `target_page_id` and `target_scope` (`container` for subtree inheritance, or `self` for the target page alone). Every grant specifies:
+Drive ACL grants additionally record `target_node_id` and `target_scope` (`container` for subtree inheritance, or `self` for the target node alone). Every grant specifies:
 
-- a `resource_pattern` — validated by `Input.validate_resource_pattern_syntax` across unified colon-separated namespaces: `site_console:**` (Site Console), `tenant_console:**` (Pod administration), `agent:<uid>` and `agent:<uid>:tool:<fn>` (runtime Agent and tool invocation), and `pod:**` (`pod:space:**`, `pod:private:<uid>:**`, `pod:**:<page-id>:**`, `pod:**:<page-id>:page`). A bare `"**"` pattern is rejected;
+- a `resource_pattern` — validated by `Input.validate_resource_pattern_syntax` across unified colon-separated namespaces: `site_console:**` (Site Console), `tenant_console:**` (Pod administration), `agent:<uid>` (runtime Agent access), and `drive:**` (`drive:space:**`, `drive:private:<uid>:**`, `drive:**:<node-id>:**`, `drive:**:<node-id>:node`). A bare `"**"` pattern is rejected;
 - an `action` — an exact action string containing no colons;
 - a `condition` — a CEL boolean expression (defaulting to `"true"`) validated by `Input.validate_condition_syntax`;
 - a `description` and `metadata` for operator context.
@@ -46,10 +46,10 @@ Every tenant ships with the built-in computed `all_humans` group (`principal.typ
 
 The Elixir control plane and the Rust kernel divide authorization work cleanly so that checks remain deterministic and enforceable:
 
-- **The control plane owns durable state, Ash enforcement, and snapshot assembly.** Protected Ash actions declare authorization rules via `Ankole.AuthZ.Extension` and enforce them at runtime through `Ankole.AuthZ.Authorizer` using `%Ankole.AuthZ.Actor{principal, interactive_principal, turn_authority, authn, interactive_authn}`. Verified browser, OIDC, and Worker authentication facts populate `context.request.authn` for CEL evaluation. Whenever `interactive_principal` is present—such as on a human-initiated Agent turn—both the Agent and the initiating Human must be authorized (`Human ∩ Agent`).
-- **The Rust kernel and PostgreSQL evaluate deterministic rules.** For standard checks, `Ankole.AuthZ.Snapshot` fetches the Principal, its static group memberships, and candidate grants in a single SQL query, and the Rust kernel evaluates resource patterns, computed groups, and CEL conditions. For Pod pages, Ankole evaluates request-dependent CEL conditions once in the Rust kernel and then resolves the 4-bit ACL anchor graph (`page_view=1`, `page_write_records=2`, `page_edit=4`, `page_manage=8`; roles `view=1`, `contribute=3`, `edit=7`, `manage=15`)—spanning direct grants, groups, container inheritance, and Userset edges—inside PostgreSQL using `WITH RECURSIVE` (`UNION` least fixed point).
+- **The control plane owns durable state, Ash enforcement, and snapshot assembly.** Protected actions declare rules through `Ankole.AuthZ.Extension`; `Ankole.AuthZ.Authorizer` evaluates `%Ankole.AuthZ.Actor{principal, turn_authority, authn}` for the executing Principal. Agent turns use the Agent’s resource permissions. Verified authentication facts populate `context.request.authn`, and the Agent’s applicable grants supply CEL conditions. `turn_authority` and `WorkAccess` separately check that the instruction remains valid.
+- **The Rust kernel and PostgreSQL evaluate deterministic rules.** For standard checks, `Ankole.AuthZ.Snapshot` fetches the Principal, its static group memberships, and candidate grants in a single SQL query, and the Rust kernel evaluates resource patterns, computed groups, and CEL conditions. For Drive nodes, Ankole evaluates request-dependent CEL conditions once in the Rust kernel and then resolves the 5-bit ACL anchor graph (`node_view=1`, `node_contribute=2`, `node_edit=4`, `node_manage=8`, `node_comment=16`; roles `view=1`, `contribute=19`, `edit=23`, `manage=31`)—spanning direct grants, groups, container inheritance, and Userset edges—inside PostgreSQL using `WITH RECURSIVE` (`UNION` least fixed point).
 
-`Ankole.AuthZ` exposes `authorize(subject, resource, action, context)`, `allowed?/4` for boolean checks, `authorize_decision/4` for a full decision map, `authorize_all_decision/4` for multi-action checks on a single resource, `authorize_checks/3` for independent resource/action checks over a shared snapshot, and `evaluate_pod_context/2` for Pod ACL evaluation. None of these entrypoints ever trusts a caller's self-asserted permissions.
+`Ankole.AuthZ` exposes `authorize(subject, resource, action, context)`, `allowed?/4` for boolean checks, `authorize_decision/4` for a full decision map, `authorize_all_decision/4` for multi-action checks on a single resource, `authorize_checks/3` for independent resource/action checks over a shared snapshot, and `evaluate_drive_context/2` for Drive ACL evaluation. None of these entrypoints ever trusts a caller's self-asserted permissions.
 
 ## Decision statuses
 
@@ -67,7 +67,7 @@ Ankole emits telemetry diagnostics on every decision so denials remain observabl
 An Agent cannot prompt or reason its way around AuthZ because the runtime enforces permissions at every privileged boundary:
 
 - **AIGateway** resolves the calling subject from a verified credential, and that Principal's grants govern which model selectors and upstream providers it may invoke.
-- **Tool preparation and dispatch** check `agent:<uid>:tool:<fn>` (`invoke` with normalized `context.request.args`), while Pod operations intersect `Human ∩ Agent` permissions on human-initiated turns.
+- **Tool preparation and dispatch** require an active executing Agent, a tool present in its declared catalog, valid arguments, and a valid instruction. Tool owners authorize the resources they access under that Agent.
 - **Session Drivers and Worker Jobs** verify the persisted workspace epoch fence or durable Job attempt fence alongside the authenticated Worker connection before committing results.
 - **Site Console (`/api/v2`) and Pod administration (`/api/v2/pod/admin`)** require verified browser session proofs, CSRF tokens, and active `site_console:**` or `tenant_console:**` grants.
 
@@ -76,6 +76,8 @@ Because the model never asserts its own authority, every boundary independently 
 ## The operator surface
 
 Site Console JSON:API routes under `/api/v2` manage Principals, groups, and grants (`site_console:**`), while Pod administrators manage tenant members, invitations, settings, and Identity Providers under `/api/v2/pod/admin/*` (`tenant_console:**`):
+
+The `site_console:drive` permission covers the selected tenant’s full Drive tree, including members’ and Agents’ Private content. Operators receive read, update, and delete access according to that permission’s actions.
 
 | Method | Path | Purpose |
 |---|---|---|

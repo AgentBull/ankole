@@ -1,7 +1,7 @@
 import { create, toBinary } from '@bufbuild/protobuf'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { EnvelopeSchema, ProtocolVersion } from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
-import { ReadToolRequestSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { ReadToolRequestSchema, FilesGetRequestSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 // Each sender generates its own fixtures with its production codec.
 const dir = new URL('../../kernel/proto/golden/', import.meta.url)
@@ -10,17 +10,35 @@ const run = { session: { sessionId: 'job:1000' }, signalId: 'input-1' }
 const envelope = (messageId: string, body: Parameters<typeof create<typeof EnvelopeSchema>>[1]['body']) =>
   create(EnvelopeSchema, { protocolVersion: ProtocolVersion.CURRENT, messageId, body })
 const fixtures = [
-  ['workspace_ready', envelope('workspace_ready.v10.bin', { case: 'workspaceReady', value: { run, reason: 1 } })],
+  [
+    'rpc_files_get_request',
+    envelope('golden-rpc-files-get-request-1', {
+      case: 'rpcRequest',
+      value: {
+        requestId: 'golden-rpc-files-get-1',
+        method: 'files.get',
+        deadlineUnixMs: 1782300001000n,
+        payload: toBinary(
+          FilesGetRequestSchema,
+          create(FilesGetRequestSchema, {
+            nodeId: '019a0000-0000-7000-8000-000000000001',
+            homeRelativePath: 'downloads/report.txt'
+          })
+        )
+      }
+    })
+  ],
+  ['workspace_ready', envelope('workspace_ready.v11.bin', { case: 'workspaceReady', value: { run, reason: 1 } })],
   [
     'tool_status',
-    envelope('tool_status.v10.bin', {
+    envelope('tool_status.v11.bin', {
       case: 'toolStatus',
       value: { run, responseId: 'response-1', callId: 'call-1', state: 'unknown' }
     })
   ],
   [
     'tool_result',
-    envelope('tool_result.v10.bin', {
+    envelope('tool_result.v11.bin', {
       case: 'toolResult',
       value: {
         run,

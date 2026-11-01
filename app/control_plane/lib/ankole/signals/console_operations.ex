@@ -9,25 +9,16 @@ defmodule Ankole.Signals.ConsoleOperations do
   authz do
     scope(:site_console)
     resolve_param(:agent_uid, :principal_key)
-    resolve_param(:target_agent_uid, :principal_key)
     allow(:console_adapters, resource: "site_console:signals_adapters", action: "read")
     allow(:console_list_bindings, resource: "site_console:signal_bindings", action: "read")
 
-    allow(:console_get_binding,
-      resource: "site_console:agent:{agent_uid}:signal_bindings",
-      action: "update"
-    )
-
-    allow(:console_put_binding,
-      resource: "site_console:agent:{agent_uid}:signal_bindings",
-      action: "update"
-    )
-
-    allow(:console_update_binding,
-      resource: "site_console:agent:{agent_uid}:signal_bindings",
-      action: "update",
-      permissions: &Ankole.Signals.ConsoleActions.update_binding_permissions/4
-    )
+    for action <- [:console_get_binding, :console_put_binding, :console_update_binding] do
+      allow(action,
+        resource: "site_console:signal_bindings",
+        action: "update",
+        permissions: &Ankole.Signals.ConsoleActions.binding_permissions/4
+      )
+    end
 
     allow(:console_requeue,
       resource: "site_console:agent:{agent_uid}:signal_bindings",
@@ -157,15 +148,7 @@ defmodule Ankole.Signals.ConsoleOperations do
         ]
       )
 
-      argument(:agent_uid, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:binding_name, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
       run(Ankole.Signals.ConsoleActions)
     end
@@ -177,10 +160,7 @@ defmodule Ankole.Signals.ConsoleOperations do
         fields: [signal_binding: [type: Ankole.Signals.ConsoleBinding, allow_nil?: false]]
       )
 
-      argument(:agent_uid, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
+      argument(:agent_uid, :string, constraints: [trim?: false, allow_empty?: true])
 
       argument(:adapter_id, :string,
         allow_nil?: false,
@@ -190,6 +170,10 @@ defmodule Ankole.Signals.ConsoleOperations do
       argument(:binding_name, :string,
         allow_nil?: false,
         constraints: [trim?: false, allow_empty?: true]
+      )
+
+      argument(:routing_mode, :atom,
+        constraints: [one_of: [:ai_colleague, :sender_personal_assistant]]
       )
 
       argument(:config, Ankole.Ash.Types.JSONMap, allow_nil?: false, sensitive?: true)
@@ -207,22 +191,15 @@ defmodule Ankole.Signals.ConsoleOperations do
         fields: [signal_binding: [type: Ankole.Signals.ConsoleBinding, allow_nil?: false]]
       )
 
-      argument(:agent_uid, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
+      argument(:agent_uid, :string, constraints: [trim?: false, allow_empty?: true])
+
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      argument(:routing_mode, :atom,
+        constraints: [one_of: [:ai_colleague, :sender_personal_assistant]]
       )
 
-      argument(:target_agent_uid, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:binding_name, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:config, Ankole.Ash.Types.JSONMap, allow_nil?: false, sensitive?: true)
+      argument(:config, Ankole.Ash.Types.JSONMap, sensitive?: true)
       argument(:target, Ankole.Ash.Types.JSONValue)
       argument(:filters, Ankole.Ash.Types.JSONValue)
       argument(:group_message_mode, :string, constraints: [trim?: false, allow_empty?: true])

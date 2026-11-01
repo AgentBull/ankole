@@ -801,7 +801,10 @@ defmodule Ankole.ConversationsTest do
                Ankole.ConversationsFixtures.create(human.uid, %{request | page_id: other_page.id})
              end)
 
-    {:ok, _} = Repo.delete(page)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(human.uid)
+    assert {:ok, _} = Ankole.Files.Nodes.trash(actor, page.id)
+    assert {:ok, _} = Ankole.Files.Nodes.purge(actor, page.id)
+    assert :ok = Ankole.Files.Jobs.PurgeNode.run(%Oban.Job{args: %{"node_id" => page.id}})
 
     assert {:ok, %{conversation: %{page_id: nil}}} =
              Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)

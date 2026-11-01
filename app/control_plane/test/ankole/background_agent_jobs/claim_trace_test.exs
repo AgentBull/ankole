@@ -20,6 +20,40 @@ defmodule Ankole.BackgroundAgentJobs.ClaimTraceTest do
   @max_claims 25
   @max_execution_failures 5
 
+  test "renaming an inactive Agent preserves its Job-owned Session" do
+    %{principal: agent} = background_agent_fixture()
+    job = job!(agent.uid, "rename-owner")
+    key = BackgroundAgentJobs.job_session_id(job.id)
+
+    assert {:ok, workspace} =
+             Repo.transact(fn -> Ankole.Sessions.Workspaces.ensure_in_tx(agent.uid, key) end)
+
+    assert {:ok, _} = Ankole.Principals.disable_agent(agent.uid)
+    assert {:ok, %{principal: renamed}} = Ankole.Principals.rename(agent.uid, "renamed-job-owner")
+    assert Repo.reload!(workspace).agent_uid == renamed.uid
+    assert fetch!(job).agent_uid == renamed.uid
+  end
+
+  test "an attempt claim preserves the pause until the Worker acknowledges its recovered thread" do
+    %{principal: agent} = background_agent_fixture()
+    job = job!(agent.uid, "cold-resume")
+    paused_at = DateTime.utc_now() |> DateTime.add(-900, :second) |> DateTime.to_iso8601()
+    set_job!(job, metadata: %{"paused_at" => paused_at, "pending_user_input" => %{}})
+    spec = %{model_ref: %{"provider_id" => "test"}, request_context: %{}}
+    assert {:ok, claimed} = claim(job, agent.uid, 1, spec, 10)
+    assert claimed.metadata["paused_at"] == paused_at
+    refute Map.has_key?(claimed.metadata, "pending_user_input")
+
+    assert {:ok, %{job: acknowledged}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "restored-thread",
+               "metadata" => %{"paused_at" => nil}
+             })
+
+    assert acknowledged.metadata["paused_at"] == nil
+  end
+
   test "claim budgets, expected attempts, and terminal states reject" do
     %{principal: agent} = background_agent_fixture()
     job = job!(agent.uid, "budget")

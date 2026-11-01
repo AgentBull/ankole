@@ -15,7 +15,7 @@ To keep responsibilities clear, Ankole separates five records across distinct ow
 
 The conversation record holds the messages visible to human and Agent participants, whereas the work log holds model calls and tool results. Each participating Agent in a conversation owns its own Session and model state: all conversation participants can view the work in that Session, and a Session never crosses conversations.
 
-Interactive and human-triggered turns (including human-woken `may_intervene` turns; Agent messages never wake other Agents) execute under the **`Human ∩ Agent` permission intersection** (`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`), while autonomous non-human turns (`cron`, `webhook`, and background service triggers without an interactive human) execute under the Agent's own permissions. Visibility follows the conversation; execution permissions follow the turn's `AuthZ.Actor`.
+Each Agent has its own Session in a conversation, and its visible output is shared with the conversation participants. Every turn accesses resources as the executing Agent, including interactive, human-woken `may_intervene`, scheduled and service-triggered turns. Agent messages never wake other Agents. Human employment and instruction versions still determine whether delegated work may continue; they do not intersect Human grants with Agent resource access.
 
 ### Admit every stimulus through Signals
 
@@ -59,7 +59,7 @@ Note that qm's `SPEC.md` still refers to “tape” as a design term while docum
 
 - **More concepts and code.** Separating conversations, signals, sessions, delivery, and model state requires maintaining distinct subsystem boundaries.
 - **Two records to inspect.** Diagnosing an incident can require reading both the conversation's messages and the Session's work log.
-- **Shared work can surface results to the room.** Information retrieved under a turn's permissions enters the conversation's shared context. Tool-invocation checks (`agent:<uid>:tool:<tool_name>` with action `invoke` and `context.request.args`) and Pod operations evaluate against the active turn's `AuthZ.Actor`, whereas qm filters session history dynamically per audience. [qm source][Q-audience]
+- **Shared work can surface results to the room.** Information retrieved by the executing Agent and included in its reply enters the conversation's shared context. Available tools come from its tool catalog; operations inside a tool authorize their resources as the Agent. Human instruction validity is checked separately. In comparison, qm filters session history dynamically per audience. [qm source][Q-audience]
 - **Heavier infrastructure.** Running PostgreSQL transactions and an OTP control plane adds latency and operational overhead compared with a local single-file harness.
 - **Uncommitted streaming text is ephemeral.** If a process crashes mid-stream, uncommitted partial text is discarded; during recovery, the Session Driver may repeat an interrupted model call, reuses committed tool results, and avoids blindly repeating uncertain Worker operations, so external side effects carry no exactly-once guarantee. By contrast, `pi durable` publishes progress only after storage commit. [Source][P-guide]
 - **Wire-protocol constraints.** Stateful continuations require an upstream or gateway wire format capable of replaying stored response items losslessly.

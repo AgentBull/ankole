@@ -10,6 +10,11 @@ export function principalUID(): string | undefined {
   return meta('ankole-principal')
 }
 
+/** Apply the server-confirmed rename to this document's Principal identity. */
+export function replacePrincipalUID(uid: string): void {
+  document.querySelector<HTMLMetaElement>('meta[name="ankole-principal"]')!.content = uid
+}
+
 /** A verified credential change replaces only this document's proof. */
 export function replaceAuthentication(reference: string, csrfToken: string): void {
   document.querySelector<HTMLMetaElement>('meta[name="ankole-authentication"]')!.content = reference

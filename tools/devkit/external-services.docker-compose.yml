@@ -3,6 +3,7 @@ name: ankole-dev
 services:
   postgres:
     image: ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest
+    shm_size: 1gb
     command:
       [
         "postgres",

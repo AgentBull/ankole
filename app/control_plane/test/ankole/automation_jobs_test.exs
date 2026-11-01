@@ -205,7 +205,10 @@ defmodule Ankole.AutomationJobsTest do
 
     assert {:snooze, 10} = execute(run, attempt: 1)
     assert %Run{status: :queued, attempts: 0} = Repo.get!(Run, run.id)
-    assert %AgentWorker{wanted_until: %DateTime{}} = Repo.get!(AgentWorker, agent.uid)
+
+    assert %AgentWorker{wanted_until: %DateTime{}} =
+             Repo.get_by!(AgentWorker, agent_uid: agent.uid)
+
     assert_enqueued(worker: ReconcileJob, args: %{"agent_uid" => agent.uid})
 
     Repo.update_all(where(AgentWorker, agent_uid: ^agent.uid), set: [wanted_until: nil])
@@ -214,7 +217,7 @@ defmodule Ankole.AutomationJobsTest do
              AutomationJobs.cancel_job(agent.uid, source.session_id, job.id)
 
     assert :ok = execute(run, attempt: 1)
-    assert %AgentWorker{wanted_until: nil} = Repo.get!(AgentWorker, agent.uid)
+    assert %AgentWorker{wanted_until: nil} = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
   end
 
   test "a Worker that stays not ready for ready_timeout costs one attempt, and the last one fails the run" do
@@ -672,7 +675,7 @@ defmodule Ankole.AutomationJobsTest do
                now: @now
              )
 
-    assert {:ok, _agent} = Repo.delete(agent)
+    delete_agent_fixture_rows(agent.uid)
     refute Repo.get(Ankole.AutomationJobs.Schemas.Job, job.id)
     refute Repo.get(Run, run.id)
     refute Repo.get(ScheduledEvent, scheduled.id)

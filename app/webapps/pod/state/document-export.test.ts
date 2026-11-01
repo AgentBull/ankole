@@ -41,11 +41,11 @@ function pageDetail(id: string, title: string, type: PageDetail['page']['type'])
       created_at: '2026-10-30T10:00:00Z',
       updated_at: '2026-10-30T10:00:00Z',
       deleted_at: null,
-      actions: ['page_view'],
+      actions: ['node_view'],
       role: 'view'
     },
     ancestors: [],
-    actions: ['page_view'],
+    actions: ['node_view'],
     role: 'view',
     child_count: 0
   }

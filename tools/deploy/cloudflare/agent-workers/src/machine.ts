@@ -265,7 +265,8 @@ export class WorkerMachine {
       return null
     }
     return {
-      agent_uid: contract.agentUid,
+      tenant_id: contract.env.ANKOLE_WORKER_TENANT_ID!,
+      agent_uid: contract.env.WORKER_ID!,
       generation: contract.generation,
       phase:
         (!this.container.running && finishing) || deleting

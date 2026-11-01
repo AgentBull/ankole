@@ -11,6 +11,11 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => controller.abort(new DOMException(signal, 'AbortError')))
 }
 
+process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+  if (error?.code === 'EPIPE' || error?.code === 'ERR_STREAM_DESTROYED') return
+  throw error
+})
+
 let response: BrowserResponse
 let json = false
 try {

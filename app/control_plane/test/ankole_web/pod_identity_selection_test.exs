@@ -182,6 +182,8 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
 
     shell =
       signed
+      |> send_resp(200, "")
+      |> recycle()
       |> put_req_header("accept", "text/html")
       |> put_req_header("x-ankole-authentication", pinned)
       |> get(ctx.origin <> "/")
@@ -244,6 +246,8 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
 
     session =
       ctx.signed
+      |> send_resp(200, "")
+      |> recycle()
       |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(ctx.a_ref))
       |> get(ctx.origin <> "/api/v2/browser/session")
       |> api_response(200)

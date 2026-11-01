@@ -31,7 +31,7 @@ export type CreatePageOptions = {
   onCreated?: (page: Page) => void
 }
 
-type PageType = 'doc' | 'base' | 'file'
+type PageType = 'doc' | 'base' | 'folder' | 'file'
 
 export type PageCreation = {
   isPending: boolean
@@ -50,7 +50,7 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
       targetScope,
       targetOwner
     }: {
-      input: 'doc' | 'base' | File
+      input: 'doc' | 'base' | 'folder' | File
       targetParentID?: string
       targetScope?: 'space' | 'private'
       targetOwner?: string
@@ -71,7 +71,7 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
       })
     }
   })
-  const run = async (type: 'doc' | 'base' | 'file', override?: CreatePageOptions) => {
+  const run = async (type: 'doc' | 'base' | 'folder' | 'file', override?: CreatePageOptions) => {
     const input = type === 'file' ? await chooseLocalFile() : type
     if (!input) return
     const callback = override?.onCreated ?? latestOnCreated.current
@@ -114,7 +114,7 @@ export function useSubpageCreation() {
   const navigate = useNavigate()
   const client = useQueryClient()
   const mutation = useMutation({
-    mutationFn: ({ input, parentID }: { input: 'doc' | 'base' | File; parentID: string }) => {
+    mutationFn: ({ input, parentID }: { input: 'doc' | 'base' | 'folder' | File; parentID: string }) => {
       if (input instanceof File) return createFilePage(input, { parent_id: parentID })
       return pageAPI.create({ type: input, title: '', parent_id: parentID })
     }
@@ -137,7 +137,7 @@ export function useSubpageCreation() {
   return forParent
 }
 
-const pageTypes = ['doc', 'base', 'file'] as const
+const pageTypes = ['doc', 'base', 'folder', 'file'] as const
 
 function PageTypeItems({ create, types = pageTypes }: { create: PageCreation; types?: readonly PageType[] }) {
   useTranslation()

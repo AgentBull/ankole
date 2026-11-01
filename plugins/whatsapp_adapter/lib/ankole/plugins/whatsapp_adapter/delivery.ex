@@ -74,10 +74,13 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
   @spec messages(Intent.t(), map(), [map()]) :: {:ok, [map()]} | {:error, term()}
   def messages(%Intent{operation: operation} = intent, target, uploads)
       when operation in [:post, :reply, :card] do
+    visible_text = plain_visible_text(intent)
+    normalized = %{intent | fallback_visible_text: visible_text}
+
     bodies =
       case uploads do
-        [] -> Presentation.text_messages(intent.fallback_visible_text) ++ action_messages(intent)
-        uploads -> media_bodies(intent, uploads)
+        [] -> Presentation.text_messages(visible_text) ++ action_messages(normalized)
+        uploads -> media_bodies(normalized, uploads)
       end
 
     {:ok, envelopes(bodies, target, intent)}
@@ -428,4 +431,10 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp plain_visible_text(%Intent{delivery_class: :durable_ai_reply, fallback_visible_text: text})
+       when is_binary(text),
+       do: Ankole.Plugins.MarkdownChunks.unescape_plain_tildes(text)
+
+  defp plain_visible_text(%Intent{fallback_visible_text: text}), do: text
 end

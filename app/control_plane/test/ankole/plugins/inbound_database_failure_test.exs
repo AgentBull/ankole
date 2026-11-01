@@ -64,6 +64,7 @@ defmodule Ankole.Plugins.InboundDatabaseFailureTest do
 
   defp context(adapter) do
     AdapterContext.new(
+      binding_id: Ecto.UUID.generate(),
       agent_uid: "agent",
       binding_name: "main",
       adapter: adapter,

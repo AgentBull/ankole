@@ -35,7 +35,7 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   defp committed(grant) do
-    if grant_affects_pod?(grant), do: Ankole.Pod.Access.broadcast_change()
+    if grant_affects_pod?(grant), do: Ankole.Files.Access.broadcast_change()
   end
 
   def create_permission_grant(attrs) do
@@ -45,7 +45,7 @@ defmodule Ankole.AuthZ.Grants do
          :ok <- lock_pod(attrs),
          :ok <- allow_guest_share(attrs),
          {:ok, grant} <- Ankole.Ash.create(Grant, :create_in_tx, attrs),
-         :ok <- refresh_targets([grant.target_page_id]) do
+         :ok <- refresh_targets([grant.target_node_id]) do
       {:ok, grant}
     end
   end
@@ -60,7 +60,7 @@ defmodule Ankole.AuthZ.Grants do
            Ankole.Ash.create(Grant, :upsert_in_tx, attrs,
              upsert_identity: permission_grant_identity(attrs)
            ),
-         :ok <- refresh_targets([grant.target_page_id]) do
+         :ok <- refresh_targets([grant.target_node_id]) do
       {:ok, grant}
     end
   end
@@ -75,7 +75,7 @@ defmodule Ankole.AuthZ.Grants do
          :ok <- lock_pod?(Enum.any?(normalized, &grant_affects_pod?/1)),
          :ok <- allow_guest_shares(normalized),
          {:ok, grants} <- upsert_grant_batches(normalized),
-         :ok <- refresh_targets(Enum.map(grants, & &1.target_page_id)) do
+         :ok <- refresh_targets(Enum.map(grants, & &1.target_node_id)) do
       {:ok, grants}
     end
   end
@@ -95,7 +95,7 @@ defmodule Ankole.AuthZ.Grants do
 
     attrs =
       if Map.has_key?(changes, :resource_pattern) do
-        Enum.reduce([:target_page_id, :target_scope], attrs, fn key, acc ->
+        Enum.reduce([:target_node_id, :target_scope], attrs, fn key, acc ->
           if Map.has_key?(changes, key), do: acc, else: Map.delete(acc, key)
         end)
       else
@@ -105,7 +105,7 @@ defmodule Ankole.AuthZ.Grants do
     with {:ok, attrs} <- grant_attrs(attrs),
          :ok <- allow_guest_share(attrs),
          {:ok, updated} <- Ankole.Ash.update(grant, :update_in_tx, attrs),
-         :ok <- refresh_targets([grant.target_page_id, updated.target_page_id]) do
+         :ok <- refresh_targets([grant.target_node_id, updated.target_node_id]) do
       {:ok, updated}
     end
   end
@@ -119,7 +119,7 @@ defmodule Ankole.AuthZ.Grants do
 
   defp delete_current_grant(grant) do
     with {:ok, deleted} <- Ankole.Ash.destroy(grant, :delete_in_tx),
-         :ok <- refresh_targets([grant.target_page_id]) do
+         :ok <- refresh_targets([grant.target_node_id]) do
       {:ok, deleted}
     end
   end
@@ -127,15 +127,15 @@ defmodule Ankole.AuthZ.Grants do
   @doc "Deletes a group's grants and refreshes their Page anchors in the caller's transaction."
   def delete_group_grants_in_tx(group_id) do
     :ok = Repo.require_transaction()
-    Ankole.Pod.Pages.lock_tree()
+    Ankole.Files.lock_tree_in_tx()
     query = Grant |> Ash.Query.filter(group_id == ^group_id)
 
     targets =
       query
-      |> Ash.Query.filter(not is_nil(target_page_id))
-      |> Ash.Query.select([:target_page_id])
+      |> Ash.Query.filter(not is_nil(target_node_id))
+      |> Ash.Query.select([:target_node_id])
       |> Ankole.Ash.read!()
-      |> Enum.map(& &1.target_page_id)
+      |> Enum.map(& &1.target_node_id)
 
     with {:ok, _} <- Ankole.Ash.destroy_where(query, :delete_in_tx),
          do: refresh_targets(targets)
@@ -145,13 +145,13 @@ defmodule Ankole.AuthZ.Grants do
       when is_binary(action) and is_binary(pattern) do
     page_action?(action) or
       (action == "update" and
-         Ankole.Kernel.authz_match_resource_pattern(pattern, "tenant_console:pod_space") == true)
+         Ankole.Kernel.authz_match_resource_pattern(pattern, "tenant_console:drive_space") == true)
   end
 
   def grant_affects_pod?(_attrs), do: false
 
   defp lock_pod(attrs), do: lock_pod?(grant_affects_pod?(attrs))
-  defp lock_pod?(true), do: Ankole.Pod.Pages.lock_tree()
+  defp lock_pod?(true), do: Ankole.Files.lock_tree_in_tx()
   defp lock_pod?(false), do: :ok
 
   defp lock_current_grant(id, attrs) do
@@ -189,7 +189,7 @@ defmodule Ankole.AuthZ.Grants do
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.reduce_while(:ok, fn id, :ok ->
-      case Ankole.Pod.Access.refresh_anchor_in_tx(id) do
+      case Ankole.Files.Access.refresh_anchor_in_tx(id) do
         :ok -> {:cont, :ok}
         {:error, _} = error -> {:halt, error}
       end
@@ -245,7 +245,7 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   defp grant_natural_key(attrs, :userset_rule) do
-    {Map.get(attrs, :source_page_id), Map.get(attrs, :source_action),
+    {Map.get(attrs, :source_node_id), Map.get(attrs, :source_action),
      Map.get(attrs, :resource_pattern), Map.get(attrs, :action),
      Map.get(attrs, :condition, "true")}
   end
@@ -257,7 +257,7 @@ defmodule Ankole.AuthZ.Grants do
 
   defp allow_guest_share(%{principal_uid: uid, action: action})
        when is_binary(uid) and
-              action in ~w(page_view page_write_records page_edit page_manage page_comment) do
+              action in ~w(node_view node_contribute node_edit node_manage node_comment) do
     with {:ok, principal} <- Ankole.Principals.get_principal(uid) do
       if principal.membership == :guest do
         with {:ok, enabled} <-
@@ -350,15 +350,15 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   defp normalize_target(%{action: action, resource_pattern: pattern} = attrs)
-       when action in ~w(page_view page_write_records page_edit page_manage page_comment) and
+       when action in ~w(node_view node_contribute node_edit node_manage node_comment) and
               is_binary(pattern) do
     case Regex.run(
-           ~r/\Apod:\*\*:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):(\*\*|page)\z/,
+           ~r/\Adrive:\*\*:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):(\*\*|node)\z/,
            pattern
          ) do
       [_, id, suffix] ->
         scope = if suffix == "**", do: "container", else: "self"
-        {:ok, attrs |> Map.put_new(:target_page_id, id) |> Map.put_new(:target_scope, scope)}
+        {:ok, attrs |> Map.put_new(:target_node_id, id) |> Map.put_new(:target_scope, scope)}
 
       _ ->
         {:ok, attrs}
@@ -367,11 +367,11 @@ defmodule Ankole.AuthZ.Grants do
 
   defp normalize_target(attrs), do: {:ok, attrs}
 
-  defp page_action?(action), do: action in Ankole.Pod.Access.page_actions()
+  defp page_action?(action), do: action in Ankole.Files.Access.page_actions()
 
   defp refuse_page_action(action) do
     if page_action?(action),
-      do: {:error, invalid_argument(:action, "#{action} is written by the Pod")},
+      do: {:error, invalid_argument(:action, "#{action} is written by Drive")},
       else: :ok
   end
 
@@ -394,7 +394,7 @@ defmodule Ankole.AuthZ.Grants do
         :principal_rule
 
       _not_principal_owned ->
-        if(Map.get(attrs, :source_page_id), do: :userset_rule, else: :group_rule)
+        if(Map.get(attrs, :source_node_id), do: :userset_rule, else: :group_rule)
     end
   end
 end

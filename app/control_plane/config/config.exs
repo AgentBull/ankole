@@ -1,15 +1,6 @@
 import Config
 import_config "dependencies.exs"
 
-config :phoenix, :filter_parameters, [
-  "password",
-  "newPassword",
-  "secret",
-  "token",
-  "code",
-  "state"
-]
-
 config :ankole,
   ecto_repos: [Ankole.Repo],
   generators: [timestamp_type: :utc_datetime]
@@ -67,7 +58,6 @@ config :ankole, Oban,
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},
     {Oban.Plugins.Cron,
      crontab: [
-       {"* * * * *", Ankole.Sessions.Jobs.EnqueueDailySessionResets},
        {"* * * * *", Ankole.Brain.Jobs.Tick},
        {"* * * * *", Ankole.Sessions.Reconciler},
        {"*/5 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
@@ -122,3 +112,6 @@ config :ankole, :webapp_assets_path, Path.join(artifacts, "webapps/assets")
 config :ankole, :i18n, locales_dir: Path.join(artifacts, "locales")
 
 import_config "#{config_env()}.exs"
+
+# Pod owns its content while Drive owns the shared node lifecycle.
+config :ankole, Ankole.Files.ContentOwner, Ankole.Pod.ContentOwner

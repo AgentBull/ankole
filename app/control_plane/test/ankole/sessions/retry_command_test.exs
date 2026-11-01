@@ -308,8 +308,7 @@ defmodule Ankole.Sessions.RetryCommandTest do
 
     assert {:ok, _} =
              Observe.emit_entry_removed(
-               agent.uid,
-               "bot",
+               Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                lifecycle_entry(%{
                  source_event_id: "removed",
                  provider_message_id: source.provider_message_id,

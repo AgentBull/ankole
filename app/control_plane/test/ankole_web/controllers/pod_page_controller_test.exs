@@ -36,8 +36,11 @@ defmodule AnkoleWeb.PodPageControllerTest do
     upload = %Plug.Upload{path: path, filename: "report.txt", content_type: "text/plain"}
     created = post(conn, "/api/v2/pod/file-pages", %{file: upload})
 
-    assert %{"page" => %{"id" => id, "title" => "report.txt", "revision" => 1}} =
+    assert %{"page" => %{"id" => id, "title" => "report.txt", "object_id" => object_id}} =
              json_response(created, 200)
+
+    assert {:ok, _} = Ecto.UUID.cast(object_id)
+    assert {:ok, %{object_id: ^object_id}} = Pages.fetch(id)
 
     response =
       created
@@ -209,7 +212,7 @@ defmodule AnkoleWeb.PodPageControllerTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(uid),
                target.id,
-               "page_manage"
+               "node_manage"
              )
 
     removed =

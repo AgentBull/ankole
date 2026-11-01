@@ -138,11 +138,12 @@ function ExecutionLog({ conversationID, run }: { conversationID: string; run: Li
       )}
     </Button>
   )
+  const isLiveRun = ['queued', 'running', 'waiting_on_user', 'awaiting_input'].includes(run.status)
   return (
     <>
       {logs.isPending && <p role="status">{t('pod.chat_timeline.loading_execution')}</p>}
       {earlier && more}
-      {text && <ChatMarkdown text={text} />}
+      {text && <ChatMarkdown text={text} generated streaming={isLiveRun} />}
       {!logs.isPending && !logs.error && !text && (
         <p className="text-fg-tertiary">{t('pod.chat_timeline.no_execution_steps')}</p>
       )}

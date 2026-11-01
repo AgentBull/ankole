@@ -289,7 +289,9 @@ and any fresh resume or retry. When a Human's access is revoked, cleanup stops
 `queued` and `waiting_on_user` Jobs once any already admitted Codex Turn
 finishes; it never interrupts an in-flight Turn or discards its result. Child
 work retains the originating Human association even when tools authenticate with
-Agent credentials.
+Agent credentials. Drive and Pod resource checks use that executing Agent's
+Principal as their single subject; the Human snapshot controls admission and
+revocation independently of the Agent's grants.
 
 ## What PostgreSQL Stores
 
@@ -592,12 +594,13 @@ Workspace root: any optional workspace template provides the opening section,
 followed by the rendered Agent `SOUL` and `MISSION` documents and execution
 context.
 
-If the Job originated in a channel conversation, the execution context names
-that conversation's drive directory (whereas Jobs without a source channel use
-the shared drive). Because the local Job Workspace is temporary scratch space,
-the instructions direct the Job to save durable outputs and outbound
-deliverables into its assigned drive directory and forbid reading or writing
-another conversation's workspace or drive folder.
+The local Job Workspace is temporary scratch space. The execution context
+directs the Job to save durable outputs in its Agent's private Drive with
+`ankole-files put` and return the resulting `nodeId` to the caller. Received
+attachments include an `ankole-pod chat attachment get` command that reads the
+source Message's frozen object under current conversation membership. Other
+conversations have separate Worker workspaces, and shared Drive nodes require
+the executing Agent's own permissions.
 
 The rendered context also embeds the ordinary Skill index (omitting Skills
 marked `brain-recall-only: true`, which remain discoverable through Brain),
@@ -853,6 +856,15 @@ thread loss):
    durable Workspace files, bounded attempt history, and (for continued Jobs)
    the source Job's `task` and final report, setting
    `runtime_checkpoint_recovery: new_thread_from_bounded_history`.
+3. **Cold-idle thread recycle**: when resuming a `waiting_on_user` Job whose
+   paused duration reaches 10 minutes and whose latest model call reports at
+   least `128,000` total tokens, `CodexJobSession` starts a fresh thread from the
+   same bounded Workspace rebuild rather than replaying a cold large context
+   window, rotating the runtime CLI `contextId` whenever a fresh thread starts or
+   compaction settles. An attempt claim preserves `metadata.paused_at` for the
+   Worker to inspect. The Worker clears it in the running-status commit after
+   recovering or replacing the thread; an earlier failure preserves it for retry.
+   Lifetime `thread_total` usage does not measure the current context window.
 
 ## Create and Dispatch a Job Once
 
@@ -1016,11 +1028,13 @@ lifecycle):
   and `temp` at any depth. If a scan exceeds 50,000 files or 2 seconds, it stops
   and records `workspace_snapshot_skipped` alongside `codex_diff`; edits that
   leave both byte size and mtime unchanged are invisible to the snapshot.
-- Outbound attachments must live in the Agent's drive: `reply_attachment`
-  accepts only `drive_path`, pins the current SHA-256 digest, confines
-  `chats/<channel_id>/` files to that exact channel (see [Files](Files.md)), and
-  requires explicit structured attachment calls (Ankole never scrapes file paths
-  from prose).
+- The parent turn registers outbound files through `reply_attachment` with a
+  `node_id`. Ankole authorizes that node for the executing Agent and freezes its
+  current `object_id` in the final Message or Delivery relation. A file in a
+  conversation root can only be sent to that conversation; files from other
+  authorized roots can be sent to any reachable conversation. Moving or changing
+  the node cannot change an already committed attachment. The call is explicit;
+  Ankole never scrapes file paths from prose.
 
 ## Console background activity coverage
 

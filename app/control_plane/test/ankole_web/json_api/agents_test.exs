@@ -30,7 +30,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
     response =
       send_v2(conn, :post, "/api/v2/agents", %{
         "worker_provider_id" => provider.provider_id,
-        "handle" => "Console-Agent",
+        "uid" => "Console-Agent",
         "display_name" => "Console Agent",
         "role" => "Research Operator",
         "owner_principal_uid" => owner.uid,
@@ -39,7 +39,6 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
     assert %{
              "uid" => agent_uid,
-             "handle" => "console-agent",
              "display_name" => "Console Agent",
              "role" => "Research Operator",
              "status" => "active",
@@ -52,7 +51,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
     assert worker_provider_id == provider.provider_id
     assert tenant_id == Repo.tenant_id()
-    assert {:ok, _} = Ecto.UUID.cast(agent_uid)
+    assert agent_uid == "console-agent"
     Ankole.ConversationsFixtures.grant_chat(owner.uid, agent_uid)
 
     conversation_ids =
@@ -87,7 +86,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
     assert %{
              "data" => %{
                "id" => ^agent_uid,
-               "attributes" => %{"display_name" => "Console Agent Updated", "handle" => _}
+               "attributes" => %{"display_name" => "Console Agent Updated"}
              }
            } = conn |> send_v2(:get, "/api/v2/agents/#{agent_uid}") |> json_response(200)
 
@@ -115,7 +114,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
     for id <- conversation_ids, do: assert_receive({:conversation_event, ^id, :status})
 
-    assert %{"handle" => "console-agent"} =
+    assert %{"uid" => "console-agent"} =
              conn |> send_v2(:delete, "/api/v2/agents/#{agent_uid}") |> json_response(200)
 
     for id <- conversation_ids do
@@ -159,7 +158,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
     for display_name <- [nil, "   "] do
       response =
         send_v2(conn, :post, "/api/v2/agents", %{
-          "handle" => unique_uid("blank-display-name"),
+          "uid" => unique_uid("blank-display-name"),
           "display_name" => display_name,
           "role" => "Research Analyst",
           "owner_principal_uid" => owner.uid
@@ -174,7 +173,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
     response =
       send_v2(conn, :post, "/api/v2/agents", %{
         "worker_provider_id" => provider.provider_id,
-        "handle" => unique_uid("quota-at-creation"),
+        "uid" => unique_uid("quota-at-creation"),
         "display_name" => "Quota At Creation",
         "role" => "Research Analyst",
         "owner_principal_uid" => owner.uid,
@@ -236,7 +235,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
     for %{"attributes" => attributes} <- workers do
       assert Map.keys(attributes) |> Enum.sort() ==
-               ~w(capacity drain_reason generation image last_error last_worker_heartbeat_at load provider_id state state_changed_at)
+               ~w(agent_uid capacity drain_reason generation image last_error last_worker_heartbeat_at load provider_id state state_changed_at)
     end
   end
 

@@ -97,6 +97,39 @@ defmodule Ankole.ConversationsMemoryTest do
              ["Original request"]
   end
 
+  test "a wake briefing omits the text of a withdrawn reply target", ctx do
+    secret = post!(ctx, "WITHDRAWN_QUOTE_SENTINEL")
+    reply = post!(ctx, "A reply that remains visible")
+    message = Repo.get_by!(Message, id: reply.message_id)
+    Repo.update!(Ecto.Changeset.change(message, reply_to_message_id: secret.message_id))
+    Repo.update!(Ecto.Changeset.change(reply, last_attempt_at: DateTime.utc_now(:microsecond)))
+
+    {messages, quotes} =
+      Ankole.Conversations.Queries.wake_briefing_messages(
+        ctx.id,
+        ctx.agent.uid,
+        message.seq,
+        [],
+        20
+      )
+
+    assert Enum.any?(messages, &(&1.id == message.id))
+    assert quotes[secret.message_id].text == "WITHDRAWN_QUOTE_SENTINEL"
+    assert {:ok, _} = queue_command(ctx, %{action: "retract", message_id: secret.message_id})
+
+    {messages, quotes} =
+      Ankole.Conversations.Queries.wake_briefing_messages(
+        ctx.id,
+        ctx.agent.uid,
+        message.seq,
+        [],
+        20
+      )
+
+    assert Enum.any?(messages, &(&1.id == message.id))
+    refute Map.has_key?(quotes, secret.message_id)
+  end
+
   test "a removed queue identity is retained for retries but is absent from learning and Main context",
        ctx do
     input = post!(ctx, "A removed confidential request")

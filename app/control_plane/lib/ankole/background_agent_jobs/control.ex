@@ -396,6 +396,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
       sender: nil,
       authorization: Ankole.Principals.WorkAccess.fields(job),
       reply_route: %{
+        binding_id: Map.get(reply_route, "binding_id"),
         binding_name: Map.get(reply_route, "binding_name"),
         conversation_id: Map.get(reply_route, "conversation_id"),
         provider_thread_id: Map.get(reply_route, "provider_thread_id"),

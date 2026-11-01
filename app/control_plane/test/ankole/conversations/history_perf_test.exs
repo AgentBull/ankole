@@ -37,7 +37,6 @@ defmodule Ankole.Conversations.HistoryPerfTest do
           author_display_name: human.display_name,
           kind: :message,
           text: "Retained statement #{seq}",
-          attachments: [],
           created_at: now
         }
       end)

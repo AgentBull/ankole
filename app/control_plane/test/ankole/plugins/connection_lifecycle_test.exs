@@ -487,14 +487,14 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       filters: %{"cel" => "true"}
     }
 
-    assert {:ok, _} = Ankole.SignalsFixtures.raw_binding_fixture(attrs)
+    assert {:ok, binding} = Ankole.SignalsFixtures.raw_binding_fixture(attrs)
     assert %{started: 1, errors: []} = Connections.reconcile_once()
     assert [{owner, _}] = Registry.lookup(@registry, "app")
     assert %{started: 1, errors: []} = Connections.reconcile_once()
     assert [{^owner, _}] = Registry.lookup(@registry, "app")
 
     assert {:ok, _} =
-             Ankole.SignalsFixtures.raw_binding_fixture(%{attrs | filters: %{"cel" => "false"}})
+             Ankole.SignalsFixtures.raw_binding_fixture(binding, %{filters: %{"cel" => "false"}})
 
     assert %{started: 1, errors: []} = Connections.reconcile_once()
     assert [{replacement, _}] = Registry.lookup(@registry, "app")
@@ -561,7 +561,11 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       end)
 
     assert %{started: 2, errors: []} = Connections.reconcile_once()
-    {:ok, _} = Ankole.Signals.Bindings.disable_binding(first.uid, "old")
+
+    {:ok, _} =
+      Ankole.Signals.Bindings.disable_binding(
+        Ankole.Signals.get_agent_binding!(first.uid, "old").id
+      )
 
     {:ok, _} =
       Ankole.SignalsFixtures.raw_binding_fixture(%{
@@ -572,7 +576,9 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       })
 
     Repo.with_tenant(other.id, fn ->
-      Ankole.Signals.Bindings.disable_binding(second.uid, "old")
+      Ankole.Signals.Bindings.disable_binding(
+        Ankole.Signals.get_agent_binding!(second.uid, "old").id
+      )
     end)
 
     assert %{stopped: 1, errors: [%{tenant_id: id, reason: :bad_config}]} =

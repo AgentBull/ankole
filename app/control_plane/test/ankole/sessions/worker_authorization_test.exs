@@ -9,7 +9,7 @@ defmodule Ankole.Sessions.WorkerAuthorizationTest do
   alias Ankole.Sessions.{Admission, PendingCall, Tool, Tools, Worker}
   alias Ankole.Signals.Signal
 
-  test "rendered web fetch dispatch retains the public tool grant and normalized arguments" do
+  test "rendered web fetch dispatch uses the executing Agent and normalized arguments" do
     human = human_fixture().principal
     agent = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: human.uid}).principal
     Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
@@ -75,7 +75,11 @@ defmodule Ankole.Sessions.WorkerAuthorizationTest do
     assert Torque.decode!(sent.arguments_json) == %{"urls" => args["urls"]}
 
     assert {:ok, _} = AuthZ.delete_permission_grant(permission.id)
-    assert {:error, {:forbidden, "invoke"}} = Worker.send_call(run, row, dispatch)
+    assert {:ok, :sent_or_queued} = Worker.send_call(run, row, dispatch)
+    assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, _}}}
+
+    assert {:ok, _} = Ankole.Principals.delete_agent(agent.uid)
+    assert {:error, :forbidden} = Worker.send_call(run, row, dispatch)
     refute_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, _}}}
   end
 

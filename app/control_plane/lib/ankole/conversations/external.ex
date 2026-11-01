@@ -94,8 +94,7 @@ defmodule Ankole.Conversations.External do
         fragment("?->>'dm_peer_principal_uid'", metadata) == ^principal_uid and
         exists(
           Ankole.Signals.Signal,
-          conversation_id == parent(id) and agent_uid == ^binding.agent_uid and
-            reply_binding_name == ^binding.name
+          conversation_id == parent(id) and reply_binding_id == ^binding.id
         )
     )
     |> Ash.Query.limit(2)
@@ -128,6 +127,7 @@ defmodule Ankole.Conversations.External do
   end
 
   def observe_conversation_in_tx(%{agent_uid: agent_uid}, observation, now) do
+    :ok = Ankole.Files.lock_tree_in_tx()
     provider_id = Ankole.Attrs.get(observation, :provider_conversation_id)
 
     if is_binary(provider_id) and String.trim(provider_id) != "" do
@@ -153,6 +153,7 @@ defmodule Ankole.Conversations.External do
   end
 
   def observe_in_tx(conversation_id, observation, now) do
+    :ok = Ankole.Files.lock_tree_in_tx()
     provider_id = Ankole.Attrs.get(observation, :provider_message_id)
 
     with :ok <- validate_provider_message_id(provider_id),
@@ -259,7 +260,7 @@ defmodule Ankole.Conversations.External do
 
       message_id = message.id || Ankole.Ecto.UUIDv7.autogenerate()
       before_message = if message.id, do: message
-      old_attachments = message.attachments || []
+      old_attachments = if is_list(message.attachments), do: message.attachments, else: []
       attachments = Ankole.Attrs.get(observation, :attachments) || old_attachments
 
       message_attrs =
@@ -375,6 +376,8 @@ defmodule Ankole.Conversations.External do
 
   defp write_conversation(conversation, attrs),
     do: Ankole.Ash.update(conversation, :observe, Map.delete(attrs, :provider_conversation_id))
+
+  defp ensure_agent(_id, nil), do: {:ok, nil}
 
   defp ensure_agent(id, uid) do
     Ankole.Ash.create(Participant, :join, %{conversation_id: id, principal_uid: uid, role: :agent})

@@ -132,7 +132,7 @@ export type RoutesAPI = {
 export type AppletRuntime = {
   pageID: string
   instanceID: string
-  actions: readonly ('page_view' | 'page_comment' | 'page_write_records' | 'page_edit' | 'page_manage')[]
+  actions: readonly ('node_view' | 'node_comment' | 'node_contribute' | 'node_edit' | 'node_manage')[]
   revision: number
   routes: RoutesAPI
   queryClient: QueryClient

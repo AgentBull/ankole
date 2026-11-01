@@ -15,13 +15,6 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     agent = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: alice.uid}).principal
     for human <- [alice, bob], do: Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
 
-    assert {:ok, _} =
-             Ankole.AuthZ.create_permission_grant(%{
-               principal_uid: alice.uid,
-               resource_pattern: "agent:#{agent.uid}:tool:clarify",
-               action: "invoke"
-             })
-
     id = Ecto.UUID.generate()
 
     assert {:ok, _} =
@@ -35,6 +28,21 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     assert {:ok, _} = NativeRoom.manage(actor_fixture(alice), id, %{add_uids: [bob.uid]})
     event = Repo.one!(from s in Signal, where: s.conversation_id == ^id)
     %{alice: alice, bob: bob, agent: agent, id: id, event: event}
+  end
+
+  test "generic native answers reject action-card identifiers before changing a checkpoint",
+       ctx do
+    for interaction_id <- [
+          "action_card:#{Ecto.UUID.generate()}",
+          "#{ctx.event.id}:action_card:#{Ecto.UUID.generate()}"
+        ] do
+      assert {:error, :invalid_reply_interaction} =
+               Conversations.answer_interaction(actor_fixture(ctx.bob), ctx.id, interaction_id, %{
+                 choice_id: "confirm"
+               })
+    end
+
+    assert Repo.aggregate(Signal, :count) == 1
   end
 
   test "a real native clarify tool commits a card, records the first answer, and resumes its Agent",
@@ -205,8 +213,13 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     assert answer.mentions == [%{"type" => "human", "uid" => ctx.alice.uid}]
     assert [attachment] = answer.attachments
     assert attachment["name"] == "report-specification.txt"
-    assert attachment["path"] =~ "chats/#{ctx.id}/inbox/#{answer.id}/"
-    assert {:ok, ^bytes} = Ankole.Files.read_content(attachment["blob_ref"])
+    assert is_binary(attachment["node_id"])
+    assert is_binary(attachment["object_id"])
+    assert {:ok, node} = Ankole.Files.fetch_node(attachment["node_id"])
+    assert {:ok, root} = Ankole.Files.conversation_root(ctx.id)
+    assert node.parent_id == root.id
+    assert {:ok, _} = Conversations.read_attachment_to_file(actor, ctx.id, answer.id, 0, local)
+    assert File.read!(local) == bytes
     assert reply.data["entry"] == %{"text" => nil, "attachments" => [attachment]}
 
     assert %{"state" => "answered", "answer_text" => "", "answered_by_uid" => answered_by} =
@@ -337,7 +350,7 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     assert %{"state" => "pending"} = Interactions.native_interaction(card.signal_id, id)
   end
 
-  test "Pod RPC reads use the speaking Human intersection even with a privileged room member",
+  test "Pod RPC reads use the executing Agent permissions regardless of the speaking Human",
        ctx do
     alias Ankole.Pod.{Bases, Pages, RPCBroker}
     alias Ankole.RuntimeFabric.V1.PodRequest
@@ -365,13 +378,13 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
                  grants: [%{principal_uid: ctx.agent.uid, role: "view"}]
                })
 
-      assert {:ok, _} = Pages.authorize(actor_fixture(ctx.agent), page.id, "page_view")
-      assert {:error, :forbidden} = Pages.authorize(actor_fixture(ctx.bob), page.id, "page_view")
+      assert {:ok, _} = Pages.authorize(actor_fixture(ctx.agent), page.id, "node_view")
+      assert {:error, :forbidden} = Pages.authorize(actor_fixture(ctx.bob), page.id, "node_view")
     end
 
     rpc_context = %{
       worker_id: ctx.agent.uid,
-      route: "native-read-intersection",
+      route: "native-agent-read",
       request_id: "read-private"
     }
 
@@ -404,22 +417,24 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     bob_ref = %RunRef{agent_uid: ctx.agent.uid, session_id: event.session_id, signal_id: event.id}
 
     read = %PodRequest{
-      operation: "pages.read",
-      params_json: Ankole.JSON.encode!(%{id: document.id, xml_home_relative_path: "private.xml"})
+      operation: "pages.list",
+      params_json: "{}"
     }
 
-    assert {:error, %{"code" => "forbidden"}} = RPCBroker.handle_read(bob_ref, read, rpc_context)
-    assert {:error, %{"code" => "forbidden"}} = RPCBroker.handle_read(bob_ref, query, rpc_context)
+    assert {:ok, %{"result" => pages}} = RPCBroker.handle_read(bob_ref, read, rpc_context)
+    assert Enum.any?(pages, &(&1["id"] == document.id))
+
+    assert {:ok, %{"result" => %{"records" => [_]}}} =
+             RPCBroker.handle_read(bob_ref, query, rpc_context)
 
     assert {:ok, _} =
              Ankole.Pod.PagesFixtures.set_sharing(ctx.alice.uid, database.id, %{
                grants: [
-                 %{principal_uid: ctx.agent.uid, role: "view"},
                  %{principal_uid: ctx.bob.uid, role: "view"}
                ]
              })
 
-    assert {:ok, %{"result" => %{"records" => [_]}}} =
+    assert {:error, %{"code" => "forbidden"}} =
              RPCBroker.handle_read(bob_ref, query, rpc_context)
   end
 

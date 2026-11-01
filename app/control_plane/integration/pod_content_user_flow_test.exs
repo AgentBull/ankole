@@ -3,7 +3,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
   @moduletag sandbox: false
   import Ankole.PrincipalsFixtures
   alias Ankole.Pod.{BaseField, BaseRecord, BaseTable, Page, Pages}
-  alias Ankole.Pod.Jobs.PurgePage
+  alias Ankole.Files.Jobs.PurgeNode
 
   setup %{tenant: tenant} do
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
@@ -88,7 +88,9 @@ defmodule Ankole.Pod.ContentUserFlowTest do
 
     assert Repo.aggregate(
              from(grant in Ankole.AuthZ.Grant,
-               where: grant.principal_uid == ^reader.uid and grant.action == "page_view"
+               where:
+                 grant.principal_uid == ^reader.uid and grant.action == "node_view" and
+                   not is_nil(grant.target_node_id)
              ),
              :count
            ) == 1000
@@ -98,7 +100,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
 
     {authorize_us, authorized} =
       :timer.tc(fn ->
-        Pages.authorize(reader_actor, page.id, "page_view")
+        Pages.authorize(reader_actor, page.id, "node_view")
       end)
 
     assert {:ok, %{id: id}} = authorized
@@ -195,8 +197,8 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     try do
       # The purge returns the failed batch to Oban, which retries the job.
       assert {:error, %Ash.Error.Unknown{} = error} =
-               PurgePage.perform(%Oban.Job{
-                 args: %{"tenant_id" => ctx.tenant.id, "page_id" => root.id}
+               PurgeNode.perform(%Oban.Job{
+                 args: %{"tenant_id" => ctx.tenant.id, "node_id" => root.id}
                })
 
       assert [%Ash.Error.Unknown.UnknownError{error: native_error}] = error.errors
@@ -231,8 +233,8 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     end
 
     assert :ok =
-             PurgePage.perform(%Oban.Job{
-               args: %{"tenant_id" => ctx.tenant.id, "page_id" => root.id}
+             PurgeNode.perform(%Oban.Job{
+               args: %{"tenant_id" => ctx.tenant.id, "node_id" => root.id}
              })
 
     assert is_nil(Repo.get(Page, root.id))
@@ -240,8 +242,8 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     assert Repo.aggregate(BaseTable, :count) == 0
 
     assert :ok =
-             PurgePage.perform(%Oban.Job{
-               args: %{"tenant_id" => ctx.tenant.id, "page_id" => root.id}
+             PurgeNode.perform(%Oban.Job{
+               args: %{"tenant_id" => ctx.tenant.id, "node_id" => root.id}
              })
   end
 end

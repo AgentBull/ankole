@@ -176,8 +176,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
         result =
           Observe.emit_entry_with_attachments(
-            consumer.context.agent_uid,
-            consumer.context.binding_name,
+            consumer.context.binding_id,
             input,
             &Attachments.materialize_attachments(&1, "slack", fn attachment ->
               download_attachment(attachment, client)
@@ -218,7 +217,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
         provider_time: provider_time(provider_message_id, event)
       }
 
-      Observe.emit_entry_removed(consumer.context.agent_uid, consumer.context.binding_name, input,
+      Observe.emit_entry_removed(consumer.context.binding_id, input,
         provider_lifecycle_kind: :deleted
       )
     end
@@ -239,7 +238,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
              {:ok, reaction} <- MapHelpers.required_string(content, "reaction") do
           raw = String.replace(reaction, ~r/::skin-tone-\d+$/, "")
 
-          Observe.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
+          Observe.emit_reaction(consumer.context.binding_id, %{
             source_event_id: event.id || "reaction:#{action}:#{provider_message_id}:#{user_id}",
             provider_conversation_id: provider_conversation_id(channel),
             provider_message_id: provider_message_id,
@@ -263,11 +262,14 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     message_ts =
       get_in(payload, ["container", "message_ts"]) || get_in(payload, ["message", "ts"])
 
+    decoded_value = decode_action_value(Map.get(action, "value"))
+
     with true <- is_binary(user_id) || :missing_operator,
          true <- is_binary(channel) || :missing_channel,
          action_id when is_binary(action_id) <- event.id || Map.get(action, "action_ts"),
-         {:ok, operator_principal_uid} <- observe_action_operator(consumer, user_id) do
-      Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+         {:ok, operator_principal_uid} <-
+           resolve_action_operator(consumer, user_id, decoded_value) do
+      Observe.emit_action(consumer.context.binding_id, %{
         source_event_id: action_id,
         action_id: action_id,
         provider_conversation_id: provider_conversation_id(channel),
@@ -276,7 +278,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
         signal_type: "signal.action.invoked",
         action: %{
           "name" => Map.get(action, "action_id"),
-          "value" => decode_action_value(Map.get(action, "value")),
+          "value" => decoded_value,
           "operator_id" => user_id,
           "operator_principal_uid" => operator_principal_uid,
           "provider_message_id" => message_ts
@@ -312,6 +314,22 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
   defp ignored_for_chat(consumers, status) do
     AdapterContext.dispatch_chat(consumers, fn _consumer -> {:ok, %{status: status}} end)
+  end
+
+  defp resolve_action_operator(%{config: config} = consumer, operator_id, decoded_value) do
+    interaction_id = is_map(decoded_value) && decoded_value["interactionId"]
+
+    if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
+      case Ankole.Principals.resolve_platform_subject_uid(
+             Config.subject_namespace(config),
+             operator_id
+           ) do
+        {:ok, uid} -> {:ok, uid}
+        _ -> {:ok, nil}
+      end
+    else
+      observe_action_operator(consumer, operator_id)
+    end
   end
 
   defp observe_action_operator(%{context: context, config: config}, operator_id) do

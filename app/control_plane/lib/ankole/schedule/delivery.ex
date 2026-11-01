@@ -62,7 +62,7 @@ defmodule Ankole.Schedule.Delivery do
   def target_key(target) when is_map(target) do
     [
       Map.fetch!(target, "conversation_id"),
-      Map.get(target, "binding_name", ""),
+      Map.get(target, "binding_id") || Map.get(target, "binding_name", ""),
       Map.get(target, "provider_thread_id", "")
     ]
     |> Enum.join(<<0>>)
@@ -91,6 +91,7 @@ defmodule Ankole.Schedule.Delivery do
       {:ok,
        Attrs.reject_nil_values(%{
          "conversation_id" => id,
+         "binding_id" => Attrs.map_text(target, "binding_id"),
          "binding_name" => Attrs.map_text(target, "binding_name"),
          "provider_thread_id" => Attrs.map_text(target, "provider_thread_id")
        })}

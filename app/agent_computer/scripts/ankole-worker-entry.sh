@@ -20,7 +20,7 @@ if [ "${ANKOLE_WORKER_BOOTSTRAP:-}" = function_compute ]; then
   exec bun /repo/app/agent_computer/src/worker/function-compute-bootstrap.ts
 fi
 
-if ! [[ "${WORKER_ID:-}" =~ ^[a-z0-9][a-z0-9._-]{0,95}$ ]]; then
+if ! [[ "${WORKER_ID:-}" =~ ^[a-z0-9][a-z0-9._@+-]{0,95}$ ]]; then
   echo 'WORKER_ID must be a valid Agent UID' >&2
   exit 64
 fi
@@ -33,8 +33,8 @@ if [ "${ANKOLE_WORKER_TASK:-worker}" = delete_storage ]; then
   # The caller has confirmed that no Worker can write this shared directory.
   # Rename commits deletion. A retry also removes earlier incomplete removals.
   mkdir -p /workspace/.deleted
-  if [ -e "/workspace/$WORKER_ID" ] || [ -L "/workspace/$WORKER_ID" ]; then
-    mv -T -- "/workspace/$WORKER_ID" "/workspace/.deleted/$WORKER_ID-$(cat /proc/sys/kernel/random/uuid)"
+  if [ -e "/workspace/${ANKOLE_WORKER_STORAGE_NAME:?}" ] || [ -L "/workspace/${ANKOLE_WORKER_STORAGE_NAME:?}" ]; then
+    mv -T -- "/workspace/${ANKOLE_WORKER_STORAGE_NAME:?}" "/workspace/.deleted/${ANKOLE_WORKER_STORAGE_NAME:?}-$(cat /proc/sys/kernel/random/uuid)"
   fi
   rm -rf -- /workspace/.deleted/*
   if [ "${ANKOLE_WORKER_STORAGE:-}" = nfs ]; then
@@ -71,7 +71,7 @@ case "${ANKOLE_WORKER_STORAGE:?}" in
       # The request runs in the background, so a trap can end it at once.
       curl --fail-with-body --silent --show-error --request POST \
         --header "Authorization: Bearer ${ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY:?}" \
-        "${ANKOLE_WORKER_ADAPTER_URL:?}/agents/$WORKER_ID/storage/restore" &
+        "${ANKOLE_WORKER_ADAPTER_URL:?}/agents/${ANKOLE_WORKER_STORAGE_NAME:?}/storage/restore" &
       request=$!
       wait "$request"
       request=0

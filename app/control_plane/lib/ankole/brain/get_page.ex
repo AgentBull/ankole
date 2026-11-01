@@ -138,6 +138,8 @@ defmodule Ankole.Brain.GetPage do
         graded_quality: claim.graded_quality,
         graded_confidence: claim.graded_confidence,
         graded_at: claim.graded_at,
+        graded_by: claim.graded_by,
+        resolved_by: claim.resolved_by,
         resolved_quality: claim.resolved_quality,
         resolved_outcome: claim.resolved_outcome,
         resolved_at: claim.resolved_at,

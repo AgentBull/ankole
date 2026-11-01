@@ -41,7 +41,7 @@ defmodule Ankole.Signals.CloudBindings do
 
   defp move_in_tx(source, current_config, cloud_binding) do
     with :ok <- validate_target(cloud_binding),
-         {:ok, source} <-
+         {:ok, {source, destination}} <-
            Bindings.lock_binding_update_in_tx(
              source.agent_uid,
              cloud_binding.agent_uid,
@@ -49,12 +49,7 @@ defmodule Ankole.Signals.CloudBindings do
              source.adapter,
              current_config
            ),
-         {:ok, binding} <- Bindings.enable_in_tx(cloud_binding, source),
-         {:ok, _binding} <-
-           if(binding.agent_uid != source.agent_uid,
-             do: Ankole.Ash.destroy(source, :remove),
-             else: {:ok, source}
-           ) do
+         {:ok, binding} <- Bindings.enable_in_tx(cloud_binding, destination, source) do
       {:ok, %{binding: binding, config_key: nil}}
     end
   end

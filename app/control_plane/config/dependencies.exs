@@ -19,6 +19,16 @@ config :mime, :types, %{
 config :ash_json_api, use_deep_object_for_filter_type?: false
 
 config :phoenix, :json_library, Ankole.JSON
+
+config :phoenix, :filter_parameters, [
+  "password",
+  "newPassword",
+  "secret",
+  "token",
+  "code",
+  "state"
+]
+
 config :swoosh, api_client: false, json_library: Ankole.JSON, local: false
 config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
 config :tzdata, :autoupdate, :disabled

@@ -19,7 +19,7 @@ defmodule Ankole.Pod.PageContractTest do
   end
 
   test "purge batches select leaves before limiting a large subtree", ctx do
-    {:ok, root} = Pages.create(actor_fixture(ctx.owner.uid), %{type: "file"})
+    {:ok, root} = Pages.create(actor_fixture(ctx.owner.uid), %{type: "folder"})
     now = DateTime.utc_now(:microsecond)
 
     parents =
@@ -27,11 +27,11 @@ defmodule Ankole.Pod.PageContractTest do
         %{
           id: Ankole.Ecto.UUIDv7.autogenerate(),
           tenant_id: ctx.owner.tenant_id,
-          type: :file,
+          type: :folder,
           title: "Parent #{n}",
           position: Integer.to_string(n),
           parent_id: root.id,
-          acl_anchor_id: root.id,
+          acl_anchor_id: root.acl_anchor_id,
           created_by: root.created_by,
           created_at: now,
           updated_at: now
@@ -43,13 +43,13 @@ defmodule Ankole.Pod.PageContractTest do
         %{parent | id: Ankole.Ecto.UUIDv7.autogenerate(), parent_id: parent.id, title: "Leaf"}
       end)
 
-    Repo.insert_all(Page, parents)
-    Repo.insert_all(Page, children)
+    insert_page_rows(parents)
+    insert_page_rows(children)
     ids = Enum.map(parents ++ children, & &1.id)
 
     assert {:ok, 1000} =
              Repo.transact_top_level(fn ->
-               Ankole.Pod.Jobs.PurgePage.remove_pages_in_tx(ids)
+               Ankole.Files.Jobs.PurgeNode.remove_nodes_in_tx(ids)
              end)
 
     assert Repo.aggregate(from(p in Page, where: p.id in ^ids), :count) == 1002
@@ -226,26 +226,26 @@ defmodule Ankole.Pod.PageContractTest do
   end
 
   test "trash retention defaults to 30 days and is checked again when a job runs", ctx do
-    assert {:ok, 30} = Ankole.Pod.Config.trash_retention_days()
+    assert {:ok, 30} = Ankole.AppConfigure.get_by_key("drive.trash_retention_days")
     {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
     {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id)
 
     assert_enqueued(
-      worker: Ankole.Pod.Jobs.PurgePage,
-      args: %{page_id: page.id, tenant_id: Repo.tenant_id!()}
+      worker: Ankole.Files.Jobs.PurgeNode,
+      args: %{node_id: page.id, tenant_id: Repo.tenant_id!()}
     )
 
     assert {:snooze, seconds} =
-             Ankole.Pod.Jobs.PurgePage.perform(%Oban.Job{
-               args: %{"tenant_id" => Repo.tenant_id!(), "page_id" => page.id}
+             Ankole.Files.Jobs.PurgeNode.perform(%Oban.Job{
+               args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => page.id}
              })
 
     assert seconds > 29 * 86_400
-    assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.trash_retention_days", 60)
+    assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("drive.trash_retention_days", 60)
 
     assert {:snooze, longer} =
-             Ankole.Pod.Jobs.PurgePage.perform(%Oban.Job{
-               args: %{"tenant_id" => Repo.tenant_id!(), "page_id" => page.id}
+             Ankole.Files.Jobs.PurgeNode.perform(%Oban.Job{
+               args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => page.id}
              })
 
     assert longer > 59 * 86_400
@@ -254,25 +254,29 @@ defmodule Ankole.Pod.PageContractTest do
 
   test "zero trash retention keeps deleted pages and purges them once a retention is set again",
        ctx do
-    assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.trash_retention_days", 0)
+    assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("drive.trash_retention_days", 0)
     actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid)
     {:ok, page} = Pages.create(actor, %{})
     {:ok, _} = Pages.delete(actor, page.id)
 
     assert_enqueued(
-      worker: Ankole.Pod.Jobs.PurgePage,
-      args: %{page_id: page.id, tenant_id: Repo.tenant_id!()}
+      worker: Ankole.Files.Jobs.PurgeNode,
+      args: %{node_id: page.id, tenant_id: Repo.tenant_id!()}
     )
 
     long_ago = DateTime.add(DateTime.utc_now(:microsecond), -400 * 86_400, :second)
-    Repo.update_all(from(p in Page, where: p.id == ^page.id), set: [deleted_at: long_ago])
-    job = %Oban.Job{args: %{"tenant_id" => Repo.tenant_id!(), "page_id" => page.id}}
 
-    assert {:snooze, 86_400} = Ankole.Pod.Jobs.PurgePage.perform(job)
+    Repo.update_all(from(n in Ankole.Files.Schemas.Node, where: n.id == ^page.id),
+      set: [deleted_at: long_ago]
+    )
+
+    job = %Oban.Job{args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => page.id}}
+
+    assert {:snooze, 86_400} = Ankole.Files.Jobs.PurgeNode.perform(job)
     assert is_nil(Repo.get!(Page, page.id).purge_started_at)
 
-    assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.trash_retention_days", 30)
-    assert :ok = Ankole.Pod.Jobs.PurgePage.perform(job)
+    assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("drive.trash_retention_days", 30)
+    assert :ok = Ankole.Files.Jobs.PurgeNode.perform(job)
     assert is_nil(Repo.get(Page, page.id))
   end
 
@@ -387,14 +391,14 @@ defmodule Ankole.Pod.PageContractTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                child.id,
-               "page_edit"
+               "node_edit"
              )
 
     assert {:error, :forbidden} =
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                child.id,
-               "page_manage"
+               "node_manage"
              )
 
     {:ok, _} =
@@ -404,7 +408,7 @@ defmodule Ankole.Pod.PageContractTest do
              Pages.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
                child.id,
-               "page_view"
+               "node_view"
              )
 
     assert {:ok, visible} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid))
@@ -493,7 +497,7 @@ defmodule Ankole.Pod.PageContractTest do
       handler,
       [:ankole, :repo, :query],
       fn _, _, metadata, pid ->
-        if self() == pid and String.contains?(metadata.query, "WITH subject AS"),
+        if self() == pid and String.contains?(metadata.query, "WITH execution AS"),
           do: send(pid, :navigation_snapshot)
       end,
       self()
@@ -566,8 +570,7 @@ defmodule Ankole.Pod.PageContractTest do
     {:ok, active} = Pages.create(actor, %{parent_id: root.id, position: "z", title: "Active"})
     now = DateTime.utc_now(:microsecond)
 
-    Repo.insert_all(
-      Page,
+    insert_page_rows(
       for n <- 1..200 do
         %{
           id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -576,7 +579,7 @@ defmodule Ankole.Pod.PageContractTest do
           title: "Sibling #{n}",
           position: "A" <> String.pad_leading(to_string(n), 3, "0"),
           parent_id: root.id,
-          acl_anchor_id: root.id,
+          acl_anchor_id: root.acl_anchor_id,
           created_by: root.created_by,
           created_at: now,
           updated_at: now
@@ -596,11 +599,11 @@ defmodule Ankole.Pod.PageContractTest do
     assert last.id == active.id
   end
 
-  test "branch existence and bootstrap paths intersect Agent and interactive Human access", ctx do
+  test "branch existence and bootstrap paths follow the executing subject", ctx do
     owner = actor_fixture(ctx.owner.uid)
     reader = human_fixture().principal
     agent = actor_fixture(ctx.agent.uid)
-    interactive = %{agent | interactive_principal: reader}
+    interactive = actor_fixture(reader)
     {:ok, root} = Pages.create(owner, %{})
 
     {:ok, _} =
@@ -691,5 +694,28 @@ defmodule Ankole.Pod.PageContractTest do
 
     assert empty.pages == []
     assert empty.next_cursor == nil
+  end
+
+  defp insert_page_rows(rows) do
+    {:ok, :inserted} =
+      Repo.transact(fn ->
+        nodes =
+          Enum.map(rows, fn row ->
+            row
+            |> Map.drop([:type, :title, :position])
+            |> Map.put(:kind, row.type)
+            |> Map.put(:name, row.title)
+          end)
+
+        properties =
+          Enum.map(
+            rows,
+            &Map.take(&1, [:tenant_id, :id, :title, :position, :created_at, :updated_at])
+          )
+
+        Repo.insert_all(Ankole.Files.Schemas.Node, nodes)
+        Repo.insert_all(Ankole.Pod.Properties, properties)
+        {:ok, :inserted}
+      end)
   end
 end

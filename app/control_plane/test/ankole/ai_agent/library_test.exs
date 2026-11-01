@@ -347,7 +347,8 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, %AgentSkill{id: id, enabled_override: false}} =
              Library.set_agent_skill_override(agent.uid, "unreadable-installed", false)
 
-    key = Files.object_key(file.sha256)
+    {:ok, object} = Files.fetch_object(file.object_id)
+    key = object.storage_key
     on_exit(fn -> ObjectStore.write(key, content) end)
     assert :ok = ObjectStore.delete(key)
     assert {:error, :not_found} = Library.sync_agent_skills(agent.uid)
@@ -355,7 +356,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert %AgentSkill{id: ^id, enabled_override: false} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "unreadable-installed")
 
-    assert {:ok, _stored} = Files.store(content)
+    assert :ok = ObjectStore.write(key, content)
     assert {:ok, %{changed: false}} = Library.sync_agent_skills(agent.uid)
 
     assert {:error, :skill_not_enabled} = Library.skill_view(agent.uid, "unreadable-installed")
@@ -369,19 +370,33 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, %AgentSkill{id: id, enabled_override: false}} =
              Library.set_agent_skill_override(agent.uid, "z-notes", false)
 
-    {:ok, %{sha256: sha256}} = Files.store("Skill support file")
+    first =
+      drive_file_fixture(agent.uid, "skills/a-cache/references/1.md", "Skill support file")
 
-    assert {:ok, _files} =
-             Files.commit(
-               agent.uid,
-               for index <- 1..5_000 do
-                 %{
-                   path: "skills/a-cache/references/#{index}.md",
-                   sha256: sha256,
-                   source: "agent"
-                 }
-               end
-             )
+    {:ok, node} = Files.fetch_node(first.id)
+
+    # Build the large directory directly; this test exercises catalog pagination.
+    attributes =
+      Map.take(node, [
+        :tenant_id,
+        :parent_id,
+        :kind,
+        :object_id,
+        :mode,
+        :content_type,
+        :source,
+        :created_by,
+        :acl_anchor_id,
+        :created_at,
+        :updated_at
+      ])
+
+    rows =
+      for index <- 2..5_000 do
+        Map.merge(attributes, %{id: Ankole.Ecto.UUIDv7.autogenerate(), name: "#{index}.md"})
+      end
+
+    assert {4_999, nil} = Repo.insert_all(Ankole.Files.Schemas.Node, rows)
 
     assert {:ok, %{changed: false}} = Library.sync_agent_skills(agent.uid)
 

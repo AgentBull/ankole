@@ -58,7 +58,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
     assert {:ok, _} = finish(first)
     assert :ok = finish(seed)
     assert Repo.get_by(Provider, provider_id: context.second) == nil
-    assert Repo.get!(AgentWorker, context.uid).provider_id == nil
+    assert Repo.get_by!(AgentWorker, agent_uid: context.uid).provider_id == nil
   end
 
   test "a Console create waits for seed insertion and legacy assignment to commit", context do
@@ -75,11 +75,11 @@ defmodule Ankole.WorkerProviderTransactionsTest do
     second = start(fn -> Providers.create(attrs(context.second)) end)
     assert_blocked_by(second, seed)
     assert Repo.get_by(Provider, provider_id: context.first) == nil
-    assert Repo.get!(AgentWorker, context.uid).provider_id == nil
+    assert Repo.get_by!(AgentWorker, agent_uid: context.uid).provider_id == nil
     release(seed)
     assert {:ok, :imported} = finish(seed)
     assert {:ok, _} = finish(second)
-    assert Repo.get!(AgentWorker, context.uid).provider_id == context.first
+    assert Repo.get_by!(AgentWorker, agent_uid: context.uid).provider_id == context.first
     assert Repo.get_by!(Provider, provider_id: context.first).is_default
   end
 
@@ -102,7 +102,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
            ]
   end
 
-  test "Plugin disable waits for assignment, then rejects the committed reference", context do
+  test "Plugin disable accepts an assigned Worker without waiting for assignment", context do
     plugin_provider!(context)
     legacy!(context.uid)
     assignment = hold(fn -> Providers.assign_in_tx(context.uid, context.first) end)
@@ -110,17 +110,17 @@ defmodule Ankole.WorkerProviderTransactionsTest do
     disable =
       start(fn -> PluginConfig.put_configured_enabled("vercel-worker-provider", false) end)
 
-    assert_blocked_by(disable, assignment)
+    assert {:ok, ids} = finish(disable)
+    refute "vercel-worker-provider" in ids
     release(assignment)
     assert {:ok, _worker} = finish(assignment)
-
-    assert {:error, {:worker_provider_plugin_in_use, "vercel-worker-provider", id}} =
-             finish(disable)
-
-    assert id == context.first
+    assert Repo.get_by!(AgentWorker, agent_uid: context.uid).provider_id == context.first
+    assert {:ok, _} = PluginConfig.put_configured_enabled("vercel-worker-provider", true)
+    assert {:ok, _} = PluginConfig.put_configured_enabled("vercel-worker-provider", false)
+    assert Repo.get_by!(AgentWorker, agent_uid: context.uid).provider_id == context.first
   end
 
-  test "assignment waits for Plugin disable, then reads the committed next-start policy",
+  test "assignment uses the active Plugin while disablement awaits restart",
        context do
     plugin_provider!(context)
     legacy!(context.uid)
@@ -131,14 +131,12 @@ defmodule Ankole.WorkerProviderTransactionsTest do
       end)
 
     assignment = start(fn -> Providers.assign(context.uid, context.first) end)
-    assert_blocked_by(assignment, disable)
+    assert {:ok, _worker} = finish(assignment)
     release(disable)
     assert {:ok, _ids} = finish(disable)
-
-    assert {:error, {:worker_provider_plugin_inactive, "vercel-worker-provider"}} =
-             finish(assignment)
-
-    assert Repo.get!(AgentWorker, context.uid).provider_id == nil
+    assert Repo.get_by!(AgentWorker, agent_uid: context.uid).provider_id == context.first
+    assert {:ok, _} = Providers.load(context.first)
+    assert Providers.selectable_fun().(Repo.get_by!(Provider, provider_id: context.first))
   end
 
   test "enabling a Worker Plugin and changing other Plugins do not wait for the provider lock",

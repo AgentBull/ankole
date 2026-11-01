@@ -118,7 +118,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute.
       metadata =
         FC.labels(provider)
         |> Map.merge(%{
-          "ankole-agent" => ProviderKind.hash16(uid),
+          "ankole-agent" => ProviderKind.agent_hash(uid),
           "ankole-task" => "storage",
           "ankole-task-id" => task
         })
@@ -283,7 +283,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute.
   defp access_points(provider, uid) do
     with {:ok, items} <-
            nas_list(provider, "DescribeAccessPoints", ["AccessPoints"], tag_params(provider, uid)) do
-      labels = Map.put(FC.labels(provider), "ankole-agent", ProviderKind.hash16(uid))
+      labels = Map.put(FC.labels(provider), "ankole-agent", ProviderKind.agent_hash(uid))
 
       {:ok,
        Enum.filter(items, fn item ->
@@ -329,7 +329,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute.
   end
 
   defp tag_params(provider, uid) do
-    Map.put(FC.labels(provider), "ankole-agent", ProviderKind.hash16(uid))
+    Map.put(FC.labels(provider), "ankole-agent", ProviderKind.agent_hash(uid))
     |> Enum.sort()
     |> Enum.with_index(1)
     |> Enum.flat_map(fn {{k, v}, i} -> [{"Tag.#{i}.Key", k}, {"Tag.#{i}.Value", v}] end)

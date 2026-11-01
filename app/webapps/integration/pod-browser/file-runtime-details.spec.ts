@@ -1,9 +1,9 @@
-import { state, publishApplet, requestWithSharingVersion as request } from './fixtures'
+import { state, createApplet, publishApplet, requestWithSharingVersion as request } from './fixtures'
 import { pageRoute } from './routes'
 import { expect, test, type Page } from '@playwright/test'
 
 const location = (id: string) => `${state.base_url}${pageRoute(id)}`
-type Manifest = { revision: number; files: { path: string; sha256: string }[] }
+type Manifest = { revision: number; files: { object_id: string; path: string; sha256: string }[] }
 
 async function expectAppletStyles(page: Page) {
   const shell = page.frameLocator('iframe').locator('.applet-shell')
@@ -71,7 +71,11 @@ test('a temporary token failure still restores workspace updates after the Page 
     await expect.poll(() => joined.includes(`page:${state.applet_id}`)).toBe(true)
     const branch = page.getByRole('button', { name: 'Browser report', exact: true })
     if ((await branch.getAttribute('aria-expanded')) !== 'true') await branch.click()
-    await expect(page.getByRole('link', { name: 'Browser tracker', exact: true })).toBeVisible()
+    await expect(
+      page
+        .getByRole('region', { name: '空间', exact: true })
+        .getByRole('link', { name: 'Browser tracker', exact: true })
+    ).toBeVisible()
     await control.goto(location(state.report_id))
     const title = `Recovered workspace item ${Date.now()}`
     const created = await request<{ page: { id: string } }>(control, '/pages', 'POST', {
@@ -88,18 +92,26 @@ test('a temporary token failure still restores workspace updates after the Page 
   }
 })
 
-test('file uploads retain a failed selection, freeze pending work, resolve real revision conflicts, and recover live updates', async ({
+test('file uploads retain a failed selection, freeze pending work, resolve real object conflicts, and recover live updates', async ({
   browser
 }) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   const releases: (() => void)[] = []
+  let parentID: string | undefined
   try {
     await page.goto(location(state.report_id))
+    parentID = (
+      await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+        type: 'doc',
+        title: 'Upload recovery fixtures'
+      })
+    ).page.id
     const { page: saved } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
       type: 'file',
-      title: 'Upload recovery'
+      title: 'Upload recovery',
+      parent_id: parentID
     })
     await page.goto(location(saved.id))
     const firstStarted = Promise.withResolvers<void>(),
@@ -144,10 +156,13 @@ test('file uploads retain a failed selection, freeze pending work, resolve real 
     firstGate.resolve()
     await expect(page.getByRole('img', { name: 'sample.png', exact: true })).toBeVisible()
     await expect(input).toHaveValue('')
-    expect((await request<Manifest>(page, `/pages/${saved.id}/files`)).revision).toBe(1)
+    const firstObject = (await request<Manifest>(page, `/pages/${saved.id}/files`)).files[0].object_id
+    expect(firstObject).toBeTruthy()
     await input.setInputFiles(image('sample.png'))
     await expect(input).toHaveValue('')
-    await expect.poll(async () => (await request<Manifest>(page, `/pages/${saved.id}/files`)).revision).toBe(2)
+    await expect
+      .poll(async () => (await request<Manifest>(page, `/pages/${saved.id}/files`)).files[0].object_id)
+      .not.toBe(firstObject)
 
     const other = await context.newPage()
     await other.goto(location(saved.id))
@@ -156,6 +171,7 @@ test('file uploads retain a failed selection, freeze pending work, resolve real 
     await conflictStarted.promise
     await other.getByLabel('选择替换文件', { exact: true }).setInputFiles(image('remote.png'))
     await expect(other.getByRole('img', { name: 'remote.png', exact: true })).toBeVisible()
+    const remoteObject = (await request<Manifest>(other, `/pages/${saved.id}/files`)).files[0].object_id
     conflictGate.resolve()
     await expect(page.getByRole('alert')).toBeVisible()
     await expect(input).toBeEnabled()
@@ -164,7 +180,7 @@ test('file uploads retain a failed selection, freeze pending work, resolve real 
     await page.getByRole('alert').getByRole('button', { name: '重试', exact: true }).click()
     await expect(page.getByRole('img', { name: 'pending.png', exact: true })).toBeVisible()
     await expect(input).toHaveValue('')
-    expect((await request<Manifest>(page, `/pages/${saved.id}/files`)).revision).toBe(4)
+    expect((await request<Manifest>(page, `/pages/${saved.id}/files`)).files[0].object_id).not.toBe(remoteObject)
 
     let failToken = true
     await page.route('**/api/v2/pod/realtime-token', route => {
@@ -192,6 +208,8 @@ test('file uploads retain a failed selection, freeze pending work, resolve real 
     expect(await response.body()).toEqual(pixel)
   } finally {
     for (const release of releases) release()
+    await page.unrouteAll({ behavior: 'wait' })
+    if (parentID) await request(page, `/pages/${parentID}`, 'DELETE')
     await context.close()
   }
 })
@@ -207,9 +225,11 @@ test('Applet loading and live connections recover independently, then real acces
     viewer = await viewerContext.newPage()
   const resourceStarted = Promise.withResolvers<void>(),
     resourceGate = Promise.withResolvers<void>()
+  let id: string | undefined
   try {
-    const id = state.runtime_test_applet_id
-    if (!id) throw new Error('The real fixture must seed a dedicated runtime recovery Applet')
+    const created = await createApplet({ parent_id: state.report_id, title: 'Runtime recovery fixture' })
+    id = created.id
+    await publishApplet(id, created.revision, state.publish_v1_files)
     let failResource = true,
       failToken = true
     await page.route(`**/pod/applet-frame/*/${id}/*/main.js`, async route => {
@@ -268,6 +288,8 @@ test('Applet loading and live connections recover independently, then real acces
     await expect(viewer.getByRole('button', { name: '重试', exact: true })).toHaveCount(0)
   } finally {
     resourceGate.resolve()
+    await page.unrouteAll({ behavior: 'wait' })
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()
     await viewerContext.close()
   }
@@ -281,8 +303,11 @@ test('a caught React.lazy chunk failure refreshes its stale publication without 
   const control = await context.newPage(),
     page = await context.newPage()
   await page.routeWebSocket('**/pod/socket/websocket*', socket => socket.close())
+  let id: string | undefined
   try {
-    const id = state.runtime_test_applet_id
+    const created = await createApplet({ parent_id: state.report_id, title: 'Stale chunk fixture' })
+    id = created.id
+    await publishApplet(id, created.revision, state.publish_v1_files)
     await control.goto(location(state.report_id))
     const detail = await request<{ page: { revision: number } }>(control, `/pages/${id}`)
     await page.goto(location(id))
@@ -335,6 +360,7 @@ test('a caught React.lazy chunk failure refreshes its stale publication without 
     await expect(page.getByRole('alert').filter({ hasText: 'Fixture rendering failed' })).toHaveCount(0)
     await expect(page.locator('iframe')).toHaveAttribute('src', freshFrame!)
   } finally {
+    if (id) await request(control, `/pages/${id}`, 'DELETE')
     await context.close()
   }
 })

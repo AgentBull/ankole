@@ -170,7 +170,12 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
   end
 
   defp fallback_text(presentation, index) do
-    text = presentation |> ReplyPresentation.fallback_text() |> Mrkdwn.from_markdown()
+    text =
+      presentation
+      |> ReplyPresentation.fallback_text()
+      |> Ankole.Kernel.repair_generated_markdown()
+      |> Mrkdwn.from_markdown()
+
     text = if index == 0, do: text, else: "#{text} (continued #{index + 1})"
     String.slice(text, 0, @fallback_chars)
   end

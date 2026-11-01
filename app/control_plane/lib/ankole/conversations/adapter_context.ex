@@ -5,11 +5,12 @@ defmodule Ankole.Conversations.AdapterContext do
 
   alias Ankole.Principals
 
-  @enforce_keys [:agent_uid, :binding_name, :adapter, :user_name]
-  defstruct [:agent_uid, :binding_name, :adapter, :user_name]
+  @enforce_keys [:binding_id, :agent_uid, :binding_name, :adapter, :user_name]
+  defstruct [:binding_id, :agent_uid, :binding_name, :adapter, :user_name]
 
   @type t :: %__MODULE__{
-          agent_uid: String.t(),
+          binding_id: String.t(),
+          agent_uid: String.t() | nil,
           binding_name: String.t(),
           adapter: String.t(),
           user_name: String.t()
@@ -25,6 +26,7 @@ defmodule Ankole.Conversations.AdapterContext do
   @spec new(keyword() | map()) :: t()
   def new(attrs) do
     %__MODULE__{
+      binding_id: fetch!(attrs, :binding_id),
       agent_uid: fetch!(attrs, :agent_uid),
       binding_name: fetch!(attrs, :binding_name),
       adapter: fetch!(attrs, :adapter),

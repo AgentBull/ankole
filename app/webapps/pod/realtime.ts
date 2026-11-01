@@ -61,7 +61,7 @@ export class PodRealtime {
   private disposed = false
   private versions = new Map<
     string,
-    { kind: 'pages' | 'tables'; id: string; changed(version: number | undefined): void }
+    { kind: 'pages' | 'tables'; id: string; changed(version: number | undefined, objectID?: string | null): void }
   >()
   private verifyTimer?: ReturnType<typeof setInterval>
   private visible = () => {
@@ -216,7 +216,11 @@ export class PodRealtime {
     }
   }
 
-  watchVersion(kind: 'pages' | 'tables', id: string, changed: (version: number | undefined) => void) {
+  watchVersion(
+    kind: 'pages' | 'tables',
+    id: string,
+    changed: (version: number | undefined, objectID?: string | null) => void
+  ) {
     const key = `${kind}:${id}:${uuidV4()}`
     this.versions.set(key, { kind, id, changed })
     if (!this.verifyTimer) {
@@ -248,12 +252,11 @@ export class PodRealtime {
         }
       })
       for (const item of watched) {
+        const page = item.kind === 'pages' ? versions.pages.find(page => page.id === item.id) : undefined
         const version =
-          item.kind === 'pages'
-            ? versions.pages.find(page => page.id === item.id)?.revision
-            : versions.tables.find(table => table.id === item.id)?.data_version
+          item.kind === 'pages' ? page?.revision : versions.tables.find(table => table.id === item.id)?.data_version
         // Also notify unchanged versions: formulas with time functions can change without writes.
-        item.changed(version)
+        item.changed(version, page?.object_id)
       }
     } catch {
       /* Keep drafts and cached data during a temporary network failure. */

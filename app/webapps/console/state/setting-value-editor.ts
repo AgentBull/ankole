@@ -17,7 +17,7 @@ export const SETTING_DURATIONS: Record<string, { seconds: number; min: number; m
   'agent_workers.ready_timeout_seconds': { seconds: 1, min: 1, max: 31536000 },
   'brain.signal_channel_batch_idle_time': { seconds: 1, min: 1 },
   'brain.soft_delete_retention_hours': { seconds: 3600, min: Number.MIN_VALUE },
-  'pod.trash_retention_days': { seconds: 86400, min: 1 },
+  'drive.trash_retention_days': { seconds: 86400, min: 1 },
   'pod.base.limits.statement_timeout_ms': { seconds: 0.001, min: 1 },
   'pod.applet.limits.timeout_ms': { seconds: 0.001, min: 1 },
   'authn.email.code_ttl_seconds': { seconds: 1, min: 1, max: 86400 },
@@ -30,15 +30,15 @@ export const DURATION_SWITCHES: Record<string, { on: string; off: string }> = {
     on: 'console.settings.enable_inactivity_timeout',
     off: 'console.settings.inactivity_timeout_disabled'
   },
-  'pod.trash_retention_days': {
+  'drive.trash_retention_days': {
     on: 'console.settings.enable_trash_purge',
     off: 'console.settings.trash_purge_disabled'
   }
 }
 
-/** Compares retention settings; 0 trash retention keeps pages, so it is the longest. */
+/** Compares retention settings; 0 trash retention keeps deleted nodes, so it is the longest. */
 export function retentionLength(key: string, value: unknown): number {
-  return key === 'pod.trash_retention_days' && Number(value) === 0 ? Infinity : Number(value)
+  return key === 'drive.trash_retention_days' && Number(value) === 0 ? Infinity : Number(value)
 }
 
 export const SETTING_DURATION_UNITS = [

@@ -2,7 +2,8 @@ defmodule Ankole.Pod.HomePlanTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Pod.{Access, Bases, Documents, PageChange, PageContent, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Bases, Documents, PageChange, PageContent, Pages}
 
   test "contributors write records while editors own structure and managers delete tables" do
     owner = human_fixture().principal
@@ -24,11 +25,11 @@ defmodule Ankole.Pod.HomePlanTest do
       })
 
     human_actor = actor_fixture(human)
-    mixed_actor = AuthZ.Actor.new(agent, interactive_principal: human)
+    mixed_actor = AuthZ.Actor.new(agent)
     assert {:ok, reachable} = Access.reachable_anchors(mixed_actor)
-    assert Access.page_bits(Repo.get!(Ankole.Pod.Page, page.id), reachable) == 19
+    assert Access.page_bits(Repo.get!(Ankole.Pod.Page, page.id), reachable) == 23
 
-    for actor <- [human_actor, mixed_actor] do
+    for actor <- [human_actor] do
       assert {:ok, %{records: [record]}} =
                Bases.write_records(actor, table.id, %{creates: [%{data: %{}}]})
 
@@ -107,7 +108,7 @@ defmodule Ankole.Pod.HomePlanTest do
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: owner.uid,
-        resource_pattern: "tenant_console:pod_space",
+        resource_pattern: "tenant_console:drive_space",
         action: "update"
       })
 
@@ -115,17 +116,19 @@ defmodule Ankole.Pod.HomePlanTest do
     assert {:error, :forbidden} = Pages.create(actor_fixture(human), %{title: "Disallowed"})
   end
 
-  test "all page types accept children and document text search respects visibility" do
+  test "container kinds accept children and document text search respects visibility" do
     owner = human_fixture().principal
     outsider = human_fixture().principal
     actor = actor_fixture(owner)
 
-    for type <- ~w(doc base applet file) do
+    for type <- ~w(doc base applet folder) do
       assert {:ok, parent} = Pages.create(actor, %{type: type, private_owner_uid: owner.uid})
       assert {:ok, child} = Pages.create(actor, %{parent_id: parent.id, title: "Manual"})
       assert child.parent_id == parent.id
     end
 
+    {:ok, file} = Pages.create(actor, %{type: "file", private_owner_uid: owner.uid})
+    assert {:error, :not_a_directory} = Pages.create(actor, %{parent_id: file.id})
     {:ok, page} = Pages.create(actor, %{private_owner_uid: owner.uid, title: "Specification"})
     {:ok, _} = Documents.write(actor, page.id, 0, "<page><p>正文中的检索词😀</p></page>")
     assert {:ok, %{pages: [found]}} = Pages.search(actor, "检索词")
@@ -144,19 +147,19 @@ defmodule Ankole.Pod.HomePlanTest do
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: owner.uid,
-        resource_pattern: "tenant_console:pod_space",
+        resource_pattern: "tenant_console:drive_space",
         action: "update"
       })
 
     {:ok, _} = Pages.space_agent(owner_actor, agent.uid, "edit")
     actor = actor_fixture(human)
-    mixed = AuthZ.Actor.new(agent, interactive_principal: human)
+    mixed = AuthZ.Actor.new(agent)
 
     for role <- ~w(view contribute edit manage) do
       {:ok, _} = Pages.set_space(owner_actor, role)
       allowed = role in ~w(edit manage)
       assert Pages.can_create_space?(actor) == allowed
-      assert Pages.can_create_space?(mixed) == allowed
+      assert Pages.can_create_space?(mixed)
       assert {:ok, %{can_create_space: ^allowed}} = Pages.list_children(actor, nil)
       assert {:ok, %{can_create_space: ^allowed}} = Pages.search(actor, "")
 
@@ -174,18 +177,18 @@ defmodule Ankole.Pod.HomePlanTest do
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: owner.uid,
-        resource_pattern: "tenant_console:pod_space",
+        resource_pattern: "tenant_console:drive_space",
         action: "update"
       })
 
     {:ok, _} = Pages.set_space(actor, "view")
     {:ok, group} = Access.space_group()
 
-    for action <- ~w(page_view page_write_records page_edit) do
+    for action <- ~w(node_view node_contribute node_edit) do
       {:ok, _} =
         AuthZ.create_permission_grant(%{
           group_id: group.id,
-          resource_pattern: "pod:space:**",
+          resource_pattern: "drive:space:**",
           action: action,
           condition: ~s(context.request.ip == "10.0.0.1")
         })
@@ -213,8 +216,8 @@ defmodule Ankole.Pod.HomePlanTest do
       })
 
     for {role, actions} <- [
-          {"edit", ~w(page_view page_edit)},
-          {"manage", ~w(page_view page_manage)}
+          {"edit", ~w(node_view node_edit)},
+          {"manage", ~w(node_view node_manage)}
         ] do
       {:ok, page} = Pages.create(actor, %{type: "base", private_owner_uid: owner.uid})
 
@@ -296,7 +299,7 @@ defmodule Ankole.Pod.HomePlanTest do
       assert {:ok, %{records: [_]}} =
                Bases.write_records(writer, table.id, %{creates: [%{data: %{}}]})
 
-      assert {:ok, _} = Pages.authorize(reader, page.id, "page_view")
+      assert {:ok, _} = Pages.authorize(reader, page.id, "node_view")
 
       assert {:error, :forbidden} =
                Bases.write_records(reader, table.id, %{creates: [%{data: %{}}]})
@@ -317,15 +320,15 @@ defmodule Ankole.Pod.HomePlanTest do
 
     {:ok, _} =
       AuthZ.create_permission_grant(%{
-        source_page_id: source.id,
-        source_action: "page_view",
-        resource_pattern: "pod:**:#{target.id}:**",
-        action: "page_write_records"
+        source_node_id: source.id,
+        source_action: "node_view",
+        resource_pattern: "drive:**:#{target.id}:**",
+        action: "node_contribute"
       })
 
     reader = actor_fixture(human)
-    assert {:error, :forbidden} = Pages.authorize(reader, target.id, "page_view")
-    assert {:ok, _} = Pages.authorize(reader, target.id, "page_write_records")
+    assert {:error, :forbidden} = Pages.authorize(reader, target.id, "node_view")
+    assert {:ok, _} = Pages.authorize(reader, target.id, "node_contribute")
     {:ok, sharing} = Pages.sharing(actor, target.id)
 
     sharing =
@@ -334,8 +337,8 @@ defmodule Ankole.Pod.HomePlanTest do
     assert {:ok, _} =
              Ankole.Pod.PagesFixtures.set_sharing(owner.uid, target.id, sharing)
 
-    assert {:error, :forbidden} = Pages.authorize(reader, target.id, "page_view")
-    assert {:ok, _} = Pages.authorize(reader, target.id, "page_write_records")
+    assert {:error, :forbidden} = Pages.authorize(reader, target.id, "node_view")
+    assert {:ok, _} = Pages.authorize(reader, target.id, "node_contribute")
   end
 
   test "server edits emit incremental batches, preserve no-op revisions and append with CAS" do

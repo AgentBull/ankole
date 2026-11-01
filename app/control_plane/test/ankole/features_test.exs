@@ -220,7 +220,7 @@ defmodule Ankole.FeaturesTest do
     attrs = %{
       display_name: "Fixture Agent",
       role: "Researcher",
-      handle: "first",
+      uid: "first",
       owner_principal_uid: owner.uid,
       worker_provider_id: provider.provider_id
     }
@@ -232,7 +232,7 @@ defmodule Ankole.FeaturesTest do
     Process.put(:fixture_write_hook, true)
 
     assert {:error, :fixture_quota_exceeded} =
-             Ankole.Principals.create_agent(%{attrs | handle: "over-limit"})
+             Ankole.Principals.create_agent(%{attrs | uid: "over-limit"})
 
     assert length(Ankole.Principals.list_agents()) == 1
     AppConfigure.Cache.clear_for_test()
@@ -244,8 +244,8 @@ defmodule Ankole.FeaturesTest do
     Repo.with_tenant(other.id, fn ->
       %{principal: owner} = human_fixture()
       attrs = %{attrs | owner_principal_uid: owner.uid}
-      assert {:ok, _} = Ankole.Principals.create_agent(%{attrs | handle: "unlimited-one"})
-      assert {:ok, _} = Ankole.Principals.create_agent(%{attrs | handle: "unlimited-two"})
+      assert {:ok, _} = Ankole.Principals.create_agent(%{attrs | uid: "unlimited-one"})
+      assert {:ok, _} = Ankole.Principals.create_agent(%{attrs | uid: "unlimited-two"})
       assert length(Ankole.Principals.list_agents()) == 2
     end)
   end
@@ -285,7 +285,7 @@ defmodule Ankole.FeaturesTest do
     Process.put(:fixture_quotas, %{tenant.id => 0})
 
     attrs = %{
-      handle: "boot-policy",
+      uid: "boot-policy",
       display_name: "Fixture Agent",
       role: "Researcher",
       owner_principal_uid: owner.uid,
@@ -318,7 +318,7 @@ defmodule Ankole.FeaturesTest do
              })
 
     assert_received {:fixture_hook, :enable_signal_binding, _, true}
-    assert Ankole.Signals.get_binding!(agent.uid, "fixture-hook") == nil
+    assert Ankole.Signals.get_agent_binding!(agent.uid, "fixture-hook") == nil
     Process.put(:fixture_denied_hooks, [:create_invitation])
     %{principal: member} = human_fixture()
 
@@ -361,15 +361,18 @@ defmodule Ankole.FeaturesTest do
     assert {:ok, _} = Bindings.put_binding(first.uid, "line", "limited", attrs)
 
     assert {:ok, %{binding: edited}} =
-             Bindings.update_binding(first.uid, first.uid, "limited", %{
-               "config" => %{},
-               "group_message_mode" => "observe_all"
-             })
+             Bindings.update_binding(
+               Ankole.Signals.get_agent_binding!(first.uid, "limited").id,
+               %{"agent_uid" => first.uid, "config" => %{}, "group_message_mode" => "observe_all"}
+             )
 
     assert edited.unaddressed_group_message_policy == :record_only
 
     assert {:ok, %{binding: moved}} =
-             Bindings.update_binding(first.uid, second.uid, "limited", %{"config" => %{}})
+             Bindings.update_binding(
+               Ankole.Signals.get_agent_binding!(first.uid, "limited").id,
+               %{"agent_uid" => second.uid, "config" => %{}}
+             )
 
     assert moved.agent_uid == second.uid
     refute_received {:fixture_hook_payload, :enable_signal_binding, _}
@@ -379,14 +382,20 @@ defmodule Ankole.FeaturesTest do
     assert {:error, :fixture_binding_quota_exceeded} =
              Bindings.put_binding(first.uid, "line", "another", other)
 
-    assert Ankole.Signals.get_binding!(first.uid, "another") == nil
-    assert {:ok, _} = Bindings.disable_binding(second.uid, "limited")
+    assert Ankole.Signals.get_agent_binding!(first.uid, "another") == nil
+
+    assert {:ok, _} =
+             Bindings.disable_binding(Ankole.Signals.get_agent_binding!(second.uid, "limited").id)
+
     assert {:ok, _} = Bindings.put_binding(first.uid, "line", "another", other)
 
     assert {:error, :fixture_binding_quota_exceeded} =
-             Bindings.update_binding(second.uid, second.uid, "limited", %{"config" => %{}})
+             Bindings.update_binding(
+               Ankole.Signals.get_agent_binding!(second.uid, "limited").id,
+               %{"agent_uid" => second.uid, "config" => %{}}
+             )
 
-    refute Ankole.Signals.get_binding!(second.uid, "limited").enabled
+    refute Ankole.Signals.get_agent_binding!(second.uid, "limited").enabled
   end
 
   test "CloudEvent routes use the same admission payload and preserve enabled moves" do
@@ -418,15 +427,22 @@ defmodule Ankole.FeaturesTest do
     assert {:ok, _} = Bindings.put_binding(first.uid, "cloudevents", "limited", attrs)
 
     assert {:ok, %{binding: edited}} =
-             Bindings.update_binding(first.uid, first.uid, "limited", %{
-               "config" => %{},
-               "target" => %{"session_id" => "custom:edited"}
-             })
+             Bindings.update_binding(
+               Ankole.Signals.get_agent_binding!(first.uid, "limited").id,
+               %{
+                 "agent_uid" => first.uid,
+                 "config" => %{},
+                 "target" => %{"session_id" => "custom:edited"}
+               }
+             )
 
     assert edited.target == %{"session_id" => "custom:edited"}
 
     assert {:ok, %{binding: moved}} =
-             Bindings.update_binding(first.uid, second.uid, "limited", %{"config" => %{}})
+             Bindings.update_binding(
+               Ankole.Signals.get_agent_binding!(first.uid, "limited").id,
+               %{"agent_uid" => second.uid, "config" => %{}}
+             )
 
     assert moved.agent_uid == second.uid
     refute_received {:fixture_hook_payload, :enable_signal_binding, _}
@@ -434,8 +450,11 @@ defmodule Ankole.FeaturesTest do
     assert {:error, :fixture_binding_quota_exceeded} =
              Bindings.put_binding(first.uid, "cloudevents", "another", attrs)
 
-    assert Ankole.Signals.get_binding!(first.uid, "limited") == nil
-    assert {:ok, _} = Bindings.disable_binding(second.uid, "limited")
+    refute Ankole.Signals.get_agent_binding!(first.uid, "limited").enabled
+
+    assert {:ok, _} =
+             Bindings.disable_binding(Ankole.Signals.get_agent_binding!(second.uid, "limited").id)
+
     assert {:ok, _} = Bindings.put_binding(second.uid, "cloudevents", "limited", attrs)
 
     assert_received {:fixture_hook_payload, :enable_signal_binding,

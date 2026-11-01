@@ -1,55 +1,38 @@
 defmodule Ankole.FilesFixtures do
-  @moduledoc """
-  Test helpers for the `Ankole.Files` context.
-  """
-
+  @moduledoc "Test helpers for immutable Drive objects and their node references."
   import ExUnit.Assertions
-
   alias Ankole.Files
 
-  @doc "Stores `content` and names it at `path` in the Agent's drive."
   def drive_file_fixture(agent_uid, path, content \\ "console.log('ok')\n", source \\ "agent") do
-    {:ok, %{sha256: sha256}} = Files.store(content)
+    {:ok, stored} = Files.store(content)
 
     {:ok, %{files: [file]}} =
-      Files.commit(agent_uid, [%{path: path, sha256: sha256, source: source}])
+      Files.commit(agent_uid, [Map.merge(stored, %{path: path, source: source})])
 
     file
   end
 
-  @doc """
-  Puts `content` in the Agent's drive under `sent/`, as `reply_attachment`
-  does, and returns the canonical reply attachment that names it.
-  """
   def sent_attachment_fixture(agent_uid, name, content, mime_type) do
-    {:ok, %{sha256: sha256}} = Files.store(content)
-    path = Files.content_path("sent", sha256, name)
-
-    {:ok, %{files: [file]}} =
-      Files.commit(agent_uid, [%{path: path, sha256: sha256, source: "sent"}])
+    path = "sent/#{Ankole.Ecto.UUIDv7.autogenerate()}/#{Files.file_name(name)}"
+    file = drive_file_fixture(agent_uid, path, content, "sent")
 
     %{
+      "node_id" => file.id,
+      "object_id" => file.object_id,
       "path" => path,
-      "blob_ref" => sha256,
       "name" => name,
       "mime_type" => mime_type,
       "size" => file.size
     }
   end
 
-  @doc """
-  Asserts that an inbound attachment names its stored bytes in the Agent's
-  drive at `chats/<channel>/inbox/<digest prefix>/<file name>`.
-  """
-  def assert_stored_attachment!(agent_uid, channel_id, attachment, content, file_name) do
-    blob_ref = Base.encode16(:crypto.hash(:sha256, content), case: :lower)
-    path = Files.chat_path(channel_id, Files.content_path("inbox", blob_ref, file_name))
-
-    assert %{"blob_ref" => ^blob_ref, "path" => ^path} = attachment
+  def assert_stored_attachment!(_agent_uid, conversation_id, attachment, content, file_name) do
+    assert %{"object_id" => object_id, "node_id" => node_id} = attachment
     assert attachment["size"] == byte_size(content)
-    assert {:ok, ^content} = Files.read_content(blob_ref)
+    assert {:ok, ^content} = Files.read_object(object_id)
+    assert {:ok, ^conversation_id} = Files.node_conversation_id(node_id)
 
-    assert {:ok, %{source: "inbound", conversation_id: ^channel_id}, ^content} =
-             Files.read(agent_uid, path)
+    assert {:ok, %{source: "inbound", name: ^file_name, object_id: ^object_id}} =
+             Files.fetch_node(node_id)
   end
 end

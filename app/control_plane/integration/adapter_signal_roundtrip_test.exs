@@ -9,7 +9,7 @@ defmodule Ankole.Conversations.AdapterSignalRoundtripTest do
   import Ankole.SessionsCase, only: [agent_fixture: 1, cache_actor_runtime_models: 1]
 
   alias Ankole.AppConfigure
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Conversations.{AdapterContext, Message}
   alias Ankole.Conversations.Delivery.Intent

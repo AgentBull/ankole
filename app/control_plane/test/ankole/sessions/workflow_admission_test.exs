@@ -231,7 +231,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
 
   test "tasks use their profile precedence and independent conversation without a Worker" do
     %{principal: agent} = agent_fixture()
-    worker = Repo.get!(AgentWorker, agent.uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
 
     for {call_profile, run_profile, expected} <- [
           {"heavy", "light", "heavy"},
@@ -257,7 +257,10 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
       assert session == event.session_id
     end
 
-    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, agent.uid), worker)
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get_by!(AgentWorker, agent_uid: agent.uid),
+      worker
+    )
   end
 
   test "releasing a run slot wakes the earliest capacity-deferred task" do
@@ -435,7 +438,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     assert {:ok, %{status: :completed}} = admit(Repo.reload!(pending))
     assert %AgentCall{status: :cancelled, attempts: 0} = Repo.get!(AgentCall, queued.id)
     refute Repo.get_by(Conversation, subject_uid: agent.uid, conversation_key: pending.session_id)
-    assert Repo.get!(AgentWorker, agent.uid).state == :absent
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
   end
 
   test "a missing profile fails an unstarted task without using a Worker or attempt" do
@@ -456,7 +459,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
 
     assert result["code"] == "workflow_task_model_profile_unavailable"
     assert result["ok"] == false
-    assert Repo.get!(AgentWorker, agent.uid).state == :absent
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
   end
 
   test "mail wakes its sleeping task while a sibling retains its wake deadline" do
@@ -523,7 +526,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     assert %{status: :failed, attempts: 1, error: error} = Repo.reload!(call)
     assert error["code"] == "conversation_attempts_exhausted"
     assert Repo.reload!(event).status == :dead_letter
-    assert Repo.get!(AgentWorker, agent.uid).state == :absent
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
   end
 
   for tool <- ["sleep", "submit_result"], recorded? <- [false, true] do
@@ -571,7 +574,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
       assert completed.attempt_count == 6
       Ankole.DataCase.assert_persisted_equal(Repo.reload!(call), stored_call)
       assert Repo.aggregate(Receipt, :count) == 0
-      assert Repo.get!(AgentWorker, agent.uid).state == :absent
+      assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
 
       workspace =
         Repo.get_by!(SessionWorkspace,

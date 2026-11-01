@@ -48,7 +48,10 @@ defmodule Ankole.Conversations do
     end
 
     resource(Ankole.Conversations.InboundBatch)
+    resource(Ankole.Conversations.MessageAttachment)
+    resource(Ankole.Conversations.DeliveryAttachment)
     resource(Ankole.Conversations.Delivery.PreviewState)
+    resource(Ankole.Conversations.ActionCard)
 
     resource Ankole.Conversations.Delivery.Intent do
       define(:list_intents, action: :read)
@@ -58,8 +61,21 @@ defmodule Ankole.Conversations do
   defdelegate teammates(actor, query \\ nil), to: NativeRoom
   defdelegate update_conversation(actor, id, attrs), to: NativeRoom, as: :update
   defdelegate manage_participants(actor, id, attrs), to: NativeRoom, as: :manage
+  defdelegate find_anchor_page_conversation_id(page_id, agent_uid), to: NativeRoom
+
+  defdelegate ensure_anchor_page_conversation_in_tx(
+                actor,
+                agent,
+                conv_id,
+                page_id,
+                title_hint,
+                now
+              ),
+              to: NativeRoom
+
   defdelegate list_rooms(actor, opts \\ []), to: Native
   defdelegate agents(human_uid), to: Native
+  defdelegate authorize_agent(actor, uid), to: Native
   defdelegate model_profiles(human_uid, agent_uid), to: Native
   defdelegate request_context(signal), to: Native
   defdelegate visible_native_conversation(human_uid, id), to: Native
@@ -90,11 +106,37 @@ defmodule Ankole.Conversations do
     to: Ankole.Conversations.Delivery.Interactions,
     as: :answer_native
 
+  defdelegate resolve_action_card(actor, id, card_id, decision),
+    to: Ankole.Conversations.ActionCards,
+    as: :resolve_native
+
+  defdelegate get_browser_action_card(actor, card_id),
+    to: Ankole.Conversations.ActionCards,
+    as: :get_browser_card
+
+  defdelegate resolve_browser_action_card(actor, card_id, decision),
+    to: Ankole.Conversations.ActionCards,
+    as: :resolve_browser_card
+
   defdelegate message_changed_in_tx(before_message, after_message, now), to: Queries
   defdelegate message_for_signal(event), to: Queries
   defdelegate reply_candidate_texts(signal_ids), to: Queries
+
+  defdelegate wake_briefing_messages(conversation_id, agent_uid, max_seq, excluded_ids, limit),
+    to: Queries
+
   defdelegate context_snapshot(id, key, read_seq, excluded_ids, opts \\ []), to: Queries
   defdelegate context_snapshot_in_tx(id, key, read_seq, excluded_ids, opts), to: Queries
+  defdelegate participating_ids(uid), to: Queries
+
+  defdelegate resolve_attachment(actor, conversation_id, message_id, position),
+    to: Ankole.Conversations.Attachments,
+    as: :resolve
+
+  defdelegate read_attachment_to_file(actor, conversation_id, message_id, position, local_path),
+    to: Ankole.Conversations.Attachments,
+    as: :read_to_file
+
   defdelegate ids_for_agent_in_tx(uid), to: Queries
   defdelegate delete_for_agent_in_tx(uid), to: Queries
   defdelegate next_sequence_in_tx(conversation), to: Queries

@@ -91,7 +91,7 @@ defmodule Ankole.Conversations.InboundBatches do
     if is_binary(provider_id) and
          is_nil(Ankole.Conversations.External.get_message(fact.conversation_id, provider_id)) do
       case observed_entry_batch(
-             binding.agent_uid,
+             fact.agent_uid,
              binding.name,
              fact.conversation_id,
              provider_id
@@ -796,6 +796,14 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp append_batch_signal(batch, type, now) do
+    :ok = Ankole.Files.lock_tree_in_tx()
+
+    :ok =
+      Ankole.Signals.lock_target_in_tx(%{
+        agent_uid: batch.agent_uid,
+        session_id: batch.session_id
+      })
+
     with {:ok, binding} <- batch_binding(batch),
          {:ok, channel} <- batch_channel(batch),
          :ok <- mirror_unmirrored_batch_entries(batch, binding, now) do
@@ -806,7 +814,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp batch_binding(%InboundBatch{binding_name: name} = batch)
        when is_binary(name) and name != "" do
-    case Ankole.Signals.get_binding!(batch.agent_uid, name) do
+    case Ankole.Signals.get_binding!(batch.binding_id) do
       nil -> {:error, :binding_not_found}
       binding -> {:ok, binding}
     end
@@ -829,6 +837,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
     attrs = %{
       agent_uid: fact.agent_uid,
+      binding_id: fact.binding_id,
       binding_name: fact.binding_name,
       session_id:
         Map.get(fact, :session_id) || Ankole.Sessions.Key.conversation(fact.conversation_id),
@@ -1061,6 +1070,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
     %{
       agent_uid: batch.agent_uid,
+      binding_id: batch.binding_id,
       binding_name: batch.binding_name,
       session_id: batch.session_id,
       source_event_id: "inbound-batch:#{batch.id}:#{batch.batch_revision + 1}",
@@ -1124,6 +1134,7 @@ defmodule Ankole.Conversations.InboundBatches do
   defp mirror_batch_entry(batch, binding, entry, now) do
     attrs = %{
       agent_uid: batch.agent_uid,
+      binding_id: batch.binding_id,
       binding_name: batch.binding_name,
       adapter: entry["adapter"] || binding.adapter,
       source_event_id:
@@ -1372,7 +1383,7 @@ defmodule Ankole.Conversations.InboundBatches do
   defp attachment_dedup_key(%{} = attachment, provider_message_id) do
     {
       attachment["source_message_id"] || provider_message_id,
-      attachment["provider_ref"] || attachment["file_key"] || attachment["blob_ref"] ||
+      attachment["provider_ref"] || attachment["file_key"] || attachment["object_id"] ||
         attachment["name"] || attachment
     }
   end

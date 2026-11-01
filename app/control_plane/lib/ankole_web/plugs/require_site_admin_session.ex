@@ -17,8 +17,8 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSession do
   def call(conn, _opts) do
     case WebSession.authorize_site_admin_session(conn) do
       {:ok, %{"principal_uid" => uid} = authentication} ->
-        with {:ok, tenant_id} <- Principals.resolve_tenant(uid),
-             :ok <- Repo.put_tenant_id(tenant_id),
+        with {:ok, tenant} <- Ankole.Tenants.privileged(),
+             :ok <- Repo.put_tenant_id(tenant.id),
              {:ok, principal} <- Principals.get_principal(uid) do
           conn
           |> assign(:current_principal_uid, uid)

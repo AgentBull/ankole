@@ -43,4 +43,10 @@ type SharedTurnOptions = {
 export type CodexJobOptions = SharedTurnOptions & {
   /** Internal host/test override; production uses the bounded Codex first-progress deadline. */
   firstCodexProgressTimeoutMs?: number
+  /** Rotates the Worker-managed CLI context identity file on thread start/resume/compaction. */
+  updateCliContextId?: (contextId: string) => void
+  /** Idle pause threshold before recycling a large waiting_on_user Codex thread (default 10m). */
+  coldIdleRecycleMs?: number
+  /** Context token threshold for cold-idle Codex thread recycling (default 128k). */
+  coldIdleMinTokens?: number
 }

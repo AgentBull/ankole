@@ -8,7 +8,6 @@ defmodule Ankole.Sessions.Prompt do
 
   import Ankole.Text, only: [utf16_length: 1, utf16_prefix: 2]
   alias Ankole.AgentHomePaths
-  alias Ankole.Files
   alias Ankole.JSON
 
   @template_paths Path.wildcard(Path.expand("../../../priv/sessions/prompts/*.eex", __DIR__))
@@ -203,8 +202,8 @@ defmodule Ankole.Sessions.Prompt do
       "Current workspace: #{AgentHomePaths.session_workspace(opts.workspace_id)}",
       drive_context(conversation.origin_channel),
       pod_instructions(conversation),
-      "The workspace is a temporary working directory. Save files that must be kept or delivered in the drive with ankole-files put. Use this conversation's drive directory when it has one.",
-      "Other conversations' workspaces (/workspace/sessions/<other-id>) and drive directories (chats/<other-conversation_id>/) belong to other people. Do not read or write them. Drive files outside chats/ are shared.",
+      "The workspace is a temporary working directory. Save files that must be kept or delivered in your private drive with ankole-files put. Use its nodeId when attaching a file.",
+      "Other conversations' workspaces (/workspace/sessions/<other-id>) belong to other people. Do not read or write them. Shared Drive files require access to their node IDs.",
       if(match?(%{kind: "im_dm"}, conversation.origin_channel),
         do:
           "This is a private conversation with the other person. Keep its files and contents private.",
@@ -239,12 +238,12 @@ defmodule Ankole.Sessions.Prompt do
 
   def pod_instructions(_conversation), do: ""
 
-  defp drive_context(%{id: channel_id}),
-    do: "Current drive directory: #{Files.chat_directory(channel_id)}/"
+  defp drive_context(%{id: _conversation_id}),
+    do:
+      "Conversation attachments include commands that download their frozen bytes into the Worker."
 
   defp drive_context(_no_channel),
-    do:
-      "This conversation has no channel drive directory. Use the shared drive to keep or deliver files."
+    do: "Use your private drive to keep files for later work."
 
   defp display_name(opts) do
     case String.trim(opts.context.agent.display_name || "") do

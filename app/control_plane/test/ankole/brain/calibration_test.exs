@@ -1,7 +1,6 @@
 defmodule Ankole.Brain.CalibrationTest do
   use Ankole.AIGatewayCase
 
-  alias Ankole.AppConfigure
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Objects
@@ -120,6 +119,7 @@ defmodule Ankole.Brain.CalibrationTest do
 
     resolved = Repo.get!(Claim, take.id)
     assert resolved.graded_quality == "incorrect"
+    assert resolved.graded_by == grader_actor()
     assert %DateTime{} = resolved.resolved_at
     assert resolved.resolved_quality == "incorrect"
     assert resolved.resolved_outcome == false
@@ -142,6 +142,29 @@ defmodule Ankole.Brain.CalibrationTest do
                  context.member.uid
                )
              )
+  end
+
+  test "a Pod with only primary runs Dreaming and attributes calibration to its system Principal",
+       context do
+    assert Repo.aggregate(Ankole.Principals.Agent, :count) == 0
+    assert {:ok, _} = ModelProfiles.put_default_model_profile(:tenant, "heavy", nil)
+
+    system_uid =
+      configure_brain_maintainer_profile!("primary", "brain-calibration", "primary-calibration")
+
+    assert {:ok, true} = Ankole.AppConfigure.put_global_by_key("brain.enabled", true)
+    take = write_take!(context.member, %{object_slug: context.object.slug}, "Expired prediction")
+    write_fact!(context, "The outcome is known")
+    plan_verdict!(context, "incorrect")
+
+    assert {:ok, report} = Ankole.Brain.Dreaming.run()
+    assert report.grade_takes == %{status: :ok, candidates: 1, attempted: 1, graded: 1}
+    refute Enum.any?(report, fn {_phase, result} -> result.status == :failed end)
+    assert_receive {:calibration_request, %{"model" => "primary-calibration"}}
+    assert Repo.get!(Claim, take.id).resolved_by == grader_actor()
+
+    assert [%{subject_uid: ^system_uid, origin: :brain}] =
+             Repo.all(Ankole.AIGateway.Schemas.UsageRecord)
   end
 
   test "a partial verdict resolves an expired Take without an outcome", context do
@@ -233,6 +256,7 @@ defmodule Ankole.Brain.CalibrationTest do
         Ankole.Ash.update(take, :record_grade, %{
           graded_quality: "partial",
           graded_confidence: 0.5,
+          graded_by: grader_actor(),
           graded_at: ~U[2020-01-01 00:00:00.000000Z]
         })
       end)
@@ -676,20 +700,17 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   defp put_grade_profile!(provider_id, model, options) do
-    {:ok, maintainer} = AppConfigure.get_by_key("brain.maintainer_agent_uid")
-
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(maintainer, "heavy", %{
+             ModelProfiles.put_default_model_profile(:tenant, "heavy", %{
                provider_id: provider_id,
                model: model,
                provider_options: options
              })
   end
 
-  # The grader resolves as the Brain maintainer Agent.
   defp grader_actor do
-    {:ok, maintainer} = AppConfigure.get_by_key("brain.maintainer_agent_uid")
-    to_string(Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: maintainer}))
+    {:ok, system} = Ankole.Principals.system_principal("ankole_brain")
+    to_string(Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: system.uid}))
   end
 
   defp grade_output(domains, quality \\ "unresolvable"),

@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createClientConfig } from '../common/internal-api-client'
+import { BdiLabel } from '../common/bidi-file-name'
+import { sanitizeFileName, stripBidi } from '../common/bidi'
 import { podKeys } from './api'
 import { ContentError } from './content-primitives'
 import { isPreviewImage } from './state/chat-attachments'
@@ -72,7 +74,11 @@ export function AttachmentPreview({
     return local ? (
       thumbnail
     ) : (
-      <a href={url} target="_blank" rel="noopener noreferrer" aria-label={t('pod.chat_attachments.preview', { name })}>
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={t('pod.chat_attachments.preview', { name: stripBidi(name) })}>
         {thumbnail}
       </a>
     )
@@ -84,7 +90,7 @@ export function AttachmentPreview({
         type="button"
         variant="ghost"
         className="h-auto shrink-0 rounded-control p-0"
-        aria-label={t('pod.chat_attachments.preview', { name })}
+        aria-label={t('pod.chat_attachments.preview', { name: stripBidi(name) })}
         onClick={() => setOpen(true)}>
         {thumbnail}
       </Button>
@@ -93,7 +99,9 @@ export function AttachmentPreview({
         closeLabel={t('common.close')}
         initialFocus={body}
         finalFocus={trigger}>
-        <DialogTitle className="break-words">{name}</DialogTitle>
+        <DialogTitle className="break-words">
+          <BdiLabel value={name} />
+        </DialogTitle>
         <div
           ref={body}
           tabIndex={0}
@@ -101,13 +109,19 @@ export function AttachmentPreview({
           {open && (
             <Suspense fallback={<p role="status">{t('pod.content.loading_file')}</p>}>
               {kind === 'pdf' ? (
-                <iframe className="h-[70dvh] w-full border border-border" src={url} title={name} />
+                <iframe className="h-[70dvh] w-full border border-border" src={url} title={stripBidi(name)} />
               ) : kind === 'spreadsheet' ? (
                 <SpreadsheetPreview url={url} />
               ) : kind === 'presentation' ? (
                 <PresentationPreview url={url} />
               ) : (
-                <PreviewContent url={url} image={image} name={name} conversationID={conversationID} local={local} />
+                <PreviewContent
+                  url={url}
+                  image={image}
+                  name={stripBidi(name)}
+                  conversationID={conversationID}
+                  local={local}
+                />
               )}
             </Suspense>
           )}
@@ -116,7 +130,7 @@ export function AttachmentPreview({
           <a href={url} target="_blank" rel="noopener noreferrer" className="link">
             {t('pod.chat_attachments.open_new_tab')}
           </a>
-          <a href={downloadURL} download={name} className="link">
+          <a href={downloadURL} download={sanitizeFileName(name)} className="link">
             {t('pod.content.download_original')}
           </a>
         </DialogFooter>

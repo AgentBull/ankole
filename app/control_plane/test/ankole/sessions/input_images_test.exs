@@ -37,7 +37,8 @@ defmodule Ankole.Sessions.InputImagesTest do
               [photo, broken],
               &%{
                 "path" => &1.path,
-                "blob_ref" => Base.encode16(&1.sha256, case: :lower),
+                "object_id" => &1.object_id,
+                "node_id" => &1.id,
                 "resource_type" => "image"
               }
             )

@@ -7,20 +7,34 @@ defmodule Ankole.Signals.ConsoleActions do
   @impl true
   def run(input, _opts, _context), do: input |> execute() |> Errors.wrap(&describe/1)
 
-  @doc "Gives the AuthZ permissions required to update or move a Signal Binding."
-  def update_binding_permissions(params, args, default_resource, default_action) do
-    source = Map.fetch!(params, "agent_uid")
-    target = Map.get(args, "target_agent_uid")
+  @doc "Uses the static colleague's management permission or the tenant's shared binding permission."
+  def binding_permissions(params, args, default_resource, default_action) do
+    binding = if id = params["id"] || args["id"], do: Ankole.Signals.get_binding!(id)
+    source_resource = binding_resource(binding)
+    mode = args["routing_mode"] || (binding && binding.routing_mode) || :ai_colleague
+    target_uid = args["agent_uid"] || (binding && binding.agent_uid)
 
-    if is_binary(target) and target != source do
-      [
-        {"site_console:agent:#{source}:signal_bindings", "delete"},
-        {"site_console:agent:#{target}:signal_bindings", "update"}
-      ]
-    else
-      [{default_resource, default_action}]
+    target_resource =
+      if mode in [:ai_colleague, "ai_colleague"] and is_binary(target_uid),
+        do: "site_console:agent:#{target_uid}:signal_bindings",
+        else: default_resource
+
+    cond do
+      is_nil(binding) ->
+        [{target_resource, default_action}]
+
+      target_resource != source_resource ->
+        [{source_resource, "delete"}, {target_resource, "update"}]
+
+      true ->
+        [{source_resource, default_action}]
     end
   end
+
+  defp binding_resource(%Binding{agent_uid: uid}) when is_binary(uid),
+    do: "site_console:agent:#{uid}:signal_bindings"
+
+  defp binding_resource(_binding), do: "site_console:signal_bindings"
 
   defp execute(%{action: %{name: :console_adapters}}) do
     with {:ok, adapters} <- Bindings.list_adapters(), do: {:ok, %{signal_adapters: adapters}}
@@ -44,7 +58,7 @@ defmodule Ankole.Signals.ConsoleActions do
   end
 
   defp execute(%{action: %{name: :console_get_binding}, arguments: attrs}) do
-    with {:ok, result} <- Bindings.get_binding_configuration(attrs.agent_uid, attrs.binding_name) do
+    with {:ok, result} <- Bindings.get_binding_configuration(attrs.id) do
       {:ok,
        %{
          signal_binding: signal_binding_json(result.binding),
@@ -67,12 +81,7 @@ defmodule Ankole.Signals.ConsoleActions do
 
   defp execute(%{action: %{name: :console_update_binding}, arguments: attrs}) do
     with {:ok, result} <-
-           Bindings.update_binding(
-             attrs.agent_uid,
-             attrs.target_agent_uid,
-             attrs.binding_name,
-             binding_attrs(attrs)
-           ),
+           Bindings.update_binding(attrs.id, binding_attrs(attrs)),
          do: {:ok, %{signal_binding: signal_binding_json(result)}}
   end
 
@@ -84,11 +93,21 @@ defmodule Ankole.Signals.ConsoleActions do
   defp binding_attrs(attrs),
     do:
       attrs
-      |> Map.take([:config, :target, :filters, :group_message_mode, :unmatched_sender_policy])
+      |> Map.take([
+        :agent_uid,
+        :routing_mode,
+        :config,
+        :target,
+        :filters,
+        :group_message_mode,
+        :unmatched_sender_policy
+      ])
       |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
 
   defp signal_binding_json(%{binding: %Binding{} = binding, config_key: config_key}) do
     %{
+      id: binding.id,
+      routing_mode: binding.routing_mode,
       agent_uid: binding.agent_uid,
       name: binding.name,
       adapter: binding.adapter,
@@ -105,6 +124,8 @@ defmodule Ankole.Signals.ConsoleActions do
 
   defp signal_binding_json(%Binding{} = binding) do
     %{
+      id: binding.id,
+      routing_mode: binding.routing_mode,
       agent_uid: binding.agent_uid,
       name: binding.name,
       adapter: binding.adapter,
@@ -162,6 +183,12 @@ defmodule Ankole.Signals.ConsoleActions do
   defp describe(reason)
        when reason in [:intent_not_requeueable, :intent_ambiguous_delivery_not_requeueable],
        do: {:conflict, "This delivery cannot be retried", []}
+
+  defp describe(:ai_colleague_required),
+    do: {"Select an AI colleague for a dedicated binding", []}
+
+  defp describe(:invalid_routing_mode),
+    do: {"Shared personal-assistant routing is supported by Lark and Slack", []}
 
   defp describe(:binding_target_conflict),
     do: {:conflict, "The target Agent already has an enabled binding with this name", []}

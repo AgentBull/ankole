@@ -79,7 +79,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
       uid = domain.agent.uid
 
       assert %AgentWorker{state: :absent, wanted_until: %DateTime{}} =
-               Repo.get!(AgentWorker, uid)
+               Repo.get_by!(AgentWorker, agent_uid: uid)
 
       handle = %{kind: :kubernetes, agent_uid: uid}
       flow = Map.merge(domain, %{fake_feishu: ctx.fake_feishu, container: handle})
@@ -144,7 +144,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
       assert {:ok, true} =
                wait_until(deadline(60_000), fn ->
                  case reconcile(uid) do
-                   :ok -> is_nil(Repo.get(AgentWorker, uid))
+                   :ok -> is_nil(Repo.get_by(AgentWorker, agent_uid: uid))
                    {:error, {:kubernetes_claim_deleting, _}} -> false
                    error -> flunk("Agent deletion failed: #{inspect(error)}")
                  end
@@ -257,7 +257,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
              wait_until(deadline(120_000), fn ->
                assert :ok = reconcile(uid)
 
-               case Repo.get!(AgentWorker, uid) do
+               case Repo.get_by!(AgentWorker, agent_uid: uid) do
                  %AgentWorker{state: :ready, generation: generation} = worker
                  when generation != previous ->
                    worker

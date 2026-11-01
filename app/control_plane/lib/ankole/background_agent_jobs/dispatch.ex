@@ -7,7 +7,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ecto.Adapters.SQL
 
   alias Ankole.AIAgent.Library.AgentPlugins
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
@@ -447,6 +447,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       sender: nil,
       authorization: Ankole.Principals.WorkAccess.fields(job),
       reply_route: %{
+        binding_id: Map.get(reply_route, "binding_id"),
         binding_name: Map.get(reply_route, "binding_name"),
         conversation_id: Map.get(reply_route, "conversation_id"),
         provider_thread_id: Map.get(reply_route, "provider_thread_id"),

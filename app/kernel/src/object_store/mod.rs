@@ -3,8 +3,8 @@
 //! exactly one result through its sink. The retry and timeout layers bound every
 //! storage call, so a caller can wait for the result without its own timer.
 //!
-//! Large objects move through local files on the control-plane host. The BEAM
-//! receives a binary only from `Read`.
+//! Large objects can be supplied from local files or acknowledged binary chunks.
+//! The BEAM receives object bytes from `Read` and `ReadRange`.
 
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
@@ -22,9 +22,11 @@ use crate::common::io_runtime;
 
 #[cfg(test)]
 mod tests;
+mod write_stream;
+pub use write_stream::{WriteHandle, start_write};
 
 /// S3 multipart parts must be at least 5 MiB.
-const WRITE_CHUNK_BYTES: usize = 8 * 1024 * 1024;
+pub const WRITE_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 /// Bound for one object deletion call.
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(60);
 /// Bound for one I/O call inside a read or a write, so a stalled transfer fails
@@ -76,19 +78,66 @@ pub struct Store {
     operator: Operator,
 }
 
+/// The byte ceiling exposed to callers for upload preflight and relay bounds.
+pub fn write_limit(store: &Store) -> u64 {
+    operator_write_limit(&store.operator)
+}
+
+fn operator_write_limit(operator: &Operator) -> u64 {
+    match operator.info().scheme() {
+        "d1" => 2_000_000,
+        // These adapters buffer a complete value. At 100 MiB, measured peak
+        // native RSS is 482 MiB for PostgreSQL and 247 MiB for WebDAV.
+        "postgresql" | "webdav" => 100 * 1024 * 1024,
+        // Streaming adapters are bounded by the exact integer size carried
+        // through the Worker JavaScript relay and their own storage service.
+        _ => 9_007_199_254_740_991,
+    }
+}
+
+fn check_write_size(operator: &Operator, size: u64) -> Result<(), StoreError> {
+    let limit = operator_write_limit(operator);
+    if size > limit {
+        Err(StoreError::new(
+            "file_too_large",
+            format!("object size {size} exceeds backend limit {limit}"),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub enum Operation {
-    Read { key: String },
-    ReadToFile { key: String, path: PathBuf },
-    Write { key: String, bytes: Vec<u8> },
-    WriteFromFile { key: String, path: PathBuf },
-    Delete { key: String },
+    Read {
+        key: String,
+    },
+    ReadRange {
+        key: String,
+        offset: u64,
+        length: u64,
+    },
+    ReadToFile {
+        key: String,
+        path: PathBuf,
+    },
+    Write {
+        key: String,
+        bytes: Vec<u8>,
+    },
+    WriteFromFile {
+        key: String,
+        path: PathBuf,
+    },
+    Delete {
+        key: String,
+    },
 }
 
 #[derive(Debug)]
 pub enum Outcome {
     Done,
-    /// The object of a `Read`, in the chunks that the store returned. The
+    /// The bytes of a `Read` or `ReadRange`, in the chunks that the store returned. The
     /// binding copies the chunks once, into the binary that it returns.
     Bytes(Buffer),
 }
@@ -229,14 +278,34 @@ pub fn start(store: &Store, operation: Operation, sink: ResultSink) -> Result<()
 async fn run(operator: &Operator, operation: Operation) -> Result<Outcome, StoreError> {
     match operation {
         Operation::Read { key } => Ok(Outcome::Bytes(operator.read(&key).await?)),
+        Operation::ReadRange {
+            key,
+            offset,
+            length,
+        } => {
+            let end = offset.checked_add(length).ok_or_else(|| {
+                StoreError::new(
+                    "invalid_range",
+                    "offset plus length exceeds the 64-bit range",
+                )
+            })?;
+            Ok(Outcome::Bytes(
+                operator.read_with(&key).range(offset..end).await?,
+            ))
+        }
         Operation::ReadToFile { key, path } => read_to_file(operator, &key, &path).await,
         Operation::Write { key, bytes } => {
+            check_write_size(operator, bytes.len() as u64)?;
             write_parts(operator, &key, std::io::Cursor::new(bytes)).await
         }
         Operation::WriteFromFile { key, path } => {
             let file = tokio::fs::File::open(&path)
                 .await
                 .map_err(local_file_error)?;
+            check_write_size(
+                operator,
+                file.metadata().await.map_err(local_file_error)?.len(),
+            )?;
             write_parts(operator, &key, file).await
         }
         Operation::Delete { key } => {
@@ -274,27 +343,7 @@ async fn write_parts(
     key: &str,
     mut source: impl AsyncRead + Unpin,
 ) -> Result<Outcome, StoreError> {
-    if !operator.info().capability().write_can_multi {
-        // WebDAV requires one complete PUT. Database backends also store one
-        // complete value, so keep this buffer in native memory.
-        let mut bytes = Vec::new();
-        source
-            .read_to_end(&mut bytes)
-            .await
-            .map_err(local_file_error)?;
-        operator.write(key, bytes).await?;
-        return Ok(Outcome::Done);
-    }
-
-    // SFTP writes directly to its target. A sibling temporary file and rename
-    // keep a failed replacement from truncating a referenced object.
-    let temporary_key =
-        (operator.info().scheme() == "sftp").then(|| format!("{key}.{}.tmp", uuid::Uuid::new_v4()));
-    let write_key = temporary_key.as_deref().unwrap_or(key);
-    let mut writer = operator
-        .writer_with(write_key)
-        .chunk(WRITE_CHUNK_BYTES)
-        .await?;
+    let mut writer = write_stream::ObjectWriter::open(operator, key).await?;
     let mut buffer = vec![0_u8; WRITE_CHUNK_BYTES];
 
     let copied: Result<(), StoreError> = async {
@@ -302,9 +351,6 @@ async fn write_parts(
             let read = source.read(&mut buffer).await.map_err(local_file_error)?;
             if read == 0 {
                 writer.close().await?;
-                if let Some(temporary_key) = &temporary_key {
-                    operator.rename(temporary_key, key).await?;
-                }
                 return Ok(());
             }
             writer
@@ -319,10 +365,7 @@ async fn write_parts(
         Err(reason) => {
             // An unfinished S3 multipart upload keeps its parts until it is
             // aborted, so a failed copy must not leave it open.
-            let _ = writer.abort().await;
-            if let Some(temporary_key) = &temporary_key {
-                let _ = operator.delete(temporary_key).await;
-            }
+            writer.abort().await;
             Err(reason)
         }
     }

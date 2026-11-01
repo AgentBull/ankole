@@ -5,6 +5,38 @@ defmodule Ankole.Pod.Bases.Physical do
   alias Ankole.Pod.{BaseRepo, Formula, Values}
   alias Ankole.Pod.Bases.Links
 
+  @doc "Idempotently rewrites Principal authors and user columns in one physical table."
+  def rename_principal(table, fields, {tenant, old_uid}, new_uid) do
+    old_actor = to_string(Ankole.ActorRef.from_principal(%{tenant_id: tenant, uid: old_uid}))
+    new_actor = to_string(Ankole.ActorRef.from_principal(%{tenant_id: tenant, uid: new_uid}))
+
+    authors =
+      BaseRepo.query!(
+        "UPDATE #{BaseRepo.table(table.id)} SET created_by=CASE WHEN created_by=$1 THEN $2 ELSE created_by END, updated_by=CASE WHEN updated_by=$1 THEN $2 ELSE updated_by END WHERE created_by=$1 OR updated_by=$1",
+        [old_actor, new_actor]
+      ).num_rows
+
+    users =
+      for field <- fields, field.type == :user do
+        column = BaseRepo.column(field.id)
+
+        BaseRepo.query!(
+          """
+          UPDATE #{BaseRepo.table(table.id)} SET
+            #{column}=(SELECT jsonb_agg(CASE WHEN value=$2 THEN $3 ELSE value END ORDER BY n)
+              FROM jsonb_array_elements_text(#{column}) WITH ORDINALITY AS item(value,n)),
+            versions=jsonb_set(versions,ARRAY[$1::text],to_jsonb(COALESCE((versions->>$1)::bigint,0)+1))
+          WHERE #{column} ? $2
+          """,
+          [field.id, old_uid, new_uid]
+        ).num_rows
+      end
+
+    if authors + Enum.sum(users) == 0,
+      do: {:ok, nil},
+      else: commit(table, %{delta: 0, inserted: 0})
+  end
+
   def stored?(field), do: not Formula.readonly?(field) and field.type != :link
 
   def sql_type(field) do

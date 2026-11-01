@@ -585,7 +585,9 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
 
       assert Repo.reload!(take).resolved_by ==
                to_string(
-                 Ankole.ActorRef.from_principal(Repo.get!(Ankole.Principals.Principal, admin_uid))
+                 Ankole.ActorRef.from_principal(
+                   Repo.get_by!(Ankole.Principals.Principal, uid: admin_uid)
+                 )
                )
     end
 
@@ -597,7 +599,9 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       object = insert_object!("notes/claim-search")
 
       author =
-        Ankole.ActorRef.from_principal(Repo.get!(Ankole.Principals.Principal, principal_uid))
+        Ankole.ActorRef.from_principal(
+          Repo.get_by!(Ankole.Principals.Principal, uid: principal_uid)
+        )
 
       row = fn claim, created_at ->
         %{

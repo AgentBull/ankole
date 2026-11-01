@@ -2,9 +2,9 @@ defmodule Ankole.Work.Provenance do
   @moduledoc """
   Declares authorization fields and the existing work owner's review contract.
 
-  A work resource uses this module after `use Ankole.Ash.Resource`. It gets
-  the read action `:work_across_tenants`: Human work cleanup and review read
-  the work of one Human in every tenant through `Ankole.Work.Owner`.
+  A work resource uses this module after `use Ankole.Ash.Resource`. Site
+  maintenance can inventory work with `:work_across_tenants`; Human cleanup
+  and review use the work's tenant through `Ankole.Work.Owner`.
   """
 
   defmacro __using__(opts) do
@@ -24,6 +24,10 @@ defmodule Ankole.Work.Provenance do
                                 ])
                               )
       def __work_provenance__, do: unquote(opts)
+
+      validations do
+        validate(Ankole.Work.ValidateTarget, on: [:create])
+      end
 
       actions do
         read :work_across_tenants do

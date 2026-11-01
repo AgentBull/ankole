@@ -14,22 +14,36 @@ Multiple agents edit this worktree concurrently. Always preserve diffs that belo
 
 ## Design
 
-Follow Worse is Better: prioritize simplicity first, then correctness, consistency, and completeness. A straightforward implementation beats a uniform abstraction, and a narrower contract, explicit rejection, or manual recovery path is usually simpler than an automatic fallback.
+Treat the user's intent, product context, and explicit decisions as the source of truth. Code, tests, and documents are evidence of the current implementation; correct them when they conflict with the approved intent. Preserve settled decisions across reviews instead of deriving new requirements from implementation artifacts.
 
-Deliver the exact outcome the user asked for—a passing test, a smaller diff, a new abstraction, or a demo is not a substitute. If you are blocked, name the specific boundary, dependency, or product decision standing in the way.
+Follow Worse is Better: choose the simplest implementation that delivers the intended user experience and operating requirements, then prioritize correctness, consistency, and completeness within that scope. A straightforward implementation beats a uniform abstraction. Narrower contracts, explicit rejection, and manual recovery are valid for peripheral cases; preserve everyday workflows instead of adding permission hurdles or repeated manual work merely to simplify implementation.
+
+Evaluate simplification by the total cost to users, operators, and maintainers, including interaction friction, performance, capacity, infrastructure, and recovery. Fewer code paths or storage modes do not by themselves establish an improvement. Preserve specialization that earns its complexity through useful behavior or operating economics; explain what removing a mechanism would save and what users or operators would lose before calling it unnecessary.
+
+Place orchestration with the owner of the user flow. Compose existing operations at the UI or caller when that satisfies the experience; introduce backend coordination only for a domain guarantee that actually requires it. Ordinary partial success and explicit retry can be acceptable outcomes without a new recovery protocol.
+
+Preserve the meaning and ownership of domain concepts while changing their implementation. Changes to an identifier's business meaning, a responsibility boundary, or a user-visible guarantee outside the approved scope require a product decision; implementation convenience does not authorize them. Deliver the requested behavior, using tests as evidence rather than substituting a green test, a smaller diff, or a uniform abstraction for the task.
 
 Before introducing a new concept, path, dependency, or document, find the existing owner and reuse, replace, or delete it. Every contract has a single owner. Ankole carries no public backwards-compatibility promise: keep legacy forms only for evidenced callers, persisted data, external contracts, or staged migrations.
 
-Before adding complexity for a speculative or vanishingly unlikely race condition or security edge case, explain the concrete failure mode, its likelihood, and its complexity cost to the user and get explicit buy-in. Do not silently expand scope for theoretical robustness.
+Ground each review finding in an agreed user story or system contract, a concrete failure path, and its practical consequence. Handle ordinary wiring and migration work within the authorized scope. Keep accepted limitations and unpromised guarantees out of the blocker list; do not turn an unnecessary guarantee into a question for the user. When an actual requirement conflicts with the approved scope, explain that conflict before asking for a product decision.
+
+## Shared responsibility security model
+
+Ankole enforces its declared identity, authorization, and isolation contracts. Users and administrators are responsible for the invitations, sharing, grants, and configuration choices they make within their authority, including the consequences. Do not automatically treat those consequences as system vulnerabilities or add safeguards to correct participants' choices or shield them from the consequences.
+
+Before proposing a security change, identify the explicit system contract whose violation it prevents or fixes. A possible adverse outcome alone does not justify additional defenses. Narrower supported behavior, explicit rejection, and manual handling are valid ways to bound complexity; do not introduce states, workflows, or abstractions merely to cover every possible case. Do not expand Ankole's responsibilities without an explicit product decision.
 
 ## Tests
+
+Derive assertions from the approved user-visible behavior. When existing tests encode superseded behavior, update them to the approved contract and verify the real path.
 
 Production code must exercise the real domain contract and adapter. Only unit tests may fake that boundary; integration tests must run against the real adapter or protocol, and end-to-end tests must follow the real user flow. Never weaken an assertion, bypass a production code path, or shift ownership just to make a test pass.
 
 ## Boundaries
 
 - **Site vs. tenant**: A site owns shared infrastructure, while each tenant owns its organization and data. One site runs against one control-plane PostgreSQL database, whereas physical Base tables live on the tenant's assigned Base shard. Every tenant-scoped query requires an explicit process context via `Ankole.Repo`; queries missing that context fail immediately. See [Tenants](docs/design-docs/Tenants.md).
-- **Identity and authorization**: Principal and AuthZ own all subjects and permissions. Every Principal belongs to a single tenant and carries one globally unique opaque UID. Never introduce a parallel subject or authorization model.
+- **Identity and authorization**: Principal and AuthZ own all subjects and permissions. Every Principal belongs to one tenant; `(tenant_id, uid)` is its identity, and `uid` is a meaningful name unique within that tenant. Resolve the tenant from credentials or explicit context before looking up a uid. Never introduce a parallel subject or authorization model.
 - **Configuration and secrets**: Environment variables and secret mounts hold only bootstrap facts or credentials needed before PostgreSQL is reachable. Operator-tunable settings belong in declared `Ankole.AppConfigure` keys, and runtime-generated secrets live in the owning subsystem's encrypted storage.
 - **Identifiers**: Always use the owning domain's schema and identifier format rather than inventing local key strategies or relying on database-generated IDs.
 - **Durable state**: PostgreSQL owns every domain fact whose loss or replay would change user-visible behavior, enforcing invariants with native types and constraints. Other storage systems hold only rebuildable caches and external artifacts referenced by PostgreSQL.
@@ -46,7 +60,7 @@ Run workspace tasks through Bun and the scripts defined in `package.json` so the
 
 ## Completion
 
-Deliver the full path together—source code, tests, declarations, migrations, generated clients, configuration, and documentation. Before finishing, read your entire diff and remove dead code, empty branches, unused imports, resolved TODOs, and anything superseded by the change.
+Deliver the full path together—source code, tests, declarations, migrations, generated clients, configuration, and documentation. Before finishing, reread the result against the user's intent and accepted limitations, not just the design you chose. Remove unsupported guarantees and concepts, then read the entire diff for dead code, empty branches, unused imports, resolved TODOs, and superseded paths.
 
 Run the verification checks in [CONTRIBUTING.md](CONTRIBUTING.md#run-the-right-checks) that cover the boundaries you touched. If a required check cannot run in your environment, report the exact command and what blocked it; never present an unexecuted check as verified.
 

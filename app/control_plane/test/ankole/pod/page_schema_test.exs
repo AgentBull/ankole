@@ -2,10 +2,13 @@ defmodule Ankole.Pod.PageSchemaTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.Pod.{BaseField, BaseRecord, BaseTable, BaseView}
-  alias Ankole.Pod.{Page, PageChange, PageContent, PageUserState}
+  alias Ankole.Pod.{Page, PageChange, PageContent, PageUserState, Properties}
+  alias Ankole.Files.Schemas.Node
 
   @schemas [
     Page,
+    Properties,
+    Node,
     PageContent,
     PageChange,
     PageUserState,
@@ -54,7 +57,7 @@ defmodule Ankole.Pod.PageSchemaTest do
 
     Repo.with_tenant(other.id, fn ->
       assert Repo.get(Page, page.id) == nil
-      assert Repo.all(Page) == []
+      assert Repo.all(from(p in Page, where: not p.is_root)) == []
       assert_raise ArgumentError, fn -> Repo.update(change(page, title: "Changed")) end
       assert_raise ArgumentError, fn -> Repo.delete(page) end
     end)
@@ -68,30 +71,30 @@ defmodule Ankole.Pod.PageSchemaTest do
     where = " WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid"
 
     assert_sql_constraint(
-      "UPDATE pages SET type = 'spreadsheet'" <> where,
+      "UPDATE drive_nodes SET kind = 'spreadsheet'" <> where,
       args,
-      "pages_type_check"
+      "drive_nodes_kind"
     )
 
     assert_sql_constraint(
-      "UPDATE pages SET purge_started_at = now()" <> where,
+      "UPDATE drive_nodes SET purge_started_at = now()" <> where,
       args,
-      "pages_purge_state"
+      "drive_nodes_purge_state"
     )
 
     assert_sql_constraint(
-      "UPDATE pages SET parent_id = id, inherit_permissions = false, parent_anchor_id = $3::text::uuid, private_owner_uid = 'owner'" <>
+      "UPDATE drive_nodes SET parent_id = id, inherit_permissions = false, parent_anchor_id = $3::text::uuid, private_owner_uid = 'owner'" <>
         where,
       args ++ [new_page().id],
-      "pages_private_owner"
+      "drive_nodes_root_shape"
     )
 
     missing = Ankole.Ecto.UUIDv7.autogenerate()
 
     assert_sql_constraint(
-      "UPDATE pages SET tenant_id = $3::text::uuid" <> where,
-      args ++ [missing],
-      "pages_tenant_id_fkey"
+      "INSERT INTO drive_nodes(tenant_id,id,name,kind,acl_anchor_id) VALUES($1::text::uuid,$2::text::uuid,'root','folder',$2::text::uuid)",
+      [missing, Ankole.Ecto.UUIDv7.autogenerate()],
+      "drive_nodes_tenant_id_fkey"
     )
 
     assert Repo.get!(Page, page.id).type == :doc
@@ -104,14 +107,14 @@ defmodule Ankole.Pod.PageSchemaTest do
 
     assert_constraint(
       action_changeset(
-        Page,
-        page_attrs(%{
+        Node,
+        node_attrs(%{
           parent_id: foreign_page.id,
           inherit_permissions: false,
           parent_anchor_id: foreign_page.id
         })
       ),
-      "pages_tenant_id_parent_id_fkey"
+      "drive_nodes_parent_fkey"
     )
 
     assert_constraint(
@@ -386,6 +389,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     )
   end
 
+  defp action(Properties), do: :ensure
   defp action(PageChange), do: :append
   defp action(PageUserState), do: :put
   defp action(_resource), do: :create_in_tx
@@ -434,23 +438,31 @@ defmodule Ankole.Pod.PageSchemaTest do
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-  defp page_attrs(attrs),
-    do:
-      Map.merge(
-        %{
-          id: Ankole.Ecto.UUIDv7.autogenerate(),
-          type: :doc,
-          title: "",
-          position: "a",
-          created_by: @author,
-          created_at: now(),
-          updated_at: now()
-        },
-        attrs
-      )
-      |> then(fn attrs -> Map.put(attrs, :acl_anchor_id, attrs.id) end)
+  defp node_attrs(attrs) do
+    {:ok, root} = Ankole.Files.Nodes.public_root()
+    id = Ankole.Ecto.UUIDv7.autogenerate()
 
-  defp new_page(attrs \\ %{}), do: insert!(Page, page_attrs(attrs))
+    Map.merge(
+      %{
+        id: id,
+        kind: :doc,
+        name: "Page " <> id,
+        parent_id: root.id,
+        inherit_permissions: false,
+        acl_anchor_id: id,
+        parent_anchor_id: root.id,
+        created_by: @author,
+        created_at: now(),
+        updated_at: now()
+      },
+      attrs
+    )
+  end
+
+  defp new_page(attrs \\ %{}) do
+    node = insert!(Node, node_attrs(%{kind: Map.get(attrs, :type, :doc)}))
+    insert!(Properties, %{id: node.id, title: "", position: "a"})
+  end
 
   defp new_table(page),
     do: insert!(BaseTable, %{page_id: page.id, name: "Table", position: "a"})

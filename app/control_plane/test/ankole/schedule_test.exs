@@ -9,7 +9,7 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.Sessions.Tools
 
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Signals.Signal
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -1841,8 +1841,7 @@ defmodule Ankole.ScheduleTest do
 
       assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{source_event_id: "delete-source"}),
                  now: DateTime.add(@base_time, 2, :second)
                )
@@ -1903,7 +1902,7 @@ defmodule Ankole.ScheduleTest do
                :count
              ) == 1
 
-      assert Repo.get!(Ankole.AgentWorkers.AgentWorker, agent.uid).state ==
+      assert Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: agent.uid).state ==
                :absent
     end
 
@@ -2078,7 +2077,7 @@ defmodule Ankole.ScheduleTest do
       assert mirror.message.text == "Daily digest is ready."
       assert mirror.external_ref.metadata["signal_id"] == input.id
 
-      assert Repo.get!(Ankole.AgentWorkers.AgentWorker, agent.uid).state ==
+      assert Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: agent.uid).state ==
                :absent
     end
 
@@ -2539,6 +2538,7 @@ defmodule Ankole.ScheduleTest do
 
   defp mock_adapter_context(agent_uid, binding_name) do
     AdapterContext.new(
+      binding_id: Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
       agent_uid: agent_uid,
       binding_name: binding_name,
       adapter: "mock-provider",
@@ -2547,7 +2547,12 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp emit_entry(agent_uid, binding_name, input, opts) do
-    with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts),
+    with {:ok, result} <-
+           Observe.emit_entry(
+             Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
+             input,
+             opts
+           ),
          do: {:ok, maybe_finalize_test_inbound_batch(result)}
   end
 

@@ -150,6 +150,7 @@ defmodule Ankole.Conversations.AttachmentMaterializationTest do
 
   defp context(agent_uid, adapter) do
     AdapterContext.new(
+      binding_id: Ankole.Signals.get_agent_binding!(agent_uid, adapter).id,
       agent_uid: agent_uid,
       binding_name: adapter,
       adapter: adapter,

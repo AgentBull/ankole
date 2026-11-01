@@ -29,7 +29,7 @@ defmodule Ankole.Sessions.CommandsTest do
     text = Ankole.JSON.encode!(prepared.input)
     assert text =~ "Change course"
     refute text =~ "/steer"
-    assert Repo.get!(AgentWorker, agent.uid).state == :absent
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
   end
 
   test "a final reply leaves an unread steer open for the next run" do
@@ -535,7 +535,7 @@ defmodule Ankole.Sessions.CommandsTest do
         Map.put(%{old | context: old_context}, :available_tool_names, [])
       )
 
-    assert old_prompt =~ "Current drive directory: chats/#{first.conversation_id}/"
+    assert old_prompt =~ "ankole-pod chat attachment get"
     assert old_prompt =~ "The workspace is a temporary working directory."
     refute old_prompt =~ "This is a private conversation with the other person."
     assert {:ok, _} = Run.finalize(old, :silent)
@@ -560,11 +560,11 @@ defmodule Ankole.Sessions.CommandsTest do
         Map.put(%{fresh | context: fresh_context}, :available_tool_names, [])
       )
 
-    assert fresh_prompt =~ "Current drive directory: chats/#{first.conversation_id}/"
+    assert fresh_prompt =~ "ankole-pod chat attachment get"
     assert fresh_prompt =~ "Current workspace: /workspace/sessions/#{fresh.workspace_id}"
     assert Repo.get!(Conversation, old.conversation.id).ended_at
     assert fresh.event.data["command"]["argsText"] == "Fresh task\nwith context"
-    assert Repo.get!(AgentWorker, agent.uid).state == :absent
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
     assert {:ok, adopted} = Admission.admit(key, Repo.reload!(event))
     assert adopted.conversation.id == fresh.conversation.id
   end

@@ -165,7 +165,7 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   end
 
   defp emit_entry(input, consumer) do
-    Observe.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
+    Observe.emit_entry(consumer.context.binding_id, input)
   end
 
   defp emit_removed(consumer, %{
@@ -183,8 +183,7 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
       conversation_id = Presentation.conversation_id(bot_user_id, chat.type, chat.id)
 
       Observe.emit_entry_removed(
-        consumer.context.agent_uid,
-        consumer.context.binding_name,
+        consumer.context.binding_id,
         %{
           source_event_id: event_id,
           provider_message_id: message_id,
@@ -224,7 +223,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
          user_id when is_binary(user_id) <- MapHelpers.presence(source["userId"]),
          token when is_binary(token) <- MapHelpers.presence(get_in(event, ["postback", "data"])),
          {:ok, chat} <- chat(source),
-         {:ok, principal} <- Principals.resolve_platform_subject("line", user_id),
          {:ok, value} <-
            ActionToken.resolve(
              token,
@@ -233,10 +231,11 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
              nil,
              prefix: "ln1"
            ),
+         {:ok, operator_principal_uid} <- resolve_action_operator("line", user_id, value),
          {:ok, surface_entry_id} <- reply_surface_entry_id(consumer, value),
          conversation_id <- Presentation.conversation_id(bot_user_id, chat.type, chat.id),
          {:ok, _action_result} = result <-
-           Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+           Observe.emit_action(consumer.context.binding_id, %{
              source_event_id: event_id,
              action_id: event_id,
              provider_conversation_id: conversation_id,
@@ -247,7 +246,7 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
                "name" => "line_postback",
                "value" => value,
                "operator_id" => user_id,
-               "operator_principal_uid" => principal.uid,
+               "operator_principal_uid" => operator_principal_uid,
                "provider_message_id" => surface_entry_id
              },
              raw_payload: %{"webhook_event_id" => event_id, "postback" => event["postback"]}
@@ -282,6 +281,18 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   end
 
   defp emit_action(_consumer, _envelope), do: {:ok, %{status: :ignored_invalid_postback}}
+
+  defp resolve_action_operator(provider, external_id, value) do
+    case Principals.resolve_platform_subject(provider, external_id) do
+      {:ok, principal} ->
+        {:ok, principal.uid}
+
+      {:error, :not_found} ->
+        if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]),
+          do: {:ok, nil},
+          else: {:error, :not_found}
+    end
+  end
 
   defp chat(source) do
     case source["type"] do

@@ -34,6 +34,10 @@ import { createRoot } from 'react-dom/client'
 import { useNavigate } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { ErrorBoundary, rootErrorOptions } from '../common/error-boundary'
+import {
+  EXTERNAL_TRANSLATION_GUARD_ATTRS,
+  withExternalTranslationGuardClass
+} from '../common/external-translation-guard'
 
 import { requestErrorMessage } from '../common/request-errors'
 import { contentKeys, fileURL, pageAPI, pageQuery, type PageDetail } from './content-api'
@@ -102,12 +106,12 @@ export function DocumentPage({
   const [fileDragOver, setFileDragOver] = useState(false)
   const [embedPickerOpen, setEmbedPickerOpen] = useState(false)
   const openCreatedDocument = useRef<string | undefined>(undefined)
-  const canEdit = detail.actions.includes('page_edit')
+  const canEdit = detail.actions.includes('node_edit')
   const openComment = useEffectEvent((ids: readonly string[]) => onComment(ids))
   const requestComment = useEffectEvent((selection: { from: number; to: number; quote: string }) =>
     onRequestComment(selection)
   )
-  const canComment = detail.actions.includes('page_comment')
+  const canComment = detail.actions.includes('node_comment')
   const askAgent = useEffectEvent((selection: { from: number; to: number; quote: string }) => onAskAgent?.(selection))
   const canAskAgent = !!onAskAgent
   const createChildPage = usePageCreation({
@@ -329,240 +333,244 @@ export function DocumentPage({
       {revoked ? (
         <p role="alert">{t('pod.content.you_no_longer_have_access_to_this_page_your_unsaved')}</p>
       ) : (
-        <BlockEditor
-          key={generation}
-          resolvedCommentIDs={resolvedCommentIDs}
-          labels={labels}
-          initial={initialDocument}
-          host={host}
-          readOnly={!detail.actions.includes('page_edit') || model.conflict.value}
-          className={detail.child_count > 0 ? '[--editor-min-height:0px]' : 'min-h-[60vh]'}
-          toolbar={null}
-          insertMenu={prepareInsertion => (
-            <>
-              <CreatePageSubmenu
-                parentID={detail.page.id}
-                label={t('pod.content.new_page')}
-                types={['doc', 'base']}
-                create={{
-                  ...createChildPage,
-                  submit: type => {
+        <div {...EXTERNAL_TRANSLATION_GUARD_ATTRS} className="notranslate contents">
+          <BlockEditor
+            key={generation}
+            resolvedCommentIDs={resolvedCommentIDs}
+            labels={labels}
+            initial={initialDocument}
+            host={host}
+            readOnly={!detail.actions.includes('node_edit') || model.conflict.value}
+            className={withExternalTranslationGuardClass(
+              detail.child_count > 0 ? '[--editor-min-height:0px]' : 'min-h-[60vh]'
+            )}
+            toolbar={null}
+            insertMenu={prepareInsertion => (
+              <>
+                <CreatePageSubmenu
+                  parentID={detail.page.id}
+                  label={t('pod.content.new_page')}
+                  types={['doc', 'base']}
+                  create={{
+                    ...createChildPage,
+                    submit: type => {
+                      prepareInsertion()
+                      return createChildPage.submit(type)
+                    }
+                  }}
+                />
+                <DropdownMenuItem
+                  onClick={() => {
                     prepareInsertion()
-                    return createChildPage.submit(type)
-                  }
-                }}
-              />
-              <DropdownMenuItem
-                onClick={() => {
-                  prepareInsertion()
-                  queueMicrotask(() => setEmbedPickerOpen(true))
-                }}>
-                <RiLayoutGridLine aria-hidden />
-                {t('pod.content.embed_existing_content')}
-              </DropdownMenuItem>
-            </>
-          )}
-          onError={setCollaborationError}
-          onReady={(instance, editorHandle) => {
-            editor.current = instance
-            onEditor(editorHandle)
-            const current = new PageSession(instance)
-            session.current = current
-            let disposed = false
-            const decoratePeers = remoteSelections(instance)
-            let presenceTimer: ReturnType<typeof setTimeout> | undefined
-            let refreshPeers = () => {}
-            let announceSelection = () => {}
-            let handle: Awaited<ReturnType<typeof content.realtime.join>> | undefined
-            let joined: Promise<Awaited<ReturnType<typeof content.realtime.join>>> | undefined
-            const terminate = (error?: unknown) => {
-              if (disposed) return
-              collaboration.dispose()
-              model.conflict.value = true
-              setCollaborationError(error)
-              handle?.close()
-            }
-            const revoke = (error: unknown) => {
-              if (disposed) return
-              terminate(error)
-              setRevoked(true)
-              void client.invalidateQueries({ queryKey: contentKeys.page(detail.page.id) })
-            }
-            const failed = (error: unknown) => {
-              if (disposed) return
-              if (isRealtimeAccessDenied(error)) revoke(error)
-              else setCollaborationError(error)
-            }
-            const connect = () => {
-              if (!joined) {
-                const attempt = content.realtime.join(`page:${detail.page.id}`).then(async connection => {
-                  if (disposed) {
-                    connection.close()
-                    throw new Error(t('pod.content.the_page_connection_is_closed'))
-                  }
-                  handle = connection
-                  const syncMembers = () => {
-                    if (awareness.connection.value !== 'connected') return
-                    awareness.sync(connection.presence())
-                    refreshPeers()
-                  }
-                  connection.on('connection', ({ status }) => {
-                    if (disposed) return
-                    awareness.setConnection(status)
-                    if (status !== 'connected') refreshPeers()
-                    else {
+                    queueMicrotask(() => setEmbedPickerOpen(true))
+                  }}>
+                  <RiLayoutGridLine aria-hidden />
+                  {t('pod.content.embed_existing_content')}
+                </DropdownMenuItem>
+              </>
+            )}
+            onError={setCollaborationError}
+            onReady={(instance, editorHandle) => {
+              editor.current = instance
+              onEditor(editorHandle)
+              const current = new PageSession(instance)
+              session.current = current
+              let disposed = false
+              const decoratePeers = remoteSelections(instance)
+              let presenceTimer: ReturnType<typeof setTimeout> | undefined
+              let refreshPeers = () => {}
+              let announceSelection = () => {}
+              let handle: Awaited<ReturnType<typeof content.realtime.join>> | undefined
+              let joined: Promise<Awaited<ReturnType<typeof content.realtime.join>>> | undefined
+              const terminate = (error?: unknown) => {
+                if (disposed) return
+                collaboration.dispose()
+                model.conflict.value = true
+                setCollaborationError(error)
+                handle?.close()
+              }
+              const revoke = (error: unknown) => {
+                if (disposed) return
+                terminate(error)
+                setRevoked(true)
+                void client.invalidateQueries({ queryKey: contentKeys.page(detail.page.id) })
+              }
+              const failed = (error: unknown) => {
+                if (disposed) return
+                if (isRealtimeAccessDenied(error)) revoke(error)
+                else setCollaborationError(error)
+              }
+              const connect = () => {
+                if (!joined) {
+                  const attempt = content.realtime.join(`page:${detail.page.id}`).then(async connection => {
+                    if (disposed) {
+                      connection.close()
+                      throw new Error(t('pod.content.the_page_connection_is_closed'))
+                    }
+                    handle = connection
+                    const syncMembers = () => {
+                      if (awareness.connection.value !== 'connected') return
+                      awareness.sync(connection.presence())
+                      refreshPeers()
+                    }
+                    connection.on('connection', ({ status }) => {
+                      if (disposed) return
+                      awareness.setConnection(status)
+                      if (status !== 'connected') refreshPeers()
+                      else {
+                        syncMembers()
+                        announceSelection()
+                      }
+                    })
+                    connection.on('presence', syncMembers)
+                    connection.on('changes', response => collaboration.receive(response))
+                    const refreshComments = () => {
+                      void client.invalidateQueries({ queryKey: contentKeys.comments(detail.page.id) })
+                    }
+                    connection.on('comments_changed', refreshComments)
+                    connection.on('rejoined', response => {
+                      awareness.self.value = response.presence_session
+                      lastSelection = ''
                       syncMembers()
                       announceSelection()
-                    }
-                  })
-                  connection.on('presence', syncMembers)
-                  connection.on('changes', response => collaboration.receive(response))
-                  const refreshComments = () => {
-                    void client.invalidateQueries({ queryKey: contentKeys.comments(detail.page.id) })
-                  }
-                  connection.on('comments_changed', refreshComments)
-                  connection.on('rejoined', response => {
+                      refreshComments()
+                      sync()
+                    })
+                    connection.on('access_revoked', () => {
+                      revoke(new RealtimeRequestError({ reason: 'forbidden' }))
+                    })
+                    const response = (await connection.ready) as PageDetail & { presence_session: string }
                     awareness.self.value = response.presence_session
-                    lastSelection = ''
                     syncMembers()
                     announceSelection()
                     refreshComments()
-                    sync()
+                    if (response.page.revision !== collaboration.currentRevision()) sync()
+                    return connection
                   })
-                  connection.on('access_revoked', () => {
-                    revoke(new RealtimeRequestError({ reason: 'forbidden' }))
+                  joined = attempt
+                  void attempt.catch(error => {
+                    handle?.close()
+                    handle = undefined
+                    if (joined === attempt) joined = undefined
+                    failed(error)
                   })
-                  const response = (await connection.ready) as PageDetail & { presence_session: string }
-                  awareness.self.value = response.presence_session
-                  syncMembers()
-                  announceSelection()
-                  refreshComments()
-                  if (response.page.revision !== collaboration.currentRevision()) sync()
-                  return connection
-                })
-                joined = attempt
-                void attempt.catch(error => {
-                  handle?.close()
-                  handle = undefined
-                  if (joined === attempt) joined = undefined
-                  failed(error)
-                })
-              }
-              return joined
-            }
-            const sync = () => {
-              if (disposed || model.conflict.value) return
-              void connect()
-                .then(connection =>
-                  connection.push<PageChanges>('sync', {
-                    revision: collaboration.currentRevision()
-                  })
-                )
-                .then(response => collaboration.receive(response))
-                .catch(failed)
-            }
-            retryConnection.current = sync
-            const collaboration = new PageCollaboration(instance, model.revision.value, {
-              clientID: uuidV4(),
-              send: async request => {
-                try {
-                  const connection = await connect()
-                  return await connection.push<PageChanges>('changes', request)
-                } catch (error) {
-                  if (error instanceof RealtimeRequestError) terminate(error)
-                  throw error
                 }
-              },
-              changed: state => {
-                model.saved(state.xml, state.revision, state.pending)
-                setCollaborationError(state.error)
-                queueMicrotask(() => {
-                  if (!disposed) {
-                    refreshPeers()
-                    announceSelection()
+                return joined
+              }
+              const sync = () => {
+                if (disposed || model.conflict.value) return
+                void connect()
+                  .then(connection =>
+                    connection.push<PageChanges>('sync', {
+                      revision: collaboration.currentRevision()
+                    })
+                  )
+                  .then(response => collaboration.receive(response))
+                  .catch(failed)
+              }
+              retryConnection.current = sync
+              const collaboration = new PageCollaboration(instance, model.revision.value, {
+                clientID: uuidV4(),
+                send: async request => {
+                  try {
+                    const connection = await connect()
+                    return await connection.push<PageChanges>('changes', request)
+                  } catch (error) {
+                    if (error instanceof RealtimeRequestError) terminate(error)
+                    throw error
                   }
-                })
-                if (!state.pending && !state.error && openCreatedDocument.current) {
-                  const id = openCreatedDocument.current
-                  openCreatedDocument.current = undefined
-                  void navigate({ to: podLocation(`/pages/${id}`).pathname })
-                }
-              },
-              reset: draft => {
-                if (draft) model.keepRecoveryDraft(draft)
-                terminate()
-                void reload().catch(setCollaborationError)
-              },
-              sync
-            })
-            let rendered = ''
-            refreshPeers = () => {
-              const peers = awareness.peers.value.flatMap(peer => {
-                const selection = peer.selection && collaboration.selectionFromConfirmed(peer.selection)
-                return selection ? [{ id: peer.id, name: peer.name, color: peerColor(peer.uid), ...selection }] : []
+                },
+                changed: state => {
+                  model.saved(state.xml, state.revision, state.pending)
+                  setCollaborationError(state.error)
+                  queueMicrotask(() => {
+                    if (!disposed) {
+                      refreshPeers()
+                      announceSelection()
+                    }
+                  })
+                  if (!state.pending && !state.error && openCreatedDocument.current) {
+                    const id = openCreatedDocument.current
+                    openCreatedDocument.current = undefined
+                    void navigate({ to: podLocation(`/pages/${id}`).pathname })
+                  }
+                },
+                reset: draft => {
+                  if (draft) model.keepRecoveryDraft(draft)
+                  terminate()
+                  void reload().catch(setCollaborationError)
+                },
+                sync
               })
-              const next = JSON.stringify(peers)
-              if (next !== rendered) {
-                rendered = next
-                decoratePeers(peers)
+              let rendered = ''
+              refreshPeers = () => {
+                const peers = awareness.peers.value.flatMap(peer => {
+                  const selection = peer.selection && collaboration.selectionFromConfirmed(peer.selection)
+                  return selection ? [{ id: peer.id, name: peer.name, color: peerColor(peer.uid), ...selection }] : []
+                })
+                const next = JSON.stringify(peers)
+                if (next !== rendered) {
+                  rendered = next
+                  decoratePeers(peers)
+                }
               }
-            }
-            let lastSelection = ''
-            announceSelection = () => {
-              clearTimeout(presenceTimer)
-              presenceTimer = setTimeout(() => {
-                if (disposed || !handle || awareness.connection.value !== 'connected') return
-                const selection =
-                  instance.hasFocus && document.visibilityState === 'visible'
-                    ? collaboration.selectionToConfirmed(instance.state.selection)
-                    : null
-                const next = JSON.stringify(selection)
-                if (next === lastSelection) return
-                lastSelection = next
-                void handle
-                  .push<{ stale?: boolean }>('presence', { selection })
-                  .then(response => {
-                    if (response?.stale) lastSelection = ''
-                  })
-                  .catch(error => {
-                    lastSelection = ''
-                    if (isRealtimeAccessDenied(error)) failed(error)
-                  })
-              }, 80)
-            }
-            const unlisten = editorHandle.subscribe(() => {
-              refreshPeers()
-              announceSelection()
-            })
-            const visibility = () => announceSelection()
-            document.addEventListener('visibilitychange', visibility)
-            void connect()
-            const unwatch = content.realtime.watchVersion('pages', detail.page.id, version => {
-              if (version === undefined) {
-                revoke(new RealtimeRequestError({ reason: 'forbidden' }))
-              } else if (version !== collaboration.currentRevision()) sync()
-            })
-            return () => {
-              disposed = true
-              clearTimeout(presenceTimer)
-              unlisten()
-              document.removeEventListener('visibilitychange', visibility)
-              model.cancelReload()
-              unwatch()
-              collaboration.dispose()
-              handle?.close()
-              current.dispose()
-              if (session.current === current) {
-                session.current = null
-                editor.current = null
-                onEditor(null)
+              let lastSelection = ''
+              announceSelection = () => {
+                clearTimeout(presenceTimer)
+                presenceTimer = setTimeout(() => {
+                  if (disposed || !handle || awareness.connection.value !== 'connected') return
+                  const selection =
+                    instance.hasFocus && document.visibilityState === 'visible'
+                      ? collaboration.selectionToConfirmed(instance.state.selection)
+                      : null
+                  const next = JSON.stringify(selection)
+                  if (next === lastSelection) return
+                  lastSelection = next
+                  void handle
+                    .push<{ stale?: boolean }>('presence', { selection })
+                    .then(response => {
+                      if (response?.stale) lastSelection = ''
+                    })
+                    .catch(error => {
+                      lastSelection = ''
+                      if (isRealtimeAccessDenied(error)) failed(error)
+                    })
+                }, 80)
               }
-            }
-          }}
-          onChange={() => {
-            if (session.current) model.xml.value = session.current.readXml().xml
-          }}
-        />
+              const unlisten = editorHandle.subscribe(() => {
+                refreshPeers()
+                announceSelection()
+              })
+              const visibility = () => announceSelection()
+              document.addEventListener('visibilitychange', visibility)
+              void connect()
+              const unwatch = content.realtime.watchVersion('pages', detail.page.id, version => {
+                if (version === undefined) {
+                  revoke(new RealtimeRequestError({ reason: 'forbidden' }))
+                } else if (version !== collaboration.currentRevision()) sync()
+              })
+              return () => {
+                disposed = true
+                clearTimeout(presenceTimer)
+                unlisten()
+                document.removeEventListener('visibilitychange', visibility)
+                model.cancelReload()
+                unwatch()
+                collaboration.dispose()
+                handle?.close()
+                current.dispose()
+                if (session.current === current) {
+                  session.current = null
+                  editor.current = null
+                  onEditor(null)
+                }
+              }
+            }}
+            onChange={() => {
+              if (session.current) model.xml.value = session.current.readXml().xml
+            }}
+          />
+        </div>
       )}
       {embedPickerOpen && (
         <Dialog open onOpenChange={next => !next && setEmbedPickerOpen(false)}>
@@ -653,7 +661,7 @@ export function PageEmbed({
   }
   const view = parseEmbedView(attributes.view)
   const embedTrashed = trashed || Boolean(query.data.page.deleted_at)
-  const embeddedDetail = embedTrashed ? { ...query.data, actions: ['page_view' as const] } : query.data
+  const embeddedDetail = embedTrashed ? { ...query.data, actions: ['node_view' as const] } : query.data
   return (
     <div className="pod-inline-page" data-page-type={page.type}>
       <Button variant="ghost" className="pod-inline-page-title" onClick={() => openPage(query.data!.page.id)}>

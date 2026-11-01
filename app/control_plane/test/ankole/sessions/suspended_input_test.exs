@@ -29,7 +29,7 @@ defmodule Ankole.Sessions.SuspendedInputTest do
              Repo.reload!(input)
 
     refute Repo.get_by(Conversation, subject_uid: agent.uid)
-    assert Repo.get!(AgentWorker, agent.uid).state == :absent
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
 
     assert {:ok, %{status: :unchanged}} =
              Notices.finalize({:error, :tenant_suspended}, input, DateTime.utc_now(:microsecond))

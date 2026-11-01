@@ -22,7 +22,7 @@ if (edition === 'saas') {
   writeFileSync(project, JSON.stringify(config))
 }
 process.exit(
-  await Bun.spawn(['tsc', '-p', project, '--noEmit'], {
+  await Bun.spawn([process.execPath, 'check', '-p', project, '--noEmit'], {
     stdin: 'inherit',
     stdout: 'inherit',
     stderr: 'inherit'

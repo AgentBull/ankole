@@ -152,8 +152,8 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTasksTest do
   } do
     conn = console_conn(conn)
     other = Ankole.DataCase.create_tenant()
-    Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-access:" <> tenant.id)
-    Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-access:" <> other.id)
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-access:" <> tenant.id)
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-access:" <> other.id)
     conn |> task("pod-access", %{"pod.allow_external_guests" => false}) |> json_response(200)
     assert_receive :recheck_access
     assert_receive :recheck_access

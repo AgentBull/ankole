@@ -26,6 +26,7 @@ import {
   createBrainObject,
   createBrainSource,
   createCronSchedule,
+  createDriveNode,
   createIdentityMapping,
   createIdentityProvider,
   createMember,
@@ -38,14 +39,16 @@ import {
   decryptAppConfiguration,
   decryptWorkerEnv,
   deleteAgent,
-  deleteAgentFiles,
   deleteAgentModelProfile,
   deleteAgentTokenQuota,
   deleteAgentWorkerEnv,
+  deleteDefaultModelProfile,
+  deleteDriveNode,
   deleteIdentityMappingRequest,
   deleteOidcClient,
   deletePermissionGrant,
   deletePrincipalGroup,
+  deleteSystemModelProfile,
   deleteWorkerEnv,
   disableHumanAccess,
   disableSignalBinding,
@@ -77,7 +80,6 @@ import {
   getPrincipalGroup,
   getSignalBinding,
   learnBrainSource,
-  listAgentFiles,
   listAgentLibraryDocuments,
   listAgentModelProfiles,
   listAgents,
@@ -103,6 +105,8 @@ import {
   listCheckbacks,
   listCronScheduleRuns,
   listCronSchedules,
+  listDefaultModelProfiles,
+  listDriveNodes,
   listGrantsOfPrincipal,
   listGroupsOfPrincipal,
   listIdentityMappingRequests,
@@ -117,10 +121,12 @@ import {
   listPrincipals,
   listSignalAdapters,
   listSignalBindings,
+  listSystemModelProfiles,
+  listSystemPrincipals,
   listWebhookEndpoints,
   listWorkAccessReviews,
   listWorkerEnvs,
-  moveAgentFiles,
+  moveDriveNode,
   type Options,
   pauseCronSchedule,
   previewBrainSearch,
@@ -129,11 +135,16 @@ import {
   putAgentProviderHosted,
   putAgentTokenQuota,
   putConversationStandingOrders,
+  putDefaultModelProfile,
+  putDefaultProviderHosted,
   putSignalBinding,
+  putSystemModelProfile,
   rejectBrainMergeSuggestion,
   rejectBrainSuggestion,
   removeCronSchedule,
   removePrincipalGroupMember,
+  renameAgent,
+  renameHuman,
   replaceAgentLibraryDocument,
   requeueSignalDelivery,
   resetAgentTokenQuota,
@@ -238,6 +249,9 @@ import type {
   CreateCronScheduleData,
   CreateCronScheduleError,
   CreateCronScheduleResponse,
+  CreateDriveNodeData,
+  CreateDriveNodeError,
+  CreateDriveNodeResponse,
   CreateIdentityMappingData,
   CreateIdentityMappingError,
   CreateIdentityMappingResponse,
@@ -273,9 +287,6 @@ import type {
   DecryptWorkerEnvResponse,
   DeleteAgentData,
   DeleteAgentError,
-  DeleteAgentFilesData,
-  DeleteAgentFilesError,
-  DeleteAgentFilesResponse,
   DeleteAgentModelProfileData,
   DeleteAgentModelProfileError,
   DeleteAgentModelProfileResponse,
@@ -286,6 +297,12 @@ import type {
   DeleteAgentWorkerEnvData,
   DeleteAgentWorkerEnvError,
   DeleteAgentWorkerEnvResponse,
+  DeleteDefaultModelProfileData,
+  DeleteDefaultModelProfileError,
+  DeleteDefaultModelProfileResponse,
+  DeleteDriveNodeData,
+  DeleteDriveNodeError,
+  DeleteDriveNodeResponse,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestError,
   DeleteIdentityMappingRequestResponse,
@@ -298,6 +315,9 @@ import type {
   DeletePrincipalGroupData,
   DeletePrincipalGroupError,
   DeletePrincipalGroupResponse,
+  DeleteSystemModelProfileData,
+  DeleteSystemModelProfileError,
+  DeleteSystemModelProfileResponse,
   DeleteWorkerEnvData,
   DeleteWorkerEnvError,
   DeleteWorkerEnvResponse,
@@ -391,9 +411,6 @@ import type {
   LearnBrainSourceData,
   LearnBrainSourceError,
   LearnBrainSourceResponse,
-  ListAgentFilesData,
-  ListAgentFilesError,
-  ListAgentFilesResponse,
   ListAgentLibraryDocumentsData,
   ListAgentLibraryDocumentsError,
   ListAgentLibraryDocumentsResponse,
@@ -469,6 +486,12 @@ import type {
   ListCronSchedulesData,
   ListCronSchedulesError,
   ListCronSchedulesResponse,
+  ListDefaultModelProfilesData,
+  ListDefaultModelProfilesError,
+  ListDefaultModelProfilesResponse,
+  ListDriveNodesData,
+  ListDriveNodesError,
+  ListDriveNodesResponse,
   ListGrantsOfPrincipalData,
   ListGrantsOfPrincipalError,
   ListGrantsOfPrincipalResponse,
@@ -511,6 +534,12 @@ import type {
   ListSignalBindingsData,
   ListSignalBindingsError,
   ListSignalBindingsResponse,
+  ListSystemModelProfilesData,
+  ListSystemModelProfilesError,
+  ListSystemModelProfilesResponse,
+  ListSystemPrincipalsData,
+  ListSystemPrincipalsError,
+  ListSystemPrincipalsResponse,
   ListWebhookEndpointsData,
   ListWebhookEndpointsError,
   ListWebhookEndpointsResponse,
@@ -520,9 +549,9 @@ import type {
   ListWorkerEnvsData,
   ListWorkerEnvsError,
   ListWorkerEnvsResponse,
-  MoveAgentFilesData,
-  MoveAgentFilesError,
-  MoveAgentFilesResponse,
+  MoveDriveNodeData,
+  MoveDriveNodeError,
+  MoveDriveNodeResponse,
   PauseCronScheduleData,
   PauseCronScheduleError,
   PauseCronScheduleResponse,
@@ -544,9 +573,18 @@ import type {
   PutConversationStandingOrdersData,
   PutConversationStandingOrdersError,
   PutConversationStandingOrdersResponse,
+  PutDefaultModelProfileData,
+  PutDefaultModelProfileError,
+  PutDefaultModelProfileResponse,
+  PutDefaultProviderHostedData,
+  PutDefaultProviderHostedError,
+  PutDefaultProviderHostedResponse,
   PutSignalBindingData,
   PutSignalBindingError,
   PutSignalBindingResponse,
+  PutSystemModelProfileData,
+  PutSystemModelProfileError,
+  PutSystemModelProfileResponse,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionError,
   RejectBrainMergeSuggestionResponse,
@@ -559,6 +597,12 @@ import type {
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberError,
   RemovePrincipalGroupMemberResponse,
+  RenameAgentData,
+  RenameAgentError,
+  RenameAgentResponse,
+  RenameHumanData,
+  RenameHumanError,
+  RenameHumanResponse,
   ReplaceAgentLibraryDocumentData,
   ReplaceAgentLibraryDocumentError,
   ReplaceAgentLibraryDocumentResponse,
@@ -1386,6 +1430,31 @@ export const listBrainObjectVersionsInfiniteOptions = (options: Options<ListBrai
   return opts as Omit<typeof opts, 'initialData'>
 }
 
+export const listDefaultModelProfilesQueryKey = (options?: Options<ListDefaultModelProfilesData>) =>
+  createQueryKey('listDefaultModelProfiles', options)
+
+/**
+ * list_default_model_profiles operation on agent_model_configuration resource
+ */
+export const listDefaultModelProfilesOptions = (options?: Options<ListDefaultModelProfilesData>) =>
+  queryOptions<
+    ListDefaultModelProfilesResponse,
+    ListDefaultModelProfilesError,
+    ListDefaultModelProfilesResponse,
+    ReturnType<typeof listDefaultModelProfilesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listDefaultModelProfiles({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listDefaultModelProfilesQueryKey(options)
+  })
+
 /**
  * retry_oidc_logout_delivery operation on oidc_logout_delivery resource
  */
@@ -1618,29 +1687,6 @@ export const supersedeBrainClaimMutation = (
 }
 
 /**
- * disable_signal_binding operation on signal_binding resource
- */
-export const disableSignalBindingMutation = (
-  options?: Partial<Options<DisableSignalBindingData>>
-): UseMutationOptions<DisableSignalBindingResponse, DisableSignalBindingError, Options<DisableSignalBindingData>> => {
-  const mutationOptions: UseMutationOptions<
-    DisableSignalBindingResponse,
-    DisableSignalBindingError,
-    Options<DisableSignalBindingData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await disableSignalBinding({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * approve_brain_merge_suggestion operation on brain_merge_suggestion resource
  */
 export const approveBrainMergeSuggestionMutation = (
@@ -1774,6 +1820,85 @@ export const updatePrincipalGroupMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await updatePrincipalGroup({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listSystemModelProfilesQueryKey = (options: Options<ListSystemModelProfilesData>) =>
+  createQueryKey('listSystemModelProfiles', options)
+
+/**
+ * list_system_model_profiles operation on agent_model_configuration resource
+ */
+export const listSystemModelProfilesOptions = (options: Options<ListSystemModelProfilesData>) =>
+  queryOptions<
+    ListSystemModelProfilesResponse,
+    ListSystemModelProfilesError,
+    ListSystemModelProfilesResponse,
+    ReturnType<typeof listSystemModelProfilesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listSystemModelProfiles({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listSystemModelProfilesQueryKey(options)
+  })
+
+/**
+ * delete_system_model_profile operation on agent_model_configuration resource
+ */
+export const deleteSystemModelProfileMutation = (
+  options?: Partial<Options<DeleteSystemModelProfileData>>
+): UseMutationOptions<
+  DeleteSystemModelProfileResponse,
+  DeleteSystemModelProfileError,
+  Options<DeleteSystemModelProfileData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteSystemModelProfileResponse,
+    DeleteSystemModelProfileError,
+    Options<DeleteSystemModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteSystemModelProfile({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * put_system_model_profile operation on agent_model_configuration resource
+ */
+export const putSystemModelProfileMutation = (
+  options?: Partial<Options<PutSystemModelProfileData>>
+): UseMutationOptions<
+  PutSystemModelProfileResponse,
+  PutSystemModelProfileError,
+  Options<PutSystemModelProfileData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PutSystemModelProfileResponse,
+    PutSystemModelProfileError,
+    Options<PutSystemModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putSystemModelProfile({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2087,6 +2212,60 @@ export const forgetBrainObjectMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await forgetBrainObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * delete_default_model_profile operation on agent_model_configuration resource
+ */
+export const deleteDefaultModelProfileMutation = (
+  options?: Partial<Options<DeleteDefaultModelProfileData>>
+): UseMutationOptions<
+  DeleteDefaultModelProfileResponse,
+  DeleteDefaultModelProfileError,
+  Options<DeleteDefaultModelProfileData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteDefaultModelProfileResponse,
+    DeleteDefaultModelProfileError,
+    Options<DeleteDefaultModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteDefaultModelProfile({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * put_default_model_profile operation on agent_model_configuration resource
+ */
+export const putDefaultModelProfileMutation = (
+  options?: Partial<Options<PutDefaultModelProfileData>>
+): UseMutationOptions<
+  PutDefaultModelProfileResponse,
+  PutDefaultModelProfileError,
+  Options<PutDefaultModelProfileData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PutDefaultModelProfileResponse,
+    PutDefaultModelProfileError,
+    Options<PutDefaultModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putDefaultModelProfile({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2421,6 +2600,48 @@ export const cancelBackgroundAgentJobMutation = (
 }
 
 /**
+ * delete_drive_node operation on drive_operation resource
+ */
+export const deleteDriveNodeMutation = (
+  options?: Partial<Options<DeleteDriveNodeData>>
+): UseMutationOptions<DeleteDriveNodeResponse, DeleteDriveNodeError, Options<DeleteDriveNodeData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteDriveNodeResponse,
+    DeleteDriveNodeError,
+    Options<DeleteDriveNodeData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteDriveNode({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * move_drive_node operation on drive_operation resource
+ */
+export const moveDriveNodeMutation = (
+  options?: Partial<Options<MoveDriveNodeData>>
+): UseMutationOptions<MoveDriveNodeResponse, MoveDriveNodeError, Options<MoveDriveNodeData>> => {
+  const mutationOptions: UseMutationOptions<MoveDriveNodeResponse, MoveDriveNodeError, Options<MoveDriveNodeData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await moveDriveNode({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * run_identity_provider_sync operation on identity_provider_operation resource
  */
 export const runIdentityProviderSyncMutation = (
@@ -2560,21 +2781,21 @@ export const approveIdentityDirectoryMutation = (
   return mutationOptions
 }
 
-export const getSignalBindingQueryKey = (options: Options<GetSignalBindingData>) =>
-  createQueryKey('getSignalBinding', options)
+export const listSystemPrincipalsQueryKey = (options?: Options<ListSystemPrincipalsData>) =>
+  createQueryKey('listSystemPrincipals', options)
 
 /**
- * get_signal_binding operation on signals_operation resource
+ * list_system_principals operation on agent_model_configuration resource
  */
-export const getSignalBindingOptions = (options: Options<GetSignalBindingData>) =>
+export const listSystemPrincipalsOptions = (options?: Options<ListSystemPrincipalsData>) =>
   queryOptions<
-    GetSignalBindingResponse,
-    GetSignalBindingError,
-    GetSignalBindingResponse,
-    ReturnType<typeof getSignalBindingQueryKey>
+    ListSystemPrincipalsResponse,
+    ListSystemPrincipalsError,
+    ListSystemPrincipalsResponse,
+    ReturnType<typeof listSystemPrincipalsQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getSignalBinding({
+      const { data } = await listSystemPrincipals({
         ...options,
         ...queryKey[0],
         signal,
@@ -2582,31 +2803,8 @@ export const getSignalBindingOptions = (options: Options<GetSignalBindingData>) 
       })
       return data
     },
-    queryKey: getSignalBindingQueryKey(options)
+    queryKey: listSystemPrincipalsQueryKey(options)
   })
-
-/**
- * update_signal_binding operation on signals_operation resource
- */
-export const updateSignalBindingMutation = (
-  options?: Partial<Options<UpdateSignalBindingData>>
-): UseMutationOptions<UpdateSignalBindingResponse, UpdateSignalBindingError, Options<UpdateSignalBindingData>> => {
-  const mutationOptions: UseMutationOptions<
-    UpdateSignalBindingResponse,
-    UpdateSignalBindingError,
-    Options<UpdateSignalBindingData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await updateSignalBinding({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 /**
  * restore_brain_object operation on brain_object resource
@@ -2728,6 +2926,48 @@ export const listAutomationJobsInfiniteOptions = (options?: Options<ListAutomati
     }
   )
   return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * rename_agent operation on agent resource
+ */
+export const renameAgentMutation = (
+  options?: Partial<Options<RenameAgentData>>
+): UseMutationOptions<RenameAgentResponse, RenameAgentError, Options<RenameAgentData>> => {
+  const mutationOptions: UseMutationOptions<RenameAgentResponse, RenameAgentError, Options<RenameAgentData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await renameAgent({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * put_signal_binding operation on signals_operation resource
+ */
+export const putSignalBindingMutation = (
+  options?: Partial<Options<PutSignalBindingData>>
+): UseMutationOptions<PutSignalBindingResponse, PutSignalBindingError, Options<PutSignalBindingData>> => {
+  const mutationOptions: UseMutationOptions<
+    PutSignalBindingResponse,
+    PutSignalBindingError,
+    Options<PutSignalBindingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putSignalBinding({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
 }
 
 export const listAgentModelProfilesQueryKey = (options: Options<ListAgentModelProfilesData>) =>
@@ -3319,29 +3559,6 @@ export const resumeCronScheduleMutation = (
 }
 
 /**
- * put_signal_binding operation on signals_operation resource
- */
-export const putSignalBindingMutation = (
-  options?: Partial<Options<PutSignalBindingData>>
-): UseMutationOptions<PutSignalBindingResponse, PutSignalBindingError, Options<PutSignalBindingData>> => {
-  const mutationOptions: UseMutationOptions<
-    PutSignalBindingResponse,
-    PutSignalBindingError,
-    Options<PutSignalBindingData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await putSignalBinding({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * retry_human_work_cleanup operation on human_access resource
  */
 export const retryHumanWorkCleanupMutation = (
@@ -3802,6 +4019,33 @@ export const createBrainObjectMutation = (
 }
 
 /**
+ * put_default_provider_hosted operation on agent_model_configuration resource
+ */
+export const putDefaultProviderHostedMutation = (
+  options?: Partial<Options<PutDefaultProviderHostedData>>
+): UseMutationOptions<
+  PutDefaultProviderHostedResponse,
+  PutDefaultProviderHostedError,
+  Options<PutDefaultProviderHostedData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PutDefaultProviderHostedResponse,
+    PutDefaultProviderHostedError,
+    Options<PutDefaultProviderHostedData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putDefaultProviderHosted({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * fork_brain_object operation on brain_object resource
  */
 export const forkBrainObjectMutation = (
@@ -4239,29 +4483,6 @@ export const updateOidcClientMutation = (
 }
 
 /**
- * move_agent_files operation on files_operation resource
- */
-export const moveAgentFilesMutation = (
-  options?: Partial<Options<MoveAgentFilesData>>
-): UseMutationOptions<MoveAgentFilesResponse, MoveAgentFilesError, Options<MoveAgentFilesData>> => {
-  const mutationOptions: UseMutationOptions<
-    MoveAgentFilesResponse,
-    MoveAgentFilesError,
-    Options<MoveAgentFilesData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await moveAgentFiles({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * update_brain_source operation on brain_source resource
  */
 export const updateBrainSourceMutation = (
@@ -4274,6 +4495,77 @@ export const updateBrainSourceMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await updateBrainSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * disable_signal_binding operation on signal_binding resource
+ */
+export const disableSignalBindingMutation = (
+  options?: Partial<Options<DisableSignalBindingData>>
+): UseMutationOptions<DisableSignalBindingResponse, DisableSignalBindingError, Options<DisableSignalBindingData>> => {
+  const mutationOptions: UseMutationOptions<
+    DisableSignalBindingResponse,
+    DisableSignalBindingError,
+    Options<DisableSignalBindingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await disableSignalBinding({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getSignalBindingQueryKey = (options: Options<GetSignalBindingData>) =>
+  createQueryKey('getSignalBinding', options)
+
+/**
+ * get_signal_binding operation on signals_operation resource
+ */
+export const getSignalBindingOptions = (options: Options<GetSignalBindingData>) =>
+  queryOptions<
+    GetSignalBindingResponse,
+    GetSignalBindingError,
+    GetSignalBindingResponse,
+    ReturnType<typeof getSignalBindingQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getSignalBinding({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getSignalBindingQueryKey(options)
+  })
+
+/**
+ * update_signal_binding operation on signals_operation resource
+ */
+export const updateSignalBindingMutation = (
+  options?: Partial<Options<UpdateSignalBindingData>>
+): UseMutationOptions<UpdateSignalBindingResponse, UpdateSignalBindingError, Options<UpdateSignalBindingData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateSignalBindingResponse,
+    UpdateSignalBindingError,
+    Options<UpdateSignalBindingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateSignalBinding({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -5236,6 +5528,96 @@ export const enqueueBrainDreamMutation = (
   return mutationOptions
 }
 
+export const listDriveNodesQueryKey = (options: Options<ListDriveNodesData>) =>
+  createQueryKey('listDriveNodes', options)
+
+/**
+ * list_drive_nodes operation on drive_operation resource
+ */
+export const listDriveNodesOptions = (options: Options<ListDriveNodesData>) =>
+  queryOptions<
+    ListDriveNodesResponse,
+    ListDriveNodesError,
+    ListDriveNodesResponse,
+    ReturnType<typeof listDriveNodesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listDriveNodes({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listDriveNodesQueryKey(options)
+  })
+
+export const listDriveNodesInfiniteQueryKey = (
+  options: Options<ListDriveNodesData>
+): QueryKey<Options<ListDriveNodesData>> => createQueryKey('listDriveNodes', options, true)
+
+/**
+ * list_drive_nodes operation on drive_operation resource
+ */
+export const listDriveNodesInfiniteOptions = (options: Options<ListDriveNodesData>) => {
+  const opts = infiniteQueryOptions<
+    ListDriveNodesResponse,
+    ListDriveNodesError,
+    InfiniteData<ListDriveNodesResponse>,
+    QueryKey<Options<ListDriveNodesData>>,
+    string | Pick<QueryKey<Options<ListDriveNodesData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListDriveNodesData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  after: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listDriveNodes({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listDriveNodesInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * create_drive_node operation on drive_operation resource
+ */
+export const createDriveNodeMutation = (
+  options?: Partial<Options<CreateDriveNodeData>>
+): UseMutationOptions<CreateDriveNodeResponse, CreateDriveNodeError, Options<CreateDriveNodeData>> => {
+  const mutationOptions: UseMutationOptions<
+    CreateDriveNodeResponse,
+    CreateDriveNodeError,
+    Options<CreateDriveNodeData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createDriveNode({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * retire_agent_skill_lesson operation on agent_skill_lesson resource
  */
@@ -5253,6 +5635,25 @@ export const retireAgentSkillLessonMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await retireAgentSkillLesson({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * rename_human operation on principal resource
+ */
+export const renameHumanMutation = (
+  options?: Partial<Options<RenameHumanData>>
+): UseMutationOptions<RenameHumanResponse, RenameHumanError, Options<RenameHumanData>> => {
+  const mutationOptions: UseMutationOptions<RenameHumanResponse, RenameHumanError, Options<RenameHumanData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await renameHuman({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -5289,54 +5690,6 @@ export const createIdentityMappingMutation = (
   }
   return mutationOptions
 }
-
-/**
- * delete_agent_files operation on files_operation resource
- */
-export const deleteAgentFilesMutation = (
-  options?: Partial<Options<DeleteAgentFilesData>>
-): UseMutationOptions<DeleteAgentFilesResponse, DeleteAgentFilesError, Options<DeleteAgentFilesData>> => {
-  const mutationOptions: UseMutationOptions<
-    DeleteAgentFilesResponse,
-    DeleteAgentFilesError,
-    Options<DeleteAgentFilesData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await deleteAgentFiles({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const listAgentFilesQueryKey = (options: Options<ListAgentFilesData>) =>
-  createQueryKey('listAgentFiles', options)
-
-/**
- * list_agent_files operation on files_operation resource
- */
-export const listAgentFilesOptions = (options: Options<ListAgentFilesData>) =>
-  queryOptions<
-    ListAgentFilesResponse,
-    ListAgentFilesError,
-    ListAgentFilesResponse,
-    ReturnType<typeof listAgentFilesQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await listAgentFiles({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: listAgentFilesQueryKey(options)
-  })
 
 export const listAgentsQueryKey = (options?: Options<ListAgentsData>) => createQueryKey('listAgents', options)
 

@@ -21,7 +21,7 @@ defmodule Ankole.Brain.SourceLearning do
   path: every window of extractable content enters extraction, not a
   truncated prefix.
 
-  `url` Sources require the maintainer Agent's `web_fetch` profile. Its
+  `url` Sources require ankole_brain's effective `web_fetch` profile. Its
   Provider returns readable text; a missing profile or failed request stops
   the fetch with an error. A raw HTTP body would put HTML markup into chunks
   and claims. `file` Sources accept UTF-8 text only and reject binary content
@@ -315,6 +315,7 @@ defmodule Ankole.Brain.SourceLearning do
   @doc false
   def write_claims(object, items, scope, session) do
     now = DateTime.utc_now(:microsecond)
+    author = Config.execution_author!()
 
     written =
       Enum.reduce(items, %{claims: 0, rejected: 0, reject_reasons: []}, fn item, acc ->
@@ -332,7 +333,7 @@ defmodule Ankole.Brain.SourceLearning do
           provenance_session: session
         }
 
-        case Claims.write_fact_in_tx(attrs, :system, dedup: false, embed: false) do
+        case Claims.write_fact_in_tx(attrs, :system, dedup: false, embed: false, author: author) do
           {:ok, _result} ->
             Map.update!(acc, :claims, &(&1 + 1))
 
@@ -377,7 +378,7 @@ defmodule Ankole.Brain.SourceLearning do
   # A URL source is fetched only by the web fetch provider: Brain sends no
   # request to a Worker.
   defp fetch_content(%Source{kind: "url", upstream_id: url}) do
-    with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
+    with {:ok, subject_uid} <- Config.execution_subject_uid() do
       case Config.web_fetch_model() do
         nil -> {:error, :web_fetch_model_not_configured}
         model -> fetch_with_provider(subject_uid, url, model)

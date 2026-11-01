@@ -279,6 +279,16 @@ export class AgentCodexRuntime {
     })
   }
 
+  async retireRoot(threadID: string, session: AgentCodexRuntimeSession): Promise<void> {
+    await this.runThreadTransition(threadID, async () => {
+      if (this.lost) return
+      this.unregisterThread(threadID, session)
+      this.retiredThreadIDs.add(threadID)
+      this.dropPendingThreadNotifications(threadID)
+      this.scheduleRetiredThreadCleanup(threadID)
+    })
+  }
+
   async resumeRoot(threadID: string, session: AgentCodexRuntimeSession, resume: () => Promise<void>): Promise<void> {
     const currentOwner = this.threadOwners.get(threadID)
     const retiringOwner = currentOwner && currentOwner !== session ? currentOwner : undefined

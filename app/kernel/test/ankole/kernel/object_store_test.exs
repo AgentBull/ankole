@@ -34,6 +34,34 @@ defmodule Ankole.Kernel.ObjectStoreTest do
     assert File.read!(target) == payload
   end
 
+  test "reads exact ranges through the native boundary", %{store: store} do
+    assert :ok = ObjectStore.write(store, "object", "0123456789")
+    assert {:ok, "2345"} = ObjectStore.read_range(store, "object", 2, 4)
+    assert {:ok, "789"} = ObjectStore.read_range(store, "object", 7, 3)
+    assert {:ok, ""} = ObjectStore.read_range(store, "missing", 10, 0)
+    assert {:error, %{"code" => "not_found"}} = ObjectStore.read_range(store, "missing", 0, 1)
+
+    for {offset, length} <- [{9, 2}, {10, 1}, {11, 1}] do
+      assert {:error, %{"code" => "storage_error"}} =
+               ObjectStore.read_range(store, "object", offset, length)
+    end
+
+    assert {:error, %{"code" => "invalid_range"}} =
+             ObjectStore.read_range(store, "object", 18_446_744_073_709_551_615, 1)
+  end
+
+  test "rejects invalid range arguments at the native boundary", %{store: store} do
+    for offset <- [-1, 1.5, 18_446_744_073_709_551_616] do
+      assert {:error, "offset must be a non-negative integer"} =
+               ObjectStore.read_range(store, "object", offset, 1)
+    end
+
+    for length <- [-1, 1.5, 18_446_744_073_709_551_616] do
+      assert {:error, "length must be a non-negative integer"} =
+               ObjectStore.read_range(store, "object", 0, length)
+    end
+  end
+
   @tag :network
   test "S3 errors pass through the shared TLS provider" do
     {:ok, store} =

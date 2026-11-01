@@ -11,7 +11,27 @@ defmodule Ankole.Pod.PagesFixtures do
 
   def update_record!(record, action, attrs \\ %{}) do
     {:ok, record} =
-      Ankole.Repo.transact(fn -> Ankole.Ash.update(record, action, attrs) end)
+      Ankole.Repo.transact(fn ->
+        case record do
+          %Ankole.Pod.Page{} ->
+            if action in [:edit, :position, :advance_revision] do
+              Ankole.Pod.Pages.update_properties_in_tx(record, action, attrs)
+            else
+              {:ok, node} = Ankole.Files.Nodes.fetch(record.id)
+
+              attrs =
+                if action == :begin_purge,
+                  do: Map.put(attrs, :purge_started_at, DateTime.utc_now(:microsecond)),
+                  else: attrs
+
+              with {:ok, _} <- Ankole.Files.Nodes.update_in_tx(node, action, attrs),
+                   do: Ankole.Pod.Pages.fetch(record.id)
+            end
+
+          _ ->
+            Ankole.Ash.update(record, action, attrs)
+        end
+      end)
 
     record
   end

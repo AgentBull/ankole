@@ -24,10 +24,10 @@ defmodule AnkoleWeb.PodAppletFrameControllerTest do
 
           {:ok, _} =
             Drive.commit(uid, [
-              %{path: "project/" <> path, sha256: stored.sha256, source: "agent"}
+              Map.merge(stored, %{path: "project/" <> path, source: "agent"})
             ])
 
-          %{path: path, sha256: stored.sha256}
+          %{path: path, object_id: stored.object_id, source_path: "project/" <> path}
         end
       )
 
@@ -42,6 +42,9 @@ defmodule AnkoleWeb.PodAppletFrameControllerTest do
     url = "/pod/applet-frame/#{reference}/#{page.id}/1/main.js"
     response = conn |> recycle_api() |> get(url)
     assert response(response, 200) == "export {}"
+    ranged = conn |> recycle_api() |> put_req_header("range", "bytes=0-5") |> get(url)
+    assert response(ranged, 206) == "export"
+    assert get_resp_header(ranged, "content-range") == ["bytes 0-5/9"]
     assert get_resp_header(response, "content-type") == ["text/javascript; charset=utf-8"]
     assert get_resp_header(response, "cache-control") == ["private, no-cache"]
     assert get_resp_header(response, "x-frame-options") == ["SAMEORIGIN"]

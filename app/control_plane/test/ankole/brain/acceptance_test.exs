@@ -391,19 +391,18 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       # The model is configured but must never be called: the archived gate
       # sits before the slice reaches extraction.
-      %{principal: maintainer} =
-        agent_fixture(%{
-          options: %{
-            "ai_agent" => %{
-              "models" => %{
-                "light" => %{"provider_id" => "brain-extract", "model" => "fake-extract"}
-              }
-            }
-          }
+      {:ok, _provider} =
+        Ankole.AIGateway.ProviderConfigs.create_provider(%{
+          provider_id: "brain-extract",
+          provider_kind: "openrouter",
+          credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
         })
 
-      {:ok, _value} =
-        Ankole.AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer.uid)
+      Ankole.AIGatewayCase.configure_brain_maintainer_profile!(
+        "light",
+        "brain-extract",
+        "fake-extract"
+      )
 
       {:ok, group} =
         Ankole.AuthZ.create_principal_group(%{

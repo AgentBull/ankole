@@ -64,16 +64,16 @@ blake3 = "1.8.7"
 bytes = { version = "1.12.1", optional = true }
 cel = "0.15.0"
 chacha20poly1305 = "0.11.0"
-comrak = { version = "0.57.0", default-features = false, optional = true }
+comrak = { version = "0.59.0", default-features = false, optional = true }
 crc32fast = "1.5.3"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"], optional = true }
-globset = "0.4.20"
+globset = "0.4.21"
 hashcrew = { version = "0.3.0", default-features = false, features = ["std", "xxhash"] }
 hex = "0.4.3"
 jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
 mimalloc = "0.1.52"
-napi = { version = "3.15.0", optional = true }
-napi-derive = { version = "3.6.13", optional = true }
+napi = { version = "3.16.1", optional = true }
+napi-derive = { version = "3.7.0", optional = true }
 no-proxy = { version = "0.3.7", default-features = false, optional = true }
 opendal = { version = "0.59.5", default-features = false, features = [
   "services-azblob",
@@ -96,7 +96,7 @@ rand = { version = "0.10.3", features = ["sys_rng"] }
 quick-xml = "0.42.0"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "gzip", "brotli", "zstd", "socks"], optional = true }
-rlibphonenumber = "2.2.14"
+rlibphonenumber = "2.2.15"
 rustler = { version = "0.39.0", optional = true }
 rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std", "tls12"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -107,6 +107,7 @@ tiktoken-rs = "0.12.1"
 tokio = { version = "1.54.1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"], optional = true }
 tokio-socks = { version = "0.5.3", default-features = false, features = ["tokio"], optional = true }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-native-roots"], optional = true }
+unicode-segmentation = "1.13.3"
 url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v4", "v7", "fast-rng"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"], optional = true }

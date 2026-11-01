@@ -207,7 +207,9 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -273,7 +275,9 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -314,10 +318,19 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
     test "successful send persists adapter-materialized payload" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
-      {:ok, %{sha256: blob_ref}} = Ankole.Files.store("chaos report")
+
+      attachment =
+        Ankole.FilesFixtures.sent_attachment_fixture(
+          agent.uid,
+          "chaos-report.txt",
+          "chaos report",
+          "text/plain"
+        )
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -331,10 +344,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
                  reply_to_provider_message_id: "human-msg-1",
                  payload: %{
                    "attachments" => [
-                     %{
-                       "path" => "sent/#{String.slice(blob_ref, 0, 16)}/chaos-report.txt",
-                       "blob_ref" => blob_ref
-                     }
+                     attachment
                    ]
                  },
                  fallback_visible_text: "visible"
@@ -344,11 +354,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
 
       materialized_payload = %{
         "attachments" => [
-          %{
-            "path" => "sent/#{String.slice(blob_ref, 0, 16)}/chaos-report.txt",
-            "blob_ref" => blob_ref,
-            "provider_file_key" => "file_uploaded_1"
-          }
+          Map.put(attachment, "provider_file_key", "file_uploaded_1")
         ]
       }
 
@@ -369,7 +375,15 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
                )
 
       assert succeeded.status == :sent
-      assert succeeded.payload == materialized_payload
+
+      assert succeeded.payload == %{
+               "attachments" =>
+                 Enum.map(
+                   materialized_payload["attachments"],
+                   &Map.drop(&1, ["object_id", "node_id"])
+                 )
+             }
+
       assert succeeded.fallback_visible_text == materialized_text
 
       mirrored =
@@ -392,7 +406,9 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -432,7 +448,9 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -501,7 +519,9 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 

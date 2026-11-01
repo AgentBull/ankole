@@ -45,7 +45,8 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
     with {:ok, target} <- message_id(intent.target_provider_message_id),
          {:ok, channel} <- parse_channel(intent.conversation_id) do
       requests =
-        intent.fallback_visible_text
+        intent
+        |> plain_visible_text()
         |> Presentation.chunks()
         |> Enum.with_index()
         |> Enum.map(fn
@@ -111,7 +112,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
          {:ok, messages} <-
            Presentation.card(
              intent.payload,
-             intent.fallback_visible_text || "",
+             plain_visible_text(intent),
              intent.source_signal_id
            ) do
       {:ok,
@@ -129,7 +130,8 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
   defp text_requests(intent) do
     with {:ok, channel} <- parse_channel(intent.conversation_id) do
       requests =
-        intent.fallback_visible_text
+        intent
+        |> plain_visible_text()
         |> Presentation.chunks()
         |> Enum.map(fn text ->
           body = channel |> send_body(text) |> maybe_reply(reply_id(intent))
@@ -142,7 +144,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
 
   defp attachment_requests(intent, attachments) do
     with {:ok, channel} <- parse_channel(intent.conversation_id) do
-      {caption, remaining_text} = split_caption(intent.fallback_visible_text || "")
+      {caption, remaining_text} = split_caption(plain_visible_text(intent))
 
       file_requests =
         attachments
@@ -364,4 +366,10 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp plain_visible_text(%Intent{delivery_class: :durable_ai_reply, fallback_visible_text: text})
+       when is_binary(text),
+       do: Ankole.Plugins.MarkdownChunks.unescape_plain_tildes(text)
+
+  defp plain_visible_text(%Intent{fallback_visible_text: text}), do: text || ""
 end

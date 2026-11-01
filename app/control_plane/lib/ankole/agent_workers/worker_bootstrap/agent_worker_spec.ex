@@ -10,6 +10,7 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap.AgentWorkerSpec do
   """
 
   @type t :: %__MODULE__{
+          tenant_id: String.t(),
           agent_uid: String.t(),
           generation: String.t(),
           image: String.t(),
@@ -22,7 +23,13 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap.AgentWorkerSpec do
 
   @enforce_keys [:agent_uid, :generation, :image, :env]
   defstruct @enforce_keys ++
-              [storage_ref: nil, instance_ref: nil, create_retry?: false, create_sent_at: nil]
+              [
+                tenant_id: nil,
+                storage_ref: nil,
+                instance_ref: nil,
+                create_retry?: false,
+                create_sent_at: nil
+              ]
 
   defimpl Inspect do
     def inspect(spec, opts) do

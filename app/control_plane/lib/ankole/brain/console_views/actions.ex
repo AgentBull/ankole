@@ -71,6 +71,8 @@ defmodule Ankole.Brain.ConsoleViews.Actions do
       :since_date,
       :until_date,
       :graded_quality,
+      :graded_by,
+      :resolved_by,
       :graded_confidence,
       :resolved_quality,
       :resolved_outcome,

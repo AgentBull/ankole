@@ -518,7 +518,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:generic), do: "CHAOS_GENERIC_OK"
 
   defp tool_call_for(:reply_attachment, 1), do: tool_call_for(:reply_attachment_command)
-  defp tool_call_for(:reply_attachment, 2), do: tool_call_for(:reply_attachment_tool)
   defp tool_call_for(:todo_tool, 1), do: tool_call_for(:todo_tool_start)
   defp tool_call_for(:todo_tool, 2), do: tool_call_for(:todo_tool_complete)
 
@@ -649,18 +648,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     }
   end
 
-  defp tool_call_for(:reply_attachment_tool) do
-    %{
-      id: "call_lark_chaos_reply_attachment",
-      name: "reply_attachment",
-      arguments: %{
-        "drive_path" => "reports/chaos-report.txt",
-        "name" => "chaos-report.txt",
-        "mimeType" => "text/plain"
-      }
-    }
-  end
-
   defp tool_call_for(:todo_tool_start) do
     %{
       id: "call_lark_chaos_todo_start",
@@ -780,6 +767,27 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         "limit" => 20
       }
     }
+  end
+
+  defp reply_attachment_tool(node_id) do
+    %{
+      id: "call_lark_chaos_reply_attachment",
+      name: "reply_attachment",
+      arguments: %{
+        "node_id" => node_id,
+        "name" => "chaos-report.txt",
+        "mimeType" => "text/plain"
+      }
+    }
+  end
+
+  defp tool_call_for(:reply_attachment, 2, request) do
+    [_, node_id] =
+      ~r/nodeId[^0-9a-f]+([0-9a-f-]{36})/
+      |> Regex.scan(inspect(request, limit: :infinity, printable_limit: :infinity))
+      |> List.last()
+
+    reply_attachment_tool(node_id)
   end
 
   defp tool_call_for(kind, count, _request), do: tool_call_for(kind, count)

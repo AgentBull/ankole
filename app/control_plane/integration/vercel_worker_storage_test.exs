@@ -122,7 +122,7 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
     assert await_worker_state!(uid, nil) == nil
     assert {:ok, []} = Vercel.list_instances(provider, uid)
     assert drives!(provider, uid) == []
-    assert_proof!(Repo.get!(AgentWorker, peer_uid), "OTHER-PROVIDER")
+    assert_proof!(Repo.get_by!(AgentWorker, agent_uid: peer_uid), "OTHER-PROVIDER")
     assert {:ok, [%{generation: generation}]} = Vercel.list_instances(peer_provider, :all)
     assert generation == peer.generation
   end

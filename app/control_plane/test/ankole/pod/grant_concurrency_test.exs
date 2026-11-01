@@ -44,8 +44,8 @@ defmodule Ankole.Pod.GrantConcurrencyTest do
     {:ok, grant} =
       AuthZ.create_permission_grant(%{
         principal_uid: editor.uid,
-        resource_pattern: "pod:space:**",
-        action: "page_edit"
+        resource_pattern: "drive:space:**",
+        action: "node_edit"
       })
 
     {:ok, root} =
@@ -103,8 +103,8 @@ defmodule Ankole.Pod.GrantConcurrencyTest do
           Repo.with_tenant(other.id, fn ->
             AuthZ.create_permission_grant(%{
               principal_uid: other_actor.uid,
-              resource_pattern: "pod:space:**",
-              action: "page_view"
+              resource_pattern: "drive:space:**",
+              action: "node_view"
             })
           end)
         end)

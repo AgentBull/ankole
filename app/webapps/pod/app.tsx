@@ -28,7 +28,8 @@ import { contentKeys, pageQuery, type PageDetail } from './content-api'
 import { prefetchBase } from './base-api'
 import { RealtimeRequestError } from './realtime'
 import { podLocation, podRouteID } from '../common/browser-context'
-import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
+import { parseRouterSearch, stringifyRouterSearch, useSearchParams } from '../common/router'
+import { StandaloneActionCardDialog } from './chat/standalone-action-card-dialog'
 import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
 import { SidebarLayoutModel } from './state/sidebar-layout'
 import './pod.css'
@@ -59,6 +60,8 @@ export function podRouteTitle(
     label = t('pod.account.title')
   } else if (pathname === '/settings' || pathname.startsWith('/settings/')) {
     label = t('pod.settings.title')
+  } else if (pathname === '/colleagues') {
+    label = t('pod.colleagues.title')
   } else if (pathname === '/') {
     label = t('pod.sidebar.tabs.chat')
   } else if (pathname.startsWith('/conversations/')) {
@@ -100,6 +103,10 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
       createRoute({
         getParentRoute: () => rootRoute,
         path: '/',
+        validateSearch: (search: Record<string, unknown>) => ({
+          agent: typeof search.agent === 'string' ? search.agent : undefined,
+          actionCard: typeof search.actionCard === 'string' ? search.actionCard : undefined
+        }),
         component: LazyChatRoute,
         ...routeFeedback
       }),
@@ -122,6 +129,12 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
         getParentRoute: () => rootRoute,
         path: 'content/$scope',
         component: ContentListRoute,
+        ...routeFeedback
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: 'colleagues',
+        component: lazyRouteComponent(() => import('./colleagues'), 'Colleagues'),
         ...routeFeedback
       }),
       createRoute({
@@ -230,6 +243,18 @@ function PodShell() {
     structuralSharing: true
   })
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const actionCardID = searchParams.get('actionCard')?.trim() || undefined
+  const closeActionCardDialog = useCallback(() => {
+    setSearchParams(
+      prev => {
+        const next = new URLSearchParams(prev)
+        next.delete('actionCard')
+        return next
+      },
+      { replace: true, preventScrollReset: true }
+    )
+  }, [setSearchParams])
   const [commandOpen, setCommandOpen] = useState(false)
   const commandReturnFocus = useRef<HTMLElement | null>(null)
   const focusedChatLocation = useRef<string | null>(null)
@@ -349,6 +374,7 @@ function PodShell() {
             </div>
           </SidebarInset>
           <PodCommandMenu open={commandOpen} onOpenChange={setCommandOpen} returnFocus={commandReturnFocus} />
+          {actionCardID && <StandaloneActionCardDialog cardID={actionCardID} onClose={closeActionCardDialog} />}
         </SidebarProvider>
       </TooltipProvider>
     </PodCommandContext>

@@ -1,5 +1,12 @@
 import { usePageMetadata } from './use-page-metadata'
-import { RiApps2Line, RiAttachment2, RiDatabase2Line, RiEmotionLine, RiFileTextLine } from '@remixicon/react'
+import {
+  RiFolderLine,
+  RiApps2Line,
+  RiAttachment2,
+  RiDatabase2Line,
+  RiEmotionLine,
+  RiFileTextLine
+} from '@remixicon/react'
 import {
   Button,
   IconPicker,
@@ -21,7 +28,13 @@ import { customEmojiLibrary, uploadCustomEmoji } from './native-transfers'
 import { InternalAPIError } from '../common/internal-api-client'
 import { updatePageMetadata } from './state/navigation-cache'
 
-const icons = { doc: RiFileTextLine, base: RiDatabase2Line, applet: RiApps2Line, file: RiAttachment2 }
+const icons = {
+  folder: RiFolderLine,
+  doc: RiFileTextLine,
+  base: RiDatabase2Line,
+  applet: RiApps2Line,
+  file: RiAttachment2
+}
 
 /** A Page keeps the same type mark in navigation, references, and pickers. */
 export function PageIcon({ page, className }: { page: Pick<Page, 'type' | 'icon'>; className?: string }) {

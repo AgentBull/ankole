@@ -406,7 +406,7 @@ defmodule Ankole.Sessions.CodexJobTest do
 
     # The failed placement asked for the Agent's Worker; its join wakes the Job.
     assert %Ankole.AgentWorkers.AgentWorker{wanted_until: %DateTime{}} =
-             Repo.get!(Ankole.AgentWorkers.AgentWorker, agent.uid)
+             Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: agent.uid)
   end
 
   test "credential sharing does not impose a local Job concurrency slot" do
@@ -763,7 +763,7 @@ defmodule Ankole.Sessions.CodexJobTest do
   test "an unavailable profile settles an unstarted Job without creating a Worker" do
     %{principal: agent} = agent_fixture()
     job = create_job!(agent.uid, "missing-profile")
-    principal_agent = Repo.get!(Ankole.Principals.Agent, agent.uid)
+    principal_agent = Repo.get_by!(Ankole.Principals.Agent, uid: agent.uid)
 
     Repo.update!(
       change(principal_agent,
@@ -787,7 +787,7 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert {:ok, %{status: :failed}} = Admission.admit(key, event)
     assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == :failed
     assert %Signal{producer: :kernel, completed_at: %DateTime{}} = Repo.get!(Signal, event.id)
-    assert Repo.get!(AgentWorker, agent.uid).state == :absent
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).state == :absent
 
     wakeup =
       Repo.get_by!(Signal,
@@ -823,7 +823,7 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert persisted.status == :failed
     assert persisted.attempts == 0
     assert Repo.get!(Signal, event.id).status == :dead_letter
-    assert Repo.get!(AgentWorker, agent.uid).capacity == worker.capacity
+    assert Repo.get_by!(AgentWorker, agent_uid: agent.uid).capacity == worker.capacity
   end
 
   test "a queued Job (including requeued attempts >= 1) fails when Worker ready timeout expires" do
@@ -1042,13 +1042,15 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert {:ok, worker} = admit_worker(unique_route())
     assert {:ok, %{event: event}} = CodexJob.rebuild(blocker_key, t0)
     assert {:ok, %CodexJob.Attempt{}} = Admission.admit(blocker_key, event, now: t0)
-    slots = Repo.reload!(worker).capacity
+    slots = Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: worker.agent_uid).capacity
 
     assert {:ok, %{reason: :background_agent_job_agent_at_capacity}} =
              admit_job(key, now: DateTime.add(t0, 120, :second), ready_timeout_ms: 60_000)
 
     assert %{status: :queued, attempts: 0, worker_wait_started_at: nil} = Repo.reload!(waiting)
-    assert Repo.reload!(worker).capacity == slots
+
+    assert Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: worker.agent_uid).capacity ==
+             slots
   end
 
   test "a running Job delivers fresh human mail and rejects revoked mail under ordered locks" do
@@ -1114,7 +1116,10 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert deferred.id == event.id
     assert Repo.reload!(job).status == :queued
     assert Repo.reload!(job).attempts == 0
-    assert Repo.reload!(worker).capacity == worker.capacity
+
+    assert Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: worker.agent_uid).capacity ==
+             worker.capacity
+
     refute Repo.get_by(Ankole.Sessions.SessionWorkspace, key)
 
     assert {:ok, %{command_event: later}} =

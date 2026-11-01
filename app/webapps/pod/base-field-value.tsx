@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { BaseField, BaseRecord, Value } from '@ankole/applet-sdk/types'
+import { BdiLabel } from '../common/bidi-file-name'
+import { sanitizeFileName } from '../common/bidi'
 import { contentKeys, fileURL } from './content-api'
 import { podSubjects } from './api/generated/sdk.gen'
 import { baseHTTP } from './base-api'
@@ -141,15 +143,15 @@ export function FieldValue({ field, value, pageID }: { field: BaseField; value: 
           return ownerPageID && relativePath ? (
             <a
               key={`${file.path}:${index}`}
-              className="link truncate"
+              className="link inline-flex max-w-full min-w-0 items-center truncate"
               href={fileURL(ownerPageID, relativePath)}
-              download={file.name}
+              download={sanitizeFileName(file.name)}
               onClick={event => event.stopPropagation()}>
-              {file.name}
+              <BdiLabel value={file.name} />
             </a>
           ) : (
-            <span key={index} className="truncate">
-              {file.name}
+            <span key={index} className="inline-flex max-w-full min-w-0 items-center truncate">
+              <BdiLabel value={file.name} />
             </span>
           )
         })}

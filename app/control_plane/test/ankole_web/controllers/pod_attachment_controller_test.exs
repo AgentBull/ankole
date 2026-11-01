@@ -9,7 +9,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
   alias AnkoleWeb.Session, as: WebSession
   alias AnkoleWeb.SessionCookies
 
-  test "a native browser upload is not a Page; its attachment-only Message and frozen download survive reads",
+  test "a native browser upload creates no Pod properties; its attachment-only Message and frozen download survive reads",
        %{conn: conn} do
     {conn, uid} = console_conn_with_principal(conn)
     agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: uid}).principal
@@ -19,14 +19,14 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     File.write!(local, bytes)
     on_exit(fn -> File.rm(local) end)
     upload = %Plug.Upload{path: local, filename: "brief.txt", content_type: "text/plain"}
-    count = Repo.aggregate(Ankole.Pod.Page, :count)
+    count = Repo.aggregate(Ankole.Pod.Properties, :count)
 
     result =
       post(conn, "/api/v2/pod/attachments", %{file: upload, fileID: Ecto.UUID.generate()})
 
     receipt = Phoenix.ConnTest.json_response(result, 200)["receipt"]
     assert is_binary(receipt)
-    assert Repo.aggregate(Ankole.Pod.Page, :count) == count
+    assert Repo.aggregate(Ankole.Pod.Properties, :count) == count
 
     id = Ecto.UUID.generate()
     message_id = Ecto.UUID.generate()
@@ -58,7 +58,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
       refreshed
       |> recycle_api()
       |> get("/api/v2/pod/conversations/#{id}/attachments/#{message_id}", %{
-        path: attachment["path"]
+        position: 0
       })
 
     assert response(download, 200) == bytes
@@ -69,8 +69,94 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
              "inline; filename*=UTF-8''brief.txt"
            ]
 
-    assert Repo.aggregate(Ankole.Pod.Page, :count) == count
+    partial =
+      created
+      |> recycle_api()
+      |> put_req_header("range", "bytes=0-4")
+      |> get("/api/v2/pod/conversations/#{id}/attachments/#{message_id}", %{position: 0})
+
+    assert response(partial, 206) == binary_part(bytes, 0, 5)
+    assert get_resp_header(partial, "content-range") == ["bytes 0-4/#{byte_size(bytes)}"]
+    assert get_resp_header(partial, "accept-ranges") == ["bytes"]
+
+    outside =
+      created
+      |> recycle_api()
+      |> put_req_header("range", "bytes=#{byte_size(bytes)}-")
+      |> get("/api/v2/pod/conversations/#{id}/attachments/#{message_id}", %{position: 0})
+
+    assert response(outside, 416)
+    assert get_resp_header(outside, "content-range") == ["bytes */#{byte_size(bytes)}"]
+
+    assert Repo.aggregate(Ankole.Pod.Properties, :count) == count
     assert Repo.aggregate(Message, :count) == 1
+  end
+
+  test "same-name attachments have distinct frozen download positions", %{conn: conn} do
+    {conn, uid} = console_conn_with_principal(conn)
+    agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(uid, agent.uid)
+
+    {receipts, conn} =
+      Enum.map_reduce(["First contents", "Second contents"], conn, fn bytes, conn ->
+        local = Files.temp_path()
+        File.write!(local, bytes)
+        on_exit(fn -> File.rm(local) end)
+        upload = %Plug.Upload{path: local, filename: "same.txt", content_type: "text/plain"}
+
+        result =
+          post(conn, "/api/v2/pod/attachments", %{file: upload, fileID: Ecto.UUID.generate()})
+
+        {json_response(result, 200)["receipt"], recycle_api(result)}
+      end)
+
+    conversation_id = Ecto.UUID.generate()
+    message_id = Ecto.UUID.generate()
+
+    created =
+      api_post(conn, "/api/v2/pod/conversations", %{
+        conversationID: conversation_id,
+        messageID: message_id,
+        agentUID: agent.uid,
+        text: "",
+        attachments: receipts
+      })
+
+    assert [%{"attachments" => [first, second]}] = api_response(created, 200)["messages"]
+    assert first["position"] == 0
+    assert second["position"] == 1
+    assert first["name"] == second["name"]
+    refute first["object_id"] == second["object_id"]
+
+    for {position, bytes} <- [{0, "First contents"}, {1, "Second contents"}] do
+      download =
+        created
+        |> recycle_api()
+        |> get("/api/v2/pod/conversations/#{conversation_id}/attachments/#{message_id}", %{
+          position: position
+        })
+
+      assert response(download, 200) == bytes
+    end
+
+    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+
+    assert {:ok, saved} =
+             Pages.create(actor, %{type: "file", title: "Saved second", private_owner_uid: uid})
+
+    assert {:ok, _} = Ankole.Pod.Files.copy_from_message(actor, saved.id, nil, message_id, 1)
+    assert {:ok, _, "Second contents"} = Ankole.Pod.Files.read(actor, saved.id, "same.txt")
+
+    for invalid <- ["-1", "2", "0x", ""] do
+      missing =
+        created
+        |> recycle_api()
+        |> get("/api/v2/pod/conversations/#{conversation_id}/attachments/#{message_id}", %{
+          position: invalid
+        })
+
+      assert response(missing, 404)
+    end
   end
 
   test "active file contents download instead of executing, and invalid IDs return missing", %{
@@ -102,12 +188,12 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
         attachments: [receipt]
       })
 
-    path = hd(hd(api_response(created, 200)["messages"])["attachments"])["path"]
+    assert api_response(created, 200)["messages"] != []
 
     download =
       created
       |> recycle_api()
-      |> get("/api/v2/pod/conversations/#{id}/attachments/#{message_id}", %{path: path})
+      |> get("/api/v2/pod/conversations/#{id}/attachments/#{message_id}", %{position: 0})
 
     assert response(download, 200) =~ "<script>"
     assert [disposition] = get_resp_header(download, "content-disposition")
@@ -116,7 +202,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     missing =
       download
       |> recycle_api()
-      |> get("/api/v2/pod/conversations/#{id}/attachments/not-a-uuid", %{path: path})
+      |> get("/api/v2/pod/conversations/#{id}/attachments/not-a-uuid", %{position: 0})
 
     assert response(missing, 404)
   end
@@ -199,9 +285,9 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
              Ankole.Pod.Files.copy_from_message(
                Ankole.PrincipalsFixtures.actor_fixture(reader.uid),
                saved.id,
-               0,
+               nil,
                message.id,
-               attachment["path"]
+               0
              )
 
     assert {:ok, _, "Durable saved contents"} =
@@ -226,11 +312,11 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     assert posted.conversation.native_access_scope == :participants
 
     assert {:ok, ^attachment} =
-             Ankole.Conversations.Attachments.Native.read_to_file(
+             Ankole.Conversations.read_attachment_to_file(
                Ankole.PrincipalsFixtures.actor_fixture(reader.uid),
                detail.conversation.id,
                message.id,
-               attachment["path"],
+               0,
                local
              )
 
@@ -240,11 +326,11 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     )
 
     assert {:error, :not_found} =
-             Ankole.Conversations.Attachments.Native.read_to_file(
+             Ankole.Conversations.read_attachment_to_file(
                Ankole.PrincipalsFixtures.actor_fixture(reader.uid),
                detail.conversation.id,
                message.id,
-               attachment["path"],
+               0,
                local
              )
 
@@ -255,7 +341,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
                "saved.txt"
              )
 
-    assert Repo.get_by!(Message, id: message.id).attachments == [attachment]
+    assert Ankole.Conversations.get_message!(message.id).attachments == [attachment]
   end
 
   test "native attachment links select only the account proven by the browser cookies", %{
@@ -302,7 +388,6 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
              })
 
     message = hd(detail.messages)
-    attachment = hd(message.attachments)
     host = tenant.slug <> ".ankole.localhost"
     {first, owner_ref} = browser_login(host, %{}, owner)
     first_cookies = response_cookies(send_resp(first, 200, ""))
@@ -314,23 +399,23 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     path =
       "/api/v2/pod/conversations/#{detail.conversation.id}/attachments/#{message.id}"
 
-    selected = attachment_get(host, cookies, path, attachment["path"], owner_ref)
+    selected = attachment_get(host, cookies, path, 0, owner_ref)
     assert get_req_header(selected, "x-ankole-authentication") == []
     assert get_req_header(selected, "x-ankole-pod") == []
     assert response(selected, 200) == bytes
     assert BrowserSessions.current_reference(browser) == other_ref
 
-    denied = attachment_get(host, cookies, path, attachment["path"], other_ref)
+    denied = attachment_get(host, cookies, path, 0, other_ref)
     assert json_response(denied, 404)["error"]["code"] == "not_found"
 
     missing_proof = Map.delete(cookies, SessionCookies.authentication_prefix() <> owner_ref["id"])
-    assert attachment_get(host, missing_proof, path, attachment["path"], owner_ref).status == 401
+    assert attachment_get(host, missing_proof, path, 0, owner_ref).status == 401
 
     {foreign_login, foreign_ref} = browser_login(host, %{}, foreign)
     foreign_cookies = response_cookies(send_resp(foreign_login, 200, ""))
     foreign_name = SessionCookies.authentication_prefix() <> foreign_ref["id"]
     transplanted = Map.put(cookies, foreign_name, Map.fetch!(foreign_cookies, foreign_name))
-    assert attachment_get(host, transplanted, path, attachment["path"], foreign_ref).status == 401
+    assert attachment_get(host, transplanted, path, 0, foreign_ref).status == 401
 
     ordinary_api =
       cookie_request(host, cookies)
@@ -345,13 +430,13 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
         where: p.conversation_id == ^detail.conversation.id and p.principal_uid == ^owner.uid
     )
 
-    assert attachment_get(host, cookies, path, attachment["path"], owner_ref).status == 404
+    assert attachment_get(host, cookies, path, 0, owner_ref).status == 404
   end
 
-  defp attachment_get(host, cookies, path, file_path, reference) do
+  defp attachment_get(host, cookies, path, position, reference) do
     cookie_request(host, cookies)
     |> get("http://#{host}:4002" <> path, %{
-      path: file_path,
+      position: position,
       authentication_ref: BrowserSessions.encode_reference(reference)
     })
   end

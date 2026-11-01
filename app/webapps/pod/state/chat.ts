@@ -151,7 +151,7 @@ export function shouldSendOnEnter(event: {
   )
 }
 
-export const ChatModel = createModel(() => {
+function createChat() {
   const draft = signal('')
   const attachments = new ChatAttachments()
   const conversationID = signal<string>()
@@ -173,10 +173,13 @@ export const ChatModel = createModel(() => {
   const reading = signal<Partial<Record<ChatPresentation, ChatReadingPosition>>>({})
   const modelProfile = signal<string | null>(null)
   const editing = signal<ChatEditing>()
+  const selectingMessages = signal(false)
+  const selectedMessageIDs = signal<string[]>([])
   let stopCommandID: string | undefined
   const hasText = computed(() => draft.value.trim().length > 0)
   const hasContent = computed(() => hasText.value || attachments.hasFiles.value)
   const quoted = computed(() => links.value.find(link => link.quote != null))
+  const selectedMessageCount = computed(() => selectedMessageIDs.value.length)
   const clearCapturedDraft = (capture: Pick<MessageSubmission, 'text' | 'links' | 'mentions'>) => {
     if (
       draft.peek() !== capture.text ||
@@ -188,6 +191,25 @@ export const ChatModel = createModel(() => {
     draft.value = ''
     mentions.value = []
     links.value = []
+  }
+
+  const cancelEdit = () => {
+    if (!editing.value) return
+    batch(() => {
+      draft.value = editing.value!.previousDraft
+      links.value = editing.value!.previousLinks
+      answeringInteractionID.value = editing.value!.previousAnsweringInteractionID
+      editing.value = undefined
+    })
+  }
+  const savedEditChanged = (saved: ChatEditSnapshot) => {
+    const current = editing.peek()
+    return (
+      !!current &&
+      (saved.text !== current.originalText ||
+        !equal(saved.links, current.originalLinks) ||
+        !equal(saved.mentions, current.originalMentions))
+    )
   }
 
   return {
@@ -210,8 +232,34 @@ export const ChatModel = createModel(() => {
     reading,
     modelProfile,
     editing,
+    selectingMessages,
+    selectedMessageIDs,
+    selectedMessageCount,
     hasText,
     hasContent,
+    startSelectingMessages(initialMessageID?: string) {
+      batch(() => {
+        selectingMessages.value = true
+        if (initialMessageID && !selectedMessageIDs.peek().includes(initialMessageID)) {
+          selectedMessageIDs.value = [...selectedMessageIDs.peek(), initialMessageID]
+        }
+      })
+    },
+    toggleSelectedMessage(messageID: string) {
+      const current = selectedMessageIDs.peek()
+      selectedMessageIDs.value = current.includes(messageID)
+        ? current.filter(id => id !== messageID)
+        : [...current, messageID]
+    },
+    setSelectedMessages(ids: string[]) {
+      selectedMessageIDs.value = [...new Set(ids)]
+    },
+    clearMessageSelection() {
+      batch(() => {
+        selectingMessages.value = false
+        selectedMessageIDs.value = []
+      })
+    },
     startAnswer(interactionID: string, text = '') {
       if (editing.peek()) return false
       batch(() => {
@@ -259,24 +307,8 @@ export const ChatModel = createModel(() => {
         links.value = context.links
       })
     },
-    cancelEdit() {
-      if (!editing.value) return
-      batch(() => {
-        draft.value = editing.value!.previousDraft
-        links.value = editing.value!.previousLinks
-        answeringInteractionID.value = editing.value!.previousAnsweringInteractionID
-        editing.value = undefined
-      })
-    },
-    savedEditChanged(saved: ChatEditSnapshot) {
-      const current = editing.peek()
-      return (
-        !!current &&
-        (saved.text !== current.originalText ||
-          !equal(saved.links, current.originalLinks) ||
-          !equal(saved.mentions, current.originalMentions))
-      )
-    },
+    cancelEdit,
+    savedEditChanged,
     restoreQueuedInput(input: ConversationPendingInput, agentUID: string) {
       const previous = draft.peek()
       const references = draftLinks(input.links)
@@ -298,7 +330,7 @@ export const ChatModel = createModel(() => {
     rebaseEdit(messageID: string, saved: ChatEditSnapshot, queueVersion: string, useSaved = false) {
       const current = editing.peek()
       if (!current || current.messageID !== messageID) return false
-      if (!useSaved && this.savedEditChanged(saved)) return false
+      if (!useSaved && savedEditChanged(saved)) return false
       batch(() => {
         editing.value = {
           ...current,
@@ -317,7 +349,7 @@ export const ChatModel = createModel(() => {
     },
     editSaved(messageID: string, text: string, savedLinks: ChatLinks = []) {
       if (editing.value?.messageID === messageID && draft.value === text && equal(links.value, savedLinks)) {
-        this.cancelEdit()
+        cancelEdit()
       }
     },
     editCommand(): ConversationQueueRequest | undefined {
@@ -383,6 +415,9 @@ export const ChatModel = createModel(() => {
         error.value = undefined
       })
       return submission
+    },
+    resolvePendingAgent(messageID: string, uid: string) {
+      if (pending.value?.messageID === messageID) pending.value = { ...pending.value, agentUID: uid }
     },
     failed(failure: unknown, messageID: string) {
       // A committed message can permit a newer send before this request finishes.
@@ -533,6 +568,8 @@ export const ChatModel = createModel(() => {
         liveStreams.value = {}
         activities.value = {}
         connecting.value = false
+        selectingMessages.value = false
+        selectedMessageIDs.value = []
       })
     },
     disconnected() {
@@ -551,4 +588,6 @@ export const ChatModel = createModel(() => {
       })
     }
   }
-})
+}
+
+export const ChatModel = createModel(createChat)

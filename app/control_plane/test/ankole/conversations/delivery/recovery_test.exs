@@ -25,7 +25,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, _} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -93,7 +95,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -193,7 +197,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -237,7 +243,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -284,7 +292,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -365,7 +375,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -465,7 +477,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -538,7 +552,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -599,7 +615,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -717,7 +735,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -821,7 +841,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -887,7 +909,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -936,7 +960,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -979,7 +1005,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -1024,7 +1052,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -1076,7 +1106,10 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                  now: DateTime.add(@base_time, 1, :day)
                )
 
-      assert :ok = Delivery.wake_blocked_for_binding(agent.uid, "bot")
+      assert :ok =
+               Delivery.wake_blocked_for_binding(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id
+               )
 
       woken =
         Repo.get_by!(Intent,
@@ -1108,8 +1141,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
 
       assert {:ok, _} =
                Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                  lifecycle_entry(%{source_event_id: "delete-expiring"}),
                  now: @base_time
                )

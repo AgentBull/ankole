@@ -3,7 +3,6 @@ import type {
   ListSignalAdaptersResponse,
   ListSignalBindingsResponse,
   PutSignalBindingData,
-  ListAgentFilesResponse,
   GetConsoleReadinessResponse,
   GetBackgroundAgentJobHealthResponse,
   GetBackgroundAgentJobTurnsResponse,
@@ -24,7 +23,6 @@ export type SignalAdapterItem = Omit<
 export type SignalBindingItem = ListSignalBindingsResponse['signal_bindings'][number]
 export type SignalDeliveryFailureItem = ListSignalBindingsResponse['delivery_failures'][number]
 export type SignalBindingWriteRequest = NonNullable<PutSignalBindingData['body']>['data']
-export type AgentFileEntry = ListAgentFilesResponse['file_listing']['files'][number]
 export type ConsoleReadinessResponse = GetConsoleReadinessResponse
 export type BackgroundAgentJobHealthResponse = GetBackgroundAgentJobHealthResponse
 export type BackgroundAgentJobTurnPageResponse = GetBackgroundAgentJobTurnsResponse

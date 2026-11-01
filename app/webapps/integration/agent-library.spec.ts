@@ -25,7 +25,7 @@ test('an Agent override names its capability and the plugin detail names the tab
       }
       if (path.endsWith('/agents')) {
         return route.fulfill({
-          json: { data: [{ type: 'agent', id: 'agent-one', attributes: { handle: 'agent-one' } }] }
+          json: { data: [{ type: 'agent', id: 'agent-one', attributes: { uid: 'agent-one' } }] }
         })
       }
       if (path.endsWith('/skill-lessons')) return route.fulfill({ json: { data: [] } })

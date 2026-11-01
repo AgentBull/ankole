@@ -1,9 +1,7 @@
-import type { PutAgentModelProfileData, ListAgentModelProfilesResponse } from '../api/v2/generated/types.gen'
+import type { PutAgentModelProfileData } from '../api/v2/generated/types.gen'
 import { equal, recordValue, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 
-// Embedding and rerank are not Agent profile slots: Brain owns those models
-// instance-wide through the brain.* settings.
 export const PROFILE_NAMES = [
   'primary',
   'light',
@@ -14,7 +12,25 @@ export const PROFILE_NAMES = [
   'web_fetch',
   'image_generate'
 ] as const
-export type ProfileName = (typeof PROFILE_NAMES)[number]
+export const POD_PROFILE_NAMES = [...PROFILE_NAMES, 'rerank'] as const
+export type ProfileName = (typeof POD_PROFILE_NAMES)[number]
+
+export function resolvedProfileValue(entry: unknown): JSONObject {
+  const resolved = recordValue(entry)
+  return recordValue(resolved?.value) ?? {}
+}
+
+export function resolvedProviderHosted(configuration: JSONObject | undefined): {
+  web_search: boolean
+  image_generate: boolean
+} {
+  const effective = recordValue(configuration?.effective)
+
+  return {
+    web_search: recordValue(effective?.web_search)?.value !== false,
+    image_generate: recordValue(effective?.image_generate)?.value !== false
+  }
+}
 
 export type ProfileDraft = {
   description: string
@@ -58,13 +74,19 @@ export function draftFromProfile(profile: JSONObject): ProfileDraft {
   }
 }
 
+export function draftsFromEffective(effective: JSONObject) {
+  return Object.fromEntries(
+    POD_PROFILE_NAMES.map(profile => [profile, draftFromProfile(resolvedProfileValue(effective[profile]))])
+  )
+}
+
 export const ModelProfilesModel = createModel(() => {
   const sourceKey = signal<string>()
-  const profiles = Object.fromEntries(PROFILE_NAMES.map(name => [name, createProfileSignals()])) as Record<
+  const profiles = Object.fromEntries(POD_PROFILE_NAMES.map(name => [name, createProfileSignals()])) as Record<
     ProfileName,
     ProfileSignals
   >
-  const dirty = computed(() => PROFILE_NAMES.some(name => profiles[name].dirty.value))
+  const dirty = computed(() => POD_PROFILE_NAMES.some(name => profiles[name].dirty.value))
 
   return {
     sourceKey,
@@ -75,7 +97,7 @@ export const ModelProfilesModel = createModel(() => {
         const sameSource = sourceKey.value === nextSourceKey
         if (!sameSource) sourceKey.value = nextSourceKey
 
-        for (const name of PROFILE_NAMES) {
+        for (const name of POD_PROFILE_NAMES) {
           if (!sameSource || !profiles[name].dirty.value) applyProfile(profiles[name], drafts[name] ?? {})
         }
       })
@@ -91,10 +113,17 @@ export const ModelProfilesModel = createModel(() => {
     },
     markSaved(
       name: ProfileName,
-      input: ProfileDraftInput,
+      effective: JSONObject,
       submission: ModelProfileSubmission
     ): ModelProfilePersistenceResult {
-      return markProfileSaved(profiles[name], input, submission)
+      const drafts = draftsFromEffective(effective)
+      return batch(() => {
+        const result = markProfileSaved(profiles[name], drafts[name]!, submission)
+        for (const profile of POD_PROFILE_NAMES) {
+          if (!profiles[profile].dirty.value) applyProfile(profiles[profile], drafts[profile]!)
+        }
+        return result
+      })
     },
     reset(name: ProfileName) {
       const profile = profiles[name]
@@ -258,4 +287,3 @@ function sameProfileValues(left: ProfileDraft, right: ProfileDraft): boolean {
 }
 
 export type ModelProfileWriteRequest = PutAgentModelProfileData['body']['data']['attrs']
-export type ProviderHostedCapabilities = ListAgentModelProfilesResponse['provider_hosted']

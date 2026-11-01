@@ -1,5 +1,5 @@
 defmodule Ankole.Conversations.Attachments do
-  @moduledoc "Owns attachment bytes, stable identities, and conversation-scoped drive references."
+  @moduledoc "Coordinates attachment materialization, stable identities, and conversation-root references."
   require Ash.Query
   alias Ecto.Adapters.SQL
   alias Ankole.{Files, Repo}
@@ -7,8 +7,8 @@ defmodule Ankole.Conversations.Attachments do
   @attachment_id_sequence "conversation_attachment_id_seq"
   @attachment_id_min 10_000
   @attachment_id_max 9_007_199_254_740_991
-  @attachment_identity_fields ~w(upload_id provider_ref provider_file_id provider_file_key provider_uri blob_ref storage_ref)
-  @attachment_materialization_fields ~w(attachment_id blob_ref path content_type size size_bytes bytes)
+  @attachment_identity_fields ~w(upload_id provider_ref provider_file_id provider_file_key provider_uri object_id storage_ref)
+  @attachment_materialization_fields ~w(attachment_id object_id node_id sha256 path content_type size size_bytes bytes)
 
   @doc """
   Returns whether any attachment still needs its bytes stored.
@@ -151,26 +151,18 @@ defmodule Ankole.Conversations.Attachments do
 
   defp observation_time(_observation), do: DateTime.utc_now(:microsecond)
 
-  @doc """
-  Stores downloaded attachment bytes in the file service.
-
-  `content` is a binary or `{:file, path}`. The result is the attachment with
-  `blob_ref` (the SHA-256 digest), `path` (its drive path under `inbox/`), and
-  `size`. `name:` overrides the attachment's own `name` in the path, and
-  `content_type:` fills `content_type` when the attachment declares none.
-  Every Agent that receives the attachment gets the same stored bytes, so an
-  adapter stores them once whichever Agent asked first.
-  """
+  @doc "Stores downloaded bytes as an uncompleted object until the attachment commits."
   @spec store_attachment(map(), binary() | {:file, Path.t()}, keyword()) ::
           {:ok, map()} | {:error, term()}
   def store_attachment(attachment, content, opts \\ []) when is_map(attachment) do
-    with {:ok, %{sha256: sha256, size: size}} <- Files.store(content) do
+    with {:ok, %{object_id: object_id, sha256: sha256, size: size}} <- Files.store(content) do
       name = present(Keyword.get(opts, :name)) || present(attachment["name"]) || "attachment"
 
       attachment =
         attachment
-        |> Map.put("blob_ref", sha256)
-        |> Map.put("path", Files.content_path("inbox", sha256, name))
+        |> Map.put("object_id", object_id)
+        |> Map.put("sha256", sha256)
+        |> Map.put_new("name", name)
         |> Map.put("size", size)
 
       attachment =
@@ -206,42 +198,25 @@ defmodule Ankole.Conversations.Attachments do
   defp present(value) when is_binary(value) and value != "", do: value
   defp present(_value), do: nil
 
-  def prepare_in_tx(agent_uid, conversation_id, message_id, attachments, existing) do
+  def prepare_in_tx(_agent_uid, conversation_id, _message_id, attachments, existing) do
     attachments
     |> List.wrap()
     |> Enum.with_index()
     |> Enum.map(fn {attachment, index} ->
-      put_attachment_id(attachment, index, List.wrap(existing))
+      attachment
+      |> put_attachment_id(index, List.wrap(existing))
+      |> ensure_conversation_node(conversation_id)
     end)
-    |> scope(conversation_id)
-    |> Enum.map(
-      &link_attachment(
-        agent_uid,
-        %{conversation_id: conversation_id, message_id: message_id},
-        &1
-      )
-    )
   end
 
-  @doc """
-  Assigns native Message identities without exposing a queued upload in the Agent drive.
-  A Message has its own path so a later upload cannot read or replace an Agent's edits to an older input.
-  """
-  def prepare_native_in_tx(conversation_id, message_id, attachments, existing) do
-    attachments
-    |> Enum.with_index()
-    |> Enum.map(fn {attachment, index} ->
-      path = Files.content_path("inbox", attachment["blob_ref"], attachment["name"])
-      attachment = put_attachment_id(attachment, index, existing)
-      Map.put(attachment, "path", String.replace_prefix(path, "inbox/", "inbox/#{message_id}/"))
-    end)
-    |> scope(conversation_id)
-  end
+  @doc "Assigns native attachment identities and creates files in the conversation root."
+  def prepare_native_in_tx(conversation_id, message_id, attachments, existing),
+    do: prepare_in_tx(nil, conversation_id, message_id, attachments, existing)
 
   # A later observation cannot take stored bytes away from an attachment. A
   # provider that redelivers an event can fetch the same file twice; when the
   # second fetch fails after the first one stored the bytes, or reports before
-  # it, the stored result with its `blob_ref` stays. This runs under the entry
+  # it, the stored result with its `object_id` stays. This runs under the entry
   # lock, so the order in which two downloads finish cannot lose the bytes.
   defp put_attachment_id(attachment, index, existing_attachments)
        when is_map(attachment) do
@@ -276,70 +251,11 @@ defmodule Ankole.Conversations.Attachments do
     end)
   end
 
-  @doc """
-  Names in the Agent's drive every stored attachment that an Signal
-  payload shows to the Agent and that the drive does not name yet.
-
-  The control plane calls it before it hands a payload to a Worker. Paths that
-  bypass the mirror, or reach the Agent before the mirror, then still give the
-  Agent attachments it can read: an entry whose stored copy is newer than the
-  observation, a group entry that is mirrored only when its batch closes, and
-  a supplement that updates an open Signal before the mirror. A path that
-  the drive already names stays as its writer left it, with the provenance of
-  the mirror and the source of a sent or generated file.
-  """
-  @spec link_payload(String.t(), map(), String.t() | nil) :: :ok
-  def link_payload(agent_uid, payload, channel_id)
-      when is_binary(agent_uid) and is_map(payload) do
-    payload
-    |> unlinked_attachments(agent_uid, channel_id)
-    |> Enum.each(fn attachment ->
-      # The Files domain owns the transaction of each drive commit.
-      result =
-        Files.commit(agent_uid, [drive_upsert(%{conversation_id: channel_id}, attachment)], [])
-
-      linked_attachment(attachment, result)
-    end)
-  end
-
-  def link_payload(_agent_uid, _payload, _channel_id), do: :ok
-
-  @doc "Same as `link_payload/3` inside the caller's transaction on `repo`."
-  @spec link_payload_in_tx(String.t(), map(), String.t() | nil) :: :ok
-  def link_payload_in_tx(agent_uid, payload, channel_id)
-      when is_binary(agent_uid) and is_map(payload) do
-    payload
-    |> unlinked_attachments(agent_uid, channel_id)
-    |> Enum.each(&link_attachment(agent_uid, %{conversation_id: channel_id}, &1))
-  end
-
-  def link_payload_in_tx(_agent_uid, _payload, _channel_id), do: :ok
-
-  defp unlinked_attachments(payload, agent_uid, channel_id) do
-    payload
-    |> scope_payload(channel_id)
-    |> payload_attachments()
-    |> Enum.filter(&stored?/1)
-    |> Enum.uniq_by(&{&1["path"], &1["blob_ref"]})
-    |> Enum.reject(&match?({:ok, _file}, Files.fetch(agent_uid, &1["path"])))
-  end
-
-  @doc "Gives received files their channel paths, including old inbox references."
-  def scope(attachments, channel_id) do
-    Enum.map(attachments, fn
-      %{"path" => "inbox/" <> _rest = path} = attachment when is_binary(channel_id) ->
-        Map.put(attachment, "path", Files.chat_path(channel_id, path))
-
-      attachment ->
-        attachment
-    end)
-  end
-
-  @doc "Updates received attachment paths in an input payload without changing its other facts."
-  def scope_payload(payload, channel_id) do
+  @doc "Pins attachment objects in the conversation root before their Signal commits."
+  def prepare_payload_in_tx(payload, conversation_id) do
     case payload do
       %{"data" => data} when is_map(data) ->
-        data = scope_message(data, channel_id)
+        data = scope_message(data, conversation_id)
 
         data =
           Enum.reduce(
@@ -348,12 +264,12 @@ defmodule Ankole.Conversations.Attachments do
             fn key, acc ->
               case Map.fetch(acc, key) do
                 {:ok, entries} when is_list(entries) ->
-                  Map.put(acc, key, Enum.map(entries, &scope_message(&1, channel_id)))
+                  Map.put(acc, key, Enum.map(entries, &scope_message(&1, conversation_id)))
 
                 {:ok, entry} when is_map(entry) ->
-                  Map.put(acc, key, scope_message(entry, channel_id))
+                  Map.put(acc, key, scope_message(entry, conversation_id))
 
-                _missing ->
+                _ ->
                   acc
               end
             end
@@ -361,16 +277,24 @@ defmodule Ankole.Conversations.Attachments do
 
         Map.put(payload, "data", data)
 
-      _other ->
+      _ ->
         payload
     end
   end
 
   defp scope_message(entry, channel_id) when is_map(entry) do
+    message = payload_message(entry, channel_id)
+
     entry =
       case Map.fetch(entry, "attachments") do
         {:ok, attachments} when is_list(attachments) ->
-          Map.put(entry, "attachments", scope(attachments, channel_id))
+          Map.put(
+            entry,
+            "attachments",
+            Enum.map(attachments, fn attachment ->
+              attachment |> ensure_conversation_node(channel_id) |> put_message_locator(message)
+            end)
+          )
 
         _missing ->
           entry
@@ -384,65 +308,109 @@ defmodule Ankole.Conversations.Attachments do
 
   defp scope_message(other, _channel_id), do: other
 
-  # Attachments of the entry, of the message it quotes, and of every entry of
-  # a batch. The payload is the stored JSON of an Signal, so its keys are
-  # strings.
-  defp payload_attachments(payload) do
-    data = field(payload, "data") || %{}
-
-    entries =
-      [data, field(data, "entry")] ++
-        List.wrap(field(data, "entries")) ++
-        List.wrap(field(data, "unreplied_messages")) ++
-        List.wrap(field(data, "observed_messages")) ++
-        List.wrap(field(data, "backdrop_messages"))
-
-    Enum.flat_map(entries, fn
-      entry when is_map(entry) ->
-        List.wrap(field(entry, "attachments")) ++
-          List.wrap(field(field(entry, "reply_to"), "attachments"))
-
-      _other ->
-        []
-    end)
-    |> Enum.filter(&is_map/1)
+  defp payload_message(%{"message_id" => id}, conversation_id) when is_binary(id) do
+    Message
+    |> Ash.Query.filter(id == ^id and conversation_id == ^conversation_id)
+    |> Ankole.Ash.read_one!()
   end
 
-  defp field(map, key) when is_map(map), do: Map.get(map, key)
-  defp field(_value, _key), do: nil
+  defp payload_message(%{"provider_message_id" => id}, conversation_id) when is_binary(id) do
+    case External.get_message(conversation_id, id) do
+      %{message: message} -> message
+      _ -> nil
+    end
+  end
 
-  defp link_attachment(
-         agent_uid,
-         provenance,
-         %{"blob_ref" => sha256, "path" => path} = attachment
+  defp payload_message(_entry, _conversation_id), do: nil
+
+  defp put_message_locator(%{"object_id" => id} = attachment, %Message{} = message) do
+    case Enum.find_index(message.attachments, &(&1["object_id"] == id)) do
+      nil ->
+        attachment
+
+      position ->
+        Map.merge(attachment, %{
+          "message_id" => message.id,
+          "conversation_id" => message.conversation_id,
+          "position" => position
+        })
+    end
+  end
+
+  defp put_message_locator(attachment, _message), do: attachment
+
+  @doc "Resolves frozen Message attachment metadata through the executing Principal's current membership."
+  def resolve(%Ankole.AuthZ.Actor{} = actor, conversation_id, message_id, position)
+      when is_integer(position) and position >= 0 do
+    with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
+         {:ok, message_id} <- Ecto.UUID.cast(message_id),
+         :ok <- authorize_attachment(actor, conversation_id),
+         %Message{attachments: attachments} <-
+           Message
+           |> Ash.Query.filter(id == ^message_id and conversation_id == ^conversation_id)
+           |> Ankole.Ash.read_one!(),
+         %{"object_id" => object_id} = attachment <- Enum.at(attachments, position),
+         true <- is_binary(object_id) do
+      {:ok, attachment}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def resolve(_actor, _conversation_id, _message_id, _position), do: {:error, :not_found}
+
+  defp authorize_attachment(actor, conversation_id) do
+    case Ankole.Conversations.get_conversation!(conversation_id) do
+      %{kind: :native, native_access_scope: :anchor_page, page_id: page_id} ->
+        Ankole.Conversations.Native.authorize_page(actor, page_id)
+
+      _ ->
+        uid = Ankole.AuthZ.Actor.uid(actor)
+
+        case Ankole.Conversations.Participant
+             |> Ash.Query.filter(conversation_id == ^conversation_id and principal_uid == ^uid)
+             |> Ankole.Ash.read_one!() do
+          nil -> {:error, :not_found}
+          _participant -> :ok
+        end
+    end
+  end
+
+  def read_to_file(actor, conversation_id, message_id, position, local_path) do
+    with {:ok, attachment} <- resolve(actor, conversation_id, message_id, position),
+         :ok <- Files.read_object_to_file(attachment["object_id"], local_path),
+         do: {:ok, attachment}
+  end
+
+  defp ensure_conversation_node(
+         %{"object_id" => object_id, "node_id" => node_id} = attachment,
+         _conversation_id
        )
-       when is_binary(agent_uid) and is_binary(sha256) and is_binary(path) do
-    linked_attachment(
-      attachment,
-      Files.commit_in_tx(agent_uid, [drive_upsert(provenance, attachment)], [])
-    )
+       when is_binary(object_id) and is_binary(node_id), do: attachment
+
+  defp ensure_conversation_node(%{"object_id" => object_id} = attachment, conversation_id)
+       when is_binary(object_id) and is_binary(conversation_id) do
+    object =
+      if is_binary(attachment["sha256"]),
+        do: %{object_id: object_id, sha256: attachment["sha256"], size: attachment["size"]},
+        else: object_id
+
+    name = present(attachment["name"]) || "attachment"
+
+    with {:ok, node} <-
+           Files.create_conversation_file_in_tx(conversation_id, name, object, %{
+             content_type: content_type(attachment),
+             source: "inbound"
+           }) do
+      attachment
+      |> Map.put("node_id", node.id)
+      |> Map.put("path", node.path)
+    else
+      {:error, reason} -> raise ArgumentError, "invalid stored attachment: #{inspect(reason)}"
+    end
   end
 
-  defp link_attachment(_agent_uid, _fact, attachment), do: attachment
-
-  defp drive_upsert(provenance, attachment) do
-    %{
-      path: attachment["path"],
-      sha256: attachment["blob_ref"],
-      source: "inbound",
-      content_type: content_type(attachment),
-      conversation_id: Map.get(provenance, :conversation_id),
-      message_id: Map.get(provenance, :message_id)
-    }
-  end
-
-  defp linked_attachment(attachment, {:ok, _result}), do: attachment
-
-  defp linked_attachment(attachment, {:error, {:blob_missing, _sha256}}),
-    do: Map.drop(attachment, ["blob_ref", "path"])
-
-  defp linked_attachment(_attachment, {:error, reason}),
-    do: raise(ArgumentError, "invalid stored attachment: #{inspect(reason)}")
+  defp ensure_conversation_node(attachment, _conversation_id), do: attachment
 
   @doc "The declared content type of one attachment, if the provider gave one."
   @spec content_type(map()) :: String.t() | nil
@@ -484,16 +452,10 @@ defmodule Ankole.Conversations.Attachments do
 
   defp attachment_descriptor(_attachment), do: nil
 
-  @doc """
-  Returns whether the file service already holds the bytes of an attachment.
-
-  The bytes are content addressed and shared, so one stored copy serves every
-  Agent that receives the attachment.
-  """
+  @doc "Returns whether an attachment identifies stored object bytes."
   @spec stored?(term()) :: boolean()
-  def stored?(%{"blob_ref" => sha256, "path" => path})
-      when is_binary(sha256) and sha256 != "" and is_binary(path) and path != "",
-      do: true
+  def stored?(%{"object_id" => object_id}) when is_binary(object_id) and object_id != "",
+    do: true
 
   def stored?(_attachment), do: false
 

@@ -20,6 +20,7 @@ export interface DeleteRequest {
 export type Phase = 'starting' | 'running' | 'terminating'
 
 export interface WorkerObject {
+  tenant_id: string
   agent_uid: string
   generation: string
   phase: Phase

@@ -2,7 +2,8 @@ defmodule Ankole.Pod.Documents.Insights do
   @moduledoc "Document readership and daily activity, committed alongside their owning operation."
   require Ash.Query
   alias Ankole.{AuthZ, Repo}
-  alias Ankole.Pod.{Access, PageDailyActivity, Pages, PageUserState, Serialization}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{PageDailyActivity, Pages, PageUserState, Serialization}
 
   @session_seconds 300
 
@@ -11,7 +12,7 @@ defmodule Ankole.Pod.Documents.Insights do
       with {:ok, %{page: page, content: content}} <- Pages.get_in_tx(actor, id),
            :ok <- document(page) do
         authors = Enum.uniq([page.created_by, content.updated_by | content.contributors])
-        profiles = Serialization.author_profiles(Enum.map(authors, & &1.uid))
+        profiles = Serialization.author_profiles(authors)
         first_day = Date.add(Date.utc_today(), -29)
 
         daily =
@@ -28,7 +29,7 @@ defmodule Ankole.Pod.Documents.Insights do
            updated_at: page.updated_at,
            contributors: Enum.map(authors, &contributor(&1, page, content, profiles)),
            daily: Enum.map(daily, &Map.take(&1, [:day, :views, :edits, :comments])),
-           can_view_readers: match?({:ok, _}, Access.authorize(actor, page, "page_edit")),
+           can_view_readers: match?({:ok, _}, Access.authorize(actor, page, "node_edit")),
            hide_visits: (state && state.hide_visits) || false
          }}
       end
@@ -38,7 +39,7 @@ defmodule Ankole.Pod.Documents.Insights do
   def viewers(actor, id, opts \\ %{}) do
     Repo.transact_top_level(fn ->
       with {:ok, page} <- Pages.lock(id, :share),
-           {:ok, _} <- Access.authorize(actor, page, "page_edit"),
+           {:ok, _} <- Access.authorize(actor, page, "node_edit"),
            :ok <- document(page) do
         query =
           PageUserState
@@ -51,7 +52,7 @@ defmodule Ankole.Pod.Documents.Insights do
         pagination = if cursor, do: [limit: limit, after: cursor], else: [limit: limit]
 
         with {:ok, result} <- Ankole.Ash.read(query, page: pagination) do
-          profiles = Serialization.author_profiles(Enum.map(result.results, & &1.principal_uid))
+          profiles = Serialization.author_profiles(Enum.map(result.results, &viewer_actor/1))
 
           {:ok,
            %{
@@ -59,7 +60,7 @@ defmodule Ankole.Pod.Documents.Insights do
              viewers:
                Enum.map(result.results, fn state ->
                  %{
-                   person: Serialization.author_json(%{uid: state.principal_uid}, profiles),
+                   person: Serialization.author_json(viewer_actor(state), profiles),
                    visited_at: state.visited_at
                  }
                end),
@@ -69,6 +70,9 @@ defmodule Ankole.Pod.Documents.Insights do
       end
     end)
   end
+
+  defp viewer_actor(state),
+    do: Ankole.ActorRef.from_principal(%{tenant_id: state.tenant_id, uid: state.principal_uid})
 
   def visit_in_tx(_page, _uid, nil), do: :ok
 

@@ -123,9 +123,13 @@ defmodule Ankole.Conversations.Delivery.WakeupsTest do
   end
 
   defp intent_fixture(agent_uid, key, attrs \\ %{}) do
+    binding =
+      Ankole.SignalsFixtures.binding_fixture(agent_uid, "bot", :record_only, adapter: "mock")
+
     assert {:ok, %Intent{} = intent} =
              Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: agent_uid,
+               binding_id: binding.id,
                binding_name: "bot",
                outbound_key: key,
                operation: :post,

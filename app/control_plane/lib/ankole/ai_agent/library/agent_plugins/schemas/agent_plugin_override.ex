@@ -35,7 +35,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Schemas.AgentPluginOverride do
   end
 
   identities do
-    identity(:agent_plugin, [:agent_uid, :agent_plugin_id], all_tenants?: true)
+    identity(:agent_plugin, [:agent_uid, :agent_plugin_id])
   end
 
   actions do

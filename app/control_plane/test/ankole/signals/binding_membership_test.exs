@@ -25,7 +25,7 @@ defmodule Ankole.Signals.BindingMembershipTest do
              "binding_name" => "lark-main",
              "state" => "joined",
              "observed_at" => "2026-07-13T01:00:00.000000Z"
-           } = BindingMembership.memberships(metadata)["agent-a|lark-main"]
+           } = BindingMembership.memberships(metadata)[lark.binding_id]
 
     refute Map.has_key?(metadata, "lark_im")
     refute Map.has_key?(metadata, "teams_im")
@@ -52,6 +52,7 @@ defmodule Ankole.Signals.BindingMembershipTest do
 
   defp context(agent_uid, binding_name, adapter) do
     AdapterContext.new(
+      binding_id: Ecto.UUID.generate(),
       agent_uid: agent_uid,
       binding_name: binding_name,
       adapter: adapter,

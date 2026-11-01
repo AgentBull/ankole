@@ -1,7 +1,80 @@
 import { describe, expect, test } from 'bun:test'
-import { CustomModelProfileModel, ModelProfilesModel, PROFILE_NAMES } from './model-profiles-model'
+import {
+  CustomModelProfileModel,
+  ModelProfilesModel,
+  POD_PROFILE_NAMES,
+  PROFILE_NAMES,
+  resolvedProfileValue,
+  resolvedProviderHosted
+} from './model-profiles-model'
 
 describe('ModelProfilesModel', () => {
+  test('saving primary refreshes clean fallback drafts and preserves an edited slot', () => {
+    const model = new ModelProfilesModel()
+    model.initialize('defaults:tenant', {
+      primary: { providerID: 'openai', model: 'old' },
+      light: { providerID: 'openai', model: 'old' },
+      coding: { providerID: 'openai', model: 'old' }
+    })
+    model.update('primary', { model: 'new' })
+    model.update('coding', { model: 'unsaved' })
+    model.markSaved(
+      'primary',
+      {
+        primary: { value: { provider_id: 'openai', model: 'new' } },
+        light: { value: { provider_id: 'openai', model: 'new' } },
+        coding: { value: { provider_id: 'openai', model: 'new' } }
+      },
+      model.submission('primary')
+    )
+
+    expect(model.snapshot('light').model).toBe('new')
+    expect(model.profiles.light.dirty.value).toBeFalse()
+    expect(model.snapshot('coding').model).toBe('unsaved')
+    expect(model.profiles.coding.dirty.value).toBeTrue()
+    model[Symbol.dispose]()
+  })
+
+  test('restoring inheritance immediately displays the returned effective model', () => {
+    const model = new ModelProfilesModel()
+    model.initialize('agent:alpha', { primary: { providerID: 'openai', model: 'override' } })
+    model.markSaved(
+      'primary',
+      {
+        primary: { value: { provider_id: 'openai', model: 'inherited' }, source: 'tenant' }
+      },
+      model.submission('primary')
+    )
+
+    expect(model.snapshot('primary')).toMatchObject({ providerID: 'openai', model: 'inherited' })
+    expect(model.profiles.primary.dirty.value).toBeFalse()
+    model[Symbol.dispose]()
+  })
+
+  test('reads Pod-only rerank and resolved capability metadata without deriving fallback', () => {
+    expect(POD_PROFILE_NAMES).toContain('rerank')
+    expect(PROFILE_NAMES).not.toContain('rerank')
+
+    expect(
+      resolvedProfileValue({
+        value: { provider_id: 'jina', model: 'rerank-v3' },
+        source: 'global',
+        resolved_from_profile: 'rerank'
+      })
+    ).toEqual({ provider_id: 'jina', model: 'rerank-v3' })
+
+    expect(
+      resolvedProviderHosted({
+        overrides: {},
+        inherited: {},
+        effective: {
+          web_search: { value: false, source: 'tenant', resolved_from_profile: 'web_search' },
+          image_generate: { value: true, source: 'default', resolved_from_profile: 'image_generate' }
+        }
+      })
+    ).toEqual({ web_search: false, image_generate: true })
+  })
+
   test('exposes and initializes every provider-backed profile', () => {
     const model = new ModelProfilesModel()
 
@@ -99,7 +172,11 @@ describe('ModelProfilesModel', () => {
     const submission = model.submission('primary')
 
     model.update('primary', { model: 'newer-unsaved-model' })
-    const result = model.markSaved('primary', { providerID: 'openai', model: 'submitted-model' }, submission)
+    const result = model.markSaved(
+      'primary',
+      { primary: { value: { provider_id: 'openai', model: 'submitted-model' } } },
+      submission
+    )
 
     expect(result).toEqual({ hasUnsavedChanges: true })
     expect(model.profiles.primary.source.value).toMatchObject({ model: 'submitted-model' })
@@ -112,9 +189,13 @@ describe('ModelProfilesModel', () => {
     expect(model.snapshot('primary')).toMatchObject({ model: 'newer-unsaved-model' })
 
     const newerSubmission = model.submission('primary')
-    expect(model.markSaved('primary', { providerID: 'openai', model: 'newer-unsaved-model' }, newerSubmission)).toEqual(
-      { hasUnsavedChanges: false }
-    )
+    expect(
+      model.markSaved(
+        'primary',
+        { primary: { value: { provider_id: 'openai', model: 'newer-unsaved-model' } } },
+        newerSubmission
+      )
+    ).toEqual({ hasUnsavedChanges: false })
     expect(model.profiles.primary.dirty.value).toBeFalse()
     expect(model.dirty.value).toBeFalse()
 

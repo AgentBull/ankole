@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { rootErrorOptions } from './error-boundary'
+import { installExternalTranslationGuard } from './external-translation-guard'
 import { activeLocale, loadLocale } from './i18n'
 import { AppProviders, createQueryClient } from './providers'
 import { initializeFeatures } from './features'
@@ -23,6 +24,8 @@ export async function mountApp(
   // A missing container means the route did not come from the Phoenix shell.
   // Returning quietly keeps tests and story-like embeds from crashing.
   if (!container) return
+
+  installExternalTranslationGuard(document)
 
   // Translations must be in memory before the first render, or every string
   // would flash as its raw key. The fallback catalog loads alongside the

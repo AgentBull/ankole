@@ -31,13 +31,12 @@ defmodule Ankole.Plugins.ChannelSync do
   end
 
   @doc "Enqueues one full sync of the channels that one binding serves."
-  @spec enqueue_binding(module(), String.t(), String.t(), keyword()) ::
+  @spec enqueue_binding(module(), String.t(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue_binding(worker, agent_uid, binding_name, opts \\ [])
-      when is_atom(worker) and is_binary(agent_uid) and is_binary(binding_name) do
+  def enqueue_binding(worker, binding_id, opts \\ [])
+      when is_atom(worker) and is_binary(binding_id) do
     %{
-      "agent_uid" => String.downcase(agent_uid),
-      "binding_name" => binding_name,
+      "binding_id" => binding_id,
       "reason" => to_string(Keyword.get(opts, :reason, "manual")),
       "source" => to_string(Keyword.get(opts, :source, "manual"))
     }
@@ -52,7 +51,7 @@ defmodule Ankole.Plugins.ChannelSync do
         result =
           if Tenants.accepting_work?(binding.tenant_id),
             do:
-              enqueue_binding(worker, binding.agent_uid, binding.name,
+              enqueue_binding(worker, binding.id,
                 reason: "startup",
                 source: "startup"
               ),

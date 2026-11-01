@@ -87,8 +87,7 @@ defmodule Ankole.Plugins.Contracts do
       },
       "agent_workers.provider_kind" => %{
         validate: &Ankole.AgentWorkers.ProviderKind.validate_adapter_declaration/1,
-        refresh: &Ankole.AgentWorkers.ProviderKind.refresh_from_specs/2,
-        veto_disable: &Ankole.AgentWorkers.Providers.veto_disable_in_tx/2
+        refresh: &Ankole.AgentWorkers.ProviderKind.refresh_from_specs/2
       }
     }
   end

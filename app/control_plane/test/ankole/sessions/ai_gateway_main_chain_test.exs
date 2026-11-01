@@ -199,11 +199,15 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
     assert {:ok, %{status: :completed}} =
              finalize_run(run, final_committed)
 
-    intent =
-      Repo.get_by!(Intent,
-        agent_uid: agent.uid,
-        binding_name: "mock",
-        outbound_key: "ai-reply-attachment:#{final_committed.id}:0"
+    [intent] =
+      Ankole.Conversations.list_intents!(
+        query: [
+          filter: [
+            agent_uid: agent.uid,
+            binding_name: "mock",
+            outbound_key: "ai-reply-attachment:#{final_committed.id}:0"
+          ]
+        ]
       )
 
     assert intent.status == :pending
@@ -317,11 +321,15 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
     assert {:ok, %{status: :completed}} =
              finalize_run(run, final_committed)
 
-    intent =
-      Repo.get_by!(Intent,
-        agent_uid: agent.uid,
-        binding_name: "mock",
-        outbound_key: "ai-reply-attachment:#{final_committed.id}:0"
+    [intent] =
+      Ankole.Conversations.list_intents!(
+        query: [
+          filter: [
+            agent_uid: agent.uid,
+            binding_name: "mock",
+            outbound_key: "ai-reply-attachment:#{final_committed.id}:0"
+          ]
+        ]
       )
 
     assert intent.status == :pending
@@ -563,6 +571,11 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
            )
          ) do
       entries when length(entries) == 2 ->
+        entries =
+          Enum.map(entries, fn entry ->
+            %{entry | message: Ankole.Conversations.get_message!(entry.message.id)}
+          end)
+
         {[attachment], [final]} = Enum.split_with(entries, &(&1.message.attachments != []))
         %{attachment: attachment, final: final}
 

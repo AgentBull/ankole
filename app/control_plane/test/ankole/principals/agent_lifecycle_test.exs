@@ -4,7 +4,8 @@ defmodule Ankole.Principals.AgentLifecycleTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AuthZ
-  alias Ankole.Pod.{Access, Pages}
+  alias Ankole.Pod.Pages
+  alias Ankole.Files.Access
   alias Ankole.Principals
 
   test "physical Agent deletion removes its local grants and restores minimal Page anchors" do
@@ -14,7 +15,7 @@ defmodule Ankole.Principals.AgentLifecycleTest do
     assert {:ok, _} =
              AuthZ.create_permission_grant(%{
                principal_uid: owner.uid,
-               resource_pattern: "tenant_console:pod_space",
+               resource_pattern: "tenant_console:drive_space",
                action: "update"
              })
 
@@ -43,16 +44,16 @@ defmodule Ankole.Principals.AgentLifecycleTest do
       assert {:ok, _} =
                AuthZ.create_permission_grant(%{
                  principal_uid: uid,
-                 resource_pattern: "pod:**:#{boundary.id}:page",
-                 action: "page_view"
+                 resource_pattern: "drive:**:#{boundary.id}:node",
+                 action: "node_view"
                })
     end
 
     assert {:ok, grant} =
              AuthZ.create_permission_grant(%{
                principal_uid: agent.uid,
-               resource_pattern: "pod:**:#{shared.id}:**",
-               action: "page_view"
+               resource_pattern: "drive:**:#{shared.id}:**",
+               action: "node_view"
              })
 
     assert {:ok, %{has_local_acl: true, is_acl_anchor: true, acl_anchor_id: shared_id}} =
@@ -62,7 +63,15 @@ defmodule Ankole.Principals.AgentLifecycleTest do
     assert {:ok, %{acl_anchor_id: ^shared_id}} = Pages.fetch(descendant.id)
     assert {:ok, %{parent_anchor_id: ^shared_id}} = Pages.fetch(boundary.id)
 
+    agent_actor = actor_fixture(agent)
+    assert {:ok, private_root} = Ankole.Files.private_root(agent.uid)
+
+    assert {:ok, private_page} =
+             Pages.create(agent_actor, %{private_owner_uid: agent.uid, title: "Owned"})
+
     assert {:ok, %{status: :disabled}} = Principals.delete_agent(agent.uid)
+    assert {:ok, _} = Pages.fetch(private_page.id)
+    assert {:ok, _} = Ankole.Files.fetch_node(private_root.id)
     assert {:ok, _} = AuthZ.get_permission_grant(grant.id)
     assert {:ok, %{has_local_acl: true, is_acl_anchor: true}} = Pages.fetch(shared.id)
 
@@ -81,8 +90,10 @@ defmodule Ankole.Principals.AgentLifecycleTest do
 
     assert {:ok, %{status: :disabled}} = Principals.delete_agent(agent.uid)
     assert {:error, :not_found} = Principals.get_agent(agent.uid)
+    assert {:error, :not_found} = Pages.fetch(private_page.id)
+    assert {:error, :not_found} = Ankole.Files.fetch_node(private_root.id)
     assert Access.grants(principal_uid: agent.uid) == []
-    root_id = root.id
+    root_id = root.acl_anchor_id
 
     assert {:ok,
             %{

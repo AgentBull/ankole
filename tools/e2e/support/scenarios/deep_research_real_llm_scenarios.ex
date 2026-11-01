@@ -16,7 +16,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
       wait_until: 2
     ]
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AppConfigure
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -44,7 +44,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
         } = ctx
       ) do
     for binding <- [record_binding, ambient_binding] do
-      assert {:ok, _binding} = Bindings.disable_binding(agent.uid, binding.name)
+      assert {:ok, _binding} = Bindings.disable_binding(binding.id)
     end
 
     put_model_profile!(agent.uid, provider_id, "primary")

@@ -41,6 +41,10 @@ with UTF8 encoding while existing volumes keep their database encoding. Check
 follow the separate
 [backup and restore](../../../devkit/postgres-for-ankole/README.md) procedure.
 
+The PostgreSQL Pod mounts a memory-backed `/dev/shm` volume, sized by
+`postgresql.sharedMemorySize` (default `1Gi`). PostgreSQL uses it for parallel
+queries; include its actual usage when sizing the Pod's memory limit.
+
 Because the bundled PostgreSQL StatefulSet runs a single replica without
 protection against voluntary Pod disruption, use an external PostgreSQL database
 for production. If you run the bundled database on Karpenter-managed nodes, add
@@ -154,6 +158,10 @@ When upgrading an older installation—including one that uses bundled
 PostgreSQL—stop the control plane and complete the
 [upgrade procedure for the database image](../../../devkit/postgres-for-ankole/README.md)
 before deploying the new Pods.
+
+The default PostgreSQL image includes `pg_search` `0.26.4` for `amd64` and
+`arm64`. When supplying a custom image, set its published digest; clear
+`postgresql.image.digest` when selecting a tag instead.
 
 Verify the exact server referenced by `DATABASE_URL` before installation:
 
@@ -274,6 +282,10 @@ described below **before** starting the new control plane, because the provider
 seed assigns existing Agents to that claim in the same transaction that imports
 the provider.
 
+For existing per-Agent claims named without tenant identity, complete the
+[dedicated-claim migration](../../../../docs/upgrades/unified-drive.md#dedicated-kubernetes-claims)
+while the control plane and Workers are stopped.
+
 Back up PostgreSQL, Agent Home storage, and the file store before every upgrade,
 and then run:
 
@@ -290,8 +302,10 @@ The new control-plane Pod runs database migrations before starting. Because
 backup whenever an application rollback also requires a schema rollback.
 
 The default provider uses the retained shared Agent Home claim, normally named
-`<release>-ankole-agent-agents`. Each Worker mounts only its own Agent directory
-at `/workspace`, with `/agents/<agent_uid>` as a symbolic link to `/workspace`.
+`<release>-ankole-agent-agents`. Each Worker mounts its tenant-qualified storage
+name at `/workspace`, with `/agents/<agent_uid>` as a symbolic link to `/workspace`.
+Follow the [shared-claim directory migration](../../../../docs/upgrades/unified-drive.md#kubernetes-shared-agent-homes)
+when upgrading a claim with directories named only by Agent UID.
 If you change the Helm release name, set
 `worker.agents.persistence.existingClaim` to the previous claim name.
 

@@ -9,7 +9,53 @@ ARG ANKOLE_EDITION=foss
 FROM scratch AS ankole-internals
 COPY .dockerignore /.ankole-empty-source
 
-FROM ${BUN_IMAGE} AS bun
+FROM ${BUN_IMAGE} AS bun-deps
+
+WORKDIR /repo
+
+COPY package.json bun.lock ./
+COPY app/webapps/package.json ./app/webapps/package.json
+COPY libs/ankole-editor/package.json ./libs/ankole-editor/package.json
+COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
+COPY libs/uikit/package.json ./libs/uikit/package.json
+
+# Install only the frontend workspace packages needed for the Vite bundle.
+RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/webapps", "libs/ankole-editor", "libs/applet-sdk", "libs/uikit"]; await Bun.write("package.json", JSON.stringify(p));'
+
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+  bun install --no-save
+
+FROM bun-deps AS webapps-build
+
+ARG ANKOLE_EDITION=foss
+ENV ANKOLE_EDITION=${ANKOLE_EDITION}
+ENV NODE_ENV=production
+
+COPY --parents \
+  ./tsconfig.json \
+  ./tsconfig.base.json \
+  ./libs/ankole-editor/tsconfig.json \
+  ./libs/applet-sdk/tsconfig.json \
+  ./libs/uikit/tsconfig.json \
+  ./
+COPY app/locales ./app/locales
+COPY app/webapps ./app/webapps
+COPY libs/ankole-editor/src ./libs/ankole-editor/src
+COPY libs/ankole-editor/upstream ./libs/ankole-editor/upstream
+COPY libs/applet-sdk/src ./libs/applet-sdk/src
+COPY libs/uikit/src ./libs/uikit/src
+
+RUN --mount=from=ankole-internals,source=/,target=/mnt/internals \
+  if [ "${ANKOLE_EDITION}" = "saas" ]; then \
+    mkdir -p /repo/internals \
+    && cp -RP /mnt/internals/locales /repo/internals/locales \
+    && cp -RP /mnt/internals/webapps /repo/internals/webapps \
+    && rm -rf /repo/internals/webapps/node_modules; \
+  fi
+
+WORKDIR /repo/app/webapps
+
+RUN bun run build:bundle
 
 FROM ${ELIXIR_IMAGE} AS build
 
@@ -19,17 +65,17 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 ARG RUST_TOOLCHAIN=1.99.1
+ARG SCCACHE_VERSION=v0.19.0
 ARG TARGETARCH
 
-ARG ANKOLE_EDITION=foss
-ENV ANKOLE_EDITION=${ANKOLE_EDITION}
 ENV MIX_ENV=prod
 ENV HEX_HTTP_CONCURRENCY=1
 ENV HEX_HTTP_TIMEOUT=120
 ENV PATH="/root/.cargo/bin:${PATH}"
-
-COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
-RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
+ENV RUSTC_WRAPPER=/usr/local/bin/sccache
+ENV SCCACHE_DIR=/var/cache/sccache
+ENV SCCACHE_CACHE_SIZE=10G
+ENV CARGO_INCREMENTAL=0
 
 RUN sed -i \
     -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
@@ -46,6 +92,26 @@ RUN sed -i \
     protobuf-compiler \
   && rm -rf /var/lib/apt/lists/*
 
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) \
+      sccache_arch="x86_64-unknown-linux-musl"; \
+      sccache_sha256="aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd" ;; \
+    arm64|aarch64) \
+      sccache_arch="aarch64-unknown-linux-musl"; \
+      sccache_sha256="3e47fc4a71b1ddd1b4294a0de9d34498922fdf41e3cd0bda5df3954e3d6deb9d" ;; \
+    *) echo "Unsupported sccache architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  sccache_dir="sccache-${SCCACHE_VERSION}-${sccache_arch}"; \
+  curl -fsSL --retry 5 --retry-all-errors \
+    "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/${sccache_dir}.tar.gz" \
+    -o /tmp/sccache.tar.gz; \
+  echo "${sccache_sha256}  /tmp/sccache.tar.gz" | sha256sum -c -; \
+  tar -xzf /tmp/sccache.tar.gz -C /tmp; \
+  install -m 0755 "/tmp/${sccache_dir}/sccache" /usr/local/bin/sccache; \
+  rm -rf /tmp/sccache.tar.gz "/tmp/${sccache_dir}"; \
+  sccache --version
+
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
   | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
   && rustc --version \
@@ -54,23 +120,11 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 RUN mix local.hex --force \
   && mix local.rebar --force
 
-COPY package.json bun.lock ./
-COPY app/agent_computer/package.json ./app/agent_computer/package.json
-COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
-COPY app/control_plane/package.json ./app/control_plane/package.json
-COPY app/kernel/package.json ./app/kernel/package.json
-COPY app/webapps/package.json ./app/webapps/package.json
-COPY libs/ankole-editor/package.json ./libs/ankole-editor/package.json
-COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
-COPY libs/uikit/package.json ./libs/uikit/package.json
-COPY tools/devkit/package.json ./tools/devkit/package.json
-COPY tools/openapi-client-generator/package.json ./tools/openapi-client-generator/package.json
+COPY --from=bun-deps /usr/local/bin/bun /usr/local/bin/bun
+RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
-# The build uses only the workspace packages copied above.
-RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser", "app/control_plane", "app/kernel", "app/webapps", "libs/ankole-editor", "libs/applet-sdk", "libs/uikit", "tools/devkit", "tools/openapi-client-generator"]; await Bun.write("package.json", JSON.stringify(p));'
-
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-  bun install --no-save
+ARG ANKOLE_EDITION=foss
+ENV ANKOLE_EDITION=${ANKOLE_EDITION}
 
 COPY --parents \
   ./app/control_plane/mix.exs \
@@ -90,24 +144,27 @@ RUN --mount=type=cache,target=/root/.cache/hex \
 
 WORKDIR /repo
 
+# Compile third-party Hex and Rust NIF dependencies against dependencies.exs so
+# application config or frontend entry edits do not invalidate this layer.
 COPY --parents \
-  ./app/control_plane/config/config.exs \
   ./app/control_plane/config/dependencies.exs \
-  ./app/control_plane/config/prod.exs \
-  ./app/webapps/entries.json \
   ./
 
-RUN --mount=from=ankole-internals,source=/,target=/mnt/internals \
-  if [ "${ANKOLE_EDITION}" = "saas" ]; then \
-    mkdir -p /repo/internals/control_plane /repo/internals/webapps \
-    && cp /mnt/internals/control_plane/config.exs /repo/internals/control_plane/config.exs \
-    && cp /mnt/internals/webapps/entries.json /repo/internals/webapps/entries.json; \
-  fi
+RUN printf '%s\n' \
+    'import Config' \
+    'import_config "dependencies.exs"' \
+    'import_config "#{config_env()}.exs"' \
+    > /repo/app/control_plane/config/config.exs \
+  && printf '%s\n' \
+    'import Config' \
+    'config :logger, level: :info' \
+    > /repo/app/control_plane/config/prod.exs
 
 WORKDIR /repo/app/control_plane
 
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
+  --mount=type=cache,id=ankole-cp-sccache-${TARGETARCH},target=/var/cache/sccache \
   MJML_BUILD=true TORQUE_BUILD=true mix deps.compile --skip-local-deps
 
 WORKDIR /repo
@@ -120,33 +177,42 @@ WORKDIR /repo/app/control_plane
 
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
+  --mount=type=cache,id=ankole-cp-sccache-${TARGETARCH},target=/var/cache/sccache \
   --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
   mix deps.compile ankole_kernel im_transport feishu_protocol \
   && mix deps.loadpaths
 
 WORKDIR /repo
 
-COPY tsconfig.json tsconfig.base.json ./
 COPY app/control_plane ./app/control_plane
-COPY app/agent_computer/src ./app/agent_computer/src
-COPY app/library ./app/library
 COPY app/locales ./app/locales
-COPY app/webapps ./app/webapps
-COPY libs/ankole-editor ./libs/ankole-editor
-COPY libs/applet-sdk ./libs/applet-sdk
-COPY libs/uikit ./libs/uikit
+COPY app/webapps/entries.json ./app/webapps/entries.json
+COPY app/webapps/entrypoints ./app/webapps/entrypoints
+COPY app/webapps/openapi ./app/webapps/openapi
+COPY app/webapps/scripts ./app/webapps/scripts
 COPY plugins ./plugins
-COPY --from=ankole-internals / ./internals/
-COPY tools/openapi-client-generator ./tools/openapi-client-generator
+RUN --mount=from=ankole-internals,source=/,target=/mnt/internals \
+  if [ "${ANKOLE_EDITION}" = "saas" ]; then \
+    mkdir -p /repo/internals \
+    && cp -RP /mnt/internals/control_plane /repo/internals/control_plane \
+    && cp -RP /mnt/internals/locales /repo/internals/locales \
+    && cp -RP /mnt/internals/webapps /repo/internals/webapps \
+    && rm -rf /repo/internals/webapps/node_modules \
+    && if [ -d /mnt/internals/plugins ]; then cp -RP /mnt/internals/plugins /repo/internals/plugins; fi; \
+  fi
+
+RUN mkdir -p /repo/app/webapps/node_modules
 
 WORKDIR /repo/app/control_plane
 
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
+  --mount=type=cache,id=ankole-cp-sccache-${TARGETARCH},target=/var/cache/sccache \
   --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
   mix compile
 
 RUN ANKOLE_SECRET_BASE=build-smoke \
+  ANKOLE_SAAS_DOMAIN=ankole.localhost \
   DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \
   ANKOLE_FILES_STORE=fs \
   ANKOLE_FILES_FS_ROOT=/var/lib/ankole/files \
@@ -157,15 +223,16 @@ RUN ANKOLE_SECRET_BASE=build-smoke \
   PHX_SERVER=false \
   mix ankole.openapi.check
 
-RUN --mount=type=cache,target=/root/.cargo/git \
-  --mount=type=cache,target=/root/.cargo/registry \
-  --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
-  bun run build
+COPY --from=webapps-build \
+  /repo/app/control_plane/_build/${ANKOLE_EDITION}/webapps/assets \
+  ./_build/${ANKOLE_EDITION}/webapps/assets
 
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
+  --mount=type=cache,id=ankole-cp-sccache-${TARGETARCH},target=/var/cache/sccache \
   --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
-  mix release
+  mix phx.digest --no-deps-check \
+  && mix release
 
 FROM ${RUNNER_IMAGE}
 
@@ -207,7 +274,7 @@ RUN groupadd --system --gid 10001 ankole \
   && install -d -o ankole -g ankole /var/lib/ankole /var/lib/ankole/files
 
 COPY --from=build --chown=ankole:ankole /repo/app/control_plane/_build/${ANKOLE_EDITION}/prod/rel/ankole ./
-COPY --from=build --chown=ankole:ankole /repo/app/library ./app/library
+COPY --chown=ankole:ankole app/library ./app/library
 
 USER 10001:10001
 
@@ -223,6 +290,7 @@ ENV ANKOLE_AGENT_COMPUTER_IMAGE=${ANKOLE_AGENT_COMPUTER_IMAGE}
 ENV ANKOLE_LIBRARY_ROOT=/app/app/library
 
 RUN ANKOLE_SECRET_BASE=build-smoke \
+  ANKOLE_SAAS_DOMAIN=ankole.localhost \
   DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \
   ANKOLE_FILES_STORE=fs \
   ANKOLE_FILES_FS_ROOT=/var/lib/ankole/files \

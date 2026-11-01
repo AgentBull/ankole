@@ -37,6 +37,7 @@ defmodule Ankole.Plugins.SlackAdapterMentionRoutingTest do
   defp consumer(overrides) do
     context =
       AdapterContext.new(
+        binding_id: Ecto.UUID.generate(),
         agent_uid: "agent-a",
         binding_name: "slack-a",
         adapter: "slack",

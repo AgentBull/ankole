@@ -4,12 +4,7 @@ import { conversationSearchQuery, podKeys } from '../api'
 import { podRouteTitle } from '../app'
 import { routeSidebarTab } from '../sidebar'
 import { AccountSettingsModel } from './account-settings'
-import {
-  PodSettingsModel,
-  formatPermissionCondition,
-  parseAllowedDomains,
-  resolveInvitationExpiryISO
-} from './pod-settings'
+import { PodSettingsModel, parseAllowedDomains, resolveInvitationExpiryISO } from './pod-settings'
 
 test('PodSettingsModel tracks dirty state across normalized loginPolicy and domain edits', () => {
   const model = new PodSettingsModel()
@@ -91,16 +86,6 @@ test('resolveInvitationExpiryISO computes preset offsets and custom timestamps',
   expect(resolveInvitationExpiryISO('custom', '2026-12-01T12:30', base)).toBe(
     new Date('2026-12-01T12:30').toISOString()
   )
-})
-
-test('formatPermissionCondition omits trivial conditions and strips JSON quotes from CEL strings', () => {
-  expect(formatPermissionCondition(null)).toBeUndefined()
-  expect(formatPermissionCondition(undefined)).toBeUndefined()
-  expect(formatPermissionCondition(true)).toBeUndefined()
-  expect(formatPermissionCondition('')).toBeUndefined()
-  expect(formatPermissionCondition('  true  ')).toBeUndefined()
-  expect(formatPermissionCondition({})).toBeUndefined()
-  expect(formatPermissionCondition('principal.department == "eng"')).toBe('principal.department == "eng"')
 })
 
 test('provider and member draft helpers reset transient editor state cleanly', () => {

@@ -505,13 +505,17 @@ export type PodPage = {
    * An attributes object for a pod_page
    */
   attributes?: {
-    actions?: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'> | null
+    actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
     /**
      * Field included by default.
      */
     children_view: {
       [key: string]: unknown
     }
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
     /**
      * Field included by default.
      */
@@ -531,11 +535,23 @@ export type PodPage = {
     /**
      * Field included by default.
      */
+    is_root?: boolean | null
+    /**
+     * Field included by default.
+     */
+    name?: string | null
+    /**
+     * Field included by default.
+     */
+    object_id?: string | null
+    /**
+     * Field included by default.
+     */
     parent_id?: string | null
     /**
      * Field included by default.
      */
-    position: string
+    position?: string | null
     /**
      * Field included by default.
      */
@@ -560,7 +576,7 @@ export type PodPage = {
     /**
      * Field included by default.
      */
-    type: 'doc' | 'base' | 'applet' | 'file'
+    type: 'folder' | 'doc' | 'base' | 'applet' | 'file'
     /**
      * Field included by default.
      */
@@ -581,13 +597,17 @@ export type PodPageType = {
   /**
    * Field included by default.
    */
-  actions?: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'> | null
+  actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
   /**
    * Field included by default.
    */
   children_view: {
     [key: string]: unknown
   }
+  /**
+   * Field included by default.
+   */
+  conversation_id?: string | null
   /**
    * Field included by default.
    */
@@ -611,11 +631,23 @@ export type PodPageType = {
   /**
    * Field included by default.
    */
+  is_root?: boolean | null
+  /**
+   * Field included by default.
+   */
+  name?: string | null
+  /**
+   * Field included by default.
+   */
+  object_id?: string | null
+  /**
+   * Field included by default.
+   */
   parent_id?: string | null
   /**
    * Field included by default.
    */
-  position: string
+  position?: string | null
   /**
    * Field included by default.
    */
@@ -643,7 +675,7 @@ export type PodPageType = {
   /**
    * Field included by default.
    */
-  type: 'doc' | 'base' | 'applet' | 'file'
+  type: 'folder' | 'doc' | 'base' | 'applet' | 'file'
   /**
    * Field included by default.
    */
@@ -1037,11 +1069,13 @@ export type UpdateConversationQueueResponses = {
       attachments: Array<{
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -1059,7 +1093,10 @@ export type UpdateConversationQueueResponses = {
       } | null
       agents: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -1076,7 +1113,10 @@ export type UpdateConversationQueueResponses = {
       pageID?: string | null
       participants: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -1119,11 +1159,13 @@ export type UpdateConversationQueueResponses = {
     messages: Array<{
       attachments: Array<{
         attachment_id?: number | null
-        blob_ref: string
         content_type?: string | null
         mime_type?: string | null
         name: string
+        node_id?: string | null
+        object_id: string
         path: string
+        position: number
         resource_type?: string | null
         size: number
         upload_id?: string | null
@@ -1176,11 +1218,13 @@ export type UpdateConversationQueueResponses = {
         agentUID: string
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -1259,6 +1303,35 @@ export type PodPageMoveResponses = {
 }
 
 export type PodPageMoveResponse = PodPageMoveResponses[keyof PodPageMoveResponses]
+
+export type DisablePodAgentData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/agents/{uid}/disable'
+}
+
+export type DisablePodAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DisablePodAgentError = DisablePodAgentErrors[keyof DisablePodAgentErrors]
+
+export type DisablePodAgentResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type DisablePodAgentResponse = DisablePodAgentResponses[keyof DisablePodAgentResponses]
 
 export type PodAdminIdentityProvidersData = {
   body?: never
@@ -1382,6 +1455,7 @@ export type PodVersionsResponses = {
   201: {
     pages: Array<{
       id: string
+      object_id?: string | null
       revision: number
     }>
     tables: Array<{
@@ -1572,34 +1646,36 @@ export type PodPageNavigationResponses = {
       can_manage_space: boolean
       next_cursor?: string | null
       pages: Array<{
-        actions: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'>
+        actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
         has_children: boolean
         icon?: string | null
         id: string
         inherit_permissions: boolean
+        name: string
         parent_id?: string | null
-        position: string
+        position?: string | null
         private_owner_uid?: string | null
         role: 'view' | 'contribute' | 'edit' | 'manage'
         title: string
-        type: 'doc' | 'base' | 'applet' | 'file'
+        type: 'doc' | 'base' | 'applet' | 'file' | 'folder'
       }>
       parent_id?: string | null
       principal_uid: string
       scope: string
     }>
     path: Array<{
-      actions: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'>
+      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
       has_children: boolean
       icon?: string | null
       id: string
       inherit_permissions: boolean
+      name: string
       parent_id?: string | null
-      position: string
+      position?: string | null
       private_owner_uid?: string | null
       role: 'view' | 'contribute' | 'edit' | 'manage'
       title: string
-      type: 'doc' | 'base' | 'applet' | 'file'
+      type: 'doc' | 'base' | 'applet' | 'file' | 'folder'
     }>
   }
 }
@@ -1695,11 +1771,13 @@ export type ConversationDetailResponses = {
       attachments: Array<{
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -1717,7 +1795,10 @@ export type ConversationDetailResponses = {
       } | null
       agents: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -1734,7 +1815,10 @@ export type ConversationDetailResponses = {
       pageID?: string | null
       participants: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -1777,11 +1861,13 @@ export type ConversationDetailResponses = {
     messages: Array<{
       attachments: Array<{
         attachment_id?: number | null
-        blob_ref: string
         content_type?: string | null
         mime_type?: string | null
         name: string
+        node_id?: string | null
+        object_id: string
         path: string
+        position: number
         resource_type?: string | null
         size: number
         upload_id?: string | null
@@ -1834,11 +1920,13 @@ export type ConversationDetailResponses = {
         agentUID: string
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -1941,11 +2029,13 @@ export type UpdateConversationResponses = {
       attachments: Array<{
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -1963,7 +2053,10 @@ export type UpdateConversationResponses = {
       } | null
       agents: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -1980,7 +2073,10 @@ export type UpdateConversationResponses = {
       pageID?: string | null
       participants: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -2023,11 +2119,13 @@ export type UpdateConversationResponses = {
     messages: Array<{
       attachments: Array<{
         attachment_id?: number | null
-        blob_ref: string
         content_type?: string | null
         mime_type?: string | null
         name: string
+        node_id?: string | null
+        object_id: string
         path: string
+        position: number
         resource_type?: string | null
         size: number
         upload_id?: string | null
@@ -2080,11 +2178,13 @@ export type UpdateConversationResponses = {
         agentUID: string
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -2118,6 +2218,57 @@ export type UpdateConversationResponses = {
 }
 
 export type UpdateConversationResponse = UpdateConversationResponses[keyof UpdateConversationResponses]
+
+export type ResolvePodActionCardData = {
+  /**
+   * Request body for the resolvePodActionCard operation on pod_chat_operation resource
+   */
+  body: {
+    data: {
+      decision: 'confirm' | 'cancel'
+    }
+  }
+  path: {
+    card_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/action-cards/{card_id}/resolve'
+}
+
+export type ResolvePodActionCardErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResolvePodActionCardError = ResolvePodActionCardErrors[keyof ResolvePodActionCardErrors]
+
+export type ResolvePodActionCardResponses = {
+  /**
+   * Success
+   */
+  201: {
+    action_kind: string
+    agent_uid: string
+    card_id: string
+    conversation_id: string
+    conversation_kind: string
+    interaction_id: string
+    payload: {
+      [key: string]: unknown
+    }
+    resolution_note?: string | null
+    resolved_at?: string | null
+    resolved_by_name?: string | null
+    resolved_by_uid?: string | null
+    status: string
+    summary: string
+    target_node_id?: string | null
+  }
+}
+
+export type ResolvePodActionCardResponse = ResolvePodActionCardResponses[keyof ResolvePodActionCardResponses]
 
 export type PodBaseTablesData = {
   body?: never
@@ -2226,11 +2377,13 @@ export type AnswerConversationInteractionResponses = {
       attachments: Array<{
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -2248,7 +2401,10 @@ export type AnswerConversationInteractionResponses = {
       } | null
       agents: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -2265,7 +2421,10 @@ export type AnswerConversationInteractionResponses = {
       pageID?: string | null
       participants: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -2308,11 +2467,13 @@ export type AnswerConversationInteractionResponses = {
     messages: Array<{
       attachments: Array<{
         attachment_id?: number | null
-        blob_ref: string
         content_type?: string | null
         mime_type?: string | null
         name: string
+        node_id?: string | null
+        object_id: string
         path: string
+        position: number
         resource_type?: string | null
         size: number
         upload_id?: string | null
@@ -2365,11 +2526,13 @@ export type AnswerConversationInteractionResponses = {
         agentUID: string
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -2405,6 +2568,50 @@ export type AnswerConversationInteractionResponses = {
 export type AnswerConversationInteractionResponse =
   AnswerConversationInteractionResponses[keyof AnswerConversationInteractionResponses]
 
+export type GetPodActionCardData = {
+  body?: never
+  path: {
+    card_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/action-cards/{card_id}'
+}
+
+export type GetPodActionCardErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPodActionCardError = GetPodActionCardErrors[keyof GetPodActionCardErrors]
+
+export type GetPodActionCardResponses = {
+  /**
+   * Success
+   */
+  200: {
+    action_kind: string
+    agent_uid: string
+    card_id: string
+    conversation_id: string
+    conversation_kind: string
+    interaction_id: string
+    payload: {
+      [key: string]: unknown
+    }
+    resolution_note?: string | null
+    resolved_at?: string | null
+    resolved_by_name?: string | null
+    resolved_by_uid?: string | null
+    status: string
+    summary: string
+    target_node_id?: string | null
+  }
+}
+
+export type GetPodActionCardResponse = GetPodActionCardResponses[keyof GetPodActionCardResponses]
+
 export type PodPageCommentDeleteData = {
   body?: never
   path: {
@@ -2433,6 +2640,10 @@ export type PodPageCommentDeleteResponses = {
   200: {
     comment: {
       activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
       anchor_present: boolean
       anchor_revision?: number | null
       author: {
@@ -2440,6 +2651,7 @@ export type PodPageCommentDeleteResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       body?: string | null
       can_delete: boolean
@@ -2492,6 +2704,10 @@ export type PodCommentReadResponses = {
     revision: number
     thread: {
       activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
       anchor_present: boolean
       anchor_revision?: number | null
       author: {
@@ -2499,6 +2715,7 @@ export type PodCommentReadResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       body?: string | null
       can_delete: boolean
@@ -2511,6 +2728,10 @@ export type PodCommentReadResponses = {
       quote?: string | null
       replies: Array<{
         activity_at: string
+        anchor?: {
+          [key: string]: unknown
+        } | null
+        anchor_outdated: boolean
         anchor_present: boolean
         anchor_revision?: number | null
         author: {
@@ -2518,6 +2739,7 @@ export type PodCommentReadResponses = {
           kind?: 'human' | 'agent' | 'system' | null
           name?: string | null
           principal_uid: string
+          tenant_id: string
         }
         body?: string | null
         can_delete: boolean
@@ -2559,6 +2781,7 @@ export type PodPageCommentUpdateData = {
   body: {
     data: {
       body: string
+      mentioned_agent_uids?: Array<string> | null
       version: number
     }
   }
@@ -2586,6 +2809,10 @@ export type PodPageCommentUpdateResponses = {
   200: {
     comment: {
       activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
       anchor_present: boolean
       anchor_revision?: number | null
       author: {
@@ -2593,6 +2820,7 @@ export type PodPageCommentUpdateResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       body?: string | null
       can_delete: boolean
@@ -2688,6 +2916,7 @@ export type PodPageViewersResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       visited_at: string
     }>
@@ -2695,6 +2924,263 @@ export type PodPageViewersResponses = {
 }
 
 export type PodPageViewersResponse = PodPageViewersResponses[keyof PodPageViewersResponses]
+
+export type ResolveConversationActionCardData = {
+  /**
+   * Request body for the resolveConversationActionCard operation on pod_chat_operation resource
+   */
+  body: {
+    data: {
+      decision: 'confirm' | 'cancel'
+    }
+  }
+  path: {
+    card_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/action-cards/{card_id}/resolve'
+}
+
+export type ResolveConversationActionCardErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResolveConversationActionCardError =
+  ResolveConversationActionCardErrors[keyof ResolveConversationActionCardErrors]
+
+export type ResolveConversationActionCardResponses = {
+  /**
+   * Success
+   */
+  201: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
+      attachments: Array<{
+        attachment_id?: number | null
+        content_type?: string | null
+        mime_type?: string | null
+        name: string
+        node_id?: string | null
+        object_id: string
+        path: string
+        position: number
+        resource_type?: string | null
+        size: number
+        upload_id?: string | null
+      }>
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
+      text: string
+    }>
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
+  }
+}
+
+export type ResolveConversationActionCardResponse =
+  ResolveConversationActionCardResponses[keyof ResolveConversationActionCardResponses]
 
 export type PodBaseCopyData = {
   /**
@@ -2749,9 +3235,7 @@ export type RestorePodMemberData = {
    */
   body: {
     data: {
-      identityVerified: boolean
       reason: string
-      reviewFingerprint: string
     }
   }
   path: {
@@ -2810,119 +3294,6 @@ export type SyncPodDirectoryResponses = {
 
 export type SyncPodDirectoryResponse = SyncPodDirectoryResponses[keyof SyncPodDirectoryResponses]
 
-export type PodMemberAccessReviewData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/pod/admin/members/{uid}/access'
-}
-
-export type PodMemberAccessReviewErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodMemberAccessReviewError = PodMemberAccessReviewErrors[keyof PodMemberAccessReviewErrors]
-
-export type PodMemberAccessReviewResponses = {
-  /**
-   * Success
-   */
-  200: {
-    review: {
-      access_revoked_at?: string | null
-      access_version: number
-      cleanup_jobs: Array<{
-        attempt: number
-        completed_at?: string | null
-        discarded_at?: string | null
-        id: number
-        max_attempts: number
-        scheduled_at?: string | null
-        state: string
-      }>
-      history: Array<{
-        access_version: number
-        action: string
-        actor?: {
-          tenant_id: string
-          uid: string
-        } | null
-        details?: unknown | null
-        id: string
-        inserted_at: string
-        reason: string
-        source: string
-      }>
-      permission_review: {
-        fingerprint: string
-        permissions: {
-          grants: Array<{
-            action: string
-            condition?: unknown | null
-            group_id?: string | null
-            id: string
-            principal_uid?: string | null
-            resource_pattern: string
-          }>
-          groups: Array<{
-            condition?: unknown | null
-            domain: string
-            id: string
-            kind: string
-            name: string
-          }>
-          principal: {
-            access_version: number
-            avatar_url?: string | null
-            display_name?: string | null
-            uid: string
-          }
-          userset_grants: Array<{
-            action: string
-            condition: unknown
-            id: string
-            resource_pattern: string
-            source_action: string
-            source_page_id: string
-            target_page_id: string
-            target_scope: string
-          }>
-        }
-      }
-      restrictions: Array<{
-        cleared_at?: string | null
-        disposition: string
-        id: string
-        inserted_at: string
-        provider_time?: string | null
-        reason: string
-        recovery_verified_at?: string | null
-        source: string
-      }>
-      status: string
-      uid: string
-      work: Array<{
-        agent_uid: string
-        authorization_kind: string
-        can_reauthorize: boolean
-        human_access_version?: number | null
-        human_uid?: string | null
-        id: string
-        kind: string
-        status: string
-        updated_at: string
-      }>
-    }
-  }
-}
-
-export type PodMemberAccessReviewResponse = PodMemberAccessReviewResponses[keyof PodMemberAccessReviewResponses]
-
 export type PodFilesData = {
   body?: never
   path: {
@@ -2948,6 +3319,7 @@ export type PodFilesResponses = {
   200: {
     files: Array<{
       content_type?: string | null
+      object_id: string
       path: string
       sha256: string
       size: number
@@ -2985,7 +3357,10 @@ export type PodChatTeammatesResponses = {
   200: {
     teammates: Array<{
       active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
       avatarURL?: string | null
+      canChat?: boolean | null
       displayName: string
       mayIntervene: boolean
       modelProfile?: string | null
@@ -2997,6 +3372,43 @@ export type PodChatTeammatesResponses = {
 }
 
 export type PodChatTeammatesResponse = PodChatTeammatesResponses[keyof PodChatTeammatesResponses]
+
+export type RenamePodAgentData = {
+  /**
+   * Request body for the renamePodAgent operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      new_uid: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/agents/{uid}/rename'
+}
+
+export type RenamePodAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RenamePodAgentError = RenamePodAgentErrors[keyof RenamePodAgentErrors]
+
+export type RenamePodAgentResponses = {
+  /**
+   * Success
+   */
+  201: {
+    base_repair_error?: string | null
+    uid: string
+  }
+}
+
+export type RenamePodAgentResponse = RenamePodAgentResponses[keyof RenamePodAgentResponses]
 
 export type VerifyPodEmailBindingData = {
   /**
@@ -3070,9 +3482,9 @@ export type PodFileCopyData = {
    */
   body: {
     data: {
-      base_revision: number
+      base_object_id?: string | null
       message_id: string
-      path: string
+      position: number
     }
   }
   path: {
@@ -3098,6 +3510,7 @@ export type PodFileCopyResponses = {
   201: {
     file: {
       content_type?: string | null
+      object_id: string
       path: string
       sha256: string
       size: number
@@ -3133,7 +3546,10 @@ export type PodAgentsResponses = {
   200: {
     agents: Array<{
       active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
       avatarURL?: string | null
+      canChat?: boolean | null
       displayName: string
       mayIntervene: boolean
       modelProfile?: string | null
@@ -3141,6 +3557,20 @@ export type PodAgentsResponses = {
       type: string
       uid: string
     }>
+    personalAssistant?: {
+      active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
+      avatarURL?: string | null
+      canChat?: boolean | null
+      displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
+      uid: string
+    } | null
+    personalAssistantAvailable: boolean
   }
 }
 
@@ -3351,6 +3781,44 @@ export type PodBaseFieldCreateResponses = {
 
 export type PodBaseFieldCreateResponse = PodBaseFieldCreateResponses[keyof PodBaseFieldCreateResponses]
 
+export type EnsurePodPersonalAssistantData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/personal-assistant'
+}
+
+export type EnsurePodPersonalAssistantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type EnsurePodPersonalAssistantError = EnsurePodPersonalAssistantErrors[keyof EnsurePodPersonalAssistantErrors]
+
+export type EnsurePodPersonalAssistantResponses = {
+  /**
+   * Success
+   */
+  201: {
+    active: boolean
+    agentType?: string | null
+    aliases?: Array<string> | null
+    avatarURL?: string | null
+    canChat?: boolean | null
+    displayName: string
+    mayIntervene: boolean
+    modelProfile?: string | null
+    role?: string | null
+    type: string
+    uid: string
+  }
+}
+
+export type EnsurePodPersonalAssistantResponse =
+  EnsurePodPersonalAssistantResponses[keyof EnsurePodPersonalAssistantResponses]
+
 export type RequestPodEmailBindingData = {
   /**
    * Request body for the requestPodEmailBinding operation on pod_member_account resource
@@ -3391,9 +3859,13 @@ export type PodPageCommentAnchorData = {
    */
   body: {
     data: {
-      base_revision: number
-      from: number
-      to: number
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      base_revision?: number | null
+      from?: number | null
+      quote?: string | null
+      to?: number | null
       version: number
     }
   }
@@ -3421,6 +3893,10 @@ export type PodPageCommentAnchorResponses = {
   200: {
     comment: {
       activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
       anchor_present: boolean
       anchor_revision?: number | null
       author: {
@@ -3428,6 +3904,7 @@ export type PodPageCommentAnchorResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       body?: string | null
       can_delete: boolean
@@ -3512,6 +3989,7 @@ export type PodPageHistoryEntryResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       content: string
       created_at: string
@@ -3588,7 +4066,7 @@ export type PodPageChildrenResponses = {
     can_manage_space: boolean
     next_cursor?: string | null
     pages: Array<{
-      actions: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'>
+      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
       created_at?: string | null
       created_by?: string | null
       creator_name?: string | null
@@ -3603,12 +4081,13 @@ export type PodPageChildrenResponses = {
       icon?: string | null
       id: string
       inherit_permissions: boolean
+      name: string
       parent_id?: string | null
-      position: string
+      position?: string | null
       private_owner_uid?: string | null
       role: 'view' | 'contribute' | 'edit' | 'manage'
       title: string
-      type: 'doc' | 'base' | 'applet' | 'file'
+      type: 'doc' | 'base' | 'applet' | 'file' | 'folder'
       updated_at?: string | null
     }>
     principal_uid: string
@@ -3760,11 +4239,13 @@ export type PostConversationMessageResponses = {
       attachments: Array<{
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -3782,7 +4263,10 @@ export type PostConversationMessageResponses = {
       } | null
       agents: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -3799,7 +4283,10 @@ export type PostConversationMessageResponses = {
       pageID?: string | null
       participants: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -3842,11 +4329,13 @@ export type PostConversationMessageResponses = {
     messages: Array<{
       attachments: Array<{
         attachment_id?: number | null
-        blob_ref: string
         content_type?: string | null
         mime_type?: string | null
         name: string
+        node_id?: string | null
+        object_id: string
         path: string
+        position: number
         resource_type?: string | null
         size: number
         upload_id?: string | null
@@ -3899,11 +4388,13 @@ export type PostConversationMessageResponses = {
         agentUID: string
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -4037,6 +4528,10 @@ export type PodPageCommentResolveResponses = {
   200: {
     comment: {
       activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
       anchor_present: boolean
       anchor_revision?: number | null
       author: {
@@ -4044,6 +4539,7 @@ export type PodPageCommentResolveResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       body?: string | null
       can_delete: boolean
@@ -4406,7 +4902,7 @@ export type PodPageReadResponses = {
    * Success
    */
   200: {
-    actions: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'>
+    actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
     ancestors: Array<PodPageType>
     child_count: number
     content?: PodPageContentType | null
@@ -4502,6 +4998,68 @@ export type PodPageCommentSummaryResponses = {
 
 export type PodPageCommentSummaryResponse = PodPageCommentSummaryResponses[keyof PodPageCommentSummaryResponses]
 
+export type EnablePodAgentData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/agents/{uid}/enable'
+}
+
+export type EnablePodAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type EnablePodAgentError = EnablePodAgentErrors[keyof EnablePodAgentErrors]
+
+export type EnablePodAgentResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type EnablePodAgentResponse = EnablePodAgentResponses[keyof EnablePodAgentResponses]
+
+export type PodAdminAgentsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/agents'
+}
+
+export type PodAdminAgentsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminAgentsError = PodAdminAgentsErrors[keyof PodAdminAgentsErrors]
+
+export type PodAdminAgentsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agents: Array<{
+      displayName: string
+      ownerUID: string
+      status: 'active' | 'disabled'
+      type: 'ai_colleague' | 'personal_assistant'
+      uid: string
+    }>
+  }
+}
+
+export type PodAdminAgentsResponse = PodAdminAgentsResponses[keyof PodAdminAgentsResponses]
+
 export type SetPodAdministratorData = {
   /**
    * Request body for the setPodAdministrator operation on pod_admin_operation resource
@@ -4582,14 +5140,14 @@ export type PodMentionsResolveResponses = {
       id: string
       private_owner_uid?: string | null
       title?: string | null
-      type?: 'doc' | 'base' | 'applet' | 'file' | null
+      type?: 'doc' | 'base' | 'applet' | 'file' | 'folder' | null
       updated_at?: string | null
     }>
     principals: Array<{
       access: 'ok' | 'disabled' | 'restricted'
+      aliases?: Array<string> | null
       avatar_url?: string | null
       email?: string | null
-      handle?: string | null
       job_title?: string | null
       kind?: 'human' | 'agent' | null
       membership?: 'member' | 'guest' | null
@@ -4640,7 +5198,7 @@ export type PodPageCreateData = {
    */
   body?: {
     data: {
-      attachment_path?: string | null
+      attachment_position?: number | null
       children_view?: {
         collapsed?: boolean | null
         field_order?: Array<'created_by' | 'updated_at' | 'created_at'> | null
@@ -4653,7 +5211,7 @@ export type PodPageCreateData = {
       private_owner_uid?: string | null
       saved_from_message_id?: string | null
       title?: string | null
-      type?: 'doc' | 'base' | 'file' | null
+      type?: 'doc' | 'base' | 'file' | 'folder' | null
       xml?: string | null
     }
   }
@@ -5048,6 +5606,7 @@ export type PodPageHistoryResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       created_at: string
       document_updated_at: string
@@ -5238,7 +5797,7 @@ export type PodPageSharingResponses = {
   200: {
     can_manage: boolean
     grants: Array<{
-      actions: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'>
+      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
       avatar_url?: string | null
       built_in?: boolean | null
       condition?: string | null
@@ -5253,13 +5812,13 @@ export type PodPageSharingResponses = {
       role: 'view' | 'contribute' | 'edit' | 'manage'
       rule_kind: 'role' | 'advanced'
       source_action?: string | null
+      source_node_id?: string | null
       source_page?: {
         accessible?: boolean | null
         icon?: string | null
         id?: string | null
         title?: string | null
       } | null
-      source_page_id?: string | null
       subtitle?: string | null
       target_scope?: string | null
     }>
@@ -5311,7 +5870,7 @@ export type PodPageSharingUpdateData = {
         group_id?: string | null
         principal_uid?: string | null
         source_action?: string | null
-        source_page_id?: string | null
+        source_node_id?: string | null
         target_scope: string
       }> | null
       upserts?: Array<{
@@ -5345,7 +5904,7 @@ export type PodPageSharingUpdateResponses = {
   200: {
     can_manage: boolean
     grants: Array<{
-      actions: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'>
+      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
       avatar_url?: string | null
       built_in?: boolean | null
       condition?: string | null
@@ -5360,13 +5919,13 @@ export type PodPageSharingUpdateResponses = {
       role: 'view' | 'contribute' | 'edit' | 'manage'
       rule_kind: 'role' | 'advanced'
       source_action?: string | null
+      source_node_id?: string | null
       source_page?: {
         accessible?: boolean | null
         icon?: string | null
         id?: string | null
         title?: string | null
       } | null
-      source_page_id?: string | null
       subtitle?: string | null
       target_scope?: string | null
     }>
@@ -5413,13 +5972,13 @@ export type PodPageSharingWriteData = {
   body: {
     data: {
       grants?: Array<{
-        actions?: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'> | null
+        actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
         condition?: string | null
         group_id?: string | null
         principal_uid?: string | null
         role?: 'view' | 'contribute' | 'edit' | 'manage' | null
         source_action?: string | null
-        source_page_id?: string | null
+        source_node_id?: string | null
         target_scope?: string | null
       }> | null
       inherit_permissions?: boolean | null
@@ -5489,7 +6048,10 @@ export type PodConversationsResponses = {
       } | null
       agents: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -5506,7 +6068,10 @@ export type PodConversationsResponses = {
       pageID?: string | null
       participants: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -5614,11 +6179,13 @@ export type CreateConversationResponses = {
       attachments: Array<{
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -5636,7 +6203,10 @@ export type CreateConversationResponses = {
       } | null
       agents: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -5653,7 +6223,10 @@ export type CreateConversationResponses = {
       pageID?: string | null
       participants: Array<{
         active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
         avatarURL?: string | null
+        canChat?: boolean | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -5696,11 +6269,13 @@ export type CreateConversationResponses = {
     messages: Array<{
       attachments: Array<{
         attachment_id?: number | null
-        blob_ref: string
         content_type?: string | null
         mime_type?: string | null
         name: string
+        node_id?: string | null
+        object_id: string
         path: string
+        position: number
         resource_type?: string | null
         size: number
         upload_id?: string | null
@@ -5753,11 +6328,13 @@ export type CreateConversationResponses = {
         agentUID: string
         attachments: Array<{
           attachment_id?: number | null
-          blob_ref: string
           content_type?: string | null
           mime_type?: string | null
           name: string
+          node_id?: string | null
+          object_id: string
           path: string
+          position: number
           resource_type?: string | null
           size: number
           upload_id?: string | null
@@ -5899,6 +6476,7 @@ export type PodPageInsightsResponses = {
       name?: string | null
       principal_uid: string
       role: 'creator' | 'last_edited' | 'previously_edited'
+      tenant_id: string
     }>
     created_at: string
     daily: Array<{
@@ -5945,6 +6523,10 @@ export type PodPageCommentsResponses = {
     revision: number
     threads: Array<{
       activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
       anchor_present: boolean
       anchor_revision?: number | null
       author: {
@@ -5952,6 +6534,7 @@ export type PodPageCommentsResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       body?: string | null
       can_delete: boolean
@@ -5964,6 +6547,10 @@ export type PodPageCommentsResponses = {
       quote?: string | null
       replies: Array<{
         activity_at: string
+        anchor?: {
+          [key: string]: unknown
+        } | null
+        anchor_outdated: boolean
         anchor_present: boolean
         anchor_revision?: number | null
         author: {
@@ -5971,6 +6558,7 @@ export type PodPageCommentsResponses = {
           kind?: 'human' | 'agent' | 'system' | null
           name?: string | null
           principal_uid: string
+          tenant_id: string
         }
         body?: string | null
         can_delete: boolean
@@ -6011,9 +6599,14 @@ export type PodPageCommentCreateData = {
    */
   body: {
     data: {
+      anchor?: {
+        [key: string]: unknown
+      } | null
       base_revision?: number | null
       body: string
       from?: number | null
+      mentioned_agent_uids?: Array<string> | null
+      quote?: string | null
       root_id?: string | null
       to?: number | null
     }
@@ -6041,6 +6634,10 @@ export type PodPageCommentCreateResponses = {
   201: {
     comment: {
       activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
       anchor_present: boolean
       anchor_revision?: number | null
       author: {
@@ -6048,6 +6645,7 @@ export type PodPageCommentCreateResponses = {
         kind?: 'human' | 'agent' | 'system' | null
         name?: string | null
         principal_uid: string
+        tenant_id: string
       }
       body?: string | null
       can_delete: boolean
@@ -6183,13 +6781,13 @@ export type PodMentionCandidatesResponses = {
       id: string
       private_owner_uid?: string | null
       title: string
-      type: 'doc' | 'base' | 'applet' | 'file'
+      type: 'doc' | 'base' | 'applet' | 'file' | 'folder'
       updated_at: string
     }>
     principals: Array<{
+      aliases?: Array<string> | null
       avatar_url?: string | null
       email?: string | null
-      handle?: string | null
       job_title?: string | null
       kind: 'human' | 'agent'
       membership?: 'member' | 'guest' | null
@@ -6207,6 +6805,43 @@ export type PodMentionCandidatesResponses = {
 }
 
 export type PodMentionCandidatesResponse = PodMentionCandidatesResponses[keyof PodMentionCandidatesResponses]
+
+export type RenamePodMemberData = {
+  /**
+   * Request body for the renamePodMember operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      new_uid: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}/rename'
+}
+
+export type RenamePodMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RenamePodMemberError = RenamePodMemberErrors[keyof RenamePodMemberErrors]
+
+export type RenamePodMemberResponses = {
+  /**
+   * Success
+   */
+  201: {
+    base_repair_error?: string | null
+    uid: string
+  }
+}
+
+export type RenamePodMemberResponse = RenamePodMemberResponses[keyof RenamePodMemberResponses]
 
 export type PodMeData = {
   body?: never
@@ -6311,7 +6946,7 @@ export type PodPageSearchData = {
     embeddable?: boolean
     exclude_subtree_of?: string
     query: string
-    required_action?: 'page_view' | 'page_edit'
+    required_action?: 'node_view' | 'node_edit'
   }
   url: '/api/v2/pod/pages/search'
 }
@@ -6362,7 +6997,7 @@ export type PodSpaceResponses = {
    */
   200: {
     agents: Array<{
-      actions?: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage' | 'page_comment'> | null
+      actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
       avatar_url?: string | null
       built_in?: boolean | null
       condition?: string | null
@@ -6375,13 +7010,13 @@ export type PodSpaceResponses = {
       principal_uid?: string | null
       role: 'view' | 'contribute' | 'edit' | 'manage'
       source_action?: string | null
+      source_node_id?: string | null
       source_page?: {
         accessible?: boolean | null
         icon?: string | null
         id?: string | null
         title?: string | null
       } | null
-      source_page_id?: string | null
       subtitle?: string | null
       target_scope?: string | null
     }>

@@ -6,6 +6,10 @@ defmodule Ankole.DataCase do
   import Ecto.Query, only: [from: 2]
   import ExUnit.Assertions
 
+  alias Ankole.{Repo, Tenants}
+  alias Ankole.AgentWorkers.Providers, as: WorkerProviders
+  alias Ankole.AIGateway.ProviderConfigs
+
   using do
     quote do
       alias Ankole.Repo
@@ -30,12 +34,15 @@ defmodule Ankole.DataCase do
       end
 
     Ankole.Repo.put_tenant_id(tenant.id)
+    {:ok, _system} = Ankole.Principals.ensure_system_principals_in_tx()
 
-    on_exit(fn ->
-      Ankole.Repo.with_tenant(tenant.id, fn ->
-        {:ok, :ok} = Ankole.Pod.BaseRepo.delete_tenant(tenant.base_db_id)
+    if tags[:sandbox] != false do
+      on_exit(fn ->
+        Ankole.Repo.with_tenant(tenant.id, fn ->
+          {:ok, :ok} = Ankole.Pod.BaseRepo.delete_tenant(tenant.base_db_id)
+        end)
       end)
-    end)
+    end
 
     {:ok, tenant: tenant}
   end
@@ -76,7 +83,8 @@ defmodule Ankole.DataCase do
           )
 
         Ankole.Repo.with_tenant(tenant.id, fn ->
-          :ok = Ankole.Pod.Access.initialize_space()
+          :ok = Ankole.Files.Access.initialize_space()
+          {:ok, _system} = Ankole.Principals.ensure_system_principals_in_tx()
         end)
 
         {:ok, tenant}
@@ -125,19 +133,24 @@ defmodule Ankole.DataCase do
 
   def setup_sandbox(%{sandbox: false}) do
     %{opts: opts} = Ecto.Adapter.lookup_meta(Ankole.Repo)
+    sandbox? = Keyword.fetch!(opts, :pool) == DBConnection.Ownership
 
-    case Keyword.fetch!(opts, :pool) do
-      DBConnection.Ownership ->
-        :ok = Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :auto)
+    if sandbox?, do: Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :auto)
 
-        on_exit(fn ->
-          Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual)
-          Ankole.AppConfigure.Cache.clear_for_test()
-        end)
+    fixtures = committed_fixtures()
+    drivers = Ankole.SessionsCase.driver_pids()
+    previews = Ankole.SessionsCase.preview_handler_pids()
 
-      DBConnection.ConnectionPool ->
-        :ok
-    end
+    on_exit(fn ->
+      try do
+        Ankole.SessionsCase.stop_new_drivers(drivers)
+        Ankole.SessionsCase.stop_new_preview_handlers(previews)
+        cleanup_committed_fixtures!(fixtures)
+      after
+        if sandbox?, do: Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual)
+        Ankole.AppConfigure.Cache.clear_for_test()
+      end
+    end)
   end
 
   def setup_sandbox(tags) do
@@ -159,6 +172,51 @@ defmodule Ankole.DataCase do
       # The global cache is shared by all tenants and outlives the rollback of a test.
       Ankole.AppConfigure.Cache.clear_for_test()
     end)
+  end
+
+  # Real-transaction tests share a serial database. Their own on_exit callbacks
+  # stop external resources first; this last callback owns the committed rows
+  # that ordinary SQL Sandbox rollback would otherwise remove.
+  defp committed_fixtures do
+    for schema <- [Tenants.Tenant, WorkerProviders.Provider, ProviderConfigs.Provider],
+        into: %{} do
+      {schema, Repo.all(from row in schema, select: row.id)}
+    end
+  end
+
+  defp cleanup_committed_fixtures!(fixtures) do
+    for tenant <- new_fixture_rows(Tenants.Tenant, fixtures) do
+      Repo.with_tenant(tenant.id, fn ->
+        # Fixture Workers have no external backend. Real Worker tests finish
+        # their platform cleanup in their own earlier on_exit callback.
+        fixture_agents =
+          Repo.all(
+            from worker in Ankole.AgentWorkers.AgentWorker,
+              where: like(worker.provider_id, "fixture-worker-%"),
+              select: worker.agent_uid
+          )
+
+        Enum.each(fixture_agents, &Ankole.PrincipalsFixtures.delete_agent_fixture_rows/1)
+        cleanup_tenant!(tenant)
+      end)
+    end
+
+    for provider <- new_fixture_rows(WorkerProviders.Provider, fixtures) do
+      assert {:ok, _} = WorkerProviders.delete(provider.provider_id)
+    end
+
+    for provider <- new_fixture_rows(ProviderConfigs.Provider, fixtures) do
+      if is_nil(provider.disabled_at) do
+        assert {:ok, _} = ProviderConfigs.delete_provider(provider.provider_id)
+      end
+
+      assert {:ok, _} = ProviderConfigs.delete_provider(provider.provider_id)
+    end
+  end
+
+  defp new_fixture_rows(schema, fixtures) do
+    previous_ids = Map.fetch!(fixtures, schema)
+    Repo.all(from row in schema, where: row.id not in ^previous_ids)
   end
 
   defp maybe_put_ownership_timeout(opts, timeout) when is_integer(timeout) and timeout > 0,

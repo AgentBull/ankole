@@ -45,11 +45,11 @@ defmodule Ankole.PodDocumentWorker do
         worker_provider_id: provider.provider_id
       }).principal
 
-    {:ok, %{sha256: digest}} = Ankole.Files.store(script())
+    {:ok, stored} = Ankole.Files.store(script())
 
     {:ok, _} =
       Ankole.Files.commit(agent.uid, [
-        %{path: "automation/document-collaboration/main.ts", sha256: digest, source: "agent"}
+        Map.merge(stored, %{path: "automation/document-collaboration/main.ts", source: "agent"})
       ])
 
     {:ok, owner} =
@@ -134,7 +134,7 @@ defmodule Ankole.PodDocumentWorker do
   end
 
   defp await_worker(uid, deadline) do
-    case Repo.get!(AgentWorker, uid) do
+    case Repo.get_by!(AgentWorker, agent_uid: uid) do
       %{state: :ready} ->
         :ok
 

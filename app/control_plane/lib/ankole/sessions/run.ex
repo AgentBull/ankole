@@ -255,6 +255,8 @@ defmodule Ankole.Sessions.Run do
   end
 
   def inject_in_tx(run, events, now) do
+    :ok = Ankole.Files.lock_tree_in_tx()
+
     ids = Enum.map(events, & &1.id)
 
     events =
@@ -442,6 +444,8 @@ defmodule Ankole.Sessions.Run do
   @spec finalize_committed_workflow_input_in_tx(Signal.t()) ::
           {:ok, :not_committed | map()} | {:error, term()}
   def finalize_committed_workflow_input_in_tx(snapshot) do
+    :ok = Ankole.Files.lock_tree_in_tx()
+
     with :ok <- lock_workflow_in_tx(snapshot),
          %SessionWorkspace{} = workspace <- Fence.lock_workspace_in_tx(snapshot),
          %Signal{status: live_status, last_attempt_at: %DateTime{}} =
@@ -514,6 +518,8 @@ defmodule Ankole.Sessions.Run do
   @spec reject_input_in_tx(Signal.t(), Outcome.t(), term()) ::
           {:ok, map()} | {:error, term()}
   def reject_input_in_tx(snapshot, outcome, reason) do
+    :ok = Ankole.Files.lock_tree_in_tx()
+
     humans =
       Ankole.Signals.session_queue(snapshot.agent_uid, snapshot.session_id, started?: true)
       |> Enum.map(& &1.human_uid)
@@ -560,11 +566,13 @@ defmodule Ankole.Sessions.Run do
 
   @spec finalize_in_tx(t(), Outcome.t(), term()) :: {:ok, map()} | {:error, term()}
   def finalize_in_tx(run, outcome, reason, images \\ %{}) do
-    :ok = lock_for_write_in_tx(run)
-    :ok = Queue.lock_session_in_tx(run.agent_uid, run.session_id)
+    :ok = Ankole.Files.lock_tree_in_tx()
     now = DateTime.utc_now(:microsecond)
 
-    with :ok <- Fence.check_in_tx(run),
+    with :ok <- lock_generated_image_root_in_tx(run, images),
+         :ok <- lock_for_write_in_tx(run),
+         :ok <- Queue.lock_session_in_tx(run.agent_uid, run.session_id),
+         :ok <- Fence.check_in_tx(run),
          {:ok, _} <- end_model_in_tx(run, outcome, now),
          {:ok, {run, journal}} <- record_pending_in_tx(run),
          {:ok, events} <- lock_applied_events(run, outcome),
@@ -591,12 +599,24 @@ defmodule Ankole.Sessions.Run do
     end
   end
 
+  defp lock_generated_image_root_in_tx(run, images) do
+    if map_size(images) > 0 and
+         is_nil(Ankole.Conversations.ExternalTarget.origin(run.conversation)) do
+      with {:ok, root} <- Ankole.Files.private_root(run.agent_uid),
+           do: Ankole.Files.lock_root_ids_in_tx([root.id])
+    else
+      :ok
+    end
+  end
+
   @doc "Locks domain work and participating Sessions before the epoch fence."
-  def lock_for_write_in_tx(%{kind: :workflow_task} = run),
-    do: lock_workflow_in_tx(run)
+  def lock_for_write_in_tx(%{kind: :workflow_task} = run) do
+    with :ok <- Ankole.Files.lock_tree_in_tx(), do: lock_workflow_in_tx(run)
+  end
 
   def lock_for_write_in_tx(run) do
-    with :ok <- lock_native_participants_in_tx(run),
+    with :ok <- Ankole.Files.lock_tree_in_tx(),
+         :ok <- lock_native_participants_in_tx(run),
          do: Queue.lock_session_in_tx(run.agent_uid, run.session_id)
   end
 
@@ -627,16 +647,22 @@ defmodule Ankole.Sessions.Run do
              Presentation.load_completion_in_tx(run, external_anchor(run.anchor), images),
            {:ok, completion} <- type(run).project_completion(run, completion) do
         if is_binary(completion.final_text) or is_map(completion.clarify_prompt) or
+             is_map(completion[:action_card_prompt]) or
              completion.attachments != [],
            do: {:ok, completion},
            else: {:error, :turn_completion_has_no_user_visible_projection}
       end
     else
-      completion = %{final_text: nil, clarify_prompt: nil, attachments: []}
+      completion = %{
+        final_text: nil,
+        clarify_prompt: nil,
+        action_card_prompt: nil,
+        attachments: []
+      }
 
       if outcome in [:stopped, :dead_letter] and native_turn?(run) do
         status =
-          if outcome == :stopped and reason in [nil, :signal_context_canceled],
+          if outcome == :stopped and is_nil(reason),
             do: "stopped",
             else: "failed"
 
@@ -726,11 +752,8 @@ defmodule Ankole.Sessions.Run do
          reason,
          now
        )
-       when reason in [nil, :signal_context_canceled] do
-    text =
-      if reason == :signal_context_canceled,
-        do: Ankole.I18n.t("conversations.delivery.reply.context_withdrawn"),
-        else: Ankole.I18n.t("conversations.delivery.reply.command_stopped")
+       when is_nil(reason) do
+    text = Ankole.I18n.t("conversations.delivery.reply.command_stopped")
 
     with {:ok, notice} <-
            Notices.post_in_tx(
@@ -740,22 +763,6 @@ defmodule Ankole.Sessions.Run do
              %{"reason" => reason},
              completion
            ),
-         {:ok, _} <- update_events(events, &Queue.mark_event_completed_in_tx(&1, now)) do
-      {:ok, notice}
-    end
-  end
-
-  defp commit_terminal_in_tx(
-         _run,
-         events,
-         reply_event,
-         _completion,
-         :stopped,
-         :signal_context_canceled,
-         now
-       ) do
-    with {:ok, notice} <-
-           Notices.commit_context_withdrawal_notice_in_tx(events, reply_event, now),
          {:ok, _} <- update_events(events, &Queue.mark_event_completed_in_tx(&1, now)) do
       {:ok, notice}
     end

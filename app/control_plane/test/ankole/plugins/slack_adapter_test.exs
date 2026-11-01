@@ -49,6 +49,8 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       context =
         AdapterContext.new(
+          binding_id:
+            Ankole.SignalsFixtures.binding_fixture(agent.uid, "main", :ignore, adapter: "slack").id,
           agent_uid: agent.uid,
           binding_name: "main",
           adapter: "slack",
@@ -616,6 +618,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       assert :unknown =
                Delivery.deliver(%Intent{
+                 binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
                  agent_uid: agent.uid,
                  binding_name: binding_name,
                  operation: :post,
@@ -996,6 +999,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
         Enum.map(["one", "two"], fn name ->
           context =
             AdapterContext.new(
+              binding_id: Ecto.UUID.generate(),
               agent_uid: "slack-identity-agent",
               binding_name: name,
               adapter: "slack",
@@ -1021,6 +1025,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       context =
         AdapterContext.new(
+          binding_id: Ecto.UUID.generate(),
           agent_uid: "slack-rotate-agent",
           binding_name: "slack-reconcile-rotate",
           adapter: "slack",
@@ -1063,6 +1068,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       context =
         AdapterContext.new(
+          binding_id: Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id,
           agent_uid: agent.uid,
           binding_name: binding_name,
           adapter: "slack",
@@ -1076,7 +1082,10 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       on_exit(fn -> ConnectionReconciler.stop(key) end)
 
-      assert {:ok, _binding} = Ankole.Signals.Bindings.disable_binding(agent.uid, binding_name)
+      assert {:ok, _binding} =
+               Ankole.Signals.Bindings.disable_binding(
+                 Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id
+               )
 
       assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
@@ -1086,6 +1095,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   defp chat_consumer(overrides) do
     context =
       AdapterContext.new(
+        binding_id: Ecto.UUID.generate(),
         agent_uid: "agent-1",
         binding_name: "slack",
         adapter: "slack",
@@ -1097,6 +1107,9 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
   defp adapter_context(agent_uid) do
     AdapterContext.new(
+      binding_id:
+        (Ankole.Signals.get_agent_binding!(agent_uid, "slack") ||
+           Ankole.SignalsFixtures.binding_fixture(agent_uid, "slack", :ignore, adapter: "slack")).id,
       agent_uid: agent_uid,
       binding_name: "slack",
       adapter: "slack",

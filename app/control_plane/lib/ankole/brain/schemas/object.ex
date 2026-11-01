@@ -207,6 +207,11 @@ defmodule Ankole.Brain.Schemas.Object do
       accept([:content_hash])
     end
 
+    update :rename_references do
+      accept([:body])
+      change(set_attribute(:updated_at, &DateTime.utc_now/0))
+    end
+
     update :stamp_chunking do
       require_atomic?(true)
       accept([:chunking_signature])

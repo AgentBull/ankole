@@ -21,13 +21,11 @@ defmodule Ankole.AutomationJobs.AttemptAccess do
            lock(Run, ref.run_id),
          true <- job_id == ref.job_id and attempt_id == ref.attempt_id,
          {:ok, principal} <- Ankole.Principals.get_principal(uid),
-         {:ok, human} <- human(job) do
+         {:ok, _human} <- human(job) do
       {:ok,
        Actor.new(principal,
-         interactive_principal: human,
          turn_authority: {ref, uid},
-         authn: %{"surface" => "automation_job"},
-         interactive_authn: %{"surface" => "automation_job"}
+         authn: %{"surface" => "automation_job"}
        )}
     else
       {:error, _} = error -> error

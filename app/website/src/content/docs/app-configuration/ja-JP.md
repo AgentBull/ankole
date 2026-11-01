@@ -52,7 +52,7 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 | `pod.allow_external_guests` | Tenant | 招待された外部ゲストによる共有 Pod ページへのアクセスを許可するかどうか。既定値 `true` |
 | `pod.applet.limits` | Tenant | Applet 呼び出しの制限値（既定値 `timeout_ms: 60000`、`heap_mb: 128`） |
 | `pod.base.limits` | Tenant | Base のクエリおよびレコード制限値（既定値 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
-| `pod.trash_retention_days` | Tenant | 削除されたページをゴミ箱から自動完全削除するまでの保持日数（正の整数、既定値 `30`） |
+| `drive.trash_retention_days` | Tenant  削除された Drive ノードを自動で完全削除するまでの保持日数。既定値は `30`。`0` にすると無期限に保持 |
 | `pod.ot_replay_window` | Tenant | OT リプレイ用に保持する直近のドキュメント変更バッチ数。既定値 `1000` |
 
 ### Workflow

@@ -16,8 +16,14 @@ defmodule Ankole.Sessions.JobDriver do
   def child_spec({key, _tenant_id} = args),
     do: %{id: {__MODULE__, key}, start: {__MODULE__, :start_link, [args]}, restart: :temporary}
 
-  def start_link({key, _tenant_id} = args),
-    do: :gen_statem.start_link({:global, Ankole.Sessions.driver_name(key)}, __MODULE__, args, [])
+  def start_link({key, tenant_id} = args),
+    do:
+      :gen_statem.start_link(
+        {:global, Ankole.Sessions.driver_name(key, tenant_id)},
+        __MODULE__,
+        args,
+        []
+      )
 
   @impl true
   def callback_mode, do: :handle_event_function

@@ -110,6 +110,9 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     assert {:ok, _} =
              HumanAccess.disable(previous.uid, "departure", actor, "departure-1", :offboarded)
 
+    assert {:ok, %{principal: previous}} =
+             Principals.rename(previous.uid, "former-recycled")
+
     replacement = member("recycled@example.org")
 
     conn =

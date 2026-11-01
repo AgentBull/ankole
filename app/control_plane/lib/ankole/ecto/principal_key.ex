@@ -1,6 +1,6 @@
 defmodule Ankole.Ecto.PrincipalKey do
   @moduledoc """
-  Ecto type for installation-wide Principal UID fields.
+  Ecto type for tenant-local Principal UID fields.
 
   The database column is text, but schema casts and dumps normalize through
   `Ankole.PrincipalKey` so Principal foreign keys do not each reimplement the

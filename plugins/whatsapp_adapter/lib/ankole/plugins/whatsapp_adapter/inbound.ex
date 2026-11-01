@@ -173,7 +173,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   end
 
   defp emit_entry(input, consumer) do
-    Observe.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
+    Observe.emit_entry(consumer.context.binding_id, input)
   end
 
   # An interactive reply names the message that carried the buttons, so the
@@ -191,7 +191,6 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
          surface_entry_id when is_binary(surface_entry_id) <-
            MapHelpers.presence(get_in(message, ["context", "id"])),
          token when is_binary(token) <- interactive_token(message),
-         {:ok, principal} <- Principals.resolve_platform_subject("whatsapp", wa_id),
          {:ok, action_value} <-
            ActionToken.resolve(
              token,
@@ -200,11 +199,13 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
              nil,
              prefix: "wa1"
            ),
+         {:ok, operator_principal_uid} <-
+           resolve_action_operator("whatsapp", wa_id, action_value),
          true <- reply_surface?(action_value, surface_entry_id),
          conversation_id <- Presentation.conversation_id(phone_number_id, wa_id),
          :ok <- record_interactive_reply_time(conversation_id, message),
          {:ok, _action_result} = result <-
-           Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+           Observe.emit_action(consumer.context.binding_id, %{
              source_event_id: message_id,
              action_id: message_id,
              provider_conversation_id: conversation_id,
@@ -215,7 +216,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
                "name" => "whatsapp_interactive_reply",
                "value" => action_value,
                "operator_id" => wa_id,
-               "operator_principal_uid" => principal.uid,
+               "operator_principal_uid" => operator_principal_uid,
                "provider_message_id" => surface_entry_id
              },
              raw_payload: %{
@@ -262,6 +263,18 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   # gateway decides accepted, duplicate, or stale, which makes the fact
   # idempotent under redelivery. A message with no parsable timestamp writes
   # nothing and therefore cannot re-open the window.
+  defp resolve_action_operator(provider, external_id, value) do
+    case Principals.resolve_platform_subject(provider, external_id) do
+      {:ok, principal} ->
+        {:ok, principal.uid}
+
+      {:error, :not_found} ->
+        if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]),
+          do: {:ok, nil},
+          else: {:error, :not_found}
+    end
+  end
+
   defp record_interactive_reply_time(conversation_id, message) do
     case unix_seconds(message["timestamp"]) do
       %DateTime{} = tapped_at -> put_interactive_reply_time(conversation_id, tapped_at)

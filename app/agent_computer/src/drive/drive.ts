@@ -20,6 +20,8 @@ import { type RPCRequester, type TurnRPCFrame } from '../lanes/rpc_lane'
  */
 
 export type DriveFile = {
+  nodeId: string
+  objectId: string
   path: string
   sha256: string
   size: number
@@ -32,17 +34,11 @@ export type DriveFile = {
 export type DriveUpsert = {
   /** Drive path to name. */
   path: string
-  /**
-   * Absolute local path inside the Agent Home. Without it the drive must
-   * already name the content given by `sha256`, for example to copy a file.
-   */
-  localPath?: string
-  /** SHA-256 of the local file; lets the control plane skip a content the drive already has. */
+  /** Absolute local file inside the Agent Home; every commit transfers its bytes. */
+  localPath: string
+  /** Optional checksum used only to verify the received bytes. */
   sha256?: string
-  /**
-   * Size of the local file. The control plane packs files into bundles by it;
-   * without it `commit` reads the size of `localPath`.
-   */
+  /** Size of the local file, checked by the control plane. */
   size?: number
   contentType?: string
   mode?: number
@@ -110,14 +106,14 @@ export class Drive {
   async get(
     path: string,
     localPath: string,
-    opts: { pod?: boolean; frame?: TurnRPCFrame; automationAttempt?: Omit<AutomationAttemptRef, '$typeName'> } = {}
+    opts: { node?: boolean; frame?: TurnRPCFrame; automationAttempt?: Omit<AutomationAttemptRef, '$typeName'> } = {}
   ): Promise<DriveFile> {
     const response = await this.opts.rpc(
       'files.get',
       {
-        path: assertDrivePath(path),
+        path: opts.node ? '' : assertDrivePath(path),
         homeRelativePath: await this.homeRelativePath(localPath, { create: true }),
-        podDrive: opts.pod ?? false,
+        nodeId: opts.node ? path : '',
         automationAttempt: opts.automationAttempt ?? this.opts.automationAttempt
       },
       opts.frame,
@@ -136,9 +132,9 @@ export class Drive {
       const localPath = upsert.localPath
       wireUpserts.push({
         path: assertDrivePath(upsert.path),
-        homeRelativePath: localPath === undefined ? '' : await this.homeRelativePath(localPath),
+        homeRelativePath: await this.homeRelativePath(localPath),
         sha256: upsert.sha256 ?? '',
-        size: BigInt(upsert.size ?? (localPath === undefined ? 0 : (await stat(localPath)).size)),
+        size: BigInt(upsert.size ?? (await stat(localPath)).size),
         contentType: upsert.contentType ?? '',
         mode: upsert.mode ?? 0
       })
@@ -166,7 +162,6 @@ export class Drive {
       upserts.push({
         path: file.relativePath === '' ? drivePath : joinDrivePath(drivePath, file.relativePath),
         localPath: file.absolutePath,
-        sha256: await sha256File(file.absolutePath),
         size: file.size,
         mode: file.mode
       })
@@ -286,6 +281,8 @@ export function isDrivePath(path: string): boolean {
 }
 
 function driveFileFromWire(file: {
+  nodeId: string
+  objectId: string
   path: string
   sha256: string
   size: bigint
@@ -295,6 +292,8 @@ function driveFileFromWire(file: {
   updatedAt: string
 }): DriveFile {
   return {
+    nodeId: file.nodeId,
+    objectId: file.objectId,
     path: file.path,
     sha256: file.sha256,
     size: Number(file.size),

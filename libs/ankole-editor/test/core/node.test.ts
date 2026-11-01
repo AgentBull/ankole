@@ -117,6 +117,10 @@ describe('Node', () => {
       ist(schema.doc([Paragraph.create([Leaf.text('a')])]), doc(p('a')), eq)
     })
 
+    it('rejects an empty text node', () => {
+      ist.throws(() => Leaf.text(''), /Cannot create empty text nodes/)
+    })
+
     it('disallows incorrect child nodes', () => {
       ist.throws(() => schema.doc([Paragraph.create([Paragraph.create()])]), /cannot contain child/)
     })

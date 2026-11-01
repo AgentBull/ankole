@@ -21,8 +21,6 @@ defmodule Ankole.Principals do
     Principal
   }
 
-  alias Ankole.Repo
-
   json_api do
     authorize?(true)
     log_errors?(true)
@@ -55,6 +53,7 @@ defmodule Ankole.Principals do
         route(:post, "/", :create_member, name: "create_member")
 
         patch(:update_human, route: "/:uid", name: "update_human")
+        route(:post, "/:uid/rename", :rename_human, name: "rename_human")
 
         patch(:change_human_membership,
           route: "/:uid/membership",
@@ -79,6 +78,7 @@ defmodule Ankole.Principals do
         route(:patch, "/:uid", :console_update, name: "update_agent")
         route(:delete, "/:uid", :console_delete, name: "delete_agent")
         route(:post, "/:uid/enable", :console_enable, name: "enable_agent")
+        route(:post, "/:uid/rename", :console_rename, name: "rename_agent")
       end
     end
   end
@@ -90,12 +90,6 @@ defmodule Ankole.Principals do
     resource Principal do
       define(:get_principal_record, action: :read, get_by: [:uid], not_found_error?: false)
       define(:list_principals, action: :read)
-
-      define(:get_principal_across_tenants,
-        action: :read_across_tenants,
-        get_by: [:uid],
-        not_found_error?: false
-      )
     end
 
     resource Agent do
@@ -131,18 +125,6 @@ defmodule Ankole.Principals do
 
   def normalize_email(_value), do: nil
 
-  @doc "Resolves a globally unique identity to its tenant at an authenticated entry point."
-  @spec resolve_tenant(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def resolve_tenant(uid) do
-    with {:ok, uid} <- normalize_uid(uid) do
-      case Repo.across_tenants(fn -> get_principal_across_tenants(uid) end) do
-        {:ok, %Principal{tenant_id: tenant_id}} -> {:ok, tenant_id}
-        {:ok, nil} -> {:error, :not_found}
-        {:error, _reason} = error -> error
-      end
-    end
-  end
-
   @doc "Lists the bindings of one provider subject in every tenant, in Principal UID order."
   @spec list_platform_subject_bindings(String.t(), String.t()) :: [ExternalIdentity.t()]
   def list_platform_subject_bindings(provider, external_id) do
@@ -164,12 +146,31 @@ defmodule Ankole.Principals do
       {:conflict,
        "Remove this user from the administrator group before changing membership to guest.", []}
 
+  def describe_refusal(:worker_rename_pending),
+    do:
+      {:conflict, "The old Worker is being removed. Wait for it to exit, then retry the rename.",
+       []}
+
+  def describe_refusal(:agent_must_be_disabled),
+    do: {:conflict, "Disable the Agent before renaming it.", []}
+
+  def describe_refusal(:system_uid_immutable), do: {"The system Principal cannot be renamed.", []}
+
+  def describe_refusal(:invalid_agent_uid),
+    do:
+      {"Use 1-96 lowercase letters, digits, dots, underscores, @, +, or hyphens; start with a letter or digit.",
+       []}
+
+  def describe_refusal(:principal_uid_unchanged), do: {"Choose a different uid.", []}
   def describe_refusal(_reason), do: nil
 
   defdelegate get_principal(uid), to: Humans
+  defdelegate rename(uid, new_uid), to: Ankole.Principals.Rename
+  defdelegate rename_in_tx(uid, new_uid), to: Ankole.Principals.Rename
   defdelegate list_active_principals(), to: Humans
   defdelegate system_principal(), to: Humans
-  defdelegate ensure_system_principal_in_tx(), to: Humans
+  defdelegate system_principal(uid), to: Humans
+  defdelegate ensure_system_principals_in_tx(), to: Humans
   defdelegate change_human_membership(uid, membership), to: Humans
   defdelegate change_human_membership_in_tx(uid, membership), to: Humans
   defdelegate create_human(attrs), to: Humans
@@ -240,6 +241,12 @@ defmodule Ankole.Principals do
   defdelegate lock_active_human_in_tx(uid), to: Humans
   defdelegate lock_principals_in_tx(uids), to: Humans
 
+  defdelegate personal_assistant(owner_uid), to: Agents
+  defdelegate ensure_personal_assistant(owner_uid), to: Agents
+  defdelegate authority_uid(uid), to: Agents
+  defdelegate display_name(principal), to: Agents
+  defdelegate assistant_aliases(principal), to: Agents
+  defdelegate sync_personal_assistant_in_tx(owner), to: Agents
   defdelegate create_agent(attrs), to: Agents
   defdelegate create_agent_in_tx(attrs), to: Agents
   defdelegate get_agent(uid), to: Agents
@@ -247,6 +254,7 @@ defmodule Ankole.Principals do
   defdelegate list_agents(opts \\ []), to: Agents
   defdelegate update_agent(uid, attrs), to: Agents
   defdelegate update_agent_in_tx(uid, attrs), to: Agents
+  defdelegate disable_agent(uid), to: Agents
   defdelegate enable_agent(uid), to: Agents
   defdelegate enable_agent_in_tx(uid), to: Agents
   defdelegate delete_agent(uid), to: Agents

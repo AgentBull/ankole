@@ -63,7 +63,7 @@ A Signal can target a Session explicitly; otherwise, Ankole selects the target t
 
 `Ankole.Sessions` owns the queue, Admission, Driver, Run, tools, and recovery. Each Session executes one Run at a time, and Admission verifies the tenant, Agent state, authorization, and token quota whenever execution begins.
 
-Within a conversation, each Agent has its own Session whose visible output is shared with all conversation participants. Interactive and human-triggered turns—including human-woken `may_intervene` turns, since Agent messages never wake other Agents—run under the **`Human ∩ Agent` permission intersection** (`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`), requiring both the human and the Agent to hold access. Autonomous non-human turns (`cron`, `webhook`, and background service triggers without an interactive human) run under the Agent's own permissions.
+Each Agent has its own Session in a conversation, and its visible output is shared with the conversation participants. Every turn accesses resources as the executing Agent, including interactive, human-woken `may_intervene`, scheduled and service-triggered turns. Agent messages never wake other Agents. Human employment and instruction versions still determine whether delegated work may continue; they do not intersect Human grants with Agent resource access.
 
 Cron schedules and background tasks run in separate Sessions and publish finished messages into a target conversation; on its next turn, that conversation reads the published messages without importing the background Session's internal tool history.
 

@@ -68,7 +68,7 @@ defmodule Ankole.Pod.Bases.Write do
                limits: limits,
                shard: BaseRepo.shard!(),
                timezone: timezone,
-               deadline: Ankole.Pod.Access.deadline(),
+               deadline: Ankole.Files.Access.deadline(),
                definitions: Map.new(tables, fn {id, _} -> {id, Bases.fields(id)} end)
              }}
           end

@@ -62,6 +62,24 @@ defmodule Ankole.OIDC.RefreshStoreTest do
     assert rotated != ctx.issued.token
   end
 
+  test "a rename keeps the refresh credential and issues access tokens for the new name", ctx do
+    assert {:ok, %{principal: renamed}} =
+             Ankole.Principals.rename(ctx.session.principal_uid, "renamed@example.com")
+
+    assert {:ok, %{access_token: token, refresh_token: refreshed}} =
+             Ankole.OIDC.Grants.exchange(ctx.client, %{
+               "grant_type" => "refresh_token",
+               "refresh_token" => ctx.issued.token
+             })
+
+    assert {:ok, claims} =
+             Ankole.OIDC.Tokens.verify_access(token, Ankole.OIDC.Tokens.userinfo_audience())
+
+    assert claims["sub"] == renamed.uid
+    assert {:ok, %{data: %{subject: subject}}} = RefreshStore.get(Attesto.Secret.hash(refreshed))
+    assert subject == renamed.uid
+  end
+
   test "rotation persists encrypted successor and retries return the same live child", ctx do
     now = System.system_time(:second)
     opts = [client_id: ctx.client.id, ttl: 2_592_000, now: now]

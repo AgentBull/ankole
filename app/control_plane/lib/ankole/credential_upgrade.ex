@@ -65,21 +65,21 @@ defmodule Ankole.CredentialUpgrade do
       [
         {"saas_accounts",
          """
-         SELECT i.principal_uid, lower(btrim(a.email)) AS email
+         SELECT #{tenant_column(repo, "principal_external_identities", "i")} AS tenant_id, i.principal_uid, lower(btrim(a.email)) AS email
          FROM principal_external_identities i
          JOIN saas_accounts a ON a.id::text = i.external_id
          WHERE i.provider = 'saas-account'
          """},
         {"human_user_local_credentials",
          """
-         SELECT h.principal_uid, lower(btrim(h.email)) AS email
+         SELECT #{tenant_column(repo, "human_users", "h")} AS tenant_id, h.principal_uid, lower(btrim(h.email)) AS email
          FROM human_users h JOIN human_user_local_credentials c
            ON c.principal_uid = h.principal_uid
          """},
         {"principal_site_credentials",
          """
-         SELECT principal_uid, lower(btrim(identifier)) AS email
-         FROM principal_site_credentials WHERE provider = 'email_otp'
+         SELECT #{tenant_column(repo, "principal_site_credentials", "c")} AS tenant_id, principal_uid, lower(btrim(identifier)) AS email
+         FROM principal_site_credentials c WHERE provider = 'email_otp'
          """}
       ]
       |> Enum.filter(fn {table, _} -> table?(repo, table) end)
@@ -109,7 +109,7 @@ defmodule Ankole.CredentialUpgrade do
         WITH tenant_names AS (#{tenant_names}), candidates AS (
           SELECT DISTINCT #{tenant_id} AS tenant_id, c.principal_uid, c.email
           FROM (#{Enum.join(sources, " UNION ALL ")}) c
-          JOIN principals p ON p.uid = c.principal_uid
+          JOIN principals p ON p.uid = c.principal_uid AND #{tenant_id} = c.tenant_id
           #{not_offboarded}
         ), conflicts AS (
           SELECT c.* FROM candidates c WHERE c.email IS NULL OR c.email = '' OR
@@ -130,5 +130,18 @@ defmodule Ankole.CredentialUpgrade do
     end
 
     :ok
+  end
+
+  defp tenant_column(repo, table, alias_name) do
+    %{rows: [[scoped?]]} =
+      repo.query!(
+        """
+        SELECT EXISTS (SELECT 1 FROM pg_attribute
+          WHERE attrelid = to_regclass($1) AND attname = 'tenant_id' AND NOT attisdropped)
+        """,
+        [table]
+      )
+
+    if scoped?, do: "#{alias_name}.tenant_id", else: "'#{@legacy_tenant_id}'::uuid"
   end
 end

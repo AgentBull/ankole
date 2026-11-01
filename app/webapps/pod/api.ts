@@ -8,11 +8,13 @@ import { replaceEqualDeep, type QueryClient } from '@tanstack/react-query'
 import type {
   ConversationDetailResponse,
   CreateConversationData,
+  GetPodActionCardResponse,
   UpdateConversationQueueData,
   PodAgentsResponse
 } from './api/generated/types.gen'
 export { uploadAttachment } from './native-transfers'
 import {
+  getPodActionCard,
   podAgents,
   podConversations,
   conversationDetail,
@@ -22,6 +24,7 @@ import {
 } from './api/generated/sdk.gen'
 
 export type ConversationDetail = ConversationDetailResponse
+export type StandaloneActionCard = GetPodActionCardResponse
 export type ConversationMessage = ConversationDetail['messages'][number]
 export type ConversationPendingInput = ConversationDetail['pendingQueues'][number]['inputs'][number]
 export type ConversationAttachment = ConversationMessage['attachments'][number]
@@ -52,8 +55,14 @@ export const podKeys = {
   conversationSearch: (query = '') =>
     [...podKeys.conversations, ...(query.trim() ? ['search', query.trim()] : [])] as const,
   pageConversations: (pageID: string) => [...podKeys.conversations, 'page', pageID] as const,
-  detail: (id: string) => [...contextKey(), 'conversation', id] as const
+  detail: (id: string) => [...contextKey(), 'conversation', id] as const,
+  actionCard: (id: string) => [...contextKey(), 'action-card', id] as const
 }
+export const actionCardQuery = (id: string) => ({
+  queryKey: podKeys.actionCard(id),
+  queryFn: ({ signal }: { signal: AbortSignal }) => getPodActionCard({ path: { card_id: id }, signal }),
+  retry: false
+})
 export const agentsQuery = {
   queryKey: podKeys.agents,
   queryFn: ({ signal }: { signal: AbortSignal }) => podAgents({ signal })

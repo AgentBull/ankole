@@ -116,7 +116,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     case normalize_message_receive(event, consumer) do
       {:ok, input} ->
         with {:ok, input} <- maybe_materialize_attachments(input, consumer) do
-          Observe.emit_entry(context.agent_uid, context.binding_name, input)
+          Observe.emit_entry(context.binding_id, input)
         end
 
       {:ignore, reason} ->
@@ -137,7 +137,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
           out_track_id
 
       value = action_value(payload)
-      action_id = card_action_id(payload, out_track_id, value)
+      action_id = card_action_id(payload, out_track_id, value, operator_id)
 
       {:ok,
        %{
@@ -165,8 +165,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     case normalize_card_action(event) do
       {:ok, input} ->
         operator_id = input.action["operator_id"]
+        interaction_id = get_in(input, [:action, "value", "interactionId"])
 
-        with {:ok, operator_principal_uid} <- observe_card_operator(consumer, operator_id) do
+        with {:ok, operator_principal_uid} <-
+               resolve_card_operator(consumer, operator_id, interaction_id) do
           input =
             Map.update!(
               input,
@@ -174,7 +176,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
               &Map.put(&1, "operator_principal_uid", operator_principal_uid)
             )
 
-          Observe.emit_action(context.agent_uid, context.binding_name, input)
+          Observe.emit_action(context.binding_id, input)
         end
 
       {:error, :missing_operator_id} ->
@@ -195,7 +197,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   # logical answer no matter how often the platform redelivers it. Non-managed
   # callbacks fall back to a content hash so two *different* presses on one card
   # are never conflated into a single Signal.
-  defp card_action_id(payload, out_track_id, value) do
+  defp card_action_id(payload, out_track_id, value, operator_id) do
     case optional_text(payload, "cardActionId") do
       action_id when is_binary(action_id) ->
         action_id
@@ -209,7 +211,13 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
             "controlId" => control_id
           } ->
             option = optional_text(value, "selectedOptionId") || "input"
-            "card:#{out_track_id}:#{interaction_id}:#{version}:#{control_id}:#{option}"
+            base = "card:#{out_track_id}:#{interaction_id}:#{version}:#{control_id}:#{option}"
+
+            if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
+              "#{base}:#{operator_id}"
+            else
+              base
+            end
 
           _unmanaged ->
             "card:#{out_track_id}:#{:erlang.phash2(value)}"
@@ -251,6 +259,20 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
 
       nil ->
         {:ignore, :missing_platform_subject}
+    end
+  end
+
+  defp resolve_card_operator(%{config: config} = consumer, operator_id, interaction_id) do
+    if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
+      case Ankole.Principals.resolve_platform_subject_uid(
+             Config.subject_namespace(config),
+             operator_id
+           ) do
+        {:ok, uid} -> {:ok, uid}
+        _ -> {:ok, nil}
+      end
+    else
+      observe_card_operator(consumer, operator_id)
     end
   end
 

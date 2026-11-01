@@ -69,6 +69,9 @@ import type {
   CreateCronScheduleData,
   CreateCronScheduleErrors,
   CreateCronScheduleResponses,
+  CreateDriveNodeData,
+  CreateDriveNodeErrors,
+  CreateDriveNodeResponses,
   CreateIdentityMappingData,
   CreateIdentityMappingErrors,
   CreateIdentityMappingResponses,
@@ -104,9 +107,6 @@ import type {
   DecryptWorkerEnvResponses,
   DeleteAgentData,
   DeleteAgentErrors,
-  DeleteAgentFilesData,
-  DeleteAgentFilesErrors,
-  DeleteAgentFilesResponses,
   DeleteAgentModelProfileData,
   DeleteAgentModelProfileErrors,
   DeleteAgentModelProfileResponses,
@@ -117,6 +117,12 @@ import type {
   DeleteAgentWorkerEnvData,
   DeleteAgentWorkerEnvErrors,
   DeleteAgentWorkerEnvResponses,
+  DeleteDefaultModelProfileData,
+  DeleteDefaultModelProfileErrors,
+  DeleteDefaultModelProfileResponses,
+  DeleteDriveNodeData,
+  DeleteDriveNodeErrors,
+  DeleteDriveNodeResponses,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestErrors,
   DeleteIdentityMappingRequestResponses,
@@ -129,6 +135,9 @@ import type {
   DeletePrincipalGroupData,
   DeletePrincipalGroupErrors,
   DeletePrincipalGroupResponses,
+  DeleteSystemModelProfileData,
+  DeleteSystemModelProfileErrors,
+  DeleteSystemModelProfileResponses,
   DeleteWorkerEnvData,
   DeleteWorkerEnvErrors,
   DeleteWorkerEnvResponses,
@@ -222,9 +231,6 @@ import type {
   LearnBrainSourceData,
   LearnBrainSourceErrors,
   LearnBrainSourceResponses,
-  ListAgentFilesData,
-  ListAgentFilesErrors,
-  ListAgentFilesResponses,
   ListAgentLibraryDocumentsData,
   ListAgentLibraryDocumentsErrors,
   ListAgentLibraryDocumentsResponses,
@@ -300,6 +306,12 @@ import type {
   ListCronSchedulesData,
   ListCronSchedulesErrors,
   ListCronSchedulesResponses,
+  ListDefaultModelProfilesData,
+  ListDefaultModelProfilesErrors,
+  ListDefaultModelProfilesResponses,
+  ListDriveNodesData,
+  ListDriveNodesErrors,
+  ListDriveNodesResponses,
   ListGrantsOfPrincipalData,
   ListGrantsOfPrincipalErrors,
   ListGrantsOfPrincipalResponses,
@@ -342,6 +354,12 @@ import type {
   ListSignalBindingsData,
   ListSignalBindingsErrors,
   ListSignalBindingsResponses,
+  ListSystemModelProfilesData,
+  ListSystemModelProfilesErrors,
+  ListSystemModelProfilesResponses,
+  ListSystemPrincipalsData,
+  ListSystemPrincipalsErrors,
+  ListSystemPrincipalsResponses,
   ListWebhookEndpointsData,
   ListWebhookEndpointsErrors,
   ListWebhookEndpointsResponses,
@@ -351,9 +369,9 @@ import type {
   ListWorkerEnvsData,
   ListWorkerEnvsErrors,
   ListWorkerEnvsResponses,
-  MoveAgentFilesData,
-  MoveAgentFilesErrors,
-  MoveAgentFilesResponses,
+  MoveDriveNodeData,
+  MoveDriveNodeErrors,
+  MoveDriveNodeResponses,
   PauseCronScheduleData,
   PauseCronScheduleErrors,
   PauseCronScheduleResponses,
@@ -375,9 +393,18 @@ import type {
   PutConversationStandingOrdersData,
   PutConversationStandingOrdersErrors,
   PutConversationStandingOrdersResponses,
+  PutDefaultModelProfileData,
+  PutDefaultModelProfileErrors,
+  PutDefaultModelProfileResponses,
+  PutDefaultProviderHostedData,
+  PutDefaultProviderHostedErrors,
+  PutDefaultProviderHostedResponses,
   PutSignalBindingData,
   PutSignalBindingErrors,
   PutSignalBindingResponses,
+  PutSystemModelProfileData,
+  PutSystemModelProfileErrors,
+  PutSystemModelProfileResponses,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionErrors,
   RejectBrainMergeSuggestionResponses,
@@ -390,6 +417,12 @@ import type {
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberErrors,
   RemovePrincipalGroupMemberResponses,
+  RenameAgentData,
+  RenameAgentErrors,
+  RenameAgentResponses,
+  RenameHumanData,
+  RenameHumanErrors,
+  RenameHumanResponses,
   ReplaceAgentLibraryDocumentData,
   ReplaceAgentLibraryDocumentErrors,
   ReplaceAgentLibraryDocumentResponses,
@@ -773,6 +806,18 @@ export const listBrainObjectVersions = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_default_model_profiles operation on agent_model_configuration resource
+ */
+export const listDefaultModelProfiles = <ThrowOnError extends boolean = false>(
+  options?: Options<ListDefaultModelProfilesData, ThrowOnError>
+): RequestResult<ListDefaultModelProfilesResponses, ListDefaultModelProfilesErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListDefaultModelProfilesResponses, ListDefaultModelProfilesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/model-profiles',
+    ...options
+  })
+
+/**
  * retry_oidc_logout_delivery operation on oidc_logout_delivery resource
  */
 export const retryOidcLogoutDelivery = <ThrowOnError extends boolean = false>(
@@ -895,18 +940,6 @@ export const supersedeBrainClaim = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * disable_signal_binding operation on signal_binding resource
- */
-export const disableSignalBinding = <ThrowOnError extends boolean = false>(
-  options: Options<DisableSignalBindingData, ThrowOnError>
-): RequestResult<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError> =>
-  (options.client ?? client).delete<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/signal-bindings/{name}',
-    ...options
-  })
-
-/**
  * approve_brain_merge_suggestion operation on brain_merge_suggestion resource
  */
 export const approveBrainMergeSuggestion = <ThrowOnError extends boolean = false>(
@@ -991,6 +1024,46 @@ export const updatePrincipalGroup = <ThrowOnError extends boolean = false>(
   (options.client ?? client).patch<UpdatePrincipalGroupResponses, UpdatePrincipalGroupErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/principal-groups/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_system_model_profiles operation on agent_model_configuration resource
+ */
+export const listSystemModelProfiles = <ThrowOnError extends boolean = false>(
+  options: Options<ListSystemModelProfilesData, ThrowOnError>
+): RequestResult<ListSystemModelProfilesResponses, ListSystemModelProfilesErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListSystemModelProfilesResponses, ListSystemModelProfilesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/system-principals/{uid}/model-profiles',
+    ...options
+  })
+
+/**
+ * delete_system_model_profile operation on agent_model_configuration resource
+ */
+export const deleteSystemModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteSystemModelProfileData, ThrowOnError>
+): RequestResult<DeleteSystemModelProfileResponses, DeleteSystemModelProfileErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteSystemModelProfileResponses, DeleteSystemModelProfileErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/system-principals/{uid}/model-profiles/{profile}',
+    ...options
+  })
+
+/**
+ * put_system_model_profile operation on agent_model_configuration resource
+ */
+export const putSystemModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<PutSystemModelProfileData, ThrowOnError>
+): RequestResult<PutSystemModelProfileResponses, PutSystemModelProfileErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutSystemModelProfileResponses, PutSystemModelProfileErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/system-principals/{uid}/model-profiles/{profile}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1163,6 +1236,34 @@ export const forgetBrainObject = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * delete_default_model_profile operation on agent_model_configuration resource
+ */
+export const deleteDefaultModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteDefaultModelProfileData, ThrowOnError>
+): RequestResult<DeleteDefaultModelProfileResponses, DeleteDefaultModelProfileErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteDefaultModelProfileResponses, DeleteDefaultModelProfileErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/model-profiles/{profile}',
+    ...options
+  })
+
+/**
+ * put_default_model_profile operation on agent_model_configuration resource
+ */
+export const putDefaultModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<PutDefaultModelProfileData, ThrowOnError>
+): RequestResult<PutDefaultModelProfileResponses, PutDefaultModelProfileErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutDefaultModelProfileResponses, PutDefaultModelProfileErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/model-profiles/{profile}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * list_cron_schedule_runs operation on scheduled_event resource
  */
 export const listCronScheduleRuns = <ThrowOnError extends boolean = false>(
@@ -1275,6 +1376,34 @@ export const cancelBackgroundAgentJob = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * delete_drive_node operation on drive_operation resource
+ */
+export const deleteDriveNode = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteDriveNodeData, ThrowOnError>
+): RequestResult<DeleteDriveNodeResponses, DeleteDriveNodeErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteDriveNodeResponses, DeleteDriveNodeErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/drive/{tenant_id}/nodes/{id}',
+    ...options
+  })
+
+/**
+ * move_drive_node operation on drive_operation resource
+ */
+export const moveDriveNode = <ThrowOnError extends boolean = false>(
+  options: Options<MoveDriveNodeData, ThrowOnError>
+): RequestResult<MoveDriveNodeResponses, MoveDriveNodeErrors, ThrowOnError> =>
+  (options.client ?? client).patch<MoveDriveNodeResponses, MoveDriveNodeErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/drive/{tenant_id}/nodes/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * run_identity_provider_sync operation on identity_provider_operation resource
  */
 export const runIdentityProviderSync = <ThrowOnError extends boolean = false>(
@@ -1363,31 +1492,15 @@ export const approveIdentityDirectory = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * get_signal_binding operation on signals_operation resource
+ * list_system_principals operation on agent_model_configuration resource
  */
-export const getSignalBinding = <ThrowOnError extends boolean = false>(
-  options: Options<GetSignalBindingData, ThrowOnError>
-): RequestResult<GetSignalBindingResponses, GetSignalBindingErrors, ThrowOnError> =>
-  (options.client ?? client).get<GetSignalBindingResponses, GetSignalBindingErrors, ThrowOnError>({
+export const listSystemPrincipals = <ThrowOnError extends boolean = false>(
+  options?: Options<ListSystemPrincipalsData, ThrowOnError>
+): RequestResult<ListSystemPrincipalsResponses, ListSystemPrincipalsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListSystemPrincipalsResponses, ListSystemPrincipalsErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/signal-bindings/{binding_name}',
+    url: '/api/v2/system-principals',
     ...options
-  })
-
-/**
- * update_signal_binding operation on signals_operation resource
- */
-export const updateSignalBinding = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateSignalBindingData, ThrowOnError>
-): RequestResult<UpdateSignalBindingResponses, UpdateSignalBindingErrors, ThrowOnError> =>
-  (options.client ?? client).patch<UpdateSignalBindingResponses, UpdateSignalBindingErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/signal-bindings/{binding_name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1434,6 +1547,38 @@ export const listAutomationJobs = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/automation-jobs',
     ...options
+  })
+
+/**
+ * rename_agent operation on agent resource
+ */
+export const renameAgent = <ThrowOnError extends boolean = false>(
+  options: Options<RenameAgentData, ThrowOnError>
+): RequestResult<RenameAgentResponses, RenameAgentErrors, ThrowOnError> =>
+  (options.client ?? client).post<RenameAgentResponses, RenameAgentErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{uid}/rename',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * put_signal_binding operation on signals_operation resource
+ */
+export const putSignalBinding = <ThrowOnError extends boolean = false>(
+  options: Options<PutSignalBindingData, ThrowOnError>
+): RequestResult<PutSignalBindingResponses, PutSignalBindingErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutSignalBindingResponses, PutSignalBindingErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/signal-bindings/{adapter_id}/{binding_name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1681,22 +1826,6 @@ export const resumeCronSchedule = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * put_signal_binding operation on signals_operation resource
- */
-export const putSignalBinding = <ThrowOnError extends boolean = false>(
-  options: Options<PutSignalBindingData, ThrowOnError>
-): RequestResult<PutSignalBindingResponses, PutSignalBindingErrors, ThrowOnError> =>
-  (options.client ?? client).put<PutSignalBindingResponses, PutSignalBindingErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
  * retry_human_work_cleanup operation on human_access resource
  */
 export const retryHumanWorkCleanup = <ThrowOnError extends boolean = false>(
@@ -1919,6 +2048,22 @@ export const createBrainObject = <ThrowOnError extends boolean = false>(
   (options.client ?? client).post<CreateBrainObjectResponses, CreateBrainObjectErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/brain/objects',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * put_default_provider_hosted operation on agent_model_configuration resource
+ */
+export const putDefaultProviderHosted = <ThrowOnError extends boolean = false>(
+  options: Options<PutDefaultProviderHostedData, ThrowOnError>
+): RequestResult<PutDefaultProviderHostedResponses, PutDefaultProviderHostedErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutDefaultProviderHostedResponses, PutDefaultProviderHostedErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/model-profiles/provider-hosted',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2171,22 +2316,6 @@ export const updateOidcClient = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * move_agent_files operation on files_operation resource
- */
-export const moveAgentFiles = <ThrowOnError extends boolean = false>(
-  options: Options<MoveAgentFilesData, ThrowOnError>
-): RequestResult<MoveAgentFilesResponses, MoveAgentFilesErrors, ThrowOnError> =>
-  (options.client ?? client).post<MoveAgentFilesResponses, MoveAgentFilesErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/file-moves',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
  * update_brain_source operation on brain_source resource
  */
 export const updateBrainSource = <ThrowOnError extends boolean = false>(
@@ -2195,6 +2324,46 @@ export const updateBrainSource = <ThrowOnError extends boolean = false>(
   (options.client ?? client).patch<UpdateBrainSourceResponses, UpdateBrainSourceErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/brain/sources/{source_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * disable_signal_binding operation on signal_binding resource
+ */
+export const disableSignalBinding = <ThrowOnError extends boolean = false>(
+  options: Options<DisableSignalBindingData, ThrowOnError>
+): RequestResult<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/signal-bindings/{id}',
+    ...options
+  })
+
+/**
+ * get_signal_binding operation on signals_operation resource
+ */
+export const getSignalBinding = <ThrowOnError extends boolean = false>(
+  options: Options<GetSignalBindingData, ThrowOnError>
+): RequestResult<GetSignalBindingResponses, GetSignalBindingErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetSignalBindingResponses, GetSignalBindingErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/signal-bindings/{id}',
+    ...options
+  })
+
+/**
+ * update_signal_binding operation on signals_operation resource
+ */
+export const updateSignalBinding = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateSignalBindingData, ThrowOnError>
+): RequestResult<UpdateSignalBindingResponses, UpdateSignalBindingErrors, ThrowOnError> =>
+  (options.client ?? client).patch<UpdateSignalBindingResponses, UpdateSignalBindingErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/signal-bindings/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2623,6 +2792,34 @@ export const enqueueBrainDream = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_drive_nodes operation on drive_operation resource
+ */
+export const listDriveNodes = <ThrowOnError extends boolean = false>(
+  options: Options<ListDriveNodesData, ThrowOnError>
+): RequestResult<ListDriveNodesResponses, ListDriveNodesErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListDriveNodesResponses, ListDriveNodesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/drive/{tenant_id}/nodes',
+    ...options
+  })
+
+/**
+ * create_drive_node operation on drive_operation resource
+ */
+export const createDriveNode = <ThrowOnError extends boolean = false>(
+  options: Options<CreateDriveNodeData, ThrowOnError>
+): RequestResult<CreateDriveNodeResponses, CreateDriveNodeErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateDriveNodeResponses, CreateDriveNodeErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/drive/{tenant_id}/nodes',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * retire_agent_skill_lesson operation on agent_skill_lesson resource
  */
 export const retireAgentSkillLesson = <ThrowOnError extends boolean = false>(
@@ -2632,6 +2829,22 @@ export const retireAgentSkillLesson = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agents/{agent_uid}/skill-lessons/{lesson_id}/retire',
     ...options
+  })
+
+/**
+ * rename_human operation on principal resource
+ */
+export const renameHuman = <ThrowOnError extends boolean = false>(
+  options: Options<RenameHumanData, ThrowOnError>
+): RequestResult<RenameHumanResponses, RenameHumanErrors, ThrowOnError> =>
+  (options.client ?? client).post<RenameHumanResponses, RenameHumanErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals/{uid}/rename',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -2648,30 +2861,6 @@ export const createIdentityMapping = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
-  })
-
-/**
- * delete_agent_files operation on files_operation resource
- */
-export const deleteAgentFiles = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteAgentFilesData, ThrowOnError>
-): RequestResult<DeleteAgentFilesResponses, DeleteAgentFilesErrors, ThrowOnError> =>
-  (options.client ?? client).delete<DeleteAgentFilesResponses, DeleteAgentFilesErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/files',
-    ...options
-  })
-
-/**
- * list_agent_files operation on files_operation resource
- */
-export const listAgentFiles = <ThrowOnError extends boolean = false>(
-  options: Options<ListAgentFilesData, ThrowOnError>
-): RequestResult<ListAgentFilesResponses, ListAgentFilesErrors, ThrowOnError> =>
-  (options.client ?? client).get<ListAgentFilesResponses, ListAgentFilesErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/files',
-    ...options
   })
 
 /**

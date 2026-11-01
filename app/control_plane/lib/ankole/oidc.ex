@@ -10,7 +10,7 @@ defmodule Ankole.OIDC do
   require Ash.Query
 
   alias Ankole.SecretKeyBase
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AuthZ
   alias Ankole.OIDC.AuthorizationCode
   alias Ankole.OIDC.AuthorizationRequest

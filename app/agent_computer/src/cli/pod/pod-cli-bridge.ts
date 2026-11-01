@@ -17,7 +17,11 @@ const readOperations = [
   'pages.search',
   'pages.read',
   'pages.sharing',
+  'comments.list',
+  'comments.show',
   'files.manifest',
+  'files.download',
+  'chat.attachment.get',
   'base.tables',
   'base.schema',
   'base.query',
@@ -34,6 +38,8 @@ const writeOperations = [
   'pages.write',
   'pages.append',
   'pages.patch',
+  'comments.reply',
+  'comments.resolve',
   'applets.pull',
   'files.upload',
   'applets.publish',
@@ -119,10 +125,11 @@ export function startPodCLIBridge(opts: {
               const local = resolve(temporary, file.path)
               if (!local.startsWith(`${temporary}/`)) throw new Error('Invalid applet file path')
               await mkdirAgent(dirname(local))
-              await opts.drive.get(`pages/${params.id}/${file.path}`, local, {
-                pod: true,
-                frame: opts.frame,
-                automationAttempt: opts.automationAttempt
+              await request('files.download', {
+                id: params.id,
+                path: file.path,
+                sha256: file.sha256,
+                home_relative_path: await opts.drive.homeRelativePath(local, { create: true })
               })
               if ((await sha256File(local)) !== file.sha256) throw new Error('Applet publication changed; pull again')
             }
@@ -173,6 +180,14 @@ export function startPodCLIBridge(opts: {
           await writeFile(documentPath!, printXml(parseMarkdown(params.markdown)))
           delete params.markdown
         }
+        if (command.operation === 'chat.attachment.get' || command.operation === 'files.download') {
+          if (typeof params.local_path !== 'string') throw new Error('File download requires a destination path')
+          const local = resolve(command.cwd, params.local_path)
+          await opts.drive.homeRelativePath(local, { create: true })
+          await mkdirAgent(dirname(local))
+          params.home_relative_path = await opts.drive.homeRelativePath(local, { create: true })
+          delete params.local_path
+        }
         if (command.operation === 'files.upload') {
           if (typeof params.local_path !== 'string') throw new Error('files.upload requires local_path')
           params.home_relative_path = await opts.drive.homeRelativePath(resolve(command.cwd, params.local_path))
@@ -190,8 +205,8 @@ export function startPodCLIBridge(opts: {
           ) {
             throw new Error('Applet backend has not been built. Run applet build before publishing.')
           }
-          // The existing drive RPC transfers bytes and verifies their digests. The
-          // Pod commit then references these same bytes atomically; no blob copy.
+          // Stage immutable objects through the Agent Drive, then let the Pod
+          // owner authorize their paths and commit the Applet manifest.
           staging = `_pod/applets/${params.id}/${randomUUID()}`
           const files = [
             ...(await opts.drive.put(join(directory, 'src'), `${staging}/src`)),
@@ -212,7 +227,8 @@ export function startPodCLIBridge(opts: {
           const prefixLength = staging.length + 1
           params.files = files.map(file => ({
             path: file.path.slice(prefixLength),
-            sha256: file.sha256,
+            object_id: file.objectId,
+            source_path: file.path,
             content_type: file.contentType
           }))
         }

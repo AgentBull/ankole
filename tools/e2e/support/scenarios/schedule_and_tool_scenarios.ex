@@ -389,10 +389,10 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                case message_observation("lark:oc_chaos_file", "om_file_1") do
                  %{
                    message: %ConversationMessage{
-                     attachments: [%{"blob_ref" => blob_ref, "path" => path}]
+                     attachments: [%{"object_id" => object_id, "node_id" => node_id}]
                    }
                  } = entry
-                 when is_binary(blob_ref) and is_binary(path) ->
+                 when is_binary(object_id) and is_binary(node_id) ->
                    entry
 
                  %{message: %ConversationMessage{}} ->
@@ -400,7 +400,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                end
              end)
 
-    # Stored attachments carry `blob_ref`, `path`, and `size` on top of the
+    # Stored attachments carry `object_id`, `node_id`, and `size` on top of the
     # provider identity, so assert the provider identity as a subset.
     assert %{
              "provider_ref" => "lark:file:file_1",
@@ -420,9 +420,12 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
              wait_until(deadline(10_000), fn ->
                refreshed = Repo.get!(Signal, input.id)
 
-               if get_in(refreshed.data, ["entry", "attachments"]) == [attachment],
-                 do: refreshed,
-                 else: nil
+               if Enum.map(
+                    get_in(refreshed.data, ["entry", "attachments"]) || [],
+                    & &1["object_id"]
+                  ) == [attachment["object_id"]],
+                  do: refreshed,
+                  else: nil
              end)
 
     assert {:ok, %{status: :driving}} =
@@ -450,7 +453,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                chat_id: "oc_chaos_reply_attachment",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_REPLY_ATTACHMENT. Create the file, save it with ankole-files put, register its drive_path with reply_attachment, then reply exactly CHAOS_REPLY_ATTACHMENT_OK.",
+                 "@_user_1 Run CHAOS_REPLY_ATTACHMENT. Create the file, save it with ankole-files put, register its returned nodeId with reply_attachment, then reply exactly CHAOS_REPLY_ATTACHMENT_OK.",
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 4_500, :millisecond), :millisecond)
@@ -489,23 +492,25 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert final_reply.payload["text"] =~ "CHAOS_REPLY_ATTACHMENT_OK"
     assert is_nil(intent.payload["text"])
 
-    # The command saves the file in the drive. reply_attachment preserves
-    # that original path and records its content digest for provider delivery.
+    # The command saves the file in the private drive. reply_attachment freezes
+    # its immutable object for provider delivery.
     content = "CHAOS_REPLY_ATTACHMENT_FILE"
-    blob_ref = Base.encode16(:crypto.hash(:sha256, content), case: :lower)
     expected_path = "reports/chaos-report.txt"
 
     assert [
              %{
-               "path" => ^expected_path,
-               "blob_ref" => ^blob_ref,
+               "node_id" => node_id,
+               "object_id" => object_id,
                "name" => "chaos-report.txt",
                "mime_type" => "text/plain"
              } = attachment
            ] = intent.payload["attachments"]
 
     assert attachment["size"] == byte_size(content)
-    assert {:ok, _file, ^content} = Ankole.Files.read(agent.uid, expected_path)
+    assert {:ok, file, ^content} = Ankole.Files.read(agent.uid, expected_path)
+    assert file.id == node_id
+    assert file.object_id == object_id
+    assert {:ok, ^content} = Ankole.Files.read_object(object_id)
 
     messages = ai_messages_for_signal(input.id)
     assert command_tool_succeeded?(messages)

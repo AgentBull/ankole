@@ -11,6 +11,7 @@ defmodule Ankole.AppConfigure.Scope do
         {:site, "global"} -> true
         {:tenant, "tenant:" <> tenant} -> tenant == Ankole.Repo.tenant_id!()
         {:tenant, "agent:" <> uid} -> uid != ""
+        {:tenant, "system:" <> uid} -> Ankole.Principals.SystemServices.registered?(uid)
         _other -> false
       end
 

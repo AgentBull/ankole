@@ -306,7 +306,7 @@ function TransferAdministration({ tenant }: { tenant: Tenant }) {
           candidates={humans.map(principal => ({
             id: principal.id,
             label: principalLabel(principal),
-            description: principal.email ?? principal.handle
+            description: principal.email ?? principal.id
           }))}
           error={principals.error}
           isLoading={principals.isLoading}

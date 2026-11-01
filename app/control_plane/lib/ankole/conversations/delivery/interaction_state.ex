@@ -77,7 +77,12 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
           {:ok, checkpoint()} | :noop
   def supersede(checkpoint, %Signal{} = newer_event, %DateTime{} = now)
       when is_map(checkpoint) do
-    case pending_interaction_ids(checkpoint) do
+    supersedable_ids =
+      checkpoint
+      |> pending_interaction_ids()
+      |> Enum.filter(&supersedable_by?(&1, newer_event))
+
+    case supersedable_ids do
       [] ->
         :noop
 
@@ -165,13 +170,23 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
   end
 
   defp initial_interaction(interaction_id, now, %Signal{} = newer_event) do
-    %{
-      "interaction_id" => interaction_id,
-      "state" => "superseded",
-      "resolved_at" => DateTime.to_iso8601(now),
-      "superseded_by_signal_id" => newer_event.id
-    }
+    if supersedable_by?(interaction_id, newer_event) do
+      %{
+        "interaction_id" => interaction_id,
+        "state" => "superseded",
+        "resolved_at" => DateTime.to_iso8601(now),
+        "superseded_by_signal_id" => newer_event.id
+      }
+    else
+      initial_interaction(interaction_id, now, nil)
+    end
   end
+
+  defp supersedable_by?("action_card:" <> _, %Signal{type: "conversation.message.removed"}),
+    do: true
+
+  defp supersedable_by?("action_card:" <> _, %Signal{}), do: false
+  defp supersedable_by?(_interaction_id, %Signal{}), do: true
 
   defp maybe_schedule_refresh(checkpoint, surface_fun) do
     if surface_fun.(checkpoint) do

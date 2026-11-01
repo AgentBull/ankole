@@ -453,29 +453,23 @@ Inactive Plugins still appear in the Console and keep their saved settings in
 PostgreSQL, though they contribute no definitions, adapters, or processes until
 activated on a subsequent boot.
 
-Two subsystem invariants guard against disabling Plugins that still have live
-dependents:
+Ankole blocks disabling an identity-provider Plugin while any tenant has an
+enabled provider backed by it. Operators must disable those tenant providers
+first, where the login policy verifies that at least one administrator sign-in
+path remains.
 
-- **Identity-provider Plugins**: Ankole blocks disabling an identity-provider
-  Plugin while any tenant has an enabled provider backed by it. Operators must
-  disable those tenant providers first, where the login policy verifies that at
-  least one administrator sign-in path remains.
-- **Worker-provider Plugins**: Ankole blocks disabling a Worker-provider Plugin
-  while any tenant still has an `agent_workers` row—including paused Workers and
-  Agents undergoing deletion—assigned to one of its provider kinds. Operators
-  must delete those Agents and wait for Worker cleanup first. Furthermore,
-  assigning a new Agent requires its Worker provider Plugin to be both currently
-  active and enabled for the next boot, so Ankole rejects new assignments as
-  soon as a disable is pending.
+Administrators can disable Worker-provider Plugins while Agents still reference
+them. The configured choice takes effect on restart. Provider configuration and
+Worker references remain stored; operations that need an inactive provider kind
+report which Plugin must be re-enabled. Administrators are responsible for the
+availability impact of their choice.
 
-Both the Console Plugin controls and first-run setup enforce these checks. In
-general Console settings, `plugins.enabled_ids` is read-only; mutations go
-through `Ankole.Plugins.Config`, backed by `AppConfigure.update_global/2` for
-validation, storage, transaction framing, and key locking. Inside that
-transaction, `Ankole.Plugins.Contracts.veto_disable/2` gives each owning
-subsystem a chance to reject the change, acquiring the Worker-provider lock and
-scanning Worker references only when the edit removes Worker provider kinds
-(enabling Plugins or toggling non-Worker Plugins skips that lock). If the stored
+Both the Console Plugin controls and first-run setup write through
+`Ankole.Plugins.Config`, backed by `AppConfigure.update_global/2` for validation,
+storage, transaction framing, and key locking. General Console settings display
+`plugins.enabled_ids` as read-only. Inside the write transaction,
+`Ankole.Plugins.Contracts.veto_disable/2` lets the identity-provider subsystem
+protect administrator sign-in. If the stored
 enable list cannot be decoded, `Ankole.Plugins.Config` aborts the write; an
 operator can recover by deleting the key via
 `Ankole.AppConfigure.delete_global/1`.

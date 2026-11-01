@@ -20,12 +20,13 @@ import {
 
 const row = (id: string, parent_id: string | null = null, position = id): NavigationPage => ({
   id,
+  name: id,
   parent_id,
   position,
   type: 'doc',
   title: id,
   inherit_permissions: true,
-  actions: ['page_view'],
+  actions: ['node_view'],
   role: 'view',
   has_children: false
 })
@@ -285,7 +286,7 @@ test('subpages directory queries and parent child_count stay synchronized across
   client.setQueryData(parentDetail, {
     page: { ...parent, children_view: {} },
     ancestors: [],
-    actions: ['page_view', 'page_edit'],
+    actions: ['node_view', 'node_edit'],
     role: 'edit',
     child_count: 0
   })
@@ -320,7 +321,7 @@ test('renaming a Page updates shared metadata without rewriting descendant read 
   client.setQueryData(childDetail, {
     page: row('child', 'parent', 'a0'),
     ancestors: [row('root'), row('parent', 'root', 'a0')],
-    actions: ['page_view'],
+    actions: ['node_view'],
     role: 'view',
     child_count: 0
   })

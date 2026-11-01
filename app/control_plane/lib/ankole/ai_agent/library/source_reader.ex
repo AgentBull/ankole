@@ -140,6 +140,10 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
+  def load_personal_assistant_template(path) do
+    File.read!(Path.join([@default_library_root, "templates", "personal-assistant", path]))
+  end
+
   @doc """
   Loads the default SOUL template, falling back to a minimal builtin value.
   """
@@ -398,7 +402,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
            |> Enum.flat_map(fn file ->
              case String.split(file.path, "/") do
                ["skills", name, @skill_file] ->
-                 [read_installed_skill_source(file.sha256, name)]
+                 [read_installed_skill_source(file.object_id, name)]
 
                _path ->
                  []
@@ -413,8 +417,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp read_installed_skill_source(sha256, name) do
-    with {:ok, raw_skill} <- Files.read_content(sha256) do
+  defp read_installed_skill_source(object_id, name) do
+    with {:ok, raw_skill} <- Files.read_object(object_id) do
       skill_source(raw_skill, "installed", name)
     end
   end

@@ -7,7 +7,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Brain.Chunks
   alias Ankole.Brain.Schemas.Chunk
@@ -94,10 +94,8 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert Repo.aggregate(from(job in Oban.Job, where: job.worker == ^worker), :count) == 0
   end
 
-  test "health reports maintainer Agent profiles and an unconfigured web fetch", %{conn: conn} do
+  test "health reports effective Pod profiles and an unconfigured web fetch", %{conn: conn} do
     {conn, _principal_uid} = console_conn_with_principal(conn)
-    %{principal: maintainer} = agent_fixture(%{display_name: "Brain Maintainer"})
-    maintainer_uid = maintainer.uid
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
@@ -109,17 +107,14 @@ defmodule AnkoleWeb.BrainControllerTest do
                }
              })
 
-    assert {:ok, ^maintainer_uid} =
-             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer_uid)
-
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(maintainer_uid, "light", %{
+             ModelProfiles.put_default_model_profile(:tenant, "light", %{
                provider_id: "brain-health-provider",
                model: "light-model"
              })
 
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(maintainer_uid, "heavy", %{
+             ModelProfiles.put_default_model_profile(:tenant, "heavy", %{
                provider_id: "brain-health-provider",
                model: "heavy-model"
              })
@@ -129,7 +124,7 @@ defmodule AnkoleWeb.BrainControllerTest do
              |> api(:get, ~p"/api/v2/brain/health")
              |> json_response(200)
 
-    assert health["maintainer_agent_uid"] == maintainer_uid
+    refute Map.has_key?(health, "maintainer_agent_uid")
 
     assert health["models"]["extraction"] == %{
              "configured" => true,
@@ -159,37 +154,41 @@ defmodule AnkoleWeb.BrainControllerTest do
            }
   end
 
-  test "health reports a disabled maintainer Agent for every Brain profile", %{
-    conn: conn
-  } do
+  test "health keeps Pod profiles available when every Agent is disabled", %{conn: conn} do
     {conn, _principal_uid} = console_conn_with_principal(conn)
-    %{principal: maintainer} = agent_fixture(%{display_name: "Disabled Brain Maintainer"})
+    %{principal: agent} = agent_fixture()
 
-    assert {:ok, maintainer_uid} =
-             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer.uid)
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "brain-health-independent",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               }
+             })
 
-    assert maintainer_uid == maintainer.uid
+    for profile <- ["light", "heavy"] do
+      assert {:ok, _profile} =
+               ModelProfiles.put_default_model_profile(:tenant, profile, %{
+                 provider_id: "brain-health-independent",
+                 model: "pod-model"
+               })
+    end
 
     assert {:ok, %{status: :disabled}} =
-             Ankole.PrincipalsFixtures.disable_principal_fixture(maintainer.uid)
+             Ankole.PrincipalsFixtures.disable_principal_fixture(agent.uid)
 
     assert %{"health" => health} =
              conn
              |> api(:get, ~p"/api/v2/brain/health")
              |> json_response(200)
 
-    assert health["maintainer_agent_uid"] == maintainer.uid
+    refute Map.has_key?(health, "maintainer_agent_uid")
 
-    for {model, profile} <- [
-          {"web_fetch", "web_fetch"},
-          {"extraction", "light"},
-          {"dreaming", "heavy"}
-        ] do
-      assert health["models"][model] == %{
-               "configured" => false,
-               "profile" => profile,
-               "profile_error" => "brain_maintainer_agent_disabled"
-             }
+    for model <- ["extraction", "dreaming"] do
+      assert health["models"][model]["configured"] == true
+      assert health["models"][model]["model"] == "pod-model"
+      assert health["models"][model]["provider_available"] == true
     end
   end
 

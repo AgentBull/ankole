@@ -47,8 +47,10 @@ defmodule AnkoleWeb.WorkerChannelTest do
                end)
 
       assert joined.assigns.worker_id == ctx.worker_id
-      assert Repo.get!(AgentWorker, ctx.worker_id).tenant_id == ctx.tenant.id
-      assert Repo.get!(AgentWorker, ctx.worker_id).transport_route == joined.assigns.connection_id
+      assert Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id).tenant_id == ctx.tenant.id
+
+      assert Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id).transport_route ==
+               joined.assigns.connection_id
     end
 
     test "rejects a wrong auth token", %{worker_id: worker_id} do
@@ -93,8 +95,12 @@ defmodule AnkoleWeb.WorkerChannelTest do
                )
 
       assert socket.assigns.worker_id == worker_id
-      assert socket.assigns.worker_generation == Repo.get!(AgentWorker, worker_id).generation
-      assert RuntimeFabricSocket.id(socket) == "runtime_fabric_worker:" <> worker_id
+
+      assert socket.assigns.worker_generation ==
+               Repo.get_by!(AgentWorker, agent_uid: worker_id).generation
+
+      assert RuntimeFabricSocket.id(socket) ==
+               "runtime_fabric_worker:" <> Repo.tenant_id!() <> ":" <> worker_id
     end
   end
 
@@ -108,7 +114,8 @@ defmodule AnkoleWeb.WorkerChannelTest do
         set: [generation: next_generation] ++ Map.to_list(credential)
       )
 
-      assert {:ok, next_token} = AgentWorkers.credential(Repo.get!(AgentWorker, ctx.worker_id))
+      assert {:ok, next_token} =
+               AgentWorkers.credential(Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id))
 
       # The join payload cannot replace the generation proved by the socket.
       assert {:error, %{"reason" => "stale_worker_generation"}} =
@@ -124,12 +131,12 @@ defmodule AnkoleWeb.WorkerChannelTest do
                generation: ^next_generation,
                transport_route: nil,
                incarnation_id: nil
-             } = Repo.get!(AgentWorker, ctx.worker_id)
+             } = Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
 
       {_socket, route} = join!(%{ctx | token: next_token})
 
       assert %AgentWorker{generation: ^next_generation, transport_route: ^route} =
-               Repo.get!(AgentWorker, ctx.worker_id)
+               Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
     end
 
     test "a socket keeps its credential across pause and resume of the same generation", ctx do
@@ -151,7 +158,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
                  join_payload(ctx)
                )
 
-      assert Repo.get!(AgentWorker, ctx.worker_id).transport_route == route
+      assert Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id).transport_route == route
     end
 
     test "rejects an unknown topic", ctx do
@@ -169,7 +176,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
       {socket, route} = join!(ctx)
 
       assert %AgentWorker{state: :ready, transport_route: ^route} =
-               Repo.get!(AgentWorker, ctx.worker_id)
+               Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
 
       assert [{pid, meta}] = directory_entries(ctx.worker_id, route)
       assert pid == socket.channel_pid
@@ -203,7 +210,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
                      1_000
 
       assert %AgentWorker{state: :ready, transport_route: ^new_route} =
-               Repo.get!(AgentWorker, ctx.worker_id)
+               Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
     end
 
     test "rejects an envelope from an older protocol", ctx do
@@ -440,7 +447,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
       assert {:error, :stale_route} =
                WorkerRoute.send_mandatory(target(ctx, route), command_envelope())
 
-      assert %AgentWorker{state: :ready} = Repo.get!(AgentWorker, ctx.worker_id)
+      assert %AgentWorker{state: :ready} = Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
     end
 
     test "request_rpc resolves with the worker response", ctx do
@@ -603,7 +610,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
       assert {:error, :socket_closed} = Task.await(task, 1_000)
 
       assert %AgentWorker{state: :stale, transport_route: nil} =
-               Repo.get!(AgentWorker, ctx.worker_id)
+               Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
 
       assert directory_entries(ctx.worker_id, route) == []
     end
@@ -617,7 +624,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
       close(old_socket)
 
       assert %AgentWorker{state: :ready, transport_route: ^new_route} =
-               Repo.get!(AgentWorker, ctx.worker_id)
+               Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
 
       assert directory_entries(ctx.worker_id, old_route) == []
       assert [_entry] = directory_entries(ctx.worker_id, new_route)
@@ -667,7 +674,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
       assert_reply ref, :ok, %{"stream" => "control", "acked_seq" => 1}, 2_000
 
       assert %AgentWorker{state: :ready, transport_route: ^route} =
-               Repo.get!(AgentWorker, ctx.worker_id)
+               Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
     end
   end
 
@@ -707,7 +714,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
                Ankole.JSON.decode!(join_reply)
 
       assert %AgentWorker{state: :ready, transport_route: route} =
-               Repo.get!(AgentWorker, ctx.worker_id)
+               Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
 
       [{channel_pid, _meta}] = directory_entries(ctx.worker_id, route)
       channel_monitor = Process.monitor(channel_pid)
@@ -725,7 +732,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
 
       Mint.HTTP.close(conn)
       assert_receive {:DOWN, ^channel_monitor, :process, ^channel_pid, _reason}, 5_000
-      assert %AgentWorker{state: :stale} = Repo.get!(AgentWorker, ctx.worker_id)
+      assert %AgentWorker{state: :stale} = Repo.get_by!(AgentWorker, agent_uid: ctx.worker_id)
     end
   end
 

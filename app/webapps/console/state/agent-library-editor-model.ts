@@ -54,7 +54,7 @@ function replaceDocumentState(state: DocumentState, document: AgentLibraryDocume
   state.revision.value += 1
 }
 
-export const AgentLibraryEditorModel = createModel(() => {
+function createAgentLibraryEditor() {
   const sourceKey = signal<string>()
   const documents = {
     mission: createDocumentState(),
@@ -161,4 +161,6 @@ export const AgentLibraryEditorModel = createModel(() => {
       }
     }
   }
-})
+}
+
+export const AgentLibraryEditorModel = createModel(createAgentLibraryEditor)

@@ -115,6 +115,14 @@ recipient set, and if the recipient set is empty or unresolved, Brain denies
 disclosure. External IM conversations resolve recipients through the rules of
 their IM provider.
 
+Personal assistants use `strict` disclosure. Their knowledge reachability and
+group-write eligibility include the owner's same-tenant principal and group
+scopes, while authorship remains the assistant's ActorRef. A private owner chat
+can disclose the owner's memory. In shared rooms, the ordinary recipient
+intersection limits disclosure. A personal assistant's background work without
+a conversation uses its owner as the audience, so private personal automation
+can read and write owner-scoped memory.
+
 Write eligibility mirrors read reachability: a writer may write any scope that
 it can reach itself, while the system writer may write any scope. Both
 `remember` and URL Source registration follow this rule. When the model omits an
@@ -139,6 +147,13 @@ type-owned prefix (`people/`, `companies/`, `concepts/`, and so on), a Markdown
 body, and append-only version snapshots. Concurrent edits coordinate via an
 `expected_content_hash`; if the hash does not match the stored row, the control
 plane rejects the write.
+
+When a Principal is renamed, Brain rewrites its audience scopes and canonical
+home-page wikilinks in current bodies and stored versions in the same control-plane
+transaction. The Markdoc parser identifies these references so code examples,
+link labels and ordinary prose retain their source bytes. Brain refreshes the
+affected content hashes and retrieval chunks; restoring a version uses the
+Principal's current name.
 
 The `agent` page type and `agents/<uid>` slug namespace are reserved exclusively
 for canonical pages of Agent Principals in the current tenant. Only the
@@ -260,7 +275,7 @@ of both RRF contributions. Before cross-encoder reranking, `Ankole.Brain.Recall`
 filters chunk candidates through the caller's two-layer access and disclosure
 boundary and caps candidates at two chunks per page slug so long source pages
 cannot crowd distinct entity pages out of the rerank window. When
-`brain.rerank_model` is configured, the cross-encoder reranks those capped
+`ai_gateway.model_profiles.rerank` is configured, the cross-encoder reranks those capped
 candidates (falling back to the RRF scores if the reranker times out). Recall
 then applies domain scoring adjustments:
 
@@ -360,7 +375,7 @@ provider replay. Compaction checkpoints never reopen opening injection:
 `volunteer_pointers` refreshes on new user input, each new checkpoint refreshes
 its `context_pack` from the original task without mutating earlier stored
 checkpoints, and if a checkpoint lacks a pack, that absence persists until the
-next checkpoint or the daily `04:30` conversation reset.
+next checkpoint, conversation rotation, or explicit conversation reset.
 
 ## Learning
 
@@ -386,8 +401,8 @@ call:
   Facts from the prior revision. If every extracted item fails write validation,
   Brain rolls back the entire transaction without advancing the fingerprint so
   the run retries rather than marking an empty extraction complete. Fetching a
-  `url` Source uses only the Brain maintainer Agent's `web_fetch` profile on the
-  control plane (never dispatching to a Worker): if that profile is unconfigured,
+  `url` Source uses ankole_brain's effective `web_fetch` profile on the
+  control plane as `ankole_brain` (never dispatching to a Worker): if that profile is unconfigured,
   the run fails with `web_fetch_model_not_configured`, and upstream provider
   errors fail with the provider's reason.
 - **OIDC Client Source learning** registers one `kind=oidc_client` Source per
@@ -472,8 +487,8 @@ recording any phase error without halting later phases:
 
    When an expired Take receives a `correct`, `incorrect`, or `partial` verdict,
    grading resolves it in the same transaction via `Claims.resolve_take_in_tx/2`
-   (the same step used by Console resolution, recording the Brain maintainer
-   Agent in `resolved_by` rather than a Human): it sets `resolved_at`,
+   (the same step used by Console resolution, recording `ankole_brain`'s
+   tenant-qualified ActorRef in `resolved_by`): it sets `resolved_at`,
    `resolved_quality`, `resolved_outcome` (`true`, `false`, or `NULL` for
    `partial`), and `resolution_provenance = "dreaming grade"`, and deactivates
    the Take so it enters Brier scorecards immediately. Because resolution is
@@ -563,22 +578,39 @@ All background Brain model calls are stateless, tool-free, and history-free:
 Operator settings are declared under `brain.*` `AppConfigure` keys:
 
 - **Site keys:** `embedding_model` (with dimensions) and `search_tokenizer`.
-- **Tenant keys** (inheriting site defaults when unset): `enabled`,
-  `maintainer_agent_uid`, `rerank_model`, `chunking`, `forgetting`,
-  `soft_delete_retention_hours`, the Dreaming
-  and self-healing cron expressions, `signal_channel_batch_idle_time`,
-  `skill_learning_enabled`, and `skill_learning_reflection_threshold`.
+- **Tenant keys** (inheriting site defaults when unset): `enabled`, `chunking`,
+  `forgetting`, `soft_delete_retention_hours`, the Dreaming and self-healing cron
+  expressions, `signal_channel_batch_idle_time`, `skill_learning_enabled`, and
+  `skill_learning_reflection_threshold`.
 
-Brain delegates model profiles to the configured maintainer Agent (using `light`
-for Signals and Source extraction, `heavy` for Dreaming, and `web_fetch` for URL
-Source learning), so the Brain Console settings page links directly to that
-Agent's model-profile editor rather than duplicating those three selectors.
-Embedding and rerank models remain on the Brain settings page because they serve
-shared retrieval rather than an Agent loop, though every Brain model call
-(including embedding and rerank) executes as and bills usage to the maintainer
-Agent. If the maintainer Agent is disabled, Brain reports unhealthy and halts
-all model calls and control-plane URL fetches until an active Agent is restored
-or selected, while keeping stored pages and lexical recall available.
+Brain model, embedding, and rerank calls execute as the tenant's `ankole_brain`
+system Principal. Extraction uses effective `light`, Dreaming uses effective
+`heavy` with a `primary` fallback, URL Source learning uses effective
+`web_fetch`, and reranking uses effective `rerank`, including Agent-initiated
+recall. Model profiles merge each slot across `ankole_brain -> Pod -> Site`
+before applying cross-slot fallbacks, as documented in [AIGateway](AIGateway.md).
+A Pod configured with only `primary` can run extraction and Dreaming without an
+Agent; embedding, URL fetching, and reranking require specialized configuration.
+Operators edit Brain's overrides in the `ankole_brain` editor on Console
+`/model-profiles`. The Brain settings page links each dependency to that editor.
+
+Embedding uses the Site-level `brain.embedding_model`. Before saving a change
+to its signature (Provider kind, model, or dimensions), the Console asks the
+operator to confirm that self-healing will re-embed content in batches, old
+vectors will be excluded from recall until replaced, and embedding calls will
+incur usage costs. Changing Provider options or switching to another Provider
+of the same kind with the same model and dimensions does not change the
+signature. Confirmation saves the setting normally; signature-aware retrieval
+and self-healing manage the transition.
+
+Every Brain LLM call records usage with origin `brain` and does not consume an
+Agent quota. Embedding and rerank do not write LLM ledger rows. Take grading and
+automatic resolution store `ankole_brain`'s tenant-qualified ActorRef in
+`graded_by` and `resolved_by`. Maintenance writes use the `:system` writer and
+can write every scope. Brain attributes its extracted facts, consolidated Takes,
+timelines, and pattern and calibration body snapshots to `ankole_brain`. Writes
+performed on behalf of a human retain that human's attribution. Model execution
+identity and audit attribution do not change the scope permission rules.
 
 `brain.forgetting` contains the five per-kind half-lives in days. The separate
 `brain.soft_delete_retention_hours` setting controls how long soft-deleted Objects
@@ -590,10 +622,14 @@ changing Pod-administrator permissions.
 
 ## Retrieval index recovery
 
-Brain requires `pg_search` `0.25.11`, which is pinned in the development and
-Compose PostgreSQL images; external PostgreSQL deployments must install and load
+Brain requires `pg_search` `0.26.4`, which is pinned in Ankole's PostgreSQL
+image source; external PostgreSQL deployments must install and load
 that exact extension version (see the
 [database image upgrade procedure](../../tools/devkit/postgres-for-ankole/README.md)).
+Container deployments allocate 1 GiB of shared memory for parallel queries.
+Operators size shared memory and the container memory limit for their query
+concurrency. Prepared BM25 plans preserve bound scope filters while returning
+scored rows across index segments.
 
 PostgreSQL base tables hold all authoritative Brain records, while
 `Ankole.Brain.SearchIndexes` manages BM25 and HNSW index DDL and repairs

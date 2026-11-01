@@ -31,11 +31,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   alias MicrosoftOpenAPI.BotConnector
 
   @spec handle_binding_saved(Binding.t(), map()) :: :ok | {:error, term()}
-  def handle_binding_saved(%Binding{agent_uid: agent_uid, name: binding_name}, _config) do
+  def handle_binding_saved(%Binding{id: binding_id}, _config) do
     case ChannelSync.enqueue_binding(
            Ankole.Plugins.Microsoft365Adapter.Jobs.SyncChannels,
-           agent_uid,
-           binding_name,
+           binding_id,
            reason: "binding_saved",
            source: "signal_binding"
          ) do
@@ -53,8 +52,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
          opts
        ) do
     %{
-      "agent_uid" => String.downcase(context.agent_uid),
-      "binding_name" => context.binding_name,
+      "binding_id" => context.binding_id,
       "conversation_id" => conversation_id,
       "reason" => to_string(Keyword.get(opts, :reason, "event"))
     }
@@ -62,9 +60,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     |> Oban.insert()
   end
 
-  @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def sync_binding(agent_uid, binding_name) do
-    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
+  @spec sync_binding(String.t()) :: {:ok, map()} | {:error, term()}
+  def sync_binding(binding_id) do
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(binding_id),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, team_channels} <- sync_mirrored_teams(context, config),
@@ -78,10 +76,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end
   end
 
-  @spec refresh_conversation(String.t(), String.t(), String.t()) ::
+  @spec refresh_conversation(String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def refresh_conversation(agent_uid, binding_name, conversation_id) do
-    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
+  def refresh_conversation(binding_id, conversation_id) do
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(binding_id),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, mirror} <- mirrored_conversation(conversation_id),
@@ -555,6 +553,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   defp binding_context(binding, config) do
     AdapterContext.new(
+      binding_id: binding.id,
       agent_uid: binding.agent_uid,
       binding_name: binding.name,
       adapter: binding.adapter,

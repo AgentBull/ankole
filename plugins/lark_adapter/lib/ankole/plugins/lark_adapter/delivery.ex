@@ -651,6 +651,14 @@ defmodule Ankole.Plugins.LarkAdapter.Delivery do
     )
   end
 
+  defp text_body(%{delivery_class: :durable_ai_reply, fallback_visible_text: text})
+       when is_binary(text) do
+    %{
+      msg_type: "text",
+      content: Card.text_content(Ankole.Plugins.MarkdownChunks.unescape_plain_tildes(text))
+    }
+  end
+
   defp text_body(%{fallback_visible_text: text}) when is_binary(text) do
     %{msg_type: "text", content: Card.text_content(text)}
   end

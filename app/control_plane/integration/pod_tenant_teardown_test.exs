@@ -15,7 +15,8 @@ defmodule Ankole.Pod.TenantTeardownTest do
   alias Ankole.Pod.BaseRecord
   alias Ankole.Pod.BaseTable
   alias Ankole.Pod.BaseView
-  alias Ankole.Pod.Page
+  alias Ankole.Files.Schemas.Node
+  alias Ankole.Pod.Properties
   alias Ankole.Pod.PageChange
   alias Ankole.Pod.PageContent
   alias Ankole.Pod.PageDailyActivity
@@ -34,7 +35,8 @@ defmodule Ankole.Pod.TenantTeardownTest do
     PageDailyActivity,
     PageChange,
     PageContent,
-    Page
+    Properties,
+    Node
   ]
 
   setup %{tenant: drop} do
@@ -69,14 +71,16 @@ defmodule Ankole.Pod.TenantTeardownTest do
       end)
 
     # A second connection must see the committed rows that teardown will delete.
-    assert Task.async(fn -> Repo.with_tenant(drop.id, fn -> Repo.aggregate(Page, :count) end) end)
+    assert Task.async(fn ->
+             Repo.with_tenant(drop.id, fn -> Repo.aggregate(Properties, :count) end)
+           end)
            |> Task.await() == 3
 
     # Reject a parent deletion while any child remains. A bulk cascade would fail this check.
     Repo.query!("""
     CREATE FUNCTION test_pod_leaf_delete() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
-      IF EXISTS (SELECT 1 FROM pages WHERE tenant_id = OLD.tenant_id AND parent_id = OLD.id) THEN
+      IF EXISTS (SELECT 1 FROM drive_nodes WHERE tenant_id = OLD.tenant_id AND parent_id = OLD.id) THEN
         RAISE EXCEPTION 'page deletion reached a parent before its children';
       END IF;
       RETURN OLD;
@@ -84,14 +88,14 @@ defmodule Ankole.Pod.TenantTeardownTest do
     """)
 
     Repo.query!(
-      "CREATE TRIGGER test_pod_leaf_delete BEFORE DELETE ON pages FOR EACH ROW EXECUTE FUNCTION test_pod_leaf_delete()"
+      "CREATE TRIGGER test_pod_leaf_delete BEFORE DELETE ON drive_nodes FOR EACH ROW EXECUTE FUNCTION test_pod_leaf_delete()"
     )
 
     try do
       assert {:ok, _tenant} = Tenants.delete(drop)
       assert drain(drop.id) == :ok
     after
-      Repo.query!("DROP TRIGGER test_pod_leaf_delete ON pages")
+      Repo.query!("DROP TRIGGER test_pod_leaf_delete ON drive_nodes")
       Repo.query!("DROP FUNCTION test_pod_leaf_delete()")
     end
 
@@ -196,10 +200,14 @@ defmodule Ankole.Pod.TenantTeardownTest do
 
                   {:ok, _} =
                     Ankole.Files.commit(uid, [
-                      %{path: "publish/#{page.id}/#{path}", sha256: blob.sha256, source: "pod"}
+                      Map.merge(blob, %{path: "publish/#{page.id}/#{path}", source: "pod"})
                     ])
 
-                  %{path: path, sha256: blob.sha256}
+                  %{
+                    path: path,
+                    object_id: blob.object_id,
+                    source_path: "publish/#{page.id}/#{path}"
+                  }
                 end
               )
 
@@ -223,12 +231,12 @@ defmodule Ankole.Pod.TenantTeardownTest do
     for path <- ["src/main.tsx", "dist/index.html", "server/main.js"] do
       assert {:error, :not_found} =
                Repo.with_tenant(drop.id, fn ->
-                 Ankole.Files.fetch(:pod, "pages/#{pages[drop.id].id}/#{path}")
+                 Ankole.Pod.Files.fetch_file(pages[drop.id].id, path)
                end)
 
       assert {:ok, _} =
                Repo.with_tenant(keep.id, fn ->
-                 Ankole.Files.fetch(:pod, "pages/#{pages[keep.id].id}/#{path}")
+                 Ankole.Pod.Files.fetch_file(pages[keep.id].id, path)
                end)
     end
   end
@@ -239,7 +247,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
       root_id = Ankole.Ecto.UUIDv7.autogenerate()
 
       page =
-        Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
+        create_page!(%{
           id: root_id,
           acl_anchor_id: root_id,
           type: :doc,
@@ -251,7 +259,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
         })
 
       child =
-        Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
+        create_page!(%{
           parent_id: page.id,
           acl_anchor_id: page.acl_anchor_id,
           type: :doc,
@@ -296,7 +304,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
       })
 
       database =
-        Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
+        create_page!(%{
           parent_id: page.id,
           acl_anchor_id: page.acl_anchor_id,
           type: :base,
@@ -341,6 +349,32 @@ defmodule Ankole.Pod.TenantTeardownTest do
       |> BaseRecord.create_changeset()
       |> Repo.insert!()
     end)
+  end
+
+  defp create_page!(attrs) do
+    {:ok, page} =
+      Repo.transact_top_level(fn ->
+        {:ok, root} = Ankole.Files.Nodes.ensure_public_root_in_tx()
+
+        {:ok, node} =
+          Ankole.Files.Nodes.create_in_tx(%{
+            id: Map.get_lazy(attrs, :id, &Ankole.Ecto.UUIDv7.autogenerate/0),
+            parent_id: Map.get(attrs, :parent_id, root.id),
+            kind: attrs.type,
+            name: attrs.title,
+            created_by: attrs.created_by
+          })
+
+        {:ok, _} =
+          Ankole.Pod.Pages.ensure_properties_in_tx(
+            node.id,
+            Map.take(attrs, [:title, :position, :created_at, :updated_at])
+          )
+
+        Ankole.Pod.Pages.fetch(node.id)
+      end)
+
+    page
   end
 
   defp drain(id) do

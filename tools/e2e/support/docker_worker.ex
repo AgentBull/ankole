@@ -85,6 +85,8 @@ defmodule Ankole.E2E.DockerWorker do
           "--label",
           "ankole.provider=#{provider_id}",
           "--label",
+          "ankole.tenant=#{Repo.tenant_id!()}",
+          "--label",
           "ankole.agent-uid=#{agent_uid}",
           "--label",
           "ankole.generation=#{generation}",
@@ -169,7 +171,7 @@ defmodule Ankole.E2E.DockerWorker do
   def container_name(agent_uid) do
     {:ok, config} = Config.fetch()
 
-    case Repo.get(AgentWorker, agent_uid) do
+    case Repo.get_by(AgentWorker, agent_uid: agent_uid) do
       %AgentWorker{generation: generation} when is_binary(generation) ->
         ProviderKind.instance_name(config.installation, agent_uid, generation)
 
@@ -242,7 +244,7 @@ defmodule Ankole.E2E.DockerWorker do
   name.
   """
   def logs(%{agent_uid: agent_uid}) do
-    case Repo.get(AgentWorker, agent_uid) do
+    case Repo.get_by(AgentWorker, agent_uid: agent_uid) do
       %AgentWorker{generation: generation} when is_binary(generation) ->
         logs(container_name(agent_uid))
 
@@ -331,7 +333,10 @@ defmodule Ankole.E2E.DockerWorker do
     assert "CODEX_SQLITE_HOME=/var/cache/ankole/codex" in env
     assert labels["ankole.agent-uid"] == agent_uid
     assert labels["ankole.worker"] == "1"
-    assert labels["ankole.provider"] == Repo.get!(AgentWorker, agent_uid).provider_id
+
+    assert labels["ankole.provider"] ==
+             Repo.get_by!(AgentWorker, agent_uid: agent_uid).provider_id
+
     assert host_config["RestartPolicy"]["Name"] == "no"
     refute "CAP_SYS_ADMIN" in (host_config["CapAdd"] || [])
     assert "host.docker.internal:host-gateway" in host_config["ExtraHosts"]

@@ -9,6 +9,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
+    tenant_in_primary_key: true,
     domain: Ankole.Conversations,
     extensions: [AshStateMachine]
 
@@ -49,6 +50,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
       public?: true
     )
 
+    attribute(:binding_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:binding_name, :string, primary_key?: true, allow_nil?: false, public?: true)
     attribute(:outbound_key, :string, primary_key?: true, allow_nil?: false, public?: true)
 
@@ -126,6 +128,10 @@ defmodule Ankole.Conversations.Delivery.Intent do
   end
 
   changes do
+    change({Ankole.Conversations.AttachmentReferences.Change, owner: :delivery},
+      on: [:create, :update]
+    )
+
     change(
       fn changeset, _context ->
         Ash.Changeset.filter(changeset,
@@ -135,6 +141,10 @@ defmodule Ankole.Conversations.Delivery.Intent do
       end,
       on: [:update]
     )
+  end
+
+  preparations do
+    prepare({Ankole.Conversations.AttachmentReferences.Preparation, owner: :delivery})
   end
 
   state_machine do
@@ -175,6 +185,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
     create_if_absent :commit do
       accept([
         :agent_uid,
+        :binding_id,
         :binding_name,
         :outbound_key,
         :delivery_class,

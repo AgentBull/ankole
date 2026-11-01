@@ -23,7 +23,7 @@ defmodule Ankole.AuthZ.Dsl do
         name: :authz,
         schema: [
           scope: [
-            type: {:in, [:site_console, :tenant_console, :agent, :pod, :self, :public]},
+            type: {:in, [:site_console, :tenant_console, :agent, :pod, :drive, :self, :public]},
             required: true
           ]
         ],
@@ -43,7 +43,7 @@ defmodule Ankole.AuthZ.Dsl do
               resource: [type: :string],
               action: [type: :string],
               permissions: [type: {:mfa_or_fun, 4}],
-              check: [type: {:in, [:grant, :guardrail, :pod_filter, :public]}, default: :grant]
+              check: [type: {:in, [:grant, :guardrail, :drive_filter, :public]}, default: :grant]
             ]
           }
         ]

@@ -40,18 +40,8 @@ defmodule Ankole.Principals.Access.Actions do
   end
 
   defp action(:restore, args, context) do
-    if args.identity_verified do
-      HumanAccess.restore(
-        args.uid,
-        args.review_fingerprint,
-        actor(context),
-        args.reason,
-        args.operation_id
-      )
-      |> changed(args.uid)
-    else
-      {:error, :identity_review_required}
-    end
+    HumanAccess.restore(args.uid, actor(context), args.reason, args.operation_id)
+    |> changed(args.uid)
   end
 
   defp action(:retry_cleanup, args, _context) do
@@ -87,15 +77,6 @@ defmodule Ankole.Principals.Access.Actions do
     do: Ankole.AuthZ.describe_group_refusal(:last_active_human_admin)
 
   defp describe(:cannot_disable_self), do: {:conflict, "You cannot disable your own access.", []}
-
-  defp describe(:active_restrictions),
-    do: {:conflict, "Clear all verified restrictions before restoring access.", []}
-
-  defp describe(:identity_review_required),
-    do: {:conflict, "Confirm the Human's identity before restoring access.", []}
-
-  defp describe(:permission_review_changed),
-    do: {:conflict, "Permissions changed. Read and approve the current permission review.", []}
 
   defp describe(:provider_recovery_not_verified),
     do:

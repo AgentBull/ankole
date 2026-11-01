@@ -57,14 +57,13 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   # next connection start resolves it again.
   @doc false
   @spec handle_binding_saved(Binding.t(), map()) :: :ok | {:error, term()}
-  def handle_binding_saved(%Binding{agent_uid: agent_uid, name: binding_name}, config)
+  def handle_binding_saved(%Binding{id: binding_id}, config)
       when is_map(config) do
     :ok = BotIdentity.forget(config)
 
     case ChannelSync.enqueue_binding(
            Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups,
-           agent_uid,
-           binding_name,
+           binding_id,
            reason: "binding_saved",
            source: "signal_binding"
          ) do
@@ -78,8 +77,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   defp enqueue_chat_refresh(%AdapterContext{} = context, _config, chat_id, opts)
        when is_binary(chat_id) do
     %{
-      "agent_uid" => String.downcase(context.agent_uid),
-      "binding_name" => context.binding_name,
+      "binding_id" => context.binding_id,
       "chat_id" => chat_id,
       "reason" => to_string(Keyword.get(opts, :reason, "event"))
     }
@@ -114,10 +112,10 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   def maybe_enqueue_missing_channel_refresh(_consumer, _input), do: :ok
 
   @doc false
-  @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def sync_binding(agent_uid, binding_name)
-      when is_binary(agent_uid) and is_binary(binding_name) do
-    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
+  @spec sync_binding(String.t()) :: {:ok, map()} | {:error, term()}
+  def sync_binding(binding_id)
+      when is_binary(binding_id) do
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(binding_id),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          {:ok, chats} <- list_joined_chats(config),
          context <- binding_context(binding, config),
@@ -139,7 +137,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
         {:ok,
          %{
            status: :skipped_binding_disabled,
-           binding: %{agent_uid: String.downcase(agent_uid), binding_name: binding_name}
+           binding: %{id: binding_id}
          }}
 
       {:error, _reason} = error ->
@@ -148,10 +146,10 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   @doc false
-  @spec refresh_chat(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def refresh_chat(agent_uid, binding_name, chat_id)
-      when is_binary(agent_uid) and is_binary(binding_name) and is_binary(chat_id) do
-    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
+  @spec refresh_chat(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def refresh_chat(binding_id, chat_id)
+      when is_binary(binding_id) and is_binary(chat_id) do
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(binding_id),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, chat} <- fetch_chat_info(config, chat_id),
@@ -621,6 +619,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
 
   defp binding_context(%Binding{} = binding, config) do
     AdapterContext.new(
+      binding_id: binding.id,
       agent_uid: binding.agent_uid,
       binding_name: binding.name,
       adapter: binding.adapter,

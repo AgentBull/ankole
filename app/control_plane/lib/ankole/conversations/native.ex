@@ -57,7 +57,8 @@ defmodule Ankole.Conversations.Native do
     if active_human?(actor) do
       Ankole.Principals.list_principals!(
         query: [
-          filter: [type: :agent, status: :active],
+          filter: [type: :agent, status: :active, agent: [type: :ai_colleague]],
+          load: [:agent],
           sort: [display_name: :asc, uid: :asc]
         ]
       )
@@ -194,11 +195,14 @@ defmodule Ankole.Conversations.Native do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
 
     initial_agents =
-      Ankole.Attrs.get(attrs, :agent_uids) || List.wrap(Ankole.Attrs.get(attrs, :agent_uid))
+      ((Ankole.Attrs.get(attrs, :agent_uids) || List.wrap(Ankole.Attrs.get(attrs, :agent_uid))) ++
+         NativeRoom.explicit_agents(attrs))
+      |> Enum.uniq()
 
     invited = Ankole.Attrs.get(attrs, :participant_uids) || []
 
     with :ok <- Repo.require_transaction(),
+         :ok <- Ankole.Files.lock_tree_in_tx(),
          {:ok, id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :conversation_id)),
          {:ok, message_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
          {:ok, mode} <- delivery_mode(Ankole.Attrs.get(attrs, :delivery_mode)),
@@ -321,6 +325,8 @@ defmodule Ankole.Conversations.Native do
   end
 
   def delete_in_tx(actor, id, opts \\ []) do
+    Ankole.Files.lock_tree_in_tx()
+
     with {:ok, id} <- Queries.cast_id(id),
          %Conversation{} <- visible_conversation(actor, id),
          agents = room_agents(id),
@@ -331,6 +337,7 @@ defmodule Ankole.Conversations.Native do
          %Conversation{} = conversation <- visible_conversation(actor, id, lock: true),
          true <- NativeRoom.owner?(actor, conversation),
          :ok <- ensure_idle_or_stop(conversation, agents, opts[:force_stop]),
+         :ok <- Ankole.Files.delete_conversation_root_in_tx(conversation.id),
          {:ok, _} <- Ankole.Ash.destroy(conversation, :remove) do
       {:ok, id}
     else
@@ -377,6 +384,7 @@ defmodule Ankole.Conversations.Native do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
 
     with :ok <- Repo.require_transaction(),
+         :ok <- Ankole.Files.lock_tree_in_tx(),
          {:ok, id} <- Queries.cast_id(id),
          {:ok, message_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
          {:ok, mode} <- delivery_mode(Ankole.Attrs.get(attrs, :delivery_mode)),
@@ -495,8 +503,6 @@ defmodule Ankole.Conversations.Native do
                    event.agent_uid,
                    attachments
                  ),
-               :ok <-
-                 Ankole.Files.reference_contents_in_tx(Enum.map(attachments, & &1["blob_ref"])),
                {:ok, seq} <- Queries.next_sequence_in_tx(conversation) do
             attrs = %{
               id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -616,7 +622,7 @@ defmodule Ankole.Conversations.Native do
   def authorize_page(_uid, nil), do: :ok
 
   def authorize_page(%Ankole.AuthZ.Actor{} = actor, id) do
-    case Ankole.Pod.Pages.authorize(actor, id, "page_view", trash: false) do
+    case Ankole.Files.authorize_node(actor, id, "node_view") do
       {:ok, _} -> :ok
       _ -> {:error, :page_unavailable}
     end
@@ -663,6 +669,15 @@ defmodule Ankole.Conversations.Native do
 
     mentions = NativeQueue.canonical_mentions(Ankole.Attrs.get(input_attrs, :mentions) || [])
     target_uid = Ankole.Attrs.get(input_attrs, :target_agent_uid)
+    answered_interaction_id = Ankole.Attrs.get(input_attrs, :answered_interaction_id)
+
+    rich_content =
+      %{"target_agent_uid" => target_uid}
+      |> then(fn map ->
+        if is_binary(answered_interaction_id) and answered_interaction_id != "",
+          do: Map.put(map, "answered_interaction_id", answered_interaction_id),
+          else: map
+      end)
 
     attachments =
       Ankole.Conversations.Attachments.prepare_native_in_tx(
@@ -692,9 +707,7 @@ defmodule Ankole.Conversations.Native do
         {:error, :conversation_conflict}
 
       nil ->
-        with :ok <-
-               Ankole.Files.reference_contents_in_tx(Enum.map(attachments, & &1["blob_ref"])),
-             {:ok, seq} <- Queries.next_sequence_in_tx(conversation) do
+        with {:ok, seq} <- Queries.next_sequence_in_tx(conversation) do
           attrs = %{
             id: id,
             conversation_id: conversation.id,
@@ -706,7 +719,7 @@ defmodule Ankole.Conversations.Native do
             attachments: attachments,
             links: links,
             mentions: mentions,
-            rich_content: %{"target_agent_uid" => target_uid},
+            rich_content: rich_content,
             origin: :native,
             created_at: DateTime.utc_now(:microsecond)
           }
@@ -745,6 +758,12 @@ defmodule Ankole.Conversations.Native do
 
     data = if optional_reply?, do: Map.put(data, "optional_reply", true), else: data
     data = if mode == "queue", do: Map.put(data, "delivery_mode", mode), else: data
+
+    data =
+      case get_in(message.rich_content || %{}, ["answered_interaction_id"]) do
+        id when is_binary(id) and id != "" -> Map.put(data, "answered_interaction_id", id)
+        _ -> data
+      end
 
     data =
       if message.attachments == [],
@@ -880,6 +899,16 @@ defmodule Ankole.Conversations.Native do
     interactions =
       Ankole.Conversations.Delivery.Interactions.native_interactions(questions ++ cards)
 
+    action_card_messages =
+      Enum.flat_map(details, &Map.get(&1, :messages, []))
+      |> Enum.filter(&is_map(&1.rich_content["action_card"]))
+
+    action_card_states =
+      Ankole.Conversations.ActionCards.native_cards(action_card_messages)
+
+    prepared_action_card_conversations =
+      Ankole.Conversations.ActionCards.prepared_conversation_ids(ids)
+
     job_filter =
       if opts[:history], do: [], else: [status: [in: [:queued, :running, :waiting_on_user]]]
 
@@ -940,6 +969,9 @@ defmodule Ankole.Conversations.Native do
         statuses: Map.new(detail.agents, &{&1.uid, statuses[{&1.uid, session}]}),
         pending_questions: Map.get(grouped_questions, detail.conversation.id, []),
         interaction_states: interactions,
+        action_card_states: action_card_states,
+        has_prepared_action_card?:
+          MapSet.member?(prepared_action_card_conversations, detail.conversation.id),
         linked_jobs: Map.get(grouped_jobs, session, []),
         linked_workflows: Map.get(grouped_workflows, session, []),
         source_signals: sources
@@ -954,7 +986,10 @@ defmodule Ankole.Conversations.Native do
 
     principals =
       Ankole.Principals.list_principals!(
-        query: [filter: [uid: [in: Enum.map(participants, & &1.principal_uid)]]]
+        query: [
+          filter: [uid: [in: Enum.map(participants, & &1.principal_uid)]],
+          load: [agent: :owner_principal]
+        ]
       )
       |> Map.new(&{&1.uid, &1})
 
@@ -1014,9 +1049,9 @@ defmodule Ankole.Conversations.Native do
 
     mention_names =
       Ankole.Principals.list_principals!(
-        query: [filter: [uid: [in: mentioned_uids]], select: [:uid, :display_name]]
+        query: [filter: [uid: [in: mentioned_uids]], load: [agent: :owner_principal]]
       )
-      |> Map.new(&{&1.uid, &1.display_name})
+      |> Map.new(&{&1.uid, Ankole.Principals.display_name(&1)})
 
     {:ok, pages} = Ankole.Pod.Pages.saved_from_conversation(actor, conversation.id)
     saved = Enum.group_by(pages, & &1.saved_from_message_id, &%{id: &1.id, title: &1.title})
@@ -1026,9 +1061,11 @@ defmodule Ankole.Conversations.Native do
       Message
       |> Ash.Query.filter(
         conversation_id == ^conversation.id and seq <= ^conversation.sequence_high_water and
-          not withdrawn and (links != [] or attachments != [] or id in ^saved_message_ids)
+          not withdrawn and
+          (links != [] or exists(attachment_rows, true) or id in ^saved_message_ids)
       )
-      |> Ash.Query.select([:id, :conversation_id, :links, :attachments, :seq])
+      |> Ash.Query.select([:id, :conversation_id, :links, :seq])
+      |> Ash.Query.load(:attachments)
       |> Ash.Query.sort(seq: :asc)
       |> Ankole.Ash.read!()
 
@@ -1050,6 +1087,12 @@ defmodule Ankole.Conversations.Native do
       agents: agents,
       participants: participants,
       member_principals: principals,
+      member_names:
+        Map.new(principals, fn {uid, principal} ->
+          {uid, Ankole.Principals.display_name(principal)}
+        end),
+      callable_agents: NativeRoom.callable_agents(actor, Map.values(principals)),
+      assistant_names: NativeRoom.assistant_names(messages),
       owner?: NativeRoom.owner?(actor, conversation),
       viewer_uid: viewer_uid,
       viewer: Enum.find(participants, &(&1.principal_uid == viewer_uid)),

@@ -4,7 +4,7 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
@@ -79,12 +79,12 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
       })
 
     assert %{
-             "model_profile" => %{
-               "profile" => "kimi",
-               "configured" => true,
-               "description" => "Long-context coding",
-               "provider_id" => "openrouter-custom-console",
-               "model" => "moonshotai/kimi-k2.7-code"
+             "overrides" => %{
+               "kimi" => %{
+                 "description" => "Long-context coding",
+                 "provider_id" => "openrouter-custom-console",
+                 "model" => "moonshotai/kimi-k2.7-code"
+               }
              }
            } = json_response(conn, 200)
 
@@ -93,8 +93,16 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
       |> recycle_api()
       |> send_v2(:get, ~p"/api/v2/agents/#{agent.uid}/model-profiles")
 
-    assert %{"model_profiles" => %{"kimi" => %{"description" => "Long-context coding"}}} =
-             json_response(conn, 200)
+    assert %{
+             "overrides" => %{"kimi" => %{"description" => "Long-context coding"}},
+             "effective" => %{
+               "kimi" => %{
+                 "source" => "agent",
+                 "resolved_from_profile" => "kimi",
+                 "value" => %{"description" => "Long-context coding"}
+               }
+             }
+           } = json_response(conn, 200)
 
     missing_description =
       conn
@@ -136,8 +144,9 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
       |> recycle_api()
       |> send_v2(:delete, ~p"/api/v2/agents/#{agent.uid}/model-profiles/kimi")
 
-    assert %{"model_profile" => %{"profile" => "kimi", "configured" => false}} =
-             json_response(conn, 200)
+    deleted = json_response(conn, 200)
+    refute Map.has_key?(deleted["overrides"], "kimi")
+    refute Map.has_key?(deleted["effective"], "kimi")
   end
 
   test "image profiles reject catalog candidates without definitive endpoints", %{conn: conn} do
@@ -250,10 +259,11 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
       })
 
     assert %{
-             "model_profile" => %{
-               "configured" => true,
-               "model" => "google/gemini-3.1-flash-lite-image",
-               "provider_id" => ^provider_id
+             "overrides" => %{
+               "image_generate" => %{
+                 "model" => "google/gemini-3.1-flash-lite-image",
+                 "provider_id" => ^provider_id
+               }
              }
            } = json_response(conn, 200)
   end
@@ -357,14 +367,14 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
       })
 
     assert %{
-             "model_profile" => %{
-               "profile" => "coding",
-               "configured" => true,
-               "provider_id" => "chatgpt-main",
-               "model" => "gpt-5.6-sol",
-               "provider_options" => %{
-                 "reasoningEffort" => "max",
-                 "serviceTier" => "priority"
+             "overrides" => %{
+               "coding" => %{
+                 "provider_id" => "chatgpt-main",
+                 "model" => "gpt-5.6-sol",
+                 "provider_options" => %{
+                   "reasoningEffort" => "max",
+                   "serviceTier" => "priority"
+                 }
                }
              }
            } = json_response(conn, 200)

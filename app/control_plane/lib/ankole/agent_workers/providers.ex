@@ -151,67 +151,7 @@ defmodule Ankole.AgentWorkers.Providers do
   def select_in_tx(_id), do: {:error, :worker_provider_required}
 
   defp select_provider(provider) do
-    enabled =
-      case ProviderKind.registry()[provider.kind] do
-        %{active?: true, plugin_id: plugin_id} when not is_nil(plugin_id) ->
-          configured_plugins()
-
-        _kind ->
-          {:ok, []}
-      end
-
-    validate_selection(provider, enabled)
-  end
-
-  defp validate_selection(provider, enabled) do
-    with {:ok, _module} <- ProviderKind.fetch(provider.kind),
-         :ok <- ensure_plugin_selected(ProviderKind.registry()[provider.kind].plugin_id, enabled) do
-      {:ok, provider.provider_id}
-    end
-  end
-
-  defp configured_plugins(),
-    do: Ankole.AppConfigure.get_in_tx(Ankole.Plugins.enabled_ids_definition())
-
-  defp ensure_plugin_selected(nil, _enabled), do: :ok
-
-  defp ensure_plugin_selected(plugin_id, {:ok, enabled}) do
-    if plugin_id in enabled,
-      do: :ok,
-      else: {:error, {:worker_provider_plugin_inactive, plugin_id}}
-  end
-
-  defp ensure_plugin_selected(_plugin_id, error), do: error
-
-  @doc """
-  Stops a Plugin selection that removes a Worker kind still in use.
-
-  `Ankole.Plugins.Contracts` calls it in the transaction that writes the enable
-  list. Only a change that removes Worker kinds takes the exclusive registry
-  lock and checks the Worker rows of every tenant.
-  """
-  @spec veto_disable_in_tx([String.t()], [String.t()]) :: :ok | {:error, term()}
-  def veto_disable_in_tx(previous_ids, enabled_ids) do
-    ProviderKind.registry()
-    |> ProviderKind.disabled_kinds(previous_ids, enabled_ids)
-    |> validate_disabled_kinds()
-  end
-
-  defp validate_disabled_kinds(disabled_kinds) when map_size(disabled_kinds) == 0, do: :ok
-
-  defp validate_disabled_kinds(disabled_kinds) do
-    lock_registry(:exclusive)
-    kinds = Map.keys(disabled_kinds)
-    providers = Provider |> Ash.Query.filter(kind in ^kinds) |> Ankole.Ash.read!()
-
-    case AgentWorkers.assigned_worker(Enum.map(providers, & &1.provider_id)) do
-      nil ->
-        :ok
-
-      %AgentWorker{provider_id: id} ->
-        kind = Enum.find_value(providers, &(&1.provider_id == id and &1.kind))
-        {:error, {:worker_provider_plugin_in_use, Map.fetch!(disabled_kinds, kind), id}}
-    end
+    with {:ok, _module} <- ProviderKind.fetch(provider.kind), do: {:ok, provider.provider_id}
   end
 
   def create(attrs) do
@@ -323,16 +263,9 @@ defmodule Ankole.AgentWorkers.Providers do
     |> Map.new(&{&1.agent_uid, &1.provider_id})
   end
 
-  @doc """
-  Gives a function that tells whether a new Agent can select a provider.
-
-  The function reads the enabled Plugins once, so it can check many providers.
-  """
+  @doc "Gives a function that checks whether the provider kind is active in this process."
   @spec selectable_fun() :: (Provider.t() -> boolean())
-  def selectable_fun do
-    enabled = configured_plugins()
-    &match?({:ok, _id}, validate_selection(&1, enabled))
-  end
+  def selectable_fun, do: &match?({:ok, _id}, select_provider(&1))
 
   defp action_input(attrs) when is_map(attrs) do
     attrs = Attrs.normalize_external_attrs(attrs)

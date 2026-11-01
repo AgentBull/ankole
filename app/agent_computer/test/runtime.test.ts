@@ -726,6 +726,30 @@ describe('@ankole/agent-computer runtime', () => {
     }
   })
 
+  it('pushes only a requested prefix and preserves the whole-file ceiling', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-prefix-'))
+    const config = workerConfigForRoot(root)
+    const relay = relayStub({})
+    try {
+      const home = agentHomePaths(config.agentHomeRoot).home
+      mkdirSync(home, { recursive: true })
+      const bytes = Buffer.from('online workspace text\n'.repeat(2000))
+      writeFileSync(join(home, 'large.txt'), bytes)
+      const request = { ...transferRequest(relay, 'prefix', 'large.txt'), maxBytes: 16384n }
+      expect(await pushFile(config, { ...request, prefixBytes: 16384n })).toEqual({ size: 16384 })
+      expect(relay.received.get('/relay/prefix')).toEqual(bytes.subarray(0, 16384))
+      expect(relay.receivedHeaders.get('/relay/prefix')?.get('content-length')).toBe('16384')
+      const rejected = await pushFile(config, request).catch(error => error)
+      expect(rejected.code).toBe('file_too_large')
+      writeFileSync(join(home, 'large.txt'), 'short')
+      expect(await pushFile(config, { ...request, prefixBytes: 16384n })).toEqual({ size: 5 })
+      expect(relay.received.get('/relay/prefix')?.toString()).toBe('short')
+    } finally {
+      relay.stop()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('pushes several worker files as one bundle in request order', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-bundle-'))
     const config = workerConfigForRoot(root)

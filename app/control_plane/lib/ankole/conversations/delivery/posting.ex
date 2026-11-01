@@ -62,6 +62,52 @@ defmodule Ankole.Conversations.Delivery.Posting do
     end
   end
 
+  defp reply_in_tx(
+         %{primary: true} = target,
+         %Statement{completion: %{action_card_prompt: %{} = prompt}} = statement,
+         opts
+       ) do
+    alias Ankole.Conversations.ActionCards
+    alias Ankole.Conversations.Delivery.ActionCardPrompt
+
+    tier =
+      case Ankole.Signals.Bindings.get_binding(target.binding_id) do
+        {:ok, binding} -> ActionCards.channel_tier(binding)
+        _ -> :tier2
+      end
+
+    with {:ok, _card} <-
+           ActionCards.commit_prepared_in_tx(statement.signal, target.conversation_id, prompt) do
+      if tier == :tier3 do
+        text = ActionCardPrompt.tier3_non_interactive_text(prompt, target.conversation_id)
+
+        Delivery.commit_final_reply_in_tx(
+          statement.signal,
+          statement.completion.final_response,
+          text,
+          Keyword.put(opts, :attachment_count, length(statement.completion.attachments))
+        )
+      else
+        with {:ok, intent} <-
+               Delivery.commit_clarify_reply_in_tx(
+                 statement.signal,
+                 statement.completion.final_response,
+                 Statement.text(statement),
+                 prompt["interactive_output"],
+                 opts
+               ),
+             {:ok, _} <-
+               Interactions.open_in_tx(
+                 statement.signal,
+                 intent.payload["reply_presentation"],
+                 statement.now
+               ) do
+          {:ok, [intent]}
+        end
+      end
+    end
+  end
+
   defp reply_in_tx(_target, %Statement{} = statement, opts) do
     if is_binary(Statement.text(statement)) do
       Delivery.commit_final_reply_in_tx(
@@ -76,7 +122,14 @@ defmodule Ankole.Conversations.Delivery.Posting do
   end
 
   defp delivery_target(target, signal) do
-    fields = Map.take(target, [:binding_name, :conversation_id, :provider_thread_id, :primary])
+    fields =
+      Map.take(target, [
+        :binding_id,
+        :binding_name,
+        :conversation_id,
+        :provider_thread_id,
+        :primary
+      ])
 
     key =
       if Ankole.Signals.Signal.scheduled_delivery_snapshot(signal) do

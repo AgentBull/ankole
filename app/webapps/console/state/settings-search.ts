@@ -29,7 +29,7 @@ const TASK_FIELDS: Record<string, readonly string[]> = {
   'brain.chunking': BRAIN_CHUNKING_FIELDS,
   'brain.forgetting': BRAIN_FORGETTING_FIELDS,
   'brain.embedding_model': ['provider_id', 'model', 'dimensions', 'provider_options'],
-  'brain.rerank_model': ['provider_id', 'model', 'provider_options']
+  'ai_gateway.model_profiles.rerank': ['provider_id', 'model', 'provider_options']
 }
 
 function settingFields(item: AppConfigurationItem) {

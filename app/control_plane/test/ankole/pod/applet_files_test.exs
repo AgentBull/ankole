@@ -102,6 +102,59 @@ defmodule Ankole.Pod.AppletFilesTest do
     end
   end
 
+  test "publication source paths retain the executing Agent's conditional authentication context" do
+    owner = human_fixture().principal
+    agent = agent_fixture(%{owner_principal_uid: owner.uid}).principal
+    actor = actor_fixture(agent)
+    rpc_actor = Ankole.AuthZ.Actor.new(agent, authn: %{"surface" => "agent_rpc"})
+
+    {:ok, page} =
+      Pages.create(actor_fixture(owner), %{type: "applet", private_owner_uid: owner.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+        grants: [%{principal_uid: agent.uid, role: "edit"}]
+      })
+
+    manifest =
+      store_manifest(agent.uid, %{
+        "src/main.tsx" => "conditional source",
+        "dist/index.html" => "<head></head>"
+      })
+
+    for file <- manifest do
+      {:ok, source} = Drive.fetch(actor, file.source_path)
+
+      assert :ok =
+               Repo.transact_top_level(fn ->
+                 Drive.lock_tree_in_tx()
+                 {:ok, node} = Drive.fetch_node(source.id)
+
+                 {:ok, _} =
+                   Drive.Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
+
+                 Drive.Access.put_role(
+                   %{principal_uid: agent.uid},
+                   "drive:**:#{source.id}:node",
+                   "view",
+                   %{
+                     condition:
+                       ~s|has(context.request.authn.surface) && context.request.authn.surface == "agent_rpc"|
+                   }
+                 )
+               end)
+
+      assert {:error, :forbidden} = Drive.fetch(actor, file.source_path)
+      assert {:ok, %{object_id: object_id}} = Drive.fetch(rpc_actor, file.source_path)
+      assert object_id == file.object_id
+    end
+
+    assert {:error, :unavailable_content} = Files.publish(actor, page.id, 0, manifest)
+    assert {:ok, %{revision: 0, files: []}} = Files.manifest(actor, page.id)
+    assert {:ok, %{revision: 1}} = Files.publish(rpc_actor, page.id, 0, manifest)
+    assert {:ok, _, "conditional source"} = Files.read(rpc_actor, page.id, "src/main.tsx")
+  end
+
   test "environment is a bounded flat string map" do
     owner = human_fixture().principal
     actor = actor_fixture(owner)
@@ -129,9 +182,9 @@ defmodule Ankole.Pod.AppletFilesTest do
       {:ok, stored} = Drive.store(bytes)
 
       {:ok, _} =
-        Drive.commit(uid, [%{path: "project/" <> path, sha256: stored.sha256, source: "agent"}])
+        Drive.commit(uid, [Map.merge(stored, %{path: "project/" <> path, source: "agent"})])
 
-      %{path: path, sha256: stored.sha256}
+      %{path: path, object_id: stored.object_id, source_path: "project/" <> path}
     end)
   end
 end

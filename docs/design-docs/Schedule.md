@@ -61,7 +61,9 @@ Under [Human Offboarding](HumanOffboarding.md), both `scheduled_events` and
 - Checkbacks inherit authorization from their triggering Signal.
 - Cron rules created in an Agent turn inherit the authenticated turn's work
   authorization. Subsequent fires inherit the rule's stored version.
-- Site Console cron rules run as `service` work under the selected Agent's
+- Personal-assistant work records the owner's Human uid and access version in
+  the work tenant, while the assistant remains the execution and audit subject.
+- Site Console cron rules accept AI colleagues and run as `service` work under the selected Agent's
   permissions. `created_by` records the authenticated administrator for audit.
   The creation action derives the administrator from the authenticated
   Console Principal and supplies the service authorization.
@@ -75,6 +77,14 @@ pauses their active cron rules and cancels pending fires and checkbacks: an
 already admitted fire may finish its current turn, but completing that turn
 cannot schedule another valid fire, and resuming or manually running a rule
 never renews a revoked authorization.
+
+An admitted schedule turn uses the executing Agent's Principal for Drive and
+Pod resource checks. Retained Human authorization controls work admission and
+offboarding independently of those grants. Its private file paths resolve in
+the Agent's private root. Delivery freezes each selected attachment's object in
+the Message or unfinished Delivery relation; a file in a conversation root can
+only be delivered to that conversation, including when a cron fire has multiple
+targets.
 
 ## What PostgreSQL Stores
 
@@ -197,9 +207,9 @@ context rather than the cron Session's internal tool history.
 Editing `payload` or `delivery` closes the rule's active AIGateway conversation
 so the next fire starts a fresh conversation from the updated definition,
 whereas time-only edits keep the conversation open. Deleting or completing a
-rule likewise closes its AIGateway conversation so daily session resets stop
-selecting it; if a fire is already mid-turn when the conversation closes, that
-turn finishes writing into the closed conversation by ID.
+rule likewise closes its AIGateway conversation; if a fire is already mid-turn
+when the conversation closes, that turn finishes writing into the closed
+conversation by ID.
 
 ## Set the Time for One Checkback
 
@@ -329,10 +339,12 @@ Conversation UUIDs (never raw provider room IDs):
   "targets": [
     {
       "binding_name": "lark-primary",
+      "binding_id": "019a2b00-0000-7000-8000-000000000051",
       "conversation_id": "019a2b00-0000-7000-8000-000000000041"
     },
     {
       "binding_name": "lark-record",
+      "binding_id": "019a2b00-0000-7000-8000-000000000052",
       "conversation_id": "019a2b00-0000-7000-8000-000000000042",
       "provider_thread_id": "thread-b"
     }
@@ -341,11 +353,12 @@ Conversation UUIDs (never raw provider room IDs):
 }
 ```
 
-Every target requires `conversation_id`: native Pod targets omit `binding_name`,
-external targets add `binding_name` plus optional `provider_thread_id`, and
-duplicate `(conversation_id, binding_name, provider_thread_id)` tuples are
-rejected. The first entry is the primary target—its `binding_name` (when
-present) must match the rule's Binding, and Schedule copies that primary route
+Every target requires `conversation_id`: native Pod targets omit provider route
+fields, while external targets identify the binding by `binding_id`, carry its
+`binding_name`, and may include `provider_thread_id`. Duplicate
+`(conversation_id, binding_id, provider_thread_id)` tuples are rejected. The
+first entry is the primary target; its binding must match the rule's binding.
+Schedule copies that primary route
 onto `ScheduledEvent` and `Signal` while freezing the full `targets` list inside
 `wake_payload`. Disabling a provider Binding does not block the cron turn from
 executing; each outbound Delivery enforces its own route and error policy after

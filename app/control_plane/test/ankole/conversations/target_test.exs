@@ -7,6 +7,7 @@ defmodule Ankole.Conversations.TargetTest do
   setup do
     %{principal: human} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    binding = Ankole.SignalsFixtures.binding_fixture(agent.uid, "bot", :ignore, adapter: "mock")
 
     Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
 
@@ -32,7 +33,13 @@ defmodule Ankole.Conversations.TargetTest do
         )
       end)
 
-    %{human: human, agent: agent, native: native.conversation, external: external}
+    %{
+      human: human,
+      agent: agent,
+      binding: binding,
+      native: native.conversation,
+      external: external
+    }
   end
 
   test "native delivery requires participation and excludes provider route fields", context do
@@ -43,7 +50,7 @@ defmodule Ankole.Conversations.TargetTest do
 
     assert target.kind == :native
 
-    for field <- [:binding_name, :provider_thread_id] do
+    for field <- [:binding_id, :binding_name, :provider_thread_id] do
       assert {:error, :cron_delivery_route_required} =
                StatementTarget.for_delivery_in_tx(
                  context.agent.uid,
@@ -87,6 +94,7 @@ defmodule Ankole.Conversations.TargetTest do
     assert {:ok, target} =
              StatementTarget.for_delivery_in_tx(context.agent.uid, %{
                "conversation_id" => context.external.id,
+               "binding_id" => context.binding.id,
                "binding_name" => "bot",
                "provider_thread_id" => "thread",
                "primary" => false

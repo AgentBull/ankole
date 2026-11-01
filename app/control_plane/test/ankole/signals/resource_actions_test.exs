@@ -25,9 +25,11 @@ defmodule Ankole.Signals.ResourceActionsTest do
     replacement =
       attrs
       |> Map.take([:agent_uid, :name, :adapter])
+      |> Map.put(:id, original.id)
       |> Map.put(:config_ref, "app-config://second")
 
     assert {:ok, binding} = Ankole.SignalsFixtures.raw_binding_fixture(replacement)
+    assert binding.id == original.id
     assert binding.agent_uid == original.agent_uid
     assert binding.name == original.name
     assert binding.inserted_at == original.inserted_at

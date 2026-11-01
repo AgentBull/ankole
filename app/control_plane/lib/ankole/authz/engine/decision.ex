@@ -5,15 +5,8 @@ defmodule Ankole.AuthZ.Decision do
   alias Ankole.AuthZ.Input
   alias Ankole.Kernel, as: AnkoleKernel
   alias Ankole.Logging
-  alias Ankole.AuthZ.Actor
 
   def authorize(subject, resource, action, context \\ %{})
-
-  def authorize(%Actor{interactive_principal: principal} = actor, resource, action, context)
-      when not is_nil(principal) do
-    with :ok <- authorize(Actor.primary(actor), resource, action, context),
-         do: authorize(Actor.interactive(actor), resource, action, context)
-  end
 
   def authorize(subject, resource, action, context) do
     with {:ok, decision} <- authorize_decision(subject, resource, action, context),
@@ -32,24 +25,41 @@ defmodule Ankole.AuthZ.Decision do
     end
   end
 
-  def evaluate_pod_context(principal_uid, context) do
-    with {:ok, snapshot} <- Snapshot.build_pod_context_snapshot(principal_uid, context),
-         {:ok, evaluated} <- kernel_decision(AnkoleKernel.authz_evaluate_pod_context(snapshot)) do
+  def evaluate_drive_context(principal_uid, context) do
+    with {:ok, snapshot} <- Snapshot.build_drive_context_snapshot(principal_uid, context),
+         {:ok, evaluated} <- kernel_decision(AnkoleKernel.authz_evaluate_drive_context(snapshot)) do
       emit_diagnostics(evaluated)
       {:ok, {snapshot, evaluated}}
     end
   end
 
   def authorize_checks(principal_uid, checks, context) do
-    with {:ok, checks} <- Input.normalize_checks(checks),
-         {:ok, snapshot} <-
-           Snapshot.build_authorization_batch_snapshot(
-             principal_uid,
-             hd(checks)["resource"],
-             checks |> Enum.map(& &1["action"]) |> Enum.uniq(),
-             context
-           ) do
-      evaluate_checks(snapshot, checks)
+    with {:ok, checks} <- Input.normalize_checks(checks) do
+      checks
+      |> Enum.with_index()
+      |> Enum.group_by(fn {check, _} ->
+        String.starts_with?(check["resource"], ["site_console:", "tenant_console:"])
+      end)
+      |> Enum.reduce_while({:ok, []}, fn {_management, entries}, {:ok, results} ->
+        {group, indices} = Enum.unzip(entries)
+
+        with {:ok, snapshot} <-
+               Snapshot.build_authorization_batch_snapshot(
+                 principal_uid,
+                 hd(group)["resource"],
+                 group |> Enum.map(& &1["action"]) |> Enum.uniq(),
+                 context
+               ),
+             {:ok, allowed} <- evaluate_checks(snapshot, group) do
+          {:cont, {:ok, Enum.zip(indices, allowed) ++ results}}
+        else
+          error -> {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, results} -> {:ok, results |> Enum.sort() |> Enum.map(&elem(&1, 1))}
+        error -> error
+      end
     end
   end
 

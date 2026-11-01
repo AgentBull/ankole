@@ -174,12 +174,12 @@ async function home(page: Page, failures = false) {
               {
                 id: 'agent-one',
                 type: 'agent',
-                attributes: { display_name: 'Research Agent', handle: 'research', status: 'active' }
+                attributes: { display_name: 'Research Agent', uid: 'research', status: 'active' }
               },
               {
                 id: 'agent-two',
                 type: 'agent',
-                attributes: { display_name: 'Operations Agent', handle: 'operations', status: 'active' }
+                attributes: { display_name: 'Operations Agent', uid: 'operations', status: 'active' }
               }
             ]
           }

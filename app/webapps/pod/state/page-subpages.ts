@@ -1,3 +1,4 @@
+import { positionOrder } from './page-move'
 import { parseXml } from '@ankole/block-editor/document'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { ChildrenViewPatch, SubpageItem } from '../content-api'
@@ -48,10 +49,6 @@ export function normalizeChildrenView(raw?: Record<string, unknown> | null): Nor
   }
 }
 
-function compareTreeOrder(a: Pick<SubpageItem, 'id' | 'position'>, b: Pick<SubpageItem, 'id' | 'position'>): number {
-  return a.position < b.position ? -1 : a.position > b.position ? 1 : a.id.localeCompare(b.id)
-}
-
 export function sortSubpages<T extends Pick<SubpageItem, 'id' | 'title' | 'position' | 'created_at' | 'updated_at'>>(
   pages: readonly T[],
   sort: SubpageSort,
@@ -64,7 +61,7 @@ export function sortSubpages<T extends Pick<SubpageItem, 'id' | 'title' | 'posit
       const left = (a.title || untitledLabel).trim()
       const right = (b.title || untitledLabel).trim()
       const diff = left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
-      return diff !== 0 ? diff * sign : compareTreeOrder(a, b)
+      return diff !== 0 ? diff * sign : positionOrder(a, b)
     }
     const leftRaw = a[sort.field]
     const rightRaw = b[sort.field]
@@ -72,11 +69,11 @@ export function sortSubpages<T extends Pick<SubpageItem, 'id' | 'title' | 'posit
     const rightTime = rightRaw ? Date.parse(rightRaw) : Number.NaN
     const leftValid = Number.isFinite(leftTime)
     const rightValid = Number.isFinite(rightTime)
-    if (!leftValid && !rightValid) return compareTreeOrder(a, b)
+    if (!leftValid && !rightValid) return positionOrder(a, b)
     if (!leftValid) return 1
     if (!rightValid) return -1
     if (leftTime !== rightTime) return (leftTime < rightTime ? -1 : 1) * sign
-    return compareTreeOrder(a, b)
+    return positionOrder(a, b)
   })
 }
 

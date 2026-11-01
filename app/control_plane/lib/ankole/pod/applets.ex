@@ -2,7 +2,8 @@ defmodule Ankole.Pod.Applets do
   @moduledoc "Published Applet routes, called with the current principal's authority."
 
   alias Ankole.{Files, Repo}
-  alias Ankole.Pod.{Access, Config, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Config, Pages}
   alias Ankole.Pod.Applets.Invocation
 
   @methods ~w(GET POST PUT PATCH DELETE)
@@ -53,7 +54,7 @@ defmodule Ankole.Pod.Applets do
   @doc false
   def published_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, revision) do
     with {:ok, page} <- Pages.lock(page_id, :share),
-         {:ok, _page} <- Access.authorize(actor, page, "page_view", trash: false),
+         {:ok, _page} <- Access.authorize(actor, page, "node_view", trash: false),
          :ok <- applet_type(page),
          :ok <- current_revision(page.revision, revision),
          {:ok, source} <- backend_source(page.id),
@@ -87,8 +88,8 @@ defmodule Ankole.Pod.Applets do
   defp applet_type(_), do: {:error, :not_found}
 
   defp backend_source(id) do
-    with {:ok, file} <- Files.fetch(:pod, Ankole.Pod.Files.prefix(id) <> "/server/main.js"),
-         {:ok, source} <- Files.read_content(Base.encode16(file.sha256, case: :lower)),
+    with {:ok, file} <- Ankole.Pod.Files.fetch_file(id, "server/main.js"),
+         {:ok, source} <- Files.read_object(file.object_id),
          do: {:ok, source},
          else: (
            {:error, :not_found} -> {:error, :route_not_found}
@@ -97,9 +98,9 @@ defmodule Ankole.Pod.Applets do
   end
 
   defp backend_environment(id) do
-    case Files.fetch(:pod, Ankole.Pod.Files.prefix(id) <> "/applet.env.json") do
+    case Ankole.Pod.Files.fetch_file(id, "applet.env.json") do
       {:ok, file} ->
-        with {:ok, bytes} <- Files.read_content(Base.encode16(file.sha256, case: :lower)),
+        with {:ok, bytes} <- Files.read_object(file.object_id),
              do: Torque.decode(bytes)
 
       {:error, :not_found} ->

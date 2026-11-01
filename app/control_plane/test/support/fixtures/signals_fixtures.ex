@@ -4,6 +4,14 @@ defmodule Ankole.SignalsFixtures do
   def delivery_fixture!(attrs) do
     alias Ankole.Conversations.Delivery.Intent
 
+    attrs =
+      Map.put_new_lazy(attrs, :binding_id, fn ->
+        case Ankole.Signals.get_agent_binding!(attrs.agent_uid, attrs.binding_name) do
+          nil -> nil
+          binding -> binding.id
+        end
+      end)
+
     {status, attrs} = Map.pop(attrs, :status, :pending)
     {attempts, attrs} = Map.pop(attrs, :attempt_count, 0)
     {started_at, attrs} = Map.pop(attrs, :platform_send_started_at)
@@ -178,7 +186,11 @@ defmodule Ankole.SignalsFixtures do
   # transaction.
   def emit_addressed_signal(agent_uid, binding_name, entry, now \\ @base_time) do
     assert {:ok, %{status: :accepted, inbound_batch: batch} = observed} =
-             Observe.emit_entry(agent_uid, binding_name, entry, now: now)
+             Observe.emit_entry(
+               Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
+               entry,
+               now: now
+             )
 
     assert {:ok, results} =
              finalize_due_inbound_batch_events(now: batch.available_at)
@@ -230,17 +242,21 @@ defmodule Ankole.SignalsFixtures do
   # Tests that exercise message mechanics default to :create_standalone so an
   # unseeded sender still flows; identity-admission tests pass :manual_review.
   def binding_fixture(agent_uid, name, policy, opts \\ []) do
+    previous = Ankole.Signals.get_agent_binding!(agent_uid, name)
+
+    attrs = %{
+      agent_uid: agent_uid,
+      name: name,
+      adapter: Keyword.get(opts, :adapter, "lark"),
+      config_ref: "app-config://#{name}",
+      filters: Keyword.get(opts, :filters, %{}),
+      unaddressed_group_message_policy: policy,
+      unmatched_sender_policy: Keyword.get(opts, :unmatched_sender_policy, :create_standalone),
+      unavailable_reason: Keyword.get(opts, :unavailable_reason)
+    }
+
     {:ok, binding} =
-      Ankole.SignalsFixtures.raw_binding_fixture(%{
-        agent_uid: agent_uid,
-        name: name,
-        adapter: Keyword.get(opts, :adapter, "lark"),
-        config_ref: "app-config://#{name}",
-        filters: Keyword.get(opts, :filters, %{}),
-        unaddressed_group_message_policy: policy,
-        unmatched_sender_policy: Keyword.get(opts, :unmatched_sender_policy, :create_standalone),
-        unavailable_reason: Keyword.get(opts, :unavailable_reason)
-      })
+      if previous, do: raw_binding_fixture(previous, attrs), else: raw_binding_fixture(attrs)
 
     binding
   end

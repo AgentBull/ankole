@@ -222,7 +222,7 @@ runs the same unit suite inside Docker.
 
 Run `bun run test:integration` for host integration tests, which exercise local
 protocol fixtures alongside real Codex, MCPorter, `apply_patch`, and shell
-processes. The host must provide Codex 0.164.0, MCPorter 0.16.0 running on Bun,
+processes. The host must provide Codex 0.166.0, MCPorter 0.16.0 running on Bun,
 native `apply_patch`, and GNU `stat` (`gstat` on macOS). Set
 `ANKOLE_CODEX_BINARY` to override the local Codex binary. The test runner sets
 `TMPDIR=/tmp` so that Unix socket paths stay short.

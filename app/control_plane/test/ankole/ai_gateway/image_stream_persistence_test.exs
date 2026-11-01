@@ -14,7 +14,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
 

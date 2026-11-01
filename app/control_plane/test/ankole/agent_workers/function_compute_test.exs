@@ -198,7 +198,7 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
   test "list reads every page, filters provider metadata, and queries missing saved references",
        %{provider: provider} do
     %{principal: %{uid: uid}} =
-      agent_fixture(%{handle: @uid, worker_provider_id: provider.provider_id})
+      agent_fixture(%{uid: @uid, worker_provider_id: provider.provider_id})
 
     Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^uid),
       set: [
@@ -213,7 +213,9 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
       ]
     )
 
-    selected = sandbox(provider) |> put_in(["metadata", "ankole-agent"], ProviderKind.hash16(uid))
+    selected =
+      sandbox(provider) |> put_in(["metadata", "ankole-agent"], ProviderKind.agent_hash(uid))
+
     other = put_in(selected["metadata"]["ankole-provider"], "other")
 
     stub(fn conn ->
@@ -265,7 +267,7 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
           uid =
             Repo.with_tenant(tenant_id, fn ->
               %{principal: agent} =
-                agent_fixture(%{handle: @uid, worker_provider_id: provider.provider_id})
+                agent_fixture(%{uid: @uid, worker_provider_id: provider.provider_id})
 
               agent.uid
             end)
@@ -273,7 +275,10 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
           send(self(), {:committed_worker, uid})
 
           selected =
-            sandbox(provider) |> put_in(["metadata", "ankole-agent"], ProviderKind.hash16(uid))
+            Repo.with_tenant(tenant_id, fn ->
+              sandbox(provider)
+              |> put_in(["metadata", "ankole-agent"], ProviderKind.agent_hash(uid))
+            end)
 
           Req.Test.json(conn, [selected])
       end
@@ -288,6 +293,8 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
   test "a later inventory page failure does not return partial orphan observations", %{
     provider: provider
   } do
+    selected = sandbox(provider)
+
     stub(fn conn ->
       assert conn.method == "GET"
       assert_raise Ankole.TenantContextMissing, fn -> Repo.all(AgentWorker) end
@@ -296,7 +303,7 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
         nil ->
           conn
           |> Plug.Conn.put_resp_header("x-next-token", "last")
-          |> Req.Test.json([sandbox(provider)])
+          |> Req.Test.json([selected])
 
         "last" ->
           error(conn, 503)
@@ -705,7 +712,8 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
         fixture("sandbox"),
         "metadata",
         Map.merge(FunctionCompute.labels(provider), %{
-          "ankole-agent" => ProviderKind.hash16(@uid),
+          "ankole-agent" => ProviderKind.agent_hash(@uid),
+          "ankole.tenant" => Repo.tenant_id!(),
           "ankole-generation" => "gen0000001"
         })
       )

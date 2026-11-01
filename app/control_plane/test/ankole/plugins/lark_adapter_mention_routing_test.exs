@@ -145,7 +145,9 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
     test "message receive uses only the runtime bot open_id" do
       config = chat_config(%{"runtimeBotOpenID" => "ou_this_bot"})
 
-      consumer = Inbound.chat_consumer(adapter_context("agentbull"), config)
+      %{principal: agent} = agent_fixture(%{uid: "agentbull"})
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
 
       event =
         receive_event()
@@ -531,6 +533,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
   defp adapter_context(agent_uid) do
     AdapterContext.new(
+      binding_id: Ankole.Signals.get_agent_binding!(agent_uid, "lark").id,
       agent_uid: agent_uid,
       binding_name: "lark",
       adapter: "lark",

@@ -1,12 +1,5 @@
 defmodule Ankole.Conversations.Delivery.Attachment do
-  @moduledoc """
-  Shared contract for `reply_attachment` tool outputs and outbound intent payloads.
-
-  A reply attachment names one file in the Agent's drive: its drive `path` and
-  the SHA-256 digest of its content as `blob_ref`. The control plane keeps the
-  original drive path. `verify_in_drive/2` checks that the Agent's drive
-  still names that content at that path before the intent commits.
-  """
+  @moduledoc "Validates frozen object references produced by reply_attachment and outbound intents."
 
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Files
@@ -17,6 +10,22 @@ defmodule Ankole.Conversations.Delivery.Attachment do
   @type attachment :: %{
           required(String.t()) => String.t() | non_neg_integer()
         }
+
+  @doc "Authorizes the node and snapshots its current immutable object for a delivery effect."
+  def from_node(agent_uid, node_id, opts \\ []) do
+    with {:ok, node} <- Files.authorize_node(agent_uid, node_id, "node_view"),
+         {:ok, object} <- Files.fetch_object(node.object_id) do
+      {:ok,
+       %{
+         "node_id" => node.id,
+         "object_id" => object.id,
+         "path" => Files.file_name(node.name),
+         "name" => Files.file_name(opts[:name] || node.name),
+         "mime_type" => opts[:mime_type] || node.content_type,
+         "size" => object.size
+       }}
+    end
+  end
 
   @doc "Extracts canonical reply attachments from durable Responses content items."
   @spec attachments_from_response_items(term()) :: {:ok, [attachment()]} | {:error, term()}
@@ -39,39 +48,33 @@ defmodule Ankole.Conversations.Delivery.Attachment do
   def normalize_attachment(attachment) do
     with {:ok, attachment} <- JSONPayload.normalize_map(attachment),
          {:ok, path} <- drive_path(attachment),
-         {:ok, blob_ref} <- blob_ref(attachment),
-         {:ok, name} <- required_text(attachment, "name"),
+         {:ok, object_id} <- identifier(attachment, "object_id"),
+         {:ok, node_id} <- identifier(attachment, "node_id"),
+         {:ok, raw_name} <- required_text(attachment, "name"),
          {:ok, size} <- required_non_negative_integer(attachment, "size"),
          {:ok, mime_type} <- optional_text(attachment, "mime_type") do
       {:ok,
-       %{"path" => path, "blob_ref" => blob_ref, "name" => name, "size" => size}
+       %{
+         "path" => path,
+         "object_id" => object_id,
+         "node_id" => node_id,
+         "name" => Files.file_name(raw_name),
+         "size" => size
+       }
        |> Ankole.Attrs.maybe_put("mime_type", mime_type)}
     end
   end
 
-  @doc """
-  Checks that the Agent's drive names each attachment's content at its path.
-
-  Runs inside the caller's transaction, so the check and the intent commit see
-  the same drive.
-  """
+  @doc "Checks the executing Agent can read each node and that it still identifies these bytes."
   @spec verify_in_drive(String.t(), [attachment()]) :: :ok | {:error, term()}
   def verify_in_drive(agent_uid, attachments) when is_binary(agent_uid) do
-    Enum.reduce_while(attachments, :ok, fn %{"path" => path, "blob_ref" => blob_ref}, :ok ->
-      digest = Base.decode16!(blob_ref, case: :lower)
-
-      exists? =
-        Ankole.Files.list_drive_files!(
-          query: [
-            filter: [agent_uid: agent_uid, path: path, sha256: digest],
-            limit: 1,
-            select: [:path]
-          ]
-        ) != []
-
-      if exists?,
-        do: {:cont, :ok},
-        else: {:halt, {:error, {:reply_attachment_not_in_drive, path}}}
+    Enum.reduce_while(attachments, :ok, fn attachment, :ok ->
+      with {:ok, node} <- Files.authorize_node(agent_uid, attachment["node_id"], "node_view"),
+           true <- node.object_id == attachment["object_id"] do
+        {:cont, :ok}
+      else
+        _ -> {:halt, {:error, {:reply_attachment_not_in_drive, attachment["path"]}}}
+      end
     end)
   end
 
@@ -168,23 +171,22 @@ defmodule Ankole.Conversations.Delivery.Attachment do
   end
 
   defp drive_path(attachment) do
-    with {:ok, path} <- required_text(attachment, "path") do
-      case Files.normalize_path(path) do
-        {:ok, path} -> {:ok, path}
-        {:error, _reason} -> {:error, :reply_attachment_path_invalid}
-      end
+    with {:ok, path} <- required_text(attachment, "path"),
+         {:ok, existing} <- Files.normalize_existing_path(path),
+         sanitized = existing |> String.split("/") |> Enum.map_join("/", &Files.file_name/1),
+         {:ok, clean} <- Files.normalize_path(sanitized) do
+      {:ok, clean}
+    else
+      {:error, {:reply_attachment_required_text_blank, _} = reason} -> {:error, reason}
+      {:error, {:reply_attachment_required_text_missing, _} = reason} -> {:error, reason}
+      _ -> {:error, :reply_attachment_path_invalid}
     end
   end
 
-  defp blob_ref(attachment) do
-    case Map.get(attachment, "blob_ref") do
-      <<_::binary-size(64)>> = value ->
-        if value =~ ~r/\A[0-9a-f]{64}\z/,
-          do: {:ok, value},
-          else: {:error, :reply_attachment_blob_ref_invalid}
-
-      _value ->
-        {:error, :reply_attachment_blob_ref_invalid}
+  defp identifier(attachment, key) do
+    case Ecto.UUID.cast(attachment[key]) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, {:reply_attachment_identifier_invalid, key}}
     end
   end
 end

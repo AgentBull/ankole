@@ -71,21 +71,6 @@ export function BrainHealthPage() {
               )}
             </HealthItem>
             <InvalidConfigKeys config={snapshot.config} />
-            <HealthItem label={t('console.settings.brain_maintainer_agent_uid')}>
-              {snapshot.maintainer_agent_uid ? (
-                <AgentLink className="text-sm" hash="model-profiles" uid={snapshot.maintainer_agent_uid} />
-              ) : (
-                <div className="flex flex-wrap items-center gap-3">
-                  <Badge variant="warning">{t('console.brain.maintainer_agent_not_configured')}</Badge>
-                  <Link
-                    className="link text-sm"
-                    to="/settings/group/brain"
-                    search={{ scope: 'tenant', focus: 'brain.maintainer_agent_uid' }}>
-                    {t('console.brain.configure')}
-                  </Link>
-                </div>
-              )}
-            </HealthItem>
           </HealthSection>
 
           <HealthSection title={t('console.brain.health_models')}>
@@ -328,12 +313,6 @@ function healthReasonKey(reason: string) {
       return 'console.brain.health_provider_disabled' as const
     case 'invalid_embedding_model_ref':
       return 'console.brain.health_embedding_model_invalid' as const
-    case 'brain_maintainer_agent_not_configured':
-      return 'console.brain.health_maintainer_agent_not_configured' as const
-    case 'brain_maintainer_agent_disabled':
-      return 'console.brain.health_maintainer_agent_disabled' as const
-    case 'agent_not_found':
-      return 'console.brain.health_maintainer_agent_not_found' as const
     case 'invalid_model_profile':
       return 'console.brain.health_model_profile_invalid' as const
     default:

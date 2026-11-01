@@ -6,6 +6,7 @@ import { startRunCLIBridges } from '../cli/run-cli-bridges'
 import { agentHomePaths } from '../core/agent-home-paths'
 import { materializeAgentLibraryDocuments } from '../core/agent-library-documents'
 import { prepareExecutionMaterials, type PreparedExecutionMaterials } from '../core/execution/execution-materials'
+import { SESSION_CONTEXT_ID_ENV } from '../core/execution/turn_runtime_env'
 import type { ContentPart, WorkerAgentTool } from '../core/types'
 import { imageBytes } from '../common/image-bytes'
 import { Drive } from '../drive/drive'
@@ -60,6 +61,7 @@ type Workspace = {
   closing: boolean
   materials?: PreparedExecutionMaterials
   closeBridge?: () => void
+  updateContextId?: (nextContextId?: string) => void
   closed: Promise<void>
   finish: () => void
 }
@@ -99,7 +101,12 @@ export class Workspaces {
       } else {
         this.touch(old)
         this.drain.track(
-          old.ready.then(() => this.ready(input.run!)).catch(error => this.ready(input.run!, errorMessage(error)))
+          old.ready
+            .then(() => {
+              old.updateContextId?.(input.runtimeEnv[SESSION_CONTEXT_ID_ENV])
+              return this.ready(input.run!)
+            })
+            .catch(error => this.ready(input.run!, errorMessage(error)))
         )
       }
       return
@@ -246,8 +253,16 @@ export class Workspaces {
       runtime: 'main'
     })
     const fetchConfig = fetchRuntimeConfigFromProto(input.fetchRuntimeConfig, 'workspace_open.fetch_runtime_config')
-    const cliBridges = startRunCLIBridges({ drive, rpc, turn: run, workspaceRoot: workspace })
+    const cliBridges = startRunCLIBridges({
+      drive,
+      rpc,
+      turn: run,
+      workspaceRoot: workspace,
+      agentUid: this.config.workerID,
+      initialContextId: input.runtimeEnv[SESSION_CONTEXT_ID_ENV]
+    })
     space.closeBridge = cliBridges.close
+    space.updateContextId = cliBridges.updateContextId
     space.materials = await prepareExecutionMaterials({
       agentHome: paths.home,
       rpc,

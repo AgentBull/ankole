@@ -395,9 +395,43 @@ defmodule Ankole.KernelTest do
     assert decision["deniedAction"] == "write"
   end
 
-  test "o200k_base token estimator is provider-neutral" do
+  test "o200k_base token estimator and truncator are provider-neutral and grapheme-safe" do
     assert NativeKernel.estimate_o200k_base_tokens("Hello world") == 2
     assert NativeKernel.estimate_o200k_base_tokens("记忆系统") == 3
+
+    assert NativeKernel.truncate_o200k_base_tokens("Hello world", 0) == ""
+    assert NativeKernel.truncate_o200k_base_tokens("Hello   ", 10) == "Hello   "
+
+    emoji = String.duplicate("👨‍👩‍👧‍👦", 5)
+    cut = NativeKernel.truncate_o200k_base_tokens(emoji, 8)
+    assert String.valid?(cut)
+    assert NativeKernel.estimate_o200k_base_tokens(cut) <= 8
+    assert Enum.all?(String.graphemes(cut), &(&1 == "👨‍👩‍👧‍👦"))
+
+    assert {:error, "text must be a string"} =
+             NativeKernel.truncate_o200k_base_tokens(<<0xFF>>, 5)
+  end
+
+  test "brain_chunk_text_with_tokens/5 splits text and returns exact o200k_base token counts" do
+    assert NativeKernel.brain_chunk_text_with_tokens("   \n ", 300, 50, 6_000, 1_500) == []
+
+    assert [{"short text", 2}] =
+             NativeKernel.brain_chunk_text_with_tokens("short text", 300, 50, 6_000, 1_500)
+
+    dense = String.duplicate("知识空间中的一段稠密中文内容。", 30)
+    chunks = NativeKernel.brain_chunk_text_with_tokens(dense, 300, 50, 6_000, 60)
+    assert length(chunks) > 1
+
+    for {text, token_count} <- chunks do
+      assert token_count <= 60
+      assert token_count == NativeKernel.estimate_o200k_base_tokens(text)
+    end
+
+    assert {:error, "chunk_size must be positive"} =
+             NativeKernel.brain_chunk_text_with_tokens("hi", 0, 0, 100, 100)
+
+    assert {:error, "chunk_overlap must be less than chunk_size"} =
+             NativeKernel.brain_chunk_text_with_tokens("hi", 10, 10, 100, 100)
   end
 
   test "reciprocal rank fusion combines routes through the native boundary" do

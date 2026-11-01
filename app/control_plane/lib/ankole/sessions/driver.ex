@@ -15,6 +15,7 @@ defmodule Ankole.Sessions.Driver do
       :stream,
       :phase,
       :activity_conversation_id,
+      :worker_cli_context_id,
       activity_tools: [],
       activity_revision: 0,
       activity_state: "active",
@@ -35,8 +36,14 @@ defmodule Ankole.Sessions.Driver do
     do: %{id: {__MODULE__, key}, start: {__MODULE__, :start_link, [args]}, restart: :temporary}
 
   @spec start_link({map(), String.t()}) :: :gen_statem.start_ret()
-  def start_link({key, _tenant_id} = args),
-    do: :gen_statem.start_link({:global, Ankole.Sessions.driver_name(key)}, __MODULE__, args, [])
+  def start_link({key, tenant_id} = args),
+    do:
+      :gen_statem.start_link(
+        {:global, Ankole.Sessions.driver_name(key, tenant_id)},
+        __MODULE__,
+        args,
+        []
+      )
 
   def display_snapshot(key) do
     case Ankole.Sessions.driver_pid(key) do
@@ -232,6 +239,10 @@ defmodule Ankole.Sessions.Driver do
     {%{data | stream: stream, early_stream: []}, actions}
   end
 
+  defp complete(data, {:worker_send, _} = kind, {:ok, {:cli_context_id, context_id, receipt}}) do
+    advance(%{data | worker_cli_context_id: context_id}, {:completed, kind, {:ok, receipt}})
+  end
+
   defp complete(data, kind, result), do: advance(data, {:completed, kind, result})
 
   defp execute(:rebuild, data), do: complete(data, :rebuild, Run.rebuild(data.turn.key))
@@ -266,7 +277,8 @@ defmodule Ankole.Sessions.Driver do
         activity_tools: [],
         activity_revision: 0,
         activity_state: "active",
-        activity_conversation_id: Activity.native_source(run)
+        activity_conversation_id: Activity.native_source(run),
+        worker_cli_context_id: nil
     }
 
     driver = self()
@@ -367,17 +379,21 @@ defmodule Ankole.Sessions.Driver do
   defp execute(:resolve_worker, data),
     do: {Tasks.task(data, :worker_resolve, fn -> Worker.prepare_open(data.turn.run) end), []}
 
-  defp execute({:open_worker, row, message}, data),
-    do: {Tasks.task(data, :worker_open, fn -> Worker.send_open(row, message) end), []}
+  defp execute({:open_worker, row, message}, data) do
+    data = %{data | worker_cli_context_id: Worker.open_cli_context_id(message)}
+    {Tasks.task(data, :worker_open, fn -> Worker.send_open(row, message) end), []}
+  end
 
   defp execute({:check_worker, row}, data),
     do: {Tasks.task(data, :worker_check, fn -> Worker.check(data.turn.run, row) end), []}
 
-  defp execute({:send_tool, run, row, entry}, data),
-    do:
-      {Tasks.task(data, {:worker_send, Run.call_id(entry.call)}, fn ->
-         Worker.send_call(run, row, entry)
-       end), []}
+  defp execute({:send_tool, run, row, entry}, data) do
+    last_context_id = data.worker_cli_context_id
+
+    {Tasks.task(data, {:worker_send, Run.call_id(entry.call)}, fn ->
+       Worker.send_call(run, row, entry, last_context_id)
+     end), []}
+  end
 
   defp execute(:read_worker_sends, data) do
     ids = for {_, {{:worker_send, id}, _}} <- data.tasks, do: id

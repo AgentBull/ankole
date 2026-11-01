@@ -3,7 +3,7 @@
 This directory builds the PostgreSQL 18 development image for Ankole, bundling
 the extensions that Ankole requires:
 
-- `pg_search` 0.25.11 (from the ParadeDB PostgreSQL 18 RPM)
+- `pg_search` 0.26.4 (from the ParadeDB PostgreSQL 18 RPM)
 - `vector` (`pgvector_18`, installed without the optional LLVM JIT package)
 - `pg_trgm` (from PostgreSQL `contrib` in the base image)
 
@@ -16,6 +16,12 @@ override the container `command` or mount a custom `postgresql.conf`, keep
 `pg_search` in `shared_preload_libraries`. Enabling it on a running server
 requires a full PostgreSQL restart rather than a configuration reload.
 
+Parallel searches use PostgreSQL dynamic shared memory. The devkit and Compose
+services allocate 1 GiB at `/dev/shm`; the Helm chart exposes the same capacity
+as `postgresql.sharedMemorySize`. Size this allocation and the container memory
+limit for the deployment's concurrent queries. Docker's default 64 MiB can run
+out even when the underlying database volume has free space.
+
 Build the image locally:
 
 ```sh
@@ -26,7 +32,7 @@ Run it directly with the same password used by the Compose service in the
 devkit:
 
 ```sh
-docker run --rm -p 5433:5432 \
+docker run --rm --shm-size=1g -p 5433:5432 \
   -e POSTGRES_PASSWORD=just4local-dev \
   postgres-for-ankole
 ```
@@ -81,15 +87,17 @@ maintenance window. Then start PostgreSQL with the updated image and run the
 following SQL in the application database:
 
 ```sql
-ALTER EXTENSION pg_search UPDATE TO '0.25.11';
+ALTER EXTENSION pg_search UPDATE TO '0.26.4';
 
 SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
 SELECT * FROM paradedb.version_info();
 ```
 
 Confirm that both the installed extension version and the loaded shared library
-report `0.25.11`. Next, apply Ankole migrations and verify a Brain text recall
-query before restarting the control plane. Text-only BM25 indexes do not need to
-be rebuilt when upgrading to `0.25.11`; if a native index reader fails to open,
-follow the
+report `0.26.4` in every application database before running Ankole or its tests.
+Next, apply Ankole migrations and verify a Brain text recall query before
+restarting the control plane. Ankole stores text in BM25 indexes and vectors in
+pgvector HNSW indexes; the pg_search vector-format rebuild requirement does not
+apply to these indexes. Text-only BM25 indexes remain readable across this
+upgrade. If a native index reader fails to open, follow the
 [index recovery procedure for Brain](../../../docs/design-docs/BrainV3.md#retrieval-index-recovery).

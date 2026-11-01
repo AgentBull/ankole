@@ -6,7 +6,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
   import Ankole.E2E.Harness
   import Ankole.E2E.WaitHelpers
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -51,7 +51,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
              ModelProfiles.resolve_runtime_model_ref(uid, "primary")
 
     assert "image" in modalities
-    worker = Repo.get!(AgentWorker, uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: uid)
     target = AgentWorkers.target(worker)
     assert {:ok, channel} = WorkerRoute.connection_pid(target)
 
@@ -76,7 +76,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     assert {:ok, rejoined} =
              wait_until(deadline(60_000), fn ->
-               current = Repo.get!(AgentWorker, uid)
+               current = Repo.get_by!(AgentWorker, agent_uid: uid)
 
                (current.state == :ready and current.transport_route != worker.transport_route) &&
                  current
@@ -202,7 +202,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                ]) == "started\n"
              end)
 
-    target = AgentWorkers.target(Repo.get!(AgentWorker, uid))
+    target = AgentWorkers.target(Repo.get_by!(AgentWorker, agent_uid: uid))
     assert {:ok, channel} = WorkerRoute.connection_pid(target)
     :erlang.trace(channel, true, [:receive, {:tracer, self()}])
     on_exit(fn -> if Process.alive?(channel), do: :erlang.trace(channel, false, [:receive]) end)
@@ -264,7 +264,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       uid = ctx.agent.uid
       assert {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
       assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
-      worker = Repo.get!(AgentWorker, uid)
+      worker = Repo.get_by!(AgentWorker, agent_uid: uid)
       assert {:ok, channel} = WorkerRoute.connection_pid(AgentWorkers.target(worker))
       ref = pause_worker_boundary!(channel, boundary)
       input = send!(ctx, "b02-b03-#{boundary}", "CHAOS_JOB_CREATE_RECONNECT B02_B03_ONCE")
@@ -281,7 +281,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
       assert {:ok, rejoined} =
                wait_until(deadline(30_000), fn ->
-                 current = Repo.get!(AgentWorker, uid)
+                 current = Repo.get_by!(AgentWorker, agent_uid: uid)
 
                  (current.state == :ready and current.transport_route != worker.transport_route) &&
                    current
@@ -357,7 +357,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     uid = ctx.agent.uid
     assert {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
     assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
-    worker = Repo.get!(AgentWorker, uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: uid)
     target = AgentWorkers.target(worker)
     assert {:ok, channel} = WorkerRoute.connection_pid(target)
     ref = pause_worker_boundary!(channel, :stop)
@@ -382,7 +382,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     assert {:ok, true} =
              wait_until(deadline(15_000), fn ->
-               AgentWorker.available_slots(Repo.get!(AgentWorker, uid)) ==
+               AgentWorker.available_slots(Repo.get_by!(AgentWorker, agent_uid: uid)) ==
                  worker.capacity["max_slots"]
              end)
 
@@ -669,7 +669,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     refute first["digest"] == second["digest"]
 
     endpoints = Enum.map([first, second], &Repo.get!(WebhookEndpoint, &1["id"]))
-    worker = Repo.get!(AgentWorker, ctx.agent.uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
 
     for {endpoint, result} <- Enum.zip(endpoints, [first, second]) do
       assert endpoint.token_digest == result["digest"]

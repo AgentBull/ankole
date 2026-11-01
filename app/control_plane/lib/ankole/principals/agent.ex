@@ -9,6 +9,7 @@ defmodule Ankole.Principals.Agent do
   use Ankole.Ash.Resource,
     authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
+    tenant_in_primary_key: true,
     domain: Ankole.Principals,
     extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
 
@@ -21,11 +22,19 @@ defmodule Ankole.Principals.Agent do
     allow(:console_update, resource: "site_console:agent:{uid}", action: "update")
     allow(:console_delete, resource: "site_console:agent:{uid}", action: "delete")
     allow(:console_enable, resource: "site_console:agent:{uid}", action: "update")
+    allow(:console_rename, resource: "site_console:agent:{uid}", action: "update")
   end
 
   alias Ankole.Principals.AgentConsole
+  @uid_format ~r/\A[a-z0-9][a-z0-9._@+-]{0,95}\z/
+
+  def valid_uid?(uid), do: is_binary(uid) and Regex.match?(@uid_format, uid)
 
   json_api do
+    primary_key do
+      keys([:uid])
+    end
+
     type("agent")
     derive_filter?(false)
     derive_sort?(false)
@@ -33,7 +42,6 @@ defmodule Ankole.Principals.Agent do
     # The primary key names the record in the result of a generic action.
     default_fields([
       :uid,
-      :handle,
       :worker_provider_id,
       :status,
       :display_name,
@@ -52,17 +60,17 @@ defmodule Ankole.Principals.Agent do
     table("agents")
     repo(Ankole.Repo)
     migrate?(false)
-    identity_index_names(handle: "agents_tenant_id_handle_index")
+
+    unique_index_names([{[:owner_principal_uid], "agents_personal_assistant_owner_index"}])
 
     foreign_key_names([
       {:uid, "agents_uid_fkey"},
       {:owner_principal_uid, "agents_owner_principal_uid_fkey"}
     ])
 
-    unique_index_names([{[:handle], "agents_tenant_id_handle_index"}])
-
     check_constraints do
-      check_constraint(:handle, "agents_handle_format")
+      check_constraint(:uid, "agents_uid_agent_home_safe")
+      check_constraint(:group_memory_disclosure_mode, "personal_assistant_strict_memory")
       check_constraint(:role, "agents_role_present")
       check_constraint(:options, "agents_options_object")
       check_constraint(:group_memory_disclosure_mode, "agents_group_memory_disclosure_mode_check")
@@ -76,13 +84,11 @@ defmodule Ankole.Principals.Agent do
       allow_nil?: false
     )
 
-    attribute(:handle, :string, public?: true, allow_nil?: false)
-
     attribute(:type, :atom,
       public?: true,
       allow_nil?: false,
       default: :ai_colleague,
-      constraints: [one_of: [:ai_colleague]]
+      constraints: [one_of: [:ai_colleague, :personal_assistant]]
     )
 
     attribute(:role, :string, public?: true, allow_nil?: false)
@@ -102,10 +108,6 @@ defmodule Ankole.Principals.Agent do
 
     attribute(:created_by, Ankole.Ash.Types.ActorRef, public?: true)
     timestamps(type: :utc_datetime_usec, public?: true)
-  end
-
-  identities do
-    identity(:handle, [:handle])
   end
 
   relationships do
@@ -137,32 +139,32 @@ defmodule Ankole.Principals.Agent do
     )
   end
 
-  changes do
-    change(fn changeset, _context ->
-      case Ash.Changeset.get_attribute(changeset, :handle) do
-        value when is_binary(value) ->
-          Ash.Changeset.change_attribute(changeset, :handle, String.downcase(value))
-
-        _other ->
-          changeset
-      end
-    end)
-  end
-
   validations do
-    validate(match(:handle, ~r/\A[a-z0-9][a-z0-9._-]{0,95}\z/))
+    validate(match(:uid, @uid_format))
   end
 
   actions do
     defaults([:read])
 
+    action :console_rename, :map do
+      constraints(
+        fields: [uid: [type: :string, allow_nil?: false], base_repair_error: [type: :string]]
+      )
+
+      argument(:uid, :string, allow_nil?: false)
+      argument(:new_uid, :string, allow_nil?: false)
+      transaction?(false)
+      run(__MODULE__.Actions)
+    end
+
     read :console_list do
+      filter(expr(type == :ai_colleague))
       prepare(build(sort: [inserted_at: :asc]))
     end
 
     action :console_create, :struct do
       constraints(instance_of: __MODULE__)
-      argument(:handle, :string, allow_nil?: false)
+      argument(:uid, :string, allow_nil?: false)
       argument(:display_name, :string, allow_nil?: false)
       argument(:avatar_url, :string)
       argument(:role, :string, allow_nil?: false)
@@ -179,7 +181,6 @@ defmodule Ankole.Principals.Agent do
     action :console_update, :struct do
       constraints(instance_of: __MODULE__)
       argument(:uid, :string, allow_nil?: false)
-      argument(:handle, :string)
       argument(:display_name, :string)
       argument(:avatar_url, :string)
       argument(:role, :string)
@@ -210,7 +211,6 @@ defmodule Ankole.Principals.Agent do
     create :create_in_tx do
       accept([
         :uid,
-        :handle,
         :type,
         :role,
         :options,
@@ -222,7 +222,6 @@ defmodule Ankole.Principals.Agent do
 
     update :profile_in_tx do
       accept([
-        :handle,
         :type,
         :role,
         :options,

@@ -40,6 +40,27 @@ defmodule Ankole.Sessions.NativeConversationTest do
     %{human: human, agent: agent, id: id, event: event, key: key, detail: detail}
   end
 
+  test "the first message can address a second Agent without taking Principal locks after Session locks",
+       ctx do
+    other = agent_fixture(%{owner_principal_uid: ctx.human.uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(ctx.human.uid, other.uid)
+    id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.human), %{
+               conversation_id: id,
+               agent_uid: ctx.agent.uid,
+               message_id: Ecto.UUID.generate(),
+               text: "Please review this together.",
+               mentions: [%{type: "agent", uid: other.uid}]
+             })
+
+    assert [%{agent_uid: uid}] =
+             Repo.all(from signal in Signal, where: signal.conversation_id == ^id)
+
+    assert uid == other.uid
+  end
+
   test "native input has the Human's authority and starts without an IM route", context do
     assert Ankole.Sessions.status(context.key).state == :queued
     run = prepare(context)
@@ -428,17 +449,6 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert_no_adapter_rows()
   end
 
-  test "native model conversations are not daily-reset candidates", context do
-    run = prepare(context)
-
-    assert {:ok, %{due_sessions: 0, signals: []}} =
-             Ankole.Sessions.SessionReset.enqueue_daily_session_resets(
-               DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
-             )
-
-    assert run.conversation.conversation_key == context.key.session_id
-  end
-
   test "inbox authorization publishes a suspended follow-up notice after commit", context do
     prepare(context)
     assert_receive {:session_event, _, _, :status}
@@ -512,7 +522,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
              )
 
     assert Ankole.Sessions.Main.instructions(run) =~
-             "deliver it with reply_attachment using drive_path"
+             "deliver it with reply_attachment using node_id"
   end
 
   test "attachment-only completion commits a native message through the real run owner",
@@ -579,7 +589,8 @@ defmodule Ankole.Sessions.NativeConversationTest do
   test "native attachment ownership failure rolls back the message", context do
     attachment = %{
       "path" => "sent/missing.pdf",
-      "blob_ref" => String.duplicate("0", 64),
+      "object_id" => Ecto.UUID.generate(),
+      "node_id" => Ecto.UUID.generate(),
       "name" => "missing.pdf",
       "size" => 4,
       "mime_type" => "application/pdf"
@@ -654,10 +665,10 @@ defmodule Ankole.Sessions.NativeConversationTest do
     parent = prepare(context)
 
     assert {:ok, heavy} =
-             Ankole.AIAgent.ModelProfiles.get_model_profile(context.agent.uid, "heavy")
+             Ankole.AIGateway.ModelProfiles.get_model_profile(context.agent.uid, "heavy")
 
     assert {:ok, _} =
-             Ankole.AIAgent.ModelProfiles.put_model_profile(context.agent.uid, "coding", %{
+             Ankole.AIGateway.ModelProfiles.put_model_profile(context.agent.uid, "coding", %{
                provider_id: heavy["provider_id"],
                model: heavy["model"]
              })
@@ -767,7 +778,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
     provider_ids =
       Enum.map([context.agent.uid, colleague.uid], fn uid ->
         {:ok, %{"provider_id" => provider_id}} =
-          Ankole.AIAgent.ModelProfiles.get_model_profile(uid, "primary")
+          Ankole.AIGateway.ModelProfiles.get_model_profile(uid, "primary")
 
         provider_id
       end)

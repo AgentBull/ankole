@@ -48,7 +48,7 @@ defmodule Ankole.Sessions.Main do
         else: opts
 
     if profile && profile != "primary" do
-      case Ankole.AIAgent.ModelProfiles.get_custom_model_profile(
+      case Ankole.AIGateway.ModelProfiles.get_custom_model_profile(
              event.agent_uid,
              profile
            ) do

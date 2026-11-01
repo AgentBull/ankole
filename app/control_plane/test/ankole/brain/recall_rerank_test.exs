@@ -35,10 +35,8 @@ defmodule Ankole.Brain.RecallRerankTest do
                credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "test-key"}]}
              })
 
-    assert {:ok, _} = AppConfigure.put_global_by_key("brain.maintainer_agent_uid", agent.uid)
-
     assert {:ok, _} =
-             AppConfigure.put_global_by_key("brain.rerank_model", %{
+             AppConfigure.put_global_by_key("ai_gateway.model_profiles.rerank", %{
                "provider_id" => "brain-rerank-options",
                "model" => "jina-reranker-v3",
                "provider_options" => %{"return_documents" => false}
@@ -111,10 +109,8 @@ defmodule Ankole.Brain.RecallRerankTest do
                credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "test-key"}]}
              })
 
-    assert {:ok, _} = AppConfigure.put_global_by_key("brain.maintainer_agent_uid", agent.uid)
-
     assert {:ok, _} =
-             AppConfigure.put_global_by_key("brain.rerank_model", %{
+             AppConfigure.put_global_by_key("ai_gateway.model_profiles.rerank", %{
                "provider_id" => "brain-rerank-cap",
                "model" => "jina-reranker-v3"
              })

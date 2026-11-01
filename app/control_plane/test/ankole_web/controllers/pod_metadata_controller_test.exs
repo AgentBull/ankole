@@ -48,6 +48,15 @@ defmodule AnkoleWeb.PodMetadataControllerTest do
       |> get("/api/v2/pod/metadata/files/content", %{path: stored})
 
     assert response(downloaded, 200) == bytes
+
+    ranged =
+      downloaded
+      |> recycle_api()
+      |> put_req_header("range", "bytes=8-15")
+      |> get("/api/v2/pod/metadata/files/content", %{path: stored})
+
+    assert response(ranged, 206) == binary_part(bytes, 8, 8)
+    assert get_resp_header(ranged, "content-range") == ["bytes 8-15/64"]
   end
 
   test "serves pictures to image tags that prove their session by reference", %{conn: conn} do

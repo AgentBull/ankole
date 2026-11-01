@@ -1,9 +1,11 @@
 defmodule Ankole.Pod.Pages.Collaborators do
   @moduledoc "Owns collaborator catalogs and visibility shared by mentions and sharing."
   import Bitwise
+  require Ash.Expr
   require Ash.Query
   alias Ankole.{AuthZ, Repo, Tenants}
-  alias Ankole.Pod.{Access, Page, PageContent, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Page, PageContent, Pages}
 
   def current_space_name do
     case Tenants.get(Repo.tenant_id!()) do
@@ -38,19 +40,7 @@ defmodule Ankole.Pod.Pages.Collaborators do
     {containers, own} = Access.visibility_ids(reachable)
     visible_anchor_ids = MapSet.union(MapSet.new(containers), MapSet.new(own))
 
-    anchors =
-      Page
-      |> Ash.Query.filter(is_acl_anchor == true and is_nil(deleted_at))
-      |> Ash.Query.select([
-        :id,
-        :parent_anchor_id,
-        :inherit_permissions,
-        :private_owner_uid,
-        :acl_anchor_id,
-        :is_acl_anchor
-      ])
-      |> Ankole.Ash.read!()
-      |> Map.new(&{&1.id, &1})
+    anchors = Ankole.Files.acl_anchor_nodes() |> Map.new(&{&1.id, &1})
 
     private_anchor_ids =
       MapSet.new(
@@ -79,7 +69,7 @@ defmodule Ankole.Pod.Pages.Collaborators do
 
     grants =
       Access.grants(
-        target_page_id: [is_nil: false],
+        target_node_id: [is_nil: false],
         principal_uid: [is_nil: false],
         action: [in: Access.page_actions()]
       )
@@ -90,8 +80,8 @@ defmodule Ankole.Pod.Pages.Collaborators do
           acc
         else
           direct =
-            if MapSet.member?(visible_anchor_ids, grant.target_page_id) do
-              case Map.get(anchors, grant.target_page_id) do
+            if MapSet.member?(visible_anchor_ids, grant.target_node_id) do
+              case Map.get(anchors, grant.target_node_id) do
                 nil -> []
                 anchor -> [anchor]
               end
@@ -101,7 +91,7 @@ defmodule Ankole.Pod.Pages.Collaborators do
 
           inherited =
             if (grant.target_scope || "container") != "self" do
-              Map.get(inherited_visible_by_ancestor, grant.target_page_id, [])
+              Map.get(inherited_visible_by_ancestor, grant.target_node_id, [])
             else
               []
             end
@@ -199,7 +189,7 @@ defmodule Ankole.Pod.Pages.Collaborators do
 
   defp unconditional_view_on_visible?(principal, grant_entries, private_anchor_ids) do
     Enum.any?(grant_entries, fn {grant, reached} ->
-      grant.action == "page_view" and grant.condition == "true" and
+      grant.action == "node_view" and grant.condition == "true" and
         Enum.any?(reached, fn anchor ->
           not (principal.membership == :guest and MapSet.member?(private_anchor_ids, anchor.id))
         end)
@@ -211,7 +201,7 @@ defmodule Ankole.Pod.Pages.Collaborators do
     with {:ok, id} <- Ecto.UUID.cast(context_page_id),
          {:ok, %Page{} = page} <- Pages.fetch(id),
          :ok <-
-           Access.authorize_reachable(page, "page_view", reachable)
+           Access.authorize_reachable(page, "node_view", reachable)
            |> elem(0)
            |> then(&if(&1 == :ok, do: :ok, else: :error)) do
       content =
@@ -220,14 +210,16 @@ defmodule Ankole.Pod.Pages.Collaborators do
         |> Ash.Query.select([:page_id, :updated_by, :contributors])
         |> Ankole.Ash.read_one!()
 
-      contributor_uids =
-        if content do
-          [page.created_by.uid, content.updated_by.uid | Enum.map(content.contributors, & &1.uid)]
-        else
-          [page.created_by.uid]
-        end
+      contributors =
+        if content,
+          do: [page.created_by, content.updated_by | content.contributors],
+          else: [page.created_by]
 
-      Enum.reduce(contributor_uids, uids, &MapSet.put(&2, &1))
+      tenant_id = Repo.tenant_id!()
+
+      contributors
+      |> Enum.filter(&(&1.tenant_id == tenant_id))
+      |> Enum.reduce(uids, &MapSet.put(&2, &1.uid))
     else
       _ -> uids
     end
@@ -294,7 +286,11 @@ defmodule Ankole.Pod.Pages.Collaborators do
     principals =
       Ankole.Principals.list_principals!(
         query: [
-          filter: [status: :active, type: [in: [:human, :agent]]],
+          filter:
+            Ash.Expr.expr(
+              status == :active and
+                (type == :human or (type == :agent and agent.type == :ai_colleague))
+            ),
           load: [:human_user, :agent],
           sort: [uid: :asc]
         ]
@@ -313,19 +309,12 @@ defmodule Ankole.Pod.Pages.Collaborators do
 
   @doc false
   def principal_subject(principal) do
-    name =
-      case principal.display_name do
-        value when is_binary(value) ->
-          if String.trim(value) == "", do: principal.uid, else: value
-
-        _ ->
-          principal.uid
-      end
+    name = Ankole.Principals.display_name(principal)
 
     subtitle =
       case principal.type do
         :human -> principal.human_user && principal.human_user.email
-        :agent -> principal.agent && "@" <> principal.agent.handle
+        :agent -> "@" <> principal.uid
       end
 
     %{

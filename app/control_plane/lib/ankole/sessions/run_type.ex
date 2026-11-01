@@ -55,7 +55,7 @@ defmodule Ankole.Sessions.RunType do
 
       def repair(run, text) do
         if String.trim(text) == "" and not run.visible_delivery? do
-          {"You ended your turn with no visible output. This turn was started by an event that requires one, and this turn cannot complete without it: nothing you did reaches the user unless the turn ends with final reply text, a clarify question, or a reply_attachment delivery.\nEnd the turn now with a short final reply. If you already delivered the result through reply_attachment or a generated image, reply with one short closing line. If you are blocked, state plainly what blocked you and what you need.",
+          {"You ended your turn with no visible output. This turn was started by an event that requires one, and this turn cannot complete without it: nothing you did reaches the user unless the turn ends with final reply text, a clarify question, a propose_action_card card, or a reply_attachment delivery.\nEnd the turn now with a short final reply. If you already delivered the result through reply_attachment or a generated image, reply with one short closing line. If you are blocked, state plainly what blocked you and what you need.",
            run}
         end
       end

@@ -34,7 +34,7 @@ defmodule Ankole.AIGateway.Tokens do
       kind: "agent",
       sub: agent_uid,
       scopes: [@scope],
-      claims: %{"token_use" => @token_use}
+      claims: %{"token_use" => @token_use, "tenant_id" => Ankole.Repo.tenant_id!()}
     }
 
     with {:ok, result} <-
@@ -65,7 +65,8 @@ defmodule Ankole.AIGateway.Tokens do
     with :ok <- require_claim(claims, "token_use", @token_use),
          :ok <- require_claim(claims, "scope", @scope),
          :ok <- require_claim(claims, "subject_type", "agent"),
-         %{"sub" => sub} <- claims,
+         %{"sub" => sub, "tenant_id" => tenant_id} <- claims,
+         {:ok, _} <- Ecto.UUID.cast(tenant_id),
          true <- is_binary(sub) and sub != "" do
       {:ok, claims}
     else

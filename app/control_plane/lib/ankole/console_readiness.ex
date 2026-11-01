@@ -29,12 +29,13 @@ defmodule Ankole.ConsoleReadiness do
     resource(Ankole.ConsoleReadiness.ConsoleOperations)
   end
 
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Principals
 
   alias Ankole.AgentWorkers
 
-  @required_profiles ~w(primary light heavy)
+  @required_profiles ~w(primary)
   @total_core_steps 4
 
   @doc """
@@ -48,7 +49,7 @@ defmodule Ankole.ConsoleReadiness do
     target = select_target_agent(active_agents, ready_provider_ids)
     missing_profiles = missing_profiles(target, ready_provider_ids)
     agent_complete = valid_agent?(target)
-    profiles_complete = agent_complete and missing_profiles == []
+    profiles_complete = missing_profiles == []
     ready_worker_count = Enum.count(Ankole.AgentWorkers.list(), &(&1.state == :ready))
     # A Worker runs only while its Agent needs one, so the step checks that
     # the default provider accepts requests.
@@ -114,23 +115,28 @@ defmodule Ankole.ConsoleReadiness do
 
   defp valid_agent?(_agent), do: false
 
-  defp missing_profiles(%{agent: agent}, ready_provider_ids) do
-    models = get_in(agent.options || %{}, ["ai_agent", "models"]) || %{}
-
-    Enum.reject(@required_profiles, fn profile ->
-      case Map.get(models, profile) do
-        %{} = value ->
-          present?(Map.get(value, "model")) and
-            present?(Map.get(value, "provider_id")) and
-            MapSet.member?(ready_provider_ids, Map.get(value, "provider_id"))
-
-        _value ->
-          false
-      end
-    end)
+  defp missing_profiles(%{principal: %{uid: agent_uid}}, ready_provider_ids) do
+    case ModelProfiles.get_model_profile(agent_uid, "primary") do
+      {:ok, profile} -> missing_profile(profile, ready_provider_ids)
+      {:error, _reason} -> @required_profiles
+    end
   end
 
-  defp missing_profiles(_agent, _ready_provider_ids), do: @required_profiles
+  defp missing_profiles(_agent, ready_provider_ids) do
+    with {:ok, configuration} <- ModelProfiles.defaults_model_profile_configuration(:tenant),
+         %{value: %{} = profile} <- get_in(configuration, [:effective, "primary"]) do
+      missing_profile(profile, ready_provider_ids)
+    else
+      _not_ready -> @required_profiles
+    end
+  end
+
+  defp missing_profile(profile, ready_provider_ids) do
+    if present?(profile["model"]) and present?(profile["provider_id"]) and
+         MapSet.member?(ready_provider_ids, profile["provider_id"]),
+       do: [],
+       else: @required_profiles
+  end
 
   defp agent_uid(%{principal: principal}), do: principal.uid
   defp agent_uid(_agent), do: nil

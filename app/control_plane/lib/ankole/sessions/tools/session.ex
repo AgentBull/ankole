@@ -179,6 +179,93 @@ defmodule Ankole.Sessions.Tools.Session do
                   "execution_mode": "parallel",
                   "read_only": true,
                   "destructive": false
+                },
+                {
+                  "type": "function",
+                  "name": "propose_action_card",
+                  "activity": "action_card_prepare",
+                  "receipt": "none",
+                  "visible_delivery": true,
+                  "description": "Draft a privilege-escalated Action Card when you lack permission to perform a sensitive workspace operation directly (such as updating page/file sharing, moving a page/file to trash, restoring from trash, deleting a Base table, or adding participants to a Pod native room).\nThe card snapshots current CAS preconditions and renders Confirm & Execute / Cancel controls so an authorized human can execute it with their own permissions.\nOn success it records the prepared card and ends the current turn; when an authorized human confirms it, you receive an [Action Card Executed] wakeup.",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "action_kind": {
+                        "type": "string",
+                        "enum": [
+                          "pod.page.set_sharing",
+                          "pod.page.delete",
+                          "pod.page.restore",
+                          "pod.base.delete_table",
+                          "conversation.add_participants"
+                        ],
+                        "description": "Closed action kind to propose."
+                      },
+                      "summary": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500,
+                        "description": "Concise human-readable explanation of what will change and why."
+                      },
+                      "node_id": {
+                        "type": "string",
+                        "description": "Target Drive/Pod node UUID (required for pod.page.set_sharing, pod.page.delete, pod.page.restore)."
+                      },
+                      "page_id": {
+                        "type": "string",
+                        "description": "Optional owning Base page UUID for pod.base.delete_table."
+                      },
+                      "table_id": {
+                        "type": "string",
+                        "description": "Target Base table UUID (required for pod.base.delete_table)."
+                      },
+                      "inherit_permissions": {
+                        "type": "boolean",
+                        "description": "Whether the node inherits parent permissions (optional for pod.page.set_sharing)."
+                      },
+                      "grants": {
+                        "type": "array",
+                        "description": "Full replacement grant list for pod.page.set_sharing.",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "principal_uid": {
+                              "type": "string"
+                            },
+                            "group_id": {
+                              "type": "string"
+                            },
+                            "role": {
+                              "type": "string",
+                              "enum": ["view", "contribute", "edit", "manage"]
+                            },
+                            "target_scope": {
+                              "type": "string",
+                              "enum": ["container", "self"]
+                            }
+                          },
+                          "required": ["role"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "participant_uids": {
+                        "type": "array",
+                        "description": "Principal UIDs to add to the current Pod native room (required for conversation.add_participants; rejected on external IM channels).",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "action_kind",
+                      "summary"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "execution_mode": "sequential",
+                  "read_only": false,
+                  "destructive": false
                 }
                 ]
                 """)
@@ -189,6 +276,7 @@ defmodule Ankole.Sessions.Tools.Session do
     Enum.reject(@declarations, fn tool ->
       case tool["name"] do
         "read_channel_history" -> is_nil(run.event.conversation_id)
+        "propose_action_card" -> is_nil(run.event.conversation_id)
         "set_channel_standing_orders" -> not standing_orders_available?(run.event)
         _ -> false
       end
@@ -248,6 +336,10 @@ defmodule Ankole.Sessions.Tools.Session do
           end)
         ),
       else: args
+  end
+
+  def normalize("propose_action_card", args) when is_map(args) do
+    Map.update(args, "summary", nil, &trim/1)
   end
 
   def normalize(_name, args), do: args
@@ -315,6 +407,13 @@ defmodule Ankole.Sessions.Tools.Session do
        %{"tool" => "clarify", "ok" => true, "question" => args["question"], "choices" => choices},
        terminate: true
      )}
+  end
+
+  def execute(run, %{"name" => "propose_action_card"} = call, args) do
+    case Ankole.Conversations.ActionCards.prepare_draft(run, call, args) do
+      {:ok, draft} -> {:ok, Tools.result(draft, terminate: true)}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @impl true

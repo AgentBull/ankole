@@ -153,6 +153,18 @@ defmodule Ankole.Conversations.Queries do
     end
   end
 
+  @doc "Returns the conversations in which any of the given Principals currently participates."
+  def participating_ids(uid_or_uids) do
+    uids = List.wrap(uid_or_uids)
+
+    with {:ok, rows} <-
+           Ankole.Conversations.Participant
+           |> Ash.Query.filter(principal_uid in ^uids)
+           |> Ash.Query.select([:conversation_id])
+           |> Ankole.Ash.read(),
+         do: {:ok, rows |> Enum.map(& &1.conversation_id) |> Enum.uniq()}
+  end
+
   @doc false
   def ids_for_agent_in_tx(uid) do
     uid
@@ -164,13 +176,20 @@ defmodule Ankole.Conversations.Queries do
 
   @doc false
   def delete_for_agent_in_tx(uid) do
-    case uid
-         |> native_conversations_of_agent()
-         |> Ash.Query.filter(room_mode == :dm)
-         |> Ankole.Ash.destroy_where(:remove) do
-      {:ok, _conversations} -> :ok
-      {:error, _} = error -> error
-    end
+    Ankole.Files.lock_tree_in_tx()
+
+    uid
+    |> native_conversations_of_agent()
+    |> Ash.Query.filter(room_mode == :dm)
+    |> Ankole.Ash.read!()
+    |> Enum.reduce_while(:ok, fn conversation, :ok ->
+      with :ok <- Ankole.Files.delete_conversation_root_in_tx(conversation.id),
+           {:ok, _} <- Ankole.Ash.destroy(conversation, :remove) do
+        {:cont, :ok}
+      else
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp native_conversations_of_agent(uid) do
@@ -232,6 +251,49 @@ defmodule Ankole.Conversations.Queries do
     Message
     |> Ash.Query.filter(id == ^id and conversation_id == ^conversation_id)
     |> Ankole.Ash.read_one!()
+  end
+
+  @doc "Returns recent non-withdrawn room messages and their quoted reply targets for a wake briefing."
+  def wake_briefing_messages(conversation_id, agent_uid, max_seq, excluded_ids, limit)
+      when is_binary(conversation_id) and is_binary(agent_uid) and is_integer(max_seq) and
+             is_list(excluded_ids) and is_integer(limit) and limit > 0 do
+    messages =
+      Message
+      |> Ash.Query.filter(
+        conversation_id == ^conversation_id and seq <= ^max_seq and not withdrawn and
+          id not in ^excluded_ids and
+          not exists(
+            Signal,
+            message_id == parent(id) and conversation_id == ^conversation_id and
+              producer == :kernel and type == ^@addressed and agent_uid == ^agent_uid and
+              status in [:queued, :running] and is_nil(last_attempt_at)
+          )
+      )
+      |> Ash.Query.sort(seq: :desc)
+      |> Ash.Query.limit(limit)
+      |> Ankole.Ash.read!()
+      |> Enum.reverse()
+
+    reply_ids =
+      messages
+      |> Enum.map(& &1.reply_to_message_id)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    replies_by_id =
+      if reply_ids == [] do
+        %{}
+      else
+        Message
+        |> Ash.Query.filter(
+          conversation_id == ^conversation_id and id in ^reply_ids and not withdrawn
+        )
+        |> Ash.Query.select([:id, :author_display_name, :author_uid, :text])
+        |> Ankole.Ash.read!()
+        |> Map.new(&{&1.id, &1})
+      end
+
+    {messages, replies_by_id}
   end
 
   def cast_id(id) do

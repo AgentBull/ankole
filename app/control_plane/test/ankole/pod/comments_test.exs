@@ -524,20 +524,20 @@ defmodule Ankole.Pod.CommentsTest do
     edit_only = human_fixture(%{display_name: "Custom Editor"}).principal |> actor_fixture()
     manage_only = human_fixture(%{display_name: "Custom Manager"}).principal |> actor_fixture()
 
-    for action <- ["page_view", "page_edit"] do
+    for action <- ["node_view", "node_edit"] do
       {:ok, _} =
         Ankole.AuthZ.create_permission_grant(%{
           principal_uid: edit_only.principal.uid,
-          resource_pattern: "pod:**:#{ctx.page.id}:page",
+          resource_pattern: "drive:**:#{ctx.page.id}:node",
           action: action
         })
     end
 
-    for action <- ["page_view", "page_manage"] do
+    for action <- ["node_view", "node_manage"] do
       {:ok, _} =
         Ankole.AuthZ.create_permission_grant(%{
           principal_uid: manage_only.principal.uid,
-          resource_pattern: "pod:**:#{ctx.page.id}:page",
+          resource_pattern: "drive:**:#{ctx.page.id}:node",
           action: action
         })
     end
@@ -545,7 +545,7 @@ defmodule Ankole.Pod.CommentsTest do
     {:ok, %{comment: root}} =
       Comments.create(ctx.contributor, ctx.page.id, %{body: "Initial thread"})
 
-    # Custom page_edit without page_comment can resolve and reanchor, yet cannot create or edit/delete another's comment.
+    # Custom node_edit without node_comment can resolve and reanchor, yet cannot create or edit/delete another's comment.
     assert {:ok, %{thread: edit_thread}} = Comments.read(edit_only, ctx.page.id, root.id)
     assert edit_thread.can_resolve == true
     assert edit_thread.can_reanchor == true
@@ -615,7 +615,7 @@ defmodule Ankole.Pod.CommentsTest do
                version: resolved.version
              })
 
-    # Custom page_manage without page_comment can update and delete, and root update returns post-touch activity_at.
+    # Custom node_manage without node_comment can update and delete, and root update returns post-touch activity_at.
     assert {:ok, %{thread: manage_thread}} = Comments.read(manage_only, ctx.page.id, root.id)
     assert manage_thread.can_edit == true
     assert manage_thread.can_delete == true

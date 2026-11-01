@@ -16,10 +16,14 @@ defmodule Ankole.Principals.PodAdminOperations do
     allow(:update_settings, resource: "tenant_console:pod_settings", action: "update")
     allow(:members, resource: "tenant_console:principals", action: "read")
     allow(:create_member, resource: "tenant_console:principals", action: "update")
+    allow(:rename_member, resource: "tenant_console:principal:{uid}", action: "update")
+    allow(:agents, resource: "tenant_console:agents", action: "read")
+    allow(:disable_agent, resource: "tenant_console:agent:{uid}", action: "update")
+    allow(:enable_agent, resource: "tenant_console:agent:{uid}", action: "update")
+    allow(:rename_agent, resource: "tenant_console:agent:{uid}", action: "update")
     allow(:change_membership, resource: "tenant_console:principal:{uid}", action: "update")
     allow(:set_admin, resource: "tenant_console:group:pod_admin", action: "update")
     allow(:disable_member, resource: "tenant_console:principal:{uid}", action: "update")
-    allow(:access_review, resource: "tenant_console:principal:{uid}", action: "read")
     allow(:restore_member, resource: "tenant_console:principal:{uid}", action: "update")
     allow(:unbind_credential, resource: "tenant_console:principal:{uid}", action: "update")
     allow(:invitations, resource: "tenant_console:invitations", action: "read")
@@ -157,6 +161,81 @@ defmodule Ankole.Principals.PodAdminOperations do
       end)
     end
 
+    action :agents, :map do
+      constraints(
+        fields: [
+          agents: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields: [
+                  uid: [type: PrincipalKey, allow_nil?: false],
+                  displayName: [type: :string, allow_nil?: false],
+                  status: [
+                    type: :atom,
+                    constraints: [one_of: [:active, :disabled]],
+                    allow_nil?: false
+                  ],
+                  type: [
+                    type: :atom,
+                    constraints: [one_of: [:ai_colleague, :personal_assistant]],
+                    allow_nil?: false
+                  ],
+                  ownerUID: [type: PrincipalKey, allow_nil?: false]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      run(fn _, _ -> {:ok, %{agents: Admin.agents()}} end)
+    end
+
+    for action_name <- [:disable_agent, :enable_agent] do
+      action action_name, :map do
+        constraints(fields: [ok: [type: :boolean, allow_nil?: false]])
+        argument(:uid, PrincipalKey, allow_nil?: false)
+        transaction?(false)
+
+        run(fn input, _ ->
+          case input.action.name do
+            :disable_agent -> Ankole.Principals.disable_agent(input.arguments.uid)
+            :enable_agent -> Ankole.Principals.enable_agent(input.arguments.uid)
+          end
+          |> case do
+            {:ok, _} -> {:ok, %{ok: true}}
+            error -> error
+          end
+          |> result()
+        end)
+      end
+    end
+
+    for action_name <- [:rename_member, :rename_agent] do
+      action action_name, :map do
+        constraints(
+          fields: [
+            uid: [type: PrincipalKey, allow_nil?: false],
+            base_repair_error: [type: :string]
+          ]
+        )
+
+        argument(:uid, PrincipalKey, allow_nil?: false)
+        argument(:new_uid, PrincipalKey, allow_nil?: false)
+        transaction?(false)
+
+        run(fn input, _ ->
+          Ankole.Principals.Rename.from_console(
+            if(input.action.name == :rename_member, do: :human, else: :agent),
+            input.arguments
+          )
+          |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
+        end)
+      end
+    end
+
     action :change_membership, :map do
       constraints(fields: [ok: [type: :boolean, allow_nil?: false]])
       argument(:uid, PrincipalKey, allow_nil?: false)
@@ -208,38 +287,14 @@ defmodule Ankole.Principals.PodAdminOperations do
       end)
     end
 
-    action :access_review, :map do
-      constraints(fields: [review: [type: Ankole.Principals.AccessView, allow_nil?: false]])
-      argument(:uid, PrincipalKey, allow_nil?: false)
-
-      run(fn input, _ ->
-        case Ankole.Principals.HumanAccess.console_view(input.arguments.uid) do
-          {:ok, view} -> {:ok, %{review: Ankole.JSON.plain(view)}}
-          error -> result(error)
-        end
-      end)
-    end
-
     action :restore_member, :map do
       constraints(fields: [ok: [type: :boolean, allow_nil?: false]])
       argument(:uid, PrincipalKey, allow_nil?: false)
-      argument(:reviewFingerprint, :string, allow_nil?: false)
       argument(:reason, :string, allow_nil?: false, constraints: [min_length: 1])
-      argument(:identityVerified, :boolean, allow_nil?: false)
       transaction?(false)
 
       run(fn input, context ->
-        if input.arguments.identityVerified,
-          do:
-            changed(
-              Admin.restore(
-                context.actor,
-                input.arguments.uid,
-                input.arguments.reviewFingerprint,
-                input.arguments.reason
-              )
-            ),
-          else: result({:error, :identity_review_required})
+        changed(Admin.restore(context.actor, input.arguments.uid, input.arguments.reason))
       end)
     end
 

@@ -4,7 +4,7 @@ defmodule Ankole.Brain.ConversationsLearning do
 
   This is the second first-class write path: input is the public
   conversation history, independent of Agent turn history. One instance-level task
-  processes one slice with the maintainer Agent's `light` profile; the same
+  processes one slice with ankole_brain's effective `light` profile; the same
   slice is never processed per Agent, because the knowledge space is shared.
   Slice identity is a stable version token. Memory writes and the Source's
   extraction watermark commit together under the Source row lock. A failed

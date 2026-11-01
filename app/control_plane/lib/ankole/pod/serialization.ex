@@ -1,26 +1,33 @@
 defmodule Ankole.Pod.Serialization do
   @moduledoc "JSON values for Pod HTTP, Channel, and Worker contracts."
 
-  def author_profiles(uids) do
-    Ankole.Principals.list_principals!(
-      query: [
-        filter: [uid: [in: Enum.uniq(uids)]],
-        select: [:uid, :display_name, :type, :avatar_url]
-      ]
-    )
-    |> Map.new(fn principal ->
-      {principal.uid,
-       %{
-         principal_uid: principal.uid,
-         name: principal.display_name,
-         kind: principal.type,
-         avatar_url: principal.avatar_url
-       }}
+  def author_profiles(authors) do
+    authors
+    |> Enum.uniq()
+    |> Enum.group_by(& &1.tenant_id, & &1.uid)
+    |> Enum.flat_map(fn {tenant, uids} ->
+      Ankole.Repo.with_tenant(tenant, fn ->
+        Ankole.Principals.list_principals!(
+          query: [filter: [uid: [in: uids]], load: [agent: :owner_principal]]
+        )
+        |> Enum.map(fn principal ->
+          {Ankole.ActorRef.from_principal(principal),
+           %{
+             tenant_id: tenant,
+             principal_uid: principal.uid,
+             name: Ankole.Principals.display_name(principal),
+             kind: principal.type,
+             avatar_url: principal.avatar_url
+           }}
+        end)
+      end)
     end)
+    |> Map.new()
   end
 
   def author_json(author, profiles) do
-    Map.get(profiles, author.uid, %{
+    Map.get(profiles, author, %{
+      tenant_id: author.tenant_id,
       principal_uid: author.uid,
       name: nil,
       kind: nil,
@@ -41,6 +48,7 @@ defmodule Ankole.Pod.Serialization do
       :position,
       :inherit_permissions,
       :revision,
+      :object_id,
       :saved_from_message_id,
       :children_view,
       :created_at,

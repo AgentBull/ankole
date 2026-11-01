@@ -81,6 +81,7 @@ defmodule Ankole.Plugins.SlackAdapter.Mrkdwn do
       |> then(&Regex.replace(~r/\*\*([^*]+)\*\*/, &1, "*\\1*"))
       |> then(&Regex.replace(~r/__([^_]+)__/, &1, "*\\1*"))
       |> then(&Regex.replace(~r/~~([^~]+)~~/, &1, "~\\1~"))
+      |> String.replace("\\~", "~")
 
     {text, blocks, inline}
   end

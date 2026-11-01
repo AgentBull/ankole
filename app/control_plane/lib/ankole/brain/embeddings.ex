@@ -3,8 +3,8 @@ defmodule Ankole.Brain.Embeddings do
   Instance-global embedding calls for Brain retrieval projections.
 
   The model comes from `brain.embedding_model`, and requests execute as the
-  Brain maintainer Agent so usage belongs to that Agent. Credential resolution
-  reuses the configured AIGateway provider row. The embedding signature covers
+  tenant's `ankole_brain` Principal. Credential resolution reuses the configured
+  AIGateway provider row. The embedding signature covers
   only `[provider_kind, model, dimensions]`, so replacing a provider row of the
   same kind does not re-embed the knowledge space. Vectors are zero-padded into
   the fixed `vector(4096)` physical column.
@@ -68,7 +68,7 @@ defmodule Ankole.Brain.Embeddings do
       }
       |> maybe_put_provider_options(model)
 
-    with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
+    with {:ok, subject_uid} <- Config.execution_subject_uid() do
       case AIGateway.create_embeddings(subject_uid, request) do
         {:ok, %{body: body, model_ref: model_ref}} ->
           with {:ok, vectors} <- extract_vectors(body, length(texts), model["dimensions"]) do

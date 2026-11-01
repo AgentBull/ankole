@@ -35,7 +35,6 @@ defmodule Ankole.ConversationsHistoryTest do
           kind: :message,
           origin: :native,
           text: "Statement #{sequence}",
-          attachments: [],
           links: [],
           mentions: [],
           created_at: now
@@ -128,7 +127,6 @@ defmodule Ankole.ConversationsHistoryTest do
           kind: :message,
           origin: :native,
           text: "Statement #{sequence}",
-          attachments: [],
           links: [],
           mentions: [],
           created_at: now

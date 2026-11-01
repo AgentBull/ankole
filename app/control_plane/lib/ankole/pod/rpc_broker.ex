@@ -1,13 +1,13 @@
 defmodule Ankole.Pod.RPCBroker do
   @moduledoc "Agent access to the same Pod domain contracts that serve the browser."
 
-  alias Ankole.Pod.{Bases, Documents, Files, Pages}
+  alias Ankole.Pod.{Bases, Comments, Documents, Files, Pages}
   import Ankole.Pod.Serialization, only: [json_value: 1]
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.WorkerFiles
 
-  @read_operations ~w(pages.list pages.children pages.search pages.read pages.sharing files.manifest base.tables base.schema base.query base.aggregate)
-  @write_operations ~w(pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.write pages.append files.upload applets.publish applets.call base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy)
+  @read_operations ~w(pages.list pages.children pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate)
+  @write_operations ~w(pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.call base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy)
 
   def handle_read(turn, %FabricProto.PodRequest{} = request, ctx) do
     with {:ok, actor} <- actor_for_request(turn, request.automation_attempt, ctx) do
@@ -42,17 +42,14 @@ defmodule Ankole.Pod.RPCBroker do
     with {:ok, signal} <- Ankole.Signals.get_signal(ref.signal_id),
          true <- signal.agent_uid == ctx.worker_id and signal.session_id == ref.session_id,
          {:ok, principal} <- Ankole.Principals.get_principal(ctx.worker_id),
-         {:ok, human} <- interactive(signal) do
+         {:ok, _human} <- instruction_subject(signal) do
       request = Ankole.Conversations.request_context(signal)
       context = Map.merge(Map.take(request, ["ip"]), %{"surface" => "agent_rpc"})
-      interactive_authn = Map.merge(request["authn"] || %{}, context)
 
       {:ok,
        Ankole.AuthZ.Actor.new(principal,
-         interactive_principal: human,
          turn_authority: {ref, ctx.worker_id},
-         authn: context,
-         interactive_authn: interactive_authn
+         authn: context
        )}
     else
       _ -> {:error, :work_authorization_review_required}
@@ -61,11 +58,11 @@ defmodule Ankole.Pod.RPCBroker do
 
   def actor_for_request(_, _, _), do: {:error, :work_authorization_review_required}
 
-  defp interactive(%{authorization_kind: "human", human_uid: uid}) when is_binary(uid),
+  defp instruction_subject(%{authorization_kind: "human", human_uid: uid}) when is_binary(uid),
     do: Ankole.Principals.get_principal(uid)
 
-  defp interactive(%{authorization_kind: "service"}), do: {:ok, nil}
-  defp interactive(_), do: {:error, :work_authorization_review_required}
+  defp instruction_subject(%{authorization_kind: "service"}), do: {:ok, nil}
+  defp instruction_subject(_), do: {:error, :work_authorization_review_required}
 
   defp handle(request, ctx, allowed) do
     with true <- request.operation in allowed,
@@ -89,6 +86,49 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp dispatch("pages.read", actor, params, ctx), do: read_document(actor, params, ctx)
   defp dispatch("pages.sharing", actor, params, _ctx), do: Pages.sharing(actor, params["id"])
+
+  defp dispatch("comments.list", actor, params, _ctx) do
+    page_id = params["id"] || params["page_id"]
+
+    status =
+      case params["status"] do
+        "resolved" -> :resolved
+        "all" -> :all
+        "unread" -> :unread
+        _ -> :open
+      end
+
+    opts = %{
+      status: status,
+      cursor: params["cursor"],
+      limit: if(is_integer(params["limit"]), do: params["limit"], else: 25)
+    }
+
+    Comments.list(actor, page_id, opts)
+  end
+
+  defp dispatch("comments.show", actor, params, _ctx),
+    do: Comments.read(actor, params["id"] || params["page_id"], params["comment_id"])
+
+  defp dispatch("comments.reply", actor, params, _ctx) do
+    page_id = params["id"] || params["page_id"]
+    root_id = params["root_id"]
+
+    if is_binary(root_id) and String.trim(root_id) != "" do
+      Comments.create(actor, page_id, %{"root_id" => root_id, "body" => params["body"]})
+    else
+      {:error, :invalid_comment_reply}
+    end
+  end
+
+  defp dispatch("comments.resolve", actor, params, _ctx) do
+    page_id = params["id"] || params["page_id"]
+
+    Comments.resolve(actor, page_id, params["comment_id"], %{
+      "version" => params["version"],
+      "resolved" => Map.get(params, "resolved", true)
+    })
+  end
 
   defp dispatch("pages.set_sharing", actor, params, ctx),
     do: Pages.set_sharing(actor, params["id"], params, ctx.write_authority)
@@ -118,7 +158,7 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp dispatch(operation, actor, params, ctx)
        when operation in ["pages.write", "pages.append"] do
-    with {:ok, _page} <- Pages.authorize(actor, params["id"], "page_edit") do
+    with {:ok, _page} <- Pages.authorize(actor, params["id"], "node_edit") do
       receive_document(params["xml_home_relative_path"], ctx, fn xml ->
         with {:ok, result} <-
                apply(Documents, if(operation == "pages.append", do: :append, else: :write), [
@@ -134,6 +174,24 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   defp dispatch("files.manifest", actor, params, _ctx), do: Files.manifest(actor, params["id"])
+
+  defp dispatch("files.download", actor, params, ctx) do
+    send_file(params["home_relative_path"], ctx, fn local ->
+      Files.read_to_file(actor, params["id"], params["path"], local, params["sha256"])
+    end)
+  end
+
+  defp dispatch("chat.attachment.get", actor, params, ctx) do
+    send_file(params["home_relative_path"], ctx, fn local ->
+      Ankole.Conversations.read_attachment_to_file(
+        actor,
+        params["conversation_id"],
+        params["message_id"],
+        params["position"],
+        local
+      )
+    end)
+  end
 
   defp dispatch("files.upload", actor, params, ctx), do: upload(actor, params, ctx)
 
@@ -223,6 +281,25 @@ defmodule Ankole.Pod.RPCBroker do
     end
   end
 
+  defp send_file(target, ctx, receive_file) do
+    local = Ankole.Files.temp_path()
+
+    try do
+      with {:ok, target} <- Ankole.Files.normalize_path(target),
+           {:ok, metadata} <- receive_file.(local),
+           {:ok, object} <- Ankole.Files.fetch_object(Ankole.Attrs.get(metadata, :object_id)),
+           {:ok, _} <-
+             WorkerFiles.put(target, {:file, local},
+               worker: %{worker_id: ctx.worker_id, transport_route: ctx.route},
+               max_bytes: max(object.size, 1)
+             ) do
+        {:ok, metadata}
+      end
+    after
+      File.rm(local)
+    end
+  end
+
   defp receive_document(source, ctx, fun) do
     with {:ok, source} <- Ankole.Files.normalize_path(source) do
       WorkerFiles.with_received_file(
@@ -238,30 +315,27 @@ defmodule Ankole.Pod.RPCBroker do
   defp upload(actor, params, ctx) do
     source = params["home_relative_path"]
 
-    with {:ok, _page} <-
-           Pages.authorize(
-             actor,
-             params["id"],
-             Files.required_upload_action(params["role"] || "file")
-           ),
-         {:ok, source} <- Ankole.Files.normalize_path(source) do
-      WorkerFiles.with_received_file(
-        source,
-        [worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}],
-        fn local ->
-          Files.upload(
-            actor,
-            params["id"],
-            params["role"] || "file",
-            params["base_revision"],
-            params["name"] || Path.basename(source),
-            {:file, local},
-            params["content_type"],
-            ctx.write_authority
-          )
-        end
+    with {:ok, _page} <- Files.authorize_upload(actor, params["id"], params["role"] || "file"),
+         {:ok, maximum} <- Ankole.Files.upload_limit(),
+         {:ok, source} <- Ankole.Files.normalize_path(source),
+         {:ok, %{"body" => body}} <-
+           WorkerFiles.stream(source,
+             worker: %{worker_id: ctx.worker_id, transport_route: ctx.route},
+             max_bytes: maximum
+           ) do
+      Files.upload(
+        actor,
+        params["id"],
+        params["role"] || "file",
+        params["base_object_id"],
+        params["name"] || Path.basename(source),
+        body,
+        params["content_type"],
+        ctx.write_authority
       )
     end
+  rescue
+    exception in WorkerFiles.RelayError -> {:error, exception.reason}
   end
 
   defp error(ctx, reason) do

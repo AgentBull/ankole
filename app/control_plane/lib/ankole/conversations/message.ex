@@ -70,13 +70,6 @@ defmodule Ankole.Conversations.Message do
 
     attribute(:text, :string, constraints: [trim?: false, allow_empty?: true], public?: true)
 
-    attribute(:attachments, {:array, Ankole.Ash.Types.JSONMap},
-      default: [],
-      allow_nil?: false,
-      constraints: [items: [allow_datetime?: true]],
-      public?: true
-    )
-
     attribute(:links, {:array, Ankole.Ash.Types.JSONMap},
       default: [],
       allow_nil?: false,
@@ -114,15 +107,23 @@ defmodule Ankole.Conversations.Message do
     validate(present(:author_display_name), where: [attribute_equals(:origin, :native)])
 
     validate(present(:text),
-      where: [attribute_equals(:origin, :native), attribute_equals(:attachments, [])]
+      where: [attribute_equals(:origin, :native), argument_equals(:attachments, [])]
     )
 
     validate(match(:text, ~r/\S/u),
-      where: [attribute_equals(:origin, :native), attribute_equals(:attachments, [])]
+      where: [attribute_equals(:origin, :native), argument_equals(:attachments, [])]
     )
   end
 
   calculations do
+    calculate(
+      :attachments,
+      {:array, Ankole.Ash.Types.JSONMap},
+      Ankole.Conversations.AttachmentReferences.Projection,
+      constraints: [items: [allow_datetime?: true]],
+      public?: true
+    )
+
     # A Message is withdrawn when all its Agent inputs are removed.
     calculate(
       :withdrawn,
@@ -140,6 +141,23 @@ defmodule Ankole.Conversations.Message do
     )
   end
 
+  relationships do
+    has_many :attachment_rows, Ankole.Conversations.MessageAttachment do
+      source_attribute(:id)
+      destination_attribute(:message_id)
+    end
+  end
+
+  preparations do
+    prepare({Ankole.Conversations.AttachmentReferences.Preparation, owner: :message})
+  end
+
+  changes do
+    change({Ankole.Conversations.AttachmentReferences.Change, owner: :message},
+      on: [:create, :update]
+    )
+  end
+
   actions do
     defaults([:read])
 
@@ -148,6 +166,12 @@ defmodule Ankole.Conversations.Message do
     end
 
     create :record do
+      argument(:attachments, {:array, Ankole.Ash.Types.JSONMap},
+        default: [],
+        allow_nil?: false,
+        constraints: [items: [allow_datetime?: true]]
+      )
+
       change(Ankole.Conversations.Message.SnapshotAuthor)
       validate(present(:author_uid), where: [attribute_equals(:origin, :native)])
 
@@ -165,7 +189,6 @@ defmodule Ankole.Conversations.Message do
         :delivery_key,
         :kind,
         :text,
-        :attachments,
         :links,
         :mentions,
         :rich_content,
@@ -178,6 +201,12 @@ defmodule Ankole.Conversations.Message do
     end
 
     create_if_absent :record_once do
+      argument(:attachments, {:array, Ankole.Ash.Types.JSONMap},
+        default: [],
+        allow_nil?: false,
+        constraints: [items: [allow_datetime?: true]]
+      )
+
       change(Ankole.Conversations.Message.SnapshotAuthor)
       validate(present(:author_uid), where: [attribute_equals(:origin, :native)])
 
@@ -195,7 +224,6 @@ defmodule Ankole.Conversations.Message do
         :delivery_key,
         :kind,
         :text,
-        :attachments,
         :links,
         :mentions,
         :rich_content,
@@ -213,6 +241,10 @@ defmodule Ankole.Conversations.Message do
     end
 
     update :observe do
+      argument(:attachments, {:array, Ankole.Ash.Types.JSONMap},
+        constraints: [items: [allow_datetime?: true]]
+      )
+
       accept([
         :author_type,
         :author_uid,
@@ -220,7 +252,6 @@ defmodule Ankole.Conversations.Message do
         :delivery_key,
         :kind,
         :text,
-        :attachments,
         :links,
         :mentions,
         :rich_content,
@@ -233,7 +264,12 @@ defmodule Ankole.Conversations.Message do
     end
 
     update :resolve_attachments do
-      accept([:attachments])
+      argument(:attachments, {:array, Ankole.Ash.Types.JSONMap},
+        allow_nil?: false,
+        constraints: [items: [allow_datetime?: true]]
+      )
+
+      accept([])
     end
 
     destroy :remove do

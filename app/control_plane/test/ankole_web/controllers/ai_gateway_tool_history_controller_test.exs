@@ -3,7 +3,7 @@ defmodule AnkoleWeb.AIGatewayToolHistoryControllerTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Tokens
 

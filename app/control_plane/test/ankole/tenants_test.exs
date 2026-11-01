@@ -68,6 +68,88 @@ defmodule Ankole.TenantsTest do
     assert {:error, :not_found} = Tenants.get(tenant.id)
   end
 
+  test "tenant deletion advances past slow empty tables" do
+    tenant = new_tenant()
+
+    # A statement trigger also runs when the table has no matching rows. Keep
+    # the first empty-table check slower than the deletion job's time slice.
+    Repo.query!("""
+    CREATE FUNCTION test_slow_empty_tenant_batch() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      PERFORM pg_sleep(1.1);
+      RETURN NULL;
+    END;
+    $$
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER test_slow_empty_tenant_batch BEFORE DELETE ON base_records
+    FOR EACH STATEMENT EXECUTE FUNCTION test_slow_empty_tenant_batch()
+    """)
+
+    cleanup_tenant!(tenant)
+    assert {:error, :not_found} = Tenants.get(tenant.id)
+  end
+
+  test "tenant deletion removes nested ACL anchors across multiple leaf batches" do
+    tenant = new_tenant()
+
+    Repo.with_tenant(tenant.id, fn ->
+      admin = human_fixture().principal
+      {:ok, root} = Ankole.Files.Nodes.private_root(admin.uid)
+
+      assert {:ok, _} =
+               Repo.transact_top_level(fn ->
+                 {:ok, outer} =
+                   Ankole.Files.Nodes.create_in_tx(%{
+                     parent_id: root.id,
+                     kind: :folder,
+                     name: "outer",
+                     has_local_acl: true
+                   })
+
+                 {:ok, passthrough} =
+                   Ankole.Files.Nodes.create_in_tx(%{
+                     parent_id: outer.id,
+                     kind: :folder,
+                     name: "pass-through"
+                   })
+
+                 {:ok, inner} =
+                   Ankole.Files.Nodes.create_in_tx(%{
+                     parent_id: passthrough.id,
+                     kind: :folder,
+                     name: "inner",
+                     has_local_acl: true
+                   })
+
+                 {:ok, leaf_parent} =
+                   Ankole.Files.Nodes.create_in_tx(%{
+                     parent_id: inner.id,
+                     kind: :folder,
+                     name: "leaf-parent"
+                   })
+
+                 # The tenant lifecycle deletes 200 leaves per transaction. Both
+                 # anchors must survive until every referring leaf has been removed.
+                 Repo.query!(
+                   """
+                   INSERT INTO drive_nodes(tenant_id,id,parent_id,kind,name,acl_anchor_id)
+                   SELECT $1::text::uuid,gen_random_uuid(),$2::text::uuid,'file',
+                     'file-' || i,$3::text::uuid FROM generate_series(1,401) AS i
+                   """,
+                   [tenant.id, leaf_parent.id, inner.id]
+                 )
+
+                 {:ok, inner}
+               end)
+    end)
+
+    assert {:ok, _} = Tenants.delete(tenant)
+    drain_delete(tenant.id)
+    assert {:error, :not_found} = Tenants.get(tenant.id)
+  end
+
   test "active slug lookup follows durable lifecycle state without selecting a tenant", %{
     tenant: selected
   } do
@@ -362,13 +444,12 @@ defmodule Ankole.TenantsTest do
     assert {:ok, _} = Tenants.delete(renamed)
   end
 
-  test "deleting an author tenant stops foreign work but preserves its author and history", %{
+  test "deleting another tenant preserves local work and complete foreign audit attribution", %{
     tenant: first
   } do
     %{principal: author} = human_fixture()
     second = new_tenant()
-    third = new_tenant()
-    %{principal: unrelated_author} = Repo.with_tenant(third.id, fn -> human_fixture() end)
+    Repo.with_tenant(second.id, fn -> human_fixture(%{email: author.uid}) end)
     %{principal: next_admin} = Repo.with_tenant(second.id, fn -> human_fixture() end)
     assert {:ok, _} = Tenants.transfer_site_administration(second, next_admin.uid)
 
@@ -415,6 +496,7 @@ defmodule Ankole.TenantsTest do
               }
             },
             now: now,
+            authorization: WorkAccess.from_sender(author.uid),
             created_by: %{"principal_uid" => to_string(Ankole.ActorRef.from_principal(author))}
           )
 
@@ -428,63 +510,18 @@ defmodule Ankole.TenantsTest do
 
     Repo.with_tenant(second.id, fn ->
       persisted = Repo.get!(Signal, event.id)
-      assert persisted.status == :dead_letter
+      assert persisted.status == event.status
       assert persisted.human_uid == author.uid
       assert persisted.authorization_kind == "human"
+      assert {:ok, :ok} = Repo.transact(fn -> {:ok, WorkAccess.check_in_tx(persisted)} end)
+      assert {:ok, local} = Ankole.Principals.get_principal(author.uid)
+      assert local.tenant_id == second.id
+      refute Enum.any?(WorkAccess.list_unresolved(), &(&1.id in [event.id, cron.id]))
+      saved = Repo.get!(Ankole.Schedule.Schemas.CronSchedule, cron.id)
+      assert saved.status == :active
 
-      assert {:error, :human_access_revoked} =
-               Repo.transact(fn -> WorkAccess.check_in_tx(persisted) end)
-
-      review = WorkAccess.list_unresolved()
-
-      assert %{human_uid: author_uid, can_reauthorize: true, status: "paused"} =
-               Enum.find(review, &(&1.id == cron.id))
-
-      assert author_uid == author.uid
-      assert %{can_reauthorize: false} = Enum.find(review, &(&1.id == event.id))
-      ref = Ankole.ActorRef.from_principal(next_admin)
-
-      assert {:error, :work_review_changed} =
-               WorkAccess.classify("cron", cron.id, nil, ref, "Cannot remove Human dependency")
-
-      assert {:error, :work_review_changed} =
-               WorkAccess.classify(
-                 "cron",
-                 cron.id,
-                 unrelated_author.uid,
-                 ref,
-                 "Cannot assign another tenant's person"
-               )
-
-      assert {:error, :work_review_changed} =
-               WorkAccess.classify(
-                 "signal",
-                 event.id,
-                 next_admin.uid,
-                 ref,
-                 "Rebuild required"
-               )
-
-      assert {:ok, %{status: "paused"}} =
-               WorkAccess.classify(
-                 "cron",
-                 cron.id,
-                 next_admin.uid,
-                 ref,
-                 "Reviewed replacement authority"
-               )
-
-      assert Enum.any?(HumanAccess.history(next_admin.uid), fn audit ->
-               audit.action == "classify_work" and
-                 audit.details["previous_authorization"]["human_uid"] == author.uid and
-                 audit.details["previous_authorization"]["human_access_version"] ==
-                   author.access_version
-             end)
-
-      assert {:error, :work_review_changed} =
-               WorkAccess.classify("cron", cron.id, nil, ref, "Already authorized")
-
-      assert {:ok, %{status: :active}} = Ankole.Schedule.resume_cron_schedule(cron.id)
+      assert saved.created_by["principal_uid"] ==
+               to_string(Ankole.ActorRef.from_principal(author))
     end)
   end
 
@@ -542,10 +579,8 @@ defmodule Ankole.TenantsTest do
         Ecto.UUID.generate()
       )
 
-    {:ok, review} = AuthZ.restoration_review(human.uid)
-
     {:ok, restored} =
-      HumanAccess.restore(human.uid, review.fingerprint, nil, "verified", Ecto.UUID.generate())
+      HumanAccess.restore(human.uid, nil, "verified", Ecto.UUID.generate())
 
     {:ok, event} =
       Repo.transact(fn ->
@@ -594,12 +629,9 @@ defmodule Ankole.TenantsTest do
           Ecto.UUID.generate()
         )
 
-      {:ok, review} = AuthZ.restoration_review(human.uid)
-
       assert {:ok, %{status: :active}} =
                HumanAccess.restore(
                  human.uid,
-                 review.fingerprint,
                  nil,
                  "verified",
                  Ecto.UUID.generate()
@@ -617,13 +649,11 @@ defmodule Ankole.TenantsTest do
           Ecto.UUID.generate()
         )
 
-      {:ok, review} = AuthZ.restoration_review(human.uid)
       {:ok, _} = Tenants.delete(tenant)
 
       assert {:error, :tenant_deleting} =
                HumanAccess.restore(
                  human.uid,
-                 review.fingerprint,
                  nil,
                  "verified",
                  Ecto.UUID.generate()
@@ -717,7 +747,10 @@ defmodule Ankole.TenantDeletionConcurrencyTest do
         Repo.with_tenant(tenant.id, fn ->
           Repo.transact(fn ->
             {:ok, result} =
-              Principals.create_human_in_tx(%{display_name: "Admitted before deletion"})
+              Principals.create_human_in_tx(%{
+                display_name: "Admitted before deletion",
+                email: "admitted@example.com"
+              })
 
             send(parent, {:human_inserted, result.principal.uid})
             receive do: (:commit -> {:ok, result})
@@ -745,7 +778,7 @@ defmodule Ankole.TenantDeletionConcurrencyTest do
       assert {:ok, _} = Tenants.get(tenant.id)
 
       assert Repo.with_tenant(tenant.id, fn ->
-               Repo.get!(Ankole.Principals.Principal, uid).status
+               Repo.get_by!(Ankole.Principals.Principal, uid: uid).status
              end) == :active
 
       drain_delete(tenant.id)

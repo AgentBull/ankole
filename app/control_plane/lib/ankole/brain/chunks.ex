@@ -165,7 +165,14 @@ defmodule Ankole.Brain.Chunks do
         Enum.flat_map(segments, fn segment ->
           segment.text
           |> Chunker.chunk_text(chunking)
-          |> Enum.map(&%{content_kind: :body, audience_scope: segment.scope, text: &1.text})
+          |> Enum.map(
+            &%{
+              content_kind: :body,
+              audience_scope: segment.scope,
+              text: &1.text,
+              token_count: &1.token_count
+            }
+          )
         end)
 
       timeline_specs =
@@ -178,7 +185,12 @@ defmodule Ankole.Brain.Chunks do
           |> timeline_text()
           |> Chunker.chunk_text(chunking)
           |> Enum.map(
-            &%{content_kind: :timeline, audience_scope: timeline.audience_scope, text: &1.text}
+            &%{
+              content_kind: :timeline,
+              audience_scope: timeline.audience_scope,
+              text: &1.text,
+              token_count: &1.token_count
+            }
           )
         end)
 
@@ -186,9 +198,7 @@ defmodule Ankole.Brain.Chunks do
         (body_specs ++ timeline_specs)
         |> Enum.with_index()
         |> Enum.map(fn {spec, index} ->
-          spec
-          |> Map.put(:chunk_index, index)
-          |> Map.put(:token_count, Chunker.estimate_tokens(spec.text))
+          Map.put(spec, :chunk_index, index)
         end)
 
       {:ok, specs}

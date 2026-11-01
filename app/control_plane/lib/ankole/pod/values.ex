@@ -99,7 +99,13 @@ defmodule Ankole.Pod.Values do
            is_binary(Ankole.Attrs.get(item, :mime)) and
            is_integer(Ankole.Attrs.get(item, :size)) and Ankole.Attrs.get(item, :size) >= 0 and
            String.starts_with?(path, Ankole.Pod.Files.prefix(page) <> "/attachments/") and
-           match?({:ok, _}, Ankole.Files.fetch(:pod, path))
+           match?(
+             {:ok, _},
+             Ankole.Pod.Files.fetch_file(
+               page,
+               String.replace_prefix(path, Ankole.Pod.Files.prefix(page) <> "/", "")
+             )
+           )
        end), do: {:ok, value}, else: {:error, :invalid_attachment}
   end
 

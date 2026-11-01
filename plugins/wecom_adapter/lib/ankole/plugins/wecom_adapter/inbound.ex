@@ -136,7 +136,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     case normalize_message_receive(event, consumer) do
       {:ok, input} ->
         with {:ok, input} <- materialize_attachments(input, consumer) do
-          Observe.emit_entry(context.agent_uid, context.binding_name, input)
+          Observe.emit_entry(context.binding_id, input)
         end
 
       {:ignore, reason} ->
@@ -190,8 +190,10 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     case normalize_card_action(event) do
       {:ok, input} ->
         operator_id = input.action["operator_id"]
+        interaction_id = get_in(input, [:action, "value", "interactionId"])
 
-        with {:ok, operator_principal_uid} <- observe_card_operator(consumer, operator_id) do
+        with {:ok, operator_principal_uid} <-
+               resolve_card_operator(consumer, operator_id, interaction_id) do
           input =
             input
             |> Map.delete(:channel_kind)
@@ -200,7 +202,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
               &Map.put(&1, "operator_principal_uid", operator_principal_uid)
             )
 
-          result = Observe.emit_action(context.agent_uid, context.binding_name, input)
+          result = Observe.emit_action(context.binding_id, input)
           acknowledge_card(consumer, event, input, result)
           result
         end
@@ -218,17 +220,22 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     end
   end
 
+  defp acknowledge_card(_consumer, _event, _input, {:ok, %{status: :unauthorized_action}}),
+    do: :ok
+
   # The platform lets a card change only inside the 5-second event window
   # (`aibot_respond_update_msg` bound to the event req_id), so the settled
   # visual state must be written here, not from the session writer. The
   # replacement is a receipt card: original card payloads are not carried by
   # the event, and a settled interaction has no live controls to preserve.
-  defp acknowledge_card(consumer, %Event{req_id: req_id} = _event, input, {:ok, _result})
+  defp acknowledge_card(consumer, %Event{req_id: req_id} = _event, input, {:ok, result})
        when is_binary(req_id) do
+    {title, sub_title} = receipt_fields(input.action["value"], result)
+
     receipt = %{
       "card_type" => "text_notice",
-      "main_title" => %{"title" => "已收到"},
-      "sub_title_text" => receipt_text(input.action["value"]),
+      "main_title" => %{"title" => title},
+      "sub_title_text" => sub_title,
       "task_id" => input.action["task_id"],
       "card_action" => %{"type" => 1, "url" => "https://work.weixin.qq.com"}
     }
@@ -248,6 +255,23 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   end
 
   defp acknowledge_card(_consumer, _event, _input, _result), do: :ok
+
+  defp receipt_fields(_value, %{
+         status: :accepted_action_card,
+         action_card_outcome: %{card: card}
+       }) do
+    title =
+      case card.status do
+        :executed -> "已执行"
+        :cancelled -> "已取消"
+        :stale -> "已过期"
+        _other -> "已处理"
+      end
+
+    {title, String.slice(to_string(card.resolution_note || ""), 0, 160)}
+  end
+
+  defp receipt_fields(value, _result), do: {"已收到", receipt_text(value)}
 
   defp receipt_text(%{"selectedOptionId" => option}) when is_binary(option), do: "已选择：#{option}"
   defp receipt_text(_value), do: "操作已受理"
@@ -288,8 +312,15 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   # A managed press dedupes on its semantic identity; a foreign press falls
   # back to a content hash so two different presses never conflate.
-  defp card_action_id(task_id, %{"version" => @managed_action_protocol} = value, _operator) do
-    "card:#{task_id}:#{value["interactionId"]}:#{value["interactionVersion"]}:#{value["controlId"]}:#{value["selectedOptionId"]}"
+  defp card_action_id(task_id, %{"version" => @managed_action_protocol} = value, operator) do
+    base =
+      "card:#{task_id}:#{value["interactionId"]}:#{value["interactionVersion"]}:#{value["controlId"]}:#{value["selectedOptionId"]}"
+
+    if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]) do
+      "#{base}:#{operator}"
+    else
+      base
+    end
   end
 
   defp card_action_id(task_id, value, operator) do
@@ -319,6 +350,23 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
       nil ->
         {:ignore, :missing_platform_subject}
+    end
+  end
+
+  defp resolve_card_operator(_consumer, "sys", _interaction_id),
+    do: {:error, :missing_operator_id}
+
+  defp resolve_card_operator(%{config: config} = consumer, operator_id, interaction_id) do
+    if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
+      case Ankole.Principals.resolve_platform_subject_uid(
+             Config.subject_namespace(config),
+             operator_id
+           ) do
+        {:ok, uid} -> {:ok, uid}
+        _ -> {:ok, nil}
+      end
+    else
+      observe_card_operator(consumer, operator_id)
     end
   end
 

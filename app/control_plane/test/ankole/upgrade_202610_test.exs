@@ -72,7 +72,7 @@ defmodule Ankole.Upgrade202610Test do
       rows =
         for agent <- [first, second] do
           binding = Repo.get_by!(Binding, agent_uid: agent.uid, name: "shared")
-          new_key = @config_module.binding_config_key(agent.uid, "shared")
+          new_key = @config_module.binding_config_key(binding.tenant_id, binding.id)
           assert binding.config_ref == "app-config://#{new_key}"
           row = Repo.get_by!(SiteConfig, scope: "global", key: new_key)
           assert row.value["type"] == old_value["type"]
@@ -134,7 +134,7 @@ defmodule Ankole.Upgrade202610Test do
       for {agent, name, old_key, cfg, old_value} <- seeded do
         refute Repo.get_by(SiteConfig, scope: "global", key: old_key)
         binding = Repo.get_by!(Binding, agent_uid: agent.uid, name: name)
-        new_key = LarkConfig.binding_config_key(agent.uid, name)
+        new_key = LarkConfig.binding_config_key(binding.tenant_id, binding.id)
         assert binding.config_ref == "app-config://#{new_key}"
 
         row = Repo.get_by!(SiteConfig, scope: "global", key: new_key)
@@ -162,7 +162,8 @@ defmodule Ankole.Upgrade202610Test do
     @config_module module
     test "#{adapter} existing binding configs gain an application identity without changing their values" do
       %{principal: agent} = agent_fixture()
-      key = @config_module.binding_config_key(agent.uid, "existing")
+      binding_id = Ankole.Ecto.UUIDv7.autogenerate()
+      key = @config_module.binding_config_key(agent.tenant_id, binding_id)
       {:ok, config} = @config_module.validate_binding_config(config(@adapter))
       seed_config(key, config)
 
@@ -170,6 +171,7 @@ defmodule Ankole.Upgrade202610Test do
                Ankole.SignalsFixtures.raw_binding_fixture(%{
                  agent_uid: agent.uid,
                  name: "existing",
+                 id: binding_id,
                  adapter: @adapter,
                  config_ref: "app-config://#{key}",
                  enabled: true
@@ -202,7 +204,9 @@ defmodule Ankole.Upgrade202610Test do
             config_ref: "app-config://#{key}"
           })
 
-    destination = TeamsConfig.binding_config_key(second.uid, "shared-conflict")
+    second_binding = Repo.get_by!(Binding, agent_uid: second.uid, name: "shared-conflict")
+    first_binding = Repo.get_by!(Binding, agent_uid: first.uid, name: "shared-conflict")
+    destination = TeamsConfig.binding_config_key(second_binding.tenant_id, second_binding.id)
     seed_config(destination, Map.put(config, "appPassword", "different"))
 
     assert_raise RuntimeError, ~r/binding_configuration_key_conflict/, fn ->
@@ -222,7 +226,7 @@ defmodule Ankole.Upgrade202610Test do
 
     refute Repo.get_by(SiteConfig,
              scope: "global",
-             key: TeamsConfig.binding_config_key(first.uid, "shared-conflict")
+             key: TeamsConfig.binding_config_key(first_binding.tenant_id, first_binding.id)
            )
   end
 
@@ -268,6 +272,7 @@ defmodule Ankole.Upgrade202610Test do
 
       on_exit(fn -> File.rm_rf(root) end)
       %{principal: agent} = agent_fixture()
+      Ankole.SignalsFixtures.binding_fixture(agent.uid, "test", :ignore)
       %{root: root, agent_uid: agent.uid, home: Path.join(root, agent.uid)}
     end
 
@@ -306,7 +311,7 @@ defmodule Ankole.Upgrade202610Test do
       assert %{attachments: 1, skipped: []} = import_home(root)
 
       migrated =
-        Repo.get_by!(Ankole.Conversations.Delivery.Intent,
+        intent!(
           agent_uid: uid,
           outbound_key: intent.outbound_key,
           binding_name: "test"
@@ -353,7 +358,7 @@ defmodule Ankole.Upgrade202610Test do
       assert %{attachments: 2, skipped: []} = import_home(root)
 
       migrated =
-        Repo.get_by!(Ankole.Conversations.Delivery.Intent,
+        intent!(
           agent_uid: uid,
           binding_name: "test",
           outbound_key: "repeated-legacy"
@@ -361,7 +366,8 @@ defmodule Ankole.Upgrade202610Test do
 
       [first, second] = migrated.payload["attachments"]
       assert Enum.map([first, second], & &1["provider_key"]) == ["first", "second"]
-      assert first["blob_ref"] == second["blob_ref"]
+      refute first["object_id"] == second["object_id"]
+      assert {:ok, "same bytes"} = Ankole.Conversations.Delivery.attachment_content(first)
       assert {:ok, "same bytes"} = Ankole.Conversations.Delivery.attachment_content(second)
     end
 
@@ -387,7 +393,7 @@ defmodule Ankole.Upgrade202610Test do
 
       assert %{attachments: 0, skipped: [_]} = import_home(root)
 
-      assert Repo.get_by!(Ankole.Conversations.Delivery.Intent,
+      assert intent!(
                agent_uid: uid,
                binding_name: "test",
                outbound_key: "missing-legacy"
@@ -424,7 +430,7 @@ defmodule Ankole.Upgrade202610Test do
                Ankole.Conversations.Delivery.dispatch(uid, "test", "waiting-legacy", adapter)
 
       waiting =
-        Repo.get_by!(Ankole.Conversations.Delivery.Intent,
+        intent!(
           agent_uid: uid,
           binding_name: "test",
           outbound_key: "waiting-legacy"
@@ -472,6 +478,8 @@ defmodule Ankole.Upgrade202610Test do
         write!(home, "user-files/result.txt", "attachment:#{uid}")
 
         Repo.with_tenant(tenant.id, fn ->
+          Ankole.SignalsFixtures.binding_fixture(uid, "test", :ignore)
+
           assert {:ok, _intent} =
                    Ankole.SignalsFixtures.commit_delivery(%{
                      agent_uid: uid,
@@ -516,7 +524,7 @@ defmodule Ankole.Upgrade202610Test do
           assert Repo.get!(Job, job.id).legacy_directory_path == nil
 
           intent =
-            Repo.get_by!(Ankole.Conversations.Delivery.Intent,
+            intent!(
               agent_uid: uid,
               binding_name: "test",
               outbound_key: "tenant-attachment"
@@ -707,6 +715,9 @@ defmodule Ankole.Upgrade202610Test do
 
   # A job as the migration left it: an empty drive folder and the old
   # Agent Home directory in `legacy_directory_path`.
+  defp intent!(filter),
+    do: Ankole.Conversations.list_intents!(query: [filter: filter]) |> List.first()
+
   defp legacy_job!(agent_uid, legacy_directory_path) do
     unique = System.unique_integer([:positive])
 

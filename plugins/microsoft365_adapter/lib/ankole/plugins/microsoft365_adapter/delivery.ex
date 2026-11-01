@@ -42,45 +42,90 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
       when operation in [:post, :reply] do
     conversation_id = request_conversation_id(intent, target)
 
-    requests =
-      intent.fallback_visible_text
-      |> to_string()
-      |> Markdown.from_markdown()
-      |> split_text()
-      |> Enum.map(fn text ->
-        %{
-          kind: :post,
-          conversation_id: conversation_id,
-          activity: message_activity(text)
-        }
-      end)
+    case AdaptiveCard.render_reply_presentation(
+           MapHelpers.fetch_map(intent.payload || %{}, "reply_presentation", %{}),
+           intent.source_signal_id
+         ) do
+      {:ok, card} ->
+        fallback = intent.fallback_visible_text |> to_string() |> truncate(3_000)
 
-    {:ok, requests}
+        {:ok,
+         [
+           %{
+             kind: :post,
+             conversation_id: conversation_id,
+             activity: %{
+               "type" => "message",
+               "text" => fallback,
+               "attachments" => [AdaptiveCard.attachment(card)]
+             }
+           }
+         ]}
+
+      :none ->
+        requests =
+          intent.fallback_visible_text
+          |> to_string()
+          |> Markdown.from_markdown()
+          |> split_text()
+          |> Enum.map(fn text ->
+            %{
+              kind: :post,
+              conversation_id: conversation_id,
+              activity: message_activity(text)
+            }
+          end)
+
+        {:ok, requests}
+    end
   end
 
   def requests_for_intent(%Intent{operation: :edit} = intent, target) do
     conversation_id = target_conversation_id(intent, target)
 
-    requests =
-      intent.fallback_visible_text
-      |> to_string()
-      |> Markdown.from_markdown()
-      |> split_text()
-      |> Enum.with_index(1)
-      |> Enum.map(fn
-        {text, 1} ->
-          %{
-            kind: :update,
-            conversation_id: conversation_id,
-            activity_id: intent.target_provider_message_id,
-            activity: message_activity(text)
-          }
+    case AdaptiveCard.render_reply_presentation(
+           MapHelpers.fetch_map(intent.payload || %{}, "reply_presentation", %{}),
+           intent.source_signal_id
+         ) do
+      {:ok, card} ->
+        fallback = intent.fallback_visible_text |> to_string() |> truncate(3_000)
 
-        {text, _index} ->
-          %{kind: :post, conversation_id: conversation_id, activity: message_activity(text)}
-      end)
+        {:ok,
+         [
+           %{
+             kind: :update,
+             conversation_id: conversation_id,
+             activity_id: intent.target_provider_message_id,
+             activity: %{
+               "type" => "message",
+               "text" => fallback,
+               "attachments" => [AdaptiveCard.attachment(card)]
+             }
+           }
+         ]}
 
-    {:ok, requests}
+      :none ->
+        requests =
+          intent.fallback_visible_text
+          |> to_string()
+          |> Markdown.from_markdown()
+          |> split_text()
+          |> Enum.with_index(1)
+          |> Enum.map(fn
+            {text, 1} ->
+              %{
+                kind: :update,
+                conversation_id: conversation_id,
+                activity_id: intent.target_provider_message_id,
+                activity: message_activity(text)
+              }
+
+            {text, _index} ->
+              %{kind: :post, conversation_id: conversation_id, activity: message_activity(text)}
+          end)
+
+        {:ok, requests}
+    end
   end
 
   def requests_for_intent(%Intent{operation: :delete} = intent, target) do

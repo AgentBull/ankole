@@ -98,7 +98,7 @@ export const contentKeys = {
       'search',
       query,
       options.exclude_subtree_of ?? null,
-      options.required_action ?? 'page_view',
+      options.required_action ?? 'node_view',
       options.embeddable ?? false
     ] as const,
   page: (id: string) => [...contentKeys.all, 'page', id] as const,
@@ -194,10 +194,24 @@ export const pageAPI = {
     podPageComments({ path: { id }, query: { status, cursor, limit: 25 }, signal }),
   commentSummary: (id: string, signal?: AbortSignal) => podPageCommentSummary({ path: { id }, signal }),
   readComments: (id: string, through: string) => podPageCommentsRead({ path: { id }, body: { data: { through } } }),
-  comment: (id: string, body: { body: string; root_id?: string; base_revision?: number; from?: number; to?: number }) =>
-    podPageCommentCreate({ path: { id }, body: { data: body } }),
-  editComment: (id: string, comment_id: string, body: { body: string; version: number }) =>
-    podPageCommentUpdate({ path: { id, comment_id }, body: { data: body } }),
+  comment: (
+    id: string,
+    body: {
+      body: string
+      root_id?: string
+      base_revision?: number
+      from?: number
+      to?: number
+      anchor?: Record<string, unknown> | null
+      quote?: string | null
+      mentioned_agent_uids?: string[] | null
+    }
+  ) => podPageCommentCreate({ path: { id }, body: { data: body } }),
+  editComment: (
+    id: string,
+    comment_id: string,
+    body: { body: string; version: number; mentioned_agent_uids?: string[] | null }
+  ) => podPageCommentUpdate({ path: { id, comment_id }, body: { data: body } }),
   deleteComment: (id: string, comment_id: string, version: number) =>
     podPageCommentDelete({ path: { id, comment_id }, query: { version } }),
   resolveComment: (id: string, comment_id: string, resolved: boolean, version: number) =>
@@ -205,7 +219,14 @@ export const pageAPI = {
   anchorComment: (
     id: string,
     comment_id: string,
-    body: { base_revision: number; from: number; to: number; version: number }
+    body: {
+      base_revision?: number | null
+      from?: number | null
+      to?: number | null
+      anchor?: Record<string, unknown> | null
+      quote?: string | null
+      version: number
+    }
   ) => podPageCommentAnchor({ path: { id, comment_id }, body: { data: body } }),
   create: (body: NonNullable<PodPageCreateData['body']>['data']) => podPageCreate({ body: { data: body } }),
   update: (id: string, body: NonNullable<PodPageUpdateData['body']>['data']) =>

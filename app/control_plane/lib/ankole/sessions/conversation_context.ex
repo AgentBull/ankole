@@ -1,12 +1,16 @@
 defmodule Ankole.Sessions.ConversationContext do
   @moduledoc "Adds unread public statements to the next model request without storing a cursor."
   alias Ankole.{AIGateway, Conversations}
-  alias Ankole.Sessions.{Key, Prompt.Input}
+  alias Ankole.Sessions.{Key, Prompt.Input, WakeBriefing}
 
   def append(run, request) do
-    case Key.parse(run.session_id) do
-      {:conversation, id} -> append_conversation(run, request, id)
-      _ -> request
+    if WakeBriefing.should_inject?(run) do
+      WakeBriefing.append(run, request)
+    else
+      case Key.parse(run.session_id) do
+        {:conversation, id} -> append_conversation(run, request, id)
+        _ -> request
+      end
     end
   end
 
@@ -57,17 +61,6 @@ defmodule Ankole.Sessions.ConversationContext do
            Enum.uniq(input_ids ++ quoted_ids)
          ) do
       {:ok, snapshot} ->
-        :ok =
-          Ankole.Conversations.Attachments.link_payload(
-            run.agent_uid,
-            %{
-              "data" => %{
-                "entries" => Enum.map(snapshot.messages, &%{"attachments" => &1.attachments})
-              }
-            },
-            id
-          )
-
         read = %{
           "id" => id,
           "max_seq" => snapshot.max_seq,

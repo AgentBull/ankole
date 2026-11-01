@@ -45,6 +45,7 @@ defmodule Ankole.Conversations.InboundBatch do
     )
 
     attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false, public?: true)
+    attribute(:binding_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:binding_name, :string, allow_nil?: false, public?: true)
     attribute(:session_id, :string, allow_nil?: false, public?: true)
     attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false, public?: true)
@@ -113,6 +114,7 @@ defmodule Ankole.Conversations.InboundBatch do
     create :open do
       accept([
         :agent_uid,
+        :binding_id,
         :binding_name,
         :session_id,
         :conversation_id,

@@ -57,8 +57,9 @@ defmodule Ankole.AIGateway.CompactionRetention do
   def collect_pending_clarify(items) when is_list(items) do
     items
     |> Enum.reduce(nil, fn
-      %{"type" => "function_call", "name" => @clarify_tool, "call_id" => call_id} = call, _pending
-      when is_binary(call_id) and call_id != "" ->
+      %{"type" => "function_call", "name" => tool_name, "call_id" => call_id} = call, _pending
+      when tool_name in [@clarify_tool, "propose_action_card"] and is_binary(call_id) and
+             call_id != "" ->
         {call, call_id, nil}
 
       %{"type" => "function_call_output", "call_id" => call_id} = output, {call, pending_id, nil}

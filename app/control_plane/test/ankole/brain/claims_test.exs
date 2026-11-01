@@ -41,7 +41,12 @@ defmodule Ankole.Brain.ClaimsTest do
   test "platform attribution survives superseding and removal of its author tenant", %{
     tenant: tenant
   } do
-    other = Ankole.DataCase.create_tenant()
+    {:ok, other} =
+      Ankole.Tenants.create(%{
+        slug: "attribution-#{Ecto.UUID.generate()}",
+        display_name: "Attribution author"
+      })
+
     author = Repo.with_tenant(other.id, fn -> human_fixture().principal end)
     reference = Ankole.ActorRef.from_principal(author)
     Repo.put_tenant_id(tenant.id)
@@ -56,16 +61,7 @@ defmodule Ankole.Brain.ClaimsTest do
 
     assert replacement.author == reference
 
-    Repo.with_tenant(other.id, fn ->
-      Repo.delete!(author)
-      Repo.delete_all(Ankole.Brain.Schemas.Object)
-      # Tenant creation also initializes Space grants and its all-humans group.
-      # Remove those fixture rows before testing attribution without its tenant.
-      Repo.delete_all(Ankole.AuthZ.Grant)
-      Repo.delete_all(Ankole.AuthZ.Group)
-    end)
-
-    Repo.delete!(other)
+    Ankole.DataCase.cleanup_tenant!(other)
     assert Repo.get!(Claim, replacement.id).author == reference
   end
 

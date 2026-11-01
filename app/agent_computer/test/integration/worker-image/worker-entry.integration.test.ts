@@ -22,6 +22,7 @@ const entryPath = join(scripts, 'ankole-worker-entry.sh')
 const supervisorPath = join(scripts, 'ankole-worker-supervisor.sh')
 const restoredHome = '/var/lib/ankole/agent-home-restored'
 const credential = 'entry-test-credential'
+const storageName = 'ankole-entry-test-0123456789abcdef'
 const cleanups: Array<() => void> = []
 
 afterEach(() => {
@@ -43,6 +44,7 @@ describe('Worker entrypoint with adapter storage (WP 3.4)', () => {
       ['restore', `Bearer ${credential}`],
       ['backup', `Bearer ${credential}`]
     ])
+    expect(adapter.paths).toEqual([`/agents/${storageName}/storage/restore`, `/agents/${storageName}/storage/backup`])
     expect(runs(worker)).toBe(1)
     expect(existsSync(restoredHome)).toBeTrue()
   })
@@ -117,12 +119,12 @@ describe('Worker entrypoint with adapter storage (WP 3.4)', () => {
 describe('Worker entrypoint with NFS storage deletion', () => {
   it('reports ready only after removal completes, including an empty Agent directory', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ankole-storage-delete-'))
-    const agent = `entry-delete-${Math.random().toString(36).slice(2, 10)}`
+    const agent = `entry+delete-${Math.random().toString(36).slice(2, 10)}@example.com`
     const ready = '/run/ankole-entry-ready'
     const gate = join(dir, 'removing')
     const release = join(dir, 'release')
     const shellEnv = join(dir, 'shell-env')
-    mkdirSync(`/workspace/${agent}`, { recursive: true })
+    mkdirSync(`/workspace/${storageName}`, { recursive: true })
     rmSync(ready, { force: true })
 
     // The mount is a fixture. The image entry and file removal are real;
@@ -142,6 +144,7 @@ function rm() {
         ...process.env,
         BASH_ENV: shellEnv,
         WORKER_ID: agent,
+        ANKOLE_WORKER_STORAGE_NAME: storageName,
         ANKOLE_WORKER_BOOTSTRAP: '',
         ANKOLE_WORKER_STORAGE: 'nfs',
         ANKOLE_WORKER_TASK: 'delete_storage'
@@ -154,21 +157,21 @@ function rm() {
       const deadline = performance.now() + 2_000
       while (!existsSync(gate) && entry.exitCode === null && performance.now() < deadline) await Bun.sleep(10)
       expect(existsSync(gate)).toBeTrue()
-      expect(existsSync(`/workspace/${agent}`)).toBeFalse()
-      expect(readdirSync('/workspace/.deleted').some(name => name.startsWith(`${agent}-`))).toBeTrue()
+      expect(existsSync(`/workspace/${storageName}`)).toBeFalse()
+      expect(readdirSync('/workspace/.deleted').some(name => name.startsWith(`${storageName}-`))).toBeTrue()
       expect(existsSync(ready)).toBeFalse()
       expect(entry.exitCode).toBeNull()
 
       writeFileSync(release, '')
       expect(await entry.exited).toBe(0)
       expect(existsSync(ready)).toBeTrue()
-      expect(readdirSync('/workspace/.deleted').some(name => name.startsWith(`${agent}-`))).toBeFalse()
+      expect(readdirSync('/workspace/.deleted').some(name => name.startsWith(`${storageName}-`))).toBeFalse()
     } finally {
       writeFileSync(release, '')
       if (entry.exitCode === null) entry.kill('SIGTERM')
       await entry.exited
       rmSync(ready, { force: true })
-      rmSync(`/workspace/${agent}`, { force: true, recursive: true })
+      rmSync(`/workspace/${storageName}`, { force: true, recursive: true })
       rmSync(dir, { force: true, recursive: true })
     }
   })
@@ -220,13 +223,16 @@ describe('Worker entrypoint with Lambda hooks', () => {
 
 function fakeAdapter(restore: RestoreReply) {
   const requests: Array<[string, string | null]> = []
+  const paths: string[] = []
   const received = Promise.withResolvers<void>()
   const aborted = Promise.withResolvers<void>()
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
     fetch(request) {
-      const route = new URL(request.url).pathname.split('/').at(-1)!
+      const path = new URL(request.url).pathname
+      const route = path.split('/').at(-1)!
+      paths.push(path)
       requests.push([route, request.headers.get('authorization')])
       if (route === 'backup') return Response.json({ storage_ref: null })
       if (restore === 'ok') return Response.json({ restored: true })
@@ -244,6 +250,7 @@ function fakeAdapter(restore: RestoreReply) {
   return {
     url: `http://127.0.0.1:${server.port}`,
     requests,
+    paths,
     restoreReceived: received.promise,
     restoreAborted: aborted.promise
   }
@@ -253,7 +260,7 @@ function fakeAdapter(restore: RestoreReply) {
 function fakeWorker() {
   const dir = mkdtempSync(join(tmpdir(), 'ankole-worker-entry-'))
   chmodSync(dir, 0o777)
-  const agent = `entry-test-${Math.random().toString(36).slice(2, 10)}`
+  const agent = `entry+test-${Math.random().toString(36).slice(2, 10)}@example.com`
   const script = join(dir, 'worker.sh')
   writeFileSync(script, `#!/usr/bin/env bash\necho run >> ${JSON.stringify(join(dir, 'runs'))}\n`)
   chmodSync(script, 0o755)
@@ -276,6 +283,7 @@ function adapterEnv(adapterURL: string, agent: string): Record<string, string | 
   return {
     ...process.env,
     WORKER_ID: agent,
+    ANKOLE_WORKER_STORAGE_NAME: storageName,
     ANKOLE_WORKER_STORAGE: 'adapter',
     ANKOLE_WORKER_ADAPTER_URL: adapterURL,
     ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: credential

@@ -74,8 +74,8 @@ defmodule Ankole.AIGateway.CodexVisionTest do
       "observability_user_id" => "principal:user-1"
     }
 
-    pid =
-      spawn(fn ->
+    task =
+      Task.async(fn ->
         receive do
           :adapt ->
             CodexVision.adapt(
@@ -89,14 +89,21 @@ defmodule Ankole.AIGateway.CodexVisionTest do
         end
       end)
 
+    pid = task.pid
     assert 1 = :erlang.trace(pid, true, [:call])
 
     try do
       send(pid, :adapt)
+      assert {:ok, _adapted} = Task.await(task)
+      delivered = :erlang.trace_delivered(pid)
 
-      assert_receive {:trace, ^pid, :call,
-                      {Ankole.AIGateway, :create_response,
-                       ["agent-1", _fallback_request, fallback_opts]}}
+      receive do
+        {:trace_delivered, ^pid, ^delivered} -> :ok
+      end
+
+      assert_received {:trace, ^pid, :call,
+                       {Ankole.AIGateway, :create_response,
+                        ["agent-1", _fallback_request, fallback_opts]}}
 
       assert length(fallback_opts) == 3
 
@@ -106,7 +113,7 @@ defmodule Ankole.AIGateway.CodexVisionTest do
                subject_type: "agent"
              }
     after
-      if Process.alive?(pid), do: Process.exit(pid, :kill)
+      Task.shutdown(task, :brutal_kill)
       :erlang.trace_pattern({Ankole.AIGateway, :create_response, 3}, false, [])
     end
   end

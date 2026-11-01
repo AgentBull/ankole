@@ -113,7 +113,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                binding_attrs(first_config)
              )
 
-    assert first_config_key == Config.binding_config_key(first_agent.uid, "lark-main")
+    assert first_config_key == Config.binding_config_key(Repo.tenant_id!(), first_binding.id)
     assert first_binding.config_ref == "app-config://#{first_config_key}"
 
     assert {:ok, %{binding: second_binding, config_key: second_config_key}} =
@@ -124,7 +124,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                binding_attrs(second_config)
              )
 
-    assert second_config_key == Config.binding_config_key(first_agent.uid, "lark-other")
+    assert second_config_key == Config.binding_config_key(Repo.tenant_id!(), second_binding.id)
     refute second_config_key == first_config_key
     assert second_binding.config_ref == "app-config://#{second_config_key}"
 
@@ -158,7 +158,10 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     assert first_agent_uid == first_agent.uid
 
-    assert {:ok, _disabled} = Bindings.disable_binding(first_agent.uid, "lark-main")
+    assert {:ok, _disabled} =
+             Bindings.disable_binding(
+               Ankole.Signals.get_agent_binding!(first_agent.uid, "lark-main").id
+             )
 
     assert {:ok, %{binding: %Binding{agent_uid: second_agent_uid}}} =
              Bindings.put_binding(
@@ -197,11 +200,10 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     %{principal: agent} = agent_fixture()
     legacy_config = lark_config("cli_legacy")
     legacy_config_key = "signals.lark.bindings." <> agent.uid
-    binding_config_key = Config.binding_config_key(agent.uid, "lark-main")
 
     assert {:ok, _stored} = AppConfigure.put_global_by_key(legacy_config_key, legacy_config)
 
-    assert {:ok, %Binding{}} =
+    assert {:ok, %Binding{} = original} =
              Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: agent.uid,
                name: "lark-main",
@@ -213,11 +215,17 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                enabled: true
              })
 
+    binding_config_key = Config.binding_config_key(Repo.tenant_id!(), original.id)
+
     assert {:ok, %{binding: %Binding{} = binding, config_key: ^binding_config_key}} =
-             Bindings.update_binding(agent.uid, agent.uid, "lark-main", %{
-               "config" => %{"userName" => "Renamed Lark Bot"},
-               "group_message_mode" => "addressed_only"
-             })
+             Bindings.update_binding(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-main").id,
+               %{
+                 "agent_uid" => agent.uid,
+                 "config" => %{"userName" => "Renamed Lark Bot"},
+                 "group_message_mode" => "addressed_only"
+               }
+             )
 
     assert binding.config_ref == "app-config://#{binding_config_key}"
 
@@ -229,10 +237,11 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
   test "a binding-owned key cannot overlap a legacy Agent-owned key" do
     %{principal: target_agent} = agent_fixture()
-    binding_config_key = Config.binding_config_key(target_agent.uid, "lark-main")
+    binding = Ankole.SignalsFixtures.binding_fixture(target_agent.uid, "lark-main", :ignore)
+    binding_config_key = Config.binding_config_key(Repo.tenant_id!(), binding.id)
 
     digest =
-      [target_agent.uid, "lark-main"]
+      [Repo.tenant_id!(), binding.id]
       |> Ankole.JSON.encode!()
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
@@ -337,11 +346,10 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     %{principal: first_agent} = agent_fixture()
     %{principal: second_agent} = agent_fixture()
     shared_config = lark_config("cli_concurrent_shared")
-    first_config_key = Config.binding_config_key(first_agent.uid, "lark-main")
     cache_pid = Process.whereis(AppConfigureCache)
     parent = self()
 
-    assert {:ok, %{binding: %Binding{}}} =
+    assert {:ok, %{binding: %Binding{}, config_key: first_config_key}} =
              Bindings.put_binding(
                first_agent.uid,
                "lark",
@@ -479,8 +487,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   end
 
   test "a rolled-back binding config write is never published to the AppConfigure cache" do
-    %{principal: agent} = agent_fixture()
-    config_key = Config.binding_config_key(agent.uid, "lark-main")
+    config_key = Config.binding_config_key(Repo.tenant_id!(), Ecto.UUID.generate())
 
     assert {:error, :forced_rollback} =
              Repo.transact(fn ->
@@ -499,7 +506,8 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
   test "a cache refresh fault cannot turn a committed binding into failure or skip follow-up work" do
     %{principal: agent} = agent_fixture()
-    config_key = Config.binding_config_key(agent.uid, "lark-main")
+    binding = Ankole.SignalsFixtures.binding_fixture(agent.uid, "lark-main", :ignore)
+    config_key = Config.binding_config_key(Repo.tenant_id!(), binding.id)
 
     # A read before the save puts the pre-save state in the cache.
     assert :error = AppConfigure.get_by_key(config_key)
@@ -539,8 +547,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert_enqueued(
       worker: Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups,
       args: %{
-        "agent_uid" => agent.uid,
-        "binding_name" => "lark-main",
+        "binding_id" => binding.id,
         "reason" => "binding_saved",
         "source" => "signal_binding"
       }
@@ -609,7 +616,10 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert rpc_vars["LARKSUITE_CLI_APP_ID"] == "cli_secondary"
     assert rpc_vars["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "secondary-token"
 
-    assert {:ok, _disabled} = Bindings.disable_binding(agent.uid, "lark-primary")
+    assert {:ok, _disabled} =
+             Bindings.disable_binding(
+               Ankole.Signals.get_agent_binding!(agent.uid, "lark-primary").id
+             )
 
     assert {:ok, disabled_route_env} =
              Ankole.SessionsCase.effective_worker_env(agent.uid, binding_name: "lark-primary")
@@ -891,16 +901,16 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     SQL.query!(
       Repo,
       """
-      INSERT INTO agents (uid, tenant_id, handle, type, role, options, owner_principal_uid, inserted_at, updated_at)
-      VALUES ($1, $3::text::uuid, $4, 'ai_colleague', 'Legacy Agent', '{}'::jsonb, $2, NOW(), NOW())
+      INSERT INTO agents (uid, tenant_id, type, role, options, owner_principal_uid, inserted_at, updated_at)
+      VALUES ($1, $3::text::uuid, 'ai_colleague', 'Legacy Agent', '{}'::jsonb, $2, NOW(), NOW())
       """,
-      [uid, owner.uid, Repo.tenant_id!(), "legacy-" <> Ecto.UUID.generate()]
+      [uid, owner.uid, Repo.tenant_id!()]
     )
 
     SQL.query!(Repo, """
     ALTER TABLE agents
       ADD CONSTRAINT agents_uid_agent_home_safe
-      CHECK (uid ~ '^[a-z0-9][a-z0-9._-]{0,95}$') NOT VALID
+      CHECK (uid ~ '^[a-z0-9][a-z0-9._@+-]{0,95}$') NOT VALID
     """)
   end
 

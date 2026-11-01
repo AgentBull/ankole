@@ -1,8 +1,9 @@
-defmodule Ankole.Pod.AccessReviewTest do
+defmodule Ankole.Files.AccessReviewTest do
   use Ankole.DataCase, async: false
   use ExUnitProperties
   import Ankole.PrincipalsFixtures
-  alias Ankole.Pod.{Access, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Pages}
 
   setup do
     owner = human_fixture().principal
@@ -32,8 +33,8 @@ defmodule Ankole.Pod.AccessReviewTest do
     grant =
       Repo.get_by!(Ankole.AuthZ.Grant,
         group_id: group.id,
-        resource_pattern: "pod:space:**",
-        action: "page_view"
+        resource_pattern: "drive:space:**",
+        action: "node_view"
       )
 
     {:ok, _} = Ankole.AuthZ.delete_permission_grant(grant.id)
@@ -77,14 +78,14 @@ defmodule Ankole.Pod.AccessReviewTest do
       })
 
     for {principal, action, condition} <- [
-          {ctx.outsider, "page_view", "false"},
-          {editor, "page_edit", "true"},
-          {ctx.member, "page_view", ~s(context.request.ip == "10.0.0.1")}
+          {ctx.outsider, "node_view", "false"},
+          {editor, "node_edit", "true"},
+          {ctx.member, "node_view", ~s(context.request.ip == "10.0.0.1")}
         ] do
       assert {:ok, _} =
                Ankole.AuthZ.create_permission_grant(%{
                  principal_uid: principal.uid,
-                 resource_pattern: "pod:**:#{page.id}:page",
+                 resource_pattern: "drive:**:#{page.id}:node",
                  action: action,
                  condition: condition
                })
@@ -95,28 +96,28 @@ defmodule Ankole.Pod.AccessReviewTest do
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(actor_context(guest.uid, ip)),
                  page.id,
-                 "page_view"
+                 "node_view"
                )
 
       assert {:error, :forbidden} =
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(actor_context(ctx.outsider.uid, ip)),
                  page.id,
-                 "page_view"
+                 "node_view"
                )
 
       assert {:error, :forbidden} =
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(actor_context(editor.uid, ip)),
                  page.id,
-                 "page_view"
+                 "node_view"
                )
 
       assert {:ok, _} =
                Pages.authorize(
                  Ankole.PrincipalsFixtures.actor_fixture(actor_context(editor.uid, ip)),
                  page.id,
-                 "page_edit"
+                 "node_edit"
                )
 
       assert {:ok, subjects} =
@@ -146,8 +147,8 @@ defmodule Ankole.Pod.AccessReviewTest do
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: candidate.uid,
-        resource_pattern: "pod:**:#{page.id}:page",
-        action: "page_view",
+        resource_pattern: "drive:**:#{page.id}:node",
+        action: "node_view",
         condition: ~s|context.request.authn.amr.contains("mfa")|
       })
 
@@ -225,7 +226,7 @@ defmodule Ankole.Pod.AccessReviewTest do
                   Access.authorize(
                     Ankole.PrincipalsFixtures.actor_fixture(actor.uid),
                     current,
-                    "page_view",
+                    "node_view",
                     trash: false
                   )
                 ],
@@ -242,7 +243,10 @@ defmodule Ankole.Pod.AccessReviewTest do
     end
   end
 
-  test "an Agent cannot create or move a page into its own Private root", ctx do
+  test "an Agent can create and move a page into its own Private root", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid)
+    {:ok, root} = Ankole.Files.Nodes.private_root(ctx.agent.uid)
+
     {:ok, _} =
       Pages.space_agent(
         Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
@@ -250,19 +254,19 @@ defmodule Ankole.Pod.AccessReviewTest do
         "manage"
       )
 
-    assert {:error, :forbidden} =
-             Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), %{
-               private_owner_uid: ctx.agent.uid
-             })
+    assert {:ok, created} = Pages.create(actor, %{private_owner_uid: ctx.agent.uid})
+    assert created.parent_id == root.id
+    assert {:ok, %{role: "manage"}} = Pages.get(actor, created.id)
 
     {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
+    assert {:ok, %{page: moved}} = Pages.move(actor, page.id, %{private_owner_uid: ctx.agent.uid})
+    assert moved.parent_id == root.id
+    assert {:ok, %{role: "manage"}} = Pages.get(actor, moved.id)
 
-    assert {:error, :forbidden} =
-             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), page.id, %{
-               private_owner_uid: ctx.agent.uid
-             })
-
-    assert {:ok, _} = Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid), page.id)
+    for id <- [created.id, moved.id] do
+      assert {:error, :forbidden} =
+               Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid), id)
+    end
   end
 
   test "context conditions give matching lazy navigation and page decisions", ctx do
@@ -281,11 +285,13 @@ defmodule Ankole.Pod.AccessReviewTest do
         private_owner_uid: ctx.owner.uid
       })
 
-    for {target, action, scope} <- [{private, "page_view", "**"}, {child, "page_edit", "page"}] do
+    for {target, action, scope} <- [{private, "node_view", "**"}, {child, "node_edit", "node"}] do
       assert {:ok, _} =
                Ankole.AuthZ.create_permission_grant(%{
                  group_id: ctx.group.id,
-                 resource_pattern: "pod:**:#{target.id}:#{scope}",
+                 resource_pattern: "drive:**:#{target.id}:#{scope}",
+                 target_node_id: target.id,
+                 target_scope: if(scope == "**", do: "container", else: "self"),
                  action: action,
                  condition: ~s(context.request.ip == "10.0.0.1")
                })
@@ -333,8 +339,10 @@ defmodule Ankole.Pod.AccessReviewTest do
     assert {:error, _} =
              Ankole.AuthZ.create_permission_grant(%{
                group_id: ctx.group.id,
-               resource_pattern: "pod:private:#{ctx.owner.uid}:#{private.id}:**",
-               action: "page_view",
+               resource_pattern: "drive:private:#{ctx.owner.uid}:#{private.id}:**",
+               target_node_id: private.id,
+               target_scope: "container",
+               action: "node_view",
                condition: "true"
              })
   end
@@ -354,7 +362,7 @@ defmodule Ankole.Pod.AccessReviewTest do
       {:ok, _} =
         Ankole.AuthZ.create_permission_grant(%{
           principal_uid: ctx.member.uid,
-          resource_pattern: "pod:**:#{child.id}:**",
+          resource_pattern: "drive:**:#{child.id}:**",
           action: action,
           condition: "true && true"
         })
@@ -390,6 +398,9 @@ defmodule Ankole.Pod.AccessReviewTest do
 
   test "conditional anchor evaluation uses one native context snapshot", ctx do
     now = DateTime.utc_now(:microsecond)
+    {:ok, root} = Ankole.Files.Nodes.public_root()
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid)
+    assert {:ok, roots} = Access.reachable_anchors(actor)
 
     pages =
       for index <- 1..1000 do
@@ -406,7 +417,26 @@ defmodule Ankole.Pod.AccessReviewTest do
       end
       |> Enum.map(&Map.merge(&1, %{acl_anchor_id: &1.id, has_local_acl: true}))
 
-    Repo.insert_all(Ankole.Pod.Page, pages)
+    nodes =
+      Enum.map(pages, fn page ->
+        page
+        |> Map.drop([:type, :title, :position])
+        |> Map.merge(%{
+          kind: :doc,
+          name: page.title,
+          parent_id: root.id,
+          parent_anchor_id: root.id
+        })
+      end)
+
+    properties =
+      Enum.map(
+        pages,
+        &Map.take(&1, [:id, :tenant_id, :title, :position, :created_at, :updated_at])
+      )
+
+    Repo.insert_all(Ankole.Files.Schemas.Node, nodes)
+    Repo.insert_all(Ankole.Pod.Properties, properties)
 
     grants =
       for page <- pages do
@@ -414,10 +444,10 @@ defmodule Ankole.Pod.AccessReviewTest do
           id: Ankole.Ecto.UUIDv7.autogenerate(),
           tenant_id: ctx.tenant.id,
           principal_uid: ctx.member.uid,
-          resource_pattern: "pod:**:#{page.id}:**",
-          target_page_id: page.id,
+          resource_pattern: "drive:**:#{page.id}:**",
+          target_node_id: page.id,
           target_scope: "container",
-          action: "page_view",
+          action: "node_view",
           condition: "true",
           metadata: %{},
           inserted_at: now,
@@ -430,12 +460,13 @@ defmodule Ankole.Pod.AccessReviewTest do
     assert {:ok, canonical} =
              Access.reachable_anchors(Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid))
 
-    assert map_size(canonical) == 1000
+    assert map_size(canonical) == map_size(roots) + 1000
+    assert Enum.all?(pages, &Map.has_key?(canonical, &1.id))
 
     assert {:ok, _} =
              Ankole.AuthZ.update_permission_grant(hd(grants).id, %{condition: "true && true"})
 
-    function = {Ankole.Kernel, :authz_evaluate_pod_context, 1}
+    function = {Ankole.Kernel, :authz_evaluate_drive_context, 1}
     :erlang.trace_pattern(function, true, [:call_count])
 
     try do
@@ -499,8 +530,8 @@ defmodule Ankole.Pod.AccessReviewTest do
 
   test "only permission changes trigger tenant-wide access checks", ctx do
     {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
-    :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-access:" <> Repo.tenant_id!())
-    :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-page:" <> page.id)
+    :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-access:" <> Repo.tenant_id!())
+    :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> page.id)
 
     assert {:ok, _} =
              Pages.update(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
@@ -508,7 +539,7 @@ defmodule Ankole.Pod.AccessReviewTest do
                expected_title: page.title
              })
 
-    assert_receive {:page_committed, _}
+    assert_receive {:node_committed, _}
     refute_receive :recheck_access
 
     assert {:error, :invalid_principal} =

@@ -8,9 +8,7 @@ import { isEmpty, isRecord, recordValue, safeJsonParse, stringArg } from '@agent
 
 export const BRAIN_KEYS = {
   enabled: 'brain.enabled',
-  maintainerAgentUID: 'brain.maintainer_agent_uid',
   embeddingModel: 'brain.embedding_model',
-  rerankModel: 'brain.rerank_model',
   searchTokenizer: 'brain.search_tokenizer',
   chunking: 'brain.chunking',
   forgetting: 'brain.forgetting',
@@ -22,8 +20,8 @@ export const BRAIN_KEYS = {
   skillLearningReflectionThreshold: 'brain.skill_learning_reflection_threshold'
 } as const
 
-/** Brain owns these nullable model keys; Agent profiles own its maintenance models. */
-export const BRAIN_MODEL_KEYS = [BRAIN_KEYS.embeddingModel, BRAIN_KEYS.rerankModel] as const
+/** Embedding remains site-wide because Brain shares one physical vector space. */
+export const BRAIN_MODEL_KEYS = [BRAIN_KEYS.embeddingModel] as const
 
 export const BRAIN_CRON_KEYS = [BRAIN_KEYS.dreamingTaskCron, BRAIN_KEYS.selfHealingTaskCron] as const
 
@@ -102,6 +100,20 @@ export function brainModelValue(draft: BrainModelDraft, requireDimensions: boole
   const options = parseJSONObject(draft.providerOptions)
   if (options && !isEmpty(options)) value.provider_options = options
   return value
+}
+
+/** Matches Brain.Embeddings: provider kind, model, and dimensions identify the vector space. */
+export function embeddingSignatureChanged(
+  previous: unknown,
+  next: unknown,
+  providers: { provider_id: string; provider_kind: string }[]
+): boolean {
+  const signature = (value: unknown) => {
+    if (!isRecord(value)) return null
+    const provider = providers.find(provider => provider.provider_id === value.provider_id)
+    return JSON.stringify([provider?.provider_kind ?? value.provider_id, value.model, value.dimensions])
+  }
+  return signature(previous) !== signature(next)
 }
 
 export function sameBrainModelDraft(left: BrainModelDraft, right: BrainModelDraft): boolean {

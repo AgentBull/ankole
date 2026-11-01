@@ -123,11 +123,16 @@ defmodule Ankole.Sessions.RunTest do
   end
 
   test "ordinary admission and recovery need no Worker (G1, G2)", %{key: key, event: event} do
-    worker = Repo.get!(AgentWorker, key.agent_uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: key.agent_uid)
     assert {:ok, run} = Admission.admit(key, event)
     assert run.event.attempt_count == 1
     assert run.epoch == 1
-    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
+
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get_by!(AgentWorker, agent_uid: key.agent_uid),
+      worker
+    )
+
     assert {:ok, {:preparing, restored}} = Run.restore(run)
     assert restored.signal_id == event.id
   end

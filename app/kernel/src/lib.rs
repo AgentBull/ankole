@@ -29,6 +29,9 @@ pub mod web_proxy;
 #[cfg(any(test, feature = "nif"))]
 pub mod authz;
 
+#[cfg(any(test, feature = "nif"))]
+pub mod brain_chunker;
+
 #[cfg(feature = "brain_markdoc")]
 pub mod brain_markdoc;
 

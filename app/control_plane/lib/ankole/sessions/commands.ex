@@ -12,7 +12,7 @@ defmodule Ankole.Sessions.Commands do
   """
   import Ash.Expr, only: [expr: 1]
   alias Ankole.I18n
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.Sessions.Fence
   alias Ankole.Sessions.Run
   alias Ankole.Signals.Signal
@@ -500,6 +500,7 @@ defmodule Ankole.Sessions.Commands do
     |> Enum.map(fn attrs ->
       attrs
       |> Map.put_new(:agent_uid, signal.agent_uid)
+      |> Map.put_new(:binding_id, signal.reply_binding_id)
       |> Map.put_new(:binding_name, signal.reply_binding_name)
       |> Map.put_new(:conversation_id, signal.conversation_id)
       |> Map.put_new(:provider_thread_id, signal.provider_thread_id)
@@ -589,6 +590,7 @@ defmodule Ankole.Sessions.Commands do
              sender: command_event.sender_key,
              authorization: Ankole.Principals.WorkAccess.fields(source),
              reply_route: %{
+               binding_id: source.reply_binding_id,
                binding_name: source.reply_binding_name,
                conversation_id: source.conversation_id,
                provider_thread_id: source.provider_thread_id,

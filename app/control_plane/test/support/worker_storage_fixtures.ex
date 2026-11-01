@@ -60,7 +60,7 @@ defmodule Ankole.WorkerStorageFixtures do
                  {:error, reason} -> IO.puts("Reconciliation will retry: #{inspect(reason)}")
                end
 
-               case Repo.get(AgentWorker, uid) do
+               case Repo.get_by(AgentWorker, agent_uid: uid) do
                  nil when is_nil(state) ->
                    {:ok, nil}
 
@@ -73,7 +73,7 @@ defmodule Ankole.WorkerStorageFixtures do
                    false
                end
              end),
-           "Worker did not reach #{inspect(state)}: #{inspect(Repo.get(AgentWorker, uid))}"
+           "Worker did not reach #{inspect(state)}: #{inspect(Repo.get_by(AgentWorker, agent_uid: uid))}"
 
     result
   end
@@ -102,7 +102,7 @@ defmodule Ankole.WorkerStorageFixtures do
   cleanup fails keeps its row, which recovery still needs.
   """
   def cleanup_storage!(uids, provider_ids, owner_uid) do
-    for uid <- uids, Repo.get(AgentWorker, uid) do
+    for uid <- uids, Repo.get_by(AgentWorker, agent_uid: uid) do
       assert {:ok, :ok} =
                Repo.transact(fn ->
                  :ok = AgentWorkers.mark_deleting_in_tx(uid)

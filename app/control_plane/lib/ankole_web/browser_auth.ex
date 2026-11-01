@@ -301,11 +301,7 @@ defmodule AnkoleWeb.BrowserAuth do
         case auth do
           %{"principal_uid" => uid} ->
             identity =
-              with {:ok, tenant_id} <- Ankole.Principals.resolve_tenant(uid),
-                   do:
-                     Ankole.Repo.with_tenant(tenant_id, fn ->
-                       Ankole.Principals.get_principal(uid)
-                     end)
+              Ankole.Principals.get_principal(uid)
 
             case identity do
               {:ok, principal} ->
@@ -822,9 +818,8 @@ defmodule AnkoleWeb.BrowserAuth do
   end
 
   defp current_identity(conn) do
-    with %{"principal_uid" => uid, "provider_id" => provider} <-
+    with %{"principal_uid" => uid, "provider_id" => provider, "tenant_id" => tenant_id} <-
            WebSession.current_authentication(conn),
-         {:ok, tenant_id} <- Ankole.Principals.resolve_tenant(uid),
          {:ok, principal} <-
            Ankole.Repo.with_tenant(tenant_id, fn -> Ankole.Principals.get_principal(uid) end) do
       %{principalUID: uid, displayName: principal.display_name || uid, providerID: provider}

@@ -70,6 +70,10 @@ defmodule Ankole.Pod.BaseTable do
   actions do
     defaults([:read])
 
+    read :across_tenants do
+      multitenancy(:allow_global)
+    end
+
     create :create_in_tx do
       accept([:id, :page_id, :name, :position])
     end

@@ -170,11 +170,26 @@ defmodule Ankole.Kernel do
   @spec brain_markdoc_analyze_nif(binary()) :: result(String.t())
   defp brain_markdoc_analyze_nif(_body), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc "Rewrites parsed Brain audience scopes and wikilinks, preserving other source bytes."
+  def brain_markdoc_rewrite_references(body, replacements) do
+    case brain_markdoc_rewrite_references_nif(body, replacements) do
+      {:error, _} = error -> error
+      rewritten -> {:ok, rewritten}
+    end
+  end
+
+  defp brain_markdoc_rewrite_references_nif(_body, _replacements),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   @doc "Validates page XML and derives its canonical source and search text."
   @spec page_validate(String.t()) :: {:ok, map()} | {:error, String.t()}
   def page_validate(source) when is_binary(source) do
     source |> page_validate_nif() |> decode_page_result()
   end
+
+  @doc "Rewrites Principal mention targets through the canonical page XML codec."
+  def page_rename_principal(source, old, new),
+    do: source |> page_rename_principal_nif(old, new) |> decode_page_result()
 
   @doc "Applies one prepared Wordgard ChangeSet through the page XML conversion chain."
   @spec page_apply(String.t(), list()) :: {:ok, map()} | {:error, String.t()}
@@ -238,6 +253,7 @@ defmodule Ankole.Kernel do
   defp page_diff_nif(_old, _new), do: :erlang.nif_error(:nif_not_loaded)
   defp page_identity_changes_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
   defp page_validate_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+  defp page_rename_principal_nif(_source, _old, _new), do: :erlang.nif_error(:nif_not_loaded)
   defp page_apply_nif(_source, _changes), do: :erlang.nif_error(:nif_not_loaded)
 
   defp decode_page_result({:error, _reason} = error), do: error
@@ -253,6 +269,18 @@ defmodule Ankole.Kernel do
   @doc false
   @spec markdown_code_ranges_nif(String.t()) :: [{non_neg_integer(), non_neg_integer()}]
   defp markdown_code_ranges_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Repairs common model-emitted Markdown defects outside code, math, links, HTML, and wikilinks.
+  """
+  @spec repair_generated_markdown(String.t()) :: String.t()
+  def repair_generated_markdown(source) when is_binary(source) do
+    markdown_repair_generated_nif(source)
+  end
+
+  @doc false
+  @spec markdown_repair_generated_nif(String.t()) :: String.t()
+  defp markdown_repair_generated_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Authorizes one exact action on one concrete resource.
@@ -290,11 +318,11 @@ defmodule Ankole.Kernel do
   end
 
   @doc "Evaluates Pod groups and conditional grants for one Principal and request context."
-  @spec authz_evaluate_pod_context(map()) :: result(map())
-  def authz_evaluate_pod_context(snapshot) when is_map(snapshot) do
+  @spec authz_evaluate_drive_context(map()) :: result(map())
+  def authz_evaluate_drive_context(snapshot) when is_map(snapshot) do
     snapshot
     |> Torque.encode!()
-    |> authz_evaluate_pod_context_nif()
+    |> authz_evaluate_drive_context_nif()
     |> decode_json_result()
   end
 
@@ -306,7 +334,7 @@ defmodule Ankole.Kernel do
 
   defp authz_authorize_checks_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
-  defp authz_evaluate_pod_context_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
+  defp authz_evaluate_drive_context_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
   @spec universal_ai_client_open_nif(String.t(), pid(), reference()) ::
@@ -340,9 +368,25 @@ defmodule Ankole.Kernel do
   def object_store_open_nif(_spec), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
+  @spec object_store_write_limit_nif(object_store()) :: pos_integer()
+  def object_store_write_limit_nif(_store), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
   @spec object_store_read_nif(object_store(), String.t(), pid(), reference()) ::
           :ok | {:error, map()}
   def object_store_read_nif(_store, _key, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec object_store_read_range_nif(
+          object_store(),
+          String.t(),
+          non_neg_integer(),
+          non_neg_integer(),
+          pid(),
+          reference()
+        ) :: :ok | {:error, map()}
+  def object_store_read_range_nif(_store, _key, _offset, _length, _owner_pid, _request_ref),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
@@ -369,6 +413,21 @@ defmodule Ankole.Kernel do
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
+  def object_store_writer_open_nif(_store, _key, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  def object_store_writer_write_nif(_writer, _bytes, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  def object_store_writer_close_nif(_writer, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  def object_store_writer_abort_nif(_writer), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
   @spec object_store_delete_nif(object_store(), String.t(), pid(), reference()) ::
           :ok | {:error, map()}
   def object_store_delete_nif(_store, _key, _owner_pid, _request_ref),
@@ -381,8 +440,8 @@ defmodule Ankole.Kernel do
   def authz_validate_condition(_condition), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc "Returns `true` when a CEL Pod condition uses only Principal and request-context variables."
-  @spec authz_validate_pod_condition(String.t()) :: result(boolean())
-  def authz_validate_pod_condition(_condition), do: :erlang.nif_error(:nif_not_loaded)
+  @spec authz_validate_drive_condition(String.t()) :: result(boolean())
+  def authz_validate_drive_condition(_condition), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc "Returns the sorted free variables of a CEL condition."
   @spec authz_condition_free_variables(String.t()) :: result([String.t()])
@@ -431,6 +490,33 @@ defmodule Ankole.Kernel do
   """
   @spec estimate_o200k_base_tokens(String.t()) :: non_neg_integer()
   def estimate_o200k_base_tokens(_text), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Truncates `text` at a Unicode grapheme boundary so its `o200k_base` token
+  count does not exceed `budget`, trimming trailing whitespace when cut.
+  """
+  @spec truncate_o200k_base_tokens(String.t(), non_neg_integer()) :: result(String.t())
+  def truncate_o200k_base_tokens(_text, _budget), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Chunks one single-scope Brain text using the CJK-aware recursive chunker and
+  returns `{chunk_text, exact_token_count}` pairs.
+  """
+  @spec brain_chunk_text_with_tokens(
+          String.t(),
+          pos_integer(),
+          non_neg_integer(),
+          pos_integer(),
+          pos_integer()
+        ) :: result([{String.t(), non_neg_integer()}])
+  def brain_chunk_text_with_tokens(
+        _text,
+        _chunk_size,
+        _chunk_overlap,
+        _max_chars,
+        _max_tokens
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Combines multiple ordered result ID lists with reciprocal-rank fusion.

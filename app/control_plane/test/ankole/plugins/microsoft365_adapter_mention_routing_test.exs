@@ -43,6 +43,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterMentionRoutingTest do
   defp consumer do
     context =
       AdapterContext.new(
+        binding_id: Ecto.UUID.generate(),
         agent_uid: "agent-a",
         binding_name: "teams-a",
         adapter: "teams",

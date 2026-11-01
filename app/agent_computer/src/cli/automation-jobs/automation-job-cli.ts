@@ -3,6 +3,14 @@ import { AUTOMATION_JOB_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime
 import { AutomationJobCLICommand, type AutomationJobCLICommand as Command } from './automation-job-cli-protocol'
 import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import { errorMessage } from '../../common/errors'
+import { emitFirstUseGuidance, installStdoutEpipeGuard, markHelpSeen } from '../cli-guidance'
+
+const AUTOMATION_JOB_FIRST_USE_GUIDANCE = [
+  'automation job CLI writes pure JSON to stdout; run `create-automation-job-cli --help` for SDK details.',
+  '- Entry point `main.ts` runs in an ephemeral copy of `drive_prefix`; update later via `ankole-files put <dir> <drive_prefix>`.',
+  '- Call `emitEvent(...)` only when human/agent attention is needed; returning without `emitEvent` records a silent completion.',
+  '- Cancel bound triggers (cron/checkback/webhook) before cancelling an automation job.'
+].join('\n')
 
 const usage = `Usage:
   create-automation-job-cli --dir <path> --label <text> [--wake-on-failure]
@@ -86,15 +94,21 @@ Commands
   cancel-automation-job-cli --id <automation-job-id>`
 
 if (import.meta.main) {
+  installStdoutEpipeGuard(process.stdout)
   try {
     const args = process.argv.slice(2)
     if (args.some(arg => arg === '--help' || arg === '-h')) {
+      markHelpSeen({ commandKey: 'automation-job-cli' })
       process.stdout.write(`${AUTOMATION_JOB_CLI_HELP}\n`)
     } else {
       const command = commandFromArgs(args)
       const socketPath = process.env[AUTOMATION_JOB_CLI_SOCKET_ENV]
       if (!socketPath) throw new Error('automation job CLI is available only inside an active Ankole turn')
 
+      await emitFirstUseGuidance({
+        commandKey: 'automation-job-cli',
+        guidance: AUTOMATION_JOB_FIRST_USE_GUIDANCE
+      })
       const result = await requestSocketLineBridge(
         socketPath,
         JSON.stringify(command),

@@ -15,9 +15,18 @@ defmodule Ankole.ObjectStore do
 
   @type error :: Native.error() | :files_store_not_configured
 
+  @doc "Returns the Kernel's backend-specific upload ceiling."
+  def write_limit, do: with_store(fn store -> {:ok, Native.write_limit(store)} end)
+
   @doc "Reads one object into a binary."
   @spec read(String.t()) :: {:ok, binary()} | {:error, error()}
   def read(key), do: with_store(&Native.read(&1, key))
+
+  @doc "Reads exactly `length` bytes at a zero-based offset through the native range reader."
+  @spec read_range(String.t(), non_neg_integer(), non_neg_integer()) ::
+          {:ok, binary()} | {:error, error()}
+  def read_range(key, offset, length),
+    do: with_store(&Native.read_range(&1, key, offset, length))
 
   @doc "Copies one object into a local file."
   @spec read_to_file(String.t(), Path.t()) :: :ok | {:error, error()}
@@ -30,6 +39,11 @@ defmodule Ankole.ObjectStore do
   @doc "Writes a local file as one object."
   @spec write_from_file(String.t(), Path.t()) :: :ok | {:error, error()}
   def write_from_file(key, path), do: with_store(&Native.write_from_file(&1, key, path))
+
+  @doc "Streams binary chunks into one object and returns its committed SHA-256 and byte size."
+  @spec write_stream(String.t(), Enumerable.t()) ::
+          {:ok, Native.written_object()} | {:error, error()}
+  def write_stream(key, source), do: with_store(&Native.write_stream(&1, key, source))
 
   @doc "Deletes one object. Deleting a missing object succeeds."
   @spec delete(String.t()) :: :ok | {:error, error()}

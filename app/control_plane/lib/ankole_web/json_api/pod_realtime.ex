@@ -38,7 +38,7 @@ defmodule AnkoleWeb.JSONAPI.PodRealtime do
       )
 
       run(fn input, context ->
-        Ankole.Pod.Access.principal(context.actor)
+        Ankole.Files.Access.principal(context.actor)
         |> Ankole.Pod.APIError.result(fn principal ->
           %{
             token: AnkoleWeb.PodSocket.token(principal.uid, input.context.authentication_ref),

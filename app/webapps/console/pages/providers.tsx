@@ -19,7 +19,8 @@ import { RiArrowDownSLine, RiPauseCircleLine, RiPlayCircleLine, RiSparkling2Line
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
+import { Link } from '../tenant-context'
 import { localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
@@ -470,8 +471,8 @@ export function ProviderEditorPage() {
       {mode === 'edit' ? (
         <p className="text-xs text-muted-foreground">
           {t('console.providers.model_profiles_hint')}{' '}
-          <Link to="/agents" className="link">
-            {t('console.nav.agents')}
+          <Link to="/model-profiles" className="link">
+            {t('console.nav.model_profiles')}
           </Link>
         </p>
       ) : null}

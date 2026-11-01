@@ -40,15 +40,6 @@ defmodule Ankole.Pod.Config do
           "Base query and record limits: query_rows, record_bytes, group_count, and statement_timeout_ms."
       ),
       Definition.new!(
-        key: "pod.trash_retention_days",
-        scope: :tenant,
-        encrypted: false,
-        schema: Schema.new(&non_negative_integer/1),
-        default_value: 30,
-        description:
-          "Days to retain deleted pages before automatic purge; 0 keeps them until this changes."
-      ),
-      Definition.new!(
         key: "pod.ot_replay_window",
         scope: :tenant,
         encrypted: false,
@@ -72,9 +63,6 @@ defmodule Ankole.Pod.Config do
 
   defp boolean(value) when is_boolean(value), do: {:ok, value}
   defp boolean(_), do: {:error, :invalid_boolean}
-
-  def trash_retention_days,
-    do: AppConfigure.get_tenant_by_key_in_tx("pod.trash_retention_days")
 
   def ot_replay_window,
     do: AppConfigure.get_tenant_by_key_in_tx("pod.ot_replay_window")
@@ -102,9 +90,6 @@ defmodule Ankole.Pod.Config do
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
   defp positive_integer(_), do: {:error, :invalid_positive_integer}
-
-  defp non_negative_integer(value) when is_integer(value) and value >= 0, do: {:ok, value}
-  defp non_negative_integer(_), do: {:error, :invalid_non_negative_integer}
 
   defp validate(limits) when is_map(limits) do
     if Enum.sort(Map.keys(limits)) == Enum.sort(@limit_keys) and

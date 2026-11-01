@@ -25,6 +25,7 @@ export type RelayTransferRequest = {
   url: string
   homeRelativePath: string
   maxBytes: bigint
+  prefixBytes?: bigint
 }
 
 export type RelayTransferResult = { size: number }
@@ -95,17 +96,18 @@ export async function pushFile(
   const maxBytes = boundedByteCount(request.maxBytes)
   const { filePath, stat } = openPushSource(config, name)
 
-  if (stat.size > maxBytes) {
+  const size = request.prefixBytes ? Math.min(stat.size, boundedByteCount(request.prefixBytes)) : stat.size
+  if (size > maxBytes) {
     throw new FileTransferError('file_too_large', `file exceeds ${maxBytes} bytes: ${name}`)
   }
 
-  await uploadFromFile(request.url, filePath, stat.size, signal)
+  await uploadFromFile(request.url, filePath, size, signal)
 
   if (!sourceStillStable(filePath, stat)) {
     throw new FileTransferError('file_changed', `file changed during read: ${name}`)
   }
 
-  return { size: stat.size }
+  return { size }
 }
 
 /**
@@ -270,7 +272,7 @@ async function uploadFromFile(url: string, path: string, size: number, signal?: 
     response = await fetch(url, {
       signal,
       method: 'PUT',
-      body: Bun.file(path),
+      body: Bun.file(path).slice(0, size),
       headers: {
         'content-type': 'application/octet-stream',
         'content-length': String(size)

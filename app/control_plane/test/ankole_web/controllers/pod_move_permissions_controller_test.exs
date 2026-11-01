@@ -52,6 +52,6 @@ defmodule AnkoleWeb.PodMovePermissionsControllerTest do
     assert destination == right.id
 
     assert {:error, :forbidden} =
-             Pages.authorize(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, "page_manage")
+             Pages.authorize(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, "node_manage")
   end
 end

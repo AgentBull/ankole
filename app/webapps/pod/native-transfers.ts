@@ -35,12 +35,12 @@ export async function uploadFile(
   id: string,
   file: File,
   role: 'file' | 'asset' | 'attachment',
-  revision?: number
+  objectID?: string
 ): Promise<PodFileCopyResponse> {
   const body = new FormData()
   body.set('file', file)
   body.set('role', role)
-  if (revision !== undefined) body.set('base_revision', String(revision))
+  if (objectID !== undefined) body.set('base_object_id', objectID)
   const response = await transport(`/api/v2/pod/pages/${encodeURIComponent(id)}/files`, { method: 'POST', body })
   return response.json()
 }
@@ -82,8 +82,17 @@ export async function createFilePage(
   return response.json()
 }
 
-export function conversationAttachmentURL(conversationID: string, messageID: string, path: string, download = false) {
-  const query = new URLSearchParams({ path, ...(download ? { download: 'true' } : {}), ...identityQuery() })
+export function conversationAttachmentURL(
+  conversationID: string,
+  messageID: string,
+  position: number,
+  download = false
+) {
+  const query = new URLSearchParams({
+    position: String(position),
+    ...(download ? { download: 'true' } : {}),
+    ...identityQuery()
+  })
   return `/api/v2/pod/conversations/${encodeURIComponent(conversationID)}/attachments/${encodeURIComponent(messageID)}?${query}`
 }
 
@@ -94,7 +103,7 @@ export function restoreConversationFiles(
 ): Promise<File[]> {
   return Promise.all(
     attachments.map(async attachment => {
-      const response = await transport(conversationAttachmentURL(conversationID, messageID, attachment.path), {
+      const response = await transport(conversationAttachmentURL(conversationID, messageID, attachment.position), {
         method: 'GET'
       })
       const bytes = await response.blob()

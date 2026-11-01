@@ -131,7 +131,7 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
     assert {:ok, _} = Principals.delete_agent(uid)
     assert await_worker_state!(uid, nil) == nil
     assert {:ok, []} = FunctionCompute.list_instances(provider, uid)
-    assert_proof!(Repo.get!(AgentWorker, peer_uid), "OTHER-PROVIDER")
+    assert_proof!(Repo.get_by!(AgentWorker, agent_uid: peer_uid), "OTHER-PROVIDER")
 
     assert {:ok, [%{generation: generation}]} =
              FunctionCompute.list_instances(peer_provider, :all)

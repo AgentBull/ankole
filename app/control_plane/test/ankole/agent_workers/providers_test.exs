@@ -52,6 +52,47 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
     refute Repo.get_by(Provider, provider_id: "different")
   end
 
+  test "an inactive Worker Plugin preserves references and reports how to resume operations" do
+    alias Ankole.Plugins.Registry
+    alias Ankole.Plugins.VercelWorkerProvider.Provider, as: Vercel
+    discovered = Registry.list_discovered()
+    active = Registry.list_active()
+    on_exit(fn -> ProviderKind.refresh_from_specs(discovered, active) end)
+
+    assert {:ok, provider} =
+             Providers.create(%{
+               provider_id: "plugin-lifecycle",
+               kind: "vercel",
+               display_name: "Vercel",
+               config: Vercel.definition().example,
+               credentials: %{"token" => "test"}
+             })
+
+    agent =
+      Ankole.PrincipalsFixtures.agent_fixture(%{worker_provider_id: provider.provider_id}).principal
+
+    worker = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
+
+    ProviderKind.refresh_from_specs(
+      discovered,
+      Enum.reject(active, &(&1.id == "vercel-worker-provider"))
+    )
+
+    assert {:error, {:worker_provider_plugin_inactive, "vercel-worker-provider"}} =
+             Providers.load(provider.provider_id)
+
+    refute Providers.selectable_fun().(provider)
+
+    assert Repo.get_by!(AgentWorker, agent_uid: worker.agent_uid).provider_id ==
+             provider.provider_id
+
+    assert {:ok, _} = Providers.fetch(provider.provider_id)
+
+    ProviderKind.refresh_from_specs(discovered, active)
+    assert {:ok, _} = Providers.load(provider.provider_id)
+    assert Providers.selectable_fun().(provider)
+  end
+
   test "every type example satisfies its declared schema" do
     for module <- ProviderKind.all() do
       definition = module.definition()
@@ -255,7 +296,7 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
       assert {:error, {:invalid_worker_provider_config, [%{path: "memoryMiB"}]}} =
                ReconcileJob.run(%Oban.Job{args: %{"agent_uid" => worker.agent_uid}})
 
-      rejected = Repo.get!(AgentWorker, worker.agent_uid)
+      rejected = Repo.get_by!(AgentWorker, agent_uid: worker.agent_uid)
       assert rejected.state == :deleting
       assert rejected.last_error_kind == "rejected"
       assert rejected.last_error =~ "memoryMiB"
@@ -266,35 +307,35 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
 
     assert {:ok, repaired} = Providers.update("aws", %{config: config})
     assert {:ok, %{settings: %{"memoryMiB" => 4096}}} = Providers.load(repaired)
-    assert Repo.get!(AgentWorker, worker.agent_uid).last_error_kind == nil
+    assert Repo.get_by!(AgentWorker, agent_uid: worker.agent_uid).last_error_kind == nil
   end
 
   test "Agent creation selects its explicit provider or default and fails atomically without one" do
     owner = Ankole.PrincipalsFixtures.human_fixture().principal.uid
 
     agent_attrs = %{
-      handle: "needs-provider",
+      uid: "needs-provider",
       display_name: "Agent",
       role: "Research",
       owner_principal_uid: owner
     }
 
     assert {:error, :worker_provider_required} = Principals.create_agent(agent_attrs)
-    refute Repo.get_by(Ankole.Principals.Agent, handle: "needs-provider")
+    refute Repo.get_by(Ankole.Principals.Agent, uid: "needs-provider")
     refute Repo.exists?(AgentWorker)
 
     assert {:ok, _provider} = Providers.create(Map.put(attrs("default"), :is_default, true))
     assert {:ok, _provider} = Providers.create(attrs("explicit"))
     assert {:ok, %{principal: first}} = Principals.create_agent(agent_attrs)
-    assert Repo.get!(AgentWorker, first.uid).provider_id == "default"
+    assert Repo.get_by!(AgentWorker, agent_uid: first.uid).provider_id == "default"
 
     assert {:ok, %{principal: second}} =
              Principals.create_agent(
-               %{agent_attrs | handle: "explicit-agent"}
+               %{agent_attrs | uid: "explicit-agent"}
                |> Map.put(:worker_provider_id, "explicit")
              )
 
-    assert Repo.get!(AgentWorker, second.uid).provider_id == "explicit"
+    assert Repo.get_by!(AgentWorker, agent_uid: second.uid).provider_id == "explicit"
   end
 
   test "site provider changes reach both tenants and a foreign tenant Worker prevents deletion",
@@ -364,21 +405,21 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
     path = seed_file([first, attrs("invalid", "cpus: wrong\n")])
     assert {:error, _reason} = Repo.without_tenant(fn -> Seed.import_file(path) end)
     refute Repo.exists?(Provider)
-    assert Repo.get!(AgentWorker, "legacy").provider_id == nil
+    assert Repo.get_by!(AgentWorker, agent_uid: "legacy").provider_id == nil
 
     assert Repo.with_tenant(other.id, fn ->
-             Repo.get!(AgentWorker, "foreign-legacy").provider_id
+             Repo.get_by!(AgentWorker, agent_uid: "foreign-legacy").provider_id
            end) == nil
 
     File.write!(path, Ankole.JSON.encode!(%{providers: [first]}))
     assert :ok = Repo.without_tenant(fn -> Seed.import_file(path) end)
-    assert Repo.get!(AgentWorker, "legacy").provider_id == "local"
+    assert Repo.get_by!(AgentWorker, agent_uid: "legacy").provider_id == "local"
 
     assert Repo.with_tenant(other.id, fn ->
-             Repo.get!(AgentWorker, "foreign-legacy").provider_id
+             Repo.get_by!(AgentWorker, agent_uid: "foreign-legacy").provider_id
            end) == "local"
 
-    assert Repo.get!(AgentWorker, "deleted").provider_id == nil
+    assert Repo.get_by!(AgentWorker, agent_uid: "deleted").provider_id == nil
     File.rm!(path)
     assert :ok = Repo.without_tenant(fn -> Seed.import_file(path) end)
     assert [%{provider_id: "local"}] = Providers.list()

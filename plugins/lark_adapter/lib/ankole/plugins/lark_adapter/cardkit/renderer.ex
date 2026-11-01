@@ -251,7 +251,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     %{
       "tag" => "markdown",
       "element_id" => "answer",
-      "content" => if(answer == "", do: " ", else: safe_stream_markdown(answer))
+      "content" =>
+        if(answer == "",
+          do: " ",
+          else: answer |> safe_stream_markdown() |> Ankole.Kernel.repair_generated_markdown()
+        )
     }
   end
 

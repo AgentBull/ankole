@@ -2,7 +2,7 @@ defmodule Ankole.ConversationsModelPreferencesTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures, only: [human_fixture: 0]
   import Ankole.SessionsCase, only: [agent_fixture: 1]
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.Conversations
   alias Ankole.Conversations.{Message, ModelPreferences}
   alias Ankole.Sessions.{Admission, Model, Run}

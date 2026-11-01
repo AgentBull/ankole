@@ -130,6 +130,8 @@ defmodule Ankole.Sessions.Admission do
     do: {:ok, event}
 
   def authorize_event_in_tx(event) do
+    :ok = Ankole.Files.lock_tree_in_tx()
+
     case authorize_new_in_tx(event) do
       :ok ->
         {:ok, event}
@@ -155,6 +157,8 @@ defmodule Ankole.Sessions.Admission do
 
   @doc false
   def admit_in_tx(key, snapshot, plan, prepared, now) do
+    :ok = Ankole.Files.lock_tree_in_tx()
+
     with :ok <- Ankole.Conversations.lock_native_participants_in_tx(key, [snapshot.human_uid]),
          :ok <- authorize_attempt_in_tx(snapshot),
          {:ok, :not_committed} <- finalize_workflow_input_in_tx(snapshot, plan),
@@ -169,6 +173,7 @@ defmodule Ankole.Sessions.Admission do
          true <- WorkAccess.fields(event) == WorkAccess.fields(snapshot),
          :ok <- current_queue_head(event),
          :ok <- Commands.prepare_new_in_tx(event, now),
+         :ok <- Ankole.Sessions.WakeRecycle.maybe_recycle_in_tx(event, plan, now),
          {:ok, conversation} <-
            ModelHistory.ensure_and_lock_conversation_in_tx(uid, session, event),
          {:ok, workspace} <- Ankole.Ash.update_atomic(workspace, :advance_epoch),

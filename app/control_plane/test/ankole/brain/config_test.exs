@@ -3,11 +3,6 @@ defmodule Ankole.Brain.ConfigTest do
 
   alias Ankole.AppConfigure
   alias Ankole.Brain.Config
-  alias Ankole.Principals
-
-  setup do
-    :ok
-  end
 
   test "tenant rerank settings prevent provider disablement and identify their owner", %{
     tenant: tenant
@@ -22,18 +17,19 @@ defmodule Ankole.Brain.ConfigTest do
              })
 
     assert {:ok, _} =
-             AppConfigure.put_tenant_by_key("brain.rerank_model", %{
-               "provider_id" => provider_id,
-               "model" => "rerank"
+             ModelProfiles.put_default_model_profile(:tenant, "rerank", %{
+               provider_id: provider_id,
+               model: "rerank"
              })
 
     assert {:error, {:provider_in_use, references}} = ProviderConfigs.delete_provider(provider_id)
-    assert "tenant:#{tenant.id}:brain.rerank_model" in references
-    assert :ok = AppConfigure.delete_tenant_by_key("brain.rerank_model")
+    assert "tenant:#{tenant.id}:ai_gateway.model_profiles.rerank" in references
+
+    assert {:ok, _} = ModelProfiles.put_default_model_profile(:tenant, "rerank", nil)
     assert {:ok, _} = ProviderConfigs.delete_provider(provider_id)
   end
 
-  test "the maintainer Agent owns Brain task profiles while Brain owns embedding and rerank" do
+  test "Brain uses the system Principal and Pod profiles without an Agent" do
     {:ok, _provider} =
       ProviderConfigs.create_provider(%{
         provider_id: "brain-config-provider",
@@ -50,9 +46,7 @@ defmodule Ankole.Brain.ConfigTest do
         credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "jina-test"}]}
       })
 
-    agent_uid =
-      configure_brain_maintainer_profile!("light", "brain-config-provider", "light-model")
-
+    configure_brain_maintainer_profile!("light", "brain-config-provider", "light-model")
     configure_brain_maintainer_profile!("heavy", "brain-config-provider", "heavy-model")
     configure_brain_maintainer_profile!("web_fetch", "brain-config-web-fetch", "default")
 
@@ -65,30 +59,39 @@ defmodule Ankole.Brain.ConfigTest do
     rerank = %{"provider_id" => "brain-config-provider", "model" => "rerank-model"}
 
     assert {:ok, ^embedding} = AppConfigure.put_global_by_key("brain.embedding_model", embedding)
-    assert {:ok, ^rerank} = AppConfigure.put_global_by_key("brain.rerank_model", rerank)
 
-    assert Config.maintainer_agent_uid() == agent_uid
-    assert {:ok, ^agent_uid} = Config.maintainer_subject_uid()
+    assert {:ok, _} =
+             ModelProfiles.put_default_model_profile(:global, "rerank", rerank)
+
+    assert {:ok, system} = Ankole.Principals.system_principal("ankole_brain")
+    assert {:ok, system_uid} = Config.execution_subject_uid()
+    assert system_uid == system.uid
     assert Config.extraction_model()["model"] == "light-model"
     assert Config.dreaming_model()["model"] == "heavy-model"
     assert Config.web_fetch_model()["provider_id"] == "brain-config-web-fetch"
     assert Config.embedding_model() == embedding
-    assert Config.rerank_model() == rerank
+    assert Config.rerank_model() == Map.put(rerank, "provider_options", %{})
 
     keys = Config.definitions() |> Enum.map(& &1.key) |> MapSet.new()
-    assert MapSet.member?(keys, "brain.maintainer_agent_uid")
+    refute MapSet.member?(keys, "brain.maintainer_agent_uid")
+    refute MapSet.member?(keys, "brain.rerank_model")
     refute MapSet.member?(keys, "brain.extraction_model")
     refute MapSet.member?(keys, "brain.dreaming_model")
     refute MapSet.member?(keys, "brain.web_fetch_model")
   end
 
-  test "Brain model calls require a selected existing Agent identity" do
-    assert {:error, :brain_maintainer_agent_not_configured} = Config.maintainer_subject_uid()
+  test "a single Pod primary serves extraction and Dreaming" do
+    {:ok, _provider} =
+      ProviderConfigs.create_provider(%{
+        provider_id: "brain-config-primary",
+        provider_kind: "openrouter",
+        credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+      })
 
-    assert {:ok, "missing-maintainer"} =
-             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", "missing-maintainer")
+    configure_brain_maintainer_profile!("primary", "brain-config-primary", "primary-model")
 
-    assert {:error, :agent_not_found} = Config.maintainer_subject_uid()
+    assert Config.extraction_model()["model"] == "primary-model"
+    assert Config.dreaming_model()["model"] == "primary-model"
   end
 
   test "unknown fields reject a known setting without replacing its value" do
@@ -100,37 +103,5 @@ defmodule Ankole.Brain.ConfigTest do
 
       assert AppConfigure.get_by_key(key) == before
     end
-  end
-
-  test "a disabled maintainer Agent stops Brain execution until it is replaced or enabled" do
-    %{principal: maintainer} = agent_fixture()
-    %{principal: replacement} = agent_fixture()
-
-    assert {:ok, maintainer_uid} =
-             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer.uid)
-
-    assert maintainer_uid == maintainer.uid
-    assert {:ok, maintainer_uid} == Config.maintainer_subject_uid()
-
-    assert {:ok, %{status: :disabled}} =
-             Ankole.PrincipalsFixtures.disable_principal_fixture(maintainer.uid)
-
-    assert {:error, :brain_maintainer_agent_disabled} = Config.maintainer_subject_uid()
-    assert {:error, :brain_maintainer_agent_disabled} = Config.maintainer_model_profile("light")
-    assert Config.extraction_model() == nil
-    assert Config.dreaming_model() == nil
-    assert Config.web_fetch_model() == nil
-
-    assert {:ok, replacement_uid} =
-             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", replacement.uid)
-
-    assert replacement_uid == replacement.uid
-    assert {:ok, replacement_uid} == Config.maintainer_subject_uid()
-
-    assert {:ok, maintainer_uid} =
-             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer.uid)
-
-    assert {:ok, %{status: :active}} = Principals.enable_agent(maintainer.uid)
-    assert {:ok, maintainer_uid} == Config.maintainer_subject_uid()
   end
 end

@@ -3,7 +3,7 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider, as: AIGatewayProvider
   alias Ankole.AppConfigure
@@ -170,6 +170,11 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
     %{principal: denied_agent} = agent_fixture()
     %{principal: allowed_agent} = agent_fixture()
 
+    binding =
+      Ankole.SignalsFixtures.binding_fixture(source_agent.uid, "slack-main", :ignore,
+        adapter: "slack"
+      )
+
     {:ok, provider} =
       ProviderConfigs.create_provider(%{
         provider_id: "openrouter-denied",
@@ -274,8 +279,8 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
 
     for target_uid <- [String.upcase(denied_agent.uid), "  #{String.upcase(denied_agent.uid)}  "] do
       conn
-      |> api(:patch, "/api/v2/agents/#{source_agent.uid}/signal-bindings/slack-main", %{
-        target_agent_uid: target_uid,
+      |> api(:patch, "/api/v2/signal-bindings/#{binding.id}", %{
+        agent_uid: target_uid,
         config: %{}
       })
       |> json_response(403)

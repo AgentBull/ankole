@@ -42,7 +42,12 @@ defmodule Ankole.AIGateway.ResponseChain do
 
   @doc "Reads the visible complete chain of one owned conversation."
   def visible_response_chain(subject_uid, conversation_id, opts \\ []) do
-    with {:ok, conversation} <- get_conversation_for_subject(subject_uid, conversation_id) do
+    with {:ok, conversation} <-
+           get_conversation_for_subject(
+             subject_uid,
+             conversation_id,
+             Keyword.take(opts, [:include_ended])
+           ) do
       {:ok, expand_history(conversation.id, opts)}
     end
   end

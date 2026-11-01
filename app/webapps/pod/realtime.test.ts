@@ -64,6 +64,29 @@ describe('realtime connection ownership', () => {
     else Reflect.deleteProperty(globalThis, 'document')
   })
 
+  test('visibility reconciliation delivers the file object identity from the server', async () => {
+    const events = new EventTarget()
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        visibilityState: 'visible',
+        querySelector: () => ({ content: 'token' }),
+        addEventListener: events.addEventListener.bind(events),
+        removeEventListener: events.removeEventListener.bind(events)
+      }
+    })
+    globalThis.fetch = (async (_request: Request) =>
+      Response.json({
+        pages: [{ id: 'file', revision: 0, object_id: 'runtime-object' }],
+        tables: []
+      })) as typeof fetch
+    const changed = Promise.withResolvers<{ revision: number | undefined; objectID?: string | null }>()
+    const stop = realtime.watchVersion('pages', 'file', (revision, objectID) => changed.resolve({ revision, objectID }))
+    events.dispatchEvent(new Event('visibilitychange'))
+    expect(await changed.promise).toEqual({ revision: 0, objectID: 'runtime-object' })
+    stop()
+  })
+
   test.each(['error', 'timeout'] as const)('a %s joining a topic publishes disconnected', async status => {
     const handle = await realtime.join('page:document')
     const states: TopicConnection[] = []

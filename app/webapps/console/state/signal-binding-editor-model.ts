@@ -7,7 +7,10 @@ export type GroupMessageMode = NonNullable<SignalBindingWriteRequest['group_mess
 
 export type UnmatchedSenderPolicy = NonNullable<SignalBindingWriteRequest['unmatched_sender_policy']>
 
+export type RoutingMode = NonNullable<SignalBindingWriteRequest['routing_mode']>
+
 export type SignalBindingEditorDraft = {
+  routingMode: RoutingMode
   agentUID: string
   adapterID: string
   name: string
@@ -55,6 +58,7 @@ export function groupSignalAdapters(signalAdapters: readonly SignalAdapterItem[]
 export const SignalBindingEditorModel = createModel(() => {
   const sourceKey = signal<string>()
   const agentUID = signal('')
+  const routingMode = signal<RoutingMode>('ai_colleague')
   const adapterID = signal('')
   const name = signal('')
   const groupMessageMode = signal<GroupMessageMode | ''>('')
@@ -68,6 +72,7 @@ export const SignalBindingEditorModel = createModel(() => {
     return Boolean(
       source &&
       (agentUID.value !== source.agentUID ||
+        routingMode.value !== source.routingMode ||
         adapterID.value !== source.adapterID ||
         name.value !== source.name ||
         groupMessageMode.value !== source.groupMessageMode ||
@@ -79,6 +84,7 @@ export const SignalBindingEditorModel = createModel(() => {
   const apply = (draft: SignalBindingEditorDraft) => {
     batch(() => {
       agentUID.value = draft.agentUID
+      routingMode.value = draft.routingMode
       adapterID.value = draft.adapterID
       name.value = draft.name
       groupMessageMode.value = draft.groupMessageMode
@@ -93,6 +99,7 @@ export const SignalBindingEditorModel = createModel(() => {
   return {
     sourceKey,
     agentUID,
+    routingMode,
     adapterID,
     name,
     groupMessageMode,
@@ -111,7 +118,17 @@ export const SignalBindingEditorModel = createModel(() => {
       validationError.value = undefined
     },
     changeAdapter(draft: SignalBindingAdapterDraft) {
-      apply({ ...draft, agentUID: agentUID.value })
+      const supportsAssistants = draft.adapterID === 'lark' || draft.adapterID === 'slack'
+      apply({
+        ...draft,
+        agentUID: agentUID.value,
+        routingMode: supportsAssistants ? routingMode.value : 'ai_colleague'
+      })
+    },
+    selectRoutingMode(value: RoutingMode) {
+      routingMode.value = value
+      if (value === 'sender_personal_assistant') unmatchedSenderPolicy.value = 'manual_review'
+      validationError.value = undefined
     },
     changeConfig(path: string, value: unknown) {
       config.value = setPath(config.value, path, value)

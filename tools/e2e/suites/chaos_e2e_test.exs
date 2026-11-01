@@ -128,14 +128,14 @@ defmodule Ankole.E2E.ChaosE2ETest do
       start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!(), replaces_workers: true)
 
     command = real_command_inflight!(ctx, "worker")
-    generation = Repo.get!(AgentWorker, ctx.agent.uid).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid).generation
     volumes = DockerWorker.storage_volumes(ctx.agent.uid)
     assert :ok = DockerWorker.kill_docker_worker!(ctx.container)
 
     messages = assert_real_command_recovered!(ctx, command)
 
     assert %AgentWorker{state: :ready, generation: next_generation} =
-             Repo.get!(AgentWorker, ctx.agent.uid)
+             Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
 
     assert is_binary(next_generation)
     refute next_generation == generation
@@ -166,7 +166,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
         for profile <- ["primary", "light"] do
           assert {:ok, _} =
-                   Ankole.AIAgent.ModelProfiles.put_model_profile(agent.uid, profile, %{
+                   Ankole.AIGateway.ModelProfiles.put_model_profile(agent.uid, profile, %{
                      provider_id: domain_a.provider_id,
                      model: "deepseek/deepseek-v4.1-flash"
                    })
@@ -330,7 +330,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     assert {:ok, %{status: :driving}} = ensure_input_driver!(input, input.available_at)
 
     assert_receive {:fake_llm_request, :followup_slow, 1, _request}, 15_000
-    %AgentWorker{generation: generation} = Repo.get!(AgentWorker, ctx.agent.uid)
+    %AgentWorker{generation: generation} = Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
     signalled_at = DateTime.add(DateTime.utc_now(), -1, :second)
     assert :ok = DockerWorker.signal_docker_worker!(ctx.container, "TERM")
 
@@ -364,7 +364,10 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     # A request replaces the exited instance after confirming its absence.
     request_worker!(ctx.agent.uid)
-    assert %AgentWorker{generation: next_generation} = Repo.get!(AgentWorker, ctx.agent.uid)
+
+    assert %AgentWorker{generation: next_generation} =
+             Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
+
     refute next_generation == generation
 
     assert_lark_final_reply(
@@ -470,7 +473,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     ctx = start_worker_e2e_stack!(replaces_workers: true)
 
     %AgentWorker{generation: generation, incarnation_id: incarnation} =
-      Repo.get!(AgentWorker, ctx.agent.uid)
+      Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
 
     # A process in its own session, like a command that the Worker started.
     DockerWorker.exec!(ctx.container, ["sh", "-c", "setsid sleep 1000 >/dev/null 2>&1 &"])
@@ -500,7 +503,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     # container: a new incarnation of the same generation joins.
     assert {:ok, %AgentWorker{generation: ^generation}} =
              wait_until(deadline(60_000), fn ->
-               case Repo.get(AgentWorker, ctx.agent.uid) do
+               case Repo.get_by(AgentWorker, agent_uid: ctx.agent.uid) do
                  %AgentWorker{state: :ready, incarnation_id: id} = worker
                  when is_binary(id) and id != incarnation ->
                    worker
@@ -522,7 +525,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     refute tenant.id == privileged.id
     ctx = start_worker_e2e_stack!(replaces_workers: true)
     agent_uid = ctx.agent.uid
-    generation = Repo.get!(AgentWorker, agent_uid).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: agent_uid).generation
     first_container = DockerWorker.container_name(agent_uid)
     volumes = DockerWorker.storage_volumes(agent_uid)
     marker = "/agents/#{agent_uid}/persistent-marker"
@@ -543,20 +546,20 @@ defmodule Ankole.E2E.ChaosE2ETest do
     input = send_file_message!(ctx, "om_chaos_absent_file_1", "oc_chaos_absent_file")
     [%{"path" => path}] = get_in(input.data, ["entry", "attachments"])
     assert {:ok, _file, "CHAOS_INBOUND_FILE_BYTES deck"} = Ankole.Files.read(agent_uid, path)
-    assert %AgentWorker{state: :absent} = Repo.get!(AgentWorker, agent_uid)
+    assert %AgentWorker{state: :absent} = Repo.get_by!(AgentWorker, agent_uid: agent_uid)
     retry_until_sent!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(ctx.container, input.id, deadline(120_000))
 
     assert reply.message.text =~ "CHAOS_GENERIC_OK"
-    assert %AgentWorker{state: :absent} = Repo.get!(AgentWorker, agent_uid)
+    assert %AgentWorker{state: :absent} = Repo.get_by!(AgentWorker, agent_uid: agent_uid)
 
     # This reply needs no computer. A separate execution demand wakes it.
     request_worker!(agent_uid)
 
     assert %AgentWorker{state: :ready, generation: next_generation} =
-             Repo.get!(AgentWorker, agent_uid)
+             Repo.get_by!(AgentWorker, agent_uid: agent_uid)
 
     assert is_binary(next_generation)
     refute next_generation == generation
@@ -583,7 +586,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
                Ankole.Tenants.get(tenant.id) == {:error, :not_found}
              end)
 
-    refute Repo.get(AgentWorker, agent_uid)
+    refute Repo.get_by(AgentWorker, agent_uid: agent_uid)
 
     assert DockerWorker.container_info(last_container) == nil
     refute DockerWorker.volume_exists?(volumes.home)
@@ -609,7 +612,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
   test "an image change waits for an active Turn, preserves storage, and applies on the next wake" do
     ctx = start_worker_e2e_stack!(replaces_workers: true)
     agent_uid = ctx.agent.uid
-    old = Repo.get!(AgentWorker, agent_uid)
+    old = Repo.get_by!(AgentWorker, agent_uid: agent_uid)
     old_container = DockerWorker.container_name(agent_uid)
     new_image = DockerWorker.tag_image!("switch")
     volumes = DockerWorker.storage_volumes(agent_uid)
@@ -655,7 +658,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
              })
 
     assert %AgentWorker{state: :ready, generation: generation, image: image} =
-             Repo.get!(AgentWorker, agent_uid)
+             Repo.get_by!(AgentWorker, agent_uid: agent_uid)
 
     assert {generation, image} == {old.generation, old.image}
 
@@ -667,7 +670,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     # Idle now, it is replaced by a Worker of the new image.
     assert {:ok, %AgentWorker{generation: new_generation}} =
              wait_until(deadline(120_000), fn ->
-               case Repo.get!(AgentWorker, agent_uid) do
+               case Repo.get_by!(AgentWorker, agent_uid: agent_uid) do
                  %AgentWorker{state: :ready, image: ^new_image} = worker -> worker
                  _worker -> nil
                end
@@ -685,7 +688,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
              })
 
     assert old_route_error in [:stale_route, :unknown_route]
-    replacement = Repo.get!(AgentWorker, agent_uid)
+    replacement = Repo.get_by!(AgentWorker, agent_uid: agent_uid)
 
     assert {:error, %{"code" => "unknown_rpc_method"}} =
              WorkerRoute.request_rpc(
@@ -709,7 +712,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     assert {:ok, _worker} =
              wait_until(deadline(60_000), fn ->
-               case Repo.get!(AgentWorker, agent_uid) do
+               case Repo.get_by!(AgentWorker, agent_uid: agent_uid) do
                  %AgentWorker{state: :absent, generation: nil} = worker -> worker
                  _worker -> nil
                end
@@ -717,7 +720,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     assert DockerWorker.container_info(new_container) == nil
     request_worker!(agent_uid)
-    assert Repo.get!(AgentWorker, agent_uid).image == old.image
+    assert Repo.get_by!(AgentWorker, agent_uid: agent_uid).image == old.image
 
     assert DockerWorker.exec!(ctx.container, [
              "cat",
@@ -865,14 +868,14 @@ defmodule Ankole.E2E.ChaosE2ETest do
   @tag timeout: 600_000
   test "control-plane server restart re-routes the reconnected worker and it completes turns" do
     ctx = start_worker_e2e_stack!()
-    before = Repo.get!(AgentWorker, ctx.agent.uid)
+    before = Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
 
     restart_control_plane_http_server!(ctx.server_port)
 
     # The same Worker process joins again on a new connection.
     assert {:ok, %AgentWorker{} = rejoined} =
              wait_until(deadline(60_000), fn ->
-               case Repo.get!(AgentWorker, ctx.agent.uid) do
+               case Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid) do
                  %AgentWorker{state: :ready, transport_route: route} = worker
                  when route != before.transport_route ->
                    worker
@@ -1061,7 +1064,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   defp put_idle_release_after!(agent_uid, duration) do
-    {:ok, provider} = Providers.load(Repo.get!(AgentWorker, agent_uid).provider_id)
+    {:ok, provider} = Providers.load(Repo.get_by!(AgentWorker, agent_uid: agent_uid).provider_id)
     config = provider.settings |> Map.put("idleReleaseAfter", duration) |> Ankole.JSON.encode!()
     assert {:ok, _provider} = Providers.update(provider.provider_id, %{config: config})
   end
@@ -1147,7 +1150,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
   # Let the real five-minute demand window expire before idle release.
   defp stop_idle_worker!(agent_uid) do
     case wait_until(deadline(360_000), fn ->
-           case Repo.get!(AgentWorker, agent_uid) do
+           case Repo.get_by!(AgentWorker, agent_uid: agent_uid) do
              %AgentWorker{state: :absent} = worker -> worker
              _worker -> nil
            end
@@ -1157,7 +1160,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
       :timeout ->
         flunk(
-          "the idle Worker did not release: #{inspect(Repo.get!(AgentWorker, agent_uid))}; open events: #{inspect(open_signals(agent_uid))}"
+          "the idle Worker did not release: #{inspect(Repo.get_by!(AgentWorker, agent_uid: agent_uid))}; open events: #{inspect(open_signals(agent_uid))}"
         )
     end
   end
@@ -1204,10 +1207,10 @@ defmodule Ankole.E2E.ChaosE2ETest do
                case message_observation("lark:" <> chat_id, message_id) do
                  %{
                    message: %ConversationMessage{
-                     attachments: [%{"blob_ref" => blob_ref, "path" => path}]
+                     attachments: [%{"object_id" => object_id, "node_id" => node_id}]
                    }
                  } = entry
-                 when is_binary(blob_ref) and is_binary(path) ->
+                 when is_binary(object_id) and is_binary(node_id) ->
                    entry
 
                  _entry ->
@@ -1219,8 +1222,11 @@ defmodule Ankole.E2E.ChaosE2ETest do
              wait_until(deadline(10_000), fn ->
                refreshed = Repo.get!(Signal, input.id)
 
-               if get_in(refreshed.data, ["entry", "attachments"]) == [attachment],
-                 do: refreshed
+               if Enum.map(
+                    get_in(refreshed.data, ["entry", "attachments"]) || [],
+                    & &1["object_id"]
+                  ) == [attachment["object_id"]],
+                  do: refreshed
              end)
 
     input

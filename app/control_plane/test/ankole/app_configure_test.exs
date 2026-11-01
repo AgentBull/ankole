@@ -18,6 +18,51 @@ defmodule Ankole.AppConfigureTest do
     {:ok, prefix: "__test.app_configure.#{System.unique_integer([:positive])}"}
   end
 
+  test "an Agent rename re-encrypts settings and invalidates both cached scopes", %{
+    prefix: prefix
+  } do
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "renamed-secret"),
+        encrypted: true,
+        scope: :tenant,
+        schema: Schema.non_empty_string()
+      )
+
+    assert :ok = Registry.register_definitions([definition])
+
+    assert {:ok, old} =
+             Ankole.Ash.create(AppConfig, :put, %{
+               scope: "agent:before",
+               key: definition.key,
+               input: "secret-to-preserve"
+             })
+
+    Cache.refresh("agent:before", definition.key)
+    Cache.refresh("agent:after", definition.key)
+
+    assert {:ok, _keys} =
+             Repo.transact_top_level(
+               fn -> AppConfigure.rename_agent_in_tx("before", "after") end,
+               after_commit: &AppConfigure.publish_agent_rename/1
+             )
+
+    assert nil == AppConfigure.get_app_config!("agent:before", definition.key)
+    moved = AppConfigure.get_app_config!("agent:after", definition.key)
+    refute moved.value == old.value
+
+    assert {:ok, "secret-to-preserve"} =
+             Ankole.AppConfigure.Codec.load(
+               definition,
+               "agent:after",
+               definition.key,
+               moved.value
+             )
+
+    assert {:ok, :absent} = Cache.lookup("agent:before", definition.key)
+    assert {:ok, {:row, _}} = Cache.lookup("agent:after", definition.key)
+  end
+
   test "resource writes own declaration validation, scope, and encryption", %{prefix: prefix} do
     secret =
       AppConfigure.define(

@@ -121,8 +121,8 @@ defmodule AnkoleWeb.Router do
   scope "/api/v2", AnkoleWeb do
     pipe_through([:session_api, :site_admin, :data_context])
 
-    get("/agents/:agent_uid/files/content", AgentFileController, :download)
-    post("/agents/:agent_uid/files", AgentFileController, :upload)
+    get("/drive/:tenant_id/nodes/:id/content", AgentFileController, :download)
+    post("/drive/:tenant_id/uploads", AgentFileController, :upload)
   end
 
   # The JSON:API routers serve the routes that the Ash domains declare. The site

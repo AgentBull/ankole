@@ -26,7 +26,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderRuntime
   alias Ankole.AIGateway.Providers
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AppConfigure
   import Ankole.ExternalConversationsFixtures
@@ -1076,7 +1076,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     {:ok, _} =
       Repo.transact(fn ->
         Ankole.Ash.update(
-          Repo.get!(Ankole.Principals.Agent, malformed_agent.uid),
+          Repo.get_by!(Ankole.Principals.Agent, uid: malformed_agent.uid),
           :options_in_tx,
           %{
             options: %{"ai_agent" => %{"models" => [%{"provider_id" => "openrouter-main"}]}}
@@ -1087,7 +1087,8 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:error, {:provider_in_use, references}} =
              ProviderConfigs.delete_provider("openrouter-main")
 
-    assert references == Enum.sort(["#{agent.uid}:primary", "#{agent.uid}:light"])
+    prefix = "tenant:#{Repo.tenant_id!()}:agent:#{agent.uid}"
+    assert references == Enum.sort(["#{prefix}:primary", "#{prefix}:light"])
   end
 
   test "stored Brain model settings prevent disabling their Provider" do
@@ -1100,7 +1101,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     for {key, extra} <- [
           {"brain.embedding_model", %{"dimensions" => 4096}},
-          {"brain.rerank_model", %{}}
+          {"ai_gateway.model_profiles.rerank", %{}}
         ] do
       model = Map.merge(%{"provider_id" => "brain-reference", "model" => "model"}, extra)
       assert {:ok, _} = AppConfigure.put_global_by_key(key, model)

@@ -38,7 +38,7 @@ export const insertText: Command.Pure<{ from: number; to: number; insert: string
     (from == selection.from && to == selection.to && state.sel.activeMarks) ||
     state.doc.resolve(from).marks(state.doc.resolve(to))
   return {
-    changes: { correct: { from, to, insert: insert ? [Leaf.Text.of(insert, marks)] : [], fit: true }, local: true },
+    changes: { correct: { from, to, insert: insert ? [Leaf.text(insert, marks)] : [], fit: true }, local: true },
     scrollIntoView: true,
     selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1),
     userEvent

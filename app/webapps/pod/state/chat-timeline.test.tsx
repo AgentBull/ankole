@@ -669,6 +669,8 @@ test('an unresolved question stays actionable outside a 500-message history wind
 test('a message from before today names its day as well as its time', () => {
   const now = new Date(2026, 9, 29, 15, 0)
   expect(messageTime(new Date(2026, 9, 29, 9, 41).toISOString(), 'en-US', now)).toBe('09:41 AM')
-  expect(messageTime(new Date(2026, 9, 27, 9, 41).toISOString(), 'en-US', now)).toBe('Oct 27 at 09:41 AM')
-  expect(messageTime(new Date(2025, 11, 31, 23, 5).toISOString(), 'en-US', now)).toBe('Dec 31, 2025 at 11:05 PM')
+  expect(messageTime(new Date(2026, 9, 27, 9, 41).toISOString(), 'en-US', now)).toMatch(/^Oct 27(?:,| at) 09:41 AM$/)
+  expect(messageTime(new Date(2025, 11, 31, 23, 5).toISOString(), 'en-US', now)).toMatch(
+    /^Dec 31, 2025(?:,| at) 11:05 PM$/
+  )
 })

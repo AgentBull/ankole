@@ -1,4 +1,6 @@
-import { TableRow, useMutation, useQuery, Link } from '../tenant-context'
+import { TableRow, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
+import { PrincipalRename } from '../../common/principal-rename'
+import { renameHumanMutation } from '../api/v2/generated/@tanstack/react-query.gen'
 import { principalLabel } from '../state/principal-label'
 import { HumanAccessSection } from './principal-access'
 import { WorkAccessReview } from './work-access-review'
@@ -85,7 +87,6 @@ export function PrincipalsListPage() {
       searchQuery,
       principal.id,
       principal.email,
-      principal.handle,
       principal.display_name,
       principal.type,
       principal.status,
@@ -140,7 +141,7 @@ export function PrincipalsListPage() {
               <span className="truncate">{principalLabel(principal)}</span>
             </Link>
           </TableCell>
-          <TableCell className="text-sm">{principal.email ?? principal.handle ?? '—'}</TableCell>
+          <TableCell className="text-sm">{principal.email ?? principal.id ?? '—'}</TableCell>
           <TableCell>
             <Badge variant="secondary">{t(`console.principals.type_${principal.type}`)}</Badge>
           </TableCell>
@@ -170,6 +171,13 @@ export function PrincipalDetailPage() {
   const uid = params.uid ?? ''
   const principal = useQuery({ ...getPrincipalOptions({ path: { uid } }), select: data => fromDocument(data) })
   const loadedPrincipal = principal.data
+  const navigate = useNavigate()
+  const rename = useMutation({
+    ...renameHumanMutation(),
+    onSuccess: result => {
+      void navigate({ to: `/access/principals/${encodeURIComponent(result.uid)}` })
+    }
+  })
 
   return (
     <PageStack className="mx-auto max-w-4xl">
@@ -182,10 +190,8 @@ export function PrincipalDetailPage() {
             <h2 className="truncate title-page text-foreground">
               {loadedPrincipal ? principalLabel(loadedPrincipal) : uid}
             </h2>
-            {loadedPrincipal?.email || loadedPrincipal?.handle ? (
-              <p className="truncate text-sm text-muted-foreground">
-                {loadedPrincipal.email ?? loadedPrincipal.handle}
-              </p>
+            {loadedPrincipal?.email || loadedPrincipal?.id ? (
+              <p className="truncate text-sm text-muted-foreground">{loadedPrincipal.email ?? loadedPrincipal.id}</p>
             ) : null}
           </div>
           {loadedPrincipal ? (
@@ -195,6 +201,15 @@ export function PrincipalDetailPage() {
                 {t(`console.status.${loadedPrincipal.status}`)}
               </StatusIndicator>
             </div>
+          ) : null}
+          {loadedPrincipal?.type === 'human' ? (
+            <PrincipalRename
+              uid={uid}
+              mutation={{
+                ...rename,
+                mutateAsync: newUID => rename.mutateAsync({ path: { uid }, body: { data: { new_uid: newUID } } })
+              }}
+            />
           ) : null}
           {loadedPrincipal && loadedPrincipal.type === 'human' ? (
             <Link className={cn(buttonVariants({ size: 'sm', variant: 'outline' }), 'ml-auto')} to="edit">

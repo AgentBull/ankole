@@ -43,8 +43,10 @@ export const useConsoleSlots = () => useContext(ConsoleSlotsContext)
 
 export const coreConsoleRouteScopes = {
   agents: 'tenant',
+  drive: 'tenant',
   tenants: 'site',
   'agent-library': 'tenant',
+  'model-profiles': 'tenant',
   brain: 'tenant',
   providers: 'site',
   identity: 'tenant',

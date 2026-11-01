@@ -5,6 +5,50 @@ fn error(source: &str) -> AnalysisError {
 }
 
 #[test]
+fn rewrites_semantic_references_without_changing_code_labels_or_layout() {
+    let source = concat!(
+        "中文 [[ people/o'connor@example.com |Old label]]\r\n\r\n",
+        "{%  audience scope=\"principal:o'connor@example.com\"  %}\r\n",
+        "Private [[people/o'connor@example.com]] note.\r\n",
+        "{% /audience %}\r\n",
+        "`[[people/o'connor@example.com]]`\r\n\r\n",
+        "```md\r\n{% audience scope=\"principal:o'connor@example.com\" %}\r\n",
+        "[[people/o'connor@example.com]]\r\n{% /audience %}\r\n```\r\n"
+    );
+    let replacements = HashMap::from([
+        (
+            "principal:o'connor@example.com".into(),
+            "principal:new@example.com".into(),
+        ),
+        (
+            "people/o'connor@example.com".into(),
+            "people/new@example.com".into(),
+        ),
+    ]);
+    let expected = source
+        .replacen(
+            "[[ people/o'connor@example.com |",
+            "[[ people/new@example.com |",
+            1,
+        )
+        .replacen(
+            "scope=\"principal:o'connor@example.com\"",
+            "scope=\"principal:new@example.com\"",
+            1,
+        )
+        .replacen(
+            "Private [[people/o'connor@example.com]]",
+            "Private [[people/new@example.com]]",
+            1,
+        );
+    assert_eq!(rewrite_references(source, &replacements).unwrap(), expected);
+    assert_eq!(
+        analyze(&expected).unwrap().wikilinks,
+        vec!["people/new@example.com"]
+    );
+}
+
+#[test]
 fn splits_root_audience_blocks_without_changing_content_bytes() {
     let source = concat!(
         "# 明湖 AI\r\n",
@@ -280,4 +324,29 @@ fn shares_audience_contract_cases_with_console_preview() {
             );
         }
     }
+}
+
+#[test]
+fn tabbed_blockquotes_preserve_reference_offsets() {
+    let replacements = HashMap::from([("张三".into(), "李四".into())]);
+    for indent in [">\t", " >\t", "  >\t", "   >\t", "> \t", ">>\t", "- >\t"] {
+        for reference in [
+            "[[张三]]",
+            "![[张三|label]]",
+            "[[ 张三 | label ]]",
+            "[[张三]][[张三]]",
+        ] {
+            let source = format!("> > a\n{indent}{reference}");
+            assert_eq!(
+                rewrite_references(&source, &replacements).unwrap(),
+                source.replace("张三", "李四"),
+                "{source:?}"
+            );
+        }
+    }
+    let source = "> > a\n>\t`[[张三]]` [[张三]]";
+    assert_eq!(
+        rewrite_references(source, &replacements).unwrap(),
+        "> > a\n>\t`[[张三]]` [[李四]]"
+    );
 }

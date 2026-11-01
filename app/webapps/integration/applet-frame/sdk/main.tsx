@@ -99,7 +99,7 @@ function readState(result: {
 const runtime: AppletRuntime = {
   pageID: 'sdk-fixture',
   instanceID: 'sdk-fixture',
-  actions: ['page_view', 'page_write_records'],
+  actions: ['node_view', 'node_contribute'],
   revision: 7,
   routes: {
     key: () => ['sdk-fixture', 'routes', 7],

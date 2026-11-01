@@ -12,7 +12,7 @@ const snapshotSharing = (source: PodPageSharingResponse): PageSharing => ({
     principal_uid: grant.principal_uid ?? null,
     group_id: grant.group_id ?? null,
     target_scope: grant.target_scope ?? 'container',
-    source_page_id: grant.source_page_id ?? null,
+    source_node_id: grant.source_node_id ?? null,
     source_action: grant.source_action ?? null,
     condition: grant.condition?.trim() || 'true',
     ...(isAdvancedSharingRule(grant) ? { actions: grant.actions } : { role: grant.role })
@@ -243,7 +243,7 @@ test('an Applet viewer submits according to target permissions without losing lo
     await owner.goto(state.base_url + pageRoute(state.applet_id))
     await member.goto(state.base_url + pageRoute(state.base_id))
     const base = await request<{ actions: string[] }>(member, `/pages/${state.base_id}`)
-    expect(base.actions).toContain('page_write_records')
+    expect(base.actions).toContain('node_contribute')
     restoreBase = snapshotSharing(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
     const share = (role: 'view' | 'contribute') =>
       requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', {
@@ -265,7 +265,7 @@ test('an Applet viewer submits according to target permissions without losing lo
     const button = member.frameLocator('iframe').getByRole('button', { name: 'Add sample', exact: true })
     const restricted = await request<{ role: string; actions: string[] }>(member, `/pages/${state.applet_id}`)
     expect(restricted.role).toBe('view')
-    expect(restricted.actions).not.toContain('page_write_records')
+    expect(restricted.actions).not.toContain('node_contribute')
     await expect(button).toBeEnabled()
     const frame = member.frameLocator('iframe')
     const draft = frame.getByRole('textbox', { name: 'Draft evaluation', exact: true })
@@ -319,7 +319,7 @@ test('an Applet viewer submits according to target permissions without losing lo
       upserts: [{ principal_uid: state.member.uid, role: 'view', target_scope: 'container' }]
     })
     const target = await request<{ actions: string[] }>(member, `/pages/${state.base_id}`)
-    expect(target.actions).not.toContain('page_write_records')
+    expect(target.actions).not.toContain('node_contribute')
     await expect(draft).toBeEditable()
     await expect(draft).toHaveValue('Unsubmitted member evaluation')
     await expect(frame.getByRole('button', { name: 'Local counter 1', exact: true })).toBeVisible()

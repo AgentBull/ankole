@@ -177,8 +177,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
 
     assert {:ok, _removed} =
              Ankole.Conversations.Observe.emit_entry_removed(
-               agent.uid,
-               "bot",
+               Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
                lifecycle_entry(%{provider_message_id: "msg-removed-ask"}),
                now: DateTime.add(now, 1, :second)
              )

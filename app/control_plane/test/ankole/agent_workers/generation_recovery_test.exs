@@ -21,7 +21,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
     api: api
   } do
     assert {:error, {:docker_api, 503, _}} = reconcile(uid)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert first.state == :starting
     assert first.generation != nil
     assert first.instance_seen_at == nil
@@ -39,11 +39,11 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
     assert :ok = SweepJob.perform(%Oban.Job{args: %{}})
     assert Enum.any?(all_enqueued(worker: ReconcileJob), &(&1.args["agent_uid"] == uid))
     assert {:error, {:docker_api, 503, _}} = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation == first.generation
-    assert Repo.get!(AgentWorker, uid).create_sent_at == first.create_sent_at
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == first.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).create_sent_at == first.create_sent_at
     Agent.update(api, &%{&1 | mode: :success})
     assert :ok = reconcile(uid)
-    last = Repo.get!(AgentWorker, uid)
+    last = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert last.generation == first.generation
     assert last.token_ciphertext == first.token_ciphertext
     assert last.instance_seen_at != nil
@@ -56,15 +56,15 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
   } do
     Agent.update(api, &%{&1 | mode: :accepted_timeout, hidden: true})
     assert {:error, {:docker_api, 503, _}} = reconcile(uid)
-    generation = Repo.get!(AgentWorker, uid).generation
+    generation = Repo.get_by!(AgentWorker, agent_uid: uid).generation
     Agent.update(api, &%{&1 | mode: :success})
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation == generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == generation
 
-    assert Repo.get!(AgentWorker, uid).last_error ==
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).last_error ==
              "Waiting for provider to observe generation #{generation}"
 
-    assert Repo.get!(AgentWorker, uid).last_error_kind == "pending"
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).last_error_kind == "pending"
 
     assert map_size(Agent.get(api, & &1.containers)) == 1
     assert length(create_names(api)) == 2
@@ -75,7 +75,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
     uid: uid,
     api: api
   } do
-    provider_id = Repo.get!(AgentWorker, uid).provider_id
+    provider_id = Repo.get_by!(AgentWorker, agent_uid: uid).provider_id
 
     assert {:ok, _} =
              Providers.update(provider_id, %{
@@ -83,7 +83,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
              })
 
     assert {:error, {:docker_api, 503, _}} = reconcile(uid)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
 
     assert {:ok, _} =
              Providers.update(provider_id, %{
@@ -100,7 +100,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
     # The retried create succeeds before the platform list sees it.
     Agent.update(api, &%{&1 | mode: :success, hidden: true})
     assert :ok = reconcile(uid)
-    worker = Repo.get!(AgentWorker, uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert worker.generation == first.generation
     assert worker.instance_settings == first.instance_settings
     assert worker.settings_digest == first.settings_digest
@@ -117,22 +117,22 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
     api: api
   } do
     assert {:error, _} = reconcile(uid)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert {:ok, token} = AgentWorkers.credential(first)
 
     assert {:ok, :ok} =
              Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
-    deleting = Repo.get!(AgentWorker, uid)
+    deleting = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert deleting.generation == first.generation
     assert deleting.token_digest == first.token_digest
     assert {:error, :stale_worker_generation} = AgentWorkers.authenticate(uid, token)
     assert {:error, _} = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).state == :deleting
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).state == :deleting
     assert map_size(Agent.get(api, & &1.volumes)) == 2
     Agent.update(api, &%{&1 | mode: :success})
     assert :ok = reconcile(uid)
-    assert Repo.get(AgentWorker, uid) == nil
+    assert Repo.get_by(AgentWorker, agent_uid: uid) == nil
     assert Agent.get(api, & &1.containers) == %{}
     assert Agent.get(api, & &1.volumes) == %{}
     assert length(Enum.uniq(create_names(api))) == 1
@@ -153,7 +153,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
 
   test "only a definite rejection gives up an unobserved generation", %{uid: uid, api: api} do
     assert {:error, _} = reconcile(uid)
-    old = Repo.get!(AgentWorker, uid).generation
+    old = Repo.get_by!(AgentWorker, agent_uid: uid).generation
     Agent.update(api, &%{&1 | mode: :rejected})
     assert {:error, {:docker_api, 400, _}} = reconcile(uid)
 
@@ -165,21 +165,21 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
              instance_seen_at: nil,
              create_sent_at: nil,
              last_error_kind: "rejected"
-           } = Repo.get!(AgentWorker, uid)
+           } = Repo.get_by!(AgentWorker, agent_uid: uid)
 
     Agent.update(api, &%{&1 | mode: :success})
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation != old
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation != old
   end
 
   test "an observed instance disappearing ends its generation", %{uid: uid, api: api} do
     Agent.update(api, &%{&1 | mode: :success})
     assert :ok = reconcile(uid)
-    old = Repo.get!(AgentWorker, uid)
+    old = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert old.instance_seen_at != nil
     Agent.update(api, &%{&1 | containers: %{}})
     assert :ok = reconcile(uid)
-    new = Repo.get!(AgentWorker, uid)
+    new = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert new.generation != old.generation
     assert new.storage_ref == old.storage_ref
   end
@@ -191,7 +191,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
              Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
     assert :ok = reconcile(uid)
-    assert Repo.get(AgentWorker, uid) == nil
+    assert Repo.get_by(AgentWorker, agent_uid: uid) == nil
     assert Agent.get(api, & &1.calls) == []
   end
 

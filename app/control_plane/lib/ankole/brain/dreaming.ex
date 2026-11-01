@@ -6,8 +6,8 @@ defmodule Ankole.Brain.Dreaming do
   continues. Products use the shared write contracts: consolidation marks
   its inputs, patterns update semantic topics, contradiction pairs have
   unique keys, and grading updates in place.
-  Model phases use the maintainer
-  Agent's `heavy` profile and skip with a report when it is absent.
+  Model phases use ankole_brain's effective `heavy` profile (with primary fallback)
+  and skip with a report when neither is configured.
 
   The bucket and term-usage counts are aggregate read models (M4) and stay
   Ecto queries that give values only. Each write goes through a resource
@@ -163,44 +163,60 @@ defmodule Ankole.Brain.Dreaming do
   # Greedy clustering: newest first, each fact joins the first cluster whose
   # head is at least the threshold similar.
   defp cluster_by_similarity(facts, threshold) do
-    facts
-    |> Enum.sort_by(&DateTime.to_unix(&1.valid_from || &1.created_at), :desc)
-    |> Enum.reduce([], fn fact, clusters ->
-      # Clusters are stored newest first. The last match is the first-created
-      # cluster, whose representative must stay fixed as members accumulate.
-      index =
-        clusters
-        |> Enum.with_index()
-        |> Enum.reduce(nil, fn {{head, _members}, index}, found ->
-          if cosine(head.embedding, fact.embedding) >= threshold, do: index, else: found
-        end)
+    {clusters, count} =
+      facts
+      |> Enum.sort_by(&DateTime.to_unix(&1.valid_from || &1.created_at), :desc)
+      |> Enum.map(&{&1, prepare_vector(&1.embedding)})
+      |> Enum.reduce({%{}, 0}, fn {fact, fact_vec}, {clusters, count} ->
+        # Clusters stay in creation order, with each cluster's head fixed as
+        # members accumulate.
+        match_index =
+          Enum.find(0..(count - 1)//1, fn index ->
+            {head_vec, _members} = Map.fetch!(clusters, index)
+            prepared_cosine(head_vec, fact_vec) >= threshold
+          end)
 
-      case index do
-        nil ->
-          [{fact, [fact]} | clusters]
+        case match_index do
+          nil ->
+            {Map.put(clusters, count, {fact_vec, [fact]}), count + 1}
 
-        index ->
-          List.update_at(clusters, index, fn {head, members} -> {head, [fact | members]} end)
-      end
-    end)
-    |> Enum.reverse()
-    |> Enum.map(fn {_head, members} -> Enum.reverse(members) end)
-  end
+          index ->
+            updated =
+              Map.update!(clusters, index, fn {head_vec, members} ->
+                {head_vec, [fact | members]}
+              end)
 
-  defp cosine(a, b) do
-    a = Ash.Vector.to_list(a)
-    b = Ash.Vector.to_list(b)
-
-    {dot, norm_a, norm_b} =
-      Enum.zip(a, b)
-      |> Enum.reduce({0.0, 0.0, 0.0}, fn {x, y}, {dot, na, nb} ->
-        {dot + x * y, na + x * x, nb + y * y}
+            {updated, count}
+        end
       end)
 
-    if norm_a == 0.0 or norm_b == 0.0,
-      do: 0.0,
-      else: dot / (:math.sqrt(norm_a) * :math.sqrt(norm_b))
+    Enum.map(0..(count - 1)//1, fn index ->
+      {_head_vec, members} = Map.fetch!(clusters, index)
+      Enum.reverse(members)
+    end)
   end
+
+  defp prepare_vector(vector) do
+    trimmed =
+      vector
+      |> Ash.Vector.to_list()
+      |> Enum.reverse()
+      |> Enum.drop_while(&(&1 == 0.0))
+      |> Enum.reverse()
+
+    norm_sq = Enum.reduce(trimmed, 0.0, fn x, acc -> acc + x * x end)
+    {trimmed, :math.sqrt(norm_sq)}
+  end
+
+  defp prepared_cosine({_a, norm_a}, {_b, norm_b}) when norm_a == 0.0 or norm_b == 0.0,
+    do: 0.0
+
+  defp prepared_cosine({a, norm_a}, {b, norm_b}) do
+    dot_product(a, b, 0.0) / (norm_a * norm_b)
+  end
+
+  defp dot_product([x | xs], [y | ys], acc), do: dot_product(xs, ys, acc + x * y)
+  defp dot_product(_a, _b, acc), do: acc
 
   # The take insert and the consolidation marks commit together in one
   # top-level transaction. The embedding prepares before the transaction.
@@ -305,6 +321,8 @@ defmodule Ankole.Brain.Dreaming do
 
     case ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.timelines") do
       {:ok, output} ->
+        author = Config.execution_author!()
+
         written =
           output["items"]
           |> List.wrap()
@@ -321,7 +339,7 @@ defmodule Ankole.Brain.Dreaming do
                 audience_scope: segment.scope
               }
 
-              match?({:ok, _timeline}, Timelines.write_timeline(attrs, :system))
+              match?({:ok, _timeline}, Timelines.write_timeline(attrs, :system, author: author))
             else
               _invalid -> false
             end

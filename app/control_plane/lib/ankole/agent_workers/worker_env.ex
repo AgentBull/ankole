@@ -17,6 +17,36 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
 
   @global_scope "global"
   @agent_scope_prefix "agent:"
+
+  @doc "Moves operator variables to the renamed Agent and re-seals secret values."
+  def rename_agent_in_tx(old_uid, new_uid) do
+    unless Repo.in_transaction?(),
+      do:
+        raise(Ankole.Errors.Framework.TransactionRequired,
+          operation: {__MODULE__, :rename_agent_in_tx}
+        )
+
+    custom_rows(@agent_scope_prefix <> old_uid)
+    |> Enum.reduce_while(:ok, fn row, :ok ->
+      with {:ok, value} <- row_value(row),
+           {:ok, _new} <-
+             Ankole.Ash.create(EnvVar, :put, %{
+               scope: @agent_scope_prefix <> new_uid,
+               name: row.name,
+               input: %{
+                 "value" => value,
+                 "secret" => row.secret,
+                 "description" => row.description
+               }
+             }),
+           :ok <- delete_row(row) do
+        {:cont, :ok}
+      else
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
   @name_format ~r/\A[A-Za-z_][A-Za-z0-9_]*\z/
 
   # Variables the sandbox bootstrap or worker identity owns. Overriding them

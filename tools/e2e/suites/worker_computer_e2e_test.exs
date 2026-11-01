@@ -44,7 +44,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     %{container: container} = start_worker!([agent.uid])
 
     assert %AgentWorker{state: :ready, generation: generation, transport_route: route} =
-             Repo.get!(AgentWorker, agent.uid)
+             Repo.get_by!(AgentWorker, agent_uid: agent.uid)
 
     assert is_binary(generation) and is_binary(route)
     assert :ok = assert_launch_contract!(agent.uid)
@@ -54,12 +54,110 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   end
 
   @tag timeout: 180_000
+  @tag :personal_assistant_worker
+  test "a personal assistant runs a real automation and edits its owner's private document" do
+    %{principal: agent, agent: profile} =
+      create_e2e_agent!(Map.put(worker_agent_attrs(), :type, :personal_assistant))
+
+    owner = Ankole.Principals.get_principal_record!(profile.owner_principal_uid)
+    owner_actor = Ankole.PrincipalsFixtures.actor_fixture(owner)
+
+    assert {:ok, page} =
+             Ankole.Pod.Pages.create(owner_actor, %{
+               title: "Assistant work",
+               private_owner_uid: owner.uid,
+               xml: "<page><p>Owner notes</p></page>"
+             })
+
+    %{container: container} = start_worker!([agent.uid])
+    assert :ok = assert_launch_contract!(agent.uid)
+
+    script = ~S"""
+    const page = context().event.data.page;
+    async function cli(operation, params) {
+      const child = Bun.spawn(['ankole-pod', operation, JSON.stringify(params)], {stdout: 'pipe', stderr: 'pipe'});
+      const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      if (code !== 0) throw Error(err || out);
+      return JSON.parse(out);
+    }
+    const before = await cli('pages.read', {id: page});
+    const result = await cli('pages.append', {id: page, base_revision: before.page.revision, markdown: 'Assistant completed the task'});
+    console.log(JSON.stringify({revision: result.page.revision, worker: process.env.WORKER_ID}));
+    """
+
+    assert {:ok, stored} = Ankole.Files.store(script)
+
+    assert {:ok, _} =
+             Ankole.Files.commit(agent.uid, [
+               Map.merge(stored, %{
+                 path: "automation/assistant-proof/main.ts",
+                 source: "agent"
+               })
+             ])
+
+    now = DateTime.utc_now(:microsecond)
+
+    assert {:ok, source} =
+             Repo.transact(fn ->
+               with {:ok, source} <-
+                      Ankole.Signals.accept_in_tx(%{
+                        source: "test://personal-assistant",
+                        id: Ecto.UUID.generate(),
+                        type: "test.work",
+                        time: now,
+                        target: %{agent_uid: agent.uid, session_id: "assistant-work"},
+                        sender: owner.uid,
+                        authorization: Ankole.Principals.WorkAccess.from_sender(owner.uid),
+                        data: %{}
+                      }),
+                    do: Ankole.Sessions.Queue.mark_event_completed_in_tx(source, now)
+             end)
+
+    assert {:ok, job} =
+             Ankole.AutomationJobs.create_job(%{
+               agent_uid: agent.uid,
+               owner_session_id: source.session_id,
+               source_signal_id: source.id,
+               drive_prefix: "automation/assistant-proof",
+               label: "Assistant proof",
+               reply_route: %{},
+               source_provenance: %{}
+             })
+
+    assert job.human_uid == owner.uid
+
+    assert {:ok, %{automation_job_run: run}} =
+             Repo.transact(fn ->
+               Ankole.AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, %{
+                 "specversion" => "1.0",
+                 "id" => Ecto.UUID.generate(),
+                 "source" => "test://assistant",
+                 "type" => "document.work",
+                 "data" => %{"page" => page.id}
+               })
+             end)
+
+    assert :ok =
+             Ankole.AutomationJobs.Jobs.ExecuteRun.perform(%Oban.Job{
+               args: %{"automation_job_run_id" => run.id, "tenant_id" => Repo.tenant_id!()}
+             })
+
+    finished = Repo.reload!(run)
+    assert finished.status == :succeeded, inspect(Map.take(finished, [:error, :stdout, :stderr]))
+    assert finished.exit_code == 0
+    assert {:ok, %{content: content}} = Ankole.Pod.Pages.get(owner_actor, page.id)
+    assert content.content =~ "Assistant completed the task"
+    assert content.updated_by.uid == agent.uid
+    assert exec!(container, ["test", "-L", "/agents/#{agent.uid}"]) == ""
+  end
+
+  @tag timeout: 180_000
   @tag :worker_resume_connection
   test "the same Worker process reconnects after its event loop resumes" do
     assert_docker_image!()
     %{principal: agent} = create_e2e_agent!(worker_agent_attrs())
     %{container: container} = start_worker!([agent.uid])
-    admitted = Repo.get!(AgentWorker, agent.uid)
+    admitted = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
     name = container_name(agent.uid)
     docker = System.find_executable("docker")
 
@@ -87,7 +185,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
     assert {:ok, resumed} =
              wait_until(deadline(30_000), fn ->
-               worker = Repo.get!(AgentWorker, agent.uid)
+               worker = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
 
                (worker.state == :ready and worker.transport_route != admitted.transport_route) &&
                  worker
@@ -113,7 +211,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert_docker_image!()
     %{principal: agent} = create_e2e_agent!(worker_agent_attrs())
     %{endpoint: endpoint} = start_worker!([agent.uid])
-    admitted = Repo.get!(AgentWorker, agent.uid)
+    admitted = Repo.get_by!(AgentWorker, agent_uid: agent.uid)
     # A real RPC reply proves that startup cleanup finished before the marker.
     assert {:error, %{"code" => "unknown_rpc_method"}} =
              Ankole.AgentWorkers.WorkerRoute.request_rpc(
@@ -154,7 +252,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
              end)
 
     assert %AgentWorker{state: :ready, transport_route: route, generation: generation} =
-             Repo.get!(AgentWorker, agent.uid)
+             Repo.get_by!(AgentWorker, agent_uid: agent.uid)
 
     assert route == admitted.transport_route
     assert generation == admitted.generation
@@ -162,6 +260,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   end
 
   @tag timeout: 180_000
+  @tag :worker_object_sweep
   test "the object sweep deletes a Worker container without a row and keeps other installations" do
     assert_docker_image!()
     installation = install_provider!("ws://host.docker.internal:9/runtime-fabric/worker")
@@ -243,7 +342,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     ctx = start_worker_e2e_stack!()
 
     %AgentWorker{state: :ready, generation: generation, incarnation_id: incarnation_id} =
-      Repo.get!(AgentWorker, ctx.agent.uid)
+      Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
 
     attachment = run_file_attachment_roundtrip(ctx)
 
@@ -299,7 +398,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
              state: :ready,
              generation: ^generation,
              incarnation_id: ^incarnation_id
-           } = Repo.get!(AgentWorker, ctx.agent.uid)
+           } = Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
 
     reply_attachment = run_reply_attachment_tool_loop(ctx)
 
@@ -309,7 +408,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
       "om_reply_attachment_1"
     )
 
-    assert Repo.get!(AgentWorker, ctx.agent.uid).state == :ready
+    assert Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid).state == :ready
 
     read_file = run_read_file_tool_loop(ctx)
 

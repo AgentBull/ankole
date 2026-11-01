@@ -6,7 +6,8 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
 
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
-  alias Ankole.Pod.{Access, Pages}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{Pages}
 
   setup %{tenant: tenant} do
     owner = human_fixture().principal
@@ -72,7 +73,7 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
 
             Ankole.Ash.run_action(Grant, :update_operator_grant, %{
               id: ctx.grant.id,
-              resource_pattern: "tenant_console:pod_space"
+              resource_pattern: "tenant_console:drive_space"
             })
           end)
         end)
@@ -87,7 +88,7 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
         assert {:error, :not_found} = Ankole.Errors.reason(Task.await(promotion, 5_000))
 
       {:committed, grant} ->
-        assert grant.resource_pattern == "tenant_console:pod_space"
+        assert grant.resource_pattern == "tenant_console:drive_space"
         writer = start_writer(ctx.owner.uid, parent)
         assert_receive {:writer_open, writer_backend}, 5_000
         send(deletion.pid, :continue)
@@ -112,8 +113,8 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
             Repo.transact(fn ->
               {:ok, grant} =
                 AuthZ.Grants.update_permission_grant(ctx.grant, %{
-                  action: "page_view",
-                  resource_pattern: "pod:**:#{ctx.page.id}:page"
+                  action: "node_view",
+                  resource_pattern: "drive:**:#{ctx.page.id}:node"
                 })
 
               send(parent, {:page_grant_uncommitted, backend_pid()})
@@ -146,25 +147,25 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
       end
 
       assert {:ok, persisted} = AuthZ.get_permission_grant(ctx.grant.id)
-      assert persisted.action == "page_view"
+      assert persisted.action == "node_view"
       assert persisted.resource_pattern == promoted.resource_pattern
     end
   end
 
   test "a captured grant cannot overwrite a later operator promotion", ctx do
-    assert {:ok, %{resource_pattern: "tenant_console:pod_space"}} =
+    assert {:ok, %{resource_pattern: "tenant_console:drive_space"}} =
              Ankole.Ash.run_action(Grant, :update_operator_grant, %{
                id: ctx.grant.id,
-               resource_pattern: "tenant_console:pod_space"
+               resource_pattern: "tenant_console:drive_space"
              })
 
     assert {:ok, updated} =
              AuthZ.update_permission_grant(ctx.grant, %{description: "Description only"})
 
-    assert updated.resource_pattern == "tenant_console:pod_space"
+    assert updated.resource_pattern == "tenant_console:drive_space"
     assert updated.description == "Description only"
     assert {:ok, persisted} = AuthZ.get_permission_grant(ctx.grant.id)
-    assert persisted.resource_pattern == "tenant_console:pod_space"
+    assert persisted.resource_pattern == "tenant_console:drive_space"
   end
 
   for operation <- [:update, :delete] do
@@ -248,7 +249,7 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
 
       assert {:ok, promoted} =
                AuthZ.update_permission_grant(ctx.grant.id, %{
-                 resource_pattern: "tenant_console:pod_space"
+                 resource_pattern: "tenant_console:drive_space"
                })
 
       writer = start_writer(ctx.owner.uid, parent, %{private_owner_uid: ctx.owner.uid})
@@ -287,7 +288,7 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
               send(parent, {:promotion_started, backend_pid()})
 
               mutate(unquote(boundary), :update, ctx.grant.id, %{
-                resource_pattern: "tenant_console:pod_space"
+                resource_pattern: "tenant_console:drive_space"
               })
             end)
           end)
@@ -312,7 +313,7 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
       end
 
       assert {:ok, promoted} = Task.await(promotion, 5_000)
-      assert promoted.resource_pattern == "tenant_console:pod_space"
+      assert promoted.resource_pattern == "tenant_console:drive_space"
       assert promoted.description == "Concurrent description"
     end
   end
@@ -335,7 +336,7 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
 
       assert {:ok, promoted} =
                AuthZ.update_permission_grant(ctx.grant.id, %{
-                 resource_pattern: "tenant_console:pod_space"
+                 resource_pattern: "tenant_console:drive_space"
                })
 
       assert promoted.action == "read"

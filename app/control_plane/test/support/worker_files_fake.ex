@@ -196,8 +196,13 @@ defmodule Ankole.WorkerFilesFake do
     end
   end
 
-  defp push_content(state, %{bundle_paths: []} = request),
-    do: read(state, request.home_relative_path)
+  defp push_content(state, %{bundle_paths: []} = request) do
+    with {:ok, content} <- read(state, request.home_relative_path) do
+      if request.prefix_bytes > 0,
+        do: {:ok, binary_part(content, 0, min(byte_size(content), request.prefix_bytes))},
+        else: {:ok, content}
+    end
+  end
 
   defp push_content(%{on_bundle: on_bundle}, request) when is_function(on_bundle, 1),
     do: on_bundle.(request)

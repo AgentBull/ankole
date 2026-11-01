@@ -3,6 +3,7 @@ defmodule Ankole.Principals.Principal do
   use Ankole.Ash.Resource,
     authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
+    tenant_in_primary_key: true,
     domain: Ankole.Principals,
     extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource, Ankole.Authn]
 
@@ -22,9 +23,14 @@ defmodule Ankole.Principals.Principal do
     allow(:create_member, resource: "site_console:principals", action: "update")
     allow(:update_human, resource: "site_console:principal:{uid}", action: "update")
     allow(:change_human_membership, resource: "site_console:principal:{uid}", action: "update")
+    allow(:rename_human, resource: "site_console:principal:{uid}", action: "update")
   end
 
   json_api do
+    primary_key do
+      keys([:uid])
+    end
+
     type("principal")
     derive_filter?(false)
     derive_sort?(false)
@@ -36,7 +42,6 @@ defmodule Ankole.Principals.Principal do
       :display_name,
       :avatar_url,
       :email,
-      :handle,
       :has_external_identity
     ])
   end
@@ -45,7 +50,6 @@ defmodule Ankole.Principals.Principal do
     table("principals")
     repo(Ankole.Repo)
     migrate?(false)
-    unique_index_names([{[:type], "principals_one_system_per_tenant_index"}])
 
     check_constraints do
       check_constraint(:membership, "principals_membership_shape")
@@ -122,11 +126,21 @@ defmodule Ankole.Principals.Principal do
 
   calculations do
     calculate(:email, :string, expr(human_user.email), public?: true)
-    calculate(:handle, :string, expr(agent.handle), public?: true)
   end
 
   actions do
     defaults([:read])
+
+    action :rename_human, :map do
+      constraints(
+        fields: [uid: [type: :string, allow_nil?: false], base_repair_error: [type: :string]]
+      )
+
+      argument(:uid, :string, allow_nil?: false)
+      argument(:new_uid, :string, allow_nil?: false)
+      transaction?(false)
+      run(__MODULE__.Actions)
+    end
 
     read :console_list do
       argument(:include_disabled, :boolean, default: false)
@@ -134,12 +148,12 @@ defmodule Ankole.Principals.Principal do
       prepare(build(sort: [uid: :asc]))
     end
 
-    read :read_across_tenants do
-      multitenancy(:allow_global)
-    end
-
     create :create_in_tx do
       accept([:uid, :type, :membership, :display_name, :avatar_url])
+
+      validate(one_of(:uid, Ankole.Principals.SystemServices.uids()),
+        where: [attribute_equals(:type, :system)]
+      )
 
       change(set_attribute(:membership, :member),
         where: [attribute_equals(:type, :human), attribute_equals(:membership, nil)]
@@ -166,6 +180,10 @@ defmodule Ankole.Principals.Principal do
 
     update :profile_in_tx do
       accept([:display_name, :avatar_url])
+    end
+
+    update :rename_in_tx do
+      accept([:uid])
     end
 
     update :enable_in_tx do

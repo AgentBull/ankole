@@ -1,7 +1,7 @@
 defmodule AnkoleWeb.PodAttachmentController do
   @moduledoc "Human chat uploads and frozen Message attachments."
   use AnkoleWeb, :controller
-  import AnkoleWeb.PodResponse, only: [respond: 2, error: 2, send_sandboxed_file: 5]
+  import AnkoleWeb.PodResponse, only: [respond: 2, error: 2, send_sandboxed_object: 5]
   alias Ankole.Conversations.Attachments
   alias Ankole.Conversations.Attachments.Native
 
@@ -24,25 +24,28 @@ defmodule AnkoleWeb.PodAttachmentController do
     end
   end
 
-  def download(conn, %{"id" => id, "message_id" => message_id, "path" => path} = params) do
-    local = Ankole.Files.temp_path()
-
-    try do
-      case Native.read_to_file(conn.assigns.authz_actor, id, message_id, path, local) do
-        {:ok, attachment} ->
-          send_sandboxed_file(
-            conn,
-            local,
-            attachment["name"] || Path.basename(path),
-            Attachments.content_type(attachment),
-            params["download"] == "true"
-          )
-
-        error_result ->
-          respond(conn, error_result)
-      end
-    after
-      File.rm(local)
+  def download(conn, %{"id" => id, "message_id" => message_id, "position" => position} = params)
+      when is_binary(position) do
+    with {position, ""} <- Integer.parse(position),
+         true <- position >= 0,
+         {:ok, attachment} <-
+           Ankole.Conversations.resolve_attachment(
+             conn.assigns.authz_actor,
+             id,
+             message_id,
+             position
+           ),
+         {:ok, object} <- Ankole.Files.fetch_object(attachment["object_id"]) do
+      send_sandboxed_object(
+        conn,
+        object,
+        attachment["name"] || "attachment",
+        Attachments.content_type(attachment),
+        params["download"] == "true"
+      )
+    else
+      {:error, reason} -> error(conn, reason)
+      _ -> error(conn, :not_found)
     end
   end
 

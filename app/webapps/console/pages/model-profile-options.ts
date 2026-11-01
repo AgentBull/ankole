@@ -3,12 +3,13 @@ import type { AIGatewayModelCatalogEntry, AIGatewayProviderKindItem } from '../s
 import type { ProfileDraft } from '../state/model-profiles-model'
 import type { AIGatewayProviderItem, SettingValidationError } from '../state/provider-settings'
 
-export type ModelProfileCapability = 'llm' | 'web_search' | 'web_fetch' | 'image_generate'
+export type ModelProfileCapability = 'llm' | 'web_search' | 'web_fetch' | 'image_generate' | 'rerank'
 
 export function profileCapability(profile: string): ModelProfileCapability {
   if (profile === 'web_search') return 'web_search'
   if (profile === 'web_fetch') return 'web_fetch'
   if (profile === 'image_generate') return 'image_generate'
+  if (profile === 'rerank') return 'rerank'
   return 'llm'
 }
 

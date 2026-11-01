@@ -15,8 +15,8 @@ defmodule Ankole.WorkerFiles do
 
   `put/3` rejects oversize content before any RPC is sent, and the push relay
   rejects a Worker upload larger than the bound before it reads the body. The
-  default bound remains the upload policy. `stream/2` accepts `max_bytes:` when
-  its domain caller derives a different bound for a validated bulk operation.
+  default bound is 100 MiB. Transfer functions accept `max_bytes:` when the
+  domain derives a bound from the upload backend or a stored object size.
   """
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
@@ -34,7 +34,7 @@ defmodule Ankole.WorkerFiles do
   @type operation_result :: {:ok, map()} | {:error, term()}
 
   @doc """
-  Authoritative byte bound for one transferred file in either direction.
+  Default byte bound; validated domain transfers can supply `max_bytes:`.
   """
   @spec max_transfer_bytes() :: pos_integer()
   def max_transfer_bytes, do: @max_transfer_bytes
@@ -51,18 +51,19 @@ defmodule Ankole.WorkerFiles do
     timeout_ms = Keyword.get(opts, :timeout_ms, @transfer_timeout_ms)
 
     with {:ok, size} <- regular_file_size(path),
-         :ok <- validate_size(size),
+         {:ok, max_bytes} <- transfer_limit(opts),
+         :ok <- validate_size(size, max_bytes),
          worker = worker(opts),
          {:ok, session} <-
            Relay.open(%{
              direction: :pull,
              worker: worker,
-             max_bytes: @max_transfer_bytes,
+             max_bytes: max_bytes,
              ttl_ms: timeout_ms,
              source: {:file, path},
              owner: self()
            }) do
-      request = transfer_request(session, home_relative_path)
+      request = transfer_request(session, home_relative_path, max_bytes)
 
       try do
         with {:ok, response} <-
@@ -88,6 +89,21 @@ defmodule Ankole.WorkerFiles do
   @spec stream(String.t(), keyword()) :: operation_result()
   def stream(home_relative_path, opts \\ []) when is_binary(home_relative_path) do
     push(worker(opts), home_relative_path, opts)
+  end
+
+  @doc """
+  Streams at most `length` bytes from the beginning of a Worker file.
+
+  A larger source is allowed; the relay bound applies to the transferred prefix.
+  Like `stream/2`, the body must be consumed in the calling process.
+  """
+  @spec stream_prefix(String.t(), pos_integer(), keyword()) :: operation_result()
+  def stream_prefix(home_relative_path, length, opts \\ []) when is_binary(home_relative_path) do
+    push(
+      worker(opts),
+      home_relative_path,
+      opts |> Keyword.put(:max_bytes, length) |> Keyword.put(:prefix_bytes, length)
+    )
   end
 
   @doc """
@@ -164,7 +180,8 @@ defmodule Ankole.WorkerFiles do
 
       request = %{
         transfer_request(session, home_relative_path, max_bytes)
-        | bundle_paths: Keyword.get(opts, :bundle_paths, [])
+        | bundle_paths: Keyword.get(opts, :bundle_paths, []),
+          prefix_bytes: Keyword.get(opts, :prefix_bytes, 0)
       }
 
       task =
@@ -358,7 +375,7 @@ defmodule Ankole.WorkerFiles do
     result
   end
 
-  defp transfer_request(session, home_relative_path, max_bytes \\ @max_transfer_bytes) do
+  defp transfer_request(session, home_relative_path, max_bytes) do
     %FabricProto.WorkerFileTransferRequest{
       transfer_id: session.transfer_id,
       url: session.url,
@@ -406,6 +423,6 @@ defmodule Ankole.WorkerFiles do
     end
   end
 
-  defp validate_size(size) when size <= @max_transfer_bytes, do: :ok
-  defp validate_size(size), do: {:error, {:file_too_large, size, @max_transfer_bytes}}
+  defp validate_size(size, maximum) when size <= maximum, do: :ok
+  defp validate_size(size, maximum), do: {:error, {:file_too_large, size, maximum}}
 end

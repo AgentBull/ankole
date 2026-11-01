@@ -16,7 +16,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   import Ankole.E2E.Scenarios.SkillLesson
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_for_completed_final_reply: 3]
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.BackgroundAgentJobs
@@ -64,11 +64,11 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
 
     assert {:ok, true} =
              WaitHelpers.wait_until(deadline(60_000), fn ->
-               Repo.get!(AgentWorker, ctx.agent.uid).state == :absent
+               Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid).state == :absent
              end)
 
     assert %AgentWorker{state: :absent, wanted_until: nil, generation: nil} =
-             Repo.get!(AgentWorker, ctx.agent.uid)
+             Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
 
     direct = run_real_lark_direct_turn(ctx)
 
@@ -81,7 +81,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     )
 
     assert %AgentWorker{state: :absent, wanted_until: nil, generation: nil} =
-             Repo.get!(AgentWorker, ctx.agent.uid)
+             Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
 
     skill = run_real_lark_skill_tool_loop(ctx)
 
@@ -94,7 +94,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     )
 
     assert %AgentWorker{state: :absent, wanted_until: nil, generation: nil} =
-             Repo.get!(AgentWorker, ctx.agent.uid)
+             Repo.get_by!(AgentWorker, agent_uid: ctx.agent.uid)
   end
 
   @tag timeout: 600_000
@@ -506,7 +506,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       )
 
     assert get_in(completed.result, ["output_text"]) =~ marker
-    assert get_in(completed.metadata, ["codex_user_agent"]) =~ "codex_cli_rs/0.164.0 "
+    assert get_in(completed.metadata, ["codex_user_agent"]) =~ "codex_cli_rs/0.166.0 "
 
     legacy_auth_path = "/agents/#{ctx.agent.uid}/.codex/auth.json"
 

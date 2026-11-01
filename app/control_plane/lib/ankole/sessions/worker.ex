@@ -1,6 +1,7 @@
 defmodule Ankole.Sessions.Worker do
   @moduledoc "Transport and decoding for a Run's disposable Worker workspace."
   alias Ankole.Sessions.Fence
+  alias Ankole.Sessions.ModelHistory
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tools
   alias Ankole.Sessions.ToolResult
@@ -28,11 +29,20 @@ defmodule Ankole.Sessions.Worker do
            |> Ankole.Errors.reason(),
          {:ok, row} <- row,
          {:ok, fetch} <- WorkerWebFetchConfig.runtime_config(run.agent_uid) do
+      runtime_env =
+        case ModelHistory.cli_context_id(run.agent_uid, run.conversation) do
+          context_id when is_binary(context_id) ->
+            Map.put(run.spec.runtime_env || %{}, "ANKOLE_RUNTIME_SESSION_CONTEXT_ID", context_id)
+
+          nil ->
+            run.spec.runtime_env || %{}
+        end
+
       {:ok, row,
        envelope(:workspace_open, %Proto.WorkspaceOpen{
          run: ref(run),
          workspace_id: run.workspace_id,
-         runtime_env: run.spec.runtime_env,
+         runtime_env: runtime_env,
          agent_context: TurnEnvelope.agent_context(run.context),
          binding_name: run.event.reply_binding_name || "",
          fetch_runtime_config: fetch,
@@ -83,23 +93,66 @@ defmodule Ankole.Sessions.Worker do
     error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, error}
   end
 
-  @spec send_call(Run.t(), map(), Ankole.Sessions.PendingCall.t()) ::
+  @spec open_cli_context_id(Proto.Envelope.t()) :: String.t() | nil
+  def open_cli_context_id(%Proto.Envelope{
+        body: {:workspace_open, %Proto.WorkspaceOpen{runtime_env: runtime_env}}
+      })
+      when is_map(runtime_env) do
+    runtime_env["ANKOLE_RUNTIME_SESSION_CONTEXT_ID"]
+  end
+
+  def open_cli_context_id(_envelope), do: nil
+
+  @spec send_call(Run.t(), map(), Ankole.Sessions.PendingCall.t(), String.t() | nil) ::
           {:ok, term()} | {:error, term()}
-  def send_call(run, row, pending) do
+  def send_call(run, row, pending, last_cli_context_id \\ nil) do
     with :ok <-
-           Tools.authorize_call(run, pending.tool.name, pending.args) do
-      WorkerRoute.send_mandatory(
-        AgentWorkers.target(row),
-        envelope(:tool_call, %Proto.ToolCall{
-          run: ref(run),
-          response_id: Run.response_id(run.model_response),
-          call_id: Run.call_id(pending.call),
-          namespace: pending.call["namespace"] || "",
-          name: pending.worker_name || pending.call["name"],
-          arguments_json: Ankole.JSON.encode!(pending.worker_args || pending.args),
-          mode: pending.mode
-        })
-      )
+           Tools.authorize_call(run, pending.tool.name, pending.args),
+         {:ok, next_context_id} <-
+           maybe_refresh_compacted_context(run, row, pending, last_cli_context_id),
+         {:ok, receipt} <-
+           WorkerRoute.send_mandatory(
+             AgentWorkers.target(row),
+             envelope(:tool_call, %Proto.ToolCall{
+               run: ref(run),
+               response_id: Run.response_id(run.model_response),
+               call_id: Run.call_id(pending.call),
+               namespace: pending.call["namespace"] || "",
+               name: pending.worker_name || pending.call["name"],
+               arguments_json: Ankole.JSON.encode!(pending.worker_args || pending.args),
+               mode: pending.mode
+             })
+           ) do
+      if is_binary(next_context_id) and next_context_id != last_cli_context_id do
+        {:ok, {:cli_context_id, next_context_id, receipt}}
+      else
+        {:ok, receipt}
+      end
+    end
+  end
+
+  defp maybe_refresh_compacted_context(run, row, pending, last_cli_context_id) do
+    with true <- should_check_compacted_context?(run, pending),
+         context_id when is_binary(context_id) <-
+           ModelHistory.cli_context_id(run.agent_uid, run.conversation),
+         false <- String.ends_with?(context_id, ":cmp:root") or context_id == last_cli_context_id do
+      push_compacted_context(run, row, context_id, last_cli_context_id)
+    else
+      _ -> {:ok, last_cli_context_id}
+    end
+  end
+
+  defp should_check_compacted_context?(run, pending) do
+    run.iteration > 1 and pending.mode == "execute" and
+      (pending.worker_name || pending.call["name"]) == "command"
+  end
+
+  defp push_compacted_context(run, row, context_id, fallback_context_id) do
+    with {:ok, _row, open_message} <- prepare_open(run),
+         {:ok, _} <- WorkerRoute.send_mandatory(AgentWorkers.target(row), open_message) do
+      {:ok, context_id}
+    else
+      _ -> {:ok, fallback_context_id}
     end
   end
 

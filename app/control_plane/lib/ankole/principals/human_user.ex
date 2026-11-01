@@ -1,6 +1,9 @@
 defmodule Ankole.Principals.HumanUser do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    tenant_in_primary_key: true,
+    domain: Ankole.Principals
 
   @email_format ~r/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
 

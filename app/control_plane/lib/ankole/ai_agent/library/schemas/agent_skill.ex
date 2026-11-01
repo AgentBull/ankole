@@ -70,7 +70,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
   end
 
   identities do
-    identity(:agent_skill, [:agent_uid, :skill_name], all_tenants?: true)
+    identity(:agent_skill, [:agent_uid, :skill_name])
   end
 
   actions do

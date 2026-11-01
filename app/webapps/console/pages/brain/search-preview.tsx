@@ -44,7 +44,7 @@ export function BrainSearchPreviewPage() {
   const candidates = (principals.data ?? []).map(principal => ({
     id: principal.id,
     label: principalLabel(principal),
-    description: principal.email ?? principal.handle
+    description: principal.email ?? principal.id
   }))
 
   const preview = useMutation({ ...previewBrainSearchMutation(), meta: { invalidates: false } })

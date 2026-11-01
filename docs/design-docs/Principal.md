@@ -11,7 +11,7 @@ Every aggregate write in `Ankole.Principals` runs inside
 `Repo.transact_top_level/2`, which opens the transaction and enforces lock order
 while individual Ash resource actions run inside it. Aggregate operations cover:
 
-- Creating, enabling, updating, or deleting an Agent
+- Creating, enabling, disabling, updating, or deleting an Agent
 - Creating or updating a Human
 - Binding a personal site credential
 - Upserting a platform subject
@@ -19,14 +19,16 @@ while individual Ash resource actions run inside it. Aggregate operations cover:
 - Recording and reviewing identity-mapping requests
 - Classifying and cleaning up affected work
 - Accepting a Pod invitation
+- Creating a member's personal assistant on first use and renaming a Principal
 
 Console `/api/v2` endpoints call generic actions on `Principal` and
 `MappingRequest`. When another domain needs to compose Principal steps inside
 its own open transaction, it calls `*_in_tx` helpers—such as
 `Principals.create_human_in_tx/1` and `Principals.lock_principal_in_tx/2`—rather
-than nesting a top-level operation. To look up a Principal across tenants,
-callers invoke `Principals.get_principal_across_tenants/1` inside a
-`Repo.across_tenants` block, backed by the `allow_global` read action.
+than nesting a top-level operation. Every identity lookup requires the owning
+tenant in the `Ankole.Repo` process context. Site inventory operations can list
+tenant-qualified records, then enter each tenant before invoking its domain
+operations.
 
 Resource actions enforce strict field boundaries: profile actions accept only
 profile attributes and cannot modify identity, status, or `access_version`,
@@ -41,17 +43,18 @@ action; work execution, authorization, and audit logs all share that identity.
 Supported Principal types are `human`, `agent`, and `system`. For `human`
 Principals, tenant collaboration depends on `membership`:
 
-- **Members (`member`)** automatically join the computed `all_humans` group.
+- **Members (`member`)** automatically join the computed `all_humans` group and
+  receive a persistent private Drive root in their Principal creation transaction.
 - **Guests (`guest`)** receive access only through explicit Pod shares and Agent
   grants; they cannot join built-in administrator groups, enter Private space,
   or access the Brain `world` scope, and `pod.allow_external_guests` gates guest
-  admission and Pod access.
+  admission and Pod access. Guest admission creates no private root. Promotion
+  to member creates one; demotion retains its content while denying Guest access.
 
 Changing a Human's `membership` increments `access_version`, whereas
 identity-provider sign-ins and directory syncs preserve the stored membership.
-Although each Principal has one site-wide opaque UID, every Principal belongs to
-exactly one tenant—the same person participating in two tenants has two distinct
-`principals` rows.
+Every Principal belongs to exactly one tenant. The same person participating in
+two tenants has two distinct `principals` rows, which may share the same UID.
 
 ## What the Principal Subsystem Stores
 
@@ -79,24 +82,31 @@ The Elixir control plane persists all Principal state in PostgreSQL; Bun Worker
 processes consume UIDs supplied by control-plane contracts without introducing a
 second identity model.
 
-## Use One UID throughout the Deployment Instance
+## Names and Tenant Identity
 
-`principals.uid` is the sole primary key—there is no separate numeric or
-internal Principal ID. Control-plane APIs trim surrounding whitespace and
-lowercase every UID, and a PostgreSQL `CHECK` constraint enforces lowercase
-storage.
+The complete Principal identity is `(tenant_id, uid)`. A UID is a meaningful
+name unique within its tenant. Control-plane APIs trim surrounding whitespace
+and lowercase every UID; PostgreSQL enforces these value constraints and the
+composite primary key. Explicit Human renames reject whitespace, control
+characters and the separators or wildcard syntax reserved by API routes and
+permission resources (`/`, `\`, `:`, `*`, `?`, `[]`, `{}`).
 
-Each Principal UID is server-generated UUIDv7 text. Every Agent also has an
-editable `handle`, unique within its tenant, matching:
+Human creation uses the normalized login email or the primary external identity
+ID. An operator supplies an AI colleague's UID. A personal assistant initially
+uses `<owner_uid>_assistant`, and each registered system service uses its fixed
+UID (`system` or `ankole_brain`) within every tenant.
+Agent UIDs match:
 
 ```text
-^[a-z0-9][a-z0-9._-]{0,95}$
+^[a-z0-9][a-z0-9._@+-]{0,95}$
 ```
 
-API routes, bearer tokens, Worker IDs, and Brain page slugs always address the
-immutable `uid`, while the Console displays `handle` for humans. Agent creation
-requests supply `handle` rather than `uid`, and mutable display names or handles
-never establish identity.
+API routes, Worker IDs and Brain page slugs use this UID within an explicit
+tenant. Agent API keys carry both `tenant_id` and `sub`. OIDC clients identify
+the token's tenant; random Worker credentials identify a Worker row before the
+gateway checks its UID. Display names describe a Principal without establishing
+identity. Creating an occupied name returns `principal_uid_taken` and requires
+the caller to choose a name or resolve the identity mapping explicitly.
 
 ## Stored Rows
 
@@ -104,7 +114,7 @@ never establish identity.
 
 `principals` stores the shared base identity columns:
 
-- `uid`: text primary key.
+- `uid`: text; the primary key is `(tenant_id, uid)`.
 - `tenant_id`: required foreign key to the owning tenant.
 - `type`: `human`, `agent`, or `system`.
 - `status`: `active` or `disabled`.
@@ -124,7 +134,7 @@ together; see [Human Offboarding](HumanOffboarding.md).
 
 `human_users` extends a `human` Principal with contact and directory fields:
 
-- `principal_uid`: primary key and foreign key to `principals`.
+- `(tenant_id, principal_uid)`: primary key and foreign key to `principals`.
 - `email`, `mobile`, and `job_title`: optional profile fields.
 - `inserted_at` and `updated_at`.
 
@@ -148,15 +158,17 @@ identifiers for reuse.
 
 ### `agents`
 
-`agents` extends an `agent` Principal with colleague metadata:
+`agents` extends an `agent` Principal with its execution profile:
 
-- `uid`: primary key and foreign key to `principals`.
-- `type`: `ai_colleague` enum.
-- `handle`: required handle, unique within the tenant.
+- `(tenant_id, uid)`: primary key and foreign key to `principals`.
+- `type`: `ai_colleague` or `personal_assistant`.
 - `role`: required non-empty role description.
 - `group_memory_disclosure_mode`: `strict` or `relaxed`.
 - `options`: JSON object.
-- `owner_principal_uid`: required foreign key to the owning Principal.
+- `owner_principal_uid`: required same-tenant foreign key to the owning Human.
+  AI colleagues can change owners. A personal assistant has one immutable owner
+  relationship, with a partial unique index enforcing at most one assistant per
+  owner. A personal assistant uses `strict` group memory disclosure.
 - `created_by`: optional typed `ActorRef`.
 - `inserted_at` and `updated_at`.
 
@@ -169,9 +181,22 @@ the `agents` or `principals` row.
 A `system` Principal represents an internal service that needs to own durable
 database rows. It has neither a `human_users` row nor an `agents` row, and it
 cannot sign in, host an Agent Worker, or act as a human via an external
-identity. Each owning subsystem creates and manages its own `system` Principal;
-`Ankole.Principals` exposes no public API for creating arbitrary system
-Principals.
+identity. `Ankole.Principals.SystemServices` owns the closed registry:
+
+| UID | Responsibility |
+| --- | --- |
+| `system` | Pod Applet model calls and internal operations such as admission notices, document mention renames, and tenant deletion |
+| `ankole_brain` | Brain model, embedding, and rerank calls |
+
+Tenant initialization creates every registered service in its transaction;
+migrations provision existing tenants. Runtime reads require the row to exist
+and never create it. Each service has a fixed UID and cannot be renamed. Adding
+a service requires a registry entry and a data migration. Ankole exposes no API
+for creating arbitrary system Principals.
+
+System Principals can override every fixed Pod model slot through AppConfigure
+`system:<uid>` rows. They do not appear in mentions, conversation member choices,
+page collaborator catalogs, Signal routing targets, or Agent readiness checks.
 
 ### `principal_external_identities`
 
@@ -265,8 +290,9 @@ provider subject:
    aliases tagged with `origin: "directory"` (an Email channel sender binding
    alone never qualifies as an admission contact). Linking preserves the Human's
    existing UID, roles, files, and conversations.
-3. If no eligible Human matches, Ankole creates a fresh Human Principal with a
-   new UUIDv7 UID.
+3. If no eligible Human matches, Ankole creates a Human Principal using the
+   normalized primary external subject as its UID. An occupied name returns
+   `principal_uid_taken`; an operator can map the external identity explicitly.
 
 Inside the transaction, Ankole locks all candidate subjects, contact keys, and
 the target Principal before writing stable aliases atomically; any alias
@@ -342,11 +368,12 @@ support offboarding and cleanup workflows.
 
 `create_agent` executes six steps inside one transaction:
 
-1. Validates the requested `handle` and mints a fresh UUIDv7 `uid` (never
-   reusing deleted UIDs).
+1. Normalizes and validates the caller's requested `uid`.
 2. Selects `worker_provider_id` from the request or falls back to the default
    Worker provider, failing with `worker_provider_required` if neither exists.
-3. Inserts the `principals` row.
+3. Inserts the `principals` row and creates the Agent's private Drive root,
+   before Library initialization. The transaction takes the Drive tree lock
+   before Principal, turn, or content locks.
 4. Inserts the `agents` row.
 5. Seeds initial Agent Library documents and state.
 6. Inserts the `agent_workers` row in state `absent` bound permanently to the
@@ -360,9 +387,12 @@ or Principal `type`.
 Enabling or deleting an Agent snapshots affected Conversation IDs inside the
 transaction. Deleting an `active` Agent first transitions it to `disabled`;
 sending a second delete for a `disabled` Agent physically removes its durable
-rows—acquiring the Pod tree lock first to strip Page grants and recompute
-affected ACL anchors and pass-through descendants before deleting the
-`principals` row. After commit, `Principals.publish_agent_changes/1` broadcasts
+rows. The transaction acquires the Drive tree lock and private-root lock first,
+cleans the private subtree's Pod content and physical Base tables, removes its
+Drive nodes, strips Drive grants, and recomputes affected ACL anchors before
+deleting the `principals` row. Disabling an Agent preserves its private root and
+content. Immutable file objects become eligible for normal reference-aware GC
+when their final live or historical reference disappears. After commit, `Principals.publish_agent_changes/1` broadcasts
 status updates within the Agent's tenant (including Conversations removed in
 that transaction), and `Principals.publish_agent_deletion/1` triggers Worker
 teardown. Both domain callers and Console endpoints share these publication
@@ -378,6 +408,77 @@ hash for retry.
 For Human offboarding, `HumanAccess.disable/4` records the restriction and
 revokes credentials while AuthZ blocks disabling the last active human
 administrator.
+
+### Personal Assistants
+
+`ensure_personal_assistant(owner_uid)` requires an active Human member in the
+current tenant. It reads the owner's existing assistant and returns its actual
+UID, including after either Principal has been renamed. First use creates a
+Principal, an Agent profile, default personal-assistant Library documents, a
+private runtime Drive root and an AgentWorker through the same creation path.
+The transaction grants the owner chat access and management of the assistant's
+private root. The owner uniqueness constraint resolves concurrent creation;
+an unrelated Principal occupying the default name remains a name conflict.
+
+Human creation, login, invitations and directory import leave assistant
+creation to first use. Pod's default New Chat first ensures the assistant, then
+sends through the ordinary Conversation API. A failed send leaves the assistant
+available for retry. Shared Lark and Slack bindings use the same creation
+operation after admitting an active member.
+
+The assistant executes, speaks, stores runtime files and incurs usage under its
+own identity. `Principals.authority_uid/1` reads its owner for business AuthZ,
+the owner's Pod private tree and Human work admission. Management permissions
+use the assistant's own grants. Disabling or offboarding the owner, or changing
+them to guest, disables the assistant; restoring an active member enables an
+existing assistant. Each synchronization enqueues Worker reconciliation in the
+same transaction, so the provider applies the committed lifecycle state.
+Console service work and dedicated channel bindings accept
+AI colleagues as targets.
+
+Public directories and colleague-management lists contain AI colleagues.
+Mention candidates include only the caller's existing personal assistant;
+readable content can display other assistants without granting chat access.
+`Principals.display_name/1` combines the assistant's short name with the owner's
+current display name for shared attribution. The owner's private chat can use
+the short name.
+
+## Explicit Rename
+
+`Principals.rename/2` changes a name in the current tenant. Humans and both
+Agent subtypes can be renamed repeatedly. An Agent must be disabled, with its
+old running or paused Worker instance removed through normal reconciliation
+before the rename can commit. An outstanding drain returns
+`worker_rename_pending`; the operator can retry once removal finishes.
+
+The control-plane transaction changes the Principal key and its cascading
+foreign keys. `Principals.Rename.References` owns the explicit inventory of
+identity copies: tenant-local UID fields, complete ActorRefs across tenants,
+registered JSON paths, pending job arguments, permission resource patterns,
+Brain home slugs and audience scopes. Browser tenant authentication subjects
+follow the rename, while provider subjects, login credentials and contact
+fields keep their meaning. Domain owners rewrite canonical document, snapshot
+and comment mentions through the XML codec, advancing live document revisions.
+Brain rewrites parsed audience tags and canonical home-page wikilinks in live
+bodies and stored versions, refreshes content hashes and reconciles retrieval
+chunks. These structured rewrites preserve prose and code examples. Agent
+configuration and environment variables are resealed under the new scope.
+
+Inline Base references commit with the control plane. Physical Base references
+are repaired after commit, and a failure returns `base_repair_error` alongside
+the successful new UID. Operators can independently rerun
+`Ankole.Pod.repair_principal_references(tenant_id, old_uid, new_uid)`; this
+idempotent operation does not require the old Principal to exist. Worker
+reconciliation deletes the old storage and creates storage under the new name
+when the Agent is enabled.
+
+Browser authentication references and OIDC refresh credentials remain usable.
+Existing OIDC access tokens retain their old `sub` until their 30-minute expiry;
+refreshing obtains a token with the new name. External OIDC applications own
+their account-continuity policy. Agent API keys are stateless and last 30 days:
+reusing an old name during that period can make an old key identify the new
+Agent with that name. A rename creates no old-name alias. Renaming an owner
+updates the assistant's owner reference without changing the assistant's UID.
 
 ## Console Identity and Access API
 

@@ -1,7 +1,6 @@
 defmodule Ankole.Conversations.AttachmentsNativeTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
-  alias Ankole.Conversations.Attachments
   alias Ankole.Conversations.Attachments.Native
   alias Ankole.Conversations.Message
   alias Ankole.Files
@@ -14,17 +13,70 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
     %{human: human, agent: agent}
   end
 
-  test "an attachment-only Message retains bytes and identities without exposing queued files to the Agent",
+  test "an anchor-page reader downloads frozen attachments without joining the conversation",
        ctx do
+    actor = actor_fixture(ctx.human)
+    reader = human_fixture().principal |> actor_fixture()
+    {:ok, page} = Ankole.Pod.Pages.create(actor, %{title: "Shared attachment"})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.human.uid, page.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: reader.principal.uid, role: "view"}]
+      })
+
+    upload = upload!(ctx.human.uid, "report.txt", "Shared bytes")
+
+    attrs =
+      Map.merge(attrs(ctx.agent, [upload.receipt]), %{
+        page_id: page.id,
+        access_scope: "anchor_page"
+      })
+
+    assert {:ok, detail} = Ankole.ConversationsFixtures.create(ctx.human.uid, attrs)
+
+    refute Repo.get_by(Ankole.Conversations.Participant,
+             conversation_id: attrs.conversation_id,
+             principal_uid: reader.principal.uid
+           )
+
+    assert {:ok, attachment} =
+             Ankole.Conversations.Attachments.resolve(
+               reader,
+               attrs.conversation_id,
+               attrs.message_id,
+               0
+             )
+
+    assert attachment == hd(hd(detail.messages).attachments)
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.human.uid, page.id, %{
+        inherit_permissions: false,
+        grants: []
+      })
+
+    assert {:error, :not_found} =
+             Ankole.Conversations.Attachments.resolve(
+               reader,
+               attrs.conversation_id,
+               attrs.message_id,
+               0
+             )
+  end
+
+  test "an attachment-only Message commits shared-root files and frozen object references", ctx do
     upload = upload!(ctx.human.uid, "brief.txt", "Original uploaded text")
     attrs = attrs(ctx.agent, [upload.receipt])
     assert {:ok, detail} = Ankole.ConversationsFixtures.create(ctx.human.uid, attrs)
     assert detail.conversation.title == "brief.txt"
     assert [%Message{text: nil, attachments: [attachment]}] = detail.messages
     assert is_integer(attachment["attachment_id"])
-    assert attachment["path"] =~ "chats/#{attrs.conversation_id}/inbox/"
-    assert {:ok, "Original uploaded text"} = Files.read_content(attachment["blob_ref"])
-    assert {:error, :not_found} = Files.fetch(ctx.agent.uid, attachment["path"])
+    assert {:ok, conversation_id} = Files.node_conversation_id(attachment["node_id"])
+    assert conversation_id == attrs.conversation_id
+    assert {:ok, "Original uploaded text"} = Files.read_object(attachment["object_id"])
+    assert {:ok, file} = Files.authorize_node(ctx.agent.uid, attachment["node_id"], "node_view")
+    assert file.id == attachment["node_id"]
     signal = Repo.get_by!(Signal, message_id: attrs.message_id)
     assert signal.data["entry"] == %{"text" => nil, "attachments" => [attachment]}
 
@@ -32,47 +84,10 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
     assert retry.messages == detail.messages
     assert Repo.aggregate(Message, :count) == 1
     assert Repo.aggregate(Signal, :count) == 1
-    assert attachment["path"] =~ "/inbox/#{attrs.message_id}/"
+    assert Repo.aggregate(Ankole.Conversations.MessageAttachment, :count) == 1
 
-    # This is the existing consumption owner, called before a Worker receives the payload.
-    assert :ok =
-             Attachments.link_payload(
-               ctx.agent.uid,
-               Signal.envelope(signal),
-               attrs.conversation_id
-             )
-
-    assert {:ok, _, "Original uploaded text"} = Files.read(ctx.agent.uid, attachment["path"])
-
-    {:ok, edited} = Files.store("The Agent's later edits")
-
-    {:ok, _} =
-      Files.commit(ctx.agent.uid, [
-        %{path: attachment["path"], sha256: edited.sha256, source: "agent"}
-      ])
-
-    next_id = Ecto.UUID.generate()
-
-    assert {:ok, followup} =
-             Ankole.ConversationsFixtures.post(ctx.human.uid, attrs.conversation_id, %{
-               message_id: next_id,
-               text: "Read the original file again",
-               attachments: [upload.receipt]
-             })
-
-    next_attachment = hd(List.last(followup.messages).attachments)
-    refute next_attachment["path"] == attachment["path"]
-    next_signal = Repo.get_by!(Signal, message_id: next_id)
-
-    assert :ok =
-             Attachments.link_payload(
-               ctx.agent.uid,
-               Signal.envelope(next_signal),
-               attrs.conversation_id
-             )
-
-    assert {:ok, _, "Original uploaded text"} = Files.read(ctx.agent.uid, next_attachment["path"])
-    assert {:ok, _, "The Agent's later edits"} = Files.read(ctx.agent.uid, attachment["path"])
+    assert Repo.get_by!(Ankole.Conversations.MessageAttachment, message_id: attrs.message_id).object_id ==
+             attachment["object_id"]
 
     assert {:error, :conversation_conflict} =
              Ankole.ConversationsFixtures.create(ctx.human.uid, %{
@@ -96,7 +111,7 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
              Native.resolve(ctx.human.uid, [upload.receipt <> "tampered"])
 
     assert {:error, :invalid_attachment} =
-             Native.resolve(ctx.human.uid, [%{"blob_ref" => "known hash"}])
+             Native.resolve(ctx.human.uid, [%{"object_id" => "unverified object"}])
 
     assert Repo.aggregate(Message, :count) == 0
   end
@@ -131,35 +146,30 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
              })
   end
 
-  test "collection cannot claim a committed attachment and a file already claimed is not accepted",
-       ctx do
+  test "the database prevents collection of a Message attachment object", ctx do
     upload = upload!(ctx.human.uid, "kept.txt", "Keep")
     attrs = attrs(ctx.agent, [upload.receipt])
     assert {:ok, detail} = Ankole.ConversationsFixtures.create(ctx.human.uid, attrs)
     attachment = hd(hd(detail.messages).attachments)
-    digest = Base.decode16!(attachment["blob_ref"], case: :mixed)
 
-    Repo.query!(
-      "UPDATE files SET last_referenced_at = now() - interval '2 days' WHERE sha256 = $1",
-      [digest]
+    Repo.delete_all(
+      from node in Ankole.Files.Schemas.Node, where: node.id == ^attachment["node_id"]
     )
 
-    assert {:ok, _} = Files.Jobs.CollectUnreferenced.mark_unreferenced()
-    refute Repo.get!(Files.Schemas.Blob, digest).deleting
+    assert {:error,
+            %Postgrex.Error{
+              postgres: %{
+                code: :restrict_violation,
+                constraint: "message_attachments_object_fkey"
+              }
+            }} =
+             Repo.query(
+               "DELETE FROM file_objects WHERE tenant_id = $1 AND id = $2",
+               [Ecto.UUID.dump!(Repo.tenant_id!()), Ecto.UUID.dump!(attachment["object_id"])],
+               mode: :savepoint
+             )
 
-    abandoned = upload!(ctx.human.uid, "collected.txt", "Abandoned")
-    {:ok, [stored]} = Native.resolve(ctx.human.uid, [abandoned.receipt])
-    other_digest = Base.decode16!(stored["blob_ref"], case: :mixed)
-    Repo.query!("UPDATE files SET deleting = true WHERE sha256 = $1", [other_digest])
-
-    assert {:error, {:blob_missing, _}} =
-             Ankole.ConversationsFixtures.post(ctx.human.uid, attrs.conversation_id, %{
-               message_id: Ecto.UUID.generate(),
-               text: "Too late",
-               attachments: [abandoned.receipt]
-             })
-
-    assert Repo.aggregate(Message, :count) == 1
+    assert {:ok, "Keep"} = Files.read_object(attachment["object_id"])
   end
 
   test "downloads use committed frozen bytes and current membership instead of the Agent's mutable path",
@@ -169,29 +179,26 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
     {:ok, detail} = Ankole.ConversationsFixtures.create(ctx.human.uid, attrs)
     attachment = hd(hd(detail.messages).attachments)
 
-    :ok =
-      Attachments.link_payload(
-        ctx.agent.uid,
-        Signal.envelope(Repo.get_by!(Signal, message_id: attrs.message_id)),
-        attrs.conversation_id
-      )
-
-    {:ok, replacement} = Files.store("Changed Agent file")
-
     {:ok, _} =
-      Files.commit(ctx.agent.uid, [
-        %{path: attachment["path"], sha256: replacement.sha256, source: "agent"}
-      ])
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: ctx.agent.uid,
+        resource_pattern: "drive:**:#{attachment["node_id"]}:node",
+        target_node_id: attachment["node_id"],
+        target_scope: "self",
+        action: "node_edit"
+      })
+
+    {:ok, _} = Files.write_node(ctx.agent.uid, attachment["node_id"], "Changed Agent file")
 
     local = Files.temp_path()
     on_exit(fn -> File.rm(local) end)
 
     assert {:ok, ^attachment} =
-             Native.read_to_file(
+             Ankole.Conversations.read_attachment_to_file(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
                attrs.conversation_id,
                attrs.message_id,
-               attachment["path"],
+               0,
                local
              )
 
@@ -199,25 +206,25 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
     other = human_fixture().principal
 
     assert {:error, :not_found} =
-             Native.read_to_file(
+             Ankole.Conversations.read_attachment_to_file(
                Ankole.PrincipalsFixtures.actor_fixture(other.uid),
                attrs.conversation_id,
                attrs.message_id,
-               attachment["path"],
+               0,
                local
              )
 
     assert {:error, :not_found} =
-             Native.read_to_file(
+             Ankole.Conversations.read_attachment_to_file(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
                attrs.conversation_id,
                Ecto.UUID.generate(),
-               attachment["path"],
+               0,
                local
              )
   end
 
-  test "the real native input owner gives the model image bytes and a readable Worker drive path",
+  test "the real native input owner gives the model image bytes and a frozen attachment command",
        ctx do
     agent = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: ctx.human.uid}).principal
 
@@ -245,7 +252,14 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
              &(&1["type"] == "input_text" and String.contains?(&1["text"], attachment["path"]))
            )
 
-    assert {:ok, _, ^bytes} = Files.read(agent.uid, attachment["path"])
+    command = "ankole-pod chat attachment get #{attrs.conversation_id} #{attrs.message_id} 0 --to"
+
+    assert Enum.any?(
+             content,
+             &(&1["type"] == "input_text" and String.contains?(&1["text"], command))
+           )
+
+    assert {:ok, ^bytes} = Files.read_object(attachment["object_id"])
   end
 
   defp attrs(agent, receipts),

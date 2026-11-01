@@ -1,18 +1,19 @@
 defmodule Ankole.Pod.Applets.AI do
-  @moduledoc "Stateless Applet text generation through the creator Agent's AIGateway profiles."
+  @moduledoc "Stateless Applet text generation through Pod model profiles."
 
   alias Ankole.{AIGateway, Principals}
-  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.ResponseItems
 
-  def generate_text(%Ankole.Pod.Page{} = page, options) do
-    with {:ok, uid} <- creator_agent(page),
+  @profiles ~w(primary light heavy coding vision_fallback)
+
+  def generate_text(%Ankole.Pod.Page{} = _page, options) do
+    with {:ok, principal} <- Principals.system_principal(),
          :ok <- profile(options["model"]),
          :ok <- prompt(options),
          {:ok, _effort} <- ReasoningEffort.normalize(options["effort"]),
          {:ok, %{body: body}} <-
-           AIGateway.create_response(uid, request(options), subject_type: "agent"),
+           AIGateway.create_response(principal.uid, request(options), caller: "pod_applet"),
          {:ok, reason} <- finish_reason(body) do
       usage = body["usage"] || %{}
 
@@ -32,19 +33,7 @@ defmodule Ankole.Pod.Applets.AI do
     end
   end
 
-  defp creator_agent(%{created_by: %{uid: uid}}) do
-    with {:ok, %{principal: %{status: :active}}} <- Principals.get_agent(uid),
-         do: {:ok, uid},
-         else: (_ -> {:error, :ai_not_configured})
-  end
-
-  defp profile(model) when is_binary(model) do
-    if not String.contains?(model, "/") and
-         ModelProfiles.profile_capability(model) == {:ok, "llm"},
-       do: :ok,
-       else: {:error, :invalid_model}
-  end
-
+  defp profile(model) when model in @profiles, do: :ok
   defp profile(_), do: {:error, :invalid_model}
 
   defp prompt(%{"prompt" => prompt} = options) when is_binary(prompt) do
@@ -103,17 +92,18 @@ defmodule Ankole.Pod.Applets.AI do
               param in ["reasoning.effort", "reasoning_effort", "reasoningEffort"],
        do: "invalid_effort"
 
+  defp code(reason) when reason in [:model_profile_not_configured, :system_principal_missing],
+    do: "ai_not_configured"
+
   defp code({name, _})
        when name in [
               :unknown_model_selector,
-              :model_profile_not_configured,
               :invalid_model_profile,
               :model_profile_capability_mismatch
             ],
        do: "invalid_model"
 
-  defp code(reason) when reason in [:model_profile_not_configured, :invalid_model_profile],
-    do: "invalid_model"
+  defp code(:invalid_model_profile), do: "invalid_model"
 
   defp code(_), do: "ai_unavailable"
 

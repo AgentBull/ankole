@@ -379,8 +379,8 @@ defmodule Ankole.Schedule.Cron do
   # with history and origin both matching the current schedule facts;
   # timing-only changes keep history. A fire running right now is
   # unaffected: turn completion resolves its conversation by id, not by
-  # active lookup. A terminal schedule also ends its conversation so the
-  # daily reset stops selecting the dead session.
+  # active lookup. A terminal schedule also ends its conversation so its
+  # model history closes cleanly with the schedule.
   defp end_execution_conversation_in_tx(%CronSchedule{} = schedule, now) do
     with {:ok, _conversation} <-
            AIGateway.end_active_conversation_in_tx(

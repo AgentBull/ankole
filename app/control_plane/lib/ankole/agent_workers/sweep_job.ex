@@ -123,12 +123,12 @@ defmodule Ankole.AgentWorkers.SweepJob do
         rows =
           provider.provider_id
           |> AgentWorkers.provider_workers()
-          |> Map.new(&{&1.agent_uid, &1})
+          |> Map.new(&{{&1.tenant_id, &1.agent_uid}, &1})
 
         now = Repo.now!()
 
         Enum.each(objects, fn object ->
-          case rows[object.agent_uid] do
+          case rows[{object.tenant_id, object.agent_uid}] do
             nil ->
               delete_orphan(provider, kind, object)
 
@@ -141,7 +141,7 @@ defmodule Ankole.AgentWorkers.SweepJob do
           end
         end)
 
-        present = MapSet.new(objects, &{&1.agent_uid, &1.generation})
+        present = MapSet.new(objects, &{&1.tenant_id, &1.agent_uid, &1.generation})
 
         # Reuse the inventory read above. ReconcileJob checks the current row
         # again before it changes a Worker.
@@ -159,7 +159,7 @@ defmodule Ankole.AgentWorkers.SweepJob do
       row.state in [:ready, :stale, :paused] or
         (row.state == :starting and DateTime.diff(now, row.state_changed_at) > 60)
 
-    eligible and not MapSet.member?(present, {row.agent_uid, row.generation})
+    eligible and not MapSet.member?(present, {row.tenant_id, row.agent_uid, row.generation})
   end
 
   # The platform changed the instance outside the control plane, for example
@@ -174,7 +174,7 @@ defmodule Ankole.AgentWorkers.SweepJob do
       object.agent_uid &&
         provider.provider_id
         |> AgentWorkers.provider_workers()
-        |> Enum.find(&(&1.agent_uid == object.agent_uid))
+        |> Enum.find(&(&1.tenant_id == object.tenant_id and &1.agent_uid == object.agent_uid))
 
     result =
       if owner,

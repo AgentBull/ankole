@@ -9,6 +9,21 @@ fn corpus() -> Value {
 }
 
 #[test]
+fn principal_rename_decodes_xml_entities_and_preserves_other_attributes_and_text() {
+    let source = "<page><p>o'connor&amp;co@example.com<mention label=\"Owner\" principal=\"o'connor&amp;co@example.com\" /><mention page=\"o'connor&amp;co@example.com\" /></p></page>";
+    let renamed =
+        rename_principal(source, "o'connor&co@example.com", "new'&co@example.com").unwrap();
+    assert_eq!(
+        renamed.xml,
+        source.replacen(
+            "principal=\"o'connor&amp;co@example.com\"",
+            "principal=\"new'&amp;co@example.com\"",
+            1
+        )
+    );
+}
+
+#[test]
 fn kept_style_ignores_css_comments() {
     for (style, kept) in [
         (

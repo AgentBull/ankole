@@ -10,6 +10,7 @@ defmodule Ankole.AppConfigure.Declarations do
   alias Ankole.AgentWorkers.Settings, as: AgentWorkerSettings
   alias Ankole.Sessions.BackgroundAgentJobCap
   alias Ankole.Sessions.DeadLetterNoticeConfig
+  alias Ankole.Sessions.WakeRecycle
   alias Ankole.AgentWorkers.WorkerAuthKey
   alias Ankole.AgentWorkers.WorkerWebFetchConfig
   alias Ankole.Workflow.WorkerConfig, as: WorkflowWorkerConfig
@@ -29,12 +30,15 @@ defmodule Ankole.AppConfigure.Declarations do
       WorkerWebFetchConfig.definition(),
       BackgroundAgentJobCap.definition(),
       Ankole.AgentWorkers.SlotLock.automation_capacity_definition(),
-      DeadLetterNoticeConfig.definition()
+      DeadLetterNoticeConfig.definition(),
+      WakeRecycle.definition()
     ] ++
       WorkflowWorkerConfig.definitions() ++
       AgentWorkerSettings.definitions() ++
       Ankole.Brain.Config.definitions() ++
+      Ankole.AIGateway.ModelProfiles.definitions() ++
       Ankole.Pod.Config.definitions() ++
+      Ankole.Files.Config.definitions() ++
       Ankole.I18n.Config.definitions() ++
       Ankole.Observability.definitions() ++
       AgentPluginConfig.definitions() ++

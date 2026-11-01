@@ -2,13 +2,14 @@ defmodule Ankole.Pod.Comments.Activity do
   @moduledoc "Orders discussion activity and stores each reader's explicit acknowledgment."
   require Ash.Query
   alias Ankole.{ActorRef, AuthZ, Repo}
-  alias Ankole.Pod.{Access, PageComment, PageContent, Pages, PageUserState}
+  alias Ankole.Files.Access
+  alias Ankole.Pod.{PageComment, PageContent, Pages, PageUserState}
 
   def summary(actor, id) do
     Repo.transact_top_level(fn ->
-      with {:ok, %{type: :doc} = page} <- Pages.lock(id, :share),
-           {:ok, _} <- Access.authorize(actor, page, "page_view") do
-        {:ok, summary_in_tx(actor, id)}
+      with {:ok, page} when page.type in [:doc, :file] <- Pages.lock(id, :share),
+           {:ok, _} <- Access.authorize(actor, page, "node_view") do
+        {:ok, summary_in_tx(actor, page)}
       else
         {:ok, _} -> {:error, :invalid_page_type}
         error -> error
@@ -19,8 +20,8 @@ defmodule Ankole.Pod.Comments.Activity do
   def acknowledge(actor, id, through) do
     Repo.transact_top_level(
       fn ->
-        with {:ok, %{type: :doc} = page} <- Pages.lock(id),
-             {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "page_view") do
+        with {:ok, page} when page.type in [:doc, :file] <- Pages.lock(id),
+             {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_view") do
           latest = Ankole.Ash.max!(roots_in_tx(id), :activity_at)
           previous = read_at_in_tx(actor, id)
 
@@ -32,7 +33,7 @@ defmodule Ankole.Pod.Comments.Activity do
               Pages.save_state_in_tx(AuthZ.Actor.uid(actor), id, %{comments_read_at: read_at})
           end
 
-          {:ok, summary_in_tx(actor, id)}
+          {:ok, summary_in_tx(actor, page)}
         else
           {:ok, _} -> {:error, :invalid_page_type}
           error -> error
@@ -96,7 +97,7 @@ defmodule Ankole.Pod.Comments.Activity do
       (is_nil(read_at) || DateTime.compare(root.activity_at, read_at) == :gt)
   end
 
-  defp summary_in_tx(actor, id) do
+  defp summary_in_tx(actor, %{type: :doc, id: id}) do
     roots = roots_in_tx(id)
     content = PageContent |> Ash.Query.filter(page_id == ^id) |> Ankole.Ash.read_one!()
     {:ok, info} = Ankole.Kernel.page_comment_info(content.content)
@@ -107,6 +108,31 @@ defmodule Ankole.Pod.Comments.Activity do
       |> Ash.Query.select([:id])
       |> Ankole.Ash.read!()
       |> Enum.map(& &1.id)
+
+    %{
+      resolved_ids: resolved_ids,
+      unread_count: roots |> unread_query_in_tx(actor, id) |> Ankole.Ash.count!(),
+      open_count: roots |> Ash.Query.filter(is_nil(resolved_at)) |> Ankole.Ash.count!(),
+      activity_at: Ankole.Ash.max!(roots, :activity_at)
+    }
+  end
+
+  defp summary_in_tx(actor, %{type: :file, id: id, object_id: object_id}) do
+    roots = roots_in_tx(id)
+
+    resolved_ids =
+      if is_binary(object_id) do
+        roots
+        |> Ash.Query.filter(
+          not is_nil(resolved_at) and not is_nil(anchor) and
+            fragment("?->>'object_id' = ?", anchor, ^object_id)
+        )
+        |> Ash.Query.select([:id])
+        |> Ankole.Ash.read!()
+        |> Enum.map(& &1.id)
+      else
+        []
+      end
 
     %{
       resolved_ids: resolved_ids,

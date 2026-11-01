@@ -167,11 +167,9 @@ defmodule Ankole.Brain.Calibration do
 
   defp grading_context(nil), do: {:error, :dreaming_model_not_configured}
 
-  # The grader acts as the Brain maintainer Agent, whose profile it calls, so a
-  # resolution it writes carries that Principal's actor reference like a
-  # Console resolve carries the Human's.
+  # Calibration writes carry ankole_brain's tenant-qualified actor reference.
   defp grading_context(model) do
-    with {:ok, maintainer_uid} <- Config.maintainer_subject_uid(),
+    with {:ok, execution_uid} <- Config.execution_subject_uid(),
          {:ok, provider} <- ProviderConfigs.fetch_active_provider(model["provider_id"]),
          {:ok, definition} <- Providers.fetch(provider.provider_kind),
          {:ok, connection} <-
@@ -201,7 +199,7 @@ defmodule Ankole.Brain.Calibration do
 
       grader =
         to_string(
-          Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: maintainer_uid})
+          Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: execution_uid})
         )
 
       {:ok, %{profile: model, generation: generation, domains: domains, grader: grader}}
@@ -316,6 +314,7 @@ defmodule Ankole.Brain.Calibration do
             graded_quality: output["quality"],
             graded_confidence: min(max(output["confidence"] * 1.0, 0.0), 1.0),
             graded_at: DateTime.utc_now(:microsecond),
+            graded_by: model.grader,
             graded_input_hash: hash
           })
 
@@ -464,7 +463,8 @@ defmodule Ankole.Brain.Calibration do
                Objects.update_object_in_tx(
                  object.slug,
                  %{body: body, expected_content_hash: object.content_hash},
-                 :system
+                 :system,
+                 author: Config.execution_author!()
                )
              end) do
           {:ok, _object} -> true

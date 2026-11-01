@@ -27,6 +27,13 @@ defmodule Ankole.AgentWorkers do
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.AgentWorkers.WorkerRoute
 
+  defdelegate rename_env_in_tx(old_uid, new_uid),
+    to: Ankole.AgentWorkers.WorkerEnv,
+    as: :rename_agent_in_tx
+
+  defdelegate prepare_rename(agent_uid), to: ReconcileJob
+  defdelegate rename_worker_in_tx(worker, new_uid), to: ReconcileJob
+
   resources do
     resource(Ankole.AgentWorkers.WorkerEnv.ConsoleOperations)
 
@@ -148,7 +155,7 @@ defmodule Ankole.AgentWorkers do
     end
   end
 
-  def topic(agent_uid), do: "agent_worker:#{agent_uid}"
+  def topic(agent_uid), do: "agent_worker:#{Ankole.Repo.tenant_id!()}:#{agent_uid}"
 
   def notify_changed(agent_uid) do
     Phoenix.PubSub.broadcast(Ankole.PubSub, topic(agent_uid), {:worker_changed, agent_uid})
@@ -341,18 +348,23 @@ defmodule Ankole.AgentWorkers do
       when is_binary(agent_uid) and is_binary(token) and token != "" do
     digest = :crypto.hash(:sha256, token)
 
-    case get_agent_worker!(agent_uid) do
-      %AgentWorker{state: state, token_digest: stored} = worker
-      when state in @connect_states and is_binary(stored) ->
-        if Plug.Crypto.secure_compare(digest, stored),
-          do: {:ok, %{generation: worker.generation, tenant_id: worker.tenant_id}},
-          else: {:error, :invalid_worker_credential}
+    worker =
+      AgentWorker
+      |> Ash.Query.for_read(:across_tenants)
+      |> Ash.Query.filter(token_digest == ^digest)
+      |> Ankole.Ash.read_across_tenants!()
+      |> List.first()
 
-      %AgentWorker{} ->
+    case worker do
+      %AgentWorker{state: state, agent_uid: ^agent_uid} = worker
+      when state in @connect_states ->
+        {:ok, %{generation: worker.generation, tenant_id: worker.tenant_id}}
+
+      %AgentWorker{agent_uid: ^agent_uid} ->
         {:error, :stale_worker_generation}
 
-      nil ->
-        {:error, :unknown_worker}
+      _invalid_credential ->
+        {:error, :invalid_worker_credential}
     end
   end
 

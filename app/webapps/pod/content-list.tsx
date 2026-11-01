@@ -8,6 +8,8 @@ import type { TFunction } from 'i18next'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../common/browser-context'
+import { BdiLabel } from '../common/bidi-file-name'
+import { stripBidi } from '../common/bidi'
 import { useSearchParams } from '../common/router'
 import { podKeys } from './api'
 import { podConversations } from './api/generated/sdk.gen'
@@ -182,7 +184,7 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
               }
               restoreAction={
                 trash &&
-                page.actions?.includes('page_manage') && (
+                page.actions?.includes('node_manage') && (
                   <>
                     <Button
                       data-pod-list-item
@@ -380,16 +382,20 @@ function PageListItem({
   const { t } = useTranslation()
   const page = usePageMetadata(sourcePage)
   const parent = usePagesMetadata(ancestors)
-    .map(page => page.title || t('pod.content.untitled'))
+    .map(page => stripBidi(page.title) || t('pod.content.untitled'))
     .join(' / ')
   const content = (
     <>
       <PageIcon page={page} />
       <span className="min-w-0 flex-1">
         <span id={`pod-list-title-${page.id}`} className="block truncate">
-          {page.title || t('pod.content.untitled')}
+          <BdiLabel value={page.title} fallback={t('pod.content.untitled')} />
         </span>
-        {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
+        {parent && (
+          <span className="block truncate text-xs text-fg-tertiary">
+            <bdi>{parent}</bdi>
+          </span>
+        )}
       </span>
       {showPrivateBadge && (
         <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">

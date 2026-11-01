@@ -82,7 +82,7 @@ defmodule Ankole.PrincipalsFixtures do
     attrs =
       attrs
       |> Enum.into(%{
-        handle: unique_uid("agent"),
+        uid: unique_uid("agent"),
         display_name: "Agent",
         role: "Research Analyst"
       })
@@ -91,7 +91,6 @@ defmodule Ankole.PrincipalsFixtures do
         owner.uid
       end)
       |> Map.put_new_lazy(:worker_provider_id, fn -> worker_provider_fixture().provider_id end)
-      |> Map.put(:uid, Ankole.Kernel.gen_uuid_v7())
 
     {:ok, result} = Ankole.Repo.transact(fn -> Principals.create_agent_in_tx(attrs) end)
     result
@@ -122,11 +121,11 @@ defmodule Ankole.PrincipalsFixtures do
   def delete_agent_fixture_rows(agent_uid, provider_id \\ nil) do
     import Ecto.Query, only: [where: 3]
 
-    worker = Ankole.Repo.get(AgentWorker, agent_uid)
+    worker = Ankole.Repo.get_by(AgentWorker, agent_uid: agent_uid)
     provider_id = if worker, do: worker.provider_id, else: provider_id
 
     owner_uid =
-      case Ankole.Repo.get(Ankole.Principals.Agent, agent_uid) do
+      case Ankole.Repo.get_by(Ankole.Principals.Agent, uid: agent_uid) do
         %Ankole.Principals.Agent{owner_principal_uid: owner_uid} -> owner_uid
         nil -> nil
       end
@@ -138,6 +137,9 @@ defmodule Ankole.PrincipalsFixtures do
 
     {:ok, _} =
       Ankole.Repo.transact(fn ->
+        :ok = Ankole.Files.lock_tree_in_tx()
+        :ok = Ankole.Files.lock_root_ids_in_tx(Ankole.Files.root_ids_for_principal(agent_uid))
+        :ok = Ankole.Files.delete_private_root_in_tx(agent_uid)
         :ok = Ankole.Conversations.delete_for_agent_in_tx(agent_uid)
         {:ok, :ok}
       end)

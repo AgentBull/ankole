@@ -94,18 +94,30 @@ test('the first Webhook result survives the list switching from empty to populat
   await expect(page.getByRole('row').filter({ hasText: 'Fixture' })).toHaveCount(1)
 })
 
+const driveTenantID = '019a2ee2-45d1-7cb5-b54d-d62a7d0f6b86'
+const driveRootID = '019a2ee2-45d1-7cb5-b54d-d62a7d0f6b87'
+
 async function files(page: Page) {
-  await page.route('**/api/v2/agents/agent-one', route =>
-    route.fulfill({ json: { data: { id: 'agent-one', type: 'agent', attributes: { display_name: 'Files Agent' } } } })
-  )
-  await page.route('**/api/v2/agents/agent-one/files**', route =>
+  await page.addInitScript(id => sessionStorage.setItem('ankole.console.data-tenant:anonymous', id), driveTenantID)
+  await page.route(`**/api/v2/drive/${driveTenantID}/nodes**`, route =>
     route.fulfill({
       json: {
-        file_listing: { folders: [{ name: 'Folder', path: 'Folder' }], files: [], truncated: false }
+        ancestors: [{ id: driveRootID, name: 'Agent private drive' }],
+        nodes: [
+          {
+            id: '019a2ee2-45d1-7cb5-b54d-d62a7d0f6b88',
+            parent_id: driveRootID,
+            kind: 'folder',
+            name: 'Folder',
+            size: 0,
+            updated_at: '2026-10-30T00:00:00Z'
+          }
+        ],
+        next_after: null
       }
     })
   )
-  await page.goto('/files/agent-one')
+  await page.goto(`/drive?node=${driveRootID}`)
 }
 
 test('a folder portal action opens its dialog without navigating the row', async ({ page }) => {
@@ -113,21 +125,22 @@ test('a folder portal action opens its dialog without navigating the row', async
   await page.getByRole('button', { name: 'More actions', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Move', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
-  await expect(page).toHaveURL(/\/files\/agent-one$/)
+  await expect(page).toHaveURL(new RegExp(`/drive\\?node=${driveRootID}$`))
 })
 
 test('mobile uploads use the file picker without a second confirmation form', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 640 })
   await files(page)
   const uploaded: string[] = []
-  await page.route('**/api/v2/agents/agent-one/files', async route => {
+  await page.route(`**/api/v2/drive/${driveTenantID}/uploads`, async route => {
     if (route.request().method() !== 'POST') return route.fallback()
     const request = route.request()
     const form = await new Response(new Uint8Array(request.postDataBuffer()!).buffer, {
       headers: request.headers()
     }).formData()
-    uploaded.push(String(form.get('path')))
-    return route.fulfill({ json: { uploaded_file: { path: form.get('path') } } })
+    expect(form.get('parent_id')).toBe(driveRootID)
+    uploaded.push(String(form.get('name')))
+    return route.fulfill({ json: { id: crypto.randomUUID() } })
   })
   await page.getByRole('button', { name: 'Upload', exact: true }).click()
   const uploadFiles = page.getByRole('menuitem', { name: 'Upload files', exact: true })
@@ -542,7 +555,7 @@ test('document Page title Tab, last-line ArrowDown, and body Shift+Tab follow No
     if (url.pathname === `/api/v2/pod/pages/${id}`) {
       return route.fulfill({
         json: {
-          actions: ['page_view', 'page_edit', 'page_manage'],
+          actions: ['node_view', 'node_edit', 'node_manage'],
           role: 'manage',
           ancestors: [],
           child_count: 0,

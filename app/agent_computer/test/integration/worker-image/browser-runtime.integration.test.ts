@@ -65,14 +65,15 @@ describe('browser runtime reached by Agent commands', () => {
       ['add', document, '/body', '--type', 'paragraph', '--prop', 'text=Screenshot regression'],
       ['view', document, 'screenshot', '--grid', 'auto', '-o', output]
     ]) {
-      const result = runCommand(['env', 'OFFICECLI_NO_AUTO_RESIDENT=1', 'officecli', ...args])
+      // OfficeCLI gives Chromium 20 seconds to render; allow its launch and file output too.
+      const result = runCommand(['env', 'OFFICECLI_NO_AUTO_RESIDENT=1', 'officecli', ...args], 30_000)
       expect(result.status, `${result.stderr}\n${result.stdout}`).toBe(0)
     }
     const png = readFileSync(output)
     expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
     expect(png.readUInt32BE(16)).toBeGreaterThan(0)
     expect(png.readUInt32BE(20)).toBeGreaterThan(0)
-  }, 20_000)
+  }, 40_000)
 
   test('the CLI reaches the Worker browser daemon from a command environment', () => {
     const result = runCommand(['/bin/sh', '-lc', 'test -z "${BROWSER_BACKEND_JSON:-}" && ankole-browser --json open'])
@@ -163,7 +164,7 @@ describe('browser runtime reached by Agent commands', () => {
     }
   }, 20_000)
 
-  function runCommand(argv: string[]) {
+  function runCommand(argv: string[], timeout = 20_000) {
     return spawnSync(argv[0]!, argv.slice(1), {
       cwd: workspaceRoot,
       env: {
@@ -173,7 +174,7 @@ describe('browser runtime reached by Agent commands', () => {
         ...browserRuntimeEnv(materialized)
       },
       encoding: 'utf8',
-      timeout: 20_000
+      timeout
     })
   }
 })

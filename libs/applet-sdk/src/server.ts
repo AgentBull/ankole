@@ -25,19 +25,26 @@ export type RouteContext = {
 }
 export type RouteHandler = (context: RouteContext) => unknown | Promise<unknown>
 export type Routes = Partial<Record<Route, RouteHandler>>
-export type FileEntry = { path: string; sha256: string; size: number; contentType: string | null }
+export type FileEntry = {
+  path: string
+  objectId: string
+  sha256: string
+  size: number
+  contentType: string | null
+}
 export type FileRead = FileEntry & { bytes: Uint8Array }
-export type FileWrite = { name: string; contentType?: string; bytes: Uint8Array; baseRevision?: number }
-export type FileWriteResult = {
+export type FileWrite = {
+  name: string
+  contentType?: string
+  bytes: Uint8Array
+  baseObjectId?: string | null
+}
+export type FileWriteResult = FileEntry & {
   name: string
   mime: string
   pageId: string
   revision: number
-  path: string
   url?: string
-  sha256: string
-  size: number
-  contentType: string | null
 }
 export type GenerateTextOptions = {
   model: string

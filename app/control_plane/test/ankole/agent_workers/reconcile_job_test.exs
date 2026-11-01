@@ -35,7 +35,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     api: api
   } do
     assert :ok = reconcile(uid)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
     assert first.generation =~ ~r/\A[a-z2-7]{10}\z/
     assert {:ok, token} = AgentWorkers.credential(first)
     assert first.token_digest == :crypto.hash(:sha256, token)
@@ -44,19 +44,19 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     set_row!(uid, wanted_until: nil)
     heartbeat!(uid, idle_for_ms: 5_000)
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).state == :draining
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).state == :draining
     assert Enum.any?(Agent.get(api, & &1.signals), fn {_name, signal} -> signal == "SIGTERM" end)
     close_connection!(uid)
     assert :ok = reconcile(uid)
 
     assert %AgentWorker{state: :absent, generation: nil, token_ciphertext: nil} =
-             Repo.get!(AgentWorker, uid)
+             Repo.get_by!(AgentWorker, agent_uid: uid)
 
     assert Agent.get(api, & &1.containers) == %{}
     assert map_size(Agent.get(api, & &1.volumes)) == 2
     :ok = AgentWorkers.request(uid)
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation != first.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation != first.generation
   end
 
   test "an open workspace prevents release until its slot is closed", %{uid: uid} do
@@ -67,14 +67,14 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     heartbeat!(uid, idle_for_ms: 5_000)
     heartbeat!(uid, idle_for_ms: 0, active_slots: 1)
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).state == :ready
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).state == :ready
 
     heartbeat!(uid, idle_for_ms: 5_000)
 
     assert :ok = reconcile(uid)
 
     assert %AgentWorker{state: :draining, drain_reason: "idle_release"} =
-             Repo.get!(AgentWorker, uid)
+             Repo.get_by!(AgentWorker, agent_uid: uid)
   end
 
   test "an image replacement waits for the connection to end before allocating a generation", %{
@@ -82,14 +82,14 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     api: api
   } do
     assert :ok = reconcile(uid)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
     join!(uid)
     set_row!(uid, image: "ankole-agent-computer:old")
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation == first.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == first.generation
     close_connection!(uid)
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation != first.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation != first.generation
 
     refute Enum.any?(Agent.get(api, & &1.calls), fn {method, path} ->
              method == "DELETE" and String.contains?(path, "/volumes/")
@@ -97,7 +97,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
   end
 
   test "connection addresses change only when an idle Worker gets a new generation", %{uid: uid} do
-    provider_id = Repo.get!(AgentWorker, uid).provider_id
+    provider_id = Repo.get_by!(AgentWorker, agent_uid: uid).provider_id
 
     old_endpoints = %{
       "aiGatewayUrl" => "https://old.example.test/api/v1/ai-gateway",
@@ -111,7 +111,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
 
     assert :ok = reconcile(uid)
     join!(uid)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
     set_row!(uid, load: %{"active_tasks" => 1, "idle_for_ms" => 0})
     next_endpoints = %{"aiGatewayUrl" => "https://next.example.test/api/v1/ai-gateway"}
 
@@ -121,8 +121,8 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
              })
 
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation == first.generation
-    assert Repo.get!(AgentWorker, uid).state == :ready
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == first.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).state == :ready
     assert {:ok, ^old_endpoints} = Providers.connection_endpoints(uid)
 
     assert {:ok, response} =
@@ -138,7 +138,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     assert :ok = reconcile(uid)
     close_connection!(uid)
     assert :ok = reconcile(uid)
-    refute Repo.get!(AgentWorker, uid).generation == first.generation
+    refute Repo.get_by!(AgentWorker, agent_uid: uid).generation == first.generation
     assert {:ok, ^next_endpoints} = Providers.connection_endpoints(uid)
 
     assert {:ok, response} =
@@ -157,7 +157,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
   } do
     assert :ok = reconcile(uid)
     join!(uid)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
 
     Agent.update(api, fn state ->
       %{
@@ -168,10 +168,10 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     end)
 
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).transport_route == first.transport_route
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).transport_route == first.transport_route
     close_connection!(uid)
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation != first.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation != first.generation
   end
 
   test "termination never advances to a new generation while the instance remains", %{
@@ -179,7 +179,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     api: api
   } do
     assert :ok = reconcile(uid)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
     Agent.update(api, &%{&1 | hold_kill: true})
 
     set_row!(uid,
@@ -189,23 +189,26 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     )
 
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation == first.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation == first.generation
     assert map_size(Agent.get(api, & &1.containers)) == 1
     assert [{_, "SIGKILL"}] = Agent.get(api, & &1.signals)
-    assert Repo.get!(AgentWorker, uid).last_error =~ "Waiting for instance"
-    assert Repo.get!(AgentWorker, uid).last_error =~ first.generation
-    assert Repo.get!(AgentWorker, uid).last_error_kind == "pending"
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).last_error =~ "Waiting for instance"
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).last_error =~ first.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).last_error_kind == "pending"
 
     Agent.update(api, &%{&1 | hold_kill: false})
     set_row!(uid, wanted_until: nil, initial_start_pending: false)
     assert :ok = reconcile(uid)
     assert :ok = reconcile(uid)
-    assert %AgentWorker{state: :absent, last_error: nil} = Repo.get!(AgentWorker, uid)
+
+    assert %AgentWorker{state: :absent, last_error: nil} =
+             Repo.get_by!(AgentWorker, agent_uid: uid)
+
     assert {:wait, :starting} = AgentWorkers.workspace_status(uid)
 
     :ok = AgentWorkers.request(uid)
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation != first.generation
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation != first.generation
   end
 
   test "readiness rebuild deletes cache after the observed instance disappears", %{
@@ -214,10 +217,10 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
   } do
     observe_since!(minutes_ago: 11)
     assert :ok = reconcile(uid)
-    old = Repo.get!(AgentWorker, uid).generation
+    old = Repo.get_by!(AgentWorker, agent_uid: uid).generation
     age_state!(uid, 11)
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).generation != old
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).generation != old
     deleted = for {"DELETE", "/volumes/" <> name} <- Agent.get(api, & &1.calls), do: name
     assert [cache] = deleted
     assert String.ends_with?(cache, "-cache")
@@ -226,12 +229,15 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
   test "a control-plane outage does not immediately rebuild stale Workers", %{uid: uid, api: api} do
     assert :ok = reconcile(uid)
     join!(uid)
-    first = Repo.get!(AgentWorker, uid)
+    first = Repo.get_by!(AgentWorker, agent_uid: uid)
     set_row!(uid, state: :stale, transport_route: nil)
     age_state!(uid, 60)
     observe_since!(minutes_ago: 1)
     assert :ok = reconcile(uid)
-    assert %AgentWorker{state: :stale, generation: generation} = Repo.get!(AgentWorker, uid)
+
+    assert %AgentWorker{state: :stale, generation: generation} =
+             Repo.get_by!(AgentWorker, agent_uid: uid)
+
     assert generation == first.generation
     assert Agent.get(api, & &1.signals) == []
   end
@@ -250,8 +256,8 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     end)
 
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).last_error == "Worker failed to start"
-    assert Repo.get!(AgentWorker, uid).last_error_kind == "transient"
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).last_error == "Worker failed to start"
+    assert Repo.get_by!(AgentWorker, agent_uid: uid).last_error_kind == "transient"
   end
 
   defp reconcile(uid), do: perform_job(ReconcileJob, %{"agent_uid" => uid})
@@ -267,7 +273,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
   defp heartbeat!(agent_uid, opts) do
     idle_for_ms = Keyword.fetch!(opts, :idle_for_ms)
     active = Keyword.get(opts, :active_slots, 0)
-    worker = Repo.get!(AgentWorker, agent_uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: agent_uid)
 
     {:ok, _worker} =
       AgentWorkers.handle_worker_heartbeat(
@@ -285,12 +291,12 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
 
   # What the Channel does when the Worker process exits and its socket closes.
   defp close_connection!(agent_uid) do
-    %AgentWorker{transport_route: route} = Repo.get!(AgentWorker, agent_uid)
+    %AgentWorker{transport_route: route} = Repo.get_by!(AgentWorker, agent_uid: agent_uid)
     assert {:ok, :marked_stale} = WorkerAdmission.mark_route_unusable(route, :socket_closed)
   end
 
   defp put_idle_release_after(uid, seconds) do
-    worker = Repo.get!(AgentWorker, uid)
+    worker = Repo.get_by!(AgentWorker, agent_uid: uid)
     {:ok, provider} = Providers.fetch(worker.provider_id)
 
     {:ok, _} =

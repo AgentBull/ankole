@@ -28,6 +28,7 @@ const IdentityMappingCreatePage = lazyRouteComponent(
 const IdentityMappingsPage = lazyRouteComponent(() => import('./pages/identity-mappings'), 'IdentityMappingsPage')
 const ProviderEditorPage = lazyRouteComponent(() => import('./pages/providers'), 'ProviderEditorPage')
 const ProvidersListPage = lazyRouteComponent(() => import('./pages/providers'), 'ProvidersListPage')
+const ModelProfilesPage = lazyRouteComponent(() => import('./pages/model-profiles'), 'ModelProfilesPage')
 const SettingEditorDrawer = lazyRouteComponent(() => import('./pages/settings'), 'SettingEditorDrawer')
 const SettingGroupDrawer = lazyRouteComponent(() => import('./pages/settings'), 'SettingGroupDrawer')
 const SettingsPage = lazyRouteComponent(() => import('./pages/settings'), 'SettingsPage')
@@ -152,7 +153,7 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
       createRoute({ getParentRoute: () => bodyRoute, path: 'tenants/$tenantID', component: TenantEditorPage }),
       createRoute({ getParentRoute: () => bodyRoute, path: 'agents/new', component: AgentEditorPage }),
       createRoute({ getParentRoute: () => bodyRoute, path: 'agents/$uid', component: AgentEditorPage }),
-      createRoute({ getParentRoute: () => bodyRoute, path: 'agents/$uid/files', component: AgentFilesPage }),
+      createRoute({ getParentRoute: () => bodyRoute, path: 'drive', component: AgentFilesPage }),
       createRoute({
         getParentRoute: () => bodyRoute,
         path: 'agent-library',
@@ -209,6 +210,7 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
         component: ProvidersListPage,
         loader: loaders.providers
       }),
+      createRoute({ getParentRoute: () => bodyRoute, path: 'model-profiles', component: ModelProfilesPage }),
       createRoute({ getParentRoute: () => bodyRoute, path: 'providers/new', component: ProviderEditorPage }),
       createRoute({ getParentRoute: () => bodyRoute, path: 'providers/$providerID', component: ProviderEditorPage }),
       createRoute({
@@ -304,7 +306,7 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
       createRoute({ getParentRoute: () => bodyRoute, path: 'signals/new', component: SignalBindingEditorPage }),
       createRoute({
         getParentRoute: () => bodyRoute,
-        path: 'signals/$agent/$adapter/$name',
+        path: 'signals/$id',
         component: SignalBindingEditorPage
       }),
       createRoute({

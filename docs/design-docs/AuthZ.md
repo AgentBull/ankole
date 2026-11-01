@@ -19,18 +19,26 @@ denies the request by default.
 ## Ash actors and execution
 
 External protected actions receive an `%Ankole.AuthZ.Actor{principal,
-interactive_principal, turn_authority, authn, interactive_authn}` struct. On
-this struct, `principal` identifies the acting subject and
+turn_authority, authn}` struct. `principal` is the sole executing subject;
 `ActorRef.from_actor/1` derives audit attribution. Browser, OIDC, and Worker
-entry points attach verified authentication facts—source scope, provider,
-authentication methods, ceremony start, authentication time, surface, and
-client IP—which the decision snapshot exposes at `context.request.authn` for CEL
-conditions. An Agent carries its own authentication facts in `authn`, while
-`interactive_authn` holds the Human's authentication evidence and applies only
-to the Human's permission check. When a caller sets an explicit operation
-surface (such as `conversation` or `agent_tool`), AuthZ updates
-`context.request.surface` without modifying the underlying authentication
-evidence.
+entry points attach verified authentication facts, which the snapshot exposes
+at `context.request.authn` for CEL conditions. Explicit operation surfaces update
+`context.request.surface` without changing the authentication evidence.
+
+AI colleague calls use the colleague's own grants across Drive, Pod, Workflows,
+scheduled checkbacks, and Background Agent Jobs. For a personal assistant,
+`Principals.authority_uid/1` resolves the same-tenant owner; business snapshots
+load the owner's grants and groups, including `all_humans`. Site Console and
+Tenant Console operations use the assistant's own identity and grants. Mixed
+authorization batches preserve that distinction for each resource.
+
+The assistant remains the executing Principal for audit attribution, runtime
+ownership and usage. Its private runtime root is distinct from the owner's Pod
+private tree, and its own root grants remain available for execution.
+`turn_authority`, `WorkAccess`, and
+Automation Job attempt checks validate that the instruction is still current,
+including its Human status and access version. These instruction checks do not
+add a second resource subject.
 
 At compile time, resources declare authorization rules through
 `Ankole.AuthZ.Extension` (`authz` blocks), specifying the scope, target
@@ -53,9 +61,7 @@ status, tenant scope, and Guest admission, and `Ankole.AuthZ.Checks.GrantCheck`
 evaluates concrete resources and actions against the decision snapshot in the
 Rust kernel. Target parameter selectors resolve in the data tenant (or in the
 privileged tenant when a site request has no data tenant), after which site
-authorization decisions evaluate against the privileged tenant. Whenever both an
-interactive Human and an Agent appear on the Actor, both Principals must pass
-their respective checks.
+authorization decisions evaluate against the privileged tenant. The executing Principal must pass these checks for every protected action.
 
 When resolving a group target selector, AuthZ maps either a group UUID or a
 group name to the stored canonical name. Because synchronized directory, IM, and
@@ -63,17 +69,24 @@ Signal source groups can contain colon-separated namespaces, the resolver first
 confirms that the group exists in PostgreSQL before expanding the resource
 target for standard grant evaluation.
 
-For Pod content, `Pod.Access.Graph` maintains the read-only anchor graph and
-permission projection. On reads, `Ankole.AuthZ.Checks.PodAnchorFilter` evaluates
+For Drive nodes, `Files.Access.Graph` maintains the read-only anchor graph and
+permission projection. On reads, `Ankole.AuthZ.Checks.DriveAnchorFilter` evaluates
 that graph inside a repeatable-read transaction, attaches a single Page query
 filter for permitted containers and self-scoped pages, and computes each
 returned page's effective role from the same graph. Directory listing queries
-select only the navigation columns covered by the directory index (using `C`
-collation on `position` for both sorting and cursor comparisons), while detail
-reads load full document fields. On writes, `Ankole.AuthZ.Checks.LockedAccess`
-re-verifies access inside the write transaction after the caller acquires tree
-and row locks, and subsequent table mutations use internal Ash operations within
-that transaction.
+select the navigation columns and use `C` collation for positions and names.
+Explicit positions sort first; unpositioned nodes sort by name and ID, using the
+same order for cursor comparisons, while detail reads load full document fields.
+Tree writes acquire the tenant tree lock before resolving the nodes' current
+private roots, then lock those roots in node ID order before checking turn
+authority or locking rows. This keeps a concurrent cross-root move from changing
+the required root locks. Content commits addressed by node ID take the shared
+form of the same tree lock before resolving their current private root. This
+keeps ancestor moves out of the short commit transaction while allowing content
+commits to run concurrently; byte uploads happen before taking that lock.
+`Ankole.AuthZ.Checks.LockedAccess` re-verifies access inside the write transaction,
+and subsequent table mutations use internal Ash
+operations within that transaction.
 
 At the Elixir call boundary, `Ankole.Ash.read_authorized`,
 `read_one_authorized`, and `run_action_authorized` require a full `Actor` and
@@ -85,7 +98,7 @@ authorization and lock ordering.
 
 Every authorization request supplies four inputs:
 
-- One Principal UID.
+- One Principal UID in the active tenant context.
 - One concrete resource.
 - One exact action or a list of exact actions.
 - One JSON context object.
@@ -145,7 +158,7 @@ patterns and storing `metadata` as a JSON object.
 
 Console routes under `/api/v2` invoke generic actions on `Group`, `Membership`,
 and `Grant`, wrapping every aggregate write that locks a group, a Principal, or
-the Pod tree in `Repo.transact_top_level/2`. Cross-domain callers compose writes
+the Drive tree in `Repo.transact_top_level/2`. Cross-domain callers compose writes
 inside their own transactions through `Ankole.AuthZ.Administration.Store` and
 `Ankole.AuthZ.Administration.Grants` (for example,
 `Store.replace_static_group_members/3` or `Grants.upsert_permission_grant/1`),
@@ -155,27 +168,28 @@ administration modules enforce last-administrator protection and prevent
 operator mutations from modifying directory- or IM-synchronized groups. Ash
 resource policies are not used for permission decisions.
 
-Grant mutations follow a strict lock order so Pod anchor state stays consistent:
+Grant mutations follow a strict lock order so Drive anchor state stays consistent:
 
-- Creating or upserting a grant acquires the Pod tree lock whenever the grant
-  carries a Page action or matches `tenant_console:pod_space` with the `update`
+- Creating or upserting a grant acquires the Drive tree lock whenever the grant
+  carries a Drive action or matches `tenant_console:drive_space` with the `update`
   action.
 - Updating or deleting a grant first reads the existing rule; if either the
-  existing rule or the proposed rule affects Pod access, AuthZ locks the Pod
+  existing rule or the proposed rule affects Drive access, AuthZ locks the Drive
   tree before locking the `Grant` row (otherwise it locks only the `Grant` row).
 - Once locked, AuthZ re-reads the `Grant` row (and Console routes check the
-  locked rule's Page-grant policy first). If a concurrent write changed the rule
-  so that it now affects Pod access when the Pod tree lock was not acquired,
+  locked rule's Drive-grant policy first). If a concurrent write changed the rule
+  so that it now affects Drive access when the Drive tree lock was not acquired,
   AuthZ returns a stale-write error so the caller can reload the `Grant` and
   retry.
 
-On the read path, `Ankole.AuthZ.Engine.Snapshot` and
-`AuthZ.restoration_review/1` act as dedicated SQL read models at the persistence
-boundary, while all other AuthZ reads use Ash queries. `Snapshot` loads the
+On the read path, `Ankole.AuthZ.Engine.Snapshot` is a dedicated SQL read model
+at the persistence boundary, while all other AuthZ reads use Ash queries. `Snapshot` loads the
 Principal, static memberships, computed groups, and candidate grants in a single
-tenant-bound SQL query; for Pod checks, PostgreSQL evaluates unconditional
+tenant-bound SQL query; for Drive checks, PostgreSQL evaluates unconditional
 Userset edges directly in SQL while including conditional Userset grants in the
-snapshot for the Rust kernel.
+snapshot for the Rust kernel. Conversation membership comes from a separate
+tenant-bound Conversations read and supplies the participating root IDs; participants
+receive view and contribute bits without creating derived grants.
 
 Idempotent writes preserve existing identity: re-admitting a static group member
 keeps its original `inserted_at` timestamp, external group bindings key on their
@@ -232,9 +246,9 @@ uses a lowercase local namespace, and the row stores `group_id`, JSON
 `permission_grants` stores these columns:
 
 - `id` (UUIDv7)
-- exactly one owner column: `principal_uid`, `group_id`, or `source_page_id`
-- `source_action` (when owned by a Userset via `source_page_id`)
-- `target_page_id` and `target_scope` (when targeting a Pod Page)
+- exactly one owner column: `principal_uid`, `group_id`, or `source_node_id`
+- `source_action` (when owned by a Userset via `source_node_id`)
+- `target_node_id` and `target_scope` (when targeting a Drive node)
 - `resource_pattern`
 - `action` (cannot contain a colon)
 - `condition` (CEL expression, defaulting to `true`)
@@ -244,9 +258,9 @@ uses a lowercase local namespace, and the row stores `group_id`, JSON
 
 A grant's natural key comprises its owner, `resource_pattern`, `action`, and
 `condition`, enforced by separate partial unique indexes for Principal, group,
-and Userset owners. A Userset grant names one source Page and one exact page
-action; both the source Page and the target Page must belong to the grant's
-tenant, and a Page cannot reference itself.
+and Userset owners. A Userset grant names one source node and one exact Drive
+action; both the source node and the target node must belong to the grant's
+tenant, and a node cannot reference itself.
 
 ## Name Resources and Actions
 
@@ -262,16 +276,18 @@ Resource namespaces separate administrative and runtime scopes:
 
 - **Site Console**: `site_console:`
 - **Pod administration**: `tenant_console:` (including
-  `tenant_console:pod_space`, `tenant_console:pod_settings`,
+  `tenant_console:drive_space`, `tenant_console:pod_settings`,
   `tenant_console:principals`, `tenant_console:principal:<uid>`,
   `tenant_console:group:pod_admin`, `tenant_console:invitations`, and
   `tenant_console:identity_providers`)
-- **Runtime Agents**: `agent:<uid>` and `agent:<uid>:tool:<name>`
-- **Pod content**: `pod:space:**`, `pod:private:<uid>:**`,
-  `pod:**:<page-id>:**`, or `pod:**:<page-id>:page`
+- **Runtime Agents**: `agent:<uid>`
+- **Drive content**: `drive:space:**`, `drive:private:<uid>:**`,
+  `drive:**:<node-id>:**`, or `drive:**:<node-id>:node`
 
-Administrative grants (`site_console:` and `tenant_console:`) never confer
-runtime Agent access or access to a Human's private Pod space.
+The `site_console:drive` grant lets Site Console operators manage all Drive
+spaces, including private roots, through its administrative entry points.
+Administrative grants do not confer runtime Agent access. Tenant Console grants
+do not grant access to private Drive content.
 
 Actions are non-empty exact strings without colons. As a convenience,
 `authorize_permission/3` also accepts a combined `<resource>:<action>` string
@@ -284,7 +300,7 @@ CEL conditions receive typed bindings depending on what they guard:
 - **Computed group conditions** receive `principal`.
 - **General grant conditions** receive `principal`, `resource`, `action`, and
   `context`.
-- **Pod Page grant conditions** can reference only `principal` and `context`.
+- **Drive grant conditions** can reference only `principal` and `context`.
 
 Within these bindings, `principal.membership` is `"member"` or `"guest"` for
 Humans and `null` for Agents and System Principals, while request metadata lives
@@ -309,11 +325,13 @@ from caller-supplied request bodies:
   `context.request.args` during both preparation and dispatch; internal Worker
   transport names and wire arguments do not alter this authorization input.
 
-When an Agent acts on behalf of a Human—across main turns, Workflow tasks,
-scheduled work, and Background Agent Jobs—AuthZ requires the Human's `invoke`
-grant for each tool and intersects the Human's and Agent's permissions for Pod
-access. Autonomous service work uses the Agent's own permissions.
-Site Console cron creation schedules service work for the selected Agent and
+Across main turns, Workflow tasks, scheduled work and Background Agent Jobs,
+business resource checks use the personal assistant owner's permissions or the
+AI colleague's own permissions. Management resource checks use the executing
+Agent's own permissions. The instruction's
+retained Human identity and access version still fence whether that work may
+continue.
+Site Console cron creation schedules service work for the selected AI colleague and
 records the administrator as the audit actor.
 
 If a persisted CEL expression or resource pattern is corrupt or invalid at
@@ -365,30 +383,45 @@ or other providers' bindings, and chat group sync operates strictly within the
   `metadata`, and `updated_at` when the natural key already exists)
 - update or delete a grant by ID
 
-### Page Actions
+### Node actions
 
-Pod Page permissions use four reserved actions—`page_view` (bit `1`),
-`page_write_records` (bit `2`), `page_edit` (bit `4`), and `page_manage` (bit
-`8`)—which combine into the four Pod roles: `view` (mask `1`), `contribute`
-(mask `3`), `edit` (mask `7`), and `manage` (mask `15`). Each stored row in
-`permission_grants` holds a single exact action (so assigning a role writes the
-set of actions required by that role), and each recursive Userset edge checks
-one exact source bit. For Human-driven Agent work, Ankole intersects the Human
-and Agent bitmasks.
+Drive uses five exact action bits: `node_view` (`1`), `node_contribute` (`2`),
+`node_edit` (`4`), `node_manage` (`8`), and `node_comment` (`16`). The roles are
+`view` (`1`), `contribute` (`19`), `edit` (`23`), and `manage` (`31`). Each grant
+stores one action; each Userset edge requires one exact source bit.
 
-Operators cannot create or delete Page grants through the generic Console grant
-API (which allows only `description` edits on existing Page grants). Instead,
-Pod sharing creates and removes Page grants through AuthZ using a typed target
-Page and a `container` or `self` scope: `container` grants flow down to
-inheriting child Pages, whereas `self` grants apply only to the target Page.
+| Node kind | `node_contribute` | `node_edit` |
+| --- | --- | --- |
+| Base | Create, change and delete records; upload record attachments | Change schema and metadata; create child nodes |
+| Folder or conversation root | Create child nodes and write initial file content | Rename, move or delete this node |
+| File | No operation | Overwrite content, rename, move or delete this node |
+| Document or Applet | No operation | Edit content and create child nodes |
+| Public or private root | No operation | Create child nodes |
 
-During Pod access evaluation, the Rust kernel evaluates request-dependent CEL
+Initial file content means the file's `object_id` is null. Its first content
+commit requires `node_contribute` on its parent; subsequent commits require
+`node_edit` on the file. Creating children directly under public or private
+roots requires `node_edit`. Existing conversation participants receive view and
+contribute bits from the current membership facts; explicit ACLs may grant more.
+
+Operators cannot create or delete Drive grants through the generic Console grant
+API (which allows only `description` edits on existing Drive grants). Instead,
+Pod sharing creates and removes Drive grants through AuthZ using a typed target
+node and a `container` or `self` scope: `container` grants flow down to
+inheriting child nodes, whereas `self` grants apply only to the target node.
+
+During Drive access evaluation, the Rust kernel evaluates request-dependent CEL
 conditions once, and PostgreSQL combines those results with direct grants, group
 memberships, tree inheritance, and Userset edges via a recursive `UNION` that
 computes the least fixed point. Self-referential cycles without a granted seed
-confer zero permissions, and deleting a Page (or any of its ancestors) removes
+confer zero permissions, and deleting a node (or any of its ancestors) removes
 its entire subtree from normal authorization (see
 [Pod content model](PodContentModel.md)).
+
+Agent tool dispatch uses the executing Agent's declared tool catalog and active
+Principal status. WorkAccess validates the retained Human status and access
+version when present; resource owners then apply that Agent's grants. Human
+resource conditions do not constrain a valid delegated call.
 
 ## Create the First Administrator
 
@@ -428,13 +461,11 @@ can run `mix ankole.admin.recover` (optionally with `--tenant SLUG`), which
 invokes `recover_admin_in_tx/1` or `recover_pod_admin_in_tx/1` for the audited
 recovery procedure described in [Human Offboarding](HumanOffboarding.md).
 
-Before restoring a suspended or offboarded Human, `restoration_review/1` builds
-an approval projection of the tenant's direct grants, static memberships,
-computed group rules, and all Userset grants (sorted by ID, including source
-Page and action, target Page and scope, `resource_pattern`, `action`, and
-`condition`), together with a fingerprint over that rule set and the Human's
-access version. Administrators can prune unwanted permissions in AuthZ first,
-and the restoration record captures the approved projection.
+An authorized administrator can restore a suspended or offboarded Human with an
+audit reason. AuthZ evaluates the restored Human against current grants and
+memberships; the administrator is responsible for the permissions being restored.
+The restoration transaction and provider restrictions are described in
+[Human Offboarding](HumanOffboarding.md#restore-access-explicitly).
 
 ## Public Functions
 

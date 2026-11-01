@@ -96,15 +96,23 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
         "export default {'POST /':async()=>{await AnkoleRuntime.base.write('table',{});while(true){}}}"
       )
 
-    {:ok, client, run_id} = AppletClient.start(package, context, timeout_ms: 150)
+    {:ok, client, run_id} = AppletClient.start(package, context, timeout_ms: 5_000)
     monitor = Process.monitor(client)
 
     assert_receive {:applet_runtime, ^run_id, :call, call_id, "base.write", ["table", %{}]},
                    5_000
 
+    # Lose the transport after dispatch, before the successful write reply can reach the worker.
+    # A short startup deadline can expire before dispatch and never exercise this failure boundary.
+    {:links, links} = Process.info(client, :links)
+    [socket] = Enum.filter(links, &is_port/1)
+    assert :ok = :gen_tcp.close(socket)
     AppletClient.reply(client, call_id, {:ok, %{written: true}})
-    assert_receive {:applet_runtime, ^run_id, :done, %{"status" => status}}, 5_000
-    assert status in [500, 504]
+
+    assert_receive {:applet_runtime, ^run_id, :done,
+                    %{"status" => 500, "body" => %{"error" => %{"code" => "handler_error"}}}},
+                   5_000
+
     assert_receive {:DOWN, ^monitor, :process, ^client, :normal}, 5_000
     refute_receive {:applet_runtime, _, :call, _, "base.write", _}, 200
   end

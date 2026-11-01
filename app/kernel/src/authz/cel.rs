@@ -20,12 +20,12 @@ pub fn validate_condition_source(condition: &str) -> KernelResult<()> {
     validate_program_variables(&program, &["principal", "resource", "action", "context"])
 }
 
-pub fn validate_pod_condition_source(condition: &str) -> KernelResult<()> {
+pub fn validate_drive_condition_source(condition: &str) -> KernelResult<()> {
     let program = compile_condition(condition)?;
-    validate_pod_condition_program(&program)
+    validate_drive_condition_program(&program)
 }
 
-pub(crate) fn validate_pod_condition_program(program: &Program) -> KernelResult<()> {
+pub(crate) fn validate_drive_condition_program(program: &Program) -> KernelResult<()> {
     validate_program_variables(program, &["principal", "context"])
 }
 
@@ -249,18 +249,18 @@ mod tests {
         );
         assert!(validate_condition_source("unknown == true").is_err());
         assert!(
-            validate_pod_condition_source("['10.0.0.1'].exists(ip, context.request.ip == ip)")
+            validate_drive_condition_source("['10.0.0.1'].exists(ip, context.request.ip == ip)")
                 .is_ok()
         );
-        assert!(validate_pod_condition_source("[1].exists(resource, resource == 1)").is_ok());
+        assert!(validate_drive_condition_source("[1].exists(resource, resource == 1)").is_ok());
         for source in [
             "resource == 'page'",
-            "action == 'page_view'",
+            "action == 'node_view'",
             "resource.exists(resource, resource == 1)",
             "[1].exists(x, x == 1) && x == 1",
             "[",
         ] {
-            assert!(validate_pod_condition_source(source).is_err(), "{source}");
+            assert!(validate_drive_condition_source(source).is_err(), "{source}");
         }
         assert!(condition_free_variables("[").is_err());
     }

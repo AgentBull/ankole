@@ -1,8 +1,7 @@
 defmodule Ankole.Conversations.Attachments.Native do
   @moduledoc "Owns verified Human uploads before their Message commits."
 
-  require Ash.Query
-  alias Ankole.Conversations.{Attachments, Message}
+  alias Ankole.Conversations.Attachments
   alias Ankole.{Files, Repo, WorkerFiles}
 
   @salt "native-conversation-attachment"
@@ -92,24 +91,8 @@ defmodule Ankole.Conversations.Attachments.Native do
 
   defp same_upload?(left, right),
     do:
-      Map.take(left, ~w(upload_id blob_ref name size content_type resource_type)) ==
-        Map.take(right, ~w(upload_id blob_ref name size content_type resource_type))
-
-  @doc "Reads frozen bytes through the current Human's Conversation membership."
-  def read_to_file(%Ankole.AuthZ.Actor{} = actor, conversation_id, message_id, path, local_path) do
-    with {:ok, message_id} <- Ecto.UUID.cast(message_id),
-         {:ok, _} <- Ankole.Conversations.visible_native_conversation(actor, conversation_id),
-         %Message{attachments: attachments} <-
-           Message
-           |> Ash.Query.filter(id == ^message_id and conversation_id == ^conversation_id)
-           |> Ankole.Ash.read_one!(),
-         %{"blob_ref" => digest} = attachment <- Enum.find(attachments, &(&1["path"] == path)),
-         :ok <- Files.read_content_to_file(digest, local_path) do
-      {:ok, attachment}
-    else
-      _ -> {:error, :not_found}
-    end
-  end
+      Map.take(left, ~w(upload_id object_id name size content_type resource_type)) ==
+        Map.take(right, ~w(upload_id object_id name size content_type resource_type))
 
   defp resource_type(type)
        when type in ~w(image/png image/jpeg image/gif image/webp image/avif image/bmp),

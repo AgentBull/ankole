@@ -1,5 +1,5 @@
 defmodule Ankole.Files.ConsoleOperations do
-  @moduledoc "Typed Console operations that call the Ankole.Files owner."
+  @moduledoc "Site Console operations on every tenant's Drive roots and nodes."
   use Ankole.Ash.OperationResource,
     authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
@@ -8,12 +8,12 @@ defmodule Ankole.Files.ConsoleOperations do
 
   authz do
     scope(:site_console)
-    resolve_param(:agent_uid, :principal_key)
-    allow(:console_list, resource: "site_console:agent:{agent_uid}:files", action: "read")
-    allow(:console_move, resource: "site_console:agent:{agent_uid}:files", action: "update")
-    allow(:console_delete, resource: "site_console:agent:{agent_uid}:files", action: "delete")
-    allow(:console_download, resource: "site_console:agent:{agent_uid}:files", action: "read")
-    allow(:console_upload, resource: "site_console:agent:{agent_uid}:files", action: "update")
+    allow(:console_list, resource: "site_console:drive", action: "read")
+    allow(:console_create, resource: "site_console:drive", action: "update")
+    allow(:console_move, resource: "site_console:drive", action: "update")
+    allow(:console_delete, resource: "site_console:drive", action: "delete")
+    allow(:console_download, resource: "site_console:drive", action: "read")
+    allow(:console_upload, resource: "site_console:drive", action: "update")
   end
 
   resource do
@@ -21,155 +21,116 @@ defmodule Ankole.Files.ConsoleOperations do
   end
 
   json_api do
-    type("files_operation")
+    type("drive_operation")
     derive_filter?(false)
     derive_sort?(false)
   end
 
   actions do
-    action :console_download, :struct do
-      transaction?(false)
-      constraints(instance_of: Ankole.Files.Schemas.DriveFile)
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:path, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
-      argument(:local_path, :string, allow_nil?: false)
-      run(Ankole.Files.ConsoleActions)
-    end
-
-    action :console_upload, :struct do
-      transaction?(false)
-      constraints(instance_of: Ankole.Files.Schemas.DriveFile)
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:path, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
-      argument(:local_path, :string, allow_nil?: false)
-      argument(:content_type, :string)
-      run(Ankole.Files.ConsoleActions)
-    end
-
     action :console_list, :map do
       transaction?(false)
 
       constraints(
         fields: [
-          file_listing: [
-            type: :map,
+          nodes: [
+            type: {:array, :map},
             constraints: [
-              fields: [
-                files: [
-                  type: {:array, :map},
-                  constraints: [
-                    items: [
-                      fields: [
-                        content_type: [
-                          type: :string,
-                          constraints: [trim?: false, allow_empty?: true],
-                          allow_nil?: false
-                        ],
-                        conversation_id: [
-                          type: :string,
-                          constraints: [trim?: false, allow_empty?: true]
-                        ],
-                        message_id: [
-                          type: :string,
-                          constraints: [trim?: false, allow_empty?: true]
-                        ],
-                        path: [
-                          type: :string,
-                          constraints: [trim?: false, allow_empty?: true],
-                          allow_nil?: false
-                        ],
-                        size: [type: :integer, allow_nil?: false],
-                        source: [
-                          type: :atom,
-                          constraints: [
-                            one_of: [:inbound, :generated, :sent, :agent, :console, :pod]
-                          ],
-                          allow_nil?: false
-                        ],
-                        updated_at: [
-                          type: :string,
-                          constraints: [trim?: false, allow_empty?: true],
-                          allow_nil?: false
-                        ]
-                      ]
-                    ]
-                  ],
-                  allow_nil?: false
-                ],
-                folders: [
-                  type: {:array, :map},
-                  constraints: [
-                    items: [
-                      fields: [
-                        name: [
-                          type: :string,
-                          constraints: [trim?: false, allow_empty?: true],
-                          allow_nil?: false
-                        ],
-                        path: [
-                          type: :string,
-                          constraints: [trim?: false, allow_empty?: true],
-                          allow_nil?: false
-                        ]
-                      ]
-                    ]
-                  ],
-                  allow_nil?: false
-                ],
-                path: [
-                  type: :string,
-                  constraints: [trim?: false, allow_empty?: true],
-                  allow_nil?: false
-                ],
-                truncated: [type: :boolean, allow_nil?: false]
+              items: [
+                fields: [
+                  id: [type: :uuid, allow_nil?: false],
+                  parent_id: [type: :uuid],
+                  name: [type: :string, allow_nil?: false],
+                  kind: [type: :string, allow_nil?: false],
+                  object_id: [type: :uuid],
+                  private_owner_uid: [type: :string],
+                  conversation_id: [type: :uuid],
+                  size: [type: :integer, allow_nil?: false],
+                  content_type: [type: :string],
+                  updated_at: [type: :string, allow_nil?: false]
+                ]
               ]
             ],
             allow_nil?: false
-          ]
+          ],
+          ancestors: [
+            type: {:array, :map},
+            constraints: [
+              items: [
+                fields: [
+                  id: [type: :uuid, allow_nil?: false],
+                  name: [type: :string, allow_nil?: false]
+                ]
+              ]
+            ],
+            allow_nil?: false
+          ],
+          next_after: [type: :string]
         ]
       )
 
-      argument(:agent_uid, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
+      argument(:tenant_id, :uuid, allow_nil?: false)
+      argument(:parent_id, :uuid)
+      argument(:owner_uid, Ankole.Ash.Types.PrincipalKey)
+      argument(:relative_path, :string)
+      argument(:after, :string)
+      argument(:limit, :integer, default: 200, constraints: [min: 1, max: 1000])
+      run(Ankole.Files.ConsoleActions)
+    end
 
-      argument(:path, :string, constraints: [trim?: false, allow_empty?: true], default: "")
+    action :console_create, :map do
+      transaction?(false)
+      constraints(fields: [id: [type: :uuid, allow_nil?: false]])
+      argument(:tenant_id, :uuid, allow_nil?: false)
+      argument(:parent_id, :uuid, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false)
+      argument(:kind, :atom, default: :folder, constraints: [one_of: [:folder, :file]])
       run(Ankole.Files.ConsoleActions)
     end
 
     action :console_move, :map do
       transaction?(false)
-      constraints(fields: [moved_files: [type: :integer, allow_nil?: false]])
-
-      argument(:agent_uid, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:from_path, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:to_path, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
+      constraints(fields: [id: [type: :uuid, allow_nil?: false]])
+      argument(:tenant_id, :uuid, allow_nil?: false)
+      argument(:id, :uuid, allow_nil?: false)
+      argument(:parent_id, :uuid)
+      argument(:name, :string)
       run(Ankole.Files.ConsoleActions)
     end
 
     action :console_delete, :map do
       transaction?(false)
-      constraints(fields: [deleted_files: [type: :integer, allow_nil?: false]])
+      constraints(fields: [id: [type: :uuid, allow_nil?: false]])
+      argument(:tenant_id, :uuid, allow_nil?: false)
+      argument(:id, :uuid, allow_nil?: false)
+      run(Ankole.Files.ConsoleActions)
+    end
 
-      argument(:agent_uid, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
+    action :console_download, :map do
+      transaction?(false)
+
+      constraints(
+        fields: [
+          node: [
+            type: :struct,
+            allow_nil?: false,
+            constraints: [instance_of: Ankole.Files.Schemas.Node]
+          ],
+          object: [type: :struct, constraints: [instance_of: Ankole.Files.Schemas.FileObject]]
+        ]
       )
 
-      argument(:path, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:tenant_id, :uuid, allow_nil?: false)
+      argument(:id, :uuid, allow_nil?: false)
+      run(Ankole.Files.ConsoleActions)
+    end
+
+    action :console_upload, :map do
+      transaction?(false)
+      argument(:tenant_id, :uuid, allow_nil?: false)
+      argument(:parent_id, :uuid, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false)
+      argument(:local_path, :string, allow_nil?: false)
+      argument(:content_type, :string)
       run(Ankole.Files.ConsoleActions)
     end
   end

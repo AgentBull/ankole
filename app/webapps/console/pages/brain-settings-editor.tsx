@@ -1,8 +1,7 @@
-import { useQuery, Link } from '../tenant-context'
+import { Link } from '../tenant-context'
 import { useQuery as useBaseQuery } from '@tanstack/react-query'
 import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import {
-  Button,
   CreatableCombobox,
   CronEditor,
   Input,
@@ -20,7 +19,6 @@ import {
   listAiGatewayModelsOptions,
   listAiGatewayProviderKindsOptions
 } from '../api/v2-site/generated/@tanstack/react-query.gen'
-import { agentListOptions } from '../api/agents'
 import type { AppConfigurationItem } from '../api/configuration-types'
 import { cronEditorLabels, LabeledField } from '../console-form'
 import { JSONObjectField } from '../json-object-field'
@@ -71,14 +69,9 @@ export function BrainSettingsEditor({
   const providers = useBaseQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
   const providerKinds = useBaseQuery(listAiGatewayProviderKindsOptions())
   const modelCatalog = useBaseQuery(listAiGatewayModelsOptions())
-  const agents = useQuery(agentListOptions())
   const providerList = providers.data ?? []
   const kindList = providerKinds.data?.provider_kinds ?? []
   const providersLoading = providers.isLoading || providerKinds.isLoading
-  const maintainerAgentUID = brainStringDraft(drafts[BRAIN_KEYS.maintainerAgentUID])
-  const agentList = agents.data ?? []
-  const selectedAgent = agentList.find(agent => agent.uid === maintainerAgentUID)
-  const selectableAgents = agentList.filter(agent => agent.status === 'active' || agent.uid === maintainerAgentUID)
   const enabled = drafts[BRAIN_KEYS.enabled] === 'true'
   const skillLearningEnabled = drafts[BRAIN_KEYS.skillLearningEnabled] === 'true'
   const tokenizer = brainStringDraft(drafts[BRAIN_KEYS.searchTokenizer])
@@ -89,16 +82,12 @@ export function BrainSettingsEditor({
     const item = itemsByKey.get(key)
     return (
       <SettingGroupField
+        key={key}
         item={item}
         label={label}
         description={(item && settingDescription(t, item)) ?? ''}
         saving={saving}
         onRestore={onRestore}>
-        {key === BRAIN_KEYS.maintainerAgentUID && (!maintainerAgentUID || selectedAgent?.status === 'disabled') ? (
-          <p role="status" className="text-sm text-warning-foreground">
-            {t('console.settings.maintainer_warning')}
-          </p>
-        ) : null}
         {key === BRAIN_KEYS.searchTokenizer ? (
           <p className="text-sm text-muted-foreground">
             {t('console.settings.index_rebuild_hint')}{' '}
@@ -129,49 +118,6 @@ export function BrainSettingsEditor({
         </div>
       )}
 
-      {field(
-        BRAIN_KEYS.maintainerAgentUID,
-        t('console.settings.brain_maintainer_agent_uid'),
-        <div className="grid gap-2">
-          <Select
-            value={maintainerAgentUID || null}
-            onValueChange={value =>
-              typeof value === 'string' && value && onDraftChange(BRAIN_KEYS.maintainerAgentUID, JSON.stringify(value))
-            }>
-            <SelectTrigger aria-label={t('console.settings.brain_maintainer_agent_uid')} className="w-full">
-              <SelectValue placeholder={t('console.settings.brain_maintainer_agent_placeholder')} />
-            </SelectTrigger>
-            <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_empty')}>
-              {selectableAgents.map(agent => (
-                <SelectItem key={agent.uid} value={agent.uid}>
-                  {agent.display_name} · {agent.handle}
-                  {agent.status === 'disabled' ? ` · ${t('console.status.disabled')}` : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {maintainerAgentUID ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-fit"
-              onClick={() => onDraftChange(BRAIN_KEYS.maintainerAgentUID, 'null')}>
-              {t('console.settings.clear_maintainer')}
-            </Button>
-          ) : null}
-          {maintainerAgentUID ? (
-            <Link
-              className="link w-fit text-sm"
-              to={`/agents/${encodeURIComponent(maintainerAgentUID)}`}
-              hash="model-profiles">
-              {t('console.settings.brain_maintainer_agent_models', {
-                agent: selectedAgent?.display_name ?? maintainerAgentUID
-              })}
-            </Link>
-          ) : null}
-        </div>
-      )}
-
       {BRAIN_MODEL_KEYS.map(key =>
         models[key] ? (
           <BrainModelFieldGroup
@@ -190,6 +136,41 @@ export function BrainSettingsEditor({
           />
         ) : null
       )}
+
+      <div className="grid gap-3 border border-border bg-muted/30 px-4 py-4">
+        <div className="grid gap-1">
+          <h3 className="text-sm font-medium">{t('console.settings.brain_model_dependencies')}</h3>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {t('console.settings.brain_model_dependencies_description')}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+          <Link
+            className="link"
+            to="/model-profiles"
+            search={{ defaults_scope: 'tenant', system_principal: 'ankole_brain' }}>
+            {t('console.brain.extraction_profile')}
+          </Link>
+          <Link
+            className="link"
+            to="/model-profiles"
+            search={{ defaults_scope: 'tenant', system_principal: 'ankole_brain' }}>
+            {t('console.brain.dreaming_profile')}
+          </Link>
+          <Link
+            className="link"
+            to="/model-profiles"
+            search={{ defaults_scope: 'tenant', system_principal: 'ankole_brain' }}>
+            {t('console.brain.web_fetch_profile')}
+          </Link>
+          <Link
+            className="link"
+            to="/model-profiles"
+            search={{ defaults_scope: 'tenant', system_principal: 'ankole_brain' }}>
+            {t('console.settings.brain_rerank_model')}
+          </Link>
+        </div>
+      </div>
 
       {field(
         BRAIN_KEYS.searchTokenizer,
@@ -245,7 +226,6 @@ export function BrainSettingsEditor({
             />
           )
         : null}
-      <p className="text-xs text-muted-foreground">{t('console.settings.embedding_change_hint')}</p>
       {BRAIN_CRON_KEYS.map(key =>
         field(
           key,

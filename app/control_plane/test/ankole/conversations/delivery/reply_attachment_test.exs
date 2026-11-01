@@ -8,12 +8,14 @@ defmodule Ankole.Conversations.Delivery.ReplyAttachmentTest do
   alias Ankole.Conversations.Delivery
   alias Ankole.Conversations.Delivery.Attachment
 
-  @blob_ref String.duplicate("0123456789abcdef", 4)
+  @object_id "019a39d2-72d8-7f77-a2bd-1f44b9458eba"
+  @node_id "019a39d2-72d8-7f77-a2bd-1f44b9458ebb"
 
   test "extracts canonical attachments from reply_attachment tool outputs" do
     attachment = %{
       "path" => "sent/0123456789abcdef/chaos-report.txt",
-      "blob_ref" => @blob_ref,
+      "object_id" => @object_id,
+      "node_id" => @node_id,
       "name" => "chaos-report.txt",
       "mime_type" => "text/plain",
       "size" => 28,
@@ -24,7 +26,8 @@ defmodule Ankole.Conversations.Delivery.ReplyAttachmentTest do
             [
               %{
                 "path" => "sent/0123456789abcdef/chaos-report.txt",
-                "blob_ref" => @blob_ref,
+                "object_id" => @object_id,
+                "node_id" => @node_id,
                 "name" => "chaos-report.txt",
                 "mime_type" => "text/plain",
                 "size" => 28
@@ -100,23 +103,30 @@ defmodule Ankole.Conversations.Delivery.ReplyAttachmentTest do
                  "call_id" => "call_bad",
                  "output" => %{
                    "tool" => "reply_attachment",
-                   "attachments" => [%{"blob_ref" => @blob_ref, "name" => "a.txt", "size" => 1}]
+                   "attachments" => [
+                     %{
+                       "object_id" => @object_id,
+                       "node_id" => @node_id,
+                       "name" => "a.txt",
+                       "size" => 1
+                     }
+                   ]
                  }
                }
              ])
   end
 
-  test "rejects invalid drive paths and content digests" do
+  test "rejects invalid drive paths and object identifiers" do
     for path <- ["/agents/agent-1/user-files/a.txt", "reports/../secret.txt", "a//b"] do
       assert {:error, :reply_attachment_path_invalid} =
                Attachment.normalize_attachment(%{attachment("a.txt") | "path" => path})
     end
 
-    for blob_ref <- [nil, "abc", String.upcase(@blob_ref)] do
-      assert {:error, :reply_attachment_blob_ref_invalid} =
+    for object_id <- [nil, "abc", String.duplicate("a", 64)] do
+      assert {:error, {:reply_attachment_identifier_invalid, "object_id"}} =
                Attachment.normalize_attachment(%{
                  attachment("a.txt")
-                 | "blob_ref" => blob_ref
+                 | "object_id" => object_id
                })
     end
   end
@@ -133,8 +143,14 @@ defmodule Ankole.Conversations.Delivery.ReplyAttachmentTest do
     %{principal: agent} = agent_fixture()
     %{principal: other} = agent_fixture()
     file = drive_file_fixture(agent.uid, "sent/abc/report.txt", "report", "sent")
-    blob_ref = Base.encode16(file.sha256, case: :lower)
-    sent = %{attachment("report.txt") | "path" => file.path, "blob_ref" => blob_ref}
+    object_id = file.object_id
+
+    sent = %{
+      attachment("report.txt")
+      | "path" => file.path,
+        "object_id" => object_id,
+        "node_id" => file.id
+    }
 
     assert :ok = Attachment.verify_in_drive(agent.uid, [sent])
 
@@ -142,7 +158,9 @@ defmodule Ankole.Conversations.Delivery.ReplyAttachmentTest do
              Attachment.verify_in_drive(other.uid, [sent])
 
     assert {:error, {:reply_attachment_not_in_drive, "sent/abc/report.txt"}} =
-             Attachment.verify_in_drive(agent.uid, [%{sent | "blob_ref" => @blob_ref}])
+             Attachment.verify_in_drive(agent.uid, [
+               %{sent | "object_id" => @object_id, "node_id" => @node_id}
+             ])
   end
 
   test "intent commits reject attachments before route lookup when schema is invalid" do
@@ -150,7 +168,14 @@ defmodule Ankole.Conversations.Delivery.ReplyAttachmentTest do
              Delivery.commit_reply_attachments_in_tx(
                %Signal{},
                "message-1",
-               [%{"blob_ref" => @blob_ref, "name" => "report.txt", "size" => 1}]
+               [
+                 %{
+                   "object_id" => @object_id,
+                   "node_id" => @node_id,
+                   "name" => "report.txt",
+                   "size" => 1
+                 }
+               ]
              )
   end
 
@@ -166,7 +191,8 @@ defmodule Ankole.Conversations.Delivery.ReplyAttachmentTest do
   defp attachment(name) do
     %{
       "path" => "sent/0123456789abcdef/" <> name,
-      "blob_ref" => @blob_ref,
+      "object_id" => @object_id,
+      "node_id" => @node_id,
       "name" => name,
       "size" => 1
     }

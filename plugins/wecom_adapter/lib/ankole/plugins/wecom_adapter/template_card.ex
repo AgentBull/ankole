@@ -85,6 +85,90 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
     end
   end
 
+  @doc "Renders an interactive `button_interaction` template card for an `awaiting_input` ReplyPresentation."
+  @spec render_presentation(map(), String.t()) :: {:card, String.t(), map()} | :none
+  def render_presentation(presentation, source_signal_id)
+      when is_map(presentation) and is_binary(source_signal_id) and source_signal_id != "" do
+    locked? =
+      presentation["state"] != "awaiting_input" or
+        presentation["interaction_status"] in ["answered", "superseded"]
+
+    buttons =
+      presentation
+      |> fetch_list("actions")
+      |> Enum.flat_map(&presentation_button_descriptor/1)
+      |> Enum.take(@max_buttons)
+
+    if locked? or buttons == [] or Enum.any?(buttons, &(byte_size(&1["key"]) > @max_key_bytes)) do
+      :none
+    else
+      task_id = "ankole:#{source_signal_id}"
+
+      {:card, task_id,
+       %{
+         "card_type" => "button_interaction",
+         "main_title" => %{"title" => presentation_title(presentation)},
+         "sub_title_text" => presentation_body(presentation),
+         "task_id" => task_id,
+         "button_list" => buttons
+       }}
+    end
+  end
+
+  def render_presentation(_presentation, _source_signal_id), do: :none
+
+  defp presentation_button_descriptor(%{"type" => "button"} = action) do
+    interaction_id = optional_text(action, "interaction_id")
+    control_id = optional_text(action, "control_id") || "choice"
+    option_id = optional_text(action, "selected_option_id")
+    option_value = optional_text(action, "option_value") || option_id
+    label = optional_text(action, "label") || option_id
+    version = integer_value(fetch_value(action, "revision")) || 1
+    disabled? = fetch_value(action, "disabled") == true
+
+    if not disabled? and is_binary(interaction_id) and is_binary(option_id) and
+         is_binary(option_value) and is_binary(label) do
+      [
+        %{
+          "text" => label,
+          "style" => button_style(optional_text(action, "style")),
+          "key" =>
+            "ank2:" <>
+              Torque.encode!([interaction_id, version, control_id, option_id, option_value])
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp presentation_button_descriptor(_action), do: []
+
+  defp button_style("danger"), do: 3
+  defp button_style("default"), do: 2
+  defp button_style(_primary_or_nil), do: 1
+
+  defp presentation_title(presentation) do
+    text = optional_text(presentation, "prompt") || optional_text(presentation, "answer") || ""
+
+    text
+    |> String.split("\n", parts: 2)
+    |> List.first()
+    |> to_string()
+    |> String.replace(~r/^#+\s*/, "")
+    |> String.replace(~r/^\*\*|\*\*$/, "")
+    |> String.trim()
+    |> case do
+      "" -> "请确认操作"
+      line -> String.slice(line, 0, @title_budget)
+    end
+  end
+
+  defp presentation_body(presentation) do
+    body = optional_text(presentation, "prompt") || optional_text(presentation, "answer") || ""
+    String.slice(body, 0, 160)
+  end
+
   defp button_descriptor(choice, interaction_id, version, control_id) do
     option_id = optional_text(choice, "id") || optional_text(choice, "option_id")
     label = optional_text(choice, "label") || optional_text(choice, "text") || option_id

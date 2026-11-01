@@ -196,7 +196,7 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
         _value -> []
       end
 
-    Observe.emit_entry(context.agent_uid, context.binding_name, entry_input(event), options)
+    Observe.emit_entry(context.binding_id, entry_input(event), options)
   end
 
   defp emit_receive(_consumer, _event), do: {:error, :invalid_mock_consumer}

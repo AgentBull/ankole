@@ -1,8 +1,8 @@
 # Core
 
 This directory contains the editing engine, forked from
-[Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit `91c8e86`
-(2026-10-23) under the MIT license in [LICENSE](LICENSE).
+[Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit `08804c9`
+(2026-10-30) under the MIT license in [LICENSE](LICENSE).
 
 The fork lives inside `@ankole/block-editor` and shares the package's TypeScript
 compiler settings, formatter, and test runners. Upstream changes are never

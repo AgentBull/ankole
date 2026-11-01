@@ -162,7 +162,8 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
       assert {:error, {:signal_binding_not_found, ^agent_uid, "missing-bot"}} =
                Ankole.Conversations.Delivery.operation_for_signal(%{
                  input
-                 | reply_binding_name: "missing-bot"
+                 | reply_binding_id: Ecto.UUID.generate(),
+                   reply_binding_name: "missing-bot"
                })
     end
 
@@ -173,7 +174,7 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
       %{signal: input} =
         emit_addressed_signal(agent.uid, "bot", group_entry(%{explicit: true}))
 
-      binding_fixture(agent.uid, "bad-adapter", :ignore, adapter: "missing-adapter")
+      binding = binding_fixture(agent.uid, "bad-adapter", :ignore, adapter: "missing-adapter")
 
       # An absent plugin must not fail the transaction that commits a durable
       # intent: that made one unreachable route able to block worker takeover
@@ -181,7 +182,8 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
       assert {:ok, :reply} =
                Ankole.Conversations.Delivery.operation_for_signal(%{
                  input
-                 | reply_binding_name: "bad-adapter"
+                 | reply_binding_id: binding.id,
+                   reply_binding_name: "bad-adapter"
                })
     end
 
@@ -191,14 +193,14 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
 
       assert {:ok, _result} =
                Observe.emit_entry(
-                 agent.uid,
-                 "webhook",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "webhook").id,
                  webhook_entry(%{signal_type: "webhook.received"}),
                  now: @base_time
                )
 
       input = %Signal{
         agent_uid: agent.uid,
+        reply_binding_id: Ankole.Signals.get_agent_binding!(agent.uid, "webhook").id,
         reply_binding_name: "webhook",
         conversation_id: conversation_id!("webhook:incident-1"),
         provider_message_id: "hook-1"
@@ -262,8 +264,7 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
 
       assert {:ok, _channel} =
                Observe.emit_entry(
-                 agent.uid,
-                 "webhook",
+                 Ankole.Signals.get_agent_binding!(agent.uid, "webhook").id,
                  webhook_entry(%{signal_type: "webhook.received"}),
                  now: @base_time
                )
@@ -340,7 +341,9 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -413,7 +416,9 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Observe.emit_entry(
+                 Ankole.Signals.get_agent_binding!(agent.uid, "bot").id,
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
 

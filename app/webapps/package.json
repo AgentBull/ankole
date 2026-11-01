@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "bun --bun vite --config vite.config.ts",
-    "build": "bun run openapi:generate && bun run type-check && bun --bun vite build --config vite.config.ts",
+    "build": "bun run openapi:generate && bun run type-check && bun run build:bundle",
+    "build:bundle": "bun --bun vite build --config vite.config.ts",
     "test": "bun run scripts/test.ts",
     "test:browser": "bun --bun playwright test",
     "type-check": "bun run scripts/type-check.ts",
@@ -41,6 +42,7 @@
     "katex": "0.19.1",
     "mdast-util-from-markdown": "2.1.0",
     "motion": "14.8.0",
+    "pele": "1.12.0",
     "phoenix": "1.8.16",
     "react": "19.3.1",
     "react-dom": "19.3.1",

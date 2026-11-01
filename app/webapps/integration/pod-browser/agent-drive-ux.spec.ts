@@ -13,7 +13,7 @@ test('drive uploads start from the picker and rename preserves the folder and by
   await mkdir(directory, { recursive: true })
   await writeFile(join(directory, 'original.txt'), bytes)
   await writeFile(join(directory, 'occupied.txt'), 'An existing file must stay intact.')
-  const drive = `${state.console_url}/agents/${state.agent_uid}/files?data_tenant=${state.tenant_id}`
+  const drive = `${state.console_url}/drive?owner=${state.agent_uid}&data_tenant=${state.tenant_id}`
   try {
     const readinessResponse = page.waitForResponse(
       response => new URL(response.url()).pathname === '/api/v2/console-readiness'
@@ -36,7 +36,7 @@ test('drive uploads start from the picker and rename preserves the folder and by
     await (await chosen).setFiles(directory)
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page.getByRole('button', { name: '上传', exact: true })).toBeEnabled()
-    await page.getByRole('button', { name: new RegExp(`^打开文件夹.*${folder}`) }).click()
+    await page.getByRole('button', { name: folder, exact: true }).click()
 
     const original = page
       .getByRole('row')
@@ -48,21 +48,24 @@ test('drive uploads start from the picker and rename preserves the folder and by
     await expect(name).toHaveValue('original.txt')
     await name.fill('occupied.txt')
     const rejected = page.waitForResponse(
-      response => response.url().includes('/file-moves') && response.request().method() === 'POST'
+      response =>
+        new URL(response.url()).pathname.startsWith(`/api/v2/drive/${state.tenant_id}/nodes/`) &&
+        response.request().method() === 'PATCH'
     )
     await name.press('Enter')
     expect((await rejected).ok()).toBe(false)
     await expect(name).toHaveValue('occupied.txt')
     await name.fill('renamed.txt')
     const renamedResponse = page.waitForResponse(
-      response => response.url().includes('/file-moves') && response.request().method() === 'POST'
+      response =>
+        new URL(response.url()).pathname.startsWith(`/api/v2/drive/${state.tenant_id}/nodes/`) &&
+        response.request().method() === 'PATCH'
     )
     await name.press('Enter')
     const renamedHTTP = await renamedResponse
     expect(renamedHTTP.ok()).toBe(true)
     expect(renamedHTTP.request().postDataJSON().data).toEqual({
-      from_path: `${folder}/original.txt`,
-      to_path: `${folder}/renamed.txt`
+      name: 'renamed.txt'
     })
     await expect(name).toHaveCount(0)
     await page.reload()
@@ -79,26 +82,45 @@ test('drive uploads start from the picker and rename preserves the folder and by
     for await (const chunk of (await download.createReadStream())!) chunks.push(Buffer.from(chunk))
     expect(Buffer.concat(chunks).toString()).toBe(bytes)
 
+    await page.getByRole('button', { name: '新建文件夹', exact: true }).click()
+    const createDialog = page.getByRole('dialog')
+    await createDialog.getByRole('textbox', { name: '名称', exact: true }).fill('archive')
+    const createdResponse = page.waitForResponse(
+      response =>
+        new URL(response.url()).pathname === `/api/v2/drive/${state.tenant_id}/nodes` &&
+        response.request().method() === 'POST'
+    )
+    await createDialog.getByRole('button', { name: '保存', exact: true }).click()
+    const createdHTTP = await createdResponse
+    expect(createdHTTP.ok()).toBe(true)
+    const archiveID = (await createdHTTP.json()).id
+    await expect(createDialog).toHaveCount(0)
+
     await renamed.getByRole('button', { name: '更多操作', exact: true }).click()
     await page.getByRole('menuitem', { name: '移动', exact: true }).click()
     const dialog = page.getByRole('dialog')
-    await dialog.getByRole('textbox', { name: '目标文件夹', exact: true }).fill(`${folder}/archive`)
+    await dialog.getByRole('button', { name: state.agent_uid, exact: true }).click()
+    await dialog.getByRole('button', { name: folder, exact: true }).click()
+    await dialog.getByRole('button', { name: 'archive', exact: true }).click()
     const movedResponse = page.waitForResponse(
-      response => response.url().includes('/file-moves') && response.request().method() === 'POST'
+      response =>
+        new URL(response.url()).pathname.startsWith(`/api/v2/drive/${state.tenant_id}/nodes/`) &&
+        response.request().method() === 'PATCH'
     )
-    await dialog.getByRole('button', { name: '移动', exact: true }).click()
+    await dialog.getByRole('button', { name: '移动到这里', exact: true }).click()
     const movedHTTP = await movedResponse
     expect(movedHTTP.ok()).toBe(true)
-    expect(movedHTTP.request().postDataJSON().data.to_path).toBe(`${folder}/archive/renamed.txt`)
+    expect(movedHTTP.request().postDataJSON().data).toEqual({ parent_id: archiveID })
+    expect(new URL(movedHTTP.url()).pathname).toBe(new URL(renamedHTTP.url()).pathname)
     await expect(dialog).toHaveCount(0)
-    await page.getByRole('button', { name: /^打开文件夹.*archive/ }).click()
+    await page.getByRole('button', { name: 'archive', exact: true }).click()
     await expect(page.getByRole('button', { name: 'renamed.txt', exact: true })).toBeVisible()
     await page.screenshot({ path: testInfo.outputPath('drive-after-move.png'), fullPage: true })
 
     await page.goto(drive)
     const uploadedFolder = page
       .getByRole('row')
-      .filter({ has: page.getByRole('button', { name: new RegExp(`^打开文件夹.*${folder}`) }) })
+      .filter({ has: page.getByRole('button', { name: folder, exact: true }) })
     await uploadedFolder.getByRole('button', { name: '更多操作', exact: true }).click()
     await page.getByRole('menuitem', { name: '删除', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: '删除', exact: true }).click()

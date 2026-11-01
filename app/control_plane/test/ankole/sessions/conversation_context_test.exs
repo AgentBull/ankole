@@ -258,7 +258,7 @@ defmodule Ankole.Sessions.ConversationContextTest do
     end
   end
 
-  test "terminal checks distinguish withdrawn background from the current input", context do
+  test "terminal checks allow edits and withdrawal of background context", context do
     report = append_report(context, "Background read by this round")
     run = context_run(context)
     first = ConversationContext.append(run, %{"metadata" => %{}, "input" => []})
@@ -285,7 +285,7 @@ defmodule Ankole.Sessions.ConversationContextTest do
 
     Repo.delete!(report)
 
-    assert {:error, :signal_context_canceled} =
+    assert :ok =
              Ankole.Sessions.Queue.ensure_event_source_live_in_tx(
                signal,
                DateTime.utc_now()
@@ -380,7 +380,7 @@ defmodule Ankole.Sessions.ConversationContextTest do
 
       for {profile, model} <- [{"primary", "gpt-main"}, {"light", "gpt-compact-light"}] do
         assert {:ok, _} =
-                 Ankole.AIAgent.ModelProfiles.put_model_profile(context.agent.uid, profile, %{
+                 Ankole.AIGateway.ModelProfiles.put_model_profile(context.agent.uid, profile, %{
                    provider_id: provider_id,
                    model: model
                  })

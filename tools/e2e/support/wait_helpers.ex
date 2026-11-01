@@ -121,7 +121,7 @@ defmodule Ankole.E2E.WaitHelpers do
   """
   @spec wait_for_worker(map(), integer()) :: {:ok, AgentWorker.t()}
   def wait_for_worker(%{agent_uid: agent_uid} = process, deadline) do
-    case Repo.get(AgentWorker, agent_uid) do
+    case Repo.get_by(AgentWorker, agent_uid: agent_uid) do
       %AgentWorker{state: :ready} = worker ->
         case AgentWorker.available_slots(worker) > 0 do
           true ->
@@ -330,12 +330,16 @@ defmodule Ankole.E2E.WaitHelpers do
   defp side_effect_intents_for_input(source_signal_id, ai_message_id) do
     final_reply_key = "ai-reply:#{ai_message_id}"
 
-    Intent
-    |> where([intent], intent.source_signal_id == ^source_signal_id)
-    |> where([intent], intent.ai_message_id == ^ai_message_id)
-    |> where([intent], intent.outbound_key != ^final_reply_key)
-    |> order_by([intent], asc: intent.inserted_at, asc: intent.outbound_key)
-    |> Repo.all()
+    Ankole.Conversations.list_intents!(
+      query: [
+        filter: [
+          source_signal_id: source_signal_id,
+          ai_message_id: ai_message_id,
+          outbound_key: [not_eq: final_reply_key]
+        ],
+        sort: [inserted_at: :asc, outbound_key: :asc]
+      ]
+    )
   end
 
   @doc """
@@ -648,7 +652,7 @@ defmodule Ankole.E2E.WaitHelpers do
 
   defp inspect_worker(agent_uid) do
     row =
-      case Repo.get(AgentWorker, agent_uid) do
+      case Repo.get_by(AgentWorker, agent_uid: agent_uid) do
         %AgentWorker{} = worker ->
           Map.take(worker, [:state, :generation, :transport_route, :drain_reason, :last_error])
 

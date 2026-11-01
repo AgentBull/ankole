@@ -484,8 +484,9 @@ defmodule AnkoleWeb.SpaControllerTest do
       |> follow_login_redirect()
       |> html_response(200)
 
-    assert first_login_html =~ ~s(<html lang="zh-Hans-CN">)
-    assert second_login_html =~ ~s(<html lang="ja-JP">)
+    assert first_login_html =~ ~s(<html lang="zh-Hans-CN" translate="no" class="notranslate">)
+    assert first_login_html =~ ~s(<meta name="google" content="notranslate">)
+    assert second_login_html =~ ~s(<html lang="ja-JP" translate="no" class="notranslate">)
 
     first_pod_html =
       conn
@@ -494,7 +495,7 @@ defmodule AnkoleWeb.SpaControllerTest do
       |> get(~p"/")
       |> html_response(200)
 
-    assert first_pod_html =~ ~s(<html lang="zh-Hans-CN">)
+    assert first_pod_html =~ ~s(<html lang="zh-Hans-CN" translate="no" class="notranslate">)
   end
 
   test "site Console and its sign-in render in the privileged Pod's locale while tenant-less shells negotiate Accept-Language",
@@ -526,7 +527,8 @@ defmodule AnkoleWeb.SpaControllerTest do
         |> follow_login_redirect()
         |> follow_login_redirect()
 
-      assert html_response(login_shell, 200) =~ ~s(<html lang="ko-KR">)
+      assert html_response(login_shell, 200) =~
+               ~s(<html lang="ko-KR" translate="no" class="notranslate">)
 
       admin_request =
         if accept_language,
@@ -534,7 +536,7 @@ defmodule AnkoleWeb.SpaControllerTest do
           else: admin
 
       assert admin_request |> get("/site-admin-console") |> html_response(200) =~
-               ~s(<html lang="ko-KR">)
+               ~s(<html lang="ko-KR" translate="no" class="notranslate">)
     end
 
     for {accept_language, locale} <- [
@@ -548,7 +550,7 @@ defmodule AnkoleWeb.SpaControllerTest do
           else: conn
 
       assert request |> get(~p"/sessions/logged-out") |> html_response(200) =~
-               ~s(<html lang="#{locale}">)
+               ~s(<html lang="#{locale}" translate="no" class="notranslate">)
     end
   end
 

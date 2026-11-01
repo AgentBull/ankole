@@ -168,7 +168,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
 
     sandbox =
       fixture("create_response")["sandbox"]
-      |> put_in(["tags", "ankole-agent"], ProviderKind.hash16(agent.uid))
+      |> put_in(["tags", "ankole-agent"], ProviderKind.agent_hash(agent.uid))
 
     session =
       fixture("session_response")["session"]
@@ -176,6 +176,8 @@ defmodule Ankole.AgentWorkers.VercelTest do
         "startedAt",
         now |> DateTime.add(-2500, :second) |> DateTime.to_unix(:millisecond)
       )
+
+    command = fixture("command_response")["command"]
 
     stub(fn conn ->
       case conn.request_path do
@@ -186,7 +188,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
           page(conn, "sessions", [session])
 
         "/v2/sandboxes/sessions/" <> @ref <> "/cmd" ->
-          page_commands(conn, [fixture("command_response")["command"]])
+          page_commands(conn, [command])
       end
     end)
 
@@ -289,7 +291,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
       case conn.request_path do
         "/v2/sandboxes" ->
           %{principal: agent} =
-            agent_fixture(%{handle: @uid, worker_provider_id: provider.provider_id})
+            agent_fixture(%{uid: @uid, worker_provider_id: provider.provider_id})
 
           save_ref!(provider, agent.uid)
           send(self(), {:committed_worker, agent.uid})
@@ -300,7 +302,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
               "name",
               ProviderKind.instance_name(provider.runtime.installation, agent.uid, "gen0000001")
             )
-            |> put_in(["tags", "ankole-agent"], ProviderKind.hash16(agent.uid))
+            |> put_in(["tags", "ankole-agent"], ProviderKind.agent_hash(agent.uid))
 
           page(conn, "sandboxes", [sandbox])
 
@@ -319,7 +321,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
   end
 
   test "a missing named list does not hide a saved running session", %{provider: provider} do
-    %{principal: agent} = agent_fixture(%{handle: @uid, worker_provider_id: provider.provider_id})
+    %{principal: agent} = agent_fixture(%{uid: @uid, worker_provider_id: provider.provider_id})
     save_ref!(provider, agent.uid)
 
     stub(fn conn ->
@@ -612,7 +614,13 @@ defmodule Ankole.AgentWorkers.VercelTest do
     )
   end
 
-  defp fixture(key), do: @fixtures |> File.read!() |> Ankole.JSON.decode!() |> Map.fetch!(key)
+  defp fixture(key) do
+    @fixtures
+    |> File.read!()
+    |> String.replace(ProviderKind.hash16(@uid), ProviderKind.agent_hash(@uid))
+    |> Ankole.JSON.decode!()
+    |> Map.fetch!(key)
+  end
 
   defp object(id),
     do: %{

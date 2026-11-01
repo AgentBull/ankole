@@ -23,11 +23,11 @@ export function PermissionSettingsView({
   const { t } = useTranslation()
   const isPrivateRoot = sharing.scope_kind === 'private' && !hasParent
   const actionLabels = {
-    page_view: t('pod.sharing.role_view'),
-    page_comment: t('pod.sharing.role_comment'),
-    page_write_records: t('pod.sharing.role_contribute'),
-    page_edit: t('pod.sharing.role_edit'),
-    page_manage: t('pod.sharing.role_manage')
+    node_view: t('pod.sharing.role_view'),
+    node_comment: t('pod.sharing.role_comment'),
+    node_contribute: t('pod.sharing.role_contribute'),
+    node_edit: t('pod.sharing.role_edit'),
+    node_manage: t('pod.sharing.role_manage')
   }
 
   return (

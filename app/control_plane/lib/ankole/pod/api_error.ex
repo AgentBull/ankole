@@ -9,6 +9,9 @@ defmodule Ankole.Pod.APIError do
       {422, "Replies must belong to an existing root discussion on this page."},
     invalid_comment_anchor:
       {422, "The text anchor must belong to an existing discussion on this page."},
+    file_anchor_outdated: {409, "The file changed. Reload it and select the passage again."},
+    invalid_comment_quote:
+      {422, "Selected quote exceeds the 1,000-character or 4,096-byte limit."},
     interaction_not_pending: {409, "This question has an answer or was superseded"},
     invalid_choice: {422, "Select a valid answer"},
     participant_unavailable: {422, "This participant is unavailable"},

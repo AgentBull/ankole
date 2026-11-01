@@ -1,8 +1,13 @@
 import type { trackCommentSelection } from '@ankole/block-editor/editor'
 import { batch, createModel, signal } from '@preact/signals-react'
 import { recordValue, safeJsonParse } from '@agentbull/active-support'
+import { parseFileCommentAnchor, type FileCommentAnchor } from '../file-comment-anchors'
 
-type CommentAnchor = { quote: string; read?: ReturnType<typeof trackCommentSelection> }
+export type CommentAnchor = {
+  quote: string
+  read?: ReturnType<typeof trackCommentSelection>
+  fileAnchor?: FileCommentAnchor
+}
 
 /** Drafts outlive a closed thread and failed requests, but never select a different quote implicitly. */
 export const PageCommentsModel = createModel((storageKey: string) => {
@@ -25,19 +30,32 @@ export const PageCommentsModel = createModel((storageKey: string) => {
       )
     )
   )
-  const anchor = signal<CommentAnchor | null>(typeof stored?.quote === 'string' ? { quote: stored.quote } : null)
+  const storedFileAnchor = parseFileCommentAnchor(recordValue(stored?.fileAnchor))
+  const anchor = signal<CommentAnchor | null>(
+    typeof stored?.quote === 'string' || storedFileAnchor
+      ? {
+          quote: typeof stored?.quote === 'string' ? stored.quote : '',
+          ...(storedFileAnchor ? { fileAnchor: storedFileAnchor } : {})
+        }
+      : null
+  )
   const persist = () => {
     try {
       const versions = editVersions.peek()
       const persistedDrafts = Object.fromEntries(
         Object.entries(drafts.peek()).filter(([key, value]) => Object.hasOwn(versions, key) || value.trim() !== '')
       )
-      const quote = anchor.peek()?.quote
-      if (Object.keys(persistedDrafts).length === 0 && Object.keys(versions).length === 0 && !quote) {
+      const currentAnchor = anchor.peek()
+      const quote = currentAnchor?.quote
+      const fileAnchor = currentAnchor?.fileAnchor
+      if (Object.keys(persistedDrafts).length === 0 && Object.keys(versions).length === 0 && !quote && !fileAnchor) {
         localStorage.removeItem(storageKey)
         return
       }
-      localStorage.setItem(storageKey, JSON.stringify({ drafts: persistedDrafts, editVersions: versions, quote }))
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({ drafts: persistedDrafts, editVersions: versions, quote, fileAnchor })
+      )
     } catch {
       // Submission and local editing do not depend on storage availability.
     }

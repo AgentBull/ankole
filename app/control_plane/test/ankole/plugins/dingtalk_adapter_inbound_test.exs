@@ -8,6 +8,7 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
   defp consumer do
     context =
       AdapterContext.new(
+        binding_id: Ecto.UUID.generate(),
         agent_uid: "agent-1",
         binding_name: "dingtalk",
         adapter: "dingtalk",
