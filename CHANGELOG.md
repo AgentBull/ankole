@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 2.0.0-alpha.45 (2026-11-01)
+
+- Replaying a recorded tool result or workflow round returns the existing record
+  instead of failing an identity lookup. Replay lookups stay within their tenant.
+
 ## Version 2.0.0-alpha.44 (2026-11-01)
 
 - Keep tenant identity in Session processes, delivery scheduling, and Kubernetes

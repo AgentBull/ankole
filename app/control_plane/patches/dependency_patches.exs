@@ -14,6 +14,7 @@ defmodule Ankole.Mix.DependencyPatches do
 
   @patches [
     {"ash", "ash-3.37.2.patch"},
+    {"ash_postgres", "ash_postgres-2.15.2.patch"},
     {"ash_json_api", "ash_json_api-1.8.0.patch"},
     {"attesto", "attesto-2.7.0.patch"}
   ]
