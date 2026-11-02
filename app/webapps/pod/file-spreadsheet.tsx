@@ -5,7 +5,11 @@ import { useMemo, useState } from 'react'
 import { read, utils } from 'xlsx'
 import { ContentError } from './content-primitives'
 
-export default function SpreadsheetPreview({ url }: { url: string }) {
+/**
+ * A read-only preview of the workbook formats that the spreadsheet editor does not open: `.xls`,
+ * `.xlsb`, and `.ods`. Spreadsheet pages (`.xlsx` and `.xlsm`) open in the editor.
+ */
+export default function LegacySpreadsheetPreview({ url }: { url: string }) {
   const { t } = useTranslation()
   const [sheet, setSheet] = useState('')
   const workbook = useQuery({

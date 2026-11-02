@@ -72,9 +72,9 @@ test('keyboard file selection keeps a failed upload, freezes pending work, and l
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['Revenue'], [1234.5]]), 'Revenue')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['Next quarter'], [28]]), 'Forecast')
     const file = {
-      name: '季度复盘以及销售流水汇总报告.xlsx',
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      buffer: Buffer.from(XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }))
+      name: '季度复盘以及销售流水汇总报告.xls',
+      mimeType: 'application/vnd.ms-excel',
+      buffer: Buffer.from(XLSX.write(workbook, { type: 'array', bookType: 'xls' }))
     }
     let calls = 0
     await page.route(`**/api/v2/pod/pages/${id}/files`, async route => {
@@ -144,7 +144,7 @@ test('keyboard file selection keeps a failed upload, freezes pending work, and l
     XLSX.utils.book_append_sheet(replacement, XLSX.utils.aoa_to_sheet([['Reduced revenue'], [19]]), 'Revenue')
     await page.getByLabel('选择替换文件', { exact: true }).setInputFiles({
       ...file,
-      buffer: Buffer.from(XLSX.write(replacement, { type: 'array', bookType: 'xlsx' }))
+      buffer: Buffer.from(XLSX.write(replacement, { type: 'array', bookType: 'xls' }))
     })
     await expect(worksheets.getByRole('button', { name: 'Forecast', exact: true })).toHaveCount(0)
     await expect(worksheets.getByRole('button', { name: 'Revenue', exact: true })).toHaveAttribute(

@@ -5,6 +5,7 @@ import {
   RiAttachment2,
   RiDatabase2Line,
   RiEmotionLine,
+  RiFileExcel2Line,
   RiFileTextLine
 } from '@remixicon/react'
 import {
@@ -27,6 +28,7 @@ import { isCustomEmojiIcon } from './page-icon-value'
 import { customEmojiLibrary, uploadCustomEmoji } from './native-transfers'
 import { InternalAPIError } from '../common/internal-api-client'
 import { updatePageMetadata } from './state/navigation-cache'
+import { isSpreadsheetFileName } from './state/spreadsheet-grid'
 
 const icons = {
   folder: RiFolderLine,
@@ -36,8 +38,17 @@ const icons = {
   file: RiAttachment2
 }
 
-/** A Page keeps the same type mark in navigation, references, and pickers. */
-export function PageIcon({ page, className }: { page: Pick<Page, 'type' | 'icon'>; className?: string }) {
+/**
+ * A Page keeps the same type mark in navigation, references, and pickers. A file Page whose title
+ * names a spreadsheet gets the spreadsheet mark.
+ */
+export function PageIcon({
+  page,
+  className
+}: {
+  page: Pick<Page, 'type' | 'icon'> & { title?: string }
+  className?: string
+}) {
   const classes = cn('pod-page-icon', className)
   // A custom emoji whose file fails to load falls back to the Page's type mark.
   const [failedIcon, setFailedIcon] = useState<string | null>(null)
@@ -60,7 +71,8 @@ export function PageIcon({ page, className }: { page: Pick<Page, 'type' | 'icon'
       </span>
     )
   }
-  const Icon = icons[page.type]
+  const Icon =
+    page.type === 'file' && page.title && isSpreadsheetFileName(page.title) ? RiFileExcel2Line : icons[page.type]
   return <Icon aria-hidden className={classes} />
 }
 

@@ -1,0 +1,1156 @@
+import { t } from 'i18next'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+  DropdownMenuItem,
+  DropdownMenuSeparator
+} from '@ankole/uikit'
+import { useSignals } from '@preact/signals-react/runtime'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
+import {
+  cellSelection,
+  clampCell,
+  columnName,
+  contains,
+  intersect,
+  LineAxis,
+  MAX_COLS,
+  MAX_ROWS,
+  parseRange,
+  rangeName,
+  selectedLines,
+  selectionRect,
+  type CellAddress,
+  type Rect,
+  type RenderCell,
+  type RenderStyle,
+  type SheetInfo,
+  type Viewport
+} from '../state/spreadsheet-grid'
+import { presenceRect, type Direction, type SpreadsheetSession } from '../state/spreadsheet-collaboration'
+import { SpreadsheetCellEditor } from './spreadsheet-cell-editor'
+
+const HEADER_WIDTH = 48
+const HEADER_HEIGHT = 24
+/** Lines fetched beyond the visible ones, so short scrolls paint from the cache. */
+const ROW_MARGIN = 20
+const COL_MARGIN = 5
+/** Rows and columns the scrollable area extends past the last visible one. */
+const ROW_RUNWAY = 50
+const COL_RUNWAY = 10
+const RESIZE_SLOP = 4
+const POINTS_TO_PIXELS = 96 / 72
+
+type FrameCell = { cell: RenderCell; style: RenderStyle }
+/** The cells the worker returned for one sheet version, with the rectangles they cover. */
+type Frame = {
+  sheetID: number
+  version: number
+  rects: Rect[]
+  cells: Map<number, FrameCell>
+  merges: Rect[]
+  spills: Rect[]
+  rowStyles: Map<number, RenderStyle>
+  colStyles: Map<number, RenderStyle>
+}
+type Hit =
+  | { kind: 'corner' }
+  | { kind: 'cols'; col: number; resize?: number }
+  | { kind: 'rows'; row: number; resize?: number }
+  | { kind: 'cell'; cell: CellAddress }
+type Drag =
+  | { kind: 'select'; anchor: CellAddress; lines?: 'rows' | 'cols' }
+  | { kind: 'resize'; axis: 'rows' | 'cols'; index: number; origin: number; size: number; current: number }
+type Tokens = Record<
+  | 'background'
+  | 'text'
+  | 'grid'
+  | 'header'
+  | 'headerText'
+  | 'headerActive'
+  | 'divider'
+  | 'selection'
+  | 'focus'
+  | 'spill',
+  string
+> & { font: string }
+export type CellBox = { x: number; y: number; width: number; height: number }
+
+const cellKey = (row: number, col: number) => row * MAX_COLS + col
+
+function readTokens(element: Element): Tokens {
+  const style = getComputedStyle(element)
+  const token = (name: string) => style.getPropertyValue(name).trim()
+  return {
+    background: token('--background'),
+    text: token('--foreground'),
+    grid: token('--border'),
+    header: token('--background-secondary'),
+    headerText: token('--fg-secondary'),
+    headerActive: token('--accent'),
+    divider: token('--border-strong'),
+    selection: token('--selection'),
+    focus: token('--color-blue-60'),
+    spill: token('--color-blue-50'),
+    font: token('--font-sans') || 'sans-serif'
+  }
+}
+
+/** The CSS font for a cell style: its own family first, then the UI stack, which covers Chinese text. */
+function cellFont(style: RenderStyle | undefined, fallback: string): { font: string; size: number } {
+  const size = Math.max(6, (style?.font_size ?? 11) * POINTS_TO_PIXELS)
+  const family = style?.font_name ? `"${style.font_name.replaceAll('"', '')}", ${fallback}` : fallback
+  return { font: `${style?.italic ? 'italic ' : ''}${style?.bold ? 'bold ' : ''}${size}px ${family}`, size }
+}
+
+function alignment(cell: RenderCell, style: RenderStyle): 'left' | 'center' | 'right' {
+  if (style.h_align === 'left' || style.h_align === 'right') return style.h_align
+  if (style.h_align === 'center' || style.h_align === 'center_across') return 'center'
+  if (cell.kind === 'number' || cell.kind === 'error') return 'right'
+  return cell.kind === 'bool' ? 'center' : 'left'
+}
+
+const borderWidths: Record<string, number> = {
+  medium: 2,
+  medium_dashed: 2,
+  medium_dash_dot: 2,
+  medium_dash_dot_dot: 2,
+  thick: 3,
+  double: 3
+}
+const borderDashes: Record<string, number[]> = {
+  dashed: [4, 2],
+  medium_dashed: [6, 3],
+  dotted: [1, 2],
+  hair: [1, 1],
+  dash_dot: [4, 2, 1, 2],
+  medium_dash_dot: [6, 3, 2, 3],
+  dash_dot_dot: [4, 2, 1, 2, 1, 2],
+  medium_dash_dot_dot: [6, 3, 2, 3, 2, 3],
+  slant_dash_dot: [6, 2, 2, 2]
+}
+
+function wrapLines(context: CanvasRenderingContext2D, text: string, width: number): string[] {
+  const lines: string[] = []
+  for (const paragraph of text.split('\n')) {
+    let line = ''
+    for (const char of paragraph) {
+      if (line && context.measureText(line + char).width > width) {
+        lines.push(line)
+        line = char === ' ' ? '' : char
+      } else line += char
+    }
+    lines.push(line)
+  }
+  return lines
+}
+
+/**
+ * The grid: a high-DPI canvas over a native scroll area. The canvas paints the cached viewport of
+ * the local document and asks the worker for a new one only when the visible area leaves it.
+ */
+export function SpreadsheetCanvas({
+  model,
+  inputRef: input
+}: {
+  model: SpreadsheetSession
+  inputRef: RefObject<HTMLTextAreaElement | null>
+}) {
+  useSignals()
+  const container = useRef<HTMLDivElement>(null)
+  const scroller = useRef<HTMLDivElement>(null)
+  const spacer = useRef<HTMLDivElement>(null)
+  const canvas = useRef<HTMLCanvasElement>(null)
+  const frame = useRef<Frame | undefined>(undefined)
+  const axes = useRef(new Map<number, { rows: LineAxis; cols: LineAxis }>())
+  const fetching = useRef('')
+  const extent = useRef({ sheetID: 0, rows: 0, cols: 0 })
+  const drag = useRef<Drag | undefined>(undefined)
+  const scheduled = useRef(0)
+  const [menu, setMenu] = useState<'rows' | 'cols' | 'cells'>('cells')
+  const sheet = model.activeSheet.value
+  const editable = model.editable.value
+  const sheetID = model.activeSheetID.value
+  const version = model.version.value
+  const selection = model.selection.value
+  const members = model.members.value
+  const draft = model.draft.value
+
+  const geometry = (info: SheetInfo) => {
+    let entry = axes.current.get(info.sheet_id)
+    if (
+      !entry ||
+      entry.rows.defaultSize !== info.default_row_height ||
+      entry.cols.defaultSize !== info.default_col_width
+    ) {
+      entry = {
+        rows: new LineAxis(info.default_row_height, MAX_ROWS),
+        cols: new LineAxis(info.default_col_width, MAX_COLS)
+      }
+      axes.current.set(info.sheet_id, entry)
+    }
+    return entry
+  }
+
+  /** Screen positions for the current scroll offset: frozen lines stay put and the rest scroll. */
+  const layout = () => {
+    const info = model.activeSheet.peek()
+    const element = scroller.current
+    if (!info || !element) return undefined
+    const { rows, cols } = geometry(info)
+    const [frozenRows, frozenCols] = info.freeze ?? [0, 0]
+    const frozenHeight = rows.offset(frozenRows)
+    const frozenWidth = cols.offset(frozenCols)
+    const top = element.scrollTop
+    const left = element.scrollLeft
+    const width = element.clientWidth
+    const height = element.clientHeight
+    // Scrolled lines start right after the frozen ones, so only they move with the scroll offset.
+    const rowY = (row: number) => HEADER_HEIGHT + rows.offset(row) - (row < frozenRows ? 0 : top)
+    const colX = (col: number) => HEADER_WIDTH + cols.offset(col) - (col < frozenCols ? 0 : left)
+    const firstRow = Math.max(frozenRows, rows.indexAt(frozenHeight + top))
+    const lastRow = rows.indexAt(frozenHeight + top + Math.max(0, height - HEADER_HEIGHT - frozenHeight))
+    const firstCol = Math.max(frozenCols, cols.indexAt(frozenWidth + left))
+    const lastCol = cols.indexAt(frozenWidth + left + Math.max(0, width - HEADER_WIDTH - frozenWidth))
+    const rowAt = (y: number) => rows.indexAt(y - HEADER_HEIGHT + (y - HEADER_HEIGHT < frozenHeight ? 0 : top))
+    const colAt = (x: number) => cols.indexAt(x - HEADER_WIDTH + (x - HEADER_WIDTH < frozenWidth ? 0 : left))
+    return {
+      info,
+      rows,
+      cols,
+      frozenRows,
+      frozenCols,
+      frozenHeight,
+      frozenWidth,
+      width,
+      height,
+      rowY,
+      colX,
+      rowAt,
+      colAt,
+      firstRow,
+      lastRow,
+      firstCol,
+      lastCol
+    }
+  }
+  type Layout = NonNullable<ReturnType<typeof layout>>
+
+  /**
+   * The screen box of a rectangle. A part that has scrolled under the frozen panes is cut off, and
+   * the box may be empty when the whole rectangle has.
+   */
+  const box = (view: Layout, rect: Rect): CellBox => {
+    const frozenTop = rect.r0 < view.frozenRows
+    const frozenLeft = rect.c0 < view.frozenCols
+    const y = Math.max(view.rowY(rect.r0), frozenTop ? HEADER_HEIGHT : HEADER_HEIGHT + view.frozenHeight)
+    const x = Math.max(view.colX(rect.c0), frozenLeft ? HEADER_WIDTH : HEADER_WIDTH + view.frozenWidth)
+    const bottom = Math.min(
+      Math.max(
+        view.rowY(rect.r1) + view.rows.size(rect.r1),
+        frozenTop ? HEADER_HEIGHT + view.rows.offset(Math.min(rect.r1 + 1, view.frozenRows)) : 0
+      ),
+      view.height + 1
+    )
+    const right = Math.min(
+      Math.max(
+        view.colX(rect.c1) + view.cols.size(rect.c1),
+        frozenLeft ? HEADER_WIDTH + view.cols.offset(Math.min(rect.c1 + 1, view.frozenCols)) : 0
+      ),
+      view.width + 1
+    )
+    return { x, y, width: right - x, height: bottom - y }
+  }
+
+  const shown = (area: CellBox) => area.width > 0 && area.height > 0
+
+  const requestPaint = () => {
+    if (scheduled.current) return
+    scheduled.current = requestAnimationFrame(() => {
+      scheduled.current = 0
+      paint()
+    })
+  }
+
+  /** Fetches the visible rectangle plus a margin, one rectangle per frozen pane, in one round trip. */
+  const fetchVisible = (view: Layout) => {
+    const id = view.info.sheet_id
+    const current = model.version.peek()
+    const main = {
+      r0: Math.max(view.frozenRows, view.firstRow - ROW_MARGIN),
+      c0: Math.max(view.frozenCols, view.firstCol - COL_MARGIN),
+      r1: Math.min(MAX_ROWS - 1, view.lastRow + ROW_MARGIN),
+      c1: Math.min(MAX_COLS - 1, view.lastCol + COL_MARGIN)
+    }
+    const visible = { r0: view.firstRow, c0: view.firstCol, r1: view.lastRow, c1: view.lastCol }
+    const rects = [main]
+    if (view.frozenRows) rects.push({ r0: 0, c0: main.c0, r1: view.frozenRows - 1, c1: main.c1 })
+    if (view.frozenCols) rects.push({ r0: main.r0, c0: 0, r1: main.r1, c1: view.frozenCols - 1 })
+    if (view.frozenRows && view.frozenCols) {
+      rects.push({ r0: 0, c0: 0, r1: view.frozenRows - 1, c1: view.frozenCols - 1 })
+    }
+    const cached = frame.current
+    if (
+      cached?.sheetID === id &&
+      cached.version === current &&
+      cached.rects.length === rects.length &&
+      contains(cached.rects[0]!, { row: visible.r0, col: visible.c0 }) &&
+      contains(cached.rects[0]!, { row: visible.r1, col: visible.c1 })
+    ) {
+      return
+    }
+    const key = `${id}:${rects.map(rangeName).join(',')}:${current}`
+    if (fetching.current === key) return
+    fetching.current = key
+    void Promise.all(rects.map(rect => model.viewport(id, rect)))
+      .then(views => {
+        if (fetching.current !== key) return
+        fetching.current = ''
+        if (views.some(item => !item)) return
+        const info = model.activeSheet.peek()
+        if (!info || info.sheet_id !== id) return
+        frame.current = buildFrame(id, current, rects, views as Viewport[], geometry(info))
+        requestPaint()
+      })
+      .catch(() => {
+        if (fetching.current === key) fetching.current = ''
+      })
+  }
+
+  const paint = () => {
+    const element = canvas.current
+    const view = layout()
+    if (!element || !view || !container.current) return
+    const ratio = window.devicePixelRatio || 1
+    if (element.width !== Math.round(view.width * ratio) || element.height !== Math.round(view.height * ratio)) {
+      element.width = Math.round(view.width * ratio)
+      element.height = Math.round(view.height * ratio)
+      element.style.width = `${view.width}px`
+      element.style.height = `${view.height}px`
+    }
+    const context = element.getContext('2d')
+    if (!context) return
+    context.setTransform(ratio, 0, 0, ratio, 0, 0)
+    const tokens = readTokens(container.current)
+    growExtent(view)
+    fetchVisible(view)
+    context.fillStyle = tokens.background
+    context.fillRect(0, 0, view.width, view.height)
+    const cached = frame.current?.sheetID === view.info.sheet_id ? frame.current : undefined
+    const scrollRows = { from: view.firstRow, to: view.lastRow }
+    const scrollCols = { from: view.firstCol, to: view.lastCol }
+    const frozenRows = { from: 0, to: view.frozenRows - 1 }
+    const frozenCols = { from: 0, to: view.frozenCols - 1 }
+    const mainTop = HEADER_HEIGHT + view.frozenHeight
+    const mainLeft = HEADER_WIDTH + view.frozenWidth
+    const regions = [
+      { rows: scrollRows, cols: scrollCols, clip: [mainLeft, mainTop, view.width - mainLeft, view.height - mainTop] },
+      { rows: frozenRows, cols: scrollCols, clip: [mainLeft, HEADER_HEIGHT, view.width - mainLeft, view.frozenHeight] },
+      { rows: scrollRows, cols: frozenCols, clip: [HEADER_WIDTH, mainTop, view.frozenWidth, view.height - mainTop] },
+      { rows: frozenRows, cols: frozenCols, clip: [HEADER_WIDTH, HEADER_HEIGHT, view.frozenWidth, view.frozenHeight] }
+    ]
+    for (const region of regions) {
+      if (region.rows.to < region.rows.from || region.cols.to < region.cols.from) continue
+      context.save()
+      context.beginPath()
+      context.rect(...(region.clip as [number, number, number, number]))
+      context.clip()
+      paintCells(context, view, tokens, cached, region.rows, region.cols)
+      context.restore()
+    }
+    paintOverlays(context, view, tokens)
+    paintHeaders(context, view, tokens)
+    placeEditor(view, cached)
+  }
+
+  const growExtent = (view: Layout) => {
+    const current =
+      extent.current.sheetID === view.info.sheet_id ? extent.current : { sheetID: view.info.sheet_id, rows: 0, cols: 0 }
+    const rows = Math.min(MAX_ROWS, Math.max(current.rows, view.info.rows, view.lastRow + ROW_RUNWAY))
+    const cols = Math.min(MAX_COLS, Math.max(current.cols, view.info.cols, view.lastCol + COL_RUNWAY))
+    extent.current = { sheetID: view.info.sheet_id, rows, cols }
+    if (spacer.current) {
+      spacer.current.style.height = `${HEADER_HEIGHT + view.rows.offset(rows)}px`
+      spacer.current.style.width = `${HEADER_WIDTH + view.cols.offset(cols)}px`
+    }
+  }
+
+  const paintCells = (
+    context: CanvasRenderingContext2D,
+    view: Layout,
+    tokens: Tokens,
+    cached: Frame | undefined,
+    rows: { from: number; to: number },
+    cols: { from: number; to: number }
+  ) => {
+    const visibleRows: number[] = []
+    const visibleCols: number[] = []
+    for (let row = rows.from; row <= rows.to; row++) if (view.rows.size(row) > 0) visibleRows.push(row)
+    for (let col = cols.from; col <= cols.to; col++) if (view.cols.size(col) > 0) visibleCols.push(col)
+    const area: Rect = { r0: rows.from, c0: cols.from, r1: rows.to, c1: cols.to }
+    const merges = (cached?.merges ?? []).filter(merge => intersect(merge, area))
+    const merged = (row: number, col: number) => merges.find(merge => contains(merge, { row, col }))
+    // Fills: whole-row and whole-column formats first, then cells.
+    const left = view.colX(cols.from)
+    const right = view.colX(cols.to) + view.cols.size(cols.to)
+    const top = view.rowY(rows.from)
+    const bottom = view.rowY(rows.to) + view.rows.size(rows.to)
+    for (const row of visibleRows) {
+      const fill = cached?.rowStyles.get(row)?.fill_color
+      if (!fill) continue
+      context.fillStyle = fill
+      context.fillRect(left, view.rowY(row), right - left, view.rows.size(row))
+    }
+    for (const col of visibleCols) {
+      const fill = cached?.colStyles.get(col)?.fill_color
+      if (!fill) continue
+      context.fillStyle = fill
+      context.fillRect(view.colX(col), top, view.cols.size(col), bottom - top)
+    }
+    for (const row of visibleRows) {
+      for (const col of visibleCols) {
+        const fill = cached?.cells.get(cellKey(row, col))?.style.fill_color
+        if (!fill || merged(row, col)) continue
+        context.fillStyle = fill
+        context.fillRect(view.colX(col), view.rowY(row), view.cols.size(col), view.rows.size(row))
+      }
+    }
+    if (view.info.show_gridlines) {
+      context.strokeStyle = tokens.grid
+      context.lineWidth = 1
+      context.beginPath()
+      for (const row of visibleRows) {
+        const y = Math.round(view.rowY(row) + view.rows.size(row)) - 0.5
+        context.moveTo(left, y)
+        context.lineTo(right, y)
+      }
+      for (const col of visibleCols) {
+        const x = Math.round(view.colX(col) + view.cols.size(col)) - 0.5
+        context.moveTo(x, top)
+        context.lineTo(x, bottom)
+      }
+      context.stroke()
+    }
+    for (const merge of merges) {
+      const area = box(view, merge)
+      if (!shown(area)) continue
+      const anchor = cached?.cells.get(cellKey(merge.r0, merge.c0))
+      context.fillStyle = anchor?.style.fill_color ?? tokens.background
+      context.fillRect(area.x, area.y, area.width - 1, area.height - 1)
+      if (anchor?.cell.text) paintText(context, tokens, anchor, area)
+    }
+    for (const row of visibleRows) {
+      for (const col of visibleCols) {
+        const entry = cached?.cells.get(cellKey(row, col))
+        if (!entry?.cell.text || merged(row, col)) continue
+        const cellBox = {
+          x: view.colX(col),
+          y: view.rowY(row),
+          width: view.cols.size(col),
+          height: view.rows.size(row)
+        }
+        paintText(context, tokens, entry, overflow(view, cached!, entry, cellBox, cols, merged))
+      }
+    }
+    for (const row of visibleRows) {
+      for (const col of visibleCols) {
+        const style = cached?.cells.get(cellKey(row, col))?.style
+        if (style) {
+          paintBorders(context, style, view.colX(col), view.rowY(row), view.cols.size(col), view.rows.size(row))
+        }
+      }
+    }
+    context.strokeStyle = tokens.spill
+    context.setLineDash([3, 2])
+    for (const spill of cached?.spills ?? []) {
+      const outline = intersect(spill, area) ? box(view, spill) : undefined
+      if (outline && shown(outline)) {
+        context.strokeRect(outline.x + 0.5, outline.y + 0.5, outline.width - 2, outline.height - 2)
+      }
+    }
+    context.setLineDash([])
+  }
+
+  /** Left-aligned text runs into empty cells on its right, and right-aligned text into empty cells on its left. */
+  const overflow = (
+    view: Layout,
+    cached: Frame,
+    entry: FrameCell,
+    cellBox: CellBox,
+    cols: { from: number; to: number },
+    merged: (row: number, col: number) => Rect | undefined
+  ): CellBox & { clip?: CellBox } => {
+    if (entry.style.wrap || entry.cell.kind !== 'text') return cellBox
+    const align = alignment(entry.cell, entry.style)
+    if (align === 'center') return cellBox
+    const step = align === 'left' ? 1 : -1
+    let col = entry.cell.col
+    const free = (next: number) =>
+      next >= cols.from &&
+      next <= cols.to &&
+      !cached.cells.get(cellKey(entry.cell.row, next))?.cell.text &&
+      !merged(entry.cell.row, next)
+    while (free(col + step)) col += step
+    if (col === entry.cell.col) return cellBox
+    const edge = view.colX(col) + (step > 0 ? view.cols.size(col) : 0)
+    const clip =
+      step > 0
+        ? { ...cellBox, width: edge - cellBox.x }
+        : { ...cellBox, x: edge, width: cellBox.x + cellBox.width - edge }
+    return { ...cellBox, clip }
+  }
+
+  const paintText = (
+    context: CanvasRenderingContext2D,
+    tokens: Tokens,
+    entry: FrameCell,
+    area: CellBox & { clip?: CellBox }
+  ) => {
+    const { cell, style } = entry
+    const { font, size } = cellFont(style, tokens.font)
+    const clip = area.clip ?? area
+    context.save()
+    context.beginPath()
+    context.rect(clip.x, clip.y, clip.width - 1, clip.height - 1)
+    context.clip()
+    context.font = font
+    context.fillStyle = cell.color ?? style.font_color ?? tokens.text
+    const align = alignment(cell, style)
+    const indent = style.indent * 8
+    const padding = 3
+    const lineHeight = size * 1.25
+    const lines = style.wrap
+      ? wrapLines(context, cell.text, area.width - padding * 2 - indent)
+      : [cell.text.replaceAll('\n', ' ')]
+    const textHeight = lines.length * lineHeight
+    const top =
+      style.v_align === 'top'
+        ? area.y + padding
+        : style.v_align === 'center'
+          ? area.y + (area.height - textHeight) / 2
+          : area.y + area.height - padding - textHeight
+    context.textBaseline = 'middle'
+    context.textAlign = align
+    const x =
+      align === 'left'
+        ? area.x + padding + indent
+        : align === 'right'
+          ? area.x + area.width - padding - indent
+          : area.x + area.width / 2
+    lines.forEach((line, index) => {
+      const y = top + lineHeight * index + lineHeight / 2
+      context.fillText(line, x, y)
+      if (!style.underline && !style.strike) return
+      const width = context.measureText(line).width
+      const start = align === 'left' ? x : align === 'right' ? x - width : x - width / 2
+      context.fillRect(start, style.underline ? y + size / 2 : y, width, 1)
+      if (style.underline && style.strike) context.fillRect(start, y, width, 1)
+    })
+    context.restore()
+  }
+
+  const paintBorders = (
+    context: CanvasRenderingContext2D,
+    style: RenderStyle,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ) => {
+    const sides = [
+      [style.borders.top, x, y, x + width, y],
+      [style.borders.bottom, x, y + height, x + width, y + height],
+      [style.borders.left, x, y, x, y + height],
+      [style.borders.right, x + width, y, x + width, y + height]
+    ] as const
+    for (const [border, x0, y0, x1, y1] of sides) {
+      if (!border) continue
+      context.strokeStyle = border.color ?? '#000000'
+      context.lineWidth = borderWidths[border.style] ?? 1
+      context.setLineDash(borderDashes[border.style] ?? [])
+      context.beginPath()
+      context.moveTo(Math.round(x0) - 0.5, Math.round(y0) - 0.5)
+      context.lineTo(Math.round(x1) - 0.5, Math.round(y1) - 0.5)
+      context.stroke()
+    }
+    context.setLineDash([])
+  }
+
+  const paintOverlays = (context: CanvasRenderingContext2D, view: Layout, tokens: Tokens) => {
+    context.save()
+    context.beginPath()
+    context.rect(HEADER_WIDTH, HEADER_HEIGHT, view.width - HEADER_WIDTH, view.height - HEADER_HEIGHT)
+    context.clip()
+    for (const member of model.members.peek()) {
+      const color = getComputedStyle(container.current!).getPropertyValue(member.color).trim()
+      for (const selected of member.selections) {
+        const rect = selected.sheet_id === view.info.sheet_id ? presenceRect(selected) : undefined
+        const area = rect && box(view, rect)
+        if (!area || !shown(area)) continue
+        context.strokeStyle = color
+        context.lineWidth = 2
+        context.strokeRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2)
+        context.font = `11px ${tokens.font}`
+        const label = member.name
+        const labelWidth = context.measureText(label).width + 8
+        context.fillStyle = color
+        context.fillRect(area.x, Math.max(HEADER_HEIGHT, area.y - 16), labelWidth, 16)
+        context.fillStyle = '#ffffff'
+        context.textAlign = 'left'
+        context.textBaseline = 'middle'
+        context.fillText(label, area.x + 4, Math.max(HEADER_HEIGHT, area.y - 16) + 8)
+      }
+    }
+    const rect = selectionRect(model.selection.peek())
+    const area = box(view, rect)
+    const active = model.selection.peek().anchor
+    const activeArea = box(
+      view,
+      mergedArea(active) ?? { r0: active.row, c0: active.col, r1: active.row, c1: active.col }
+    )
+    if (!shown(area)) {
+      context.restore()
+      return
+    }
+    context.globalAlpha = 0.45
+    context.fillStyle = tokens.selection
+    context.beginPath()
+    context.rect(area.x, area.y, area.width, area.height)
+    context.rect(activeArea.x, activeArea.y, activeArea.width, activeArea.height)
+    context.fill('evenodd')
+    context.globalAlpha = 1
+    context.strokeStyle = tokens.focus
+    context.lineWidth = 2
+    context.strokeRect(area.x + 0.5, area.y + 0.5, area.width - 2, area.height - 2)
+    context.restore()
+  }
+
+  const mergedArea = (cell: CellAddress) => frame.current?.merges.find(merge => contains(merge, cell))
+
+  const paintHeaders = (context: CanvasRenderingContext2D, view: Layout, tokens: Tokens) => {
+    const rect = selectionRect(model.selection.peek())
+    context.fillStyle = tokens.header
+    context.fillRect(0, 0, view.width, HEADER_HEIGHT)
+    context.fillRect(0, 0, HEADER_WIDTH, view.height)
+    context.font = `12px ${tokens.font}`
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    context.strokeStyle = tokens.grid
+    context.lineWidth = 1
+    const columnPass = (from: number, to: number, clipLeft: number) => {
+      context.save()
+      context.beginPath()
+      context.rect(clipLeft, 0, view.width - clipLeft, HEADER_HEIGHT)
+      context.clip()
+      for (let col = from; col <= to; col++) {
+        const width = view.cols.size(col)
+        if (!width) continue
+        const x = view.colX(col)
+        context.fillStyle = col >= rect.c0 && col <= rect.c1 ? tokens.headerActive : tokens.header
+        context.fillRect(x, 0, width, HEADER_HEIGHT)
+        context.fillStyle = tokens.headerText
+        context.fillText(columnName(col), x + width / 2, HEADER_HEIGHT / 2)
+        context.beginPath()
+        context.moveTo(Math.round(x + width) - 0.5, 0)
+        context.lineTo(Math.round(x + width) - 0.5, HEADER_HEIGHT)
+        context.stroke()
+      }
+      context.restore()
+    }
+    const rowPass = (from: number, to: number, clipTop: number) => {
+      context.save()
+      context.beginPath()
+      context.rect(0, clipTop, HEADER_WIDTH, view.height - clipTop)
+      context.clip()
+      for (let row = from; row <= to; row++) {
+        const height = view.rows.size(row)
+        if (!height) continue
+        const y = view.rowY(row)
+        context.fillStyle = row >= rect.r0 && row <= rect.r1 ? tokens.headerActive : tokens.header
+        context.fillRect(0, y, HEADER_WIDTH, height)
+        context.fillStyle = tokens.headerText
+        context.fillText(String(row + 1), HEADER_WIDTH / 2, y + height / 2)
+        context.beginPath()
+        context.moveTo(0, Math.round(y + height) - 0.5)
+        context.lineTo(HEADER_WIDTH, Math.round(y + height) - 0.5)
+        context.stroke()
+      }
+      context.restore()
+    }
+    columnPass(view.firstCol, view.lastCol, HEADER_WIDTH + view.frozenWidth)
+    columnPass(0, view.frozenCols - 1, HEADER_WIDTH)
+    rowPass(view.firstRow, view.lastRow, HEADER_HEIGHT + view.frozenHeight)
+    rowPass(0, view.frozenRows - 1, HEADER_HEIGHT)
+    context.strokeStyle = tokens.divider
+    context.beginPath()
+    context.moveTo(0, HEADER_HEIGHT - 0.5)
+    context.lineTo(view.width, HEADER_HEIGHT - 0.5)
+    context.moveTo(HEADER_WIDTH - 0.5, 0)
+    context.lineTo(HEADER_WIDTH - 0.5, view.height)
+    if (view.frozenRows) {
+      const y = HEADER_HEIGHT + view.frozenHeight - 0.5
+      context.moveTo(0, y)
+      context.lineTo(view.width, y)
+    }
+    if (view.frozenCols) {
+      const x = HEADER_WIDTH + view.frozenWidth - 0.5
+      context.moveTo(x, 0)
+      context.lineTo(x, view.height)
+    }
+    context.stroke()
+    const resizing = drag.current?.kind === 'resize' ? drag.current : undefined
+    if (resizing) {
+      context.strokeStyle = tokens.focus
+      context.beginPath()
+      if (resizing.axis === 'cols') {
+        const x = view.colX(resizing.index) + resizing.current
+        context.moveTo(x, 0)
+        context.lineTo(x, view.height)
+      } else {
+        const y = view.rowY(resizing.index) + resizing.current
+        context.moveTo(0, y)
+        context.lineTo(view.width, y)
+      }
+      context.stroke()
+    }
+  }
+
+  /** Keeps the cell editor over the active cell, with the cell's font and fill. */
+  const placeEditor = (view: Layout, cached: Frame | undefined) => {
+    const element = input.current
+    if (!element) return
+    const current = model.draft.peek()
+    const cell = current?.cell ?? model.selection.peek().anchor
+    const area = box(view, mergedArea(cell) ?? { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col })
+    const style = cached?.cells.get(cellKey(cell.row, cell.col))?.style
+    const tokens = readTokens(container.current!)
+    element.style.left = `${area.x}px`
+    element.style.top = `${area.y}px`
+    element.style.minWidth = `${Math.max(area.width, 24)}px`
+    element.style.minHeight = `${Math.max(area.height, 18)}px`
+    element.style.maxWidth = `${Math.max(view.width - area.x, 80)}px`
+    element.style.font = cellFont(style, tokens.font).font
+    element.style.color = style?.font_color ?? tokens.text
+    element.style.background = style?.fill_color ?? tokens.background
+  }
+
+  const hitTest = (x: number, y: number): Hit | undefined => {
+    const view = layout()
+    if (!view) return undefined
+    if (x < HEADER_WIDTH && y < HEADER_HEIGHT) return { kind: 'corner' }
+    if (y < HEADER_HEIGHT) {
+      const col = view.colAt(x)
+      const start = view.colX(col)
+      const end = start + view.cols.size(col)
+      const resize = end - x <= RESIZE_SLOP ? col : x - start <= RESIZE_SLOP && col > 0 ? col - 1 : undefined
+      return { kind: 'cols', col, resize }
+    }
+    if (x < HEADER_WIDTH) {
+      const row = view.rowAt(y)
+      const start = view.rowY(row)
+      const end = start + view.rows.size(row)
+      const resize = end - y <= RESIZE_SLOP ? row : y - start <= RESIZE_SLOP && row > 0 ? row - 1 : undefined
+      return { kind: 'rows', row, resize }
+    }
+    return { kind: 'cell', cell: { row: view.rowAt(y), col: view.colAt(x) } }
+  }
+
+  const local = (event: { clientX: number; clientY: number }) => {
+    const bounds = scroller.current!.getBoundingClientRect()
+    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
+  }
+
+  const selectLines = (axis: 'rows' | 'cols', from: number, to: number) => {
+    model.select(
+      axis === 'rows'
+        ? { anchor: { row: from, col: 0 }, focus: { row: to, col: MAX_COLS - 1 } }
+        : { anchor: { row: 0, col: from }, focus: { row: MAX_ROWS - 1, col: to } }
+    )
+  }
+
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    const { x, y } = local(event)
+    if (x > scroller.current!.clientWidth || y > scroller.current!.clientHeight) return
+    const hit = hitTest(x, y)
+    if (!hit) return
+    event.preventDefault()
+    if (model.draft.peek()) void model.commitEdit()
+    input.current?.focus({ preventScroll: true })
+    const view = layout()!
+    if (hit.kind === 'corner') {
+      model.select({ anchor: { row: 0, col: 0 }, focus: { row: MAX_ROWS - 1, col: MAX_COLS - 1 } })
+    } else if ((hit.kind === 'cols' || hit.kind === 'rows') && hit.resize !== undefined && editable) {
+      const axis = hit.kind
+      const size = axis === 'cols' ? view.cols.size(hit.resize) : view.rows.size(hit.resize)
+      drag.current = { kind: 'resize', axis, index: hit.resize, origin: axis === 'cols' ? x : y, size, current: size }
+      scroller.current!.setPointerCapture(event.pointerId)
+    } else if (hit.kind === 'cols' || hit.kind === 'rows') {
+      const index = hit.kind === 'cols' ? hit.col : hit.row
+      const current = selectionRect(model.selection.peek())
+      const anchor = event.shiftKey ? (hit.kind === 'cols' ? current.c0 : current.r0) : index
+      selectLines(hit.kind, anchor, index)
+      drag.current = {
+        kind: 'select',
+        lines: hit.kind,
+        anchor: hit.kind === 'cols' ? { row: 0, col: anchor } : { row: anchor, col: 0 }
+      }
+      scroller.current!.setPointerCapture(event.pointerId)
+    } else if (hit.kind === 'cell') {
+      const anchor = event.shiftKey ? model.selection.peek().anchor : hit.cell
+      model.select({ anchor, focus: hit.cell })
+      drag.current = { kind: 'select', anchor }
+      scroller.current!.setPointerCapture(event.pointerId)
+    }
+    requestPaint()
+  }
+
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const { x, y } = local(event)
+    const current = drag.current
+    if (!current) {
+      const hit = hitTest(x, y)
+      scroller.current!.style.cursor =
+        editable && hit?.kind === 'cols' && hit.resize !== undefined
+          ? 'col-resize'
+          : editable && hit?.kind === 'rows' && hit.resize !== undefined
+            ? 'row-resize'
+            : hit?.kind === 'cell'
+              ? 'cell'
+              : 'default'
+      return
+    }
+    if (current.kind === 'resize') {
+      current.current = Math.max(4, current.size + (current.axis === 'cols' ? x : y) - current.origin)
+      requestPaint()
+      return
+    }
+    const view = layout()
+    if (!view) return
+    const cell = clampCell({ row: view.rowAt(Math.max(y, HEADER_HEIGHT)), col: view.colAt(Math.max(x, HEADER_WIDTH)) })
+    if (current.lines === 'rows') selectLines('rows', current.anchor.row, cell.row)
+    else if (current.lines === 'cols') selectLines('cols', current.anchor.col, cell.col)
+    else model.select({ anchor: current.anchor, focus: cell })
+  }
+
+  const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    const current = drag.current
+    drag.current = undefined
+    if (scroller.current?.hasPointerCapture(event.pointerId)) scroller.current.releasePointerCapture(event.pointerId)
+    if (current?.kind !== 'resize') return
+    const rect = selectionRect(model.selection.peek())
+    const lines = selectedLines(rect, current.axis, model.selection.peek().anchor)
+    const whole =
+      current.axis === 'cols' ? rect.r0 === 0 && rect.r1 === MAX_ROWS - 1 : rect.c0 === 0 && rect.c1 === MAX_COLS - 1
+    const spans = whole && current.index >= lines.start && current.index <= lines.end
+    if (Math.round(current.current) !== Math.round(current.size)) {
+      void model.perform({
+        type: 'line.resize',
+        sheet_id: model.activeSheetID.peek(),
+        axis: current.axis,
+        start: spans ? lines.start : current.index,
+        end: spans ? lines.end : current.index,
+        size_px: Math.round(current.current)
+      })
+    }
+    requestPaint()
+  }
+
+  const startEditing = async (cell: CellAddress) => {
+    if (!model.editable.peek()) return
+    const inputs = await model.cellInputs(model.activeSheetID.peek(), {
+      r0: cell.row,
+      c0: cell.col,
+      r1: cell.row,
+      c1: cell.col
+    })
+    model.edit(cell, inputs?.[0]?.[0] ?? '')
+    input.current?.focus({ preventScroll: true })
+  }
+
+  const scrollTo = (cell: CellAddress) => {
+    const view = layout()
+    const element = scroller.current
+    if (!view || !element) return
+    if (cell.row >= view.frozenRows) {
+      const top = view.rows.offset(cell.row) - view.frozenHeight
+      const bottom = top + view.rows.size(cell.row)
+      const visible = view.height - HEADER_HEIGHT - view.frozenHeight
+      if (top < element.scrollTop) element.scrollTop = top
+      else if (bottom > element.scrollTop + visible) element.scrollTop = bottom - visible
+    }
+    if (cell.col >= view.frozenCols) {
+      const left = view.cols.offset(cell.col) - view.frozenWidth
+      const right = left + view.cols.size(cell.col)
+      const visible = view.width - HEADER_WIDTH - view.frozenWidth
+      if (left < element.scrollLeft) element.scrollLeft = left
+      else if (right > element.scrollLeft + visible) element.scrollLeft = right - visible
+    }
+  }
+
+  const moveTo = (cell: CellAddress, extend: boolean) => {
+    const target = clampCell(cell)
+    model.select(extend ? { anchor: model.selection.peek().anchor, focus: target } : cellSelection(target))
+    scrollTo(target)
+  }
+
+  /** Keyboard navigation and commands while no cell is being edited. Returns whether it handled the key. */
+  const navigate = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    const view = layout()
+    if (!view) return false
+    const command = event.metaKey || event.ctrlKey
+    const { anchor, focus } = model.selection.peek()
+    const from = event.shiftKey ? focus : anchor
+    const page = Math.max(1, view.lastRow - view.firstRow)
+    const arrows: Record<string, Direction> = {
+      ArrowUp: 'up',
+      ArrowDown: 'down',
+      ArrowLeft: 'left',
+      ArrowRight: 'right'
+    }
+    const direction = arrows[event.key]
+    if (direction) {
+      if (command) {
+        void model.dataEdge(from, direction).then(cell => moveTo(cell, event.shiftKey))
+      } else {
+        const [rows, cols] = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[direction]
+        moveTo({ row: from.row + rows!, col: from.col + cols! }, event.shiftKey)
+      }
+      return true
+    }
+    switch (event.key) {
+      case 'Tab':
+        moveTo({ row: anchor.row, col: anchor.col + (event.shiftKey ? -1 : 1) }, false)
+        return true
+      case 'Enter':
+        moveTo({ row: anchor.row + (event.shiftKey ? -1 : 1), col: anchor.col }, false)
+        return true
+      case 'Home':
+        moveTo(command ? { row: 0, col: 0 } : { row: from.row, col: 0 }, event.shiftKey)
+        return true
+      case 'End':
+        moveTo(
+          command
+            ? { row: Math.max(view.info.rows - 1, 0), col: Math.max(view.info.cols - 1, 0) }
+            : { row: from.row, col: Math.max(view.info.cols - 1, 0) },
+          event.shiftKey
+        )
+        return true
+      case 'PageDown':
+        moveTo({ row: from.row + page, col: from.col }, event.shiftKey)
+        return true
+      case 'PageUp':
+        moveTo({ row: from.row - page, col: from.col }, event.shiftKey)
+        return true
+      case 'Delete':
+      case 'Backspace':
+        if (model.editable.peek()) void model.clearContents()
+        return true
+      case 'F2':
+        void startEditing(anchor)
+        return true
+      case 'Escape':
+        return true
+    }
+    if (!command) return false
+    const key = event.key.toLowerCase()
+    if (key === 'a') {
+      model.select({ anchor: { row: 0, col: 0 }, focus: { row: MAX_ROWS - 1, col: MAX_COLS - 1 } })
+      return true
+    }
+    if ((key === 'z' && event.shiftKey) || key === 'y') {
+      void model.redo()
+      return true
+    }
+    if (key === 'z') {
+      void model.undo()
+      return true
+    }
+    return false
+  }
+
+  const lineAction = (axis: 'rows' | 'cols', type: 'line.insert' | 'line.delete', after = false) => {
+    const lines = selectedLines(selectionRect(model.selection.peek()), axis, model.selection.peek().anchor)
+    void model.perform({
+      type,
+      sheet_id: model.activeSheetID.peek(),
+      axis,
+      at: type === 'line.insert' && after ? lines.end + 1 : lines.start,
+      count: type === 'line.insert' ? 1 : lines.end - lines.start + 1
+    })
+  }
+
+  const resizeAction = (axis: 'rows' | 'cols', size: 'hidden' | 'unhide' | 'auto') => {
+    const lines = selectedLines(selectionRect(model.selection.peek()), axis, model.selection.peek().anchor)
+    void model.perform({ type: 'line.resize', sheet_id: model.activeSheetID.peek(), axis, ...lines, size_px: size })
+  }
+
+  useEffect(() => {
+    requestPaint()
+  }, [sheet, version, selection, members, draft, editable])
+
+  useEffect(() => {
+    const element = container.current
+    if (!element) return
+    const observer = new ResizeObserver(() => requestPaint())
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(scheduled.current)
+      scheduled.current = 0
+    }
+  }, [])
+
+  useEffect(() => {
+    frame.current = undefined
+    scroller.current?.scrollTo({ top: 0, left: 0 })
+  }, [sheetID])
+
+  const rows = (
+    <>
+      <DropdownMenuItem onClick={() => lineAction('rows', 'line.insert')}>
+        {t('pod.spreadsheet.insert_row_above')}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => lineAction('rows', 'line.insert', true)}>
+        {t('pod.spreadsheet.insert_row_below')}
+      </DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" onClick={() => lineAction('rows', 'line.delete')}>
+        {t('pod.spreadsheet.delete_rows')}
+      </DropdownMenuItem>
+    </>
+  )
+  const cols = (
+    <>
+      <DropdownMenuItem onClick={() => lineAction('cols', 'line.insert')}>
+        {t('pod.spreadsheet.insert_column_left')}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => lineAction('cols', 'line.insert', true)}>
+        {t('pod.spreadsheet.insert_column_right')}
+      </DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" onClick={() => lineAction('cols', 'line.delete')}>
+        {t('pod.spreadsheet.delete_columns')}
+      </DropdownMenuItem>
+    </>
+  )
+  const lineItems = (axis: 'rows' | 'cols') => (
+    <>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => resizeAction(axis, 'hidden')}>
+        {axis === 'rows' ? t('pod.spreadsheet.hide_rows') : t('pod.spreadsheet.hide_columns')}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => resizeAction(axis, 'unhide')}>
+        {axis === 'rows' ? t('pod.spreadsheet.unhide_rows') : t('pod.spreadsheet.unhide_columns')}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => resizeAction(axis, 'auto')}>
+        {axis === 'rows' ? t('pod.spreadsheet.reset_row_height') : t('pod.spreadsheet.reset_column_width')}
+      </DropdownMenuItem>
+    </>
+  )
+
+  return (
+    <div ref={container} className="relative min-h-0 flex-1 overflow-hidden">
+      <ContextMenu disabled={!editable}>
+        <ContextMenuTrigger
+          ref={scroller}
+          role="grid"
+          aria-label={t('pod.spreadsheet.grid_label', { sheet: sheet?.name ?? '' })}
+          className="absolute inset-0 overflow-auto outline-none select-none"
+          onScroll={requestPaint}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onDoubleClick={event => {
+            const { x, y } = local(event)
+            const hit = hitTest(x, y)
+            if (hit?.kind === 'cell') void startEditing(hit.cell)
+          }}
+          onContextMenuCapture={event => {
+            const { x, y } = local(event)
+            const hit = hitTest(x, y)
+            const rect = selectionRect(model.selection.peek())
+            if (hit?.kind === 'rows') {
+              if (hit.row < rect.r0 || hit.row > rect.r1 || rect.c1 !== MAX_COLS - 1) {
+                selectLines('rows', hit.row, hit.row)
+              }
+              setMenu('rows')
+            } else if (hit?.kind === 'cols') {
+              if (hit.col < rect.c0 || hit.col > rect.c1 || rect.r1 !== MAX_ROWS - 1) {
+                selectLines('cols', hit.col, hit.col)
+              }
+              setMenu('cols')
+            } else {
+              if (hit?.kind === 'cell' && !contains(rect, hit.cell)) model.select(cellSelection(hit.cell))
+              setMenu('cells')
+            }
+          }}>
+          <div ref={spacer} aria-hidden />
+        </ContextMenuTrigger>
+        <ContextMenuContent aria-label={t('pod.spreadsheet.cell_actions')}>
+          {menu === 'rows' ? (
+            <>
+              {rows}
+              {lineItems('rows')}
+            </>
+          ) : menu === 'cols' ? (
+            <>
+              {cols}
+              {lineItems('cols')}
+            </>
+          ) : (
+            <>
+              {rows}
+              <DropdownMenuSeparator />
+              {cols}
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+      <canvas ref={canvas} aria-hidden className="pointer-events-none absolute top-0 left-0" />
+      <SpreadsheetCellEditor model={model} inputRef={input} navigate={navigate} />
+    </div>
+  )
+}
+
+function buildFrame(
+  sheetID: number,
+  version: number,
+  rects: Rect[],
+  views: Viewport[],
+  axes: { rows: LineAxis; cols: LineAxis }
+): Frame {
+  const frame: Frame = {
+    sheetID,
+    version,
+    rects,
+    cells: new Map(),
+    merges: [],
+    spills: [],
+    rowStyles: new Map(),
+    colStyles: new Map()
+  }
+  const merges = new Map<string, Rect>()
+  const spills = new Map<string, Rect>()
+  views.forEach((view, index) => {
+    const rect = rects[index]!
+    axes.rows.replace(rect.r0, rect.r1, view.rows)
+    axes.cols.replace(rect.c0, rect.c1, view.cols)
+    for (const cell of view.cells) {
+      frame.cells.set(cellKey(cell.row, cell.col), { cell, style: view.styles[cell.style]! })
+    }
+    for (const line of view.rows) if (line.style !== null) frame.rowStyles.set(line.index, view.styles[line.style]!)
+    for (const line of view.cols) if (line.style !== null) frame.colStyles.set(line.index, view.styles[line.style]!)
+    for (const merge of view.merges) {
+      const parsed = parseRange(merge)
+      if (parsed) merges.set(merge, parsed)
+    }
+    for (const [, spill] of view.spills) {
+      const parsed = parseRange(spill)
+      if (parsed) spills.set(spill, parsed)
+    }
+  })
+  frame.merges = [...merges.values()]
+  frame.spills = [...spills.values()]
+  return frame
+}

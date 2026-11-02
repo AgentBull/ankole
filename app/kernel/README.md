@@ -52,9 +52,17 @@ dependencies do not build for WebAssembly:
   the business-workbook corpus in `test/fixtures/spreadsheet/corpus`, which
   every GridCraft upgrade must keep green.
 - `spreadsheet-wasm/` (`ankole_spreadsheet_wasm`) - the wasm-bindgen wrapper
-  that runs `ankole_spreadsheet` in a browser Web Worker.
-  `bun run --filter @ankole/kernel build:wasm` writes it to
-  `dist/spreadsheet-wasm/`, which `@ankole/kernel/spreadsheet-wasm` exports.
+  that runs `ankole_spreadsheet` in the Pod spreadsheet editor's Web Worker,
+  which keeps a confirmed and a local document (`fork`) and rebases pending
+  operations onto the confirmed one (`apply_rebased`).
+  `bun run --filter @ankole/kernel build:wasm` (also the package `build`
+  script, so Turbo builds it before the webapps) writes the module to
+  `dist/spreadsheet-wasm/`. `@ankole/kernel/spreadsheet-wasm` exports that
+  module with the declarations in `spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts`,
+  generated output that the script refreshes on every build and that stays in
+  git so that type checks need no Rust toolchain, and
+  `@ankole/kernel/spreadsheet-wasm/*` exposes the other build files, such as
+  the `.wasm` binary that the worker loads by URL.
 
 ## Identifier Generation
 

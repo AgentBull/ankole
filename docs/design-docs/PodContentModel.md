@@ -24,8 +24,8 @@ rather than built-in Base views.
 
 ### Page creation, editing, and navigation
 
-Creating a Page opens a non-modal menu offering document, Base, folder, and file
-options:
+Creating a Page opens a non-modal menu offering document, Base, folder,
+spreadsheet, and file options:
 
 - **Documents and Bases** open immediately at the chosen Space root, Private
   root, or parent Page. Inserting a child document from inside a document body
@@ -36,6 +36,9 @@ options:
 - **Folders** open the shared child list, including its empty state and creation
   and upload controls. Folder contributors can add children; editors can rename
   or trash files and folders. Files have no child-creation controls.
+- **Spreadsheets** call `POST /api/v2/pod/spreadsheet-pages` with the same
+  destination and open the new blank workbook; see
+  [Spreadsheet Pages](#spreadsheet-pages).
 - **File pages** prompt for a local file first, then submit its bytes and Page
   attributes to `POST /api/v2/pod/file-pages`, which creates the Page and file
   reference in a single tree transaction (defaulting an empty title to the
@@ -1540,10 +1543,10 @@ and presentations. Workbook and presentation viewers lazy-load their rendering
 libraries and stream bytes from the authorized Pod file URL without sending
 files to any external service—supporting sheet switching for workbooks, slide
 switching for presentations, and original-file downloads (preview fidelity
-follows supported format features and installed fonts). Spreadsheet Pages add
-collaborative editing and version history (see
-[Spreadsheet Pages](#spreadsheet-pages)); other workbook formats and
-presentations stay read-only.
+follows supported format features and installed fonts). `.xlsx` and `.xlsm`
+files open in the collaborative spreadsheet editor (see
+[Spreadsheet Pages](#spreadsheet-pages)); `.xls`, `.xlsb`, and `.ods` workbooks
+and presentations keep the read-only preview.
 
 Native Conversation messages carry Page links and verified attachments:
 
@@ -1673,6 +1676,57 @@ entries after the channel's last revision. Each entry carries `revision`, `kind`
 (`op` or `reset`), `client_id`, `client_seq`, `op`, and `created_at`. A replay
 that exceeds the 32 MiB message budget or reaches past pruned entries sets
 `reset_required`.
+
+The browser editor runs the kernel's WebAssembly build in a Web Worker, which
+the Pod bundle loads only when a spreadsheet Page opens. The worker holds two
+documents: the confirmed document, which equals the server's state at the
+editor's revision, and the local document, which adds this tab's pending
+operations on top and serves every read. Bootstrap downloads the file with the
+pinned `sha256` from the bootstrap response and replays its operations; when
+compaction replaced the file in between, the download fails with
+`manifest_changed`, and the editor bootstraps again, up to three times before
+it shows the error with a retry. The grid paints the local document on a
+high-DPI canvas from viewports that the worker returns for the visible area
+plus a margin, while a native textarea over the active cell keeps keyboard
+focus, opens on the first typed character or IME composition, and never commits
+during a composition. The formula bar edits the same draft as the cell editor.
+
+The editor sends one operation at a time with a 30 ms send delay and queues
+later edits behind the request in flight; each tab numbers its requests with
+its own `client_id` and an increasing `client_seq`, so a retry after a timeout
+is idempotent, and `spreadsheet_busy` repeats the same request after 200 ms
+up to five times. Every reply, push, and sync result applies the entries after
+the editor's revision to the confirmed document in order. When the entries
+include other editors' operations and local operations are still pending, the
+worker rebuilds the local document from the confirmed one and rebases each
+pending operation over those entries; a pending operation that conflicts is
+dropped, and its author sees the target and the reason so the edit can be made
+again. A `spreadsheet_conflict` reply drops the request in flight the same way
+after applying the missed entries, and a push that skips a revision asks for
+`sheet:sync`. `reset_required`, a `reset` entry, or `client_sequence_conflict`
+discards the pending operations, tells the author, and bootstraps again; the
+same happens after a restore, an upload, or an Agent Drive write. A changed page
+revision that the Pod socket's version check reports also asks for
+`sheet:sync`. The editor shares the page channel with the file Page, which keeps
+handling comment and access events. The editor sends the selection with
+`sheet:presence` at most every 250 ms, sends `null` when the grid loses focus,
+and paints each collaborator's selection and name in a color derived from the
+collaborator's uid.
+
+Undo and redo are personal. Before this tab sets a cell, pastes values, or
+clears contents, the editor reads the inputs that the affected cells hold, and
+undo writes them back with `range.set_values`. Formats, row and column
+changes, and sheet operations are not undoable; the history clears whenever a
+row, column, cell-shift, move, sort, or sheet deletion commits, because earlier
+coordinates no longer name the same cells. A viewer without `node_edit` gets
+the same grid with selection, copy, and live updates, and neither editing
+controls nor the version history.
+A file larger than `max_file_bytes` starts no worker. When the bootstrap
+metadata reports `has_unsupported_objects`, editors see a dismissible warning
+that saving drops slicers, timelines, Power Pivot data models, and named sheet
+views, and that the version history keeps the original file. The download link
+of a spreadsheet Page omits `sha256`, so it returns the file with every
+committed edit.
 
 `pod.spreadsheet.limits` bounds the feature per tenant: `max_file_bytes`
 (default 20 MiB) is the largest file an editor may load or edit, and a larger

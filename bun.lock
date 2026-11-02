@@ -78,6 +78,7 @@
         "@agentbull/active-support": "^1.6.0",
         "@ankole/applet-sdk": "workspace:*",
         "@ankole/block-editor": "workspace:*",
+        "@ankole/kernel": "workspace:*",
         "@ankole/uikit": "workspace:*",
         "@office-kit/pptx": "0.28.0",
         "@office-kit/pptx-preview": "0.21.0",

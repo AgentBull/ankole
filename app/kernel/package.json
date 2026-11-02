@@ -6,9 +6,14 @@
   "type": "module",
   "exports": {
     ".": "./node.ts",
-    "./spreadsheet-wasm": "./dist/spreadsheet-wasm/ankole_spreadsheet_wasm.js"
+    "./spreadsheet-wasm": {
+      "types": "./spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts",
+      "default": "./dist/spreadsheet-wasm/ankole_spreadsheet_wasm.js"
+    },
+    "./spreadsheet-wasm/*": "./dist/spreadsheet-wasm/*"
   },
   "scripts": {
+    "build": "bun run build:wasm",
     "build:elixir": "mix deps.get && mix compile",
     "fmt": "cargo fmt --all --manifest-path Cargo.toml && mix format",
     "fmt:check": "cargo fmt --all --manifest-path Cargo.toml --check && mix format --check-formatted",

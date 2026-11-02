@@ -31,17 +31,33 @@ impl Spreadsheet {
         Ok(Spreadsheet { doc })
     }
 
+    /// A second document that starts equal to this one. Documents are copy-on-write, so the fork
+    /// shares every sheet with this one until either side applies an operation.
+    pub fn fork(&self) -> Spreadsheet {
+        Spreadsheet {
+            doc: self.doc.clone(),
+        }
+    }
+
     /// Executes one canonical operation locally, without rebasing, and returns
     /// `{"op": …, "structural_edit": … | null}` as JSON: the operation as the control plane would
     /// commit it on the same document.
     pub fn apply(&mut self, op_json: &str) -> Result<String, JsError> {
-        let applied =
-            ankole_spreadsheet::apply(&self.doc, op_json, "[]").map_err(|error| match error {
-                ankole_spreadsheet::ApplyError::Conflict(conflict) => {
-                    JsError::new(conflict.as_str())
-                }
-                ankole_spreadsheet::ApplyError::Error(error) => js_error(error),
-            })?;
+        self.apply_rebased(op_json, "[]")
+    }
+
+    /// Rebases one operation over `prior_ops_json`, the JSON array of operations committed after
+    /// the revision the operation was based on, executes it, and returns the same JSON as
+    /// [`Spreadsheet::apply`]. When the rebase would have to guess, the error message is exactly
+    /// the conflict's wire name, such as `target_deleted`, so the caller can tell a conflict from
+    /// an invalid operation.
+    pub fn apply_rebased(
+        &mut self,
+        op_json: &str,
+        prior_ops_json: &str,
+    ) -> Result<String, JsError> {
+        let applied = ankole_spreadsheet::apply(&self.doc, op_json, prior_ops_json)
+            .map_err(|error| JsError::new(&apply_error_message(error)))?;
         let result =
             serde_json::json!({ "op": applied.op, "structural_edit": applied.structural_edit });
         self.doc = applied.doc;
@@ -79,6 +95,14 @@ impl Spreadsheet {
     }
 }
 
+/// A conflict reports only its wire name; every other refusal reports its message.
+fn apply_error_message(error: ankole_spreadsheet::ApplyError) -> String {
+    match error {
+        ankole_spreadsheet::ApplyError::Conflict(conflict) => conflict.as_str().to_string(),
+        ankole_spreadsheet::ApplyError::Error(error) => error.to_string(),
+    }
+}
+
 fn js_error(error: ankole_spreadsheet::Error) -> JsError {
     JsError::new(&error.to_string())
 }
@@ -89,7 +113,7 @@ fn json(value: &impl serde::Serialize) -> Result<String, JsError> {
 
 #[cfg(test)]
 mod tests {
-    use super::Spreadsheet;
+    use super::{Spreadsheet, apply_error_message};
 
     // Host builds cannot construct a `JsError`, so these tests cover the success paths only.
     #[test]
@@ -122,6 +146,66 @@ mod tests {
             reopened.cell_input(1, "B2").map_err(|_| "cell_input")?,
             "1234.5"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_fork_rebases_pending_edits_without_touching_its_source()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut confirmed = Spreadsheet::create_blank("Fork").map_err(|_| "create_blank")?;
+        confirmed
+            .apply(r#"{"type":"cell.set","sheet_id":1,"cell":"A1","input":"12"}"#)
+            .map_err(|_| "apply")?;
+        let mut local = confirmed.fork();
+        local
+            .apply(r#"{"type":"cell.set","sheet_id":1,"cell":"A2","input":"=A1*2"}"#)
+            .map_err(|_| "apply")?;
+        assert_eq!(confirmed.cell_input(1, "A2").map_err(|_| "cell_input")?, "");
+
+        // Another editor inserted a row above, so the pending edit moves down with its reference.
+        let insert = r#"[{"type":"line.insert","sheet_id":1,"axis":"rows","at":0,"count":1}]"#;
+        confirmed
+            .apply(r#"{"type":"line.insert","sheet_id":1,"axis":"rows","at":0,"count":1}"#)
+            .map_err(|_| "insert")?;
+        let mut rebuilt = confirmed.fork();
+        let rebased: serde_json::Value = serde_json::from_str(
+            &rebuilt
+                .apply_rebased(
+                    r#"{"type":"cell.set","sheet_id":1,"cell":"A2","input":"=A1*2"}"#,
+                    insert,
+                )
+                .map_err(|_| "apply_rebased")?,
+        )?;
+        assert_eq!(rebased["op"]["cell"], "A3");
+        assert_eq!(rebased["op"]["input"], "=A2*2");
+        let viewport: serde_json::Value =
+            serde_json::from_str(&rebuilt.viewport(1, 2, 0, 2, 0).map_err(|_| "viewport")?)?;
+        assert_eq!(viewport["cells"][0]["text"], "24");
+        assert_eq!(confirmed.cell_input(1, "A3").map_err(|_| "cell_input")?, "");
+        Ok(())
+    }
+
+    #[test]
+    fn a_conflict_reports_its_wire_name() -> Result<(), Box<dyn std::error::Error>> {
+        let (doc, _) = ankole_spreadsheet::create_blank("Conflict")?;
+        let deleted = ankole_spreadsheet::apply(
+            &doc,
+            r#"{"type":"line.delete","sheet_id":1,"axis":"rows","at":4,"count":1}"#,
+            "[]",
+        )
+        .map_err(|_| "delete")?;
+        let error = ankole_spreadsheet::apply(
+            &deleted.doc,
+            r#"{"type":"cell.set","sheet_id":1,"cell":"A5","input":"1"}"#,
+            r#"[{"type":"line.delete","sheet_id":1,"axis":"rows","at":4,"count":1}]"#,
+        )
+        .err()
+        .ok_or("the edit of a deleted row must conflict")?;
+        assert_eq!(apply_error_message(error), "target_deleted");
+        let invalid = ankole_spreadsheet::apply(&doc, r#"{"type":"cell.set"}"#, "[]")
+            .err()
+            .ok_or("an incomplete operation must fail")?;
+        assert!(apply_error_message(invalid).starts_with("invalid operation"));
         Ok(())
     }
 }

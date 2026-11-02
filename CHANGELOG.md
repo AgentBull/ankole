@@ -2,14 +2,22 @@
 
 ## Version 2.0.0-alpha.46 (2026-11-02)
 
-- Make `.xlsx` and `.xlsm` file pages editable spreadsheets on the server. Each
-  page keeps an operation log, so several people can edit the same workbook:
+- Create and edit spreadsheets in Pod. The page create menus offer a new
+  **Spreadsheet**, which starts as a blank `Untitled.xlsx`, and every `.xlsx` or
+  `.xlsm` file page opens in an online editor: type values and formulas,
+  format cells (fonts, colors, alignment, wrapping, number formats, borders,
+  merges, and notes), insert, delete, hide, and resize rows and columns, freeze
+  panes, sort, and add, rename, reorder, color, or delete sheets. Several
+  people can edit the same workbook at once and see each other's selections;
   Ankole moves an edit that crosses another person's row or column change to
-  the right cells and formulas, and rejects an edit it cannot place so its
-  author can confirm it again. Downloads and Agent file reads always return
-  the latest bytes, search finds text inside spreadsheet cells, and each
-  spreadsheet keeps restorable versions in the page history. Operators can
-  tune the editable file size and compaction with `pod.spreadsheet.limits`.
+  the right cells and formulas, and asks you to redo an edit it cannot place.
+  Undo and redo cover your own cell values. Editors can restore earlier
+  versions from the page history, downloads and Agent file reads always
+  return the latest edits, and search finds text inside spreadsheet cells.
+  Workbooks larger than the editing limit (20 MiB by default) offer the
+  download only, and `.xls`, `.xlsb`, `.ods`, `.csv`, and `.tsv` files keep
+  their read-only previews. Operators can tune the editable file size and
+  compaction with `pod.spreadsheet.limits`.
 
 ## Version 2.0.0-alpha.45 (2026-11-01)
 

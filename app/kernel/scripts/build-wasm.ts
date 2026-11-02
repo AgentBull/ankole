@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 
@@ -22,6 +22,9 @@ const toolsRoot = join(kernelRoot, 'target/wasm-tools')
 const outDir = join(kernelRoot, 'dist/spreadsheet-wasm')
 const built = join(kernelRoot, 'target/wasm32-unknown-unknown/wasm-release/ankole_spreadsheet_wasm.wasm')
 const bindgenWasm = join(outDir, 'ankole_spreadsheet_wasm_bg.wasm')
+// The declarations live in git as well, so that type checks of the webapps pass on machines
+// without a Rust toolchain. Every build refreshes them.
+const declarations = 'ankole_spreadsheet_wasm.d.ts'
 
 function run(command: string, args: string[]): void {
   const result = spawnSync(command, args, { cwd: kernelRoot, stdio: 'inherit' })
@@ -67,6 +70,7 @@ if (wasmOpt) {
   )
 }
 await smokeCheck()
+copyFileSync(join(outDir, declarations), join(kernelRoot, 'spreadsheet-wasm', declarations))
 
 const bytes = readFileSync(bindgenWasm)
 const kib = (n: number) => `${(n / 1024).toFixed(1)} KiB`
