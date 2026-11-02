@@ -167,7 +167,8 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
         "input" => "hello"
       })
 
-    assert %{"id" => "resp_oidc_http", "status" => "completed"} = json_response(response, 200)
+    assert %{"id" => "tmp_resp_" <> uuid, "status" => "completed"} = json_response(response, 200)
+    assert {:ok, ^uuid} = Ankole.Ecto.UUIDv7.cast(uuid)
     assert_receive {:oidc_http_upstream_request, %{path: "v1/responses"} = upstream}
     assert upstream.body["model"] == provider_model
   end
