@@ -13,7 +13,7 @@ for (const [locale, menuLabel] of [
   ['ja-JP', 'アカウントメニュー：'],
   ['ko-KR', '계정 메뉴:']
 ] as const) {
-  for (const tenantName of ['Harbor Pod', ''])
+  for (const tenantName of ['Harbor Pod', '']) {
     test(`${locale} account button includes the visible identity for tenant "${tenantName}"`, async () => {
       await loadLocale(locale)
       const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity } } })
@@ -55,18 +55,21 @@ for (const [locale, menuLabel] of [
           .transform(new Response(html))
           .text()
 
-        expect(visibleText).toBe(tenantName + 'Alice Reviewer')
+        expect(visibleText).toBe(`${tenantName}Alice Reviewer`)
         expect(accessibleName).toStartWith(menuLabel)
-        if (tenantName) expect(accessibleName).toMatch(/Harbor Pod.*Alice Reviewer/u)
-        else
+        if (tenantName) {
+          expect(accessibleName).toMatch(/Harbor Pod.*Alice Reviewer/u)
+        } else {
           expect(
             accessibleName
               .slice(menuLabel.length)
               .replace(/[\u2068\u2069]/gu, '')
               .trim()
           ).toBe('Alice Reviewer')
+        }
       } finally {
         client.clear()
       }
     })
+  }
 }

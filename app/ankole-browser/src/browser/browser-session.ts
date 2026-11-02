@@ -608,8 +608,9 @@ async function selectByLabelOrValue(locator: Locator, value: string): Promise<vo
     const match = await frame.waitForFunction(
       ({ control, value }) => {
         const select = control instanceof HTMLSelectElement ? control : control.closest('label')?.control
-        if (!(select instanceof HTMLSelectElement) || !select.isConnected)
+        if (!(select instanceof HTMLSelectElement) || !select.isConnected) {
           throw new Error('Expected an attached select')
+        }
         const options = Array.from(select.options)
         return options.find(option => option.label === value) ?? options.find(option => option.value === value) ?? false
       },
