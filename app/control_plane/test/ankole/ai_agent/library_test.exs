@@ -6,7 +6,6 @@ defmodule Ankole.AIAgent.LibraryTest do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
-  alias Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIAgent.Library.SourceReader
@@ -28,7 +27,6 @@ defmodule Ankole.AIAgent.LibraryTest do
       preserve its meaning.
     tags: ["one,two", 'three']
     default_enabled: false
-    brain-recall-only: true
     ---
     # Example
     """)
@@ -37,7 +35,6 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert source.description == "Read a report: preserve its meaning."
     assert source.metadata["tags"] == ["one,two", "three"]
     refute source.default_enabled
-    assert source.metadata["brain_recall_only"]
 
     path = Path.join([root, "yaml-example", "SKILL.md"])
     valid = File.read!(path)
@@ -65,7 +62,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert research["agent_plugin_id"] == "deep-research"
 
     assert research["relative_path"] ==
-             "agent-plugins/deep-research/skills/create-deep-research"
+             "create-deep-research"
 
     assert {:ok, %{"skills" => runtime_skills, "agent_plugins" => agent_plugins}} =
              Library.runtime_catalog_for_agent(agent.uid)
@@ -73,7 +70,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     runtime_research = Enum.find(runtime_skills, &(&1["skill_name"] == "create-deep-research"))
     assert runtime_research["source_kind"] == "builtin"
     assert runtime_research["agent_plugin_id"] == "deep-research"
-    assert runtime_research["skill_root"] == "library"
+    assert runtime_research["skill_root"] == "knowledge"
 
     research_plugin = Enum.find(agent_plugins, &(&1["id"] == "deep-research"))
 
@@ -119,49 +116,6 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     approvals = Enum.find(runtime_skills, &(&1["skill_name"] == "lark-approvals"))
     assert approvals["metadata"]["ankole-runtime"] == "main"
-  end
-
-  test "new agents are seeded with soul, mission, and design library entries" do
-    %{principal: agent} = agent_fixture()
-
-    assert {:ok, documents} = Library.list_agent_documents(agent.uid)
-
-    assert documents["soul"]["content"] ==
-             File.read!(Path.expand("../../../../library/templates/SOUL.md", __DIR__))
-
-    assert documents["mission"]["content"] ==
-             File.read!(Path.expand("../../../../library/templates/MISSION.md", __DIR__))
-
-    assert documents["design"]["content"] ==
-             File.read!(Path.expand("../../../../library/templates/DESIGN.md", __DIR__))
-  end
-
-  test "rejects unimplemented library source kinds" do
-    %{principal: agent} = agent_fixture()
-
-    assert {:ok, changeset} =
-             Repo.transact(fn ->
-               {:ok,
-                Ankole.Ash.for_create(AgentLibraryContainerEntry, :put, %{
-                  agent_uid: agent.uid,
-                  path: "SETTING.md",
-                  source_kind: "setting",
-                  content: "unused",
-                  metadata: %{}
-                })}
-             end)
-
-    refute changeset.valid?
-
-    assert Enum.any?(
-             changeset.errors,
-             &match?(%Ash.Error.Changes.InvalidAttribute{field: :source_kind}, &1)
-           )
-
-    refute Repo.exists?(
-             from entry in AgentLibraryContainerEntry,
-               where: entry.agent_uid == ^agent.uid and entry.path == "SETTING.md"
-           )
   end
 
   test "skill_view merges canonical skill body with delivered skill lessons" do
@@ -406,6 +360,7 @@ defmodule Ankole.AIAgent.LibraryTest do
 
   test "rejects Skill name collisions across first-party and installed sources" do
     %{principal: agent} = agent_fixture()
+    assert {:ok, _} = Library.sync_agent_skills(agent.uid)
 
     installed_skill_fixture(agent.uid, "pdf")
 
@@ -453,6 +408,7 @@ defmodule Ankole.AIAgent.LibraryTest do
 
   test "effective Agent Plugin lookup does not resynchronize Skill registry rows" do
     %{principal: agent} = agent_fixture()
+    assert {:ok, _} = Library.sync_agent_skills(agent.uid)
     skill = Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "lark-im")
     old_sync = ~U[2020-01-01 00:00:00.000000Z]
 
@@ -490,6 +446,7 @@ defmodule Ankole.AIAgent.LibraryTest do
 
   test "a sync with unchanged sources rewrites no registry rows" do
     %{principal: agent} = agent_fixture()
+    assert {:ok, _} = Library.sync_agent_skills(agent.uid)
     frozen = ~U[2020-01-01 00:00:00.000000Z]
 
     {row_count, _rows} =
@@ -511,6 +468,7 @@ defmodule Ankole.AIAgent.LibraryTest do
 
   test "a sync rewrites only the skill row whose source content changed" do
     %{principal: agent} = agent_fixture()
+    assert {:ok, _} = Library.sync_agent_skills(agent.uid)
     frozen = ~U[2020-01-01 00:00:00.000000Z]
 
     AgentSkill
@@ -536,7 +494,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert Enum.all?(untouched, &(&1.synced_at == frozen and &1.updated_at == frozen))
   end
 
-  test "source reader uses runtime roots, internal shadowing, and metadata-only fingerprints" do
+  test "source reader uses runtime roots, internal shadowing, and whole-package fingerprints" do
     root = tmp_library_root!("source-reader")
     public_skill = Path.join([root, "library", "skills", "shadowed"])
     public_only_skill = Path.join([root, "library", "skills", "public-only"])
@@ -566,7 +524,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     shadowed = Enum.find(sources, &(&1.name == "shadowed"))
     assert shadowed.description == "Internal description."
     assert shadowed.metadata["skill_root"] == "internal"
-    assert Enum.map(shadowed.files, & &1.path) == ["SKILL.md"]
+    assert Enum.map(shadowed.files, & &1.path) == ["SKILL.md", "references/guide.md"]
     refute Enum.any?(shadowed.files, &String.starts_with?(&1.path, "target/"))
     refute Enum.any?(shadowed.files, &String.starts_with?(&1.path, "node_modules/"))
     refute Enum.any?(shadowed.files, &String.starts_with?(&1.path, "__pycache__/"))
@@ -582,7 +540,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     File.write!(Path.join([internal_skill, "references", "guide.md"]), "changed reference")
     assert {:ok, sources_after_reference_change} = SourceReader.read_builtin_skill_sources()
 
-    assert Enum.find(sources_after_reference_change, &(&1.name == "shadowed")).source_hash ==
+    assert Enum.find(sources_after_reference_change, &(&1.name == "shadowed")).source_hash !=
              shadowed.source_hash
 
     File.write!(Path.join([internal_skill, "SKILL.md"]), """
@@ -609,8 +567,8 @@ defmodule Ankole.AIAgent.LibraryTest do
     %{principal: agent} = agent_fixture()
     assert {:ok, runtime_skills} = Library.runtime_skills_for_agent(agent.uid)
     runtime_shadowed = Enum.find(runtime_skills, &(&1["skill_name"] == "shadowed"))
-    assert runtime_shadowed["skill_root"] == "internal"
-    assert runtime_shadowed["metadata"]["skill_root"] == "internal"
+    assert runtime_shadowed["skill_root"] == "knowledge"
+    assert runtime_shadowed["metadata"]["skill_root"] == "knowledge"
 
     with_library_config(
       library_root: Path.join(root, "library"),

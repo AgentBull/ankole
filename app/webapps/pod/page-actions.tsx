@@ -23,10 +23,10 @@ import {
   RiStarFill,
   RiStarLine
 } from '@remixicon/react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import type { PageMove as PodPageMove } from './content-api'
-import { podLocation, podRouteID } from '../common/browser-context'
+import { podLocation, podPagePath, podPageRouteID } from '../common/pod-url'
 import { requestErrorMessage } from '../common/request-errors'
 import { cachedPages, contentKeys, pageAPI, type Page, type PageDetail } from './content-api'
 import { useContent } from './content-context'
@@ -36,6 +36,7 @@ import { canMovePage, stepRequest } from './state/page-move'
 import { CreatePageSubmenu, useSubpageCreation } from './page-create-menu'
 
 import { pageCreated, pageRemoved, pageMoved } from './state/navigation-cache'
+import type { PodPageChildrenResponse } from './api/generated/types.gen'
 
 const title = (page: Page) => page.title || t('pod.content.untitled')
 
@@ -96,10 +97,17 @@ export function usePageTrash(onRemoved?: () => void) {
         page.parent_id &&
         (client.getQueryData<PageDetail>(contentKeys.page(page.parent_id))?.page ??
           cachedPages(client).find(candidate => candidate.id === page.parent_id))
+      const rootScope = (['private', 'space'] as const).find(scope =>
+        client
+          .getQueryData<InfiniteData<PodPageChildrenResponse>>(contentKeys.children(scope))
+          ?.pages.some(batch => batch.pages.some(item => item.id === page.id))
+      )
       pageRemoved(client, page)
-      if (podRouteID(pageID) === page.id) {
-        const destination = parent ? `/pages/${parent.id}` : `/content/${page.private_owner_uid ? 'private' : 'space'}`
-        void navigate({ to: podLocation(destination).pathname })
+      if (podPageRouteID(pageID) === page.id) {
+        const destination = parent
+          ? podPagePath(parent.id, parent.title)
+          : podLocation(`/content/${rootScope ?? (page.private_owner_uid ? 'private' : 'space')}`).pathname
+        void navigate({ to: destination })
       }
       const count = result.descendant_count
       toast.success(
@@ -187,7 +195,7 @@ export function PageMenuItems({
 }) {
   const { t } = useTranslation()
   const { pageHref } = useContent()
-  const copyLink = useCopyPageLink(page.id)
+  const copyLink = useCopyPageLink(page.id, page.title)
   const canEdit = page.actions?.includes('node_edit') === true
   const canTrash =
     page.actions?.includes(page.type === 'file' || page.type === 'folder' ? 'node_edit' : 'node_manage') === true
@@ -196,7 +204,7 @@ export function PageMenuItems({
   const down = canMove ? stepRequest(pages, page, 1) : null
   return (
     <>
-      <DropdownMenuItem onClick={() => window.open(pageHref(page.id), '_blank', 'noopener')}>
+      <DropdownMenuItem onClick={() => window.open(pageHref(page.id, page.title), '_blank', 'noopener')}>
         <RiExternalLinkLine aria-hidden />
         {t('pod.sidebar.open_in_new_tab')}
       </DropdownMenuItem>

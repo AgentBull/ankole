@@ -23,6 +23,10 @@ defmodule Ankole.Pod.Properties do
     attribute(:icon, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:position, :string, constraints: [trim?: false])
     attribute(:revision, :integer, allow_nil?: false, default: 0, constraints: [min: 0])
+    attribute(:vfs_md_size, :integer, constraints: [min: 0])
+    attribute(:vfs_md_blake3, :string)
+    attribute(:metadata, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
+    attribute(:upstream_state, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
     attribute(:saved_from_message_id, Ankole.Ash.Types.UUIDv7)
 
     attribute(:children_view, Ankole.Ash.Types.JSONMap,
@@ -45,6 +49,8 @@ defmodule Ankole.Pod.Properties do
         :icon,
         :position,
         :revision,
+        :metadata,
+        :upstream_state,
         :saved_from_message_id,
         :children_view,
         :created_at,
@@ -55,8 +61,29 @@ defmodule Ankole.Pod.Properties do
     end
 
     update :edit do
-      accept([:title, :icon, :position, :children_view, :updated_at])
+      accept([:title, :icon, :position, :children_view, :metadata, :updated_at])
       validate(Ankole.Pod.Validations.ChildrenView)
+    end
+
+    update :save_knowledge do
+      require_atomic?(true)
+
+      accept([
+        :metadata,
+        :upstream_state,
+        :title,
+        :icon,
+        :updated_at,
+        :vfs_md_size,
+        :vfs_md_blake3
+      ])
+
+      change(atomic_update(:revision, expr(revision + 1)))
+    end
+
+    update :sync_upstream do
+      require_atomic?(true)
+      accept([:upstream_state])
     end
 
     update :position do
@@ -66,8 +93,13 @@ defmodule Ankole.Pod.Properties do
 
     update :advance_revision do
       require_atomic?(true)
-      accept([:updated_at])
+      accept([:updated_at, :vfs_md_size, :vfs_md_blake3])
       change(atomic_update(:revision, expr(revision + 1)))
+    end
+
+    update :cache_vfs_projection do
+      require_atomic?(true)
+      accept([:vfs_md_size, :vfs_md_blake3])
     end
 
     destroy :remove do

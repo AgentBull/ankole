@@ -15,10 +15,13 @@ export function ChoiceCard({
   onAnswer,
   onComposeAnswer,
   readOnlyReason,
-  keyboardActive = false
+  keyboardActive = false,
+  askedBy
 }: {
   prompt: ClarifyPrompt
   interaction: ChatInteraction
+  /** Names a colleague who asks from a delegated exchange, so the header says who waits for the answer. */
+  askedBy?: string
   onAnswer?: (interactionID: string, answer: ClarifyAnswer) => Promise<unknown>
   onComposeAnswer?: (interactionID: string, text: string) => void
   readOnlyReason?: string
@@ -77,7 +80,9 @@ export function ChoiceCard({
       data-state={interaction.state}>
       <div className="pod-chat-choice-header">
         <RiQuestionLine aria-hidden />
-        <span>{t('pod.chat_timeline.decision_needed')}</span>
+        <span>
+          {askedBy ? t('pod.superagent.asks_you', { name: askedBy }) : t('pod.chat_timeline.decision_needed')}
+        </span>
       </div>
       <p className="pod-chat-choice-question">{prompt.question}</p>
       <div className="pod-chat-choices">

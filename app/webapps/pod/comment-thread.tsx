@@ -11,11 +11,12 @@ import {
 import { RiAtLine, RiCheckLine, RiMoreFill, RiReplyLine } from '@remixicon/react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useId, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MarkdownBody } from '../common/markdown-body'
-import { podLocation } from '../common/browser-context'
+import { podLocation } from '../common/pod-url'
 import { agentsQuery, type PodAgent } from './api'
+import { useResolvePageHref } from './use-page-metadata'
 import { completionAt } from './chat/composer-completion'
 import { pageAPI } from './content-api'
 import { ContentError } from './content-primitives'
@@ -183,6 +184,7 @@ function CommentEntry({
 }) {
   useSignals()
   const { t, i18n } = useTranslation()
+  const resolvePageHref = useResolvePageHref()
   const [editing, setEditing] = useState(false)
   const draftKey = `edit:${comment.id}`
   const editVersion = model.editVersions.value[draftKey]
@@ -212,7 +214,7 @@ function CommentEntry({
             <DropdownMenuItem
               onClick={async () => {
                 try {
-                  const target = podLocation(`/pages/${pageID}`, { commentId: threadID })
+                  const target = podLocation(await resolvePageHref(pageID), { commentId: threadID })
                   await navigator.clipboard.writeText(new URL(target.pathname + target.search, location.origin).href)
                   toast.success(t('pod.document.comment_link_copied'))
                 } catch {
@@ -366,6 +368,7 @@ export function CommentComposer({
   const { t } = useTranslation()
   const listboxID = useId()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const pendingCaret = useRef<number | undefined>(undefined)
   const [mentionMatch, setMentionMatch] = useState<{ start: number; end: number; query: string } | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
   const [selectedAgentUIDs, setSelectedAgentUIDs] = useState<Set<string>>(() => new Set())
@@ -383,6 +386,13 @@ export function CommentComposer({
     : []
 
   const body = model.drafts.value[draftKey] ?? ''
+  useLayoutEffect(() => {
+    const caret = pendingCaret.current
+    if (caret === undefined) return
+    pendingCaret.current = undefined
+    textareaRef.current?.focus()
+    textareaRef.current?.setSelectionRange(caret, caret)
+  }, [body, mentionMatch])
   const mutation = useMutation({
     mutationFn: (text: string) => send(text, collectMentionedAgentUIDs(text, callableAgents, selectedAgentUIDs)),
     onSuccess: () => {
@@ -412,14 +422,10 @@ export function CommentComposer({
     if (!mentionMatch) return
     const token = `@${agent.displayName} `
     const nextValue = `${body.slice(0, mentionMatch.start)}${token}${body.slice(mentionMatch.end)}`
-    const nextCaret = mentionMatch.start + token.length
+    pendingCaret.current = mentionMatch.start + token.length
     model.write(draftKey, nextValue)
     setSelectedAgentUIDs(prev => new Set([...prev, agent.uid]))
     setMentionMatch(null)
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus()
-      textareaRef.current?.setSelectionRange(nextCaret, nextCaret)
-    })
   }
 
   return (
@@ -511,12 +517,9 @@ export function CommentComposer({
               const prefix = pos > 0 && !/\s/.test(body[pos - 1]!) ? ' @' : '@'
               const next = `${body.slice(0, pos)}${prefix}${body.slice(pos)}`
               const caret = pos + prefix.length
+              pendingCaret.current = caret
               model.write(draftKey, next)
               updateMentionFromInput(next, caret, caret)
-              requestAnimationFrame(() => {
-                input?.focus()
-                input?.setSelectionRange(caret, caret)
-              })
             }}>
             <RiAtLine aria-hidden />
             {t('pod.document.mention_agent_button', { defaultValue: 'Mention Agent' })}

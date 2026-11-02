@@ -55,7 +55,7 @@ order: 31
 
 无论是控制面云盘还是持久 Home，都会跨越 Worker 实例重建而持久保留。仅写入工作区的文件留在持久 Home 中，只有发布到云盘后才能在 Console 中下载。不同运行环境的存储限制详见 [工作节点](../worker-management/)。
 
-Agent 的 `MISSION`、`SOUL`、`DESIGN` 和 `CONFIDENTIALITY POLICY`（`ConfidentialityPolicy.md`）文档由 Console 的 Agent 编辑页统一管理，运行时会自动投影到 Worker 中，不属于云盘文件。文档配置说明见 [Agent](../agents/)。
+Agent 行为与设计规范是 Pod 的 `/AnkoleBrain` 下的知识页。通过 Console 来源链接编辑全局或个体 `AGENTS[.override].md`、`DESIGN[.override].md` 页面，Worker 每轮刷新完整运行时投影。详见 [Agent](../agents/)。
 
 ## 常见问题
 

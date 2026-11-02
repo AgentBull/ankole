@@ -15,6 +15,7 @@ function page(id: string, actions: Page['actions'], values: Partial<Page> = {}):
     deleted_at: null,
     purge_started_at: null,
     inherit_permissions: true,
+    metadata: {},
     revision: 0,
     saved_from_message_id: null,
     created_at: '',

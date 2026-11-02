@@ -249,7 +249,8 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
                session_id: BackgroundAgentJobs.job_session_id(job.id)
              })
 
-    assert_receive {:actor_lane, %{body: {:turn_start, _}}}, 2_000
+    # The first dispatch imports the tenant's shipped Skill packages before admission.
+    assert_receive {:actor_lane, %{body: {:turn_start, _}}}, 15_000
 
     response =
       conn

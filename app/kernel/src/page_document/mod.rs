@@ -8,7 +8,11 @@ pub use comments::{
 mod diff;
 mod document;
 mod document_schema;
+#[cfg(feature = "markdown")]
+pub mod knowledge;
 mod tree;
+#[cfg(feature = "markdown")]
+pub mod vfs;
 
 use serde::Serialize;
 use serde_json::Value;

@@ -294,7 +294,7 @@ defmodule Ankole.Files.Access.Graph do
 
           SELECT la.id, s.scope, b.bit
           FROM live_anchors la
-          CROSS JOIN (VALUES (1), (2)) AS b(bit)
+          CROSS JOIN (VALUES (1), (2), (4)) AS b(bit)
           CROSS JOIN (VALUES ('container'), ('self')) AS s(scope)
           WHERE la.conversation_id = ANY($10::text[]::uuid[])
 

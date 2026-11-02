@@ -50,6 +50,44 @@ defmodule AnkoleWeb.PodChatListTest do
     assert [old, unpinned] = next_pinned["conversations"]
     assert old["viewer"]["pinned"]
     assert unpinned["id"] == latest
+
+    # Opening an older room raises it in personal Recents without changing the IM activity order.
+    visited = hd(older)
+    assert {:ok, _} = Conversations.update_conversation(actor, visited, %{last_read_seq: 0})
+
+    reopened =
+      api_response(api_get(conn, "/api/v2/pod/conversations", %{order: "recent", limit: 1}), 200)
+
+    assert [row] = reopened["conversations"]
+    assert row["id"] == visited
+    assert is_binary(row["viewer"]["lastVisitedAt"])
+
+    after_visit =
+      api_response(
+        api_get(conn, "/api/v2/pod/conversations", %{
+          order: "recent",
+          limit: 1,
+          cursor: reopened["nextCursor"]
+        }),
+        200
+      )
+
+    assert hd(after_visit["conversations"])["id"] == latest
+
+    assistant =
+      Ankole.SessionsCase.agent_fixture(%{type: :personal_assistant, owner_principal_uid: uid}).principal
+
+    {:ok, task} =
+      Ankole.ConversationsFixtures.create(uid, %{
+        conversation_id: Ecto.UUID.generate(),
+        message_id: Ecto.UUID.generate(),
+        agent_uid: assistant.uid,
+        text: "Private assistant work"
+      })
+
+    im = api_response(api_get(conn, "/api/v2/pod/conversations", %{imOnly: true}), 200)
+    refute Enum.any?(im["conversations"], &(&1["id"] == task.conversation.id))
+    assert length(im["conversations"]) == 5
   end
 
   defp create_room!(uid, agent, text) do
@@ -58,6 +96,7 @@ defmodule AnkoleWeb.PodChatListTest do
                conversation_id: Ecto.UUID.generate(),
                message_id: Ecto.UUID.generate(),
                agent_uid: agent,
+               room_mode: :group,
                text: text
              })
 

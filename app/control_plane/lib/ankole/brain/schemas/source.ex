@@ -24,7 +24,7 @@ defmodule Ankole.Brain.Schemas.Source do
       :upstream_id,
       :kind,
       :name,
-      :default_audience_scope,
+      :default_source_node_id,
       :upstream_revision,
       :last_sync_at,
       :archived_at
@@ -41,7 +41,6 @@ defmodule Ankole.Brain.Schemas.Source do
       check_constraint(:upstream_id, "brain_sources_upstream_present")
       check_constraint(:kind, "brain_sources_kind_present")
       check_constraint(:name, "brain_sources_name_present")
-      check_constraint(:default_audience_scope, "brain_sources_default_scope_format")
       check_constraint(:config, "brain_sources_config_object")
     end
   end
@@ -61,7 +60,7 @@ defmodule Ankole.Brain.Schemas.Source do
 
     attribute(:kind, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
     attribute(:name, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
-    attribute(:default_audience_scope, :string, public?: true, constraints: [trim?: false])
+    attribute(:default_source_node_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:config, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
     attribute(:upstream_revision, :string, public?: true, constraints: [trim?: false])
     attribute(:last_sync_at, :utc_datetime_usec, public?: true)
@@ -92,7 +91,7 @@ defmodule Ankole.Brain.Schemas.Source do
         :kind,
         :upstream_id,
         :name,
-        :default_audience_scope,
+        :default_source_node_id,
         :config,
         :upstream_revision,
         :last_sync_at,
@@ -106,7 +105,7 @@ defmodule Ankole.Brain.Schemas.Source do
         :kind,
         :upstream_id,
         :name,
-        :default_audience_scope,
+        :default_source_node_id,
         :config,
         :upstream_revision,
         :last_sync_at,
@@ -126,7 +125,7 @@ defmodule Ankole.Brain.Schemas.Source do
 
     update :set_default_scope do
       require_atomic?(true)
-      accept([:default_audience_scope])
+      accept([:default_source_node_id])
       change(filter(expr(is_nil(archived_at) and kind == "oidc_client")))
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
     end
@@ -170,7 +169,7 @@ defmodule Ankole.Brain.Schemas.Source do
       argument(:upstream_id, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:kind, :string, allow_nil?: false)
       argument(:name, :string, allow_nil?: false)
-      argument(:default_audience_scope, :string)
+      argument(:default_source_node_id, :string)
       argument(:config, Ankole.Ash.Types.JSONMap, default: %{})
 
       run(__MODULE__.Actions)
@@ -193,7 +192,7 @@ defmodule Ankole.Brain.Schemas.Source do
     action :update_default_scope, :struct do
       constraints(instance_of: __MODULE__)
       argument(:source_id, :uuid, allow_nil?: false)
-      argument(:scope, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:source_node_id, Ankole.Ash.Types.UUIDv7)
 
       run(__MODULE__.Actions)
     end

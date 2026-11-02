@@ -11,6 +11,7 @@ import { ContentError } from '../content-primitives'
 import { PageIcon } from '../page-icon'
 import { teammatesKey } from './room-api'
 import { ChatAvatar } from './chat-avatar'
+import { AgentName } from './conversation-row'
 import { ComposerCompletionList, type CompletionHandle, type CompletionOption } from './composer-completion'
 
 export type MentionChoice = { type: 'agent' | 'human' | 'page'; uid: string; displayName: string }
@@ -18,6 +19,8 @@ export function MentionPicker({
   detail,
   pagesOnly = false,
   allowAgents = true,
+  personalAssistant = false,
+  participantsOnly = false,
   query,
   id,
   input,
@@ -28,6 +31,8 @@ export function MentionPicker({
   detail?: ConversationDetail
   pagesOnly?: boolean
   allowAgents?: boolean
+  personalAssistant?: boolean
+  participantsOnly?: boolean
   query: string
   id: string
   input: RefObject<HTMLTextAreaElement | null>
@@ -52,7 +57,8 @@ export function MentionPicker({
   const matches = (name: string) => name.toLocaleLowerCase().includes(query.toLocaleLowerCase())
   const options: CompletionOption[] = [
     ...(!pagesOnly && allowAgents
-      ? [...(agents.data?.agents ?? []), ...(agents.data?.personalAssistant ? [agents.data.personalAssistant] : [])]
+      ? (agents.data?.agents ?? [])
+          .filter(agent => !participantsOnly || inRoom.has(agent.uid))
           .filter(agent => [agent.displayName, agent.uid, ...(agent.aliases ?? [])].some(matches))
           .map(agent => ({
             id: agent.uid,
@@ -60,8 +66,13 @@ export function MentionPicker({
             content: (
               <>
                 <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
-                <span>{agent.displayName}</span>
-                {detail && !inRoom.has(agent.uid) && (
+                <span className="pod-mention-agent">
+                  <span className="truncate">
+                    <AgentName agent={agent} />
+                  </span>
+                  {agent.role && <small className="truncate text-fg-tertiary">{agent.role}</small>}
+                </span>
+                {detail && !personalAssistant && !inRoom.has(agent.uid) && (
                   <small className="ml-auto text-fg-tertiary">{t('pod.chat_room.invite_mention')}</small>
                 )}
               </>
@@ -70,20 +81,22 @@ export function MentionPicker({
           }))
       : []),
     ...(!pagesOnly && !searching
-      ? (people.data?.teammates ?? []).map(person => ({
-          id: person.uid,
-          group: t('pod.chat_room.people'),
-          content: (
-            <>
-              <ChatAvatar name={person.displayName} src={person.avatarURL} />
-              <span className="truncate">{person.displayName}</span>
-              {detail && !inRoom.has(person.uid) && (
-                <small className="ml-auto shrink-0 text-fg-tertiary">{t('pod.chat_room.invite_mention')}</small>
-              )}
-            </>
-          ),
-          choose: () => onChoose({ type: 'human', uid: person.uid, displayName: person.displayName })
-        }))
+      ? (people.data?.teammates ?? [])
+          .filter(person => !participantsOnly || inRoom.has(person.uid))
+          .map(person => ({
+            id: person.uid,
+            group: t('pod.chat_room.people'),
+            content: (
+              <>
+                <ChatAvatar name={person.displayName} src={person.avatarURL} />
+                <span className="truncate">{person.displayName}</span>
+                {detail && !personalAssistant && !inRoom.has(person.uid) && (
+                  <small className="ml-auto shrink-0 text-fg-tertiary">{t('pod.chat_room.invite_mention')}</small>
+                )}
+              </>
+            ),
+            choose: () => onChoose({ type: 'human', uid: person.uid, displayName: person.displayName })
+          }))
       : []),
     ...(searching ? [] : pageResults).map(page => {
       const parent = pageAncestors(page, pagesByID)

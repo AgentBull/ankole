@@ -51,8 +51,10 @@ Read operations:
   base.aggregate {id, filter?, group_by?, metrics}
 
 Write operations:
+  pages.update_sharing {id, upserts?, removes?} — incrementally change sharing; use target_scope: "self" for one page
   pages.set_sharing {id, sharing_version, inherit_permissions?, grants?} — requires manage access
-  pages.create     {type: folder|file|doc|base|applet, title, parent_id?, private_owner_uid?}
+  pages.create     {type: folder|file|doc|knowledge|base|applet, title, parent_id?, private_owner_uid?, markdown?}
+    Knowledge pages require parent_id and markdown, including YAML frontmatter when present.
   pages.update     {id, title?, expected_title?, icon?} — expected_title is required whenever title is supplied
   pages.move       {id, parent_id?, private_owner_uid?}
   pages.delete     {id} — moves the subtree into the trash
@@ -104,8 +106,10 @@ Base parameter shapes:
   view type: grid|kanban|gallery
 
 Page access:
-  view reads content and records. On a Base, contribute writes records and
-  uploads record attachments; edit changes schemas and metadata.
+  view reads content and records. On documents and files, contribute adds comment
+  access; use it for document reviews and discussion that continue on the page.
+  On a Base, contribute writes records and uploads record attachments; edit
+  changes schemas and metadata.
   Pass parent_id to pages.create to create a child. Folders and conversation
   roots require contribute; public/private roots, documents, Bases, and Applets
   require edit. A child inherits permissions; creating it does not grant manage.
@@ -417,6 +421,10 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
   }
   if (args[0] === 'comments') {
     return parseCommentsCommand(args.slice(1), cwd)
+  }
+  if (args[0] === 'page' && args[1] === 'update-sharing') {
+    if (!args[2] || !args[3]) throw new Error('Use page update-sharing <page-id> <JSON body>')
+    return { operation: 'pages.update_sharing', params: { ...parseParams(args[3]), id: args[2] }, cwd }
   }
   if (args[0] === 'page' && args[1] === 'set-sharing') {
     const id = args[2]

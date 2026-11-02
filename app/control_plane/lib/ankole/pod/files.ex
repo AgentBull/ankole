@@ -557,7 +557,7 @@ defmodule Ankole.Pod.Files do
   end
 
   defp allowed_role(%{type: :file}, "file"), do: :ok
-  defp allowed_role(%{type: :doc}, "asset"), do: :ok
+  defp allowed_role(%{type: type}, "asset") when type in [:doc, :knowledge], do: :ok
   defp allowed_role(%{type: :base}, "attachment"), do: :ok
   defp allowed_role(_page, _role), do: {:error, :invalid_file_role}
   defp require_type(%{type: type}, type), do: :ok

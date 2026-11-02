@@ -71,6 +71,11 @@ owner = owner_account.principal
 member = member_account.principal
 viewer = viewer_account.principal
 
+guest_account =
+  Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Browser guest", membership: :guest})
+
+guest = guest_account.principal
+
 # Login forms use the production mailer with a real local TLS SMTP peer.
 mailbox_path = System.fetch_env!("POD_BROWSER_STATE_PATH") <> ".mail.json"
 File.write!(mailbox_path, "{}")
@@ -216,7 +221,7 @@ model_provider_id = "pod-browser-model-" <> tenant.id
     end
   end)
 
-for human <- [owner, member, viewer] do
+for human <- [owner, member, viewer, guest] do
   {:ok, _} =
     AuthZ.create_permission_grant(%{
       principal_uid: human.uid,
@@ -265,6 +270,7 @@ end
       %{principal_uid: owner.uid, role: "manage"},
       %{principal_uid: member.uid, role: "edit"},
       %{principal_uid: viewer.uid, role: "view"},
+      %{principal_uid: guest.uid, role: "view"},
       %{principal_uid: agent.uid, role: "edit"}
     ]
   })
@@ -523,6 +529,7 @@ chat_material =
 
     {:ok, _conversation} =
       Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        room_mode: :group,
         conversation_id: conversation_id,
         agent_uid: agent.uid,
         message_id: input_id,
@@ -576,6 +583,7 @@ chat_material =
                  Ankole.Conversations.create_in_tx(
                    Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                    %{
+                     room_mode: :group,
                      conversation_id: id,
                      agent_uid: agent.uid,
                      message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -610,6 +618,7 @@ chat_material =
 
     {:ok, failed_detail} =
       Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        room_mode: :group,
         conversation_id: chat_failed_conversation_id,
         agent_uid: agent.uid,
         message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -641,6 +650,7 @@ chat_material =
             Ankole.Conversations.create_in_tx(
               Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
               %{
+                room_mode: :group,
                 conversation_id: history_conversation_id,
                 agent_uid: agent.uid,
                 message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -679,11 +689,12 @@ chat_material =
 
     recovery_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
     recovery_message_id = Ankole.Ecto.UUIDv7.autogenerate()
+    {:ok, %{principal: assistant}} = Ankole.Principals.ensure_personal_assistant(owner.uid)
 
     {:ok, _} =
       Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
         conversation_id: recovery_conversation_id,
-        agent_uid: agent.uid,
+        agent_uid: assistant.uid,
         message_id: recovery_message_id,
         page_id: report.id,
         text: "A saved Conversation for local draft recovery."
@@ -694,7 +705,7 @@ chat_material =
     {:ok, _} =
       Repo.transact(fn ->
         with :ok <-
-               Ankole.Sessions.Queue.lock_session_in_tx(agent.uid, recovery_input.session_id) do
+               Ankole.Sessions.Queue.lock_session_in_tx(assistant.uid, recovery_input.session_id) do
           Ankole.Sessions.Queue.mark_event_completed_in_tx(
             recovery_input,
             DateTime.utc_now(:microsecond)
@@ -829,6 +840,7 @@ state = %{
     cookies: cookies.(viewer),
     email: viewer_account.human_user.email
   },
+  guest: %{uid: guest.uid, cookies: cookies.(guest), email: guest_account.human_user.email},
   site_admin:
     Repo.with_tenant(privileged_tenant_id, fn ->
       %{

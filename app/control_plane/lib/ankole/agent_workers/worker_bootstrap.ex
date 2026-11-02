@@ -4,9 +4,7 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap do
   alias Ankole.AgentWorkers.Providers.Runtime
   alias Ankole.AgentWorkers.WorkerBootstrap.AgentWorkerSpec
 
-  @builtin_skills_root "/repo/app/library"
   @internal_skills_root "/repo/internals/skills"
-  @installed_skills_root "/workspace/installed-skills"
 
   @spec agent_worker_spec(Runtime.t(), String.t(), String.t(), String.t(), map() | nil) ::
           AgentWorkerSpec.t()
@@ -40,23 +38,11 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap do
   @doc "The Worker image owns this root; development Docker mounts use the same path."
   def internal_skills_root, do: @internal_skills_root
 
-  @doc "The physical directory of an enabled Skill in the Worker image or installed library."
-  def skill_directory(skill) do
-    root =
-      case {skill["source_kind"], skill["skill_root"]} do
-        {"installed", _} -> @installed_skills_root
-        {"builtin", "internal"} -> @internal_skills_root
-        {"builtin", _} -> @builtin_skills_root
-      end
-
-    Path.join(root, skill["relative_path"])
-  end
-
   @doc "Environment variables owned by the launch contract or the image entrypoint."
   def contract_env_names do
     ~w(WORKER_ID ANKOLE_WORKER_STORAGE_NAME ANKOLE_WORKER_TENANT_ID ANKOLE_RUNTIME_FABRIC_ENDPOINT ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
       ANKOLE_WORKER_STORAGE ANKOLE_WORKER_TASK ANKOLE_WORKER_NFS_SOURCE
-      ANKOLE_WORKER_ADAPTER_URL ANKOLE_WORKER_BOOTSTRAP ANKOLE_VERSION ANKOLE_ENV
+      ANKOLE_WORKER_ADAPTER_URL ANKOLE_WORKER_BOOTSTRAP ANKOLE_WORKER_CACHE_CAPACITY ANKOLE_VERSION ANKOLE_ENV
       HOME CODEX_HOME CODEX_SQLITE_HOME)
   end
 

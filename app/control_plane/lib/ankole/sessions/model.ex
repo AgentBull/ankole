@@ -10,7 +10,7 @@ defmodule Ankole.Sessions.Model do
 
   @spec prepare(Run.t()) :: {:ok, {atom(), Run.t()}} | {:error, term()}
   def prepare(run) do
-    with {:ok, context} <- Context.resolve(run.agent_uid, run.session_id),
+    with {:ok, context} <- Context.resolve(run.agent_uid, run.session_id, Run.metadata(run)),
          {:ok, {_state, run}} <- Run.type(run).prepare(%{run | context: context}) do
       prepare_main(run)
     end
@@ -25,10 +25,11 @@ defmodule Ankole.Sessions.Model do
       if state == :preparing do
         input = Run.type(run).input(run)
 
-        # Only input that an earlier attempt already injected joins the first
-        # request. Newer input waits for the next boundary.
+        # Recover injected input, then collect queued peer replies for this task.
+        # Other new input waits for the next boundary.
         with {:ok, _injected, run} <-
                Run.inject_pending(%{run | input: input}, & &1.last_attempt_at),
+             {:ok, _replies, run} <- Run.batch_peer_replies(run),
              do: {:ok, {state, run}}
       else
         {:ok, {state, run}}

@@ -379,7 +379,7 @@ support offboarding and cleanup workflows.
    before Library initialization. The transaction takes the Drive tree lock
    before Principal, turn, or content locks.
 4. Inserts the `agents` row.
-5. Seeds initial Agent Library documents and state.
+5. Creates the Agent identity page under `/AnkoleBrain/agents/<uid>` and seeds its capability state.
 6. Inserts the `agent_workers` row in state `absent` bound permanently to the
    selected Worker provider (an Agent's Worker provider cannot change later).
 
@@ -402,12 +402,17 @@ that transaction), and `Principals.publish_agent_deletion/1` triggers Worker
 teardown. Both domain callers and Console endpoints share these publication
 helpers while keeping `Principal` and `Agent` return structs distinct.
 
-In the Console, each Agent Library document maintains its own local draft and
-content hash, backed by TanStack Query for fetching/caching and the Signal model
-for completion checks. On a version conflict, reloading overwrites the local
-draft only if the operator has not typed further edits, canceled, triggered a
-newer reload, or navigated away; failed reload reads preserve both draft and
-hash for retry.
+Agent identity pages and their child contracts are created in the same transaction
+as the Agent. The shared `/AnkoleBrain` tree grants read access to tenant Humans
+and Agents and management access to Pod administrators. A personal assistant's
+identity page stops permission inheritance; its owner can manage the subtree
+and the assistant can read it.
+
+The Console links Agent contracts to their Pod source pages. The Pod editor owns
+drafts, metadata, version conflicts and history. Internal colleagues inherit the
+organization's whole `AGENTS.md` and `DESIGN.md` without storing per-Agent copies.
+Personal assistants receive an `AGENTS.override.md` that contains their complete
+personal role.
 
 For Human offboarding, `HumanAccess.disable/4` records the restriction and
 revokes credentials while AuthZ blocks disabling the last active human

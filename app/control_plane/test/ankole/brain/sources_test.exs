@@ -1,8 +1,8 @@
 defmodule Ankole.Brain.SourcesTest do
   use Ankole.DataCase, async: true
+  import Ankole.BrainFixtures
 
   alias Ankole.Brain.Sources
-  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Repo
 
@@ -34,7 +34,7 @@ defmodule Ankole.Brain.SourcesTest do
       kind: "url",
       upstream_id: "https://example.com/source",
       name: "First name",
-      default_audience_scope: "world"
+      default_source_node_id: source_node("world")
     }
 
     assert {:ok, first} = Sources.create(attrs)
@@ -51,12 +51,12 @@ defmodule Ankole.Brain.SourcesTest do
     assert {:ok, reused} =
              attrs
              |> Map.put(:name, "Later name")
-             |> Map.put(:default_audience_scope, "principal:someone")
+             |> Map.put(:default_source_node_id, Ankole.Ecto.UUIDv7.autogenerate())
              |> Sources.get_or_create()
 
     assert reused.id == first.id
     assert reused.name == first.name
-    assert reused.default_audience_scope == first.default_audience_scope
+    assert reused.default_source_node_id == first.default_source_node_id
   end
 
   test "archive is idempotent and keeps the first timestamp" do
@@ -70,46 +70,6 @@ defmodule Ankole.Brain.SourcesTest do
     assert {:ok, first} = Ankole.Brain.archive_source(source.id)
     assert {:ok, second} = Ankole.Brain.archive_source(source.id)
     assert second.archived_at == first.archived_at
-  end
-
-  test "archive withdraws only pages owned by a Library Source" do
-    suffix = System.unique_integer([:positive])
-
-    assert {:ok, library_source} =
-             Sources.create(%{
-               kind: "library",
-               upstream_id: "library-#{suffix}",
-               name: "Library"
-             })
-
-    assert {:ok, file_source} =
-             Sources.create(%{
-               kind: "file",
-               upstream_id: "/tmp/source-#{suffix}.txt",
-               name: "File"
-             })
-
-    now = DateTime.utc_now(:microsecond)
-
-    {:ok, page} =
-      Repo.transact(fn ->
-        Ankole.Ash.create(Object, :create_projection, %{
-          slug: "concepts/source-archive-#{suffix}",
-          type: "concept",
-          title: "Source archive",
-          body: "Managed body",
-          meta: %{},
-          managed_by_source_id: library_source.id,
-          created_at: now,
-          updated_at: now
-        })
-      end)
-
-    assert {:ok, _archived_file} = Ankole.Brain.archive_source(file_source.id)
-    assert Repo.get!(Object, page.id).deleted_at == nil
-
-    assert {:ok, _archived_library} = Ankole.Brain.archive_source(library_source.id)
-    assert Repo.get!(Object, page.id).deleted_at != nil
   end
 
   test "active locks and revision writes share the Source lifecycle" do

@@ -6,8 +6,8 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useState } from 'react'
 import type { Page } from './content-api'
-import { useContent } from './content-context'
 import { ContentError } from './content-primitives'
+import { useResolvePageHref } from './use-page-metadata'
 import { CollaboratorsView } from './page-sharing/collaborators-view'
 import { InviteCollaboratorsView } from './page-sharing/invite-view'
 import { MainSharingView } from './page-sharing/main-view'
@@ -164,11 +164,12 @@ function SharingPopoverBody({
   )
 }
 
-export function useCopyPageLink(pageID: string) {
-  const { pageHref } = useContent()
+export function useCopyPageLink(pageID: string, title?: string | null) {
+  const resolvePageHref = useResolvePageHref()
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(new URL(pageHref(pageID), window.location.origin).href)
+      const href = await resolvePageHref(pageID, title)
+      await navigator.clipboard.writeText(new URL(href, window.location.origin).href)
       toast.success(translate('pod.content.page_link_copied'))
     } catch {
       toast.error(translate('pod.content.could_not_copy_the_link_copy_it_from_the_browser'))

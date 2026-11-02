@@ -9,13 +9,13 @@
 
 ```bash
 # 按实例 Code 查询详情
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 
 # 表格格式输出，便于快速浏览顶层字段
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}' --format table
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}' --format table
 
 # 预览 API 调用，不执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}' --dry-run
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}' --dry-run
 ```
 
 ## 参数
@@ -35,17 +35,17 @@
 如果你已经有实例 Code，可直接查询：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 ```
 
 如果你还没有实例 Code，可先从以下命令获取：
 
 ```bash
 # 查询我发起的审批实例
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated --params '{"page_size":20}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated --params '{"page_size":20}'
 
 # 或从任务列表里拿到关联实例 Code
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks query --params '{"topic":"1"}'
 ```
 
 ## 输出重点字段
@@ -135,11 +135,11 @@
 
 ```bash
 # 同意审批任务
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks approve --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>"}' --yes
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks approve --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>"}' --yes
 
 # 撤回审批实例
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances cancel --data '{"instance_code":"<INSTANCE_CODE>"}' --yes
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances cancel --data '{"instance_code":"<INSTANCE_CODE>"}' --yes
 
 # 催办审批任务
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks remind --data '{"instance_code":"<INSTANCE_CODE>","task_ids":["<TASK_ID>"]}' --yes
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks remind --data '{"instance_code":"<INSTANCE_CODE>","task_ids":["<TASK_ID>"]}' --yes
 ```

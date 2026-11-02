@@ -387,10 +387,63 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     with {:ok, normalized_relative_path} <- normalize_virtual_path(relative_path),
          true <- File.dir?(root) || {:error, {:missing_skill_dir, relative_path}},
          {:ok, raw_skill} <- File.read(skill_path) do
-      skill_source(raw_skill, root_label, normalized_relative_path)
+      with {:ok, source} <- skill_source(raw_skill, root_label, normalized_relative_path),
+           {:ok, files} <- read_bundle_files(root, "") do
+        {:ok,
+         %{
+           source
+           | files: files,
+             source_hash:
+               stable_hash(
+                 Enum.flat_map(files, &[&1.path, &1.content_hash, Integer.to_string(&1.mode)])
+               )
+         }}
+      end
     else
       false -> {:error, {:missing_skill_dir, relative_path}}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp read_bundle_files(root, relative) do
+    path = Path.join(root, relative)
+
+    with {:ok, entries} <- File.ls(path) do
+      entries
+      |> Enum.reject(&(&1 in ~w(.git node_modules target __pycache__ .DS_Store)))
+      |> Enum.sort()
+      |> Enum.map(fn name ->
+        file = Path.join(relative, name)
+
+        case File.stat(Path.join(root, file)) do
+          {:ok, %{type: :directory}} ->
+            read_bundle_files(root, file)
+
+          {:ok, %{type: :regular, mode: mode}} ->
+            with {:ok, content} <- File.read(Path.join(root, file)),
+                 do:
+                   {:ok,
+                    [
+                      %{
+                        path: file,
+                        content: content,
+                        content_hash: hash(content),
+                        mode: Bitwise.band(mode, 0o777)
+                      }
+                    ]}
+
+          {:ok, _} ->
+            {:ok, []}
+
+          error ->
+            error
+        end
+      end)
+      |> Ankole.Attrs.collect_results()
+      |> case do
+        {:ok, files} -> {:ok, List.flatten(files)}
+        error -> error
+      end
     end
   end
 
@@ -445,8 +498,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              "default_enabled" => metadata.default_enabled,
              "relative_path" => normalized_relative_path,
              "skill_root" => root_label,
-             "tags" => metadata.tags,
-             "brain_recall_only" => metadata.brain_recall_only
+             "tags" => metadata.tags
            }
            |> Ankole.Attrs.maybe_put("category", metadata.category)
            |> Ankole.Attrs.maybe_put("ankole-runtime", metadata.ankole_runtime),
@@ -481,8 +533,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              {:error, {:skill_name_directory_mismatch, name, directory_name}},
          {:ok, description} <- skill_description(frontmatter),
          {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true),
-         {:ok, brain_recall_only} <-
-           yaml_boolean(frontmatter, "brain-recall-only", false),
          {:ok, ankole_runtime} <-
            normalize_ankole_runtime(Map.get(frontmatter, "ankole-runtime")) do
       {:ok,
@@ -492,7 +542,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          default_enabled: default_enabled,
          tags: frontmatter |> Map.get("tags", []) |> List.wrap() |> Enum.filter(&is_binary/1),
          category: Ankole.Attrs.optional_text(Map.get(frontmatter, "category")),
-         brain_recall_only: brain_recall_only,
          ankole_runtime: ankole_runtime
        }}
     else

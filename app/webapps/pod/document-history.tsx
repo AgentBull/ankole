@@ -10,10 +10,11 @@ import { ContentError } from './content-primitives'
 import { DocumentHistoryPreview } from './document-history-preview'
 import { PageIcon } from './page-icon'
 import { isRealtimeAccessDenied } from './realtime'
-import { downloadDocument } from './state/document-export'
+import { downloadDocument, downloadKnowledge } from './state/document-export'
 import { versionTime } from './state/document-history'
 import { updatePageMetadata, refreshDirectories } from './state/navigation-cache'
 import type { PageDraftModel } from './state/page-draft'
+import { KnowledgeProperties } from './knowledge-properties'
 
 /** The live editor stays mounted while a historical document is inspected. */
 export function DocumentHistory({
@@ -76,12 +77,14 @@ export function DocumentHistory({
     new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
   const exportSnapshot = useMutation({
     mutationFn: () =>
-      downloadDocument(client, {
-        pageID: detail.page.id,
-        xml: preview!.content,
-        title: preview!.title,
-        icon: preview!.icon
-      })
+      detail.page.type === 'knowledge'
+        ? downloadKnowledge(detail.page.id, preview!.title, entryID)
+        : downloadDocument(client, {
+            pageID: detail.page.id,
+            xml: preview!.content,
+            title: preview!.title,
+            icon: preview!.icon
+          })
   })
   return (
     <Dialog open onOpenChange={open => !open && !restore.isPending && close()}>
@@ -143,6 +146,17 @@ export function DocumentHistory({
                     </div>
                   )}
                   <ErrorBoundary variant="panel" resetKeys={[detail.page.id, preview.id, compare]}>
+                    {detail.page.type === 'knowledge' && (
+                      <div className={compare && snapshot ? 'grid gap-4 md:grid-cols-2' : undefined}>
+                        <KnowledgeProperties metadata={snapshot?.metadata ?? detail.page.metadata ?? {}} />
+                        {compare && snapshot && (
+                          <section>
+                            <h3 className="text-sm font-medium">{t('pod.document.current_version')}</h3>
+                            <KnowledgeProperties metadata={detail.page.metadata} />
+                          </section>
+                        )}
+                      </div>
+                    )}
                     <DocumentHistoryPreview
                       editorKey={preview.id === 'current' ? `current:${draft.revision.value}` : preview.id}
                       pageID={detail.page.id}
@@ -157,7 +171,9 @@ export function DocumentHistory({
             <aside
               className="pod-document-history-list flex max-h-[35%] w-full shrink-0 flex-col gap-2 overflow-auto border-t border-border p-4 min-[761px]:max-h-none min-[761px]:w-[250px] min-[761px]:border-t-0 min-[761px]:border-l"
               aria-label={t('pod.document.versions')}>
-              <p className="text-xs text-fg-tertiary">{t('pod.document.history_cadence')}</p>
+              <p className="text-xs text-fg-tertiary">
+                {t(detail.page.type === 'knowledge' ? 'pod.knowledge.history_cadence' : 'pod.document.history_cadence')}
+              </p>
               <Button
                 variant="ghost"
                 className="h-auto flex-col items-start whitespace-normal text-start aria-pressed:bg-selection"

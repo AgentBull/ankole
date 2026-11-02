@@ -144,6 +144,7 @@ export function runtimeFabricStream(envelope: Envelope): RuntimeFabricStream {
 }
 
 export type WorkerJoinParams = {
+  drive_vfs?: boolean
   incarnation_id: string
   max_slots: number
   available_slots: number
@@ -616,6 +617,7 @@ class ChannelTransport implements RuntimeFabricHost {
 
   readonly awaitReady = async (signal?: AbortSignal): Promise<void> => {
     signal?.throwIfAborted()
+    this.checkResume()
     if (this.ready) return Promise.resolve()
     const deadline = Date.now() + this.readyWaitMs
     while (!this.ready) {

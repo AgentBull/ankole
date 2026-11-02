@@ -13,17 +13,28 @@ defmodule Ankole.Conversations.Conversation do
     migrate?(false)
 
     foreign_key_names([
+      {:dm_human_uid, "conversations_dm_human_fkey"},
+      {:dm_colleague_uid, "conversations_dm_colleague_fkey"},
+      {:origin_conversation_id, "conversations_peer_origin_fkey"},
+      {:peer_sender_uid, "conversations_peer_sender_fkey"},
+      {:peer_target_uid, "conversations_peer_target_fkey"},
       {:created_by, "conversations_created_by_fkey"},
       {:page_id, "conversations_page_fkey"},
       {:principal_group_id, "conversations_principal_group_id_fkey"}
     ])
 
     unique_index_names([
+      {[:tenant_id, :dm_human_uid, :dm_colleague_uid], "conversations_dm_identity_index"},
+      {[:tenant_id, :origin_conversation_id, :peer_sender_uid, :peer_target_uid],
+       "conversations_peer_identity_index"},
       {[:tenant_id, :id], "conversations_pkey"},
       {[:tenant_id, :provider_conversation_id], "conversations_external_identity_index"}
     ])
 
     check_constraints do
+      check_constraint(:dm_human_uid, "conversations_dm_identity_check")
+      check_constraint(:peer_sender_uid, "conversations_peer_identity_check")
+      check_constraint(:last_notifiable_seq, "conversations_notifiable_sequence_check")
       check_constraint(:kind, "conversations_kind_check")
       check_constraint(:native_access_scope, "conversations_native_room_check")
       check_constraint(:page_id, "conversations_page_origin_check")
@@ -52,8 +63,20 @@ defmodule Ankole.Conversations.Conversation do
     attribute(:room_mode, :atom, constraints: [one_of: [:dm, :group]], public?: true)
 
     attribute(:native_access_scope, :atom,
-      constraints: [one_of: [:participants, :anchor_page]],
+      constraints: [one_of: [:participants, :anchor_page, :agent_peer]],
       public?: true
+    )
+
+    attribute(:dm_human_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
+    attribute(:dm_colleague_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
+    attribute(:origin_conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:peer_sender_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
+    attribute(:peer_target_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
+
+    attribute(:last_notifiable_seq, :integer,
+      default: 0,
+      allow_nil?: false,
+      constraints: [min: 0]
     )
 
     attribute(:title_customized, :boolean, default: false, allow_nil?: false, public?: true)
@@ -150,11 +173,16 @@ defmodule Ankole.Conversations.Conversation do
         :page_id,
         :last_activity_at,
         :room_mode,
-        :native_access_scope
+        :native_access_scope,
+        :dm_human_uid,
+        :dm_colleague_uid,
+        :origin_conversation_id,
+        :peer_sender_uid,
+        :peer_target_uid
       ])
 
-      change(set_attribute(:room_mode, :dm))
-      change(set_attribute(:native_access_scope, :participants))
+      change(set_attribute(:room_mode, :dm, new?: true))
+      change(set_attribute(:native_access_scope, :participants, new?: true))
       change(set_attribute(:kind, :native))
     end
 
@@ -224,6 +252,12 @@ defmodule Ankole.Conversations.Conversation do
     update :advance_sequence do
       accept([])
       change(atomic_update(:sequence_high_water, expr(sequence_high_water + 1)))
+    end
+
+    update :advance_notifiable_sequence do
+      accept([])
+      change(atomic_update(:sequence_high_water, expr(sequence_high_water + 1)))
+      change(atomic_update(:last_notifiable_seq, expr(sequence_high_water + 1)))
     end
 
     update :set_standing_orders do

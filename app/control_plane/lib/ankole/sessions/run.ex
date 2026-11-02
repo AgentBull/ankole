@@ -232,6 +232,28 @@ defmodule Ankole.Sessions.Run do
             ))
       )
 
+    append_inputs(run, events)
+  end
+
+  @doc "Includes already queued replies to the same task in the first model request."
+  def batch_peer_replies(%{event: %{type: "agent.peer_message"}} = run) do
+    events =
+      Queue.due(run)
+      |> Enum.filter(&(&1.id in run.pending_event_ids))
+      |> Enum.take_while(
+        &(Ankole.Conversations.Peers.same_task_reply?(run.event, &1) and
+            Ankole.Conversations.ModelPreferences.compatible?(
+              &1,
+              run.spec.model_ref["profile"] || "primary"
+            ))
+      )
+
+    append_inputs(run, events)
+  end
+
+  def batch_peer_replies(run), do: {:ok, [], run}
+
+  defp append_inputs(run, events) do
     with {:ok, injected} <- inject(run, events) do
       ids = Enum.map(injected, & &1.id)
 
@@ -435,6 +457,7 @@ defmodule Ankole.Sessions.Run do
   def finalize_recovered_in_tx(run, outcome, reason) do
     with :ok <- lock_for_write_in_tx(run),
          :ok <- Fence.check_in_tx(run),
+         :ok <- Ankole.Conversations.lock_peer_reply_rooms(run),
          {:ok, _} <- end_model_in_tx(run, :stopped, DateTime.utc_now(:microsecond)),
          {:ok, {_state, run}} <- Tape.restore_tape(run),
          do: finalize_in_tx(run, outcome, reason)
@@ -573,6 +596,7 @@ defmodule Ankole.Sessions.Run do
          :ok <- lock_for_write_in_tx(run),
          :ok <- Queue.lock_session_in_tx(run.agent_uid, run.session_id),
          :ok <- Fence.check_in_tx(run),
+         :ok <- Ankole.Conversations.lock_peer_reply_rooms(run),
          {:ok, _} <- end_model_in_tx(run, outcome, now),
          {:ok, {run, journal}} <- record_pending_in_tx(run),
          {:ok, events} <- lock_applied_events(run, outcome),
@@ -617,7 +641,7 @@ defmodule Ankole.Sessions.Run do
   def lock_for_write_in_tx(run) do
     with :ok <- Ankole.Files.lock_tree_in_tx(),
          :ok <- lock_native_participants_in_tx(run),
-         do: Queue.lock_session_in_tx(run.agent_uid, run.session_id)
+         do: Queue.lock_sessions_in_tx(Ankole.Conversations.peer_session_keys(run))
   end
 
   @doc false

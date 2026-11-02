@@ -176,7 +176,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
            }
   end
 
-  test "a human-owned background job uses Agent Drive permissions and retains ingress IP",
+  test "a human-owned background job intersects reads and retains Agent document writes and ingress IP",
        ctx do
     source = native_source(ctx)
     attempt = job_attempt(source)
@@ -196,7 +196,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     pattern = "drive:**:#{page.id}:node"
     condition = ~s(context.request.ip == "10.20.1.10" && context.request.surface == "agent_rpc")
     agent_grants = page_grants(ctx.agent.uid, pattern)
-    assert page.id in rpc_page_ids(attempt)
+    refute page.id in rpc_page_ids(attempt)
 
     assert {:ok, %{"result" => %{"title" => "Agent only"}}} =
              rpc_update(attempt, page.id, "Agent only", page.title)
@@ -208,6 +208,8 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     agent_grants = page_grants(ctx.agent.uid, pattern, condition)
     human_grants = page_grants(ctx.human.uid, pattern, condition)
 
+    assert page.id in rpc_page_ids(attempt)
+
     assert {:ok, %{"result" => %{"title" => "Allowed"}}} =
              rpc_update(attempt, page.id, "Allowed", "Agent only")
 
@@ -215,7 +217,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
       assert {:ok, _} = AuthZ.delete_permission_grant(grant.id)
     end)
 
-    assert page.id in rpc_page_ids(attempt)
+    refute page.id in rpc_page_ids(attempt)
 
     assert {:ok, %{"result" => %{"title" => "Still allowed"}}} =
              rpc_update(attempt, page.id, "Still allowed", "Allowed")

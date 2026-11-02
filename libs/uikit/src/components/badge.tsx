@@ -5,9 +5,14 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../lib/utils'
 
 const badgeVariants = cva(
-  'group/badge inline-flex h-6 min-w-8 max-w-52 shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 text-xs leading-none font-normal tracking-normal whitespace-nowrap normal-case transition-colors aria-invalid:border-destructive [&>svg]:pointer-events-none [&>svg]:size-3.5!',
+  'group/badge inline-flex max-w-52 shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent leading-none font-normal tracking-normal whitespace-nowrap normal-case transition-colors aria-invalid:border-destructive [&>svg]:pointer-events-none [&>svg]:size-3.5!',
   {
     variants: {
+      // `sm` fits inside a 28px navigation row or tab, so a count or a short state sits beside a label.
+      size: {
+        default: 'h-6 min-w-8 px-2 text-xs',
+        sm: 'h-4 min-w-4 px-1.5 text-[11px] tabular-nums'
+      },
       variant: {
         info: 'bg-badge-blue text-blue-70 hover:bg-blue-30 [a]:hover:text-blue-80 dark:bg-blue-80 dark:text-blue-20 dark:hover:bg-blue-70',
         success:
@@ -24,7 +29,8 @@ const badgeVariants = cva(
       }
     },
     defaultVariants: {
-      variant: 'secondary'
+      variant: 'secondary',
+      size: 'default'
     }
   }
 )
@@ -32,6 +38,7 @@ const badgeVariants = cva(
 function Badge({
   className,
   variant = 'secondary',
+  size = 'default',
   render,
   ...props
 }: useRender.ComponentProps<'span'> & VariantProps<typeof badgeVariants>) {
@@ -39,14 +46,15 @@ function Badge({
     defaultTagName: 'span',
     props: mergeProps<'span'>(
       {
-        className: cn(badgeVariants({ variant }), className)
+        className: cn(badgeVariants({ variant, size }), className)
       },
       props
     ),
     render,
     state: {
       slot: 'badge',
-      variant
+      variant,
+      size
     }
   })
 }

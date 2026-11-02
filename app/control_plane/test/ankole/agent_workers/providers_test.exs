@@ -147,10 +147,10 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
              Configuration.digest(definition.schema, base)
   end
 
-  test "provider settings digests retain the pre-refactor values" do
+  test "provider settings digests include their normalized defaults" do
     for {module, digest} <- [
           {Docker, "7d5aca0bdbed0b444eec2e4ddf6ffaf79e5c82b3a8238074b14f880adec51378"},
-          {Kubernetes, "82cdbfebc00ec9e36ba7f743406fc156d326f1d6d441b373f1deb2b25c00ecf4"}
+          {Kubernetes, "7ba2e380cf42e524b763d1b2c04b63e30a81e7652dbdb26ed3b2dddcc4b0ae92"}
         ] do
       definition = module.definition()
       assert {:ok, settings} = Configuration.parse(definition.schema, definition.example)

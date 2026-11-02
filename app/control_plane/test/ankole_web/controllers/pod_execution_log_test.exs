@@ -208,6 +208,7 @@ defmodule AnkoleWeb.PodExecutionLogTest do
   defp create_room!(uid, agent_uid) do
     assert {:ok, room} =
              Ankole.ConversationsFixtures.create(uid, %{
+               room_mode: :group,
                conversation_id: Ecto.UUID.generate(),
                message_id: Ecto.UUID.generate(),
                agent_uid: agent_uid,

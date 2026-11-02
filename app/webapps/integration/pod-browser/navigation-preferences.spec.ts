@@ -209,11 +209,12 @@ test('bootstrap restores the active path, intent prefetch opens from cache, and 
     const preloaded = page.waitForResponse(response => new URL(response.url()).searchParams.get('parent_id') === other)
     await otherToggle.hover()
     expect((await preloaded).ok()).toBe(true)
+    const otherChildHref = pageRoute(otherChild, undefined, `Other child ${label}`)
     await otherToggle.click()
-    await expect(sidebar.locator(`a[href="${pageRoute(otherChild)}"]`)).toBeVisible()
+    await expect(sidebar.locator(`a[href="${otherChildHref}"]`)).toBeVisible()
     await otherToggle.click()
     await otherToggle.click()
-    await expect(sidebar.locator(`a[href="${pageRoute(otherChild)}"]`)).toBeVisible()
+    await expect(sidebar.locator(`a[href="${otherChildHref}"]`)).toBeVisible()
     expect(
       requests.filter(
         url => url.pathname === '/api/v2/pod/pages/children' && url.searchParams.get('parent_id') === other
@@ -248,7 +249,7 @@ test('bootstrap restores the active path, intent prefetch opens from cache, and 
     expect(requests.filter(url => url.pathname === '/api/v2/pod/pages/children')).toHaveLength(0)
     await writer.close()
 
-    const childLink = sidebar.locator(`a[href="${pageRoute(otherChild)}"]`)
+    const childLink = sidebar.locator(`a[href="${otherChildHref}"]`)
     const details = page.waitForResponse(
       response => new URL(response.url()).pathname === `/api/v2/pod/pages/${otherChild}`
     )
@@ -391,7 +392,7 @@ test('page search and quick jump distinguish matching titles by their parent pat
     await expect(choices.filter({ hasText: 'Finance team' })).toHaveCount(1)
     await expect(choices.filter({ hasText: 'Operations team' })).toHaveCount(1)
     await choices.filter({ hasText: 'Operations team' }).click()
-    await expect(page).toHaveURL(state.base_url + pageRoute(operationsReview))
+    await expect(page).toHaveURL(state.base_url + pageRoute(operationsReview, undefined, title))
     await page.getByRole('button', { name: '搜索或跳转', exact: true }).click()
     await dialog.locator('[data-value="scope:search"]').click()
     await expect(page).toHaveURL(state.base_url + listRoute('search'))
@@ -402,7 +403,7 @@ test('page search and quick jump distinguish matching titles by their parent pat
     await expect(links.filter({ hasText: 'Operations team' })).toHaveCount(1)
     await page.screenshot({ path: info.outputPath('search-parent-paths.png') })
     await links.filter({ hasText: 'Finance team' }).click()
-    await expect(page).toHaveURL(state.base_url + pageRoute(financeReview))
+    await expect(page).toHaveURL(state.base_url + pageRoute(financeReview, undefined, title))
     await page.goto('/')
     const composer = page.getByRole('textbox', { name: '消息', exact: true })
     await composer.fill('@')

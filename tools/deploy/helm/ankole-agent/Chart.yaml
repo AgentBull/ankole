@@ -1,4 +1,5 @@
 apiVersion: v2
+kubeVersion: ">=1.30.0-0"
 name: ankole-agent
 description: Self-hosted Ankole control plane, Agent Computer, and optional PostgreSQL
 type: application

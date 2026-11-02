@@ -480,7 +480,7 @@ Agent-wide setup: it refreshes same-release Plugin packages, installs them via
 `plugin/install`, trusts Hooks, and disables every global Plugin entry. Once
 setup completes, concurrent Job turns run without mutating shared Plugin or user
 config state or exposing native Skill directories to Codex. Instead, Ankole
-writes the filtered Skill index into the project `AGENTS.md`, serves full Skill
+passes the filtered Skill index in Turn developer instructions, serves full Skill
 files via dynamic `skill_view`, and supplies Skill MCP servers via an
 invocation-scoped `MCPORTER_CONFIG`. Job preparation strips any `mcp_servers`
 table from `.codex/config.toml`; no bundled native MCP server is currently
@@ -587,30 +587,36 @@ Codex-internal `internal_chat_message_metadata_passthrough` and
 and routes images either directly to multimodal main models or through the
 frozen vision fallback as untrusted text.
 
-## Compose the Project AGENTS.md
+## Compose Agent and Project Contracts
 
-When initializing a Job Workspace, the runner writes `AGENTS.md` at the
-Workspace root: any optional workspace template provides the opening section,
-followed by the rendered Agent `SOUL` and `MISSION` documents and execution
-context.
+The control plane reads each organization and Agent contract as a whole.
+`/AnkoleBrain/AGENTS.md` and `DESIGN.md` provide organization defaults. An Agent
+can append `agents/<uid>/AGENTS.md` or `DESIGN.md`, or replace the corresponding
+default with `AGENTS.override.md` or `DESIGN.override.md`; an override wins when
+both filenames exist. DESIGN metadata merges objects recursively, replaces
+scalars and arrays, and removes keys whose Agent value is null. Its bodies join
+with a horizontal rule; AGENTS bodies join with a blank line.
 
-The local Job Workspace is temporary scratch space. The execution context
-directs the Job to save durable outputs in its Agent's private Drive with
-`ankole-files put` and return the resulting `nodeId` to the caller. Received
-attachments include an `ankole-pod chat attachment get` command that reads the
-source Message's frozen object under current conversation membership. Other
-conversations have separate Worker workspaces, and shared Drive nodes require
-the executing Agent's own permissions.
+Before every Turn, including continuation, the Worker atomically refreshes
+`$CODEX_HOME/AGENTS.md`, `~/AGENTS.md`, and `~/DESIGN.md` from those effective
+contracts. These projections are read-only. Codex reads the Agent contract before
+project instructions. Workspace templates and cloned repositories own the
+project's `AGENTS.md` and `AGENTS.override.md`.
 
-The rendered context also embeds the ordinary Skill index (omitting Skills
-marked `brain-recall-only: true`, which remain discoverable through Brain),
-while `.codex/config.toml` sets the native subagent wait minimum to 1 minute and
-the default to 10 minutes (keeping the Codex default maximum) to accommodate
-multi-minute subtasks without burning repeated model turns during waits; see
-[openai/codex#35259](https://github.com/openai/codex/issues/35259). Resumed threads keep their project `AGENTS.md` untouched: instead of rewriting
-project files on resume, the runner passes the latest drive and delivery rules
-as developer instructions and appends refreshed instructions via
-`thread/inject_items`.
+The runner sends Job execution context and the current Skill index as developer
+instructions. The context directs the Job to save durable outputs in its Agent's
+private Drive with `ankole-files put` and return the resulting `nodeId` to the
+caller. Received attachments include an `ankole-pod chat attachment get` command
+that reads the source Message's frozen object under current membership.
+
+The `design-md` Skill reads the project's `DESIGN.override.md` or `DESIGN.md`
+whole when present. Otherwise it reads `~/DESIGN.md`, together with any project
+`DESIGN.append.md`. Project-specific files therefore remain ordinary workspace
+artifacts.
+
+Codex configuration sets the native subagent wait minimum to one minute and the
+default to ten minutes, while keeping the Codex default maximum. Resumed threads
+receive refreshed execution guidance through `thread/inject_items`.
 
 ## Prepare Skills for Each Run
 
@@ -627,11 +633,16 @@ Each `SKILL.md` frontmatter may declare an optional `ankole-runtime` target
 
 `ankole-runtime` governs Skill discovery and `skill_view` invocation rather than
 acting as a filesystem boundary inside an installed Plugin directory.
-Agent-installed Skills live at `/workspace/installed-skills/<skill-name>/`.
+The Worker materializes visible Skills at
+`/workspace/.ankole/turn-skills/<signal-id>/<skill-name>/`.
 
 Before each run, Agent Computer computes the loadable Skill set by intersecting
 the Job's frozen Skill selection with the Agent's currently enabled Skills and
-the `ankole-runtime` filter. When a Job calls Ankole's dynamic `skill_view` tool, it reads through the same
+the `ankole-runtime` filter. The control plane applies the Agent and current
+conversation's intersected Drive visibility to every Skill page and attached
+file. Visible supplement pages join the Skill body; child pages marked
+`metadata.role = "reference"` remain available by relative path. The MCP loader
+uses those same materialized files. When a Job calls Ankole's dynamic `skill_view` tool, it reads through the same
 path-confined loader as the main Agent, appends any active database lesson to
 `SKILL.md`, marks the Skill as used, and includes the Skill's `ankole-runtime`
 value in the tool output. The loader rejects disabled Skills, `main`-only
@@ -658,7 +669,7 @@ user config:
 1. Intersect the Job's frozen Plugin and member selection with the Agent's
    current effective catalog.
 2. Add Background-eligible Plugin Skills to the `skill_view` allowlist and
-   non-lazy Skill index (never passing Plugin Skill roots to Codex directly; if
+   current Skill index (never passing Plugin Skill roots to Codex directly; if
    an operator disables a member mid-run, Agent Computer drops it from the
    loader and sends a disable notice to active Jobs).
 3. Project enabled Skill-owned MCP servers into the invocation-scoped mcporter

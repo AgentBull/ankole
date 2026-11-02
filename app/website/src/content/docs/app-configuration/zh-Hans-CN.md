@@ -67,16 +67,15 @@ AppConfigure 将产品参数保存在 PostgreSQL，多数修改影响后续任�
 
 ### Brain
 
+Brain 使用租户的 `ankole_brain` 系统主体调用模型。在 Console 的模型配置编辑器中，可设置提取（`light`）、分析（`heavy`）、URL 获取（`web_fetch`）和重排（`rerank`）配置，并继承 Pod 与站点设置。
+
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
 | `brain.enabled` | 租户 | 是否启用 Brain 的知识检索、自动学习与后台维护；关闭后已存储的知识仍会保留 |
-| `brain.maintainer_agent_uid` | 租户 | 指定负责维护 Brain 的启用态 Agent。Brain 的全部模型调用均以该 Agent 身份发起并将用量计入其名下；若该 Agent 被停用，Brain 模型调用与 URL Source 抓取将暂停，直至重新启用或更换 Agent。请在对应 Agent 页面配置其 `light`、`heavy` 与 `web_fetch` 模型档案 |
 | `brain.embedding_model` | 站点 | 向量检索使用的 Provider、模型与向量维度；留空将停用向量检索 |
-| `brain.rerank_model` | 租户 | 搜索结果重排序使用的 Provider 与模型；留空则直接保留多路召回融合后的排序 |
 | `brain.search_tokenizer` | 站点 | BM25 全文检索分词器：`icu`、`jieba`、`lindera_japanese` 或 `lindera_korean`；修改后需重建 BM25 索引 |
 | `brain.chunking` | 租户 | Source 文档切片大小、相邻重叠字数与输入长度上限 |
 | `brain.forgetting` | 租户 | 各类记忆的时间衰减半衰期 |
-| `brain.soft_delete_retention_hours` | 租户 | 已软删除对象在 Dreaming 永久清理前的保留小时数，默认 `72` |
 | `brain.dreaming_task_cron` | 租户 | 后台定期归纳整理知识（Dreaming）的 Cron 计划 |
 | `brain.self_healing_task_cron` | 租户 | 定期修复过期文档分块、向量嵌入与搜索索引投影的自愈 Cron 计划 |
 | `brain.signal_channel_batch_idle_time` | 租户 | 待学习的聊天消息批次在进入提炼流程前需静置的空闲秒数（会话结束时也会立即触发学习） |

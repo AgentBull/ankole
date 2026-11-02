@@ -41,7 +41,7 @@ The kernel stays alive for the duration of the Background Agent Job. Once the Jo
 To set up an Agent that analyzes CSV files posted in a team channel:
 
 1. Confirm that the `jupyter-live-kernel` Skill is enabled (it is on by default).
-2. Create the Agent and write its `MISSION.md`: "When a CSV appears in the channel, load it into a DataFrame, inspect the schema and summary statistics, identify anomalies, and report findings with a plot."
+2. Create the Agent and write its `AGENTS.md`: "When a CSV appears in the channel, load it into a DataFrame, inspect the schema and summary statistics, identify anomalies, and report findings with a plot."
 3. Attach a CSV directly in the chat channel, or upload it to the Agent's drive in the Console and share its file path.
 4. The Agent delegates the analysis to a Background Agent Job, starts the Jupyter kernel, loads the CSV, explores the data across cells, renders a plot, and posts the summary back to the channel.
 

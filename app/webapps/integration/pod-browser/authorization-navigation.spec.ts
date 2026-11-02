@@ -247,7 +247,9 @@ test('navigation fetches a branch on expansion, follows its cursor, and searches
     await expect(branch.locator(':scope > li > .pod-tree-row')).toHaveCount(201)
     expect(childRequests.some(url => url.searchParams.has('cursor'))).toBe(true)
     await page.goto(pageRoute(lastID))
-    const lastRow = page.locator('.pod-tree-row', { has: page.locator(`a[href="${pageRoute(lastID)}"]`) })
+    const lastRow = page.locator('.pod-tree-row', {
+      has: page.locator(`a[href="${pageRoute(lastID, undefined, hiddenTitle)}"]`)
+    })
     await expect(lastRow).toBeVisible()
     await lastRow.click({ button: 'right' })
     await expect(page.getByRole('menuitem', { name: '上移', exact: true })).toBeDisabled()

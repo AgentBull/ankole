@@ -114,9 +114,15 @@ import type {
   PodChatTeammatesData,
   PodChatTeammatesErrors,
   PodChatTeammatesResponses,
+  PodCommentAttentionData,
+  PodCommentAttentionErrors,
+  PodCommentAttentionResponses,
   PodCommentReadData,
   PodCommentReadErrors,
   PodCommentReadResponses,
+  PodConversationAttentionData,
+  PodConversationAttentionErrors,
+  PodConversationAttentionResponses,
   PodConversationsData,
   PodConversationsErrors,
   PodConversationsResponses,
@@ -132,6 +138,12 @@ import type {
   PodFilesData,
   PodFilesErrors,
   PodFilesResponses,
+  PodKnowledgeExportData,
+  PodKnowledgeExportErrors,
+  PodKnowledgeExportResponses,
+  PodKnowledgePanelData,
+  PodKnowledgePanelErrors,
+  PodKnowledgePanelResponses,
   PodMeData,
   PodMeErrors,
   PodMentionCandidatesData,
@@ -231,6 +243,9 @@ import type {
   PodPageViewersData,
   PodPageViewersErrors,
   PodPageViewersResponses,
+  PodPeerExchangeData,
+  PodPeerExchangeErrors,
+  PodPeerExchangeResponses,
   PodRealtimeTokenData,
   PodRealtimeTokenErrors,
   PodRealtimeTokenResponses,
@@ -288,6 +303,9 @@ import type {
   SetPodModelSelectionData,
   SetPodModelSelectionErrors,
   SetPodModelSelectionResponses,
+  StopPodPeerExchangeData,
+  StopPodPeerExchangeErrors,
+  StopPodPeerExchangeResponses,
   SyncPodDirectoryData,
   SyncPodDirectoryErrors,
   SyncPodDirectoryResponses,
@@ -531,6 +549,24 @@ export const podModelProfiles = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/agents/{uid}/model-profiles',
+    ...options
+  })
+
+/**
+ * podConversationAttention operation on pod_chat_operation resource
+ */
+export const podConversationAttention = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConversationAttentionData, ThrowOnError>
+): RequestResult<PodConversationAttentionResponses, PodConversationAttentionErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodConversationAttentionResponses,
+    PodConversationAttentionErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/attention',
     ...options
   })
 
@@ -782,6 +818,19 @@ export const restorePodMember = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * stopPodPeerExchange operation on pod_chat_operation resource
+ */
+export const stopPodPeerExchange = <ThrowOnError extends boolean = true>(
+  options: Options<StopPodPeerExchangeData, ThrowOnError>
+): RequestResult<StopPodPeerExchangeResponses, StopPodPeerExchangeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<StopPodPeerExchangeResponses, StopPodPeerExchangeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}/stop',
+    ...options
   })
 
 /**
@@ -1138,6 +1187,19 @@ export const podBaseTableCreate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podPeerExchange operation on pod_chat_operation resource
+ */
+export const podPeerExchange = <ThrowOnError extends boolean = true>(
+  options: Options<PodPeerExchangeData, ThrowOnError>
+): RequestResult<PodPeerExchangeResponses, PodPeerExchangeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPeerExchangeResponses, PodPeerExchangeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}',
+    ...options
+  })
+
+/**
  * unbindPodCredential operation on pod_member_account resource
  */
 export const unbindPodCredential = <ThrowOnError extends boolean = true>(
@@ -1351,6 +1413,19 @@ export const enablePodAgent = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podKnowledgePanel operation on pod_page_operation resource
+ */
+export const podKnowledgePanel = <ThrowOnError extends boolean = true>(
+  options: Options<PodKnowledgePanelData, ThrowOnError>
+): RequestResult<PodKnowledgePanelResponses, PodKnowledgePanelErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodKnowledgePanelResponses, PodKnowledgePanelErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/knowledge',
+    ...options
+  })
+
+/**
  * podAdminAgents operation on pod_admin_operation resource
  */
 export const podAdminAgents = <ThrowOnError extends boolean = true>(
@@ -1442,6 +1517,19 @@ export const unbindPodMemberCredential = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/admin/members/{uid}/credentials/{credential_id}',
+    ...options
+  })
+
+/**
+ * podKnowledgeExport operation on pod_page_operation resource
+ */
+export const podKnowledgeExport = <ThrowOnError extends boolean = true>(
+  options: Options<PodKnowledgeExportData, ThrowOnError>
+): RequestResult<PodKnowledgeExportResponses, PodKnowledgeExportErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodKnowledgeExportResponses, PodKnowledgeExportErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/knowledge/export',
     ...options
   })
 
@@ -1884,6 +1972,19 @@ export const reauthenticatePodMember = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/me/reauthentication',
+    ...options
+  })
+
+/**
+ * podCommentAttention operation on pod_document_comment_operation resource
+ */
+export const podCommentAttention = <ThrowOnError extends boolean = true>(
+  options?: Options<PodCommentAttentionData, ThrowOnError>
+): RequestResult<PodCommentAttentionResponses, PodCommentAttentionErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodCommentAttentionResponses, PodCommentAttentionErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/comments/attention',
     ...options
   })
 

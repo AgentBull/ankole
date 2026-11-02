@@ -1,4 +1,4 @@
-import { usePagesMetadata } from '../use-page-metadata'
+import { usePageHref, usePagesMetadata } from '../use-page-metadata'
 import { Button, cn, toast, useReducedMotion } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
@@ -13,14 +13,14 @@ import {
   RiReplyLine,
   RiSaveLine
 } from '@remixicon/react'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
-import { podLocation } from '../../common/browser-context'
 import { ErrorBoundary } from '../../common/error-boundary'
-import type { ConversationDetail, ConversationMessage, PodActivity, PodActivityItem } from '../api'
+import { agentsQuery, type ConversationDetail, type ConversationMessage, type PodActivity } from '../api'
 import { MessageArtifacts, SaveMessageButton, SaveSelectionAsPageDialog } from '../message-artifacts'
 import { OlderMessages, messageID, useChatReading, type useChatHistory } from '../chat-history'
 import type { PageDetail } from '../content-api'
@@ -28,17 +28,17 @@ import { ChatModel, type ChatPresentation, type DisplayMessage } from '../state/
 import { ChatMarkdown } from './chat-markdown'
 import { ActionCardView } from './action-card-view'
 import { ChoiceCard, type ClarifyAnswer } from './choice-card'
-import { CollapsedWorkView } from './collapsed-work-view'
+import { CollapsedWorkView, ActivityView, activitySteps, useActivityLabel } from './collapsed-work-view'
 import type { ActionCardDecision } from './room-api'
 import { downloadMarkdownString, selectionToMarkdown } from './export-markdown'
+import { PeerExchangeCard, pairPeerExchanges } from './peer-exchange-card'
 import { LinkedExecutionCard } from './linked-execution-card'
 import { MessageActions } from './message-actions'
 import { captureSelectedMessages, type CaptureSelectedMessagesResult } from './select-screenshot'
 import { SelectShareLightbox } from './select-share-lightbox'
-import { humanizeToolName } from './tool-run-view'
 import { TurnRail } from './turn-rail'
 import { avatarInitials, ChatAvatar } from './chat-avatar'
-import type { ExecutionStep, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
+import type { LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
 
 type TimelineActions = {
   edit?(message: ConversationMessage): void
@@ -158,6 +158,8 @@ export function TurnTimeline({
   const turns = timelineTurns(committed)
   const unloadedQuestions = unloadedPendingQuestions(pendingInteractions, committed)
   const canAnswerAgent = (uid: string | null) => !!onAnswer && canAnswer(uid)
+  const directory = useQuery(agentsQuery)
+  const peerNames = new Map((directory.data?.agents ?? []).map(agent => [agent.uid, agent.displayName]))
   const lastChoice =
     committed.findLast(
       message =>
@@ -166,6 +168,9 @@ export function TurnTimeline({
     )?.id ?? unloadedQuestions.findLast(question => canAnswerAgent(question.agentUID ?? null))?.messageID
   const activeStreams = uncommittedStreams(committed, liveStreams)
   const replySources = interleavedReplySources(committed)
+  // A colleague's reply joins the delegation row it answers instead of appearing as a second card.
+  const peerExchanges = pairPeerExchanges(committed as TimelineMessage[])
+  const committedByID = new Map(committed.map(message => [message.id, message as TimelineMessage]))
   const executions = placeLinkedExecutions(committed, activeStreams, linkedRuns)
   const jumpToMessage = (id: string) => {
     const element = scrollRef.current?.querySelector<HTMLElement>(`[data-chat-message-id="${CSS.escape(id)}"]`)
@@ -187,6 +192,7 @@ export function TurnTimeline({
           <OlderMessages history={history} scrollRef={scrollRef} />
           {messages.map((item, index) => {
             const id = messageID(item)
+            if (item.type === 'committed' && peerExchanges.paired.has(item.message.id)) return null
             const selectable = item.type === 'committed' && item.message.kind !== 'notice'
             const isSelected = selectable && selectedIDSet.has(id)
             return (
@@ -225,6 +231,8 @@ export function TurnTimeline({
                       <CommittedMessage
                         message={item.message as TimelineMessage}
                         conversationID={conversationID}
+                        peerReply={committedByID.get(peerExchanges.replies.get(item.message.id) ?? '')}
+                        peerLive={peerExchanges.latest.has(item.message.id)}
                         onEdit={
                           item.message.id === latestInput?.messageID &&
                           latestInput.authorUID === viewerUID &&
@@ -285,18 +293,17 @@ export function TurnTimeline({
           ))}
           {unloadedQuestions.map(question => {
             const agent = members.find(member => member.uid === question.agentUID)
+            const asker = agent?.displayName ?? peerNames.get(question.agentUID ?? '') ?? `@${question.agentUID}`
             return (
               <ErrorBoundary key={question.interaction_id} variant="inline" resetKeys={[question.interaction_id]}>
                 <article
                   className="pod-chat-timeline-message pod-chat-agent-message"
                   data-pending-interaction={question.interaction_id}>
-                  <MessageIdentity
-                    name={agent?.displayName || t('pod.chat_timeline.agent')}
-                    avatarURL={agent?.avatarURL}
-                  />
+                  <MessageIdentity name={asker} avatarURL={agent?.avatarURL} quiet={!agent} />
                   <ChoiceCard
                     prompt={question}
                     interaction={question}
+                    askedBy={agent ? undefined : asker}
                     onAnswer={canAnswerAgent(question.agentUID ?? null) ? onAnswer : undefined}
                     onComposeAnswer={canAnswerAgent(question.agentUID ?? null) ? onComposeAnswer : undefined}
                     readOnlyReason={readOnlyReason}
@@ -500,6 +507,8 @@ function continuesPrevious(previous: DisplayMessage | undefined, current: Displa
 function CommittedMessage({
   message,
   conversationID,
+  peerReply,
+  peerLive = false,
   onEdit,
   onRetry,
   onQuote,
@@ -521,6 +530,8 @@ function CommittedMessage({
 }: {
   message: TimelineMessage
   conversationID: string
+  peerReply?: TimelineMessage
+  peerLive?: boolean
   onEdit?: () => void
   onRetry?: () => void
   onQuote?: (text: string) => void
@@ -541,6 +552,7 @@ function CommittedMessage({
   readOnlyReason?: string
 }) {
   const { t, i18n } = useTranslation()
+  const pageHref = usePageHref()
   const [saved, setSaved] = useState<PageDetail['page']>()
   const savedPages = usePagesMetadata([
     ...new Map([...message.savedPages, ...(saved ? [saved] : [])].map(page => [page.id, page])).values()
@@ -563,6 +575,22 @@ function CommittedMessage({
       </div>
     )
   }
+  if (rich?.agent_peer_outbound) {
+    return (
+      <PeerExchangeCard
+        conversationID={conversationID}
+        peer={rich.agent_peer_outbound}
+        request={message}
+        reply={peerReply}
+        live={peerLive}
+      />
+    )
+  }
+  if (rich?.agent_peer_inbound) {
+    return (
+      <PeerExchangeCard conversationID={conversationID} peer={rich.agent_peer_inbound} reply={message} live={false} />
+    )
+  }
   const prompt = rich?.clarify
   const actionCard = rich?.action_card
   return (
@@ -579,7 +607,7 @@ function CommittedMessage({
         archived={message.authorArchived}
         time={message.createdAt}
         avatarURL={avatarURL}
-        quiet={own || continued}
+        quiet={own || continued || !!rich?.peer_agent_uid}
       />
       {queued && <span className="pod-chat-queued-badge">{t('pod.chat_timeline.queued')}</span>}
       {replySource && (
@@ -603,7 +631,7 @@ function CommittedMessage({
       {rich?.execution && (
         <CollapsedWorkView
           execution={rich.execution}
-          attention={prompt?.state === 'pending' || (actionCard?.status ?? 'prepared') === 'prepared'}
+          attention={prompt?.state === 'pending' || (!!actionCard && (actionCard.status ?? 'prepared') === 'prepared')}
         />
       )}
       {actionCard ? (
@@ -612,6 +640,7 @@ function CommittedMessage({
         <ChoiceCard
           prompt={prompt}
           interaction={prompt}
+          askedBy={rich?.peer_agent_uid ? name : undefined}
           onAnswer={onAnswer}
           onComposeAnswer={onComposeAnswer}
           keyboardActive={keyboardActive}
@@ -641,10 +670,7 @@ function CommittedMessage({
         )}
       </MessageActions>
       {savedPages.map(page => (
-        <Link
-          key={page.id}
-          className="pod-chat-page-pill pod-chat-saved-page"
-          to={podLocation(`/pages/${page.id}`).pathname}>
+        <Link key={page.id} className="pod-chat-page-pill pod-chat-saved-page" to={pageHref(page.id, page.title)}>
           <RiFileTextLine aria-hidden />
           {page.title || t('pod.content.untitled')}
         </Link>
@@ -774,42 +800,6 @@ export function timelineEventLabel(
     default:
       return message.text
   }
-}
-
-export function activitySteps(activity: PodActivity, label: (item: PodActivityItem) => string): ExecutionStep[] {
-  return activity.tools.map(item => ({
-    id: item.operation_id,
-    tool: item.operation_id,
-    title: label(item),
-    status: item.phase ?? 'running',
-    duration_ms: item.duration_ms ?? undefined
-  }))
-}
-
-function useActivityLabel() {
-  const { t } = useTranslation()
-  return (item: PodActivityItem, isTool = false) => {
-    const fallback =
-      isTool && !/^(?:call_|toolu_|[0-9a-f]{8}-)/i.test(item.operation_id)
-        ? humanizeToolName(item.operation_id)
-        : t('pod.chat.replying')
-    return item.label_key?.startsWith('conversations.delivery.reply.activity.')
-      ? t(item.label_key, { ...item.label_bindings, defaultValue: item.label || fallback })
-      : item.label || fallback
-  }
-}
-
-function ActivityView({ activity }: { activity: PodActivity }) {
-  const label = useActivityLabel()
-  return (
-    <CollapsedWorkView
-      active
-      phaseLabel={activity.phase ? label(activity.phase) : undefined}
-      execution={{
-        steps: activitySteps(activity, item => label(item, true))
-      }}
-    />
-  )
 }
 
 function LiveMessage({

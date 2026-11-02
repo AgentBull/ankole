@@ -233,7 +233,15 @@ defmodule Ankole.AgentWorkers.Docker do
 
     host_config =
       %{
-        "SecurityOpt" => ["no-new-privileges"],
+        "SecurityOpt" => ["no-new-privileges", "apparmor=unconfined"],
+        "CapAdd" => ["SYS_ADMIN"],
+        "Devices" => [
+          %{
+            "PathOnHost" => "/dev/fuse",
+            "PathInContainer" => "/dev/fuse",
+            "CgroupPermissions" => "rwm"
+          }
+        ],
         "ExtraHosts" => ["host.docker.internal:host-gateway"],
         "NetworkMode" => settings["network"],
         "RestartPolicy" => %{"Name" => "no"},

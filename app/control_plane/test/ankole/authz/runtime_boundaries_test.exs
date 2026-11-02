@@ -4,7 +4,7 @@ defmodule Ankole.AuthZ.RuntimeBoundariesTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AuthZ
-  alias Ankole.Brain.Scope
+  alias Ankole.Brain.{Access, Scope}
   alias Ankole.Conversations.Native
   alias Ankole.Principals.WorkAccess
   alias Ankole.Sessions.{Tool, Tools}
@@ -13,16 +13,16 @@ defmodule Ankole.AuthZ.RuntimeBoundariesTest do
     member = human_fixture().principal
     guest = human_fixture(%{membership: :guest}).principal
 
-    assert {:ok, member_scopes} = Scope.accessible_scopes(member.uid)
-    assert "world" in member_scopes
-    assert Scope.satisfied_by?("world", member.uid)
+    public_node_id = Scope.world()
+    assert {:ok, member_access} = Access.for_querier(member.uid)
+    assert public_node_id in Ankole.Files.visible_node_ids(member_access.reachable)
+    assert Scope.satisfied_by?(public_node_id, member.uid)
 
-    assert {:ok, guest_scopes} = Scope.accessible_scopes(guest.uid)
-    refute "world" in guest_scopes
-    assert Scope.principal(guest.uid) in guest_scopes
-    refute Scope.satisfied_by?("world", guest.uid)
-    refute Scope.satisfied_by_all?("world", [member.uid, guest.uid])
-    assert {:error, :forbidden} = Scope.validate_writable("world", guest.uid)
+    assert {:ok, guest_access} = Access.for_querier(guest.uid)
+    refute public_node_id in Ankole.Files.visible_node_ids(guest_access.reachable)
+    refute Scope.satisfied_by?(public_node_id, guest.uid)
+    refute Scope.satisfied_by_all?(public_node_id, [member.uid, guest.uid])
+    assert {:error, :forbidden} = Scope.validate_writable(public_node_id, guest.uid)
   end
 
   test "Console administration does not grant chat or repair invalid work authority" do

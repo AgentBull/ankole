@@ -146,6 +146,7 @@ function detail(agentUIDs: string[]): ConversationDetail {
       titleCustomized: false,
       pageID: null,
       roomMode: 'group',
+      conversationKind: 'group',
       accessScope: 'participants',
       createdBy: 'person',
       canDelete: true,

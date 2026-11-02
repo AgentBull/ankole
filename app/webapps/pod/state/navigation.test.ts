@@ -206,3 +206,27 @@ test('routeSidebarTab preserves explicit keepSidebarTab when opening a recent co
   expect(routeSidebarTab('/conversations/abc', { keepSidebarTab: 'home' })).toBe('home')
   expect(routeSidebarTab('/pages/abc')).toBe('home')
 })
+
+test('Recents retains at most three waiting or active items and reflects reopening an old conversation', () => {
+  const entries = mergeRecentEntries(
+    [{ id: 'mentioned-page', visited_at: '2026-10-20T00:00:00Z', relevantUnread: 1 }],
+    [
+      { id: 'waiting', rowStatus: 'waiting_choice', lastActivityAt: '2026-10-19T00:00:00Z' },
+      { id: 'running-newer', rowStatus: 'streaming', lastActivityAt: '2026-10-21T00:00:00Z' },
+      { id: 'running-older', rowStatus: 'running_background', lastActivityAt: '2026-10-18T00:00:00Z' },
+      {
+        id: 'reopened',
+        rowStatus: 'read',
+        lastActivityAt: '2026-09-01T00:00:00Z',
+        viewer: { lastVisitedAt: '2026-10-28T00:00:00Z' }
+      }
+    ]
+  )
+  expect(entries.map(entry => entry.id)).toEqual([
+    'waiting',
+    'mentioned-page',
+    'running-newer',
+    'reopened',
+    'running-older'
+  ])
+})

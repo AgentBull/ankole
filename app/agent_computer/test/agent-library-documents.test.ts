@@ -1,41 +1,35 @@
 import { describe, expect, test } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentHomePaths } from '../src/core/agent-home-paths'
 import { materializeAgentLibraryDocuments } from '../src/core/agent-library-documents'
 import { AgentConversationContextResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
-describe('Agent Home document projection', () => {
-  test('projects each uppercase document as a read-only file and returns the received snapshot', () => {
-    const agentHomeRoot = mkdtempSync(join(tmpdir(), 'ankole-agent-documents-'))
-    const paths = agentHomePaths(agentHomeRoot)
-    mkdirSync(paths.home, { recursive: true })
-
+describe('Agent contract projection', () => {
+  test('refreshes whole contracts on every turn without changing project instructions', () => {
+    const home = mkdtempSync(join(tmpdir(), 'ankole-agent-contracts-'))
+    const paths = agentHomePaths(home)
+    const project = join(home, 'jobs', '1000', 'project')
+    mkdirSync(project, { recursive: true })
+    writeFileSync(join(project, 'AGENTS.override.md'), 'Project contract')
     try {
-      const projected = materializeAgentLibraryDocuments(
-        paths,
-        create(AgentConversationContextResponseSchema, {
-          soul: 'SOUL',
-          mission: 'MISSION',
-          design: 'DESIGN',
-          confidentialityPolicy: 'POLICY'
+      for (const version of ['one', 'two']) {
+        const context = create(AgentConversationContextResponseSchema, {
+          agents: `Company contract ${version}`,
+          design: `Brand ${version}`
         })
-      )
-
-      expect(readFileSync(paths.soul, 'utf8')).toBe('SOUL')
-      expect(readFileSync(paths.mission, 'utf8')).toBe('MISSION')
-      expect(readFileSync(paths.design, 'utf8')).toBe('DESIGN')
-      expect(readFileSync(paths.confidentialityPolicy, 'utf8')).toBe('POLICY')
-      expect(statSync(paths.design).mode & 0o222).toBe(0)
-      expect(statSync(paths.confidentialityPolicy).mode & 0o222).toBe(0)
-      expect(projected.soul).toBe('SOUL')
-      expect(projected.mission).toBe('MISSION')
-      expect(projected.design).toBe('DESIGN')
-      expect(projected.confidentialityPolicy).toBe('POLICY')
+        expect(materializeAgentLibraryDocuments(paths, context)).toBe(context)
+        expect(readFileSync(paths.agents, 'utf8')).toBe(`Company contract ${version}`)
+        expect(readFileSync(join(paths.codexHome, 'AGENTS.md'), 'utf8')).toBe(`Company contract ${version}`)
+        expect(readFileSync(paths.design, 'utf8')).toBe(`Brand ${version}`)
+        expect(statSync(paths.agents).mode & 0o222).toBe(0)
+        expect(statSync(paths.design).mode & 0o222).toBe(0)
+        expect(readFileSync(join(project, 'AGENTS.override.md'), 'utf8')).toBe('Project contract')
+      }
     } finally {
-      rmSync(agentHomeRoot, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
     }
   })
 })

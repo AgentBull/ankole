@@ -194,19 +194,31 @@ defmodule Ankole.Conversations.Observe do
               {:ok, %{status: :stale_action}}
 
             {:accepted, resolution} ->
-              fact = %{
-                fact
-                | action: accepted_reply_action(fact.action, resolution),
-                  sender_key: Map.get(fact.action, "operator_principal_uid")
-              }
-
-              append_action_event(binding, fact, channel, now)
+              append_reply_action(binding, fact, channel, resolution, now)
 
             :unmanaged ->
               append_action_event(binding, fact, channel, now)
           end
         end
       end
+    end
+  end
+
+  defp append_reply_action(binding, fact, channel, resolution, now) do
+    fact = %{
+      fact
+      | action: accepted_reply_action(fact.action, resolution),
+        sender_key: Map.get(fact.action, "operator_principal_uid")
+    }
+
+    source = Ankole.Signals.get_signal!(resolution["source_signal_id"])
+
+    if source && Ankole.Conversations.Peers.exchange(source.conversation_id) do
+      with {:ok, signal} <-
+             Ankole.Conversations.Peers.answer_external_in_tx(source, fact, resolution),
+           do: {:ok, signal_append_result(signal, %{conversation: channel})}
+    else
+      append_action_event(binding, fact, channel, now)
     end
   end
 
@@ -841,7 +853,14 @@ defmodule Ankole.Conversations.Observe do
         :error -> nil
       end
 
+    peer_origin =
+      Ankole.Conversations.Peers.callback_origin(source, binding.id, fact.conversation_id)
+
     cond do
+      peer_origin ->
+        {sender, session} = peer_origin
+        {:ok, %{fact | agent_uid: sender, session_id: session}}
+
       match?(
         %Signal{reply_binding_id: id, conversation_id: conversation_id}
         when id == binding.id and conversation_id == fact.conversation_id,

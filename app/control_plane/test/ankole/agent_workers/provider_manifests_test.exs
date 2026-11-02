@@ -50,8 +50,17 @@ defmodule Ankole.AgentWorkers.ProviderManifestsTest do
              %{"Type" => "volume", "Source" => home <> "-cache", "Target" => "/var/cache/ankole"}
            ]
 
-    refute Map.has_key?(host, "CapAdd")
-    assert host["SecurityOpt"] == ["no-new-privileges"]
+    assert host["CapAdd"] == ["SYS_ADMIN"]
+
+    assert host["Devices"] == [
+             %{
+               "PathOnHost" => "/dev/fuse",
+               "PathInContainer" => "/dev/fuse",
+               "CgroupPermissions" => "rwm"
+             }
+           ]
+
+    assert host["SecurityOpt"] == ["no-new-privileges", "apparmor=unconfined"]
     assert host["ExtraHosts"] == ["host.docker.internal:host-gateway"]
     assert host["NetworkMode"] == "ankole_backend"
     refute Map.has_key?(body, "Cmd")
@@ -133,6 +142,10 @@ defmodule Ankole.AgentWorkers.ProviderManifestsTest do
     [worker] = pod["spec"]["containers"]
     assert worker["image"] == "worker:2"
     assert worker["resources"]["limits"]["memory"] == "4Gi"
+    assert worker["resources"]["limits"]["smarter-devices/fuse"] == "1"
+    assert worker["resources"]["requests"]["smarter-devices/fuse"] == "1"
+    assert "SYS_ADMIN" in worker["securityContext"]["capabilities"]["add"]
+    assert worker["securityContext"]["appArmorProfile"] == %{"type" => "Unconfined"}
 
     assert worker["volumeMounts"] == [
              %{"name" => "home", "mountPath" => "/workspace"},
@@ -141,6 +154,7 @@ defmodule Ankole.AgentWorkers.ProviderManifestsTest do
 
     env = Map.new(worker["env"], &{&1["name"], &1})
     assert env["WORKER_ID"]["value"] == "agent-a"
+    assert env["ANKOLE_WORKER_CACHE_CAPACITY"]["value"] == "5Gi"
     assert env["ANKOLE_RUNTIME_FABRIC_ENDPOINT"]["value"] == @endpoint
 
     assert env["ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY"] == %{

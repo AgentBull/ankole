@@ -24,7 +24,7 @@ rather than built-in Base views.
 
 ### Page creation, editing, and navigation
 
-Creating a Page opens a non-modal menu offering document, Base, folder, and file
+Creating a Page opens a non-modal menu offering document, knowledge, Base, folder, and file
 options:
 
 - **Documents and Bases** open immediately at the chosen Space root, Private
@@ -33,6 +33,7 @@ options:
   child document once saved; inserting a child Base inserts an interactive
   `<embed ref="…" />` block, and Agents create and publish Applets
   through their conversation workflow.
+- **Knowledge pages** open in read mode. Edit starts a draft; Save submits the body and business properties together at the captured revision.
 - **Folders** open the shared child list, including its empty state and creation
   and upload controls. Folder contributors can add children; editors can rename
   or trash files and folders. Files have no child-creation controls.
@@ -360,15 +361,28 @@ as retention expiry and returns the manager to Trash.
 
 ### Pod URLs, dialogs, search, and motion
 
-Pod URLs combine the tenant's subdomain slug with the Kernel's short UUID codec:
-`https://<slug>.<site>/pages/<short-id>` and `/conversations/<short-id>` (or
-`<slug>.ankole.localhost:<port>` in local development, with no `/pod` prefix or
-tenant query parameter). Because the browser bundle cannot load the native Rust
-kernel, `app/webapps/common/uuid-url.ts` mirrors the codec;
+Ankole forms Pod URLs from the tenant's subdomain slug and the Kernel's
+26-character lowercase Crockford Base32 short UUID codec
+(`0123456789abcdefghjkmnpqrstvwxyz`). Titled Pages use
+`https://<slug>.<site>/pages/<title-slug>-<short-id>`, where the Kernel and
+browser transliterate non-ASCII titles with `any-ascii`, separate CJK characters
+into words, strip periods inside version numbers, collapse runs of punctuation
+into single hyphens, and cap the slug at 60 characters on a word boundary when
+possible; untitled or symbol-only Pages use `/pages/<short-id>`, Conversations
+use `/conversations/<short-id>`, and Page Assistant panels pass
+`?chat=<short-id>` (served on `<slug>.ankole.localhost:<port>` in local
+development, with no `/pod` prefix or tenant query parameter). Incoming
+`/pages/:segment` routes resolve the trailing 26-character short ID (or redirect
+a canonical UUID) regardless of whether the caller includes a stale or omitted
+title slug, and the Pod workspace replaces the browser location in place when
+the loaded Page's title produces a different canonical path. Because the browser
+bundle cannot load the native Rust kernel, `app/webapps/common/uuid-url.ts` and
+`app/webapps/common/pod-url.ts` mirror the codec and lazy-load
+`any-ascii` only when a non-ASCII title appears;
 `app/kernel/test/vectors/uuid_url.json` pins the UUID encoding, and
-`app/kernel/test/vectors/pod_url.json` pins the shared Pod path and query
+`app/kernel/test/vectors/pod_url.json` pins the shared slug, path, and query
 grammar. Signed-in accounts span Pod subdomains via the BrowserSessions
-authentication and activation owners, while each open browser tab retains its
+authentication and activation owners, while each open browser tab keeps its
 selected identity and verifies that identity's tenant admission on every
 request. Both full-page views and document embeds consume links from the same
 content context.
@@ -416,7 +430,7 @@ phone, `Pages` gives way to the title and every ancestor folds into that menu.
 The path is the Page read's `ancestors`, so an unreadable parent starts the path
 below it. A hairline under the header
 separates it from the scrolling content. The header's actions follow the path:
-`Page chat` and `Comments` are toggles that stay pressed while their panel is
+`Assistant` and `Comments` are toggles that stay pressed while their panel is
 open, with `Comments` showing the unread count, and `Share` is the one bordered
 button (displaying a scope icon on live Pages and opening a two-level sharing
 popover across overview, multi-select invite, collaborator management, and
@@ -429,10 +443,21 @@ shell's 6 px clearance, so the two sheets sit 12 px apart. The panel's 44 px
 header carries no hairline, and its title starts on the same 18 px edge as the
 Page path. Selects in either header are borderless text with a chevron. The
 chat composer docks at the bottom of the panel before the first message as
-well as after it. In `Home`, `Recently visited` interleaves visited
+well as after it. The Assistant panel connects only the current member's
+personal assistant, with private task history for the Page and no Agent picker.
+Guests see Comments without an Assistant panel. Selected text offers Ask
+assistant and Comment; mentioning a colleague in Comments addresses that
+colleague in the Page's internal comment Session.
+
+In `Home`, `Recently visited` interleaves visited
 Pages (ordered by `page_user_states.visited_at`) with recent Conversations
-(ordered by `lastActivityAt`) both inline in the sidebar and in `/content/recent`;
-opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
+(ordered by the later of `viewer.lastVisitedAt` and `lastActivityAt`) both inline in the sidebar and in `/content/recent`;
+the sidebar retains up to three attention items in decision, relevant unread
+comment, then running-work order. Attention queries include older unfinished
+work outside the ordinary recent page. Chat combines pinned rooms, a collapsed
+Assistant section with active/unread tasks, and existing IM rooms plus callable
+colleagues. Both tabs offer New Chat for formal members.
+Opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
 the user's navigation context stays stable. `Favorites` renders inline above the
 `Space` and `Private` trees whenever the user has favorited Pages, while the
 account switcher, `Trash`, and `Pod settings` sit in the sidebar footer.
@@ -493,7 +518,7 @@ between turns, so browsing a long conversation never waits for visual feedback.
 
 ### Standalone Chats, Base cells, and file/Applet states
 
-Standalone Chats follow Notion AI's conversation layout:
+Assistant tasks and unique colleague DMs share the conversation canvas:
 
 - **Queueing and turn control**: Native follow-up messages can either steer the
   main loop at its next boundary or wait in the durable queue for a separate
@@ -555,8 +580,9 @@ file's current `object_id`; documents and Applets use their Pod revision.
 
 Drive owns `drive_nodes`, its roots, ACL anchors and tree lifecycle. Pod reads
 `pod_page_nodes`, a nonmaterialized left join of nodes and the optional `pages`
-properties row. The properties contain title, icon, position, children view and
-revision. Document, Base and Applet nodes have properties at creation. Pod creates
+properties row. The properties contain title, icon, position, children view,
+revision, business `metadata`, and internal `upstream_state`. Document, Knowledge,
+Base and Applet nodes have properties at creation. Pod creates
 properties for file and folder nodes when saving metadata or sorting; saving
 personal state also creates properties for folders. For files, Pod stores
 favorites and visits in `PageUserState` without requiring a properties row or
@@ -589,12 +615,15 @@ action mask: `node_view = 1`, `node_contribute = 2`, `node_edit = 4`, and
 - **`contribute` (`19`)**: Comment on documents, edit Base records, upload
   record attachments, create children in folders, and submit initial file content
   when the parent grants contribution. Public and private roots require edit to
-  create a child. Conversation participants receive only view and contribute
-  (`3`) from their current membership.
+  create a child.
 - **`edit` (`23`)**: Edit documents, Page metadata, Base schemas, and Applet
   source, and create Space-root Pages.
 - **`manage` (`31`)**: Manage sharing, delete Base tables, move Pages across
   permission boundaries, and manage Trash.
+
+Current conversation participants receive view, contribute, and edit (`7`) on
+their conversation root. They can edit, rename, and trash shared files and
+folders; structured-page deletion and Trash restoration require manage.
 
 Page grants live in `permission_grants`, but the general Console grant API
 cannot create, modify, or delete Pod page grants. Tenant creation seeds the
@@ -659,8 +688,9 @@ with the same authorization filter as the returned entries, and passing
 `details=true` to `GET /api/v2/pod/pages/children` enriches the returned batch
 with creator display names, timestamps, plain-text document excerpts, and
 primary file descriptors while keeping default sidebar navigation on its
-index-only scan. Hidden descendants
-and deleted children do not make a Page expandable. The sidebar renders an
+index-only scan. The Worker `pages.children` RPC uses the same directory
+projection, including the caller's actions, role, and visible-child indicator.
+Hidden descendants and deleted children do not make a Page expandable. The sidebar renders an
 expand button for branches and an equally wide spacer for leaves; users with
 edit permission can create a child through the row's add button in either case.
 When the directory identifies a leaf, the browser closes it without fetching a
@@ -787,6 +817,16 @@ the same PostgreSQL transaction that commits the Pod change, using the authority
 passed by the RPC broker from the authenticated turn. Consequently, an in-flight
 file relay cannot commit once its turn closes or its Job attempt is superseded.
 
+Personal assistants use the owner's business authority for requested
+collaboration. `pages.update_sharing` applies individual `upserts` and `removes`
+atomically through the existing sharing owner, leaving unrelated grants intact.
+The Worker CLI exposes it as `ankole-pod page update-sharing`. A single-page
+delegation uses `target_scope: "self"`. Document reviews use `contribute` so the
+colleague can answer follow-up comments on that page; read-only retrieval uses
+`view`, and requested edits use `edit`. When the owner cannot manage access,
+the assistant reports the missing permission and asks for a resource manager's
+help.
+
 ### Persistence and transactions
 
 `Ankole.Pod` is the root Ash domain, owning the durable `Properties`, `PageContent`,
@@ -798,7 +838,7 @@ compiler).
 
 Every Pod write—or read requiring a row lock—opens `Repo.transact_top_level/2`
 in its owning module (`Ankole.Pod.Pages`, `Pages.Sharing`, `Documents`, `Files`,
-`Applets` or `Bases`). Topology and sharing writes acquire
+`Knowledge`, `Applets` or `Bases`). Topology and sharing writes acquire
 the tenant Drive tree lock first and then lock the Agent's turn, whereas document
 content and Base record writes skip the tree lock. Intra-domain callers compose
 `*_in_tx` helpers inside an existing transaction (for example, Base copy calling
@@ -893,6 +933,109 @@ Base cleanup contract, and deletes page content, file references, grants, and
 child Pages in bounded batches while keeping the root Page row last so an
 interrupted job can safely resume.
 
+## Knowledge pages
+
+A `knowledge` Drive node gives people and Agents one editable home for business
+facts, instructions, visual standards, and shared Skills. `Ankole.Pod.Knowledge`
+owns its writes. `PageContent` stores canonical Page XML; `Properties.metadata`
+stores the document's JSON-compatible YAML Frontmatter. The separate
+`upstream_state` column holds synchronization hashes, managed package files, and
+background processing revisions. Exports contain only business metadata and body.
+
+The editor accepts headings, paragraphs, inline emphasis and links, lists, code,
+quotes, GFM alerts, rectangular tables with one header row, images, and typed Page
+or Principal mentions. Its knowledge mode rejects columns, embeds, merged or
+styled table cells, and inline comment anchors. Whole-page discussions remain
+available. The Rust kernel owns parse, export, validation, and outline conversion;
+the editor and kernel verify the same round-trip corpus. Export sorts Frontmatter
+keys deterministically and preserves types and nested objects.
+
+`Pod.Knowledge` projects the same reading depths for Pod and Brain callers. L0
+contains page identity, revision and a summary of at most 100 `o200k_base` tokens;
+the caller omits children and full metadata at this depth. L1 carries core
+metadata in its OKF overview. L2 contains complete OKF and business metadata.
+
+The kernel's overview contains selected business metadata, a preview of the
+introduction before the first H2, and every H2 heading. The kernel budgets 400
+`o200k_base` tokens for introduction content and adds a separate notice for omitted text. When a
+single block exceeds the remaining preview budget, the kernel returns a
+Unicode-safe plain-text prefix. Within the introduction, it replaces
+code blocks longer than 12 lines and tables longer than 6 rows with a size
+summary; it also folds either block when its text exceeds 1,200 characters.
+Short examples remain readable. The control plane adds only child pages visible
+to the current reader. Metadata, heading and child-list sizes vary with the page;
+L1 does not impose a hard limit on the complete outline. Full-page reads preserve
+the complete content.
+
+Knowledge pages open in a content-sized reader that shares the document XML,
+typography, asset resolution, and Page/Principal references with the editor.
+An empty body occupies no reading area, so child pages and related knowledge
+follow the properties directly. The reader displays the knowledge block subset
+without constructing editor state or editable DOM. Edit loads the knowledge
+editor; saving or cancelling returns to the reader. Edit captures the current
+revision and starts a local draft. The Properties panel edits business fields
+and exposes a YAML drawer for nested values. Save commits XML and metadata in one `base_revision` compare
+and swap transaction, increments the revision, records a complete checkpoint,
+and broadcasts after commit. A conflict preserves the draft and shows the
+current saved version so the writer can reconcile it explicitly. Folder table
+views display child-page business properties with filtering and sorting.
+
+Public business folders expose a **Learn business facts** switch to their
+managers (`node_manage`). The setting updates `metadata.extract_facts` through
+the ordinary Page update operation. Enabling it queues existing documents and
+eligible knowledge throughout the subtree as well as future edits. A child
+folder reports when learning is enabled by an ancestor. Disabling it stops
+future extraction, including queued work; already extracted facts remain.
+Private folders and the automatically managed `/AnkoleBrain` tree do not expose
+this setting.
+
+Every explicit knowledge save records body, title, icon, metadata, attribution,
+and revision. Knowledge history retains the latest 200 checkpoints regardless of
+age, including during list, read, restore, write-time pruning, and scheduled
+expiry. Restore commits body and metadata together as a new revision. History
+requires `node_edit`, while current content requires `node_view`.
+`GET /api/v2/pod/pages/:id/knowledge/export` returns canonical OKF Markdown;
+`snapshot_id` selects an authorized historical checkpoint.
+
+`/AnkoleBrain` is the tenant's shared entry point. Drive protects this folder and
+its `agents` and `skills` structure with `system_key`. Formal tenant members and
+Agents can view the shared tree; Pod administrators can manage it. A personal
+assistant's entity page interrupts inheritance and grants access only to its
+owner and the assistant. Page identity is the immutable Drive UUID; moves and
+renames record historical paths without rewriting graph foreign keys.
+
+Moving a page to Trash removes its subtree from retrieval and expires facts
+derived from those pages. Restoring the subtree rebuilds its retrieval entries
+and schedules eligible pages for fresh extraction under their current revisions.
+
+The Brain reads these pages through its ordinary index, source learning, and
+permission-filtered graph projections. The Knowledge panel computes backlinks,
+claims, timelines, and calibration scores for the current reader. Complete
+`AGENTS[.override].md` and `DESIGN[.override].md` contracts use deterministic Agent
+identity assembly; ordinary knowledge and Skills use the requester's intersection
+with the Agent's permissions, plus room disclosure checks. See
+[Brain](BrainV3.md) for indexing and source semantics and
+[Agent Workers](AgentWorkers.md) for runtime contract assembly.
+
+Main conversations use the lightweight Pod page tools; Workers use `ankole-pod`.
+Both save complete Markdown through the same knowledge codec and revision check.
+The Session commits each page write and its tool receipt in one transaction;
+replaying a committed call returns the saved result without repeating the edit.
+An Agent with the requester's edit authority saves immediately. A native room
+without that authority can propose `pod.knowledge.save`, carrying a diff and the
+captured revision. A reader with edit authority can confirm it; a concurrent edit
+makes the proposal stale. External channels receive an explicit draft and a
+request for an authorized owner to save it in Pod.
+
+Knowledge page creation and moves require both the requester and the Agent to
+edit the destination parent within the room's disclosure boundary. Structural
+changes check the same intersection on the source page. Restoring a page checks
+its permissions in Trash; the Agent also needs the ordinary restore authority.
+Knowledge sharing changes require both actors to manage the page, so a requester
+cannot acquire edit access through an Agent's stronger grant. These checks also
+cover a container whose subtree includes knowledge pages; the broker determines
+that subtree while holding the Drive tree lock.
+
 ## Documents and collaboration
 
 ### Document tools
@@ -956,6 +1099,32 @@ resolution changes do not count as new comments. Data accumulates from when
 recording is enabled; the interface explains the counting rules and exposes a
 daily table alongside the chart. Page purge removes both these counters and
 reader states.
+
+### Drive Markdown projection
+
+`._adoc.md` renders editable Markdown blocks with stable anchors for the current
+revision. Reconciliation preserves unchanged XML subtrees, including rich blocks,
+then uses `Documents.write_in_tx` and its comment-preservation contract. Damaged
+or changed opaque blocks return an error with the original local bytes available
+for recovery. Knowledge pages use their native OKF import/export through
+`._awiki.md`. Both kinds publish precomputed Markdown byte size and fingerprint
+with each saved revision; legacy rows populate the projection under the node lock
+on first access. `._asub` exposes their children even when that collection is empty.
+
+A stale knowledge-page PUT can merge against the exact revision named by its
+ETag. History supplies that revision from the most recent 200 snapshots. The
+merge strips comment markers from the current and edited XML to match snapshot
+normalization, then compares canonical top-level blocks. Disjoint block changes
+merge; edits to the same block or competing insertions at the same boundary
+return 412. Business properties merge independently by key: a single-sided
+change or an identical value is accepted, while different changes to the same
+key conflict. `upstream_state` stays under its synchronization owner.
+
+A successful merge creates the next normal knowledge revision and returns
+`X-Ankole-Refresh-Body: 1`, so the Worker reads the combined body instead of its
+one-sided draft. Missing ancestors, binary conflicts, and stale rich-document
+projections use the scoped recovery path. Invalid Markdown returns 422 with the
+original draft preserved by the Worker.
 
 ### Persistence
 
@@ -1041,8 +1210,9 @@ independent of title changes.
 Readers need `node_edit` to list, preview, export, or restore them: sharing the
 current document with a viewer or contributor does not expose deleted historical
 content. Each snapshot stores canonical body XML without comment marks, title,
-icon, author, document revision, and timestamps. History exposes checkpoints from
-the last 30 days and keeps at most 200 per Page, including checkpoints made before
+icon, business metadata, author, document revision, and timestamps. Document
+history exposes checkpoints from the last 30 days and keeps at most 200 per Page,
+including checkpoints made before
 and after a restore. Every append trims the Page's excess snapshots in the same
 transaction. An hourly job removes expired snapshots from idle Pages in bounded
 batches. Snapshots use the Page's existing attachment retention.
@@ -1068,7 +1238,7 @@ a stale restore so the caller can inspect concurrent content or metadata changes
 In one Page transaction, it saves a
 checkpoint before restoring, computes the current-to-target ChangeSet, commits
 that ChangeSet as a new revision, and saves the restored checkpoint. Revision
-numbers always advance. The operation restores body, title, and icon; it does
+numbers always advance. The operation restores body, title, icon, and business metadata; it does
 not restore sharing, tree location, discussions, or their resolution status.
 Current comment marks survive only where the diff preserves a complete marked
 fragment as a contiguous range. Old snapshots cannot resurrect deleted anchors.
@@ -1086,6 +1256,9 @@ resolve, reopen, or explicitly relocate a thread. Deleting a root with replies
 preserves a tombstone and the remaining discussion. Posting a reply does not
 resolve or reopen it. Every author is an existing Principal represented by
 `ActorRef`, including Human and Agent authors.
+
+When a Human accepts a mention, Ankole inserts the display name and places the
+caret after it during the DOM update, so immediate typing stays in order.
 
 When a Human posts or edits a comment or reply containing `@<agent_uid>` (or
 selects an Agent from the comment mention picker), `Ankole.Pod.Comments` acquires
@@ -1105,6 +1278,11 @@ about selected text without posting a comment goes through Page Chat (see
 reference. Selecting text from a Page already referenced in the chat draft adds
 the quote to that reference. Mentioning the same Page again preserves the quote;
 choosing a new selection replaces the draft's previous quote.
+
+The sidebar's comment attention includes unread threads that mention the
+viewer or in which the viewer has participated. Reading through the observed
+comment watermark clears those items; unrelated unread discussions do not
+light the Home badge. Page visibility is checked on every attention read.
 
 A root may refer to the whole node, to selected Document text, or to a typed
 multimodal File region. On Document nodes, inline `<comment ids="…">` marks carry
@@ -1204,7 +1382,11 @@ a bound preserves the local draft and prompts for explicit reset or reload.
 
 ### Agent document reads and writes
 
-Agents read a document's Markdown, revision, and resolved `references` metadata
+Agents read business content within the current requester and room disclosure
+boundary. The broker evaluates each reader's conditional grants with the trusted
+ingress IP and RPC surface carried by the executing actor. Autonomous Automation
+Job attempts use the Agent's own permissions and their live attempt fence.
+Document reads return Markdown, revision, and resolved `references` metadata
 for any `<mention />` targets visible to the caller via `ankole-pod pages.read`,
 which holds a shared page lock across the content read (and across any revision
 replay up to the revision captured under that lock).
@@ -1529,6 +1711,43 @@ both record and aggregate queries across `inline` and `physical` modes (on a
 shard connection, physical queries apply the lesser of the tenant timeout and
 the remaining request deadline).
 
+### Drive filesystem projections
+
+A mounted Base exposes tables under `._abase/`. Dot-directory paths compose
+saved views, filters, ordering, selected columns, and first/last windows. Saved
+views apply their filter, sort, and visible fields, including the primary field;
+column projection applies to both record JSON and exports. A table
+listing contains at most 200 records; any `rec_<id>.json` remains directly
+addressable. `.info/schema.json` describes fields and `.info/count` counts the
+selected window. A saved OR view cannot be combined with an extra flat AND
+filter; that unsupported query returns an explicit error.
+
+Listing `.export` advertises csv, tsv, json, and jsonl without reading records.
+Stat or open of one format reads bounded batches in one table snapshot and
+materializes an immutable FileObject through the existing object adapter.
+`drive_vfs_exports` keeps its PostgreSQL reference for 15 minutes; the ordinary
+object collector expires it. The snapshot key includes schema/data versions and
+query stages. Exact lengths and immutable ETags support tail and Range reads.
+The existing FileObject size limit applies to materialized exports.
+
+Record JSON uses field names plus `_id` and `_versions`. Business fields with
+either reserved name use their field UUID as the JSON key. Field names containing
+slashes or commas use their UUID in query paths. The client preserves the
+clean baseline before changing bytes; the Rust codec sends only changed fields
+and their expected versions to the Base record owner. Contributors can change
+records under `node_contribute`. Disjoint browser edits survive. An identical
+retry with the same author, values, and expected-plus-one field versions does not
+advance the table again. A missing field version is null, as in the Base owner.
+
+`.import/append.csv`, `.import/append.jsonl`, and `new_<slug>.json` create records.
+Each upload retains a request UUID and timestamp. The Rust codec derives ordered
+UUIDv7 row IDs; batches remove already-persisted IDs before assigning auto-number
+values. Imports commit 200 rows at a time, so an error can leave an accepted
+prefix; retrying the same queued upload does not duplicate it. The client waits
+for a previous import-slot upload to finish and reset to zero before accepting
+the next append. CSV supports quoted multiline cells; JSONL preserves native
+field types.
+
 ## Files and Conversation origins
 
 `Ankole.Files` owns tenant-scoped immutable objects in the configured object
@@ -1616,6 +1835,12 @@ alongside shared chunks, CSS, and `dist/index.html`:
   temporary directory owned by the Agent user, verifies digests, runs
   `bun install --ignore-scripts` as the Agent user when `package.json` is
   present, and moves the verified tree into place.
+
+The Drive `._aapp` directory projects the published Pod file manifest as a
+read-only tree. Reading `src` and `server` requires node editing permission;
+other manifest paths use the existing file-read action. Edits and publication
+continue through the Applet owner so a filesystem write cannot publish a partial
+manifest.
 
 ### Same-origin iframe, storage, and frontend SDK
 

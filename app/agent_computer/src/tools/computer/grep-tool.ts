@@ -1,3 +1,4 @@
+import { searchDrive } from './drive-search'
 import type { GrepResult } from '@ff-labs/fff-bun'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -132,7 +133,9 @@ export function createGrepTool(
       key: 'conversations.delivery.reply.activity.command_search_code_family',
       bindings: { family: 'grep' }
     }),
-    async execute(_toolCallId, params): Promise<AgentToolResult<GrepDetails>> {
+    async execute(_toolCallId, params, signal): Promise<AgentToolResult<GrepDetails>> {
+      const driveResult = await searchDrive(context, 'grep', params, signal)
+      if (driveResult) return driveResult
       const workspaceReal = realpathSync(resolve(context.workspaceRoot))
       const emptyDetails: GrepDetails = { totalMatched: 0, totalFilesSearched: 0 }
 

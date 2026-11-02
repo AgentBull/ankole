@@ -12,6 +12,12 @@ defmodule Ankole.Pod do
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
+  defdelegate merge_vfs_knowledge_in_tx(actor, id, revision, parsed), to: Ankole.Pod.Knowledge
+  defdelegate vfs_properties(ids), to: Ankole.Pod.Pages
+  defdelegate vfs_property_in_tx(node, property), to: Ankole.Pod.Pages
+  defdelegate vfs_markdown(node), to: Ankole.Pod.Documents
+  defdelegate write_vfs_markdown_in_tx(actor, id, markdown), to: Ankole.Pod.Documents
+
   defdelegate principal(uid), to: Ankole.Files.Access
 
   defdelegate rename_principal_mentions_in_tx(old_uid, new_uid),
@@ -58,6 +64,10 @@ defmodule Ankole.Pod do
     show_raised_errors?(false)
 
     routes do
+      base_route "/comments", Ankole.Pod.Comments.Browser do
+        route(:get, "/attention", :attention, name: "podCommentAttention")
+      end
+
       base_route "/pages/:id/comments", Ankole.Pod.Comments.Browser do
         route(:get, "/", :list, name: "podPageComments", query_params: [:status, :cursor, :limit])
         route(:get, "/summary", :summary, name: "podPageCommentSummary")
@@ -127,12 +137,23 @@ defmodule Ankole.Pod do
 
         route(:get, "/teammates", :teammates, name: "podChatTeammates", query_params: [:query])
 
+        route(:get, "/conversations/attention", :attention, name: "podConversationAttention")
+
         route(:get, "/conversations", :list,
           name: "podConversations",
           query_params: [:pageID, :query, :cursor, :limit, :order]
         )
 
         route(:post, "/conversations", :create, name: "createConversation")
+
+        route(:get, "/conversations/:id/peer-exchanges/:exchange_id", :peer_exchange,
+          name: "podPeerExchange",
+          query_params: [:cursor]
+        )
+
+        route(:post, "/conversations/:id/peer-exchanges/:exchange_id/stop", :stop_peer_exchange,
+          name: "stopPodPeerExchange"
+        )
 
         route(:get, "/conversations/:id", :show,
           name: "conversationDetail",
@@ -289,6 +310,13 @@ defmodule Ankole.Pod do
         route :post, "/pages/:id/embeds/delete", :delete_embeds do
           name("podEmbedsDelete")
         end
+
+        route(:get, "/pages/:id/knowledge", :knowledge_panel, name: "podKnowledgePanel")
+
+        route(:get, "/pages/:id/knowledge/export", :knowledge_export,
+          name: "podKnowledgeExport",
+          query_params: [:snapshot_id]
+        )
 
         route :put, "/pages/:id/content", :write do
           name("podDocumentWrite")

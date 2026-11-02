@@ -20,8 +20,9 @@ defmodule Ankole.JSON do
   def encode_to_iodata!(term), do: Torque.encode_to_iodata(term)
 
   @doc """
-  Deeply converts a term into JSON-plain data: map keys become strings and
-  calendar structs become ISO 8601 strings.
+  Deeply converts a term into JSON-plain data: map keys and enum atoms become
+  strings, and calendar structs become ISO 8601 strings. Booleans and nil keep
+  their JSON types.
 
   Torque encodes only plain terms, so response payloads that carry
   `DateTime`, `NaiveDateTime`, `Date`, or `Time` values must pass through
@@ -41,6 +42,10 @@ defmodule Ankole.JSON do
   end
 
   def plain(list) when is_list(list), do: Enum.map(list, &plain/1)
+
+  def plain(value) when is_atom(value) and value not in [nil, true, false],
+    do: Atom.to_string(value)
+
   def plain(value), do: value
 
   defp plain_key(key) when is_binary(key), do: key

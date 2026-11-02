@@ -6,10 +6,10 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
 
   alias Ankole.Brain.Chunks
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.ObjectVersion
+  alias Ankole.Pod.{Knowledge, Pages, PageSnapshot}
+  alias Ankole.Pod.Documents.History
+  import Ankole.PrincipalsFixtures
   alias Ecto.Adapters.SQL.Sandbox
 
   setup %{tenant: tenant} do
@@ -19,7 +19,8 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
       end)
     end)
 
-    {:ok, _} = SchemaPacks.install_packs([])
+    %{principal: human} = human_fixture()
+    actor = actor_fixture(human)
 
     {:ok, original} =
       Ankole.Brain.create_object(
@@ -30,34 +31,62 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
     {:ok, object} =
       Ankole.Brain.update_object(
         original.slug,
-        %{body: "Current", expected_content_hash: original.content_hash},
+        %{body: "Current", base_revision: original.revision},
         :system
       )
 
-    [version] = Repo.all(from(v in ObjectVersion, where: v.object_id == ^object.id))
+    {:ok, :ok} =
+      Repo.transact(fn ->
+        :ok =
+          Ankole.Files.Access.put_role(
+            %{principal_uid: human.uid},
+            "drive:**:#{object.id}:**",
+            "manage"
+          )
 
-    %{object: object, version: version}
+        {:ok, :ok}
+      end)
+
+    version =
+      Repo.one!(
+        from(v in PageSnapshot,
+          where: v.page_id == ^object.id and v.revision == ^original.revision
+        )
+      )
+
+    {:ok, page} = Pages.fetch(object.id)
+    %{object: object, version: version, actor: actor, page: page}
   end
 
   for operation <- [:update, :rollback] do
     @operation operation
     test "#{operation} waiting behind a delete cannot change the hidden content", context do
       deleted =
-        hold(fn -> Objects.soft_delete_in_tx(context.object.slug, reason: "Obsolete") end)
+        hold(fn -> Ankole.Files.Nodes.trash_in_tx(context.actor, context.object.id) end)
 
       waiting =
         start(fn ->
           result =
             case @operation do
               :update ->
-                Ankole.Brain.update_object(
-                  context.object.slug,
-                  %{body: "Stale update", expected_content_hash: context.object.content_hash},
-                  :system
+                {:ok, parsed} = Ankole.Kernel.knowledge_parse("Stale update")
+
+                Knowledge.write(
+                  context.actor,
+                  context.object.id,
+                  context.object.revision,
+                  parsed.xml,
+                  %{}
                 )
 
               :rollback ->
-                Ankole.Brain.rollback_object(context.object.slug, context.version.id, :system)
+                History.restore(
+                  context.actor,
+                  context.object.id,
+                  context.version.id,
+                  context.page.revision,
+                  context.page.updated_at
+                )
             end
 
           Ankole.Errors.reason(result)
@@ -66,16 +95,13 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
       assert_blocked_by(waiting, deleted)
       send(deleted.task.pid, :commit)
       assert {:ok, _} = Task.await(deleted.task, 5_000)
-      assert {:error, :object_deleted} = Task.await(waiting.task, 5_000)
+      assert {:error, _reason} = Task.await(waiting.task, 5_000)
 
-      stored = Repo.get!(Object, context.object.id)
+      {:ok, stored} = Objects.get_by_slug(context.object.id)
       assert stored.body == "Current"
       assert stored.deleted_at
-      assert stored.meta["forgotten_reason"] == "Obsolete"
 
-      assert Repo.all(from(v in ObjectVersion, where: v.object_id == ^stored.id)) == [
-               context.version
-             ]
+      assert Repo.aggregate(from(v in PageSnapshot, where: v.page_id == ^stored.id), :count) == 2
     end
   end
 
@@ -86,21 +112,21 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
           context.object.slug,
           %{
             body: "Committed before deletion",
-            expected_content_hash: context.object.content_hash
+            base_revision: context.object.revision
           },
           :system
         )
       end)
 
-    deleted = start(fn -> Ankole.Brain.soft_delete_object(context.object.slug) end)
+    deleted = start(fn -> Ankole.Files.Nodes.trash(context.actor, context.object.id) end)
     assert_blocked_by(deleted, saved)
     send(saved.task.pid, :commit)
     assert {:ok, _} = Task.await(saved.task, 5_000)
     assert {:ok, _} = Task.await(deleted.task, 5_000)
-    stored = Repo.get!(Object, context.object.id)
+    {:ok, stored} = Objects.get_by_slug(context.object.id)
     assert stored.body == "Committed before deletion"
     assert stored.deleted_at
-    assert Repo.aggregate(from(v in ObjectVersion, where: v.object_id == ^stored.id), :count) == 2
+    assert Repo.aggregate(from(v in PageSnapshot, where: v.page_id == ^stored.id), :count) == 3
   end
 
   # Match the existing transaction suites: these tasks use independent,
@@ -108,7 +134,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
 
   test "an embedding result commits once and a later body edit invalidates its position",
        context do
-    chunk = Repo.get_by!(Chunk, object_id: context.object.id, chunk_index: 0)
+    chunk = Repo.get_by!(Chunk, page_id: context.object.id, chunk_index: 0)
     {:ok, vector} = Ash.Vector.new(List.duplicate(0.5, 4096))
     embedded = hold(fn -> Chunks.record_embedding(chunk, {:ok, vector, "current-model"}) end)
 
@@ -131,7 +157,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
                context.object.slug,
                %{
                  body: "Changed after embedding",
-                 expected_content_hash: context.object.content_hash
+                 base_revision: context.object.revision
                },
                :system
              )

@@ -273,7 +273,7 @@ defmodule Ankole.Brain.SchemaPacks do
           {:halt, {:error, {:reserved_object_type, name}}}
 
         name != "agent" and String.starts_with?(type["slug_prefix"], "agents/") ->
-          {:halt, {:error, {:reserved_object_slug_prefix, type["slug_prefix"]}}}
+          {:halt, {:error, {:reserved_subject_page_id_prefix, type["slug_prefix"]}}}
 
         true ->
           {:cont, :ok}

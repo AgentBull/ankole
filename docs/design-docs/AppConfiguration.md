@@ -461,9 +461,8 @@ and `per_channel`; `authn.email.failure_limits` contains `window_seconds`,
 `per_email`, and `per_source`. Each map is one policy with one shared time window
 and independently counted dimensions. The dimensions impose no numeric ordering.
 
-`brain.forgetting` holds five per-kind decay half-lives in days.
-`brain.soft_delete_retention_hours` separately controls permanent removal of
-soft-deleted Objects. Both retain tenant inheritance. Worker readiness uses
+`brain.forgetting` holds five per-kind decay half-lives in days and inherits tenant defaults.
+Drive manages retention and permanent removal for all Pod content, including knowledge pages. Worker readiness uses
 `agent_workers.ready_timeout_seconds`, rendered-fetch idle release uses
 `agent_workers.rendered_fetch_idle_ttl_ms`, and the background job cap uses
 `background_agent_jobs.max_running_per_agent`.

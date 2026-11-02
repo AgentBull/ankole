@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.ClaimsTest do
   use Ankole.DataCase, async: true
+  import Ankole.BrainFixtures
 
   import Ankole.PrincipalsFixtures
   require Ash.Query
@@ -13,7 +14,7 @@ defmodule Ankole.Brain.ClaimsTest do
     %{principal: human} = human_fixture()
 
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "companies/acme", type: "company", title: "Acme"},
         human.uid
       )
@@ -24,11 +25,11 @@ defmodule Ankole.Brain.ClaimsTest do
   defp fact_attrs(overrides \\ %{}) do
     Map.merge(
       %{
-        object_slug: "companies/acme",
+        subject_page_id: page_id("companies/acme"),
         claim: "Acme raised a Series B round",
         kind: "event",
         holder: "world",
-        audience_scope: "world",
+        source_node_id: source_node("world"),
         notability: "medium",
         confidence: 0.75,
         valid_from: DateTime.utc_now(:microsecond),
@@ -179,29 +180,17 @@ defmodule Ankole.Brain.ClaimsTest do
                )
     end
 
-    test "rejects group scopes the writer does not satisfy", %{human: human} do
-      {:ok, group} =
-        Ankole.AuthZ.create_principal_group(%{
-          name: "claims-team-#{System.unique_integer([:positive])}",
-          display_name: "Team",
-          domain: :operator,
-          kind: :static
-        })
+    test "rejects a source the writer cannot read", %{human: human} do
+      %{principal: other} = human_fixture()
+      source = source_node("principal:" <> other.uid)
 
-      assert {:error, {:writer_not_in_scope_group, _name}} =
+      assert {:error, :forbidden} =
                Ankole.Errors.reason(
-                 Ankole.Brain.write_fact(
-                   fact_attrs(%{audience_scope: "group:#{group.name}"}),
-                   human.uid
-                 )
+                 Ankole.Brain.write_fact(fact_attrs(%{source_node_id: source}), human.uid)
                )
 
-      # A system path validates existence only.
       assert {:ok, %{status: :inserted}} =
-               Ankole.Brain.write_fact(
-                 fact_attrs(%{audience_scope: "group:#{group.name}"}),
-                 :system
-               )
+               Ankole.Brain.write_fact(fact_attrs(%{source_node_id: source}), :system)
     end
 
     test "content gates reject junk", %{human: human} do
@@ -234,11 +223,11 @@ defmodule Ankole.Brain.ClaimsTest do
         assert {:ok, take} =
                  Claims.write_take(
                    %{
-                     object_slug: "companies/acme",
+                     subject_page_id: page_id("companies/acme"),
                      claim: "Weight endpoint #{weight}",
                      kind: "bet",
                      holder: "people/#{human.uid}",
-                     audience_scope: "world",
+                     source_node_id: source_node("world"),
                      weight: weight,
                      provenance: "analysis session"
                    },
@@ -253,11 +242,11 @@ defmodule Ankole.Brain.ClaimsTest do
       assert {:ok, take} =
                Claims.write_take(
                  %{
-                   object_slug: "companies/acme",
+                   subject_page_id: page_id("companies/acme"),
                    claim: "Acme will win the enterprise segment",
                    kind: "bet",
                    holder: "people/#{human.uid}",
-                   audience_scope: "world",
+                   source_node_id: source_node("world"),
                    weight: 0.65,
                    provenance: "analysis session"
                  },
@@ -272,11 +261,11 @@ defmodule Ankole.Brain.ClaimsTest do
       {:ok, take} =
         Claims.write_take(
           %{
-            object_slug: "companies/acme",
+            subject_page_id: page_id("companies/acme"),
             claim: "Acme closes the deal this quarter",
             kind: "bet",
             holder: "people/#{human.uid}",
-            audience_scope: "world",
+            source_node_id: source_node("world"),
             weight: 0.6,
             provenance: "chat"
           },
@@ -336,11 +325,11 @@ defmodule Ankole.Brain.ClaimsTest do
       {:ok, take} =
         Claims.write_take(
           %{
-            object_slug: "companies/acme",
+            subject_page_id: page_id("companies/acme"),
             claim: "A take to deactivate",
             kind: "take",
             holder: "world",
-            audience_scope: "world",
+            source_node_id: source_node("world"),
             weight: 0.5,
             provenance: "chat"
           },

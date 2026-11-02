@@ -23,6 +23,8 @@ export function codexJobThreadConfig(input: {
   runtime: CodexRuntimeConfig
   job?: CodexJobBindingIdentity
   podInstructions?: string
+  jobInstructions?: string
+  relatedContext?: string
   originalHumanRequest?: string
   turnTracePropagation?: TurnTracePropagation
   projectConfig?: Record<string, unknown>
@@ -31,8 +33,9 @@ export function codexJobThreadConfig(input: {
   const config = mergeConfig(input.projectConfig ?? {}, {
     developer_instructions: [
       input.projectConfig?.developer_instructions,
-      codexJobDriveContext(),
+      input.jobInstructions ?? codexJobDriveContext(),
       input.podInstructions,
+      input.relatedContext,
       input.originalHumanRequest
     ]
       .filter(value => typeof value === 'string' && value.length > 0)

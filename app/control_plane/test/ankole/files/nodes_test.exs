@@ -241,6 +241,48 @@ defmodule Ankole.Files.NodesTest do
     refute Repo.get_by(Ankole.Pod.BaseTable, id: table.id)
   end
 
+  test "restoring a folder recovers authorized descendants, resolves names, and leaves restricted trash alone",
+       ctx do
+    {:ok, folder} =
+      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :folder, name: "Project"})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.principal, folder.id, %{
+        grants: [%{principal_uid: ctx.contributor.principal.uid, role: "manage"}]
+      })
+
+    {:ok, first} =
+      Nodes.create(ctx.owner, %{parent_id: folder.id, kind: :file, name: "report.txt"})
+
+    assert {:ok, _} = Nodes.trash(ctx.owner, first.id)
+
+    {:ok, second} =
+      Nodes.create(ctx.owner, %{parent_id: folder.id, kind: :file, name: "report.txt"})
+
+    assert {:ok, _} = Nodes.trash(ctx.owner, second.id)
+
+    {:ok, restricted} =
+      Nodes.create(ctx.owner, %{parent_id: folder.id, kind: :file, name: "Restricted"})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.principal, restricted.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: ctx.owner.principal.uid, role: "manage"}]
+      })
+
+    assert {:ok, _} = Nodes.trash(ctx.owner, restricted.id)
+    assert {:ok, _} = Nodes.trash(ctx.owner, folder.id)
+    assert {:ok, trash} = Pages.list(ctx.owner, %{scope: "trash"})
+    assert Enum.map(trash, & &1.id) == [folder.id]
+    assert {:ok, _} = Nodes.restore(ctx.contributor, folder.id)
+    assert {:ok, first} = Nodes.fetch(first.id)
+    assert {:ok, second} = Nodes.fetch(second.id)
+    assert is_nil(first.deleted_at) && is_nil(second.deleted_at)
+    assert Enum.sort([first.name, second.name]) == ["report.txt", "report.txt (1)"]
+    assert {:ok, restricted} = Nodes.fetch(restricted.id)
+    refute is_nil(restricted.deleted_at)
+  end
+
   defp grant(actor, id) do
     assert :ok =
              Repo.transact_top_level(fn ->

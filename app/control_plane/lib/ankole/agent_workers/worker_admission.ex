@@ -87,7 +87,8 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
                  agent_uid: agent_uid,
                  route: route,
                  incarnation: incarnation_id,
-                 capacity: capacity(heartbeat.max_slots, heartbeat.available_slots),
+                 capacity:
+                   capacity(heartbeat.max_slots, heartbeat.available_slots, heartbeat.drive_vfs),
                  load: load(heartbeat.active_slots, heartbeat.active_tasks, heartbeat.idle_for_ms)
                })
              end,
@@ -178,9 +179,14 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
     }
 
     case Errors.reason(Ankole.Ash.update_atomic(worker, :admit, attrs)) do
-      {:ok, worker} -> {:ok, %{worker: worker, replaced_route: replaced_route}}
-      {:error, :stale} -> {:error, :worker_incarnation_active}
-      {:error, _reason} = error -> error
+      {:ok, updated} ->
+        {:ok, %{worker: updated, replaced_route: replaced_route}}
+
+      {:error, :stale} ->
+        {:error, :worker_incarnation_active}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -286,13 +292,18 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
       {:ok,
        %{
          incarnation_id: incarnation_id,
-         capacity: capacity(ready.max_slots, ready.available_slots)
+         capacity:
+           capacity(ready.max_slots, ready.available_slots, Map.get(ready, :drive_vfs, false))
        }}
     end
   end
 
-  defp capacity(max_slots, available_slots),
-    do: %{"max_slots" => max_slots, "available_slots" => available_slots}
+  defp capacity(max_slots, available_slots, drive_vfs),
+    do: %{
+      "max_slots" => max_slots,
+      "available_slots" => available_slots,
+      "drive_vfs" => drive_vfs
+    }
 
   defp load(active_slots, active_tasks, idle_for_ms) do
     %{

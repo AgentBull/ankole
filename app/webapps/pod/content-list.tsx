@@ -1,20 +1,25 @@
-import { usePageMetadata, usePagesMetadata } from './use-page-metadata'
+import { usePageHref, usePageMetadata, usePagesMetadata } from './use-page-metadata'
 import { Button, Input, toast } from '@ankole/uikit'
 import { pageCreated } from './state/navigation-cache'
-import { RiChat3Line, RiDeleteBinLine, RiLockLine } from '@remixicon/react'
+import { RiDeleteBinLine, RiLockLine } from '@remixicon/react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import type { TFunction } from 'i18next'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { podLocation } from '../common/browser-context'
+import { podPagePath } from '../common/pod-url'
 import { BdiLabel } from '../common/bidi-file-name'
 import { stripBidi } from '../common/bidi'
 import { useSearchParams } from '../common/router'
 import { podKeys } from './api'
 import { podConversations } from './api/generated/sdk.gen'
-import { ChatAvatar } from './chat/chat-avatar'
-import { ChatRowStatus } from './chat/chat-sidebar'
+import {
+  ChatRowStatus,
+  ConversationGlyph,
+  ConversationTitle,
+  conversationLabel,
+  conversationPath
+} from './chat/conversation-row'
 import {
   cachedPages,
   directoryCapabilitiesQuery,
@@ -112,7 +117,7 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
       toast.success(t('pod.content.page_restored'), {
         action: {
           label: t('pod.content.open_page'),
-          onClick: () => void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
+          onClick: () => void navigate({ to: podPagePath(page.id, page.title) })
         }
       })
     }
@@ -290,7 +295,10 @@ function RecentContentList() {
             )
           }
           const room = entry.room
-          const subtitle = room.agents.map(agent => agent.displayName).join(', ')
+          const subtitle =
+            room.conversationKind === 'colleague_dm'
+              ? room.agents[0]?.role
+              : room.agents.map(agent => agent.displayName).join(', ')
           const timestamp = formatPageTimestamp(entry.timestamp, i18n.language)
           const chatLabel = t('pod.sidebar.tabs.chat')
           return (
@@ -298,19 +306,15 @@ function RecentContentList() {
               <Link
                 data-pod-list-item
                 className={listLinkClass}
-                aria-label={room.title}
+                aria-label={conversationLabel(room, t('pod.content.untitled'))}
                 aria-description={[chatLabel, subtitle, timestamp].filter(Boolean).join(' · ')}
                 state={{ keepSidebarTab: 'home' } as never}
-                to={podLocation(`/conversations/${room.id}`).pathname}>
-                {room.agents.length > 0 ? (
-                  <span className="pod-recent-chat-avatar">
-                    <ChatAvatar name={room.agents[0]!.displayName} src={room.agents[0]!.avatarURL} agent />
-                  </span>
-                ) : (
-                  <RiChat3Line aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
-                )}
+                to={conversationPath(room)}>
+                <ConversationGlyph room={room} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate">{room.title}</span>
+                  <span className="block truncate">
+                    <ConversationTitle room={room} />
+                  </span>
                   {subtitle && <span className="block truncate text-xs text-fg-tertiary">{subtitle}</span>}
                 </span>
                 <ChatRowStatus status={room.rowStatus} />
@@ -380,6 +384,7 @@ function PageListItem({
   restoreAction?: ReactNode
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const page = usePageMetadata(sourcePage)
   const parent = usePagesMetadata(ancestors)
     .map(page => stripBidi(page.title) || t('pod.content.untitled'))
@@ -416,7 +421,7 @@ function PageListItem({
         aria-description={[typeLabels[page.type], showPrivateBadge ? t('pod.content.private') : '', parent, timestamp]
           .filter(Boolean)
           .join(' · ')}
-        to={podLocation(`/pages/${page.id}`).pathname}>
+        to={pageHref(page.id, page.title)}>
         {content}
       </Link>
       {restoreAction}

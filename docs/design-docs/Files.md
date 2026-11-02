@@ -48,8 +48,12 @@ Every tenant has a public root. Members and Agents have private roots initialize
 with their owner's `manage` role; Guests have none. Membership demotion preserves
 a private root but revokes its owner's
 access according to the offboarding rules. Each conversation has a folder root;
-current participants receive view and contribute bits from the authorization
+current participants receive view, contribute, and edit bits from the authorization
 snapshot, with no persistent grants generated from membership.
+External IM membership comes from the conversation's resolved DM peer or its
+current Principal Group members, alongside the observing Agent participants.
+Participants can edit, rename, and trash one another's files and folders in
+ChatDrive. Sent attachments retain the immutable bytes captured at delivery.
 
 Names are unique among live siblings. `Ankole.Files.Path` rejects empty, `.` and
 `..` segments, slashes, ASCII/C1 control characters, Unicode bidirectional
@@ -74,8 +78,8 @@ The five permission bits retain role masks 1, 19, 23 and 31:
 | --- | --- | --- |
 | 1 | `node_view` | Read content and visible descendants |
 | 2 | `node_contribute` | Add children to a folder/conversation, or write Base records and attachments |
-| 4 | `node_edit` | Edit existing content or structure, rename, move and trash |
-| 8 | `node_manage` | Manage access |
+| 4 | `node_edit` | Edit content or structure, rename, move, and trash files or folders |
+| 8 | `node_manage` | Manage access; trash structured pages and restore deleted nodes |
 | 16 | `node_comment` | Comment |
 
 Creating directly under the public or private root requires edit. Creating a
@@ -103,7 +107,16 @@ acquiring that lock: a concurrent move or delete returns `path_changed` instead
 of silently creating a replacement under a higher-ranked lock. Skill catalog
 snapshots share the private-root lock.
 
-Trash hides a subtree immediately. Purge retains a marked root until the
+Permission-grant writes hold the same tenant tree lock while refreshing ACL
+anchors. The refresh updates only anchor columns; it does not take a content
+row lock. This lets tenant initialization establish shared access before it
+creates the tenant's first Human or Agent in the same transaction.
+
+Trash hides a subtree immediately. A recursive shell deletion preserves each
+node's deletion state, while the Trash list shows only its deleted ancestor.
+Restoring a container also restores its deleted, non-purging descendants that the
+caller can manage, in parent-first order. Each restored node receives an available
+name and its content owner restores the associated indexes. Purge retains a marked root until the
 content-owner callback has removed Base physical tables and Pod data, then
 removes grants and nodes. Interrupted cleanup is retryable. Permanent Principal
 and tenant deletion use the same content-owner boundary.
@@ -225,29 +238,93 @@ assistant's same-tenant owner instead, allowing business tools to work with the
 owner's documents. These roots have separate owners and lifecycles. Creation
 grants the Human owner management access to the assistant's runtime root.
 
-The runtime uses `ankole-files` against the same Drive tree while the FUSE
-release gate is unresolved:
+A FUSE-capable Worker exposes `/drive` to commands and managed Codex jobs.
+`Ankole.Files.Vfs` projects the existing tree through `/api/v1/vfs/dav`; it uses
+`Brain.RequestContext` and the existing Agent/requester/disclosure intersection.
+Each request checks the current Worker generation, incarnation, and access graph.
+The root supervisor holds the bearer token. Model processes receive filesystem
+access in their execution's mount namespace.
 
-- `ankole-files list [<folder>] [--after <path>]` lists private files with stable
-  `node_id`, current `object_id`, and a manifest revision for cache preparation.
-- `ankole-files get <private-path> [--output <local-path>]` reads private files;
-  `ankole-files get <node-id> --node` reads another shared file after node access
-  checks.
-- `ankole-files put <local-path> <private-path>` uploads every write; it never
-  skips transfer by looking up a hash.
-- `ankole-files rm <private-path>` trashes the matching file or subtree.
+`Public`, `AgentDrive`, and `MyDrive` share one hot sparse cache for a tenant,
+Agent, requester, and disclosure set. The shared remote omits ChatDrive. A
+separate remote supplies the current conversation's `ChatDrive`; the view key
+includes that conversation. Roots appear only when the access graph permits
+them. When the requester is the Agent, AgentDrive is its single private root.
 
-Files RPC transfers bytes through a signed, one-time WorkerFiles relay. Every
-upload verifies declared size and an optional caller digest before committing;
-there is no hash shortcut, transfer bundle, or second staging upload. A Worker
-has only its execution credentials and relay URL. The RuntimeFabric protocol requires
-a coordinated control-plane/Worker upgrade.
+The projection uses `._adoc.md`, `._awiki.md`, `._asub`, `._abase`, and `._aapp`
+to distinguish structured pages, child collections, Base tables, and Applets
+from ordinary files. Identity-qualified spellings disambiguate reserved suffixes
+and shortened names. `--links` persists Drive symlinks as `.rclonelink` files.
+Both local-to-Drive links and links within Drive retain POSIX symlink behavior.
 
-The final design's FUSE release requires actual mounts on all six supported
-Worker providers. Current Kubernetes isolation lacks the required mount access,
-so FUSE is postponed as required by gate C1. No `/drive` mount or inode cache is
-advertised as shipped, and the security baseline is unchanged. See
-[Agent Workers](AgentWorkers.md) for provider evidence and the remaining gate.
+The pinned `ankole-rclone` mount2 client owns random access, sparse reads, mmap,
+and local fsync. Writes begin in the local cache; a local fsync does not promise
+a remote commit. PostgreSQL checks the content baseline and request identity
+inside the node transaction. Single-Worker SQLite uses the local kernel and VFS
+locks. Different Workers can edit independently; an incompatible later commit
+returns 412 and preserves that Worker's draft in its scoped recovery directory.
+Immutable objects and expected ETags prevent ranged reads from mixing revisions.
+
+Each successful VFS write records `last_vfs_req_id` and `last_vfs_etag` on its
+node. The client records the local write sequence associated with each request
+ID, including retries after a lost response. Edits made during an upload remain
+pending until the client acknowledges that request and commits the later bytes
+with a new request ID. The client waits for those bytes before completing a
+flush and preserves the capacity reservation and delivery priority throughout.
+
+A retry of the same request succeeds even if a browser has subsequently saved
+another revision. In that case, the response carries the current ETag and
+`X-Ankole-Refresh-Body: 1`. The client clears its recorded read baseline and
+resets a closed cache entry to sparse authoritative bytes. An open handle keeps
+its original write baseline until the last clean close applies the pending
+remote object. Further edits through that old handle still face the original
+conditional-write check. Knowledge pages can merge non-overlapping edits against
+an exact snapshot; [Pod Content Model](PodContentModel.md#drive-markdown-projection)
+defines the merge boundary.
+
+An ordinary file renamed over a destination supplies replacement bytes while
+preserving the destination's node, page, children, ACL anchor, and history. The
+transaction consumes the source and schedules its purge, so editor saves leave
+no temporary files in Trash. A structured page or directory can replace its own
+kind when the caller can manage the destination: the destination enters Trash
+and the source moves with its identity, history, and children.
+
+For a whole ordinary file copied within one mount with `copy_file_range`, the
+client flushes a dirty source then uses DAV COPY to reference its immutable
+object. The client supplies the source's ETag, and the control plane checks it
+before copying. If the source has changed, the control plane rejects the copy
+before changing the destination and the client reports ESTALE. A growing source
+therefore cannot exceed the requested byte count. On success, the client resets
+the destination to a clean sparse file of the correct size. Cross-mount copies
+and other tools use ordinary reads and writes. A fully
+hydrated unchanged save skips upload only when its size and content digest match
+its baseline and no upload is awaiting acknowledgment: SHA-256 for files,
+BLAKE3 for page projections.
+
+Ordinary PUT bodies stream directly from the HTTP request into the object store's
+bounded writer. The site setting `drive.vfs_max_upload_bytes` defaults to 0,
+meaning the backend ceiling; a positive value narrows that ceiling. OPTIONS and
+token refresh advertise the effective limit through `X-Ankole-Upload-Limit`.
+The client caps a file at the smaller of that limit and half the volume's 70%
+cache budget. Structured Markdown projections retain a 100 MiB ceiling.
+The Worker applies backpressure above 512 MiB of dirty data when closed uploads
+can drain; otherwise open handles can consume up to 1 GiB before further growth
+returns ENOSPC. On smaller volumes, the hard watermark is 70% of capacity and
+the soft watermark is half that limit. Upload concurrency is bounded globally,
+with a dispatcher and transfer slot reserved for explicit delivery. Commands
+and Turns flush their write-sequence window when it contains at most 64 pending
+files; larger batches continue in the background. The window excludes an earlier
+backlog but includes simultaneous writes in the same scope. Terminal rejections
+preserve bytes and error details in that scope's `/drive-recovery` directory.
+If the client cannot encode recovery metadata, it reports the error and keeps
+the draft at its local cache path. The client propagates cancellation through
+metadata refreshes and stops periodic cache reclamation when its daemon exits.
+
+`ankole-files` and its signed WorkerFiles relay support Workers whose startup
+probe cannot mount FUSE. Runtime instructions advertise the capability actually
+reported by the Worker. Removing this fallback requires the six-provider Gate C1
+verification in [Agent Workers](AgentWorkers.md). RuntimeFabric changes require
+a coordinated control-plane and Worker release.
 
 ## Attachments and Pod resources
 
@@ -260,9 +337,11 @@ runtime command is `ankole-pod chat attachment get <conversation-id>
 <message-id> <position> --to <local-path>`. Saving an attachment creates a node
 referencing the same object.
 
-`reply_attachment` accepts `node_id`; `send_message` accepts attachment node
-IDs. The control plane authorizes node view and captures the current completed
-object. Pending, failed and unknown Delivery intents retain relational object
+`reply_attachment` accepts either `node_id` or a local Drive `path`;
+`send_message` accepts attachment node IDs and Drive paths. For paths, the Worker
+resolves the execution's symlinks and flushes those files before returning their
+authoritative node IDs. This wait happens outside the tool-receipt transaction.
+The control plane authorizes node view and captures the current completed object. Pending, failed and unknown Delivery intents retain relational object
 references. Confirmed delivery transfers that hold to the public Message in the
 same transaction; expired references are cleared while presentation metadata is
 retained. A file's path is not an authority or a delivery confinement rule.

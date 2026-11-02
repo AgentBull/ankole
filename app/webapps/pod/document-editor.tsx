@@ -32,7 +32,6 @@ import { lazy, Suspense, useEffectEvent, useMemo, useRef, useState, type Synthet
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { useNavigate } from '@tanstack/react-router'
-import { podLocation } from '../common/browser-context'
 import { ErrorBoundary, rootErrorOptions } from '../common/error-boundary'
 import {
   EXTERNAL_TRANSLATION_GUARD_ATTRS,
@@ -135,7 +134,7 @@ export function DocumentPage({
         client,
         currentPageID: detail.page.id,
         pageHref: content.pageHref,
-        openPage: id => void navigate({ to: podLocation(`/pages/${id}`).pathname }),
+        openPage: id => void navigate({ to: content.pageHref(id) }),
         i18n
       }),
       openComment: ids => openComment(ids),
@@ -171,7 +170,7 @@ export function DocumentPage({
                     configure={(config, table) =>
                       update({ ...attributes, ...(table ? { table } : {}), view: JSON.stringify(config) })
                     }
-                    openPage={id => void navigate({ to: podLocation(`/pages/${id}`).pathname })}
+                    openPage={id => void navigate({ to: content.pageHref(id) })}
                   />
                 </ErrorBoundary>
               </ContentScope>
@@ -188,7 +187,7 @@ export function DocumentPage({
           throw new Error(requestErrorMessage(contentError(error)))
         }),
       uploadAsset: file => uploadDocumentAsset(detail.page.id, file),
-      openPage: id => void navigate({ to: podLocation(`/pages/${id}`).pathname }),
+      openPage: id => void navigate({ to: content.pageHref(id) }),
       resolveAsset: src =>
         src.startsWith('ankole:asset/') ? fileURL(detail.page.id, `assets/${src.slice('ankole:asset/'.length)}`) : src,
       deleteEmbeds: async ids => {
@@ -492,7 +491,7 @@ export function DocumentPage({
                   if (!state.pending && !state.error && openCreatedDocument.current) {
                     const id = openCreatedDocument.current
                     openCreatedDocument.current = undefined
-                    void navigate({ to: podLocation(`/pages/${id}`).pathname })
+                    void navigate({ to: content.pageHref(id) })
                   }
                 },
                 reset: draft => {

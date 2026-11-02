@@ -57,7 +57,7 @@ defmodule Ankole.Pod.PageSchemaTest do
 
     Repo.with_tenant(other.id, fn ->
       assert Repo.get(Page, page.id) == nil
-      assert Repo.all(from(p in Page, where: not p.is_root)) == []
+      assert Repo.all(from(p in Page, where: p.id == ^page.id)) == []
       assert_raise ArgumentError, fn -> Repo.update(change(page, title: "Changed")) end
       assert_raise ArgumentError, fn -> Repo.delete(page) end
     end)

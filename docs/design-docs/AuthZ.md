@@ -189,7 +189,7 @@ tenant-bound SQL query; for Drive checks, PostgreSQL evaluates unconditional
 Userset edges directly in SQL while including conditional Userset grants in the
 snapshot for the Rust kernel. Conversation membership comes from a separate
 tenant-bound Conversations read and supplies the participating root IDs; participants
-receive view and contribute bits without creating derived grants.
+receive view, contribute, and edit bits without creating derived grants.
 
 Idempotent writes preserve existing identity: re-admitting a static group member
 keeps its original `inserted_at` timestamp, external group bindings key on their

@@ -126,6 +126,11 @@ defmodule Ankole.Files.Objects do
   end
 
   def collect do
+    Repo.transact_top_level(fn ->
+      Ankole.Files.Vfs.Exports.expire_in_tx()
+      {:ok, nil}
+    end)
+
     cutoff = DateTime.add(DateTime.utc_now(:microsecond), -24, :hour)
     collect_after(cutoff, nil, 0)
   end

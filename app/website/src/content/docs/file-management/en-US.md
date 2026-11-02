@@ -53,7 +53,7 @@ Files under `skills/` back the Agent's installed Skills directly, so editing or 
 
 Both the control-plane drive and persistent Agent Home survive Worker replacements. Files written only inside a Session or Job workspace stay in Agent Home until the Agent publishes them to the drive; see [Workers](../worker-management/) for provider storage limits.
 
-The Agent's core persona and policy documents—`MISSION`, `SOUL`, `DESIGN`, and `CONFIDENTIALITY POLICY` (`ConfidentialityPolicy.md`)—are edited on the Agent page and projected into the Worker automatically rather than stored as drive files; see [Agents](../agents/).
+Agent instructions and design standards are knowledge pages in Pod under `/AnkoleBrain`. Edit the global or Agent-specific `AGENTS[.override].md` and `DESIGN[.override].md` pages through their Console links; the Worker refreshes complete runtime projections every turn. See [Agents](../agents/).
 
 ## Common problems
 

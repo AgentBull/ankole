@@ -9,6 +9,7 @@ defmodule Ankole.Pod.Pages.Queries do
   def list_children(%Ankole.AuthZ.Actor{} = actor, parent_id, opts \\ %{}) do
     Repo.transact_repeatable_read_only(fn ->
       with {:ok, access} <- Ankole.Files.Access.Graph.navigation_access(actor),
+           access = Map.put(access, :reachable, Map.get(opts, :reachable, access.reachable)),
            policy = Ankole.AuthZ.Checks.DriveAnchorFilter.policy(access.reachable),
            :ok <- visible_directory_parent(actor, parent_id, policy),
            {:ok, directory} <- read_directory(actor, parent_id, opts, access, policy) do
@@ -221,6 +222,8 @@ defmodule Ankole.Pod.Pages.Queries do
       query
       |> Ash.Query.sort(position: :asc_nils_last, name: :asc, id: :asc)
       |> Ash.Query.select([
+        :metadata,
+        :system_key,
         :id,
         :tenant_id,
         :parent_id,
@@ -277,7 +280,7 @@ defmodule Ankole.Pod.Pages.Queries do
       )
       |> Map.new(&{&1.uid, &1.display_name})
 
-    doc_ids = for %{type: :doc, id: id} <- pages, do: id
+    doc_ids = for %{type: type, id: id} <- pages, type in [:doc, :knowledge], do: id
 
     excerpts_by_id =
       if doc_ids == [] do
@@ -347,7 +350,8 @@ defmodule Ankole.Pod.Pages.Queries do
       |> Ash.Query.limit(30)
 
     with {:ok, query} <- exclude_subtree(query, Ankole.Attrs.get(opts, :exclude_subtree_of)),
-         {:ok, reachable} <- Access.reachable_anchors(actor),
+         {:ok, context} <- Access.context_snapshot(actor),
+         {:ok, reachable} <- query_visibility(actor, opts, context),
          policy =
            Ankole.AuthZ.Checks.DriveAnchorFilter.policy(
              reachable,
@@ -355,7 +359,7 @@ defmodule Ankole.Pod.Pages.Queries do
            ),
          query = Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(query, actor, policy),
          {:ok, pages} <- read_search_pages(query, actor, term),
-         {:ok, ancestors} <- ancestors(actor, pages),
+         {:ok, ancestors} <- ancestors(actor, pages, policy),
          do:
            {:ok,
             %{
@@ -399,7 +403,7 @@ defmodule Ankole.Pod.Pages.Queries do
     branches = [
       Ash.Query.filter(
         query,
-        type in [:doc, :base, :applet] and
+        type in [:doc, :knowledge, :base, :applet] and
           fragment(
             "/* pod_search:title */ ? IN (SELECT p.id FROM pages p WHERE p.tenant_id = ?::text::uuid AND p.title ILIKE ANY(?::text[]))",
             id,
@@ -459,9 +463,13 @@ defmodule Ankole.Pod.Pages.Queries do
 
   defp maybe_filter_embeddable(query, _embeddable), do: query
 
-  defp ancestors(actor, pages) do
+  defp ancestors(actor, pages, policy) do
     ids = Ankole.Files.ancestor_node_ids(Enum.map(pages, & &1.id))
-    Page |> Ash.Query.filter(id in ^ids) |> read_pages(actor)
+
+    Page
+    |> Ash.Query.filter(id in ^ids)
+    |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(actor, policy)
+    |> read_pages(actor)
   end
 
   defp exclude_subtree(query, nil), do: {:ok, query}
@@ -485,15 +493,28 @@ defmodule Ankole.Pod.Pages.Queries do
 
     if scope == "trash" do
       with {:ok, context} <- Access.context_snapshot(actor),
-           do: list_trash(actor, term, context, {nil, nil}, [])
+           do: list_trash(actor, term, context, {nil, nil}, [], Map.get(opts, :reader_uids))
     else
-      with {:ok, query} <- list_query(scope, actor, term) do
+      with {:ok, context} <- Access.context_snapshot(actor),
+           {:ok, reachable} <- query_visibility(actor, opts, context),
+           {:ok, query} <- list_query(scope, actor, term, reachable, context) do
         query
+        |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(
+          actor,
+          Ankole.AuthZ.Checks.DriveAnchorFilter.policy(reachable)
+        )
         |> filter_list_title(term)
         |> Ash.Query.sort(updated_at: :desc, id: :asc)
         |> Ash.Query.limit(200)
         |> read_pages(actor)
       end
+    end
+  end
+
+  defp query_visibility(actor, opts, context) do
+    case Map.fetch(opts, :reachable) do
+      {:ok, reachable} -> {:ok, reachable}
+      :error -> Access.reachable_anchors(actor, context: context)
     end
   end
 
@@ -519,46 +540,35 @@ defmodule Ankole.Pod.Pages.Queries do
     end
   end
 
-  defp list_query(scope, actor, term) when scope in ["recent", "favorites"] do
-    with {:ok, reachable} <- Access.reachable_anchors(actor) do
-      rows = state_page_ids(scope, actor, term, reachable)
-      ids = Enum.map(rows, &elem(&1, 0))
-      visited_at = Map.new(rows)
+  defp list_query(scope, actor, term, reachable, _context)
+       when scope in ["recent", "favorites"] do
+    rows = state_page_ids(scope, actor, term, reachable)
+    ids = Enum.map(rows, &elem(&1, 0))
+    visited_at = Map.new(rows)
 
-      query =
-        Page
-        |> Ash.Query.filter(id in ^ids)
-        |> Ash.Query.set_context(%{pod_state_order: ids, pod_visited_at: visited_at})
-        |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(
-          actor,
-          Ankole.AuthZ.Checks.DriveAnchorFilter.policy(reachable)
-        )
+    query =
+      Page
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.Query.set_context(%{pod_state_order: ids, pod_visited_at: visited_at})
 
-      {:ok, query}
-    end
+    {:ok, query}
   end
 
-  defp list_query("shared", actor, _term) do
+  defp list_query("shared", actor, _term, reachable, context) do
     uid = Ankole.Principals.authority_uid(Ankole.AuthZ.Actor.uid(actor))
 
-    with {:ok, context} <- Access.context_snapshot(actor),
-         {:ok, reachable} <- Access.reachable_anchors(actor, context: context),
-         {:ok, shared} <- Access.directly_shared_ids(actor, reachable, context: context) do
+    with {:ok, shared} <- Access.directly_shared_ids(actor, reachable, context: context) do
       shared = shared_root_ids(shared, reachable)
 
       {:ok,
        Page
        |> Ash.Query.filter(
          id in ^shared and (is_nil(private_owner_uid) or private_owner_uid != ^uid)
-       )
-       |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(
-         actor,
-         Ankole.AuthZ.Checks.DriveAnchorFilter.policy(reachable)
        )}
     end
   end
 
-  defp list_query(scope, actor, _term) do
+  defp list_query(scope, actor, _term, _reachable, _context) do
     case scope do
       "space" ->
         root_query(Ankole.Files.public_root())
@@ -623,16 +633,23 @@ defmodule Ankole.Pod.Pages.Queries do
     |> Enum.map(fn [id, visited_at] -> {id, visited_at} end)
   end
 
-  defp list_trash(%Ankole.AuthZ.Actor{} = actor, term, context, cursor, collected) do
+  defp list_trash(%Ankole.AuthZ.Actor{} = actor, term, context, cursor, collected, readers) do
     candidates = trash_candidates(term, cursor)
     ids = Enum.map(candidates, fn [id, _] -> id end)
 
-    with {:ok, reachable} <- Access.reachable_trashed(actor, ids, context: context) do
+    with {:ok, reachable} <- Access.reachable_trashed(actor, ids, context: context),
+         {:ok, disclosed} <- disclosed_trash(ids, readers, actor.authn) do
       allowed =
         Enum.flat_map(ids, fn id ->
           case Map.get(reachable, id) do
-            nil -> []
-            bits -> if Bitwise.band(bits.self_bits, 8) != 0, do: [{id, bits.self_bits}], else: []
+            nil ->
+              []
+
+            bits ->
+              if Bitwise.band(bits.self_bits, 8) != 0 and
+                   (is_nil(disclosed) or MapSet.member?(disclosed, id)),
+                 do: [{id, bits.self_bits}],
+                 else: []
           end
         end)
 
@@ -650,9 +667,30 @@ defmodule Ankole.Pod.Pages.Queries do
          end)}
       else
         [id, deleted_at] = List.last(candidates)
-        list_trash(actor, term, context, {deleted_at, id}, collected)
+        list_trash(actor, term, context, {deleted_at, id}, collected, readers)
       end
     end
+  end
+
+  defp disclosed_trash(_ids, nil, _authn), do: {:ok, nil}
+  defp disclosed_trash(_ids, [], _authn), do: {:ok, MapSet.new()}
+
+  defp disclosed_trash(ids, readers, authn) do
+    Enum.reduce_while(readers, {:ok, MapSet.new(ids)}, fn uid, {:ok, visible} ->
+      with {:ok, principal} <- Ankole.Principals.get_principal(uid),
+           {:ok, reachable} <-
+             Access.reachable_trashed(Ankole.AuthZ.Actor.new(principal, authn: authn), ids) do
+        own =
+          for {id, bits} <- reachable,
+              Bitwise.band(bits.self_bits, 1) != 0,
+              into: MapSet.new(),
+              do: id
+
+        {:cont, {:ok, MapSet.intersection(visible, own)}}
+      else
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp trash_candidates(term, {deleted_at, id}) do

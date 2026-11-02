@@ -1,5 +1,5 @@
 defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
-  @moduledoc "Per-Agent Skill registry metadata; Skill bytes remain in their filesystem bundles."
+  @moduledoc "Per-Agent Skill enablement and discovery metadata; Pod and Files own Skill content."
   use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent
 
   postgres do
@@ -38,7 +38,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
     attribute(:source_kind, :atom,
       allow_nil?: false,
       public?: true,
-      constraints: [one_of: [:builtin, :installed]]
+      constraints: [one_of: [:builtin, :shared, :installed]]
     )
 
     attribute(:agent_plugin_id, :string,

@@ -80,7 +80,7 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     assert_tool(other_origin)
   end
 
-  test "RPC evaluates the executing Agent grants with the persisted ingress IP", ctx do
+  test "RPC evaluates requester and Agent grants with the persisted ingress IP", ctx do
     grant(ctx.human, "agent:#{ctx.agent.uid}", "chat")
     owner = Ankole.PrincipalsFixtures.human_fixture().principal
 
@@ -109,7 +109,7 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     refute page.id in rpc_page_ids(denied)
 
     assert {:ok, _} = AuthZ.delete_permission_grant(human_grant.id)
-    assert page.id in rpc_page_ids(rebuilt)
+    refute page.id in rpc_page_ids(rebuilt)
     grant(ctx.human, pattern, "node_view", condition)
     assert {:ok, _} = AuthZ.delete_permission_grant(agent_grant.id)
     refute page.id in rpc_page_ids(rebuilt)
@@ -170,7 +170,7 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     assert_tool(%{run | event: historical})
   end
 
-  defp create_chat(ctx, ip) do
+  defp create_chat(ctx, ip, room_mode \\ "dm") do
     ctx.conn
     |> recycle_api()
     |> Map.put(:remote_ip, ip)
@@ -178,12 +178,13 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
       conversationID: Ecto.UUID.generate(),
       messageID: Ecto.UUID.generate(),
       agentUID: ctx.agent.uid,
+      roomMode: room_mode,
       text: "Use the protected operation"
     })
   end
 
   defp create_run(ctx, ip) do
-    id = create_chat(ctx, ip) |> api_response(200) |> get_in(["conversation", "id"])
+    id = create_chat(ctx, ip, "group") |> api_response(200) |> get_in(["conversation", "id"])
     event = Repo.get_by!(Signal, conversation_id: id)
     assert {:ok, run} = Admission.admit(event, event)
     run

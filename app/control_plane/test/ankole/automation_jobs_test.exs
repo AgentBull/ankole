@@ -408,7 +408,8 @@ defmodule Ankole.AutomationJobsTest do
       |> enqueue!(trigger_event("disconnected-after-dispatch"))
 
     pending = Task.async(Repo.bind_tenant(fn -> execute(run, attempt: 1) end))
-    assert_receive {:actor_lane, %{body: {:rpc_request, %{method: "automation_job.run"}}}}, 2_000
+    # The first dispatch imports the tenant's shipped Skill packages before sending the script.
+    assert_receive {:actor_lane, %{body: {:rpc_request, %{method: "automation_job.run"}}}}, 15_000
     :ok = Ankole.AgentWorkers.WorkerRoute.unregister_local_worker(route)
     assert :ok = Task.await(pending)
     assert %Run{status: :failed, attempts: 1, error: error} = Repo.get!(Run, run.id)
@@ -425,7 +426,7 @@ defmodule Ankole.AutomationJobsTest do
     assert {:ok, _} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
     run = agent.uid |> source_event!() |> job!() |> enqueue!(trigger_event("prepare-retry"))
     pending = Task.async(Repo.bind_tenant(fn -> execute(run, attempt: 1) end))
-    assert_receive {:actor_lane, %{body: {:rpc_request, request}}}, 2_000
+    assert_receive {:actor_lane, %{body: {:rpc_request, request}}}, 15_000
 
     :ok =
       Ankole.AgentWorkers.WorkerRoute.local_inbound(route, %Ankole.RuntimeFabric.V1.Envelope{

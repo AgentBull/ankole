@@ -7,6 +7,8 @@ export function SlashCommandPicker({
   existing,
   working,
   hasAgents = true,
+  canRename = true,
+  canNew = true,
   query,
   id,
   input,
@@ -17,6 +19,8 @@ export function SlashCommandPicker({
   existing: boolean
   working: boolean
   hasAgents?: boolean
+  canRename?: boolean
+  canNew?: boolean
   query: string
   id: string
   input: RefObject<HTMLTextAreaElement | null>
@@ -30,6 +34,8 @@ export function SlashCommandPicker({
       command =>
         (existing || !['invite', 'rename', 'stop'].includes(command)) &&
         (working || command !== 'stop') &&
+        (canRename || command !== 'rename') &&
+        (canNew || command !== 'new') &&
         (hasAgents || command !== 'model')
     )
     .filter(

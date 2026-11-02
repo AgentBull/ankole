@@ -47,6 +47,9 @@ export const typeLabels: Record<PageType, string> = {
   get doc() {
     return t('pod.content.document')
   },
+  get knowledge() {
+    return t('pod.knowledge.page')
+  },
   get base() {
     return t('pod.editor.base')
   },

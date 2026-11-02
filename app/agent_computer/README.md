@@ -60,11 +60,9 @@ instance, updates its image, or rebuilds its cache.
 ```text
 /workspace/
 ├── .codex/
-├── SOUL.md
-├── MISSION.md
+├── AGENTS.md
 ├── DESIGN.md
-├── ConfidentialityPolicy.md
-├── installed-skills/
+├── .ankole/turn-skills/<signal-id>/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── AGENTS.md
@@ -75,15 +73,16 @@ instance, updates its image, or rebuilds its cache.
 `/agents/<agent_uid>` is a symbolic link to `/workspace`. Before comparing a
 path against Agent Home, path validation resolves symbolic links so that checks
 apply to the real target. Relative paths resolve from the current Session
-Workspace or Job Workspace, and every command's working directory must stay
-inside Agent Home. Because Sessions and Jobs of the same Agent share this
+Workspace or Job Workspace, and each command can use Agent Home or its execution's mounted Drive as its working directory. Because Sessions and Jobs of the same Agent share this
 filesystem, they can read one another's files.
 
 The container itself is the Agent isolation boundary. Inside the container, the
 entrypoint, the supervisor, and the Bun Worker process that holds credentials
 run as `root`. When starting model-driven commands, Codex, MCP servers, the
 browser, or Automation scripts, `agentProcessArgv` drops privileges to `uid 1000`
-with `no-new-privs` and no inherited or ambient capabilities. These child
+with `no-new-privs` and an empty capability bounding set. Commands and Codex
+processes receive their execution's Drive and recovery mounts in a private mount
+and PID namespace. These child
 processes receive a clean environment, cannot read the environment of trusted
 processes or send signals to them, have no `sudo` access, and cannot install
 system software. Agent-writable files and CLI sockets belong to `uid 1000`,
@@ -94,7 +93,7 @@ Per-process sockets and configuration files use random names in `/var/share`
 (or under `TMPDIR` during source runs). Do not store Agent-owned or durable
 facts there.
 
-For every turn, the Worker sets:
+The Worker uses these roots when FUSE is unavailable:
 
 ```text
 HOME=/workspace
@@ -102,37 +101,47 @@ CODEX_HOME=/workspace/.codex
 CODEX_SQLITE_HOME=/var/cache/ankole/codex
 ```
 
+With Drive mounted, Codex app-server instances use
+`/workspace/.codex/scopes/<view-key>` and
+`/var/cache/ankole/codex/scopes/<view-key>`. Each view has its own configuration,
+SQLite process lock, and thread files. Views with the same permission scope share
+the hot Drive cache; conversation views mount separate ChatDrives.
+
 Codex Home and its thread files persist across restarts, while a Job's
 `.codex/config.toml` holds project-scoped configuration. SQLite files and their
 process lock live on the local cache filesystem. Rebuilding a Worker removes
 that cache, so native Codex resume relies on the thread files in Home; updating
 the image alone keeps a configured cache volume or PVC.
 
-PostgreSQL is authoritative for `SOUL`, `MISSION`, `DESIGN`, and
-`ConfidentialityPolicy`, while the corresponding uppercase files in `/workspace`
-are read-only projections. When preparing an environment workspace or a Codex
-Job, the Worker writes these files atomically from the document snapshot
-supplied by the control plane; if writing a projection fails, execution stops.
-Codex also receives that snapshot directly as its instructions, and pure model
-turns read these facts directly from the control plane.
+Pod knowledge pages in PostgreSQL own the organization and Agent contracts.
+At every turn start and resume, the Worker atomically refreshes the complete
+`~/AGENTS.md`, `~/DESIGN.md`, and `$CODEX_HOME/AGENTS.md` from the control-plane
+snapshot. Native Codex combines its global AGENTS file with project-owned
+instruction files; main, ambient, and Workflow prompts receive the complete
+AGENTS contract directly from the control plane.
 
-Attachments, published files, Skills, and Automation scripts live in the Agent's
-drive in the control plane (`docs/design-docs/Files.md`). The Worker reads and
-writes the drive through the `files.*` RPCs, and the turn-local `ankole-files`
-command exposes the same operations to the model. The control plane derives the
-installed Skill catalog from the drive. Before starting each environment
-workspace, Codex Job, or Automation Job, the Worker synchronizes
-`installed-skills/` with `skills/` in the drive; if a download fails,
-preparation stops without removing catalog entries or operator settings.
+Attachments, published files, and Automation scripts live in the Agent's
+control-plane Files drive (`docs/design-docs/Files.md`). The Worker uses
+the mounted `/drive` filesystem when the startup probe confirms FUSE support.
+`/drive/Public`, `/drive/AgentDrive`, `/drive/MyDrive`, and `/drive/ChatDrive`
+resolve through the existing Files and Principal permission owners. Ordinary shell
+tools read and write these paths directly, including symlinks. The Worker retains
+`files.*` RPCs and `ankole-files` for providers without the capability. Shared Skills live
+as Pod knowledge pages under `/AnkoleBrain/skills`, while private installed
+bundles live under `skills/` in the Agent's drive. The Worker requests enabled
+packages through `pod.read` with the `skills.bundle` operation, applying the
+current conversation's permission intersection. Each turn uses its own
+`.ankole/turn-skills/<signal-id>/` directory; Automation attempts use their own
+run directory. A download failure stops preparation.
 
 Session and Job workspaces are temporary working directories, and Sessions and
-Jobs share the Agent filesystem. Save sensitive user files and deliverables in
-the `chats/<channel>/` drive directory for the source channel; system prompts
-name this directory and instruct the Agent to leave files from other
-conversations alone. For outbound attachments, `reply_attachment` accepts only
-`drive_path` and runs in the control plane. During Outbox commit, the control
-plane verifies that any file under `chats/<channel>/` is delivered back to that
-same channel, whereas files under shared drive paths can be delivered anywhere.
+Jobs share the Agent filesystem. Save conversation deliverables in the current
+`/drive/ChatDrive`. `reply_attachment` accepts a Drive node UUID or a path; the
+Worker resolves local symlinks, flushes pending bytes, and returns the authoritative
+node ID before the control plane freezes the attachment object. `send_message`
+uses the same path resolution. Delivery checks the node's actual conversation
+root and permits a conversation attachment only in that conversation. A committed
+tool receipt replays its frozen object without requiring the original mount.
 
 ## Session and Job setup
 
@@ -152,9 +161,10 @@ materializes the optional Lark credential, `mcporter` configuration, and browser
 runtime. Cleanup runs in the fixed order `browser`, `mcporter`, then `Lark`, and
 preserves the first failure encountered.
 
-Agent-installed Skill sources live at `/workspace/installed-skills/<skill-name>`,
-and Jobs read Skills on demand through the Ankole `skill_view` tool. Database
-overlays remain semantic state in the control plane.
+Jobs read Skill instructions on demand through the Ankole `skill_view` tool.
+The tool and package materializer use the same live permission context. Visible
+supplement pages join the instructions; reference chapters remain separate
+files. Per-Agent lessons remain semantic state in the control plane.
 
 Built-in Skills and Agent Plugins ship under `/repo/app/library`, and internal
 images may also provide `/repo/internals/skills`. Plugin packages control
@@ -207,7 +217,7 @@ routes live for the duration of the Job, while fallback routes for rendered
 - `src/main.ts`: Worker lifecycle, environment workspace, and Codex dispatch.
 - `src/worker/`: environment, lifecycle, Agent Home preparation, and readiness.
 - `src/core/`: turn handlers, Agent Home paths, and `CodexRunner`.
-- `src/skills/`: materialization of installed Skills from the Agent's drive.
+- `src/skills/`: materialization of conversation-visible Pod Skill packages.
 - `src/fabric/` and `src/lanes/`: RuntimeFabric envelopes and lanes.
 - `src/tools/`: environment tools and Codex Skill support.
 - `test/`: Bun unit tests that run on the host.

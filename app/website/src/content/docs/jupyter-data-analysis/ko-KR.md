@@ -41,7 +41,7 @@ kernel은 해당 백그라운드 Job이 실행되는 동안에만 유지됩니�
 팀원이 채널에 올린 CSV 파일을 분석하는 Agent를 설정하는 절차는 다음과 같습니다.
 
 1. `jupyter-live-kernel` skill이 활성화되어 있는지 확인합니다(기본 활성화).
-2. Agent를 생성하고 `MISSION.md`에 `"When a CSV appears in the channel, load it into a DataFrame, inspect the schema and summary statistics, identify anomalies, and report findings with a plot."`을 작성합니다.
+2. Agent를 생성하고 `AGENTS.md`에 `"When a CSV appears in the channel, load it into a DataFrame, inspect the schema and summary statistics, identify anomalies, and report findings with a plot."`을 작성합니다.
 3. 채널에 CSV 파일을 첨부하거나, Console에서 Agent 드라이브에 파일을 업로드한 뒤 해당 경로를 알려 줍니다.
 4. 요청을 받은 Agent는 작업을 백그라운드 Job에 위임해 kernel을 시작하고, CSV를 불러와 반복적으로 데이터를 점검한 뒤 플롯과 함께 분석 결과를 보고합니다.
 

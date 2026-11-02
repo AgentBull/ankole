@@ -17,10 +17,12 @@ metadata:
 # GitHub Issues
 
 GitHub owns issue state. The task names the repository, issue set, and desired
-outcome; current GitHub data supplies the facts. Source `github-auth` first:
+outcome; current GitHub data supplies the facts. Call `skill_view` for
+`github-auth` and set `GH_AUTH_DIR` to its returned `directory` for this turn.
+Then source its helper:
 
 ```bash
-source /repo/app/library/agent-plugins/github/skills/github-auth/scripts/gh-env.sh
+source "$GH_AUTH_DIR/scripts/gh-env.sh"
 test "$GH_AUTH_METHOD" = "gh"
 test -n "$GH_OWNER_REPO"
 ```

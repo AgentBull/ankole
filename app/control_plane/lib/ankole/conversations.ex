@@ -58,6 +58,42 @@ defmodule Ankole.Conversations do
     end
   end
 
+  defdelegate conversation_audience(conversation),
+    to: Ankole.Conversations.RelatedContext,
+    as: :audience
+
+  defdelegate related_context_index(run), to: Ankole.Conversations.RelatedContext, as: :inline
+
+  defdelegate recall_related_context(run, id, cursor),
+    to: Ankole.Conversations.RelatedContext,
+    as: :recall
+
+  defdelegate visible_peer_exchange(actor, origin, id),
+    to: Ankole.Conversations.Peers,
+    as: :visible
+
+  defdelegate peer_exchange_detail(actor, origin, id, cursor),
+    to: Ankole.Conversations.Peers,
+    as: :detail
+
+  defdelegate peer_exchanges(origin_ids), to: Ankole.Conversations.Peers, as: :exchanges
+  defdelegate peer_exchange(id), to: Ankole.Conversations.Peers, as: :exchange
+  defdelegate lock_peer_reply_rooms(run), to: Ankole.Conversations.Peers, as: :lock_reply_rooms
+
+  defdelegate send_peer_from_job(ref, args, call_id),
+    to: Ankole.Conversations.Peers,
+    as: :send_from_job
+
+  defdelegate peer_session_keys(run), to: Ankole.Conversations.Peers, as: :session_keys
+  defdelegate prepare_peer_send(run, args), to: Ankole.Conversations.Peers, as: :prepare_send
+
+  defdelegate project_peer_reply_in_tx(event, posted, statement),
+    to: Ankole.Conversations.Peers,
+    as: :project_in_tx
+
+  defdelegate stop_peer_exchange(actor, origin, id), to: Ankole.Conversations.Peers, as: :stop
+
+  defdelegate direct_conversations(human_uid), to: NativeRoom
   defdelegate teammates(actor, query \\ nil), to: NativeRoom
   defdelegate update_conversation(actor, id, attrs), to: NativeRoom, as: :update
   defdelegate manage_participants(actor, id, attrs), to: NativeRoom, as: :manage

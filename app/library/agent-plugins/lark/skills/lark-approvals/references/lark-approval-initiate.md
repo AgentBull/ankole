@@ -49,7 +49,7 @@
 先搜索定义：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals search --data '{"keyword":"请假"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals search --data '{"keyword":"请假"}'
 ```
 
 处理规则：
@@ -64,7 +64,7 @@
 拿到 `approval_code` 后，读取定义详情：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals get \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals get \
   --params '{"approval_code":"7C468A54-8745-2245-9675-08B7C63E7A85"}'
 ```
 
@@ -172,7 +172,7 @@
 只有“使用前提”中的四个条件全部成立时，才能执行下面的命令：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances create \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances create \
   --data '{
     "approval_code":"7C468A54-8745-2245-9675-08B7C63E7A85",
     "form":"[{\"id\":\"widget1\",\"type\":\"input\",\"value\":\"请假半天\"}]",

@@ -372,7 +372,7 @@ defmodule Ankole.Pod.PagesTest do
                "node_view"
              )
 
-    assert {:ok, []} =
+    assert {:ok, [%{system_key: "ankole_brain", role: "view"}]} =
              Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid), %{scope: "space"})
 
     assert {:ok, _} =
@@ -445,7 +445,9 @@ defmodule Ankole.Pod.PagesTest do
     {:ok, shared} =
       Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), %{scope: "shared"})
 
-    assert Enum.map(shared, & &1.id) == [child.id]
+    assert Enum.map(Enum.reject(shared, &(&1.system_key == "ankole_brain")), & &1.id) == [
+             child.id
+           ]
   end
 
   test "a move places the page next to one sibling and rejects a stale anchor", ctx do
@@ -614,7 +616,8 @@ defmodule Ankole.Pod.PagesTest do
                "node_view"
              )
 
-    assert {:ok, []} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid))
+    assert {:ok, visible} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid))
+    refute Enum.any?(visible, &(&1.id in [root.id, child.id]))
 
     assert {:ok, [trashed]} =
              Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{scope: "trash"})
@@ -886,7 +889,8 @@ defmodule Ankole.Pod.PagesTest do
       :erlang.trace_pattern(function, true, [:call_count])
 
       try do
-        assert {:ok, [visible]} = Pages.list(reader, %{scope: scope})
+        assert {:ok, listed} = Pages.list(reader, %{scope: scope})
+        [visible] = Enum.reject(listed, &(&1.system_key == "ankole_brain"))
         assert visible.id == page.id
         assert visible.actions == ["node_view"]
         assert :erlang.trace_info(function, :call_count) == {:call_count, 1}
@@ -1025,7 +1029,9 @@ defmodule Ankole.Pod.PagesTest do
                  "node_view"
                )
 
-      assert {:ok, []} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(foreign))
+      assert {:ok, visible} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(foreign))
+      assert Enum.all?(visible, &(&1.tenant_id == other.id))
+      refute Enum.any?(visible, &(&1.id == page.id))
     end)
   end
 

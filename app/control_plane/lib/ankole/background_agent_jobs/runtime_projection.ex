@@ -76,7 +76,7 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
             |> Enum.map(& &1["catalog_name"])
             |> Enum.filter(&(&1 in selected))
             |> Enum.sort()
-            |> Enum.map(&Map.fetch!(members, {id, &1}))
+            |> Enum.flat_map(fn name -> List.wrap(members[{id, name}]) end)
         end
       end)
 

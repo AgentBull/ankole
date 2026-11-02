@@ -1,4 +1,4 @@
-import { usePagesMetadata } from './use-page-metadata'
+import { usePageHref, usePagesMetadata } from './use-page-metadata'
 import { useTranslation } from 'react-i18next'
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@ankole/uikit'
@@ -33,6 +33,7 @@ export function PageBreadcrumbs({
   compact: boolean
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const ancestors = usePagesMetadata(sourceAncestors)
   const folded = compact ? ancestors : ancestors.slice(0, -1)
   const parent = compact ? undefined : ancestors.at(-1)
@@ -58,9 +59,7 @@ export function PageBreadcrumbs({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-48">
                 {folded.map(ancestor => (
-                  <DropdownMenuItem
-                    key={ancestor.id}
-                    render={<Link to={podLocation(`/pages/${ancestor.id}`).pathname} />}>
+                  <DropdownMenuItem key={ancestor.id} render={<Link to={pageHref(ancestor.id, ancestor.title)} />}>
                     <BdiLabel value={ancestor.title} fallback={t('pod.content.untitled')} />
                   </DropdownMenuItem>
                 ))}
@@ -71,7 +70,7 @@ export function PageBreadcrumbs({
         )}
         {parent && (
           <li className="flex min-w-0 shrink-[4] items-center">
-            <Link className={crumb} to={podLocation(`/pages/${parent.id}`).pathname} title={stripBidi(parent.title)}>
+            <Link className={crumb} to={pageHref(parent.id, parent.title)} title={stripBidi(parent.title)}>
               <BdiLabel value={parent.title} fallback={t('pod.content.untitled')} />
             </Link>
             {separator}

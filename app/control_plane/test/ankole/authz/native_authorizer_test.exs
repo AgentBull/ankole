@@ -94,7 +94,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
                {{:ok, pages, executed}, queries} =
                  capture_authorization_queries(fn ->
                    Ankole.Ash.read_authorized(
-                     Ash.Query.for_read(Page, :list_roots) |> Ash.Query.filter(not is_root),
+                     Ash.Query.for_read(Page, :list_roots) |> Ash.Query.filter(id == ^private.id),
                      owner,
                      return_query?: true
                    )

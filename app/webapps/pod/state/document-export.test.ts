@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { QueryClient } from '@tanstack/react-query'
 import { strFromU8, unzipSync } from 'fflate'
-import { podLocation } from '../../common/browser-context'
+import { podPagePath } from '../../common/pod-url'
 import { loadLocale } from '../../common/i18n'
 import { client as podClient } from '../api/generated/client.gen'
 import type { PageDetail } from '../content-api'
@@ -23,8 +23,8 @@ const previousRevokeObjectURL = URL.revokeObjectURL
 let downloads: Array<{ filename: string; blob: Blob }>
 let objectBlobs: Map<string, Blob>
 
-function pageURL(id: string): string {
-  return new URL(podLocation(`/pages/${id}`).pathname, 'https://ankole.test').href
+function pageURL(id: string, title?: string): string {
+  return new URL(podPagePath(id, title), 'https://ankole.test').href
 }
 
 function pageDetail(id: string, title: string, type: PageDetail['page']['type']): PageDetail {
@@ -36,6 +36,7 @@ function pageDetail(id: string, title: string, type: PageDetail['page']['type'])
       type,
       position: 'a0',
       inherit_permissions: true,
+      metadata: {},
       revision: 1,
       children_view: {},
       created_at: '2026-10-30T10:00:00Z',
@@ -131,8 +132,8 @@ describe('downloadDocument', () => {
       expect(downloads[0]!.filename).toBe('Summary.md')
       expect(downloads[0]!.blob.type).toContain('text/markdown')
       const text = await downloads[0]!.blob.text()
-      expect(text).toContain(`[Confidential Deck](${pageURL(mentionFileID)})`)
-      expect(text).toContain(`[contract](${pageURL(linkFileID)})`)
+      expect(text).toContain(`[Confidential Deck](${pageURL(mentionFileID, 'Confidential Deck')})`)
+      expect(text).toContain(`[contract](${pageURL(linkFileID, 'Signed Contract')})`)
     } finally {
       queryClient.clear()
     }
@@ -173,7 +174,7 @@ describe('downloadDocument', () => {
       expect(Object.keys(entries).sort()).toEqual(['Quarterly-Plan.md', 'assets/1-report.pdf'])
       expect(entries['assets/1-report.pdf']).toEqual(pdfBytes)
       const markdown = strFromU8(entries['Quarterly-Plan.md']!)
-      expect(markdown).toContain(`[Appendix Sheet](${pageURL(mentionFileID)})`)
+      expect(markdown).toContain(`[Appendix Sheet](${pageURL(mentionFileID, 'Appendix Sheet')})`)
       expect(markdown).toContain('[Budget PDF](assets/1-report.pdf)')
     } finally {
       queryClient.clear()
@@ -215,7 +216,7 @@ describe('downloadDocument', () => {
       expect(markdown).toContain(
         `![Diagram](https://ankole.test/api/v2/pod/pages/${docID}/files/content?path=assets%2Fhash%2Fdiagram.png)`
       )
-      expect(markdown).toContain(`[Missing File](${pageURL(embedFileID)})`)
+      expect(markdown).toContain(`[Missing File](${pageURL(embedFileID, 'Missing File')})`)
     } finally {
       queryClient.clear()
     }

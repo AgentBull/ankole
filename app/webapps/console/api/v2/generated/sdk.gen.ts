@@ -60,9 +60,6 @@ import type {
   CreateAgentSkillLessonData,
   CreateAgentSkillLessonErrors,
   CreateAgentSkillLessonResponses,
-  CreateBrainObjectData,
-  CreateBrainObjectErrors,
-  CreateBrainObjectResponses,
   CreateBrainSourceData,
   CreateBrainSourceErrors,
   CreateBrainSourceResponses,
@@ -156,12 +153,6 @@ import type {
   ForgetBrainClaimData,
   ForgetBrainClaimErrors,
   ForgetBrainClaimResponses,
-  ForgetBrainObjectData,
-  ForgetBrainObjectErrors,
-  ForgetBrainObjectResponses,
-  ForkBrainObjectData,
-  ForkBrainObjectErrors,
-  ForkBrainObjectResponses,
   GetAgentAppConfigurationData,
   GetAgentAppConfigurationErrors,
   GetAgentAppConfigurationResponses,
@@ -285,9 +276,6 @@ import type {
   ListBrainObjectTypesData,
   ListBrainObjectTypesErrors,
   ListBrainObjectTypesResponses,
-  ListBrainObjectVersionsData,
-  ListBrainObjectVersionsErrors,
-  ListBrainObjectVersionsResponses,
   ListBrainPrincipalKnowledgeData,
   ListBrainPrincipalKnowledgeErrors,
   ListBrainPrincipalKnowledgeResponses,
@@ -423,9 +411,6 @@ import type {
   RenameHumanData,
   RenameHumanErrors,
   RenameHumanResponses,
-  ReplaceAgentLibraryDocumentData,
-  ReplaceAgentLibraryDocumentErrors,
-  ReplaceAgentLibraryDocumentResponses,
   RequeueSignalDeliveryData,
   RequeueSignalDeliveryErrors,
   RequeueSignalDeliveryResponses,
@@ -438,9 +423,6 @@ import type {
   ResolveBrainTakeData,
   ResolveBrainTakeErrors,
   ResolveBrainTakeResponses,
-  RestoreBrainObjectData,
-  RestoreBrainObjectErrors,
-  RestoreBrainObjectResponses,
   RestoreHumanAccessData,
   RestoreHumanAccessErrors,
   RestoreHumanAccessResponses,
@@ -459,9 +441,6 @@ import type {
   ReviewIdentityDirectoryEventData,
   ReviewIdentityDirectoryEventErrors,
   ReviewIdentityDirectoryEventResponses,
-  RollbackBrainObjectData,
-  RollbackBrainObjectErrors,
-  RollbackBrainObjectResponses,
   RotateOidcClientSecretData,
   RotateOidcClientSecretErrors,
   RotateOidcClientSecretResponses,
@@ -504,9 +483,6 @@ import type {
   UpdateAppConfigurationGroupErrors,
   UpdateAppConfigurationGroupResponses,
   UpdateAppConfigurationResponses,
-  UpdateBrainObjectData,
-  UpdateBrainObjectErrors,
-  UpdateBrainObjectResponses,
   UpdateBrainSourceData,
   UpdateBrainSourceErrors,
   UpdateBrainSourceResponses,
@@ -773,36 +749,6 @@ export const updatePermissionGrant = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
-  })
-
-/**
- * replace_agent_library_document operation on agent_library_console resource
- */
-export const replaceAgentLibraryDocument = <ThrowOnError extends boolean = false>(
-  options: Options<ReplaceAgentLibraryDocumentData, ThrowOnError>
-): RequestResult<ReplaceAgentLibraryDocumentResponses, ReplaceAgentLibraryDocumentErrors, ThrowOnError> =>
-  (options.client ?? client).put<ReplaceAgentLibraryDocumentResponses, ReplaceAgentLibraryDocumentErrors, ThrowOnError>(
-    {
-      security: [{ name: 'Cookie', type: 'apiKey' }],
-      url: '/api/v2/agents/{agent_uid}/library-documents/{document_kind}',
-      ...options,
-      headers: {
-        'Content-Type': 'application/vnd.api+json',
-        ...options.headers
-      }
-    }
-  )
-
-/**
- * list_brain_object_versions operation on brain_object_version resource
- */
-export const listBrainObjectVersions = <ThrowOnError extends boolean = false>(
-  options: Options<ListBrainObjectVersionsData, ThrowOnError>
-): RequestResult<ListBrainObjectVersionsResponses, ListBrainObjectVersionsErrors, ThrowOnError> =>
-  (options.client ?? client).get<ListBrainObjectVersionsResponses, ListBrainObjectVersionsErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/object-versions',
-    ...options
   })
 
 /**
@@ -1220,22 +1166,6 @@ export const setGlobalLibrarySkill = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * forget_brain_object operation on brain_object resource
- */
-export const forgetBrainObject = <ThrowOnError extends boolean = false>(
-  options: Options<ForgetBrainObjectData, ThrowOnError>
-): RequestResult<ForgetBrainObjectResponses, ForgetBrainObjectErrors, ThrowOnError> =>
-  (options.client ?? client).post<ForgetBrainObjectResponses, ForgetBrainObjectErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/objects/forget',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
  * delete_default_model_profile operation on agent_model_configuration resource
  */
 export const deleteDefaultModelProfile = <ThrowOnError extends boolean = false>(
@@ -1501,22 +1431,6 @@ export const listSystemPrincipals = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/system-principals',
     ...options
-  })
-
-/**
- * restore_brain_object operation on brain_object resource
- */
-export const restoreBrainObject = <ThrowOnError extends boolean = false>(
-  options: Options<RestoreBrainObjectData, ThrowOnError>
-): RequestResult<RestoreBrainObjectResponses, RestoreBrainObjectErrors, ThrowOnError> =>
-  (options.client ?? client).post<RestoreBrainObjectResponses, RestoreBrainObjectErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/objects/restore',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
   })
 
 /**
@@ -2024,38 +1938,6 @@ export const listBrainObjects = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * update_brain_object operation on brain_object resource
- */
-export const updateBrainObject = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateBrainObjectData, ThrowOnError>
-): RequestResult<UpdateBrainObjectResponses, UpdateBrainObjectErrors, ThrowOnError> =>
-  (options.client ?? client).patch<UpdateBrainObjectResponses, UpdateBrainObjectErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/objects',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * create_brain_object operation on brain_object resource
- */
-export const createBrainObject = <ThrowOnError extends boolean = false>(
-  options: Options<CreateBrainObjectData, ThrowOnError>
-): RequestResult<CreateBrainObjectResponses, CreateBrainObjectErrors, ThrowOnError> =>
-  (options.client ?? client).post<CreateBrainObjectResponses, CreateBrainObjectErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/objects',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
  * put_default_provider_hosted operation on agent_model_configuration resource
  */
 export const putDefaultProviderHosted = <ThrowOnError extends boolean = false>(
@@ -2064,22 +1946,6 @@ export const putDefaultProviderHosted = <ThrowOnError extends boolean = false>(
   (options.client ?? client).put<PutDefaultProviderHostedResponses, PutDefaultProviderHostedErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/model-profiles/provider-hosted',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * fork_brain_object operation on brain_object resource
- */
-export const forkBrainObject = <ThrowOnError extends boolean = false>(
-  options: Options<ForkBrainObjectData, ThrowOnError>
-): RequestResult<ForkBrainObjectResponses, ForkBrainObjectErrors, ThrowOnError> =>
-  (options.client ?? client).post<ForkBrainObjectResponses, ForkBrainObjectErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/objects/fork',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2404,22 +2270,6 @@ export const bindIdentityMappingRequest = <ThrowOnError extends boolean = false>
   (options.client ?? client).post<BindIdentityMappingRequestResponses, BindIdentityMappingRequestErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/identity-mapping-requests/{id}/bind',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * rollback_brain_object operation on brain_object resource
- */
-export const rollbackBrainObject = <ThrowOnError extends boolean = false>(
-  options: Options<RollbackBrainObjectData, ThrowOnError>
-): RequestResult<RollbackBrainObjectResponses, RollbackBrainObjectErrors, ThrowOnError> =>
-  (options.client ?? client).post<RollbackBrainObjectResponses, RollbackBrainObjectErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/objects/rollback',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

@@ -26,6 +26,7 @@ defmodule Ankole.Pod.PageSnapshot do
     attribute(:revision, :integer, allow_nil?: false, constraints: [min: 0])
     attribute(:title, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
     attribute(:icon, :string, constraints: [trim?: false, allow_empty?: true])
+    attribute(:metadata, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
     attribute(:content, :string, allow_nil?: false, constraints: [trim?: false])
     attribute(:author, Ankole.Ash.Types.ActorRef, allow_nil?: false)
     attribute(:document_updated_at, :utc_datetime_usec, allow_nil?: false)
@@ -35,6 +36,13 @@ defmodule Ankole.Pod.PageSnapshot do
       allow_nil?: false,
       constraints: [one_of: [:created, :baseline, :checkpoint, :before_restore, :restored]]
     )
+  end
+
+  relationships do
+    belongs_to :page, Ankole.Pod.Page do
+      define_attribute?(false)
+      source_attribute(:page_id)
+    end
   end
 
   actions do
@@ -51,6 +59,7 @@ defmodule Ankole.Pod.PageSnapshot do
         :title,
         :icon,
         :content,
+        :metadata,
         :author,
         :document_updated_at,
         :created_at,

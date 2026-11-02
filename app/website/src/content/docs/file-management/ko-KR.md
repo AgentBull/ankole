@@ -55,7 +55,7 @@ order: 31
 
 컨트롤 플레인 드라이브와 영속 Home 볼륨은 Worker 컨테이너가 교체된 뒤에도 그대로 유지됩니다. 다만 작업 디렉터리에만 기록해 둔 파일은 Home 내부에만 머물기 때문에, Console에서 내려받으려면 Agent가 드라이브로 게시해야 합니다. 스토리지 관련 세부 제약은 [Worker](../worker-management/)를 참조하세요.
 
-Agent의 `MISSION`, `SOUL`, `DESIGN`, `CONFIDENTIALITY POLICY`(`ConfidentialityPolicy.md`) 문서는 드라이브 파일이 아니라 Agent 편집기에서 직접 관리하는 항목이며, 실행 시 Worker 환경으로 투영됩니다. 자세한 내용은 [Agents](../agents/)를 참조하세요.
+Agent의 행동 및 디자인 규약은 Pod의 `/AnkoleBrain` 아래에 있는 지식 페이지입니다. Console 원본 링크에서 전역 또는 개별 `AGENTS[.override].md`와 `DESIGN[.override].md`를 편집하면 Worker가 매 턴 런타임용 전체 내용을 갱신합니다. 자세한 내용은 [Agents](../agents/)를 참조하세요.
 
 ## 자주 발생하는 문제
 

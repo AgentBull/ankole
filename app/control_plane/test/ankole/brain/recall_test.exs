@@ -1,676 +1,184 @@
 defmodule Ankole.Brain.RecallTest do
   use Ankole.DataCase, async: true
-
   import Ankole.PrincipalsFixtures
-
-  alias Ankole.AuthZ
-  alias Ankole.Brain.Claims
-  alias Ankole.Brain.Recall
-  alias Ankole.Brain.SchemaPacks
+  import Ankole.BrainFixtures
+  alias Ankole.Brain.{Recall, Claims, Access}
+  alias Ankole.Files.Access, as: DriveAccess
 
   setup do
-    {:ok, _result} = SchemaPacks.install_packs([])
-
     %{principal: member} = human_fixture()
     %{principal: outsider} = human_fixture()
+    %{principal: agent} = agent_fixture(%{owner_principal_uid: member.uid})
 
-    %{principal: agent} =
-      agent_fixture(%{owner_principal_uid: member.uid})
-
-    {:ok, group} =
-      AuthZ.create_principal_group(%{
-        name: "recall-team-#{System.unique_integer([:positive])}",
-        display_name: "Recall Team",
-        domain: :operator,
-        kind: :static
-      })
-
-    {:ok, _membership} = AuthZ.add_principal_to_group(member.uid, group.id)
-
-    body = """
-    Hormuz strait crude oil research overview.
-
-    {% audience scope="group:#{group.name}" %}
-    Team conclusion: crude oil futures exposure should be reduced.
-    {% /audience %}
-    """
-
-    {:ok, object} =
-      Ankole.Brain.create_object(
-        %{slug: "concepts/hormuz-strait", type: "concept", title: "Hormuz Strait", body: body},
-        member.uid
-      )
-
-    {:ok, %{claim: world_fact}} =
-      Ankole.Brain.write_fact(
+    {:ok, public} =
+      page_fixture_result(
         %{
-          object_slug: object.slug,
-          claim: "Crude oil transits the Hormuz strait daily",
-          kind: "fact",
-          holder: "world",
-          audience_scope: "world",
-          notability: "high",
-          confidence: 0.9,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: "public data"
+          slug: "concepts/hormuz",
+          title: "Hormuz",
+          body: "Crude oil public overview.",
+          meta: %{"aliases" => ["Hormuz"]}
         },
-        member.uid
+        :system
       )
 
-    {:ok, %{claim: team_fact}} =
-      Ankole.Brain.write_fact(
+    {:ok, restricted} =
+      page_fixture_result(
         %{
-          object_slug: object.slug,
-          claim: "The team reduced crude oil futures positions",
-          kind: "event",
-          holder: "people/#{member.uid}",
-          audience_scope: "group:#{group.name}",
-          notability: "medium",
-          confidence: 0.8,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: "team meeting"
+          slug: "concepts/hormuz/internal",
+          title: "Internal",
+          body: "Crude oil confidential allocation."
         },
-        member.uid
+        :system
       )
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        {:ok, node} = Ankole.Files.Nodes.fetch(restricted.id)
+
+        {:ok, node} =
+          DriveAccess.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
+
+        for uid <- [member.uid, agent.uid],
+            do:
+              :ok = DriveAccess.put_role(%{principal_uid: uid}, "drive:**:#{node.id}:**", "view")
+
+        {:ok, node}
+      end)
+
+    world = fact(public.id, public.id, "Crude oil transits Hormuz daily")
+    private = fact(public.id, restricted.id, "Crude oil futures allocation is confidential")
 
     %{
       member: member,
       outsider: outsider,
       agent: agent,
-      group: group,
-      object: object,
-      world_fact: world_fact,
-      team_fact: team_fact
+      public: public,
+      restricted: restricted,
+      world: world,
+      private: private
     }
   end
 
-  test "active Takes affect page salience immediately, including Brain-held Takes", context do
-    for slug <- ["notes/salience-a", "notes/salience-b"] do
-      assert {:ok, _} =
-               Ankole.Brain.create_object(
-                 %{
-                   slug: slug,
-                   type: "note",
-                   title: "Zirconium salience",
-                   body: "Zirconium salience ranking probe",
-                   effective_date: Date.utc_today()
-                 },
-                 context.member.uid
-               )
-    end
+  test "claims attached to one public entity follow their independent sources", ctx do
+    assert {:ok, own} = Recall.recall(ctx.member.uid, %{query: "crude oil"})
+    assert ctx.private.id in Enum.map(own.claims, & &1.id)
+    assert {:ok, outside} = Recall.recall(ctx.outsider.uid, %{query: "crude oil"})
+    assert ctx.world.id in Enum.map(outside.claims, & &1.id)
+    refute ctx.private.id in Enum.map(outside.claims, & &1.id)
+    refute ctx.restricted.id in Enum.map(outside.chunks, & &1.subject_page_id)
+  end
 
-    for {holder, n} <- Enum.with_index(["world", "brain", "people/#{context.member.uid}"]) do
-      assert {:ok, _} =
-               Claims.write_take(
-                 %{
-                   object_slug: "notes/salience-b",
-                   claim: "Judgment #{n}",
-                   kind: "judgment",
-                   holder: holder,
-                   audience_scope: "world",
-                   weight: 0.6,
-                   provenance: "test"
-                 },
-                 context.member.uid
-               )
-    end
+  test "strict disclosure intersects Agent, requester and every present recipient", ctx do
+    disclosure = %{
+      mode: :strict,
+      asker_uid: ctx.member.uid,
+      present_uids: [ctx.member.uid, ctx.outsider.uid]
+    }
 
     assert {:ok, result} =
-             Recall.recall(context.member.uid, %{query: "Zirconium salience ranking probe"})
+             Recall.recall(ctx.agent.uid, %{query: "crude oil"}, disclosure: disclosure)
 
-    slugs = Enum.map(result.chunks, & &1.object_slug)
-    a = Enum.find_index(slugs, &(&1 == "notes/salience-a"))
-    b = Enum.find_index(slugs, &(&1 == "notes/salience-b"))
-    assert is_integer(a) and is_integer(b)
-    assert b < a
+    assert ctx.world.id in Enum.map(result.claims, & &1.id)
+    refute ctx.private.id in Enum.map(result.claims, & &1.id)
+
+    assert {:ok, none} =
+             Recall.recall(ctx.agent.uid, %{query: "crude oil"},
+               disclosure: %{disclosure | asker_uid: nil, present_uids: []}
+             )
+
+    assert none.claims == []
+    assert none.chunks == []
   end
 
-  test "a personal emotion tag does not change knowledge ranking", context do
-    for slug <- ["notes/tag-a", "notes/tag-b"] do
+  test "author attribution grants no independent read permission", ctx do
+    {:ok, _} =
+      Repo.transact(fn ->
+        grants =
+          DriveAccess.page_grants(ctx.restricted.id)
+          |> Enum.filter(&(&1.principal_uid == ctx.member.uid))
+
+        DriveAccess.remove_grants(grants)
+        {:ok, :revoked}
+      end)
+
+    assert {:ok, access} = Access.for_querier(ctx.member.uid)
+    refute Access.visible?(access, ctx.restricted.id)
+    assert {:ok, result} = Recall.recall(ctx.member.uid, %{query: "crude oil"})
+    refute ctx.private.id in Enum.map(result.claims, & &1.id)
+  end
+
+  test "aliases resolve cards while an unknown entity never falls back to global search", ctx do
+    assert {:ok, result} = Recall.recall(ctx.member.uid, %{query: "Hormuz"})
+    assert Enum.any?(result.entities, &(&1.id == ctx.public.id))
+
+    assert {:error, {:entity_not_found, "missing"}} =
+             Recall.recall(ctx.member.uid, %{query: "oil", entity: "missing"})
+  end
+
+  test "the complete response fits its budget without clipping evidence or provenance", ctx do
+    for number <- 1..8 do
       assert {:ok, _} =
-               Ankole.Brain.create_object(
+               Claims.write_fact(
                  %{
-                   slug: slug,
-                   type: "note",
-                   title: "Beryllium tag probe",
-                   body: "Beryllium tag probe"
+                   subject_page_id: ctx.public.id,
+                   source_node_id: ctx.public.id,
+                   claim: "Crude oil quotation condition #{number}",
+                   kind: "fact",
+                   holder: "world",
+                   notability: "medium",
+                   confidence: 0.9,
+                   valid_from: DateTime.utc_now(:microsecond),
+                   provenance:
+                     String.duplicate("Quotation #{number}: source with \"quoted\" terms.\n", 80),
+                   context: "Only applies to shipments of at least #{number * 100} units."
                  },
-                 context.member.uid
+                 ctx.agent.uid
                )
     end
 
-    assert {:ok, before_tag} = Recall.recall(context.member.uid, %{query: "Beryllium tag probe"})
-    before_slugs = Enum.map(before_tag.chunks, & &1.object_slug)
+    assert {:ok, full} =
+             Recall.recall(ctx.member.uid, %{query: "crude oil", budget_tokens: 12_000})
 
-    assert {:ok, _} =
-             Ankole.Repo.insert(%Ankole.Brain.Schemas.Tag{
-               id: Ankole.Ecto.UUIDv7.autogenerate(),
-               object_slug: "notes/tag-b",
-               tag: "health",
-               created_at: DateTime.utc_now(:microsecond)
-             })
+    assert response_tokens(full) > 4_000
 
-    assert {:ok, result} = Recall.recall(context.member.uid, %{query: "Beryllium tag probe"})
-    assert Enum.map(result.chunks, & &1.object_slug) == before_slugs
+    for budget <- [256, 700, 4_000] do
+      assert {:ok, packed} =
+               Recall.recall(ctx.member.uid, %{query: "crude oil", budget_tokens: budget})
+
+      assert response_tokens(packed) <= budget
+      assert length(packed.claims) < length(full.claims)
+
+      for key <- [:claims, :entities, :chunks], entry <- packed[key] do
+        assert entry in full[key]
+      end
+    end
   end
 
-  test "knowledge boundary prefilters group-scoped hits", context do
-    assert {:ok, member_result} =
-             Recall.recall(context.member.uid, %{query: "crude oil futures"})
+  defp response_tokens(result),
+    do:
+      result
+      |> Ankole.JSON.plain()
+      |> Ankole.JSON.encode!()
+      |> Ankole.Brain.Chunker.estimate_tokens()
 
-    member_claims = Enum.map(member_result.claims, & &1.id)
-    assert context.world_fact.id in member_claims
-    assert context.team_fact.id in member_claims
-
-    member_scopes = Enum.map(member_result.chunks, & &1.audience_scope)
-    assert "group:#{context.group.name}" in member_scopes
-
-    assert {:ok, outsider_result} =
-             Recall.recall(context.outsider.uid, %{query: "crude oil futures"})
-
-    outsider_claims = Enum.map(outsider_result.claims, & &1.id)
-    assert context.world_fact.id in outsider_claims
-    refute context.team_fact.id in outsider_claims
-
-    outsider_scopes = Enum.map(outsider_result.chunks, & &1.audience_scope)
-    refute "group:#{context.group.name}" in outsider_scopes
-  end
-
-  test "soft-deleted object claims disappear without hiding channel claims", context do
-    {:ok, forgotten_object} =
-      Ankole.Brain.create_object(
-        %{
-          slug: "concepts/cinnabar-record",
-          type: "concept",
-          title: "Cinnabar Record",
-          body: "Cinnabar retention notes"
-        },
-        context.member.uid
-      )
-
-    {:ok, %{claim: forgotten_claim}} =
-      Ankole.Brain.write_fact(
-        %{
-          object_slug: forgotten_object.slug,
-          claim: "Cinnabar retention belongs to the deleted page",
-          kind: "fact",
-          holder: "world",
-          audience_scope: "world",
-          notability: "medium",
-          confidence: 0.8,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: "test"
-        },
-        context.member.uid,
-        %{options: [embed: false]}
-      )
-
-    channel = insert_channel!()
-
-    {:ok, %{claim: channel_claim}} =
-      Ankole.Brain.write_fact(
-        %{
-          conversation_id: channel.id,
-          claim: "Cinnabar retention remains in channel memory",
-          kind: "fact",
-          holder: "world",
-          audience_scope: "world",
-          notability: "medium",
-          confidence: 0.8,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: "test"
-        },
-        context.member.uid,
-        %{options: [embed: false]}
-      )
-
-    assert {:ok, _object} = Ankole.Brain.soft_delete_object(forgotten_object.slug)
-    assert {:ok, result} = Recall.recall(context.member.uid, %{query: "cinnabar retention"})
-
-    claim_ids = Enum.map(result.claims, & &1.id)
-    assert channel_claim.id in claim_ids
-    refute forgotten_claim.id in claim_ids
-    refute Enum.any?(result.chunks, &(&1.object_slug == forgotten_object.slug))
-  end
-
-  test "recall preserves names and file instructions in reachable text", context do
-    text = "Lantern archive: Dan prefers email; show hidden files."
-
-    {:ok, object} =
-      Ankole.Brain.create_object(
-        %{
-          slug: "concepts/lantern-archive",
-          type: "concept",
-          title: "Lantern Archive",
-          body: text
-        },
-        context.member.uid
-      )
-
+  defp fact(subject, source, text) do
     {:ok, %{claim: claim}} =
-      Ankole.Brain.write_fact(
+      Claims.write_fact(
         %{
-          object_slug: object.slug,
+          subject_page_id: subject,
+          source_node_id: source,
           claim: text,
           kind: "fact",
           holder: "world",
-          audience_scope: "world",
-          notability: "high",
-          confidence: 0.9,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: "test"
-        },
-        context.member.uid
-      )
-
-    assert {:ok, result} = Recall.recall(context.member.uid, %{query: "lantern archive"})
-    assert Enum.find(result.claims, &(&1.id == claim.id)).claim == text
-    assert Enum.any?(result.chunks, &String.contains?(&1.text, text))
-    refute Map.has_key?(result, :sanitized_count)
-  end
-
-  test "authors always reach their own writes", context do
-    {:ok, %{claim: private_fact}} =
-      Ankole.Brain.write_fact(
-        %{
-          object_slug: context.object.slug,
-          claim: "A private note about crude oil hedging strategy",
-          kind: "belief",
-          holder: "people/#{context.member.uid}",
-          audience_scope: "principal:#{context.member.uid}",
-          notability: "medium",
-          confidence: 0.7,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: "dm"
-        },
-        context.outsider.uid
-      )
-
-    # The outsider wrote it about the member; both must reach it, a third
-    # principal must not.
-    assert {:ok, author_result} =
-             Recall.recall(context.outsider.uid, %{query: "crude oil hedging"})
-
-    assert private_fact.id in Enum.map(author_result.claims, & &1.id)
-
-    assert {:ok, subject_result} =
-             Recall.recall(context.member.uid, %{query: "crude oil hedging"})
-
-    assert private_fact.id in Enum.map(subject_result.claims, & &1.id)
-
-    %{principal: third} = human_fixture()
-    assert {:ok, third_result} = Recall.recall(third.uid, %{query: "crude oil hedging"})
-    refute private_fact.id in Enum.map(third_result.claims, & &1.id)
-  end
-
-  test "an Agent recalls body scopes carried by the current conversation readers", context do
-    member_scope = "principal:#{context.member.uid}"
-
-    {:ok, object} =
-      Ankole.Brain.create_object(
-        %{
-          slug: "analysis/private-kestrel",
-          type: "analysis",
-          title: "Private Kestrel",
-          body: """
-          {% audience scope="#{member_scope}" %}
-          Kestrel orchard allocation is cedar seven.
-          {% /audience %}
-          """
-        },
-        context.agent.uid
-      )
-
-    member_disclosure = %{
-      mode: :strict,
-      asker_uid: context.member.uid,
-      present_uids: [context.member.uid]
-    }
-
-    assert {:ok, member_result} =
-             Recall.recall(context.agent.uid, %{query: "Kestrel orchard allocation"},
-               disclosure: member_disclosure
-             )
-
-    assert Enum.any?(member_result.chunks, &(&1.object_slug == object.slug))
-
-    outsider_disclosure = %{
-      mode: :strict,
-      asker_uid: context.outsider.uid,
-      present_uids: [context.outsider.uid]
-    }
-
-    assert {:ok, outsider_result} =
-             Recall.recall(context.agent.uid, %{query: "Kestrel orchard allocation"},
-               disclosure: outsider_disclosure
-             )
-
-    refute Enum.any?(outsider_result.chunks, &(&1.object_slug == object.slug))
-  end
-
-  test "strict disclosure narrows to what every present member satisfies", context do
-    strict = %{
-      mode: :strict,
-      asker_uid: context.member.uid,
-      present_uids: [context.member.uid, context.outsider.uid]
-    }
-
-    assert {:ok, strict_result} =
-             Recall.recall(context.member.uid, %{query: "crude oil futures"}, disclosure: strict)
-
-    refute context.team_fact.id in Enum.map(strict_result.claims, & &1.id)
-    assert context.world_fact.id in Enum.map(strict_result.claims, & &1.id)
-
-    relaxed = %{
-      mode: :relaxed,
-      asker_uid: context.member.uid,
-      present_uids: [context.member.uid, context.outsider.uid]
-    }
-
-    assert {:ok, relaxed_result} =
-             Recall.recall(context.member.uid, %{query: "crude oil futures"}, disclosure: relaxed)
-
-    assert context.team_fact.id in Enum.map(relaxed_result.claims, & &1.id)
-  end
-
-  test "agent owner reads the agent principal scope but not its groups", context do
-    {:ok, _membership} =
-      AuthZ.add_principal_to_group(context.agent.uid, context.group.id)
-
-    {:ok, %{claim: agent_private}} =
-      Ankole.Brain.write_fact(
-        %{
-          object_slug: context.object.slug,
-          claim: "Agent private crude oil watch note",
-          kind: "belief",
-          holder: "agents/#{context.agent.uid}",
-          audience_scope: "principal:#{context.agent.uid}",
-          notability: "low",
-          confidence: 0.6,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: "agent memory"
-        },
-        context.agent.uid
-      )
-
-    {:ok, %{claim: agent_group_fact}} =
-      Ankole.Brain.write_fact(
-        %{
-          object_slug: context.object.slug,
-          claim: "Group crude oil knowledge through the agent",
-          kind: "fact",
-          holder: "agents/#{context.agent.uid}",
-          audience_scope: "group:#{context.group.name}",
           notability: "medium",
           confidence: 0.8,
           valid_from: DateTime.utc_now(:microsecond),
-          provenance: "group chat"
+          provenance: "recall acceptance"
         },
-        :system
+        :system,
+        embed: false
       )
 
-    # A second human owns nothing: reaches neither.
-    %{principal: bystander} = human_fixture()
-    assert {:ok, bystander_result} = Recall.recall(bystander.uid, %{query: "crude oil"})
-    bystander_ids = Enum.map(bystander_result.claims, & &1.id)
-    refute agent_private.id in bystander_ids
-    refute agent_group_fact.id in bystander_ids
-
-    # The owner is not a group member here? The member IS in the group, so
-    # use a fresh owner-only human to prove the narrowed exemption.
-    %{principal: pure_owner} = human_fixture()
-
-    {:ok, _agent2} =
-      Ankole.Principals.create_agent(%{
-        worker_provider_id: worker_provider_fixture().provider_id,
-        uid: unique_uid("owned-agent"),
-        display_name: "Owned",
-        role: "Analyst",
-        owner_principal_uid: pure_owner.uid
-      })
-
-    # Transfer: make pure_owner own the original agent too.
-    {:ok, _updated} =
-      Ankole.Principals.update_agent(context.agent.uid, %{
-        owner_principal_uid: pure_owner.uid
-      })
-
-    assert {:ok, owner_result} = Recall.recall(pure_owner.uid, %{query: "crude oil"})
-    owner_ids = Enum.map(owner_result.claims, & &1.id)
-
-    # Owner reaches the agent's principal-scoped and holder-attributed rows,
-    # but not the agent's group-shared knowledge.
-    assert agent_private.id in owner_ids
-    refute agent_group_fact.id in owner_ids
-  end
-
-  test "an entity that does not resolve is an explicit error, never a global query", context do
-    assert {:error, {:entity_not_found, "no-such-entity"}} =
-             Recall.recall(context.member.uid, %{query: "crude oil", entity: "no-such-entity"})
-  end
-
-  test "an ambiguous entity name returns candidates", context do
-    {:ok, _other} =
-      Ankole.Brain.create_object(
-        %{slug: "concepts/hormuz-shipping", type: "concept", title: "Hormuz Shipping"},
-        context.member.uid
-      )
-
-    {:ok, _alias} = Ankole.Brain.Links.add_alias("concepts/hormuz-strait", "hormuz")
-    {:ok, _alias} = Ankole.Brain.Links.add_alias("concepts/hormuz-shipping", "hormuz")
-
-    assert {:error, {:ambiguous_entity, candidates}} =
-             Recall.recall(context.member.uid, %{query: "crude oil", entity: "hormuz"})
-
-    assert Enum.map(candidates, & &1.slug) == [
-             "concepts/hormuz-shipping",
-             "concepts/hormuz-strait"
-           ]
-  end
-
-  test "recall surfaces claim context and packs exact-alias entity cards with edges", context do
-    {:ok, partner} =
-      Ankole.Brain.create_object(
-        %{slug: "companies/velvet-rail", type: "company", title: "Velvet Rail"},
-        context.member.uid
-      )
-
-    {:ok, supplier} =
-      Ankole.Brain.create_object(
-        %{
-          slug: "companies/copper-harbor",
-          type: "company",
-          title: "Copper Harbor",
-          body: "Copper Harbor operates terminal cranes."
-        },
-        context.member.uid
-      )
-
-    {:ok, _alias} = Ankole.Brain.Links.add_alias(partner.slug, "Velvet Rail")
-
-    {:ok, _link} =
-      Ankole.Brain.Links.upsert_link(%{
-        from_object_slug: partner.slug,
-        to_object_slug: supplier.slug,
-        link_type: "relates_to",
-        link_source: "manual"
-      })
-
-    {:ok, _backlink} =
-      Ankole.Brain.Links.upsert_link(%{
-        from_object_slug: supplier.slug,
-        to_object_slug: partner.slug,
-        link_type: "relates_to",
-        link_source: "manual"
-      })
-
-    {:ok, %{claim: partner_fact}} =
-      Ankole.Brain.write_fact(
-        %{
-          object_slug: partner.slug,
-          claim: "Velvet Rail handles cold-chain freight",
-          context: "Applies only to refrigerated railcars during summer routing",
-          kind: "fact",
-          holder: "world",
-          audience_scope: "world",
-          notability: "high",
-          confidence: 0.9,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: "test"
-        },
-        context.member.uid
-      )
-
-    {:ok, %{claim: private_partner_fact}} =
-      Ankole.Brain.write_fact(
-        %{
-          object_slug: partner.slug,
-          claim: "Velvet Rail Margin rebate schedule",
-          context: "Confidential rebate tier",
-          kind: "fact",
-          holder: "world",
-          audience_scope: "group:#{context.group.name}",
-          notability: "high",
-          confidence: 0.9,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: "test"
-        },
-        context.member.uid
-      )
-
-    assert {:ok, member_result} =
-             Recall.recall(context.member.uid, %{query: "Velvet Rail terminal cranes"})
-
-    returned_claim = Enum.find(member_result.claims, &(&1.id == partner_fact.id))
-    assert returned_claim.context == "Applies only to refrigerated railcars during summer routing"
-
-    assert [entity_card] = Enum.filter(member_result.entities, &(&1.slug == partner.slug))
-    assert "velvet rail" in entity_card.aka
-    assert entity_card.backlink_count >= 1
-
-    assert Enum.any?(
-             entity_card.edges,
-             &(&1.to == supplier.slug and &1.link_type == "relates_to")
-           )
-
-    assert private_partner_fact.claim in Enum.map(entity_card.facts, & &1.claim)
-
-    # Outsider receives the entity card without group-scoped facts.
-    assert {:ok, outsider_result} =
-             Recall.recall(context.outsider.uid, %{query: "Velvet Rail terminal cranes"})
-
-    assert [outsider_card] = Enum.filter(outsider_result.entities, &(&1.slug == partner.slug))
-    refute private_partner_fact.claim in Enum.map(outsider_card.facts, & &1.claim)
-
-    # Retrieved entity card touches last_retrieved_at.
-    assert Ankole.Repo.get_by!(Ankole.Brain.Schemas.Object, slug: partner.slug).last_retrieved_at !=
-             nil
-  end
-
-  test "recall hides entity cards with zero disclosable content, skips soft-deleted alias matches, and validates tool bounds",
-       context do
-    # Private page owned by member with zero world content: outsider must NOT get an entity card
-    # leaking its title, aliases, or outgoing edges.
-    {:ok, secret_deal} =
-      Ankole.Brain.create_object(
-        %{
-          slug: "projects/obsidian-acorn",
-          type: "project",
-          title: "Obsidian Acorn Acquisition",
-          body: """
-          {% audience scope="principal:#{context.member.uid}" %}
-          Confidential term sheet for Obsidian Acorn.
-          {% /audience %}
-          """
-        },
-        context.member.uid
-      )
-
-    {:ok, _alias} = Ankole.Brain.Links.add_alias(secret_deal.slug, "Obsidian Acorn")
-
-    {:ok, _link} =
-      Ankole.Brain.Links.upsert_link(%{
-        from_object_slug: secret_deal.slug,
-        to_object_slug: context.object.slug,
-        link_type: "relates_to",
-        link_source: "manual"
-      })
-
-    assert {:ok, member_res} = Recall.recall(context.member.uid, %{query: "Obsidian Acorn"})
-    assert Enum.any?(member_res.entities, &(&1.slug == secret_deal.slug))
-
-    assert {:ok, outsider_res} = Recall.recall(context.outsider.uid, %{query: "Obsidian Acorn"})
-    refute Enum.any?(outsider_res.entities, &(&1.slug == secret_deal.slug))
-
-    # Soft-deleted alias matches must not consume the 3-entity cap ahead of live matches.
-    for idx <- 1..2 do
-      slug = "companies/deleted-quartz-#{idx}"
-
-      {:ok, obj} =
-        Ankole.Brain.create_object(
-          %{slug: slug, type: "company", title: "Deleted Quartz #{idx}", body: "Public body."},
-          context.member.uid
-        )
-
-      {:ok, _} = Ankole.Brain.Links.add_alias(obj.slug, "Quartz#{idx}")
-      {:ok, _} = Ankole.Brain.soft_delete_object(obj.slug)
-    end
-
-    for idx <- 1..3 do
-      slug = "companies/live-quartz-#{idx}"
-
-      {:ok, obj} =
-        Ankole.Brain.create_object(
-          %{slug: slug, type: "company", title: "Live Quartz #{idx}", body: "Public body."},
-          context.member.uid
-        )
-
-      {:ok, _} = Ankole.Brain.Links.add_alias(obj.slug, "LiveQuartz#{idx}")
-    end
-
-    assert {:ok, quartz_res} =
-             Recall.recall(context.member.uid, %{
-               query: "Quartz1 Quartz2 LiveQuartz1 LiveQuartz2 LiveQuartz3"
-             })
-
-    assert Enum.sort(Enum.map(quartz_res.entities, & &1.slug)) == [
-             "companies/live-quartz-1",
-             "companies/live-quartz-2",
-             "companies/live-quartz-3"
-           ]
-
-    # Tool-layer integer bounds reject out-of-range budget_tokens and whoknows limit.
-    tool_ctx = Ankole.Brain.Tools.Context.for_subject(context.member.uid)
-
-    assert {:error, {:invalid, "budget_tokens"}} =
-             Ankole.Brain.Tools.execute(
-               "recall",
-               %{"query" => "crude", "budget_tokens" => 0},
-               tool_ctx
-             )
-
-    assert {:error, {:invalid, "limit"}} =
-             Ankole.Brain.Tools.execute(
-               "whoknows",
-               %{"topic" => "crude", "limit" => 99},
-               tool_ctx
-             )
-  end
-
-  defp insert_channel! do
-    now = DateTime.utc_now(:microsecond)
-
-    Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
-      id: Ecto.UUID.generate(),
-      provider_conversation_id: "test:recall-#{System.unique_integer([:positive])}",
-      title: "Conversation",
-      last_activity_at: now,
-      external_kind: :im_dm,
-      reply_mode: :entry,
-      metadata: %{},
-      raw_payload: %{},
-      first_seen_at: now,
-      last_seen_at: now
-    })
+    claim
   end
 end

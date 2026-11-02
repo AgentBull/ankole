@@ -15,7 +15,7 @@ defmodule Ankole.Brain.Experts do
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Schemas.SchemaType
 
   @default_limit 5
@@ -44,9 +44,10 @@ defmodule Ankole.Brain.Experts do
       expert_slugs =
         Object
         |> Ash.Query.filter(type in ^expert_types and is_nil(deleted_at))
-        |> Ash.Query.select([:slug])
+        |> Ash.Query.select([:id, :slug])
         |> Ankole.Ash.read!()
-        |> MapSet.new(& &1.slug)
+        |> Enum.flat_map(&[&1.id, &1.slug])
+        |> MapSet.new()
 
       now = DateTime.utc_now()
 
@@ -94,7 +95,7 @@ defmodule Ankole.Brain.Experts do
       |> Ash.Query.filter(resolved_quality in ["correct", "incorrect"])
       |> Access.filter_claims(access)
       |> Ankole.Ash.read!()
-      |> Access.filter_disclosable(& &1.audience_scope, disclosure)
+      |> Access.filter_disclosable(& &1.source_node_id, disclosure)
 
     case resolved do
       [] ->

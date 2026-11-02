@@ -44,6 +44,26 @@ defmodule AnkoleWeb.PodURLTest do
 
     assert redirected_to(full) ==
              PodURL.origin(conn, ctx.tenant) <> "/conversations/#{short_chat}"
+
+    slugged =
+      PodURL.origin(conn, ctx.tenant) <>
+        "/pages/q4-design-spec-#{short_page}?chat=#{short_chat}"
+
+    slugged_rendered =
+      rendered
+      |> recycle()
+      |> Map.put(:host, ctx.tenant.slug <> ".ankole.localhost")
+      |> get(slugged)
+
+    assert html_response(slugged_rendered, 200) =~ entry_source(pod_entry())
+
+    mixed_case_slugged =
+      slugged_rendered
+      |> recycle()
+      |> Map.put(:host, ctx.tenant.slug <> ".ankole.localhost")
+      |> get("/pages/Q4_Design-Spec-#{String.upcase(short_page, :ascii)}?chat=#{short_chat}")
+
+    assert redirected_to(mixed_case_slugged) == slugged
   end
 
   test "a canonical slug login keeps its shared cookies and returns to the same deep Page", ctx do
@@ -183,7 +203,8 @@ defmodule AnkoleWeb.PodURLTest do
     assert response(unknown, if(@host_policy, do: 400, else: 404))
 
     for {host, path} <- [
-          {ctx.tenant.slug <> ".ankole.localhost", "/pages/AAAAAAAAAAAAAAAAAAAAAB"},
+          {ctx.tenant.slug <> ".ankole.localhost", "/pages/80000000000000000000000000"},
+          {ctx.tenant.slug <> ".ankole.localhost", "/pages/ABEiM0RVZneImaq7zN3u_w"},
           {ctx.tenant.slug <> ".ankole.localhost", "/conversations/not-a-uuid"}
         ] do
       assert ctx.conn |> Map.put(:host, host) |> get(path) |> response(404)

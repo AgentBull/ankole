@@ -32,6 +32,7 @@ const writeOperations = [
   'pages.create',
   'pages.update',
   'pages.set_sharing',
+  'pages.update_sharing',
   'pages.move',
   'pages.delete',
   'pages.restore',
@@ -156,7 +157,10 @@ export function startPodCLIBridge(opts: {
           if ((current.page as { revision?: number } | undefined)?.revision !== params.base_revision) {
             throw new Error('Page revision changed; read the document again')
           }
-          let markdown = printMarkdown(parseXml(await readFile(documentPath!, 'utf8')))
+          let markdown =
+            typeof (current.content as Record<string, unknown> | undefined)?.markdown === 'string'
+              ? (current.content as { markdown: string }).markdown
+              : printMarkdown(parseXml(await readFile(documentPath!, 'utf8')))
           if (!Array.isArray(params.edits) || params.edits.length === 0) throw new Error('pages.patch requires edits')
           for (const value of params.edits) {
             const edit = value as { old_text?: unknown; new_text?: unknown; replace_all?: unknown }
@@ -178,7 +182,6 @@ export function startPodCLIBridge(opts: {
         if (operation === 'pages.write' || operation === 'pages.append') {
           if (typeof params.markdown !== 'string') throw new Error(`${operation} requires markdown and base_revision`)
           await writeFile(documentPath!, printXml(parseMarkdown(params.markdown)))
-          delete params.markdown
         }
         if (command.operation === 'chat.attachment.get' || command.operation === 'files.download') {
           if (typeof params.local_path !== 'string') throw new Error('File download requires a destination path')
@@ -235,7 +238,7 @@ export function startPodCLIBridge(opts: {
         const body = await request(operation, params)
         if (command.operation === 'pages.read') {
           const content = body.content as Record<string, unknown> | undefined
-          if (content && content.xml_file === true) {
+          if (content && content.xml_file === true && typeof content.markdown !== 'string') {
             content.markdown = printMarkdown(parseXml(await readFile(documentPath!, 'utf8')))
             delete content.xml_file
           }

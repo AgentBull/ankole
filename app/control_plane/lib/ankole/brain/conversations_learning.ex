@@ -11,8 +11,8 @@ defmodule Ankole.Brain.ConversationsLearning do
   slice leaves the watermark unchanged and can run again.
 
   Messages, their external references, and Participants are read through
-  the Conversations domain. `known_pages/1` is a read model over Objects and
-  their aliases (M4) that selects only values.
+  the Conversations domain. LearningEntities supplies known page identities
+  and resolves the model's declarations before assertions are written.
   """
 
   import Ecto.Query, warn: false
@@ -20,11 +20,9 @@ defmodule Ankole.Brain.ConversationsLearning do
 
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
+  alias Ankole.Brain.LearningEntities
   alias Ankole.Brain.Links
   alias Ankole.Brain.ModelCalls
-  alias Ankole.Brain.Objects
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Scope
   alias Ankole.Brain.SchemaPacks
@@ -36,8 +34,6 @@ defmodule Ankole.Brain.ConversationsLearning do
   alias Ankole.Conversations.Conversation
 
   @max_slice_entries 200
-  @known_page_limit 20
-  @known_page_alias_limit 5
 
   @doc """
   Processes the pending slice of one channel. Returns a status map; slices
@@ -49,6 +45,10 @@ defmodule Ankole.Brain.ConversationsLearning do
     with :ok <- ensure_enabled(),
          {:ok, model} <- ensure_extraction_model(),
          {:ok, channel} <- fetch_conversation(conversation_id),
+         {:ok, _root} <-
+           Repo.transact_top_level(fn ->
+             Ankole.Files.Nodes.ensure_conversation_root_in_tx(channel.id)
+           end),
          {:ok, learning_context} <- learning_context(channel),
          {:ok, source} <- ensure_active_source(channel) do
       learning_context = Map.put(learning_context, :source_id, source.id)
@@ -197,7 +197,12 @@ defmodule Ankole.Brain.ConversationsLearning do
     if String.trim(transcript.text) == "" do
       finalize(slice, :not_applicable, [])
     else
-      prompt = extraction_prompt(transcript, learning_context, known_pages(transcript.text))
+      prompt =
+        extraction_prompt(
+          transcript,
+          learning_context,
+          LearningEntities.candidates(transcript.text)
+        )
 
       case ModelCalls.complete_json(model, prompt, caller: "brain.conversations_learning") do
         {:ok, %{"items" => items}} when is_list(items) ->
@@ -368,10 +373,17 @@ defmodule Ankole.Brain.ConversationsLearning do
   defp write_items(conversation_id, items, learning_context, prepared) do
     # Objects first: facts, takes, timelines, and links in the same batch
     # may reference pages the model declared later in its output order.
-    {object_items, other_items} = Enum.split_with(items, &match?(%{"type" => "object"}, &1))
+    entities = LearningEntities.prepare_items_in_tx(items)
+
+    initial = %{
+      @empty_counts
+      | objects: entities.objects,
+        rejected: length(entities.rejected),
+        reject_reasons: entities.rejected
+    }
 
     counts =
-      Enum.reduce(object_items ++ other_items, @empty_counts, fn item, counts ->
+      Enum.reduce(entities.items, initial, fn item, counts ->
         case write_item(conversation_id, item, learning_context, prepared) do
           {:ok, kind} ->
             Map.update!(counts, kind, &(&1 + 1))
@@ -388,47 +400,16 @@ defmodule Ankole.Brain.ConversationsLearning do
     end)
   end
 
-  defp write_item(
-         _conversation_id,
-         %{"type" => "object"} = item,
-         _learning_context,
-         _prepared
-       ) do
-    attrs = %{
-      slug: item["slug"],
-      type: item["object_type"],
-      subtype: item["subtype"],
-      title: item["title"],
-      body: item["body"] || ""
-    }
-
-    case Objects.create_object_in_tx(attrs, :system) do
-      {:ok, object} ->
-        item
-        |> Map.get("aliases", [])
-        |> List.wrap()
-        |> Enum.each(fn alias_text ->
-          Links.add_alias(object.slug, alias_text)
-        end)
-
-        {:ok, :objects}
-
-      {:error, {:slug_taken, _slug}} ->
-        {:ok, :objects}
-
-      {:error, reason} ->
-        {:rejected, reason}
-    end
-  end
-
   defp write_item(conversation_id, %{"type" => "fact"} = item, learning_context, prepared) do
     scope = enforce_scope(item["scope"], learning_context)
 
     attrs = %{
+      subject_page_id: item["subject_page_id"],
+      conversation_id: if(is_nil(item["subject_page_id"]), do: conversation_id),
       claim: item["claim"],
       kind: item["kind"],
       holder: item["holder"] || "world",
-      audience_scope: scope,
+      source_node_id: scope,
       notability: item["notability"] || "medium",
       # The 0.75 self-report and 0.55 relay caps are conditional rules the
       # prompt owns; the server enforces only the mechanical grid, because
@@ -439,8 +420,6 @@ defmodule Ankole.Brain.ConversationsLearning do
       provenance: item["provenance"] || "conversation",
       provenance_session: "source:" <> learning_context.source_id
     }
-
-    attrs = put_parent(attrs, conversation_id, item["object_slug"])
 
     case Claims.write_fact_in_tx(attrs, :system,
            author: learning_context.author,
@@ -455,18 +434,18 @@ defmodule Ankole.Brain.ConversationsLearning do
     scope = enforce_scope(item["scope"], learning_context)
 
     attrs = %{
+      subject_page_id: item["subject_page_id"],
+      conversation_id: if(is_nil(item["subject_page_id"]), do: conversation_id),
       claim: item["claim"],
       kind: item["kind"] || "take",
       holder: item["holder"] || "world",
-      audience_scope: scope,
+      source_node_id: scope,
       weight: Claims.snap_to_grid(item["weight"]),
       since_date: item["since_date"],
       until_date: item["until_date"],
       provenance: item["provenance"] || "conversation",
       provenance_session: "source:" <> learning_context.source_id
     }
-
-    attrs = put_parent(attrs, conversation_id, item["object_slug"])
 
     case Claims.write_take(attrs, :system,
            author: learning_context.author,
@@ -486,12 +465,12 @@ defmodule Ankole.Brain.ConversationsLearning do
     scope = enforce_scope(item["scope"], learning_context)
 
     attrs = %{
-      object_slug: item["object_slug"],
+      subject_page_id: item["subject_page_id"],
       date: parse_date(item["date"]),
       summary: item["summary"],
       detail: item["detail"] || "",
       provenance: item["provenance"] || "conversation",
-      audience_scope: scope
+      source_node_id: scope
     }
 
     case Timelines.write_timeline_in_tx(attrs, :system, author: learning_context.author) do
@@ -507,8 +486,8 @@ defmodule Ankole.Brain.ConversationsLearning do
          _prepared
        ) do
     attrs = %{
-      from_object_slug: item["from"],
-      to_object_slug: item["to"],
+      from_page_id: item["from"],
+      to_page_id: item["to"],
       link_type: item["link_type"] || "",
       context: item["context"] || "",
       link_source: "extraction"
@@ -523,23 +502,9 @@ defmodule Ankole.Brain.ConversationsLearning do
   defp write_item(_conversation_id, item, _learning_context, _prepared),
     do: {:rejected, {:unknown_item_type, item["type"]}}
 
-  defp put_parent(attrs, conversation_id, object_slug) do
-    case object_slug do
-      slug when is_binary(slug) and slug != "" ->
-        case Objects.resolve_slug(slug) do
-          {:ok, object} -> Map.put(attrs, :object_slug, object.slug)
-          {:error, :not_found} -> Map.put(attrs, :conversation_id, conversation_id)
-        end
-
-      _missing ->
-        Map.put(attrs, :conversation_id, conversation_id)
-    end
-  end
-
-  # Deterministic default scope and author attribution; this path never
-  # reads ConfidentialityPolicy.md.
+  # Conversation roots determine extraction visibility and author attribution.
   defp learning_context(%Conversation{kind: :external, external_kind: :im_group} = channel) do
-    case Scope.member_group_scope(channel.principal_group_id) do
+    case Scope.conversation(channel.id) do
       {:ok, scope} ->
         {:ok,
          %{
@@ -549,8 +514,8 @@ defmodule Ankole.Brain.ConversationsLearning do
            speaker_uids: speaker_uids(channel.id)
          }}
 
-      {:error, :im_group_without_member_group} ->
-        {:skip, :im_group_without_member_group}
+      {:error, reason} ->
+        {:skip, reason}
     end
   end
 
@@ -558,11 +523,11 @@ defmodule Ankole.Brain.ConversationsLearning do
     speakers = speaker_uids(conversation.id)
 
     case Enum.filter(speakers, &human_uid?/1) do
-      [counterpart] ->
+      [_counterpart] ->
         {:ok,
          %{
            kind: :im_dm,
-           default_scope: Scope.principal(counterpart),
+           default_scope: elem(Scope.conversation(conversation.id), 1),
            author: nil,
            speaker_uids: speakers
          }}
@@ -591,7 +556,7 @@ defmodule Ankole.Brain.ConversationsLearning do
       {:ok,
        %{
          kind: :native,
-         default_scope: Scope.principal(conversation.created_by),
+         default_scope: elem(Scope.conversation(conversation.id), 1),
          author: Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: author}),
          speaker_uids: speaker_uids(conversation.id)
        }}
@@ -603,18 +568,7 @@ defmodule Ankole.Brain.ConversationsLearning do
   defp learning_context(%Conversation{external_kind: kind}),
     do: {:skip, {:unsupported_conversation_kind, kind}}
 
-  # The source audience is an upper bound. The model can keep the deterministic
-  # default or narrow content with an explicit confidentiality signal to one
-  # speaker; every other value clamps to the default.
-  defp enforce_scope(scope, learning_context) do
-    allowed =
-      [learning_context.default_scope] ++
-        Enum.map(learning_context.speaker_uids, &Scope.principal/1)
-
-    if is_binary(scope) and scope in allowed,
-      do: scope,
-      else: learning_context.default_scope
-  end
+  defp enforce_scope(_requested, learning_context), do: learning_context.default_scope
 
   defp speaker_uids(conversation_id) do
     [
@@ -637,19 +591,21 @@ defmodule Ankole.Brain.ConversationsLearning do
         speaker = speaker_label(entry)
         text = String.trim(entry.message.text || "")
 
-        if text == "", do: nil, else: "#{speaker}: #{text}"
+        if text == "",
+          do: nil,
+          else: "#{speaker} (#{DateTime.to_iso8601(entry.message.created_at)}): #{text}"
       end)
       |> Enum.reject(&is_nil/1)
 
     %{text: Enum.join(lines, "\n"), entries: entries}
   end
 
-  # The speaker's canonical slug is the holder identity: attribution itself
+  # The speaker's canonical page ID is the holder identity: attribution itself
   # does the perspective separation.
   defp speaker_label(%{message: message, external_ref: ref}) do
     case message.author_uid do
       uid when is_binary(uid) ->
-        case Scope.canonical_slug(uid) do
+        case Scope.canonical_page_id(uid) do
           {:ok, slug} -> slug
           {:error, _} -> uid
         end
@@ -659,85 +615,17 @@ defmodule Ankole.Brain.ConversationsLearning do
     end
   end
 
-  # Write-time dedup of named entities: the model declares new pages, and
-  # the exact-slug idempotency on the write side cannot recognize the same
-  # entity under a second wording, so the prompt must carry the pages this
-  # slice already names. Vector similarity does not catch these duplicates
-  # either — a page stored under its chosen name does not embed near a
-  # descriptive paraphrase — so the match is the exact-alias containment
-  # that volunteer pointers already use.
-  defp known_pages(text) do
-    slugs = text |> Links.match_aliases_in_text() |> Enum.take(@known_page_limit)
-
-    titles =
-      Repo.all(
-        from o in Object,
-          where: o.slug in ^slugs and is_nil(o.deleted_at),
-          select: {o.slug, o.title}
-      )
-      |> Map.new()
-
-    ranked_aliases =
-      from a in ObjectAlias,
-        where: a.object_slug in ^slugs,
-        select: %{
-          slug: a.object_slug,
-          name: a.alias_norm,
-          rank: over(row_number(), partition_by: a.object_slug, order_by: a.alias_norm)
-        }
-
-    aliases =
-      Repo.all(
-        from a in subquery(ranked_aliases),
-          where: a.rank <= ^@known_page_alias_limit,
-          order_by: a.name,
-          select: {a.slug, a.name}
-      )
-      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-
-    for slug <- slugs, title = titles[slug], not is_nil(title) do
-      %{slug: slug, title: title, aliases: Map.get(aliases, slug, [])}
-    end
-  end
-
-  defp known_pages_section([]), do: ""
-
-  defp known_pages_section(pages) do
-    lines =
-      Enum.map_join(pages, "\n", fn page ->
-        case page.aliases do
-          [] -> "- #{page.slug} — #{page.title}"
-          aliases -> "- #{page.slug} — #{page.title} (aka: #{Enum.join(aliases, ", ")})"
-        end
-      end)
-
-    """
-    Known pages already in memory that this transcript mentions:
-    #{lines}
-
-    An entity in this list must reuse the listed slug in every object_slug,
-    link, and timeline reference; do not create a new object item for it.
-    Create a new object only for an entity absent from this list and from
-    the speaker list.
-
-    """
-  end
-
   defp extraction_prompt(transcript, learning_context, known_pages) do
     speakers =
       learning_context.speaker_uids
       |> Enum.map(fn uid ->
-        case Scope.canonical_slug(uid) do
-          {:ok, slug} -> "- #{slug} (scope value: principal:#{uid})"
+        case Scope.canonical_page_id(uid) do
+          {:ok, slug} -> "- #{slug} (Principal #{uid})"
           {:error, _reason} -> nil
         end
       end)
       |> Enum.reject(&is_nil/1)
       |> Enum.join("\n")
-
-    installed_types =
-      Objects.writable_types()
-      |> Enum.map_join(", ", fn type -> "#{type.name} (slug prefix #{type.slug_prefix})" end)
 
     relation_vocabulary =
       SchemaPacks.relation_vocabulary()
@@ -751,51 +639,41 @@ defmodule Ankole.Brain.ConversationsLearning do
     You extract long-term memory from a chat transcript. Return one JSON
     object: {"items": [...]}. Each item is one of:
 
-    - {"type":"fact","claim":"...","kind":"event|preference|commitment|belief|fact","holder":"<who holds it>","scope":"...","notability":"high|medium|low","confidence":0.75,"context":"...","object_slug":"<optional entity page>","valid_from":"<ISO8601, optional>","provenance":"<quote or paraphrase of the source line>"}
-    - {"type":"take","claim":"...","kind":"take|bet|hunch","holder":"<who holds it>","scope":"...","weight":0.55,"provenance":"..."}
-    - {"type":"object","slug":"<prefix/name>","object_type":"<installed type>","title":"...","aliases":["..."]}
-    - {"type":"timeline","object_slug":"...","date":"YYYY-MM-DD","summary":"...","scope":"..."}
-    - {"type":"link","from":"<slug>","to":"<slug>","link_type":"..."}
+    - {"type":"fact","claim":"...","kind":"event|preference|commitment|belief|fact","holder":"<who holds it>","notability":"high|medium|low","confidence":0.75,"context":"...","subject_page_id":"<optional entity page>","valid_from":"<ISO8601, optional>","provenance":"<quote or paraphrase of the source line>"}
+    - {"type":"take","claim":"...","kind":"take|bet|hunch","holder":"<who holds it>","weight":0.55,"subject_page_id":"<page ID or null>","provenance":"..."}
+    - {"type":"timeline","subject_page_id":"...","date":"YYYY-MM-DD","summary":"..."}
+    - {"type":"link","from":"<page id>","to":"<page id>","link_type":"..."}
 
-    Filing rules:
-    1. holder is who HOLDS the judgment, not who it is about. "A says B is
-       unreliable" is a take held by A, not a fact about B.
-    2. One item carries exactly one independently changeable assertion;
-       split compound statements.
-    3. Relaying another person's judgment keeps their holder; the relayer's
-       own endorsement is a separate take with weight at most 0.55.
-    4. A fact self-reported by its subject caps confidence at 0.75; only
-       independent corroboration justifies more.
-    5. weight and confidence are multiples of 0.05.
-    6. Skip greetings, transient operational detail, and anything without
-       long-term value. Prefer writing nothing over writing noise.
-    7. The agent type and agents/ prefix identify this instance's system
-       Agent Principals. Their pages are created by the Principal lifecycle.
-       Reuse the supplied canonical Agent slugs for references and holders;
-       never create an agent object or invent an agents/ slug. Skills, model
-       names, tools, automations, and assistant personas are not Principals.
-       Use an appropriate writable type, or note when none fits. Attach
-       information to the page it describes, not to an Agent acting on it.
+    #{LearningEntities.claim_rules()}
+    #{LearningEntities.prompt(known_pages)}
 
-    Scope: the source audience is an upper bound. The default scope is
-    #{learning_context.default_scope}. Keep that scope unless the content has
-    an explicit confidentiality signal (for example "don't tell anyone"); in
-    that case, use the narrower "principal:<uid>" of one speaker. Do not use
-    "world" for content learned from this conversation. Any other scope value
-    falls back to the default.
+    holder is who HOLDS the judgment, not who it is about. "A says B is
+    unreliable" is a take held by A, not a fact about B. Relaying another
+    person's judgment keeps that holder; the relayer's own endorsement is a
+    separate take with weight at most 0.55. weight is a multiple of 0.05.
+    For unidentified speakers, retain useful attributed factual statements
+    with holder world and subject null instead of inventing a person/holder.
+    Timelines require an evidenced date. Resolve relative dates against the
+    message timestamp only; omit valid_from if the effective date is unknown.
 
-    Holders are canonical page slugs of the speakers, "world" for common
-    knowledge, or an entity page slug. Speakers:
+    Every extracted item uses the conversation's source node for permissions.
+    Do not invent or widen a permission scope. The source node is
+    #{learning_context.default_scope}.
+
+    Holders are canonical page IDs of the speakers, "world" for common
+    knowledge, or an entity page ID. Speakers:
     #{speakers}
-
-    #{known_pages_section(known_pages)}Installed object types (for new object items): #{installed_types}
 
     Installed relation vocabulary: #{relation_vocabulary}
     Prefer these relation labels when they express the source. Other labels
     remain allowed when none fits; do not invent a relation just to use a label.
 
-    Transcript:
+    Return only {"items":[...]} with both declarations and assertions in that
+    single array. Do not return a standalone item, separate arrays, or commentary.
+
+    <transcript>
     #{transcript.text}
+    </transcript>
     """
   end
 

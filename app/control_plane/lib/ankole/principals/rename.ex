@@ -43,7 +43,6 @@ defmodule Ankole.Principals.Rename do
          {:ok, worker} <- worker_for_rename(principal),
          {:ok, principal} <- Ankole.Ash.update(principal, :rename_in_tx, %{uid: new_uid}),
          :ok <- References.rewrite_in_tx(uid, new_uid, principal.type),
-         :ok <- Ankole.Brain.rename_principal_references_in_tx(uid, new_uid, principal.type),
          {:ok, config_keys} <- rename_agent_scopes(worker, uid, new_uid),
          {:ok, bases} <- Pod.rename_inline_principal_in_tx(uid, new_uid),
          {:ok, pages} <- Pod.rename_principal_mentions_in_tx(uid, new_uid) do

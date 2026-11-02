@@ -67,7 +67,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
         "label",
         "namespace",
         ctx.namespace,
-        "pod-security.kubernetes.io/enforce=restricted"
+        "pod-security.kubernetes.io/enforce=privileged"
       ])
 
       domain =
@@ -78,7 +78,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
       start_lark_connections!(ctx.fake_feishu, connections: 3)
       uid = domain.agent.uid
 
-      assert %AgentWorker{state: :absent, wanted_until: %DateTime{}} =
+      assert %AgentWorker{state: :absent, initial_start_pending: true} =
                Repo.get_by!(AgentWorker, agent_uid: uid)
 
       handle = %{kind: :kubernetes, agent_uid: uid}
@@ -103,6 +103,26 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
       )
 
       assert_home_file!(first, home_path)
+      assert first.capacity["drive_vfs"] == true
+
+      try do
+        %{intent: intent} = ScheduleAndTool.run_reply_attachment_tool_loop(flow, drive: true)
+        sent = dispatch_succeeded!(intent)
+        delivered = platform_message!(ctx.fake_feishu, sent.created_provider_message_id)
+        assert delivered.msg_type == "file"
+        assert delivered.reply_to == "om_reply_attachment_1"
+        assert {:ok, %{"file_key" => key}} = Ankole.JSON.decode(delivered.content)
+
+        assert %{name: "drive-report.txt", content: "CHAOS_REPLY_ATTACHMENT_FILE"} =
+                 FakeFeishu.State.uploaded_file(ctx.fake_feishu.state, key)
+      rescue
+        error ->
+          IO.puts(
+            kubectl!(ctx.path, ["-n", ctx.namespace, "logs", first.instance_ref, "--tail=100"])
+          )
+
+          reraise error, __STACKTRACE__
+      end
 
       assert {:ok, [instance]} = Kubernetes.list_instances(provider, uid)
       assert :ok = Kubernetes.delete_instance(provider, instance, :graceful)
@@ -209,7 +229,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
                }
              })
 
-    # The operator prepares the shared root before restricted Workers mount it.
+    # The operator prepares the shared root before Worker supervisors mount it.
     assert {:ok, _} =
              Client.create(provider, %{
                "apiVersion" => "v1",

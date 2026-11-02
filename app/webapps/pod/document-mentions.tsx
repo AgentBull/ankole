@@ -1,5 +1,5 @@
 import { formatFileBytes } from '../common/file-format'
-import { usePageMetadata } from './use-page-metadata'
+import { usePageMetadata, usePageTransliteration } from './use-page-metadata'
 import { pageMetadata } from './state/page-metadata'
 import {
   Badge,
@@ -132,11 +132,12 @@ function InlinePageMention({
   id: string
   store: MentionStore
   currentPageID?: string
-  pageHref: (id: string) => string
+  pageHref: (id: string, title?: string | null) => string
   openPage?: (id: string) => void
 }) {
   useSignals()
   const { t, i18n } = useTranslation()
+  const transliterationReady = usePageTransliteration()
   useEffect(() => store.observePage(id, currentPageID), [store, id, currentPageID])
   const snapshot = store.pageSignal(id).value
   const resolved = usePageMetadata(snapshot?.access === 'restricted' ? undefined : snapshot) ?? snapshot
@@ -162,7 +163,8 @@ function InlinePageMention({
   const pageType = (resolved.type ?? 'doc') as Page['type']
   const title = (resolved.title ?? '').trim() || t('pod.content.untitled')
   const trashed = resolved.access === 'trashed'
-  const href = pageHref(id)
+  void transliterationReady
+  const href = pageHref(id, trashed ? '' : resolved.title)
   const pathLabel = pageLocationPath(resolved, spaceName, key => t(key))
   const updatedLabel = formatRelativeTime(resolved.updated_at, i18n.language)
   const fileSummary =
@@ -338,7 +340,7 @@ export function createMentionHostAdapters({
 }: {
   client: QueryClient
   currentPageID?: string
-  pageHref: (id: string) => string
+  pageHref: (id: string, title?: string | null) => string
   openPage?: (id: string) => void
   i18n: I18nInstance
   canQuery?: boolean

@@ -6,6 +6,11 @@ defmodule Ankole.Pod.Chat.Conversation do
       fields: [
         id: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
         title: [type: :string, constraints: [trim?: false, allow_empty?: true], allow_nil?: false],
+        conversationKind: [
+          type: :atom,
+          allow_nil?: false,
+          constraints: [one_of: [:assistant_task, :colleague_dm, :group]]
+        ],
         roomMode: [type: :atom, allow_nil?: false, constraints: [one_of: [:dm, :group]]],
         accessScope: [
           type: :atom,
@@ -16,6 +21,7 @@ defmodule Ankole.Pod.Chat.Conversation do
         canDelete: [type: :boolean, allow_nil?: false],
         canManage: [type: :boolean, allow_nil?: false],
         createdBy: [type: Ankole.Ash.Types.PrincipalKey, allow_nil?: false],
+        latestMessagePreview: [type: :string, constraints: [trim?: false, allow_empty?: true]],
         lastMessageSeq: [type: :integer, allow_nil?: false],
         rowStatus: [type: :string, allow_nil?: false],
         viewer: [
@@ -26,7 +32,8 @@ defmodule Ankole.Pod.Chat.Conversation do
               uid: [type: Ankole.Ash.Types.PrincipalKey, allow_nil?: false],
               pinned: [type: :boolean, allow_nil?: false],
               muted: [type: :boolean, allow_nil?: false],
-              lastReadSeq: [type: :integer, allow_nil?: false]
+              lastReadSeq: [type: :integer, allow_nil?: false],
+              lastVisitedAt: [type: :utc_datetime_usec]
             ]
           ]
         ],

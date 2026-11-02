@@ -177,8 +177,9 @@ defmodule Ankole.Principals.Agents do
          {:ok, principal} <- Humans.insert_principal(agent_principal_attrs(attrs)),
          {:ok, agent} <- insert_agent(principal.uid, agent_attrs),
          :ok <- grant_assistant_owner_in_tx(agent),
-         :ok <- Library.seed_agent_library_in_tx(principal.uid, agent.type),
+         :ok <- Ankole.Files.lock_drive(principal.uid),
          :ok <- lock_assistant_owner_in_tx(agent),
+         :ok <- Library.seed_agent_library_in_tx(principal.uid, agent.type),
          :ok <- AgentWorkers.insert_in_tx(principal.uid, provider_id) do
       {:ok, %{principal: principal, agent: agent}}
     end

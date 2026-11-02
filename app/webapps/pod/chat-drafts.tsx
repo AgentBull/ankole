@@ -31,14 +31,19 @@ export function useChatDrafts() {
   return drafts
 }
 
-export function useChatDraft(conversationID?: string, pageID?: string) {
+export function useChatDraft(conversationID?: string, pageID?: string, colleagueUID?: string) {
   const drafts = useChatDrafts()
   const [selection, setSelection] = useState<string>()
   const router = useRouter()
   useEffect(() => router.subscribe('onBeforeNavigate', () => setSelection(undefined)), [router])
   const model = useMemo(
-    () => drafts.get(!conversationID && !pageID ? selection : conversationID, conversationID ? undefined : pageID),
-    [drafts, conversationID, pageID, selection]
+    () =>
+      drafts.get(
+        !conversationID && !pageID ? selection : conversationID,
+        conversationID ? undefined : pageID,
+        colleagueUID
+      ),
+    [drafts, conversationID, pageID, selection, colleagueUID]
   )
   return { drafts, model, selectDraft: setSelection }
 }

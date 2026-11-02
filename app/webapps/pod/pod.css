@@ -151,11 +151,27 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   background: var(--sidebar);
 }
 
+/* The tab row sits in the same 44px band as the page header beside it; the New chat row follows below it. */
 .pod-sidebar-header {
-  gap: 0;
-  height: 44px;
+  gap: 4px;
+  min-height: 44px;
   justify-content: center;
-  padding: 0 6px;
+  padding: 8px 6px;
+}
+
+.pod-sidebar-header:has(.pod-new-chat) {
+  padding-bottom: 4px;
+}
+
+.pod-new-chat {
+  margin-inline: 2px;
+}
+
+.pod-new-chat-shortcut {
+  flex: none;
+  color: var(--fg-tertiary);
+  font-size: 11px;
+  letter-spacing: 0.04em;
 }
 
 .pod-sidebar-top {
@@ -180,17 +196,8 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 }
 
 .pod-sidebar-tabs > [role='tab']:not([data-active]) {
-  width: 28px;
-  padding: 0;
-}
-
-.pod-sidebar-tabs > [role='tab']:not([data-active]) > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+  min-width: 28px;
+  padding-inline: 6px;
 }
 
 .pod-navigation {
@@ -203,7 +210,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   gap: 1px;
 }
 
-/* Rows are 28px on desktop: dense, and every item stays visible. Their states come from `nav-row`. */
+/* Rows start at 28px on desktop and expand for additional content. Their states come from `nav-row`. */
 .pod-nav-link,
 .pod-tree-row,
 .pod-conversations [data-sidebar='menu-button'] {
@@ -456,10 +463,6 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   }
 }
 
-.pod-conversations [data-sidebar='menu-button'] {
-  height: 28px;
-}
-
 .pod-sidebar-footer {
   flex-direction: row;
   align-items: center;
@@ -537,20 +540,6 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   color: var(--fg-tertiary);
 }
 
-.pod-recent-chat-avatar {
-  display: grid;
-  width: 17px;
-  height: 17px;
-  flex: none;
-  place-items: center;
-}
-
-.pod-recent-chat-avatar .pod-chat-avatar {
-  width: 17px;
-  height: 17px;
-  font-size: 9px;
-}
-
 .pod-account-menu[data-slot='dropdown-menu-content'] {
   width: max(var(--anchor-width), 240px);
 }
@@ -619,8 +608,16 @@ body:has(.pod-shell) .pod-command-dialog[data-slot='dialog-content'] {
 /* The mobile sidebar is portaled outside the Pod shell. */
 body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   .pod-sidebar-header {
-    height: 52px;
-    padding: 6px 10px;
+    min-height: 52px;
+    padding: 8px 10px;
+  }
+
+  .pod-chat-filter {
+    height: 40px;
+  }
+
+  .pod-new-chat-shortcut {
+    display: none;
   }
 
   .pod-nav-link,
@@ -644,7 +641,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   }
 
   .pod-sidebar-tabs > [role='tab']:not([data-active]) {
-    width: 36px;
+    min-width: 36px;
   }
 
   .pod-sidebar-top-actions > *,

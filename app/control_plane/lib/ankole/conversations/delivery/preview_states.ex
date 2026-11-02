@@ -19,6 +19,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   # Other provider-visible effects have separate lifecycle owners.
   @channel_reply_event_types ~w(
     conversation.message.addressed
+    agent.peer_message
     conversation.action_card.executed
     pod.page_comment.addressed
     im.message.may_intervene

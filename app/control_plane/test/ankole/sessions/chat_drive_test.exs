@@ -34,6 +34,15 @@ defmodule Ankole.Sessions.ChatDriveTest do
       end
 
     assert length(Enum.uniq(nodes)) == 4
+
+    for id <- nodes do
+      assert {:ok, _} =
+               Files.write_node(Ankole.AuthZ.Actor.new(agent), id, "Revised in ChatDrive")
+
+      assert {:ok, revised} = Files.fetch_node(id)
+      refute revised.object_id == stored["object_id"]
+    end
+
     assert {:ok, "private content"} = Files.read_object(stored["object_id"])
   end
 
@@ -100,6 +109,32 @@ defmodule Ankole.Sessions.ChatDriveTest do
     end
 
     assert Repo.aggregate(Intent, :count) == 4
+  end
+
+  test "a committed path attachment replays without the original Worker mount" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+    run = agent.uid |> input!("mock:dm:alice") |> prepare_run()
+    file = drive_file_fixture(agent.uid, "report.txt", "Frozen report")
+
+    {run, call} =
+      response_call(run, "reply_attachment", %{"path" => "/drive/AgentDrive/report.txt"})
+
+    {:ok, tool, args} = Tools.prepare(run, call)
+
+    # Exercise the receipt owner with the node produced by a successful flush.
+    assert {:ok, _receipt} =
+             Ankole.Sessions.Receipts.execute(
+               run,
+               Ankole.Sessions.Run.response_id(run.model_response),
+               Ankole.Sessions.Run.call_id(call),
+               fn -> tool.executor.prepare_in_tx(run, call, %{"node_id" => file.id}) end
+             )
+
+    assert %{is_error: false, details: %{"attachments" => [attachment]}} =
+             Tools.execute(run, call, tool, args)
+
+    assert attachment["object_id"] == file.object_id
   end
 
   test "a display path cannot disguise a conversation attachment as a private file" do

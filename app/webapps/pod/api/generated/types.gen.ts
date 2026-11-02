@@ -539,6 +539,12 @@ export type PodPage = {
     /**
      * Field included by default.
      */
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
     name?: string | null
     /**
      * Field included by default.
@@ -572,11 +578,15 @@ export type PodPage = {
     /**
      * Field included by default.
      */
+    system_key?: string | null
+    /**
+     * Field included by default.
+     */
     title: string
     /**
      * Field included by default.
      */
-    type: 'folder' | 'doc' | 'base' | 'applet' | 'file'
+    type: 'folder' | 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
     /**
      * Field included by default.
      */
@@ -635,6 +645,12 @@ export type PodPageType = {
   /**
    * Field included by default.
    */
+  metadata: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
   name?: string | null
   /**
    * Field included by default.
@@ -671,11 +687,15 @@ export type PodPageType = {
   /**
    * Field included by default.
    */
+  system_key?: string | null
+  /**
+   * Field included by default.
+   */
   title: string
   /**
    * Field included by default.
    */
-  type: 'folder' | 'doc' | 'base' | 'applet' | 'file'
+  type: 'folder' | 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
   /**
    * Field included by default.
    */
@@ -1097,6 +1117,7 @@ export type UpdateConversationQueueResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -1106,10 +1127,12 @@ export type UpdateConversationQueueResponses = {
       }>
       canDelete: boolean
       canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
       createdBy: string
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
         active: boolean
@@ -1117,6 +1140,7 @@ export type UpdateConversationQueueResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -1130,6 +1154,7 @@ export type UpdateConversationQueueResponses = {
       titleCustomized: boolean
       viewer: {
         lastReadSeq: number
+        lastVisitedAt?: string | null
         muted: boolean
         pinned: boolean
         uid: string
@@ -1617,6 +1642,87 @@ export type PodModelProfilesResponses = {
 
 export type PodModelProfilesResponse = PodModelProfilesResponses[keyof PodModelProfilesResponses]
 
+export type PodConversationAttentionData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/conversations/attention'
+}
+
+export type PodConversationAttentionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConversationAttentionError = PodConversationAttentionErrors[keyof PodConversationAttentionErrors]
+
+export type PodConversationAttentionResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    accessScope: 'participants' | 'anchor_page'
+    agent?: {
+      active: boolean
+      displayName: string
+      uid: string
+    } | null
+    agents: Array<{
+      active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
+      avatarURL?: string | null
+      canChat?: boolean | null
+      directConversationID?: string | null
+      displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
+      uid: string
+    }>
+    canDelete: boolean
+    canManage: boolean
+    conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
+    createdBy: string
+    id: string
+    lastActivityAt: string
+    lastMessageSeq: number
+    latestMessagePreview?: string | null
+    pageID?: string | null
+    participants: Array<{
+      active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
+      avatarURL?: string | null
+      canChat?: boolean | null
+      directConversationID?: string | null
+      displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
+      uid: string
+    }>
+    roomMode: 'dm' | 'group'
+    rowStatus: string
+    title: string
+    titleCustomized: boolean
+    viewer: {
+      lastReadSeq: number
+      lastVisitedAt?: string | null
+      muted: boolean
+      pinned: boolean
+      uid: string
+    }
+  }>
+}
+
+export type PodConversationAttentionResponse =
+  PodConversationAttentionResponses[keyof PodConversationAttentionResponses]
+
 export type PodPageNavigationData = {
   body?: never
   path?: never
@@ -1651,13 +1757,17 @@ export type PodPageNavigationResponses = {
         icon?: string | null
         id: string
         inherit_permissions: boolean
+        metadata: {
+          [key: string]: unknown
+        }
         name: string
         parent_id?: string | null
         position?: string | null
         private_owner_uid?: string | null
         role: 'view' | 'contribute' | 'edit' | 'manage'
+        system_key?: string | null
         title: string
-        type: 'doc' | 'base' | 'applet' | 'file' | 'folder'
+        type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder'
       }>
       parent_id?: string | null
       principal_uid: string
@@ -1669,13 +1779,17 @@ export type PodPageNavigationResponses = {
       icon?: string | null
       id: string
       inherit_permissions: boolean
+      metadata: {
+        [key: string]: unknown
+      }
       name: string
       parent_id?: string | null
       position?: string | null
       private_owner_uid?: string | null
       role: 'view' | 'contribute' | 'edit' | 'manage'
+      system_key?: string | null
       title: string
-      type: 'doc' | 'base' | 'applet' | 'file' | 'folder'
+      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder'
     }>
   }
 }
@@ -1799,6 +1913,7 @@ export type ConversationDetailResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -1808,10 +1923,12 @@ export type ConversationDetailResponses = {
       }>
       canDelete: boolean
       canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
       createdBy: string
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
         active: boolean
@@ -1819,6 +1936,7 @@ export type ConversationDetailResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -1832,6 +1950,7 @@ export type ConversationDetailResponses = {
       titleCustomized: boolean
       viewer: {
         lastReadSeq: number
+        lastVisitedAt?: string | null
         muted: boolean
         pinned: boolean
         uid: string
@@ -2057,6 +2176,7 @@ export type UpdateConversationResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -2066,10 +2186,12 @@ export type UpdateConversationResponses = {
       }>
       canDelete: boolean
       canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
       createdBy: string
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
         active: boolean
@@ -2077,6 +2199,7 @@ export type UpdateConversationResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -2090,6 +2213,7 @@ export type UpdateConversationResponses = {
       titleCustomized: boolean
       viewer: {
         lastReadSeq: number
+        lastVisitedAt?: string | null
         muted: boolean
         pinned: boolean
         uid: string
@@ -2405,6 +2529,7 @@ export type AnswerConversationInteractionResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -2414,10 +2539,12 @@ export type AnswerConversationInteractionResponses = {
       }>
       canDelete: boolean
       canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
       createdBy: string
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
         active: boolean
@@ -2425,6 +2552,7 @@ export type AnswerConversationInteractionResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -2438,6 +2566,7 @@ export type AnswerConversationInteractionResponses = {
       titleCustomized: boolean
       viewer: {
         lastReadSeq: number
+        lastVisitedAt?: string | null
         muted: boolean
         pinned: boolean
         uid: string
@@ -3019,6 +3148,7 @@ export type ResolveConversationActionCardResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -3028,10 +3158,12 @@ export type ResolveConversationActionCardResponses = {
       }>
       canDelete: boolean
       canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
       createdBy: string
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
         active: boolean
@@ -3039,6 +3171,7 @@ export type ResolveConversationActionCardResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -3052,6 +3185,7 @@ export type ResolveConversationActionCardResponses = {
       titleCustomized: boolean
       viewer: {
         lastReadSeq: number
+        lastVisitedAt?: string | null
         muted: boolean
         pinned: boolean
         uid: string
@@ -3265,6 +3399,34 @@ export type RestorePodMemberResponses = {
 
 export type RestorePodMemberResponse = RestorePodMemberResponses[keyof RestorePodMemberResponses]
 
+export type StopPodPeerExchangeData = {
+  body?: never
+  path: {
+    exchange_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}/stop'
+}
+
+export type StopPodPeerExchangeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type StopPodPeerExchangeError = StopPodPeerExchangeErrors[keyof StopPodPeerExchangeErrors]
+
+export type StopPodPeerExchangeResponses = {
+  /**
+   * Success
+   */
+  201: boolean
+}
+
+export type StopPodPeerExchangeResponse = StopPodPeerExchangeResponses[keyof StopPodPeerExchangeResponses]
+
 export type SyncPodDirectoryData = {
   body?: never
   path: {
@@ -3361,6 +3523,7 @@ export type PodChatTeammatesResponses = {
       aliases?: Array<string> | null
       avatarURL?: string | null
       canChat?: boolean | null
+      directConversationID?: string | null
       displayName: string
       mayIntervene: boolean
       modelProfile?: string | null
@@ -3550,6 +3713,7 @@ export type PodAgentsResponses = {
       aliases?: Array<string> | null
       avatarURL?: string | null
       canChat?: boolean | null
+      directConversationID?: string | null
       displayName: string
       mayIntervene: boolean
       modelProfile?: string | null
@@ -3563,6 +3727,7 @@ export type PodAgentsResponses = {
       aliases?: Array<string> | null
       avatarURL?: string | null
       canChat?: boolean | null
+      directConversationID?: string | null
       displayName: string
       mayIntervene: boolean
       modelProfile?: string | null
@@ -3807,6 +3972,7 @@ export type EnsurePodPersonalAssistantResponses = {
     aliases?: Array<string> | null
     avatarURL?: string | null
     canChat?: boolean | null
+    directConversationID?: string | null
     displayName: string
     mayIntervene: boolean
     modelProfile?: string | null
@@ -3996,6 +4162,9 @@ export type PodPageHistoryEntryResponses = {
       document_updated_at: string
       icon?: string | null
       id: string
+      metadata: {
+        [key: string]: unknown
+      }
       reason: 'created' | 'baseline' | 'checkpoint' | 'before_restore' | 'restored'
       revision: number
       title: string
@@ -4081,13 +4250,17 @@ export type PodPageChildrenResponses = {
       icon?: string | null
       id: string
       inherit_permissions: boolean
+      metadata: {
+        [key: string]: unknown
+      }
       name: string
       parent_id?: string | null
       position?: string | null
       private_owner_uid?: string | null
       role: 'view' | 'contribute' | 'edit' | 'manage'
+      system_key?: string | null
       title: string
-      type: 'doc' | 'base' | 'applet' | 'file' | 'folder'
+      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder'
       updated_at?: string | null
     }>
     principal_uid: string
@@ -4267,6 +4440,7 @@ export type PostConversationMessageResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -4276,10 +4450,12 @@ export type PostConversationMessageResponses = {
       }>
       canDelete: boolean
       canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
       createdBy: string
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
         active: boolean
@@ -4287,6 +4463,7 @@ export type PostConversationMessageResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -4300,6 +4477,7 @@ export type PostConversationMessageResponses = {
       titleCustomized: boolean
       viewer: {
         lastReadSeq: number
+        lastVisitedAt?: string | null
         muted: boolean
         pinned: boolean
         uid: string
@@ -4464,6 +4642,81 @@ export type PodBaseTableCreateResponses = {
 }
 
 export type PodBaseTableCreateResponse = PodBaseTableCreateResponses[keyof PodBaseTableCreateResponses]
+
+export type PodPeerExchangeData = {
+  body?: never
+  path: {
+    exchange_id: string
+    id: string
+  }
+  query?: {
+    cursor?: number
+  }
+  url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}'
+}
+
+export type PodPeerExchangeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPeerExchangeError = PodPeerExchangeErrors[keyof PodPeerExchangeErrors]
+
+export type PodPeerExchangeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    activity?: {
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    } | null
+    agentUID: string
+    id: string
+    messages: Array<{
+      authorUID?: string | null
+      execution?: {
+        [key: string]: unknown
+      } | null
+      id: string
+      seq: number
+      text?: string | null
+    }>
+    nextCursor?: number | null
+    status: string
+    text: string
+  }
+}
+
+export type PodPeerExchangeResponse = PodPeerExchangeResponses[keyof PodPeerExchangeResponses]
 
 export type UnbindPodCredentialData = {
   body?: never
@@ -4906,6 +5159,10 @@ export type PodPageReadResponses = {
     ancestors: Array<PodPageType>
     child_count: number
     content?: PodPageContentType | null
+    fact_learning?: {
+      enabled: boolean
+      inherited: boolean
+    } | null
     page: PodPageType
     role: 'view' | 'contribute' | 'edit' | 'manage'
     source_conversation?: {
@@ -4928,13 +5185,14 @@ export type PodPageUpdateData = {
       children_view?: {
         collapsed?: boolean | null
         field_order?: Array<'created_by' | 'updated_at' | 'created_at'> | null
-        view?: 'list' | 'grid' | null
+        view?: 'list' | 'grid' | 'table' | null
         visible_fields?: Array<'created_by' | 'updated_at' | 'created_at'> | null
       } | null
       /**
        * Required whenever title is supplied; the title read before editing.
        */
       expected_title?: string | null
+      extract_facts?: boolean | null
       icon?: string | null
       title?: string | null
     }
@@ -5026,6 +5284,37 @@ export type EnablePodAgentResponses = {
 }
 
 export type EnablePodAgentResponse = EnablePodAgentResponses[keyof EnablePodAgentResponses]
+
+export type PodKnowledgePanelData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/knowledge'
+}
+
+export type PodKnowledgePanelErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodKnowledgePanelError = PodKnowledgePanelErrors[keyof PodKnowledgePanelErrors]
+
+export type PodKnowledgePanelResponses = {
+  /**
+   * Success
+   */
+  200: {
+    panel: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PodKnowledgePanelResponse = PodKnowledgePanelResponses[keyof PodKnowledgePanelResponses]
 
 export type PodAdminAgentsData = {
   body?: never
@@ -5140,7 +5429,7 @@ export type PodMentionsResolveResponses = {
       id: string
       private_owner_uid?: string | null
       title?: string | null
-      type?: 'doc' | 'base' | 'applet' | 'file' | 'folder' | null
+      type?: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder' | null
       updated_at?: string | null
     }>
     principals: Array<{
@@ -5202,16 +5491,19 @@ export type PodPageCreateData = {
       children_view?: {
         collapsed?: boolean | null
         field_order?: Array<'created_by' | 'updated_at' | 'created_at'> | null
-        view?: 'list' | 'grid' | null
+        view?: 'list' | 'grid' | 'table' | null
         visible_fields?: Array<'created_by' | 'updated_at' | 'created_at'> | null
       } | null
       icon?: string | null
+      metadata?: {
+        [key: string]: unknown
+      } | null
       parent_id?: string | null
       position?: string | null
       private_owner_uid?: string | null
       saved_from_message_id?: string | null
       title?: string | null
-      type?: 'doc' | 'base' | 'file' | 'folder' | null
+      type?: 'doc' | 'knowledge' | 'base' | 'file' | 'folder' | null
       xml?: string | null
     }
   }
@@ -5270,6 +5562,37 @@ export type UnbindPodMemberCredentialResponses = {
 
 export type UnbindPodMemberCredentialResponse =
   UnbindPodMemberCredentialResponses[keyof UnbindPodMemberCredentialResponses]
+
+export type PodKnowledgeExportData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    snapshot_id?: string
+  }
+  url: '/api/v2/pod/pages/{id}/knowledge/export'
+}
+
+export type PodKnowledgeExportErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodKnowledgeExportError = PodKnowledgeExportErrors[keyof PodKnowledgeExportErrors]
+
+export type PodKnowledgeExportResponses = {
+  /**
+   * Success
+   */
+  200: {
+    markdown: string
+  }
+}
+
+export type PodKnowledgeExportResponse = PodKnowledgeExportResponses[keyof PodKnowledgeExportResponses]
 
 export type PodAdminSettingsData = {
   body?: never
@@ -5612,6 +5935,9 @@ export type PodPageHistoryResponses = {
       document_updated_at: string
       icon?: string | null
       id: string
+      metadata: {
+        [key: string]: unknown
+      }
       reason: 'created' | 'baseline' | 'checkpoint' | 'before_restore' | 'restored'
       revision: number
       title: string
@@ -6017,6 +6343,7 @@ export type PodConversationsData = {
   path?: never
   query?: {
     cursor?: string
+    imOnly?: boolean
     limit?: number
     order?: 'pinned' | 'recent'
     pageID?: string
@@ -6052,6 +6379,7 @@ export type PodConversationsResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -6061,10 +6389,12 @@ export type PodConversationsResponses = {
       }>
       canDelete: boolean
       canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
       createdBy: string
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
         active: boolean
@@ -6072,6 +6402,7 @@ export type PodConversationsResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -6085,6 +6416,7 @@ export type PodConversationsResponses = {
       titleCustomized: boolean
       viewer: {
         lastReadSeq: number
+        lastVisitedAt?: string | null
         muted: boolean
         pinned: boolean
         uid: string
@@ -6122,6 +6454,7 @@ export type CreateConversationData = {
       modelProfile?: string | null
       pageID?: string | null
       participantUIDs?: Array<string> | null
+      roomMode?: 'dm' | 'group' | null
       targetAgentUID?: string | null
       text: string
     }
@@ -6207,6 +6540,7 @@ export type CreateConversationResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -6216,10 +6550,12 @@ export type CreateConversationResponses = {
       }>
       canDelete: boolean
       canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
       createdBy: string
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
         active: boolean
@@ -6227,6 +6563,7 @@ export type CreateConversationResponses = {
         aliases?: Array<string> | null
         avatarURL?: string | null
         canChat?: boolean | null
+        directConversationID?: string | null
         displayName: string
         mayIntervene: boolean
         modelProfile?: string | null
@@ -6240,6 +6577,7 @@ export type CreateConversationResponses = {
       titleCustomized: boolean
       viewer: {
         lastReadSeq: number
+        lastVisitedAt?: string | null
         muted: boolean
         pinned: boolean
         uid: string
@@ -6415,6 +6753,9 @@ export type PodDocumentWriteData = {
   body: {
     data: {
       base_revision: number
+      metadata?: {
+        [key: string]: unknown
+      } | null
       xml: string
     }
   }
@@ -6781,7 +7122,7 @@ export type PodMentionCandidatesResponses = {
       id: string
       private_owner_uid?: string | null
       title: string
-      type: 'doc' | 'base' | 'applet' | 'file' | 'folder'
+      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder'
       updated_at: string
     }>
     principals: Array<{
@@ -6938,6 +7279,35 @@ export type ReauthenticatePodMemberResponses = {
 }
 
 export type ReauthenticatePodMemberResponse = ReauthenticatePodMemberResponses[keyof ReauthenticatePodMemberResponses]
+
+export type PodCommentAttentionData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/comments/attention'
+}
+
+export type PodCommentAttentionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodCommentAttentionError = PodCommentAttentionErrors[keyof PodCommentAttentionErrors]
+
+export type PodCommentAttentionResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    activity_at: string
+    page: PodPageType
+    unread_count: number
+  }>
+}
+
+export type PodCommentAttentionResponse = PodCommentAttentionResponses[keyof PodCommentAttentionResponses]
 
 export type PodPageSearchData = {
   body?: never

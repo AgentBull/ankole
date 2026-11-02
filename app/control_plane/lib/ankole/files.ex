@@ -36,6 +36,7 @@ defmodule Ankole.Files do
     resource(Ankole.Files.ConsoleOperations)
     resource(Ankole.Files.Schemas.Node)
     resource(Ankole.Files.Schemas.FileObject)
+    resource(Ankole.Files.Schemas.VfsExport)
   end
 
   defdelegate store(content), to: Objects
@@ -54,7 +55,8 @@ defmodule Ankole.Files do
       {"drive_nodes", "object_id"},
       {"message_attachments", "object_id"},
       {"delivery_attachments", "object_id"},
-      {"pod_files", "object_id"}
+      {"pod_files", "object_id"},
+      {"drive_vfs_exports", "object_id"}
     ]
 
   defdelegate node_committed(node), to: Nodes, as: :content_committed
@@ -76,6 +78,7 @@ defmodule Ankole.Files do
   defdelegate visible_node_ids(reachable, ids \\ nil, bit \\ 1), to: Nodes, as: :visible_ids
   defdelegate ancestor_node_ids(ids), to: Nodes, as: :ancestor_ids
   defdelegate descendant_node_ids(id), to: Nodes, as: :descendants
+  defdelegate subtree_has_kind?(id, kind), to: Nodes
   defdelegate shared_root_node_ids(ids, reachable), to: Nodes, as: :shared_root_ids
   defdelegate acl_anchor_nodes(), to: Nodes, as: :anchor_nodes
   defdelegate hidden_trashed_node_ids(), to: Nodes, as: :hidden_trashed_ids

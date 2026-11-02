@@ -12,17 +12,17 @@
 
 ```bash
 # 先预览请求，不实际执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks reject \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks reject \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","comment":"拒绝"}' \
   --dry-run
 
 # 拒绝审批任务，并附带审批意见
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks reject \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks reject \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","comment":"拒绝，信息不完整"}' \
   --yes
 
 # 通过文件传入请求体，适合较长 comment
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks reject \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks reject \
   --data @./reject-body.json \
   --yes
 ```
@@ -45,7 +45,7 @@
 先查到待办任务：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks query --params '{"topic":"1"}'
 ```
 
 常用到的两个字段：
@@ -58,7 +58,7 @@
 如需先确认表单、节点、审批流进度，可继续查看实例详情：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 ```
 
 ## 使用建议

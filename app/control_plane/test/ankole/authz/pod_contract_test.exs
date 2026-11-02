@@ -54,6 +54,10 @@ defmodule Ankole.AuthZ.PodContractTest do
     assert sql =~ "WITH execution"
     assert_receive {:query, conversations_sql}
     assert conversations_sql =~ "conversation_participants"
+    assert_receive {:query, memberships_sql}
+    assert memberships_sql =~ "principal_group_memberships"
+    assert_receive {:query, external_conversations_sql}
+    assert external_conversations_sql =~ "conversations"
     refute_receive {:query, _}
     :telemetry.detach(handler)
 

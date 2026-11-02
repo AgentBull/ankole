@@ -139,12 +139,21 @@ providers cannot switch `kubeconfig` between in-cluster and remote modes. If a
 saved provider configuration later fails validation, Ankole disables only that
 provider without disrupting the control plane or other providers.
 
-Inside the Worker image, built-in Skill roots are fixed at `/repo/app/library`
-(plus `/repo/internals/skills` in internal images), and installed Skills live at
-`/workspace/installed-skills`. Because these paths are fixed, the control plane
-resolves `skill_view` directly without loading a provider or starting a Worker,
-and provider overrides for `ANKOLE_BUILTIN_SKILLS_ROOT` or
-`ANKOLE_INTERNAL_SKILLS_ROOT` have no effect.
+The control plane reconciles shipped Skill packages into the tenant's
+`/AnkoleBrain/skills` tree. A Skill's knowledge page owns its metadata and
+instructions; child file nodes own scripts, templates and MCP declarations.
+Worker preparation reads those current pages and files through the turn's Pod
+RPC authority and materializes only the files visible to that conversation.
+Unattended automation uses the Agent's own visibility. Image directories supply
+factory packages and trusted Agent Plugins; they do not own tenant Skill content.
+
+For each main or Codex turn, the Worker places visible Skill packages under
+`/workspace/.ankole/turn-skills/<signal-id>/<skill-name>`. Automation attempts
+place them under the attempt's temporary run directory. `skill_view` reads the
+same control-plane pages and returns the corresponding runtime directory.
+The workspace or Job owner removes its materialized packages when execution
+closes, including when preparation fails. Automation removes them with its
+temporary run directory.
 
 The Worker image also installs its Chromium headless shell at
 `/usr/local/bin/chromium`, which `OfficeCLI` locates via `PATH` rather than
@@ -163,7 +172,9 @@ caller omits an explicit provider, Agent creation fails with
 | Path | Contract |
 | --- | --- |
 | `/workspace` | Persistent Home of this Agent |
-| `/workspace/.codex` | Codex configuration and thread files |
+| `/workspace/.codex` | Codex configuration, whole effective `AGENTS.md`, and thread files |
+| `/workspace/AGENTS.md`, `/workspace/DESIGN.md` | Read-only whole effective Agent contracts, refreshed each Turn |
+| `/workspace/.ankole/turn-skills/<signal-id>` | Conversation-visible Skill packages for this Turn |
 | `/workspace/sessions/<workspace-id>` | Session workspaces |
 | `/workspace/jobs/<workspace-owner-job-id>` | Job workspaces, shared by a continuation chain |
 | `/var/cache/ankole/codex` | Rebuildable Codex SQLite and local process lock |
@@ -211,12 +222,14 @@ EFS access points and Alibaba OSS mounts do); an NFS export with `root_squash`
 and no `uid 1000` mapping will fail.
 
 On Kubernetes, Worker Pods start trusted processes as `uid 0` / `gid 0`, drop
-all default capabilities, add back only `SETUID`, `SETGID`, `CHOWN`, `FOWNER`,
-`DAC_OVERRIDE`, and `KILL`, enforce `allowPrivilegeEscalation: false` and the
-`RuntimeDefault` seccomp profile, and mount no `ServiceAccount` token. As a
-result, the Worker namespace must allow the Kubernetes
-[baseline Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/),
-as Worker Pods cannot run under the `restricted` profile.
+all default capabilities, and add `SETUID`, `SETGID`, `SETPCAP`, `CHOWN`, `FOWNER`,
+`DAC_OVERRIDE`, `KILL`, and `SYS_ADMIN`. `SYS_ADMIN` mounts FUSE and creates the
+execution mount namespace; `SETPCAP` lets the launcher clear the child's capability
+bounding set. Pods use `allowPrivilegeEscalation: false`, `RuntimeDefault` seccomp,
+`Unconfined` AppArmor, and no ServiceAccount token. The namespace permits the
+`privileged` Pod Security Standard, while the chart's admission policy scopes the
+allowed profile to the configured Worker service account and forbids privileged
+containers, host namespaces, and hostPath volumes.
 
 ## The Worker Row
 
@@ -708,6 +721,8 @@ runtime configuration (working around Lambda activation failures on `FROM`-only
 builds). An AWS build role grants image-pull access during build, while the
 running Worker MicroVM gets no IAM execution role and no AWS credentials. Image
 tags isolate providers and separate Worker images from storage-deletion helpers.
+The managed catalog lists major versions, while built images report a major and
+minor revision; Ankole checks availability against that catalog major.
 When AWS deprecates a managed base layer, Ankole builds a new image version
 automatically while active generations keep their frozen launch artifacts;
 failed builds with no active version must be removed by an operator before
@@ -827,48 +842,64 @@ See [CONTRIBUTING](../../CONTRIBUTING.md#run-the-right-checks) for cloud test
 commands and account prerequisites, and record the date, region, image digest,
 command, and outcome for every live verification run.
 
-### Drive FUSE release prerequisite
+### Drive mounts and provider verification
 
-Drive metadata and immutable objects belong to the control plane. Worker Home
-persistence does not imply that a provider can mount the Drive filesystem.
-`ankole-files` remains the model-facing Drive entry point until every built-in
-provider passes the same end-to-end FUSE contract. No Drive daemon or `/drive`
-mount is part of the current Worker contract.
+The Worker image contains a static `ankole-rclone` built from rclone v1.75.2
+with the mount2/go-fuse backend. The entrypoint probes a real mount before
+advertising `drive_vfs` in admission and heartbeats. RuntimeFabric supplies the
+scoped DAV configuration only to a Worker that reports that capability.
+The probe allows the packaged client 15 seconds to mount, then checks real
+read/write access; failures report the device, namespace, mount, or read/write
+stage in the Worker log.
 
-A self-managed mount needs a usable `/dev/fuse`, kernel FUSE support, and mount
-capability in the root daemon. Model processes must retain uid/gid 1000, no
-capabilities, and the existing restrictions on inspecting or controlling root
-processes. The daemon's selected library and mount options determine whether the
-image also needs libfuse or a `fusermount` helper; those dependencies must be
-checked independently for amd64 and arm64.
+The root supervisor runs one `rcd`, accessed through a mode-0600 Unix socket.
+`/run/ankole-drives` and `/var/cache/ankole/rclone` are root-only directories.
+Commands and long-lived Codex processes enter a private mount and PID namespace,
+bind their shared roots, conversation root, and recovery directory, then drop to
+uid/gid 1000 with empty capabilities. Browser file URLs cannot open `/drive` or
+`/drive-recovery`. Builtin file operations resolve the same view asynchronously,
+with a 15-second deadline, so a slow FUSE request does not block heartbeats.
 
-| Provider | Current prerequisite and remaining verification |
+Mounts share a global clean-cache LRU budget of 70% of the cache capacity. The
+Kubernetes adapter passes its declared cache volume capacity as a bootstrap
+fact because directory-backed PVCs and emptyDir size limits do not change
+statfs. The daemon uses the smaller of this capacity and the filesystem size,
+and also preserves filesystem headroom. Persisted cold scopes participate in
+reclamation; dirty files do not. Idle mounts with no pending writes unmount
+after 15 minutes while their disk cache remains reusable.
+
+Codex runtime entries, CODEX_HOME, and SQLite directories are keyed by execution
+view, including conversation identity. Legacy sessions move into the selected
+view when that thread resumes. The last runtime lease closes its app-server.
+Worker drain waits for pending uploads while continuing heartbeats. Platform termination grace still bounds this wait: an ephemeral cache
+can lose an unfinished background batch at forced termination. A persistent
+cache retains the request identity and baseline for recovery.
+
+Tokens refresh every 20 minutes. After a suspension longer than 60 seconds the
+Worker waits for renewed control-channel admission, refreshes its current
+credentials, and invalidates clean caches. An
+expired bearer can refresh only while its Worker generation and incarnation
+remain current. Dirty writes retry with their persisted request identity and
+content baseline. The control plane returns a committed receipt or resolves the
+conditional write; conflicts remain available in the scoped recovery directory.
+
+| Provider | Mount contract |
 | --- | --- |
-| Docker | The adapter does not pass a FUSE device or add `SYS_ADMIN`. Both must be deliberately added and verified through the real adapter before a mount can work. [Docker capabilities](https://docs.docker.com/engine/containers/run/#runtime-privilege-and-linux-capabilities). |
-| Kubernetes | The adapter drops all capabilities and adds only SETUID, SETGID, CHOWN, FOWNER, DAC_OVERRIDE, and KILL. It supplies no FUSE device. The current baseline Pod Security Standard excludes SYS_ADMIN and hostPath. Device provisioning and admission policy therefore need an explicit, reviewed change plus end-to-end evidence; the current security baseline cannot mount Drive FUSE. [Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/). |
-| Cloudflare | The platform documents container FUSE mounts. Ankole's adapter, image, daemon, and container-recreation behavior still need verification together. [FUSE example](https://developers.cloudflare.com/containers/examples/r2-fuse-mount/). |
-| Vercel | Sandbox supports FUSE through system-privileged processes. UID 0 alone does not prove the current Ankole startup process has the needed capabilities. Verify its device, effective capability set, and daemon startup. [Remote mounts](https://vercel.com/docs/sandbox/mount-remote-storage), [privileged processes](https://vercel.com/docs/sandbox/concepts/runtimes#system-privileged-processes). |
-| Lambda MicroVMs | The adapter requests `additionalOsCapabilities: ALL`; AWS documents these extended capabilities for filesystem mounts. This is the MicroVM product, not traditional Lambda Functions. Device availability, kernel support, arm64 daemon mounting, and pause/resume remain target-environment checks. [MicroVM images](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images.html). |
-| Function Compute | The amd64 image includes OSSFS2/FUSE3 for OSS Home, and the platform documents FUSE-based dynamic JuiceFS mounts. Existing Home mounting does not prove a second self-managed Drive daemon works. Verify both AgenticFS and OSS configurations, including pause/resume and open handles. [Dynamic JuiceFS mounts](https://help.aliyun.com/zh/agent-sandbox/mount-juicefs-dynamically). |
+| Docker | The adapter supplies `/dev/fuse`, SYS_ADMIN, and an unconfined AppArmor profile to the root supervisor. |
+| Kubernetes | The adapter requests one `fuseDeviceResource` unit, defaulting to `smarter-devices/fuse`, and supplies the declared root capability profile. Worker Pods use no privileged containers, host namespaces, or hostPath volumes. Kubernetes 1.30+ admission policy and device-plugin setup are documented in the Helm chart. |
+| Cloudflare | The image probe verifies the platform-provided FUSE device and mount capability. Cache and recovery paths are independent of the archived Home. |
+| Vercel | The custom-image root entry performs the same mount probe. Its direct root launch is intentional: the image has no sudo binary. Platform documentation about sudo in managed images does not prove this custom image's capability set. |
+| Lambda MicroVMs | The adapter requests `additionalOsCapabilities: ALL`; the arm64 image uses the same daemon and suspension recovery. |
+| Function Compute | The amd64 image uses the same daemon beside AgenticFS or OSSFS2 Home; the Worker detects a clock gap when execution resumes. |
 
-A local arm64 Docker prerequisite probe confirmed kernel FUSE support but no
-`/dev/fuse`, `CAP_SYS_ADMIN`, libfuse, or mount helper. The production process
-launcher kept the model at uid/gid 1000 with empty capability sets and rejected
-root-process inspection, ptrace, signalling, and restoring uid 0. This probe used
-an existing image whose build-input hash differed from the edited source tree;
-it is evidence for that image and launcher only. It did not mount FUSE, test
-amd64, or exercise any cloud provider. Platform documentation in the table is
-capability evidence, not an Ankole end-to-end result.
-
-Reuse the existing six provider storage integration suites for release checks.
-Each must verify mounting by root with capability-free model access, empty
-directories, moving a parent while a file descriptor remains open, atomic rename
-replacement preserving the target node ID, offset reads near the end of a large
-object, concurrent Worker writes and close-to-open visibility, permission
-revocation, and lifecycle recovery. Record region, image digest, command, and
-result using the provider-verification convention above. Only a change that
-passes all providers may publish FUSE and remove `ankole-files` and its
-model-visible RPCs together.
+Gate C1 requires real mounts on all six providers and both supported image
+architectures before removing `ankole-files` and its file-transfer RPCs. Local
+Docker, kind, unit, and manifest checks establish their own boundaries; they do
+not substitute for live cloud tests. Use the provider suites in CONTRIBUTING.md
+and record region, image digest, command, and result. Required scenarios include
+scoped views, permission changes, atomic replacement, open handles across parent
+moves, tail Range reads, single-Worker SQLite rollback/WAL, competing VFS writers, browser
+edits during writeback, and recovery after lifecycle transitions.
 
 ## Worker Process
 

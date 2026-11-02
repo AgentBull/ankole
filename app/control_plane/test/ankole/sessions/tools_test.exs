@@ -271,7 +271,8 @@ defmodule Ankole.Sessions.ToolsTest do
       %{run: %{run | tools: tools}}
     end
 
-    test "Skill reads return the image root without a Worker or provider (G1, G2)", %{run: run} do
+    test "Skill reads name the current turn materialization without a Worker or provider (G1, G2)",
+         %{run: run} do
       alias Ankole.AgentWorkers.AgentWorker
       Repo.delete_all(from(worker in AgentWorker, where: worker.agent_uid == ^run.agent_uid))
 
@@ -284,7 +285,10 @@ defmodule Ankole.Sessions.ToolsTest do
 
       result = invoke(run, "skill_view", %{"name" => skill["skill_name"]}, "view")
       refute result.is_error
-      assert result.output =~ "directory=\"/repo/app/library/#{skill["relative_path"]}\""
+
+      assert result.output =~
+               "directory=\"/workspace/.ankole/turn-skills/#{run.signal_id}/#{skill["skill_name"]}\""
+
       assert Repo.get_by(AgentWorker, agent_uid: run.agent_uid) == nil
       unavailable = invoke(run, "skill_view", %{"name" => "not-enabled"}, "missing")
       assert unavailable.is_error

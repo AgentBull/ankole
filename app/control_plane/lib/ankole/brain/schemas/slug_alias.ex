@@ -7,10 +7,9 @@ defmodule Ankole.Brain.Schemas.SlugAlias do
     repo(Ankole.Repo)
     migrate?(false)
     identity_index_names(alias: "brain_slug_aliases_alias_key")
-    foreign_key_names([{:canonical_slug, "brain_slug_aliases_canonical_slug_fkey"}])
+    foreign_key_names([{:canonical_page_id, "brain_slug_aliases_canonical_page_id_fkey"}])
 
     check_constraints do
-      check_constraint(:canonical_slug, "brain_slug_aliases_no_self")
     end
   end
 
@@ -22,7 +21,7 @@ defmodule Ankole.Brain.Schemas.SlugAlias do
     )
 
     attribute(:alias_slug, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:canonical_slug, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:canonical_page_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
     attribute(:notes, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
   end
@@ -35,12 +34,12 @@ defmodule Ankole.Brain.Schemas.SlugAlias do
     defaults([:read])
 
     create :add do
-      accept([:id, :alias_slug, :canonical_slug, :notes, :created_at])
+      accept([:id, :alias_slug, :canonical_page_id, :notes, :created_at])
     end
 
     update :repoint do
       require_atomic?(true)
-      accept([:canonical_slug])
+      accept([:canonical_page_id])
     end
   end
 

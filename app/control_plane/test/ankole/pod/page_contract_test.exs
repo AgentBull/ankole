@@ -412,7 +412,8 @@ defmodule Ankole.Pod.PageContractTest do
              )
 
     assert {:ok, visible} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid))
-    assert Enum.map(visible, & &1.id) == [root.id]
+    assert root.id in Enum.map(visible, & &1.id)
+    refute child.id in Enum.map(visible, & &1.id)
   end
 
   test "a saved source distinguishes deleted conversations from inaccessible conversations",
@@ -538,29 +539,35 @@ defmodule Ankole.Pod.PageContractTest do
         grants: [%{principal_uid: reader.uid, role: "view"}]
       })
 
-    assert {:ok, %{pages: [owner_root]}} = Pages.list_children(owner, nil)
+    assert {:ok, %{pages: roots}} = Pages.list_children(owner, nil)
+    owner_root = Enum.find(roots, &(&1.id == root.id))
     assert owner_root.aggregates.has_children
-    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    assert {:ok, %{pages: roots}} = Pages.list_children(reader_actor, nil)
+    reader_root = Enum.find(roots, &(&1.id == root.id))
     refute reader_root.aggregates.has_children
     assert {:ok, %{pages: []}} = Pages.list_children(reader_actor, root.id)
 
     {:ok, visible} = Pages.create(owner, %{parent_id: root.id})
-    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    assert {:ok, %{pages: roots}} = Pages.list_children(reader_actor, nil)
+    reader_root = Enum.find(roots, &(&1.id == root.id))
     assert reader_root.aggregates.has_children
     assert {:ok, %{pages: [leaf]}} = Pages.list_children(reader_actor, root.id)
     assert leaf.id == visible.id
     refute leaf.aggregates.has_children
 
     {:ok, _} = Pages.delete(owner, visible.id)
-    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    assert {:ok, %{pages: roots}} = Pages.list_children(reader_actor, nil)
+    reader_root = Enum.find(roots, &(&1.id == root.id))
     refute reader_root.aggregates.has_children
 
     {:ok, _} = Pages.restore(owner, visible.id)
-    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    assert {:ok, %{pages: roots}} = Pages.list_children(reader_actor, nil)
+    reader_root = Enum.find(roots, &(&1.id == root.id))
     assert reader_root.aggregates.has_children
 
     {:ok, _} = Pages.move(owner, visible.id, %{parent_id: hidden.id})
-    assert {:ok, %{pages: [reader_root]}} = Pages.list_children(reader_actor, nil)
+    assert {:ok, %{pages: roots}} = Pages.list_children(reader_actor, nil)
+    reader_root = Enum.find(roots, &(&1.id == root.id))
     refute reader_root.aggregates.has_children
   end
 
@@ -622,9 +629,11 @@ defmodule Ankole.Pod.PageContractTest do
         grants: [%{principal_uid: ctx.agent.uid, role: "view"}]
       })
 
-    assert {:ok, %{pages: [agent_root]}} = Pages.list_children(agent, nil)
+    assert {:ok, %{pages: roots}} = Pages.list_children(agent, nil)
+    agent_root = Enum.find(roots, &(&1.id == root.id))
     assert agent_root.aggregates.has_children
-    assert {:ok, %{pages: [interactive_root]}} = Pages.list_children(interactive, nil)
+    assert {:ok, %{pages: roots}} = Pages.list_children(interactive, nil)
+    interactive_root = Enum.find(roots, &(&1.id == root.id))
     refute interactive_root.aggregates.has_children
     assert {:ok, %{path: []}} = Pages.navigation(interactive, child.id)
     assert {:ok, %{pages: []}} = Pages.list_children(interactive, root.id)
@@ -637,7 +646,8 @@ defmodule Ankole.Pod.PageContractTest do
         ]
       })
 
-    assert {:ok, %{pages: [interactive_root]}} = Pages.list_children(interactive, nil)
+    assert {:ok, %{pages: roots}} = Pages.list_children(interactive, nil)
+    interactive_root = Enum.find(roots, &(&1.id == root.id))
     assert interactive_root.aggregates.has_children
     assert {:ok, result} = Pages.navigation(interactive, child.id)
     assert Enum.map(result.path, & &1.id) == [root.id, child.id]
@@ -646,21 +656,30 @@ defmodule Ankole.Pod.PageContractTest do
   test "directory pagination uses bytewise C ordering and returns one covered projection" do
     principal = Ankole.PrincipalsFixtures.human_fixture().principal
     actor = Ankole.AuthZ.Actor.new(principal)
+    {:ok, root} = Pages.create(actor, %{title: "Pagination root"})
 
     for position <- ["A0", "a0", "Z0", "z0", "B0"] do
-      assert {:ok, _} = Ankole.Pod.Pages.create(actor, %{title: position, position: position})
+      assert {:ok, _} =
+               Ankole.Pod.Pages.create(actor, %{
+                 title: position,
+                 position: position,
+                 parent_id: root.id
+               })
     end
 
-    assert {:ok, first} = Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2})
+    assert {:ok, first} = Ankole.Pod.Pages.list_children(actor, root.id, %{limit: 2})
     assert Enum.map(first.pages, & &1.position) == ["A0", "B0"]
 
     assert {:ok, second} =
-             Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2, cursor: first.next_cursor})
+             Ankole.Pod.Pages.list_children(actor, root.id, %{limit: 2, cursor: first.next_cursor})
 
     assert Enum.map(second.pages, & &1.position) == ["Z0", "a0"]
 
     assert {:ok, third} =
-             Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2, cursor: second.next_cursor})
+             Ankole.Pod.Pages.list_children(actor, root.id, %{
+               limit: 2,
+               cursor: second.next_cursor
+             })
 
     assert Enum.map(third.pages, & &1.position) == ["z0"]
     assert third.next_cursor == nil
@@ -670,21 +689,26 @@ defmodule Ankole.Pod.PageContractTest do
   test "directory pagination ends on exact full and empty pages" do
     principal = Ankole.PrincipalsFixtures.human_fixture().principal
     actor = Ankole.AuthZ.Actor.new(principal)
+    {:ok, root} = Pages.create(actor, %{title: "Pagination root"})
 
     pages =
       for position <- ["A0", "B0", "C0", "D0"] do
         assert {:ok, page} =
-                 Ankole.Pod.Pages.create(actor, %{title: position, position: position})
+                 Ankole.Pod.Pages.create(actor, %{
+                   title: position,
+                   position: position,
+                   parent_id: root.id
+                 })
 
         page
       end
 
-    assert {:ok, first} = Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2})
+    assert {:ok, first} = Ankole.Pod.Pages.list_children(actor, root.id, %{limit: 2})
     assert Enum.map(first.pages, & &1.position) == ["A0", "B0"]
     assert is_binary(first.next_cursor)
 
     assert {:ok, second} =
-             Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2, cursor: first.next_cursor})
+             Ankole.Pod.Pages.list_children(actor, root.id, %{limit: 2, cursor: first.next_cursor})
 
     assert Enum.map(second.pages, & &1.position) == ["C0", "D0"]
     assert second.next_cursor == nil

@@ -1,3 +1,4 @@
+import { driveMounts } from './drive/mounts'
 import { match, ms } from '@agentbull/active-support'
 import { removeAbandonedRunDirectories } from './automation-jobs/run'
 import { toError } from './common/errors'
@@ -52,6 +53,7 @@ async function runWorker(): Promise<void> {
     joinParams: () => ({
       incarnation_id: config.incarnationID,
       max_slots: config.maxConcurrentSlots,
+      drive_vfs: process.env.ANKOLE_DRIVE_VFS_AVAILABLE === '1',
       available_slots: slots.available()
     })
   })
@@ -88,8 +90,22 @@ async function runWorker(): Promise<void> {
     // where every export would wait out its timeout and lose its spans.
     let tracingFlush: Promise<void> | undefined
     let tracingFlushed = false
+    let driveFlush: Promise<void> | undefined
+    let driveFlushed = false
+    let lastLoopAt = Date.now()
 
     for (;;) {
+      if (Date.now() - lastLoopAt > 60_000) {
+        // The thawed socket can still look joined locally. Renew admission
+        // before refreshing credentials fenced by the control-plane row.
+        void fabric
+          .awaitReady()
+          .then(() => driveMounts.resume())
+          .catch(error =>
+            workerLogger.warning('worker.drive_resume_failed', 'Drive resume failed', { error: String(error) })
+          )
+      }
+      lastLoopAt = Date.now()
       if (!drain.acceptsTurns && !shutdownReported) {
         try {
           await sendEnvelope(controlShutdownEnvelope(drain.reason ?? 'process_shutdown'))
@@ -108,10 +124,20 @@ async function runWorker(): Promise<void> {
       }
 
       if (!drain.shouldContinue) {
-        if (tracingFlushed) break
-        tracingFlush ??= forceFlushWorkerTracing().finally(() => {
-          tracingFlushed = true
-        })
+        driveFlush ??= driveMounts
+          .drain()
+          .catch(error =>
+            workerLogger.warning('worker.drive_drain_failed', 'Drive drain failed', { error: String(error) })
+          )
+          .finally(() => {
+            driveFlushed = true
+          })
+        if (driveFlushed && tracingFlushed) break
+        if (driveFlushed) {
+          tracingFlush ??= forceFlushWorkerTracing().finally(() => {
+            tracingFlushed = true
+          })
+        }
       }
 
       assertNotIsolated(fabric)
@@ -133,6 +159,15 @@ async function runWorker(): Promise<void> {
       }
 
       const envelope = received.envelope
+      if (envelope.body.case === 'vfsInvalidate') {
+        const event = envelope.body.value
+        void driveMounts.invalidate(event.allClean ? [] : event.nodeIds).catch(error =>
+          workerLogger.warning('worker.drive_invalidation_failed', 'Drive cache refresh failed', {
+            error: String(error)
+          })
+        )
+        continue
+      }
       workerLogger.debug('worker.envelope_received', 'runtime fabric envelope received', {
         envelope_type: envelope.body.case,
         message_id: envelope.messageId
@@ -146,6 +181,7 @@ async function runWorker(): Promise<void> {
     try {
       await workerRPCHandlers.close()
       await browserRuntime.stop()
+      await driveMounts.stop()
     } finally {
       try {
         await forceFlushWorkerTracing()

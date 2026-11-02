@@ -57,11 +57,9 @@ ankole-runtime: any
 
 `ankole-runtime` controls which execution surface can see and load the Skill—it does not automatically launch a Background Agent Job. For example, the Deep Research entry Skill sets `ankole-runtime: main` so the Main Agent confirms the scope in chat and creates the Job, while the underlying research Skills run inside the Background Agent Job itself.
 
-#### Ankole extension: discover a Skill through Brain
+#### Shared Skill pages
 
-Specialized SOPs and playbooks are relevant only to matching tasks, so listing all of them in every system prompt would waste context tokens. A shipped Skill can set `brain-recall-only: true` to stay out of the default prompt catalog while remaining a standard Skill under all Agent Plugin, enablement, `ankole-runtime`, and `skill_view` rules.
-
-When Brain is enabled, it indexes the Skill's `name`, `description`, and `tags` for semantic recall. Once Brain surfaces a match, the Agent calls `skill_view`, which checks `ankole-runtime` and either loads the Skill on a compatible surface or returns the appropriate routing guidance. Disabling the Skill or its parent Agent Plugin removes it from both Brain recall and `skill_view` for that Agent.
+Shared Skills live in Pod under `/AnkoleBrain/skills/<name>`. Their page metadata supplies the enabled catalog description, and Brain can search the page content. `skill_view` reads the current instructions together with visible supplement pages. Large child references marked `metadata.role = "reference"` remain available by relative path. Drive permissions determine who can read each page; Agent Plugin and Skill settings determine which capabilities an Agent enables.
 
 ### Control Plane Plugin: site-scoped full-stack platform extension
 

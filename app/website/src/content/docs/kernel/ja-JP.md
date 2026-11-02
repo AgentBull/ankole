@@ -16,7 +16,7 @@ Rust Kernel は Control Plane 向けのネイティブライブラリです。El
 - **`universal_ai_client/`**：上流 Provider との HTTP SSE / EventStream および WebSocket 通信、レスポンスの正規化、下流向け JSON テキストチャンクのエンコード、デマンドクレジット制御、キャンセル処理、タイムアウト管理を担います。
 - **`object_store/`**：ローカルディレクトリまたは S3 互換バケットをバックエンドとするファイルサービスのストレージ層を提供します。
 - **`page_document/`**：Pod ページの XML ツリー検証、Wordgard 変更セットの適用、および UTF-16 差分の計算を行います。
-- **`brain_markdoc/`** と **`markdown.rs`**：Brain ドキュメント本文の解析と Markdown のパースを行います。
+- **`page_document/knowledge/`** と **`markdown.rs`**：知識ページの XML と OKF Markdown を情報を失わずに相互変換し、汎用の Markdown 構文解析を行います。
 - **`model_image.rs`**：モデル向け画像のデコード、リサイズ、フォーマット変換を行います。
 - **`web_proxy.rs`**：Worker 上の Chromium セッション向けに、名前解決後のアドレスに対して SSRF 検査を実施するループバック SOCKS5 `CONNECT` プロキシを提供します。
 - **`signals/`**：渡されたコンテキストにもとづいてルーティングポリシーを評価します。
@@ -25,7 +25,7 @@ Rust Kernel は Control Plane 向けのネイティブライブラリです。El
 
 永続状態の管理、権限データ、Provider の選択、認証情報、ドメイン状態のコミットはすべて Control Plane が所有します。これに対し、Rust Kernel は準備済みの入力データを受け取って処理するだけであり、PostgreSQL への直接クエリや Agent のスケジューリング、Worker ソケットの保持は行いません。また、プログラムによるツール呼び出し（PTC）や Pod Applet バックエンド関数における分離された TypeScript 実行は、Rust Kernel ではなくステートレスな `ankole-function-runtime` サービスが担当します。
 
-RuntimeFabric のエンベロープ構造とプロトコルバージョン 10 は、`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` で宣言されています。シリアライズには Elixir 側で Protox、Worker 側で protobuf-es を使用し、双方が送信時に宣言されたバージョンを設定して受信時に検証します。実行権限の確認は各ドメインの受信側で行い、言語間のコーデック互換性は golden fixture で検証しています。
+RuntimeFabric のエンベロープ構造とプロトコルバージョン 12 は、`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` で宣言されています。シリアライズには Elixir 側で Protox、Worker 側で protobuf-es を使用し、双方が送信時に宣言されたバージョンを設定して受信時に検証します。実行権限の確認は各ドメインの受信側で行い、言語間のコーデック互換性は golden fixture で検証しています。
 
 ## ビルドと通信
 

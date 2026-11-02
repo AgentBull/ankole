@@ -22,6 +22,7 @@ defmodule Ankole.ConversationsModelPreferencesTest do
       )
 
     attrs = %{
+      room_mode: :group,
       conversation_id: Ecto.UUID.generate(),
       message_id: Ecto.UUID.generate(),
       agent_uid: agent.uid,

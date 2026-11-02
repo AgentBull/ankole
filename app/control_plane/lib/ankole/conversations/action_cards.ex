@@ -45,12 +45,14 @@ defmodule Ankole.Conversations.ActionCards do
   def prepare_draft(run, _call, args) when is_map(args) do
     with conversation_id when is_binary(conversation_id) <- run.event.conversation_id,
          {:ok, %Conversation{} = conversation} <- Conversations.get_conversation(conversation_id),
+         :ok <- supported_conversation_action(conversation, args["action_kind"]),
          {:ok, summary} <- ActionCardPrompt.sanitize_summary(Map.get(args, "summary")),
          {:ok, %{type: :agent, status: :active} = agent_principal} <-
            Principals.get_principal(run.agent_uid),
          agent_actor = Actor.new(agent_principal),
          {:ok, target_node_id, payload, preconditions} <-
-           draft_action(agent_actor, conversation, Map.get(args, "action_kind"), args) do
+           draft_action(agent_actor, conversation, Map.get(args, "action_kind"), args),
+         :ok <- knowledge_disclosure(run, args["action_kind"], target_node_id) do
       card_id = Ankole.Ecto.UUIDv7.autogenerate()
 
       {:ok,
@@ -86,6 +88,42 @@ defmodule Ankole.Conversations.ActionCards do
 
       {:error, reason} ->
         {:error, inspect(reason)}
+    end
+  end
+
+  defp knowledge_disclosure(run, "pod.knowledge.save", id) do
+    with {:ok, context} <-
+           Ankole.Brain.RequestContext.build(run.agent_uid, %{"signal_id" => run.signal_id}),
+         {:ok, page} <- Pages.fetch(id),
+         {:ok, _} <- Ankole.Pod.AgentPages.visible(context, page),
+         do: :ok
+  end
+
+  defp knowledge_disclosure(_run, _kind, _id), do: :ok
+
+  defp draft_action(actor, _conversation, "pod.knowledge.save", args) do
+    with {:ok, id} <- cast_uuid(args["node_id"], "node_id"),
+         {:ok, %{page: %{type: :knowledge} = page, content: content}} <- Pages.get(actor, id),
+         true <- args["base_revision"] == page.revision,
+         markdown when is_binary(markdown) <- args["markdown"],
+         {:ok, _} <- Ankole.Kernel.knowledge_parse(markdown),
+         {:ok, previous} <- Ankole.Kernel.knowledge_export(content.content, page.metadata) do
+      diff =
+        String.myers_difference(previous, markdown)
+        |> Enum.map_join(fn
+          {:eq, text} -> text
+          {:del, text} -> "\n- " <> text
+          {:ins, text} -> "\n+ " <> text
+        end)
+
+      {:ok, id,
+       %{"node_id" => id, "node_title" => page.title, "markdown" => markdown, "diff" => diff},
+       %{"node_id" => id, "expected_revision" => page.revision}}
+    else
+      false -> {:error, "The page changed. Read it again before proposing the edit."}
+      {:ok, _} -> {:error, "The target must be a knowledge page."}
+      nil -> {:error, "pod.knowledge.save requires complete markdown."}
+      error -> error
     end
   end
 
@@ -285,8 +323,29 @@ defmodule Ankole.Conversations.ActionCards do
     {:error, "Unsupported action_kind: #{inspect(kind)}"}
   end
 
+  defp supported_conversation_action(%Conversation{kind: :native}, "pod.knowledge.save"), do: :ok
+
+  defp supported_conversation_action(_, "pod.knowledge.save"),
+    do:
+      {:error,
+       "Shared knowledge edits require an authorized owner to confirm in Pod. Provide the proposed draft here and identify the owner; do not save it to private memory."}
+
+  defp supported_conversation_action(conversation, "conversation.add_participants") do
+    if conversation.native_access_scope == :agent_peer or NativeRoom.protected_dm?(conversation),
+      do: {:error, "Create a new group to add participants to a private conversation."},
+      else: :ok
+  end
+
+  defp supported_conversation_action(_, _), do: :ok
+
   @doc "Persists a prepared ActionCard row inside the turn-completion transaction."
   def commit_prepared_in_tx(%Signal{} = event, conversation_id, prompt) when is_map(prompt) do
+    conversation_id =
+      case Conversations.peer_exchange(event.conversation_id) do
+        %{origin_conversation_id: id} when not is_nil(id) -> id
+        _ -> conversation_id
+      end
+
     Ankole.Ash.create(ActionCard, :prepare_in_tx, %{
       id: prompt["card_id"],
       conversation_id: conversation_id,
@@ -416,7 +475,7 @@ defmodule Ankole.Conversations.ActionCards do
       "action_kind" => card.action_kind,
       "summary" => card.summary,
       "target_node_id" => card.target_node_id,
-      "payload" => card.payload,
+      "payload" => client_payload(card),
       "status" => to_string(card.status),
       "resolved_by_uid" => card.resolved_by_uid,
       "resolved_by_name" => card.resolved_by_name,
@@ -424,6 +483,11 @@ defmodule Ankole.Conversations.ActionCards do
       "resolution_note" => card.resolution_note
     }
   end
+
+  defp client_payload(%ActionCard{action_kind: "pod.knowledge.save"} = card),
+    do: Map.put(card.payload, "base_revision", card.preconditions["expected_revision"])
+
+  defp client_payload(%ActionCard{} = card), do: card.payload
 
   def browser_card_state(%ActionCard{} = card, %Conversation{} = conversation) do
     card
@@ -534,10 +598,11 @@ defmodule Ankole.Conversations.ActionCards do
            Native.visible_conversation(actor, conversation_id),
          :ok <- lock_resolution_principals_in_tx(Actor.uid(actor), snapshot, visible),
          :ok <-
-           Ankole.Sessions.Queue.lock_sessions_in_tx([
-             {snapshot.agent_uid, snapshot.session_id},
-             {snapshot.agent_uid, Ankole.Sessions.Key.conversation(conversation_id)}
-           ]),
+           Ankole.Sessions.Queue.lock_sessions_in_tx(
+             resolution_sessions(snapshot, [
+               {snapshot.agent_uid, Ankole.Sessions.Key.conversation(conversation_id)}
+             ])
+           ),
          %Conversation{} = conversation <-
            Native.visible_conversation(actor, conversation_id, lock: true),
          %ActionCard{} = card <- lock_card_in_tx(snapshot.id),
@@ -576,9 +641,7 @@ defmodule Ankole.Conversations.ActionCards do
          :ok <- authorize_browser_card_view(actor, initial_conversation, snapshot),
          :ok <- lock_resolution_principals_in_tx(Actor.uid(actor), snapshot, initial_conversation),
          :ok <-
-           Ankole.Sessions.Queue.lock_sessions_in_tx([
-             {snapshot.agent_uid, snapshot.session_id}
-           ]),
+           Ankole.Sessions.Queue.lock_sessions_in_tx(resolution_sessions(snapshot)),
          %Conversation{} = conversation <- Queries.lock_conversation(initial_conversation.id),
          %ActionCard{} = card <- lock_card_in_tx(snapshot.id),
          %Signal{} = source <- Signals.lock_signal_in_tx(card.source_signal_id) do
@@ -614,9 +677,14 @@ defmodule Ankole.Conversations.ActionCards do
   end
 
   defp browser_external_channel_context(actor, conversation, _card, source) do
+    route =
+      if Conversations.peer_exchange(source.conversation_id),
+        do: source.data["origin_reply_route"],
+        else: Conversations.Route.snapshot(%{signal_id: source.id})
+
     binding =
-      if is_binary(source.reply_binding_name) do
-        case Signals.get_binding(source.reply_binding_id) do
+      if is_binary(route["binding_name"]) do
+        case Signals.get_binding(route["binding_id"]) do
           {:ok, %Binding{} = found} -> found
           _ -> nil
         end
@@ -625,10 +693,10 @@ defmodule Ankole.Conversations.ActionCards do
     tier = if binding, do: channel_tier(binding), else: :tier3
 
     fact = %{
-      binding_id: source.reply_binding_id,
-      binding_name: source.reply_binding_name,
+      binding_id: route["binding_id"],
+      binding_name: route["binding_name"],
       conversation_id: conversation.id,
-      provider_thread_id: source.provider_thread_id,
+      provider_thread_id: route["provider_thread_id"],
       provider_message_id: PreviewStates.get(source).provider_message_id
     }
 
@@ -656,9 +724,7 @@ defmodule Ankole.Conversations.ActionCards do
          :ok <- lock_target_roots_in_tx(snapshot),
          :ok <- lock_resolution_principals_in_tx(operator_uid, snapshot, channel),
          :ok <-
-           Ankole.Sessions.Queue.lock_sessions_in_tx([
-             {snapshot.agent_uid, snapshot.session_id}
-           ]),
+           Ankole.Sessions.Queue.lock_sessions_in_tx(resolution_sessions(snapshot)),
          %ActionCard{} = card <- lock_card_in_tx(snapshot.id),
          %Signal{} = source <- Signals.lock_signal_in_tx(card.source_signal_id),
          true <- external_surface_matches?(source, fact.provider_message_id, binding) do
@@ -819,6 +885,32 @@ defmodule Ankole.Conversations.ActionCards do
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp apply_domain_action_in_tx(
+         actor,
+         _conversation,
+         %ActionCard{action_kind: "pod.knowledge.save"} = card
+       ) do
+    with {:ok, page} <- Pages.lock(card.target_node_id),
+         {:ok, _} <- Access.authorize(actor, page, "node_edit"),
+         {:ok, parsed} <- Ankole.Kernel.knowledge_parse(card.payload["markdown"]) do
+      case Ankole.Pod.Knowledge.put_in_tx(page.id, parsed,
+             actor: actor,
+             base_revision: card.preconditions["expected_revision"]
+           ) do
+        {:ok, %{page: saved}} ->
+          {:ok, "Saved knowledge page \"#{saved.title}\".",
+           [fn -> Pages.committed_page(saved) end]}
+
+        {:error, {:revision_conflict, _}} ->
+          {:stale,
+           "The knowledge page changed after the proposed edit. Read it again and prepare a new draft."}
+
+        error ->
+          error
+      end
     end
   end
 
@@ -1096,9 +1188,10 @@ defmodule Ankole.Conversations.ActionCards do
     case Pages.fetch(node_id) do
       {:ok, page} ->
         required =
-          if card.action_kind == "pod.page.delete" and page.type in [:file, :folder],
-            do: "node_edit",
-            else: "node_manage"
+          if card.action_kind == "pod.knowledge.save" or
+               (card.action_kind == "pod.page.delete" and page.type in [:file, :folder]),
+             do: "node_edit",
+             else: "node_manage"
 
         match?(
           {:ok, _},
@@ -1340,11 +1433,18 @@ defmodule Ankole.Conversations.ActionCards do
         }
       end
 
+    peer = Conversations.peer_exchange(source.conversation_id)
+
     target =
-      if conversation.kind == :native do
-        %{agent_uid: card.agent_uid, conversation_id: conversation.id}
-      else
-        %{agent_uid: card.agent_uid, session_id: card.session_id}
+      cond do
+        peer ->
+          %{agent_uid: card.agent_uid, conversation_id: peer.id}
+
+        conversation.kind == :native ->
+          %{agent_uid: card.agent_uid, conversation_id: conversation.id}
+
+        true ->
+          %{agent_uid: card.agent_uid, session_id: card.session_id}
       end
 
     Signals.accept_in_tx(%{
@@ -1357,17 +1457,18 @@ defmodule Ankole.Conversations.ActionCards do
       sender: Actor.uid(actor),
       time: now,
       reply_route: reply_route,
-      data: %{
-        "conversation_id" => conversation.id,
-        "action_card_id" => card.id,
-        "action_kind" => card.action_kind,
-        "summary" => card.summary,
-        "resolution_note" => note,
-        "confirmed_by_uid" => Actor.uid(actor),
-        "confirmed_by_name" => NativeRoom.display_name(actor.principal),
-        "answered_interaction_id" => card.interaction_id,
-        "text" => text
-      }
+      data:
+        Map.merge(if(peer, do: Map.merge(source.data, %{"peer_hop_count" => 0}), else: %{}), %{
+          "conversation_id" => conversation.id,
+          "action_card_id" => card.id,
+          "action_kind" => card.action_kind,
+          "summary" => card.summary,
+          "resolution_note" => note,
+          "confirmed_by_uid" => Actor.uid(actor),
+          "confirmed_by_name" => NativeRoom.display_name(actor.principal),
+          "answered_interaction_id" => card.interaction_id,
+          "text" => text
+        })
     })
   end
 
@@ -1392,6 +1493,11 @@ defmodule Ankole.Conversations.ActionCards do
 
   defp lock_target_roots_in_tx(_card), do: :ok
 
+  defp resolution_sessions(card, extra \\ []) do
+    source = Signals.get_signal!(card.source_signal_id)
+    Conversations.peer_session_keys(source) ++ extra
+  end
+
   defp lock_resolution_principals_in_tx(actor_uid, %ActionCard{} = card, conversation) do
     added_uids =
       case card.payload["participant_uids"] do
@@ -1412,9 +1518,17 @@ defmodule Ankole.Conversations.ActionCards do
       end
 
     created_by = conversation && Map.get(conversation, :created_by)
+    source = Signals.get_signal!(card.source_signal_id)
+
+    peer_uids =
+      case Conversations.peer_exchange(source.conversation_id) do
+        nil -> []
+        peer -> [peer.peer_sender_uid, peer.peer_target_uid]
+      end
 
     uids =
-      ([actor_uid, card.agent_uid, created_by | added_uids] ++ grant_uids)
+      ([actor_uid, source.human_uid, card.agent_uid, created_by | added_uids] ++
+         grant_uids ++ peer_uids)
       |> Enum.filter(&(is_binary(&1) and &1 != ""))
       |> Enum.uniq()
 

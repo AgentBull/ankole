@@ -145,15 +145,15 @@ test('page data loads in parallel and cached navigation does not wait for revali
     // QueryClient freshness lasts 15s. Exercise query-only navigation after it expires,
     // so a duplicate loader call cannot be hidden by its fresh-cache short circuit.
     await new Promise(resolve => setTimeout(resolve, Math.max(0, fetchedAt + 16_000 - Date.now())))
-    const opener = page.getByRole('button', { name: '页面对话', exact: true })
+    const opener = page.getByRole('button', { name: '助理', exact: true })
     await opener.click()
-    const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
+    const panel = page.getByRole('complementary', { name: '助理', exact: true })
     await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toBeVisible()
     await expect.poll(() => new URL(page.url()).searchParams.has('chat')).toBe(true)
     await page.waitForLoadState('networkidle')
     record('page chat opened after page query became stale')
     expect(pageRequests).toBe(1)
-    await panel.getByRole('button', { name: '关闭页面对话', exact: true }).click()
+    await panel.getByRole('button', { name: '关闭助理', exact: true }).click()
     await expect(panel).toBeHidden()
     await expect.poll(() => new URL(page.url()).searchParams.has('chat')).toBe(false)
     await page.waitForLoadState('networkidle')

@@ -27,6 +27,39 @@ async function addComment(page: Page, body: string) {
   await expect(comments(page).locator('.pod-comment-thread').getByText(body, { exact: true })).toBeVisible()
 }
 
+test('typing immediately after a colleague mention keeps every character in order', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  const clockStart = new Date()
+  await page.clock.install({ time: clockStart })
+  let id: string | undefined
+  try {
+    id = await create(page, 'Quick colleague follow-up')
+    await trigger(page).click()
+    const input = comments(page).getByRole('textbox', { name: '添加评论…', exact: true })
+    await input.fill(`@${state.agent_uid}`)
+    await expect(comments(page).getByRole('option')).toHaveCount(1)
+    await page.clock.pauseAt(new Date(clockStart.getTime() + 60_000))
+    await input.press('Enter')
+    await expect(input).toHaveValue('@Browser content Agent ')
+    await input.pressSequentially('F')
+    await page.clock.runFor(20)
+    await input.pressSequentially('ollow up on our review.')
+    await expect(input).toHaveValue('@Browser content Agent Follow up on our review.')
+    await page.clock.resume()
+    await comments(page).getByRole('button', { name: '发送', exact: true }).click()
+    await expect(
+      comments(page).locator('.pod-comment-thread').getByText('@Browser content Agent Follow up on our review.', {
+        exact: true
+      })
+    ).toBeVisible()
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
 test('Mermaid source comments keep their anchor through editing and reload', async ({ browser }) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)

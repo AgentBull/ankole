@@ -689,7 +689,7 @@ defmodule Ankole.Pod.Pages.Mentions do
           status in [:ok, :trashed],
           do: Map.fetch!(pages_by_id, id)
 
-    doc_ids = for %{type: :doc, id: id} <- accessible_pages, do: id
+    doc_ids = for %{type: type, id: id} <- accessible_pages, type in [:doc, :knowledge], do: id
 
     excerpts_by_id =
       if doc_ids == [] do

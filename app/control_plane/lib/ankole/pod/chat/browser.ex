@@ -8,6 +8,9 @@ defmodule Ankole.Pod.Chat.Browser do
 
   authz do
     scope(:pod)
+    allow(:attention, check: :guardrail)
+    allow(:peer_exchange, check: :guardrail)
+    allow(:stop_peer_exchange, check: :guardrail)
     allow(:agents, check: :guardrail)
     allow(:ensure_personal_assistant, check: :guardrail)
     allow(:teammates, check: :guardrail)
@@ -75,6 +78,64 @@ defmodule Ankole.Pod.Chat.Browser do
   end
 
   actions do
+    action :peer_exchange, :map do
+      constraints(
+        fields: [
+          id: [type: UUIDv7, allow_nil?: false],
+          agentUID: [type: PrincipalKey, allow_nil?: false],
+          status: [type: :string, allow_nil?: false],
+          text: [type: :string, allow_nil?: false, constraints: [allow_empty?: true]],
+          nextCursor: [type: :integer],
+          activity: [type: Ankole.Pod.Chat.Activity],
+          messages: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields: [
+                  id: [type: UUIDv7, allow_nil?: false],
+                  seq: [type: :integer, allow_nil?: false],
+                  authorUID: [type: PrincipalKey],
+                  text: [type: :string],
+                  execution: [type: :map]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:exchange_id, UUIDv7, allow_nil?: false)
+      argument(:cursor, :integer, constraints: [min: 0])
+
+      run(fn input, context ->
+        args = input.arguments
+
+        Conversations.peer_exchange_detail(
+          context.actor,
+          args.id,
+          args.exchange_id,
+          args[:cursor]
+        )
+        |> APIError.result()
+      end)
+    end
+
+    action :stop_peer_exchange, :boolean do
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:exchange_id, UUIDv7, allow_nil?: false)
+
+      run(fn input, context ->
+        Conversations.stop_peer_exchange(
+          context.actor,
+          input.arguments.id,
+          input.arguments.exchange_id
+        )
+        |> APIError.result(fn _ -> true end)
+      end)
+    end
+
     action :agents, :map do
       constraints(
         fields: [
@@ -87,10 +148,18 @@ defmodule Ankole.Pod.Chat.Browser do
       run(fn _input, context ->
         owner = Ankole.AuthZ.Actor.principal(context.actor)
         assistant = Ankole.Principals.personal_assistant(owner.uid)
+        direct = Conversations.direct_conversations(owner.uid)
 
         {:ok,
          %{
-           agents: Enum.map(Conversations.agents(context.actor), &Presentation.agent/1),
+           agents:
+             Enum.map(Conversations.agents(context.actor), fn principal ->
+               Map.put(
+                 Presentation.agent(principal),
+                 :directConversationID,
+                 direct[principal.uid]
+               )
+             end),
            personalAssistant: if(assistant, do: Presentation.agent(assistant.principal)),
            personalAssistantAvailable:
              owner.type == :human and owner.status == :active and owner.membership == :member
@@ -126,6 +195,15 @@ defmodule Ankole.Pod.Chat.Browser do
       end)
     end
 
+    action :attention, {:array, Conversation} do
+      run(fn _input, context ->
+        {:ok,
+         context.actor
+         |> Conversations.list_rooms(attention: true, order: :recent)
+         |> Presentation.conversations()}
+      end)
+    end
+
     action :list, :map do
       constraints(
         fields: [
@@ -137,6 +215,7 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:pageID, UUIDv7)
       argument(:query, :string)
       argument(:cursor, UUIDv7)
+      argument(:imOnly, :boolean, default: false)
       argument(:limit, :integer, default: 50, constraints: [min: 1, max: 100])
       argument(:order, :atom, default: :pinned, constraints: [one_of: [:pinned, :recent]])
 
@@ -148,6 +227,7 @@ defmodule Ankole.Pod.Chat.Browser do
             page_id: input.arguments[:pageID],
             query: input.arguments[:query],
             cursor: input.arguments[:cursor],
+            im_only: input.arguments.imOnly,
             order: input.arguments.order,
             limit: limit + 1
           )
@@ -334,6 +414,7 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:agentUID, PrincipalKey)
       argument(:agentUIDs, {:array, PrincipalKey})
       argument(:participantUIDs, {:array, PrincipalKey})
+      argument(:roomMode, :atom, constraints: [one_of: [:dm, :group]])
       argument(:accessScope, :atom, constraints: [one_of: [:participants, :anchor_page]])
       argument(:text, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
       argument(:pageID, UUIDv7)
@@ -501,6 +582,7 @@ defmodule Ankole.Pod.Chat.Browser do
         agent_uid: attrs[:agentUID],
         agent_uids: attrs[:agentUIDs],
         participant_uids: attrs[:participantUIDs],
+        room_mode: attrs[:roomMode],
         access_scope: attrs[:accessScope],
         page_id: attrs[:pageID],
         model_profile: attrs[:modelProfile]

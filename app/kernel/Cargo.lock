@@ -85,6 +85,7 @@ dependencies = [
 name = "ankole_kernel"
 version = "0.1.0"
 dependencies = [
+ "any_ascii",
  "base64-simd",
  "blake3",
  "bytes",
@@ -92,6 +93,7 @@ dependencies = [
  "chacha20poly1305",
  "comrak",
  "crc32fast",
+ "csv",
  "futures-util",
  "globset",
  "hashcrew",
@@ -114,6 +116,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
  "sonic-rs",
  "stacker",
  "tiktoken-rs",
@@ -141,6 +144,12 @@ dependencies = [
  "typed-arena",
  "uuid",
 ]
+
+[[package]]
+name = "any_ascii"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90c6333e01ba7235575b6ab53e5af10f1c327927fd97c36462917e289557ea64"
 
 [[package]]
 name = "anyhow"
@@ -4266,6 +4275,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml_ng"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5226,6 +5248,12 @@ dependencies = [
  "crypto-common 0.2.2",
  "ctutils",
 ]
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

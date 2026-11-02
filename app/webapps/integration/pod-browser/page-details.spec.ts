@@ -245,7 +245,7 @@ test('title saves keep edit order and a failed save protects navigation until re
     const title = owner.getByRole('textbox', { name: '页面标题', exact: true })
     await expect(title).toHaveValue(originalTitle)
     await pageAction(owner, '复制链接')
-    const expectedLink = state.base_url + pageRoute(id)
+    const expectedLink = state.base_url + pageRoute(id, undefined, originalTitle)
     await expect.poll(() => owner.evaluate(() => navigator.clipboard.readText())).toBe(expectedLink)
     const copiedLink = await owner.evaluate(() => navigator.clipboard.readText())
     const linked = await context.newPage()

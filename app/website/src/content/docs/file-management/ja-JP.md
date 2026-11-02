@@ -55,7 +55,7 @@ order: 31
 
 ドライブと永続 Home のデータは、どちらも Worker が置き換えられた後に引き継がれます。ただし、ワークスペース内にのみ書き込まれたファイルは Home 側に残るため、Console から取得したい場合はドライブに公開（保存）させてください。ストレージごとの制約については [Worker](../worker-management/) を参照してください。
 
-また、Agent の `MISSION`、`SOUL`、`DESIGN`、および `CONFIDENTIALITY POLICY`（`ConfidentialityPolicy.md`）の各ドキュメントは Agent エディタで管理されます。これらは実行時に Worker へ投影されますが、ドライブ上のファイルではありません。詳しくは [Agents](../agents/) を参照してください。
+Agent の行動とデザインの規約は、Pod の `/AnkoleBrain` 配下にある知識ページです。Console の参照元リンクから全体または個別の `AGENTS[.override].md` と `DESIGN[.override].md` を編集し、Worker が各 Turn でランタイム用の全文を更新します。詳しくは [Agents](../agents/) を参照してください。
 
 ## よくある問題
 

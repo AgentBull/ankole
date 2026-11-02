@@ -10,6 +10,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -150,9 +151,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(threadStart.config.developer_instructions).toContain('ankole-pod chat attachment get')
       expect(threadStart.developerInstructions).toBe(threadStart.config.developer_instructions)
       expect(threadStart.developerInstructions).toContain(tracedTurnStart.request_context!.original_human_request)
-      expect(readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')).toContain(
-        'ankole-pod chat attachment get'
-      )
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'AGENTS.md'), 'utf8')).toBe('AGENTS')
+      expect(existsSync(join(jobProjectFor(fixture.root), 'AGENTS.md'))).toBe(false)
       expect(threadStart.config.model_providers.ankole_aigateway.http_headers).toMatchObject({
         traceparent,
         'x-ankole-observability-user-id': Buffer.from(observabilityUserID).toString('base64url')
@@ -183,6 +183,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
         'version'
       ])
       expect(readdirSync(join(fixture.root, 'browser-runtime', 'browser', 'materials'))).toEqual([])
+      expect(readdirSync(join(fixture.root, 'workspace', '.ankole', 'turn-skills'))).toEqual([])
     } finally {
       fixture.cleanup()
     }
@@ -514,9 +515,11 @@ describe('@ankole/agent-computer Codex job runner', () => {
 
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       expect(parsedJSON(statusUpdates[0]?.metadataJson)?.mcp_server_names).toEqual(['job-data'])
-      const agents = readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')
+      const agents = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8'))
+        .developerInstructions as string
       expect(agents).toContain('job-any')
       expect(agents).not.toContain('main-only')
+      expect(readdirSync(join(fixture.root, 'workspace', '.ankole', 'turn-skills'))).toEqual([])
       expect(existsSync(join(jobProjectFor(fixture.root), '.agents', 'skills'))).toBe(false)
       const runtimeEnv = JSON.parse(
         readFileSync(join(jobProjectFor(fixture.root), 'browser-env.json'), 'utf8')
@@ -1095,7 +1098,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
-  it('loads a prompt-hidden Skill and notifies the active Job once after it becomes disabled', async () => {
+  it('loads a Skill and notifies the active Job once after it becomes disabled', async () => {
     const fixture = prepareFixture('done after Skill disable', {
       dynamicToolCall: { tool: 'skill_view', arguments: { name: 'pdf' } },
       dynamicToolCompletionDelayMs: 400,
@@ -1108,7 +1111,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       description: 'Test PDF Skill.',
       sourceKind: 'builtin',
       relativePath: 'pdf',
-      metadataJson: jsonBytes({ 'ankole-runtime': 'any', brain_recall_only: true })
+      metadataJson: jsonBytes({ 'ankole-runtime': 'any' })
     })
     const skillRoot = join(fixture.root, 'builtin-skills', 'pdf')
     mkdirSync(skillRoot, { recursive: true })
@@ -1133,7 +1136,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     try {
       await runCodexJob(turnStart([pdf]), opts)
 
-      expect(readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')).not.toContain('Test PDF Skill.')
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'AGENTS.md'), 'utf8')).toBe('AGENTS')
       expect(readFileSync(join(codexHomeFor(fixture.root), 'steer-input.txt'), 'utf8')).toContain('pdf')
       expect(
         turnUpserts.some(update => {
@@ -1259,6 +1262,22 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
+  it('cleans materialized Skills when preparation fails before execution resources exist', async () => {
+    const fixture = prepareFixture('must not run')
+    const opts = options(fixture.root, [], [])
+    opts.requestAIGatewayAPIKey = async () => {
+      throw new Error('gateway unavailable during preparation')
+    }
+
+    try {
+      await expect(runCodexJob(turnStart(), opts)).rejects.toThrow('gateway unavailable during preparation')
+      expect(readdirSync(join(fixture.root, 'workspace', '.ankole', 'turn-skills'))).toEqual([])
+      expect(existsSync(join(codexHomeFor(fixture.root), 'initialize-started.txt'))).toBe(false)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it('stops preparation at the first completed boundary after a control arrives', async () => {
     const fixture = prepareFixture('must not run')
     const statusUpdates: RecordedStatusUpdate[] = []
@@ -1332,7 +1351,6 @@ function options(
     workspaceRoot: join(agentHome, 'jobs', jobID),
     drive: new FakeDrive(agentHome).drive(),
     builtinSkillsRoot,
-    agentInstalledSkillsRoot: join(agentHome, 'installed-skills'),
     browserRuntime,
     requestAIGatewayAPIKey: async () =>
       create(AIGatewayAPIKeyResponseSchema, {
@@ -1399,6 +1417,19 @@ function options(
             runtimeThreadId: request.runtimeThreadId ?? ''
           })
         }
+        case 'pod.read': {
+          const args = jsonObjectFromBytes((payload as { paramsJson: Uint8Array }).paramsJson, 'Skill bundle params')!
+          const name = args.name as string
+          const directory = join(builtinSkillsRoot, name)
+          const files = readdirSync(directory, { recursive: true, encoding: 'utf8' }).flatMap(path => {
+            const absolute = join(directory, path)
+            const stat = statSync(absolute)
+            return stat.isFile()
+              ? [{ path, content: readFileSync(absolute).toString('base64'), mode: stat.mode & 0o777 }]
+              : []
+          })
+          return { bodyJson: jsonBytes({ files }) }
+        }
         case 'tools.read': {
           const args = jsonObjectFromBytes((payload as { argumentsJson: Uint8Array }).argumentsJson, 'read args')!
           const name = args.name as string
@@ -1455,10 +1486,8 @@ function turnStart(skills: RuntimeSkillSummary[] = []): TurnStart {
   return {
     mode: 'start',
     agent_context: create(AgentConversationContextResponseSchema, {
-      soul: 'SOUL',
-      mission: 'MISSION',
+      agents: 'AGENTS',
       design: '',
-      confidentialityPolicy: '',
       conversation: {},
       skills,
       skillsPrompt: fakeSkillsPrompt(skills)
@@ -1869,7 +1898,7 @@ function fakeSkillsPrompt(skills: RuntimeSkillSummary[]): string {
   const lines = skills
     .filter(skill => {
       const metadata = parsedJSON(skill.metadataJson)
-      return metadata?.['ankole-runtime'] !== 'main' && metadata?.['brain_recall_only'] !== true
+      return metadata?.['ankole-runtime'] !== 'main'
     })
     .map(skill => `    - ${skill.skillName}: ${skill.description}`)
   return lines.length === 0

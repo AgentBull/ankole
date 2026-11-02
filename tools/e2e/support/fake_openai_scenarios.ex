@@ -37,6 +37,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     "CHAOS_GROUP_ISOLATION_CHECK",
     "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN",
     "CHAOS_REPLY_ATTACHMENT",
+    "CHAOS_DRIVE_ATTACHMENT",
+    "CHAOS_DRIVE_RESUME",
     "CHAOS_TODO_TOOL",
     "CHAOS_INTERNAL_SKILL",
     "CHAOS_SKILL_VIEW_ALL",
@@ -150,6 +152,12 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
       String.contains?(prompt, "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN") ->
         :recalled_followup
+
+      String.contains?(prompt, "CHAOS_DRIVE_RESUME") ->
+        :drive_resume
+
+      String.contains?(prompt, "CHAOS_DRIVE_ATTACHMENT") or continuation_kind == :drive_attachment ->
+        :drive_attachment
 
       String.contains?(prompt, "CHAOS_REPLY_ATTACHMENT") ->
         :reply_attachment
@@ -420,6 +428,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       {:reply_attachment, "call_lark_chaos_reply_attachment"},
       {:reply_attachment, "reports/chaos-report.txt"},
       {:reply_attachment, "chaos-report.txt"},
+      {:drive_attachment, "call_drive_attachment"},
+      {:drive_attachment, "drive-report.txt"},
       {:checkback_tool, "call_lark_chaos_checkback"},
       {:checkback_tool, "lark-chaos-checkback-1"},
       {:checkback_tool, "Lark chaos checkback"},
@@ -502,6 +512,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:read_file_tool), do: "CHAOS_READ_FILE_OK"
   defp reply_for(:recalled_followup), do: "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN"
   defp reply_for(:reply_attachment), do: "CHAOS_REPLY_ATTACHMENT_OK"
+  defp reply_for(:drive_attachment), do: "CHAOS_REPLY_ATTACHMENT_OK"
+  defp reply_for(:drive_resume), do: "CHAOS_REPLY_ATTACHMENT_OK"
   defp reply_for(:installed_skill_deleted_tool), do: "CHAOS_INSTALLED_SKILL_DELETED_OK"
   defp reply_for(:installed_skill_tool), do: "CHAOS_INSTALLED_SKILL_OK"
   defp reply_for(:skill_disabled_tool), do: "CHAOS_SKILL_DISABLED_OK"
@@ -518,6 +530,55 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:generic), do: "CHAOS_GENERIC_OK"
 
   defp tool_call_for(:reply_attachment, 1), do: tool_call_for(:reply_attachment_command)
+
+  defp tool_call_for(:drive_attachment, 1) do
+    %{
+      id: "call_drive_attachment_write",
+      name: "command",
+      arguments: %{
+        "command" =>
+          "mkdir -p /drive/ChatDrive/reports && printf 'old' > /drive/ChatDrive/reports/drive-report.txt && " <>
+            "printf 'CHAOS_REPLY_ATTACHMENT_FILE' > /drive/ChatDrive/reports/draft.tmp",
+        "timeout" => 30
+      }
+    }
+  end
+
+  defp tool_call_for(:drive_attachment, 2) do
+    %{
+      id: "call_drive_attachment_save",
+      name: "command",
+      arguments: %{
+        "command" =>
+          "mv /drive/ChatDrive/reports/draft.tmp /drive/ChatDrive/reports/drive-report.txt",
+        "timeout" => 30
+      }
+    }
+  end
+
+  defp tool_call_for(:drive_attachment, 3) do
+    %{
+      id: "call_drive_attachment_reply",
+      name: "reply_attachment",
+      arguments: %{"path" => "/drive/ChatDrive/reports/drive-report.txt"}
+    }
+  end
+
+  defp tool_call_for(:drive_resume, 1) do
+    %{
+      id: "call_drive_resume_edit",
+      name: "command",
+      arguments: %{
+        "command" =>
+          "test \"$(cat /drive/ChatDrive/reports/drive-report.txt)\" = CHAOS_REPLY_ATTACHMENT_FILE && " <>
+            "printf '\\nRESUMED' >> /drive/ChatDrive/reports/drive-report.txt",
+        "timeout" => 30
+      }
+    }
+  end
+
+  defp tool_call_for(:drive_resume, 2), do: tool_call_for(:drive_attachment, 3)
+
   defp tool_call_for(:todo_tool, 1), do: tool_call_for(:todo_tool_start)
   defp tool_call_for(:todo_tool, 2), do: tool_call_for(:todo_tool_complete)
 

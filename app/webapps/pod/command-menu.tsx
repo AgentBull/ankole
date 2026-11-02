@@ -1,4 +1,4 @@
-import { usePagesMetadata } from './use-page-metadata'
+import { usePageHref, usePagesMetadata } from './use-page-metadata'
 import { createContext, useContext, useEffect, useRef, useState, type RefObject } from 'react'
 import { useDebouncedValue } from '../common/use-debounced-value'
 import {
@@ -14,18 +14,22 @@ import {
   DialogTitle,
   useSidebar
 } from '@ankole/uikit'
-import { RiAddLine, RiChat3Line, RiSearchLine, RiSettings3Line, RiUser3Line } from '@remixicon/react'
+import { RiAddLine, RiSearchLine, RiSettings3Line, RiUser3Line } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import { browserSession } from '../common/api/generated/sdk.gen'
-import { authenticationRef, podID, podLocation } from '../common/browser-context'
+import { authenticationRef, podID } from '../common/browser-context'
+import { podLocation } from '../common/pod-url'
 import { ErrorBoundary } from '../common/error-boundary'
-import { conversationSearchQuery } from './api'
+import { agentsQuery, conversationSearchQuery } from './api'
 import { pageSearchQuery } from './content-api'
 import { ContentError, scopeIcons, scopeLabels, typeLabels } from './content-primitives'
 import { PageIcon } from './page-icon'
 import { pageAncestors } from './state/page-location'
+import { useChatDrafts } from './chat-drafts'
+import { ChatAvatar } from './chat/chat-avatar'
+import { AgentName, ConversationGlyph, ConversationTitle, conversationLabel } from './chat/conversation-row'
 
 export const PodCommandContext = createContext<(() => void) | null>(null)
 export type PodCommandNavigationState = { focusComposer: true }
@@ -46,7 +50,9 @@ export function PodCommandMenu({
   returnFocus: RefObject<HTMLElement | null>
 }) {
   const { t } = useTranslation()
+  const drafts = useChatDrafts()
   const navigate = useNavigate()
+  const pageHref = usePageHref()
   const { setOpenMobile } = useSidebar()
   const [query, setQuery] = useState('')
   const settledQuery = useDebouncedValue(query, 180)
@@ -55,7 +61,21 @@ export function PodCommandMenu({
   const ancestors = usePagesMetadata(pages.data?.ancestors ?? [])
   const pagesByID = new Map([...pageResults, ...ancestors].map(page => [page.id, page]))
   const conversations = useQuery({ ...conversationSearchQuery(settledQuery), enabled: open })
-  const conversationResults = query === settledQuery ? (conversations.data?.conversations ?? []) : []
+  const agents = useQuery({ ...agentsQuery, enabled: open })
+  const colleagueSearch = query.trim().replace(/^@/, '').toLocaleLowerCase()
+  const colleagueResults = colleagueSearch
+    ? (agents.data?.agents ?? []).filter(agent =>
+        `${agent.uid} ${agent.displayName} ${agent.role ?? ''}`.toLocaleLowerCase().includes(colleagueSearch)
+      )
+    : []
+  const conversationResults =
+    query === settledQuery
+      ? (conversations.data?.conversations ?? []).filter(
+          conversation =>
+            conversation.conversationKind !== 'colleague_dm' ||
+            !colleagueResults.some(agent => agent.uid === conversation.agents[0]?.uid)
+        )
+      : []
   const session = useQuery({
     queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
@@ -67,6 +87,7 @@ export function PodCommandMenu({
     if (open) selected.current = false
   }, [open])
   const choose = (path: string, newChat = false) => {
+    if (newChat) drafts.startNew()
     selected.current = true
     setQuery('')
     onOpenChange(false)
@@ -105,7 +126,7 @@ export function PodCommandMenu({
             vimBindings={false}
             // Page and conversation results include body matches from the server; preserve higher scores for title and command matches.
             filter={(value, search, keywords) =>
-              value.startsWith('page:') || value.startsWith('chat:')
+              value.startsWith('page:') || value.startsWith('chat:') || value.startsWith('colleague:')
                 ? Math.max(0.5, commandFilter(value, search, keywords))
                 : commandFilter(value, search, keywords)
             }
@@ -130,13 +151,15 @@ export function PodCommandMenu({
                 )}
               </CommandEmpty>
               <CommandGroup heading={t('pod.content.page_navigation')}>
-                <CommandItem
-                  value="new-chat"
-                  keywords={[t('pod.chat.new_conversation')]}
-                  onSelect={() => void choose('/', true)}>
-                  <RiAddLine aria-hidden />
-                  {t('pod.chat.new_conversation')}
-                </CommandItem>
+                {agents.data?.personalAssistantAvailable && (
+                  <CommandItem
+                    value="new-chat"
+                    keywords={[t('pod.chat.new_conversation')]}
+                    onSelect={() => void choose('/', true)}>
+                    <RiAddLine aria-hidden />
+                    {t('pod.chat.new_conversation')}
+                  </CommandItem>
+                )}
                 <CommandItem
                   value="scope:search"
                   keywords={[t('pod.content.search_pages')]}
@@ -188,7 +211,7 @@ export function PodCommandMenu({
                         key={page.id}
                         value={`page:${page.id}`}
                         keywords={[title, typeLabels[page.type]]}
-                        onSelect={() => void choose(`/pages/${page.id}`)}>
+                        onSelect={() => void choose(pageHref(page.id, page.title))}>
                         <PageIcon page={page} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate">{title}</span>
@@ -200,18 +223,47 @@ export function PodCommandMenu({
                   })}
                 </CommandGroup>
               )}
+              {colleagueResults.length > 0 && (
+                <CommandGroup heading={t('pod.superagent.messages_colleagues')}>
+                  {colleagueResults.map(agent => (
+                    <CommandItem
+                      key={agent.uid}
+                      value={`colleague:${agent.uid}`}
+                      keywords={[agent.uid, agent.displayName, agent.role ?? '']}
+                      onSelect={() => void choose(`/dm/${encodeURIComponent(agent.uid)}`)}>
+                      <span className="pod-conversation-glyph">
+                        <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">
+                          <AgentName agent={agent} />
+                        </span>
+                        {agent.role && <span className="block truncate text-xs text-fg-tertiary">{agent.role}</span>}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
               {conversationResults.length > 0 && (
                 <CommandGroup heading={t('pod.sidebar.tabs.chat')}>
                   {conversationResults.map(conversation => {
-                    const title = conversation.title.trim() || t('pod.content.untitled')
+                    const title = conversationLabel(conversation, t('pod.content.untitled'))
                     return (
                       <CommandItem
                         key={conversation.id}
                         value={`chat:${conversation.id}`}
                         keywords={[title]}
-                        onSelect={() => void choose(`/conversations/${conversation.id}`)}>
-                        <RiChat3Line aria-hidden />
-                        <span className="truncate">{title}</span>
+                        onSelect={() =>
+                          void choose(
+                            conversation.conversationKind === 'colleague_dm'
+                              ? `/dm/${encodeURIComponent(conversation.agents[0]!.uid)}`
+                              : `/conversations/${conversation.id}`
+                          )
+                        }>
+                        <ConversationGlyph room={conversation} />
+                        <span className="truncate">
+                          <ConversationTitle room={conversation} />
+                        </span>
                       </CommandItem>
                     )
                   })}

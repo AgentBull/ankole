@@ -44,7 +44,7 @@ defmodule Ankole.Pod.Page do
     attribute(:type, :atom,
       public?: true,
       allow_nil?: false,
-      constraints: [one_of: [:folder, :doc, :base, :applet, :file]]
+      constraints: [one_of: [:folder, :doc, :knowledge, :base, :applet, :file]]
     )
 
     attribute(:title, :string,
@@ -68,6 +68,10 @@ defmodule Ankole.Pod.Page do
       default: 0,
       constraints: [min: 0]
     )
+
+    attribute(:metadata, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
+    attribute(:upstream_state, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
+    attribute(:system_key, :string, public?: true)
 
     attribute(:saved_from_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
 

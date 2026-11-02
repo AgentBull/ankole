@@ -47,7 +47,7 @@ defmodule Ankole.Principals.PersonalAssistantTest do
     assert same_uid == pa.uid
     assert Ankole.AgentWorkers.get_agent_worker!(pa.uid)
     assert {:ok, library} = Ankole.AIAgent.Library.list_agent_documents(pa.uid)
-    assert library["soul"]["content"] =~ "personal assistant"
+    assert library["agents"]["content"] =~ "personal assistant"
     assert :ok = Ankole.AuthZ.authorize(owner.uid, "agent:#{pa.uid}", "chat")
     assert WorkAccess.from_sender(pa.uid) == WorkAccess.from_sender(owner.uid)
   end

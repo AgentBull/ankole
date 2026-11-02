@@ -15,6 +15,22 @@ defmodule AnkoleWeb.WorkerChannelTest do
   alias AnkoleWeb.WorkerChannel
 
   setup do
+    previous = Application.get_env(:ankole, WorkerChannel)
+
+    # Only these flow-control tests need small budgets and a short timeout.
+    # Real Worker integrations use the channel's production defaults.
+    Application.put_env(:ankole, WorkerChannel,
+      command_ack_timeout_ms: 300,
+      pending_command_limit: 2,
+      inflight: [durable: {2, 64 * 1024 * 1024}]
+    )
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:ankole, WorkerChannel),
+        else: Application.put_env(:ankole, WorkerChannel, previous)
+    end)
+
     %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
     :ok = SessionsCase.provision_worker(agent.uid)
 

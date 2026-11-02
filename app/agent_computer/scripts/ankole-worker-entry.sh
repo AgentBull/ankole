@@ -101,6 +101,10 @@ fi
 if [ "$ANKOLE_WORKER_STORAGE" = nfs ]; then
   touch /run/ankole-entry-ready
 fi
+# Advertise the capability only after this provider has mounted and exercised
+# the packaged FUSE client. RPC file delivery remains available on other hosts.
+export ANKOLE_DRIVE_VFS_AVAILABLE=0
+if /usr/local/libexec/ankole-drive-probe; then export ANKOLE_DRIVE_VFS_AVAILABLE=1; fi
 # Only model-driven children drop to uid 1000. The entry, supervisor, and
 # Worker retain their separate identity and the generation credential.
 exec tini -s -g -- ankole-worker-supervisor "$@"

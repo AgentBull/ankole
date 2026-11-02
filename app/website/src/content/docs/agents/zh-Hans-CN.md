@@ -30,22 +30,13 @@ order: 13
 
 在单人私聊中，两种模式的行为一致。建议仅在群组成员明确接受宽松共享规则时选择「宽松」，其余场景一律选择「严格」。完整的知识权限与披露模型请参阅 [Brain](../brain/)。
 
-## 设置长期文档
+## 设置 Agent 规范
 
-打开 Agent 编辑页中的 **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** 标签页：
+通过 Console 中 Agent 的 **AGENTS / DESIGN** 来源链接进入 Pod 编辑对应页面。`/AnkoleBrain/AGENTS.md` 定义组织行为、职责和保密规则，`/AnkoleBrain/DESIGN.md` 保存网页、幻灯片、文档和图表等产出物的视觉规范。
 
-| 文档 | 填写内容 |
-|---|---|
-| `MISSION.md` | Agent 存在的目的、负责的具体工作，以及交付完成的判定标准 |
-| `SOUL.md` | 沟通方式、判断原则，以及面对信息不全或不确定情况时的行动准则 |
-| `DESIGN.md` | Agent 制作网页、幻灯片、文档、图表等视觉内容时遵循的设计系统 |
-| `ConfidentialityPolicy.md` | Agent 主动向 Brain 写入知识时如何选择受众可见范围 |
+在 `/AnkoleBrain/agents/<uid>/` 下，`AGENTS.md` 追加岗位职责，`AGENTS.override.md` 提供完整的独立规范。DESIGN 同样支持追加或覆盖：YAML 元数据保存设计令牌，正文说明具体用法。个人助理使用由主人管理的私有覆盖页。继承规则见 [Agent Library](../agent-library/)。
 
-`DESIGN.md` 遵循标准的 <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md 格式</a>：YAML frontmatter 保存颜色、字体、间距、圆角和组件等设计令牌（Design Tokens），Markdown 正文说明视觉原则与排版用法。Ankole 内置了一套默认设计系统，管理员也可在 **Console → 智能体 → DESIGN** 中将其替换为企业自身的品牌规范。
-
-请勿将业务流程、权限边界或行为准则写入 `DESIGN.md`——这些内容应分别归入 `MISSION.md`、`SOUL.md`、`ConfidentialityPolicy.md` 或具体的 Skill。此外，`ConfidentialityPolicy.md` 仅指导 Agent 主动向 Brain 写入知识时的范围判定；系统从日常聊天中自动提炼记忆时，可见范围固定由对话参与者决定。初次编写长期文档时应尽量简明扼要，待实际工作中暴露具体问题后，再按需补充对应规则。
-
-文档保存后将从后续新开启的对话起生效，当前正在执行的工作仍继续使用启动时读取的版本。
+保存的修改从下一轮生效，包括 Codex Job 的续跑回合；当前回合使用启动时完整读取的规范。
 
 ## 配置模型
 

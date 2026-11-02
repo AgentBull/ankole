@@ -3,7 +3,6 @@ defmodule Ankole.Brain.CalibrationTest do
 
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Claims
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.SchemaCalibrationDomain
@@ -18,10 +17,16 @@ defmodule Ankole.Brain.CalibrationTest do
     upstream = start_supervised!({Agent, fn -> %{} end})
 
     handler = fn %{path: "chat/completions", body: body} ->
-      plan = Agent.get_and_update(upstream, &{&1, %{}})
+      prompt = body["messages"] |> List.first() |> Map.fetch!("content")
+      timeline? = String.contains?(prompt, "Extract dated events from this knowledge page")
+
+      plan =
+        if timeline?,
+          do: %{output: %{"items" => []}},
+          else: Agent.get_and_update(upstream, &{&1, %{}})
+
       if before_reply = plan[:before_reply], do: Repo.with_tenant(tenant_id, before_reply)
 
-      prompt = body["messages"] |> List.first() |> Map.fetch!("content")
       send(test_pid, {:calibration_prompt, prompt})
       send(test_pid, {:calibration_request, body})
 
@@ -57,7 +62,7 @@ defmodule Ankole.Brain.CalibrationTest do
           type: "concept",
           title: "Deleted Calibration"
         },
-        member.uid
+        :system
       )
 
     %{
@@ -71,11 +76,11 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   test "public predictions exclude private evidence from the model request", context do
-    write_take!(context.member, %{object_slug: context.object.slug}, "Public prediction")
+    write_take!(context.member, %{subject_page_id: context.object.id}, "Public prediction")
     write_fact!(context, "Public evidence")
 
     write_fact!(context, "Private acquisition detail",
-      audience_scope: "principal:#{context.member.uid}"
+      source_node_id: Ankole.Brain.Scope.principal(context.member.uid)
     )
 
     assert %{attempted: 1, graded: 1} = Calibration.grade_takes()
@@ -88,12 +93,15 @@ defmodule Ankole.Brain.CalibrationTest do
     object_text = "The deleted object prediction must not reach the model"
     channel_text = "The channel prediction remains eligible for grading"
 
-    object_take = write_take!(context.member, %{object_slug: context.object.slug}, object_text)
+    object_take = write_take!(context.member, %{subject_page_id: context.object.id}, object_text)
 
     channel_take =
       write_take!(
         context.member,
-        %{conversation_id: context.channel.id},
+        %{
+          conversation_id: context.channel.id,
+          source_node_id: elem(Ankole.Brain.Scope.conversation(context.channel.id), 1)
+        },
         channel_text
       )
 
@@ -109,7 +117,9 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   test "a verdict on an expired Take resolves it without a manual resolve", context do
-    take = write_take!(context.member, %{object_slug: context.object.slug}, "Expired prediction")
+    take =
+      write_take!(context.member, %{subject_page_id: context.object.id}, "Expired prediction")
+
     write_fact!(context, "The outcome is known")
 
     plan_verdict!(context, "incorrect")
@@ -130,9 +140,8 @@ defmodule Ankole.Brain.CalibrationTest do
     # The Take has left the candidate set and entered the holder scorecard.
     assert %{status: :ok, candidates: 0, attempted: 0, graded: 0} = Calibration.grade_takes()
     refute_receive {:calibration_prompt, _prompt}, 0
-    assert %{status: :ok, holders: 1, updated: 1} = Calibration.calibration_profile()
-    assert {:ok, holder} = Objects.get_by_slug("people/#{context.member.uid}")
-    assert holder.body =~ "Resolved takes: 1; Brier score: 0.36."
+    assert %{status: :ok, holders: 1, profiles: profiles} = Calibration.calibration_profile()
+    assert profiles["people/#{context.member.uid}"] == %{count: 1, brier: 0.36, domains: []}
 
     assert {:error, :already_resolved} =
              Ankole.Errors.reason(
@@ -153,7 +162,10 @@ defmodule Ankole.Brain.CalibrationTest do
       configure_brain_maintainer_profile!("primary", "brain-calibration", "primary-calibration")
 
     assert {:ok, true} = Ankole.AppConfigure.put_global_by_key("brain.enabled", true)
-    take = write_take!(context.member, %{object_slug: context.object.slug}, "Expired prediction")
+
+    take =
+      write_take!(context.member, %{subject_page_id: context.object.id}, "Expired prediction")
+
     write_fact!(context, "The outcome is known")
     plan_verdict!(context, "incorrect")
 
@@ -163,12 +175,14 @@ defmodule Ankole.Brain.CalibrationTest do
     assert_receive {:calibration_request, %{"model" => "primary-calibration"}}
     assert Repo.get!(Claim, take.id).resolved_by == grader_actor()
 
-    assert [%{subject_uid: ^system_uid, origin: :brain}] =
-             Repo.all(Ankole.AIGateway.Schemas.UsageRecord)
+    usages = Repo.all(Ankole.AIGateway.Schemas.UsageRecord)
+    assert usages != []
+    assert Enum.all?(usages, &(&1.subject_uid == system_uid and &1.origin == :brain))
   end
 
   test "a partial verdict resolves an expired Take without an outcome", context do
-    take = write_take!(context.member, %{object_slug: context.object.slug}, "Partial prediction")
+    take =
+      write_take!(context.member, %{subject_page_id: context.object.id}, "Partial prediction")
 
     plan_verdict!(context, "partial")
     assert %{graded: 1} = Calibration.grade_takes()
@@ -179,11 +193,11 @@ defmodule Ankole.Brain.CalibrationTest do
     assert resolved.resolved_outcome == nil
     assert resolved.resolved_by == grader_actor()
     assert %{candidates: 0} = Calibration.grade_takes()
-    assert %{status: :ok, holders: 0, updated: 0} = Calibration.calibration_profile()
+    assert %{status: :ok, holders: 0, profiles: %{}} = Calibration.calibration_profile()
   end
 
   test "an unresolvable verdict keeps an expired Take in the queue", context do
-    take = write_take!(context.member, %{object_slug: context.object.slug}, "Open prediction")
+    take = write_take!(context.member, %{subject_page_id: context.object.id}, "Open prediction")
 
     assert %{graded: 1} = Calibration.grade_takes()
     assert_receive {:calibration_prompt, _prompt}, 1_000
@@ -202,7 +216,7 @@ defmodule Ankole.Brain.CalibrationTest do
 
   test "a stale Take without a due date keeps only its grade", context do
     take =
-      write_take!(context.member, %{object_slug: context.object.slug}, "Open-ended prediction",
+      write_take!(context.member, %{subject_page_id: context.object.id}, "Open-ended prediction",
         until_date: nil
       )
 
@@ -228,7 +242,7 @@ defmodule Ankole.Brain.CalibrationTest do
     for invalid <- ["end of Q3", "2026-02-30", "2026/09/30", 20_260_930] do
       assert {:error, :invalid_until_date} =
                Claims.write_take(
-                 take_attrs(context.member, %{object_slug: context.object.slug}, "Prediction",
+                 take_attrs(context.member, %{subject_page_id: context.object.id}, "Prediction",
                    until_date: invalid
                  ),
                  context.member.uid,
@@ -238,7 +252,7 @@ defmodule Ankole.Brain.CalibrationTest do
 
     assert {:ok, take} =
              Claims.write_take(
-               take_attrs(context.member, %{object_slug: context.object.slug}, "Prediction",
+               take_attrs(context.member, %{subject_page_id: context.object.id}, "Prediction",
                  until_date: ~D[2027-01-31]
                ),
                context.member.uid,
@@ -249,7 +263,7 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   test "successful input hashes persist and unchanged grades skip the model", context do
-    take = write_take!(context.member, %{object_slug: context.object.slug}, "Legacy prediction")
+    take = write_take!(context.member, %{subject_page_id: context.object.id}, "Legacy prediction")
 
     {:ok, _} =
       Repo.transact(fn _ ->
@@ -287,7 +301,9 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   test "new, corrected, expired, and deleted selected evidence trigger grading", context do
-    take = write_take!(context.member, %{object_slug: context.object.slug}, "Delivery prediction")
+    take =
+      write_take!(context.member, %{subject_page_id: context.object.id}, "Delivery prediction")
+
     assert %{graded: 1} = Calibration.grade_takes()
     assert_receive {:calibration_prompt, empty_prompt}, 1_000
     initial_hash = Repo.get!(Claim, take.id).graded_input_hash
@@ -330,7 +346,11 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   test "only the ten selected facts affect the grading input", context do
-    write_take!(context.member, %{object_slug: context.object.slug}, "Latest evidence prediction")
+    write_take!(
+      context.member,
+      %{subject_page_id: context.object.id},
+      "Latest evidence prediction"
+    )
 
     facts =
       for index <- 1..11 do
@@ -355,7 +375,12 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   test "same profile changes model, provider options, and route invalidate grades", context do
-    write_take!(context.member, %{object_slug: context.object.slug}, "Model selection prediction")
+    write_take!(
+      context.member,
+      %{subject_page_id: context.object.id},
+      "Model selection prediction"
+    )
+
     assert %{graded: 1} = Calibration.grade_takes()
     assert_receive {:calibration_prompt, _prompt}, 1_000
     assert_receive {:calibration_request, first_request}, 1_000
@@ -388,7 +413,7 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   test "domain changes regrade and assignments remain idempotent", context do
-    take = write_take!(context.member, %{object_slug: context.object.slug}, "Legal prediction")
+    take = write_take!(context.member, %{subject_page_id: context.object.id}, "Legal prediction")
     assert %{graded: 1} = Calibration.grade_takes()
     assert_receive {:calibration_prompt, original_prompt}, 1_000
     assert original_prompt =~ "Installed calibration domains: none installed"
@@ -415,7 +440,7 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   test "invalid model output is not a cache hit and retries with unchanged input", context do
-    take = write_take!(context.member, %{object_slug: context.object.slug}, "Retry prediction")
+    take = write_take!(context.member, %{subject_page_id: context.object.id}, "Retry prediction")
     Agent.update(context.upstream, fn _plan -> %{text: "Unable to return a grade"} end)
 
     assert %{attempted: 1, graded: 0} = Calibration.grade_takes()
@@ -442,7 +467,7 @@ defmodule Ankole.Brain.CalibrationTest do
 
   test "evidence changed during the model call is graded in the next round", context do
     take =
-      write_take!(context.member, %{object_slug: context.object.slug}, "In-flight prediction")
+      write_take!(context.member, %{subject_page_id: context.object.id}, "In-flight prediction")
 
     Agent.update(context.upstream, fn _plan ->
       %{before_reply: fn -> write_fact!(context, "New evidence during grading") end}
@@ -461,7 +486,7 @@ defmodule Ankole.Brain.CalibrationTest do
   end
 
   test "model changed during the call cannot commit the old model grade", context do
-    take = write_take!(context.member, %{object_slug: context.object.slug}, "Model in flight")
+    take = write_take!(context.member, %{subject_page_id: context.object.id}, "Model in flight")
 
     Agent.update(context.upstream, fn _plan ->
       %{
@@ -486,7 +511,8 @@ defmodule Ankole.Brain.CalibrationTest do
   for change <- [:resolve, :deactivate, :delete] do
     @change change
     test "a Take #{@change}d during the model call is not overwritten", context do
-      take = write_take!(context.member, %{object_slug: context.object.slug}, "Human state wins")
+      take =
+        write_take!(context.member, %{subject_page_id: context.object.id}, "Human state wins")
 
       Agent.update(context.upstream, fn _plan ->
         %{
@@ -527,7 +553,7 @@ defmodule Ankole.Brain.CalibrationTest do
       for index <- 1..51 do
         write_take!(
           context.member,
-          %{object_slug: context.object.slug},
+          %{subject_page_id: context.object.id},
           "Prediction #{index}"
         )
       end
@@ -592,7 +618,7 @@ defmodule Ankole.Brain.CalibrationTest do
 
     write_take!(
       context.member,
-      %{object_slug: context.object.slug},
+      %{subject_page_id: context.object.id},
       "A later changed input after fifty-one cached Takes"
     )
 
@@ -606,14 +632,17 @@ defmodule Ankole.Brain.CalibrationTest do
     object_take =
       write_take!(
         context.member,
-        %{object_slug: context.object.slug},
+        %{subject_page_id: context.object.id},
         "The deleted object prediction was resolved"
       )
 
     channel_take =
       write_take!(
         context.member,
-        %{conversation_id: context.channel.id},
+        %{
+          conversation_id: context.channel.id,
+          source_node_id: elem(Ankole.Brain.Scope.conversation(context.channel.id), 1)
+        },
         "The channel prediction was resolved"
       )
 
@@ -632,16 +661,17 @@ defmodule Ankole.Brain.CalibrationTest do
              )
 
     assert {:ok, _object} = Ankole.Brain.soft_delete_object(context.object.slug)
-    assert %{status: :ok, holders: 1, updated: 1} = Calibration.calibration_profile()
-
-    assert {:ok, holder} = Objects.get_by_slug("people/#{context.member.uid}")
-    assert holder.body =~ "Resolved takes: 1; Brier score: 0.16."
-    refute holder.body =~ "Resolved takes: 2"
+    assert %{status: :ok, holders: 1, profiles: profiles} = Calibration.calibration_profile()
+    assert profiles["people/#{context.member.uid}"] == %{count: 1, brier: 0.16, domains: []}
   end
 
   defp write_take!(member, parent, claim, overrides \\ []) do
     {:ok, take} =
-      Claims.write_take(take_attrs(member, parent, claim, overrides), member.uid, embed: false)
+      Claims.write_take(
+        take_attrs(member, parent, claim, overrides),
+        if(parent[:conversation_id], do: :system, else: member.uid),
+        embed: false
+      )
 
     take
   end
@@ -651,7 +681,7 @@ defmodule Ankole.Brain.CalibrationTest do
       claim: claim,
       kind: "prediction",
       holder: "people/#{member.uid}",
-      audience_scope: "world",
+      source_node_id: Ankole.Brain.Scope.world(),
       weight: 0.6,
       until_date: "2020-01-01",
       provenance: "test"
@@ -680,11 +710,11 @@ defmodule Ankole.Brain.CalibrationTest do
   defp write_fact!(context, claim, overrides \\ []) do
     attrs =
       %{
-        object_slug: context.object.slug,
+        subject_page_id: context.object.id,
         claim: claim,
         kind: "fact",
         holder: "people/#{context.member.uid}",
-        audience_scope: "world",
+        source_node_id: Ankole.Brain.Scope.world(),
         notability: "medium",
         confidence: 0.8,
         context: "Delivery schedule",
@@ -723,17 +753,23 @@ defmodule Ankole.Brain.CalibrationTest do
   defp insert_channel! do
     now = DateTime.utc_now(:microsecond)
 
-    Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
-      id: Ecto.UUID.generate(),
-      provider_conversation_id: "test:calibration-#{System.unique_integer([:positive])}",
-      title: "Conversation",
-      last_activity_at: now,
-      external_kind: :im_dm,
-      reply_mode: :entry,
-      metadata: %{},
-      raw_payload: %{},
-      first_seen_at: now,
-      last_seen_at: now
-    })
+    channel =
+      Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
+        id: Ecto.UUID.generate(),
+        provider_conversation_id: "test:calibration-#{System.unique_integer([:positive])}",
+        title: "Conversation",
+        last_activity_at: now,
+        external_kind: :im_dm,
+        reply_mode: :entry,
+        metadata: %{},
+        raw_payload: %{},
+        first_seen_at: now,
+        last_seen_at: now
+      })
+
+    {:ok, _} =
+      Repo.transact_top_level(fn -> Ankole.Files.ensure_conversation_root_in_tx(channel.id) end)
+
+    channel
   end
 end

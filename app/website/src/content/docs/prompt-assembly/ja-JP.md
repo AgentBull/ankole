@@ -9,11 +9,11 @@ description: メイン Agent のシステム指示と Codex Job のコンテキ�
 
 ## 現在のコンテキスト
 
-解決されるコンテキストには、Agent の識別情報と定義ドキュメント、有効な Skill とプラグイン、会話の開始チャネル、およびタイムゾーンが含まれます。`SOUL.md` は行動指針と判断基準を、`MISSION.md` は担当業務の責務を定義するもので、それぞれのドメイン所有者が PostgreSQL に永続化しています。環境ツールを使う際には、ワークスペース契約にもとづいて実体化されたランタイムファイルが渡されます。
+各 Run は Agent の識別情報、有効な能力、開始元の会話、タイムゾーンを解決します。Ankole は `/AnkoleBrain/AGENTS.md` を全文読み込み、Agent 個別ページの追加または置換規則に従って有効な `AGENTS.md` を生成します。`DESIGN.md` も同じ階層を使い、完全なランタイムファイルとして提供します。
 
-メインのシステムプロンプトは、識別情報、SOUL、MISSION、完了条件と権限に関する指示、利用可能な Job と Workflow の方針、記憶（メモリ）、環境およびツールの説明、Skill カタログ、ランタイムコンテキストの順に構成されます。テンプレート群は `app/control_plane/priv/sessions/prompts/` に置かれており、描画ロジックは `app/control_plane/lib/ankole/sessions/prompt.ex` に実装されています。
+`Ankole.Sessions.Prompt.system/1` は AGENTS 規約の全文、完了と権限の規則、Job と Workflow の方針、記憶の指針、環境とツールの説明、Skill カタログ、実行時コンテキストを順に組み立てます。テンプレートは `app/control_plane/priv/sessions/prompts/` にあります。
 
-`brain-recall-only: true` が指定された Skill はプロンプト内のカタログ一覧からは省略されますが、有効な Skill セットには含まれているため、Brain 検索で見つけて `skill_view` から読み込むことができます。プロンプト末尾には、対象の Agent 名、`/workspace`、現在の Session ワークスペースパス、タイムゾーン、会話の開始時刻と開始チャネルが付記されます。なお、Lark アダプターは Lark と Feishu の双方に対応しており、ドメイン層が適切な上流 API を選択します。
+Skill カタログには、現在の会話で閲覧できる有効な Skill の説明を載せます。`skill_view` は選択した Skill と許可された補足ページを必要に応じて読み込みます。末尾には Agent、`/workspace`、Session ワークスペース、タイムゾーン、会話の開始時刻とチャネルを記録します。Lark と Feishu は共通のアダプターを使い、設定されたドメインによって上流 API を選びます。
 
 ## 設定と履歴
 
@@ -23,6 +23,6 @@ description: メイン Agent のシステム指示と Codex Job のコンテキ�
 
 ## Codex Job と Workflow タスク
 
-Codex Job は独立した Worker 実行経路を通ります。Runner が固定された実行設定を解決し、RPC 経由で最新のドメイン情報を取得して Job プロジェクトと `AGENTS.md` を準備したうえで、ネイティブの Codex が Job 内のモデルループを駆動します。詳しくは [Background Agent Jobs](../background-agent-jobs/) を参照してください。
+Codex Job は Worker が実行します。各 Turn の開始時と再開時に最新の規約を取得し、`$CODEX_HOME/AGENTS.md`、`~/AGENTS.md`、`~/DESIGN.md` をアトミックに更新します。ネイティブ Codex は全体の Agent 指示とプロジェクト固有の指示ファイルを組み合わせます。詳しくは [Background Agent Jobs](../background-agent-jobs/) を参照してください。
 
 Workflow タスクでは、`Prompt.workflow_system/1` を通じて識別情報、タスク ID、保存済みの結果スキーマ、提出方法、委譲およびスリープの規則が渡されます。また、Ambient ルーティングにも専用のプロンプトが用意されており、それぞれの経路が固有の実行契約に従って動作します。

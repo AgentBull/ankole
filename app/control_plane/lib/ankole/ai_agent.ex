@@ -11,7 +11,6 @@ defmodule Ankole.AIAgent do
 
   resources do
     resource(Ankole.AIAgent.Library.AgentPlugins.Schemas.AgentPluginOverride)
-    resource(Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry)
 
     resource Ankole.AIAgent.Library.Schemas.AgentSkill do
       define(:list_agent_skills, action: :read)
@@ -66,11 +65,6 @@ defmodule Ankole.AIAgent do
 
         route(:get, "/library-documents", :documents,
           name: "list_agent_library_documents",
-          wrap_in_result?: false
-        )
-
-        route(:put, "/library-documents/:document_kind", :replace_document,
-          name: "replace_agent_library_document",
           wrap_in_result?: false
         )
       end

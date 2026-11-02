@@ -1,12 +1,19 @@
 import { recordValue } from '@agentbull/active-support'
 import { Badge, Button, cn } from '@ankole/uikit'
-import { RiCheckLine, RiCloseLine, RiErrorWarningLine, RiFileTextLine, RiShieldKeyholeLine } from '@remixicon/react'
+import {
+  RiArrowRightSLine,
+  RiCheckLine,
+  RiCloseLine,
+  RiErrorWarningLine,
+  RiFileTextLine,
+  RiShieldKeyholeLine
+} from '@remixicon/react'
 import { useMutationState } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BdiLabel } from '../../common/bidi-file-name'
-import { podLocation } from '../../common/browser-context'
+import { usePageHref } from '../use-page-metadata'
 import type { ActionCardDecision } from './room-api'
 import type { ActionCardState } from './types'
 
@@ -20,6 +27,7 @@ export function ActionCardView({
   onResolve?: (cardID: string, decision: ActionCardDecision) => Promise<unknown>
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const submitting = useRef(false)
   const status = card.status ?? 'prepared'
   const mutationState = useMutationState({
@@ -70,9 +78,7 @@ export function ActionCardView({
           {card.target_node_id && (
             <div className="flex items-center gap-1.5">
               <RiFileTextLine className="size-3.5 shrink-0 text-fg-tertiary" aria-hidden />
-              <Link
-                className="truncate font-medium text-foreground hover:underline"
-                to={podLocation(`/pages/${card.target_node_id}`).pathname}>
+              <Link className="truncate font-medium text-foreground hover:underline" to={pageHref(card.target_node_id)}>
                 {t('pod.chat_action_card.open_target', { defaultValue: 'View target page' })}
               </Link>
             </div>
@@ -84,6 +90,7 @@ export function ActionCardView({
           ))}
         </div>
       )}
+      {card.action_kind === 'pod.knowledge.save' && <KnowledgeDraft payload={card.payload ?? {}} />}
       {status === 'prepared' && (
         <div className="flex flex-wrap items-center gap-2 px-3.5 pb-3">
           <Button
@@ -145,6 +152,8 @@ export function ActionCardView({
 
 function actionKindLabel(kind: string, t: ReturnType<typeof useTranslation>['t']): string {
   switch (kind) {
+    case 'pod.knowledge.save':
+      return t('pod.chat_action_card.kind_knowledge_save')
     case 'pod.page.set_sharing':
       return t('pod.chat_action_card.kind_set_sharing', { defaultValue: 'Permission change approval' })
     case 'pod.page.delete':
@@ -179,7 +188,14 @@ function actionStatusLabel(
 function formatPayloadDetails(card: ActionCardState, t: ReturnType<typeof useTranslation>['t']): string[] {
   const payload = card.payload ?? {}
   const lines: string[] = []
-  if (card.action_kind === 'pod.page.set_sharing') {
+  if (card.action_kind === 'pod.knowledge.save') {
+    if (typeof payload.node_title === 'string') {
+      lines.push(t('pod.chat_action_card.page_target', { title: payload.node_title }))
+    }
+    if (typeof payload.base_revision === 'number') {
+      lines.push(t('pod.chat_action_card.base_revision', { revision: payload.base_revision }))
+    }
+  } else if (card.action_kind === 'pod.page.set_sharing') {
     if (typeof payload.inherit_permissions === 'boolean') {
       lines.push(
         payload.inherit_permissions
@@ -234,4 +250,34 @@ function formatPayloadDetails(card: ActionCardState, t: ReturnType<typeof useTra
     }
   }
   return lines
+}
+
+function KnowledgeDraft({ payload }: { payload: Record<string, unknown> }) {
+  const { t } = useTranslation()
+  return (
+    <div className="mx-3.5 mb-3 min-w-0 space-y-2">
+      {typeof payload.diff === 'string' && (
+        <details open className="code-surface group">
+          <summary className="code-toolbar cursor-pointer px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+            <RiArrowRightSLine className="size-3.5 shrink-0 group-open:rotate-90" aria-hidden />
+            {t('pod.chat_action_card.proposed_changes')}
+          </summary>
+          <pre className="code-text max-h-72 overflow-auto whitespace-pre-wrap break-words px-3 py-2 text-xs">
+            {payload.diff}
+          </pre>
+        </details>
+      )}
+      {typeof payload.markdown === 'string' && (
+        <details className="code-surface group">
+          <summary className="code-toolbar cursor-pointer px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+            <RiArrowRightSLine className="size-3.5 shrink-0 group-open:rotate-90" aria-hidden />
+            {t('pod.chat_action_card.complete_draft')}
+          </summary>
+          <pre className="code-text max-h-96 overflow-auto whitespace-pre-wrap break-words px-3 py-2 text-xs">
+            {payload.markdown || t('pod.chat_action_card.empty_draft')}
+          </pre>
+        </details>
+      )}
+    </div>
+  )
 }

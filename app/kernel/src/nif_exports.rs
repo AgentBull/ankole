@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod object_store;
+mod vfs;
 
 use crate::authz;
 use crate::brain_chunker;
@@ -156,26 +157,48 @@ pub fn normalize_model_image_nif(bytes: Term<'_>) -> NIFResult<OwnedBinary> {
         .and_then(binary_from_vec)
 }
 
-/// Grammar errors stay encoded JSON. A NIF error means the native boundary failed.
-#[cfg(feature = "brain_markdoc")]
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn brain_markdoc_analyze_nif(body: Term<'_>) -> NIFResult<String> {
-    let body = decode_string(body, "body")?;
-    crate::brain_markdoc::analyze_json(&body).map_err(error_message)
+pub fn knowledge_parse_nif(source: Term<'_>) -> NIFResult<String> {
+    let source = decode_string(source, "source")?;
+    let page = stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::knowledge::parse(&source)
+    })
+    .map_err(error_message)?;
+    serde_json::to_string(&page).map_err(|error| error_message(error.to_string()))
 }
 
-#[cfg(feature = "brain_markdoc")]
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn brain_markdoc_rewrite_references_nif(
-    body: Term<'_>,
-    replacements: Term<'_>,
-) -> NIFResult<String> {
-    let body = decode_string(body, "body")?;
-    let replacements = replacements
-        .decode::<std::collections::HashMap<String, String>>()
-        .map_err(|_| error_message("reference replacements must map strings to strings"))?;
-    crate::brain_markdoc::rewrite_references(&body, &replacements)
-        .map_err(|error| error_message(format!("{} at line {}", error.code, error.line)))
+pub fn knowledge_validate_nif(source: Term<'_>) -> NIFResult<(String, String)> {
+    let source = decode_string(source, "source")?;
+    let page = stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::knowledge::validate(&source)
+    })
+    .map_err(error_message)?;
+    Ok((page.xml, page.plain_text))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn knowledge_export_nif(source: Term<'_>, metadata: Term<'_>) -> NIFResult<String> {
+    let source = decode_string(source, "source")?;
+    let metadata = decode_string(metadata, "metadata")?;
+    let metadata =
+        serde_json::from_str(&metadata).map_err(|error| error_message(error.to_string()))?;
+    stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::knowledge::export(&source, &metadata)
+    })
+    .map_err(error_message)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn knowledge_overview_nif(source: Term<'_>, metadata: Term<'_>) -> NIFResult<String> {
+    let source = decode_string(source, "source")?;
+    let metadata = decode_string(metadata, "metadata")?;
+    let metadata =
+        serde_json::from_str(&metadata).map_err(|error| error_message(error.to_string()))?;
+    stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::knowledge::overview(&source, &metadata)
+    })
+    .map_err(error_message)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -749,6 +772,11 @@ pub fn uuid_shorten(value: Term<'_>) -> NIFResult<String> {
 #[rustler::nif]
 pub fn uuid_expand(value: Term<'_>) -> NIFResult<String> {
     common::uuid_expand(&decode_string(value, "short_uuid")?).map_err(error)
+}
+
+#[rustler::nif]
+pub fn page_url_slug(value: Term<'_>) -> NIFResult<String> {
+    Ok(common::page_url_slug(&decode_string(value, "title")?))
 }
 
 /// Copies Rust-owned bytes into an Elixir-owned binary.

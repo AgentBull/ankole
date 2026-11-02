@@ -148,11 +148,26 @@ defmodule Ankole.Signals do
   `limit:`.
   """
   def session_queue(agent_uid, session_id, opts \\ []) do
+    priority =
+      if opts[:due_at] && not Ankole.Sessions.Key.job?(session_id),
+        do: [
+          {Ash.Sort.expr_sort(
+             fragment(
+               "CASE WHEN ? IN ('conversation.message.addressed', 'pod.page_comment.addressed', 'im.message.may_intervene', 'signal.action.invoked', 'input.revised') OR ? LIKE 'command.%' THEN 0 WHEN ? = 'agent.peer_message' THEN 1 ELSE 2 END",
+               type,
+               type,
+               type
+             ),
+             :integer
+           ), :asc}
+        ],
+        else: []
+
     agent_uid
     |> open_query(session_id)
     |> due_by(Keyword.get(opts, :due_at))
     |> started(Keyword.get(opts, :started?, false))
-    |> Ash.Query.sort(queue_sequence: :asc)
+    |> Ash.Query.sort(priority ++ [queue_sequence: :asc])
     |> then(&if(limit = opts[:limit], do: Ash.Query.limit(&1, limit), else: &1))
     |> Ankole.Ash.read!()
   end

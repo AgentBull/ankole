@@ -70,7 +70,7 @@ describe('document export and statistics', () => {
     const projection = {
       resolveReference: (id: string) =>
         id === pageOk
-          ? { title: 'Q4 Design Spec', href: 'https://pod.example/pages/ABEiM0RVZneImaq7zN3u_w' }
+          ? { title: 'Q4 Design Spec', href: 'https://pod.example/pages/q4-design-spec-0024h36h2ncsvrh6daqf6dvvqz' }
           : { title: 'Restricted page', href: 'https://pod.example/pages/restricted', restricted: true },
       resolvePrincipal: (uid: string) =>
         uid === userOk ? { name: 'Alice Chen' } : { name: 'Restricted user', restricted: true }
@@ -78,7 +78,7 @@ describe('document export and statistics', () => {
 
     const markdown = documentMarkdown(xml, '', projection)
     expect(markdown).toBe(
-      'Review [Q4 Design Spec](https://pod.example/pages/ABEiM0RVZneImaq7zN3u_w) and Restricted page with @Alice Chen and @Restricted user.'
+      'Review [Q4 Design Spec](https://pod.example/pages/q4-design-spec-0024h36h2ncsvrh6daqf6dvvqz) and Restricted page with @Alice Chen and @Restricted user.'
     )
     expect(markdown).not.toContain('<mention')
     expect(markdown).not.toContain('https://pod.example/pages/restricted')

@@ -6,7 +6,7 @@ Setup instructions, the repository map, and verification commands live in [CONTR
 
 Any request to answer, explain, review, audit, diagnose, or plan is strictly read-only. Commits, pushes, package publishes, writes to external services, destructive actions, and changes outside the requested scope require explicit authorization. Finish all authorized work before asking for a decision so the user can approve a concrete result.
 
-User instructions take priority over any Skill or rule file. Whenever a rule blocks an action, quote that rule and explain why it applies.
+User instructions take priority over any Skill or rule file. Whenever a rule blocks an action, quote that rule and explain why it applies. Once the user has explicitly authorized an action and its scope, do not seek renewed permission merely because the action is risky or you consider it unwise.
 
 ## Shared worktree
 
@@ -15,6 +15,8 @@ Multiple agents edit this worktree concurrently. Always preserve diffs that belo
 ## Design
 
 Treat the user's intent, product context, and explicit decisions as the source of truth. Code, tests, and documents are evidence of the current implementation; correct them when they conflict with the approved intent. Preserve settled decisions across reviews instead of deriving new requirements from implementation artifacts.
+
+Functionality and user experience always take precedence over security. Do not use "more secure" to justify making the product hard to use, omitting required functionality, or adding work for users.
 
 Follow Worse is Better: choose the simplest implementation that delivers the intended user experience and operating requirements, then prioritize correctness, consistency, and completeness within that scope. A straightforward implementation beats a uniform abstraction. Narrower contracts, explicit rejection, and manual recovery are valid for peripheral cases; preserve everyday workflows instead of adding permission hurdles or repeated manual work merely to simplify implementation.
 
@@ -26,13 +28,15 @@ Preserve the meaning and ownership of domain concepts while changing their imple
 
 Before introducing a new concept, path, dependency, or document, find the existing owner and reuse, replace, or delete it. Every contract has a single owner. Ankole carries no public backwards-compatibility promise: keep legacy forms only for evidenced callers, persisted data, external contracts, or staged migrations.
 
-Ground each review finding in an agreed user story or system contract, a concrete failure path, and its practical consequence. Handle ordinary wiring and migration work within the authorized scope. Keep accepted limitations and unpromised guarantees out of the blocker list; do not turn an unnecessary guarantee into a question for the user. When an actual requirement conflicts with the approved scope, explain that conflict before asking for a product decision.
+Evaluate designs and reviews through the real user flow: whether users can complete their tasks smoothly, whether results are correct, where they get stuck, and which steps they must repeat. Ground each finding in an agreed user story or system contract, a concrete failure path, and its practical consequence. Handle ordinary wiring and migration work within the authorized scope. Keep accepted limitations and unpromised guarantees out of the blocker list; do not turn an unnecessary guarantee into a question for the user. When an actual requirement conflicts with the approved scope, explain that conflict before asking for a product decision.
 
 ## Shared responsibility security model
 
-Ankole enforces its declared identity, authorization, and isolation contracts. Users and administrators are responsible for the invitations, sharing, grants, and configuration choices they make within their authority, including the consequences. Do not automatically treat those consequences as system vulnerabilities or add safeguards to correct participants' choices or shield them from the consequences.
+Shared responsibility identifies who owns each decision and its consequences. Ankole is responsible for correctly implementing its declared identity, authorization, and isolation contracts. Users and administrators are responsible for the operations, invitations, sharing, grants, and configuration choices they make within their authority, including harmful consequences. Ankole does not assume unlimited responsibility for preventing or undoing those consequences.
 
-Before proposing a security change, identify the explicit system contract whose violation it prevents or fixes. A possible adverse outcome alone does not justify additional defenses. Narrower supported behavior, explicit rejection, and manual handling are valid ways to bound complexity; do not introduce states, workflows, or abstractions merely to cover every possible case. Do not expand Ankole's responsibilities without an explicit product decision.
+Treat users and administrators as adults. An authorized choice may be risky, unwise, or destructive; that alone does not make it a system vulnerability or justify blocking the choice, repeatedly asking for confirmation, or adding safeguards to overrule it. Respect their decisions and leave the consequences with the responsible person.
+
+Apply the functionality and user-experience priority above to every security decision. Before proposing a security change, identify the explicit system contract, a concrete violation path, and its practical consequence for the approved user flow. Citing a contract is a necessary condition, not sufficient justification for a change. Do not add mechanisms, restrictions, or confirmation steps merely because you can imagine a risk. Narrower supported behavior, explicit rejection, and manual handling remain valid for peripheral cases; they do not justify degrading everyday workflows. Preserve settled tradeoffs and do not expand Ankole's responsibilities without an explicit product decision.
 
 ## Tests
 

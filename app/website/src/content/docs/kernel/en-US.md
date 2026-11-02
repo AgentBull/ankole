@@ -16,7 +16,7 @@ The Rust crate under `app/kernel/src` groups its native primitives by domain:
 - **`universal_ai_client/`**: upstream HTTP SSE/EventStream and WebSocket transport, response normalization, encoding for downstream JSON text chunks, demand-based backpressure credit, cancellation, and timeouts.
 - **`object_store/`**: file-service storage backed by either a local directory or an S3-compatible bucket.
 - **`page_document/`**: validating XML trees for Pod pages, applying Wordgard changesets, and computing UTF-16 diffs.
-- **`brain_markdoc/`** and **`markdown.rs`**: analyzing Brain document bodies and parsing Markdown.
+- **`page_document/knowledge/`** and **`markdown.rs`**: lossless conversion between knowledge Page XML and OKF Markdown, and general Markdown parsing.
 - **`model_image.rs`**: decoding, resizing, and converting images for model requests.
 - **`web_proxy.rs`**: a loopback SOCKS5 `CONNECT` proxy that enforces SSRF checks on resolved IP addresses for Worker Chromium sessions.
 - **`signals/`**: evaluating signal routing policies against a caller-supplied context.
@@ -25,7 +25,7 @@ The Rust crate under `app/kernel/src` groups its native primitives by domain:
 
 The Elixir control plane owns durable state, authorization snapshots, provider selection, credentials, and domain transactions, whereas the Rust Kernel operates strictly on prepared inputs. Because the kernel is stateless, it never queries PostgreSQL, schedules Agents, or holds Worker sockets. Isolated TypeScript execution—both for programmatic tool calling and for backend functions in Pod Applets—runs in the separate stateless `ankole-function-runtime` service rather than in the Rust Kernel.
 
-`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` declares the RuntimeFabric wire structures and protocol version `10`. Elixir encodes envelopes with Protox, while the Bun Worker uses `protobuf-es`. Each side stamps the declared protocol version when sending and verifies it on receipt, domain consumers enforce execution authority, and cross-language golden fixtures verify that both codecs agree byte for byte.
+`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` declares the RuntimeFabric wire structures and protocol version `12`. Elixir encodes envelopes with Protox, while the Bun Worker uses `protobuf-es`. Each side stamps the declared protocol version when sending and verifies it on receipt, domain consumers enforce execution authority, and cross-language golden fixtures verify that both codecs agree byte for byte.
 
 ## Build and Transport
 

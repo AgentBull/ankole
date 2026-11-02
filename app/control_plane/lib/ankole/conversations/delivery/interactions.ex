@@ -6,6 +6,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   checkpoint decides whether an interaction is pending, answered, or superseded.
   """
 
+  require Ash.Expr
   require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
@@ -55,7 +56,8 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   @spec supersede_older_in_tx(Signal.t(), DateTime.t()) ::
           {:ok, [Signal.t()]} | {:error, term()}
   def supersede_older_in_tx(%Signal{} = newer_event, %DateTime{} = now) do
-    if Types.supersedes_pending_interaction?(newer_event.type) do
+    if Types.supersedes_pending_interaction?(newer_event.type) or
+         (newer_event.type == "agent.peer_message" and newer_event.data["priority"] == true) do
       newer_event
       |> older_reply_interaction_events()
       |> supersede_events_in_tx(newer_event, now)
@@ -218,15 +220,16 @@ defmodule Ankole.Conversations.Delivery.Interactions do
          :ok <- Ankole.Files.lock_tree_in_tx(),
          [signal_id, id] <- String.split(interaction_id, ":", parts: 2),
          {:ok, signal_id} <- Ecto.UUID.cast(signal_id),
-         {:ok, %Signal{conversation_id: ^conversation_id} = source} <-
+         {:ok, %Signal{} = source} <-
            Ankole.Signals.get_signal(signal_id),
-         :ok <- Native.lock_participants_in_tx(actor, source.agent_uid, conversation_id),
+         :ok <- answer_source_visible(actor, conversation_id, source),
+         :ok <- Native.lock_session_participants_in_tx(source, [Ankole.AuthZ.Actor.uid(actor)]),
          :ok <-
-           Ankole.Signals.lock_target_in_tx(%{
-             agent_uid: source.agent_uid,
-             session_id: source.session_id
-           }),
+           Ankole.Sessions.Queue.lock_sessions_in_tx(
+             Ankole.Conversations.peer_session_keys(source)
+           ),
          true <- Native.visible_conversation?(actor, conversation_id),
+         :ok <- Ankole.Conversations.Peers.lock_rooms([conversation_id, source.conversation_id]),
          %{} <- Queries.lock_conversation(conversation_id),
          %Signal{} = source <- Ankole.Signals.lock_signal_in_tx(source.id),
          preview = PreviewStates.lock_in_tx(source),
@@ -243,7 +246,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
          {:ok, checkpoint} <- InteractionState.resolve(preview.checkpoint, id, resolution),
          {:ok, _source} <- PreviewStates.put_checkpoint_in_tx(source, checkpoint),
          {:ok, result} <-
-           Native.post_in_tx(actor, conversation_id, %{
+           post_native_answer(actor, conversation_id, source, %{
              message_id: Ankole.Ecto.UUIDv7.autogenerate(),
              text: answer["value"],
              links: Ankole.Attrs.get(attrs, :links) || [],
@@ -267,6 +270,19 @@ defmodule Ankole.Conversations.Delivery.Interactions do
       _ -> {:error, :invalid_reply_interaction}
     end
   end
+
+  defp answer_source_visible(_actor, id, %{conversation_id: id}), do: :ok
+
+  defp answer_source_visible(actor, id, source) do
+    with {:ok, _} <- Ankole.Conversations.Peers.visible(actor, id, source.conversation_id),
+         do: :ok
+  end
+
+  defp post_native_answer(actor, id, %{conversation_id: id}, attrs),
+    do: Ankole.Conversations.Native.post_in_tx(actor, id, attrs)
+
+  defp post_native_answer(actor, id, source, attrs),
+    do: Ankole.Conversations.Peers.answer_in_tx(actor, id, source, attrs)
 
   defp native_answer(checkpoint, id, attrs) do
     presentation = ReplyPresentation.normalize(checkpoint["presentation"])
@@ -352,17 +368,39 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     with {:ok, callback} <- normalize_callback(value),
          :ok <- authorize_operator(map_value(action, "operator_principal_uid")),
          %Signal{} = source <- find_source_event(binding, fact, callback),
-         :ok <-
-           Ankole.Signals.lock_target_in_tx(%{
-             agent_uid: source.agent_uid,
-             session_id: source.session_id
-           }),
+         :ok <- lock_interaction_source(source, fact),
          %Signal{} = event <- lock_source_event(binding, fact, callback),
          {:ok, result} <- accept_locked_event(event, fact, callback, now) do
       {:ok, result}
     else
       nil -> {:ok, :stale}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp lock_interaction_source(source, fact) do
+    case Ankole.Conversations.Peers.exchange(source.conversation_id) do
+      nil ->
+        Ankole.Signals.lock_target_in_tx(%{
+          agent_uid: source.agent_uid,
+          session_id: source.session_id
+        })
+
+      _peer ->
+        uid = map_value(fact.action, "operator_principal_uid")
+
+        with :ok <- Ankole.Conversations.Native.lock_session_participants_in_tx(source, [uid]),
+             :ok <-
+               Ankole.Sessions.Queue.lock_sessions_in_tx(
+                 Ankole.Conversations.peer_session_keys(source)
+               ),
+             :ok <- Ankole.Conversations.Peers.lock_rooms([source.conversation_id]),
+             {:ok, human} <- Ankole.Principals.get_principal(uid),
+             do:
+               Ankole.Conversations.authorize_agent(
+                 Ankole.AuthZ.Actor.new(human),
+                 source.agent_uid
+               )
     end
   end
 
@@ -451,12 +489,19 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   end
 
   defp source_event_filter(binding, fact, callback) do
-    [
-      id: callback.source_signal_id,
-      agent_uid: fact.agent_uid,
-      reply_binding_id: binding.id,
-      session_id: fact.session_id
-    ]
+    source = Ankole.Signals.get_signal!(callback.source_signal_id)
+
+    if Ankole.Conversations.Peers.callback_origin(source, binding.id, fact.conversation_id) ==
+         {fact.agent_uid, fact.session_id} do
+      [id: source.id]
+    else
+      [
+        id: callback.source_signal_id,
+        agent_uid: fact.agent_uid,
+        reply_binding_id: binding.id,
+        session_id: fact.session_id
+      ]
+    end
   end
 
   defp accepted_reply_surface(%Signal{} = event, provider_message_id, binding) do
@@ -626,7 +671,20 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   end
 
   defp first_newer_conversation_event(%Signal{} = event) do
-    first_newer_signal(event, type: [in: Types.interaction_superseding_types()])
+    Ankole.Signals.list_signals!(
+      query: [
+        filter:
+          Ash.Expr.expr(
+            agent_uid == ^event.agent_uid and session_id == ^event.session_id and
+              queue_sequence > ^event.queue_sequence and
+              (type in ^Types.interaction_superseding_types() or
+                 (type == "agent.peer_message" and fragment("?->>'priority' = 'true'", data)))
+          ),
+        sort: [queue_sequence: :asc],
+        limit: 1
+      ]
+    )
+    |> List.first()
   end
 
   defp first_newer_session_reset(%Signal{} = event) do

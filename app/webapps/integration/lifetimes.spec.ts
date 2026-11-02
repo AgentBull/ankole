@@ -34,6 +34,7 @@ function detail(id = oldID, text = 'Existing history'): ConversationDetail {
       canDelete: true,
       canManage: true,
       roomMode: 'dm',
+      conversationKind: 'colleague_dm',
       titleCustomized: false,
       createdBy: 'person',
       lastMessageSeq: 1,

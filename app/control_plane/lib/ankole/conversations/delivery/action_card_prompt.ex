@@ -126,6 +126,9 @@ defmodule Ankole.Conversations.Delivery.ActionCardPrompt do
   def card_body(action_kind, summary, payload) do
     target_line =
       case action_kind do
+        "pod.knowledge.save" ->
+          "Action: Save \"#{payload["node_title"]}\"\nChanges:\n#{payload["diff"]}"
+
         "pod.page.set_sharing" ->
           "Action: Update sharing permissions on \"#{payload["node_title"] || payload["node_id"]}\""
 

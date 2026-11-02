@@ -3,7 +3,7 @@ import { Slots } from '../../../src/worker/lifecycle_messages'
 import { AgentConversationContextResponseSchema } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BrowserRuntime } from '../../../src/browser-runtime'
@@ -130,11 +130,12 @@ describe('real workspace command adoption', () => {
       await until(() =>
         f.sent.some(e => e.body.case === 'workspaceReady' && e.body.value.run?.signalId === run.signalId)
       )
-      for (const name of ['SOUL', 'MISSION', 'DESIGN', 'ConfidentialityPolicy']) {
+      for (const name of ['AGENTS', 'DESIGN']) {
         expect(readFileSync(join(f.root, `${name}.md`), 'utf8')).toBe(`${name} ${version}`)
       }
       if (version === 'updated') await f.spaces.close(create(WorkspaceCloseSchema, { run }))
     }
+    expect(readdirSync(join(f.root, '.ankole', 'turn-skills'))).toEqual([])
   })
 
   it('retains running commands and cached receipts across a lost connection without repeating an effect (G3)', async () => {
@@ -250,9 +251,7 @@ describe('real workspace command adoption', () => {
 
 function context(version: string) {
   return create(AgentConversationContextResponseSchema, {
-    soul: `SOUL ${version}`,
-    mission: `MISSION ${version}`,
-    design: `DESIGN ${version}`,
-    confidentialityPolicy: `ConfidentialityPolicy ${version}`
+    agents: `AGENTS ${version}`,
+    design: `DESIGN ${version}`
   })
 }

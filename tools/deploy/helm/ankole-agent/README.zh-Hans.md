@@ -14,7 +14,7 @@ Kubernetes API 为其创建独立的 Agent Computer Worker Pod。此外，Chart 
 
 ## 前置条件
 
-- Kubernetes 1.27 或更高版本。
+- Kubernetes 1.30 或更高版本。
 - Helm 3 或更高版本。
 - Linux `amd64` 或 `arm64` 节点池。
 - 支持 `ReadWriteMany` 的 StorageClass（供默认的共享 Agent Home PVC 使用）；或者通过
@@ -25,9 +25,23 @@ Kubernetes API 为其创建独立的 Agent Computer Worker Pod。此外，Chart 
 - 与模型工作负载相匹配的 CPU、内存和存储容量。每个运行中的 Agent 都会独占一个
   Worker Pod，其资源配额由 `worker.resources` 指定。
 
-Worker Pod 无需额外的内核权限，容器本身即为每个 Agent 的隔离边界。Chart 会为控制面
-创建命名空间级 Role 以管理 Pod、Secret 和 PVC 的生命周期，同时为 Worker Pod 分配
-一个不带任何 Kubernetes 权限的独立 ServiceAccount。
+Worker 监督进程通过 `/dev/fuse` 和 `SYS_ADMIN` 挂载 Drive，再以 uid/gid 1000、
+空 capabilities 启动 Agent 进程。Chart 为 Worker ServiceAccount 安装
+ValidatingAdmissionPolicy，因此 Helm 安装者需要管理这项集群级策略及绑定的权限。
+Worker Pod 不使用宿主命名空间、hostPath 卷或 privileged 容器。控制面通过命名空间级
+Role 管理 Pod、Secret 和 PVC；Worker ServiceAccount 不持有 Kubernetes 权限。
+
+启用本集群 Worker 前，在集群中安装一次 FUSE 设备插件，并允许应用命名空间使用上述配置：
+
+```sh
+kubectl apply -f tools/deploy/kubernetes/fuse-device-plugin.yaml
+kubectl -n kube-system rollout status daemonset/ankole-fuse-devices
+```
+
+所附插件在每个 Linux 节点提供 128 个可共享的 FUSE 资源单元；节点需支持内核 FUSE
+并提供 `/dev/fuse`。已有设备插件可以提供同名资源；若资源名不同，在提供商配置中设置
+`fuseDeviceResource`。每个 Worker 请求一个单元。设备配置与 Agent Home、缓存盘的
+存储配置相互独立。
 
 ## 使用内置 PostgreSQL 安装
 
@@ -61,6 +75,7 @@ PodDisruptionBudget——一旦限制单副本驱逐，节点升级便会卡死�
 
 ```sh
 kubectl create namespace ankole
+kubectl label namespace ankole pod-security.kubernetes.io/enforce=privileged --overwrite
 
 POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"
@@ -511,8 +526,10 @@ Agent 的 `command` 工具、本地浏览器及 Automation Job 分别访问受�
 退出。可在 Console 的工作节点页面查看各 Worker 的实时状态及底层平台返回的最新状态原因。
 
 Worker Pod 与存储准备 Pod 以 root 身份拉起受信任监管进程，保持 `allowPrivilegeEscalation: false`，
-且仅保留 `SETUID`、`SETGID`、`CHOWN`、`FOWNER`、`DAC_OVERRIDE` 与 `KILL` 六项内核能力。因此，
-所在命名空间须允许 Pod Security Standard 的 `baseline` 级别（不兼容 `restricted` 级别）。使用共享
+并具备 `SETUID`、`SETGID`、`SETPCAP`、`CHOWN`、`FOWNER`、`DAC_OVERRIDE`、`KILL` 与 `SYS_ADMIN`。
+其中，监管进程通过 `SYS_ADMIN` 挂载 FUSE、创建执行命名空间，通过 `SETPCAP` 清空模型子进程的能力边界集。
+命名空间须允许 Pod Security Standard 的 `privileged` 级别，chart 的准入策略按 Worker ServiceAccount
+约束 Pod 配置。使用共享
 NFS 时，导出配置必须允许 root 写入及更改文件属主，或者通过接入点将所有文件访问统一映射为 uid `1000`；
 默认开启 `root_squash` 且未做 uid `1000` 映射的 NFS 导出无法满足 Worker 文件系统契约。
 

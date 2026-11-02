@@ -813,7 +813,16 @@ Because these suites take longer than unit tests, run the specific mode that cov
   ```bash
   tools/e2e/run --real-llm --only=pod_content_real_llm
   ```
+
+- **Shared knowledge in real work (`knowledge_unification`)**: A Human edits a shared Skill supplement in the Pod browser and asks the real model to save a proposal using its case reference and budget rule. After the Human changes the rule, a new conversation updates the same proposal. The browser opens each delivered page link and verifies the saved content after reload:
+  ```bash
+  tools/e2e/run --real-llm --only=knowledge_unification
+  ```
   Across these four stories, a Human uses browser Chat to generate a report, typed Base sales table, formula, and Applet, submits a sale through the published Applet, requests an edit via Page Chat without re-stating the Page ID, revokes Agent access, and deletes the Conversation while verifying its Pages survive; a second story builds and exercises a pure frontend SPA and verifies that an Agent with space `edit` access (in Main or a Job) can move Pages while preserving subpage permissions; the research story invokes the built-in research Skill into a linked editable Page; and `pod_applet_backend` has an Agent build and update a sample-reservation Applet, verifying caller-attributed `POST` writes and retained rejected inputs (always asserting saved database state rather than trusting Job completion text alone).
+- **Assistant delegation and colleague continuity (`pod_superagent_real_llm`)**: Uses production browser bundles and real models to review a private contract through the personal assistant. The assistant grants the colleague access to the contract without replacing existing collaborators; the colleague reads its own private rule page, asks the Human a question in the original conversation, and returns the review. The Human then follows up in the colleague's stable direct message and the contract's comments, with assertions on the same review facts across all three entry points:
+  ```bash
+  tools/e2e/run --real-llm --only=pod_superagent_real_llm
+  ```
 - **Skill Lessons & Dreaming (`pod_skill_lessons_real_llm`)**: Grants a Human chat/tool access to an Agent with zero external Bindings, triggers two real Docker Worker Jobs that hit and repair a named-key `openpyxl` failure, invokes the Dreaming reflection phase on the Worker, and verifies that persisted lessons render into production Skills without leaking public chat replies or external deliveries (tests the reflection pipeline directly rather than the cron timer):
   ```bash
   tools/e2e/run --real-llm --only=pod_skill_lessons_real_llm
@@ -853,6 +862,10 @@ kind create cluster --name ankole-worker-provider-test \
   --image kindest/node:v1.37.0 --kubeconfig "$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG"
 kind load docker-image "$ANKOLE_WORKER_PROVIDER_TEST_IMAGE" --name ankole-worker-provider-test
 kubectl --kubeconfig "$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG" apply \
+  -f tools/deploy/kubernetes/fuse-device-plugin.yaml
+kubectl --kubeconfig "$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG" -n kube-system rollout status \
+  daemonset/ankole-fuse-devices --timeout=60s
+kubectl --kubeconfig "$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG" apply \
   -f app/control_plane/integration/fixtures/kubernetes_worker_storage.yaml
 kubectl --kubeconfig "$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG" rollout status \
   deployment/nfs-provisioner --timeout=60s
@@ -875,6 +888,50 @@ rm -r "$WORKER_PROVIDER_TEST_DIR"
 ```
 
 This `kind` fixture tests both exclusive `local-path` PVCs (`standard`) and shared RWX NFS PVCs (`example-nfs`, pinned to NFS-Ganesha `4.0.8` over NFSv4.0; CSI block volumes and node-loss failover are out of scope), plus the internal Helm chart when `internals/` is present. To validate real **AWS EFS** storage against an approved test directory, spin up a separate `kind` cluster, replace the Ganesha deployment with a static RWX NFS PV (`storageClassName: example-nfs` backed by `kubernetes.io/no-provisioner`, capacity `128Mi`, `persistentVolumeReclaimPolicy: Retain`, `mountOptions: ["vers=4.1", "hard"]`; if tunneling over TCP, set `port` only—never `mountport`, since EFS has no NFSv3 mountd), run `kubernetes_worker_storage_test.exs` unchanged, and tear down all test resources afterward. Note that shared-PVC `.deleted/` rename-and-purge cleanup must be verified on real NFSv4.1 / EFS targets, as neither the `kind` NFSv4.0 fixture nor local bootstrap tests prove production EFS behavior.
+
+#### Drive FUSE checks
+
+Build the complete Worker image with the command above. With PostgreSQL and the
+Base shard running, exercise the real DAV endpoint, physical Base tables, mounted
+POSIX operations, scoped mount manager, and concurrent native Codex app-servers:
+
+```bash
+ANKOLE_VFS_FUSE_IMAGE="$ANKOLE_WORKER_PROVIDER_TEST_IMAGE" \
+ANKOLE_VFS_TEST_KUBECONFIG="$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG" \
+MIX_TEST_PARTITION=worker_drive_vfs \
+bun run control-plane:test test/ankole/files/vfs_test.exs
+```
+
+The Kubernetes check renders the chart's admission policy, uses the provider's
+actual Pod manifest, and mounts DAV through the installed device plugin. Omit
+`ANKOLE_VFS_TEST_KUBECONFIG` to run only the Docker and protocol checks. The image
+must contain the current rclone patch and Worker source; `ANKOLE_VFS_FUSE_BINARY`
+can override just the binary while debugging, but does not verify the packaged image.
+
+Set `ANKOLE_VFS_STRESS=1` for the 20,000-file case (allow thirty minutes). It uses
+committed transactions, samples the browser's page create/rename domain owner,
+measures a second view's small flush and attachment ID resolution while the shared
+cache uploads, then verifies every file reached PostgreSQL. This local timing does
+not establish production ingress or cloud latency. Run
+`bun run --filter @ankole/agent-computer test:rclone` with Go 1.26 to check the
+patched packages with `go vet` and run their tests with the race detector,
+including quota, scheduling, cancellation, and cache recovery.
+Run the general suite as a normal user: upstream's read-only filesystem tests
+rely on Unix permission bits, which do not restrict root.
+The mount smoke test also streams a 300 MiB file, performs a cold same-mount
+COPY, checks immediate reads and sparse edits, and merges independent knowledge
+changes. It counts DAV requests to verify unchanged saves and zero-byte copies.
+To repeat this against S3, set `ANKOLE_VFS_OBJECT_STORE_SPEC` to a JSON file
+containing the normal OpenDAL S3 spec (`scheme`, `bucket`, `region`, `endpoint`,
+`access_key_id`, `secret_access_key`); the test uses that real adapter for its
+mounted workflow. The default run uses the partition's filesystem store.
+
+The rclone cache tests include recovery-file ownership. Run their Linux root
+case from the patched source using
+`go test -race -tags ankole ./vfs/vfscache -run 'TestProviderCapacity|TestAnkole'`
+in a root `golang:1.26-bookworm` container. Non-root hosts skip the ownership
+case; they still run closed-cache refresh and clean open-handle refresh.
+
 
 #### Local Linux bootstrap checks (AWS Lambda & Alibaba Cloud FC)
 
@@ -900,7 +957,10 @@ Without calling AWS or Alibaba Cloud APIs, you can verify container entrypoint i
 
 #### Approved live cloud provider suites (Cloudflare, Vercel, AWS Lambda, Alibaba Cloud FC)
 
-All four live cloud suites drive the real coordinator, `RuntimeFabric` Channel, and HTTP file relay against two distinct Worker images and a publicly reachable HTTPS/WebSocket test control plane (`*_CP_ORIGIN`, no trailing slash, forwarded to local `*_CP_PORT`). Always obtain explicit approval before provisioning cloud resources, store temporary credentials outside the repository, use a dedicated test database per suite, and **keep that test database until every cloud instance and storage bucket/volume is confirmed deleted** (if cloud teardown fails, unresolved Worker rows stay in PostgreSQL so you can clean them up):
+Live suites use the Worker's production channel timeouts and flow-control limits.
+Short acknowledgement deadlines and small budgets belong in the channel unit tests.
+
+The live cloud suites drive the real coordinator, `RuntimeFabric` Channel, and HTTP file relay against a publicly reachable HTTPS/WebSocket test control plane (`*_CP_ORIGIN`, no trailing slash, forwarded to local `*_CP_PORT`). Use local complete-image tests for shared file semantics and cloud checks for platform-specific behavior. The complete storage lifecycle suites use two distinct Worker images. Always obtain explicit approval before provisioning cloud resources, store temporary credentials outside the repository, use a dedicated test database per suite, and **keep that test database until every cloud instance and storage bucket/volume is confirmed deleted** (if cloud teardown fails, unresolved Worker rows stay in PostgreSQL so you can clean them up):
 
 - **Cloudflare Containers + R2** (requires a dedicated adapter, R2 bucket, and two digest-pinned `amd64` images; set `ANKOLE_CLOUDFLARE_TEST_ADAPTER_URL`, `ANKOLE_CLOUDFLARE_TEST_ADAPTER_TOKEN`, `ANKOLE_CLOUDFLARE_TEST_IMAGE`, `ANKOLE_CLOUDFLARE_TEST_REPLACEMENT_IMAGE`, `ANKOLE_CLOUDFLARE_TEST_CP_PORT`, `ANKOLE_CLOUDFLARE_TEST_CP_ORIGIN`; does not test forced platform kills, Durable Object restarts, or raw R2 object inspection):
   ```bash
@@ -912,9 +972,13 @@ All four live cloud suites drive the real coordinator, `RuntimeFabric` Channel, 
   ```bash
   MIX_TEST_PARTITION=vercel_worker_provider mix test integration/vercel_worker_storage_test.exs --trace
   ```
-- **AWS Lambda + EFS** (prepare S3 build bucket, IAM build role, EFS root, VPC connector, and NAT; check `GetServiceQuota` for applied ARM64 memory first—the two-Agent flow needs room for two simultaneous instances, i.e., at least `8 GiB` free at the default `4096 MiB` size, with `4096` and `8192 MiB` supported, and wait for AWS to report `TERMINATED` on deletion helpers before reusing capacity; set `ANKOLE_LAMBDA_TEST_CONFIG_FILE`, `ANKOLE_LAMBDA_TEST_CREDENTIALS_FILE` with temporary `accessKeyId`/`secretAccessKey`/`sessionToken`, `ANKOLE_LAMBDA_TEST_IMAGE`, `ANKOLE_LAMBDA_TEST_REPLACEMENT_IMAGE`, `ANKOLE_LAMBDA_TEST_CP_PORT`, `ANKOLE_LAMBDA_TEST_CP_ORIGIN`):
+- **AWS Lambda + EFS** (verifies mounted ChatDrive writes and attachment delivery before and after a 65-second pause, Home recovery, image replacement, and deletion; prepare S3 build bucket, IAM build role, EFS root, VPC connector, and NAT; check `GetServiceQuota` for applied ARM64 memory first—the two-Agent flow needs room for two simultaneous instances, i.e., at least `8 GiB` free at the default `4096 MiB` size, with `4096` and `8192 MiB` supported, and wait for AWS to report `TERMINATED` on deletion helpers before reusing capacity; set `ANKOLE_LAMBDA_TEST_CONFIG_FILE`, `ANKOLE_LAMBDA_TEST_CREDENTIALS_FILE` with temporary `accessKeyId`/`secretAccessKey`/`sessionToken`, `ANKOLE_LAMBDA_TEST_IMAGE`, `ANKOLE_LAMBDA_TEST_REPLACEMENT_IMAGE`, `ANKOLE_LAMBDA_TEST_CP_PORT`, `ANKOLE_LAMBDA_TEST_CP_ORIGIN`):
   ```bash
-  MIX_TEST_PARTITION=lambda_worker_provider mix test integration/lambda_worker_storage_test.exs --trace
+  MIX_TEST_PARTITION=lambda_worker_provider bun run test integration/lambda_worker_storage_test.exs --exclude drive_vfs --trace
+  ```
+  For Drive FUSE changes, the focused check uses one Agent and one image, requires `4 GiB` free, and does not require `ANKOLE_LAMBDA_TEST_REPLACEMENT_IMAGE`. It verifies actual mounted writes, then reads and edits the same ChatDrive file after a 65-second freeze and checks the delivered bytes. Storage cleanup still runs through the Lambda adapter.
+  ```bash
+  MIX_TEST_PARTITION=lambda_worker_vfs bun run test integration/lambda_worker_storage_test.exs --only drive_vfs --trace
   ```
 - **Alibaba Cloud Function Compute (AgenticFS & OSS)** (first enable `"china-market-ai-providers"` in `plugins.enabled_ids` and restart; requires an account with Gen-2 memory pause enabled and both images pushed to ACR Enterprise; run **twice**—once with AgenticFS and once with OSS, where the OSS run pauses 90s to force stale TCP drops and asserts retained-file read recovery within 30s—setting `ANKOLE_FUNCTION_COMPUTE_TEST_CONFIG_FILE`, `ANKOLE_FUNCTION_COMPUTE_TEST_CREDENTIALS_FILE`, `ANKOLE_FUNCTION_COMPUTE_TEST_IMAGE`, `ANKOLE_FUNCTION_COMPUTE_TEST_REPLACEMENT_IMAGE`, `ANKOLE_FUNCTION_COMPUTE_TEST_CP_PORT`, `ANKOLE_FUNCTION_COMPUTE_TEST_CP_ORIGIN`, and removing leftover templates afterward):
   ```bash

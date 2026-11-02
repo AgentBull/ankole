@@ -3,8 +3,6 @@ defmodule Ankole.Sessions.Tools.BrainTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIAgent.Library
-  alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.SchemaPacks
   alias Ankole.RuntimeFabric.V1.ReadToolRequest
   alias Ankole.Sessions.JobTurnRef
@@ -18,24 +16,26 @@ defmodule Ankole.Sessions.Tools.BrainTest do
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
 
     {:ok, object} =
-      Ankole.Brain.create_object(
-        %{
-          slug: "concepts/wire-format",
-          type: "concept",
-          title: "Wire Format",
-          body: "Notes about the wire format."
-        },
-        agent.uid
-      )
+      Repo.transact(fn ->
+        Ankole.Brain.Objects.create_object_in_tx(
+          %{
+            slug: "concepts/wire-format",
+            type: "concept",
+            title: "Wire Format",
+            body: "Notes about the wire format."
+          },
+          :system
+        )
+      end)
 
     {:ok, %{claim: _fact}} =
       Ankole.Brain.write_fact(
         %{
-          object_slug: object.slug,
+          subject_page_id: object.id,
           claim: "The wire format carries dated facts",
           kind: "fact",
           holder: "world",
-          audience_scope: "world",
+          source_node_id: object.id,
           notability: "medium",
           confidence: 0.9,
           valid_from: DateTime.utc_now(:microsecond),
@@ -44,7 +44,7 @@ defmodule Ankole.Sessions.Tools.BrainTest do
         agent.uid
       )
 
-    {:ok, _alias} = Ankole.Brain.Links.add_alias(object.slug, "Wire Format")
+    {:ok, _alias} = Ankole.Brain.Links.add_alias(object.id, "Wire Format")
 
     %{agent: agent, object: object, turn: job_turn(agent.uid)}
   end
@@ -54,7 +54,6 @@ defmodule Ankole.Sessions.Tools.BrainTest do
 
     assert Enum.map(declarations, & &1["name"]) == [
              "recall",
-             "get_page",
              "entity",
              "whoknows",
              "delta"
@@ -71,52 +70,14 @@ defmodule Ankole.Sessions.Tools.BrainTest do
   end
 
   test "recall runs for the Job's Agent through the read-tool broker", context do
-    request = request("recall", %{"query" => "wire format dated facts"})
+    request = request("recall", %{"query" => "wire format dated facts", "budget_tokens" => 512})
 
     assert {:ok, result} = ReadToolBroker.handle_read(context.turn, request, %{request_id: "r"})
     assert [claim | _rest] = result["details"]["claims"]
     assert claim["claim"] == "The wire format carries dated facts"
     assert Ankole.JSON.decode!(result["output"]) == result["details"]
+    assert Ankole.Brain.Chunker.estimate_tokens(result["output"]) <= 512
     refute result["is_error"]
-  end
-
-  test "get_page renders the page and prefixes the hint for a Skill discovery record",
-       context do
-    assert {:ok, result} =
-             ReadToolBroker.handle_read(
-               context.turn,
-               request("get_page", %{"reference" => context.object.slug}),
-               %{request_id: "r"}
-             )
-
-    assert result["details"]["page"]["slug"] == context.object.slug
-    assert String.starts_with?(result["output"], "{")
-
-    # The Agent sees the discovery records of its enabled recall-only Skills,
-    # which the shipped library provides.
-    assert {:ok, sources} = Library.shipped_skill_sources([])
-    recall_only = Enum.filter(sources, &(&1.metadata["brain_recall_only"] == true))
-
-    assert {:ok, _report} =
-             LibraryKnowledge.sync(
-               sets: [
-                 %{
-                   kind: :lazy_skills,
-                   set_id: "job-read-lazy",
-                   name: "Job read lazy",
-                   skills: recall_only
-                 }
-               ]
-             )
-
-    assert {:ok, _sync} = Library.sync_agent_skills(context.agent.uid)
-
-    assert {:ok, %{slugs: [lazy_slug | _rest]}} =
-             Ankole.Brain.LazySkillVisibility.for_querier(context.agent.uid)
-
-    assert {:ok, lazy} = Tools.Brain.read(context.turn, "get_page", %{"reference" => lazy_slug})
-    assert String.starts_with?(lazy.output, Ankole.Brain.Tools.lazy_skill_hint())
-    assert lazy.details["page"]["slug"] == lazy_slug
   end
 
   test "entity, whoknows, and delta run through the read-tool broker", context do
@@ -149,7 +110,7 @@ defmodule Ankole.Sessions.Tools.BrainTest do
              )
 
     assert Enum.any?(
-             delta_res["details"]["new_claims"],
+             delta_res["details"]["claims"],
              &(&1["claim"] == "The wire format carries dated facts")
            )
   end
@@ -172,12 +133,12 @@ defmodule Ankole.Sessions.Tools.BrainTest do
     assert {:error, error} =
              ReadToolBroker.handle_read(
                context.turn,
-               request("recall", %{"query" => "wire", "budget_tokens" => 0}),
+               request("recall", %{}),
                %{request_id: "r"}
              )
 
     assert error["code"] == "read_tool_failed"
-    assert error["message"] =~ "budget_tokens"
+    assert error["message"] =~ "query"
   end
 
   test "a Signal that another Agent owns refuses the read", context do

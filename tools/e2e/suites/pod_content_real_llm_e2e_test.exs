@@ -32,6 +32,220 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
   end
 
   @tag :real_llm
+  @tag :knowledge_unification
+  @tag timeout: 900_000
+  test "a Human's shared Skill correction changes the saved proposal in the next conversation", %{
+    tenant: tenant
+  } do
+    {ctx, owner} = Story.start!(tenant)
+    namespace = Ankole.AIAgent.Library.Knowledge
+    assert {:ok, _} = Ankole.AIAgent.Library.sync_agent_skills(ctx.agent.uid)
+    {:ok, skills} = namespace.system_node("ankole_brain_skills")
+    {:ok, skill} = namespace.child(skills.id, "brainstorming")
+
+    {:ok, :ok} =
+      Repo.transact_top_level(fn ->
+        :ok =
+          Ankole.Files.Access.put_role(%{principal_uid: owner}, "drive:**:#{skill.id}:**", "edit")
+
+        {:ok, :ok}
+      end)
+
+    assert {:ok, supplement} =
+             Pages.create(ctx.owner_actor, %{
+               type: :knowledge,
+               title: "Team pilot practice",
+               parent_id: skill.id
+             })
+
+    reference = "PILOT-#{System.unique_integer([:positive])}"
+
+    assert {:ok, folder} =
+             Pages.create(ctx.owner_actor, %{type: :folder, title: "Pilot proposals #{reference}"})
+
+    Enum.reduce([187, 263], nil, fn budget, previous ->
+      practice =
+        "Team practice from pilot review #{reference}: every customer acquisition idea must include a validation plan. Each pilot has a maximum budget of #{budget} CNY. State this limit and cite the pilot review reference in the proposal."
+
+      Browser.edit_knowledge!(ctx, owner, supplement.id, practice)
+
+      save_request =
+        if previous do
+          "Update the existing knowledge page /pages/#{previous.id} to follow the current team practice. Keep the same page and give me its clickable link."
+        else
+          "Save the complete proposal as a knowledge page titled 'Pilot #{reference}' under /pages/#{folder.id} and give me its clickable link."
+        end
+
+      request =
+        Browser.send_message!(ctx, owner,
+          text:
+            "Use our brainstorming Skill to suggest two customer acquisition ideas for a procurement collaboration product for small factories. Include validation plans and pilot budgets following our team's practice, with its case reference. Make reasonable assumptions and give the proposal now. No web research or background work is needed. #{save_request}",
+          facts: [reference, to_string(budget)]
+        )
+
+      input = Repo.get_by!(Signal, message_id: request["message_id"])
+      complete_request!(ctx, input, require_job: false)
+      messages = Ankole.E2E.WaitHelpers.ai_messages_for_signal(input.id)
+      assert Ankole.E2E.Harness.tool_result_succeeded?(messages, "skill_view")
+      write_tool = if previous, do: "pod_save_page", else: "pod_create_page"
+      assert Ankole.E2E.Harness.tool_result_succeeded?(messages, write_tool)
+
+      proposal = Repo.get_by!(Page, parent_id: folder.id, type: :knowledge)
+      assert {:ok, %{content: content}} = Pages.get(ctx.owner_actor, proposal.id)
+      assert content.plain_text =~ reference
+      assert content.plain_text =~ to_string(budget)
+
+      if previous do
+        assert proposal.id == previous.id
+        assert proposal.revision > previous.revision
+      end
+
+      Browser.knowledge!(ctx, owner, request["conversation_id"], proposal, [
+        reference,
+        to_string(budget)
+      ])
+
+      {:ok, detail} = Conversations.get(ctx.owner_actor, request["conversation_id"])
+
+      replies =
+        detail.messages
+        |> Enum.filter(&(&1.author_type == :agent))
+        |> Enum.map_join("\n", & &1.text)
+
+      assert replies =~ reference
+      assert replies =~ to_string(budget)
+      proposal
+    end)
+  end
+
+  @tag :real_llm
+  @tag :knowledge_delivery
+  @tag timeout: 900_000
+  test "a corrected supplier page and team rules produce a sourced quotation", %{tenant: tenant} do
+    {ctx, owner} = Story.start!(tenant)
+    namespace = Ankole.AIAgent.Library.Knowledge
+    reference = "QUOTE-#{System.unique_integer([:positive])}"
+    assert {:ok, _} = Ankole.AIAgent.Library.sync_agent_skills(ctx.agent.uid)
+    {:ok, skills} = namespace.system_node("ankole_brain_skills")
+    {:ok, skill} = namespace.child(skills.id, "brainstorming")
+
+    assert {:ok, :ok} =
+             Repo.transact_top_level(fn ->
+               :ok =
+                 Ankole.Files.Access.put_role(
+                   %{principal_uid: owner},
+                   "drive:**:#{skill.id}:**",
+                   "edit"
+                 )
+
+               {:ok, :ok}
+             end)
+
+    assert {:ok, practice} =
+             Pages.create(ctx.owner_actor, %{
+               type: :knowledge,
+               parent_id: skill.id,
+               title: "Supplier quotation practice #{reference}",
+               xml:
+                 "<page><p>Supplier comparisons must show unit price, minimum quantity, freight, " <>
+                   "and total cost. Cite the supplier pages and practice #{reference}.</p></page>"
+             })
+
+    assert {:ok, folder} =
+             Pages.create(ctx.owner_actor, %{type: :folder, title: "Suppliers #{reference}"})
+
+    assert {:ok, alpha} =
+             Pages.create(ctx.owner_actor, %{
+               type: :knowledge,
+               parent_id: folder.id,
+               title: "Alpha #{reference}",
+               xml:
+                 "<page><p>Unit price 10 CNY. Minimum 20 units. Freight 41 CNY per order.</p></page>"
+             })
+
+    assert {:ok, beta} =
+             Pages.create(ctx.owner_actor, %{
+               type: :knowledge,
+               parent_id: folder.id,
+               title: "Beta #{reference}",
+               xml:
+                 "<page><p>Unit price 35 CNY. Minimum 20 units. Freight 19 CNY per order.</p></page>"
+             })
+
+    secret = "HIDDEN-FLOOR-#{reference}"
+
+    assert {:ok, private} =
+             Repo.transact_top_level(fn ->
+               with {:ok, page} <-
+                      namespace.ensure_child_in_tx(alpha.id, secret, :knowledge,
+                        inherit_permissions: false
+                      ),
+                    {:ok, _} <-
+                      namespace.put_markdown_in_tx(page, "Private procurement floor #{secret}."),
+                    do: {:ok, page}
+             end)
+
+    assert {:error, :forbidden} = Pages.get(Actor.new(ctx.agent), private.id)
+
+    introduction =
+      String.duplicate("Alpha supplies standard components for factory procurement. ", 1_000)
+
+    Browser.edit_knowledge!(
+      ctx,
+      owner,
+      alpha.id,
+      introduction <>
+        "\n\n## Current quotation\n\nUnit price 32 CNY. Minimum 20 units. Freight 41 CNY per order."
+    )
+
+    request =
+      Browser.send_message!(ctx, owner,
+        text: """
+        Use our brainstorming Skill and its team quotation practice to compare the two suppliers
+        in /pages/#{folder.id} for an order of 20 units. Read their current saved terms; do not
+        assume a unit price or freight cost. Recommend the cheaper offer including freight,
+        show both totals and the minimum quantities, and cite both supplier pages and the team
+        practice reference. Save the comparison as a knowledge page titled "Comparison #{reference}"
+        under the same folder and give me its clickable link. No web research or background work
+        is needed. You have permission to create the comparison. End the comparison with a line
+        "Recommended supplier: <name>".
+        """,
+        facts: [reference, "681", "719"]
+      )
+
+    input = Repo.get_by!(Signal, message_id: request["message_id"])
+    complete_request!(ctx, input, require_job: false)
+    messages = Ankole.E2E.WaitHelpers.ai_messages_for_signal(input.id)
+    assert Ankole.E2E.Harness.tool_result_succeeded?(messages, "skill_view")
+    assert Ankole.E2E.Harness.tool_result_succeeded?(messages, "pod_get_page")
+    assert Ankole.E2E.Harness.tool_result_succeeded?(messages, "pod_create_page")
+    refute Ankole.JSON.encode!(Ankole.E2E.Harness.tool_results(messages)) =~ secret
+
+    comparison = Repo.get_by!(Page, title: "Comparison #{reference}", parent_id: folder.id)
+    assert {:ok, %{content: content}} = Pages.get(ctx.owner_actor, comparison.id)
+
+    for fact <- ["Alpha", "Beta", "681", "719", "20"],
+        do: assert(content.plain_text =~ fact)
+
+    assert content.plain_text =~ "Recommended supplier: Alpha"
+
+    for source <- [alpha, beta, practice],
+        do:
+          assert(
+            String.contains?(content.content, [
+              source.id,
+              Ankole.Kernel.uuid_shorten(source.id)
+            ])
+          )
+
+    Browser.knowledge!(ctx, owner, request["conversation_id"], comparison, [
+      reference,
+      "681",
+      "719"
+    ])
+  end
+
+  @tag :real_llm
   @tag :pod_content_real_llm
   @tag :pod_content_browser_report
   @tag timeout: @story_timeout

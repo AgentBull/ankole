@@ -20,8 +20,9 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
-import { podLocation, podRouteID } from '../../common/browser-context'
+import { podRouteID } from '../../common/browser-context'
 import { ErrorBoundary } from '../../common/error-boundary'
+import { usePageHref } from '../use-page-metadata'
 import {
   EXTERNAL_TRANSLATION_GUARD_ATTRS,
   withExternalTranslationGuardClass
@@ -128,6 +129,35 @@ const directional = (Tag: 'p' | 'li' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' |
     return <Tag dir="auto" {...props} />
   }
 
+function MarkdownAnchor({ children, href }: { children?: ReactNode; href?: string }) {
+  const pageHref = usePageHref()
+  if (!href) return <span>{children}</span>
+  if (href.startsWith('ankole:page/')) {
+    const page = podRouteID(href.slice('ankole:page/'.length))
+    return page ? (
+      <Link
+        {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+        className={withExternalTranslationGuardClass('pod-chat-page-pill')}
+        to={pageHref(page)}>
+        <RiFileTextLine aria-hidden />
+        {children}
+      </Link>
+    ) : (
+      <span>{children}</span>
+    )
+  }
+  return (
+    <a
+      {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={withExternalTranslationGuardClass('link')}>
+      {children}
+    </a>
+  )
+}
+
 const components: Components = {
   p: directional('p'),
   li: directional('li'),
@@ -138,33 +168,7 @@ const components: Components = {
   h5: directional('h5'),
   h6: directional('h6'),
   blockquote: directional('blockquote'),
-  a: ({ children, href }) => {
-    if (!href) return <span>{children}</span>
-    if (href.startsWith('ankole:page/')) {
-      const page = podRouteID(href.slice('ankole:page/'.length))
-      return page ? (
-        <Link
-          {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
-          className={withExternalTranslationGuardClass('pod-chat-page-pill')}
-          to={podLocation(`/pages/${page}`).pathname}>
-          <RiFileTextLine aria-hidden />
-          {children}
-        </Link>
-      ) : (
-        <span>{children}</span>
-      )
-    }
-    return (
-      <a
-        {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        className={withExternalTranslationGuardClass('link')}>
-        {children}
-      </a>
-    )
-  },
+  a: MarkdownAnchor,
   span: ({ node: _node, className, ...props }) =>
     typeof className === 'string' && /(?:^|\s)katex(?:-display)?(?:\s|$)/.test(className) ? (
       <span {...EXTERNAL_TRANSLATION_GUARD_ATTRS} className={withExternalTranslationGuardClass(className)} {...props} />

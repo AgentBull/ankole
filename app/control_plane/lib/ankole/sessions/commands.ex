@@ -63,6 +63,13 @@ defmodule Ankole.Sessions.Commands do
       ),
       do: retry_target(event) == :bare
 
+  def injectable?(%Signal{
+        producer: :kernel,
+        type: "agent.peer_message",
+        data: %{"priority" => true}
+      }),
+      do: true
+
   def injectable?(event),
     do:
       not queued_followup?(event) and route(event) == :run and

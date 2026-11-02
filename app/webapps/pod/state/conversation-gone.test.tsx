@@ -33,6 +33,7 @@ function conversationFixture(): ConversationDetail {
       canDelete: true,
       canManage: true,
       roomMode: 'dm',
+      conversationKind: 'colleague_dm',
       titleCustomized: false,
       createdBy: 'person',
       lastMessageSeq: 1,
@@ -212,6 +213,7 @@ describe('Pod unavailable conversations', () => {
     })
     const cached = conversationFixture()
     cached.conversation.roomMode = 'group'
+    cached.conversation.conversationKind = 'group'
     cached.pendingQueues = [
       { agentUID: 'agent', inputs: [], paused: false, queueVersion: 'current', workStatus: { state: 'idle' } }
     ]
@@ -435,6 +437,7 @@ describe('Pod unavailable conversations', () => {
     })
     const cached = conversationFixture()
     cached.conversation.roomMode = 'group'
+    cached.conversation.conversationKind = 'group'
     const colleague = { ...cached.conversation.agents[0]!, uid: 'colleague', displayName: 'Colleague' }
     cached.conversation.agents.push(colleague)
     cached.conversation.participants.push({ ...colleague, role: 'agent' })

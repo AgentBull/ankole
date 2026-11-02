@@ -353,6 +353,45 @@ rewrite prior model history nor restart an active turn, and because edits
 preserve sequence numbers, later turns do not reread edited Messages that were
 already consumed.
 
+AI-colleague turns receive an audience-filtered related-context index of at
+most eight recent conversations within 180 tokens. Ankole selects recent work
+for the current audience and reads further candidates when Page access excludes
+an entry, so other employees' activity cannot displace that audience's history.
+Within that budget, Ankole keeps each entry's reference ID, kind, and short
+title first, then includes update time, status, and linked Page IDs (summarizing
+excess Page IDs as a remaining count) as space permits. `recall_related_context`
+pages the full public exchange, direct chat or Page comments under the same
+rule: every current Human must belong to the referenced audience, and the
+Agent must retain access to the referenced Page. A peer exchange takes its
+audience from the origin; Page comments use the Page's current Human readers.
+This lets a Human continue private work across entrances without disclosing it
+into a wider group.
+
+Personal assistants receive the callable colleague directory and the full role
+for colleagues explicitly mentioned in the current input. They dispatch work
+without asking the Human to select tools, preserve the original request and
+canonical Page links, and return useful conclusions to the origin. When a
+colleague's role matches a domain review, the assistant delegates early and
+lets that colleague retrieve and apply its role knowledge. Ordinary IM
+conclusions stay within about 100 words; long deliverables belong in Pages.
+While a colleague works or waits for a decision, the assistant handles unrelated
+requests in the same conversation and preserves the pending question. It sends
+new instructions through the peer tool and addresses visible replies to the Human.
+The colleague owns questions about its delegated task and asks the Human through
+the origin's Clarify surface. The assistant leaves those questions to the colleague.
+For document reviews, the assistant grants comment access so the same colleague
+can continue the discussion on the Page.
+
+When an assistant starts processing a peer result, its first model request also
+includes consecutive queued results for the same root Human request and origin
+Session. The replies share the originating reply route, WorkAccess, model profile
+and hop budget. Ankole records their individual Signal identities on the ordinary
+response tape and completes them together with the combined reply. It takes only
+results already pending at preparation; later arrivals start another turn.
+Human input and other tasks form batch boundaries. Ordinary peer results do not
+steer an active Human turn, and stopping the combined turn settles only its
+applied inputs.
+
 ## Execute Tools and Asynchronous Work
 
 Every tool call must supply complete, valid JSON arguments before execution; if
@@ -389,6 +428,12 @@ Session reconciliation failures use the same scrubbed logging—recording the
 operation name without request payloads—while Job Drivers preserve their own
 retry policy. If a post-commit receipt notification fails, the committed receipt
 remains valid and its domain write is never repeated.
+
+Routers use `create_background_job` for long coding, research and batch work,
+then release the foreground turn. Peer sends and read-only recall run in the
+control plane without allocating a Worker. A Job receives the same peer tool
+declarations and uses the fenced RPC adapter; retries reuse its tool-call
+identity. Page editing and sharing use the existing Worker CLI and Pod owners.
 
 Background Agent Jobs and Workflow calls inherit their parent's source
 authorization, explicit reply route, and owner Session, and their dispatch,

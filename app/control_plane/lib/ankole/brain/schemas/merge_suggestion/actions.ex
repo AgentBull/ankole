@@ -11,7 +11,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion.Actions do
 
   defp action(:console_approve, %{arguments: args}, context) do
     decided_by = Ankole.Brain.Console.actor_ref(context)
-    attrs = %{canonical_slug: args[:canonical_slug]}
+    attrs = %{canonical_page_id: args[:canonical_page_id]}
 
     with {:ok, _outcome} <-
            Ankole.Brain.Console.result(

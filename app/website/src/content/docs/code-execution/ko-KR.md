@@ -33,11 +33,9 @@ Agent Home은 `/workspace`에 마운트되는 영구 스토리지이며 `/agents
 ```text
 /workspace/
 ├── .codex/
-├── SOUL.md
-├── MISSION.md
+├── AGENTS.md
 ├── DESIGN.md
-├── ConfidentialityPolicy.md
-├── installed-skills/
+├── .ankole/turn-skills/<signal-id>/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
@@ -45,11 +43,11 @@ Agent Home은 `/workspace`에 마운트되는 영구 스토리지이며 `/agents
     └── temp/
 ```
 
-루트의 `SOUL.md`, `MISSION.md`, `DESIGN.md`, `ConfidentialityPolicy.md`는 [Agent Library](../agent-library/)에서 관리하는 네 가지 영구 문서입니다. 앞의 두 문서는 책임 범위와 행동 원칙을 정의하고, `DESIGN.md`는 시각 산출물용 디자인 시스템을 담으며, `ConfidentialityPolicy.md`는 Agent가 Brain에 지식을 기록할 때 공개 범위(audience scope)를 판단하는 기밀 유지 기준을 정의합니다. `installed-skills/`에는 설치된 Agent Skill이 동기화되고, `sessions/`에는 PostgreSQL이 `10000`부터 부여하는 고정 숫자 ID별 대화 워크스페이스가 놓이며, `jobs/`에는 개별 Background Agent Job 전용 워크스페이스가 생성됩니다.
+`~/AGENTS.md`와 `~/DESIGN.md`는 [Agent Library](../agent-library/)의 유효한 규약 전체를 반영합니다. 매 턴 `$CODEX_HOME/AGENTS.md`도 갱신합니다. Skill은 현재 대화 권한에 따라 `.ankole/turn-skills/<signal-id>/`에 배치합니다. `sessions/`에는 PostgreSQL이 `10000`부터 부여하는 고정 숫자 ID별 대화 작업 공간을, `jobs/`에는 프로젝트 자체 지침 파일을 포함한 백그라운드 작업 공간을 둡니다.
 
 Agent Home은 인스턴스가 삭제되거나 컨테이너 이미지가 업그레이드되어도 그대로 유지되며, 환경 재구축 시에는 `/var/cache/ankole` 캐시만 초기화됩니다. 단, Docker 로컬 볼륨은 호스트 디스크에 종속되고 Cloudflare 환경에서는 강제 종료 시 마지막 R2 백업 이후의 쓰기가 유실될 수 있으므로 플랫폼별 제약은 [Worker](../worker-management/) 문서를 참조하세요.
 
-대화 첨부 파일, 외부 게시 파일, Skill 번들, Automation 스크립트는 컨트롤 플레인 드라이브에 별도로 보관됩니다. 드라이브 파일을 읽거나 게시할 때는 `ankole-files`를 사용하고, 컨트롤 플레인을 통해 Pod 페이지·Base 테이블·Applet을 읽거나 수정할 때는 `ankole-pod`를 사용합니다. 반면 Job 작업 공간과 Codex 스레드 데이터는 영구 Home에 남으며, 매 Turn이 시작되기 전에 `installed-skills/`가 드라이브 상태와 동기화됩니다.
+`~/AGENTS.md`와 `~/DESIGN.md`는 [Agent Library](../agent-library/)의 유효한 규약 전체를 반영합니다. 매 턴 `$CODEX_HOME/AGENTS.md`도 갱신합니다. Skill은 현재 대화 권한에 따라 `.ankole/turn-skills/<signal-id>/`에 배치합니다. `sessions/`에는 PostgreSQL이 `10000`부터 부여하는 고정 숫자 ID별 대화 작업 공간을, `jobs/`에는 프로젝트 자체 지침 파일을 포함한 백그라운드 작업 공간을 둡니다.
 
 Background Agent Job에서는 필요한 시점에 `skill_view`를 호출해 Skill 지침을 로드합니다.
 

@@ -153,6 +153,18 @@ defmodule Ankole.AuthZ.Root do
     })
   end
 
+  def ensure_all_agents_group do
+    upsert_builtin_group(%{
+      name: "all_agents",
+      display_name: "All Agents",
+      kind: :computed,
+      built_in: true,
+      computed_condition: ~s(principal.type == "agent" && principal.status == "active"),
+      description: "Computed group for active Agent Principals",
+      metadata: %{}
+    })
+  end
+
   defp ensure_root_membership(%Group{} = admin_group, principal_uid) do
     case lock_admin_memberships(admin_group.id) do
       [] ->

@@ -10,7 +10,6 @@ import MarkdownRenderer from '../chat/markdown-renderer'
 import type { ClarifyPrompt, ExecutionSummary } from '../chat/types'
 import type { LinkedExecution, TimelineLiveStream, TimelineMessage } from '../chat/types'
 import {
-  activitySteps,
   interleavedReplySources,
   messageTime,
   placeLinkedExecutions,
@@ -19,6 +18,7 @@ import {
   timelineTurns,
   unloadedPendingQuestions
 } from '../chat/turn-timeline'
+import { activitySteps } from '../chat/collapsed-work-view'
 import { ToolRunView, commandDetails, formatToolDetail, humanizeToolName } from '../chat/tool-run-view'
 import { MessageActions } from '../chat/message-actions'
 import { ChatModel } from './chat'

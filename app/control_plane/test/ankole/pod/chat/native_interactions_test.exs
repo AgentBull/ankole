@@ -22,6 +22,7 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
                conversation_id: id,
                agent_uid: agent.uid,
                message_id: Ecto.UUID.generate(),
+               room_mode: :group,
                text: "Prepare a report."
              })
 
@@ -350,7 +351,7 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     assert %{"state" => "pending"} = Interactions.native_interaction(card.signal_id, id)
   end
 
-  test "Pod RPC reads use the executing Agent permissions regardless of the speaking Human",
+  test "Pod RPC reads intersect the Agent, requester, and native room readers",
        ctx do
     alias Ankole.Pod.{Bases, Pages, RPCBroker}
     alias Ankole.RuntimeFabric.V1.PodRequest
@@ -399,7 +400,7 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
       params_json: Ankole.JSON.encode!(%{id: table.id})
     }
 
-    assert {:ok, %{"result" => %{"records" => [_]}}} =
+    assert {:error, %{"code" => "not_found"}} =
              RPCBroker.handle_read(alice_ref, query, rpc_context)
 
     assert {:ok, _} =
@@ -422,7 +423,26 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     }
 
     assert {:ok, %{"result" => pages}} = RPCBroker.handle_read(bob_ref, read, rpc_context)
+    refute Enum.any?(pages, &(&1["id"] == document.id))
+
+    assert {:error, %{"code" => "not_found"}} =
+             RPCBroker.handle_read(bob_ref, query, rpc_context)
+
+    for page <- [document, database] do
+      assert {:ok, _} =
+               Ankole.Pod.PagesFixtures.set_sharing(ctx.alice.uid, page.id, %{
+                 grants: [
+                   %{principal_uid: ctx.agent.uid, role: "view"},
+                   %{principal_uid: ctx.bob.uid, role: "view"}
+                 ]
+               })
+    end
+
+    assert {:ok, %{"result" => pages}} = RPCBroker.handle_read(bob_ref, read, rpc_context)
     assert Enum.any?(pages, &(&1["id"] == document.id))
+
+    assert {:ok, %{"result" => %{"records" => [_]}}} =
+             RPCBroker.handle_read(alice_ref, query, rpc_context)
 
     assert {:ok, %{"result" => %{"records" => [_]}}} =
              RPCBroker.handle_read(bob_ref, query, rpc_context)
@@ -434,7 +454,7 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
                ]
              })
 
-    assert {:error, %{"code" => "forbidden"}} =
+    assert {:error, %{"code" => "not_found"}} =
              RPCBroker.handle_read(bob_ref, query, rpc_context)
   end
 

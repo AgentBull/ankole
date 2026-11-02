@@ -149,17 +149,14 @@ The Agent Library resources own sparse Plugin overrides, Skill catalog
 synchronization, per-Agent enablement, and runtime document writes. Catalog sync
 preserves saved enablement overrides and keeps all member Skill rows current—even
 for disabled Plugins—so saved choices and the Console catalog stay intact.
-Active documents preserve their partial unique path identity and exact content
-bytes. Plugin member rows set `source_kind = "builtin"` and record their parent
+Pod knowledge pages own shared Skill content. Plugin member rows set `source_kind = "builtin"` and record their parent
 in `agent_plugin_id`; Skill discovery and execution do not branch on a separate
 source kind.
 
-A shipped standalone or Plugin member Skill may set `brain-recall-only: true`.
-Such a Skill retains its global Skill name and normal enablement rules, but
-Ankole omits it from the prompt catalog. Instead, Brain indexes its name,
-description, and tags as a lightweight discovery record, leaving `skill_view` as
-the sole loader for its full body and resources. Agent-installed Skills cannot
-use `brain-recall-only` mode.
+Shared Skill pages participate in Brain search through their names, descriptions
+and bodies. The current enabled catalog uses their descriptions, and `skill_view`
+loads their current instructions and visible supplements. Drive permissions
+control visibility independently from Plugin and Skill enablement.
 
 ### What a Job Saves and Loads
 
@@ -189,9 +186,8 @@ Each individual Job then performs purely thread-local selection:
 
 1. Resolves its projected Plugin IDs and Background-eligible member Skills
    against the current catalog.
-2. Renders ordinary selected members in the Job Skill index while keeping all
-   selected members (including `brain-recall-only` Skills) loadable via Ankole's
-   `skill_view`.
+2. Renders selected members in the Job Skill index and loads their current
+   page content through Ankole's `skill_view`.
 3. Projects MCP servers only from enabled member Skills that permit Background
    Agent Jobs.
 

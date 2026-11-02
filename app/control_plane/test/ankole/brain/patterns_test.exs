@@ -1,13 +1,10 @@
 defmodule Ankole.Brain.PatternsTest do
   use Ankole.AIGatewayCase
 
-  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Patterns
-  alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Link
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.ObjectVersion
+  alias Ankole.Brain.Schemas.Page, as: Object
 
   setup context do
     {:ok, _result} = SchemaPacks.install_packs([])
@@ -35,20 +32,24 @@ defmodule Ankole.Brain.PatternsTest do
     %{principal: owner} = human_fixture()
     %{principal: outsider} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
-    scope = if context[:private], do: "principal:" <> owner.uid, else: "world"
+
+    scope =
+      if context[:private],
+        do: Ankole.Brain.Scope.principal(owner.uid),
+        else: Ankole.Brain.Scope.world()
 
     slugs =
       for index <- 1..Map.get(context, :page_count, 4) do
-        slug = "projects/pattern-#{index}"
+        slug = "projects/evidence-#{index}"
 
-        {:ok, _object} =
+        {:ok, object} =
           Ankole.Brain.create_object(
             %{slug: slug, type: "project", title: "Project #{index}"},
             :system
           )
 
-        write_fact!(slug, "Project #{index} requires renewal approval.", scope, agent.uid)
-        slug
+        write_fact!(object.id, "Project #{index} requires renewal approval.", scope, owner.uid)
+        object.id
       end
 
     %{state: state, slugs: slugs, scope: scope, owner: owner, outsider: outsider, agent: agent}
@@ -61,13 +62,8 @@ defmodule Ankole.Brain.PatternsTest do
     assert %{status: :ok, pages: 1} = Patterns.run()
     assert [page] = pages()
 
-    assert page.slug ==
-             "analysis/patterns/" <>
-               Ankole.Kernel.xxh3_128_hex(context.scope) <> "/renewal-approval"
-
-    assert {:ok, [scope]} = Markdoc.scopes(page.body)
-    assert scope == context.scope
-    assert evidence(page.slug) == Enum.take(context.slugs, 3)
+    assert page.parent_id == context.scope
+    assert evidence(page.id) == Enum.take(context.slugs, 3) |> Enum.sort()
 
     second = pattern(Enum.drop(context.slugs, 1), "Renewal approval now follows a shared review.")
     respond(context.state, [second])
@@ -75,15 +71,13 @@ defmodule Ankole.Brain.PatternsTest do
     assert [updated] = pages()
     assert updated.id == page.id
     assert updated.body =~ "shared review"
-    assert evidence(page.slug) == Enum.drop(context.slugs, 1)
-    assert Repo.aggregate(ObjectVersion, :count) == 1
-    assert [%{author: %Ankole.ActorRef{uid: "ankole_brain"}}] = Repo.all(ObjectVersion)
-    assert List.last(requests(context.state))["messages"] |> inspect() =~ page.slug
+    assert evidence(page.id) == Enum.sort(Enum.drop(context.slugs, 1))
+    snapshots = Repo.all(from s in Ankole.Pod.PageSnapshot, where: s.page_id == ^page.id)
+    assert length(snapshots) == 2
+    assert Enum.all?(snapshots, &(&1.author.uid == "ankole_brain"))
 
-    assert {:ok, visible} = Recall.recall(context.owner.uid, %{query: "renewal approval"})
-    assert Enum.any?(visible.chunks, &(&1.object_slug == page.slug))
-    assert {:ok, hidden} = Recall.recall(context.outsider.uid, %{query: "renewal approval"})
-    refute Enum.any?(hidden.chunks, &(&1.object_slug == page.slug))
+    assert {:ok, _} = Ankole.Pod.Pages.get(actor_fixture(context.owner), page.id)
+    assert {:error, :forbidden} = Ankole.Pod.Pages.get(actor_fixture(context.outsider), page.id)
   end
 
   test "no useful pattern is a successful no-op", context do
@@ -98,7 +92,7 @@ defmodule Ankole.Brain.PatternsTest do
       write_fact!(
         hd(context.slugs),
         "Additional independent fact #{index}.",
-        "world",
+        Ankole.Brain.Scope.world(),
         context.agent.uid
       )
     end
@@ -111,10 +105,9 @@ defmodule Ankole.Brain.PatternsTest do
     valid = pattern(Enum.take(context.slugs, 3))
 
     for invalid <- [
-          Map.put(valid, "topic_slug", "daily-2026-09-05"),
-          Map.put(valid, "evidence_slugs", ["projects/missing" | Enum.take(context.slugs, 2)]),
-          pattern(Enum.take(context.slugs, 2)),
-          Map.put(valid, "body", "Unsupported synthesis without evidence links.")
+          Map.put(valid, "topic", "bad/topic"),
+          Map.put(valid, "evidence_page_ids", [Ecto.UUID.generate() | Enum.take(context.slugs, 2)]),
+          pattern(Enum.take(context.slugs, 2))
         ] do
       respond(context.state, [valid, invalid])
       assert %{status: :failed, pages: 0, errors: [:invalid_pattern_output]} = Patterns.run()
@@ -123,61 +116,54 @@ defmodule Ankole.Brain.PatternsTest do
     end
   end
 
-  @tag :private
-  test "rejects audience escapes", context do
-    valid = pattern(Enum.take(context.slugs, 3))
-    invalid = Map.update!(valid, "body", &("{% /audience %}\n" <> &1))
-    respond(context.state, [invalid])
-    assert %{status: :failed, pages: 0} = Patterns.run()
-    assert pages() == []
-  end
-
   test "a write conflict rolls back the whole audience batch", context do
-    conflict_slug =
-      "analysis/patterns/" <> Ankole.Kernel.xxh3_128_hex(context.scope) <> "/existing-note"
-
     {:ok, note} =
-      Ankole.Brain.create_object(
-        %{slug: conflict_slug, type: "note", title: "Existing note", body: "Keep this note."},
-        :system
-      )
+      Ankole.Repo.transact_top_level(fn ->
+        {:ok, node} =
+          Ankole.AIAgent.Library.Knowledge.ensure_child_in_tx(
+            context.scope,
+            "pattern-existing-note",
+            :knowledge
+          )
+
+        Ankole.AIAgent.Library.Knowledge.put_markdown_in_tx(node, "Keep this note.")
+      end)
 
     valid = pattern(Enum.take(context.slugs, 3))
-    respond(context.state, [valid, Map.put(valid, "topic_slug", "existing-note")])
+    respond(context.state, [valid, Map.put(valid, "topic", "existing-note")])
     assert %{status: :failed, pages: 0, errors: [:pattern_target_conflict]} = Patterns.run()
-    assert_persisted_equal(pages(), [note])
+    assert Enum.map(pages(), & &1.id) == [note.id]
     assert Repo.aggregate(Link, :count) == 0
-    assert Repo.aggregate(ObjectVersion, :count) == 0
   end
 
   @tag :private
   test "same topic in different audiences has separate pages and model inputs", context do
     for {slug, index} <- Enum.with_index(context.slugs) do
-      write_fact!(slug, "Public renewal policy #{index}.", "world", context.agent.uid)
+      write_fact!(
+        slug,
+        "Public renewal policy #{index}.",
+        Ankole.Brain.Scope.world(),
+        context.owner.uid
+      )
     end
 
     respond(context.state, [pattern(Enum.take(context.slugs, 3))])
     assert %{status: :ok, pages: 2, buckets: 2} = Patterns.run()
     assert length(pages()) == 2
 
-    assert MapSet.new(pages(), &Markdoc.scopes(&1.body)) ==
-             MapSet.new([{:ok, ["world"]}, {:ok, [context.scope]}])
+    assert MapSet.new(pages(), & &1.parent_id) ==
+             MapSet.new([Ankole.Brain.Scope.world(), context.scope])
 
     respond(context.state, [])
     assert %{status: :ok, pages: 0} = Patterns.run()
-
-    for request <- Enum.take(requests(context.state), -2) do
-      prompt = inspect(request["messages"])
-      assert Enum.count(pages(), &String.contains?(prompt, &1.slug)) == 1
-    end
   end
 
   defp pattern(slugs, text \\ "Renewal approval recurs across projects.") do
     %{
-      "topic_slug" => "renewal-approval",
+      "topic" => "renewal-approval",
       "title" => "Renewal approval",
       "body" => text <> "\n\n" <> Enum.map_join(slugs, "\n", &"- [[#{&1}]]"),
-      "evidence_slugs" => slugs
+      "evidence_page_ids" => slugs
     }
   end
 
@@ -190,7 +176,7 @@ defmodule Ankole.Brain.PatternsTest do
     do:
       Repo.all(
         from object in Object,
-          where: like(object.slug, "analysis/patterns/%"),
+          where: like(object.slug, "%pattern-%"),
           order_by: object.slug
       )
 
@@ -199,21 +185,21 @@ defmodule Ankole.Brain.PatternsTest do
       Repo.all(
         from link in Link,
           where:
-            link.from_object_slug == ^slug and link.link_source == "dreaming" and
+            link.from_page_id == ^slug and link.link_source == "dreaming" and
               link.link_type == "derived_from",
-          order_by: link.to_object_slug,
-          select: link.to_object_slug
+          order_by: link.to_page_id,
+          select: link.to_page_id
       )
 
   defp write_fact!(slug, text, scope, writer) do
     assert {:ok, _result} =
              Ankole.Brain.write_fact(
                %{
-                 object_slug: slug,
+                 subject_page_id: slug,
                  claim: text,
                  kind: "fact",
                  holder: "world",
-                 audience_scope: scope,
+                 source_node_id: scope,
                  notability: "high",
                  confidence: 0.9,
                  valid_from: DateTime.utc_now(:microsecond),

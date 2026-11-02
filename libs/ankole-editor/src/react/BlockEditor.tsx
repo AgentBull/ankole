@@ -25,8 +25,13 @@ import { SlashMenu, slashMenu } from './SlashMenu'
 import { FileUpload } from './FileUpload'
 import { editorPhrases, type EditorLabels } from '../editor/phrases'
 import { Comment } from '../editor/schema'
+import { knowledgeExtension } from '../editor/knowledge'
+import { validateKnowledge } from '../document/knowledge'
+import { parseMarkdown } from '../document/markdown'
 
 export type BlockEditorProps = {
+  /** Restricts creation and paste to the lossless knowledge-page vocabulary. Stable per instance. */
+  kind?: 'doc' | 'knowledge'
   /** Initial content is read once. Use PageSession for edits, or a new key for a new document. */
   initial?: string | Element
   onReady?: (editor: Wordgard, handle: EditorHandle) => void | (() => void)
@@ -102,36 +107,43 @@ function createHandle(
   options: Options,
   changed: () => void,
   failed: (error: unknown) => void,
-  host?: EditorHost
+  host?: EditorHost,
+  kind: 'doc' | 'knowledge' = 'doc'
 ): EditorHandle {
   const listeners = new Set<() => void>()
   let drawn: GardState
   const editor = Wordgard.create({
-    state: initialState(initial, [
-      // An open slash or mention menu takes its keys before any editing key binding.
-      slashMenu,
-      mentionMenu,
-      Wordgard.exceptionSink.of(failed),
-      host ? hostExtension(host) : [],
-      editorExtension(),
-      editable.of(editableExtension(options.readOnly)),
-      interfaceLabels.of(labelExtension(options)),
-      commentPresentation.of(commentAppearance(noResolvedComments)),
-      Wordgard.editorAttributes.of({ class: 'editor-view' }),
-      Wordgard.contentAttributes.of({ class: 'editor-content' }),
-      indentStyles,
-      blockMenus,
-      columnResizing,
-      // Hosts hear of a change when it is dispatched. React components read the DOM, so they
-      // update after the editor draws.
-      Wordgard.transactionListener.of(trs => {
-        if (trs.some(tr => tr.docChanged)) changed()
-      }),
-      Wordgard.updateListener.of(update => {
-        drawn = update.state
-        for (const listener of listeners) listener()
-      })
-    ])
+    state: initialState(
+      kind === 'knowledge'
+        ? validateKnowledge(typeof initial === 'string' ? parseMarkdown(initial) : initial)
+        : initial,
+      [
+        // An open slash or mention menu takes its keys before any editing key binding.
+        slashMenu,
+        mentionMenu,
+        Wordgard.exceptionSink.of(failed),
+        host ? hostExtension(host) : [],
+        editorExtension(),
+        kind === 'knowledge' ? knowledgeExtension : [],
+        editable.of(editableExtension(options.readOnly)),
+        interfaceLabels.of(labelExtension(options)),
+        commentPresentation.of(commentAppearance(noResolvedComments)),
+        Wordgard.editorAttributes.of({ class: 'editor-view' }),
+        Wordgard.contentAttributes.of({ class: 'editor-content' }),
+        indentStyles,
+        blockMenus,
+        columnResizing,
+        // Hosts hear of a change when it is dispatched. React components read the DOM, so they
+        // update after the editor draws.
+        Wordgard.transactionListener.of(trs => {
+          if (trs.some(tr => tr.docChanged)) changed()
+        }),
+        Wordgard.updateListener.of(update => {
+          drawn = update.state
+          for (const listener of listeners) listener()
+        })
+      ]
+    )
   })
   drawn = editor.state
   return {
@@ -145,6 +157,7 @@ function createHandle(
 }
 
 export function BlockEditor({
+  kind = 'doc',
   initial = '',
   onReady,
   onChange,
@@ -177,7 +190,8 @@ export function BlockEditor({
       { readOnly, ariaLabel, placeholder, labels },
       () => changed(),
       error => failed(error),
-      host
+      host,
+      kind
     )
   )
   const { editor } = handle
@@ -227,15 +241,15 @@ export function BlockEditor({
                 <SlashMenu />
                 <MentionMenu />
                 <CodeLanguageMenu />
-                <MathEditor />
+                {kind !== 'knowledge' && <MathEditor />}
                 <FileUpload />
                 <TableTools />
                 <CalloutMenu />
-                <MermaidMenus />
+                {kind !== 'knowledge' && <MermaidMenus />}
                 <KeyboardBlockMenu insertMenu={insertMenu} />
                 <BlockHandles anchor={anchor} insertMenu={insertMenu} />
                 <BlockMarquee anchor={anchor} />
-                <ColumnResizers anchor={anchor} />
+                {kind !== 'knowledge' && <ColumnResizers anchor={anchor} />}
               </>
             )}
           </div>

@@ -144,6 +144,7 @@ defmodule Ankole.Conversations.External do
                  provider_conversation_id: provider_id
                })
              ),
+           {:ok, _} <- Ankole.Files.Nodes.ensure_conversation_root_in_tx(conversation.id),
            {:ok, _} <- ensure_agent(conversation.id, agent_uid) do
         {:ok, conversation}
       end

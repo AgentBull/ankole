@@ -82,16 +82,48 @@ defmodule Ankole.Pod.Bases.Records do
     end
   end
 
-  def batch(write, %{creates: creates, updates: updates, deletes: deletes}) do
+  def batch(write, %{creates: creates, updates: updates, deletes: deletes} = attrs) do
     definitions = Map.fetch!(write.definitions, write.table.id)
+    replay? = Map.get(attrs, :vfs_replay, false)
 
-    with {:ok, created, write} <- create(write, creates, definitions),
-         {:ok, updated, write} <- update_records(write, updates, definitions),
+    with {:ok, creates, replayed} <- pending_creates(write, creates, definitions, replay?),
+         {:ok, created, write} <- create(write, creates, definitions),
+         {:ok, updated, write} <- update_records(write, updates, definitions, replay?),
          {:ok, write} <- delete(write, deletes),
-         {:ok, changes} <- Write.finish(Write.touch(write, write.table.id)),
-         ids <- Enum.uniq(Enum.reverse(created) ++ Enum.reverse(updated)),
+         {:ok, changes} <-
+           Write.finish(if(replay?, do: write, else: Write.touch(write, write.table.id))),
+         changes <-
+           if(changes == [],
+             do: [
+               %{
+                 id: write.table.id,
+                 data_version: write.table.data_version,
+                 changed_ids: [],
+                 deleted_ids: [],
+                 resync: false
+               }
+             ],
+             else: changes
+           ),
+         ids <- Enum.uniq(replayed ++ Enum.reverse(created) ++ Enum.reverse(updated)),
          {:ok, records} <- project(write.table, definitions, ids) do
       {:ok, Write.result(changes, write.table.id) |> Map.put(:records, records)}
+    end
+  end
+
+  # Only the VFS's persisted request identity opts into replay. Ordinary Base
+  # creates keep their existing duplicate-ID error contract.
+  defp pending_creates(_write, creates, _fields, false), do: {:ok, creates, []}
+  defp pending_creates(_write, [], _fields, true), do: {:ok, [], []}
+
+  defp pending_creates(write, creates, fields, true) do
+    ids = Enum.map(creates, &Ankole.Attrs.get(&1, :id))
+
+    with {:ok, existing} <- project(write.table, fields, ids) do
+      present = MapSet.new(existing, & &1.id)
+
+      {:ok, Enum.reject(creates, &MapSet.member?(present, Ankole.Attrs.get(&1, :id))),
+       Enum.filter(ids, &MapSet.member?(present, &1))}
     end
   end
 
@@ -131,7 +163,7 @@ defmodule Ankole.Pod.Bases.Records do
     end)
   end
 
-  defp update_records(write, attrs, definitions) do
+  defp update_records(write, attrs, definitions, replay?) do
     Enum.reduce_while(attrs, {:ok, [], write}, fn attrs, {:ok, ids, write} ->
       with {:ok, record} <- fetch(write, Ankole.Attrs.get(attrs, :id)),
            data <- Ankole.Attrs.get(attrs, :data),
@@ -158,10 +190,36 @@ defmodule Ankole.Pod.Bases.Records do
            {:ok, write} <- maintain_links(write, definitions, record.data, saved.data, record.id) do
         {:cont, {:ok, [record.id | ids], write}}
       else
-        false -> {:halt, {:error, :expected_versions_required}}
-        error -> {:halt, error}
+        false ->
+          {:halt, {:error, :expected_versions_required}}
+
+        {:error, {:field_conflict, _}} = error ->
+          # A lost HTTP response must not advance field versions a second time.
+          with true <- replay?,
+               {:ok, record} <- fetch(write, Ankole.Attrs.get(attrs, :id)),
+               true <- replayed_patch?(write, record, attrs) do
+            {:cont, {:ok, [record.id | ids], write}}
+          else
+            _ -> {:halt, error}
+          end
+
+        error ->
+          {:halt, error}
       end
     end)
+  end
+
+  defp replayed_patch?(write, record, attrs) do
+    data = Ankole.Attrs.get(attrs, :data)
+    expected = Ankole.Attrs.get(attrs, :expected_versions)
+
+    record.updated_by == author(write) &&
+      MapSet.new(Map.keys(data)) == MapSet.new(Map.keys(expected)) &&
+      Enum.all?(data, fn {id, value} ->
+        (is_nil(expected[id]) || is_integer(expected[id])) &&
+          record.versions[id] == (expected[id] || 0) + 1 &&
+          record.data[id] == Values.clean(%{id => value})[id]
+      end)
   end
 
   defp delete(write, []), do: {:ok, write}

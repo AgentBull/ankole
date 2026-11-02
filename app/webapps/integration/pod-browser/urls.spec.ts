@@ -1,6 +1,6 @@
-import { state } from './fixtures'
+import { request, state } from './fixtures'
 import { expect, test } from '@playwright/test'
-import { conversationRoute, pageRoute } from './routes'
+import { conversationRoute, pageRoute, uuidShorten } from './routes'
 
 test('Pod entry, reload and legacy links use the tenant host and short IDs with shared account proofs', async ({
   browser
@@ -8,6 +8,7 @@ test('Pod entry, reload and legacy links use the tenant host and short IDs with 
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
+  const created: string[] = []
   try {
     const origin = new URL(state.base_url)
     expect(origin.hostname).toBe(`${state.tenant_slug}.ankole.localhost`)
@@ -23,6 +24,28 @@ test('Pod entry, reload and legacy links use the tenant host and short IDs with 
     await expect(page).toHaveURL(state.base_url + pageRoute(state.report_id))
     await expect(page.locator('.editor-content')).toBeVisible()
 
+    await page.goto(`/pages/${uuidShorten(state.report_id)}`)
+    await expect(page).toHaveURL(state.base_url + pageRoute(state.report_id))
+
+    const chineseTitle = '2026产品规划 & Q4 Design Spec'
+    const { page: chinesePage } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'doc',
+      title: chineseTitle
+    })
+    created.push(chinesePage.id)
+    await page.goto(`/pages/${uuidShorten(chinesePage.id)}`)
+    await expect(page).toHaveURL(
+      `${state.base_url}/pages/2026-chan-pin-gui-hua-q4-design-spec-${uuidShorten(chinesePage.id)}`
+    )
+
+    const { page: untitledPage } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'doc',
+      title: ''
+    })
+    created.push(untitledPage.id)
+    await page.goto(`/pages/${uuidShorten(untitledPage.id)}`)
+    await expect(page).toHaveURL(`${state.base_url}/pages/${uuidShorten(untitledPage.id)}`)
+
     await page.goto(`/conversations/${state.conversation_id}`)
     await expect(page).toHaveURL(state.base_url + conversationRoute(state.conversation_id))
     await expect(page.getByRole('region', { name: '对话消息', exact: true })).toBeVisible()
@@ -30,6 +53,7 @@ test('Pod entry, reload and legacy links use the tenant host and short IDs with 
     expect(cookies.length).toBeGreaterThan(0)
     expect(cookies.every(cookie => cookie.domain === '.ankole.localhost' && cookie.path === '/')).toBe(true)
   } finally {
+    for (const id of created.reverse()) await request(page, `/pages/${id}`, 'DELETE').catch(() => {})
     await context.close()
   }
 })

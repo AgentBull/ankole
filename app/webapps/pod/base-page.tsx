@@ -47,6 +47,7 @@ import {
 import { contentKeys, limitPageTitle, podRequest, type PageDetail } from './content-api'
 import { ErrorBoundary } from '../common/error-boundary'
 import { useContent } from './content-context'
+import { usePageHref } from './use-page-metadata'
 import { ContentError } from './content-primitives'
 import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
 import { BaseViewContent, RecordForm, fieldIcons, type ViewProps } from './base-views'
@@ -313,7 +314,8 @@ function TableWorkspace({
   inline?: InlineView
 }) {
   const { t } = useTranslation()
-  const { base, pageHref } = useContent()
+  const { base } = useContent()
+  const pageHref = usePageHref()
   const schema = useQuery(baseSchemaQuery(tableID))
   useSignals()
   const model = useModel(TableWorkspaceModel)

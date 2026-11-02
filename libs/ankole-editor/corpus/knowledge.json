@@ -1,0 +1,9 @@
+[
+  {"name":"leading divider","xml":"<page><hr/><p>Team knowledge.</p><hr/><p>More detail.</p></page>"},
+  {"name":"headings and formats","xml":"<page><h1>知识</h1><p>Plain <strong>bold</strong>, <em>emphasis</em>, <s>removed</s>, <code>a`b</code> and <a href=\"https://example.org\" title=\"Source\">source</a>.</p><h2>Section</h2><h6>Detail</h6></page>"},
+  {"name":"nested and task lists","xml":"<page><ol start=\"3\"><li><p>First</p><ul><li task=\"done\"><p>Checked</p></li><li task=\"todo\"><p>Pending</p></li></ul></li><li><p>Second</p></li></ol></page>"},
+  {"name":"code quote alert","xml":"<page><pre lang=\"rust\">let value = `code`;\nnext</pre><blockquote><p>Quote</p></blockquote><callout tone=\"warning\" icon=\"⚠️\"><p>Keep the source.</p></callout></page>"},
+  {"name":"table","xml":"<page><table><tr><th align=\"left\"><p>Name</p></th><th align=\"right\"><p>Value</p></th></tr><tr><td align=\"left\"><p>A</p></td><td align=\"right\"><p>42</p></td></tr></table></page>"},
+  {"name":"media and mentions","xml":"<page><media src=\"https://example.org/image.png\" title=\"Example\" kind=\"image\"/><p>Ask <mention principal=\"alice\"/> about <mention page=\"019a0000-0000-7000-8000-000000000001\"/>.</p></page>"},
+  {"name":"ambiguous prose","xml":"<page><p>@alice is plain text.</p><p> a <strong> spaced </strong> word </p><p/><p>1. literal</p><p>line<br/>break</p></page>"}
+]

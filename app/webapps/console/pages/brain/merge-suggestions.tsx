@@ -1,4 +1,4 @@
-import { TableRow, useMutation, useInfiniteQuery, Link } from '../../tenant-context'
+import { TableRow, useMutation, useInfiniteQuery } from '../../tenant-context'
 import {
   Badge,
   Button,
@@ -33,7 +33,8 @@ import { requestErrorMessage } from '../../../common/request-errors'
 import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../../console-form'
 import { formatConsoleDate } from '../../console-primitives'
 import { ResourceListPage } from '../../console-list-page'
-import { BrainSubNav, brainObjectPath } from './brain-nav'
+import { BrainPageLink } from './brain-scope'
+import { BrainSubNav } from './brain-nav'
 
 const SUGGESTION_STATUSES = ['pending', 'approved', 'rejected'] as const
 
@@ -46,9 +47,7 @@ function PageCell({ page }: { page?: BrainMergePageSummary | null }) {
   if (!page) return <span className="text-xs">—</span>
   return (
     <div className="grid gap-0.5">
-      <Link className="link text-xs" to={brainObjectPath(page.slug)}>
-        {page.title ?? page.slug}
-      </Link>
+      <BrainPageLink pageID={page.page_id}>{page.title ?? page.slug}</BrainPageLink>
       <span className="font-mono text-[11px] text-muted-foreground">{page.slug}</span>
     </div>
   )
@@ -59,7 +58,7 @@ export function BrainMergeSuggestionsPage() {
   const [status, setStatus] = useState<(typeof SUGGESTION_STATUSES)[number]>('pending')
   const [approveTarget, setApproveTarget] = useState<BrainMergeSuggestion>()
   const [rejectTarget, setRejectTarget] = useState<BrainMergeSuggestion>()
-  const [canonicalSlug, setCanonicalSlug] = useState('')
+  const [canonicalPageID, setCanonicalPageID] = useState('')
 
   const suggestions = useInfiniteQuery({
     ...listBrainMergeSuggestionsInfiniteOptions({ query: { status } }),
@@ -74,7 +73,7 @@ export function BrainMergeSuggestionsPage() {
     onSuccess: () => {
       toast.success(t('console.brain.merge_approved'))
       setApproveTarget(undefined)
-      setCanonicalSlug('')
+      setCanonicalPageID('')
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -88,7 +87,7 @@ export function BrainMergeSuggestionsPage() {
   })
 
   const approveGuard = useDialogDiscardGuard({
-    dirty: approveTarget !== undefined && canonicalSlug !== (approveTarget.a_page?.slug ?? ''),
+    dirty: approveTarget !== undefined && canonicalPageID !== (approveTarget.a_page?.page_id ?? ''),
     onOpenChange: open => !open && setApproveTarget(undefined),
     pending: approve.isPending
   })
@@ -161,7 +160,7 @@ export function BrainMergeSuggestionsPage() {
                     type="button"
                     variant="ghost"
                     onClick={() => {
-                      setCanonicalSlug(suggestion.a_page?.slug ?? '')
+                      setCanonicalPageID(suggestion.a_page?.page_id ?? '')
                       setApproveTarget(suggestion)
                     }}>
                     {t('console.brain.merge_action')}
@@ -185,7 +184,9 @@ export function BrainMergeSuggestionsPage() {
             <DialogDescription>{t('console.brain.merge_approve_description')}</DialogDescription>
           </DialogHeader>
           <LabeledField label={t('console.brain.merge_canonical')}>
-            <Select value={canonicalSlug} onValueChange={value => typeof value === 'string' && setCanonicalSlug(value)}>
+            <Select
+              value={canonicalPageID}
+              onValueChange={value => typeof value === 'string' && setCanonicalPageID(value)}>
               <SelectTrigger aria-label={t('console.brain.merge_canonical')} className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -193,7 +194,7 @@ export function BrainMergeSuggestionsPage() {
                 {[approveTarget?.a_page, approveTarget?.b_page]
                   .filter((page): page is BrainMergePageSummary => Boolean(page))
                   .map(page => (
-                    <SelectItem key={page.slug} value={page.slug}>
+                    <SelectItem key={page.page_id} value={page.page_id}>
                       {page.title ? `${page.title} (${page.slug})` : page.slug}
                     </SelectItem>
                   ))}
@@ -205,12 +206,12 @@ export function BrainMergeSuggestionsPage() {
               {t('common.cancel')}
             </DialogClose>
             <Button
-              disabled={approve.isPending || !canonicalSlug}
+              disabled={approve.isPending || !canonicalPageID}
               onClick={() =>
                 approveTarget &&
                 approve.mutate({
                   path: { suggestion_id: approveTarget.id },
-                  body: { data: { canonical_slug: canonicalSlug } }
+                  body: { data: { canonical_page_id: canonicalPageID } }
                 })
               }>
               {approve.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}

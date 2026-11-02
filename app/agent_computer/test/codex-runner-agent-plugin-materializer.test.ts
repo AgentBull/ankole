@@ -97,8 +97,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
-        workspaceTemplateId: 'alpha',
-        agentsContent: '# Job guidance'
+        workspaceTemplateId: 'alpha'
       })
       expect(first.agentPlugins.map(plugin => plugin.id)).toEqual(['alpha', 'beta'])
       expect(existsSync(join(projectRoot, 'plugins'))).toBe(false)
@@ -108,7 +107,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       })
       expect(existsSync(join(projectRoot, 'temp'))).toBeTrue()
       expect(existsSync(join(projectRoot, 'research', '.keep'))).toBe(false)
-      expect(readFileSync(join(projectRoot, 'AGENTS.md'), 'utf8')).toBe('alpha instructions\n\n# Job guidance\n')
+      expect(readFileSync(join(projectRoot, 'AGENTS.md'), 'utf8')).toBe('alpha instructions\n')
 
       writeFileSync(join(projectRoot, 'AGENTS.md'), 'job-local edit\n')
       const second = prepareAgentPlugins({
@@ -142,11 +141,10 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
-        workspaceTemplateId: 'alpha',
-        agentsContent: 'job guidance'
+        workspaceTemplateId: 'alpha'
       })
       expect(prepared.agentPlugins.map(plugin => plugin.id)).toEqual(['alpha', 'config-conflict', 'file-conflict'])
-      expect(readFileSync(join(root, 'project', 'AGENTS.md'), 'utf8')).toBe('alpha\n\njob guidance\n')
+      expect(readFileSync(join(root, 'project', 'AGENTS.md'), 'utf8')).toBe('alpha\n')
       expect(TOML.parse(readFileSync(join(root, 'project', '.codex', 'config.toml'), 'utf8'))).toEqual({
         features: { plugins: true }
       })
@@ -160,8 +158,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
           agentPlugins: agentPluginCatalog(libraryRoot, ['symlinked']),
           codexHome: join(root, 'codex-home'),
           libraryRoot,
-          initializeProject: true,
-          agentsContent: 'job guidance'
+          initializeProject: true
         })
       ).toThrow('cannot contain symlinks')
     } finally {
@@ -187,10 +184,9 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
-        workspaceTemplateId: 'alpha',
-        agentsContent: 'job guidance'
+        workspaceTemplateId: 'alpha'
       })
-      expect(readFileSync(join(projectRoot, 'AGENTS.md'), 'utf8')).toBe('complete\n\njob guidance\n')
+      expect(readFileSync(join(projectRoot, 'AGENTS.md'), 'utf8')).toBe('complete\n')
       expect(
         readFileSync(join(prepared.agentPlugins[0]!.sourceRoot, '.codex-plugin', 'plugin.json'), 'utf8')
       ).toContain('"version":"1.0.0"')
@@ -214,8 +210,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
-        workspaceTemplateId: 'alpha',
-        agentsContent: 'job guidance'
+        workspaceTemplateId: 'alpha'
       })
       writeFileSync(join(projectRoot, 'AGENTS.md'), 'preserved project guidance\n')
       rmSync(join(libraryRoot, 'alpha'), { recursive: true, force: true })
@@ -253,8 +248,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
         codexHome: join(root, 'codex-home'),
         libraryRoot,
-        initializeProject: true,
-        agentsContent: 'job guidance'
+        initializeProject: true
       })
       rmSync(projectRoot, { recursive: true, force: true })
       expect(() => assertCodexJobProjectResumeState(projectRoot)).toThrow(
@@ -278,8 +272,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
         codexHome: join(root, 'codex-home'),
         libraryRoot,
-        initializeProject: true,
-        agentsContent: 'job guidance'
+        initializeProject: true
       })
 
       expect(prepared.agentPlugins[0]).toMatchObject({

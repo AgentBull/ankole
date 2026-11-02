@@ -45,8 +45,11 @@ layer.
 
 Source `github-auth` and resolve the repository before external state exists:
 
+Call `skill_view` for `github-auth` and set `GH_AUTH_DIR` to its returned
+`directory` for this turn. Then run:
+
 ```bash
-source /repo/app/library/agent-plugins/github/skills/github-auth/scripts/gh-env.sh
+source "$GH_AUTH_DIR/scripts/gh-env.sh"
 test "$GH_AUTH_METHOD" = "gh"
 test -n "$GH_OWNER_REPO"
 ```

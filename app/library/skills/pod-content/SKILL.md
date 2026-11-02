@@ -19,9 +19,12 @@ Automation Job attempt. Main routes this Skill to a Background Agent Job.
 
 ## Identity and access
 
-The control plane checks your Agent Principal for every request. Work driven
-by a Human uses the intersection of that Human's permissions and your Agent's
-permissions. A service Automation Job uses its Agent's own permissions. An
+The control plane checks your Agent Principal for every request. A personal
+assistant acts with its human owner's business permissions. An AI colleague
+uses its own business permissions, including when another Agent delegates work.
+Human WorkAccess controls admission and ends the work when access is revoked;
+it does not intersect the colleague's resource permissions with the human's.
+A service Automation Job uses its Agent's own permissions. An
 Automation Job must hold its current execution attempt; review-required and
 expired attempts cannot access Pod. If access is denied, ask for the required
 sharing grant. Never use another identity or a hidden storage path.
@@ -37,6 +40,15 @@ every move requires edit access to the destination. Deleting, restoring, or
 changing sharing still requires Full access. A rejected move leaves the source
 in place. Keep its identity and ask for the needed access rather than claim
 a replacement was moved.
+
+Use `pages.update_sharing {id, upserts?, removes?}` or
+`ankole-pod page update-sharing <page-id> '<JSON body>'` to add, update, or
+remove individual grants without replacing other collaborators. A personal
+assistant may grant the access implied by its owner's request to collaborate
+with a named colleague. Use `contribute` (comment access) for document reviews and discussion, so the
+colleague can answer follow-up comments on the page; use `view` for read-only
+retrieval and `edit` for edits. Use `target_scope: "self"` for a single page. Keep unrelated grants. If the owner
+cannot manage sharing, explain that a resource manager must grant access.
 
 Read `pages.sharing {id}` for the current `sharing_version`, grants, and subjects.
 Use `pages.set_sharing {id, sharing_version, inherit_permissions?, grants?}` or

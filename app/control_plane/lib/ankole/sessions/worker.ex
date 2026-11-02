@@ -28,7 +28,8 @@ defmodule Ankole.Sessions.Worker do
            Ankole.Repo.transact_top_level(fn -> worker_status_in_tx(run) end)
            |> Ankole.Errors.reason(),
          {:ok, row} <- row,
-         {:ok, fetch} <- WorkerWebFetchConfig.runtime_config(run.agent_uid) do
+         {:ok, fetch} <- WorkerWebFetchConfig.runtime_config(run.agent_uid),
+         {:ok, drive_vfs} <- Ankole.Files.Vfs.Auth.runtime_config(run.agent_uid, run.signal_id) do
       runtime_env =
         case ModelHistory.cli_context_id(run.agent_uid, run.conversation) do
           context_id when is_binary(context_id) ->
@@ -44,6 +45,7 @@ defmodule Ankole.Sessions.Worker do
          workspace_id: run.workspace_id,
          runtime_env: runtime_env,
          agent_context: TurnEnvelope.agent_context(run.context),
+         drive_vfs: drive_vfs,
          binding_name: run.event.reply_binding_name || "",
          fetch_runtime_config: fetch,
          idle_timeout_ms:

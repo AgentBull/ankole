@@ -28,7 +28,6 @@ defmodule Ankole.Sessions.Prompt do
     end
   end
 
-  @lazy_skill_routing "\nA `lazyload-agent-skills/` record is a Skill discovery record; load it with `skill_view`."
   @image_policy "\nImages created in this turn with the hosted image_generation tool are attached to the final reply automatically. Available image inputs use turn-local img_N references, not local file paths. Do not search for or call reply_attachment on the generated image itself."
   @skills_intro "You have access to the following skills. Skills are task-specific instructions and references.\nBefore performing a task or subtask you are already going to do, call `skill_view(name)` only if a listed skill covers that task, then follow the loaded instructions. If the user asks to inspect, view, choose, recommend, or identify an available skill, the index is only a routing aid: pick the relevant listed skill and call `skill_view(name)` before answering. Otherwise continue without a skill."
   @background_skill_note "Entries marked [background task] must run in a BackgroundAgentJob. Create one with create_background_job, name the Skill in its self-contained task, and do not execute the Skill inline."
@@ -59,15 +58,10 @@ defmodule Ankole.Sessions.Prompt do
 
   @spec ambient_system(Ankole.Sessions.AmbientTriage.Observation.t()) :: String.t()
   def ambient_system(observation) do
-    soul = String.trim(observation.context.documents["soul"]["content"] || "")
-    mission = String.trim(observation.context.documents["mission"]["content"] || "")
+    contract = observation.context.documents["agents"]["content"] || ""
 
     profile =
-      [
-        if(soul != "", do: "<agent_soul>\n#{soul}\n</agent_soul>"),
-        if(mission != "", do: "<mission>\n#{mission}\n</mission>")
-      ]
-      |> Enum.reject(&is_nil/1)
+      if contract == "", do: [], else: ["<agent_contract>\n#{contract}\n</agent_contract>"]
 
     about =
       [
@@ -92,18 +86,12 @@ defmodule Ankole.Sessions.Prompt do
     name = String.trim(run.context.agent.display_name || "")
     name = if name == "", do: run.agent_uid, else: name
 
-    identity =
-      [
-        run.context.documents["soul"]["content"] || "",
-        run.context.documents["mission"]["content"] || ""
-      ]
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.join("\n\n")
+    identity = run.context.documents["agents"]["content"] || ""
 
     [
       "You are #{name}, an Ankole Agent executing one isolated Workflow task.",
       identity,
+      Map.get(run.context, :drive_instructions, ""),
       "<workflow_task_contract>",
       "Run id: #{task["run_id"]}",
       "Call id: #{task["call_id"]}",
@@ -128,13 +116,7 @@ defmodule Ankole.Sessions.Prompt do
   @spec system(map()) :: String.t()
   def system(opts) do
     context = opts.context
-    mission = String.trim(context.documents["mission"]["content"] || "")
-    soul = context.documents["soul"]["content"] || ""
-
-    soul =
-      if soul == "",
-        do: "You are an Ankole AI colleague. Reply in plain text.",
-        else: String.trim(soul)
+    agents = context.documents["agents"]["content"] || ""
 
     image_policy =
       if Enum.any?(opts.hosted_tools || [], &(&1["type"] == "image_generation")),
@@ -142,9 +124,8 @@ defmodule Ankole.Sessions.Prompt do
         else: ""
 
     join_blocks([
-      "You are #{display_name(opts)}, an AI colleague Agent powered by Ankole.",
-      soul,
-      if(mission != "", do: "Your mission is:\n<mission>\n#{mission}\n</mission>", else: ""),
+      "You are #{display_name(opts)}, an Agent powered by Ankole.",
+      agents,
       block("completion_contract"),
       ambient(Map.get(opts, :ambient_route)),
       if(available?(opts, "create_background_job"),
@@ -155,6 +136,7 @@ defmodule Ankole.Sessions.Prompt do
         else: ""
       ),
       if(available?(opts, "workflow"), do: block("workflow_policy"), else: ""),
+      if(available?(opts, "send_to_agent"), do: block("peer_collaboration"), else: ""),
       memory(opts),
       block("agent_environment_info_policy"),
       block("tools",
@@ -180,8 +162,7 @@ defmodule Ankole.Sessions.Prompt do
 
   defp memory(opts) do
     if Enum.any?(opts.hosted_tools || [], &(&1["type"] == "brain")) do
-      lazy = if available?(opts, "skill_view"), do: @lazy_skill_routing, else: ""
-      block("memory", lazy_skill_routing: lazy)
+      block("memory")
     else
       ""
     end
@@ -202,8 +183,12 @@ defmodule Ankole.Sessions.Prompt do
       "Current workspace: #{AgentHomePaths.session_workspace(opts.workspace_id)}",
       drive_context(conversation.origin_channel),
       pod_instructions(conversation),
-      "The workspace is a temporary working directory. Save files that must be kept or delivered in your private drive with ankole-files put. Use its nodeId when attaching a file.",
-      "Other conversations' workspaces (/workspace/sessions/<other-id>) belong to other people. Do not read or write them. Shared Drive files require access to their node IDs.",
+      if(Map.get(opts.context, :drive_instructions, "") != "",
+        do: opts.context.drive_instructions,
+        else:
+          "The workspace is a temporary working directory. Save files that must be kept or delivered in your private drive with ankole-files put. Use its nodeId when attaching a file."
+      ),
+      "Other conversations' workspaces (/workspace/sessions/<other-id>) belong to other people. Do not read or write them.",
       if(match?(%{kind: "im_dm"}, conversation.origin_channel),
         do:
           "This is a private conversation with the other person. Keep its files and contents private.",
@@ -217,6 +202,18 @@ defmodule Ankole.Sessions.Prompt do
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n")
+  end
+
+  @doc "The filesystem contract shared by the main Agent and native Job runtimes."
+  def mounted_drive_instructions do
+    """
+    Your Drive is mounted at /drive. Use ordinary shell and file tools to read, search, edit, and create files there. Public and AgentDrive are shared across your conversations; MyDrive appears for the current asker, and ChatDrive for the current conversation. Only accessible partitions and entries are visible.
+    Save durable files under /drive/AgentDrive or /drive/ChatDrive. reply_attachment accepts an absolute Drive path, including a local symlink to Drive, and flushes that file before delivery. A Job can return the Drive path to its caller.
+    Compound suffixes identify structured content: ._awiki.md is a knowledge page, ._adoc.md a document, ._asub/ its child tree, ._abase/ a Base, and ._aapp/ a read-only applet manifest. Keep document anchor comments intact. Applet publishing uses ankole-pod applet.
+    Within a Base table, read .info/schema.json, .export/{csv,tsv,json,jsonl}, or rec_<id>.json; append rows to .import/append.csv or append.jsonl. Import slots reset to empty after upload. Record edits compare only the fields you changed.
+    fsync saves local cache bytes; command and Turn completion flush normal writes. Large batches continue in the background. If a write is rejected or conflicts, inspect the reported /drive-recovery file and resolve or report it. Use the local workspace for dependency installs and build intermediates.
+    """
+    |> String.trim()
   end
 
   @doc "Projects Pod delivery rules and the current Page from their Conversation owner."
@@ -307,7 +304,6 @@ defmodule Ankole.Sessions.Prompt do
         description = s["description"] || ""
 
         name != "" and description != "" and String.trim(name) != "" and scrub(name) == name and
-          metadata["brain_recall_only"] != true and
           listed?(metadata["ankole-runtime"], surface, jobs?)
       end)
       |> Enum.map(fn s ->

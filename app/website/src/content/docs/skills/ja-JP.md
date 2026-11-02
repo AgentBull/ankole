@@ -71,11 +71,9 @@ ankole-runtime: any
 
 たとえば Deep Research の入り口となる Skill は、元の会話で調査条件を確認してから Job を起動する役割を担うため `main` を指定しており、実際の調査を進める Skill 群は Background Agent Job 側で実行される構成になっています。
 
-#### Ankole 拡張: Brain から Skill を発見する
+#### 共有 Skill ページ
 
-特定の業務でしか使わない SOP（標準作業手順書）や専門メソドロジーをすべてのプロンプトに毎回載せていると、コンテキストウィンドウを無駄に消費してしまいます。そこで同梱 Skill では `brain-recall-only: true` を宣言できます。これを有効にしても、Agent Plugin との親子関係、有効・無効の切り替え、実行面（`ankole-runtime`）、および `skill_view` のルールは通常の Skill と変わりません。唯一の違いは、モデルに常時提示する Skill カタログからは除外し、代わりに Brain が意味検索によって必要なタイミングで発見できるようにする点です。
-
-Brain は Skill の名前、説明、タグを対象に検索を行います。関連する Skill が見つかると、Agent は `skill_view` を呼び出して内容を読み込みます。このとき `skill_view` は `ankole-runtime` の制約に従い、現在の実行面と互換性があれば本文を返し、互換性がなければ適切なルーティング案内または拒否応答を返します。Skill または親の Agent Plugin が無効化されている場合は、Brain の検索結果にも現れず読み込むこともできません。なお、この発見経路を利用するには Brain が有効になっている必要があります。常時プロンプトを占有させたくない専門手順書や SOP に最適なモードです。
+共有 Skill は Pod の `/AnkoleBrain/skills/<name>` で管理します。カタログにはページの説明を表示し、Brain では本文を検索できます。`skill_view` は現在の本文と、その会話で閲覧できる補足ページを読み込みます。`metadata.role = "reference"` を指定した大きな参照ページは、必要に応じて相対パスで読み込みます。閲覧者は Drive 権限で、Agent が有効にする能力は Agent Plugin と Skill の設定で決まります。
 
 ### Control Plane Plugin: サイトスコープのフルスタック拡張
 

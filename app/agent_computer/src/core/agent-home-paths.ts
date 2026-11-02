@@ -1,7 +1,5 @@
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { pathIsWithin } from './path-boundary'
-import { canonicalPath } from './real-path-boundary'
 import { modelIntegerIDFromWire } from './model-integer-id'
 
 export const AGENT_HOME = '/workspace'
@@ -16,11 +14,8 @@ export function codexSQLiteHome(): string {
 export type AgentHomePaths = {
   home: string
   codexHome: string
-  soul: string
-  mission: string
+  agents: string
   design: string
-  confidentialityPolicy: string
-  installedSkills: string
   sessions: string
   jobs: string
 }
@@ -30,11 +25,8 @@ export function agentHomePaths(agentHomeRoot: string): AgentHomePaths {
   return {
     home,
     codexHome: join(home, '.codex'),
-    soul: join(home, 'SOUL.md'),
-    mission: join(home, 'MISSION.md'),
+    agents: join(home, 'AGENTS.md'),
     design: join(home, 'DESIGN.md'),
-    confidentialityPolicy: join(home, 'ConfidentialityPolicy.md'),
-    installedSkills: join(home, 'installed-skills'),
     sessions: join(home, 'sessions'),
     jobs: join(home, 'jobs')
   }
@@ -50,20 +42,6 @@ export function sessionWorkspacePath(agentHomeRoot: string, workspaceID: number)
 export function jobWorkspacePath(agentHomeRoot: string, jobID: string): string {
   modelIntegerIDFromWire(jobID, 'background Agent Job id')
   return join(agentHomePaths(agentHomeRoot).jobs, jobID)
-}
-
-export function insideAgentHome(agentHome: string, path: string): boolean {
-  return pathIsWithin(canonicalPath(agentHome), canonicalPath(path))
-}
-
-export function assertPathInsideAgentHome(
-  agentHome: string,
-  path: string,
-  message = 'path escapes Agent Home'
-): string {
-  const resolved = canonicalPath(path)
-  if (!insideAgentHome(agentHome, resolved)) throw new Error(message)
-  return resolved
 }
 
 export interface SanitizePathSegmentOptions {

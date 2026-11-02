@@ -240,6 +240,7 @@ defmodule Ankole.Sessions.NativeCronTest do
   defp create_conversation(human, agent) do
     {:ok, detail} =
       Ankole.ConversationsFixtures.create(human, %{
+        room_mode: :group,
         conversation_id: Ecto.UUID.generate(),
         message_id: Ecto.UUID.generate(),
         agent_uid: agent,

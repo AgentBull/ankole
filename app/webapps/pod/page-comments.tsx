@@ -122,7 +122,11 @@ export function PageComments({
   const refresh = () => client.invalidateQueries({ queryKey: contentKeys.page(detail.page.id) })
   const acknowledge = useMutation({
     mutationFn: (through: string) => pageAPI.readComments(detail.page.id, through),
-    onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.comments(detail.page.id) })
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: contentKeys.comments(detail.page.id) }),
+        client.invalidateQueries({ queryKey: [...contentKeys.all, 'comment-attention'] })
+      ])
   })
   useEffect(() => {
     if (focused) {
@@ -270,7 +274,7 @@ export function PageComments({
               </Button>
             </div>
           )}
-          {canComment && (
+          {canComment && detail.page.type !== 'knowledge' && (
             <Button variant="ghost" size="xs" onClick={() => selectAnchor()}>
               {t('pod.document.use_selection')}
             </Button>

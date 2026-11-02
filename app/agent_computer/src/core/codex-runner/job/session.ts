@@ -169,6 +169,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       attempt: job.attempts,
       actorTurn: turnStart.turn,
       turnTrace: workerTurnTrace(turnStart, job.agentUid),
+      driveView: prepared.driveView,
       upsert: request => opts.rpc('background_agent_job.turn.upsert', request, { jobTurn: turnStart.turn })
     })
     this.done = new Promise<void>((resolve, reject) => {
@@ -318,6 +319,9 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       await this.runtimeLease.runtime.resumeRoot(resumedThreadID, this, async () => {
         await this.client!.request('thread/resume', {
           ['threadId']: resumedThreadID,
+          ...(this.prepared.resumePath && resumedThreadID === this.job.runtimeThreadId
+            ? { path: this.prepared.resumePath }
+            : {}),
           cwd: this.prepared.project.root,
           runtimeWorkspaceRoots: [this.prepared.project.root],
           approvalPolicy: 'never',
@@ -634,6 +638,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
   private async startCodexTurn(input: string): Promise<void> {
     if (!this.client || !this.runtimeThreadID) throw new Error('codex thread is not available')
+    await this.turnRecorder.startDriveWindow()
     this.outputText = ''
     const clientUserMessageID = turnClientUserMessageID(this.turnStart)
     const progressVersion = this.leadRuntimeProgressVersion
@@ -748,7 +753,17 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       if (this.finalizing || this.waitingOnUserInput || this.recoveryInFlight) return
     }
 
+    const driveSummary = await this.turnRecorder
+      .flushDriveWindow()
+      .catch(error => `Drive synchronization is still pending: ${String(error)}`)
     if (status === 'succeeded') {
+      if (driveSummary.includes('Drive write failed:')) {
+        await this.startCodexTurn(
+          `${driveSummary}\nResolve these Drive writes or report the saved recovery files before completing the Job.`
+        )
+        return
+      }
+      if (driveSummary) this.outputText += `\n\n${driveSummary}`
       if (!stringValue(this.outputText)) {
         if (this.emptyReportRetries < 1) {
           this.emptyReportRetries += 1
@@ -792,13 +807,15 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     if (status === 'stopped') {
       await this.commit('stopped', {
         metadata: {
-          stop_reason: stringValue(error.message) ?? 'codex_turn_interrupted'
+          stop_reason: stringValue(error.message) ?? 'codex_turn_interrupted',
+          ...(driveSummary ? { drive_sync: driveSummary } : {})
         }
       })
       return
     }
 
     this.recoveryInFlight = true
+    if (driveSummary) this.outputText += `\n\n${driveSummary}`
     try {
       const poolExhaustion = codexCredentialPoolExhaustion(error) ?? this.pendingCredentialPoolExhaustion
       if (poolExhaustion) throw new CodexCredentialPoolExhaustedError(poolExhaustion, error)

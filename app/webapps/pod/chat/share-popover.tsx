@@ -25,6 +25,7 @@ import { agentsQuery, type ConversationDetail } from '../api'
 import { podChatTeammates } from '../api/generated/sdk.gen'
 import { ContentError } from '../content-primitives'
 import { ChatAvatar } from './chat-avatar'
+import { agentLabel } from './conversation-row'
 import { teammatesKey, useRoomActions } from './room-api'
 
 type SelectedCandidate = {
@@ -67,7 +68,10 @@ export function SharePopover({
   )
   const availableAgents = (agents.data?.agents ?? []).filter(
     agent =>
-      !existing.has(agent.uid) && agent.displayName.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+      !existing.has(agent.uid) &&
+      `${agent.uid} ${agent.displayName} ${agent.role ?? ''}`
+        .toLocaleLowerCase()
+        .includes(query.trim().replace(/^@/, '').toLocaleLowerCase())
   )
   const activeSelected = selected.filter(candidate => !existing.has(candidate.uid))
   const selectedUIDs = new Set(activeSelected.map(candidate => candidate.uid))
@@ -158,7 +162,7 @@ export function SharePopover({
                           })
                         }>
                         <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
-                        <span>{agent.displayName}</span>
+                        <span>{agentLabel(agent)}</span>
                         {selectedUIDs.has(agent.uid) && <RiCheckLine aria-hidden className="ml-auto size-4" />}
                       </CommandItem>
                     ))}
@@ -236,9 +240,7 @@ export function SharePopover({
                 </div>
               )
             })}
-            <p className="pod-chat-subtle">
-              {t(room.roomMode === 'group' ? 'pod.chat_room.intervene_hint' : 'pod.chat_room.direct_chat_hint')}
-            </p>
+            <p className="pod-chat-subtle">{t('pod.chat_room.intervene_hint')}</p>
           </section>
           {room.pageID && (
             <div className="pod-chat-access">

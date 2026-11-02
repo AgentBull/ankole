@@ -68,7 +68,7 @@ defmodule Ankole.Brain.Forget do
 
   @doc false
   # Soft-deletes one object in the transaction of the Console `:console_forget`
-  # action of `Ankole.Brain.Schemas.Object`.
+  # operation through the Pod page owner.
   def forget_object_in_tx(slug, reason, caller) do
     with {:ok, object} <- forget_object_target(slug, reason, caller) do
       Objects.soft_delete_in_tx(object.slug,
@@ -109,25 +109,15 @@ defmodule Ankole.Brain.Forget do
   defp validate_eligibility(%Claim{} = claim, caller) when is_binary(caller) do
     reference = Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: caller})
 
-    if claim.author == reference or Scope.satisfied_by?(claim.audience_scope, caller),
+    if claim.author == reference or Scope.satisfied_by?(claim.source_node_id, caller),
       do: :ok,
       else: {:error, :forget_not_eligible}
   end
 
   defp validate_object_eligibility(_object, :admin), do: :ok
 
-  # An object has no single scope; eligibility follows the body scopes: the
-  # caller must satisfy every scoped segment it wants to remove from recall.
   defp validate_object_eligibility(object, caller) when is_binary(caller) do
-    case Ankole.Brain.Markdoc.scopes(object.body) do
-      {:ok, scopes} ->
-        if Enum.all?(scopes, &Scope.satisfied_by?(&1, caller)),
-          do: :ok,
-          else: {:error, :forget_not_eligible}
-
-      {:error, _reason} ->
-        {:error, :forget_not_eligible}
-    end
+    with {:ok, _} <- Ankole.Files.Nodes.authorize(caller, object.id, "node_manage"), do: :ok
   end
 
   defp forgetting_reason(reason, caller) do

@@ -10,7 +10,6 @@ defmodule Ankole.Brain.Sources do
 
   require Ash.Query
 
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Scope
   alias Ankole.Repo
@@ -21,20 +20,17 @@ defmodule Ankole.Brain.Sources do
   @spec get_or_create(map()) :: {:ok, Source.t()} | {:error, term()}
   def get_or_create(attrs) when is_map(attrs), do: Ankole.Ash.create(Source, :ensure, attrs)
 
-  @doc "Archives one Source in the caller's transaction and withdraws its Library pages."
+  @doc "Archives one Source in the caller's transaction, stopping subsequent learning runs."
   @spec archive_in_tx(Ecto.UUID.t()) :: {:ok, Source.t()} | {:error, term()}
   def archive_in_tx(source_id) do
     with :ok <- Repo.require_transaction(),
          {:ok, source} <- mark_archived(source_id) do
-      if source.kind == "library",
-        do: Objects.withdraw_library_projection(source, [])
-
       {:ok, source}
     end
   end
 
   @doc """
-  Sets the audience for OIDC Client conversations that have not entered Brain
+  Sets the source node for OIDC Client conversations that have not entered Brain
   yet, in the caller's transaction.
   """
   def update_default_scope_in_tx(source_id, scope) do
@@ -42,7 +38,7 @@ defmodule Ankole.Brain.Sources do
          :ok <- if(is_nil(scope), do: :ok, else: Scope.validate(scope)),
          {:ok, source} <- lock_active(%Source{id: source_id}),
          true <- source.kind == "oidc_client" do
-      Ankole.Ash.update(source, :set_default_scope, %{default_audience_scope: scope})
+      Ankole.Ash.update(source, :set_default_scope, %{default_source_node_id: scope})
     else
       false -> {:error, {:invalid, "source_kind"}}
       {:error, _reason} = error -> error

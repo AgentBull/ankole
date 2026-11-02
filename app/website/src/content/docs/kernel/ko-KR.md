@@ -16,7 +16,7 @@ Rust Kernel은 Elixir Control Plane이 Rustler를 통해 로드하는 네이티�
 - **`universal_ai_client/`**: 업스트림 HTTP SSE/EventStream 및 WebSocket 통신, 응답 정규화, 다운스트림 JSON 텍스트 청크 인코딩, 수요 크레딧(demand credit), 요청 취소, 타임아웃을 처리합니다.
 - **`object_store/`**: 로컬 디렉터리 또는 S3 호환 버킷을 백엔드로 사용하는 파일 서비스 저장소를 제공합니다.
 - **`page_document/`**: Pod 페이지 XML 트리 검증, Wordgard 변경 집합 적용, UTF-16 diff 계산을 담당합니다.
-- **`brain_markdoc/`** 및 **`markdown.rs`**: Brain 본문 분석과 Markdown 파싱을 수행합니다.
+- **`page_document/knowledge/`** 및 **`markdown.rs`**: 지식 페이지 XML과 OKF Markdown을 손실 없이 상호 변환하고, 일반 Markdown 구문을 분석합니다.
 - **`model_image.rs`**: 모델 입력용 이미지의 디코딩, 크기 조정, 포맷 변환을 처리합니다.
 - **`web_proxy.rs`**: Worker의 Chromium 세션용 루프백 SOCKS5 `CONNECT` 프록시로, 해석된 대상 IP 주소에 대해 SSRF 검사를 수행합니다.
 - **`signals/`**: 전달된 컨텍스트를 바탕으로 라우팅 정책을 평가합니다.
@@ -25,7 +25,7 @@ Rust Kernel은 Elixir Control Plane이 Rustler를 통해 로드하는 네이티�
 
 영속 상태, 권한 데이터, 공급자 선택, 자격 증명, 도메인 트랜잭션 커밋은 모두 Control Plane이 소유합니다. Kernel은 Control Plane이 준비해 넘긴 입력만 받아 처리하며, PostgreSQL 조회나 Agent 스케줄링, Worker 소켓 관리는 맡지 않습니다. 프로그래밍 방식 도구 호출(PTC)과 Pod Applet 백엔드 함수를 위한 격리된 TypeScript 실행 역시 Rust Kernel이 아니라 무상태 서비스인 `ankole-function-runtime`에서 담당합니다.
 
-RuntimeFabric 메시지 구조와 프로토콜 버전 10은 `app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`에 선언되어 있습니다. Elixir에서는 Protox를, Worker에서는 protobuf-es를 사용하며, 양쪽 모두 송신할 때 선언된 버전을 기록하고 수신할 때 이를 검증합니다. 실행 권한 검사는 수신 측 도메인 모듈이 수행하고, 언어 간 코덱 일치 여부는 golden fixture로 검증합니다.
+RuntimeFabric 메시지 구조와 프로토콜 버전 12은 `app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`에 선언되어 있습니다. Elixir에서는 Protox를, Worker에서는 protobuf-es를 사용하며, 양쪽 모두 송신할 때 선언된 버전을 기록하고 수신할 때 이를 검증합니다. 실행 권한 검사는 수신 측 도메인 모듈이 수행하고, 언어 간 코덱 일치 여부는 golden fixture로 검증합니다.
 
 ## 빌드와 통신
 

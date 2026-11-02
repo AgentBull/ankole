@@ -109,14 +109,26 @@ await emitEvent({ observed: ctx.event.data.value, job_id: ctx.job.id })
     const emitted: unknown[] = []
     const baseRPC = rpcStub(fixture, emitted)
     const rpc = (async (method, payload, frame, options) => {
-      if (method === 'files.get' && (payload as { path: string }).path.startsWith('skills/')) {
+      if (method === 'pod.read' && (payload as { operation: string }).operation === 'skills.bundle') {
         throw new Error('Skill download unavailable')
       }
       return baseRPC(method, payload, frame, options)
     }) as RPCRequester
 
     await expect(
-      runAutomationJob(request(fixture, {}), { config: fixture.config, sdkPath: fixture.sdkPath, rpc })
+      runAutomationJob(
+        {
+          ...request(fixture, {}),
+          skills: [
+            create(RuntimeSkillSummarySchema, {
+              skillName: 'fixture-data',
+              sourceKind: 'installed',
+              relativePath: 'fixture-data'
+            })
+          ]
+        },
+        { config: fixture.config, sdkPath: fixture.sdkPath, rpc }
+      )
     ).rejects.toThrow('Skill download unavailable')
     expect(emitted).toEqual([])
     expect(existsSync(fixture.runDirectory)).toBe(false)
@@ -146,13 +158,12 @@ const [exitCode, stdout, stderr] = await Promise.all([
   new Response(proc.stdout).text(),
   new Response(proc.stderr).text()
 ])
-if (exitCode !== 0) throw new Error(stderr || \`mcporter exited with code \${exitCode}\`)
+if (exitCode !== 0) throw new Error(stderr || stdout || \`mcporter exited with code \${exitCode}\`)
 console.log(JSON.stringify({ config: process.env.MCPORTER_CONFIG, result: JSON.parse(stdout) }))
 `)
     root = fixture.root
     const fixtureServer = join(import.meta.dir, '../../fixtures/mcp-stdio-server.ts')
     putInstalledSkill(fixture, fixtureServer)
-    expect(existsSync(join(fixture.config.agentHomeRoot, 'installed-skills'))).toBe(false)
 
     const result = await runAutomationJob(
       create(AutomationJobRunRequestSchema, {

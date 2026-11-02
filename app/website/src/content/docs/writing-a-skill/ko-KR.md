@@ -50,24 +50,11 @@ platforms: [linux]
 
 Agent는 `description` 문구를 보고 해당 Skill 본문을 펼쳐 읽을지 결정하므로, 언제 이 Skill을 써야 하는지 구체적인 발동 조건(trigger)을 적어야 합니다. 전용 워크스페이스 격리가 필요한 작업이면 `ankole-runtime: background_job`을 지정하고, Linux 전용 CLI 도구에 의존하는 경우에만 `platforms: [linux]`를 덧붙이십시오.
 
-### 배포되는 Skill을 Brain에서 발견할 수 있게 하기
+### 공유 지식과 참조 장
 
-매 턴마다 시스템 프롬프트 목록에 실어 보낼 필요는 없지만, 현재 작업과 의미상 맞닿아 있을 때 찾아내야 하는 사내 SOP나 방법론에는 `brain-recall-only: true`를 지정하십시오.
+Ankole은 공식 Skill을 `/AnkoleBrain/skills/<name>`에 동기화합니다. 지식 페이지는 표준 frontmatter를 메타데이터로, 본문을 Page XML로 저장하며 스크립트와 템플릿은 파일 하위 노드로 저장합니다. Agent Plugin에 포함된 Skill도 전역에서 고유한 이름을 사용해야 합니다.
 
-```yaml
----
-name: idea-lineage
-description: Trace how one idea evolved through memory — first mention, best articulation, reversals, and the current live version, each cited from stored evidence.
-tags:
-  - idea lineage
-  - how my thinking evolved
-brain-recall-only: true
----
-```
-
-이 옵션은 배포 이미지에 포함되는 독립형 Skill과 Agent Plugin 내부의 Skill에서만 지원되며, Agent가 런타임에 설치한 로컬 Skill에는 적용되지 않습니다. 배포용 Skill 이름은 소속된 Agent Plugin과 무관하게 전역에서 고유해야 합니다(플러그인 이름이 별도 네임스페이스를 붙이지 않습니다). Brain은 표준 Skill 메타데이터로부터 `lazyload-agent-skills/<name>` 검색 레코드를 자동 생성합니다.
-
-이때 `SKILL.md`에 `slug`, `type`, `title`, `aliases` 같은 Brain Object 전용 필드를 임의로 넣지 마십시오. Brain은 표준 필드인 `name`, `description`, `tags`만 색인해 자연어 질의와 매칭하며, Skill 본문이나 부속 파일, Agent별 교훈은 Brain 저장소에 복제하지 않습니다. Brain 검색으로 항목을 찾은 뒤에도 실제 본문은 반드시 `skill_view` 도구를 통해서만 읽습니다.
+팀의 지침은 지식 하위 페이지로 추가할 수 있습니다. 긴 참조 자료에는 `metadata.role = "reference"`를 지정하고 Skill 본문에서 상대 경로로 연결하세요. `skill_view`는 현재 대화에서 읽을 수 있는 지침 하위 페이지를 추가하며 참조 장은 하위 경로로 따로 읽습니다.
 
 ### 본문 작성
 
@@ -101,7 +88,7 @@ dependencies:
 
 작성을 마쳤다면 테스트용 Agent에서 해당 Skill을 켜고 실제 업무 요청을 보내 보십시오. Agent가 의도한 시점에 Skill을 골라 필요한 부속 파일을 읽고 완료 기준을 지키는지를 확인합니다. 만약 Skill 자체를 고르지 못한다면 `description`의 발동 조건을 더 선명하게 다듬고, 실행 순서가 흔들린다면 본문의 단계와 제약 조건을 더 구체적으로 적으십시오.
 
-`brain-recall-only`로 선언한 Skill은 일반 턴의 기본 프롬프트 카탈로그에서 빠지는지, 그리고 이름·설명·태그와 관련된 질의를 했을 때 Brain 검색으로 정상 발견되는지도 함께 확인하십시오. 또한 호환되는 실행 표면에서는 `skill_view`가 전체 본문을 로드하고 호환되지 않는 표면에서는 설계된 라우팅 안내나 거부 응답을 반환하는지 점검한 뒤, 마지막으로 해당 Skill이나 상위 Agent Plugin을 비활성화했을 때 검색과 로드가 모두 차단되는지 확인하십시오.
+현재 대화에서 권한이 있는 Skill과 보충 페이지만 읽을 수 있는지 확인하세요. 참조 하위 경로, 호환 런타임의 로드, 비호환 런타임의 안내도 검증합니다. Skill이나 상위 Plugin을 비활성화하면 활성 카탈로그에서 제외되고 `skill_view`로도 읽을 수 없어야 합니다.
 
 ## Control Plane Plugin 개발
 

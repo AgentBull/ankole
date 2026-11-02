@@ -76,7 +76,9 @@ the date arrives. For each such judgment, call `remember` once:
 - `weight`: the report's stated confidence, rounded to a 0.05 step.
 - `until_date`: the report's resolution date (ISO date).
 - `entity`: the page of the subject the prediction is about, when one exists.
-- `scope`: follow ConfidentialityPolicy.md as with any memory write.
+- `source_node_id`: the page UUID whose audience should receive the evidence;
+  omit it to use this conversation's source page. The subject's page in
+  `entity` does not determine the claim's visibility.
 - `provenance`: "deep research job <job_id>, report/report.md" plus the report
   section.
 

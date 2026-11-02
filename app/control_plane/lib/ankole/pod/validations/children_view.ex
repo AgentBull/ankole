@@ -3,7 +3,7 @@ defmodule Ankole.Pod.Validations.ChildrenView do
   use Ash.Resource.Validation
 
   @allowed_keys ~w(collapsed view field_order visible_fields)
-  @allowed_views ~w(list grid)
+  @allowed_views ~w(list grid table)
   @configurable_fields ~w(created_by updated_at created_at)
   @sorted_fields Enum.sort(@configurable_fields)
 
@@ -27,7 +27,7 @@ defmodule Ankole.Pod.Validations.ChildrenView do
         {:error, field: :children_view, message: "collapsed must be a boolean"}
 
       Map.has_key?(value, "view") and value["view"] not in @allowed_views ->
-        {:error, field: :children_view, message: "view must be list or grid"}
+        {:error, field: :children_view, message: "view must be list, grid, or table"}
 
       Map.has_key?(value, "field_order") and not valid_field_order?(value["field_order"]) ->
         {:error,

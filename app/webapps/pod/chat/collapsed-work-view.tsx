@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ExecutionSummary } from './types'
-import { ToolRunView, stepTitle } from './tool-run-view'
+import type { PodActivity, PodActivityItem } from '../api'
+import type { ExecutionStep, ExecutionSummary } from './types'
+import { ToolRunView, stepTitle, humanizeToolName } from './tool-run-view'
 import { formatElapsed } from './elapsed'
 
 export function CollapsedWorkView({
@@ -112,5 +113,41 @@ export function CollapsedWorkView({
         </div>
       )}
     </details>
+  )
+}
+
+export function activitySteps(activity: PodActivity, label: (item: PodActivityItem) => string): ExecutionStep[] {
+  return activity.tools.map(item => ({
+    id: item.operation_id,
+    tool: item.operation_id,
+    title: label(item),
+    status: item.phase ?? 'running',
+    duration_ms: item.duration_ms ?? undefined
+  }))
+}
+
+export function useActivityLabel() {
+  const { t } = useTranslation()
+  return (item: PodActivityItem, isTool = false) => {
+    const fallback =
+      isTool && !/^(?:call_|toolu_|[0-9a-f]{8}-)/i.test(item.operation_id)
+        ? humanizeToolName(item.operation_id)
+        : t('pod.chat.replying')
+    return item.label_key?.startsWith('conversations.delivery.reply.activity.')
+      ? t(item.label_key, { ...item.label_bindings, defaultValue: item.label || fallback })
+      : item.label || fallback
+  }
+}
+
+export function ActivityView({ activity }: { activity: PodActivity }) {
+  const label = useActivityLabel()
+  return (
+    <CollapsedWorkView
+      active
+      phaseLabel={activity.phase ? label(activity.phase) : undefined}
+      execution={{
+        steps: activitySteps(activity, item => label(item, true))
+      }}
+    />
   )
 }

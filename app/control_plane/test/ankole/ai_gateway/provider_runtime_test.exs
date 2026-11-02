@@ -1257,35 +1257,40 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
 
-    assert {:ok, documents} = Library.list_agent_documents(agent.uid)
+    assert {:ok, :ok} =
+             Repo.transact(fn ->
+               alias Ankole.AIAgent.Library.Knowledge
+               {:ok, agents} = Knowledge.system_node("ankole_brain_agents")
+               {:ok, identity} = Knowledge.child(agents.id, agent.uid)
 
-    assert {:ok, _mission} =
-             Library.replace_agent_document(
-               agent.uid,
-               "mission",
-               "Own the next-turn research workflow.",
-               documents["mission"]["content_hash"]
-             )
+               for {name, markdown} <- [
+                     {"AGENTS.override.md",
+                      "Own the next-turn research workflow.\n\nBe exact, calm, and evidence-led."},
+                     {"DESIGN.override.md", "Use cobalt accents and generous whitespace."}
+                   ] do
+                 {:ok, page} = Knowledge.ensure_child_in_tx(identity.id, name, :knowledge)
+                 {:ok, _} = Knowledge.put_markdown_in_tx(page, markdown)
+               end
 
-    assert {:ok, _soul} =
-             Library.replace_agent_document(
-               agent.uid,
-               "soul",
-               "Be exact, calm, and evidence-led.",
-               documents["soul"]["content_hash"]
-             )
+               {:ok, :ok}
+             end)
 
-    assert {:ok, _design} =
-             Library.replace_agent_document(
-               agent.uid,
-               "design",
-               "Use cobalt accents and generous whitespace.",
-               documents["design"]["content_hash"]
-             )
+    %{principal: reader} = human_fixture()
+
+    {:ok, group} =
+      Ankole.AuthZ.create_principal_group(%{
+        name: "context-readers-#{System.unique_integer([:positive])}",
+        display_name: "Context readers",
+        domain: :im_group,
+        kind: :static
+      })
+
+    {:ok, _} = Ankole.AuthZ.replace_static_group_members(group.id, :im_group, [reader.uid])
 
     channel_id =
       external_conversation_fixture("lark:context", %{
         title: "策略讨论",
+        principal_group_id: group.id,
         metadata: %{"domain" => "feishu"}
       }).id
 
@@ -1364,14 +1369,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert context.conversation.origin_channel.kind == "im_group"
     assert context.conversation.origin_channel.label == "策略讨论"
     assert context_payload.conversation.timezone == context.conversation.timezone
-    assert context_payload.mission == "Own the next-turn research workflow."
-    assert context_payload.soul == "Be exact, calm, and evidence-led."
-    assert context_payload.design == "Use cobalt accents and generous whitespace."
-
-    assert {:ok, current_documents} = Library.list_agent_documents(agent.uid)
-
-    assert context_payload.confidentiality_policy ==
-             current_documents["confidentiality_policy"]["content"]
+    assert context_payload.agents =~ "Own the next-turn research workflow."
+    assert context_payload.agents =~ "Be exact, calm, and evidence-led."
+    assert context_payload.design =~ "Use cobalt accents and generous whitespace."
 
     assert Enum.any?(context_payload.skills, &(&1.skill_name == "pdf"))
     refute Enum.any?(context_payload.skills, &(&1.skill_name == "ocr"))

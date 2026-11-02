@@ -1,7 +1,10 @@
+import { conversationAttentionQuery } from './api'
+import { commentAttentionQuery } from './content-api'
 import { canCreateChild } from './state/page-location'
-import { usePageMetadata, usePagesMetadata } from './use-page-metadata'
+import { usePageHref, usePageMetadata, usePagesMetadata } from './use-page-metadata'
 import { useTranslation } from 'react-i18next'
 import {
+  Badge,
   Button,
   cn,
   ContextMenu,
@@ -35,16 +38,16 @@ import {
 import { useComputed, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { Link, createLink, useLocation, useNavigate, useParams } from '@tanstack/react-router'
-import { RiArrowRightSLine, RiChat3Line, RiMoreFill, RiNodeTree, RiShareLine, RiLoader4Line } from '@remixicon/react'
-import { authenticationRef, podID, podLocation, podRouteID } from '../common/browser-context'
+import { RiArrowRightSLine, RiMoreFill, RiNodeTree, RiShareLine, RiLoader4Line } from '@remixicon/react'
+import { authenticationRef, podID } from '../common/browser-context'
+import { podLocation, podPageRouteID } from '../common/pod-url'
 import { BdiLabel } from '../common/bidi-file-name'
 import { sanitizeRenameValue, stripBidi } from '../common/bidi'
 import { requestErrorMessage, requestErrorCode, requestErrorDetails } from '../common/request-errors'
 import { InternalAPIError } from '../common/internal-api-client'
 import { podKeys } from './api'
 import { podConversations } from './api/generated/sdk.gen'
-import { ChatAvatar } from './chat/chat-avatar'
-import { ChatRowStatus } from './chat/chat-sidebar'
+import { ChatRowStatus, ConversationGlyph, ConversationTitle, conversationPath } from './chat/conversation-row'
 import {
   isSidebarSectionActive,
   mergeRecentEntries,
@@ -103,7 +106,7 @@ function usePageTree(): PageTreeContextValue {
   return value
 }
 
-function RootSectionToggle({ open, label, onToggle }: { open: boolean; label: string; onToggle(): void }) {
+export function RootSectionToggle({ open, label, onToggle }: { open: boolean; label: string; onToggle(): void }) {
   const button = useRef<HTMLButtonElement>(null)
   const chevron = useRef<SVGSVGElement>(null)
   const pointerTarget = useRef<boolean | null>(null)
@@ -173,7 +176,7 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
     select: location => (location.state as PodSidebarNavigationState | null)?.sidebarSection
   })
   const routePageID = useParams({ strict: false, select: params => params.pageID })
-  const [initialPageID] = useState(() => podRouteID(routePageID))
+  const [initialPageID] = useState(() => podPageRouteID(routePageID))
   const client = useQueryClient()
   const bootstrap = useQuery(navigationQuery(client, initialPageID))
   const restored = useRef(false)
@@ -271,17 +274,36 @@ function RecentNavigationSection({
   onNavigate?: () => void
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const pathname = useLocation({ select: location => location.pathname })
   const { activeSection } = usePageTree()
   const routePageID = useParams({ strict: false, select: params => params.pageID })
-  const activePageID = podRouteID(routePageID)
+  const activePageID = podPageRouteID(routePageID)
   const recentPages = useQuery(pagesQuery('recent'))
   const recentRooms = useQuery({
     queryKey: [...podKeys.conversations, 'recent', 'sidebar'],
     queryFn: ({ signal }) => podConversations({ query: { order: 'recent', limit: 10 }, signal })
   })
-  const recentRows = usePagesMetadata(recentPages.data?.pages ?? [])
-  const entries = mergeRecentEntries(recentRows, recentRooms.data?.conversations ?? []).slice(0, 5)
+  const attention = useQuery(conversationAttentionQuery)
+  const commentAttention = useQuery(commentAttentionQuery)
+  const unread = new Map(commentAttention.data?.map(row => [row.page.id, row.unread_count]))
+  const recentRows = usePagesMetadata([
+    ...new Map(
+      [...(recentPages.data?.pages ?? []), ...(commentAttention.data?.map(row => row.page) ?? [])].map(page => [
+        page.id,
+        page
+      ])
+    ).values()
+  ])
+  const rooms = [
+    ...new Map(
+      [...(recentRooms.data?.conversations ?? []), ...(attention.data ?? [])].map(room => [room.id, room])
+    ).values()
+  ]
+  const entries = mergeRecentEntries(
+    recentRows.map(page => ({ ...page, relevantUnread: unread.get(page.id) ?? 0 })),
+    rooms
+  ).slice(0, 8)
   const recentPath = podLocation('/content/recent').pathname
   const pending = recentPages.isPending && recentRooms.isPending
   return (
@@ -310,7 +332,7 @@ function RecentNavigationSection({
                   <li key={`page:${entry.id}`} className="min-w-0">
                     <SidebarLink
                       className="nav-row pod-nav-link"
-                      to={podLocation(`/pages/${entry.page.id}`).pathname}
+                      to={pageHref(entry.page.id, entry.page.title)}
                       state={{ sidebarSection: 'recent' } as never}
                       current={active}
                       activeProps={{}}
@@ -319,11 +341,16 @@ function RecentNavigationSection({
                       <span className="min-w-0 flex-1 truncate text-left" dir="auto">
                         {entry.page.title || t('pod.content.untitled')}
                       </span>
+                      {!!entry.page.relevantUnread && (
+                        <Badge variant="info" size="sm" title={t('pod.document.unread_comments')}>
+                          {entry.page.relevantUnread}
+                        </Badge>
+                      )}
                     </SidebarLink>
                   </li>
                 )
               }
-              const target = podLocation(`/conversations/${entry.room.id}`).pathname
+              const target = conversationPath(entry.room)
               const active = isSidebarSectionActive(activeSection, 'recent') && pathname === target
               return (
                 <li key={`chat:${entry.id}`} className="min-w-0">
@@ -334,19 +361,9 @@ function RecentNavigationSection({
                     current={active}
                     activeProps={{}}
                     onClick={onNavigate}>
-                    {entry.room.agents.length > 0 ? (
-                      <span className="pod-recent-chat-avatar">
-                        <ChatAvatar
-                          name={entry.room.agents[0]!.displayName}
-                          src={entry.room.agents[0]!.avatarURL}
-                          agent
-                        />
-                      </span>
-                    ) : (
-                      <RiChat3Line aria-hidden />
-                    )}
+                    <ConversationGlyph room={entry.room} />
                     <span className="min-w-0 flex-1 truncate text-left" dir="auto">
-                      {entry.room.title || t('pod.content.untitled')}
+                      <ConversationTitle room={entry.room} />
                     </span>
                     <ChatRowStatus status={entry.room.rowStatus} />
                   </SidebarLink>
@@ -373,10 +390,11 @@ function FavoritesNavigationSection({
   onNavigate?: () => void
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const pathname = useLocation({ select: location => location.pathname })
   const { activeSection } = usePageTree()
   const routePageID = useParams({ strict: false, select: params => params.pageID })
-  const activePageID = podRouteID(routePageID)
+  const activePageID = podPageRouteID(routePageID)
   const pages = usePagesMetadata(sourcePages)
   const favoritesPath = podLocation('/content/favorites').pathname
   return (
@@ -400,7 +418,7 @@ function FavoritesNavigationSection({
                 <li key={page.id} className="min-w-0">
                   <SidebarLink
                     className="nav-row pod-nav-link"
-                    to={podLocation(`/pages/${page.id}`).pathname}
+                    to={pageHref(page.id, page.title)}
                     state={{ sidebarSection: 'favorites' } as never}
                     current={active}
                     activeProps={{}}
@@ -433,6 +451,7 @@ export function PageChildrenMenu({
   privateOwner?: string
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const effectiveScope = scope ?? (privateOwner ? 'private' : 'space')
@@ -463,7 +482,7 @@ export function PageChildrenMenu({
                   <li key={page.id}>
                     <Link
                       className="flex items-center gap-2 rounded-control px-2 py-1.5 text-sm text-foreground no-underline hover:bg-accent"
-                      to={podLocation(`/pages/${page.id}`).pathname}
+                      to={pageHref(page.id, page.title)}
                       onClick={() => setOpen(false)}>
                       <PageIcon page={page} />
                       <span className="truncate">{page.title || t('pod.content.untitled')}</span>
@@ -493,7 +512,7 @@ export function PageChildrenMenu({
               label={t('pod.sidebar.new_subpage')}
               onCreated={page => {
                 setOpen(false)
-                void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
+                void navigate({ to: pageHref(page.id, page.title) })
               }}
             />
           )}
@@ -592,7 +611,7 @@ function PageTreeNode({ page, scope, siblings }: { page: NavigationPage; scope: 
   const expanded = useComputed(() => model.preferences.value.expanded.has(page.id))
   const active = useParams({
     strict: false,
-    select: params => isSidebarSectionActive(activeSection, scope) && podRouteID(params.pageID) === page.id
+    select: params => isSidebarSectionActive(activeSection, scope) && podPageRouteID(params.pageID) === page.id
   })
   const open = page.has_children && expanded.value
   useEffect(() => {
@@ -656,6 +675,7 @@ function PageTreeRow({
   active: boolean
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const page = usePageMetadata(sourcePage)
   const { favorites, actions, togglePage, onNavigate } = usePageTree()
   const client = useQueryClient()
@@ -761,7 +781,7 @@ function PageTreeRow({
             <SidebarLink
               ref={drag.handleRef}
               className="pod-tree-link"
-              to={podLocation(`/pages/${page.id}`).pathname}
+              to={pageHref(page.id, page.title)}
               state={{ sidebarSection: scope } as never}
               onClick={onNavigate}
               current={active}

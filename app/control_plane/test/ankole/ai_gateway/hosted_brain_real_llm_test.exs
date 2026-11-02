@@ -9,6 +9,7 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
   """
 
   use Ankole.AIGatewayCase
+  import Ankole.BrainFixtures
 
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
@@ -48,11 +49,11 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
     {:ok, %{claim: seed}} =
       Ankole.Brain.write_fact(
         %{
-          object_slug: "agents/" <> agent.uid,
+          subject_page_id: page_id("agents/" <> agent.uid),
           claim: "The internal launch codename is #{@codename}.",
           kind: "fact",
           holder: "agents/" <> agent.uid,
-          audience_scope: "world",
+          source_node_id: source_node("world"),
           notability: "high",
           confidence: 0.95,
           valid_from: DateTime.utc_now(:microsecond),
@@ -95,7 +96,8 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
       stream!(
         agent.uid,
         brain_request("primary", """
-        Call the remember tool exactly once to store this fact with kind "fact", scope "world",
+        Call the remember tool exactly once to store this fact with kind "fact",
+        source_node_id #{source_node("world")},
         confidence 1, and provenance "release planning note":
         The launch review meeting is on the second Friday of October.
         Then reply with exactly one line: REMEMBER_OK
@@ -114,12 +116,12 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
     claim = Repo.get!(Claim, remember_output["output"]["claim_id"])
     assert claim.claim =~ "launch review"
     assert claim.author == %Ankole.ActorRef{tenant_id: Repo.tenant_id!(), uid: agent.uid}
-    assert claim.audience_scope == "world"
+    assert claim.source_node_id == source_node("world")
     assert claim.confidence === 1.0
     assert final_text(outcome) =~ "REMEMBER_OK"
   end
 
-  test "a Human subject without a Turn recalls world knowledge as itself", %{owner: owner} do
+  test "a Human subject without a Turn recalls shared knowledge as itself", %{owner: owner} do
     {_events, outcome} =
       stream!(
         owner.uid,
@@ -135,13 +137,13 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
     assert Enum.any?(output["output"]["claims"], &(&1["claim"] =~ @codename))
     assert final_text(outcome) =~ @codename
 
-    # A Human writes into its own principal scope by default.
+    # Without a conversation, a Human's write belongs to its private root.
     {_events, write} =
       stream!(
         owner.uid,
         brain_request("openrouter-real/" <> @model, """
         Call the remember tool exactly once to store this fact with kind "preference" and
-        provenance "personal note", without giving a scope:
+        provenance "personal note", without giving a source_node_id:
         I prefer written summaries before any call.
         Then reply with exactly one line: REMEMBER_OK
         """)
@@ -153,31 +155,30 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
              items_of(write, "brain_output")
 
     claim = Repo.get!(Claim, claim_id)
-    assert claim.audience_scope == "principal:" <> owner.uid
+    assert claim.source_node_id == source_node("principal:" <> owner.uid)
 
     assert claim.author == %Ankole.ActorRef{tenant_id: Repo.tenant_id!(), uid: owner.uid}
   end
 
-  test "forget expires the selected claim and keeps its page", %{agent: agent, claim: claim} do
+  test "an Agent reads an entity overview through the hosted tool", %{agent: agent, claim: claim} do
     {_events, outcome} =
       stream!(
         agent.uid,
         brain_request("primary", """
-        Call forget exactly once to expire the claim with claim_id #{claim.id}.
-        Omit slug and keep the page. Then reply FORGET_OK.
+        Call entity exactly once with name #{claim.subject_page_id}.
+        Then reply with exactly one line: ENTITY_OK
         """)
       )
 
     assert outcome.terminal_error == nil
+    assert [%{"operation" => "entity"}] = items_of(outcome, "brain_call")
 
-    assert [%{"operation" => "forget", "arguments" => arguments}] =
-             items_of(outcome, "brain_call")
+    assert [%{"status" => "completed", "output" => %{"entity" => entity}}] =
+             items_of(outcome, "brain_output")
 
-    assert arguments["claim_id"] == claim.id
-    assert Ankole.Attrs.optional_text(arguments["slug"]) == nil
-    assert [%{"status" => "completed"}] = items_of(outcome, "brain_output")
-    assert %DateTime{} = Repo.reload!(claim).expired_at
-    assert Repo.get_by!(Ankole.Brain.Schemas.Object, slug: claim.object_slug).deleted_at == nil
+    assert entity["id"] == claim.subject_page_id
+    assert is_binary(entity["rendered"])
+    assert final_text(outcome) =~ "ENTITY_OK"
   end
 
   defp brain_request(model, text) do

@@ -65,6 +65,9 @@ defmodule Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentItem do
       fields: [
         content: [type: :string, allow_nil?: false],
         content_hash: [type: :string, allow_nil?: false],
+        page_id: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
+        page_ids: [type: {:array, Ankole.Ash.Types.UUIDv7}, allow_nil?: false],
+        page_urls: [type: {:array, :string}, allow_nil?: false],
         kind: [type: :string, allow_nil?: false]
       ],
       preserve_nil_values?: true
@@ -77,19 +80,11 @@ defmodule Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocuments do
     subtype_of: :map,
     constraints: [
       fields: [
-        confidentiality_policy: [
+        agents: [
           type: Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentItem,
           allow_nil?: false
         ],
         design: [
-          type: Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentItem,
-          allow_nil?: false
-        ],
-        mission: [
-          type: Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentItem,
-          allow_nil?: false
-        ],
-        soul: [
           type: Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentItem,
           allow_nil?: false
         ]
@@ -106,21 +101,6 @@ defmodule Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentsResponse do
       fields: [
         library_documents: [
           type: Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocuments,
-          allow_nil?: false
-        ]
-      ],
-      preserve_nil_values?: true
-    ]
-end
-
-defmodule Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentResponse do
-  @moduledoc false
-  use Ash.Type.NewType,
-    subtype_of: :map,
-    constraints: [
-      fields: [
-        library_document: [
-          type: Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentItem,
           allow_nil?: false
         ]
       ],

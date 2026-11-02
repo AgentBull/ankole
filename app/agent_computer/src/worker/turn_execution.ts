@@ -4,7 +4,6 @@ import { startRunCLIBridges } from '../cli/run-cli-bridges'
 import type { RuntimeRPCClient } from '../lanes/rpc_lane'
 import type { BrowserRuntime } from '../browser-runtime'
 import { Drive } from '../drive/drive'
-import { materializeSkills } from '../skills/drive_skills'
 import type { ActiveTurn } from './active_turns'
 import type { WorkerConfig } from './config'
 import { workerLogger } from './logging'
@@ -42,7 +41,6 @@ export async function executeActiveTurn(
   try {
     const runtimeEnv = { ...turnStart.runtime_env, ...cliBridges.env }
 
-    await materializeSkills(drive, paths.installedSkills)
     active.abortSignal.throwIfAborted()
 
     await runCodexJob(turnStart, {
@@ -50,7 +48,6 @@ export async function executeActiveTurn(
       workspaceRoot,
       drive,
       builtinSkillsRoot: config.builtinSkillsRoot,
-      agentInstalledSkillsRoot: paths.installedSkills,
       internalSkillsRoot: config.internalSkillsRoot,
       runtimeEnv,
       updateCliContextId: cliBridges.updateContextId,

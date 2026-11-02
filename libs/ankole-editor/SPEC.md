@@ -94,6 +94,39 @@ A Page `embed` stores `ref`, with optional `table` and `view` for a Base. The ho
 
 Ankole uses two internal URI forms in attributes: `ankole:page/<page ID>` in `href` for page links, and `ankole:asset/<digest>/<file name>` in `src` for page-owned files and media. The codecs preserve both forms verbatim; the editor host resolves them for display.
 
+### Knowledge pages
+
+`BlockEditor kind="knowledge"` uses the same page tree with a restricted vocabulary:
+headings, paragraphs, bold, emphasis, strikethrough, inline code, links, lists,
+task items, code blocks, block quotes, callouts, rectangular GFM tables, image
+media, and page or Principal mentions. Tables have one header row and one
+paragraph per cell. Callouts preserve their tone and icon. Page layout, rich cell
+formatting, unknown elements and attributes, and inline comment marks are outside
+this vocabulary. The insertion menus expose supported blocks, and the editor
+validates a prepared transaction before changing its document or undo history.
+
+The control plane uses `Ankole.Kernel.knowledge_parse/1` and
+`knowledge_export/2` to convert OKF Markdown and the page XML. The codec stores
+YAML frontmatter separately as business metadata and serializes its keys in
+lexicographic order. Common blocks use GFM syntax; the OKF superset uses explicit
+tags from the same restricted vocabulary for ambiguous whitespace and inline
+combinations that Markdown delimiters cannot preserve. Callouts use GFM alerts
+with an optional `{icon="…"}` suffix. Principal mentions use `@uid`; page
+mentions use `ankole:page/<page ID>` links. The shared
+`corpus/knowledge.json` verifies lossless canonical page trees in both runtimes.
+
+The Pod host owns explicit editing, the property draft and the atomic
+`base_revision` save of XML plus metadata. Knowledge pages use the lightweight
+reader until the author chooses Edit.
+
+The public `@ankole/block-editor/reader` entry point exports `KnowledgeReader`.
+It renders the validated knowledge XML vocabulary with shared document typography
+and host asset/reference adapters. It creates no editor state, editable DOM,
+selection model, or editing controls. Empty text paragraphs occupy no reading
+area; images, tables, dividers, and code blocks remain visible content. Hosts
+mount the editor when the author chooses to edit, and return to the reader when
+the edit finishes. Reading a comparison uses the same reader.
+
 ## 3. Normalization
 
 Normalization (`N`) strips only differences that are invisible to a reader: if two trees are equal after `N`, they represent the same page. The package applies `N` whenever it parses Markdown or XML, prints output, imports a tree into the editor, or reads a tree from the editor.
@@ -686,6 +719,7 @@ In the block menu, `转换为` (Turn into) supports paragraphs, headings, code b
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `initial` | `string \| DocumentElement` | `''` | Read once when mounting the editor instance. |
+| `kind` | `'doc' \| 'knowledge'` | `'doc'` | Selects the full document vocabulary or the knowledge subset. Stable for an editor instance. |
 | `onReady` | `(editor) => void \| (() => void)` | — | Called after the editor mounts; if it returns a cleanup function, that function runs on unmount. |
 | `onChange` | `() => void` | — | Called synchronously (with no arguments) whenever an accepted update changes the page. |
 | `onError` | `(error: unknown) => void` | — | Called when an edit is rejected while keeping the current document intact; if omitted, the component renders an inline error banner. |

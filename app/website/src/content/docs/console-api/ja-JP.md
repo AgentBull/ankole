@@ -101,7 +101,6 @@ Agent Library の既定値は選択中のテナントに属し、Agent ごとの
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 特定の Agent に対して Plugin 設定を上書き |
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/skills/:id` | 特定の Agent に対して Skill 設定を上書き |
 | `GET` | `/api/v2/agents/:agent_uid/library-documents` | Agent の永続ドキュメント一覧を取得 |
-| `PUT` | `/api/v2/agents/:agent_uid/library-documents/:document_kind` | 指定した永続ドキュメントを更新 |
 | `GET` | `/api/v2/agents/:agent_uid/skill-lessons` | 有効な Skill 教訓および廃止済み教訓を一覧取得 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | 有効な Skill に人間由来の教訓を追加 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 教訓を廃止 |

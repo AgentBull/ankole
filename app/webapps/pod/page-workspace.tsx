@@ -1,5 +1,6 @@
+import { agentsQuery } from './api'
 import { canCreateChild } from './state/page-location'
-import { usePageMetadata } from './use-page-metadata'
+import { useCanonicalPageUrl, usePageMetadata } from './use-page-metadata'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
 import { PageContent } from './page-content'
 import { DocumentInsights } from './document-insights'
@@ -58,7 +59,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 
 import { Link, useBlocker, useNavigate, useParams } from '@tanstack/react-router'
-import { podID, principalUID, podLocation, podRouteID } from '../common/browser-context'
+import { podID, principalUID } from '../common/browser-context'
+import { podLocation, podPagePathnameID, podPageRouteID, podRouteID } from '../common/pod-url'
 import { ErrorBoundary } from '../common/error-boundary'
 import { useSearchParams } from '../common/router'
 
@@ -98,7 +100,7 @@ import './page-workspace.css'
 
 export function PageRoute() {
   const { t } = useTranslation()
-  const pageID = podRouteID(useParams({ strict: false }).pageID) ?? ''
+  const pageID = podPageRouteID(useParams({ strict: false }).pageID) ?? ''
   const { state: sidebarState } = useSidebar()
   const navigation = (
     <header className="pod-page-header sheet-header border-b border-border">
@@ -172,7 +174,8 @@ function PageWorkspace({
   const [history, setHistory] = useState(false)
   const commentsTrigger = useRef<HTMLButtonElement>(null)
   const actionsTrigger = useRef<HTMLButtonElement>(null)
-  const copyLink = useCopyPageLink(page.id)
+  const copyLink = useCopyPageLink(page.id, page.title)
+  useCanonicalPageUrl(page.id, page.title)
   const client = useQueryClient()
   const [search, setSearch] = useSearchParams()
   const linkedComment = podRouteID(search.get('commentId') ?? undefined)
@@ -183,7 +186,8 @@ function PageWorkspace({
     commentsMotion.prepare(true)
     setComments(true)
   }, [linkedComment])
-  const selection = search.get('chat')
+  const assistantAvailable = useQuery(agentsQuery).data?.personalAssistantAvailable === true
+  const selection = assistantAvailable ? search.get('chat') : null
   const chat = selection === 'new' || selection === 'latest' ? selection : podRouteID(selection ?? undefined)
   const chatMotion = usePanelMotion(!!chat)
   const chatTrigger = useRef<HTMLButtonElement>(null)
@@ -290,7 +294,11 @@ function PageWorkspace({
   const [titleComposing, setTitleComposing] = useState(false)
   const dirty = model.hasUnsavedChanges.value
   const blocker = useBlocker({
-    shouldBlockFn: ({ current, next }) => dirty && current.pathname !== next.pathname,
+    shouldBlockFn: ({ current, next }) => {
+      if (!dirty || current.pathname === next.pathname) return false
+      const currentPage = podPagePathnameID(current.pathname)
+      return !currentPage || currentPage !== podPagePathnameID(next.pathname)
+    },
     enableBeforeUnload: false,
     withResolver: true
   })
@@ -334,7 +342,7 @@ function PageWorkspace({
   const accessDenied = isRealtimeAccessDenied(loadError)
   const trashed = Boolean(page.deleted_at)
   const toolsAvailable = page.type === 'doc' && !accessDenied && !trashed
-  const commentsAvailable = (page.type === 'doc' || page.type === 'file') && !accessDenied && !trashed
+  const commentsAvailable = ['doc', 'knowledge', 'file'].includes(page.type) && !accessDenied && !trashed
   const commentSummary = useQuery({ ...pageCommentSummaryQuery(page.id), enabled: commentsAvailable })
   useEffect(() => {
     if (!toolsAvailable) return
@@ -477,7 +485,7 @@ function PageWorkspace({
                 privateOwner={page.private_owner_uid ?? undefined}
               />
             )}
-            {!accessDenied && !trashed && (
+            {!accessDenied && !trashed && assistantAvailable && (
               <Toggle
                 size="sm"
                 aria-label={t('pod.page_chat.title')}
@@ -811,7 +819,7 @@ function PageWorkspace({
                             resolvedCommentIDs={commentSummary.data?.resolved_ids ?? []}
                             onComment={ids => openComments(ids[0] ?? null, ids.length > 1 ? ids : [])}
                             onRequestComment={captureCommentSelection}
-                            onAskAgent={!accessDenied && !trashed ? askAgent : undefined}
+                            onAskAgent={!accessDenied && !trashed && assistantAvailable ? askAgent : undefined}
                           />
                         </div>
                       </ErrorBoundary>
@@ -836,6 +844,7 @@ function PageWorkspace({
                 <ErrorBoundary variant="panel" resetKeys={[page.id, page.revision]}>
                   <PageContent
                     detail={contentDetail}
+                    documentDraft={model}
                     onRequestFileComment={!accessDenied && !trashed ? captureFileCommentSelection : undefined}
                     filePreviewRef={filePreviewRef}
                   />
@@ -853,7 +862,7 @@ function PageWorkspace({
         ? commentsPanel
         : commentsAvailable &&
           (comments || !chat) && <PodPanelPresence animate={commentsMotion.animate}>{commentsPanel}</PodPanelPresence>}
-      {!accessDenied && !trashed && !comments && (
+      {!accessDenied && !trashed && !comments && assistantAvailable && (
         <PageChat
           mobile={isMobile}
           pageID={page.id}

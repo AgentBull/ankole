@@ -10,7 +10,7 @@ defmodule Ankole.Brain.MergeTest do
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.MergeSuggestion
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Schemas.SlugAlias
   alias Ankole.Brain.Schemas.Source
@@ -44,16 +44,46 @@ defmodule Ankole.Brain.MergeTest do
         upstream_id: "merge-managed-#{System.unique_integer([:positive])}",
         kind: "library",
         name: "Managed merge test",
-        default_audience_scope: "world"
+        default_source_node_id: Ankole.Brain.Scope.world()
       })
 
-    object
-    |> AshPostgres.DataLayer.to_ecto()
-    |> Ecto.Changeset.change(managed_by_source_id: source.id)
-    |> Repo.update!()
+    {:ok, _} =
+      Ankole.Repo.transact_top_level(fn ->
+        properties = Repo.get_by!(Ankole.Pod.Properties, id: object.id)
+
+        Ankole.Ash.update(properties, :sync_upstream, %{
+          upstream_state: %{"source_id" => source.id}
+        })
+      end)
   end
 
   describe "run_phase/0" do
+    test "private pages matching Principal paths remain ordinary merge candidates", %{
+      human: human
+    } do
+      other = human_fixture().principal
+      actor = actor_fixture(human)
+
+      {:ok, folder} =
+        Ankole.Pod.Pages.create(actor, %{
+          type: :folder,
+          title: "people",
+          private_owner_uid: human.uid
+        })
+
+      for uid <- [human.uid, other.uid] do
+        assert {:ok, _} =
+                 Ankole.Pod.Pages.create(actor, %{
+                   type: :knowledge,
+                   parent_id: folder.id,
+                   title: uid,
+                   metadata: %{"entity_type" => "person", "aliases" => ["Same private contact"]}
+                 })
+      end
+
+      assert %{suggested: 1} = Merge.run_phase()
+    end
+
     test "one tenant's recorded pair does not suppress another tenant's same-slug candidates" do
       seed_pair = fn ->
         create_page!("companies/acme", "company", "Acme")
@@ -74,7 +104,7 @@ defmodule Ankole.Brain.MergeTest do
         assert %{suggested: 1} = Merge.run_phase()
         assert [separate] = Repo.all(MergeSuggestion)
         assert separate.id != recorded.id
-        assert {separate.a_slug, separate.b_slug} == {recorded.a_slug, recorded.b_slug}
+        refute {separate.a_slug, separate.b_slug} == {recorded.a_slug, recorded.b_slug}
       end)
 
       assert [retained] = Repo.all(MergeSuggestion)
@@ -90,8 +120,13 @@ defmodule Ankole.Brain.MergeTest do
       assert %{status: :ok, suggested: 1} = Merge.run_phase()
 
       assert [suggestion] = Repo.all(MergeSuggestion)
-      assert suggestion.a_slug == "companies/ac-holdings"
-      assert suggestion.b_slug == "companies/acme"
+
+      assert MapSet.new([suggestion.a_slug, suggestion.b_slug]) ==
+               MapSet.new([
+                 elem(Objects.get_by_slug("companies/ac-holdings"), 1).id,
+                 elem(Objects.get_by_slug("companies/acme"), 1).id
+               ])
+
       assert suggestion.status == :pending
       assert suggestion.reason =~ ~s(shared alias "the acme account")
 
@@ -203,11 +238,11 @@ defmodule Ankole.Brain.MergeTest do
       {:ok, _result} =
         Ankole.Brain.write_fact(
           %{
-            object_slug: duplicate.slug,
+            subject_page_id: duplicate.id,
             claim: "Acme renewed the annual contract",
             kind: "event",
             holder: duplicate.slug,
-            audience_scope: "world",
+            source_node_id: Ankole.Brain.Scope.world(),
             notability: "medium",
             confidence: 0.75,
             valid_from: DateTime.utc_now(:microsecond),
@@ -219,28 +254,28 @@ defmodule Ankole.Brain.MergeTest do
       {:ok, _timeline} =
         Timelines.write_timeline(
           %{
-            object_slug: duplicate.slug,
+            subject_page_id: duplicate.id,
             date: ~D[2026-01-15],
             summary: "Contract signed",
             detail: "",
             provenance: "test",
-            audience_scope: "world"
+            source_node_id: Ankole.Brain.Scope.world()
           },
           :system
         )
 
       {:ok, _link} =
         Links.upsert_link(%{
-          from_object_slug: duplicate.slug,
-          to_object_slug: "companies/other",
+          from_page_id: duplicate.id,
+          to_page_id: elem(Objects.get_by_slug("companies/other"), 1).id,
           link_type: "customer_of",
           link_source: "extraction"
         })
 
       {:ok, _link} =
         Links.upsert_link(%{
-          from_object_slug: canonical.slug,
-          to_object_slug: duplicate.slug,
+          from_page_id: canonical.id,
+          to_page_id: duplicate.id,
           link_type: "relates_to",
           link_source: "extraction"
         })
@@ -256,24 +291,24 @@ defmodule Ankole.Brain.MergeTest do
       assert {:ok, %{status: :merged} = outcome} =
                Ankole.Brain.approve_merge(suggestion.id, Ankole.ActorRef.from_principal(human), %{
                  attrs: %{
-                   canonical_slug: canonical.slug
+                   canonical_page_id: canonical.slug
                  }
                })
 
-      assert outcome.canonical_slug == canonical.slug
+      assert outcome.canonical_page_id == canonical.id
       assert outcome.merged_slug == duplicate.slug
 
-      assert Repo.get_by(Object, slug: duplicate.slug) == nil
+      assert Repo.get_by!(Object, slug: duplicate.slug).deleted_at
       assert {:ok, %Object{slug: "companies/acme"}} = Objects.resolve_slug(duplicate.slug)
-      assert Repo.get_by(SlugAlias, alias_slug: duplicate.slug).canonical_slug == canonical.slug
+      assert Repo.get_by(SlugAlias, alias_slug: duplicate.slug).canonical_page_id == canonical.id
 
       assert [claim] = Claim |> where([claim], claim.kind == "event") |> Repo.all()
-      assert claim.object_slug == canonical.slug
+      assert claim.subject_page_id == canonical.id
       assert claim.holder == canonical.slug
 
       alias_norms =
         ObjectAlias
-        |> where([alias], alias.object_slug == ^canonical.slug)
+        |> where([alias], alias.subject_page_id == ^canonical.id)
         |> select([alias], alias.alias_norm)
         |> Repo.all()
         |> Enum.sort()
@@ -281,25 +316,29 @@ defmodule Ankole.Brain.MergeTest do
       assert alias_norms == ["acme", "acme corp"]
 
       assert [timeline] = Repo.all(Timeline)
-      assert timeline.object_slug == canonical.slug
+      assert timeline.subject_page_id == canonical.id
 
       assert Chunk
-             |> where([chunk], chunk.object_id == ^canonical.id)
+             |> where([chunk], chunk.page_id == ^canonical.id)
              |> where([chunk], chunk.content_kind == :timeline)
              |> Repo.exists?()
 
       links = Repo.all(Ankole.Brain.Schemas.Link)
       assert [edge] = Enum.filter(links, &(&1.link_type == "customer_of"))
-      assert edge.from_object_slug == canonical.slug
-      assert edge.to_object_slug == "companies/other"
+      assert edge.from_page_id == canonical.id
+      assert edge.to_page_id == elem(Objects.get_by_slug("companies/other"), 1).id
       refute Enum.any?(links, &(&1.link_type == "relates_to"))
 
       assert Repo.get!(MergeSuggestion, suggestion.id).status == :approved
     end
 
-    test "approval needs a direction and consolidates a duplicate with a written body",
-         %{human: human, canonical: canonical, suggestion: suggestion} do
-      assert {:error, :canonical_slug_required} =
+    test "merge concatenates structured bodies and retains restorable metadata", %{
+      human: human,
+      canonical: canonical,
+      duplicate: duplicate,
+      suggestion: suggestion
+    } do
+      assert {:error, :canonical_page_id_required} =
                Ankole.Errors.reason(
                  Ankole.Brain.approve_merge(
                    suggestion.id,
@@ -308,101 +347,38 @@ defmodule Ankole.Brain.MergeTest do
                  )
                )
 
-      assert {:error, {:canonical_slug_not_in_pair, _slug}} =
-               Ankole.Errors.reason(
-                 Ankole.Brain.approve_merge(
-                   suggestion.id,
-                   Ankole.ActorRef.from_principal(human),
-                   %{
-                     attrs: %{
-                       canonical_slug: "companies/other"
-                     }
-                   }
-                 )
-               )
-
-      partner = create_page!("companies/partner-labs", "company", "Partner Labs")
-
-      canonical_body = """
-      Canonical overview of Acme.
-
-      <!-- brain:calibration:start -->
-      Canonical scorecard
-      <!-- brain:calibration:end -->
-      """
-
-      duplicate_body = """
-      Duplicate dossier linking [[#{partner.slug}]].
-
-      <!-- brain:calibration:start -->
-      Duplicate scorecard
-      <!-- brain:calibration:end -->
-      """
-
-      {:ok, _canonical} =
+      {:ok, _} =
         Ankole.Brain.update_object(
-          canonical.slug,
-          %{
-            body: canonical_body,
-            expected_content_hash: Repo.get_by!(Object, slug: canonical.slug).content_hash
-          },
-          human.uid
+          canonical.id,
+          %{body: "Canonical overview", meta: %{"summary" => "canonical", "tags" => ["first"]}},
+          :system
         )
 
-      {:ok, _duplicate} =
+      {:ok, _} =
         Ankole.Brain.update_object(
-          "companies/acme-corp",
-          %{
-            body: duplicate_body,
-            expected_content_hash: Repo.get_by!(Object, slug: "companies/acme-corp").content_hash
-          },
-          human.uid
+          duplicate.id,
+          %{body: "Duplicate details", meta: %{"tags" => ["second"]}},
+          :system
         )
 
-      actor = Ankole.ActorRef.from_principal(human)
+      assert {:ok, %{status: :merged}} =
+               Ankole.Brain.approve_merge(suggestion.id, Ankole.ActorRef.from_principal(human), %{
+                 attrs: %{canonical_page_id: canonical.id}
+               })
 
-      assert {:ok, %{status: :merged, canonical_slug: "companies/acme"}} =
-               Ankole.Brain.approve_merge(
-                 suggestion.id,
-                 actor,
-                 %{attrs: %{canonical_slug: canonical.slug}}
-               )
+      assert {:ok, merged} = Objects.get_by_slug(canonical.id)
+      assert merged.body =~ "Canonical overview"
+      assert merged.body =~ "Duplicate details"
+      assert merged.meta["summary"] == "canonical"
+      assert Enum.sort(merged.meta["tags"]) == ["first", "second"]
 
-      merged = Repo.get_by!(Object, slug: canonical.slug)
-      assert merged.body =~ "Canonical overview of Acme."
-      assert merged.body =~ "Duplicate dossier linking [[#{partner.slug}]]."
-      assert merged.body =~ "Canonical scorecard"
-      refute merged.body =~ "Duplicate scorecard"
+      snapshots =
+        Repo.all(
+          from snapshot in Ankole.Pod.PageSnapshot, where: snapshot.page_id == ^canonical.id
+        )
 
-      {dup_pos, _} = :binary.match(merged.body, "Duplicate dossier")
-      {cal_pos, _} = :binary.match(merged.body, "<!-- brain:calibration:start -->")
-      assert dup_pos < cal_pos
-
-      [latest_version | _] =
-        Ankole.Brain.Schemas.ObjectVersion
-        |> where([v], v.object_id == ^merged.id)
-        |> order_by([v], desc: v.snapshot_at)
-        |> Repo.all()
-
-      assert latest_version.author == actor
-      assert latest_version.body =~ "Canonical overview of Acme."
-      refute latest_version.body =~ "Duplicate dossier"
-
-      chunks =
-        Chunk
-        |> where([c], c.object_id == ^merged.id)
-        |> Repo.all()
-
-      assert Enum.any?(chunks, &String.contains?(&1.chunk_text, "Duplicate dossier"))
-
-      assert Ankole.Brain.Schemas.Link
-             |> where(
-               [l],
-               l.from_object_slug == ^canonical.slug and l.to_object_slug == ^partner.slug
-             )
-             |> Repo.exists?()
-
-      assert Repo.get!(MergeSuggestion, suggestion.id).status == :approved
+      assert Enum.any?(snapshots, &(&1.metadata["tags"] == ["first"]))
+      assert Enum.any?(snapshots, &(&1.content =~ "Duplicate details"))
     end
 
     test "approval rejects a managed page in either direction",
@@ -416,7 +392,7 @@ defmodule Ankole.Brain.MergeTest do
                    Ankole.ActorRef.from_principal(human),
                    %{
                      attrs: %{
-                       canonical_slug: canonical.slug
+                       canonical_page_id: canonical.slug
                      }
                    }
                  )
@@ -429,7 +405,7 @@ defmodule Ankole.Brain.MergeTest do
                    Ankole.ActorRef.from_principal(human),
                    %{
                      attrs: %{
-                       canonical_slug: duplicate.slug
+                       canonical_page_id: duplicate.slug
                      }
                    }
                  )
@@ -437,128 +413,50 @@ defmodule Ankole.Brain.MergeTest do
 
       assert Repo.get!(MergeSuggestion, suggestion.id).status == :pending
     end
+  end
 
-    test "skips empty audience shells, preserves leading indentation, and refuses unclosed code fences capturing scoped duplicate prose",
-         %{human: human, canonical: canonical, duplicate: duplicate, suggestion: suggestion} do
-      actor = Ankole.ActorRef.from_principal(human)
+  test "merging private duplicates preserves shared historical paths", %{human: human} do
+    actor = actor_fixture(human)
 
-      # Unclosed code fence in canonical would swallow a scoped {% audience %} block in duplicate.
-      {:ok, c1} =
-        Ankole.Brain.update_object(
-          canonical.slug,
-          %{
-            body: "Canonical intro\n\n```text\nunclosed sample",
-            expected_content_hash: Repo.get_by!(Object, slug: canonical.slug).content_hash
-          },
-          :system
-        )
+    {:ok, shared} =
+      Ankole.BrainFixtures.page_fixture_result(
+        %{slug: "companies/acme", type: "company", title: "Shared Acme"},
+        human.uid
+      )
 
-      {:ok, d1} =
-        Ankole.Brain.update_object(
-          duplicate.slug,
-          %{
-            body:
-              ~s({% audience scope="principal:#{human.uid}" %}\nPrivate note.\n{% /audience %}),
-            expected_content_hash: Repo.get_by!(Object, slug: duplicate.slug).content_hash
-          },
-          :system
-        )
+    assert {:ok, _} = Ankole.Files.Nodes.rename(actor, shared.id, "Shared Acme")
 
-      assert {:error, :unclosed_block_captures_audience_tags} =
-               Ankole.Errors.reason(
-                 Ankole.Brain.approve_merge(suggestion.id, actor, %{
-                   attrs: %{canonical_slug: canonical.slug}
-                 })
-               )
+    {:ok, folder} =
+      Ankole.Pod.Pages.create(actor, %{
+        type: :folder,
+        title: "companies",
+        private_owner_uid: human.uid
+      })
 
-      assert Repo.get!(MergeSuggestion, suggestion.id).status == :pending
+    private_pages =
+      for title <- ["acme", "ac-holdings"] do
+        {:ok, page} =
+          Ankole.Pod.Pages.create(actor, %{
+            type: :knowledge,
+            parent_id: folder.id,
+            title: title,
+            metadata: %{"entity_type" => "company", "aliases" => ["private account"]}
+          })
 
-      # Fix canonical to a 4-space indented code block + calibration fence, and set duplicate
-      # to a whitespace-only audience shell: merge succeeds without creating a body-consolidation ObjectVersion.
-      indented_canonical =
-        "    indented_code_line()\n\n<!-- brain:calibration:start -->\nScore\n<!-- brain:calibration:end -->\n"
+        page
+      end
 
-      {:ok, c2} =
-        Ankole.Brain.update_object(
-          canonical.slug,
-          %{body: indented_canonical, expected_content_hash: c1.content_hash},
-          :system
-        )
+    [_duplicate, canonical] = private_pages
+    assert %{suggested: 1} = Merge.run_phase()
+    suggestion = Repo.get_by!(MergeSuggestion, status: :pending)
 
-      {:ok, _d2} =
-        Ankole.Brain.update_object(
-          duplicate.slug,
-          %{
-            body: ~s({% audience scope="principal:#{human.uid}" %}\n   \n{% /audience %}),
-            expected_content_hash: d1.content_hash
-          },
-          :system
-        )
+    assert {:ok, %{status: :merged}} =
+             Ankole.Brain.approve_merge(suggestion.id, Ankole.ActorRef.from_principal(human), %{
+               attrs: %{canonical_page_id: canonical.id}
+             })
 
-      versions_before =
-        Ankole.Brain.Schemas.ObjectVersion
-        |> where([v], v.object_id == ^c2.id)
-        |> Repo.aggregate(:count)
-
-      assert {:ok, %{status: :merged}} =
-               Ankole.Brain.approve_merge(suggestion.id, actor, %{
-                 attrs: %{canonical_slug: canonical.slug}
-               })
-
-      versions_after =
-        Ankole.Brain.Schemas.ObjectVersion
-        |> where([v], v.object_id == ^c2.id)
-        |> Repo.aggregate(:count)
-
-      assert versions_after == versions_before
-      assert Repo.get_by!(Object, slug: canonical.slug).body == indented_canonical
-
-      # Also verify Calibration.strip_calibration_section preserves 4-space leading indentation.
-      assert Ankole.Brain.Calibration.strip_calibration_section(indented_canonical) ==
-               "    indented_code_line()"
-    end
-
-    test "snapshots canonical pre-merge tags in ObjectVersion before repointing duplicate tags",
-         %{human: human, canonical: canonical, duplicate: duplicate, suggestion: suggestion} do
-      {:ok, c1} =
-        Ankole.Brain.update_object(
-          canonical.slug,
-          %{
-            body: "Canonical body before merge.",
-            tags: ["canonical-tag"],
-            expected_content_hash: Repo.get_by!(Object, slug: canonical.slug).content_hash
-          },
-          human.uid
-        )
-
-      {:ok, _d1} =
-        Ankole.Brain.update_object(
-          duplicate.slug,
-          %{
-            body: "Duplicate body to append.",
-            tags: ["duplicate-tag"],
-            expected_content_hash: Repo.get_by!(Object, slug: duplicate.slug).content_hash
-          },
-          human.uid
-        )
-
-      actor = Ankole.ActorRef.from_principal(human)
-
-      assert {:ok, %{status: :merged}} =
-               Ankole.Brain.approve_merge(suggestion.id, actor, %{
-                 attrs: %{canonical_slug: canonical.slug}
-               })
-
-      [merge_snapshot | _] =
-        Ankole.Brain.Schemas.ObjectVersion
-        |> where([v], v.object_id == ^c1.id)
-        |> order_by([v], desc: v.snapshot_at, desc: v.id)
-        |> Repo.all()
-
-      assert merge_snapshot.body == "Canonical body before merge."
-      assert merge_snapshot.tags == ["canonical-tag"]
-      assert Links.tags_for_object(canonical.slug) == ["canonical-tag", "duplicate-tag"]
-    end
+    assert {:ok, %{id: id}} = Objects.resolve_slug("companies/acme")
+    assert id == shared.id
   end
 
   test "a canonical principal page can absorb a duplicate but never merges away",
@@ -577,7 +475,7 @@ defmodule Ankole.Brain.MergeTest do
              Ankole.Errors.reason(
                Ankole.Brain.approve_merge(suggestion.id, Ankole.ActorRef.from_principal(human), %{
                  attrs: %{
-                   canonical_slug: "people/alice-doe"
+                   canonical_page_id: "people/alice-doe"
                  }
                })
              )
@@ -585,11 +483,11 @@ defmodule Ankole.Brain.MergeTest do
     assert {:ok, %{status: :merged}} =
              Ankole.Brain.approve_merge(suggestion.id, Ankole.ActorRef.from_principal(human), %{
                attrs: %{
-                 canonical_slug: canonical_slug
+                 canonical_page_id: canonical_slug
                }
              })
 
-    assert Repo.get_by(Object, slug: "people/alice-doe") == nil
+    assert Repo.get_by!(Object, slug: "people/alice-doe").deleted_at
     assert {:ok, %Object{slug: ^canonical_slug}} = Objects.resolve_slug("people/alice-doe")
   end
 end

@@ -37,7 +37,7 @@ defmodule Ankole.Pod.Documents.PrincipalMentions do
            {:ok, parsed} <- Ankole.Kernel.page_rename_principal(content.content, old, new),
            true <- parsed.xml != content.content,
            {:ok, %{page: page}} <-
-             Documents.commit_parsed_in_tx(page, content, actor, parsed, attribution: false) do
+             save_renamed(page, content, actor, parsed) do
         {:cont, {:ok, [page.id | ids]}}
       else
         false -> {:cont, {:ok, ids}}
@@ -45,6 +45,15 @@ defmodule Ankole.Pod.Documents.PrincipalMentions do
       end
     end)
   end
+
+  defp save_renamed(%{type: :knowledge} = page, content, _actor, parsed),
+    do:
+      Ankole.Pod.Knowledge.put_in_tx(page.id, %{xml: parsed.xml, metadata: page.metadata},
+        author: content.updated_by
+      )
+
+  defp save_renamed(page, content, actor, parsed),
+    do: Documents.commit_parsed_in_tx(page, content, actor, parsed, attribution: false)
 
   defp rename_snapshots(old, new) do
     PageSnapshot

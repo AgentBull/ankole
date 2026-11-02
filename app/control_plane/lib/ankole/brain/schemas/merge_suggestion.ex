@@ -61,6 +61,8 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
 
   @page_summary [
     fields: [
+      page_id: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
+      pod_url: [type: :string, allow_nil?: true],
       slug: [type: :string, allow_nil?: false],
       title: [type: :string, allow_nil?: true],
       type: [type: :string, allow_nil?: true]
@@ -145,7 +147,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
     # (Ankole.Brain.Console).
     action :console_approve do
       argument(:suggestion_id, :uuid, allow_nil?: false)
-      argument(:canonical_slug, :string, constraints: [trim?: false])
+      argument(:canonical_page_id, :string, constraints: [trim?: false])
 
       run(__MODULE__.Actions)
     end

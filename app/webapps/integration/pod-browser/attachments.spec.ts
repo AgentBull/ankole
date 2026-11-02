@@ -1,4 +1,4 @@
-import { state, request as podRequest, selectChatAgent } from './fixtures'
+import { state, request as podRequest } from './fixtures'
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { conversationRoute, pageRoute } from './routes'
@@ -52,10 +52,9 @@ test('file preparation and an uncertain send retain stable identities through pa
   let id: string | undefined
   try {
     await page.goto(pageRoute(state.report_id))
-    await page.getByRole('button', { name: '页面对话', exact: true }).click()
-    const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
+    await page.getByRole('button', { name: '助理', exact: true }).click()
+    const panel = page.getByRole('complementary', { name: '助理', exact: true })
     await panel.getByRole('button', { name: '新对话', exact: true }).click()
-    await selectChatAgent(page, panel)
     const composer = panel.locator('.pod-chat-composer')
     await page.route('**/api/v2/pod/attachments', async route => {
       uploadIDs.push(uploadID(route.request()))
@@ -78,9 +77,9 @@ test('file preparation and an uncertain send retain stable identities through pa
     await expect(composer.getByRole('alert')).toHaveText('上传失败，请重试')
     await composer.getByRole('button', { name: fileLabel('重试上传', '季度说明.txt') }).click()
     await started.promise
-    await panel.getByRole('button', { name: '关闭页面对话', exact: true }).click()
+    await panel.getByRole('button', { name: '关闭助理', exact: true }).click()
     gate.resolve()
-    await page.getByRole('button', { name: '页面对话', exact: true }).click()
+    await page.getByRole('button', { name: '助理', exact: true }).click()
     await expect(composer.getByRole('status')).toHaveText('已就绪')
     expect(uploadIDs[0]).toBeTruthy()
     expect(uploadIDs[1]).toBe(uploadIDs[0])
@@ -109,6 +108,10 @@ test('file preparation and an uncertain send retain stable identities through pa
     await expect(composer.getByRole('link', { name: fileLabel('下载', '季度说明.txt') })).toHaveCount(0)
     await page.goto(conversationRoute(id!))
     await page.reload()
+    await page
+      .getByRole('region', { name: '待发送', exact: true })
+      .getByRole('button', { name: '季度说明.txt', exact: true })
+      .click()
     const download = page.getByRole('link', { name: fileLabel('下载', '季度说明.txt') })
     await expect(download).toHaveCount(1)
     const href = (await download.getAttribute('href'))!
@@ -135,7 +138,6 @@ test('paste previews a real image, removal clears it, and dropping a file sends 
   let id: string | undefined
   try {
     await page.goto('/')
-    await selectChatAgent(page)
     const composer = page.locator('.pod-chat-composer')
     await expect(composer.getByRole('textbox', { name: '消息', exact: true })).toBeEditable()
     await composer.evaluate((element, base64) => {
@@ -144,7 +146,7 @@ test('paste previews a real image, removal clears it, and dropping a file sends 
       transfer.items.add(new File([bytes], 'pasted.png', { type: 'image/png' }))
       element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
     }, imageBytes)
-    const image = composer.getByRole('img', { name: 'pasted.png', exact: true })
+    const image = composer.getByRole('button', { name: fileLabel('预览', 'pasted.png') }).locator('img')
     await expect(image).toBeVisible()
     await expect.poll(() => image.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
     await expect(composer.getByRole('status')).toHaveText('已就绪')
@@ -170,6 +172,10 @@ test('paste previews a real image, removal clears it, and dropping a file sends 
     await expect(composer.getByRole('link', { name: fileLabel('下载', 'dropped.txt') })).toHaveCount(0)
     await expect(page).toHaveURL(url => url.pathname === conversationRoute(id!))
     await page.reload()
+    await page
+      .getByRole('region', { name: '待发送', exact: true })
+      .getByRole('button', { name: 'dropped.txt', exact: true })
+      .click()
     const download = page.getByRole('link', { name: fileLabel('下载', 'dropped.txt') })
     await expect(download).toHaveCount(1)
     expect(await page.evaluate(async href => (await fetch(href!)).text(), await download.getAttribute('href'))).toBe(

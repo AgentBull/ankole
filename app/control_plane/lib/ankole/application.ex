@@ -85,6 +85,13 @@ defmodule Ankole.Application do
       )
 
     children =
+      maybe_add_child(
+        children,
+        Ankole.AIAgent.Library.StartupSync,
+        Application.get_env(:ankole, :library_startup_sync, true)
+      )
+
+    children =
       children ++
         [
           Ankole.AIGateway.ModelMetadata.Cache,

@@ -9,11 +9,11 @@ The Elixir control plane assembles the system instructions for every main Agent 
 
 ## Current context
 
-Each resolved run context brings together the Agent's identity and durable documents, its effective Skills and Agent Plugins, the originating conversation, and the active timezone. Within those documents, `SOUL.md` governs communication style and judgment while `MISSION.md` defines responsibilities. PostgreSQL owns the authoritative copies in the control plane, and Ankole materializes runtime files into the Worker workspace whenever environment tools run.
+Each run resolves the Agent identity, enabled capabilities, originating conversation, and timezone. Ankole reads the whole effective `AGENTS.md` from `/AnkoleBrain/AGENTS.md` and the Agent’s append or override page. The `DESIGN.md` contract uses the same hierarchy and is available as a complete runtime file.
 
-`Ankole.Sessions.Prompt.system/1` (`app/control_plane/lib/ankole/sessions/prompt.ex`) renders templates from `app/control_plane/priv/sessions/prompts/` in a fixed order: Agent identity, `SOUL.md`, and `MISSION.md` come first, followed by completion and authority rules, Background Agent Job and Workflow policies, Brain memory guidance, environment and tool instructions, the model-visible Skill catalog, and a runtime context suffix.
+`Ankole.Sessions.Prompt.system/1` renders the complete AGENTS contract, completion and authority rules, Job and Workflow policies, memory guidance, environment and tool instructions, the Skill catalog, and the runtime context. Templates live in `app/control_plane/priv/sessions/prompts/`.
 
-When building the Skill catalog, Ankole omits Skills marked `brain-recall-only: true`; those Skills remain in the Agent's effective set so the Agent can discover them semantically through Brain and load them on demand via `skill_view`. The trailing runtime suffix records the Agent's name, `/workspace`, the active Session workspace path, the timezone, the conversation start time, and the origin channel. For Lark and Feishu conversations, the shared Lark adapter represents both platforms and selects the upstream API endpoint from its configured domain.
+The Skill catalog lists descriptions of enabled Skills visible to the current conversation. `skill_view` reads the selected Skill and permitted supplements when needed. The runtime suffix records the Agent, `/workspace`, Session workspace, timezone, conversation start time, and channel. Lark and Feishu share one adapter whose configured domain selects the upstream API.
 
 ## Settings and history
 
@@ -23,6 +23,6 @@ AIGateway owns the durable model transcript and records every model request for 
 
 ## Codex Jobs and Workflow tasks
 
-Codex Jobs follow a separate Worker execution path: the Worker runner reads the execution choices frozen on the Job, fetches current domain context over RuntimeFabric RPC, and materializes the Job workspace along with its `AGENTS.md` before handing the model loop to native Codex. See [Background Agent Jobs](../background-agent-jobs/).
+Codex Jobs use the Worker execution path. At every turn start and resume, the Worker fetches current contracts and atomically refreshes `$CODEX_HOME/AGENTS.md`, `~/AGENTS.md`, and `~/DESIGN.md`. Native Codex combines global Agent instructions with the project’s own instruction files. See [Background Agent Jobs](../background-agent-jobs/).
 
 Workflow subagent tasks render their own prompt through `Prompt.workflow_system/1`—covering Agent identity, task IDs, the persisted result JSON Schema, `submit_result` rules, and Job delegation and `sleep` policies—while ambient group-intervention checks use a dedicated routing prompt so each execution mode receives only the contract that applies to it.

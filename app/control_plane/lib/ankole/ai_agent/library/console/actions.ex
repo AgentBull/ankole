@@ -59,19 +59,19 @@ defmodule Ankole.AIAgent.Library.Console.Actions do
   end
 
   defp action(:documents, args) do
-    with {:ok, documents} <- Library.list_agent_documents(args.agent_uid),
-         do: {:ok, %{library_documents: documents}}
-  end
+    with {:ok, documents} <- Library.list_agent_documents(args.agent_uid) do
+      documents =
+        Map.new(documents, fn {kind, document} ->
+          urls =
+            Enum.map(document["page_ids"], fn id ->
+              AnkoleWeb.PodURL.current_tenant_url(AnkoleWeb.PodURL.page_path(id))
+            end)
 
-  defp action(:replace_document, args) do
-    with {:ok, document} <-
-           Library.replace_agent_document(
-             args.agent_uid,
-             args.document_kind,
-             args.content,
-             args.expected_content_hash
-           ),
-         do: {:ok, %{library_document: document}}
+          {kind, Map.put(document, "page_urls", urls)}
+        end)
+
+      {:ok, %{library_documents: documents}}
+    end
   end
 
   def default_read_permissions(args, _attrs, resource, action),
@@ -105,12 +105,6 @@ defmodule Ankole.AIAgent.Library.Console.Actions do
 
   defp describe(reason) when reason in [:not_found, :agent_plugin_not_found, :skill_not_found],
     do: Ankole.Errors.Invalid.NotFound.exception(resource: Library.Console)
-
-  defp describe(:agent_library_document_conflict),
-    do: {:conflict, "Agent library document changed since it was loaded", []}
-
-  defp describe(reason) when reason in [:invalid_document_kind, :invalid_agent_document],
-    do: {"Agent library document is invalid", []}
 
   defp describe(_reason), do: {"Agent Library capability is invalid", []}
 end

@@ -144,8 +144,14 @@ defmodule Ankole.PrincipalsFixtures do
         {:ok, :ok}
       end)
 
-    Ankole.Brain.Schemas.Object
-    |> where([object], object.slug in ^slugs)
+    page_ids =
+      Ankole.Brain.Schemas.Page
+      |> where([page], page.slug in ^slugs)
+      |> Ankole.Repo.all()
+      |> Enum.map(& &1.id)
+
+    Ankole.Files.Schemas.Node
+    |> where([node], node.id in ^page_ids)
     |> Ankole.Repo.delete_all()
 
     Ankole.Principals.Principal

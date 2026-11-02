@@ -12,6 +12,15 @@ defmodule Ankole.Pod.ContentOwner do
     PageUserState
   }
 
+  @impl true
+  def move_node_in_tx(id, old_path), do: Ankole.Brain.Knowledge.page_moved_in_tx(id, old_path)
+
+  @impl true
+  def trash_node_in_tx(id), do: Ankole.Brain.Knowledge.page_deleted_in_tx(id)
+
+  @impl true
+  def restore_node_in_tx(id), do: Ankole.Brain.Knowledge.page_restored_in_tx(id)
+
   @batch_size 1000
 
   @impl true
@@ -39,7 +48,8 @@ defmodule Ankole.Pod.ContentOwner do
   end
 
   @impl true
-  def rename_node_in_tx(_old, %{kind: kind} = node, actor) when kind in [:doc, :base, :applet] do
+  def rename_node_in_tx(_old, %{kind: kind} = node, actor)
+      when kind in [:doc, :knowledge, :base, :applet] do
     Ankole.Pod.Pages.rename_from_drive_in_tx(actor, node.id, node.name)
   end
 

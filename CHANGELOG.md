@@ -1,5 +1,118 @@
 # Changelog
 
+## Version 2.0.0-alpha.47 (2026-11-03)
+
+- Use readable `<title-slug>-<short-id>` Pod Page URLs (transliterating
+  non-ASCII titles to ASCII words and falling back to `/pages/<short-id>` when a
+  Page has no title) alongside 26-character lowercase Crockford Base32 short IDs
+  for Pages and Conversations. Bare short-ID links and links carrying an older
+  title slug resolve to the Page and update the address bar to its current
+  canonical path.
+
+- Improve Brain extraction by reusing pages through titles and aliases and
+  separating useful facts from entities worth creating. File new entities by
+  their selected type. Reports keep their own content and permissions while
+  their facts appear on related company pages for authorized readers.
+
+- Mount authorized Drive content into Linux Workers so shell tools and Codex can
+  read and write files, knowledge pages, documents, and Base records through
+  normal paths. Share hot caches across matching conversations, isolate ChatDrive
+  views, preserve rejected drafts, and flush explicit deliveries before sending.
+  Merge separate knowledge edits, copy whole files within a mount without
+  retransferring bytes, skip unchanged saves, and stream large uploads under a
+  configurable site limit. Editor saves keep temporary files out of Trash; one
+  restore recovers a deleted directory and its authorized contents.
+  Let conversation members edit, rename, and delete shared ChatDrive files while
+  sent attachments keep their captured contents.
+  Cancel pending metadata refreshes with their caller and preserve local drafts
+  when recovery metadata cannot be encoded. Report malformed upload metadata
+  without replacing the cached file size with zero.
+  Keep edits made during an upload pending across lost responses, and wait for
+  their remote commit before reporting a successful delivery flush.
+  Check the source revision during server-side copies so a growing source does
+  not exceed the caller's requested byte count or replace the wrong contents.
+  Add bounded Base exports and replay-safe imports, plus the Kubernetes FUSE
+  device and admission configuration. Keep the file CLI fallback while the
+  six-provider live acceptance gate remains open. Recognize Lambda managed-base
+  minor revisions so ready Worker images do not enter a rebuild loop.
+  Give cold FUSE client launches the mount manager's startup budget and report
+  the failing probe stage when a Worker cannot mount Drive.
+  Refresh Drive credentials after renewed Worker admission on thaw, so a stale
+  socket cannot race the control plane's paused state.
+
+- Show knowledge pages in a content-sized reader, with images, tables, code,
+  Callouts, and live references. Empty bodies leave room for child pages and
+  related knowledge. The editor loads when an author chooses Edit; saving or
+  cancelling returns to the reading view.
+- Unify business knowledge, Agent instructions, visual standards, and shared Skills
+  in Pod's `/AnkoleBrain` tree. Knowledge pages support explicit atomic saves,
+  editable properties, long-lived version history, and permission-filtered graph
+  panels. Shared defaults and official Skill packages update when unmodified;
+  local edits and team supplements stay intact. Agent reads follow the current
+  requester and room permissions, and native approval cards let authorized owners
+  confirm proposed knowledge edits without overwriting concurrent changes.
+  Folder managers can enable fact learning directly in Pod, including existing
+  material in subfolders, and stop queued extraction when they disable it.
+  Entering or cancelling a knowledge edit preserves titles that are still saving.
+  Main conversations can create and revise knowledge pages directly, with saved
+  tool results that preserve later human edits when a call resumes.
+  Repeated entity learning preserves existing documents. Brain lookups distinguish
+  the shared namespace from matching paths in other spaces. Draft date properties
+  save without database errors, leading dividers survive Markdown round trips,
+  and execution cleanup removes temporary Skill packages.
+- Keep knowledge summaries and introductions compact while preserving full-page
+  reads and visible outlines. Brain budgets the complete recall response,
+  including evidence sources. Editing page properties preserves unchanged
+  retrieval vectors instead of making them wait for another embedding pass.
+  Brain converts tool-result enums to JSON strings so Ankole can save the
+  conversation history and the Agent can finish its reply.
+- Separate personal-assistant tasks from stable colleague DMs. Home and Chat
+  combine recent work, pending decisions, relevant comment activity, and the
+  colleague directory. New Chat preserves unfinished drafts, DM invitations
+  create a separate group with editable Page references, and DM headers identify
+  the colleague throughout the relationship. Global search also finds colleagues
+  by UID, name, or role, and inactive sidebar tabs keep their attention badges
+  visible. Pages open a private Assistant panel. Queued
+  attachments remain available for preview and download. Removing a top-level
+  private Page returns to its private directory.
+- Keep characters in order when a user types immediately after selecting a
+  colleague mention in a Page comment.
+- Let personal assistants delegate asynchronously to AI colleagues through
+  isolated peer conversations. Show compact progress cards and live details;
+  return clarification and approval requests to the originating conversation.
+  Human answers resume the colleague directly, completed exchanges clear pending
+  controls without opening their details, and stopping or deleting work stops
+  the associated exchange. Clarify ownership and Page-role guidance keep the
+  assistant from duplicating a colleague's questions or limiting document reviews
+  to read-only access.
+- Make personal-assistant and colleague work easier to follow in Pod. Each
+  delegation is one row that names the colleague, states where the work stands,
+  and shows the start of the answer when it arrives; a colleague's question names
+  who is asking. Sidebar rows tell tasks, colleague DMs, and groups apart, show
+  time and the latest message for conversations, and mark work that needs you
+  with a labelled badge. The New chat row no longer overlaps the list below it,
+  DMs no longer show an empty bar above their header, and browser tabs show the
+  colleague's name. Starting a group from a task or a DM asks for a name,
+  members, and a first message, and says what is missing before it can create
+  the group.
+- Expose incremental Page sharing to Agent tools and preserve each colleague's
+  own resource permissions. Add audience-filtered context recall across peer
+  exchanges, DMs, and Page comments, with short IM conclusions and Page-based
+  deliverables. Colleagues retain each requester's recent context even when
+  serving many other projects. Worker directory reads use the browser's compact
+  projection so unloaded Page fields cannot break RPC encoding.
+- Keep historical private conversations reachable under their own titles, and
+  give a new Human instruction its own delegation budget and a visible response
+  when it joins an assistant's running turn.
+- Open a colleague's stable DM directly from a delegation card. Delegation cards
+  distinguish queued, running, and retrying work, and stopping a queued
+  delegation cancels it before execution starts. Related-context indexes keep
+  recall references intact within their token budget when recent delegations
+  attach many Pages, so colleagues can still recall the prior exchange from a
+  follow-up DM. Combine already
+  queued colleague results for the same request into one assistant turn, while
+  keeping later results and other tasks separate.
+
 ## Version 2.0.0-alpha.46 (2026-11-02)
 
 - Keep the shared email verification form’s resend countdown in the public auth catalogs.

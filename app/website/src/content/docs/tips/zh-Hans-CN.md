@@ -80,7 +80,7 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 ## 从正确的长期文档调整 Agent
 
-调优 Agent 表现时，请对号入座修改对应的长期配置文档：职责范围或交付标准界定不清时改 `MISSION.md`；沟通语气、行事分寸或推理习惯欠佳时改 `SOUL.md`；生成的网页、演示文稿、报告或图表的视觉风格不统一时改 `DESIGN.md`。三份文档各司其职，请勿把行为准则硬塞进视觉设计规范里。
+调优 Agent 表现时，请对号入座修改对应的长期配置文档：职责范围或交付标准界定不清时改 `AGENTS.md`；沟通语气、行事分寸或推理习惯欠佳时改 `AGENTS.md`；生成的网页、演示文稿、报告或图表的视觉风格不统一时改 `DESIGN.md`。三份文档各司其职，请勿把行为准则硬塞进视觉设计规范里。
 
 ## 钉钉每个 agent 一个机器人
 

@@ -166,7 +166,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:next_job_id" => 1,
     "raw_sql:lib/ankole/brain/merge.ex:repoint_link_column" => 2,
     "raw_sql:lib/ankole/brain/merge.ex:repoint_links" => 1,
-    "raw_sql:lib/ankole/brain/merge.ex:repoint_timelines" => 4,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_timelines" => 3,
     "raw_sql:lib/ankole/brain/merge.ex:repoint_unique_rows" => 2,
     "raw_sql:lib/ankole/brain/search_indexes.ex:create_bm25_index" => 1,
     "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_bm25_index" => 2,
@@ -182,6 +182,8 @@ defmodule Ankole.TenancyGuardTest do
     "sql_fragment:lib/ankole/browser_sessions/revocation.ex:cleanup_expired" => 1,
     "sql_fragment:lib/ankole/conversations/delivery/interactions.ex:older_reply_interaction_events" =>
       1,
+    # Inspects a checkpoint JSON value; both resource queries bind the current tenant through Ash.
+    "sql_fragment:lib/ankole/conversations/native_room.ex:attention_query" => 1,
     "sql_fragment:lib/ankole/conversations/inbound_batches.ex:finalized_batch_contains_source_entry?" =>
       1,
     "sql_fragment:lib/ankole/conversations/inbound_batches.ex:observed_entry_batch" => 1,
@@ -247,8 +249,6 @@ defmodule Ankole.TenancyGuardTest do
     "scheduled_events_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "sessions_pkey" => "The durable row id is generated globally, not from a tenant-local name.",
-    "agent_library_container_entries_pkey" =>
-      "The durable row id is generated globally, not from a tenant-local name.",
     "agent_plugin_overrides_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "agent_skill_lessons_pkey" =>
@@ -299,10 +299,6 @@ defmodule Ankole.TenancyGuardTest do
     "brain_merge_suggestions_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "brain_object_aliases_pkey" =>
-      "The durable row id is generated globally, not from a tenant-local name.",
-    "brain_object_versions_pkey" =>
-      "The durable row id is generated globally, not from a tenant-local name.",
-    "brain_objects_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "brain_schema_calibration_domains_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
@@ -559,23 +555,35 @@ defmodule Ankole.TenancyGuardTest do
     for schema <- schemas do
       table = schema.__schema__(:source)
 
-      if table == "pod_page_nodes" do
+      if table in ["pod_page_nodes", "brain_page_nodes"] do
         assert schema.__tenancy__() == :tenant
         assert schema.__schema__(:type, :tenant_id) == Ankole.Ecto.UUIDv7
 
-        assert [["drive_nodes"], ["pages"]] =
-                 SQL.query!(Repo, """
-                 SELECT DISTINCT source.relname FROM pg_rewrite rule
-                 JOIN pg_depend dependency ON dependency.objid = rule.oid
-                   AND dependency.classid = 'pg_rewrite'::regclass
-                   AND dependency.refclassid = 'pg_class'::regclass
-                 JOIN pg_class source ON source.oid = dependency.refobjid
-                 WHERE rule.ev_class = 'pod_page_nodes'::regclass AND source.relkind = 'r'
-                 ORDER BY source.relname
-                 """).rows
+        expected_sources =
+          if table == "brain_page_nodes",
+            do: [["drive_nodes"], ["page_contents"], ["pages"]],
+            else: [["drive_nodes"], ["pages"]]
 
-        [[definition]] = SQL.query!(Repo, "SELECT pg_get_viewdef('pod_page_nodes', true)").rows
+        assert expected_sources ==
+                 SQL.query!(
+                   Repo,
+                   """
+                   SELECT DISTINCT source.relname FROM pg_rewrite rule
+                   JOIN pg_depend dependency ON dependency.objid = rule.oid
+                     AND dependency.classid = 'pg_rewrite'::regclass
+                     AND dependency.refclassid = 'pg_class'::regclass
+                   JOIN pg_class source ON source.oid = dependency.refobjid
+                   WHERE rule.ev_class = $1::text::regclass AND source.relkind = 'r'
+                   ORDER BY source.relname
+                   """,
+                   [table]
+                 ).rows
+
+        [[definition]] =
+          SQL.query!(Repo, "SELECT pg_get_viewdef($1::text::regclass, true)", [table]).rows
+
         assert definition =~ "p.tenant_id = n.tenant_id"
+        if table == "brain_page_nodes", do: assert(definition =~ "c.tenant_id = n.tenant_id")
       else
         [row] = Enum.filter(rows, &(hd(&1) == table))
 

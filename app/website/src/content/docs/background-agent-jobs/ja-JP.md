@@ -69,9 +69,9 @@ AIGateway のクォータ上限に達し、かつ次回の回復予定時刻が�
 
 各 Job は任意の workspace テンプレートを 1 つ保持できます。初回の実行受け入れ（execution admission）時に、使用する provider・モデルの binding と、Agent Plugin および Skill の選択セットが同一トランザクションで記録・固定されます。以降のリトライや再開では、「その初回固定セット」と「現時点で Agent に有効なセット」の積集合（共通部分）が適用されます。つまり、途中で無効化された capability は使えなくなり、再度有効化すれば復活しますが、初回 admission 時に含まれていなかった capability が後から追加されることはありません。なお、認証情報と更新可能な Skill 本体については、実行時点での最新の管理元から読み取られます。`Sessions.CodexJob` はその kernel Signal から Job の試行を受け入れ、steer イベントを通常のセッション配信とは区別して処理するため、会話セッションへの通常のメッセージ配信が誤って Job への steer として扱われることはありません。すべてのモデル Turn は記録済みの binding を使って AIGateway を経由し、provider が複数の認証情報を持つ場合の選択・アフィニティ・トークン更新・リトライはすべて AIGateway が管理します。
 
-Skill の読み込みには、メイン Agent と共通の Ankole `skill_view` ローダーが使われます。互換性のある通常の Skill は Job の Skill インデックスに登録されますが、`brain-recall-only: true` が指定された Skill はインデックスには入らず、Brain 経由で検索・発見されます（対応する発見レコードに対して `get_page` を呼ぶと `skill_view` へ委譲されます）。ローダーは `SKILL.md` や参照ファイルを開くたびに control plane へ現在の Agent Plugin・Skill の実効状態を問い合わせるため、実行中の Job であっても無効化された Skill を読み続けることはできません。
+Background Agent Job はメイン Agent と同じ `skill_view` ローダーを使います。有効な Skill のカタログと各ページの読み込みには、その会話の Drive 権限を適用します。各 Turn の開始前に、Worker は閲覧可能な現在の Skill パッケージをスクリプトや MCP 宣言とともに配置します。`skill_view` は読み込むたびに有効状態を確認します。
 
-Job が初めて workspace を初期化する際、ランナーはプロジェクトの `AGENTS.md` を組み立てます。先頭に任意の workspace テンプレートが配置され、続けてレンダリングされた Job コンテキスト（Agent の SOUL と MISSION、および実行メタデータ）が追記されます。また、Codex プロジェクト設定ではネイティブ subagent の最小待機時間を 1 分、既定待機時間を 2 分に設定します（最大待機時間は指定せず Codex の既定値を維持します）。これにより、[openai/codex#35259](https://github.com/openai/codex/issues/35259) で追跡されている「空の待機後にモデル Turn が繰り返される現象」を抑えています。再開されたスレッドでは、そのプロジェクトの `AGENTS.md` がそのまま再利用されます。
+Worker は Turn の開始時と再開時に、Agent の契約全文を `$CODEX_HOME/AGENTS.md` と `~/AGENTS.md` に、視覚仕様を `~/DESIGN.md` に反映します。プロジェクト内の指示はワークスペーステンプレートやリポジトリが管理します。Job の実行情報と Skill 一覧は developer instructions で渡します。Codex の子 Agent の待機時間は最短 1 分、既定 10 分です。
 
 ## 運用者向けの表面
 

@@ -38,9 +38,10 @@ defmodule Ankole.Files.Schemas.Node do
 
     attribute(:kind, :atom,
       allow_nil?: false,
-      constraints: [one_of: [:folder, :file, :doc, :base, :applet]]
+      constraints: [one_of: [:folder, :file, :doc, :knowledge, :base, :applet]]
     )
 
+    attribute(:system_key, :string)
     attribute(:private_owner_uid, Ankole.Ash.Types.PrincipalKey)
     attribute(:conversation_id, Ankole.Ash.Types.UUIDv7)
     attribute(:inherit_permissions, :boolean, allow_nil?: false, default: true)
@@ -49,6 +50,8 @@ defmodule Ankole.Files.Schemas.Node do
     attribute(:acl_anchor_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
     attribute(:parent_anchor_id, Ankole.Ash.Types.UUIDv7)
     attribute(:object_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:last_vfs_req_id, :uuid)
+    attribute(:last_vfs_etag, :string)
 
     attribute(:mode, :integer,
       allow_nil?: false,
@@ -82,6 +85,7 @@ defmodule Ankole.Files.Schemas.Node do
         :parent_id,
         :name,
         :kind,
+        :system_key,
         :private_owner_uid,
         :conversation_id,
         :inherit_permissions,
@@ -89,6 +93,8 @@ defmodule Ankole.Files.Schemas.Node do
         :acl_anchor_id,
         :parent_anchor_id,
         :object_id,
+        :last_vfs_req_id,
+        :last_vfs_etag,
         :mode,
         :content_type,
         :source,
@@ -114,6 +120,8 @@ defmodule Ankole.Files.Schemas.Node do
         :acl_anchor_id,
         :parent_anchor_id,
         :object_id,
+        :last_vfs_req_id,
+        :last_vfs_etag,
         :mode,
         :content_type,
         :source,
@@ -123,6 +131,12 @@ defmodule Ankole.Files.Schemas.Node do
         :purge_started_at,
         :updated_at
       ])
+    end
+
+    update :claim_system do
+      transaction?(false)
+      require_atomic?(false)
+      accept([:system_key])
     end
 
     destroy :remove do

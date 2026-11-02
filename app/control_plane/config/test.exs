@@ -52,6 +52,7 @@ config :phoenix,
 config :ankole, Oban, testing: :manual, plugins: false, queues: false
 
 config :ankole, :identity_provider_startup_sync, enabled: false
+config :ankole, :library_startup_sync, false
 config :ankole, :identity_provider_realtime_reconcile, on_save: false
 
 # Startup reconciliation remains active. Periodic plugin processes must not
@@ -69,11 +70,3 @@ config :ankole, Ankole.Plugins.LarkAdapter.Config,
 config :ankole, :test_worker_routes, true
 config :swoosh, :local, true
 config :ankole, :dev_routes, true
-
-# The limiter test uses a real interval. Other tests do not need wall-clock waits.
-
-# Small channel budgets keep flow-control and acknowledgement tests fast.
-config :ankole, AnkoleWeb.WorkerChannel,
-  command_ack_timeout_ms: 300,
-  pending_command_limit: 2,
-  inflight: [durable: {2, 64 * 1024 * 1024}]

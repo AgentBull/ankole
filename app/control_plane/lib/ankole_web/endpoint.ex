@@ -78,6 +78,7 @@ defmodule AnkoleWeb.Endpoint do
   plug :webhook_callback_body
   plug :applet_route_body
   plug :drive_upload_body
+  plug :drive_vfs
 
   plug Plug.Parsers,
     parsers: [
@@ -107,6 +108,9 @@ defmodule AnkoleWeb.Endpoint do
 
   defp worker_file_relay(conn, opts),
     do: AnkoleWeb.WorkerFileRelay.call(conn, AnkoleWeb.WorkerFileRelay.init(opts))
+
+  defp drive_vfs(conn, opts),
+    do: AnkoleWeb.Plugs.VfsWebdav.call(conn, AnkoleWeb.Plugs.VfsWebdav.init(opts))
 
   defp request_host(conn, opts),
     do: AnkoleWeb.Plugs.RequestHost.call(conn, AnkoleWeb.Plugs.RequestHost.init(opts))

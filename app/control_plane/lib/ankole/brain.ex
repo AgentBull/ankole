@@ -14,17 +14,14 @@ defmodule Ankole.Brain do
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Contradiction
   alias Ankole.Brain.Schemas.MergeSuggestion
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.ObjectVersion
+  alias Ankole.Brain.Schemas.Page
   alias Ankole.Brain.Schemas.SchemaSuggestion
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Repo
 
-  defdelegate principal_page_slug(type, uid), to: Ankole.Brain.Scope
+  defdelegate external_audience(conversation), to: Ankole.Brain.RequestContext
 
-  defdelegate rename_principal_references_in_tx(old_uid, new_uid, principal_type),
-    to: Ankole.Brain.PrincipalReferences,
-    as: :rename_in_tx
+  defdelegate principal_page_slug(type, uid), to: Ankole.Brain.Scope
 
   # The Console API (`AnkoleWeb.JSONAPI.ConsoleRouter`). An Object slug can
   # contain `/`, so an Object operation takes the slug in the query or in the
@@ -61,18 +58,8 @@ defmodule Ankole.Brain do
         )
       end
 
-      base_route "/brain/objects", Object do
+      base_route "/brain/objects", Page do
         index(:console_list, name: "list_brain_objects", derive_sort?: false)
-        route(:post, "/", :console_create, name: "create_brain_object")
-        route(:patch, "/", :console_update, name: "update_brain_object")
-        route(:post, "/fork", :fork_library_page, name: "fork_brain_object")
-        route(:post, "/rollback", :console_rollback, name: "rollback_brain_object")
-        route(:post, "/forget", :console_forget, name: "forget_brain_object")
-        route(:post, "/restore", :restore_object, name: "restore_brain_object")
-      end
-
-      base_route "/brain/object-versions", ObjectVersion do
-        index(:console_list, name: "list_brain_object_versions", derive_sort?: false)
       end
 
       base_route "/brain/claims", Claim do
@@ -121,9 +108,8 @@ defmodule Ankole.Brain do
 
   resources do
     resource(Ankole.Brain.ConsoleViews)
-    resource(Ankole.Brain.Schemas.Object)
+    resource(Ankole.Brain.Schemas.Page)
     resource(Ankole.Brain.Schemas.Chunk)
-    resource(Ankole.Brain.Schemas.ObjectVersion)
     resource(Ankole.Brain.Schemas.Claim)
     resource(Ankole.Brain.Schemas.Source)
     resource(Ankole.Brain.Schemas.Timeline)
@@ -158,18 +144,6 @@ defmodule Ankole.Brain do
       Objects.soft_delete_in_tx(slug, reason: opts[:reason], by: opts[:by])
     end)
   end
-
-  def rollback_object(slug, version_id, writer, opts \\ %{}) do
-    Repo.transact_top_level(fn ->
-      Objects.rollback_in_tx(slug, version_id, writer, author: opts[:author])
-    end)
-  end
-
-  def fork_library_page(slug),
-    do: Repo.transact_top_level(fn -> Objects.fork_library_page_in_tx(slug) end)
-
-  def restore_object(slug),
-    do: Repo.transact_top_level(fn -> Objects.restore_in_tx(slug) end)
 
   def reconcile_chunks(object, opts \\ %{}),
     do:

@@ -380,6 +380,7 @@ defmodule Ankole.Conversations.Route do
       route =
         owner.reply_route ||
           %{
+            "binding_id" => source.binding_id,
             "binding_name" => source.binding_name,
             "conversation_id" => source.conversation_id,
             "provider_thread_id" => source.provider_thread_id,

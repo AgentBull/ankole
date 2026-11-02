@@ -6,17 +6,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Ankole.Brain.Claims
-  alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.SchemaPacks
-  alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.ObjectVersion
-  alias Ankole.Brain.Schemas.Source
-  alias Ankole.Brain.Schemas.SchemaCalibrationDomain
-  alias Ankole.Brain.Schemas.SchemaLinkType
-  alias Ankole.Brain.Schemas.SchemaPack
-  alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.RuntimeFabric.V1, as: FabricProto
@@ -324,106 +315,53 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     end
   end
 
-  describe "Library ownership during concurrent operator actions" do
+  describe "concurrent knowledge revisions" do
     setup do
-      suffix = System.unique_integer([:positive])
-      name = "concurrent-library-#{suffix}"
-      slug = "lazyload-agent-skills/#{name}"
-      set = library_skill_set(name, "Original shipped body.")
+      {:ok, page} =
+        Ankole.Brain.create_object(
+          %{
+            slug: "notes/revision-race-#{System.unique_integer([:positive])}",
+            title: "Concurrent revision",
+            body: "Original body."
+          },
+          :system
+        )
 
-      schema_rows =
-        Sandbox.unboxed_run(Repo, fn ->
-          for schema <- [SchemaType, SchemaLinkType, SchemaCalibrationDomain, SchemaPack] do
-            {schema, Repo.all(schema)}
-          end
-        end)
+      %{page: page}
+    end
 
-      on_exit_in_tenant(fn ->
-        Sandbox.unboxed_run(Repo, fn ->
-          Repo.delete_all(from(object in Object, where: object.slug == ^slug))
-          Repo.delete_all(from(source in Source, where: source.upstream_id == ^set.set_id))
-
-          for {schema, rows} <- schema_rows do
-            original_ids = Enum.map(rows, & &1.id)
-            Repo.delete_all(from(row in schema, where: row.id not in ^original_ids))
-
-            fields = schema.__schema__(:fields)
-            restored = Enum.map(rows, &Map.take(&1, fields))
-
-            Repo.insert_all(schema, restored,
-              on_conflict: {:replace_all_except, [:id]},
-              conflict_target: [:id]
+    @tag brain_unification: true
+    test "a waiting content write sees the committed revision conflict", %{page: page} do
+      first =
+        pause_after_query(
+          fn ->
+            Ankole.Brain.update_object(
+              page.id,
+              %{body: "First writer body.", base_revision: page.revision},
+              :system
             )
-          end
-        end)
-      end)
-
-      source =
-        Sandbox.unboxed_run(Repo, fn ->
-          assert {:ok, _packs} = SchemaPacks.install_packs([])
-          assert {:ok, _report} = LibraryKnowledge.sync(sets: [set])
-          Repo.get_by!(Source, kind: "library", upstream_id: set.set_id)
-        end)
-
-      %{name: name, set: set, source: source, slug: slug}
-    end
-
-    test "a sync that read the Source before archive cannot restore its pages", ctx do
-      set = library_skill_set(ctx.name, "New shipped body.")
-
-      sync =
-        pause_after_query(
-          fn -> LibraryKnowledge.sync(sets: [set]) end,
+          end,
           fn metadata ->
-            metadata.source == "brain_sources" and
-              String.starts_with?(metadata.query, "SELECT") and
-              not String.contains?(metadata.query, "FOR UPDATE")
+            metadata.source == "page_contents" and String.starts_with?(metadata.query, "UPDATE")
           end
         )
 
-      archived = Sandbox.unboxed_run(Repo, fn -> Ankole.Brain.archive_source(ctx.source.id) end)
-      assert {:ok, %Source{archived_at: %DateTime{}}} = archived
-      send(sync.task.pid, :continue_query)
+      second =
+        start_unboxed(fn ->
+          Ankole.Brain.update_object(
+            page.id,
+            %{body: "Second writer body.", base_revision: page.revision},
+            :system
+          )
+        end)
 
-      assert {:ok, %{reports: [%{status: :archived}]}} = finish(sync)
-      object = Repo.get_by!(Object, slug: ctx.slug)
-      assert object.deleted_at != nil
-      assert object.body =~ "Original shipped body."
-      refute object.body =~ "New shipped body."
-      assert Repo.get!(Source, ctx.source.id).upstream_revision == ctx.source.upstream_revision
-    end
-
-    test "archive waits for an in-flight projection and withdraws the committed page", ctx do
-      set = library_skill_set(ctx.name, "New shipped body.")
-
-      # The projection action pauses after its page write, in its own
-      # transaction, while it holds the Source and Object locks.
-      sync =
-        pause_after_query(
-          fn -> LibraryKnowledge.sync(sets: [set]) end,
-          fn metadata ->
-            metadata.source == "brain_objects" and String.starts_with?(metadata.query, "UPDATE")
-          end
-        )
-
-      archive = start_unboxed(fn -> Ankole.Brain.archive_source(ctx.source.id) end)
-      assert_blocked_by(archive, sync)
-      send(sync.task.pid, :continue_query)
-
-      # The page commits first. The archive waits in the Source lock queue
-      # before the revision step of the sync, so the sync reports the archive.
-      assert {:ok, %Source{archived_at: %DateTime{}}} = finish(archive)
-      assert {:ok, %{reports: [%{status: :archived}]}} = finish(sync)
-
-      object = Repo.get_by!(Object, slug: ctx.slug)
-      assert object.deleted_at != nil
-      assert object.body =~ "New shipped body."
-      assert Enum.any?(chunk_texts(object), &String.contains?(&1, "New shipped body."))
-
-      assert Repo.aggregate(
-               from(version in ObjectVersion, where: version.object_id == ^object.id),
-               :count
-             ) == 0
+      assert_blocked_by(second, first)
+      send(first.task.pid, :continue_query)
+      assert {:ok, changed} = finish(first)
+      assert {:error, {:revision_conflict, revision}} = finish(second)
+      assert revision == changed.revision
+      assert {:ok, current} = Ankole.Brain.Objects.get_by_slug(page.id)
+      assert current.body == "First writer body."
     end
   end
 
@@ -432,24 +370,25 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       {:ok, _packs} = SchemaPacks.install_packs([])
       slug = "companies/race-#{System.unique_integer([:positive])}"
 
-      {:ok, _object} =
+      {:ok, object} =
         Ankole.Brain.create_object(%{slug: slug, type: "company", title: "Race"}, :system)
 
       {:ok, vector} = Ash.Vector.new([1.0 | List.duplicate(0.0, 4095)])
       embedding = {vector, "race-model"}
-      attrs = &race_fact_attrs(slug, &1)
+      attrs = &race_fact_attrs(object.id, &1)
 
       {:ok, %{claim: original, status: :inserted}} =
         Ankole.Brain.write_fact(attrs.("Acme opened its Singapore office"), :system, %{
           options: [embedding: embedding]
         })
 
-      %{slug: slug, embedding: embedding, attrs: attrs, original: original}
+      %{page_id: object.id, embedding: embedding, attrs: attrs, original: original}
     end
 
     # A learning slice writes its items in one transaction and keeps the
     # transaction after a rejected item. The second write reads the original
     # Fact as current, then waits for the row that the first write supersedes.
+    @tag brain_unification: true
     test "a waiting Fact write supersedes the committed replacement, not the replaced row",
          ctx do
       first =
@@ -496,7 +435,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         Repo.all(
           from(claim in Claim,
             where:
-              claim.object_slug == ^ctx.slug and is_nil(claim.expired_at) and
+              claim.subject_page_id == ^ctx.page_id and is_nil(claim.expired_at) and
                 is_nil(claim.superseded_by),
             select: claim.id
           )
@@ -951,39 +890,13 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     assert response.status == "succeeded"
   end
 
-  defp library_skill_set(name, description) do
+  defp race_fact_attrs(page_id, text) do
     %{
-      kind: :lazy_skills,
-      set_id: name,
-      name: "Library Skill inventory",
-      skills: [
-        %{
-          name: name,
-          description: description,
-          source_hash: description,
-          metadata: %{"tags" => []}
-        }
-      ]
-    }
-  end
-
-  defp chunk_texts(object) do
-    Repo.all(
-      from(chunk in Chunk,
-        where: chunk.object_id == ^object.id,
-        order_by: chunk.chunk_index,
-        select: chunk.chunk_text
-      )
-    )
-  end
-
-  defp race_fact_attrs(slug, text) do
-    %{
-      object_slug: slug,
+      subject_page_id: page_id,
       claim: text,
       kind: "event",
       holder: "world",
-      audience_scope: "world",
+      source_node_id: page_id,
       notability: "medium",
       confidence: 0.75,
       valid_from: DateTime.utc_now(:microsecond),

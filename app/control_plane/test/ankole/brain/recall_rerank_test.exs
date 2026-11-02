@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.RecallRerankTest do
   use Ankole.AIGatewayCase
+  import Ankole.BrainFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.Brain.Recall
@@ -43,7 +44,7 @@ defmodule Ankole.Brain.RecallRerankTest do
              })
 
     assert {:ok, _} =
-             Ankole.Brain.create_object(
+             page_fixture_result(
                %{
                  slug: "notes/rerank-report",
                  type: "note",
@@ -54,7 +55,7 @@ defmodule Ankole.Brain.RecallRerankTest do
              )
 
     assert {:ok, _} =
-             Ankole.Brain.create_object(
+             page_fixture_result(
                %{
                  slug: "notes/rerank-old-report",
                  type: "note",
@@ -66,12 +67,12 @@ defmodule Ankole.Brain.RecallRerankTest do
              )
 
     assert {:ok, result} = Recall.recall(agent.uid, %{query: "Quasar"})
-    slugs = Enum.map(result.chunks, & &1.object_slug)
-    assert "notes/rerank-report" in slugs
-    assert "notes/rerank-old-report" in slugs
+    slugs = Enum.map(result.chunks, & &1.subject_page_id)
+    assert page_id("notes/rerank-report") in slugs
+    assert page_id("notes/rerank-old-report") in slugs
 
-    assert Enum.find_index(slugs, &(&1 == "notes/rerank-report")) <
-             Enum.find_index(slugs, &(&1 == "notes/rerank-old-report"))
+    assert Enum.find_index(slugs, &(&1 == page_id("notes/rerank-report"))) <
+             Enum.find_index(slugs, &(&1 == page_id("notes/rerank-old-report")))
 
     assert_receive {:rerank_request, %{path: "rerank", body: body}}
     assert body["return_documents"] == false
@@ -121,7 +122,7 @@ defmodule Ankole.Brain.RecallRerankTest do
       end)
 
     assert {:ok, _} =
-             Ankole.Brain.create_object(
+             page_fixture_result(
                %{
                  slug: "notes/long-zirconium",
                  type: "note",
@@ -132,7 +133,7 @@ defmodule Ankole.Brain.RecallRerankTest do
              )
 
     assert {:ok, _} =
-             Ankole.Brain.create_object(
+             page_fixture_result(
                %{
                  slug: "companies/zirconium-labs",
                  type: "company",

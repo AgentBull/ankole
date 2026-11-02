@@ -122,28 +122,31 @@ defmodule Ankole.Pod.Bases do
   end
 
   def list_tables(%Ankole.AuthZ.Actor{} = actor, page_id) do
-    Repo.transact_top_level(fn ->
-      with {:ok, %{type: :base}} <- Pages.authorize(actor, page_id, "node_view") do
-        tables =
-          BaseTable
-          |> Ash.Query.filter(page_id == ^page_id and is_nil(deleting_at))
-          |> Ash.Query.sort(id: :asc)
-          |> Ash.Query.lock("FOR KEY SHARE")
-          |> Ankole.Ash.read!()
+    Repo.transact_top_level(fn -> list_tables_in_tx(actor, page_id) end)
+  end
 
-        result =
-          if Enum.any?(tables, &(&1.storage_mode == :physical)) do
-            BaseRepo.run(BaseRepo.shard!(), fn -> Physical.refresh(tables) end, read_only: true)
-          else
-            {:ok, tables}
-          end
+  @doc false
+  def list_tables_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id) do
+    with {:ok, %{type: :base}} <- Pages.authorize(actor, page_id, "node_view") do
+      tables =
+        BaseTable
+        |> Ash.Query.filter(page_id == ^page_id and is_nil(deleting_at))
+        |> Ash.Query.sort(id: :asc)
+        |> Ash.Query.lock("FOR KEY SHARE")
+        |> Ankole.Ash.read!()
 
-        with {:ok, tables} <- result, do: {:ok, %{tables: Enum.sort_by(tables, & &1.position)}}
-      else
-        {:ok, _} -> {:error, :invalid_page_type}
-        error -> error
-      end
-    end)
+      result =
+        if Enum.any?(tables, &(&1.storage_mode == :physical)) do
+          BaseRepo.run(BaseRepo.shard!(), fn -> Physical.refresh(tables) end, read_only: true)
+        else
+          {:ok, tables}
+        end
+
+      with {:ok, tables} <- result, do: {:ok, %{tables: Enum.sort_by(tables, & &1.position)}}
+    else
+      {:ok, _} -> {:error, :invalid_page_type}
+      error -> error
+    end
   end
 
   def create_table(%Ankole.AuthZ.Actor{} = actor, page_id, attrs, authority \\ nil) do
@@ -232,6 +235,13 @@ defmodule Ankole.Pod.Bases do
     end)
   end
 
+  @doc "Reads a VFS projection within one table snapshot, including physical shard batches."
+  def vfs_read_in_tx(actor, id, fun) do
+    query_transaction(actor, id, fn table, _limits, definitions, context ->
+      fun.(table, definitions, context.views)
+    end)
+  end
+
   defp query_capabilities, do: __MODULE__.Capabilities.query_capabilities()
 
   defp local_snapshot?(table, fields),
@@ -299,10 +309,11 @@ defmodule Ankole.Pod.Bases do
   end
 
   @doc false
-  def write_records_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+  def write_records_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs, opts \\ []) do
     with {:ok, write} <- Write.open(actor, id),
          {:ok, attrs} <- Records.prepare(write, attrs),
-         {:ok, result} <- write_batch(write, attrs),
+         {:ok, result} <-
+           write_batch(write, Map.put(attrs, :vfs_replay, Keyword.get(opts, :vfs_replay, false))),
          do: {:ok, %{table_id: write.table.id, result: result}}
   end
 
@@ -471,13 +482,18 @@ defmodule Ankole.Pod.Bases do
     Enum.each(changes, &notify(&1.id, "schema_changed", %{data_version: &1.data_version}))
   end
 
-  defp notify(id, event, payload),
-    do:
-      Phoenix.PubSub.broadcast(
-        Ankole.PubSub,
-        "pod-room:table:" <> id,
-        {:room_event, event, payload}
-      )
+  defp notify(id, event, payload) do
+    Phoenix.PubSub.broadcast(
+      Ankole.PubSub,
+      "pod-room:table:" <> id,
+      {:room_event, event, payload}
+    )
+
+    case fetch_table(id) do
+      {:ok, table} -> Ankole.Files.Nodes.content_committed(%{id: table.page_id})
+      {:error, :not_found} -> :ok
+    end
+  end
 end
 
 defmodule Ankole.Pod.Bases.Capabilities do

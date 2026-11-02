@@ -39,7 +39,7 @@ test('Page metadata stays shared across live navigation, breadcrumbs and a cache
     await list.getByRole('link', { name: initialTitle, exact: true }).click()
     await reader.locator('.pod-navigation').getByRole('button', { name: initialTitle, exact: true }).click()
     await reader.locator('.pod-navigation').getByRole('link', { name: 'Metadata child', exact: true }).first().click()
-    await expect(reader).toHaveURL(state.base_url + pageRoute(child.id))
+    await expect(reader).toHaveURL(state.base_url + pageRoute(child.id, undefined, 'Metadata child'))
     const breadcrumb = reader.locator('.pod-page-breadcrumbs').getByRole('link', { name: initialTitle, exact: true })
     await expect(breadcrumb).toBeVisible()
     const mention = reader.locator(`[data-mention-page="${parent.id}"] a.pod-mention-page`)
@@ -70,8 +70,9 @@ test('Page metadata stays shared across live navigation, breadcrumbs and a cache
       .filter({ has: reader.getByRole('link', { name: '收藏', exact: true }) })
     await expect(favorite.getByRole('link', { name: renamedTitle, exact: true })).toBeVisible()
 
+    const renamedParentRoute = pageRoute(parent.id, undefined, renamedTitle)
     await request(writer, `/pages/${parent.id}`, 'PATCH', { icon: '🚀' })
-    await expect(favorite.locator(`a[href="${pageRoute(parent.id)}"] .pod-page-icon`)).toHaveText('🚀')
+    await expect(favorite.locator(`a[href="${renamedParentRoute}"] .pod-page-icon`)).toHaveText('🚀')
     await expect(mention.locator('.pod-page-icon')).toHaveText('🚀')
     expect(mentionReads).toEqual([])
     await reader
@@ -79,10 +80,10 @@ test('Page metadata stays shared across live navigation, breadcrumbs and a cache
       .first()
       .click()
     await expect(list.getByRole('link', { name: renamedTitle, exact: true })).toBeVisible()
-    await expect(list.locator(`a[href="${pageRoute(parent.id)}"] .pod-page-icon`)).toHaveText('🚀')
+    await expect(list.locator(`a[href="${renamedParentRoute}"] .pod-page-icon`)).toHaveText('🚀')
     expect(listReads).toEqual([])
     await request(writer, `/pages/${parent.id}`, 'PATCH', { icon: null })
-    await expect(list.locator(`a[href="${pageRoute(parent.id)}"] .pod-page-icon`)).not.toHaveText('🚀')
+    await expect(list.locator(`a[href="${renamedParentRoute}"] .pod-page-icon`)).not.toHaveText('🚀')
     expect(errors).toEqual([])
   } finally {
     for (const id of created.reverse()) await request(writer, `/pages/${id}`, 'DELETE')

@@ -380,7 +380,8 @@ defmodule Ankole.Sessions.ReceiptsTest do
     assert {:error, {:reply_attachment_not_in_drive, "q3.txt"}} =
              Ankole.Conversations.Delivery.Attachment.verify_in_drive(run.agent_uid, [attachment])
 
-    assert {:error, %Ankole.Sessions.ToolResult{failure_kind: "invalid_arguments"}} =
+    # The Worker resolves local symlinks into the current execution's Drive.
+    assert {:ok, _, %{"path" => "/workspace/answer.txt"}} =
              Tools.prepare(run, Map.put(call, "arguments", ~s({"path":"/workspace/answer.txt"})))
 
     assert {:error, %Ankole.Sessions.ToolResult{failure_kind: "invalid_arguments"}} =
@@ -392,6 +393,101 @@ defmodule Ankole.Sessions.ReceiptsTest do
                  Ankole.JSON.encode!(%{"node_id" => original.id, "mimeType" => ""})
                )
              )
+  end
+
+  test "Pod create and save tools persist pages once and preserve subsequent edits on replay", %{
+    run: run
+  } do
+    alias Ankole.Pod.{Knowledge, Pages}
+
+    human = human_fixture().principal
+    actor = actor_fixture(human)
+
+    {:ok, folder} =
+      Pages.create(actor, %{
+        type: :folder,
+        title: "Pilot proposals",
+        private_owner_uid: human.uid
+      })
+
+    assert {:ok, _} =
+             Ankole.Pod.PagesFixtures.set_sharing(human.uid, folder.id, %{
+               grants: [%{principal_uid: run.agent_uid, role: "edit"}]
+             })
+
+    run =
+      struct!(
+        Run,
+        Map.merge(run, %{
+          event: Repo.get!(Ankole.Signals.Signal, run.signal_id),
+          model_response: %{id: "pod-proposal"},
+          tools: Enum.map(Tools.Pod.declarations(), &Ankole.Sessions.Tool.new(&1, Tools.Pod))
+        })
+      )
+
+    create = %{
+      "type" => "function_call",
+      "name" => "pod_create_page",
+      "call_id" => "create-proposal",
+      "arguments" =>
+        Ankole.JSON.encode!(%{
+          "parent_id" => folder.id,
+          "title" => "Customer pilot",
+          "markdown" => "---\nsummary: Pilot review\n---\n\nBudget: 187 CNY.\n"
+        })
+    }
+
+    assert {:ok, create_tool, create_args} = Tools.prepare(run, create)
+    created = Tools.execute(run, create, create_tool, create_args)
+    refute created.is_error, created.output
+    id = created.details["id"]
+    assert {:ok, %{page: page, content: content}} = Pages.get(actor, id)
+    assert page.metadata == %{"summary" => "Pilot review"}
+    assert content.plain_text =~ "187 CNY"
+    assert Tools.execute(run, create, create_tool, create_args) == created
+
+    assert Repo.aggregate(from(p in Ankole.Pod.Page, where: p.parent_id == ^folder.id), :count) ==
+             1
+
+    save = %{
+      "type" => "function_call",
+      "name" => "pod_save_page",
+      "call_id" => "update-proposal",
+      "arguments" =>
+        Ankole.JSON.encode!(%{
+          "id" => id,
+          "base_revision" => page.revision,
+          "markdown" => "---\nsummary: Revised pilot\n---\n\nBudget: 263 CNY.\n"
+        })
+    }
+
+    assert {:ok, save_tool, save_args} = Tools.prepare(run, save)
+    saved = Tools.execute(run, save, save_tool, save_args)
+    refute saved.is_error, saved.output
+    assert saved.details["revision"] == page.revision + 1
+    assert {:ok, %{page: updated, content: content}} = Pages.get(actor, id)
+    assert updated.metadata == %{"summary" => "Revised pilot"}
+    assert content.plain_text =~ "263 CNY"
+
+    assert {:ok, _} =
+             Knowledge.write(
+               actor,
+               id,
+               updated.revision,
+               "<page><p>Human correction</p></page>",
+               %{}
+             )
+
+    assert Tools.execute(run, save, save_tool, save_args) == saved
+    assert {:ok, %{content: content}} = Pages.get(actor, id)
+    assert content.plain_text == "Human correction"
+
+    stale_call = %{save | "call_id" => "stale-update"}
+    stale = Tools.execute(run, stale_call, save_tool, save_args)
+    assert stale.is_error
+    assert {:error, :receipt_not_found} = Receipts.fetch("resp_pod-proposal", "stale-update")
+    assert {:ok, %{content: content}} = Pages.get(actor, id)
+    assert content.plain_text == "Human correction"
   end
 
   defp prepare_operation(operation) do

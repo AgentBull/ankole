@@ -17,7 +17,7 @@ const skill = create(RuntimeSkillSummarySchema, {
   skillName: 'voice-drafting-method',
   sourceKind: 'builtin',
   relativePath: 'voice-drafting-method',
-  metadataJson: jsonBytes({ 'ankole-runtime': 'background_job', brain_recall_only: true })
+  metadataJson: jsonBytes({ 'ankole-runtime': 'background_job' })
 })
 const unusedRPC = (async () => {
   throw new Error('unexpected RPC')

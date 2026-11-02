@@ -40,6 +40,7 @@ describe('local Worker image identity', () => {
       .split('\n')
       .filter(line => line.startsWith('COPY ') && !line.includes('--from='))
       .flatMap(line => line.split(/\s+/).slice(1, -1))
+      .filter(source => !source.startsWith('--'))
     const roots = workerInputRoots('complete')
 
     expect(sources.length).toBeGreaterThan(0)

@@ -50,24 +50,11 @@ platforms: [linux]
 
 Agent は `description` の文面を見てその Skill を開くかどうかを判断するため、「どのような依頼や状況のときに使うべきか」という具体的なトリガー条件を記述してください。専用ワークスペースでの分離実行が必要な作業には `ankole-runtime: background_job` を指定し、Linux 固有のコマンドやツールに依存する場合にのみ `platforms: [linux]` を指定します。
 
-### 同梱 Skill を Brain から発見できるようにする
+### 共有知識と参照用の章
 
-すべてのプロンプトのカタログに常時載せる必要はないものの、進行中の作業と意味的に関連したタイミングで呼び出せるようにしたい SOP や専門メソドロジーには、`brain-recall-only` を設定します。
+Ankole は公式 Skill を `/AnkoleBrain/skills/<name>` に同期します。知識ページでは標準 frontmatter をメタデータ、本文を Page XML として保存し、スクリプトとテンプレートはファイル子ノードにします。Agent Plugin 内の Skill も含め、名前は全体で一意にしてください。
 
-```yaml
----
-name: idea-lineage
-description: Trace how one idea evolved through memory — first mention, best articulation, reversals, and the current live version, each cited from stored evidence.
-tags:
-  - idea lineage
-  - how my thinking evolved
-brain-recall-only: true
----
-```
-
-このフィールドを利用できるのは、システム同梱の単体 Skill および Agent Plugin 内の同梱 Skill のみです（Agent が後から個別インストールした Skill ではこの発見モードは使えません）。同梱 Skill の `name` はグローバルに一意である必要があり、Agent Plugin に含まれていても名前空間プレフィックスは付与されません。Brain は標準の Skill メタデータから `lazyload-agent-skills/<name>` の発見用レコードを自動生成します。
-
-なお、Skill のフロントマターに `slug`、`type`、`title`、`aliases` といった Brain オブジェクト用のフィールドを追加しないでください。Brain は `name`、`description`、`tags` を対象に検索を行い、名前とタグを使って自然言語からの照合を行います。`SKILL.md` の本文や同梱ファイル、Agent 固有の Skill 教訓が Brain インデックスへ直接取り込まれることはなく、発見後も必ず `skill_view` ツール経由で読み取られます。
+チーム独自の指示は知識子ページとして追加できます。長い参照資料には `metadata.role = "reference"` を指定し、Skill 本文から相対パスでリンクします。`skill_view` は現在の会話で読める指示子ページを追加し、参照用の章は子パスから個別に読み込みます。
 
 ### 本文を書く
 
@@ -101,7 +88,7 @@ dependencies:
 
 検証用の Agent で作成した Skill を有効化し、実際の業務に近いタスクを依頼して動作を確かめます。Agent が迷わず対象の Skill を選び、必要な補助ファイルを読み取り、完了基準どおりに出力できるかを確認してください。そもそも Skill が選ばれない場合は `description` のトリガー表現を見直し、実行手順がぶれる場合は本文のステップ順序と制約条件をより具体的に書き直します。
 
-`brain-recall-only` を設定した Skill については、通常のシステムプロンプト内カタログに出てこないこと、および名前・説明・タグを手がかりに Brain 検索で発見できることもあわせて確認します。そのうえで、互換性のある実行面では `skill_view` で全文を読み込め、互換性のない実行面では適切なルーティング案内または拒否応答が返ることを検証してください。最後に Skill（または親の Agent Plugin）を無効化し、同じ Agent から検索発見も読み込みもできなくなることを確認します。
+現在の会話に閲覧権限がある Skill と補足ページだけを読み込めることを確認します。参照用の子パス、対応ランタイムでの読み込み、非対応ランタイムでの案内も検証してください。Skill または親 Plugin を無効にすると、有効なカタログから外れ、`skill_view` でも読み込めなくなります。
 
 ## Control Plane Plugin を開発する
 

@@ -142,6 +142,12 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
   test "children and empty search accept omitted optional arguments", %{conn: conn} do
     {owner, uid} = console_conn_with_principal(conn)
 
+    baseline =
+      owner
+      |> recycle_json()
+      |> get("/api/v2/pod/pages/search", %{query: ""})
+      |> json_response(200)
+
     {:ok, root} =
       Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{title: "Root"})
 
@@ -162,11 +168,17 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     child_id = child.id
 
     assert %{
-             "pages" => [%{"id" => ^root_id, "actions" => actions, "has_children" => false}],
+             "pages" => roots,
              "next_cursor" => nil,
              "can_create_private" => true,
              "can_create_space" => true
            } = owner |> recycle_json() |> get("/api/v2/pod/pages/children") |> json_response(200)
+
+    assert %{"id" => ^root_id, "actions" => actions, "has_children" => false} =
+             Enum.find(roots, &(&1["id"] == root_id))
+
+    assert [%{"name" => "AnkoleBrain", "has_children" => true}] =
+             Enum.reject(roots, &(&1["id"] == root_id))
 
     assert actions == ~w(node_view node_contribute node_edit node_manage node_comment)
 
@@ -188,7 +200,11 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              |> get("/api/v2/pod/pages/search", %{query: ""})
              |> json_response(200)
 
-    assert MapSet.new(pages, & &1["id"]) == MapSet.new([root.id, private.id, child.id])
+    assert MapSet.new(pages, & &1["id"]) ==
+             MapSet.union(
+               MapSet.new(baseline["pages"], & &1["id"]),
+               MapSet.new([root.id, private.id, child.id])
+             )
   end
 
   test "root and child directories paginate equal positions and reject invalid keysets", %{
@@ -289,8 +305,10 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              |> get("/api/v2/pod/pages", %{scope: "private"})
              |> json_response(200)
 
-    assert %{"pages" => [%{"id" => ^id}]} =
+    assert %{"pages" => visible} =
              owner |> recycle_json() |> get("/api/v2/pod/pages") |> json_response(200)
+
+    assert Enum.any?(visible, &(&1["id"] == id))
 
     read = owner |> recycle_json() |> get("/api/v2/pod/pages/#{id}")
 

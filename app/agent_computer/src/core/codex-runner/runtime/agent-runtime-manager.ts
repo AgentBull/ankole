@@ -1,3 +1,4 @@
+import type { DriveView } from '../../../drive/mounts'
 import { jsonObject, ms } from '@agentbull/active-support'
 import { errorMessage, toError } from '../../../common/errors'
 import type { AgentLoopLogger } from '../../types'
@@ -38,6 +39,7 @@ export interface AgentCodexRuntimeSession {
 }
 
 export type AgentCodexRuntimeAcquireInput = {
+  driveView?: DriveView
   agentUID: string
   agentHome: string
   codexHome: string
@@ -50,6 +52,7 @@ export type AgentCodexRuntimeAcquireInput = {
 }
 
 type RuntimeEntry = {
+  key: string
   agentUID: string
   startup: Promise<AgentCodexRuntime>
   runtime?: AgentCodexRuntime
@@ -98,15 +101,15 @@ export class AgentCodexRuntimeLease {
 }
 
 /**
- * Owns the one app-server of the bound Agent and leases it to Job sessions.
+ * Owns one app-server per Drive view and leases it to matching Job sessions.
  * The app-server starts with the first lease and closes after the last one.
  */
 export class AgentCodexRuntimeManager {
-  private entry: RuntimeEntry | undefined
+  private readonly entries = new Map<string, RuntimeEntry>()
 
   async acquire(input: AgentCodexRuntimeAcquireInput): Promise<AgentCodexRuntimeLease> {
     input.abortSignal?.throwIfAborted()
-    const existing = this.entry
+    const existing = this.entries.get(input.driveView?.key ?? input.agentUID)
     if (existing?.closing) {
       await waitWithAbort(existing.closing, input.abortSignal)
       return this.acquire(input)
@@ -133,17 +136,18 @@ export class AgentCodexRuntimeManager {
   }
 
   activeRuntimeCount(): number {
-    return this.entry?.runtime ? 1 : 0
+    return [...this.entries.values()].filter(entry => entry.runtime).length
   }
 
   private createEntry(input: AgentCodexRuntimeAcquireInput): RuntimeEntry {
     const entry: RuntimeEntry = {
+      key: input.driveView?.key ?? input.agentUID,
       agentUID: input.agentUID,
       waiters: 0,
       leases: 0,
       startup: this.startRuntime(input, error => this.runtimeExited(entry, error))
     }
-    this.entry = entry
+    this.entries.set(entry.key, entry)
     void entry.startup.catch(() => this.forget(entry))
     return entry
   }
@@ -155,6 +159,7 @@ export class AgentCodexRuntimeManager {
     const runtimeRef: { current?: AgentCodexRuntime } = {}
     const client = new CodexAppServerClient({
       cwd: input.appServer.cwd,
+      driveView: input.driveView,
       env: {
         ...input.appServer.env,
         ...codexAgentRuntimeBootstrapEnv(input.codexHome, input.aiGatewayBaseURL, input.aiGatewayAPIKey)
@@ -218,7 +223,7 @@ export class AgentCodexRuntimeManager {
 
   /** Drops an entry that ended, unless a newer one already took its place. */
   private forget(entry: RuntimeEntry): void {
-    if (this.entry === entry) this.entry = undefined
+    if (this.entries.get(entry.key) === entry) this.entries.delete(entry.key)
   }
 
   private async closeUnusedEntry(entry: RuntimeEntry): Promise<void> {

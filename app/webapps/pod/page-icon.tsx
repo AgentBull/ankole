@@ -31,6 +31,7 @@ import { updatePageMetadata } from './state/navigation-cache'
 const icons = {
   folder: RiFolderLine,
   doc: RiFileTextLine,
+  knowledge: RiFileTextLine,
   base: RiDatabase2Line,
   applet: RiApps2Line,
   file: RiAttachment2

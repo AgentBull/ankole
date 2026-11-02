@@ -4,6 +4,7 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
   production prompts, AIGateway, and PostgreSQL write contracts.
   """
   use Ankole.AIGatewayCase
+  import Ankole.BrainFixtures
 
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Claims
@@ -47,11 +48,11 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
       {:ok, take} =
         Claims.write_take(
           %{
-            object_slug: slug,
+            subject_page_id: slug,
             claim: "The recipient will receive the final report by the end of 2020-01-02 UTC.",
             kind: "prediction",
             holder: "agents/" <> uid,
-            audience_scope: "world",
+            source_node_id: source_node("world"),
             weight: 0.8,
             since_date: "2020-01-01",
             until_date: "2020-01-02",
@@ -107,18 +108,18 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
 
   defp create_page!(slug) do
     {:ok, _page} =
-      Ankole.Brain.create_object(%{slug: slug, type: "project", title: slug}, :system)
+      page_fixture_result(%{slug: slug, type: "project", title: slug}, :system)
   end
 
   defp write_fact!(slug, text, provenance, uid) do
     {:ok, _result} =
       Ankole.Brain.write_fact(
         %{
-          object_slug: slug,
+          subject_page_id: slug,
           claim: text,
           kind: "event",
           holder: "world",
-          audience_scope: "world",
+          source_node_id: source_node("world"),
           confidence: 0.75,
           notability: "high",
           valid_from: ~U[2020-01-01 00:00:00.000000Z],

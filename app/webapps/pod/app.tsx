@@ -5,6 +5,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  redirect,
   lazyRouteComponent,
   Outlet,
   RouterProvider,
@@ -23,12 +24,14 @@ import { ContentListRoute } from './content-list'
 import { ContentProvider } from './content-context'
 import { ContentError } from './content-primitives'
 import { ChatDraftProvider } from './chat-drafts'
-import { podKeys, type ConversationDetail } from './api'
+import { podKeys, type ConversationDetail, type PodAgent } from './api'
 import { contentKeys, pageQuery, type PageDetail } from './content-api'
 import { prefetchBase } from './base-api'
 import { RealtimeRequestError } from './realtime'
-import { podLocation, podRouteID } from '../common/browser-context'
+import { podLocation, podPagePath, podPagePathnameID, podPageRouteID, podRouteID } from '../common/pod-url'
 import { parseRouterSearch, stringifyRouterSearch, useSearchParams } from '../common/router'
+import { uuidShorten } from '../common/uuid-url'
+import { knownPageTitle } from './use-page-metadata'
 import { StandaloneActionCardDialog } from './chat/standalone-action-card-dialog'
 import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
 import { SidebarLayoutModel } from './state/sidebar-layout'
@@ -60,8 +63,8 @@ export function podRouteTitle(
     label = t('pod.account.title')
   } else if (pathname === '/settings' || pathname.startsWith('/settings/')) {
     label = t('pod.settings.title')
-  } else if (pathname === '/colleagues') {
-    label = t('pod.colleagues.title')
+  } else if (pathname.startsWith('/dm/')) {
+    label = conversationTitle?.trim() || decodeURIComponent(pathname.slice('/dm/'.length))
   } else if (pathname === '/') {
     label = t('pod.sidebar.tabs.chat')
   } else if (pathname.startsWith('/conversations/')) {
@@ -107,6 +110,9 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
           agent: typeof search.agent === 'string' ? search.agent : undefined,
           actionCard: typeof search.actionCard === 'string' ? search.actionCard : undefined
         }),
+        beforeLoad: ({ search }) => {
+          if (search.agent) throw redirect({ to: `/dm/${encodeURIComponent(search.agent)}`, replace: true })
+        },
         component: LazyChatRoute,
         ...routeFeedback
       }),
@@ -114,7 +120,7 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
         getParentRoute: () => rootRoute,
         path: 'pages/$pageID',
         loader: async ({ params }) => {
-          const pageID = podRouteID(params.pageID)
+          const pageID = podPageRouteID(params.pageID)
           if (!pageID) throw new Response('Page not found', { status: 404 })
           const read = client.prefetchQuery(pageQuery(pageID))
           if (client.getQueryData(contentKeys.page(pageID)) === undefined) await read
@@ -133,8 +139,8 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
       }),
       createRoute({
         getParentRoute: () => rootRoute,
-        path: 'colleagues',
-        component: lazyRouteComponent(() => import('./colleagues'), 'Colleagues'),
+        path: 'dm/$colleagueUid',
+        component: lazyRouteComponent(() => import('./chat-page'), 'DirectChatRoute'),
         ...routeFeedback
       }),
       createRoute({
@@ -151,7 +157,25 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
       defaultPreloadDelay: 250,
       defaultPreloadStaleTime: 0,
       parseSearch: parseRouterSearch,
-      stringifySearch: stringifyRouterSearch
+      stringifySearch: stringifyRouterSearch,
+      rewrite: {
+        input: ({ url }) => {
+          const id = podPagePathnameID(url.pathname)
+          if (!id) return url
+          const next = new URL(url)
+          next.pathname = `/pages/${uuidShorten(id)}`
+          return next
+        },
+        output: ({ url }) => {
+          const id = podPagePathnameID(url.pathname)
+          if (!id) return url
+          const title = knownPageTitle(client, id)
+          if (title === undefined) return url
+          const next = new URL(url)
+          next.pathname = podPagePath(id, title)
+          return next
+        }
+      }
     })
   }, [client])
   return (
@@ -263,9 +287,15 @@ function PodShell() {
       ? decodeURIComponent(pathname.slice('/conversations/'.length).split('/')[0] ?? '')
       : undefined
     const conversationID = conversationSegment ? (podRouteID(conversationSegment) ?? conversationSegment) : undefined
+    const colleagueUID = pathname.startsWith('/dm/') ? decodeURIComponent(pathname.slice('/dm/'.length)) : undefined
     const syncTitle = () => {
       let conversationTitle: string | undefined
-      if (conversationID) {
+      if (colleagueUID) {
+        // A DM is named by its colleague, the same way the sidebar and the room header name it.
+        conversationTitle = client
+          .getQueryData<{ agents: PodAgent[] }>(podKeys.agents)
+          ?.agents.find(agent => agent.uid === colleagueUID)?.displayName
+      } else if (conversationID) {
         conversationTitle =
           client.getQueryData<ConversationDetail>(podKeys.detail(conversationID))?.conversation.title ||
           client
@@ -276,7 +306,7 @@ function PodShell() {
       if (next) document.title = next
     }
     syncTitle()
-    if (!conversationID) return
+    if (!conversationID && !colleagueUID) return
     return client.getQueryCache().subscribe(() => syncTitle())
   }, [client, pathname, t])
   const openCommand = useCallback(() => {
@@ -386,7 +416,11 @@ function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
   const { state } = useSidebar()
   const pathname = useLocation({ select: location => location.pathname })
   const isLoading = useRouterState({ select: routerState => routerState.isLoading })
-  const contentHeader = pathname === '/' || pathname.startsWith('/pages/') || pathname.startsWith('/conversations/')
+  const contentHeader =
+    pathname === '/' ||
+    pathname.startsWith('/pages/') ||
+    pathname.startsWith('/conversations/') ||
+    pathname.startsWith('/dm/')
   if (contentHeader && !pageFallback) return null
   if (!contentHeader && pageFallback) return null
 

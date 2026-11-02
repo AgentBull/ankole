@@ -1,5 +1,8 @@
+import { commentAttentionQuery } from './content-api'
+import { useChatDrafts } from './chat-drafts'
 import { authenticationRef, podID, podLocation } from '../common/browser-context'
 import {
+  Badge,
   Button,
   buttonVariants,
   Sidebar,
@@ -16,15 +19,7 @@ import {
   TabsList,
   TabsTrigger
 } from '@ankole/uikit'
-import {
-  RiAddLine,
-  RiRobot2Line,
-  RiChat3Line,
-  RiDeleteBinLine,
-  RiHome5Line,
-  RiSearchLine,
-  RiSettings3Line
-} from '@remixicon/react'
+import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSearchLine, RiSettings3Line } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -37,7 +32,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSignals } from '@preact/signals-react/runtime'
-import { Link, useLocation } from '@tanstack/react-router'
+import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '../common/error-boundary'
 import { ChatSidebar } from './chat/chat-sidebar'
 import { AccountMenu } from './account-menu'
@@ -47,6 +42,7 @@ import { usePodCommandMenu } from './command-menu'
 import type { PodSidebarNavigationState } from './state/navigation'
 import { POD_SIDEBAR_MAX_WIDTH, POD_SIDEBAR_MIN_WIDTH, SidebarLayoutModel } from './state/sidebar-layout'
 
+import { agentsQuery, conversationAttentionQuery } from './api'
 import { browserSession } from '../common/api/generated/sdk.gen'
 
 export function routeSidebarTab(
@@ -55,7 +51,7 @@ export function routeSidebarTab(
 ): 'home' | 'chat' | undefined {
   if (state?.keepSidebarTab) return state.keepSidebarTab
   if (pathname.startsWith('/pages/') || pathname.startsWith('/content/')) return 'home'
-  if (pathname === '/' || pathname === '/colleagues' || pathname.startsWith('/conversations/')) return 'chat'
+  if (pathname === '/' || pathname.startsWith('/dm/') || pathname.startsWith('/conversations/')) return 'chat'
   return undefined
 }
 
@@ -67,10 +63,34 @@ export function PodSidebar({
   layout: InstanceType<typeof SidebarLayoutModel>
 }) {
   const { t } = useTranslation()
+  const drafts = useChatDrafts()
   const account = useQuery({
     queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
     queryFn: () => browserSession()
   })
+  const agents = useQuery(agentsQuery)
+  const rooms = useQuery(conversationAttentionQuery)
+  const chatAttention =
+    rooms.data?.filter(
+      room =>
+        room.rowStatus === 'waiting_choice' ||
+        (room.conversationKind !== 'assistant_task' && room.rowStatus === 'unread')
+    ).length ?? 0
+  const commentAttention = useQuery(commentAttentionQuery)
+  const homeAttention = commentAttention.data?.length ?? 0
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (!agents.data?.personalAssistantAvailable) return
+    const newChat = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'o') {
+        event.preventDefault()
+        drafts.startNew()
+        void navigate({ to: podLocation('/').pathname })
+      }
+    }
+    window.addEventListener('keydown', newChat)
+    return () => window.removeEventListener('keydown', newChat)
+  }, [agents.data?.personalAssistantAvailable, navigate, drafts])
   const pathname = useLocation({ select: location => location.pathname })
   const routeTab = useLocation({
     select: location => routeSidebarTab(location.pathname, location.state as PodSidebarNavigationState | null)
@@ -82,7 +102,8 @@ export function PodSidebar({
   const settingsActive = pathname === '/settings' || pathname.startsWith('/settings/')
   const trashPath = podLocation('/content/trash').pathname
   const trashActive = pathname === trashPath
-  const shortcut = typeof navigator !== 'undefined' && navigator.platform.includes('Mac') ? '⌘K' : 'Ctrl+K'
+  const mac = typeof navigator !== 'undefined' && navigator.platform.includes('Mac')
+  const shortcut = mac ? '⌘K' : 'Ctrl+K'
   const preview = previewOpen && state === 'collapsed' && !isMobile
   const closeMobile = () => {
     if (isMobile) setOpenMobile(false)
@@ -130,9 +151,28 @@ export function PodSidebar({
                 ).map(([value, Icon, label]) => (
                   // Only the open tab shows its label, so a closed tab names itself in a tooltip.
                   <Tooltip key={value} disabled={tab === value}>
-                    <TooltipTrigger render={<TabsTrigger value={value} />}>
+                    <TooltipTrigger
+                      render={
+                        <TabsTrigger
+                          value={value}
+                          aria-label={label}
+                          aria-description={
+                            value === 'chat' && chatAttention > 0
+                              ? t('pod.superagent.attention', { count: chatAttention })
+                              : value === 'home' && homeAttention > 0
+                                ? t('pod.document.unread_comments')
+                                : undefined
+                          }
+                        />
+                      }>
                       <Icon aria-hidden />
-                      <span>{label}</span>
+                      <span className={tab === value ? undefined : 'sr-only'}>{label}</span>
+                      {/* Both tabs announce work that waits for the viewer with the same badge. */}
+                      {(value === 'chat' ? chatAttention : homeAttention) > 0 && (
+                        <Badge variant="info" size="sm" aria-hidden>
+                          {value === 'chat' ? chatAttention : homeAttention}
+                        </Badge>
+                      )}
                     </TooltipTrigger>
                     <TooltipContent>{label}</TooltipContent>
                   </Tooltip>
@@ -158,28 +198,26 @@ export function PodSidebar({
                   </TooltipTrigger>
                   <TooltipContent>{`${t('pod.command.open')} (${shortcut})`}</TooltipContent>
                 </Tooltip>
-                {tab === 'home' ? (
-                  <CreatePageButton compact />
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Link
-                          to={podLocation('/').pathname}
-                          onClick={closeMobile}
-                          className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-                          aria-label={t('pod.chat.new_conversation')}
-                          title={t('pod.chat.new_conversation')}
-                        />
-                      }>
-                      <RiAddLine aria-hidden />
-                    </TooltipTrigger>
-                    <TooltipContent>{t('pod.chat.new_conversation')}</TooltipContent>
-                  </Tooltip>
-                )}
+                {tab === 'home' && <CreatePageButton compact />}
                 <SidebarTrigger label={t('pod.sidebar.collapse')} />
               </div>
             </div>
+            {agents.data?.personalAssistantAvailable && (
+              <Link
+                to={podLocation('/').pathname}
+                onClick={() => {
+                  drafts.startNew()
+                  closeMobile()
+                }}
+                className="nav-row pod-nav-link pod-new-chat"
+                aria-keyshortcuts="Meta+Shift+O Control+Shift+O">
+                <RiAddLine aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{t('pod.chat.new_conversation')}</span>
+                <span className="pod-new-chat-shortcut" aria-hidden>
+                  {mac ? '⌘⇧O' : 'Ctrl+Shift+O'}
+                </span>
+              </Link>
+            )}
           </SidebarHeader>
           <SidebarContent>
             <TabsContent value="home" keepMounted className="px-2 pb-3 text-[13px] leading-5">
@@ -191,14 +229,6 @@ export function PodSidebar({
             </TabsContent>
             <TabsContent value="chat" className="pod-conversations px-2 pb-3 text-[13px] leading-5">
               <ErrorBoundary variant="inline" resetKeys={[pathname]}>
-                <Link
-                  to="/colleagues"
-                  onClick={closeMobile}
-                  aria-current={pathname === '/colleagues' ? 'page' : undefined}
-                  className="nav-row mb-2 flex items-center gap-2 px-2 py-1.5">
-                  <RiRobot2Line className="size-4" aria-hidden />
-                  <span>{t('pod.colleagues.title')}</span>
-                </Link>
                 <ConversationMenu />
               </ErrorBoundary>
             </TabsContent>

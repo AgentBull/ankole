@@ -14,16 +14,17 @@ defmodule Ankole.Tenants.Jobs.Delete do
   @tables ~w(
     base_records base_views base_fields base_tables
     pod_files message_attachments delivery_attachments
+    drive_vfs_exports
     page_user_states page_changes page_comments page_snapshots page_daily_activity page_contents permission_grants pages drive_nodes
     conversation_action_cards external_message_refs conversation_messages conversation_participants
     cron_schedules session_ambient_judgments scheduled_events
     sessions agent_computer_worker_envs
-    agent_library_container_entries agent_plugin_overrides agent_skill_lessons agent_skills
+    agent_plugin_overrides agent_skill_lessons agent_skills
     ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records
     app_configurations automation_job_runs signal_webhook_endpoints
     background_agent_job_turn_items brain_chunks brain_take_domain_assignments
     brain_contradictions brain_links brain_merge_suggestions brain_object_aliases
-    brain_object_versions brain_timelines brain_slug_aliases brain_tags brain_schema_suggestions
+    brain_timelines brain_slug_aliases brain_tags brain_schema_suggestions
     brain_schema_calibration_domains brain_schema_link_types brain_schema_types
     brain_sources authn_challenges browser_oidc_states oidc_authorization_requests browser_pod_authentications browser_authentications session_tool_receipts session_round_states
     human_access_events human_access_restrictions principal_site_credentials pod_invitations
@@ -34,7 +35,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     conversation_inbound_batches conversation_input_tombstones signal_bindings
     workflow_agent_calls delivery_previews signals ai_gateway_messages automation_jobs
     background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups
-    workflow_runs ai_gateway_conversations background_agent_jobs brain_objects
+    workflow_runs ai_gateway_conversations background_agent_jobs
     oidc_clients human_users file_objects
   )
   # Keep cleanup's completion evidence and its referenced Human until the

@@ -344,6 +344,7 @@ defmodule Ankole.MixProject do
             "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs " <>
             "../../tools/e2e/suites/conversations_cli_real_llm_e2e_test.exs " <>
             "../../tools/e2e/suites/pod_skill_lessons_real_llm_e2e_test.exs " <>
+            "../../tools/e2e/suites/pod_superagent_real_llm_e2e_test.exs " <>
             "../../tools/e2e/suites/pod_content_real_llm_e2e_test.exs --trace"
         ],
         "e2e.ai_gateway_real_provider": [

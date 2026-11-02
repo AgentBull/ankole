@@ -1,3 +1,4 @@
+import { isKnowledge } from '../editor/knowledge'
 import { useState, type ReactElement } from 'react'
 import {
   DropdownMenu,
@@ -86,6 +87,7 @@ function TableMenuItems({ scope, context, close }: { scope: TableScope; context:
   const row = scope === 'row'
   const column = scope === 'column'
   const table = scope === 'table'
+  const knowledge = isKnowledge(state)
   const item = (action: TableAction, disabled = false, hint?: string) => (
     <DropdownMenuItem
       key={action}
@@ -105,14 +107,14 @@ function TableMenuItems({ scope, context, close }: { scope: TableScope; context:
       </DropdownMenuLabel>
       {table ? (
         <>
-          {context.table.parent?.node === state.doc && (
+          {!knowledge && context.table.parent?.node === state.doc && (
             <DropdownMenuCheckboxItem
               checked={!!context.table.node.mark(TableLayout)}
               onClick={() => run('full_width')}>
               {label('table_full_width')}
             </DropdownMenuCheckboxItem>
           )}
-          {item('distribute')}
+          {!knowledge && item('distribute')}
           <DropdownMenuItem
             onClick={() => {
               const current = editableTable(editor.state)
@@ -141,54 +143,58 @@ function TableMenuItems({ scope, context, close }: { scope: TableScope; context:
               {label(`table_align_${align}`)}
             </DropdownMenuCheckboxItem>
           ))}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>{label('table_background')}</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="ankole-editor-overlay" finalFocus={() => false}>
-              <DropdownMenuCheckboxItem
-                checked={nodes.every(node => !node.mark(CellBackground))}
-                onClick={() => {
-                  colorTableCells(editor, null, scope)
-                  close()
-                }}>
-                {label('table_background_none')}
-              </DropdownMenuCheckboxItem>
-              {Object.entries(colors).map(([name, color]) => (
+          {!knowledge && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>{label('table_background')}</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="ankole-editor-overlay" finalFocus={() => false}>
                 <DropdownMenuCheckboxItem
-                  key={color}
-                  checked={nodes.every(node => node.mark(CellBackground) === color)}
+                  checked={nodes.every(node => !node.mark(CellBackground))}
                   onClick={() => {
-                    colorTableCells(editor, color, scope)
+                    colorTableCells(editor, null, scope)
                     close()
                   }}>
-                  <span className="table-color-swatch" style={{ backgroundColor: color }} />
-                  {label(`table_color_${name as keyof typeof colors}`)}
+                  {label('table_background_none')}
                 </DropdownMenuCheckboxItem>
-              ))}
-              <label className="table-custom-color">
-                {label('table_background_custom')}
-                <input
-                  type="color"
-                  aria-label={label('table_background_custom')}
-                  value={nodes[0]?.mark(CellBackground) ?? '#ffffff'}
-                  onChange={event => {
-                    colorTableCells(editor, event.target.value, scope)
-                    close()
-                  }}
-                />
-              </label>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+                {Object.entries(colors).map(([name, color]) => (
+                  <DropdownMenuCheckboxItem
+                    key={color}
+                    checked={nodes.every(node => node.mark(CellBackground) === color)}
+                    onClick={() => {
+                      colorTableCells(editor, color, scope)
+                      close()
+                    }}>
+                    <span className="table-color-swatch" style={{ backgroundColor: color }} />
+                    {label(`table_color_${name as keyof typeof colors}`)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+                <label className="table-custom-color">
+                  {label('table_background_custom')}
+                  <input
+                    type="color"
+                    aria-label={label('table_background_custom')}
+                    value={nodes[0]?.mark(CellBackground) ?? '#ffffff'}
+                    onChange={event => {
+                      colorTableCells(editor, event.target.value, scope)
+                      close()
+                    }}
+                  />
+                </label>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
           <DropdownMenuSeparator />
-          {item('merge', !mergeCells(context), label('table_merge_hint'))}
-          {item('split', !splitCells(context))}
+          {!knowledge && item('merge', !mergeCells(context), label('table_merge_hint'))}
+          {!knowledge && item('split', !splitCells(context))}
           {(row || column) && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={nodes.every(node => node.type === HeaderCell.type)}
-                onClick={() => run(row ? 'header' : 'header_column')}>
-                {label(row ? 'table_header' : 'table_header_column')}
-              </DropdownMenuCheckboxItem>
+              {!knowledge && (
+                <DropdownMenuCheckboxItem
+                  checked={nodes.every(node => node.type === HeaderCell.type)}
+                  onClick={() => run(row ? 'header' : 'header_column')}>
+                  {label(row ? 'table_header' : 'table_header_column')}
+                </DropdownMenuCheckboxItem>
+              )}
               {(row ? context.rect.endRow - context.rect.startRow : context.rect.endCol - context.rect.startCol) ===
                 1 && (
                 <>
@@ -208,7 +214,7 @@ function TableMenuItems({ scope, context, close }: { scope: TableScope; context:
               )}
               {column && (
                 <>
-                  {item('distribute')}
+                  {!knowledge && item('distribute')}
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>{label('table_sort')}</DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="ankole-editor-overlay" finalFocus={() => false}>

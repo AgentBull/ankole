@@ -67,11 +67,9 @@ ankole-runtime: any
 
 예를 들어 Deep Research의 진입용 Skill은 원래 대화방에서 요구 사항을 확인하고 Job을 띄워야 하므로 `main`으로 선언되며, 실제 심층 조사를 수행하는 세부 Skills는 생성된 Background Agent Job 안에서 동작합니다.
 
-#### Ankole 확장: Brain을 통해 Skill 발견하기
+#### 공유 Skill 페이지
 
-특정 작업 맥락에서만 가끔 쓰이는 SOP나 방법론을 매번 모든 시스템 프롬프트에 실어 보내면 컨텍스트가 불필요하게 소모됩니다. 이럴 때 배포용 Skill에 `brain-recall-only: true`를 선언하면, 표준 Skill 구조와 Agent Plugin 소속, 활성화 상태, 실행 표면(`ankole-runtime`), `skill_view` 호출 규칙은 그대로 유지하면서 기본 프롬프트 카탈로그에서만 빼고 Brain의 의미 기반 검색으로 필요할 때 찾게 할 수 있습니다.
-
-Brain은 Skill의 이름, 설명, 태그를 색인해 검색합니다. 적합한 항목이 검색되면 Agent가 `skill_view`를 호출하며, `skill_view`는 `ankole-runtime` 조건에 맞는 실행 표면에서는 본문을 로드하고 호환되지 않는 표면에서는 안내된 라우팅 또는 거부 응답을 반환합니다. 해당 Skill이나 상위 Agent Plugin을 비활성화하면 Brain 검색과 로드에서도 즉시 제외됩니다. 이 경로는 Brain이 활성화된 환경에서 동작하며, 평소 프롬프트를 차지하지 않으면서 필요할 때만 꺼내 써야 하는 사내 SOP와 전문 방법론에 잘 맞습니다.
+공유 Skill은 Pod의 `/AnkoleBrain/skills/<name>`에서 관리합니다. 카탈로그에는 페이지 설명을 표시하며 Brain으로 본문을 검색할 수 있습니다. `skill_view`는 현재 본문과 해당 대화에서 열람할 수 있는 보충 페이지를 함께 읽습니다. `metadata.role = "reference"`로 표시한 큰 참고 페이지는 필요할 때 상대 경로로 읽습니다. Drive 권한은 페이지 열람 범위를, Agent Plugin과 Skill 설정은 Agent가 활성화할 기능을 결정합니다.
 
 ### Control Plane Plugin: 사이트 범위 풀스택 플랫폼 확장
 

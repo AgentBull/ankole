@@ -12,12 +12,23 @@ defmodule Ankole.Pod.RPCBrokerTest do
 
   setup do
     owner = human_fixture().principal
-    agent = Ankole.SessionsCase.agent_fixture().principal
+    agent = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: owner.uid}).principal
     Ankole.ConversationsFixtures.grant_chat(owner.uid, agent.uid)
     route = "pod-broker-#{System.unique_integer([:positive])}"
     {:ok, _worker} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
 
-    event = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
+    room_id = Ecto.UUID.generate()
+
+    {:ok, _} =
+      Ankole.ConversationsFixtures.create(owner, %{
+        conversation_id: room_id,
+        agent_uid: agent.uid,
+        message_id: Ecto.UUID.generate(),
+        room_mode: :group,
+        text: "Work with my Pod pages"
+      })
+
+    event = Repo.one!(from(s in Signal, where: s.conversation_id == ^room_id))
     assert {:ok, run} = Ankole.Sessions.Admission.admit(event, event)
 
     ref = %Ankole.Sessions.RunRef{
@@ -46,6 +57,14 @@ defmodule Ankole.Pod.RPCBrokerTest do
       Pages.create(actor, %{type: "file", title: "large.bin", private_owner_uid: ctx.agent})
 
     {:ok, document} = Pages.create(actor, %{type: "doc", private_owner_uid: ctx.agent})
+
+    for item <- [page, document] do
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(ctx.agent, item.id, %{
+          grants: [%{principal_uid: ctx.owner, role: "edit"}]
+        })
+    end
+
     worker = WorkerFilesFake.start!(ctx.route, files: %{"large.bin" => bytes})
 
     assert {:ok, %{"result" => %{"file" => %{"size" => size}}}} =
@@ -125,20 +144,32 @@ defmodule Ankole.Pod.RPCBrokerTest do
         grants: [%{principal_uid: ctx.agent, role: "view"}]
       })
 
-    {:ok, child} = Pages.create(actor, %{parent_id: parent.id, title: "Nested result"})
-    {:ok, _hidden} = Pages.create(actor, %{title: "Nested secret", private_owner_uid: ctx.owner})
+    {:ok, child} =
+      Pages.create(actor, %{parent_id: parent.id, title: "Broker directory nested result"})
 
-    assert {:ok, %{"result" => %{"pages" => children}}} =
+    {:ok, _hidden} =
+      Pages.create(actor, %{title: "Broker directory nested secret", private_owner_uid: ctx.owner})
+
+    assert {:ok, response} =
              RPCBroker.handle_read(
                ctx.ref,
                request("pages.children", %{parent_id: parent.id}),
                ctx.ctx
              )
 
+    assert %{"result" => %{"pages" => children}} =
+             response |> Torque.encode!() |> Torque.decode!()
+
     assert Enum.map(children, & &1["id"]) == [child.id]
+    assert hd(children)["has_children"] == false
+    assert hd(children)["role"] == "view"
 
     assert {:ok, %{"result" => %{"pages" => [found], "ancestors" => ancestors}}} =
-             RPCBroker.handle_read(ctx.ref, request("pages.search", %{query: "Nested"}), ctx.ctx)
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("pages.search", %{query: "Broker directory nested"}),
+               ctx.ctx
+             )
 
     assert found["id"] == child.id
     assert Enum.map(ancestors, & &1["id"]) == [parent.id]
@@ -202,6 +233,217 @@ defmodule Ankole.Pod.RPCBrokerTest do
              )
   end
 
+  test "knowledge title and trash operations require the Human's edit grant too", ctx do
+    editor = human_fixture().principal
+
+    {:ok, page} =
+      Pages.create(actor_fixture(editor), %{
+        type: :knowledge,
+        title: "Shared knowledge",
+        private_owner_uid: editor.uid
+      })
+
+    grants = [
+      %{principal_uid: ctx.agent, role: "manage"},
+      %{principal_uid: ctx.owner, role: "view"}
+    ]
+
+    {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(editor.uid, page.id, %{grants: grants})
+
+    assert {:error, %{"code" => "forbidden"}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.update", %{
+                 id: page.id,
+                 title: "Unauthorized rename",
+                 expected_title: page.title
+               }),
+               ctx.ctx
+             )
+
+    assert {:error, %{"code" => "forbidden"}} =
+             RPCBroker.handle_write(ctx.ref, request("pages.delete", %{id: page.id}), ctx.ctx)
+
+    assert {:ok, %{page: %{title: "Shared knowledge", deleted_at: nil}}} =
+             Pages.get(actor_fixture(editor), page.id)
+
+    grants = [
+      %{principal_uid: ctx.agent, role: "manage"},
+      %{principal_uid: ctx.owner, role: "edit"}
+    ]
+
+    {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(editor.uid, page.id, %{grants: grants})
+
+    assert {:ok, %{"result" => %{"title" => "Approved rename"}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.update", %{
+                 id: page.id,
+                 title: "Approved rename",
+                 expected_title: page.title
+               }),
+               ctx.ctx
+             )
+  end
+
+  for type <- [:knowledge, :folder] do
+    test "#{type} restore checks the requester's current trash visibility and edit grant", ctx do
+      editor = human_fixture().principal
+
+      for role <- [nil, "view", "edit"] do
+        {:ok, page} =
+          Pages.create(actor_fixture(editor), %{
+            type: unquote(type),
+            title: "Archived rule",
+            private_owner_uid: editor.uid
+          })
+
+        if unquote(type) == :folder do
+          {:ok, _} = Pages.create(actor_fixture(editor), %{type: :knowledge, parent_id: page.id})
+        end
+
+        grants =
+          [%{principal_uid: ctx.agent, role: "manage"}] ++
+            if(role, do: [%{principal_uid: ctx.owner, role: role}], else: [])
+
+        {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(editor.uid, page.id, %{grants: grants})
+        {:ok, _} = Pages.delete(actor_fixture(editor), page.id)
+
+        result =
+          RPCBroker.handle_write(ctx.ref, request("pages.restore", %{id: page.id}), ctx.ctx)
+
+        case role do
+          nil -> assert {:error, %{"code" => "not_found"}} = result
+          "view" -> assert {:error, %{"code" => "forbidden"}} = result
+          "edit" -> assert {:ok, %{"result" => %{"deleted_at" => nil}}} = result
+        end
+
+        assert {:ok, current} = Pages.fetch(page.id)
+        assert is_nil(current.deleted_at) == (role == "edit")
+      end
+    end
+  end
+
+  for operation <- ["pages.set_sharing", "pages.update_sharing"], type <- [:knowledge, :folder] do
+    test "#{operation} on #{type} cannot grant a knowledge requester edit access using only Agent manage",
+         ctx do
+      editor = human_fixture().principal
+
+      {:ok, page} =
+        Pages.create(actor_fixture(editor), %{
+          type: unquote(type),
+          title: "Shared rule",
+          private_owner_uid: editor.uid
+        })
+
+      knowledge =
+        if unquote(type) == :folder do
+          {:ok, child} =
+            Pages.create(actor_fixture(editor), %{type: :knowledge, parent_id: page.id})
+
+          child
+        else
+          page
+        end
+
+      replacement = [
+        %{principal_uid: ctx.agent, role: "manage"},
+        %{principal_uid: ctx.owner, role: "edit"}
+      ]
+
+      for role <- ["view", "edit", "manage"] do
+        {:ok, _} =
+          Ankole.Pod.PagesFixtures.set_sharing(editor.uid, page.id, %{
+            grants: [
+              %{principal_uid: ctx.agent, role: "manage"},
+              %{principal_uid: ctx.owner, role: role}
+            ]
+          })
+
+        {:ok, sharing} = Pages.sharing(actor_fixture(editor), page.id)
+
+        params =
+          if unquote(operation) == "pages.set_sharing",
+            do: %{id: page.id, sharing_version: sharing.sharing_version, grants: replacement},
+            else: %{id: page.id, upserts: replacement}
+
+        result = RPCBroker.handle_write(ctx.ref, request(unquote(operation), params), ctx.ctx)
+
+        if role == "manage" do
+          assert {:ok, _} = result
+          assert {:ok, _} = Pages.authorize(actor_fixture(ctx.owner), knowledge.id, "node_edit")
+
+          assert {:error, :forbidden} =
+                   Pages.authorize(actor_fixture(ctx.owner), page.id, "node_manage")
+        else
+          assert {:error, %{"code" => "forbidden"}} = result
+
+          if role == "view" do
+            assert {:error, :forbidden} =
+                     Pages.authorize(actor_fixture(ctx.owner), knowledge.id, "node_edit")
+          end
+        end
+      end
+    end
+  end
+
+  for type <- [:knowledge, :folder] do
+    test "moving #{type} containing knowledge into a shared skill requires requester edit access to that skill",
+         ctx do
+      editor = human_fixture().principal
+
+      {:ok, destination} =
+        Pages.create(actor_fixture(editor), %{
+          type: :knowledge,
+          title: "Shared skill",
+          private_owner_uid: editor.uid
+        })
+
+      {:ok, draft} =
+        Pages.create(actor_fixture(ctx.owner), %{
+          type: unquote(type),
+          title: "Proposed team rule",
+          private_owner_uid: ctx.owner
+        })
+
+      if unquote(type) == :folder do
+        {:ok, _} =
+          Pages.create(actor_fixture(ctx.owner), %{type: :knowledge, parent_id: draft.id})
+      end
+
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, draft.id, %{
+          grants: [%{principal_uid: ctx.agent, role: "manage"}]
+        })
+
+      for role <- ["view", "edit"] do
+        {:ok, _} =
+          Ankole.Pod.PagesFixtures.set_sharing(editor.uid, destination.id, %{
+            grants: [
+              %{principal_uid: ctx.agent, role: "manage"},
+              %{principal_uid: ctx.owner, role: role}
+            ]
+          })
+
+        result =
+          RPCBroker.handle_write(
+            ctx.ref,
+            request("pages.move", %{id: draft.id, parent_id: destination.id}),
+            ctx.ctx
+          )
+
+        if role == "view" do
+          assert {:error, %{"code" => "forbidden"}} = result
+          assert {:ok, %{parent_id: parent_id}} = Pages.fetch(draft.id)
+          assert parent_id == draft.parent_id
+        else
+          assert {:ok, %{"result" => %{"parent_id" => parent_id}}} = result
+          assert parent_id == destination.id
+        end
+      end
+    end
+  end
+
   for operation <- ["pages.write", "files.upload"] do
     test "#{operation} reports the final relay error without changing the page", ctx do
       operation = unquote(operation)
@@ -250,6 +492,31 @@ defmodule Ankole.Pod.RPCBrokerTest do
       assert detail.page.revision == 0
       assert detail.page.object_id == expected_object
     end
+  end
+
+  test "incremental sharing RPC adds a colleague without replacing another collaborator", ctx do
+    actor = actor_fixture(ctx.agent)
+    {:ok, page} = Pages.create(actor, %{title: "Contract", private_owner_uid: ctx.agent})
+    other = human_fixture().principal
+    colleague = Ankole.SessionsCase.agent_fixture().principal
+
+    {:ok, _} =
+      Pages.update_sharing(actor, page.id, %{
+        upserts: [%{principal_uid: other.uid, role: "view", target_scope: "self"}]
+      })
+
+    assert {:ok, _} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.update_sharing", %{
+                 id: page.id,
+                 upserts: [%{principal_uid: colleague.uid, role: "edit", target_scope: "self"}]
+               }),
+               ctx.ctx
+             )
+
+    assert {:ok, _} = Pages.authorize(actor_fixture(other), page.id, "node_view")
+    assert {:ok, _} = Pages.authorize(actor_fixture(colleague), page.id, "node_edit")
   end
 
   test "sharing RPC uses the page manage contract and its current version", ctx do
@@ -472,7 +739,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
         home_relative_path: "received/report.txt"
       })
 
-    assert {:error, %{"code" => "forbidden"}} =
+    assert {:error, %{"code" => "not_found"}} =
              RPCBroker.handle_read(ctx.ref, request, ctx.ctx)
 
     assert WorkerFilesFake.files(fake) == %{}

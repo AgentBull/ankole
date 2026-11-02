@@ -27,6 +27,7 @@ const row = (id: string, parent_id: string | null = null, position = id): Naviga
   type: 'doc',
   title: id,
   inherit_permissions: true,
+  metadata: {},
   actions: ['node_view'],
   role: 'view',
   has_children: false

@@ -382,10 +382,11 @@ through organization offboarding); see [Authentication](Authentication.md).
 
 Each Pod workspace is served from its tenant slug host—`http://<tenant-slug>.ankole.localhost:4000/`
 in local development and the configured Pod subdomain in production. Browser
-URLs address Pages and Conversations as `/pages/<short-uuid>` and
+URLs address titled Pages as `/pages/<title-slug>-<short-uuid>`, untitled or
+symbol-only Pages as `/pages/<short-uuid>`, and Conversations as
 `/conversations/<short-uuid>`, where the Rust kernel encodes the 16-byte UUID as
-22-character unpadded base64url, while database columns, internal `ankole:page`
-links, and `/api/v2/pod` payloads continue to use canonical hyphenated UUIDs.
+26-character lowercase Crockford Base32, while database columns, internal
+`ankole:page` links, and `/api/v2/pod` payloads use canonical hyphenated UUIDs.
 
 The HTTP `Host` header alone selects the tenant: normal Pod URLs carry neither a
 `/pod` prefix nor a `tenant_id` query parameter, and legacy-shaped requests

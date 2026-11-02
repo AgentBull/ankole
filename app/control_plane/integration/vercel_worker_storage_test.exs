@@ -71,6 +71,8 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
     [uid, peer_uid] = context.uids
     first = await_worker_state!(uid, :ready)
     peer = await_worker_state!(peer_uid, :ready)
+    assert first.capacity["drive_vfs"] == true
+    assert peer.capacity["drive_vfs"] == true
     {:ok, provider} = Providers.load(first.provider_id)
     {:ok, peer_provider} = Providers.load(peer.provider_id)
     assert_worker_user!(provider, first)

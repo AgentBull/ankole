@@ -1,11 +1,11 @@
 import { principalLabel } from './state/principal-label'
-import type { ShowBrainObjectResponse } from './api/v2/generated/types.gen'
+import type { ListBrainPrincipalKnowledgeResponse } from './api/v2/generated/types.gen'
 import { useQuery } from '@tanstack/react-query'
 import { getPrincipalOptions } from './api/v2/generated/@tanstack/react-query.gen'
 import { listTenantsOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
 import { fromDocument } from './api/json-api'
 
-type ConsoleActorRef = NonNullable<ShowBrainObjectResponse['object']>['facts'][number]['author']
+type ConsoleActorRef = ListBrainPrincipalKnowledgeResponse['claims'][number]['author']
 
 /** Attribution uses the author's tenant even when the resource belongs elsewhere. */
 export function ActorLabel({ actor }: { actor?: ConsoleActorRef | null }) {

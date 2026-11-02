@@ -174,7 +174,7 @@ defmodule Ankole.Principals.Humans do
   defp ensure_private_root(_principal), do: :ok
 
   defp ensure_canonical_brain_object(%Principal{type: type} = principal)
-       when type in [:human, :agent] do
+       when type == :human do
     Ankole.Brain.Objects.ensure_canonical_object_in_tx(
       principal.uid,
       type,

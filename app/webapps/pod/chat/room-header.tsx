@@ -1,16 +1,10 @@
 import {
   Button,
-  cn,
   Dialog,
   DialogContent,
   DialogFooter,
   DialogTitle,
   Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   SidebarTrigger,
   useSidebar,
   DropdownMenu,
@@ -20,10 +14,6 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiAddLine,
-  RiCloseLine,
-  RiExternalLinkLine,
-  RiHistoryLine,
   RiInformationLine,
   RiSearchLine,
   RiMoreLine,
@@ -41,23 +31,12 @@ import { useTranslation } from 'react-i18next'
 import { podKeys, type ConversationDetail } from '../api'
 import { linkTarget } from '../../common/router'
 import { podLocation } from '../../common/browser-context'
-import { ContentError } from '../content-primitives'
+import { usePageHref } from '../use-page-metadata'
 import { ChatAvatar } from './chat-avatar'
+import { AgentName, agentLabel, conversationPath } from './conversation-row'
 import { useRoomActions } from './room-api'
 import { exportConversation } from './room-export'
 import type { PanelInputEvent } from '../panel-motion'
-
-export type PageChatHeaderControls = {
-  pageTitle: string
-  conversations: { id: string; title: string }[]
-  conversationsPending: boolean
-  listError?: unknown
-  onRetryList?: () => void
-  accessDenied: boolean
-  onSelectConversation(id: string): void
-  onNewConversation(): void
-  onClose(event?: PanelInputEvent): void
-}
 
 export function RoomHeader({
   detail,
@@ -66,8 +45,6 @@ export function RoomHeader({
   onSummary,
   summaryOpen,
   summaryTrigger,
-  embedded: embeddedProp = false,
-  pageChat,
   onDelete,
   onExitConversation,
   editing,
@@ -79,20 +56,26 @@ export function RoomHeader({
   onSummary(event?: PanelInputEvent): void
   summaryOpen: boolean
   summaryTrigger?: RefObject<HTMLButtonElement | null>
-  embedded?: boolean
-  pageChat?: PageChatHeaderControls
   onDelete(): void
   onExitConversation?: () => void
   editing: boolean
   onEditingChange(editing: boolean): void
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const { state } = useSidebar()
   const client = useQueryClient()
-  const embedded = embeddedProp || Boolean(pageChat)
   const room = detail.conversation
+  const colleague = room.conversationKind === 'colleague_dm' ? room.agents[0] : undefined
+  // A group invites into itself; a task or a DM stays as it is and starts a separate group.
+  const inviteLabel = t(
+    room.conversationKind === 'group'
+      ? 'pod.chat_room.invite'
+      : room.conversationKind === 'assistant_task'
+        ? 'pod.superagent.convert_to_group'
+        : 'pod.superagent.new_group'
+  )
   const canParticipate = room.canManage || room.participants.some(member => member.uid === room.viewer.uid)
-  const Title = embedded ? 'h3' : 'h1'
   const actions = useRoomActions(room.id)
   const navigate = useNavigate()
   const [title, setTitle] = useState(room.title)
@@ -136,20 +119,15 @@ export function RoomHeader({
       }
     )
   }
-  const historyItems = pageChat
-    ? pageChat.conversations.some(item => item.id === room.id)
-      ? pageChat.conversations
-      : [{ id: room.id, title: room.title }, ...pageChat.conversations]
-    : []
   return (
     <>
-      <header
-        className={cn('pod-chat-header pod-room-header', pageChat && 'pod-page-chat-header sheet-header')}
-        title={pageChat?.pageTitle}>
-        {!embedded && (
-          <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
-        )}
-        {editing ? (
+      <header className="pod-chat-header pod-room-header">
+        <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
+        {colleague ? (
+          <h1 className="m-0 min-w-0 flex-1 truncate text-sm leading-none" title={agentLabel(colleague)}>
+            <AgentName agent={colleague} />
+          </h1>
+        ) : editing ? (
           <form
             className="pod-room-title-form"
             onSubmit={event => {
@@ -176,7 +154,7 @@ export function RoomHeader({
             />
           </form>
         ) : (
-          <Title className="m-0 min-w-0 flex-1 text-sm leading-none">
+          <h1 className="m-0 min-w-0 flex-1 text-sm leading-none">
             <button
               type="button"
               className="pod-chat-header-title w-full"
@@ -189,116 +167,59 @@ export function RoomHeader({
               }}>
               {room.title || t('pod.content.untitled')}
             </button>
-          </Title>
+          </h1>
         )}
-        {room.pageID && !embedded && (
-          <Link className="pod-chat-anchor" {...linkTarget(podLocation(`/pages/${room.pageID}`, { chat: room.id }))}>
+        {room.pageID && (
+          <Link
+            className="pod-chat-anchor"
+            {...linkTarget(
+              podLocation(pageHref(room.pageID), room.conversationKind === 'assistant_task' ? { chat: room.id } : {})
+            )}>
             {t('pod.chat_room.page_context')}
           </Link>
         )}
-        {pageChat && (
-          <>
-            <div className="pod-page-chat-scope">
-              <Select
-                value={room.accessScope}
-                onValueChange={value => {
-                  if ((value === 'participants' || value === 'anchor_page') && value !== room.accessScope) {
-                    actions.update.mutate({ accessScope: value })
-                  }
-                }}
-                disabled={pageChat.accessDenied || actions.update.isPending || !room.canManage}>
-                <SelectTrigger
-                  size="sm"
-                  variant="ghost"
-                  className="pod-page-chat-scope-trigger"
-                  aria-label={t('pod.chat_room.visibility')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="participants">{t('pod.chat_room.scope_participants')}</SelectItem>
-                  <SelectItem value="anchor_page">{t('pod.chat_room.scope_anchor_page')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={t('pod.chat.new_conversation')}
-              title={t('pod.chat.new_conversation')}
-              disabled={pageChat.accessDenied}
-              onClick={pageChat.onNewConversation}>
-              <RiAddLine aria-hidden />
-            </Button>
-            <Select
-              value={room.id}
-              onValueChange={id => id && pageChat.onSelectConversation(id)}
-              disabled={pageChat.conversationsPending || pageChat.accessDenied}>
-              <SelectTrigger
-                aria-label={t('pod.page_chat.choose_chat')}
-                title={t('pod.page_chat.choose_chat')}
-                className="pod-page-chat-switcher"
-                variant="ghost"
-                size="sm">
-                <RiHistoryLine aria-hidden />
-                <SelectValue className="sr-only" />
-              </SelectTrigger>
-              <SelectContent align="end" className="pod-page-chat-history-menu">
-                <SelectItem value="new">{t('pod.chat.new_conversation')}</SelectItem>
-                {historyItems.map(chat => (
-                  <SelectItem key={chat.id} value={chat.id}>
-                    {chat.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </>
-        )}
-        {!embedded && (
-          <button
-            type="button"
-            className="pod-chat-avatar-cluster"
-            aria-label={t('pod.chat_room.participants_list', {
-              names: room.participants.map(member => member.displayName).join(', ')
-            })}
-            title={room.participants.map(member => member.displayName).join(', ')}
-            onClick={onInvite}>
-            {room.participants.slice(0, 4).map(member => (
-              <ChatAvatar
-                key={member.uid}
-                name={member.displayName}
-                src={member.avatarURL}
-                agent={member.type === 'agent'}
-              />
-            ))}
-            {room.participants.length > 4 && (
-              <span className="pod-chat-avatar pod-chat-avatar-overflow">+{room.participants.length - 4}</span>
-            )}
-          </button>
-        )}
+        <button
+          type="button"
+          className="pod-chat-avatar-cluster"
+          aria-label={t('pod.chat_room.participants_list', {
+            names: room.participants.map(member => member.displayName).join(', ')
+          })}
+          title={room.participants.map(member => member.displayName).join(', ')}
+          onClick={onInvite}>
+          {room.participants.slice(0, 4).map(member => (
+            <ChatAvatar
+              key={member.uid}
+              name={member.displayName}
+              src={member.avatarURL}
+              agent={member.type === 'agent'}
+            />
+          ))}
+          {room.participants.length > 4 && (
+            <span className="pod-chat-avatar pod-chat-avatar-overflow">+{room.participants.length - 4}</span>
+          )}
+        </button>
         <Button
-          size={embedded ? 'icon-xs' : 'sm'}
+          size="sm"
           variant="ghost"
-          aria-label={t('pod.chat_room.invite')}
-          title={t('pod.chat_room.invite')}
+          aria-label={inviteLabel}
+          title={inviteLabel}
           onClick={onInvite}
           disabled={!canParticipate}>
           <RiUserAddLine aria-hidden />
-          {!embedded && <span className="pod-chat-invite-label">{t('pod.chat_room.invite')}</span>}
+          <span className="pod-chat-invite-label">{inviteLabel}</span>
         </Button>
-        {!embedded && (
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label={t('pod.chat_room.find')}
-            title={t('pod.chat_room.find')}
-            aria-keyshortcuts="Meta+F Control+F"
-            onClick={onFind}>
-            <RiSearchLine aria-hidden />
-          </Button>
-        )}
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label={t('pod.chat_room.find')}
+          title={t('pod.chat_room.find')}
+          aria-keyshortcuts="Meta+F Control+F"
+          onClick={onFind}>
+          <RiSearchLine aria-hidden />
+        </Button>
         <Button
           ref={summaryTrigger}
-          size={embedded ? 'icon-xs' : 'icon-sm'}
+          size="icon-sm"
           variant="ghost"
           aria-label={t('pod.chat_room.summary')}
           title={t('pod.chat_room.summary')}
@@ -311,7 +232,7 @@ export function RoomHeader({
           <DropdownMenuTrigger
             render={
               <Button
-                size={embedded ? 'icon-xs' : 'icon-sm'}
+                size="icon-sm"
                 variant="ghost"
                 aria-label={t('pod.chat_room.more')}
                 title={t('pod.chat_room.more')}
@@ -320,34 +241,28 @@ export function RoomHeader({
             <RiMoreLine aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" finalFocus={menuFinalFocus}>
-            {embedded && (
-              <DropdownMenuItem onClick={onFind}>
-                <RiSearchLine aria-hidden />
-                {t('pod.chat_room.find')}
+            {!colleague && (
+              <DropdownMenuItem
+                disabled={!canParticipate}
+                onClick={() => {
+                  keepFocusInTitle.current = true
+                  saving.current = false
+                  setTitle(room.title)
+                  onEditingChange(true)
+                }}>
+                {t('pod.chat_room.rename')}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem
-              disabled={!canParticipate}
-              onClick={() => {
-                keepFocusInTitle.current = true
-                saving.current = false
-                setTitle(room.title)
-                onEditingChange(true)
-              }}>
-              {t('pod.chat_room.rename')}
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => actions.update.mutate({ pinned: !room.viewer.pinned })}>
               <RiPushpinLine aria-hidden />
               {t(room.viewer.pinned ? 'pod.chat_room.unpin' : 'pod.chat_room.pin')}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
-                void navigator.clipboard
-                  .writeText(new URL(podLocation(`/conversations/${room.id}`).pathname, location.origin).href)
-                  .then(
-                    () => toast.success(t('pod.chat_room.link_copied')),
-                    () => toast.error(t('pod.chat_room.copy_failed'))
-                  )
+                void navigator.clipboard.writeText(new URL(conversationPath(room), location.origin).href).then(
+                  () => toast.success(t('pod.chat_room.link_copied')),
+                  () => toast.error(t('pod.chat_room.copy_failed'))
+                )
               }}>
               <RiLink aria-hidden />
               {t('pod.chat_room.copy_link')}
@@ -373,33 +288,7 @@ export function RoomHeader({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        {pageChat && (
-          <>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={t('pod.page_chat.open_chat')}
-              title={t('pod.page_chat.open_chat')}
-              render={<Link to={podLocation(`/conversations/${room.id}`).pathname} />}
-              nativeButton={false}>
-              <RiExternalLinkLine aria-hidden />
-            </Button>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={t('pod.page_chat.close')}
-              title={t('pod.page_chat.close')}
-              onClick={pageChat.onClose}>
-              <RiCloseLine aria-hidden />
-            </Button>
-          </>
-        )}
       </header>
-      {pageChat?.listError != null && (
-        <div className="border-b border-border px-3 py-1.5">
-          <ContentError error={pageChat.listError} retry={pageChat.onRetryList} />
-        </div>
-      )}
       <Dialog open={leaving} onOpenChange={open => !open && !actions.participants.isPending && setLeaving(false)}>
         <DialogContent closeLabel={t('common.close')}>
           <DialogTitle>{t('pod.chat_room.leave')}</DialogTitle>

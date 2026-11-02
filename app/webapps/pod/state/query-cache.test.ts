@@ -53,6 +53,7 @@ function detail(withReply: boolean): ConversationDetail {
       canDelete: true,
       canManage: true,
       roomMode: 'dm',
+      conversationKind: 'colleague_dm',
       titleCustomized: false,
       createdBy: 'person',
       lastMessageSeq: 1,
@@ -113,6 +114,28 @@ function detail(withReply: boolean): ConversationDetail {
 }
 
 describe('Pod remote cache ordering', () => {
+  test('origin updates resume and settle a peer card while its details drawer is closed', async () => {
+    const queryClient = client()
+    const key = [...podKeys.detail('conversation'), 'peer', 'exchange']
+    queryClient.setQueryData(key, { status: 'waiting_choice' })
+    let status = 'running'
+    const query = new QueryObserver(queryClient, {
+      queryKey: key,
+      queryFn: () => Promise.resolve({ status })
+    })
+    const unsubscribe = query.subscribe(() => {})
+    try {
+      await reloadConversation(queryClient, 'conversation', new ChatModel())
+      expect(query.getCurrentResult().data?.status).toBe('running')
+      status = 'idle'
+      await reloadConversation(queryClient, 'conversation', new ChatModel())
+      expect(query.getCurrentResult().data?.status).toBe('idle')
+    } finally {
+      unsubscribe()
+      queryClient.clear()
+    }
+  })
+
   test('edit recovery follows an event replacement read and never adopts its cancelled snapshot', async () => {
     const queryClient = client()
     queryClient.setQueryData(podKeys.detail('conversation'), detail(false))

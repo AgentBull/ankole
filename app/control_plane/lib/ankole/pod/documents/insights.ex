@@ -76,7 +76,7 @@ defmodule Ankole.Pod.Documents.Insights do
 
   def visit_in_tx(_page, _uid, nil), do: :ok
 
-  def visit_in_tx(%{type: :doc, id: id}, uid, now) do
+  def visit_in_tx(%{type: type, id: id}, uid, now) when type in [:doc, :knowledge] do
     previous = user_state_in_tx(uid, id)
     if due?(previous && previous.visited_at, now), do: record_in_tx(id, :views, now), else: :ok
   end
@@ -124,7 +124,7 @@ defmodule Ankole.Pod.Documents.Insights do
 
   defp due?(nil, _now), do: true
   defp due?(previous, now), do: DateTime.diff(now, previous, :second) >= @session_seconds
-  defp document(%{type: :doc}), do: :ok
+  defp document(%{type: type}) when type in [:doc, :knowledge], do: :ok
   defp document(_), do: {:error, :invalid_page_type}
 
   defp contributor(author, page, content, profiles) do

@@ -30,7 +30,7 @@ order: 306
 下面配置一个每周自动生成 PDF 状态周报的 Agent：
 
 1. 确认 `pdf` Skill 已启用（默认开启）。
-2. 创建 Agent 并编写 `MISSION.md`：“每周生成一份 PDF 格式的状态报告：从频道历史记录中汇总本周指标，以 Markdown 撰写正文，使用 Typst 渲染为 PDF，通过 Poppler 校验无误后将文件发送至频道。”
+2. 创建 Agent 并编写 `AGENTS.md`：“每周生成一份 PDF 格式的状态报告：从频道历史记录中汇总本周指标，以 Markdown 撰写正文，使用 Typst 渲染为 PDF，通过 Poppler 校验无误后将文件发送至频道。”
 3. 添加一条每周定时触发的 [计划任务](../schedules/)。
 4. 每次计划任务触发时，Agent 都会自动汇总上下文、撰写 Markdown 源稿、在 Shell 中调用 `pdf` Skill 工具链渲染并校验成品，最后将 PDF 附件发到指定频道。
 

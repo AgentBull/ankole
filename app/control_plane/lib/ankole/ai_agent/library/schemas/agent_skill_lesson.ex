@@ -174,6 +174,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     end
 
     action :console_teach, :struct do
+      transaction?(false)
       constraints(instance_of: __MODULE__)
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:skill_name, :string, allow_nil?: false)

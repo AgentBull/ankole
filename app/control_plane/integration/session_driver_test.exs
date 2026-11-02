@@ -1414,7 +1414,7 @@ defmodule Ankole.Sessions.DriverTest do
 
     names = Enum.map(first.body["tools"], &get_in(&1, ["function", "name"]))
     assert Enum.all?(expected, &(&1 in names)), inspect(names)
-    assert Enum.all?(names -- expected, &(&1 in ~w(recall get_page entity whoknows delta)))
+    assert Enum.all?(names -- expected, &(&1 in ~w(recall entity whoknows delta)))
 
     assert Enum.map(repair.body["tools"], &get_in(&1, ["function", "name"])) |> Enum.sort() == [
              "sleep",

@@ -12,27 +12,27 @@
 
 ```bash
 # 先预览请求，不实际执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks rollback \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks rollback \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","node_ids":["<NODE_ID>"],"comment":"退回补充材料"}' \
   --dry-run
 
 # 退回到单个节点
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks rollback \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks rollback \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","node_ids":["<NODE_ID>"],"comment":"请补充附件后重新提交"}' \
   --yes
 
 # 退回到发起节点（发起节点 ID 为 START）
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks rollback \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks rollback \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","node_ids":["START"],"comment":"退回发起人补充材料"}' \
   --yes
 
 # 传多个候选节点 ID（以实际审批定义支持情况为准）
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks rollback \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks rollback \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","node_ids":["<NODE_ID_1>","<NODE_ID_2>"],"comment":"退回上一处理节点"}' \
   --yes
 
 # 通过文件传入请求体，适合较长 comment 或较多 node_ids
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks rollback \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks rollback \
   --data @./rollback-body.json \
   --yes
 ```
@@ -56,7 +56,7 @@
 先查到待办任务：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks query --params '{"topic":"1"}'
 ```
 
 常用到的字段：
@@ -70,7 +70,7 @@
 如需确认流程节点、当前进度和可退回位置，可先查看实例详情：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 ```
 
 ## 使用建议

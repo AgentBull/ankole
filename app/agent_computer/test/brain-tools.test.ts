@@ -26,7 +26,7 @@ const recallSchema = {
   required: ['query'],
   additionalProperties: false
 }
-const getPageSchema = {
+const entitySchema = {
   type: 'object',
   properties: { reference: { type: 'string', minLength: 1 } },
   required: ['reference'],
@@ -43,7 +43,7 @@ const requestContext = {
       activity: 'memory_recall',
       read_only: true
     },
-    { type: 'function', name: 'get_page', description: 'Read one memory page.', parameters: getPageSchema }
+    { type: 'function', name: 'entity', description: 'Read one entity.', parameters: entitySchema }
   ]
 }
 
@@ -55,19 +55,19 @@ describe('Job Brain read adapter', () => {
 
     const declarations = brainToolDeclarations(requestContext)
     const tools = createBrainTools({ turn, rpc: unusedRPC, declarations })
-    expect(tools.map(tool => tool.name)).toEqual(['recall', 'get_page'])
+    expect(tools.map(tool => tool.name)).toEqual(['recall', 'entity'])
     for (const tool of tools) {
       expect(tool.isReadOnly).toBe(true)
       expect(tool.isDestructive).toBe(false)
     }
     expect(tools[0]!.describeActivity({})).toEqual({ key: 'conversations.delivery.reply.activity.memory_recall' })
-    expect(tools[1]!.describeActivity({})).toEqual({ key: 'conversations.delivery.reply.activity.get_page' })
+    expect(tools[1]!.describeActivity({})).toEqual({ key: 'conversations.delivery.reply.activity.entity' })
 
     const projection = buildCodexJobProjection({ tools })
     expect(projection.quarantinedTools).toEqual([])
     expect(projection.dynamicTools).toEqual([
       { type: 'function', name: 'recall', description: 'Search the Brain memory.', inputSchema: recallSchema },
-      { type: 'function', name: 'get_page', description: 'Read one memory page.', inputSchema: getPageSchema }
+      { type: 'function', name: 'entity', description: 'Read one entity.', inputSchema: entitySchema }
     ])
   })
 
@@ -79,7 +79,7 @@ describe('Job Brain read adapter', () => {
     )
   })
 
-  it('executes recall and get_page through the fenced tools.read owner without local validation', async () => {
+  it('executes recall and entity through the fenced tools.read owner without local validation', async () => {
     const calls: Array<{ name: string; args: unknown; scope: unknown }> = []
     const rpc = (async (method: unknown, payload: unknown, scope: unknown) => {
       expect(method).toBe('tools.read')
@@ -91,8 +91,8 @@ describe('Job Brain read adapter', () => {
         ? { bodyJson: jsonBytes({ output: '{"claims":[]}', details: { claims: [] } }) }
         : {
             bodyJson: jsonBytes({
-              output: 'Use skill_view to load lazyload-agent-skills/ results.\n{"page":{}}',
-              details: { page: { slug: 'lazyload-agent-skills/pdf' } }
+              output: '{"entity":{}}',
+              details: { entity: { page_id: 'entity-page' } }
             })
           }
     }) as unknown as RPCRequester
@@ -109,10 +109,8 @@ describe('Job Brain read adapter', () => {
       contentItems: [{ type: 'inputText', text: '{"claims":[]}' }],
       success: true
     })
-    expect(await call('call-2', 'get_page', { reference: 'pdf' })).toEqual({
-      contentItems: [
-        { type: 'inputText', text: 'Use skill_view to load lazyload-agent-skills/ results.\n{"page":{}}' }
-      ],
+    expect(await call('call-2', 'entity', { reference: 'pdf' })).toEqual({
+      contentItems: [{ type: 'inputText', text: '{"entity":{}}' }],
       success: true
     })
     // The owner validates arguments against its declaration; the Worker does not keep a second schema.
@@ -120,7 +118,7 @@ describe('Job Brain read adapter', () => {
 
     expect(calls).toEqual([
       { name: 'recall', args: { query: 'wire format', entity: 'concepts/wire-format' }, scope: { jobTurn: turn } },
-      { name: 'get_page', args: { reference: 'pdf' }, scope: { jobTurn: turn } },
+      { name: 'entity', args: { reference: 'pdf' }, scope: { jobTurn: turn } },
       { name: 'recall', args: { budget_tokens: 0 }, scope: { jobTurn: turn } }
     ])
   })
@@ -138,7 +136,7 @@ describe('Job Brain read adapter', () => {
         rpc,
         declarations: brainToolDeclarations({
           brain_tools: [
-            { type: 'function', name, description: 'Declared by the control plane', parameters: getPageSchema }
+            { type: 'function', name, description: 'Declared by the control plane', parameters: entitySchema }
           ]
         })
       })

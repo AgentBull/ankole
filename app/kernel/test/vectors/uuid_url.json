@@ -1,10 +1,30 @@
 {
   "valid": [
-    { "uuid": "00000000-0000-0000-0000-000000000000", "short": "AAAAAAAAAAAAAAAAAAAAAA" },
-    { "uuid": "ffffffff-ffff-ffff-ffff-ffffffffffff", "short": "_____________________w" },
-    { "uuid": "00112233-4455-6677-8899-aabbccddeeff", "short": "ABEiM0RVZneImaq7zN3u_w" },
-    { "uuid": "01a15007-9b83-70f3-8830-060ec9b8419f", "short": "AaFQB5uDcPOIMAYOybhBnw" }
+    { "uuid": "00000000-0000-0000-0000-000000000000", "short": "00000000000000000000000000" },
+    { "uuid": "ffffffff-ffff-ffff-ffff-ffffffffffff", "short": "7zzzzzzzzzzzzzzzzzzzzzzzzz" },
+    { "uuid": "00112233-4455-6677-8899-aabbccddeeff", "short": "0024h36h2ncsvrh6daqf6dvvqz" },
+    { "uuid": "01a15007-9b83-70f3-8830-060ec9b8419f", "short": "01m580f6w3e3srgc061v4vggcz" },
+    { "uuid": "01a05864-9833-7581-88ac-578af1df1818", "short": "01m1c6961kep0rhb2qhbrxy60r" }
   ],
-  "invalid_short": ["", "A", "AAAAAAAAAAAAAAAAAAAAAA==", "AAAAAAAAAAAAAAAAAAAAAB", "_____________________x", "ABEiM0RVZneImaq7zN3u/w", "AAAAAAAAAAAAAAAAAAAAA "],
-  "invalid_uuid": ["", "00112233445566778899aabbccddeeff", "00112233-4455-6677-8899-AABBCCDDEEFF", "urn:uuid:00112233-4455-6677-8899-aabbccddeeff", "not-a-uuid"]
+  "invalid_short": [
+    "",
+    "0",
+    "ABEiM0RVZneImaq7zN3u_w",
+    "000000000000000000000000000",
+    "80000000000000000000000000",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "0000000000000000000000000i",
+    "0000000000000000000000000l",
+    "0000000000000000000000000o",
+    "0000000000000000000000000u",
+    "0024H36H2NCSVRH6DAQF6DVVQZ",
+    "0000000000000000000000000 "
+  ],
+  "invalid_uuid": [
+    "",
+    "00112233445566778899aabbccddeeff",
+    "00112233-4455-6677-8899-AABBCCDDEEFF",
+    "urn:uuid:00112233-4455-6677-8899-aabbccddeeff",
+    "not-a-uuid"
+  ]
 }

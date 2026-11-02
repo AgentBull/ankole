@@ -11,8 +11,6 @@ defmodule AnkoleWeb.BrainControllerTest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Brain.Chunks
   alias Ankole.Brain.Schemas.Chunk
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
@@ -194,36 +192,22 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   test "health keeps internal embedding failures in server logs", %{conn: conn} do
     {conn, _principal_uid} = console_conn_with_principal(conn)
-    now = DateTime.utc_now(:microsecond)
 
     internal_reason =
       "{:provider_unavailable, credential_id: cred-secret-123, env: OPEN_ROUTER_API_KEY}"
 
     {:ok, object} =
-      Repo.transact(fn ->
-        Ankole.Ash.create(Object, :create, %{
-          id: UUIDv7.autogenerate(),
+      Ankole.Brain.create_object(
+        %{
           slug: "notes/health-internal-error",
           type: "note",
           title: "Health internal error",
-          body: "Projection source",
-          meta: %{},
-          created_at: now,
-          updated_at: now
-        })
-      end)
+          body: "Projection source"
+        },
+        :system
+      )
 
-    assert {:ok, chunk} =
-             Repo.transact(fn ->
-               Ankole.Ash.create(Chunk, :project, %{
-                 object_id: object.id,
-                 chunk_index: 0,
-                 content_kind: :body,
-                 audience_scope: "world",
-                 chunk_text: object.body,
-                 token_count: 2
-               })
-             end)
+    chunk = Repo.get_by!(Chunk, source_node_id: object.id, chunk_index: 0)
 
     assert {:ok, :updated} =
              Chunks.record_embedding(chunk, {:error, internal_reason, "failed-signature"})
@@ -278,17 +262,18 @@ defmodule AnkoleWeb.BrainControllerTest do
     {:ok, %{claim: claim}} =
       Ankole.Brain.write_fact(
         %{
-          object_slug: object.slug,
+          subject_page_id: object.id,
           claim: "Zirconium confidential plan",
           kind: "fact",
           holder: "people/#{member.uid}",
-          audience_scope: "principal:#{member.uid}",
+          source_node_id:
+            Ankole.Files.Nodes.private_root(member.uid) |> elem(1) |> Map.fetch!(:id),
           notability: "high",
           confidence: 0.9,
           valid_from: DateTime.utc_now(:microsecond),
           provenance: "Console preview test"
         },
-        writer_uid
+        member.uid
       )
 
     preview = fn uid, extra ->
@@ -304,7 +289,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
     member_result = preview.(member.uid, %{})
     assert Enum.any?(member_result["claims"], &(&1["id"] == claim.id))
-    assert Enum.any?(member_result["chunks"], &(&1["object_slug"] == object.slug))
+    assert Enum.any?(member_result["chunks"], &(&1["subject_page_id"] == object.id))
     refute Enum.any?(preview.(outsider.uid, %{})["claims"], &(&1["id"] == claim.id))
 
     refute Enum.any?(

@@ -9,13 +9,15 @@ tags: [lark, feishu, approval, workflow]
 metadata:
   requires:
     bins: ["lark-cli"]
-  cliHelp: "/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals"
+  cliHelp: "scripts/lark-approvals"
   upstream: https://github.com/larksuite/cli/tree/a7865cd0a7416655535517a2a630848fde318761/skills/lark-approval
   upstream_commit: a7865cd0a7416655535517a2a630848fde318761
   modified_for: Ankole one-to-many digital coworker runtime
 ---
 
 # 飞书审批
+
+在执行命令的 shell 中，将本次 `skill_view` 返回的 `directory` 值保存为变量 `LARK_APPROVALS_DIR`。`metadata.cliHelp` 和资源相对路径均以该目录为基准。
 
 **CRITICAL — 开始前 MUST 先读取 [`references/user-runtime.md`](references/user-runtime.md)。**
 
@@ -25,8 +27,8 @@ Ankole 是一名数字同事服务多个用户，不是只服务一个人的个�
 
 所有命令都必须调用下面的 wrapper：
 
-```text
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals
+```bash
+"$LARK_APPROVALS_DIR/scripts/lark-approvals"
 ```
 
 不要为本 Skill 直接调用 `lark-cli`，也不要传 `--as` 或 `--profile`。wrapper 根据当前 Turn 发起人选择 profile，并移除继承的 Agent bot 凭据。审批读取和写入固定使用该 profile 的 user 身份；附件上传固定使用同一 profile、同一 PersonalAgent app 的应用身份。wrapper 只串行化账号配置操作。正常审批读取、附件上传和审批写入可在不同用户 profile 之间并行。
@@ -112,10 +114,10 @@ Ankole 是一名数字同事服务多个用户，不是只服务一个人的个�
 拒绝、转交和撤回最容易遇到状态切换，必须严格按此规则处理。
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals search --data '{"keyword":"请假"}'
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals get --params '{"approval_code":"<code>"}'
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}'
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks approve --data '{"instance_code":"<ic>","task_id":"<tid>","comment":"同意"}' --dry-run
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals search --data '{"keyword":"请假"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals get --params '{"approval_code":"<code>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks query --params '{"topic":"1"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks approve --data '{"instance_code":"<ic>","task_id":"<tid>","comment":"同意"}' --dry-run
 ```
 
 ## 上传审批附件或图片
@@ -145,7 +147,7 @@ multipart 请求体字段：
 `attachmentV2` 使用 `type=attachment`；`image` 和 `imageV2` 使用 `type=image`。
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals files upload --file content=./receipts/invoice.pdf --data '{"name":"invoice.pdf","type":"attachment"}' --format json
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" files upload --file content=./receipts/invoice.pdf --data '{"name":"invoice.pdf","type":"attachment"}' --format json
 ```
 
 ### 响应契约

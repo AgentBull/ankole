@@ -20,11 +20,11 @@ defmodule Ankole.Brain.Dreaming do
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
-  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.ModelCalls
+  alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Contradiction
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Schemas.SchemaSuggestion
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.Tag
@@ -52,7 +52,6 @@ defmodule Ankole.Brain.Dreaming do
     :contradictions,
     :schema_suggest,
     :merge_suggest,
-    :purge,
     :skill_lessons
   ]
 
@@ -91,7 +90,6 @@ defmodule Ankole.Brain.Dreaming do
       :contradictions -> phase_contradictions()
       :schema_suggest -> phase_schema_suggest()
       :merge_suggest -> Ankole.Brain.Merge.run_phase()
-      :purge -> phase_purge()
       :skill_lessons -> Ankole.Brain.SkillLessons.run_phase()
     end
   rescue
@@ -111,13 +109,13 @@ defmodule Ankole.Brain.Dreaming do
     bucket_keys = consolidation_buckets(threshold)
 
     promoted =
-      Enum.reduce(bucket_keys, 0, fn {object_slug, holder, scope, signature}, count ->
+      Enum.reduce(bucket_keys, 0, fn {subject_page_id, holder, scope, signature}, count ->
         facts =
           Claim
           |> Ash.Query.filter(
             current_external_fact? == true and is_nil(consolidated_at) and
-              not is_nil(embedding) and object_slug == ^object_slug and holder == ^holder and
-              audience_scope == ^scope and embedding_signature == ^signature
+              not is_nil(embedding) and subject_page_id == ^subject_page_id and holder == ^holder and
+              source_node_id == ^scope and embedding_signature == ^signature
           )
           |> Ankole.Ash.read!()
 
@@ -125,7 +123,7 @@ defmodule Ankole.Brain.Dreaming do
         |> cluster_by_similarity(@consolidate_similarity)
         |> Enum.filter(&(length(&1) >= 2))
         |> Enum.reduce(count, fn cluster, count ->
-          case promote_cluster(object_slug, scope, cluster) do
+          case promote_cluster(subject_page_id, scope, cluster) do
             :ok -> count + 1
             :skip -> count
           end
@@ -143,10 +141,10 @@ defmodule Ankole.Brain.Dreaming do
     |> where([claim], is_nil(claim.consolidated_at))
     |> where([claim], not is_nil(claim.embedding))
     |> where([claim], not is_nil(claim.embedding_signature))
-    |> where([claim], not is_nil(claim.object_slug))
+    |> where([claim], not is_nil(claim.subject_page_id))
     |> group_by(
       [claim],
-      [claim.object_slug, claim.holder, claim.audience_scope, claim.embedding_signature]
+      [claim.subject_page_id, claim.holder, claim.source_node_id, claim.embedding_signature]
     )
     |> having(
       [claim],
@@ -154,7 +152,7 @@ defmodule Ankole.Brain.Dreaming do
     )
     |> select(
       [claim],
-      {claim.object_slug, claim.holder, claim.audience_scope, claim.embedding_signature}
+      {claim.subject_page_id, claim.holder, claim.source_node_id, claim.embedding_signature}
     )
     |> limit(@consolidate_bucket_limit)
     |> Repo.all()
@@ -220,7 +218,7 @@ defmodule Ankole.Brain.Dreaming do
 
   # The take insert and the consolidation marks commit together in one
   # top-level transaction. The embedding prepares before the transaction.
-  defp promote_cluster(object_slug, scope, cluster) do
+  defp promote_cluster(subject_page_id, scope, cluster) do
     top = Enum.max_by(cluster, & &1.confidence)
     average = Enum.sum(Enum.map(cluster, & &1.confidence)) / length(cluster)
     weight = Float.round(average * 20) / 20
@@ -228,11 +226,11 @@ defmodule Ankole.Brain.Dreaming do
     embedding = Claims.prepare_embedding(top.claim)
 
     take = %{
-      object_slug: object_slug,
+      subject_page_id: subject_page_id,
       claim: top.claim,
       kind: "take",
       holder: "brain",
-      audience_scope: scope,
+      source_node_id: scope,
       weight: min(max(weight, 0.0), 1.0),
       provenance: "dreaming consolidation of #{length(cluster)} facts"
     }
@@ -257,27 +255,23 @@ defmodule Ankole.Brain.Dreaming do
         objects =
           Object
           |> Ash.Query.filter(
-            is_nil(deleted_at) and
-              (is_nil(timelines_extracted_at) or timelines_extracted_at < updated_at)
+            is_nil(deleted_at) and kind == :knowledge and
+              fragment(
+                "?->>'timeline_revision' IS DISTINCT FROM ?::text",
+                upstream_state,
+                revision
+              )
           )
-          |> Ash.Query.limit(200)
+          |> Ash.Query.sort(updated_at: :asc, id: :asc)
           |> Ankole.Ash.read!()
+          |> Stream.filter(&Ankole.Brain.Knowledge.extractable?/1)
+          |> Enum.take(200)
 
         timelines =
           Enum.reduce(objects, 0, fn object, count ->
             case extract_object_timelines(model, object) do
-              {:ok, written} ->
-                {:ok, _stamped} =
-                  Object
-                  |> Ash.Query.filter(id == ^object.id)
-                  |> Ankole.Ash.update_where(:stamp_timelines, %{
-                    content_updated_at: object.updated_at
-                  })
-
-                count + written
-
-              :skip ->
-                count
+              {:ok, written} -> count + written
+              _ -> count
             end
           end)
 
@@ -285,72 +279,71 @@ defmodule Ankole.Brain.Dreaming do
     end
   end
 
-  # Timeline events extract per Markdoc segment, so each written row
-  # inherits the scope of the passage it came from. The timeline dedup key
-  # (object, date, summary, provenance) makes reruns idempotent.
-  defp extract_object_timelines(model, %Object{} = object) do
-    case Markdoc.segments(object.body) do
-      {:ok, segments} ->
-        segments
-        |> Enum.filter(fn segment -> String.trim(segment.text) != "" end)
-        |> Enum.reduce_while({:ok, 0}, fn segment, {:ok, count} ->
-          case extract_segment_timelines(model, object, segment) do
-            {:ok, written} -> {:cont, {:ok, count + written}}
-            :skip -> {:halt, :skip}
-          end
-        end)
-
-      {:error, _reason} ->
-        # An unparseable stored body has no segments to extract; the stamp
-        # advances so the object cannot wedge the phase forever.
-        {:ok, 0}
-    end
-  end
-
-  defp extract_segment_timelines(model, object, segment) do
+  defp extract_object_timelines(model, object) do
     prompt = """
-    Extract dated events from one memory page passage. Only an event with an
-    explicit calendar date qualifies; do not infer dates. Return one JSON
-    object: {"items":[{"date":"YYYY-MM-DD","summary":"one line","detail":"optional expansion"}]}
-    Return {"items":[]} when the passage has none.
-
+    Extract dated events from this knowledge page. Only events with an explicit calendar date
+    qualify. Do not infer dates. Return JSON:
+    {"items":[{"date":"YYYY-MM-DD","summary":"one line","detail":"optional expansion"}]}
+    Return {"items":[]} when there are none.
     Page: #{object.title}
-    Passage:
-    #{segment.text}
+    #{object.body}
     """
 
-    case ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.timelines") do
-      {:ok, output} ->
-        author = Config.execution_author!()
+    with {:ok, output} <-
+           ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.timelines") do
+      Repo.transact_top_level(fn ->
+        with {:ok, current} <- Objects.lock_object_in_tx(object.id),
+             true <- is_nil(current.deleted_at) and current.revision == object.revision do
+          author = Config.execution_author!()
 
-        written =
-          output["items"]
-          |> List.wrap()
-          |> Enum.count(fn item ->
-            with date_text when is_binary(date_text) <- item["date"],
-                 {:ok, date} <- Date.from_iso8601(date_text),
-                 summary when is_binary(summary) <- item["summary"] do
-              attrs = %{
-                object_slug: object.slug,
-                date: date,
-                summary: summary,
-                detail: item["detail"] || "",
-                provenance: "dreaming timeline extraction",
-                audience_scope: segment.scope
-              }
+          {:ok, _} =
+            Ankole.Brain.Schemas.Timeline
+            |> Ash.Query.filter(
+              source_node_id == ^object.id and string_starts_with(provenance, "page:")
+            )
+            |> Ankole.Ash.destroy_where(:remove)
 
-              match?({:ok, _timeline}, Timelines.write_timeline(attrs, :system, author: author))
-            else
-              _invalid -> false
-            end
-          end)
-
-        {:ok, written}
-
-      {:error, _reason} ->
-        :skip
+          with {:ok, count} <- write_extracted_timelines(output["items"], object, author),
+               {:ok, _} <-
+                 Ankole.Pod.Knowledge.sync_upstream_in_tx(object.id, %{
+                   "timeline_revision" => object.revision
+                 }) do
+            {:ok, count}
+          end
+        else
+          false -> {:error, :stale_run}
+          error -> error
+        end
+      end)
     end
   end
+
+  defp write_extracted_timelines(items, object, author) when is_list(items) do
+    Enum.reduce_while(items, {:ok, 0}, fn item, {:ok, count} ->
+      with %{"date" => date_text, "summary" => summary} when is_binary(date_text) <- item,
+           {:ok, date} <- Date.from_iso8601(date_text),
+           {:ok, _} <-
+             Timelines.write_timeline_in_tx(
+               %{
+                 subject_page_id: object.id,
+                 source_node_id: object.id,
+                 date: date,
+                 summary: summary,
+                 detail: item["detail"] || "",
+                 provenance: "page:" <> object.id <> ":" <> to_string(object.revision)
+               },
+               :system,
+               author: author
+             ) do
+        {:cont, {:ok, count + 1}}
+      else
+        {:error, _} = error -> {:halt, error}
+        _ -> {:halt, {:error, :invalid_timeline_output}}
+      end
+    end)
+  end
+
+  defp write_extracted_timelines(_, _, _), do: {:error, :invalid_timeline_output}
 
   defp phase_contradictions do
     case Config.dreaming_model() do
@@ -368,7 +361,7 @@ defmodule Ankole.Brain.Dreaming do
   def contradiction_candidates do
     claims =
       Claim
-      |> Ash.Query.filter(current_external_fact? == true and not is_nil(object_slug))
+      |> Ash.Query.filter(current_external_fact? == true and not is_nil(subject_page_id))
       |> Ash.Query.sort(created_at: :desc)
       |> Ash.Query.limit(400)
       |> Ankole.Ash.read!()
@@ -383,7 +376,7 @@ defmodule Ankole.Brain.Dreaming do
       |> MapSet.new(&{&1.a_claim_id, &1.b_claim_id})
 
     claims
-    |> Enum.group_by(&{&1.object_slug, &1.holder, &1.audience_scope})
+    |> Enum.group_by(&{&1.subject_page_id, &1.holder, &1.source_node_id})
     |> Enum.flat_map(fn {_slug, claims} ->
       for a <- claims, b <- claims, a.id < b.id, do: {a, b}
     end)
@@ -516,13 +509,13 @@ defmodule Ankole.Brain.Dreaming do
     tag_pages =
       Tag
       |> where([tag], tag.tag in ^terms)
-      |> select([tag], %{term: tag.tag, slug: tag.object_slug})
+      |> select([tag], %{term: tag.tag, slug: tag.subject_page_id})
 
     subtype_pages =
       Object
       |> where([object], is_nil(object.deleted_at))
       |> where([object], object.subtype in ^terms)
-      |> select([object], %{term: object.subtype, slug: object.slug})
+      |> select([object], %{term: object.subtype, slug: object.id})
 
     tag_pages
     |> union_all(^subtype_pages)
@@ -565,21 +558,4 @@ defmodule Ankole.Brain.Dreaming do
   @doc false
   @spec vocabulary_terms() :: [String.t()]
   defdelegate vocabulary_terms, to: Ankole.Brain.Vocabulary, as: :terms
-
-  @doc false
-  def phase_purge do
-    ttl_hours = Config.soft_delete_retention_hours()
-    threshold = DateTime.add(DateTime.utc_now(), -round(ttl_hours * 3600), :second)
-
-    {:ok, purged} =
-      Object
-      |> Ash.Query.filter(
-        not is_nil(deleted_at) and deleted_at < ^threshold and is_nil(managed_by_source_id)
-      )
-      |> Ankole.Ash.destroy_where(:purge, %{}, select: [:id])
-
-    # Chunks of soft-deleted objects survive until this hard delete; expired
-    # facts and superseded claims are never hard-deleted.
-    %{status: :ok, purged: length(purged)}
-  end
 end

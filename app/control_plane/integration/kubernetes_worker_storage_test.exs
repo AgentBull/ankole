@@ -48,7 +48,7 @@ defmodule Ankole.KubernetesWorkerStorageIntegrationTest do
         "label",
         "namespace",
         ctx.namespace,
-        "pod-security.kubernetes.io/enforce=restricted"
+        "pod-security.kubernetes.io/enforce=privileged"
       ])
 
       assert :ok = Kubernetes.check(provider)
@@ -252,7 +252,7 @@ defmodule Ankole.KubernetesWorkerStorageIntegrationTest do
                }
              })
 
-    # Operator storage preparation precedes restricted Worker admission (WP 2.5).
+    # Operator storage preparation precedes Worker admission.
     assert {:ok, _pod} =
              Client.create(provider, %{
                "apiVersion" => "v1",
@@ -428,7 +428,24 @@ defmodule Ankole.KubernetesWorkerStorageIntegrationTest do
 
   defp exec(ctx, name, script),
     do:
-      kubectl!(ctx.kubeconfig_path, ["-n", ctx.namespace, "exec", name, "--", "sh", "-ec", script])
+      kubectl!(ctx.kubeconfig_path, [
+        "-n",
+        ctx.namespace,
+        "exec",
+        name,
+        "--",
+        "setpriv",
+        "--reuid=1000",
+        "--regid=1000",
+        "--clear-groups",
+        "--inh-caps=-all",
+        "--ambient-caps=-all",
+        "--bounding-set=-all",
+        "--no-new-privs",
+        "sh",
+        "-ec",
+        script
+      ])
 
   defp kubectl!(kubeconfig, args) do
     {output, status} =

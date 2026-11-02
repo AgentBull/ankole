@@ -50,24 +50,11 @@ platforms: [linux]
 
 由于 Agent 在日常对话中全靠阅读 `description` 来判断当前任务是否需要展开该 Skill，请在 `description` 中写明清晰具体的触发场景。若该项工作耗时较长或强依赖独立任务工作区，请显式指定 `ankole-runtime: background_job`；仅当脚本确需依赖 Linux 专属命令行工具时，再声明 `platforms: [linux]`。
 
-### 让 Brain 发现随产品发布的 Skill
+### 共享知识与参考章节
 
-如果某份专业 SOP 或细分方法论不宜每轮都塞进所有 Agent 的默认目录浪费上下文，但又希望在遇到语义高度相关的课题时能被精准召回，可在头部加上 `brain-recall-only: true`：
+Ankole 将官方 Skill 同步到 `/AnkoleBrain/skills/<name>`。知识页把标准 Frontmatter 保存为元数据，将正文保存为 Page XML；脚本和模板作为文件子节点。所有 Skill 名称保持全局唯一，包括 Agent Plugin 内的成员技能。
 
-```yaml
----
-name: idea-lineage
-description: 追溯一个想法在记忆中的演变——首次提出、最佳表述、立场反转与当前版本，每项都引用已存证据。
-tags:
-  - 想法演变
-  - 思想脉络
-brain-recall-only: true
----
-```
-
-这一按需语义召回模式仅支持随产品构建发布的独立内置 Skill 及 Agent Plugin 内包含的子 Skill，不支持单独上传安装到某个 Agent 文件空间的自定义 Skill。所有随产品发布的 Skill 名称依然保持全局唯一，归入某个 Agent Plugin 并不会为其额外叠加命名空间前缀；系统会根据标准 Skill 元数据在 Brain 中自动派生对应的 `lazyload-agent-skills/<name>` 发现索引记录。
-
-编写时请保持纯粹的标准 Skill Frontmatter，切勿混入 `slug`、`type`、`title` 或 `aliases` 等 Brain 知识页专属字段——Brain 会直接索引 `name`、`description` 与 `tags`，并利用名称和标签完成自然语言检索匹配。注意，Skill 正文、附属参考文件以及单 Agent 专属的技能教训均不会写入 Brain 索引库；检索命中后，Agent 依然只能调用 `skill_view` 工具按权限加载正文。
+团队可以添加知识子页作为本地操作规范。较长的查询资料应标记 `metadata.role = "reference"`，并在技能正文中引用其相对路径。`skill_view` 自动追加当前会话可读的规范子页，参考章节则按子路径读取。
 
 ### 写正文
 
@@ -101,7 +88,7 @@ dependencies:
 
 先在测试 Agent 上开启新写的 Skill，向其发送一条贴近真实业务的测试指令，观察 Agent 能否准确命中该 Skill、按指引读取配套参考文件并严格落实交付标准：若发现 Agent 根本没有点开该 Skill，请优先优化 Frontmatter 中的 `description` 触发描述；若选中后执行步骤跳脱不稳，则进一步收紧正文中的步骤顺序与边界约束。
 
-对于声明了 `brain-recall-only: true` 的内置 Skill，还需额外验证整套按需发现闭环：确认常规对话提示词的默认目录中未列出该条目，而通过名称、描述或标签语义检索 Brain 时能够顺利召回；确认调用 `skill_view` 时，在匹配的 `ankole-runtime` 环境中能正常加载全文，在不兼容的执行环境中则按契约返回路由提示或拒绝结果；最后关闭该 Skill（或其所属的父级 Agent Plugin），确认同一个 Agent 随即既无法在 Brain 中检索到它，也无法再通过 `skill_view` 加载它。
+验证当前会话只能读取有权访问的技能与补充子页，并检查参考子路径、兼容运行时加载和不兼容运行时的路由提示。关闭 Skill 或其父 Plugin 后，该技能应退出启用目录，`skill_view` 应拒绝加载。
 
 ## 开发 Control Plane Plugin
 

@@ -54,7 +54,7 @@ Console API를 통해서도 standing order를 조회하고 수정할 수 있습�
 
 ## 여전히 너무 많이 또는 너무 적게 말하는 경우
 
-- **너무 자주 끼어드는 경우:** 먼저 채널의 standing order를 더 구체적으로 좁히거나 초기화한 뒤 Agent의 역할 지침(`MISSION.md`, `SOUL.md`)을 다듬어 보세요. 명시적으로 호출했을 때만 답하면 되는 대화방이라면 외부 채널 바인딩을 **Addressed messages only**로 바꾸거나 Pod Chat 그룹 스레드에서 해당 Agent의 `may_intervene`을 끄면 됩니다.
+- **너무 자주 끼어드는 경우:** 먼저 채널의 standing order를 더 구체적으로 좁히거나 초기화한 뒤 Agent의 역할 지침(`AGENTS.md`)을 다듬어 보세요. 명시적으로 호출했을 때만 답하면 되는 대화방이라면 외부 채널 바인딩을 **Addressed messages only**로 바꾸거나 Pod Chat 그룹 스레드에서 해당 Agent의 `may_intervene`을 끄면 됩니다.
 - **거의 말하지 않는 경우:** 먼저 May intervene이 켜져 있는지 확인한 뒤(외부 채널의 Signal Binding 또는 Pod Chat 그룹 스레드의 참여 Agent `may_intervene` 설정), 해당 Conversation에 구체적인 standing order를 등록해 보세요. 기본 판정 기준은 보수적으로 설계되어 있어 별도 지침이 없으면 꼭 필요한 순간에만 개입합니다.
 - **standing order를 등록했는데도 동작이 달라지지 않는 경우:** 지침을 저장했을 때 Agent가 남긴 안내 메시지를 확인해 보세요. 현재 비활성 상태라고 안내했다면 외부 채널의 바인딩 모드가 May intervene이 아니거나 Pod Chat 그룹 스레드에서 해당 Agent의 `may_intervene`이 꺼져 있는 상태입니다.
 

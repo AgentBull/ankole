@@ -313,8 +313,8 @@ defmodule Ankole.ConversationsTest do
     human: human,
     agent: agent
   } do
-    first = attrs(agent)
-    second = attrs(agent)
+    first = Map.put(attrs(agent), :room_mode, :group)
+    second = Map.put(attrs(agent), :room_mode, :group)
 
     for attrs <- [first, second] do
       assert {:ok, _} = in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, attrs) end)
@@ -372,7 +372,9 @@ defmodule Ankole.ConversationsTest do
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
     assert_receive {:conversation_event, ^first_id, :status}
     assert_receive {:conversation_event, ^second_id, :status}
-    assert Conversations.list(Ankole.PrincipalsFixtures.actor_fixture(human.uid)) == []
+    retained = Conversations.list(Ankole.PrincipalsFixtures.actor_fixture(human.uid))
+    assert Enum.sort(Enum.map(retained, & &1.conversation.id)) == Enum.sort([first_id, second_id])
+    assert Enum.all?(retained, &(&1.agents == []))
   end
 
   test "bad identifiers and blank or malformed text leave no accepted facts", %{

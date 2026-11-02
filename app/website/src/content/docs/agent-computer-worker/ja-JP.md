@@ -34,11 +34,9 @@ Agent Home は `/workspace` にマウントされる永続ストレージであ�
 ```text
 /workspace/
 ├── .codex/
-├── SOUL.md
-├── MISSION.md
+├── AGENTS.md
 ├── DESIGN.md
-├── ConfidentialityPolicy.md
-├── installed-skills/
+├── .ankole/turn-skills/<signal-id>/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
@@ -46,11 +44,11 @@ Agent Home は `/workspace` にマウントされる永続ストレージであ�
     └── temp/
 ```
 
-モデルにはコンテナ内の絶対パスがそのまま見えるため、Worker 側でのパス変換は行われません。また、コマンドの作業ディレクトリは常に Agent Home 配下である必要があります。直下の 4 つのドキュメントのうち、`SOUL.md` と `MISSION.md` は Agent の振る舞いと責務を定義し、`DESIGN.md` は視覚的な成果物のデザインシステムを、`ConfidentialityPolicy.md` は Brain へ書き込む際の公開範囲の判断基準を定めます。これら 4 文書は [Agent Library](../agent-library/) が管理します。また、`installed-skills/`、`sessions/`、`jobs/` にはそれぞれ Skill、会話ごとのワークスペース、Background Agent Job 用のワークスペースが配置されます。各 Session には、PostgreSQL によって `10000` から始まる不変の数値ワークスペース ID が割り当てられます。
+`~/AGENTS.md` と `~/DESIGN.md` は [Agent Library](../agent-library/) の有効な規約全文を反映します。各 Turn で `$CODEX_HOME/AGENTS.md` も更新します。Skill は現在の会話の権限に従って `.ankole/turn-skills/<signal-id>/` に配置します。`sessions/` は PostgreSQL が `10000` から割り当てる固定の数値 ID ごとの会話ワークスペース、`jobs/` はプロジェクト独自の指示ファイルを含むバックグラウンド作業領域です。
 
 Agent Home の内容は、インスタンスの削除やコンテナイメージの更新後も保持されます。環境を再構築した際に削除されるのは `/var/cache/ankole` のみです。ただし、Docker のローカル volume は実行ホストに依存するほか、Cloudflare 環境で強制停止が発生した場合は最後の R2 バックアップ以降の書き込みが失われることがあります。こうした制約については [Worker](../worker-management/) を参照してください。
 
-添付ファイル、公開ファイル、Skill、Automation スクリプトは control plane 側のドライブに別途保存されており、Worker からは `ankole-files` を使って読み書きします。一方、Job workspace と Codex スレッドは永続 Home 側に残ります。Turn が始まる前には、ドライブ上の内容と `installed-skills/` が同期されます。
+`~/AGENTS.md` と `~/DESIGN.md` は [Agent Library](../agent-library/) の有効な規約全文を反映します。各 Turn で `$CODEX_HOME/AGENTS.md` も更新します。Skill は現在の会話の権限に従って `.ankole/turn-skills/<signal-id>/` に配置します。`sessions/` は PostgreSQL が `10000` から割り当てる固定の数値 ID ごとの会話ワークスペース、`jobs/` はプロジェクト独自の指示ファイルを含むバックグラウンド作業領域です。
 
 Codex Home は `/workspace/.codex` に配置されます。スレッドファイルはインスタンスの置換後も保持されるため、`/var/cache/ankole/codex` にある再構築可能な SQLite キャッシュが初期化されても処理を再開できます。Background Job で Skill を読み込む際は `skill_view` を使用します。
 

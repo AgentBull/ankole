@@ -13,11 +13,11 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.WorkerProviderHTTPBarrier
 
-  @moduletag timeout: 180_000
+  @moduletag sandbox: false, timeout: 180_000
   # Needs Docker, Kubernetes, or cloud tooling; see CONTRIBUTING.md.
   @moduletag :external
 
-  setup do
+  setup %{tenant: tenant} do
     path = System.fetch_env!("ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG")
     {context, 0} = System.cmd("kubectl", ["--kubeconfig", path, "config", "current-context"])
     assert String.starts_with?(context, "kind-")
@@ -72,6 +72,7 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
       end)
 
     on_exit(fn ->
+      Repo.put_tenant_id(tenant.id)
       Application.delete_env(:ankole, :kubereq)
 
       assert {:ok, true} =
@@ -96,6 +97,7 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
       Sandbox.unboxed_run(Repo, fn ->
         delete_agent_fixture_rows(uid, provider.provider_id)
         Repo.delete_all(from j in Oban.Job, where: fragment("?->>'agent_uid' = ?", j.args, ^uid))
+        cleanup_tenant!(tenant)
       end)
 
       {_output, 0} =
@@ -189,10 +191,12 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
     parent = self()
 
     task =
-      Task.async(fn ->
-        Process.put(:worker_http_barrier, {parent, :after, :post, path})
-        Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
-      end)
+      Task.async(
+        Repo.bind_tenant(fn ->
+          Process.put(:worker_http_barrier, {parent, :after, :post, path})
+          Sandbox.unboxed_run(Repo, fn -> reconcile(uid) end)
+        end)
+      )
 
     pid = task.pid
     assert_receive {:paused, ^pid}, 30_000

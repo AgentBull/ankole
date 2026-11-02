@@ -3,8 +3,7 @@ defmodule Ankole.Brain.Promotion do
   Console-reviewed materialization of vocabulary promotion suggestions.
 
   Approval runs one transaction: register the new type or subtype, retype
-  the existing objects (type rewrite plus slug-prefix migration with
-  redirects), and let installed schema shadow the vocabulary term on the
+  the existing knowledge pages through their metadata, and let installed schema shadow the vocabulary term on the
   write path. Rejected suggestions keep their record, so the same term does
   not return. A generic action on `Ankole.Brain.Schemas.SchemaSuggestion`
   owns the transaction of each decision.
@@ -13,15 +12,11 @@ defmodule Ankole.Brain.Promotion do
   require Ash.Query
 
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Schemas.SchemaSuggestion
   alias Ankole.Brain.Schemas.SchemaType
-  alias Ankole.Brain.Schemas.SlugAlias
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
-
-  @library_projection_type "agent-skills"
-  @lazy_skill_prefix "lazyload-agent-skills/"
 
   @doc """
   Approves one pending suggestion and materializes it in the caller's
@@ -34,7 +29,7 @@ defmodule Ankole.Brain.Promotion do
          {:ok, suggestion} <- fetch_pending(suggestion_id) do
       result =
         case suggestion.kind do
-          :new_type -> materialize_type(suggestion, attrs)
+          :new_type -> materialize_type(suggestion, Map.put(attrs, :decided_by, decided_by))
           :new_subtype -> materialize_subtype(suggestion, attrs)
           :alias -> {:ok, %{status: :alias_noted}}
         end
@@ -61,8 +56,7 @@ defmodule Ankole.Brain.Promotion do
   end
 
   # A promoted term becomes a first-class type with its own slug prefix.
-  # Objects tagged with the term retype and migrate their slugs; redirects
-  # keep old references resolvable.
+  # Tagged pages adopt the type without moving their human-owned directories.
   defp materialize_type(suggestion, attrs) do
     term = suggestion.term
     primitive = attrs[:primitive] || "concept"
@@ -83,7 +77,7 @@ defmodule Ankole.Brain.Promotion do
            created_at: DateTime.utc_now(:microsecond)
          },
          {:ok, _type} <- Ankole.Ash.create(SchemaType, :register, type) do
-      migrated = retype_tagged_objects(term, prefix)
+      migrated = retype_tagged_objects(term, attrs.decided_by)
       {:ok, %{status: :type_created, type: term, migrated: migrated}}
     end
   end
@@ -105,73 +99,35 @@ defmodule Ankole.Brain.Promotion do
     end
   end
 
-  defp reject_reserved_type(type) when type in [@library_projection_type, "agent"],
+  defp reject_reserved_type(type) when type in ["agent", "skill"],
     do: {:error, {:reserved_object_type, type}}
 
   defp reject_reserved_type(_type), do: :ok
-
-  defp reject_reserved_prefix(@lazy_skill_prefix <> _rest = prefix),
-    do: {:error, {:reserved_object_slug_prefix, prefix}}
 
   defp reject_reserved_prefix("agents/" <> _rest = prefix),
     do: {:error, {:reserved_object_slug_prefix, prefix}}
 
   defp reject_reserved_prefix(_prefix), do: :ok
 
-  # The canonical page of a Principal keeps its type and slug.
-  defp retype_tagged_objects(term, prefix) do
-    objects =
-      Object
-      |> Ash.Query.filter(
-        exists(tags, tag == ^term) and is_nil(deleted_at) and is_nil(managed_by_source_id) and
-          type != "agent"
-      )
+  # Vocabulary classification changes page metadata; the human-owned location stays stable.
+  defp retype_tagged_objects(term, decided_by) do
+    ids =
+      Ankole.Brain.Schemas.Tag
+      |> Ash.Query.filter(tag == ^term)
       |> Ankole.Ash.read!()
-      |> Enum.reject(&Objects.canonical_principal_page?(&1.slug))
+      |> Enum.map(& &1.subject_page_id)
 
-    Enum.count(objects, fn object ->
-      new_slug = prefix <> last_slug_segment(object.slug)
-
-      cond do
-        object.slug == new_slug ->
-          retype_only(object, term)
-
-        slug_taken?(new_slug) ->
-          retype_only(object, term)
-
-        true ->
-          {:ok, _object} =
-            Ankole.Ash.update(object, :retype, %{type: term, slug: new_slug})
-
-          {:ok, _alias} =
-            Ankole.Ash.create(SlugAlias, :add, %{
-              id: UUIDv7.autogenerate(),
-              alias_slug: object.slug,
-              canonical_slug: new_slug,
-              notes: "vocabulary promotion of #{term}",
-              created_at: DateTime.utc_now(:microsecond)
-            })
-
-          true
-      end
-    end)
-  end
-
-  defp slug_taken?(slug) do
     Object
-    |> Ash.Query.filter(slug == ^slug)
-    |> Ankole.Ash.exists?()
-  end
-
-  defp retype_only(object, term) do
-    {:ok, _object} =
-      Ankole.Ash.update(object, :retype, %{type: term})
-
-    true
-  end
-
-  defp last_slug_segment(slug) do
-    slug |> String.split("/") |> List.last()
+    |> Ash.Query.filter(
+      id in ^ids and is_nil(deleted_at) and is_nil(managed_by_source_id) and
+        type != "agent"
+    )
+    |> Ankole.Ash.read!()
+    |> Enum.reject(&Objects.canonical_principal_page?(&1.id))
+    |> Enum.count(fn page ->
+      {:ok, _} = Objects.update_object_in_tx(page.id, %{type: term}, :system, author: decided_by)
+      true
+    end)
   end
 
   defp pluralized_prefix(term), do: term <> "s/"

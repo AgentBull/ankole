@@ -3,6 +3,20 @@ defmodule Ankole.Ecto.JSONPayloadTest do
 
   alias Ankole.Ecto.JSONPayload
 
+  test "plain projections persist the same enum and primitive values sent on the wire" do
+    result = %{
+      status: :inserted,
+      facts: [%{claim_type: :fact}],
+      flags: [true, false, nil],
+      revision: 2
+    }
+
+    plain = Ankole.JSON.plain(result)
+    assert plain == Ankole.JSON.decode!(Ankole.JSON.encode!(result))
+    assert {:ok, ^plain} = JSONPayload.normalize_map(plain)
+    assert {:error, :unsupported_atom} = JSONPayload.normalize_map(result)
+  end
+
   test "rejects NUL bytes before a nested JSONB value reaches PostgreSQL" do
     assert {:error, :unsupported_nul_byte} =
              JSONPayload.normalize_map(%{"events" => [%{"delta" => "before\0after"}]})

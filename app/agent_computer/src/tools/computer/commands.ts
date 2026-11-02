@@ -1,5 +1,6 @@
 import { isAbsolute, join, normalize, resolve } from 'node:path'
-import { assertPathInsideAgentHome } from '../../core/agent-home-paths'
+import { scopedPath, visibleDrivePath } from '../../drive/paths'
+import type { DriveView } from '../../drive/mounts'
 import { commandEnv } from '../../core/execution/command-env'
 import { agentProcessArgv, killProcessGroup } from '../../core/execution/process-group'
 import commandProcess from './command-process.py' with { type: 'text' }
@@ -29,6 +30,7 @@ export interface CommandOutputCapture {
 }
 
 interface WorkspaceCommandInput extends CommandInput {
+  driveView?: DriveView
   /** Operator-managed variables injected below the caller's `env`. */
   workerEnv?: Record<string, string>
   /** Trusted turn variables injected above the caller's `env`. */
@@ -36,6 +38,7 @@ interface WorkspaceCommandInput extends CommandInput {
 }
 
 interface WorkspaceProcessInput {
+  driveView?: DriveView
   commandArgv: string[]
   cwd?: string
   env?: Record<string, string>
@@ -61,17 +64,23 @@ export async function runWorkspaceCommand(
 ): Promise<CommandFinished> {
   if (input.signal?.aborted) return finishedCommand(130, '', 'command aborted')
 
+  const startSeq = await input.driveView?.sequence()
   const result = await runForegroundProcess({
-    ...workspaceProcessContext(input, agentHome, workspaceRoot),
+    driveView: input.driveView,
+    hostCwd: agentHome,
+    ...(await workspaceProcessContext(input, agentHome, workspaceRoot)),
     argv: [input.cmd, ...(input.args ?? [])],
     stdin: input.stdin,
     timeoutMs: input.timeoutMs,
     signal: input.signal
   })
+  const driveSummary = startSeq
+    ? await input.driveView!.flush(startSeq).catch(error => `Drive synchronization is still pending: ${String(error)}`)
+    : ''
   return finishedCommand(
     result.exitCode,
     result.stdout.toString('utf8'),
-    result.stderr.toString('utf8'),
+    [result.stderr.toString('utf8'), driveSummary].filter(Boolean).join('\n'),
     result.outputCapture
   )
 }
@@ -93,8 +102,10 @@ export async function runWorkspaceProcess(
     return { exitCode: 130, stdout: Buffer.alloc(0), stderr: Buffer.from('command aborted') }
   }
 
-  const proc = Bun.spawn(agentProcessArgv(input.commandArgv), {
-    ...workspaceProcessContext(input, agentHome, workspaceRoot),
+  const context = await workspaceProcessContext(input, agentHome, workspaceRoot)
+  const proc = Bun.spawn(agentProcessArgv(input.commandArgv, input.driveView, context.cwd), {
+    ...context,
+    cwd: input.driveView ? agentHome : context.cwd,
     stdin: input.stdin === undefined ? 'ignore' : 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
@@ -138,22 +149,27 @@ export function workspacePath(agentHome: string, cwd: string, path: string): str
   return isAbsolute(expanded) ? resolve(normalize(expanded)) : resolve(cwd, normalize(expanded))
 }
 
-function workspaceProcessContext(
-  input: Pick<WorkspaceProcessInput, 'cwd' | 'env' | 'workerEnv' | 'runtimeEnv'>,
+async function workspaceProcessContext(
+  input: Pick<WorkspaceProcessInput, 'cwd' | 'env' | 'workerEnv' | 'runtimeEnv' | 'driveView' | 'signal'>,
   agentHome: string,
   workspaceRoot: string
 ) {
+  const requested = input.cwd ? workspacePath(agentHome, workspaceRoot, input.cwd) : workspaceRoot
+  const target = await scopedPath(
+    input.driveView,
+    agentHome,
+    requested,
+    input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(15_000)]) : undefined
+  )
   return {
-    cwd: assertPathInsideAgentHome(
-      agentHome,
-      input.cwd ? workspacePath(agentHome, workspaceRoot, input.cwd) : workspaceRoot,
-      'command cwd escapes Agent Home'
-    ),
+    cwd: visibleDrivePath(input.driveView, target),
     env: commandEnv(input.env, { agentHome, workerEnv: input.workerEnv, runtimeEnv: input.runtimeEnv })
   }
 }
 
 async function runForegroundProcess(input: {
+  driveView?: DriveView
+  hostCwd: string
   argv: string[]
   cwd: string
   env: Record<string, string>
@@ -164,9 +180,13 @@ async function runForegroundProcess(input: {
   const python = Bun.which('python3')
   if (!python) throw new Error('Foreground commands require Python 3')
   const proc = Bun.spawn(
-    agentProcessArgv([python, '-I', '-S', '-c', commandProcess, String(input.timeoutMs ?? 0), ...input.argv]),
+    agentProcessArgv(
+      [python, '-I', '-S', '-c', commandProcess, String(input.timeoutMs ?? 0), ...input.argv],
+      input.driveView,
+      input.cwd
+    ),
     {
-      cwd: input.cwd,
+      cwd: input.driveView ? input.hostCwd : input.cwd,
       env: input.env,
       stdin: input.stdin === undefined ? 'ignore' : 'pipe',
       stdout: 'pipe',

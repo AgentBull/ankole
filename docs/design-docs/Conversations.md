@@ -26,7 +26,7 @@ conversation history only when the control plane commits a message.
 | Table | Stored facts |
 | --- | --- |
 | `conversations` | Public UUID, kind, room mode, access scope, optional Page, custom title, per-Agent model preferences, activity, sequence high water, external platform identity, and standing orders |
-| `conversation_participants` | Conversation, Principal, role, Agent intervention setting, and personal pin, mute, and read position |
+| `conversation_participants` | Conversation, Principal, role, Agent intervention setting, and personal pin, mute, read position, and last visit |
 | `conversation_messages` | Public UUID, conversation, sequence, author name snapshot, kind, exact text, mentions, links, structured content, delivery key, reply reference, and execution provenance |
 | `message_attachments` | Ordered attachment descriptors, frozen `file_objects` references, and optional source node IDs |
 | `delivery_attachments` | Ordered delivery descriptors and object references while delivery remains pending, failed, or unknown |
@@ -34,6 +34,11 @@ conversation history only when the control plane commits a message.
 
 Every table carries a `tenant_id` foreign key, includes `tenant_id` in all
 primary and unique keys, and participates in tenant deletion.
+
+Conversations creates a stable Drive conversation root in the same transaction
+as each native or external conversation. The root owns conversation files and
+provides the `source_node_id` for learned claims and timeline events. Its read
+permissions follow the conversation membership through the Drive access graph.
 
 `Ankole.Conversations` is the Ash domain for these tables as well as the
 inbound batch, input tombstone, Delivery intent, and preview state resources. It
@@ -91,8 +96,8 @@ Bootstrap reads an existing assistant without creating one. On first send the
 frontend ensures that assistant, then calls the ordinary Conversation create
 and send path. If sending fails after creation, retry uses the same assistant
 and message draft. Guests use their existing grants and AI-colleague choices.
-The AI Colleagues directory opens dedicated conversations with a selected
-colleague and excludes personal assistants.
+The Chat sidebar combines existing IM conversations with callable AI colleagues.
+Each colleague opens at `/dm/<uid>`; the browser creates a room only on first send.
 
 Mention candidates include the caller's existing assistant and its local
 `ai`, `assistant`, `pa`, and translated assistant aliases. Shared content can
@@ -101,9 +106,24 @@ candidates or granting permission to wake it. Shared attribution uses the
 assistant's short name together with its owner's current display name;
 historical message reads resolve that display from the current Principal.
 
-A native room starts in `room_mode: dm` when created for one Human and one
-Agent. Adding a second Human or Agent promotes the room to `group` permanently;
-a `group` room never reverts to `dm`.
+A personal-assistant room is a private task owned by its Human. A colleague DM
+binds `dm_human_uid` and `dm_colleague_uid` to one unique tenant-local pair.
+Creation reuses that pair even when callers submit different room UUIDs. Both
+columns reference their typed Principal records with `ON UPDATE CASCADE`;
+deferred foreign-key checks let the parallel Principal cascade paths settle.
+The migration binds the latest historical DM for each pair and leaves the other
+historical rooms unbound. Only bound rooms use the colleague DM identity and
+`/dm/<uid>` route. Unbound historical rooms keep their own titles and
+`/conversations/<id>` routes. Explicit `room_mode: group` creates an independent
+room, even when the same people already share another group.
+
+Adding participants to an assistant task or bound colleague DM requires a new
+group. The browser preselects its current Human and colleague, carries the
+associated Page link, and preserves the original private transcript. A personal
+assistant cannot join a group. In an assistant task, colleague mentions remain
+structured instructions for the assistant; intake neither adds the colleague
+nor emits a room input to it. Ordinary unbound rooms may promote to `group`;
+a group never reverts to `dm`.
 
 Room visibility follows `native_access_scope`:
 
@@ -115,10 +135,20 @@ Room visibility follows `native_access_scope`:
   and Principal state, so trashing or revoking access to the Page revokes room
   access immediately.
 
-In the UI, the global Chat list shows only rooms where the current Human has a
-participant row (and still holds Page access if the room uses `anchor_page`
-scope). By contrast, a Page's own Chat list surfaces all shared rooms anchored
-to that Page even before the viewer joins; unjoined viewers see no unread badge.
+- **`agent_peer`** isolates a delegated exchange between two Agents. Its
+  `(origin_conversation_id, peer_sender_uid, peer_target_uid)` tuple is unique
+  within the tenant while the origin exists. Agent UIDs follow Principal
+  renames through foreign keys. Delegation cards in the origin conversation
+  distinguish queued, running, retrying, and pending-decision states, and
+  stopping an exchange cancels unstarted queued inputs alongside interrupting
+  active work. The origin's authorized Humans may inspect its public messages
+  and tool steps through the exchange drawer; owning the target Agent does not
+  grant Human access to other people's exchanges.
+
+Global Chat and Recents exclude `anchor_page` and `agent_peer` rooms. Comments
+use the former internally, and the origin's timeline exposes the latter.
+The Page Assistant panel lists only the viewer's private assistant tasks bound
+to that Page. Guests do not receive that panel.
 
 Room members, the room creator, Pod administrators, and managers of an anchor
 Page can rename the room or invite participants, though changing an Agent's
@@ -132,7 +162,7 @@ mute, and read preferences as an `observer`. Observers have no access when a
 room uses `participants` scope and are omitted from both the member list and the
 `dm`-versus-`group` participant count; sending a message or receiving an
 explicit invitation promotes an observer to a full member. Each Human manages
-their own pin state, mute state, and monotonic `last_read_seq`, while an Agent's
+their own pin state, mute state, monotonic `last_read_seq`, and `last_visited_at`, while an Agent's
 `may_intervene` flag controls whether that Agent receives unaddressed group
 messages.
 
@@ -269,6 +299,50 @@ admission can reject a queued follow-up without interrupting the active turn,
 committing the rejection notice and completed follow-up Signal together before
 notifying open browser tabs.
 
+## Peer Delegation
+
+`send_to_agent` accepts a colleague UID, message, optional Page IDs and optional
+priority flag. `Agents.MessagingPolicy` admits personal-assistant-to-colleague
+work under the owner's frozen Human WorkAccess and current chat permission.
+The colleague uses its own resource permissions. A missing target Page grant
+returns all missing IDs and whether the assistant can share, before accepting
+any delegation. The assistant applies the sharing implied by the user's request
+with incremental `pages.update_sharing`, then resends.
+
+The exchange's messages and Signals form a durable mailbox. A successful send
+returns immediately. The origin records an outbound entry, and a colleague's
+committed reply records an inbound entry and one input to the original
+assistant Session. Pod shows each delegation as one row: the colleague's name,
+the task, and its current state. Pod attaches the reply to the nearest earlier
+delegation of the same exchange, where the row shows the beginning of the
+answer, its linked Pages, and the time the colleague took. Only the latest
+delegation of an exchange follows the colleague's live state and offers Stop.
+A details drawer shows the whole exchange, its state, and Stop.
+Sessions can consume already queued replies to the same Human request together
+when preparing the assistant's first model request. Silent completion sends no
+input. External IM receives only final assistant conclusions or interactive
+questions, rather than process cards.
+Jobs resolve their durable owner and reply route; cron delegation requires one
+native report destination. A source without an origin returns
+`origin_conversation_required`.
+
+Both send and reply commit acquire all participating Session advisory locks in
+sorted order before the workspace fence, then origin and exchange rows in UUID
+order before Signal locks. Notifications run after commit. Deleting an origin
+queues stops for its exchanges in the deletion transaction; the foreign key
+clears their origin and keeps the exchange history.
+
+Process cards advance `sequence_high_water` only. Human messages, ordinary
+Agent replies and interactive questions also advance `last_notifiable_seq` and
+`last_activity_at`. Unread state compares the Human's read position with the
+notifiable watermark. Peer work and pending questions contribute to the origin's
+row status without manufacturing unread messages.
+
+The drawer pages public messages and tool summaries and subscribes directly to
+the exchange's SSE stream, authorized through `originConversationID`; it omits
+reasoning summaries, while the card lets the Human stop queued, running,
+retrying, or waiting work.
+
 ## Execute and Commit the Reply
 
 Once admitted into the main `Sessions` loop, `Prompt.Input` reads the Human's
@@ -308,10 +382,13 @@ expose only active Agents on which the Human holds `chat` permission.
 
 | Method and path | Contract |
 | --- | --- |
-| `GET /agents` | Active Agents that the Human can invoke |
+| `GET /agents` | Callable AI colleagues with role and `directConversationID`, plus the viewer's personal-assistant availability |
 | `GET /teammates` | Active Humans in the tenant, with an optional search query |
-| `GET /conversations` | Accessible rooms with personal preferences, Agent identities, activity status, search, cursor pagination, and pinned-first or recent activity order |
-| `POST /conversations` | Initial Agents and Humans, first message, optional Page and access scope |
+| `GET /conversations` | Accessible rooms with personal preferences, Agent identities, activity status, search, cursor pagination, and pinned-first or recent interaction order; `imOnly` excludes personal-assistant tasks |
+| `POST /conversations` | Initial Agents and Humans, first message, optional Page, access scope and explicit `roomMode`; bound colleague DMs reuse their identity |
+| `GET /conversations/attention` | Accessible rooms with unread messages, pending interactions or active work, including downstream peer work |
+| `GET /conversations/:id/peer-exchanges/:exchange_id` | Paginated public exchange messages, execution summaries and live state; access follows the origin |
+| `POST /conversations/:id/peer-exchanges/:exchange_id/stop` | Stop the colleague's exchange through the ordinary Session command owner |
 | `GET /conversations/:id` | Room, participants, message window, room-wide artifacts and pending questions, Agent activities and queues, and linked background work |
 | `GET /conversations/:id/executions/:kind/:run_id` | Read one page of a linked execution log with an optional opaque `cursor`; returns `text` and `nextCursor` |
 | `PATCH /conversations/:id` | Title, access scope, or the current Human's pin, mute, and read position |
@@ -344,11 +421,10 @@ non-withdrawn messages up to the room's sequence high water, regardless of the
 loaded timeline slice), and `pendingInteractions` lists each Agent's latest open
 Clarify question and durable checkpoint state.
 
-When a native Conversation is associated with a Pod Page via `page_id`, it can
-be kept private to explicit participants or shared with Page viewers via
-`anchor_page` scope; both the embedded Page Chat panel and the full-screen Chat
-view render the same room and transcript, and deleting the Page or revoking
-`node_view` immediately revokes `anchor_page` access.
+The embedded Assistant panel binds a private personal-assistant conversation to
+the current Page through `page_id`. The Human can also open that conversation
+in the full Chat workspace. Page comments use internal `anchor_page` conversations;
+deleting the Page or revoking `node_view` revokes access to those conversations.
 
 Ankole retains the addressing Human's `WorkAccess` identity across child tasks
 and checks that authority when admitting work. Drive and Pod resource operations
@@ -409,17 +485,43 @@ requests without valid CSRF proof are rejected before reaching domain actions.
 
 ## Pod Chat Workspace
 
-Chat Home centers a greeting, Agent selector, and spacious composer with starter
-prompts (shown while the draft is empty) above recent rooms, while the left
-sidebar organizes pinned rooms, date-grouped threads, title and message search,
-and badges for active work, pending Clarify questions, background tasks, and
-unread messages. Committed room events and native Session transitions notify
+New Chat opens a personal-assistant task with a greeting, starter prompts and
+composer. The sidebar header offers this action below both tabs to formal
+members, with Command/Control+Shift+O. A colleague DM instead shows the
+colleague's name, `@uid`, and role above a composer with a fixed recipient at
+`/dm/<uid>`; `/?agent=<uid>` redirects there.
+
+Chat shows pinned rooms once, then a collapsible Assistant section, then one
+list containing existing IM rooms and available colleagues. The Assistant
+section starts collapsed and exposes only pending questions, active work and
+unread tasks. Expanding shows the five latest tasks; Show all lists the rest of
+the history, and the filter above the list searches it. Task rows are one line;
+IM rooms and colleagues use two lines, with the name and time above the latest
+message or the colleague's role. Every list names an Agent by its display name
+followed by its `@uid`, marks a DM with the colleague's avatar, a group with a
+group mark, and a task with a conversation mark. Home interleaves Pages and
+conversations, retaining at most three attention items ahead of ordinary
+recents: pending decisions first, relevant unread comments second, and running
+work third. Both tab badges use the same count: Chat counts unread IM and
+pending decisions, and Home counts Pages with relevant unread comments.
+
+A group invites into itself. An assistant task offers Start a group and a DM
+offers New group; both leave the source conversation unchanged. That dialog
+takes a group name, the members (the source conversation's other members start
+checked), and a first message prefilled with the Pages the source referenced,
+and it explains which of these is still missing before it can create the group. Committed room events and native Session transitions notify
 open Pod tabs, coalescing sidebar refreshes over a 1,500 ms window and
 re-evaluating participant and Page permissions on every refresh.
 
-Inside a room, the header exposes inline title editing, participant controls,
-share-link copy, and Markdown export, while keyboard shortcuts toggle in-room
-search and the summary drawer:
+Inside a colleague DM, the header identifies the colleague by display name and
+UID. Task and group headers let participants edit the conversation title.
+Global search finds callable colleagues by UID, display name, or role and opens
+their stable DM, including colleagues the Human has not contacted yet.
+Creating a group from a private conversation prefills its referenced Page links
+for the Human to review and edit; the new group receives those references, while
+the private conversation keeps its transcript and membership.
+Room controls offer participant management, share-link copy, and Markdown export,
+while keyboard shortcuts toggle in-room search and the summary drawer:
 
 - **Summary drawer:** lists participating Agents (with active models and
   per-Agent `may_intervene` toggles in group rooms; direct rooms always address
@@ -453,9 +555,10 @@ it has focus.
 
 Each state of a turn has its own mark, so the person can tell at a glance
 whether an Agent is working, needs them, or has stopped. In the sidebar, an
-unread room shows a blue dot, a room that waits on a decision shows an amber dot
-with a halo, and a room where an Agent is working or a background run is active
-shows a turning neutral ring. While an Agent writes, a caret follows its last
+unread room shows a blue dot, a room that waits on a decision shows an amber
+"Needs you" badge, and a room where an Agent is working or a background run is
+active shows a turning neutral ring. A question that a delegated colleague asks
+in the original conversation carries the colleague's name in its heading. While an Agent writes, a caret follows its last
 words, and the composer offers a labelled Stop button next to Send. A turn that
 fails reads "Failed after …" in the destructive colour with the failing step
 marked, a stopped turn reads "Stopped after …", and a retryable turn offers a
@@ -538,7 +641,9 @@ overrides:
   exists). In a single-Human room, unadmitted queued items appear only in the
   queue tray until a subsequent Agent reply commits (after which they appear in
   the timeline with a queued badge); in multi-Human rooms, queued items appear
-  in the timeline immediately so teammates can see them.
+  in the timeline immediately so teammates can see them. The attachment count
+  opens the queued files for preview and download without taking the message
+  back into the composer.
 - **Editing and conflict handling:** Only one composer edit is active at a time
   until saved or canceled, and `ArrowUp` in an empty composer opens the Human's
   latest editable queued item or latest eligible timeline message. A queued
@@ -552,18 +657,18 @@ overrides:
   select another quotation. Confirmation clears only the captured draft if its
   text, references, and mentions still match; later edits remain available.
 
-Embedded Page Chat renders the exact same room inside a resizable side panel
-with Page context controls, `participants`-versus-`anchor_page` scope switching,
-and a link to open the full Chat workspace.
+The resizable Assistant panel shows the current Human's private conversation
+with their personal assistant, Page context controls, and a link to the full
+Chat workspace. Guests do not have this panel.
 
-Asking an Agent about selected Page text goes through Page Chat. Selecting text
-in a document and choosing `Ask Agent` in the selection toolbar opens Page Chat
-(the open conversation, or the Page's latest one), quotes the selection in the
+Selecting text in a document and choosing `Ask assistant` in the selection
+toolbar opens the Assistant panel (the open private conversation, or the Page's
+latest personal-assistant conversation), quotes the selection in the
 composer, and focuses it. The quote travels as a `{ kind: "page", id, quote }`
 message link, so the Agent receives it as referenced user context and locates
 the passage with a fresh Page read before editing. A draft quotes one passage at
 a time: a quoted message and a Page selection replace each other. Choosing the
-action changes nothing in the document and needs only access to Page Chat, not
+action changes nothing in the document and needs only access to the Assistant panel, not
 edit permission.
 
 ## SSE and Visible History
@@ -695,11 +800,27 @@ an unanswered question sits above the loaded 500-message window, the UI surfaces
 it in the timeline's attention banner and smoothly restores it to its inline
 position once the user scrolls back to that message.
 
+A colleague's peer Clarify is projected into the original conversation with
+its attribution and original checkpoint identity. Answering there records the
+Human's response in both transcripts and directly wakes the colleague. Normal
+messages to the assistant preserve the question; priority instructions to that
+exchange and Stop supersede it. External Bot callbacks follow the frozen origin
+route to that same checkpoint. Peer Action Cards belong to the origin's
+approval surface and resume the colleague after execution.
+
+The origin's conversation events refresh its peer cards and their details
+alongside its transcript. A card reflects the colleague's current state even
+when its details drawer is closed: answering resumes progress, and completion
+clears the pending-decision label and Stop control.
+The delegation receipt tells the assistant that the colleague owns the task's
+questions and will deliver them directly to the Human. The assistant can finish
+independent work and end its turn while the exchange continues.
+
 When an Agent needs a Human to authorize a high-privilege mutation that exceeds
 the Agent's own grants, calling `propose_action_card` drafts an `ActionCard` row
-(`conversation_action_cards`, lock rank `11`) for one of five typed actions:
-`pod.page.set_sharing`, `pod.page.delete`, `pod.page.restore`,
-`pod.base.delete_table`, or `conversation.add_participants`. Drafting requires the
+(`conversation_action_cards`, lock rank `11`) for one of six typed actions:
+`pod.knowledge.save`, `pod.page.set_sharing`, `pod.page.delete`,
+`pod.page.restore`, `pod.base.delete_table`, or `conversation.add_participants`. Drafting requires the
 Agent to hold `node_view` on the target node (or participate in the target
 native room for `conversation.add_participants`), snapshots optimistic
 preconditions (`expected_sharing_version`, `expected_updated_at` +
@@ -708,7 +829,13 @@ preconditions (`expected_sharing_version`, `expected_updated_at` +
 native room identity), and commits an interactive card
 (`delivery_key: "action_card:<tool_call_id>"`, interaction ID
 `"action_card:<card_id>"`). The Web card displays the proposed grant subjects,
-roles, scopes and conditions, or the named participants to add. Generic native
+roles, scopes and conditions, or the named participants to add. For a knowledge
+change, the card displays the page title, the captured base revision, and an
+expanded diff. The Human can expand the complete Markdown draft, including its
+metadata, before confirming. The client receives the base revision as a
+projection of the card's `expected_revision` precondition. Knowledge change
+approvals are drafted in native rooms. In external IM, the Agent supplies the
+draft and page link for an owner to review and save in Pod. Generic native
 clarification endpoints reject ActionCard interaction IDs; resolution belongs
 to the ActionCard operation and its resource authorization checks.
 
@@ -790,9 +917,15 @@ stored bytes. Before a committed Signal becomes prompt-visible, its Messages
 hold the frozen object references and its files belong to the conversation root.
 Ignored group batches keep the existing short-lived staging behavior until they
 are mirrored; unreferenced staged objects follow the Files collection deadline.
-Every participant receives view and contribute access to the conversation root.
-Room ownership alone does not grant node edit or manage access; an Agent reads
-and changes nodes under its own Principal permissions.
+Every participant receives view, contribute, and edit access to the conversation root.
+Participants can revise, rename, and delete its files and folders, including files
+created by another participant. Message attachments retain their frozen objects.
+For external IM conversations, the authorization snapshot includes the resolved
+DM peer and the current members of the conversation's Principal Group, as well
+as observing Agents. Group membership changes take effect through the same
+Principal/AuthZ projection used for disclosure.
+Membership does not grant node manage access; an Agent reads and changes nodes
+under its own Principal permissions.
 
 Browser downloads identify an attachment by conversation ID, Message ID, and
 zero-based position, so same-name files remain distinct. The Worker command is

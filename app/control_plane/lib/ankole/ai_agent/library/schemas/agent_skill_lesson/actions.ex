@@ -8,9 +8,12 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson.Actions do
   def run(input, _opts, context), do: action(input.action.name, input, context)
 
   defp action(:console_teach, input, context) do
-    input.arguments
-    |> Map.put(:author, Ankole.ActorRef.from_actor(context.actor))
-    |> Ankole.AIAgent.Library.console_teach()
+    Ankole.AIAgent.Library.create_skill_lesson(
+      input.arguments.agent_uid,
+      input.arguments.skill_name,
+      input.arguments.content,
+      Ankole.ActorRef.from_actor(context.actor)
+    )
     |> Ankole.Errors.wrap(&Ankole.AIAgent.Library.SkillLessons.rejection/1)
   end
 

@@ -50,24 +50,11 @@ platforms: [linux]
 
 Write a concrete trigger condition in `description`, because the Agent scans descriptions in its catalog to decide when to load the full Skill. Set `ankole-runtime: background_job` whenever the workflow requires an isolated Background Agent Job workspace, and add `platforms: [linux]` only if the Skill invokes Linux-only binaries.
 
-### Make a shipped Skill discoverable through Brain
+### Shared knowledge and reference chapters
 
-Set `brain-recall-only: true` on specialized SOPs or playbooks that would clutter every system prompt if listed globally, yet should surface automatically when a task matches their topic:
+Ankole synchronizes shipped Skills to `/AnkoleBrain/skills/<name>`. The knowledge page stores standard frontmatter as metadata and the body as Page XML; scripts and templates are file children. Keep the name globally unique, including Skills bundled in Agent Plugins.
 
-```yaml
----
-name: idea-lineage
-description: Trace how one idea evolved through memory — first mention, best articulation, reversals, and the current live version, each cited from stored evidence.
-tags:
-  - idea lineage
-  - how my thinking evolved
-brain-recall-only: true
----
-```
-
-Ankole supports `brain-recall-only` on shipped standalone Skills and Skills bundled inside Agent Plugins (not on Agent-installed Skills). Every shipped Skill `name` stays globally unique—Agent Plugin membership adds no namespace prefix—and Brain derives the synthetic discovery entry `lazyload-agent-skills/<name>` directly from the Skill's standard frontmatter.
-
-Do not add Brain Object frontmatter keys such as `slug`, `type`, `title`, or `aliases`: Brain indexes only `name`, `description`, and `tags` (using `name` and `tags` for natural-language lookup), while keeping the `SKILL.md` body, companion files, and per-Agent lessons out of Brain storage so they load exclusively through `skill_view` after discovery.
+Teams can add knowledge children as local instructions. Mark long lookup chapters with `metadata.role = "reference"` and link their relative paths from the Skill body. `skill_view` appends visible instruction children, while references remain available for reading by subpath.
 
 ### Write the body
 
@@ -101,7 +88,7 @@ Agent Computer injects this dependency only while the Skill is enabled. In `SKIL
 
 Enable the Skill on a test Agent and run a realistic prompt end to end, verifying that the Agent picks the Skill, reads any linked reference files, and satisfies every completion check. If the Agent skips the Skill, sharpen `description`; if steps drift out of order, tighten the numbered procedure and constraints.
 
-When testing a `brain-recall-only` Skill, confirm that it is omitted from the default system prompt catalog yet discoverable via Brain search across its `name`, `description`, and `tags`. Verify that `skill_view` loads the full Skill on a compatible runtime surface and applies the expected routing or rejection behavior on an incompatible surface, then disable the Skill (or its parent Agent Plugin) and confirm that the Agent can neither recall nor load it.
+Verify that the current conversation sees only permitted Skill pages and supplements. Check reference subpaths, compatible-runtime loading, and routing for incompatible runtimes. Disabling the Skill or its parent Plugin must remove it from the enabled catalog and prevent `skill_view` from loading it.
 
 ## Develop a Control Plane Plugin
 

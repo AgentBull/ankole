@@ -3,11 +3,11 @@ import { useQueryClient } from '@tanstack/react-query'
 import { createReadDenials } from '@ankole/applet-sdk'
 import { createBaseAPI } from './base-api'
 import { isRealtimeAccessDenied, PodRealtime } from './realtime'
-import { podLocation } from '../common/browser-context'
 import { contentKeys } from './content-api'
 import { applyTreeChange, updatePageMetadata } from './state/navigation-cache'
 import { revalidateMentions } from './state/document-mentions'
 import { podKeys } from './api'
+import { pageHrefFor } from './use-page-metadata'
 
 const ContentContext = createContext<ReturnType<typeof createContent> | null>(null)
 export const ContentScope = ContentContext.Provider
@@ -22,9 +22,8 @@ function createContent(client: ReturnType<typeof useQueryClient>) {
       readDenials.dispose()
       realtime.dispose()
     },
-    pageHref(id: string) {
-      const target = podLocation(`/pages/${id}`)
-      return target.pathname + target.search
+    pageHref(id: string, title?: string | null) {
+      return pageHrefFor(client, id, title)
     }
   }
 }
@@ -37,7 +36,7 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     let disposed = false
     let retry: ReturnType<typeof setTimeout> | undefined
     const refreshConversations = () => {
-      if (!disposed) void client.invalidateQueries({ queryKey: [...podKeys.conversations, 'recent'] })
+      if (!disposed) void client.invalidateQueries({ queryKey: podKeys.conversations })
     }
     const refresh = () => {
       if (disposed) return
@@ -58,6 +57,7 @@ export function ContentProvider({ children }: { children: ReactNode }) {
           handle.on('page_updated', payload => {
             if (disposed) return
             updatePageMetadata(client, payload)
+            void client.invalidateQueries({ queryKey: [...contentKeys.all, 'comment-attention'] })
           })
           handle.on('access_revoked', refresh)
           handle.on('conversations_changed', refreshConversations)

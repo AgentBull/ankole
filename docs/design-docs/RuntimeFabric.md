@@ -380,12 +380,14 @@ periodic heartbeats, and immediately whenever slot usage changes.
 PostgreSQL-assigned numeric workspace ID, resolved Agent context, Binding,
 trusted runtime environment, `FetchRuntimeConfig`, and inactivity timeout. The
 workspace ID maps to `/workspace/sessions/<workspace-id>`—stable across turns
-for one `(agent, session)`. Upon receipt, the Worker materializes `SOUL`,
-`MISSION`, `DESIGN`, `ConfidentialityPolicy`, and enabled Skills (using the
-exact real Skill paths pre-resolved on the control plane by `WorkerBootstrap`;
-reading a Skill alone never requires a Worker) and replies with
-`workspace_ready` (or an error if setup fails; duplicate `workspace_open` frames
-for the same run adopt the open workspace).
+for one `(agent, session)`. Upon receipt, the Worker refreshes the complete
+`AGENTS.md` and `DESIGN.md` contracts in Agent Home and materializes the enabled
+Skills visible to the current conversation under
+`/workspace/.ankole/turn-skills/<signal-id>/`. The control plane reads Skill
+content directly for `skill_view`, so a content read alone does not require a
+Worker. Setup replies with `workspace_ready`, or an error when preparation
+fails; duplicate `workspace_open` frames for the same run adopt the open
+workspace.
 
 If a recovered tool receipt completes a pending tool batch before an in-flight
 `workspace_open` finishes, the Driver cancels that batch's workspace acquisition
@@ -707,14 +709,16 @@ file RPC, while shared Drive files use `files.get` with `node_id`.
 Agent Plugins and Skills merge filesystem packages with PostgreSQL enablement
 state:
 
-- **Filesystem and drive sync**: Built-in packages ship in the container image,
-  while Agent-installed Skills live under `skills/` in the Agent's drive. The
-  control plane reads all manifests from `Ankole.Files` to sync the catalog
-  (leaving the catalog untouched if a read fails and preserving operator
-  enablement overrides across manifest updates). Ahead of each turn or
-  Automation Job attempt, the Worker syncs its `/workspace` `installed-skills`
-  cache from `skills/`—aborting setup if a download fails (see [Files](Files.md))—without
-  mutating the control-plane catalog.
+- **Package and catalog sync**: Shared Skill pages live under
+  `/AnkoleBrain/skills`; the control plane reconciles shipped packages against
+  their stored whole-package baseline. Agent-installed Skills live under
+  `skills/` in the Agent's Files drive. Catalog synchronization preserves
+  enablement overrides and reads every manifest before applying changes.
+  For each turn or Automation Job attempt, the Worker obtains `skills.bundle`
+  through `pod.read`, using the turn's conversation permissions or the
+  unattended Agent's identity. It materializes that complete package in a
+  separate execution directory, including visible supplements and references.
+  A download failure aborts preparation.
 - **Skill lesson overlays**: Workers batch-fetch per-Agent Skill lessons via
   `skills.overlay.resolve`, which synchronizes the Agent registry once, reads
   Skill and lesson rows as sets, and returns exactly one rendered lesson block

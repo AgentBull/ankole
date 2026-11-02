@@ -139,6 +139,23 @@ Unresolved `dead_letter` Signals remain visible in operator access review.
 However, review status is distinct from reauthorizable state: reviewing a
 terminal Signal neither restarts it nor alters its recorded authority.
 
+Peer delivery uses kernel `agent.peer_message` inputs with frozen WorkAccess,
+the origin reply route, `root_human_signal_id` and `peer_hop_count`. Each
+automatic relay increments the count, with a ceiling of six. The final receipt
+still reaches the originating assistant at that ceiling so it can report the
+result and unresolved decisions; further delegation is rejected. A fresh Human
+request or question answer begins a new chain. When a Human request joins an
+active turn, subsequent delegation uses that applied input's chain and source;
+queued inputs do not change the running turn's delegation budget. Only a
+priority peer input supersedes pending Clarify and may steer an active turn.
+Ordinary peer input waits for its own turn and allows silent acknowledgments.
+A Human request applied during that turn requires a visible response.
+
+Within each `(agent_uid, session_id)` mailbox, admitted work retains priority;
+unadmitted ready inputs run in Human, peer, then background order, preserving
+queue sequence within each class. This does not serialize different Sessions
+of the same Agent. Inputs that are not yet due do not mask ready work.
+
 ## Execution Target and Reply Route
 
 Callers specify an explicit execution target in one of three forms:

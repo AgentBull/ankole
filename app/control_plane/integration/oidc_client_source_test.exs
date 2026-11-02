@@ -12,7 +12,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.SourceLearning
   alias Ankole.OIDC
@@ -99,7 +99,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     first = run!(ctx, %{"input" => "Cobalt customer requests delivery in October."})
     assert {:ok, %{oidc_sources: 1}} = Ankole.Brain.SelfHealing.sweep()
     source = source!(ctx.client)
-    assert source.default_audience_scope == nil
+    assert source.default_source_node_id == nil
     assert_enqueued(worker: Ankole.Brain.Jobs.LearnSource, args: %{source_id: source.id})
     assert :ok = perform_job(Ankole.Brain.Jobs.LearnSource, %{source_id: source.id})
     assert_receive {:extraction, prompt}
@@ -108,11 +108,17 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     assert prompt =~ "Generated assistant output"
 
     [object] = objects(source)
-    assert object.meta["audience_scope"] == "principal:#{ctx.human.uid}"
+    assert upstream_state(object)["source_node_id"] == Ankole.Brain.Scope.principal(ctx.human.uid)
+    assert {:ok, exported} = Ankole.Pod.Knowledge.export(object.id)
+    assert {:ok, parsed} = Ankole.Kernel.knowledge_parse(exported)
+
+    for key <- ["source_revision", "source_node_id", "conversation_id"],
+        do: refute(Map.has_key?(parsed.metadata, key))
+
     assert object.body =~ "resp_#{first.id}"
     assert {:ok, result} = Recall.recall(ctx.human.uid, %{query: "Cobalt October"})
-    assert Enum.any?(result.claims, &(&1.object_slug == object.slug))
-    assert Enum.any?(result.chunks, &(&1.object_slug == object.slug))
+    assert Enum.any?(result.claims, &(&1.subject_page_id == object.id))
+    assert Enum.any?(result.chunks, &(&1.subject_page_id == object.id))
 
     assert {:ok, %{claims: [], chunks: []}} =
              Recall.recall(ctx.outsider.uid, %{query: "Cobalt October"})
@@ -147,7 +153,10 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
 
     [first_object] = objects(source!(ctx.client))
     [second_object] = objects(source!(second_client))
-    assert first_object.meta["conversation_id"] == second_object.meta["conversation_id"]
+
+    assert upstream_state(first_object)["conversation_id"] ==
+             upstream_state(second_object)["conversation_id"]
+
     assert first_object.body =~ "First Client conversation"
     refute first_object.body =~ "Second Client conversation"
     assert second_object.body =~ "Second Client conversation"
@@ -167,16 +176,16 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
         :system
       )
 
-    {:ok, _} = Ankole.Brain.Links.add_alias(object.slug, "Wire Format")
+    {:ok, _} = Ankole.Brain.Links.add_alias(object.id, "Wire Format")
 
     {:ok, _} =
       Ankole.Brain.write_fact(
         %{
-          object_slug: object.slug,
+          subject_page_id: object.id,
           claim: "Injected evidence must not be learned again",
           kind: "fact",
           holder: "world",
-          audience_scope: "world",
+          source_node_id: object.id,
           notability: "high",
           confidence: 0.9,
           valid_from: DateTime.utc_now(:microsecond),
@@ -224,8 +233,12 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     assert {:ok, _} = SourceLearning.learn(source!(ctx.client).id)
     [projection] = objects(source!(ctx.client))
     assert projection.body =~ "客户会议日期：十月十二日。"
-    assert {:ok, [scope]} = Ankole.Brain.Markdoc.scopes(projection.body)
-    assert scope == "principal:#{ctx.human.uid}"
+
+    assert upstream_state(projection)["source_node_id"] ==
+             Ankole.Brain.Scope.principal(ctx.human.uid)
+
+    assert {:error, :forbidden} =
+             Ankole.Files.Nodes.authorize(ctx.outsider.uid, projection.id, "node_view")
   end
 
   test "each long-conversation excerpt keeps request and speaker attribution", ctx do
@@ -285,6 +298,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     source = source!(ctx.client)
     assert {:ok, _} = SourceLearning.learn(source.id)
     [original] = objects(source)
+    original_state = upstream_state(original)
     [fact] = claims(original)
 
     run!(ctx, %{
@@ -309,7 +323,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     assert {:ok, %{conversations: 1}} = SourceLearning.learn(source.id)
     [updated] = objects(source)
     assert updated.id == original.id
-    assert updated.meta["source_revision"] != original.meta["source_revision"]
+    assert upstream_state(updated)["source_revision"] != original_state["source_revision"]
     assert Repo.get!(Claim, fact.id).expired_at != nil
     assert Enum.any?(claims(updated), &(&1.expired_at == nil and &1.claim =~ "November"))
     assert OIDCClientLearning.sweep() == 0
@@ -322,8 +336,8 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     source = source!(ctx.client)
     assert {:ok, _} = SourceLearning.learn(source.id)
 
-    assert {:ok, _} =
-             Ankole.Brain.update_source_default_scope(source.id, "group:#{ctx.group.name}")
+    source_node = group_source!(ctx.group)
+    assert {:ok, _} = Ankole.Brain.update_source_default_scope(source.id, source_node.id)
 
     run!(ctx, %{
       "input" => "Cobalt private followup",
@@ -332,13 +346,13 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
 
     second = run!(ctx, %{"input" => "Cobalt shared conversation"})
     assert {:ok, _} = SourceLearning.learn(source.id)
-    by_conversation = Map.new(objects(source), &{&1.meta["conversation_id"], &1})
+    by_conversation = Map.new(objects(source), &{upstream_state(&1)["conversation_id"], &1})
 
-    assert by_conversation[first.conversation_id].meta["audience_scope"] ==
-             "principal:#{ctx.human.uid}"
+    assert upstream_state(by_conversation[first.conversation_id])["source_node_id"] ==
+             Ankole.Brain.Scope.principal(ctx.human.uid)
 
-    assert by_conversation[second.conversation_id].meta["audience_scope"] ==
-             "group:#{ctx.group.name}"
+    assert upstream_state(by_conversation[second.conversation_id])["source_node_id"] ==
+             source_node.id
 
     %{principal: manager} = human_fixture()
     {:ok, _} = AuthZ.add_principal_to_group(manager.uid, ctx.group.id)
@@ -346,12 +360,12 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
 
     assert Enum.any?(
              result.chunks,
-             &(&1.object_slug == by_conversation[second.conversation_id].slug)
+             &(&1.subject_page_id == by_conversation[second.conversation_id].id)
            )
 
     refute Enum.any?(
              result.chunks,
-             &(&1.object_slug == by_conversation[first.conversation_id].slug)
+             &(&1.subject_page_id == by_conversation[first.conversation_id].id)
            )
   end
 
@@ -592,8 +606,44 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
 
   defp source!(client), do: Repo.get_by!(Source, kind: "oidc_client", upstream_id: client.id)
 
-  defp objects(source),
-    do: Object |> where([o], o.managed_by_source_id == ^source.id) |> Repo.all()
+  defp objects(source) do
+    Page
+    |> where([o], o.managed_by_source_id == ^source.id)
+    |> Repo.all()
+    |> Enum.map(fn page ->
+      {:ok, hydrated} = Ankole.Brain.Objects.get_by_slug(page.id)
+      hydrated
+    end)
+  end
 
-  defp claims(object), do: Claim |> where([c], c.object_slug == ^object.slug) |> Repo.all()
+  defp upstream_state(page) do
+    {:ok, properties} = Ankole.Pod.Pages.fetch(page.id)
+    properties.upstream_state
+  end
+
+  defp group_source!(group) do
+    {:ok, source} =
+      Repo.transact_top_level(fn ->
+        {:ok, root} = Ankole.AIAgent.Library.Knowledge.root()
+
+        with {:ok, node} <-
+               Ankole.AIAgent.Library.Knowledge.ensure_child_in_tx(
+                 root.id,
+                 "OIDC source access",
+                 :folder,
+                 inherit_permissions: false
+               ),
+             :ok <-
+               Ankole.Files.Access.put_role(
+                 %{group_id: group.id},
+                 "drive:**:#{node.id}:**",
+                 "view"
+               ),
+             do: {:ok, node}
+      end)
+
+    source
+  end
+
+  defp claims(object), do: Claim |> where([c], c.subject_page_id == ^object.id) |> Repo.all()
 end

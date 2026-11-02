@@ -2,11 +2,9 @@ import { describe, expect, it } from 'bun:test'
 import { renderCodexJobAgents } from '../src/core/codex-runner/job/runtime-files'
 
 describe('@ankole/agent-computer Codex Job runtime files', () => {
-  it('renders the real Job workspace in AGENTS.md', () => {
+  it('renders the real Job workspace in turn instructions', () => {
     const content = renderCodexJobAgents({
-      jobRoot: '/agents/agent-1/jobs/job-1',
-      soul: 'SOUL',
-      mission: 'MISSION'
+      jobRoot: '/agents/agent-1/jobs/job-1'
     }).content
     expect(content).toContain('/agents/agent-1/jobs/job-1')
     expect(content).toContain('private Drive with ankole-files put')
@@ -18,8 +16,6 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     const now = new Date('2026-08-05T21:27:51.933Z')
     const content = renderCodexJobAgents({
       jobRoot: '/agents/agent-1/jobs/job-1',
-      soul: 'SOUL',
-      mission: 'MISSION',
       timezone: 'Asia/Shanghai',
       now
     }).content
@@ -28,8 +24,6 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
 
     const withoutTimezone = renderCodexJobAgents({
       jobRoot: '/agents/agent-1/jobs/job-1',
-      soul: 'SOUL',
-      mission: 'MISSION',
       now
     }).content
     expect(withoutTimezone).toContain('2026-08-05 21:27 (UTC)')
@@ -37,8 +31,6 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     // A timezone Intl cannot use must degrade the clock and its label together.
     const unusableTimezone = renderCodexJobAgents({
       jobRoot: '/agents/agent-1/jobs/job-1',
-      soul: 'SOUL',
-      mission: 'MISSION',
       timezone: 'Mars/Olympus_Mons',
       now
     }).content
@@ -49,8 +41,6 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     const instructions = 'Current Page ID: page-123. Save the research report as an editable Pod Page.'
     const content = renderCodexJobAgents({
       jobRoot: '/agents/agent-1/jobs/job-1',
-      soul: 'SOUL',
-      mission: 'MISSION',
       podInstructions: instructions
     }).content
     expect(content).toContain(instructions)
@@ -59,10 +49,7 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
   it('renders the Ankole Skill catalog in trusted Job guidance', () => {
     const content = renderCodexJobAgents({
       jobRoot: '/agents/agent-1/jobs/job-1',
-      soul: 'SOUL',
-      mission: 'MISSION',
-      skillsPrompt: '## Skills\n\n<available_skills>\n  general:\n    - ordinary\n</available_skills>',
-      lazySkillRouting: true
+      skillsPrompt: '## Skills\n\n<available_skills>\n  general:\n    - ordinary\n</available_skills>'
     }).content
 
     expect(content).toContain('## Skills')

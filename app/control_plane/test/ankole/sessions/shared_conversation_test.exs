@@ -326,7 +326,8 @@ defmodule Ankole.Sessions.SharedConversationTest do
              Ankole.Brain.RequestContext.build(c.first.uid, %{"signal_id" => signal.id})
 
     assert context.participant_uids == [c.first.uid]
-    assert context.default_write_scope == {:ok, "principal:" <> c.first.uid}
+    {:ok, source} = Ankole.Files.Nodes.private_root(c.first.uid)
+    assert context.default_write_scope == {:ok, source.id}
     refute context.disclosure[:asker_uid]
   end
 

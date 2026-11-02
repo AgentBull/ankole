@@ -33,16 +33,9 @@ defmodule Ankole.Brain.SchemaPacksTest do
       assert types["deal"].pack_name == "pevc"
       assert types["note"].primitive == "concept"
 
-      assert %SchemaType{
-               primitive: "concept",
-               slug_prefix: "lazyload-agent-skills/",
-               subtypes: [],
-               extractable: false,
-               expert_routing: false,
-               pack_name: "general"
-             } = types["agent-skills"]
+      refute Map.has_key?(types, "agent-skills")
 
-      assert Repo.get_by!(SchemaPack, name: "general").version == "1.1.1"
+      assert Repo.get_by!(SchemaPack, name: "general").version == "1.1.2"
       assert types["agent"].subtypes == ["internal"]
       assert "fund" in types["company"].subtypes
 

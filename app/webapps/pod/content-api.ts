@@ -14,6 +14,7 @@ import type {
   PodPageSharingWriteData,
   PodPageCreateData,
   PodPageUpdateData,
+  PodDocumentWriteData,
   PodPageMoveData,
   PodPageUserStateData,
   PodMentionCandidatesData,
@@ -23,6 +24,7 @@ import type {
 } from './api/generated/types.gen'
 import {
   podPageList,
+  podCommentAttention,
   podPageChildren,
   podPageNavigation,
   podPageSearch,
@@ -43,6 +45,9 @@ import {
   podPageCommentAnchor,
   podPageCreate,
   podPageUpdate,
+  podDocumentWrite,
+  podKnowledgePanel,
+  podKnowledgeExport,
   podPageMove,
   podPageDelete,
   podEmbedsDelete,
@@ -231,6 +236,10 @@ export const pageAPI = {
   create: (body: NonNullable<PodPageCreateData['body']>['data']) => podPageCreate({ body: { data: body } }),
   update: (id: string, body: NonNullable<PodPageUpdateData['body']>['data']) =>
     podPageUpdate({ path: { id }, body: { data: body } }),
+  write: (id: string, body: NonNullable<PodDocumentWriteData['body']>['data']) =>
+    podDocumentWrite({ path: { id }, body: { data: body } }),
+  knowledge: (id: string) => podKnowledgePanel({ path: { id } }),
+  exportKnowledge: (id: string, snapshot_id?: string) => podKnowledgeExport({ path: { id }, query: { snapshot_id } }),
   move: (id: string, body: PageMove) => podPageMove({ path: { id }, body: { data: body } }),
   remove: (id: string) => podPageDelete({ path: { id } }),
   removeEmbeds: (id: string, refs: readonly string[]) =>
@@ -422,4 +431,13 @@ export function metadataFileURL(path: string): string {
 export function identityQuery(): Record<string, string> {
   const authentication = authenticationRef()
   return authentication ? { authentication_ref: authentication } : {}
+}
+
+export const commentAttentionQuery = {
+  queryKey: [...contentKeys.all, 'comment-attention'],
+  queryFn: ({ client, signal }: { client: QueryClient; signal: AbortSignal }) =>
+    pageMetadata(client).read(
+      () => podCommentAttention({ signal }),
+      rows => rows.map(row => row.page)
+    )
 }

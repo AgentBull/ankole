@@ -26,6 +26,34 @@ defmodule Ankole.Pod.CommentsTest do
     %{owner: owner, contributor: contributor, colleague: colleague, viewer: viewer, page: page}
   end
 
+  test "sidebar attention includes mentions and replies to my threads, then clears at the read watermark",
+       ctx do
+    assert {:ok, []} = Activity.attention(ctx.owner)
+    {:ok, _} = Comments.create(ctx.contributor, ctx.page.id, %{body: "An unrelated question"})
+    assert {:ok, []} = Activity.attention(ctx.owner)
+    {:ok, %{comment: thread}} = Comments.create(ctx.owner, ctx.page.id, %{body: "My review"})
+    assert {:ok, []} = Activity.attention(ctx.owner)
+
+    {:ok, _} =
+      Comments.create(ctx.colleague, ctx.page.id, %{
+        root_id: thread.id,
+        body: "Here is the answer"
+      })
+
+    {:ok, _} =
+      Comments.create(ctx.colleague, ctx.page.id, %{
+        body: "@[Owner](principal:#{ctx.owner.principal.uid}) Please review"
+      })
+
+    assert {:ok, [%{page: page, unread_count: 2, activity_at: latest}]} =
+             Activity.attention(ctx.owner)
+
+    assert page.id == ctx.page.id
+    assert {:ok, []} = Activity.attention(ctx.viewer)
+    {:ok, _} = Activity.acknowledge(ctx.owner, ctx.page.id, latest)
+    assert {:ok, []} = Activity.attention(ctx.owner)
+  end
+
   test "a new reply brings an old thread to the first page without changing its edit version",
        ctx do
     {:ok, %{comment: old}} =

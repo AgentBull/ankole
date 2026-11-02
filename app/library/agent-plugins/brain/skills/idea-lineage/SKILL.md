@@ -29,7 +29,8 @@ contradicts, and which version is alive now.
    exact phrase and its variants; check `entity` when the idea has a named
    page. Takes come back with holders — a take belongs to its holder and is
    not automatically the owner's current view.
-2. **Gather evidence.** `get_page` the top pages behind the strongest hits.
+2. **Gather evidence.** Read the top pages behind the strongest hits with
+   `pod_get_page`, passing each page UUID as `id` and `level: "L2"`.
    `delta` over the idea's active period shows when claims were superseded or
    expired — reversals live there. Prefer few high-quality sources over a
    long unsorted pile.

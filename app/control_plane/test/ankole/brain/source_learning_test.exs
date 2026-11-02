@@ -11,7 +11,7 @@ defmodule Ankole.Brain.SourceLearningTest do
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.SourceLearning
   alias Ankole.Repo
@@ -106,6 +106,190 @@ defmodule Ankole.Brain.SourceLearningTest do
     assert Enum.any?(claims, &(is_nil(&1.expired_at) and &1.claim =~ "cancelled"))
   end
 
+  test "a private report stays independent while its company facts follow report permissions",
+       ctx do
+    %{principal: reader} = Ankole.PrincipalsFixtures.human_fixture()
+    %{principal: outsider} = Ankole.PrincipalsFixtures.human_fixture()
+
+    {:ok, company} =
+      Ankole.Brain.create_object(
+        %{
+          slug: "companies/jizhi",
+          title: "激智科技",
+          type: "company",
+          body: "团队维护的公司主页。"
+        },
+        :system
+      )
+
+    {:ok, :granted} =
+      Repo.transact(fn ->
+        for principal <- [reader, outsider] do
+          :ok =
+            Ankole.Files.Access.put_role(
+              %{principal_uid: principal.uid},
+              "drive:**:#{company.id}:node",
+              "view"
+            )
+        end
+
+        {:ok, :granted}
+      end)
+
+    {:ok, report_source} =
+      SourceLearning.register_source(%{
+        upstream_id: ctx.path <> ".report",
+        kind: "file",
+        name: "激智科技调研报告",
+        default_source_node_id: Ankole.Brain.Scope.principal(reader.uid)
+      })
+
+    on_exit(fn -> File.rm(report_source.upstream_id) end)
+    content = "激智科技调研报告\n\n激智科技计划新增两条产线。\n\n完整调研记录，包含访谈与计算过程。"
+    File.write!(report_source.upstream_id, content)
+
+    set_items(ctx.items_holder, [
+      valid_item("激智科技计划新增两条产线") |> Map.put("subject_page_id", company.id)
+    ])
+
+    assert {:ok, %{subject_page_id: report_id, claims: 1}} =
+             SourceLearning.learn(report_source.id)
+
+    assert report_id != company.id
+    assert_receive {:source_extraction_prompt, prompt}
+    assert prompt =~ company.id
+    assert {:ok, report} = Objects.get_by_slug(report_id)
+    assert String.trim(report.body) == content
+    assert report.title == "激智科技调研报告"
+    assert [fact] = source_claims(report_source)
+    assert {fact.subject_page_id, fact.source_node_id} == {company.id, report_id}
+    assert {:ok, unchanged} = Objects.get_by_slug(company.id)
+    assert {unchanged.body, unchanged.revision} == {company.body, company.revision}
+
+    reader_context = %{querier_uid: reader.uid, disclosure: Ankole.Brain.Access.open_disclosure()}
+
+    outsider_context = %{
+      querier_uid: outsider.uid,
+      disclosure: Ankole.Brain.Access.open_disclosure()
+    }
+
+    assert {:ok, %{claims: [at_company]}} =
+             Ankole.Brain.Knowledge.panel(reader_context, company.id)
+
+    assert {:ok, %{claims: [at_report]}} = Ankole.Brain.Knowledge.panel(reader_context, report_id)
+    assert at_company.id == fact.id and at_report.id == fact.id
+    assert {:ok, %{claims: []}} = Ankole.Brain.Knowledge.panel(outsider_context, company.id)
+    refute match?({:ok, _}, Ankole.Brain.Knowledge.panel(outsider_context, report_id))
+
+    {:ok, %{claim: manual}} =
+      Ankole.Brain.Claims.write_fact(
+        %{
+          claim: "激智科技公司主页的独立事实",
+          kind: "fact",
+          holder: "world",
+          confidence: 0.75,
+          notability: "medium",
+          source_node_id: company.id,
+          subject_page_id: company.id,
+          provenance: "team",
+          valid_from: DateTime.utc_now(:microsecond)
+        },
+        :system,
+        embed: false
+      )
+
+    File.write!(report_source.upstream_id, String.replace(content, "两条", "三条"))
+
+    set_items(ctx.items_holder, [
+      valid_item("激智科技计划新增三条产线") |> Map.put("subject_page_id", company.id)
+    ])
+
+    assert {:ok, %{claims: 1, claims_expired: 1}} = SourceLearning.learn(report_source.id)
+    assert Repo.reload!(fact).expired_at
+    refute Repo.reload!(manual).expired_at
+    assert {:ok, %{claims: [current]}} = Ankole.Brain.Knowledge.panel(reader_context, report_id)
+    assert current.claim =~ "三条"
+    assert {:ok, %{claims: [public]}} = Ankole.Brain.Knowledge.panel(outsider_context, company.id)
+    assert public.id == manual.id
+  end
+
+  test "a saved report creates a missing company without moving or copying the report", ctx do
+    {:ok, report} =
+      Ankole.Brain.create_object(
+        %{
+          slug: "documents/cerebras-research",
+          title: "Cerebras",
+          type: "document",
+          subtype: "report",
+          body: "Cerebras 公司设计晶圆级处理器。研究员尚未验证新产品交付情况。"
+        },
+        :system
+      )
+
+    {:ok, node_before} = Ankole.Files.Nodes.fetch(report.id)
+
+    set_items(ctx.items_holder, [
+      %{
+        "type" => "object",
+        "slug" => "Cerebras",
+        "object_type" => "company",
+        "title" => "Cerebras",
+        "body" => report.body
+      },
+      valid_item("Cerebras 公司设计晶圆级处理器") |> Map.put("subject_page_id", "Cerebras"),
+      valid_item("研究员尚未验证新产品交付情况") |> Map.put("subject_page_id", nil)
+    ])
+
+    assert {:ok, %{claims: 2, rejected: 0}} =
+             SourceLearning.learn_page(report.id, report.revision)
+
+    assert {:ok, company} = Objects.get_by_slug("companies/Cerebras")
+    assert company.body == ""
+    assert {:ok, report_after} = Objects.get_by_slug(report.id)
+
+    assert {report_after.title, report_after.body, report_after.revision} ==
+             {report.title, report.body, report.revision}
+
+    assert {:ok, node_after} = Ankole.Files.Nodes.fetch(report.id)
+
+    assert {node_after.parent_id, node_after.acl_anchor_id} ==
+             {node_before.parent_id, node_before.acl_anchor_id}
+
+    claims = Repo.all(from c in Claim, where: c.source_node_id == ^report.id)
+    assert Enum.any?(claims, &(&1.subject_page_id == company.id))
+    assert Enum.any?(claims, &is_nil(&1.subject_page_id))
+  end
+
+  for entity_type <- [nil, "custom-business-kind"] do
+    @entity_type entity_type
+    test "a business page extracts facts with entity_type #{inspect(entity_type)}", %{
+      items_holder: holder
+    } do
+      {:ok, page} =
+        Ankole.Brain.create_object(
+          %{
+            slug: "companies/plain-page",
+            title: "Factory",
+            type: @entity_type,
+            body: "The factory has four production lines."
+          },
+          :system
+        )
+
+      assert page.type == (@entity_type || "knowledge")
+      set_items(holder, [valid_item("The factory has four production lines")])
+      assert {:ok, %{claims: 1}} = SourceLearning.learn_page(page.id, page.revision)
+
+      assert [%{source_node_id: source, subject_page_id: subject}] =
+               Repo.all(from(c in Claim, where: c.source_node_id == ^page.id))
+
+      assert source == page.id
+      assert subject == page.id
+      assert_receive {:source_extraction_prompt, prompt}
+      assert prompt =~ "four production lines"
+    end
+  end
+
   test "an invalid extraction response leaves the source revision retryable",
        %{source: source, path: path, items_holder: holder} do
     File.write!(path, "Cobalt shipment arrived on time.")
@@ -119,6 +303,107 @@ defmodule Ankole.Brain.SourceLearningTest do
 
     set_items(holder, [valid_item("Cobalt shipment arrived on time")])
     assert {:ok, %{status: :learned, claims: 1}} = SourceLearning.learn(source.id)
+  end
+
+  test "source extraction and page jobs share a revision while manual edits replace automatic facts",
+       ctx do
+    File.write!(ctx.path, "Cobalt shipment arrived on time.")
+    set_items(ctx.items_holder, [valid_item("Cobalt shipment arrived on time")])
+    assert {:ok, %{subject_page_id: id}} = SourceLearning.learn(ctx.source.id)
+    assert_receive {:source_extraction_prompt, _}
+    {:ok, page} = Objects.get_by_slug(id)
+    assert {:error, :stale_run} = SourceLearning.learn_page(id, page.revision)
+    refute_receive {:source_extraction_prompt, _}
+    assert [%{expired_at: nil}] = Repo.all(from(c in Claim, where: c.source_node_id == ^id))
+
+    assert {:ok, %{claim: manual}} =
+             Ankole.Brain.Claims.write_fact(
+               %{
+                 subject_page_id: id,
+                 source_node_id: id,
+                 claim: "The operator will inspect the shipment",
+                 kind: "commitment",
+                 holder: "world",
+                 confidence: 0.75,
+                 notability: "medium",
+                 valid_from: DateTime.utc_now(:microsecond),
+                 provenance: "manual operator note"
+               },
+               :system,
+               embed: false
+             )
+
+    {:ok, changed} =
+      Ankole.Brain.update_object(
+        id,
+        %{body: "Cobalt shipment was cancelled.", base_revision: page.revision},
+        :system
+      )
+
+    set_items(ctx.items_holder, [valid_item("Cobalt shipment was cancelled")])
+
+    assert {:ok, %{claims: 1, claims_expired: 1}} =
+             SourceLearning.learn_page(id, changed.revision)
+
+    assert Repo.get!(Claim, manual.id).expired_at == nil
+    current = Repo.all(from(c in Claim, where: c.source_node_id == ^id and is_nil(c.expired_at)))
+    assert length(current) == 2
+    assert Enum.any?(current, &(&1.claim == "Cobalt shipment was cancelled"))
+    assert {:error, :stale_run} = SourceLearning.learn_page(id, changed.revision)
+    assert_receive {:source_extraction_prompt, _}
+
+    assert {:ok, emptied} =
+             Ankole.Brain.update_object(id, %{body: "", base_revision: changed.revision}, :system)
+
+    assert [%{id: manual_id}] =
+             Repo.all(from(c in Claim, where: c.source_node_id == ^id and is_nil(c.expired_at)))
+
+    assert manual_id == manual.id
+    assert {:error, :stale_run} = SourceLearning.learn_page(id, emptied.revision)
+    refute_receive {:source_extraction_prompt, _}
+  end
+
+  test "source editors can maintain the imported page through ordinary Pod writes", ctx do
+    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+    path = ctx.path <> ".private"
+    File.write!(path, "The factory has four production lines.")
+    on_exit(fn -> File.rm(path) end)
+
+    {:ok, source} =
+      SourceLearning.register_source(%{
+        upstream_id: path,
+        kind: "file",
+        name: "Factory",
+        default_source_node_id: Ankole.Brain.Scope.principal(human.uid)
+      })
+
+    set_items(ctx.items_holder, [valid_item("The factory has four production lines")])
+    assert {:ok, %{subject_page_id: id}} = SourceLearning.learn(source.id)
+    {:ok, page} = Ankole.Pod.Pages.fetch(id)
+    {:ok, parsed} = Ankole.Kernel.knowledge_parse("The factory has five production lines.")
+
+    assert {:ok, %{page: edited}} =
+             Ankole.Pod.Knowledge.write(
+               Ankole.PrincipalsFixtures.actor_fixture(human),
+               id,
+               page.revision,
+               parsed.xml,
+               page.metadata
+             )
+
+    assert edited.revision == page.revision + 1
+  end
+
+  test "a queued page extraction observes Brain being disabled" do
+    {:ok, page} =
+      Ankole.Brain.create_object(
+        %{slug: "notes/paused", title: "Paused", body: "Waiting for extraction."},
+        :system
+      )
+
+    {:ok, _} = AppConfigure.put_global_by_key("brain.enabled", false)
+    assert {:error, :brain_disabled} = SourceLearning.learn_page(page.id, page.revision)
+    refute_receive {:source_extraction_prompt, _}
   end
 
   test "a Pod with only primary extracts Source facts as its system Principal", context do
@@ -136,31 +421,25 @@ defmodule Ankole.Brain.SourceLearningTest do
              Repo.all(Ankole.AIGateway.Schemas.UsageRecord)
   end
 
-  test "the Source owns its media body and instance write paths cannot take it over",
-       %{source: source, path: path, items_holder: holder} do
+  test "source content is a normal Pod page with upstream identity", %{
+    source: source,
+    path: path,
+    items_holder: holder
+  } do
     File.write!(path, "Source-owned body.")
     set_items(holder, [])
+    assert {:ok, %{status: :learned, subject_page_id: id}} = SourceLearning.learn(source.id)
+    assert {:ok, page} = Objects.get_by_slug(id)
+    assert page.managed_by_source_id == source.id
 
-    assert {:ok, %{status: :learned, object_slug: slug}} = SourceLearning.learn(source.id)
-
-    assert %Object{managed_by_source_id: owner, content_hash: content_hash} =
-             Repo.get_by!(Object, slug: slug)
-
-    assert owner == source.id
-
-    assert Objects.editability(Repo.get_by!(Object, slug: slug)) == %{
-             editable: false,
-             edit_block_reason: "source_managed"
-           }
-
-    assert {:error, {:source_managed, ^slug, _details}} =
-             Ankole.Errors.reason(
-               Ankole.Brain.update_object(
-                 slug,
-                 %{body: "instance edit", expected_content_hash: content_hash},
-                 :system
-               )
+    assert {:ok, updated} =
+             Ankole.Brain.update_object(
+               id,
+               %{body: "Reviewed body", base_revision: page.revision},
+               :system
              )
+
+    assert updated.body == "Reviewed body"
   end
 
   test "a non-object extraction item preserves the current page, facts, and revision", %{
@@ -170,8 +449,8 @@ defmodule Ankole.Brain.SourceLearningTest do
   } do
     File.write!(path, "Cobalt shipment arrived on time.")
     set_items(holder, [valid_item("Cobalt shipment arrived on time")])
-    assert {:ok, %{object_slug: slug}} = SourceLearning.learn(source.id)
-    original = Repo.get_by!(Object, slug: slug)
+    assert {:ok, %{subject_page_id: slug}} = SourceLearning.learn(source.id)
+    original = Repo.get!(Object, slug)
     original_facts = source_claims(source)
     revision = Repo.get!(Source, source.id).upstream_revision
 
@@ -183,7 +462,7 @@ defmodule Ankole.Brain.SourceLearningTest do
       assert {:error, {:extraction_failed, :invalid_extraction_response}} =
                SourceLearning.learn(source.id)
 
-      Ankole.DataCase.assert_persisted_equal(Repo.get_by!(Object, slug: slug), original)
+      Ankole.DataCase.assert_persisted_equal(Repo.get!(Object, slug), original)
       assert source_claims(source) == original_facts
       assert Repo.get!(Source, source.id).upstream_revision == revision
     end
@@ -358,7 +637,7 @@ defmodule Ankole.Brain.SourceLearningTest do
     File.write!(path, "ARCHIVE_FENCE_CONTENT")
     learning = Task.async(Repo.bind_tenant(fn -> SourceLearning.learn(source.id) end))
 
-    assert_receive {:archive_fence_reached, upstream_request}
+    assert_receive {:archive_fence_reached, upstream_request}, 5_000
     assert {:ok, _archived} = Ankole.Brain.archive_source(source.id)
     send(upstream_request, :release_archive_fence)
 
@@ -398,7 +677,7 @@ defmodule Ankole.Brain.SourceLearningTest do
 
     File.write!(path, "REVISION_OLD")
     old_learning = Task.async(Repo.bind_tenant(fn -> SourceLearning.learn(source.id) end))
-    assert_receive {:revision_fence_reached, upstream_request}
+    assert_receive {:revision_fence_reached, upstream_request}, 5_000
 
     File.write!(path, "REVISION_NEW")
     assert {:ok, %{status: :learned, claims: 1}} = SourceLearning.learn(source.id)

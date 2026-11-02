@@ -20,7 +20,6 @@
     {Ankole.Files.Nodes,
      [:path, :descendants, :ancestor_ids, :hidden_trashed_ids, :shared_root_ids]} =>
       :m4_read_model,
-    {Ankole.Brain.ConversationsLearning, [:known_pages]} => :m4_read_model,
     {Ankole.Brain.Dreaming, [:consolidation_buckets, :term_usage]} => :m4_read_model,
     {Ankole.Brain.Merge,
      [:alias_candidates, :merge_scan_scope, :exclude_recorded_and_principal_pairs]} =>

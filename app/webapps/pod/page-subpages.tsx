@@ -55,8 +55,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { podLocation } from '../common/browser-context'
 import { requestErrorMessage } from '../common/request-errors'
+import { usePageHref } from './use-page-metadata'
 import {
   fileURL,
   pageAPI,
@@ -74,6 +74,7 @@ import { PageMenuItems, usePageActions, type PageActions } from './page-actions'
 import { uploadFileSubpages, usePageCreation } from './page-create-menu'
 import { PageIcon } from './page-icon'
 import { MovePageDialog } from './page-move-dialog'
+import { KnowledgeTable } from './knowledge-table'
 import { PageRenameField } from './page-navigation'
 import { updatePageMetadata } from './state/navigation-cache'
 import {
@@ -132,10 +133,16 @@ export function DocumentSubpages({
   })
   const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = subpages
   useEffect(() => {
-    if (!collapsed && sort !== null && hasNextPage && !isFetchingNextPage && !isFetchNextPageError) {
+    if (
+      !collapsed &&
+      (sort !== null || view === 'table') &&
+      hasNextPage &&
+      !isFetchingNextPage &&
+      !isFetchNextPageError
+    ) {
       void fetchNextPage()
     }
-  }, [collapsed, sort, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage])
+  }, [collapsed, sort, view, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage])
 
   const favorites = useQuery({
     ...pagesQuery('favorites'),
@@ -241,7 +248,13 @@ export function DocumentSubpages({
               ) : (
                 <RiLayoutGridLine aria-hidden className="size-4 text-fg-secondary" />
               )}
-              <span>{view === 'list' ? t('pod.subpages.view_list') : t('pod.subpages.view_grid')}</span>
+              <span>
+                {view === 'table'
+                  ? t('pod.knowledge.properties_table')
+                  : view === 'list'
+                    ? t('pod.subpages.view_list')
+                    : t('pod.subpages.view_grid')}
+              </span>
               <RiArrowDownSLine aria-hidden className="size-3.5 text-fg-tertiary" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-36">
@@ -256,6 +269,7 @@ export function DocumentSubpages({
                   <RiLayoutGridLine aria-hidden />
                   {t('pod.subpages.view_grid')}
                 </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="table">{t('pod.knowledge.properties_table')}</DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -444,6 +458,10 @@ export function DocumentSubpages({
                     <PageIcon page={{ type: 'doc' }} />
                     {typeLabels.doc}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void createChild.submit('knowledge')}>
+                    <PageIcon page={{ type: 'knowledge' }} />
+                    {typeLabels.knowledge}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => void createChild.submit('base')}>
                     <PageIcon page={{ type: 'base' }} />
                     {typeLabels.base}
@@ -463,6 +481,8 @@ export function DocumentSubpages({
         </p>
       ) : sortedPages.length === 0 ? (
         <p className="py-4 text-sm text-fg-tertiary">{t('pod.content.no_pages_yet')}</p>
+      ) : view === 'table' ? (
+        <KnowledgeTable pages={rawPages} />
       ) : view === 'list' ? (
         <Table>
           <TableHeader>
@@ -593,6 +613,7 @@ function SubpageListRow({
   actions: PageActions
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const client = useQueryClient()
   const [renaming, setRenaming] = useState(false)
   const [moving, setMoving] = useState(false)
@@ -633,7 +654,7 @@ function SubpageListRow({
               <Link
                 data-row-link
                 data-pod-list-item
-                to={podLocation(`/pages/${item.id}`).pathname}
+                to={pageHref(item.id, item.title)}
                 onPointerEnter={prefetch}
                 onFocus={prefetch}
                 className="inline-flex max-w-full items-center gap-2 rounded-control py-0.5 text-sm font-medium text-foreground outline-none focus-visible:outline-2 focus-visible:outline-ring">
@@ -702,6 +723,7 @@ function SubpageGridCard({
   actions: PageActions
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const client = useQueryClient()
   const [renaming, setRenaming] = useState(false)
   const [moving, setMoving] = useState(false)
@@ -747,7 +769,7 @@ function SubpageGridCard({
               ) : (
                 <Link
                   data-pod-list-item
-                  to={podLocation(`/pages/${item.id}`).pathname}
+                  to={pageHref(item.id, item.title)}
                   onPointerEnter={prefetch}
                   onFocus={prefetch}
                   className="block truncate text-sm font-medium text-foreground outline-none after:absolute after:inset-0 focus-visible:underline">

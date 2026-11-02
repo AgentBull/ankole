@@ -1,11 +1,12 @@
-import { state, request as podRequest, selectChatAgent } from './fixtures'
+import { state, request as podRequest } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
 import { conversationRoute } from './routes'
 
 import type { ConversationDetail as Detail } from '../../pod/api'
 
 function agentQueue(detail: Detail) {
-  const queue = detail.pendingQueues.find(queue => queue.agentUID === state.agent_uid)
+  const agentUID = detail.conversation.agents.length === 1 ? detail.conversation.agents[0]!.uid : state.agent_uid
+  const queue = detail.pendingQueues.find(queue => queue.agentUID === agentUID)
   expect(queue).toBeDefined()
   return queue!
 }
@@ -42,7 +43,6 @@ test('a touch chat edits, orders, removes and releases real durable pending inpu
   const page = await context.newPage()
   try {
     await page.goto('/')
-    await selectChatAgent(page)
     const input = page.getByRole('textbox', { name: '消息', exact: true })
     await input.fill(`Initial queue request ${crypto.randomUUID()}`)
     let sends = 0
@@ -152,7 +152,7 @@ test('a touch chat edits, orders, removes and releases real durable pending inpu
       .locator('li.pod-chat-queue-item')
       .filter({ has: page.getByText('Edited second queued request', { exact: true }) })
     const released = await mutation(page, id, 'steer', () =>
-      editedRow.getByRole('button', { name: '立即并入当前轮次', exact: true }).click()
+      editedRow.getByRole('button', { name: '并入', exact: true }).click()
     )
     expect(agentQueue(released).paused).toBe(true)
     expect(agentQueue(released).inputs[0]).toMatchObject({ messageID: secondID, deliveryMode: 'steer' })
@@ -202,7 +202,7 @@ test('a completed message copies exact code and text, then edits and retries thr
     await input.fill('Independent next draft')
     await expect(human.getByRole('button', { name: '编辑并重新生成', exact: true })).toHaveAttribute(
       'title',
-      /重新生成会保留已完成的页面、数据库和应用修改。/
+      /重新生成会保留已完成的页面、多维表和小应用修改。/
     )
     await human.getByRole('button', { name: '编辑并重新生成', exact: true }).click()
     await expect(input).toBeFocused()
@@ -317,9 +317,9 @@ test('reordering follow-ups preserves the first shared message and its Agent que
   let id: string | undefined
   try {
     await page.goto('/')
-    await selectChatAgent(page)
     const input = page.getByRole('textbox', { name: '消息', exact: true })
     await input.fill('First request waiting for Main startup')
+    await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled()
     const accepted = page.waitForResponse(
       response =>
         response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
@@ -374,7 +374,7 @@ test('reordering follow-ups preserves the first shared message and its Agent que
         detail = await request(page, `/conversations/${id}/queue`, 'POST', {
           action: 'retract',
           messageID: pending.messageID,
-          agentUID: state.agent_uid,
+          agentUID: agentQueue(detail).agentUID,
           expectedVersion: agentQueue(detail).queueVersion
         })
       }

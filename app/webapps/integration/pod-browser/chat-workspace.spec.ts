@@ -256,7 +256,7 @@ test('a recorded turn restores its rich answer and complete work after refresh, 
   }
 })
 
-test('page chat resizes within its limits and switches real shared access with immediate revocation', async ({
+test('the private page assistant resizes and a page-linked group manages sharing from its room', async ({
   browser
 }, info) => {
   const { context, page } = await ownerPage(browser)
@@ -265,9 +265,11 @@ test('page chat resizes within its limits and switches real shared access with i
   const other = await viewer.newPage()
   const id = material!.conversation_id
   try {
-    await page.goto(pageRoute(material!.page_id, id))
-    const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
+    await page.goto(`${pageRoute(material!.page_id)}?chat=${id}`)
+    const panel = page.getByRole('complementary', { name: '助理', exact: true })
     await expect(panel).toBeVisible()
+    await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe('new')
+    await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toBeEditable()
     const resize = panel.getByRole('separator', { name: '调整页面会话宽度', exact: true })
     await expect(resize).toHaveAttribute('aria-valuenow', '400')
     await resize.focus()
@@ -281,21 +283,26 @@ test('page chat resizes within its limits and switches real shared access with i
     await page.mouse.move(bounds.x + bounds.width / 2 - 64, bounds.y + 100, { steps: 8 })
     await page.mouse.up()
     await expect(resize).toHaveAttribute('aria-valuenow', '424')
-    await panel.getByRole('combobox', { name: '会话可见范围', exact: true }).click()
-    await page.getByRole('option', { name: '跟本页协作者共享', exact: true }).click()
+    await expect(panel.getByRole('combobox', { name: '会话可见范围', exact: true })).toHaveCount(0)
+    await panel.screenshot({ path: info.outputPath('chat-page-panel-424.png') })
+    await panel.getByRole('button', { name: '关闭助理', exact: true }).click()
+    await page.goto(conversationRoute(id))
+    await page.getByRole('button', { name: '邀请协作', exact: true }).click()
+    await page.getByRole('radio', { name: '跟本页协作者共享', exact: true }).click()
     await expect.poll(async () => (await detail(page)).conversation.accessScope).toBe('anchor_page')
     await other.goto(conversationRoute(id))
     await expect(other.getByRole('heading', { name: 'Workspace findings' })).toBeVisible()
     await other.getByRole('textbox', { name: '消息', exact: true }).fill('My unsent review notes')
-    await panel.getByRole('combobox', { name: '会话可见范围', exact: true }).click()
-    await page.getByRole('option', { name: '仅受邀成员可见', exact: true }).click()
+    await page.getByRole('radio', { name: '仅受邀成员可见', exact: true }).click()
     await expect.poll(async () => (await detail(page)).conversation.accessScope).toBe('participants')
     await expect(other.getByRole('alert')).toHaveText('此对话不存在，或没有访问权限。')
     await expect(other.getByRole('textbox', { name: '本地内容 1', exact: true })).toHaveValue('My unsent review notes')
     await expect(other.getByRole('textbox', { name: '消息', exact: true })).toHaveCount(0)
     await expect(other.getByText('Workspace findings', { exact: true })).toBeHidden()
-    await panel.screenshot({ path: info.outputPath('chat-page-panel-424.png') })
-    await panel.getByRole('button', { name: '在对话页面打开', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: '邀请协作', exact: true })
+      .getByRole('button', { name: '关闭', exact: true })
+      .click()
     await expect(page).toHaveURL(url => url.pathname === conversationRoute(id))
     await expect(page.getByRole('heading', { name: 'Workspace findings' })).toBeVisible()
     await page.screenshot({ path: info.outputPath('chat-page-context.png') })
@@ -404,7 +411,7 @@ test('queued inputs retain real per-Agent order through drag, steer, edit and re
           ?.inputs.map(input => input.messageID)
       )
       .toEqual([material!.queue_message_ids[1], material!.queue_message_ids[2], material!.queue_message_ids[0]])
-    await row('Queue beta').getByRole('button', { name: '立即并入当前轮次', exact: true }).click()
+    await row('Queue beta').getByRole('button', { name: '并入', exact: true }).click()
     await expect
       .poll(
         async () =>
@@ -418,7 +425,7 @@ test('queued inputs retain real per-Agent order through drag, steer, edit and re
     await expect(input).toHaveValue('Queue gamma')
     await expect(row('Queue alpha').getByRole('button', { name: '编辑待发送消息', exact: true })).toBeDisabled()
     await expect(row('Queue beta').getByRole('button', { name: '撤回到草稿', exact: true })).toBeDisabled()
-    await expect(row('Queue alpha').getByRole('button', { name: '立即并入当前轮次', exact: true })).toBeEnabled()
+    await expect(row('Queue alpha').getByRole('button', { name: '并入', exact: true })).toBeEnabled()
     await input.fill('Queue gamma revised')
     await page.locator('.pod-chat-composer').getByRole('button', { name: '保存消息', exact: true }).click()
     await expect(row('Queue gamma revised')).toBeVisible()
@@ -824,10 +831,10 @@ test('an older pending decision stays actionable and a referenced answer preserv
     await expect(input).toBeFocused()
     await question.getByRole('button', { name: '带引用或附件回答', exact: true }).click()
     await input.fill('Use @Chat')
-    await page.getByRole('option', { name: 'Chat workspace reference', exact: true }).click()
+    await page.getByRole('option').filter({ hasText: 'Chat workspace reference' }).click()
     await input.pressSequentially(' for this answer.')
     await input.pressSequentially(' @Browser member')
-    await page.getByRole('option', { name: 'Browser member', exact: true }).click()
+    await page.getByRole('option').filter({ hasText: 'Browser member' }).click()
     const quoted = initial.messages.findLast(message => message.authorType === 'human')!
     const quotedRow = page.locator(`[data-chat-message-id="${quoted.id}"]`)
     await quotedRow.hover()

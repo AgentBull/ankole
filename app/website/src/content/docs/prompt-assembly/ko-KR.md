@@ -9,11 +9,11 @@ description: 제어 플레인의 주 Agent 지침과 Codex Job 컨텍스트 구�
 
 ## 현재 컨텍스트
 
-프롬프트 컨텍스트에는 Agent의 신원과 문서, 현재 유효한 Skill 및 플러그인, 대화 시작 채널, 시간대가 포함됩니다. 행동 원칙과 판단 기준은 `SOUL.md`에서, 담당 업무와 책임 범위는 `MISSION.md`에서 정의합니다. 이 문서들은 도메인 소유 모듈이 PostgreSQL에 영속 저장하며, 환경 도구가 실행될 때는 workspace 계약에 따라 런타임 파일로 실체화되어 전달됩니다.
+각 실행은 Agent 신원, 활성 기능, 시작 대화, 시간대를 확인합니다. Ankole은 `/AnkoleBrain/AGENTS.md` 전체를 읽고 Agent별 페이지의 추가 또는 대체 규칙을 적용해 유효한 `AGENTS.md`를 생성합니다. `DESIGN.md`도 같은 계층을 사용하며 완전한 런타임 파일로 제공합니다.
 
-주 시스템 프롬프트는 신원, `SOUL.md`, `MISSION.md`, 완료 및 권한 지침, 사용 가능한 Job·Workflow 정책, 기억 안내, 환경 및 도구 안내, Skill 목록, 런타임 컨텍스트 순서로 조립됩니다. 프롬프트 템플릿은 `app/control_plane/priv/sessions/prompts/`에 있고, 렌더링 로직은 `app/control_plane/lib/ankole/sessions/prompt.ex`에 구현되어 있습니다.
+`Ankole.Sessions.Prompt.system/1`은 AGENTS 규약 전체, 완료 및 권한 규칙, Job과 Workflow 정책, 기억 지침, 환경과 도구 설명, Skill 카탈로그, 런타임 컨텍스트를 순서대로 조립합니다. 템플릿은 `app/control_plane/priv/sessions/prompts/`에 있습니다.
 
-프롬프트 내 Skill 목록에서는 `brain-recall-only: true`로 선언된 Skill이 생략되지만, 활성 Skill 집합에는 그대로 남으므로 Brain 검색으로 발견해 `skill_view`로 본문을 읽을 수 있습니다. 런타임 접미사에는 Agent 식별자, `/workspace`, 현재 Session workspace 경로, 시간대, 대화 시작 시각 및 채널 정보가 들어갑니다. Lark 어댑터는 Lark와 Feishu를 모두 지원하며, 설정된 domain 값에 따라 상위 API 엔드포인트가 결정됩니다.
+Skill 카탈로그에는 현재 대화에서 읽을 수 있는 활성 Skill의 설명을 표시합니다. `skill_view`는 선택한 Skill과 허용된 보충 페이지를 필요할 때 읽습니다. 마지막에는 Agent, `/workspace`, Session 작업 공간, 시간대, 대화 시작 시각과 채널을 기록합니다. Lark와 Feishu는 하나의 어댑터를 사용하며 설정된 도메인에 따라 상위 API를 선택합니다.
 
 ## 설정과 기록
 
@@ -23,6 +23,6 @@ description: 제어 플레인의 주 Agent 지침과 Codex Job 컨텍스트 구�
 
 ## Codex Job과 Workflow 작업
 
-Codex Job은 이와 별도의 Worker 실행 경로를 따릅니다. Runner가 고정된 실행 선택지를 해석하고 RPC로 현재 도메인 정보를 받아 Job 프로젝트 디렉터리와 `AGENTS.md`를 준비하면, 해당 Job의 모델 루프는 Native Codex가 직접 구동합니다. 자세한 내용은 [Background Agent Jobs](../background-agent-jobs/)를 참조하세요.
+Codex Job은 Worker에서 실행합니다. 매 턴 시작과 재개 시 최신 규약을 가져와 `$CODEX_HOME/AGENTS.md`, `~/AGENTS.md`, `~/DESIGN.md`를 원자적으로 갱신합니다. 네이티브 Codex는 전역 Agent 지침과 프로젝트 자체 지침 파일을 결합합니다. 자세한 내용은 [Background Agent Jobs](../background-agent-jobs/)를 참조하세요.
 
 Workflow 작업은 `Prompt.workflow_system/1`을 통해 Agent 신원, 작업 ID, 저장된 결과 스키마, 결과 제출 규칙, 위임 및 `sleep` 규칙을 전달받습니다. Ambient routing 역시 전용 프롬프트를 사용하며, 각 실행 경로는 고유한 실행 계약을 따릅니다.

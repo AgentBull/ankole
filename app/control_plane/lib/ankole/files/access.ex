@@ -26,7 +26,15 @@ defmodule Ankole.Files.Access do
   end
 
   @doc "Publishes a committed authorization change to open pages and cached directories."
-  def broadcast_change do
+  def broadcast_change(invalidate_vfs? \\ true) do
+    if invalidate_vfs?,
+      do:
+        Phoenix.PubSub.broadcast(
+          Ankole.PubSub,
+          "drive-vfs-access:" <> Repo.tenant_id!(),
+          :vfs_access_changed
+        )
+
     Phoenix.PubSub.broadcast(Ankole.PubSub, "drive-access:" <> Repo.tenant_id!(), :recheck_access)
 
     Phoenix.PubSub.broadcast(
@@ -299,9 +307,12 @@ defmodule Ankole.Files.Access do
   def refresh_anchor_in_tx(nil), do: :ok
 
   def refresh_anchor_in_tx(id) do
+    # The tree lock serializes grant and topology changes. Refresh only writes
+    # anchor columns, so it can compose with tenant and Principal creation
+    # without taking a content row lock before those lifecycles finish.
     Pages.lock_tree()
 
-    case Pages.lock(id) do
+    case Pages.fetch(id) do
       {:ok, page} ->
         local = grants(target_node_id: id) != []
         attrs = anchor_attributes(%{has_local_acl: local}, page)

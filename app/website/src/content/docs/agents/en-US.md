@@ -30,22 +30,13 @@ The disclosure mode for group memory controls what knowledge the Agent may draw 
 
 In one-on-one direct messages, both modes behave identically. Use **Strict** unless the group explicitly accepts broader disclosure. See [Brain](../brain/) for the full knowledge and disclosure model.
 
-## Set the durable documents
+## Set Agent contracts
 
-Open **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** on the Agent page:
+Open the Agent's **AGENTS / DESIGN** source links in the Console to edit the corresponding Pod pages. `/AnkoleBrain/AGENTS.md` defines organization behavior, responsibilities, and confidentiality rules; `/AnkoleBrain/DESIGN.md` holds the visual design system for web pages, slides, documents, and charts.
 
-| Document | What to write |
-|---|---|
-| `MISSION.md` | Why the Agent exists, what work it owns, and what a complete result means |
-| `SOUL.md` | How it communicates, how it makes decisions, and how it handles uncertainty |
-| `DESIGN.md` | The design system for web pages, slides, documents, charts, and other visual artifacts |
-| `ConfidentialityPolicy.md` | How the Agent chooses an audience scope when it writes knowledge to Brain |
+Under `/AnkoleBrain/agents/<uid>/`, an `AGENTS.md` page appends the Agent's responsibilities, while `AGENTS.override.md` supplies a complete independent contract. DESIGN supports the same append or override choice; its YAML metadata holds design tokens and its body explains their use. Personal assistants have an owner-managed private override. See [Agent Library](../agent-library/) for inheritance.
 
-`DESIGN.md` follows the <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md format</a>: YAML frontmatter defines design tokens such as colors, typography, spacing, border corners, and components, while the Markdown body explains the visual principles and how to apply them. Ankole ships a ready-to-use default design system that you can replace with your organization's brand under **Console → Agents → DESIGN**.
-
-Keep workflows, permission boundaries, and behavioral rules out of `DESIGN.md`—place them in `MISSION.md`, `SOUL.md`, `ConfidentialityPolicy.md`, or a dedicated Skill instead. Note that `ConfidentialityPolicy.md` guides explicit Brain writes initiated by the Agent, whereas automatic memory extraction from chat uses the conversation's participant audience. Start with concise documents, and add rules only when real work shows that they are needed.
-
-Saved edits apply to subsequent turns; work that is already running continues with the document snapshot that it loaded when the turn started.
+Saved edits take effect on the next turn, including a resumed Codex Job. The current turn uses the complete contract it loaded at startup.
 
 ## Configure models
 

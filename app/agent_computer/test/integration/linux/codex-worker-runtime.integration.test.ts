@@ -122,8 +122,7 @@ test ! -e ./AGENTS.override.md
     const project = prepareCodexJobProject({ jobProjectRoot })
     const renderedAgents = renderCodexJobAgents({
       jobRoot: project.root,
-      soul: 'TASK_AGENTS_MARKER',
-      mission: 'Verify runtime mounts.'
+      skillsPrompt: 'TASK_AGENTS_MARKER'
     })
     writeFileSync(join(jobProjectRoot, 'AGENTS.md'), renderedAgents.content)
     const runtimeConfig: CodexRuntimeConfig = {

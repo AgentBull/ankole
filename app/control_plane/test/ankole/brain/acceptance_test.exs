@@ -6,6 +6,7 @@ defmodule Ankole.Brain.AcceptanceTest do
   """
 
   use Ankole.DataCase, async: true
+  import Ankole.BrainFixtures
 
   import Ankole.PrincipalsFixtures
   import Ecto.Query
@@ -14,7 +15,6 @@ defmodule Ankole.Brain.AcceptanceTest do
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.ConversationsLearning
   alias Ankole.Brain.Sources
   alias Ankole.Ecto.UUIDv7
@@ -24,7 +24,7 @@ defmodule Ankole.Brain.AcceptanceTest do
     %{principal: human} = human_fixture()
 
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "companies/decay", type: "company", title: "Decay Co"},
         human.uid
       )
@@ -40,11 +40,11 @@ defmodule Ankole.Brain.AcceptanceTest do
       {:ok, %{claim: fresh}} =
         Ankole.Brain.write_fact(
           %{
-            object_slug: "companies/decay",
+            subject_page_id: page_id("companies/decay"),
             claim: "Fresh event happened yesterday",
             kind: "event",
             holder: "world",
-            audience_scope: "world",
+            source_node_id: source_node("world"),
             notability: "medium",
             confidence: 0.8,
             valid_from: now,
@@ -56,11 +56,11 @@ defmodule Ankole.Brain.AcceptanceTest do
       {:ok, %{claim: stale}} =
         Ankole.Brain.write_fact(
           %{
-            object_slug: "companies/decay",
+            subject_page_id: page_id("companies/decay"),
             claim: "Stale event happened three weeks ago",
             kind: "event",
             holder: "world",
-            audience_scope: "world",
+            source_node_id: source_node("world"),
             notability: "medium",
             confidence: 0.8,
             valid_from: old,
@@ -88,58 +88,6 @@ defmodule Ankole.Brain.AcceptanceTest do
     end
   end
 
-  describe "acceptance 12: purge" do
-    test "hard-deletes only soft-deleted objects past the TTL", %{human: human} do
-      {:ok, _fresh_deleted} =
-        Ankole.Brain.create_object(
-          %{slug: "notes/fresh-deleted", type: "note", title: "Fresh"},
-          human.uid
-        )
-
-      {:ok, _old_deleted} =
-        Ankole.Brain.create_object(
-          %{slug: "notes/old-deleted", type: "note", title: "Old"},
-          human.uid
-        )
-
-      {:ok, _fresh} = Ankole.Brain.soft_delete_object("notes/fresh-deleted")
-      {:ok, old} = Ankole.Brain.soft_delete_object("notes/old-deleted")
-
-      # Age the second deletion past the 72h TTL.
-      old
-      |> Ecto.Changeset.change(
-        deleted_at: DateTime.add(DateTime.utc_now(:microsecond), -80 * 3600, :second)
-      )
-      |> Repo.update!()
-
-      # An expired fact must survive purge forever.
-      {:ok, %{claim: fact}} =
-        Ankole.Brain.write_fact(
-          %{
-            object_slug: "companies/decay",
-            claim: "A fact that expires but never purges",
-            kind: "fact",
-            holder: "world",
-            audience_scope: "world",
-            notability: "low",
-            confidence: 0.6,
-            valid_from: DateTime.utc_now(:microsecond),
-            provenance: "test"
-          },
-          human.uid
-        )
-
-      {:ok, _expired} = Ankole.Brain.expire_fact(fact.id)
-
-      report = Dreaming.phase_purge()
-      assert report.purged == 1
-
-      assert Repo.get_by(Object, slug: "notes/fresh-deleted")
-      refute Repo.get_by(Object, slug: "notes/old-deleted")
-      assert Repo.get(Claim, fact.id)
-    end
-  end
-
   describe "acceptance 13/14: consolidation" do
     test "clusters same-bucket facts into one brain take and reruns idempotently", %{
       human: human,
@@ -161,11 +109,11 @@ defmodule Ankole.Brain.AcceptanceTest do
       insert_fact = fn text, scope, vector ->
         insert_fact!(%{
           id: UUIDv7.autogenerate(),
-          object_slug: object.slug,
+          subject_page_id: object.id,
           claim: text,
           kind: "preference",
           holder: "people/#{human.uid}",
-          audience_scope: scope,
+          source_node_id: scope,
           notability: "medium",
           confidence: 0.8,
           valid_from: old,
@@ -177,15 +125,15 @@ defmodule Ankole.Brain.AcceptanceTest do
         })
       end
 
-      insert_fact.("Likes salmon sashimi", "world", base_vector.(0.01))
-      insert_fact.("Likes tuna sashimi", "world", base_vector.(0.02))
-      insert_fact.("Likes eel sashimi", "world", base_vector.(0.03))
+      insert_fact.("Likes salmon sashimi", source_node("world"), base_vector.(0.01))
+      insert_fact.("Likes tuna sashimi", source_node("world"), base_vector.(0.02))
+      insert_fact.("Likes eel sashimi", source_node("world"), base_vector.(0.03))
 
       # Same bucket key but different scope must not cluster with the world
       # bucket: it stays below the bucket minimum on its own.
       insert_fact.(
         "Private note about sashimi budget",
-        "principal:#{human.uid}",
+        source_node("principal:#{human.uid}"),
         base_vector.(0.04)
       )
 
@@ -198,8 +146,8 @@ defmodule Ankole.Brain.AcceptanceTest do
         |> Repo.all()
 
       assert [take] = takes
-      assert take.audience_scope == "world"
-      assert take.object_slug == object.slug
+      assert take.source_node_id == source_node("world")
+      assert take.subject_page_id == object.id
       assert_in_delta take.weight, 0.8, 0.001
 
       consolidated =
@@ -236,11 +184,11 @@ defmodule Ankole.Brain.AcceptanceTest do
           ] do
         insert_fact!(%{
           id: UUIDv7.autogenerate(),
-          object_slug: object.slug,
+          subject_page_id: object.id,
           claim: text,
           kind: "preference",
           holder: "people/#{human.uid}",
-          audience_scope: "world",
+          source_node_id: source_node("world"),
           notability: "medium",
           confidence: 0.8,
           valid_from: old,
@@ -265,11 +213,11 @@ defmodule Ankole.Brain.AcceptanceTest do
       for index <- 1..3 do
         insert_fact!(%{
           id: UUIDv7.autogenerate(),
-          object_slug: object.slug,
+          subject_page_id: object.id,
           claim: "Forgotten consolidation fact #{index}",
           kind: "preference",
           holder: "people/#{human.uid}",
-          audience_scope: "world",
+          source_node_id: source_node("world"),
           notability: "medium",
           confidence: 0.8,
           valid_from: old,
@@ -434,79 +382,32 @@ defmodule Ankole.Brain.AcceptanceTest do
     end
   end
 
-  describe "dreaming phase 3" do
-    test "model-free links advance separately from model timelines", %{
-      object: object,
-      human: human
-    } do
-      {:ok, target} =
-        Ankole.Brain.create_object(
-          %{slug: "notes/target", type: "note", title: "Target"},
-          human.uid
-        )
+  test "page metadata reconciles references while preserving typed manual edges", %{
+    object: object,
+    human: human
+  } do
+    {:ok, target} =
+      page_fixture_result(%{slug: "notes/target", type: "note", title: "Target"}, human.uid)
 
-      {:ok, _} = Ankole.Brain.Links.add_alias(target.slug, "Target mention")
+    assert {:ok, _} =
+             Ankole.Brain.Links.upsert_link(%{
+               from_page_id: object.id,
+               to_page_id: target.id,
+               link_type: "supplies",
+               link_source: "manual"
+             })
 
-      {:ok, object} =
-        Ankole.Brain.update_object(
-          object.slug,
-          %{
-            body: "[[notes/target]] and Target mention",
-            expected_content_hash: object.content_hash
-          },
-          human.uid
-        )
+    assert {:ok, _} =
+             Ankole.Brain.update_object(object.id, %{meta: %{"subject" => target.id}}, human.uid)
 
-      assert Ankole.Brain.SelfHealing.reconcile_body_links() >= 1
-      current = Repo.get_by!(Object, slug: object.slug)
-      assert current.links_extracted_at == object.updated_at
-      assert current.updated_at == object.updated_at
-      assert current.timelines_extracted_at == nil
-      assert Ankole.Brain.SelfHealing.reconcile_body_links() == 0
+    links = Repo.all(from(l in Ankole.Brain.Schemas.Link, where: l.from_page_id == ^object.id))
+    assert Enum.sort(Enum.map(links, & &1.link_type)) == ["references", "supplies"]
 
-      links =
-        Repo.all(from(l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug))
+    assert {:ok, _} =
+             Ankole.Brain.update_object(object.id, %{meta: %{"subject" => nil}}, human.uid)
 
-      assert Enum.sort(Enum.map(links, & &1.link_source)) == ["markdown", "mentions"]
-
-      assert {:ok, _} = Ankole.Brain.reconcile_object_links(object.slug)
-
-      assert MapSet.new(links, & &1.id) ==
-               MapSet.new(
-                 Repo.all(
-                   from(l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug)
-                 ),
-                 & &1.id
-               )
-
-      assert %{status: :skipped, reason: :dreaming_model_not_configured} =
-               Dreaming.phase_extract_timelines()
-
-      assert Repo.get_by!(Object, slug: object.slug).timelines_extracted_at == nil
-
-      {:ok, _} =
-        Ankole.Brain.Links.upsert_link(%{
-          from_object_slug: object.slug,
-          to_object_slug: target.slug,
-          link_type: "manual relation",
-          link_source: "manual"
-        })
-
-      {:ok, object} =
-        Ankole.Brain.update_object(
-          object.slug,
-          %{body: "No references now.", expected_content_hash: object.content_hash},
-          human.uid
-        )
-
-      assert DateTime.compare(object.updated_at, current.links_extracted_at) == :gt
-      assert Ankole.Brain.SelfHealing.reconcile_body_links() >= 1
-
-      assert [%{link_source: "manual"}] =
-               Repo.all(
-                 from(l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug)
-               )
-    end
+    assert [%{link_type: "supplies"}] =
+             Repo.all(from(l in Ankole.Brain.Schemas.Link, where: l.from_page_id == ^object.id))
   end
 
   defp insert_channel!(attrs \\ %{}) do

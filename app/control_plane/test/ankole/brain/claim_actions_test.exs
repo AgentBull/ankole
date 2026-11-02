@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.ClaimActionsTest do
   use Ankole.DataCase, async: true
+  import Ankole.BrainFixtures
 
   alias Ankole.Brain.{Claims, SchemaPacks}
   alias Ankole.Brain.Schemas.Claim
@@ -8,7 +9,7 @@ defmodule Ankole.Brain.ClaimActionsTest do
     {:ok, _} = SchemaPacks.install_packs([])
 
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "notes/claim-actions", type: "note", title: "Claims"},
         :system
       )
@@ -174,11 +175,11 @@ defmodule Ankole.Brain.ClaimActionsTest do
 
   defp fact_attrs(object) do
     %{
-      object_slug: object.slug,
+      subject_page_id: object.id,
       claim: "An assertion",
       kind: "fact",
       holder: "world",
-      audience_scope: "world",
+      source_node_id: source_node("world"),
       notability: "medium",
       confidence: 0.75,
       valid_from: DateTime.utc_now(),
@@ -188,11 +189,11 @@ defmodule Ankole.Brain.ClaimActionsTest do
 
   defp take!(object, overrides \\ %{}) do
     attrs = %{
-      object_slug: object.slug,
+      subject_page_id: object.id,
       claim: "A prediction",
       kind: "forecast",
       holder: "world",
-      audience_scope: "world",
+      source_node_id: source_node("world"),
       weight: 0.75,
       provenance: "claim actions"
     }

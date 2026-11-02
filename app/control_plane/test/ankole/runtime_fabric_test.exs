@@ -58,7 +58,7 @@ defmodule Ankole.RuntimeFabricTest do
     golden_dir = Path.expand("../../../kernel/proto/golden", __DIR__)
 
     for type <- [:workspace_open, :workspace_ready, :tool_call, :tool_status, :tool_result] do
-      bytes = File.read!(Path.join(golden_dir, "#{type}.v11.bin"))
+      bytes = File.read!(Path.join(golden_dir, "#{type}.v12.bin"))
       assert {:ok, envelope} = Ankole.RuntimeFabric.V1.Envelope.decode(bytes)
       assert {^type, value} = envelope.body
       assert value.run.signal_id == "input-1"
@@ -90,7 +90,7 @@ defmodule Ankole.RuntimeFabricTest do
 
         :workspace_open ->
           assert value.workspace_id == 10_000
-          assert value.agent_context.soul == "Agent instructions"
+          assert value.agent_context.agents == "Agent instructions\n\nMission instructions"
 
           assert [%V1.RuntimeSkillSummary{skill_name: "design-md", skill_root: "library"}] =
                    value.agent_context.skills
@@ -99,14 +99,13 @@ defmodule Ankole.RuntimeFabricTest do
 
     assert {:ok, %{body: {:turn_start, %{agent_context: context}}}} =
              Ankole.RuntimeFabric.V1.Envelope.decode(
-               File.read!(Path.join(golden_dir, "turn_start.v11.bin"))
+               File.read!(Path.join(golden_dir, "turn_start.v12.bin"))
              )
 
     assert context.conversation.timezone == "Asia/Shanghai"
-    assert context.soul == "Agent instructions" and context.mission == "Mission instructions"
+    assert context.agents == "Agent instructions\n\nMission instructions"
 
-    assert context.design == "Design instructions" and
-             context.confidentiality_policy == "Keep operator facts private"
+    assert context.design == "Design instructions"
 
     assert context.skills_prompt == "    - design-md: Design documents"
 
@@ -124,7 +123,7 @@ defmodule Ankole.RuntimeFabricTest do
 
     assert {:ok, %{body: {:turn_start, %{mode: "adopt"}}}} =
              Ankole.RuntimeFabric.V1.Envelope.decode(
-               File.read!(Path.join(golden_dir, "turn_adopt.v11.bin"))
+               File.read!(Path.join(golden_dir, "turn_adopt.v12.bin"))
              )
   end
 
@@ -132,7 +131,7 @@ defmodule Ankole.RuntimeFabricTest do
     golden_dir = Path.expand("../../../kernel/proto/golden", __DIR__)
 
     with_field =
-      golden_dir |> Path.join("turn_start.v11.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("turn_start.v12.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:turn_start, %V1.TurnStart{} = turn_start} = with_field.body
 
@@ -168,7 +167,7 @@ defmodule Ankole.RuntimeFabricTest do
 
     request =
       golden_dir
-      |> Path.join("rpc_read_tool_request.v11.bin")
+      |> Path.join("rpc_read_tool_request.v12.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
 
@@ -183,7 +182,7 @@ defmodule Ankole.RuntimeFabricTest do
 
     response =
       golden_dir
-      |> Path.join("rpc_read_tool_response.v11.bin")
+      |> Path.join("rpc_read_tool_response.v12.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
 
@@ -204,7 +203,7 @@ defmodule Ankole.RuntimeFabricTest do
 
     {:rpc_request, request} =
       dir
-      |> Path.join("rpc_files_get_request.v11.bin")
+      |> Path.join("rpc_files_get_request.v12.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
       |> Map.fetch!(:body)
@@ -218,7 +217,7 @@ defmodule Ankole.RuntimeFabricTest do
 
     {:rpc_response, response} =
       dir
-      |> Path.join("rpc_files_get_response.v11.bin")
+      |> Path.join("rpc_files_get_response.v12.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
       |> Map.fetch!(:body)
@@ -252,10 +251,8 @@ defmodule Ankole.RuntimeFabricTest do
 
     context = %V1.AgentConversationContextResponse{
       conversation: %V1.ConversationInfo{timezone: "Asia/Shanghai"},
-      soul: "Agent instructions",
-      mission: "Mission instructions",
+      agents: "Agent instructions\n\nMission instructions",
       design: "Design instructions",
-      confidentiality_policy: "Keep operator facts private",
       skills_prompt: "    - design-md: Design documents",
       skills: [
         %V1.RuntimeSkillSummary{
@@ -319,7 +316,7 @@ defmodule Ankole.RuntimeFabricTest do
        }},
       {"workspace_open",
        %V1.Envelope{
-         message_id: "workspace_open.v11.bin",
+         message_id: "workspace_open.v12.bin",
          body:
            {:workspace_open,
             %V1.WorkspaceOpen{
@@ -333,7 +330,7 @@ defmodule Ankole.RuntimeFabricTest do
               },
               idle_timeout_ms: 1_800_000,
               agent_context: %V1.AgentConversationContextResponse{
-                soul: "Agent instructions",
+                agents: "Agent instructions\n\nMission instructions",
                 skills: [
                   %V1.RuntimeSkillSummary{
                     skill_name: "design-md",
@@ -347,7 +344,7 @@ defmodule Ankole.RuntimeFabricTest do
        }},
       {"tool_call",
        %V1.Envelope{
-         message_id: "tool_call.v11.bin",
+         message_id: "tool_call.v12.bin",
          body:
            {:tool_call,
             %V1.ToolCall{

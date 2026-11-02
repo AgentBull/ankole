@@ -497,8 +497,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
         agentPlugins: catalog,
         codexHome,
         libraryRoot,
-        initializeProject: true,
-        agentsContent: '# Alpha Job'
+        initializeProject: true
       })
       materializeAgentPluginPackages(prepared, { rebuild: true })
 

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, type BrowserContext, type Locator, type Page } from '@playwright/test'
+import { expect, type BrowserContext, type Page } from '@playwright/test'
 
 export type Login = { uid: string; email: string }
 type Identity = Login & { cookies: Parameters<BrowserContext['addCookies']>[0] }
@@ -44,6 +44,7 @@ type State = {
   owner: Identity
   member: Identity
   viewer: Identity
+  guest: Identity
   site_admin: Identity & { tenant_id: string }
   other_pod: Login & { base_url: string; page_id: string }
   agent_uid: string
@@ -92,14 +93,6 @@ export const createApplet = (attributes: { parent_id: string; title: string }) =
 
 export const publishApplet = (page_id: string, base_revision: number, files: unknown[]) =>
   agentAction<{ revision: number; routes: string[] }>('publish', { page_id, base_revision, files })
-
-export async function selectChatAgent(page: Page, scope: Page | Locator = page) {
-  const { agents } = await request<{ agents: { uid: string; displayName: string }[] }>(page, '/agents')
-  const agent = agents.find(agent => agent.uid === state.agent_uid)
-  expect(agent).toBeDefined()
-  await scope.getByRole('combobox', { name: '选择 Agent', exact: true }).click()
-  await page.getByRole('option', { name: agent!.displayName, exact: true }).click()
-}
 
 export async function continuePodEntry(page: Page, uid: string) {
   await page.getByRole('button', { name: new RegExp(uid) }).click()

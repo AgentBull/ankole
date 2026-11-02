@@ -40,7 +40,6 @@ defmodule Ankole.Principals.Rename.References do
     {"brain_claims", "author"},
     {"brain_claims", "resolved_by"},
     {"brain_merge_suggestions", "decided_by"},
-    {"brain_object_versions", "author"},
     {"brain_schema_suggestions", "decided_by"},
     {"brain_timelines", "author"},
     {"drive_nodes", "created_by"},
@@ -167,22 +166,22 @@ defmodule Ankole.Principals.Rename.References do
     old_slug = Ankole.Brain.principal_page_slug(principal_type, old_uid)
     new_slug = Ankole.Brain.principal_page_slug(principal_type, new_uid)
 
-    for {table, column} <- [
-          {"brain_objects", "slug"},
-          {"brain_slug_aliases", "alias_slug"},
-          {"brain_merge_suggestions", "a_slug"},
-          {"brain_merge_suggestions", "b_slug"}
-        ] do
-      rewrite_scalar({table, column}, tenant_id, old_slug, new_slug)
-    end
+    rewrite_scalar({"brain_claims", "holder"}, tenant_id, old_slug, new_slug)
 
-    for {table, column} <- [
-          {"brain_claims", "audience_scope"},
-          {"brain_chunks", "audience_scope"},
-          {"brain_timelines", "audience_scope"},
-          {"brain_sources", "default_audience_scope"}
-        ] do
-      rewrite_scalar({table, column}, tenant_id, "principal:" <> old_uid, "principal:" <> new_uid)
+    case Ankole.Brain.Objects.get_by_slug(old_slug) do
+      {:ok, page} ->
+        {:ok, node} = Ankole.Files.Nodes.fetch(page.id)
+        {:ok, old_path} = Ankole.Files.Nodes.path(node)
+        {:ok, _} = Ankole.Files.Nodes.update_in_tx(node, :rename, %{name: new_uid})
+
+        if page.title == old_uid do
+          {:ok, _} = Ankole.Pod.Pages.update_properties_in_tx(page, :edit, %{title: new_uid})
+        end
+
+        Ankole.Brain.Knowledge.page_moved_in_tx(page.id, old_path)
+
+      {:error, :not_found} ->
+        :ok
     end
   end
 

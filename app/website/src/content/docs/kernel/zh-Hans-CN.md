@@ -16,7 +16,7 @@ Rust Kernel 是控制面的底层原生库，由 Elixir 通过 Rustler 加载调
 - **`universal_ai_client/`**：负责上游 HTTP SSE/EventStream 与 WebSocket 传输、响应格式归一化、下游 JSON 文本分块编码，以及需求额度（demand）、取消和超时控制。
 - **`object_store/`**：基于本地目录或 S3 兼容存储桶提供底层文件存取支持。
 - **`page_document/`**：负责 Pod 页面的 XML 树校验、Wordgard 变更集应用及 UTF-16 差异计算。
-- **`brain_markdoc/`** 与 **`markdown.rs`**：负责 Brain 正文分析与 Markdown 语法解析。
+- **`page_document/knowledge/`** 与 **`markdown.rs`**：负责知识页 XML 与 OKF Markdown 的无损互转，以及通用 Markdown 语法解析。
 - **`model_image.rs`**：提供模型图像的解码、缩放与格式转换。
 - **`web_proxy.rs`**：面向 Worker Chromium 会话提供本地回环 SOCKS5 `CONNECT` 代理，并对解析后的目标地址执行 SSRF 校验。
 - **`signals/`**：根据传入的上下文对信号路由策略求值。
@@ -25,7 +25,7 @@ Rust Kernel 是控制面的底层原生库，由 Elixir 通过 Rustler 加载调
 
 持久状态、权限数据、提供商选择、访问凭证以及领域事务的提交权均归控制面所有。Kernel 只接收控制面准备好的输入执行计算或传输，既不查询 PostgreSQL、不调度 Agent，也不持有 Worker Socket。此外，程序化工具调用（PTC）与 Pod Applet 后端函数的隔离 TypeScript 代码运行在无状态的 `ankole-function-runtime` 服务中，不在 Rust Kernel 内执行。
 
-RuntimeFabric 的消息结构与协议版本 10 在 `app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` 中声明；Elixir 侧使用 Protox 编解码，Worker 侧使用 protobuf-es。通信双方在发送时写入声明的版本号，并在接收时校验版本；执行权限由各领域消费者负责检查，跨语言编解码一致性则由 Golden Fixture 测试保障。
+RuntimeFabric 的消息结构与协议版本 12 在 `app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` 中声明；Elixir 侧使用 Protox 编解码，Worker 侧使用 protobuf-es。通信双方在发送时写入声明的版本号，并在接收时校验版本；执行权限由各领域消费者负责检查，跨语言编解码一致性则由 Golden Fixture 测试保障。
 
 ## 构建与传输
 

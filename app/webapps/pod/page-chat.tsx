@@ -17,7 +17,6 @@ import { Link } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { ErrorBoundary, ErrorFallback } from '../common/error-boundary'
 import { pageConversationsQuery, podKeys } from './api'
-import { useRoomActions } from './chat/room-api'
 import { ContentError } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
 import { useChatDrafts } from './chat-drafts'
@@ -58,15 +57,17 @@ export function PageChat({
   const accessDenied = isRealtimeAccessDenied(chats.error)
   const conversationID = selected === 'latest' || selected === 'new' ? undefined : (selected ?? undefined)
   const [width, setWidth] = useState(400)
-  const [newScope, setNewScope] = useState<'participants' | 'anchor_page'>('participants')
   const resizing = useRef<{ x: number; width: number } | undefined>(undefined)
-  const actions = useRoomActions(conversationID ?? '')
-  const selectedChat = chats.data?.conversations.find(chat => chat.id === conversationID)
+  const assistantChats = chats.data?.conversations.filter(chat => chat.conversationKind === 'assistant_task') ?? []
   useEffect(() => {
     // Read current drafts on each open, even when the closed panel stays mounted.
     if (selection === 'latest' && chats.data) {
       const unfinished = drafts.unfinishedPageConversation(pageID)
-      if (unfinished || !chats.isFetching) select(unfinished ?? chats.data.conversations[0]?.id ?? 'new')
+      if (unfinished || !chats.isFetching) {
+        select(
+          unfinished ?? chats.data.conversations.find(chat => chat.conversationKind === 'assistant_task')?.id ?? 'new'
+        )
+      }
     }
   }, [selection, chats.data, chats.isFetching, drafts, pageID, select])
   const exitConversation = () => {
@@ -77,24 +78,6 @@ export function PageChat({
     <header className="pod-page-chat-header" title={pageTitle}>
       <div className="sheet-header gap-0.5">
         <h2 className="sheet-title">{t('pod.page_chat.title')}</h2>
-        <div className="pod-page-chat-scope">
-          <Select
-            value={selectedChat?.accessScope ?? newScope}
-            onValueChange={value => {
-              if (value !== 'participants' && value !== 'anchor_page') return
-              if (conversationID) actions.update.mutate({ accessScope: value })
-              else setNewScope(value)
-            }}
-            disabled={accessDenied || actions.update.isPending || (!!conversationID && !selectedChat?.canManage)}>
-            <SelectTrigger size="sm" variant="ghost" aria-label={t('pod.chat_room.visibility')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="participants">{t('pod.chat_room.scope_participants')}</SelectItem>
-              <SelectItem value="anchor_page">{t('pod.chat_room.scope_anchor_page')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
         <Button
           size="icon-xs"
           variant="ghost"
@@ -119,7 +102,7 @@ export function PageChat({
           </SelectTrigger>
           <SelectContent align="end" className="pod-page-chat-history-menu">
             <SelectItem value="new">{t('pod.chat.new_conversation')}</SelectItem>
-            {(chats.data?.conversations ?? []).map(chat => (
+            {assistantChats.map(chat => (
               <SelectItem key={chat.id} value={chat.id}>
                 {chat.title}
               </SelectItem>
@@ -188,19 +171,8 @@ export function PageChat({
             key={conversationID ?? 'new'}
             conversationID={conversationID}
             pageID={pageID}
-            accessScope={newScope}
+            accessScope="participants"
             pageHeader={header}
-            pageChat={{
-              pageTitle,
-              conversations: chats.data?.conversations ?? [],
-              conversationsPending: chats.isPending,
-              listError: chats.data && chats.error && !accessDenied ? chats.error : undefined,
-              onRetryList: () => void chats.refetch(),
-              accessDenied,
-              onSelectConversation: id => select(id, true),
-              onNewConversation: () => select('new', true),
-              onClose: event => select(null, true, event)
-            }}
             onNewConversation={() => select('new', true)}
             onExitConversation={exitConversation}
             onConversationStarted={id => {

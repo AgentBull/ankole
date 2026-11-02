@@ -35,7 +35,8 @@ import { linkTarget } from '../../../common/router'
 import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../../console-form'
 import { formatConsoleDate } from '../../console-primitives'
 import { ResourceListPage } from '../../console-list-page'
-import { BrainSubNav, brainObjectPath } from './brain-nav'
+import { BrainPageLink } from './brain-scope'
+import { BrainSubNav } from './brain-nav'
 
 const CONTRADICTION_STATUSES = ['open', 'resolved', 'dismissed'] as const
 const WIKI_LINK_PATTERN = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
@@ -50,9 +51,9 @@ function renderClaimWithObjectLinks(text: string): ReactNode {
     const label = (match[2] ?? slug).trim()
     if (slug) {
       parts.push(
-        <Link key={`${matchIndex}:${slug}`} className="link font-mono" to={brainObjectPath(slug)}>
+        <BrainPageLink key={`${matchIndex}:${slug}`} pageID={slug}>
           {label}
-        </Link>
+        </BrainPageLink>
       )
     } else {
       parts.push(match[0])
@@ -90,8 +91,8 @@ export function BrainContradictionsPage() {
   const objectSlugByClaim = useMemo(() => {
     const map = new Map<string, string>()
     for (const claim of claims.data ?? []) {
-      if (claim.claim && claim.object_slug && !map.has(claim.claim)) {
-        map.set(claim.claim, claim.object_slug)
+      if (claim.claim && claim.subject_page_id && !map.has(claim.claim)) {
+        map.set(claim.claim, claim.subject_page_id)
       }
     }
     return map
@@ -123,9 +124,7 @@ export function BrainContradictionsPage() {
         <Badge variant={badge === 'A' ? 'secondary' : 'outline'}>{badge}</Badge>
         <span>{text ? renderClaimWithObjectLinks(text) : '—'}</span>
         {objectSlug ? (
-          <Link className="link font-mono text-[11px]" to={brainObjectPath(objectSlug)}>
-            {objectSlug}
-          </Link>
+          <BrainPageLink pageID={objectSlug} />
         ) : text ? (
           <Link
             className="link text-[11px] text-muted-foreground"

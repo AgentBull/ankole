@@ -101,7 +101,6 @@ Console 및 사이트 관리 작업의 전체 명세는 `/api/v2/openapi.json`�
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 특정 에이전트의 플러그인 활성화 재정의 |
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/skills/:id` | 특정 에이전트의 스킬 활성화 재정의 |
 | `GET` | `/api/v2/agents/:agent_uid/library-documents` | 에이전트의 영구 라이브러리 문서 목록 조회 |
-| `PUT` | `/api/v2/agents/:agent_uid/library-documents/:document_kind` | 특정 라이브러리 문서 저장 |
 | `GET` | `/api/v2/agents/:agent_uid/skill-lessons` | 활성 및 폐기된 Skill 교훈 목록 조회 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | 활성화된 Skill에 운영자 수동 교훈 추가 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | 특정 Skill 교훈 폐기 |

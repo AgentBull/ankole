@@ -173,7 +173,7 @@ defmodule Ankole.Sessions.CodexModelBindingTest do
   end
 
   test "a Job binding never declares the hosted Brain tool in the Codex request" do
-    # A codex Job reaches `recall` and `get_page` through the Worker read-tool
+    # A codex Job reaches `recall` and `entity` through the Worker read-tool
     # bridge. The binding leaves the Codex tool list, its `additional_tools`
     # carrier, and the request metadata as Codex sent them, so one tool name
     # has one executor.

@@ -30,13 +30,12 @@ print_stderr = "warn"
 
 [features]
 default = []
-nif = ["dep:rustler", "dep:stacker", "universal_ai_client", "brain_markdoc", "object_store", "model_image"]
+nif = ["dep:rustler", "dep:stacker", "universal_ai_client", "markdown", "object_store", "model_image"]
 # Node addon for browser URL policy, checked connections, and token estimates.
 # Do not combine with nif.
 napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "web_proxy"]
 web_proxy = ["dep:tokio"]
-brain_markdoc = ["markdown"]
-markdown = ["dep:comrak"]
+markdown = ["dep:comrak", "dep:serde_yaml_ng"]
 object_store = [
   "dep:bytes",
   "dep:futures-util",
@@ -59,6 +58,7 @@ universal_ai_client = [
 model_image = ["dep:image", "dep:webp"]
 
 [dependencies]
+any_ascii = "0.3.3"
 base64-simd = "0.8.0"
 blake3 = "1.8.7"
 bytes = { version = "1.12.1", optional = true }
@@ -66,6 +66,7 @@ cel = "0.15.0"
 chacha20poly1305 = "0.11.0"
 comrak = { version = "0.59.0", default-features = false, optional = true }
 crc32fast = "1.5.3"
+csv = "1.4.0"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"], optional = true }
 globset = "0.4.21"
 hashcrew = { version = "0.3.0", default-features = false, features = ["std", "xxhash"] }
@@ -101,6 +102,7 @@ rustler = { version = "0.39.0", optional = true }
 rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std", "tls12"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+serde_yaml_ng = { version = "0.10.0", optional = true }
 sonic-rs = "0.5.10"
 stacker = { version = "0.1.25", optional = true }
 tiktoken-rs = "0.12.1"

@@ -188,17 +188,16 @@ message RuntimeSkillSummary {
 }
 
 message AgentConversationContextResponse {
-  reserved 9, 10, 11, 13;
-  reserved "soul_content_hash", "mission_content_hash", "design_content_hash", "confidentiality_policy_content_hash";
+  reserved 3, 4, 9, 10, 11, 12, 13;
+  reserved "soul", "mission", "confidentiality_policy", "soul_content_hash", "mission_content_hash", "design_content_hash", "confidentiality_policy_content_hash";
   ConversationInfo conversation = 2;
-  string soul = 3;
-  string mission = 4;
+  string agents = 16;
   string design = 5;
   repeated RuntimeSkillSummary skills = 8;
-  string confidentiality_policy = 12;
   repeated AgentPluginCatalogEntry agent_plugins = 14;
   // The rendered Skill index of a Job turn; empty for a workspace context.
   string skills_prompt = 15;
+  string drive_instructions = 17;
 }
 
 // agent plugin catalog
@@ -438,4 +437,12 @@ message WorkerFileTransferResponse {
   reserved 1, 2, 4;
   reserved "root", "relative_path", "xxh3_128";
   uint64 size = 3;
+}
+
+message VfsFlushRequest {
+  string view_key = 1;
+  repeated string paths = 2;
+}
+message VfsFlushResponse {
+  repeated string node_ids = 1;
 }

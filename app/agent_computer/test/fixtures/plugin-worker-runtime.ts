@@ -25,8 +25,7 @@ const prepared = prepareAgentPlugins({
   agentPlugins: [],
   codexHome,
   libraryRoot: join(input.root, 'library'),
-  initializeProject: true,
-  agentsContent: 'Complete the test request.'
+  initializeProject: true
 })
 let terminalStatus: string | undefined
 const client = new CodexAppServerClient({

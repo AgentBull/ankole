@@ -7,6 +7,25 @@ defmodule Ankole.Files.ContentOwner do
   @callback rename_node_in_tx(struct(), struct(), Ankole.AuthZ.Actor.t()) ::
               :ok | {:error, term()}
 
+  @callback move_node_in_tx(Ecto.UUID.t(), [map()]) :: :ok | {:error, term()}
+  @callback trash_node_in_tx(Ecto.UUID.t()) :: :ok | {:error, term()}
+  @callback restore_node_in_tx(Ecto.UUID.t()) :: :ok | {:error, term()}
+
+  def move_node_in_tx(id, old_path) do
+    owner = Application.fetch_env!(:ankole, __MODULE__)
+    owner.move_node_in_tx(id, old_path)
+  end
+
+  def trash_node_in_tx(id) do
+    owner = Application.fetch_env!(:ankole, __MODULE__)
+    owner.trash_node_in_tx(id)
+  end
+
+  def restore_node_in_tx(id) do
+    owner = Application.fetch_env!(:ankole, __MODULE__)
+    owner.restore_node_in_tx(id)
+  end
+
   def rename_node_in_tx(old, node, actor) do
     owner = Application.fetch_env!(:ankole, __MODULE__)
     owner.rename_node_in_tx(old, node, actor)

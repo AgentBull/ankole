@@ -91,9 +91,17 @@ defmodule AnkoleWeb.WorkerChannel do
         {:ok, _worker} ->
           limits = limits()
 
+          if Map.get(ready, :drive_vfs, false) do
+            Ankole.Files.Vfs.Invalidator.subscribe()
+            Process.send_after(self(), :vfs_emit, 100)
+          end
+
           socket =
             assign(socket, %{
               incarnation_id: ready.incarnation_id,
+              vfs_ids: MapSet.new(),
+              vfs_all: true,
+              vfs_timer: false,
               connection_id: connection_id,
               limits: limits,
               streams: Map.new(@streams, &{&1, new_stream()}),
@@ -262,6 +270,20 @@ defmodule AnkoleWeb.WorkerChannel do
   end
 
   @impl true
+  def handle_info({:page_updated, id}, socket), do: vfs_changed(socket, id)
+  def handle_info({:page_deleted, id}, socket), do: vfs_changed(socket, id)
+  def handle_info({:page_restored, id}, socket), do: vfs_changed(socket, id)
+  def handle_info(:vfs_access_changed, socket), do: vfs_changed(socket, nil)
+  def handle_info(:access_changed, socket), do: {:noreply, socket}
+
+  def handle_info(:vfs_emit, socket) do
+    envelope =
+      Ankole.Files.Vfs.Invalidator.envelope(socket.assigns.vfs_ids, socket.assigns.vfs_all)
+
+    socket = push_sequenced(socket, "command", envelope)
+    {:noreply, assign(socket, %{vfs_ids: MapSet.new(), vfs_all: false, vfs_timer: false})}
+  end
+
   def handle_info({:reply_done, ref, stream, seq, bytes, result}, socket) do
     socket = complete(socket, stream, seq, bytes)
     Phoenix.Channel.reply(ref, wire_result(result, credit_map(socket, stream)))
@@ -327,6 +349,18 @@ defmodule AnkoleWeb.WorkerChannel do
     end
 
     :ok
+  end
+
+  defp vfs_changed(socket, id) do
+    unless socket.assigns.vfs_timer, do: Process.send_after(self(), :vfs_emit, 100)
+    ids = if id, do: MapSet.put(socket.assigns.vfs_ids, id), else: socket.assigns.vfs_ids
+
+    {:noreply,
+     assign(socket, %{
+       vfs_ids: ids,
+       vfs_all: socket.assigns.vfs_all || is_nil(id),
+       vfs_timer: true
+     })}
   end
 
   defp new_stream do
@@ -517,7 +551,12 @@ defmodule AnkoleWeb.WorkerChannel do
          {:ok, available_slots} <- required_integer(payload, "available_slots"),
          true <- available_slots <= max_slots || {:error, "available_slots_exceeds_max_slots"} do
       {:ok,
-       %{incarnation_id: incarnation_id, max_slots: max_slots, available_slots: available_slots}}
+       %{
+         incarnation_id: incarnation_id,
+         max_slots: max_slots,
+         available_slots: available_slots,
+         drive_vfs: payload["drive_vfs"] == true
+       }}
     end
   end
 

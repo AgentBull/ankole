@@ -7,7 +7,7 @@ defmodule Ankole.Brain.Schemas.ObjectAlias do
     repo(Ankole.Repo)
     migrate?(false)
     identity_index_names(candidate: "brain_object_aliases_dedup_key")
-    foreign_key_names([{:object_slug, "brain_object_aliases_object_slug_fkey"}])
+    foreign_key_names([{:subject_page_id, "brain_object_aliases_subject_page_id_fkey"}])
 
     check_constraints do
       check_constraint(:alias_norm, "brain_object_aliases_alias_present")
@@ -22,19 +22,19 @@ defmodule Ankole.Brain.Schemas.ObjectAlias do
     )
 
     attribute(:alias_norm, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:object_slug, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:subject_page_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
     attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
   end
 
   identities do
-    identity(:candidate, [:alias_norm, :object_slug])
+    identity(:candidate, [:alias_norm, :subject_page_id])
   end
 
   actions do
     defaults([:read])
 
     create_if_absent :add do
-      accept([:id, :alias_norm, :object_slug, :created_at])
+      accept([:id, :alias_norm, :subject_page_id, :created_at])
       upsert_identity(:candidate)
     end
 

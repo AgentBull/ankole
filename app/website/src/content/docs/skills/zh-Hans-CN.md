@@ -63,11 +63,9 @@ ankole-runtime: any
 
 该字段仅控制对应 Skill 出现在哪一类执行环境的目录中，本身不会触发后台任务创建。例如，Deep Research 的入口协调 Skill 标记为 `main`，专门负责在聊天窗口中与用户敲定调研范围并派发任务；而真正承担长耗时文献检索与交叉验证的子 Skill，则在后台任务环境中加载运行。
 
-#### Ankole 扩展：通过 Brain 发现 Skill
+#### 共享 Skill 页面
 
-部分专业 SOP 与细分方法论只有在遇到特定类型的课题时才派得上用场，若常驻在每次请求的默认目录里反而白白消耗上下文。为此，随系统发布的内置 Skill 可在头部声明 `brain-recall-only: true`：它依然是标准 Skill，继续遵循原有的父级 Agent Plugin 开关、单 Skill 启用状态、`ankole-runtime` 执行位置限制及 `skill_view` 加载契约，区别仅在于平时不列入模型直接可见的默认 Skill 目录，改由 Brain 通过语义检索按需召回。
-
-运行时，Brain 会检索各候选 Skill 的名称、描述与标签；一旦命中相关条目，Agent 即可调用 `skill_view` 读取详情——`skill_view` 会严格核查 `ankole-runtime` 约束，在匹配的执行环境中加载正文，或返回明确的环境路由提示与权限拒绝。只要关闭了该 Skill 或其所属的父级 Agent Plugin，当前 Agent 就既无法通过 Brain 检索到它，也无法直接加载它（注：此语义发现路径要求实例已启用 Brain）。这一模式非常适合存放体量较大、按需取用但无需每轮常驻提示词的专业方法论与行业 Playbook。
+共享 Skill 位于 Pod 的 `/AnkoleBrain/skills/<name>`。技能目录使用页面属性中的描述，Brain 可以检索页面内容。`skill_view` 读取当前正文，并追加本次会话有权查看的补充子页；标记为 `metadata.role = "reference"` 的大型参考子页按相对路径读取。Drive 权限决定谁能查看页面，Agent Plugin 和 Skill 开关决定 Agent 启用哪些能力。
 
 ### Control Plane Plugin：站点级全栈平台扩展
 

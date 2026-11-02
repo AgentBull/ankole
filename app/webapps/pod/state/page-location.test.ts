@@ -13,6 +13,7 @@ function page(id: string, actions: Page['actions'], parent_id: string | null = n
     icon: null,
     private_owner_uid: null,
     inherit_permissions: true,
+    metadata: {},
     revision: 0,
     saved_from_message_id: null,
     deleted_at: null,

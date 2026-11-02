@@ -32,7 +32,6 @@ defmodule Ankole.AIAgent.Library.Console do
     allow(:set_agent_plugin, resource: "site_console:agent:{agent_uid}:library", action: "update")
     allow(:set_agent_skill, resource: "site_console:agent:{agent_uid}:library", action: "update")
     allow(:documents, resource: "site_console:agent:{agent_uid}:library", action: "read")
-    allow(:replace_document, resource: "site_console:agent:{agent_uid}:library", action: "update")
   end
 
   resource do
@@ -117,21 +116,6 @@ defmodule Ankole.AIAgent.Library.Console do
     action :documents, Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentsResponse do
       transaction?(false)
       argument(:agent_uid, :string, allow_nil?: false)
-      run(__MODULE__.Actions)
-    end
-
-    action :replace_document, Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentResponse do
-      transaction?(false)
-      argument(:agent_uid, :string, allow_nil?: false)
-
-      argument(:document_kind, :string, allow_nil?: false)
-
-      argument(:content, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:expected_content_hash, :string, allow_nil?: false)
       run(__MODULE__.Actions)
     end
   end

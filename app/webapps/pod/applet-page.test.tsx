@@ -22,6 +22,7 @@ function appletDetail(deletedAt: string | null): PageDetail {
       type: 'applet',
       position: 'a0',
       inherit_permissions: true,
+      metadata: {},
       revision: 3,
       children_view: {},
       created_at: '2026-10-30T10:00:00Z',

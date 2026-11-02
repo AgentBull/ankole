@@ -17,7 +17,7 @@ application rather than the Console for site administration.
 
 ## Requirements
 
-- Kubernetes 1.27 or later.
+- Kubernetes 1.30 or later.
 - Helm 3 or later.
 - A Linux `amd64` or `arm64` node pool.
 - A `ReadWriteMany` StorageClass for the default shared Agent Home claim, or
@@ -28,10 +28,27 @@ application rather than the Console for site administration.
 - Sufficient CPU, memory, and storage for your workload. Each running Agent gets
   its own Worker Pod sized according to `worker.resources` in Helm values.
 
-Worker Pods require no extra kernel privileges because the container itself is
-each Agent's isolation boundary. The chart grants the control plane a namespace
-Role to create and delete Pods, Secrets, and PVCs, while assigning Worker Pods a
-dedicated ServiceAccount with no Kubernetes permissions.
+Worker supervisors mount Drive through `/dev/fuse` and `SYS_ADMIN`, then launch
+Agent processes as uid/gid 1000 with empty capability sets. The chart installs a
+ValidatingAdmissionPolicy for its Worker ServiceAccount; Helm installation
+therefore needs permission to manage this cluster-scoped policy and binding.
+Worker Pods use no host namespaces, hostPath volumes, or privileged containers.
+The control plane receives a namespace Role for Pods, Secrets, and PVCs; the
+Worker ServiceAccount has no Kubernetes permissions.
+
+Before enabling local Workers, install the FUSE device plugin once per cluster
+and allow this profile in the application namespace:
+
+```sh
+kubectl apply -f tools/deploy/kubernetes/fuse-device-plugin.yaml
+kubectl -n kube-system rollout status daemonset/ankole-fuse-devices
+```
+
+The supplied plugin advertises 128 shared FUSE units per Linux node. Nodes need
+kernel FUSE support and `/dev/fuse`. Existing device-plugin installations can
+provide the same resource; set the provider's `fuseDeviceResource` when using a
+different resource name. The Worker requests one unit. This host device setup is
+independent of Agent Home and cache storage.
 
 ## Install with bundled PostgreSQL
 
@@ -72,6 +89,7 @@ password.
 
 ```sh
 kubectl create namespace ankole
+kubectl label namespace ankole pod-security.kubernetes.io/enforce=privileged --overwrite
 
 POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"
@@ -637,10 +655,10 @@ wait for Pod deletion to complete. You can inspect each Worker's current state
 and latest platform status reason on the Console Workers page.
 
 Worker Pods and storage helper Pods start trusted supervisor processes as root
-with `allowPrivilegeEscalation: false` and only the `SETUID`, `SETGID`, `CHOWN`,
-`FOWNER`, `DAC_OVERRIDE`, and `KILL` capabilities. Because of this security
-context, the namespace must allow the `baseline` Pod Security Standard rather
-than `restricted`. Shared NFS exports must either permit root writes and
+with `allowPrivilegeEscalation: false` and `SETUID`, `SETGID`, `SETPCAP`, `CHOWN`,
+`FOWNER`, `DAC_OVERRIDE`, `KILL`, and `SYS_ADMIN`. The namespace permits the
+`privileged` Pod Security Standard; the chart's admission policy constrains Worker
+Pods to the declared profile. Shared NFS exports must either permit root writes and
 ownership changes or map all file access to uid `1000` through an access point;
 an NFS export with default `root_squash` and no uid `1000` mapping cannot
 satisfy the Worker filesystem contract.

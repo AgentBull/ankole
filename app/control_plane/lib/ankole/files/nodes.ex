@@ -22,6 +22,28 @@ defmodule Ankole.Files.Nodes do
          else: (_ -> {:error, :not_found})
   end
 
+  def system_node(key) do
+    Node
+    |> Ash.Query.filter(system_key == ^key and is_nil(deleted_at))
+    |> Ankole.Ash.read_one!()
+    |> found_node()
+  end
+
+  def child(parent_id, name) do
+    Node
+    |> Ash.Query.filter(parent_id == ^parent_id and name == ^name and is_nil(deleted_at))
+    |> Ankole.Ash.read_one!()
+    |> found_node()
+  end
+
+  def claim_system_in_tx(node, key) do
+    lock_tree()
+    Ankole.Ash.update(node, :claim_system, %{system_key: key})
+  end
+
+  defp found_node(nil), do: {:error, :not_found}
+  defp found_node(node), do: {:ok, node}
+
   def path(%{parent_id: nil} = page), do: {:ok, [page]}
 
   def path(%{parent_id: parent_id} = page) do
@@ -298,14 +320,15 @@ defmodule Ankole.Files.Nodes do
   def child_create_action(_parent), do: "node_edit"
 
   @doc "Creates a child for an already-authorized caller in its transaction."
-  def create_in_tx(attrs) do
+  def create_in_tx(attrs, opts \\ []) do
     lock_tree()
     attrs = atom_attrs(attrs)
 
     with {:ok, parent} <- fetch(attrs[:parent_id]),
          true <- parent.kind != :file,
          :ok <- live(parent),
-         :ok <- valid_name(attrs[:name]) do
+         :ok <- valid_name(attrs[:name]),
+         {:ok, name} <- allocate_name(parent.id, attrs.name, nil, opts) do
       lock_roots(root_ids([parent.id]))
       id = Map.get_lazy(attrs, :id, &Ankole.Ecto.UUIDv7.autogenerate/0)
 
@@ -313,7 +336,7 @@ defmodule Ankole.Files.Nodes do
         attrs
         |> Map.put(:id, id)
         |> Map.drop([:private_owner_uid, :conversation_id])
-        |> Map.put(:name, available_name(parent.id, attrs.name))
+        |> Map.put(:name, name)
         |> Access.anchor_attributes()
 
       Ankole.Ash.create(Node, :create_in_tx, attrs)
@@ -328,7 +351,8 @@ defmodule Ankole.Files.Nodes do
     attrs = atom_attrs(attrs)
     if Enum.any?(@topology, &Map.has_key?(attrs, &1)), do: lock_tree()
 
-    with {:ok, current} <- fetch(node.id) do
+    with {:ok, current} <- fetch(node.id),
+         :ok <- system_structure(current, attrs) do
       # Permission bookkeeping does not edit the node's content or metadata.
       attrs =
         if action in [:anchor, :sharing],
@@ -348,7 +372,7 @@ defmodule Ankole.Files.Nodes do
     )
   end
 
-  def move_in_tx(actor, id, attrs) do
+  def move_in_tx(actor, id, attrs, opts \\ []) do
     lock_tree()
 
     with {:ok, node} <- lock(id),
@@ -363,8 +387,9 @@ defmodule Ankole.Files.Nodes do
          {:ok, _} <- Access.authorize_move(actor, node, parent.id, nil),
          name_supplied? = Ankole.Attrs.get(attrs, :name, :missing) != :missing,
          name = Ankole.Attrs.get(attrs, :name, node.name),
-         :ok <- if(name_supplied?, do: valid_name(name), else: :ok) do
-      name = available_name(parent.id, name, node.id)
+         :ok <- if(name_supplied?, do: valid_name(name), else: :ok),
+         {:ok, name} <- allocate_name(parent.id, name, node.id, opts) do
+      {:ok, old_path} = path(node)
 
       with {:ok, moved} <-
              Access.update_anchor_in_tx(node, :move, %{
@@ -373,6 +398,7 @@ defmodule Ankole.Files.Nodes do
                updated_at: DateTime.utc_now(:microsecond)
              }),
            :ok <- sync_content_name(actor, node, moved, attrs),
+           :ok <- Ankole.Files.ContentOwner.move_node_in_tx(node.id, old_path),
            do: {:ok, moved}
     end
   end
@@ -411,12 +437,13 @@ defmodule Ankole.Files.Nodes do
          {:ok, _} <- Access.authorize(actor, node, deletion_action(node)),
          {:ok, node} <-
            Access.update_anchor_in_tx(node, :trash, %{deleted_at: DateTime.utc_now(:microsecond)}),
+         :ok <- Ankole.Files.ContentOwner.trash_node_in_tx(node.id),
          :ok <- schedule_purge(node),
          do: {:ok, node}
   end
 
-  defp deletion_action(%{kind: kind}) when kind in [:file, :folder], do: "node_edit"
-  defp deletion_action(_node), do: "node_manage"
+  def deletion_action(%{kind: kind}) when kind in [:file, :folder], do: "node_edit"
+  def deletion_action(_node), do: "node_manage"
 
   def restore(%Actor{} = actor, id) do
     Access.write_tree(actor.turn_authority, fn -> restore_in_tx(actor, id) end,
@@ -433,15 +460,62 @@ defmodule Ankole.Files.Nodes do
          {:ok, _} <- Access.authorize(actor, node, "node_manage", trash: true),
          true <- not is_nil(node.deleted_at) and is_nil(node.purge_started_at),
          {:ok, parent} <- fetch(node.parent_id),
-         :ok <- live(parent) do
-      Access.update_anchor_in_tx(node, :restore, %{
-        deleted_at: nil,
-        name: available_name(parent.id, node.name, node.id)
-      })
-    else
-      false -> {:error, :cannot_restore}
-      error -> error
-    end
+         :ok <- live(parent),
+         {:ok, restored} <-
+           Access.update_anchor_in_tx(node, :restore, %{
+             deleted_at: nil,
+             name: available_name(parent.id, node.name, node.id)
+           }),
+         :ok <- Ankole.Files.ContentOwner.restore_node_in_tx(id),
+         :ok <- restore_descendants_in_tx(actor, restored),
+         do: {:ok, restored},
+         else: (
+           false -> {:error, :cannot_restore}
+           error -> error
+         )
+  end
+
+  defp restore_descendants_in_tx(_actor, %{kind: :file}), do: :ok
+
+  defp restore_descendants_in_tx(actor, parent) do
+    children =
+      Node
+      |> Ash.Query.filter(parent_id == ^parent.id and is_nil(purge_started_at))
+      |> Ash.Query.sort(id: :asc)
+      |> Ankole.Ash.read!()
+
+    Enum.reduce_while(children, :ok, fn child, :ok ->
+      result =
+        cond do
+          is_nil(child.deleted_at) ->
+            restore_descendants_in_tx(actor, child)
+
+          match?({:ok, _}, Access.authorize(actor, child, "node_manage", trash: true)) ->
+            case restore_in_tx(actor, child.id) do
+              {:ok, _} -> :ok
+              error -> error
+            end
+
+          true ->
+            :ok
+        end
+
+      if result == :ok, do: {:cont, :ok}, else: {:halt, result}
+    end)
+  end
+
+  @doc "Consumes a leaf file whose immutable object has been transferred to another node."
+  def consume_file_in_tx(actor, id) do
+    lock_tree()
+
+    with {:ok, %{kind: :file} = node} <- lock(id),
+         :ok <- mutable(node),
+         {:ok, _} <- Access.authorize(actor, node, "node_edit"),
+         now = DateTime.utc_now(:microsecond),
+         {:ok, node} <-
+           Access.update_anchor_in_tx(node, :trash, %{deleted_at: now, purge_started_at: now}),
+         :ok <- schedule_purge(node, now),
+         do: {:ok, node}
   end
 
   def purge(%Actor{} = actor, id) do
@@ -559,8 +633,25 @@ defmodule Ankole.Files.Nodes do
     |> Enum.map(&hd/1)
   end
 
+  def subtree_has_kind?(id, kind) do
+    ids = descendants(id)
+
+    Node
+    |> Ash.Query.filter(id in ^ids and kind == ^kind)
+    |> Ankole.Ash.exists?()
+  end
+
+  defp mutable(%{system_key: key}) when not is_nil(key), do: {:error, :immutable_root}
   defp mutable(%{parent_id: nil}), do: {:error, :immutable_root}
   defp mutable(_node), do: :ok
+
+  defp system_structure(%{system_key: nil}, _attrs), do: :ok
+
+  defp system_structure(node, attrs) do
+    if Enum.any?([:name, :parent_id, :deleted_at, :purge_started_at], fn key ->
+         Map.has_key?(attrs, key) and Map.fetch!(attrs, key) != Map.fetch!(node, key)
+       end), do: {:error, :immutable_root}, else: :ok
+  end
 
   defp live(node) do
     with {:ok, path} <- path(node),
@@ -607,6 +698,18 @@ defmodule Ankole.Files.Nodes do
     end)
   end
 
+  defp allocate_name(parent_id, name, exclude_id, opts) do
+    if Keyword.get(opts, :exact_name, false) do
+      case child(parent_id, name) do
+        {:error, :not_found} -> {:ok, name}
+        {:ok, %{id: ^exclude_id}} -> {:ok, name}
+        {:ok, _} -> {:error, :name_conflict}
+      end
+    else
+      {:ok, available_name(parent_id, name, exclude_id)}
+    end
+  end
+
   defp truncate_name(name, max) do
     name
     |> String.graphemes()
@@ -626,8 +729,9 @@ defmodule Ankole.Files.Nodes do
     end)
   end
 
-  def committed(%{id: id}) do
-    Access.broadcast_change()
+  def committed(%{id: id} = node) do
+    Access.broadcast_change(Map.get(node, :kind) != :file)
+    if parent_id = Map.get(node, :parent_id), do: content_committed(%{id: parent_id})
     content_committed(%{id: id})
   end
 

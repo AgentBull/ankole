@@ -195,9 +195,21 @@ defmodule Ankole.Conversations.Native do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
 
     initial_agents =
-      ((Ankole.Attrs.get(attrs, :agent_uids) || List.wrap(Ankole.Attrs.get(attrs, :agent_uid))) ++
-         NativeRoom.explicit_agents(attrs))
+      (Ankole.Attrs.get(attrs, :agent_uids) || List.wrap(Ankole.Attrs.get(attrs, :agent_uid)))
       |> Enum.uniq()
+
+    assistant? =
+      Enum.any?(initial_agents, fn uid ->
+        case Ankole.Principals.get_agent_record!(uid) do
+          %{type: :personal_assistant} -> true
+          _ -> false
+        end
+      end)
+
+    initial_agents =
+      if assistant?,
+        do: initial_agents,
+        else: Enum.uniq(initial_agents ++ NativeRoom.explicit_agents(attrs))
 
     invited = Ankole.Attrs.get(attrs, :participant_uids) || []
 
@@ -207,15 +219,27 @@ defmodule Ankole.Conversations.Native do
          {:ok, message_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
          {:ok, mode} <- delivery_mode(Ankole.Attrs.get(attrs, :delivery_mode)),
          {:ok, page_id} <- optional_page_id(Ankole.Attrs.get(attrs, :page_id)),
-         [first | _] <- initial_agents,
+         first = List.first(initial_agents),
          {:ok, _} <-
            Ankole.Principals.lock_principals_in_tx(
              Enum.uniq([human_uid | initial_agents ++ invited])
              |> Enum.sort()
            ),
          :ok <- check_human_in_tx(actor),
-         {:ok, agent} <- active_agent_in_tx(first),
-         :ok <- authorize_agent(actor, first),
+         {:ok, agent} <- if(first, do: active_agent_in_tx(first), else: {:ok, nil}),
+         :ok <- if(first, do: authorize_agent(actor, first), else: :ok),
+         {:ok, room_mode} <- room_mode(attrs, initial_agents, invited, assistant?),
+         dm? =
+           room_mode == :dm and not assistant? and
+             Ankole.Attrs.get(attrs, :access_scope) in [nil, :participants, "participants"],
+         requested_id = id,
+         id =
+           if(dm?, do: Map.get(NativeRoom.direct_conversations(human_uid), first, id), else: id),
+         page_id =
+           if(id != requested_id,
+             do: Ankole.Conversations.get_conversation!(id).page_id,
+             else: page_id
+           ),
          :ok <-
            Ankole.Sessions.Queue.lock_sessions_in_tx(
              Enum.map(initial_agents, &{&1, Ankole.Sessions.Key.conversation(id)})
@@ -228,15 +252,24 @@ defmodule Ankole.Conversations.Native do
              agent,
              id,
              conversation_title(text, attachments),
-             page_id
+             page_id,
+             room_mode,
+             if(dm?, do: first)
            ),
+         true <-
+           conversation.sequence_high_water == 0 or id != requested_id or
+             original_message?(id, message_id),
          {:ok, _} <- NativeRoom.ensure_members(actor, conversation, initial_agents ++ invited),
          {:ok, conversation} <- NativeRoom.promote(conversation),
          {:ok, conversation} <-
-           ModelPreferences.initialize(
-             conversation,
-             agent.uid,
-             Ankole.Attrs.get(attrs, :model_profile)
+           if(agent,
+             do:
+               ModelPreferences.initialize(
+                 conversation,
+                 agent.uid,
+                 Ankole.Attrs.get(attrs, :model_profile)
+               ),
+             else: {:ok, conversation}
            ),
          {:ok, _} <- initialize_scope(conversation, Ankole.Attrs.get(attrs, :access_scope)),
          {:ok, message, inserted?} <-
@@ -248,7 +281,6 @@ defmodule Ankole.Conversations.Native do
              attachments,
              attrs
            ),
-         true <- message.seq == 1,
          {:ok, targets} <- NativeRoom.target_uids(actor, id, attrs),
          {:ok, events} <-
            accept_targets(
@@ -270,13 +302,34 @@ defmodule Ankole.Conversations.Native do
 
   def create_in_tx(_human_uid, _attrs), do: {:error, :invalid_request}
 
+  defp original_message?(conversation_id, message_id) do
+    match?(%Message{conversation_id: ^conversation_id, seq: 1}, message(message_id))
+  end
+
+  defp room_mode(attrs, agents, invited, assistant?) do
+    mode = Ankole.Attrs.get(attrs, :room_mode)
+    group? = mode in [:group, "group"] or length(agents) > 1 or invited != []
+
+    cond do
+      agents == [] and invited == [] -> {:error, :invalid_request}
+      assistant? and group? -> {:error, :forbidden_room_operation}
+      mode not in [nil, :dm, "dm", :group, "group"] -> {:error, :invalid_request}
+      group? -> {:ok, :group}
+      true -> {:ok, :dm}
+    end
+  end
+
   defp initialize_scope(conversation, scope) when scope in [nil, "participants", :participants],
     do: {:ok, conversation}
 
   defp initialize_scope(%Conversation{page_id: nil}, _), do: {:error, :anchor_page_required}
 
-  defp initialize_scope(conversation, scope) when scope in ["anchor_page", :anchor_page],
-    do: Ankole.Ash.update(conversation, :set_access_scope, %{native_access_scope: :anchor_page})
+  defp initialize_scope(conversation, scope) when scope in ["anchor_page", :anchor_page] do
+    if NativeRoom.protected_dm?(conversation),
+      do: {:error, :forbidden_room_operation},
+      else:
+        Ankole.Ash.update(conversation, :set_access_scope, %{native_access_scope: :anchor_page})
+  end
 
   defp initialize_scope(_, _), do: {:error, :invalid_request}
 
@@ -320,8 +373,15 @@ defmodule Ankole.Conversations.Native do
   @doc "Deletes the room for its owner or a Pod administrator."
   def delete(actor, id, opts \\ []) do
     Repo.transact_top_level(fn -> delete_in_tx(actor, id, opts) end,
-      after_commit: &Ankole.Conversations.Events.publish_status/1
+      after_commit: fn {id, signals} ->
+        Ankole.Signals.publish_committed(signals)
+        Ankole.Conversations.Events.publish_status(id)
+      end
     )
+    |> case do
+      {:ok, {id, _}} -> {:ok, id}
+      error -> error
+    end
   end
 
   def delete_in_tx(actor, id, opts \\ []) do
@@ -330,16 +390,25 @@ defmodule Ankole.Conversations.Native do
     with {:ok, id} <- Queries.cast_id(id),
          %Conversation{} <- visible_conversation(actor, id),
          agents = room_agents(id),
+         peers = Ankole.Conversations.Peers.exchanges([id]),
+         {:ok, _} <-
+           Ankole.Principals.lock_principals_in_tx([
+             Ankole.AuthZ.Actor.uid(actor)
+             | Enum.map(agents, & &1.uid) ++ Enum.map(peers, & &1.peer_target_uid)
+           ]),
          :ok <-
            Ankole.Sessions.Queue.lock_sessions_in_tx(
-             Enum.map(agents, &{&1.uid, Ankole.Sessions.Key.conversation(id)})
+             Enum.map(agents, &{&1.uid, Ankole.Sessions.Key.conversation(id)}) ++
+               Enum.map(peers, &{&1.peer_target_uid, Ankole.Sessions.Key.conversation(&1.id)})
            ),
          %Conversation{} = conversation <- visible_conversation(actor, id, lock: true),
          true <- NativeRoom.owner?(actor, conversation),
          :ok <- ensure_idle_or_stop(conversation, agents, opts[:force_stop]),
+         {:ok, stopped} <-
+           Ankole.Conversations.Peers.stop_all_in_tx(peers, Ankole.AuthZ.Actor.uid(actor)),
          :ok <- Ankole.Files.delete_conversation_root_in_tx(conversation.id),
          {:ok, _} <- Ankole.Ash.destroy(conversation, :remove) do
-      {:ok, id}
+      {:ok, {id, stopped}}
     else
       false -> {:error, :forbidden_room_operation}
       nil -> {:error, :conversation_not_found}
@@ -403,7 +472,11 @@ defmodule Ankole.Conversations.Native do
          %Conversation{} = conversation <- visible_conversation(actor, id, lock: true),
          {:ok, _} <- NativeRoom.join_speaker(conversation, actor),
          {:ok, added} <-
-           NativeRoom.ensure_members(actor, conversation, NativeRoom.explicit_agents(attrs)),
+           NativeRoom.ensure_members(
+             actor,
+             conversation,
+             NativeRoom.mentioned_members(conversation, attrs)
+           ),
          {:ok, conversation} <- NativeRoom.promote(conversation),
          {:ok, text, attachments} <- human_content(actor, id, message_id, attrs),
          {:ok, message, inserted?} <-
@@ -559,31 +632,48 @@ defmodule Ankole.Conversations.Native do
 
   def committed({:error, _} = error, _human_uid), do: error
 
-  defp ensure_conversation_in_tx(%Ankole.AuthZ.Actor{} = actor, agent, id, text, page_id) do
+  defp ensure_conversation_in_tx(
+         %Ankole.AuthZ.Actor{} = actor,
+         agent,
+         id,
+         text,
+         page_id,
+         room_mode,
+         colleague_uid
+       ) do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
 
     attrs = %{
       id: id,
       title: text,
       created_by: human_uid,
+      room_mode: room_mode,
+      dm_human_uid: if(colleague_uid, do: human_uid),
+      dm_colleague_uid: colleague_uid,
       page_id: page_id,
       last_activity_at: DateTime.utc_now(:microsecond)
     }
 
-    with :ok <- available_native_id(agent.uid, id),
+    with :ok <- if(agent, do: available_native_id(agent.uid, id), else: :ok),
          {:ok, _} <-
            Ankole.Ash.create(Conversation, :ensure_native, attrs, touch_update_defaults?: false),
+         {:ok, _} <- Ankole.Files.Nodes.ensure_conversation_root_in_tx(id),
          %Conversation{created_by: ^human_uid, page_id: ^page_id} = conversation <-
            Queries.lock_conversation(id),
          true <-
            conversation.sequence_high_water == 0 or
-             match?(%Participant{role: :agent}, NativeRoom.participant(id, agent.uid)),
+             (agent && match?(%Participant{role: :agent}, NativeRoom.participant(id, agent.uid))) or
+             (is_nil(agent) and conversation.room_mode == :group),
          {:ok, _} <- NativeRoom.join(id, human_uid, :owner),
-         {:ok, _} <- NativeRoom.join(id, agent.uid, :agent, true),
+         {:ok, _} <- if(agent, do: NativeRoom.join(id, agent.uid, :agent, true), else: {:ok, nil}),
          {:ok, _} <-
-           AIGateway.ensure_conversation_in_tx(
-             agent.uid,
-             Ankole.Sessions.Key.conversation(id)
+           if(agent,
+             do:
+               AIGateway.ensure_conversation_in_tx(
+                 agent.uid,
+                 Ankole.Sessions.Key.conversation(id)
+               ),
+             else: {:ok, nil}
            ) do
       {:ok, conversation}
     else
@@ -628,7 +718,7 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  defp human_content(%Ankole.AuthZ.Actor{} = actor, conversation_id, message_id, attrs) do
+  def human_content(%Ankole.AuthZ.Actor{} = actor, conversation_id, message_id, attrs) do
     uid = Ankole.AuthZ.Actor.uid(actor)
 
     existing =
@@ -658,7 +748,7 @@ defmodule Ankole.Conversations.Native do
     |> String.slice(0, 80)
   end
 
-  defp append_human_message_in_tx(conversation, human_uid, id, text, attachments, input_attrs) do
+  def append_human_message_in_tx(conversation, human_uid, id, text, attachments, input_attrs) do
     existing = message(id)
 
     links =
@@ -823,8 +913,13 @@ defmodule Ankole.Conversations.Native do
     case Ankole.Sessions.Key.parse(session) do
       {:conversation, id} ->
         case Conversation |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!() do
-          %Conversation{kind: :native, created_by: creator} ->
-            lock_principal_uids([uid, creator | human_uids])
+          %Conversation{kind: :native, created_by: creator} = conversation ->
+            lock_principal_uids([
+              uid,
+              creator,
+              conversation.peer_sender_uid,
+              conversation.peer_target_uid | human_uids
+            ])
 
           _ ->
             :ok
@@ -889,7 +984,9 @@ defmodule Ankole.Conversations.Native do
           agent <- detail.agents,
           do: {agent.uid, Ankole.Sessions.Key.conversation(detail.conversation.id)}
 
-    statuses = Ankole.Sessions.statuses(keys)
+    peers = Ankole.Conversations.Peers.exchanges(ids)
+    peer_keys = Enum.map(peers, &{&1.peer_target_uid, Ankole.Sessions.Key.conversation(&1.id)})
+    statuses = Ankole.Sessions.statuses(keys ++ peer_keys)
     questions = Ankole.Conversations.latest_native_questions(ids)
 
     cards =
@@ -958,6 +1055,15 @@ defmodule Ankole.Conversations.Native do
       )
       |> Map.new(&{&1.id, &1})
 
+    latest_messages =
+      Message
+      |> Ash.Query.filter(conversation_id in ^ids and not withdrawn)
+      |> Ash.Query.distinct([:conversation_id])
+      |> Ash.Query.distinct_sort(conversation_id: :asc, seq: :desc)
+      |> Ash.Query.select([:conversation_id, :text])
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.conversation_id, &1.text})
+
     grouped_questions = Enum.group_by(questions, & &1.conversation_id)
     grouped_jobs = Enum.group_by(jobs, & &1.owner_session_id)
     grouped_workflows = Enum.group_by(workflows, & &1.owner_session_id)
@@ -966,6 +1072,17 @@ defmodule Ankole.Conversations.Native do
       session = Ankole.Sessions.Key.conversation(detail.conversation.id)
 
       Map.merge(detail, %{
+        latest_message_preview:
+          String.slice(latest_messages[detail.conversation.id] || "", 0, 180),
+        peer_running?:
+          Enum.any?(peers, fn peer ->
+            peer.origin_conversation_id == detail.conversation.id and
+              statuses[{peer.peer_target_uid, Ankole.Sessions.Key.conversation(peer.id)}].state in [
+                :queued,
+                :running,
+                :retrying
+              ]
+          end),
         statuses: Map.new(detail.agents, &{&1.uid, statuses[{&1.uid, session}]}),
         pending_questions: Map.get(grouped_questions, detail.conversation.id, []),
         interaction_states: interactions,

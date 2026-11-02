@@ -153,33 +153,133 @@ defmodule Ankole.Kernel do
   @spec aead_encrypt(binary(), String.t()) :: result(String.t())
   def aead_encrypt(_plaintext, _key), do: :erlang.nif_error(:nif_not_loaded)
 
-  @doc """
-  Analyzes one Brain body against the canonical CommonMark audience grammar.
+  @doc "Encodes one Drive node name, preserving the virtual type suffix."
+  def vfs_name(name, kind, id), do: vfs_name_nif(name, to_string(kind), id)
+  def vfs_decode_name(name), do: vfs_decode_name_nif(name)
+  def vfs_range(range, size), do: vfs_range_nif(range, size)
+  def vfs_xml_request(source, method), do: vfs_xml_request_nif(source, method)
+  def vfs_multistatus(entries), do: vfs_multistatus_nif(Torque.encode!(entries))
 
-  Syntax errors are returned in the decoded map. A native error means the NIF
-  could not analyze or encode the input.
-  """
-  @spec brain_markdoc_analyze(binary()) :: result(map())
-  def brain_markdoc_analyze(body) when is_binary(body) do
-    body
-    |> brain_markdoc_analyze_nif()
-    |> decode_json_result()
-  end
+  def vfs_record_patch(source),
+    do: source |> Torque.encode!() |> vfs_record_patch_nif() |> decode_vfs_json()
 
-  @doc false
-  @spec brain_markdoc_analyze_nif(binary()) :: result(String.t())
-  defp brain_markdoc_analyze_nif(_body), do: :erlang.nif_error(:nif_not_loaded)
+  def vfs_pipeline(parts),
+    do: parts |> Torque.encode!() |> vfs_pipeline_nif() |> decode_vfs_json()
 
-  @doc "Rewrites parsed Brain audience scopes and wikilinks, preserving other source bytes."
-  def brain_markdoc_rewrite_references(body, replacements) do
-    case brain_markdoc_rewrite_references_nif(body, replacements) do
+  def vfs_export_chunk(path, format, columns, rows, first, last),
+    do:
+      vfs_export_chunk_nif(
+        path,
+        format,
+        Torque.encode!(columns),
+        Torque.encode!(rows),
+        first,
+        last
+      )
+
+  def vfs_import_chunk(path, format, offset),
+    do: path |> vfs_import_chunk_nif(format, offset) |> decode_vfs_json()
+
+  defp decode_vfs_json(json) when is_binary(json), do: Torque.decode(json)
+  defp decode_vfs_json(error), do: error
+
+  def vfs_import_id(tenant, table, request, millis, row),
+    do: vfs_import_id_nif(tenant, table, request, millis, row)
+
+  def vfs_document_export(source) do
+    case vfs_document_export_nif(source) do
       {:error, _} = error -> error
-      rewritten -> {:ok, rewritten}
+      markdown -> {:ok, markdown}
     end
   end
 
-  defp brain_markdoc_rewrite_references_nif(_body, _replacements),
+  def vfs_document_reconcile(source, markdown),
+    do: source |> vfs_document_reconcile_nif(markdown) |> decode_page_result()
+
+  def vfs_merge_knowledge(base, base_meta, current, current_meta, edited, edited_meta) do
+    case vfs_merge_knowledge_nif(
+           base,
+           Torque.encode!(base_meta),
+           current,
+           Torque.encode!(current_meta),
+           edited,
+           Torque.encode!(edited_meta)
+         )
+         |> decode_json_result() do
+      {:error, _} = error -> error
+      result -> {:ok, %{xml: result["xml"], metadata: result["metadata"]}}
+    end
+  end
+
+  defp vfs_merge_knowledge_nif(_base, _base_meta, _current, _current_meta, _edited, _edited_meta),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  def vfs_fingerprint(source), do: vfs_fingerprint_nif(source)
+
+  def vfs_projection(kind, xml, metadata \\ %{}) do
+    exported =
+      if kind == :knowledge, do: knowledge_export(xml, metadata), else: vfs_document_export(xml)
+
+    with {:ok, markdown} <- exported,
+         do: {:ok, %{vfs_md_size: byte_size(markdown), vfs_md_blake3: vfs_fingerprint(markdown)}}
+  end
+
+  defp vfs_name_nif(_name, _kind, _id), do: :erlang.nif_error(:nif_not_loaded)
+  defp vfs_decode_name_nif(_name), do: :erlang.nif_error(:nif_not_loaded)
+  defp vfs_range_nif(_range, _size), do: :erlang.nif_error(:nif_not_loaded)
+  defp vfs_xml_request_nif(_source, _method), do: :erlang.nif_error(:nif_not_loaded)
+  defp vfs_multistatus_nif(_entries), do: :erlang.nif_error(:nif_not_loaded)
+  defp vfs_record_patch_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+  defp vfs_pipeline_nif(_parts), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp vfs_export_chunk_nif(_path, _format, _columns, _rows, _first, _last),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  defp vfs_import_chunk_nif(_path, _format, _offset), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp vfs_import_id_nif(_tenant, _table, _request, _millis, _row),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  defp vfs_document_export_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+  defp vfs_document_reconcile_nif(_source, _markdown), do: :erlang.nif_error(:nif_not_loaded)
+  defp vfs_fingerprint_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Parses an OKF document into business metadata and canonical knowledge page XML."
+  def knowledge_parse(source) when is_binary(source) do
+    case source |> knowledge_parse_nif() |> decode_json_result() do
+      {:error, _} = error ->
+        error
+
+      result ->
+        {:ok,
+         %{xml: result["xml"], plain_text: result["plain_text"], metadata: result["metadata"]}}
+    end
+  end
+
+  @doc "Validates the Markdown-representable knowledge page vocabulary."
+  def knowledge_validate(source) when is_binary(source),
+    do: source |> knowledge_validate_nif() |> decode_page_result()
+
+  @doc "Serializes business metadata and knowledge XML as deterministic OKF Markdown."
+  def knowledge_export(source, metadata) when is_binary(source) and is_map(metadata) do
+    case knowledge_export_nif(source, Torque.encode!(metadata)) do
+      {:error, _} = error -> error
+      markdown -> {:ok, markdown}
+    end
+  end
+
+  @doc "Reads the knowledge introduction and H2 outline; callers append authorized child summaries."
+  def knowledge_overview(source, metadata) when is_binary(source) and is_map(metadata) do
+    case knowledge_overview_nif(source, Torque.encode!(metadata)) do
+      {:error, _} = error -> error
+      markdown -> {:ok, markdown}
+    end
+  end
+
+  defp knowledge_parse_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+  defp knowledge_validate_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+  defp knowledge_export_nif(_source, _metadata), do: :erlang.nif_error(:nif_not_loaded)
+  defp knowledge_overview_nif(_source, _metadata), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc "Validates page XML and derives its canonical source and search text."
   @spec page_validate(String.t()) :: {:ok, map()} | {:error, String.t()}
@@ -621,13 +721,17 @@ defmodule Ankole.Kernel do
   @spec gen_uuid_v7() :: String.t()
   def gen_uuid_v7, do: :erlang.nif_error(:nif_not_loaded)
 
-  @doc "Encodes a canonical UUID as 22 padding-free base64url characters."
+  @doc "Encodes a canonical UUID as 26 lowercase Crockford Base32 characters."
   @spec uuid_shorten(String.t()) :: result(String.t())
   def uuid_shorten(_uuid), do: :erlang.nif_error(:nif_not_loaded)
 
-  @doc "Expands a canonical 22-character base64url UUID; rejects aliases."
+  @doc "Expands a canonical 26-character lowercase Crockford Base32 UUID; rejects aliases."
   @spec uuid_expand(String.t()) :: result(String.t())
   def uuid_expand(_short_uuid), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Transliterates a Page title with AnyAscii into a lowercase kebab-case URL slug."
+  @spec page_url_slug(String.t()) :: String.t()
+  def page_url_slug(_title), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Parses a web URL with WHATWG semantics and classifies its host.

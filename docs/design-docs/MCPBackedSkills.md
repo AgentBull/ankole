@@ -35,6 +35,30 @@ Responsibilities split cleanly across the stack:
 Because the model selects tools from Skill instructions, MCP serves purely as
 the wire protocol for executing the chosen call.
 
+## Shared Skill Packages
+
+The tenant's `/AnkoleBrain/skills/<name>` knowledge page owns the Skill's
+instructions and YAML metadata. Attached scripts, templates and
+`agents/openai.yaml` are ordinary child files. The enabled catalog uses the
+page's description; `skill_view` exports the current page and visible supplement
+pages. A supplement marked `metadata.role = "reference"` is read by relative
+path when needed.
+
+At startup and during catalog refresh, Ankole compares each shipped package
+with its recorded `pages.upstream_state`. The package fingerprint includes the
+canonical main page and the relative paths, hashes and modes of all official
+files. With the main page locked, Ankole updates an unchanged package atomically,
+including upstream additions and removals. If a person edited any managed file
+or the main page, Ankole preserves the entire local package and records the
+pending upstream fingerprint. Tenant-created supplements and custom files are
+outside the official fingerprint.
+
+Every main Turn, Background Agent Job and Automation attempt materializes its
+current visible package before loading MCP dependencies. Human-initiated turns
+use the intersection of Agent, requester and applicable room disclosure
+permissions. Unattended runs use the Agent's own access. Enablement remains an
+independent Agent capability setting.
+
 ## Declaration
 
 The Skill loader accepts MCP entries only under `dependencies.tools`, and every

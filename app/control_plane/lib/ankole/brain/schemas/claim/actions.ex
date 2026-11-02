@@ -18,7 +18,7 @@ defmodule Ankole.Brain.Schemas.Claim.Actions do
         :confidence,
         :weight,
         :notability,
-        :audience_scope,
+        :source_node_id,
         :provenance
       ])
       |> Map.reject(fn {_key, value} -> is_nil(value) end)

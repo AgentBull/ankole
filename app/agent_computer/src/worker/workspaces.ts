@@ -10,6 +10,7 @@ import { SESSION_CONTEXT_ID_ENV } from '../core/execution/turn_runtime_env'
 import type { ContentPart, WorkerAgentTool } from '../core/types'
 import { imageBytes } from '../common/image-bytes'
 import { Drive } from '../drive/drive'
+import { driveMounts, type DriveView } from '../drive/mounts'
 import {
   createEnvelope,
   envelopeHeader,
@@ -33,7 +34,9 @@ import type {
 import { WorkspaceReady_Reason } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { runRefFromProto } from '../lanes/session_lane'
 import type { RuntimeRPCClient } from '../lanes/rpc_lane'
-import { materializeSkills } from '../skills/drive_skills'
+import { materializeKnowledgeSkills } from '../skills/knowledge-skills'
+import { skillAvailableInRuntime } from '../skills/effective-skill'
+import { join } from 'node:path'
 import { createComputerTools } from '../tools/computer'
 import { loadEnabledSkillMCPServers } from '../tools/mcp'
 import { renderedFallbackFetch } from '../tools/web/web-tools'
@@ -52,6 +55,7 @@ type Result = {
 }
 type Call = { abort: AbortController; result?: Result; promise: Promise<void> }
 type Workspace = {
+  driveView?: DriveView
   run: RunRefMessage
   ready: Promise<void>
   tools: WorkerAgentTool[]
@@ -61,6 +65,7 @@ type Workspace = {
   closing: boolean
   materials?: PreparedExecutionMaterials
   closeBridge?: () => void
+  closeSkills?: () => Promise<void>
   updateContextId?: (nextContextId?: string) => void
   closed: Promise<void>
   finish: () => void
@@ -223,10 +228,15 @@ export class Workspaces {
       space.closeBridge?.()
       await space.materials?.cleanup()
     } finally {
-      this.spaces.delete(run.session.session_id)
-      this.slots.release()
-      space.finish()
-      await this.slots.publish()
+      try {
+        await space.closeSkills?.()
+        await space.driveView?.release()
+      } finally {
+        this.spaces.delete(run.session.session_id)
+        this.slots.release()
+        space.finish()
+        await this.slots.publish()
+      }
     }
   }
 
@@ -240,15 +250,21 @@ export class Workspaces {
     const paths = agentHomePaths(this.config.agentHomeRoot)
     const rpc = throwingRPCRequester(this.rpcClient)
     const drive = new Drive({ agentHome: paths.home, rpc })
-    await materializeSkills(drive, paths.installedSkills)
+    space.driveView = await driveMounts.acquire(input.driveVfs)
     if (!input.agentContext) throw new Error('Workspace preparation requires the Agent document snapshot')
     const context = materializeAgentLibraryDocuments(paths, input.agentContext)
+    const materialized = await materializeKnowledgeSkills({
+      root: join(paths.home, '.ankole', 'turn-skills', run.signal_id),
+      frame: { run },
+      skills: context.skills.filter(skill => skillAvailableInRuntime(skill, 'main')),
+      rpc
+    })
+    space.closeSkills = materialized.cleanup
     const mcpServers = await loadEnabledSkillMCPServers({
-      enabledSkills: context.skills,
+      enabledSkills: materialized.skills,
       skillRoots: {
-        builtinSkillsRoot: this.config.builtinSkillsRoot,
-        agentInstalledSkillsRoot: paths.installedSkills,
-        internalSkillsRoot: this.config.internalSkillsRoot
+        builtinSkillsRoot: materialized.root,
+        agentInstalledSkillsRoot: materialized.root
       },
       runtime: 'main'
     })
@@ -272,6 +288,7 @@ export class Workspaces {
       renderedFetch: { config: fetchConfig, browserRuntime: this.browser }
     })
     space.tools = createComputerTools({
+      driveView: space.driveView,
       agentHome: paths.home,
       workspaceRoot: workspace,
       workerEnv: space.materials.workerEnv,

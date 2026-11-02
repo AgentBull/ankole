@@ -162,7 +162,20 @@ defmodule Ankole.Conversations.Queries do
            |> Ash.Query.filter(principal_uid in ^uids)
            |> Ash.Query.select([:conversation_id])
            |> Ankole.Ash.read(),
-         do: {:ok, rows |> Enum.map(& &1.conversation_id) |> Enum.uniq()}
+         {:ok, memberships} <-
+           Ankole.AuthZ.list_memberships(query: [filter: [principal_uid: [in: uids]]]),
+         group_ids = Enum.map(memberships, & &1.group_id),
+         {:ok, external} <-
+           Conversation
+           |> Ash.Query.filter(
+             kind == :external and
+               ((external_kind == :im_dm and
+                   fragment("?->>'dm_peer_principal_uid'", metadata) in ^uids) or
+                  (external_kind == :im_group and principal_group_id in ^group_ids))
+           )
+           |> Ash.Query.select([:id])
+           |> Ankole.Ash.read(),
+         do: {:ok, Enum.uniq(Enum.map(rows, & &1.conversation_id) ++ Enum.map(external, & &1.id))}
   end
 
   @doc false
@@ -204,10 +217,15 @@ defmodule Ankole.Conversations.Queries do
   end
 
   @doc "Allocates one committed statement sequence in the caller's transaction."
-  def next_sequence_in_tx(%Conversation{id: id}) do
+  def next_sequence_in_tx(%Conversation{id: id}, notifiable? \\ true) do
     case lock_conversation(id) do
       %Conversation{} = conversation ->
-        with {:ok, updated} <- Ankole.Ash.update(conversation, :advance_sequence, %{}),
+        with {:ok, updated} <-
+               Ankole.Ash.update(
+                 conversation,
+                 if(notifiable?, do: :advance_notifiable_sequence, else: :advance_sequence),
+                 %{}
+               ),
              do: {:ok, updated.sequence_high_water}
 
       nil ->

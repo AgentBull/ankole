@@ -40,10 +40,12 @@ defmodule Ankole.Sessions.Tools.Skill do
 
   @impl true
   def execute(run, _call, args) do
-    view(run.agent_uid, args, "main", run.context.skills)
+    with {:ok, context} <-
+           Ankole.Brain.RequestContext.build(run.agent_uid, Ankole.Sessions.Run.metadata(run)),
+         do: view(run.agent_uid, args, "main", run.context.skills, context, run.signal_id)
   end
 
-  def view(agent_uid, args, execution_runtime, skills) do
+  def view(agent_uid, args, execution_runtime, skills, context, signal_id) do
     summary = Enum.find(skills, &(&1["skill_name"] == args["name"]))
     runtime = get_in(summary || %{}, ["metadata", "ankole-runtime"]) || "any"
 
@@ -80,8 +82,10 @@ defmodule Ankole.Sessions.Tools.Skill do
 
       true ->
         with {:ok, skill} <-
-               Ankole.AIAgent.Library.skill_view(agent_uid, args["name"], args["filePath"]) do
-          directory = Ankole.AgentWorkers.WorkerBootstrap.skill_directory(summary)
+               Ankole.AIAgent.Library.skill_view(agent_uid, args["name"], args["filePath"],
+                 request_context: context
+               ) do
+          directory = "/workspace/.ankole/turn-skills/#{signal_id}/#{args["name"]}"
           path = args["filePath"] || "SKILL.md"
 
           text =
