@@ -1408,6 +1408,8 @@ export function SpreadsheetCanvas({
       ArrowRight: 'right'
     }
     const direction = arrows[event.key]
+    // Moving the selection leaves a selected picture, so Delete then clears cells, not the picture.
+    if (selectedImageRef.current && !['Delete', 'Backspace', 'Escape'].includes(event.key)) selectImage(undefined)
     if (direction) {
       if (command) {
         void model.dataEdge(from, direction).then(cell => moveTo(cell, event.shiftKey))
@@ -1470,7 +1472,7 @@ export function SpreadsheetCanvas({
       void model.clear('formats')
       return true
     }
-    if (model.editable.peek() && key === 'v' && event.altKey) {
+    if (model.editable.peek() && event.code === 'KeyV' && event.altKey) {
       void pasteFromClipboard(model, pageID, 'formats')
       return true
     }

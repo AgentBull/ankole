@@ -53,7 +53,7 @@ import {
   RiUnderline
 } from '@remixicon/react'
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { isFormula } from '../state/spreadsheet-formula'
+import { acceptsReference, isFormula } from '../state/spreadsheet-formula'
 import {
   cellName,
   columnName,
@@ -622,9 +622,11 @@ export function SpreadsheetToolbar({
           }}
           onBlur={event => {
             const next = event.relatedTarget
-            if (next === gridInput.current || !model.draft.peek()) return
-            // The formula keeps waiting while its author picks another sheet to point at.
-            if (next instanceof HTMLElement && next.hasAttribute(SHEET_TAB_ATTRIBUTE)) return
+            const editing = model.draft.peek()
+            if (next === gridInput.current || !editing) return
+            // A formula waiting for a reference stays open while its author picks another sheet.
+            const pointing = acceptsReference(editing.text, event.currentTarget.selectionStart ?? editing.text.length)
+            if (pointing && next instanceof HTMLElement && next.hasAttribute(SHEET_TAB_ATTRIBUTE)) return
             void model.commitEdit()
           }}
         />

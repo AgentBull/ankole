@@ -101,6 +101,29 @@ test('suggestions, AutoSum, pointing at cells and F4 build formulas', async ({ b
     await page.keyboard.press('Enter')
     await saved(page)
 
+    // A formula waiting for an operand takes a reference from another sheet.
+    await page.getByRole('button', { name: '添加工作表', exact: true }).click()
+    await saved(page)
+    await enter(page, 0, 0, '5')
+    await page
+      .getByRole('navigation', { name: '工作表', exact: true })
+      .getByRole('button', { name: 'Sheet1', exact: true })
+      .click()
+    await cell(page, 2, 1)
+    await page.keyboard.insertText('=SUM(')
+    await page
+      .getByRole('navigation', { name: '工作表', exact: true })
+      .getByRole('button', { name: 'Sheet2', exact: true })
+      .click()
+    await cell(page, 0, 0)
+    await expect(formula(page)).toHaveValue('=SUM(Sheet2!A1')
+    await page.keyboard.insertText(')')
+    await page.keyboard.press('Enter')
+    await saved(page)
+    await expect(
+      page.getByRole('navigation', { name: '工作表', exact: true }).getByRole('button', { name: 'Sheet1', exact: true })
+    ).toHaveAttribute('aria-pressed', 'true')
+
     await page.getByRole('button', { name: '公式', exact: true }).click()
     await page.getByRole('menuitem', { name: '全部函数…', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '插入函数', exact: true })
@@ -115,6 +138,7 @@ test('suggestions, AutoSum, pointing at cells and F4 build formulas', async ({ b
       expect(workbook.cell_input(1, 'A4')).toBe('=SUM(A1:A3)')
       expect(workbook.cell_input(1, 'B1')).toBe('=AVERAGE(A1:A3)')
       expect(workbook.cell_input(1, 'B2')).toBe('=$A$1')
+      expect(workbook.cell_input(1, 'B3')).toBe('=SUM(Sheet2!A1)')
     } finally {
       workbook.free()
     }
@@ -150,6 +174,8 @@ test('the fill handle, rich copy and paste, cell shifts, freezing and statistics
     await enter(page, 0, 1, '=A1*10')
     await cell(page, 0, 1)
     await page.keyboard.press('ControlOrMeta+C')
+    // The copy writes the system clipboard asynchronously; a person pastes long after it lands.
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('10')
     await cell(page, 1, 3)
     await page.keyboard.press('ControlOrMeta+V')
     await saved(page)
