@@ -9,4 +9,7 @@ sign_in_exclude =
   if Application.get_env(:ankole, :edition) == :saas, do: [foss_sign_in: true], else: []
 
 ExUnit.start(exclude: [:regenerate_golden | real_llm_exclude ++ sign_in_exclude])
-Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual)
+
+if Process.whereis(Ankole.Repo) do
+  Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual)
+end

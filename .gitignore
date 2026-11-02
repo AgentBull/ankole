@@ -76,6 +76,7 @@ ehthumbs.db
 .coverage-cache/
 .nyc_output/
 coverage/
+cover/
 # 截图测试临时文件
 **/.screenshot-temp/
 
@@ -115,6 +116,7 @@ app/kernel/**/*.node
 app/kernel/_build/
 app/kernel/deps/
 app/kernel/priv/native/
+app/control_plane/priv/native/
 /.claude/
 /.zcode/
 HEY.md

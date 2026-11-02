@@ -85,8 +85,12 @@ RUN sed -i \
   && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
     build-essential \
     ca-certificates \
+    clang \
+    cmake \
     curl \
     git \
+    golang-go \
+    libclang-dev \
     patch \
     pkg-config \
     protobuf-compiler \
