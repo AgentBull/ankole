@@ -32,8 +32,12 @@ import {
   RiArrowGoBackLine,
   RiArrowGoForwardLine,
   RiBold,
+  RiBrushLine,
   RiFontColor,
+  RiFormatClear,
+  RiFunctions,
   RiGridLine,
+  RiImageAddLine,
   RiItalic,
   RiLayoutTop2Line,
   RiMergeCellsHorizontal,
@@ -43,14 +47,17 @@ import {
   RiSortDesc,
   RiSplitCellsHorizontal,
   RiStickyNoteLine,
+  RiStrikethrough,
   RiTableLine,
   RiTextWrap,
   RiUnderline
 } from '@remixicon/react'
-import { useEffect, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { isFormula } from '../state/spreadsheet-formula'
 import {
   cellName,
   columnName,
+  MAX_COLS,
   MAX_ROWS,
   rangeName,
   selectedLines,
@@ -59,7 +66,11 @@ import {
   type SpreadsheetOp
 } from '../state/spreadsheet-grid'
 import type { SpreadsheetSession } from '../state/spreadsheet-collaboration'
-import { FORMULA_BAR_ATTRIBUTE } from './spreadsheet-cell-editor'
+import { chooseLocalFile } from '../native-transfers'
+import { FORMULA_BAR_ATTRIBUTE, SHEET_TAB_ATTRIBUTE, useDraftCaret, useFunctions } from './spreadsheet-cell-editor'
+import { insertPicture } from './spreadsheet-clipboard-actions'
+import { SpreadsheetFormulaAssist } from './spreadsheet-formula-assist'
+import { SpreadsheetFunctionsDialog } from './spreadsheet-functions-dialog'
 import { SpreadsheetVersions } from './spreadsheet-versions'
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36]
@@ -96,6 +107,9 @@ const FILL_COLORS = [
   '--color-yellow-30'
 ]
 const THIN = { style: 'thin' }
+/** The functions the formula menu offers before the full list. */
+const QUICK_FUNCTIONS = ['SUM', 'AVERAGE', 'COUNT', 'MAX', 'MIN'] as const
+const PICTURE_TYPES = 'image/png,image/jpeg,image/gif,image/webp,image/bmp'
 
 /** The `#RRGGBB` value of an Ankole colour token, which a format patch stores. */
 export function tokenColor(token: string): string {
@@ -173,6 +187,11 @@ export function SpreadsheetToolbar({
     merged: false
   })
   const [note, setNote] = useState('')
+  const [functionsOpen, setFunctionsOpen] = useState(false)
+  const formulaBar = useRef<HTMLInputElement>(null)
+  const functions = useFunctions(model)
+  const painter = model.painter.value
+  useDraftCaret(formulaBar, draft?.caret)
 
   useEffect(() => {
     let stale = false
@@ -222,7 +241,34 @@ export function SpreadsheetToolbar({
   const align =
     style?.h_align === 'left' || style?.h_align === 'center' || style?.h_align === 'right' ? [style.h_align] : []
   const multiRow = rect.r1 > rect.r0 && rect.r1 < MAX_ROWS - 1
-  const formula = draft && draft.cell.row === active.row && draft.cell.col === active.col ? draft.text : current.input
+  // A formula that points at another sheet keeps showing its text here.
+  const formula = draft ? draft.text : current.input
+  const [frozenRows, frozenCols] = model.activeSheet.value?.freeze ?? [0, 0]
+  const freezeRows = rect.c0 === 0 && rect.c1 === MAX_COLS - 1 ? rect.r1 + 1 : active.row + 1
+  const freezeCols = rect.r0 === 0 && rect.r1 === MAX_ROWS - 1 ? rect.c1 + 1 : active.col + 1
+  const freeze = (rows: number, cols: number) => perform({ type: 'sheet.freeze', rows, cols })
+  const autoSum = async (fn: string) => {
+    if (model.draft.peek()) await model.commitEdit()
+    await model.autoSum(fn)
+    gridInput.current?.focus({ preventScroll: true })
+  }
+  /** Inserts a function into the formula being typed, or starts one in the active cell. */
+  const insertFunction = (name: string) => {
+    const editing = model.draft.peek()
+    if (editing && isFormula(editing.text)) {
+      const text = `${editing.text}${name}(`
+      model.type(text, text.length)
+    } else {
+      const text = `=${name}(`
+      model.edit(active, text, text.length)
+    }
+    gridInput.current?.focus({ preventScroll: true })
+  }
+  const insertImage = async (kind: 'floating' | 'cell') => {
+    const file = await chooseLocalFile(PICTURE_TYPES)
+    if (file) await insertPicture(model, file, kind)
+    gridInput.current?.focus({ preventScroll: true })
+  }
   const status = error
     ? t('pod.spreadsheet.sync_retrying')
     : pending
@@ -245,6 +291,27 @@ export function SpreadsheetToolbar({
               disabled={!editable || !model.canRedo.value}
               onClick={() => void model.redo()}>
               <RiArrowGoForwardLine />
+            </ToolButton>
+            {/* One click paints once; a double click keeps painting until Escape. */}
+            <Toggle
+              size="sm"
+              aria-label={t('pod.spreadsheet.format_painter')}
+              title={t('pod.spreadsheet.format_painter_hint')}
+              disabled={!editable}
+              pressed={Boolean(painter)}
+              onClick={event => {
+                if (event.detail > 1) void model.pickFormats(true)
+                else if (painter) model.clearCopied()
+                else void model.pickFormats(false)
+                gridInput.current?.focus({ preventScroll: true })
+              }}>
+              <RiBrushLine />
+            </Toggle>
+            <ToolButton
+              label={t('pod.spreadsheet.clear_formats')}
+              disabled={!editable}
+              onClick={() => perform({ type: 'range.clear', range, mode: 'formats' })}>
+              <RiFormatClear />
             </ToolButton>
             <Separator orientation="vertical" className="mx-1 h-5" />
             <Toggle
@@ -273,6 +340,15 @@ export function SpreadsheetToolbar({
               pressed={Boolean(style?.underline)}
               onPressedChange={pressed => format({ underline: pressed })}>
               <RiUnderline />
+            </Toggle>
+            <Toggle
+              size="sm"
+              aria-label={t('pod.spreadsheet.strikethrough')}
+              title={t('pod.spreadsheet.strikethrough')}
+              disabled={!editable}
+              pressed={Boolean(style?.strike)}
+              onPressedChange={pressed => format({ strike: pressed })}>
+              <RiStrikethrough />
             </Toggle>
             <Select
               value={String(style?.font_size ?? 11)}
@@ -397,11 +473,45 @@ export function SpreadsheetToolbar({
               </DropdownMenuItem>
             </ToolMenu>
             <ToolMenu label={t('pod.spreadsheet.freeze')} disabled={!editable} icon={<RiLayoutTop2Line />}>
-              <DropdownMenuItem onClick={() => perform({ type: 'sheet.freeze', rows: active.row, cols: active.col })}>
-                {t('pod.spreadsheet.freeze_at_selection', { cell: cellName(active) })}
+              <DropdownMenuItem onClick={() => freeze(1, frozenCols)}>
+                {t('pod.spreadsheet.freeze_first_row')}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => perform({ type: 'sheet.freeze', rows: 0, cols: 0 })}>
+              <DropdownMenuItem onClick={() => freeze(frozenRows, 1)}>
+                {t('pod.spreadsheet.freeze_first_column')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => freeze(freezeRows, frozenCols)}>
+                {t('pod.spreadsheet.freeze_to_row', { row: freezeRows })}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => freeze(frozenRows, freezeCols)}>
+                {t('pod.spreadsheet.freeze_to_column', { column: columnName(freezeCols - 1) })}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => freeze(active.row + 1, active.col + 1)}>
+                {t('pod.spreadsheet.freeze_to_cell', { row: active.row + 1, column: columnName(active.col) })}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={!frozenRows && !frozenCols} onClick={() => freeze(0, 0)}>
                 {t('pod.spreadsheet.unfreeze')}
+              </DropdownMenuItem>
+            </ToolMenu>
+            <ToolMenu label={t('pod.spreadsheet.formulas')} disabled={!editable} icon={<RiFunctions />}>
+              {QUICK_FUNCTIONS.map(fn => (
+                <DropdownMenuItem key={fn} onClick={() => void autoSum(fn)}>
+                  {t(`pod.spreadsheet.quick_functions.${fn}`)}
+                  <span className="ml-auto font-mono text-xs text-fg-tertiary">{fn}</span>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setFunctionsOpen(true)}>
+                {t('pod.spreadsheet.all_functions')}
+              </DropdownMenuItem>
+            </ToolMenu>
+            <ToolMenu label={t('pod.spreadsheet.insert_picture')} disabled={!editable} icon={<RiImageAddLine />}>
+              <DropdownMenuItem onClick={() => void insertImage('floating')}>
+                {t('pod.spreadsheet.floating_picture')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void insertImage('cell')}>
+                {t('pod.spreadsheet.cell_picture')}
               </DropdownMenuItem>
             </ToolMenu>
             <ToolButton
@@ -484,6 +594,7 @@ export function SpreadsheetToolbar({
           {t('pod.spreadsheet.active_cell_value', { cell: cellName(active), value: current.text })}
         </p>
         <input
+          ref={formulaBar}
           {...{ [FORMULA_BAR_ATTRIBUTE]: '' }}
           aria-label={t('pod.spreadsheet.formula_bar')}
           className="h-7 min-w-0 flex-1 rounded-control border border-field-edge bg-field px-2 font-mono text-sm outline-none focus-visible:border-input"
@@ -495,7 +606,11 @@ export function SpreadsheetToolbar({
           onChange={event => model.type(event.target.value)}
           onKeyDown={event => {
             if (event.nativeEvent.isComposing) return
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              void model.commitToSelection()
+              gridInput.current?.focus({ preventScroll: true })
+            } else if (event.key === 'Enter') {
               event.preventDefault()
               void model.commitEdit('down')
               gridInput.current?.focus({ preventScroll: true })
@@ -506,10 +621,28 @@ export function SpreadsheetToolbar({
             }
           }}
           onBlur={event => {
-            if (event.relatedTarget !== gridInput.current && model.draft.peek()) void model.commitEdit()
+            const next = event.relatedTarget
+            if (next === gridInput.current || !model.draft.peek()) return
+            // The formula keeps waiting while its author picks another sheet to point at.
+            if (next instanceof HTMLElement && next.hasAttribute(SHEET_TAB_ATTRIBUTE)) return
+            void model.commitEdit()
           }}
         />
+        {draft && isFormula(draft.text) && (
+          <SpreadsheetFormulaAssist
+            input={formulaBar.current}
+            text={draft.text}
+            functions={functions}
+            onChange={(text, caret) => model.type(text, caret)}
+          />
+        )}
       </div>
+      <SpreadsheetFunctionsDialog
+        open={functionsOpen}
+        onOpenChange={setFunctionsOpen}
+        functions={functions}
+        onInsert={insertFunction}
+      />
     </div>
   )
 }

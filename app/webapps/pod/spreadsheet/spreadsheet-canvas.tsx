@@ -1,35 +1,52 @@
 import { t } from 'i18next'
 import {
+  Button,
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator
+  DropdownMenuTrigger,
+  toast
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
+import { RiArrowDownSLine } from '@remixicon/react'
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
+import { acceptsReference, formulaReferences, isFormula, referenceText, splice } from '../state/spreadsheet-formula'
 import {
+  cellName,
   cellSelection,
   clampCell,
   columnName,
   contains,
+  fillTarget,
   intersect,
   LineAxis,
   MAX_COLS,
   MAX_ROWS,
+  parseCell,
   parseRange,
   rangeName,
   selectedLines,
   selectionRect,
   type CellAddress,
+  type FillMode,
   type Rect,
   type RenderCell,
+  type RenderImage,
   type RenderStyle,
   type SheetInfo,
   type Viewport
 } from '../state/spreadsheet-grid'
 import { presenceRect, type Direction, type SpreadsheetSession } from '../state/spreadsheet-collaboration'
-import { SpreadsheetCellEditor } from './spreadsheet-cell-editor'
+import { FORMULA_BAR_ATTRIBUTE, SpreadsheetCellEditor } from './spreadsheet-cell-editor'
+import { SpreadsheetCellMenu, type MenuKind } from './spreadsheet-cell-menu'
+import { insertPicture, pasteFromClipboard } from './spreadsheet-clipboard-actions'
+import { displaySize, downloadPicture, pictureType } from './spreadsheet-pictures'
 
 const HEADER_WIDTH = 48
 const HEADER_HEIGHT = 24
@@ -41,6 +58,21 @@ const ROW_RUNWAY = 50
 const COL_RUNWAY = 10
 const RESIZE_SLOP = 4
 const POINTS_TO_PIXELS = 96 / 72
+/** The fill handle's size, and how far from it a press still grabs it. */
+const FILL_HANDLE = 7
+const HANDLE_SLOP = 4
+/** The corner handles of a selected floating picture. */
+const IMAGE_HANDLE = 8
+const MIN_IMAGE_SIZE = 16
+/** Colours of the references a formula draft names, in order. */
+const REFERENCE_COLORS = [
+  '--color-blue-60',
+  '--color-red-60',
+  '--color-green-60',
+  '--color-purple-60',
+  '--color-orange-50',
+  '--color-teal-60'
+]
 
 type FrameCell = { cell: RenderCell; style: RenderStyle }
 /** The cells the worker returned for one sheet version, with the rectangles they cover. */
@@ -54,14 +86,31 @@ type Frame = {
   rowStyles: Map<number, RenderStyle>
   colStyles: Map<number, RenderStyle>
 }
+type Corner = 'nw' | 'ne' | 'sw' | 'se'
 type Hit =
   | { kind: 'corner' }
   | { kind: 'cols'; col: number; resize?: number }
   | { kind: 'rows'; row: number; resize?: number }
   | { kind: 'cell'; cell: CellAddress }
+  | { kind: 'fill' }
+  | { kind: 'image'; image: RenderImage; corner?: Corner }
 type Drag =
   | { kind: 'select'; anchor: CellAddress; lines?: 'rows' | 'cols' }
   | { kind: 'resize'; axis: 'rows' | 'cols'; index: number; origin: number; size: number; current: number }
+  | { kind: 'fill'; source: Rect; target?: Rect }
+  | {
+      kind: 'image'
+      image: RenderImage
+      corner?: Corner
+      origin: { x: number; y: number }
+      start: CellBox
+      current: CellBox
+    }
+  | { kind: 'point'; anchor: CellAddress }
+/** The reference that pointing inserted into a formula draft, which the next press or drag replaces. */
+type Pointed = { start: number; end: number; anchor: CellAddress }
+/** The picture bitmaps decoded so far, by fingerprint; `null` while one loads or after it failed. */
+type Bitmaps = Map<string, ImageBitmap | null>
 type Tokens = Record<
   | 'background'
   | 'text'
@@ -152,9 +201,11 @@ function wrapLines(context: CanvasRenderingContext2D, text: string, width: numbe
  */
 export function SpreadsheetCanvas({
   model,
+  pageID,
   inputRef: input
 }: {
   model: SpreadsheetSession
+  pageID: string
   inputRef: RefObject<HTMLTextAreaElement | null>
 }) {
   useSignals()
@@ -168,7 +219,19 @@ export function SpreadsheetCanvas({
   const extent = useRef({ sheetID: 0, rows: 0, cols: 0 })
   const drag = useRef<Drag | undefined>(undefined)
   const scheduled = useRef(0)
-  const [menu, setMenu] = useState<'rows' | 'cols' | 'cells'>('cells')
+  const [menu, setMenu] = useState<MenuKind>('cells')
+  const images = useRef<{ sheetID: number; version: number; list: RenderImage[] } | undefined>(undefined)
+  const imagesKey = useRef('')
+  const bitmaps = useRef<Bitmaps>(new Map())
+  const pointed = useRef<Pointed | undefined>(undefined)
+  const fillOptions = useRef<HTMLDivElement>(null)
+  const [selectedImage, setSelectedImage] = useState<RenderImage>()
+  const selectedImageRef = useRef<RenderImage | undefined>(undefined)
+  const [filled, setFilled] = useState<{ source: Rect; target: Rect }>()
+  const filledRef = useRef(filled)
+  const [viewing, setViewing] = useState<{ url: string; alt: string }>()
+  const copied = model.copied.value
+  const painter = model.painter.value
   const sheet = model.activeSheet.value
   const editable = model.editable.value
   const sheetID = model.activeSheetID.value
@@ -359,9 +422,169 @@ export function SpreadsheetCanvas({
       paintCells(context, view, tokens, cached, region.rows, region.cols)
       context.restore()
     }
+    fetchImages(view)
+    paintImages(context, view, tokens)
     paintOverlays(context, view, tokens)
     paintHeaders(context, view, tokens)
     placeEditor(view, cached)
+    placeFillOptions(view)
+  }
+
+  const selectImage = (image: RenderImage | undefined) => {
+    selectedImageRef.current = image
+    setSelectedImage(image)
+  }
+
+  const showFillOptions = (next: { source: Rect; target: Rect } | undefined) => {
+    filledRef.current = next
+    setFilled(next)
+  }
+
+  /** Fetches the floating pictures of the shown sheet whenever the local document changes. */
+  const fetchImages = (view: Layout) => {
+    const id = view.info.sheet_id
+    const current = model.version.peek()
+    if (images.current?.sheetID === id && images.current.version === current) return
+    const key = `${id}:${current}`
+    if (imagesKey.current === key) return
+    imagesKey.current = key
+    void model
+      .images(id)
+      .then(list => {
+        if (imagesKey.current !== key) return
+        imagesKey.current = ''
+        if (!list) return
+        images.current = { sheetID: id, version: current, list }
+        const selected = selectedImageRef.current
+        if (selected) selectImage(list.find(image => image.image_id === selected.image_id))
+        requestPaint()
+      })
+      .catch(() => {
+        if (imagesKey.current === key) imagesKey.current = ''
+      })
+  }
+
+  /** A picture's decoded bitmap. The first request loads it and the grid paints again once it arrives. */
+  const bitmap = (key: string, load: () => Promise<Uint8Array | undefined>) => {
+    const cache = bitmaps.current
+    if (cache.has(key)) return cache.get(key) ?? undefined
+    cache.set(key, null)
+    void load()
+      .then(bytes =>
+        bytes ? createImageBitmap(new Blob([bytes as BlobPart], { type: pictureType(bytes) })) : undefined
+      )
+      .then(decoded => {
+        if (!decoded) return
+        cache.set(key, decoded)
+        requestPaint()
+      })
+      .catch(() => undefined)
+    return undefined
+  }
+
+  const anchorCell = (image: RenderImage) => parseCell(image.cell) ?? { row: 0, col: 0 }
+
+  /** Where a floating picture sits on screen. */
+  const imageBox = (view: Layout, image: RenderImage): CellBox => {
+    const cell = anchorCell(image)
+    return {
+      x: view.colX(cell.col) + image.dx,
+      y: view.rowY(cell.row) + image.dy,
+      width: image.width,
+      height: image.height
+    }
+  }
+
+  /** The anchor that puts a picture's top-left corner at the top-left of `area`. */
+  const anchorAt = (view: Layout, area: CellBox) => {
+    const x = Math.max(area.x, HEADER_WIDTH)
+    const y = Math.max(area.y, HEADER_HEIGHT)
+    const cell = { row: view.rowAt(y), col: view.colAt(x) }
+    return {
+      cell: cellName(cell),
+      dx: Math.max(0, Math.round(x - view.colX(cell.col))),
+      dy: Math.max(0, Math.round(y - view.rowY(cell.row))),
+      width: Math.round(area.width),
+      height: Math.round(area.height)
+    }
+  }
+
+  const imageCorners = (area: CellBox): [Corner, number, number][] => [
+    ['nw', area.x, area.y],
+    ['ne', area.x + area.width, area.y],
+    ['sw', area.x, area.y + area.height],
+    ['se', area.x + area.width, area.y + area.height]
+  ]
+
+  /** Floating pictures over the cells, each clipped to the pane its anchor cell belongs to. */
+  const paintImages = (context: CanvasRenderingContext2D, view: Layout, tokens: Tokens) => {
+    const list = images.current?.sheetID === view.info.sheet_id ? images.current.list : []
+    const moving = drag.current?.kind === 'image' ? drag.current : undefined
+    const mainTop = HEADER_HEIGHT + view.frozenHeight
+    const mainLeft = HEADER_WIDTH + view.frozenWidth
+    for (const image of list) {
+      const cell = anchorCell(image)
+      const area = moving?.image.image_id === image.image_id ? moving.current : imageBox(view, image)
+      const top = cell.row < view.frozenRows ? HEADER_HEIGHT : mainTop
+      const left = cell.col < view.frozenCols ? HEADER_WIDTH : mainLeft
+      context.save()
+      context.beginPath()
+      context.rect(left, top, view.width - left, view.height - top)
+      context.clip()
+      const decoded = bitmap(`image:${image.digest}`, () => model.imageData(view.info.sheet_id, image.image_id))
+      if (decoded) context.drawImage(decoded, area.x, area.y, area.width, area.height)
+      else {
+        context.fillStyle = tokens.header
+        context.fillRect(area.x, area.y, area.width, area.height)
+      }
+      if (selectedImageRef.current?.image_id === image.image_id) {
+        context.strokeStyle = tokens.focus
+        context.lineWidth = 2
+        context.strokeRect(area.x, area.y, area.width, area.height)
+        if (model.editable.peek()) {
+          for (const [, x, y] of imageCorners(area)) {
+            context.fillStyle = '#ffffff'
+            context.fillRect(x - IMAGE_HANDLE / 2, y - IMAGE_HANDLE / 2, IMAGE_HANDLE, IMAGE_HANDLE)
+            context.strokeRect(x - IMAGE_HANDLE / 2, y - IMAGE_HANDLE / 2, IMAGE_HANDLE, IMAGE_HANDLE)
+          }
+        }
+      }
+      context.restore()
+    }
+  }
+
+  /** A cell picture, fitted inside its cell with its proportions kept. */
+  const paintPicture = (context: CanvasRenderingContext2D, picture: ImageBitmap, area: CellBox) => {
+    const padding = 2
+    const scale = Math.min((area.width - padding * 2) / picture.width, (area.height - padding * 2) / picture.height)
+    if (!(scale > 0)) return
+    const width = picture.width * scale
+    const height = picture.height * scale
+    context.drawImage(picture, area.x + (area.width - width) / 2, area.y + (area.height - height) / 2, width, height)
+  }
+
+  /** The fill handle's centre: the bottom-right corner of the selection. */
+  const fillHandle = (view: Layout) => {
+    const rect = selectionRect(model.selection.peek())
+    if (rect.r1 === MAX_ROWS - 1 && rect.c1 === MAX_COLS - 1) return undefined
+    const area = box(view, rect)
+    if (!shown(area)) return undefined
+    return { x: area.x + area.width - 1, y: area.y + area.height - 1 }
+  }
+
+  /** Keeps the fill options button at the end of the last fill while it shows. */
+  const placeFillOptions = (view: Layout) => {
+    const element = fillOptions.current
+    const current = filledRef.current
+    if (!element) return
+    const area = current && current.target ? box(view, current.target) : undefined
+    if (!area || !shown(area)) {
+      element.style.display = 'none'
+      return
+    }
+    element.style.display = ''
+    element.style.left = `${Math.min(area.x + area.width + 2, view.width - 32)}px`
+    element.style.top = `${Math.min(area.y + area.height + 2, view.height - 28)}px`
   }
 
   const growExtent = (view: Layout) => {
@@ -431,6 +654,21 @@ export function SpreadsheetCanvas({
         context.lineTo(x, bottom)
       }
       context.stroke()
+    }
+    for (const row of visibleRows) {
+      for (const col of visibleCols) {
+        const picture = cached?.cells.get(cellKey(row, col))?.cell.picture
+        if (!picture || merged(row, col)) continue
+        const decoded = bitmap(`cell:${picture}`, () => model.cellPicture(view.info.sheet_id, { row, col }))
+        if (decoded) {
+          paintPicture(context, decoded, {
+            x: view.colX(col),
+            y: view.rowY(row),
+            width: view.cols.size(col),
+            height: view.rows.size(row)
+          })
+        }
+      }
     }
     for (const merge of merges) {
       const area = box(view, merge)
@@ -578,12 +816,13 @@ export function SpreadsheetCanvas({
   }
 
   const paintOverlays = (context: CanvasRenderingContext2D, view: Layout, tokens: Tokens) => {
+    const style = getComputedStyle(container.current!)
     context.save()
     context.beginPath()
     context.rect(HEADER_WIDTH, HEADER_HEIGHT, view.width - HEADER_WIDTH, view.height - HEADER_HEIGHT)
     context.clip()
     for (const member of model.members.peek()) {
-      const color = getComputedStyle(container.current!).getPropertyValue(member.color).trim()
+      const color = style.getPropertyValue(member.color).trim()
       for (const selected of member.selections) {
         const rect = selected.sheet_id === view.info.sheet_id ? presenceRect(selected) : undefined
         const area = rect && box(view, rect)
@@ -601,6 +840,43 @@ export function SpreadsheetCanvas({
         context.textBaseline = 'middle'
         context.fillText(label, area.x + 4, Math.max(HEADER_HEIGHT, area.y - 16) + 8)
       }
+    }
+    // The references a formula draft names, each in its own colour.
+    const editing = model.draft.peek()
+    if (editing && isFormula(editing.text)) {
+      formulaReferences(editing.text).forEach((reference, index) => {
+        const here = reference.sheet
+          ? reference.sheet.toLowerCase() === view.info.name.toLowerCase()
+          : editing.sheetID === view.info.sheet_id
+        const area = here ? box(view, reference.rect) : undefined
+        if (!area || !shown(area)) return
+        const color = style.getPropertyValue(REFERENCE_COLORS[index % REFERENCE_COLORS.length]!).trim()
+        context.globalAlpha = 0.12
+        context.fillStyle = color
+        context.fillRect(area.x, area.y, area.width, area.height)
+        context.globalAlpha = 1
+        context.strokeStyle = color
+        context.lineWidth = 2
+        context.strokeRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2)
+      })
+    }
+    const source = model.copied.peek()
+    const copiedArea = source?.sheetID === view.info.sheet_id ? box(view, source.rect) : undefined
+    if (copiedArea && shown(copiedArea)) {
+      context.strokeStyle = tokens.focus
+      context.lineWidth = 2
+      context.setLineDash([5, 3])
+      context.strokeRect(copiedArea.x + 1, copiedArea.y + 1, copiedArea.width - 2, copiedArea.height - 2)
+      context.setLineDash([])
+    }
+    const filling = drag.current?.kind === 'fill' ? drag.current.target : undefined
+    const preview = filling && box(view, filling)
+    if (preview && shown(preview)) {
+      context.strokeStyle = tokens.headerText
+      context.lineWidth = 1
+      context.setLineDash([4, 3])
+      context.strokeRect(preview.x + 0.5, preview.y + 0.5, preview.width - 1, preview.height - 1)
+      context.setLineDash([])
     }
     const rect = selectionRect(model.selection.peek())
     const area = box(view, rect)
@@ -623,6 +899,13 @@ export function SpreadsheetCanvas({
     context.strokeStyle = tokens.focus
     context.lineWidth = 2
     context.strokeRect(area.x + 0.5, area.y + 0.5, area.width - 2, area.height - 2)
+    const handle = model.editable.peek() && !editing && !selectedImageRef.current ? fillHandle(view) : undefined
+    if (handle) {
+      context.fillStyle = '#ffffff'
+      context.fillRect(handle.x - FILL_HANDLE / 2 - 1, handle.y - FILL_HANDLE / 2 - 1, FILL_HANDLE + 2, FILL_HANDLE + 2)
+      context.fillStyle = tokens.focus
+      context.fillRect(handle.x - FILL_HANDLE / 2, handle.y - FILL_HANDLE / 2, FILL_HANDLE, FILL_HANDLE)
+    }
     context.restore()
   }
 
@@ -688,17 +971,22 @@ export function SpreadsheetCanvas({
     context.lineTo(view.width, HEADER_HEIGHT - 0.5)
     context.moveTo(HEADER_WIDTH - 0.5, 0)
     context.lineTo(HEADER_WIDTH - 0.5, view.height)
+    context.stroke()
+    // Frozen panes end at a heavier line, so the boundary stays visible while the rest scrolls.
+    context.lineWidth = 2
+    context.beginPath()
     if (view.frozenRows) {
-      const y = HEADER_HEIGHT + view.frozenHeight - 0.5
+      const y = HEADER_HEIGHT + view.frozenHeight - 1
       context.moveTo(0, y)
       context.lineTo(view.width, y)
     }
     if (view.frozenCols) {
-      const x = HEADER_WIDTH + view.frozenWidth - 0.5
+      const x = HEADER_WIDTH + view.frozenWidth - 1
       context.moveTo(x, 0)
       context.lineTo(x, view.height)
     }
     context.stroke()
+    context.lineWidth = 1
     const resizing = drag.current?.kind === 'resize' ? drag.current : undefined
     if (resizing) {
       context.strokeStyle = tokens.focus
@@ -753,7 +1041,66 @@ export function SpreadsheetCanvas({
       const resize = end - y <= RESIZE_SLOP ? row : y - start <= RESIZE_SLOP && row > 0 ? row - 1 : undefined
       return { kind: 'rows', row, resize }
     }
+    const list = images.current?.sheetID === view.info.sheet_id ? images.current.list : []
+    const selected = selectedImageRef.current
+    if (selected && model.editable.peek()) {
+      const area = imageBox(view, selected)
+      const corner = imageCorners(area).find(
+        ([, cx, cy]) => Math.abs(cx - x) <= IMAGE_HANDLE && Math.abs(cy - y) <= IMAGE_HANDLE
+      )
+      if (corner) return { kind: 'image', image: selected, corner: corner[0] }
+    }
+    // The picture painted last is on top, so it takes the press.
+    for (const image of [...list].reverse()) {
+      const area = imageBox(view, image)
+      if (x >= area.x && x <= area.x + area.width && y >= area.y && y <= area.y + area.height) {
+        return { kind: 'image', image }
+      }
+    }
+    const handle = model.editable.peek() && !model.draft.peek() && !selected ? fillHandle(view) : undefined
+    if (
+      handle &&
+      Math.abs(handle.x - x) <= FILL_HANDLE / 2 + HANDLE_SLOP &&
+      Math.abs(handle.y - y) <= FILL_HANDLE / 2 + HANDLE_SLOP
+    ) {
+      return { kind: 'fill' }
+    }
     return { kind: 'cell', cell: { row: view.rowAt(y), col: view.colAt(x) } }
+  }
+
+  /** The formula input that holds the caret, when a formula draft is open there. */
+  const formulaInput = (): HTMLTextAreaElement | HTMLInputElement | undefined => {
+    const active = document.activeElement
+    if (active === input.current) return input.current ?? undefined
+    return active instanceof HTMLInputElement && active.hasAttribute(FORMULA_BAR_ATTRIBUTE) ? active : undefined
+  }
+
+  /**
+   * Pointing: while a formula waits for an operand, a press on a cell types its reference into the
+   * draft, and dragging widens it to a range. A press right after a pointed reference replaces it.
+   */
+  const pointAt = (cell: CellAddress, extend: boolean): boolean => {
+    const editing = model.draft.peek()
+    const field = formulaInput()
+    const view = layout()
+    if (!editing || !field || !view || !isFormula(editing.text)) return false
+    const caret = field.selectionStart ?? editing.text.length
+    const last = pointed.current?.end === caret ? pointed.current : undefined
+    if (!last && !acceptsReference(editing.text, caret)) return false
+    const anchor = extend && last ? last.anchor : cell
+    const rect = {
+      r0: Math.min(anchor.row, cell.row),
+      c0: Math.min(anchor.col, cell.col),
+      r1: Math.max(anchor.row, cell.row),
+      c1: Math.max(anchor.col, cell.col)
+    }
+    const sheet = editing.sheetID === view.info.sheet_id ? undefined : view.info.name
+    const start = last ? last.start : caret
+    const next = splice(editing.text, start, last ? last.end : caret, referenceText(rect, sheet))
+    pointed.current = { start, end: next.caret, anchor }
+    model.type(next.text, next.caret)
+    field.focus({ preventScroll: true })
+    return true
   }
 
   const local = (event: { clientX: number; clientY: number }) => {
@@ -776,10 +1123,38 @@ export function SpreadsheetCanvas({
     const hit = hitTest(x, y)
     if (!hit) return
     event.preventDefault()
+    if (hit.kind === 'cell' && pointAt(hit.cell, event.shiftKey)) {
+      drag.current = { kind: 'point', anchor: pointed.current!.anchor }
+      scroller.current!.setPointerCapture(event.pointerId)
+      return
+    }
+    pointed.current = undefined
     if (model.draft.peek()) void model.commitEdit()
     input.current?.focus({ preventScroll: true })
+    showFillOptions(undefined)
     const view = layout()!
-    if (hit.kind === 'corner') {
+    if (hit.kind === 'image') {
+      selectImage(hit.image)
+      if (model.editable.peek()) {
+        const area = imageBox(view, hit.image)
+        drag.current = {
+          kind: 'image',
+          image: hit.image,
+          corner: hit.corner,
+          origin: { x, y },
+          start: area,
+          current: area
+        }
+        scroller.current!.setPointerCapture(event.pointerId)
+      }
+      requestPaint()
+      return
+    }
+    selectImage(undefined)
+    if (hit.kind === 'fill') {
+      drag.current = { kind: 'fill', source: selectionRect(model.selection.peek()) }
+      scroller.current!.setPointerCapture(event.pointerId)
+    } else if (hit.kind === 'corner') {
       model.select({ anchor: { row: 0, col: 0 }, focus: { row: MAX_ROWS - 1, col: MAX_COLS - 1 } })
     } else if ((hit.kind === 'cols' || hit.kind === 'rows') && hit.resize !== undefined && editable) {
       const axis = hit.kind
@@ -806,19 +1181,45 @@ export function SpreadsheetCanvas({
     requestPaint()
   }
 
+  const cursorFor = (hit: Hit | undefined) => {
+    if (!hit) return 'default'
+    if (hit.kind === 'image') {
+      if (!editable) return 'pointer'
+      return hit.corner === 'nw' || hit.corner === 'se' ? 'nwse-resize' : hit.corner ? 'nesw-resize' : 'move'
+    }
+    if (hit.kind === 'fill') return 'crosshair'
+    if (editable && hit.kind === 'cols' && hit.resize !== undefined) return 'col-resize'
+    if (editable && hit.kind === 'rows' && hit.resize !== undefined) return 'row-resize'
+    if (hit.kind === 'cell') return model.painter.peek() ? 'copy' : 'cell'
+    return 'default'
+  }
+
+  /** The box a picture takes while a corner drags; the corner keeps the picture's proportions. */
+  const resized = (start: CellBox, corner: Corner, dx: number, dy: number): CellBox => {
+    const ratio = start.height / Math.max(start.width, 1)
+    const grow =
+      corner === 'se'
+        ? Math.max(dx, dy / ratio)
+        : corner === 'nw'
+          ? Math.max(-dx, -dy / ratio)
+          : corner === 'ne'
+            ? Math.max(dx, -dy / ratio)
+            : Math.max(-dx, dy / ratio)
+    const width = Math.max(MIN_IMAGE_SIZE, start.width + grow)
+    const height = Math.max(MIN_IMAGE_SIZE, width * ratio)
+    return {
+      x: corner === 'nw' || corner === 'sw' ? start.x + start.width - width : start.x,
+      y: corner === 'nw' || corner === 'ne' ? start.y + start.height - height : start.y,
+      width,
+      height
+    }
+  }
+
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const { x, y } = local(event)
     const current = drag.current
     if (!current) {
-      const hit = hitTest(x, y)
-      scroller.current!.style.cursor =
-        editable && hit?.kind === 'cols' && hit.resize !== undefined
-          ? 'col-resize'
-          : editable && hit?.kind === 'rows' && hit.resize !== undefined
-            ? 'row-resize'
-            : hit?.kind === 'cell'
-              ? 'cell'
-              : 'default'
+      scroller.current!.style.cursor = cursorFor(hitTest(x, y))
       return
     }
     if (current.kind === 'resize') {
@@ -826,9 +1227,28 @@ export function SpreadsheetCanvas({
       requestPaint()
       return
     }
+    if (current.kind === 'image') {
+      const dx = x - current.origin.x
+      const dy = y - current.origin.y
+      current.current = current.corner
+        ? resized(current.start, current.corner, dx, dy)
+        : { ...current.start, x: current.start.x + dx, y: current.start.y + dy }
+      requestPaint()
+      return
+    }
     const view = layout()
     if (!view) return
     const cell = clampCell({ row: view.rowAt(Math.max(y, HEADER_HEIGHT)), col: view.colAt(Math.max(x, HEADER_WIDTH)) })
+    if (current.kind === 'point') {
+      pointAt(cell, true)
+      requestPaint()
+      return
+    }
+    if (current.kind === 'fill') {
+      current.target = fillTarget(current.source, cell)
+      requestPaint()
+      return
+    }
     if (current.lines === 'rows') selectLines('rows', current.anchor.row, cell.row)
     else if (current.lines === 'cols') selectLines('cols', current.anchor.col, cell.col)
     else model.select({ anchor: current.anchor, focus: cell })
@@ -838,6 +1258,34 @@ export function SpreadsheetCanvas({
     const current = drag.current
     drag.current = undefined
     if (scroller.current?.hasPointerCapture(event.pointerId)) scroller.current.releasePointerCapture(event.pointerId)
+    if (current?.kind === 'select' && model.painter.peek()) {
+      void model.paintFormats(selectionRect(model.selection.peek()))
+      return
+    }
+    if (current?.kind === 'fill') {
+      if (current.target) {
+        const filled = { source: current.source, target: current.target }
+        model.select({
+          anchor: { row: filled.target.r0, col: filled.target.c0 },
+          focus: { row: filled.target.r1, col: filled.target.c1 }
+        })
+        void model.fill(filled.source, filled.target, 'series').then(applied => {
+          if (applied) showFillOptions(filled)
+        })
+      }
+      requestPaint()
+      return
+    }
+    if (current?.kind === 'image') {
+      const view = layout()
+      const moved =
+        current.current.x !== current.start.x ||
+        current.current.y !== current.start.y ||
+        current.current.width !== current.start.width
+      if (view && moved) void model.updateImage(current.image.image_id, anchorAt(view, current.current))
+      requestPaint()
+      return
+    }
     if (current?.kind !== 'resize') return
     const rect = selectionRect(model.selection.peek())
     const lines = selectedLines(rect, current.axis, model.selection.peek().anchor)
@@ -855,6 +1303,56 @@ export function SpreadsheetCanvas({
       })
     }
     requestPaint()
+  }
+
+  /**
+   * Double-clicking the fill handle fills down as far as the data next to the selection reaches,
+   * in the column on its left or else on its right.
+   */
+  const fillDown = async () => {
+    const rect = selectionRect(model.selection.peek())
+    const neighbours = [rect.c0 - 1, rect.c1 + 1].filter(col => col >= 0 && col < MAX_COLS)
+    for (const col of neighbours) {
+      const below = await model.viewport(model.activeSheetID.peek(), {
+        r0: rect.r1 + 1,
+        c0: col,
+        r1: rect.r1 + 1,
+        c1: col
+      })
+      if (!below?.cells.some(cell => cell.text !== '')) continue
+      const edge = await model.dataEdge({ row: rect.r1 + 1, col }, 'down')
+      const target = { ...rect, r1: edge.row }
+      model.select({ anchor: { row: rect.r0, col: rect.c0 }, focus: { row: target.r1, col: rect.c1 } })
+      const applied = await model.fill(rect, target, 'series')
+      if (applied) showFillOptions({ source: rect, target })
+      return
+    }
+    toast.info(t('pod.spreadsheet.fill_range_unknown'))
+  }
+
+  /** Re-fills the last fill in another mode; formats only first restores the values the fill replaced. */
+  const refill = async (mode: FillMode) => {
+    const last = filledRef.current
+    if (!last) return
+    if (mode === 'formats') await model.undo()
+    await model.fill(last.source, last.target, mode)
+  }
+
+  /** Shows a picture full size in a dialog. */
+  const openViewer = async (load: () => Promise<Uint8Array | undefined>, alt: string) => {
+    const bytes = await load()
+    if (!bytes) return
+    setViewing({ url: URL.createObjectURL(new Blob([bytes as BlobPart], { type: pictureType(bytes) })), alt })
+  }
+
+  /** A cell picture lifted out of its cell keeps its own size, up to 400 pixels. */
+  const liftPicture = async (cell: CellAddress) => {
+    const bytes = await model.cellPicture(model.activeSheetID.peek(), cell)
+    if (!bytes) return
+    const decoded = await createImageBitmap(new Blob([bytes as BlobPart], { type: pictureType(bytes) }))
+    const size = displaySize(decoded.width, decoded.height)
+    decoded.close()
+    await model.imageFromCell(cell, { cell: cellName(cell), dx: 0, dy: 0, ...size })
   }
 
   const startEditing = async (cell: CellAddress) => {
@@ -944,17 +1442,38 @@ export function SpreadsheetCanvas({
         moveTo({ row: from.row - page, col: from.col }, event.shiftKey)
         return true
       case 'Delete':
-      case 'Backspace':
-        if (model.editable.peek()) void model.clearContents()
+      case 'Backspace': {
+        const image = selectedImageRef.current
+        if (image && model.editable.peek()) {
+          selectImage(undefined)
+          void model.deleteImage(image.image_id)
+        } else if (model.editable.peek()) void model.clearContents()
         return true
+      }
       case 'F2':
         void startEditing(anchor)
         return true
       case 'Escape':
+        if (selectedImageRef.current) selectImage(undefined)
+        else model.clearCopied()
+        showFillOptions(undefined)
+        requestPaint()
         return true
     }
     if (!command) return false
     const key = event.key.toLowerCase()
+    if (model.editable.peek() && (key === 'd' || key === 'r')) {
+      void model.fillSelection(key === 'd' ? 'down' : 'right')
+      return true
+    }
+    if (model.editable.peek() && key === '\\') {
+      void model.clear('formats')
+      return true
+    }
+    if (model.editable.peek() && key === 'v' && event.altKey) {
+      void pasteFromClipboard(model, pageID, 'formats')
+      return true
+    }
     if (key === 'a') {
       model.select({ anchor: { row: 0, col: 0 }, focus: { row: MAX_ROWS - 1, col: MAX_COLS - 1 } })
       return true
@@ -970,6 +1489,7 @@ export function SpreadsheetCanvas({
     return false
   }
 
+  /** Inserts as many lines as the selection covers, before or after it, or deletes the selected lines. */
   const lineAction = (axis: 'rows' | 'cols', type: 'line.insert' | 'line.delete', after = false) => {
     const lines = selectedLines(selectionRect(model.selection.peek()), axis, model.selection.peek().anchor)
     void model.perform({
@@ -977,7 +1497,7 @@ export function SpreadsheetCanvas({
       sheet_id: model.activeSheetID.peek(),
       axis,
       at: type === 'line.insert' && after ? lines.end + 1 : lines.start,
-      count: type === 'line.insert' ? 1 : lines.end - lines.start + 1
+      count: lines.end - lines.start + 1
     })
   }
 
@@ -988,7 +1508,35 @@ export function SpreadsheetCanvas({
 
   useEffect(() => {
     requestPaint()
-  }, [sheet, version, selection, members, draft, editable])
+  }, [sheet, version, selection, members, draft, editable, copied, painter, selectedImage, filled])
+
+  // Any other change of the selection or the document ends the offer to fill differently.
+  useEffect(() => {
+    const last = filledRef.current
+    if (!last) return
+    const rect = selectionRect(selection)
+    if (
+      rect.r0 !== last.target.r0 ||
+      rect.c0 !== last.target.c0 ||
+      rect.r1 !== last.target.r1 ||
+      rect.c1 !== last.target.c1
+    ) {
+      showFillOptions(undefined)
+    }
+  }, [selection])
+
+  useEffect(() => {
+    selectImage(undefined)
+    showFillOptions(undefined)
+  }, [sheetID])
+
+  useEffect(
+    () => () => {
+      for (const decoded of bitmaps.current.values()) decoded?.close()
+      bitmaps.current.clear()
+    },
+    []
+  )
 
   useEffect(() => {
     const element = container.current
@@ -1007,46 +1555,42 @@ export function SpreadsheetCanvas({
     scroller.current?.scrollTo({ top: 0, left: 0 })
   }, [sheetID])
 
-  const rows = (
-    <>
-      <DropdownMenuItem onClick={() => lineAction('rows', 'line.insert')}>
-        {t('pod.spreadsheet.insert_row_above')}
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => lineAction('rows', 'line.insert', true)}>
-        {t('pod.spreadsheet.insert_row_below')}
-      </DropdownMenuItem>
-      <DropdownMenuItem variant="destructive" onClick={() => lineAction('rows', 'line.delete')}>
-        {t('pod.spreadsheet.delete_rows')}
-      </DropdownMenuItem>
-    </>
-  )
-  const cols = (
-    <>
-      <DropdownMenuItem onClick={() => lineAction('cols', 'line.insert')}>
-        {t('pod.spreadsheet.insert_column_left')}
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => lineAction('cols', 'line.insert', true)}>
-        {t('pod.spreadsheet.insert_column_right')}
-      </DropdownMenuItem>
-      <DropdownMenuItem variant="destructive" onClick={() => lineAction('cols', 'line.delete')}>
-        {t('pod.spreadsheet.delete_columns')}
-      </DropdownMenuItem>
-    </>
-  )
-  const lineItems = (axis: 'rows' | 'cols') => (
-    <>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem onClick={() => resizeAction(axis, 'hidden')}>
-        {axis === 'rows' ? t('pod.spreadsheet.hide_rows') : t('pod.spreadsheet.hide_columns')}
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => resizeAction(axis, 'unhide')}>
-        {axis === 'rows' ? t('pod.spreadsheet.unhide_rows') : t('pod.spreadsheet.unhide_columns')}
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => resizeAction(axis, 'auto')}>
-        {axis === 'rows' ? t('pod.spreadsheet.reset_row_height') : t('pod.spreadsheet.reset_column_width')}
-      </DropdownMenuItem>
-    </>
-  )
+  const activePicture = () => {
+    const anchor = model.selection.peek().anchor
+    return frame.current?.cells.get(cellKey(anchor.row, anchor.col))?.cell.picture ? anchor : undefined
+  }
+
+  /** The actions of the picture the context menu opened on: a floating one, or the active cell's. */
+  const pictureActions = () => {
+    const sheet = model.activeSheetID.peek()
+    if (menu === 'image' && selectedImage) {
+      const image = selectedImage
+      return {
+        convert: () => {
+          selectImage(undefined)
+          void model.imageToCell(image.image_id, anchorCell(image))
+        },
+        view: () => void openViewer(() => model.imageData(sheet, image.image_id), image.alt),
+        download: () =>
+          void model
+            .imageData(sheet, image.image_id)
+            .then(bytes => bytes && downloadPicture(bytes, image.alt || t('pod.spreadsheet.picture'))),
+        remove: () => {
+          selectImage(undefined)
+          void model.deleteImage(image.image_id)
+        }
+      }
+    }
+    const cell = menu === 'picture' ? activePicture() : undefined
+    if (!cell) return undefined
+    return {
+      convert: () => void liftPicture(cell),
+      view: () => void openViewer(() => model.cellPicture(sheet, cell), cellName(cell)),
+      download: () =>
+        void model.cellPicture(sheet, cell).then(bytes => bytes && downloadPicture(bytes, cellName(cell))),
+      remove: () => void model.setCellPicture(cell, null)
+    }
+  }
 
   return (
     <div ref={container} className="relative min-h-0 flex-1 overflow-hidden">
@@ -1064,12 +1608,36 @@ export function SpreadsheetCanvas({
           onDoubleClick={event => {
             const { x, y } = local(event)
             const hit = hitTest(x, y)
-            if (hit?.kind === 'cell') void startEditing(hit.cell)
+            if (hit?.kind === 'fill') void fillDown()
+            else if (hit?.kind === 'image') {
+              void openViewer(() => model.imageData(model.activeSheetID.peek(), hit.image.image_id), hit.image.alt)
+            } else if (hit?.kind === 'cell') void startEditing(hit.cell)
+          }}
+          onDragOver={event => {
+            if (editable && [...event.dataTransfer.items].some(item => item.type.startsWith('image/'))) {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'copy'
+            }
+          }}
+          onDrop={event => {
+            const file = [...event.dataTransfer.files].find(item => item.type.startsWith('image/'))
+            if (!file || !editable) return
+            event.preventDefault()
+            const { x, y } = local(event)
+            const hit = hitTest(x, y)
+            if (hit?.kind === 'cell') model.select(cellSelection(hit.cell))
+            void insertPicture(model, file, 'cell')
           }}
           onContextMenuCapture={event => {
             const { x, y } = local(event)
             const hit = hitTest(x, y)
             const rect = selectionRect(model.selection.peek())
+            if (hit?.kind === 'image') {
+              selectImage(hit.image)
+              setMenu('image')
+              return
+            }
+            selectImage(undefined)
             if (hit?.kind === 'rows') {
               if (hit.row < rect.r0 || hit.row > rect.r1 || rect.c1 !== MAX_COLS - 1) {
                 selectLines('rows', hit.row, hit.row)
@@ -1082,33 +1650,62 @@ export function SpreadsheetCanvas({
               setMenu('cols')
             } else {
               if (hit?.kind === 'cell' && !contains(rect, hit.cell)) model.select(cellSelection(hit.cell))
-              setMenu('cells')
+              setMenu(activePicture() ? 'picture' : 'cells')
             }
           }}>
           <div ref={spacer} aria-hidden />
         </ContextMenuTrigger>
-        <ContextMenuContent aria-label={t('pod.spreadsheet.cell_actions')}>
-          {menu === 'rows' ? (
-            <>
-              {rows}
-              {lineItems('rows')}
-            </>
-          ) : menu === 'cols' ? (
-            <>
-              {cols}
-              {lineItems('cols')}
-            </>
-          ) : (
-            <>
-              {rows}
-              <DropdownMenuSeparator />
-              {cols}
-            </>
-          )}
+        <ContextMenuContent aria-label={t('pod.spreadsheet.cell_actions')} className="min-w-52">
+          <SpreadsheetCellMenu
+            kind={menu}
+            model={model}
+            pageID={pageID}
+            onLines={lineAction}
+            onResize={resizeAction}
+            picture={pictureActions()}
+          />
         </ContextMenuContent>
       </ContextMenu>
       <canvas ref={canvas} aria-hidden className="pointer-events-none absolute top-0 left-0" />
-      <SpreadsheetCellEditor model={model} inputRef={input} navigate={navigate} />
+      <SpreadsheetCellEditor model={model} pageID={pageID} inputRef={input} navigate={navigate} />
+      <div ref={fillOptions} className="absolute z-10" style={{ display: 'none' }}>
+        {filled && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="outline"
+                  aria-label={t('pod.spreadsheet.fill_options')}
+                  title={t('pod.spreadsheet.fill_options')}
+                />
+              }>
+              <RiArrowDownSLine />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" aria-label={t('pod.spreadsheet.fill_options')}>
+              <DropdownMenuItem onClick={() => void refill('copy')}>{t('pod.spreadsheet.fill_copy')}</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void refill('series')}>
+                {t('pod.spreadsheet.fill_series')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void refill('formats')}>
+                {t('pod.spreadsheet.fill_formats')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+      <Dialog
+        open={Boolean(viewing)}
+        onOpenChange={open => {
+          if (open || !viewing) return
+          URL.revokeObjectURL(viewing.url)
+          setViewing(undefined)
+        }}>
+        <DialogContent className="max-w-[min(90vw,1200px)]">
+          <DialogTitle>{viewing?.alt || t('pod.spreadsheet.picture')}</DialogTitle>
+          {viewing && <img src={viewing.url} alt={viewing.alt} className="max-h-[75vh] w-full object-contain" />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -18,6 +18,25 @@
   download only, and `.xls`, `.xlsb`, `.ods`, `.csv`, and `.tsv` files keep
   their read-only previews. Operators can tune the editable file size and
   compaction with `pod.spreadsheet.limits`.
+- Spreadsheets gain the everyday editing tools of desktop spreadsheet apps.
+  Typing `=` suggests functions and shows their arguments, the **Formulas**
+  menu inserts a sum, average, count, maximum, or minimum of the numbers above
+  or picks from a searchable list of every function, clicking or dragging over
+  cells while typing a formula inserts their reference (other sheets included),
+  F4 switches a reference between relative and absolute, and the status bar
+  sums, averages, and counts the selection. The freeze menu freezes the first
+  row or column, or everything up to the selected row, column, or cell. The fill
+  handle continues numbers, dates, numbered text, and weekday or month names,
+  double-clicking it fills down beside the neighbouring data, and Ctrl+D and
+  Ctrl+R copy down and right. Copied cells keep their formulas and formats
+  between Ankole spreadsheets, cut and paste moves them, and paste special
+  pastes values, formulas, or formats only. The context menu inserts and
+  deletes rows, columns, or cells in a chosen direction and clears contents,
+  formats, or both, and the toolbar adds the format painter, strikethrough, and
+  clear formats. Pictures float over the cells or sit inside one; you can
+  insert, paste, or drop them, move and resize them, switch them between the two
+  kinds, view them full size, and download them, and they stay in the
+  downloaded `.xlsx`.
 
 ## Version 2.0.0-alpha.46 (2026-11-02)
 

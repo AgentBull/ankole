@@ -60,7 +60,35 @@ export type RenderCell = {
   kind: 'number' | 'text' | 'bool' | 'error'
   style: number
   color?: string
+  /** The fingerprint of the picture the cell holds, which the grid paints instead of text. */
+  picture?: string
 }
+/** A floating picture: its top-left corner `dx`, `dy` pixels into `cell`, and its size in pixels. */
+export type RenderImage = {
+  image_id: number
+  cell: string
+  dx: number
+  dy: number
+  width: number
+  height: number
+  mime: string
+  alt: string
+  digest: string
+}
+export type SelectionStats = {
+  count: number
+  numbers: number
+  sum: number
+  average: number | null
+  min: number | null
+  max: number | null
+}
+export type FunctionInfo = { name: string; category: string; signature: string; description: string }
+export type ClipboardCell = { input: string; value: string; text: string; format: Record<string, unknown> }
+/** A block that the kernel copied, with the cell it came from so a paste can move references. */
+export type ClipboardBlock = { origin: string; rows: ClipboardCell[][] }
+export type PasteMode = 'all' | 'values' | 'formulas' | 'formats'
+export type FillMode = 'series' | 'copy' | 'values' | 'formats'
 export type RenderLine = { index: number; size: number | null; hidden: boolean; style: number | null }
 export type Viewport = {
   cells: RenderCell[]
@@ -214,12 +242,32 @@ export function shiftCell(cell: CellAddress, op: SpreadsheetOp): CellAddress {
   return clampCell({ ...cell, [key]: moved })
 }
 
+/**
+ * The range that dragging the fill handle of `source` to `pointer` fills: the source extended along
+ * the axis the pointer left it by the most, or `undefined` while the pointer stays inside.
+ */
+export function fillTarget(source: Rect, pointer: CellAddress): Rect | undefined {
+  const below = pointer.row - source.r1
+  const above = source.r0 - pointer.row
+  const right = pointer.col - source.c1
+  const left = source.c0 - pointer.col
+  const vertical = Math.max(below, above)
+  const horizontal = Math.max(right, left)
+  if (vertical <= 0 && horizontal <= 0) return undefined
+  if (vertical >= horizontal) {
+    return below > 0 ? { ...source, r1: pointer.row } : { ...source, r0: pointer.row }
+  }
+  return right > 0 ? { ...source, c1: pointer.col } : { ...source, c0: pointer.col }
+}
+
 /** The cell or range an operation targets, and the text it typed, for messages to its author. */
 export function describeOp(op: SpreadsheetOp): { target: string; input?: string } {
   if (typeof op.cell === 'string') {
     return { target: op.cell, input: typeof op.input === 'string' ? op.input : undefined }
   }
   if (typeof op.range === 'string') return { target: op.range }
+  const anchor = op.anchor as { cell?: unknown } | undefined
+  if (typeof anchor?.cell === 'string') return { target: anchor.cell }
   if (op.type === 'line.insert' || op.type === 'line.delete') {
     const start = Number(op.at)
     const end = start + Number(op.count) - 1

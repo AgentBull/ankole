@@ -20,10 +20,15 @@ import {
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiAddLine, RiArrowDownSLine } from '@remixicon/react'
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import type { SheetInfo } from '../state/spreadsheet-grid'
 import type { SpreadsheetSession } from '../state/spreadsheet-collaboration'
+import { FORMULA_BAR_ATTRIBUTE, SHEET_TAB_ATTRIBUTE } from './spreadsheet-cell-editor'
+import { SpreadsheetStatusBar } from './spreadsheet-status-bar'
 import { ColorSwatches } from './spreadsheet-toolbar'
+
+/** The workspace marks its root, so a sheet tab finds the formula bar of its own editor. */
+export const WORKSPACE_ATTRIBUTE = 'data-spreadsheet-workspace'
 
 const TAB_COLORS = [
   '--color-red-60',
@@ -46,6 +51,7 @@ export function SpreadsheetSheetTabs({ model }: { model: SpreadsheetSession }) {
   const editable = model.editable.value
   const [renaming, setRenaming] = useState<{ id: number; name: string }>()
   const [deleting, setDeleting] = useState<SheetInfo>()
+  const caret = useRef<number | undefined>(undefined)
   const visible = sheets.filter(sheet => !sheet.hidden)
 
   const rename = (id: number, name: string) => {
@@ -134,7 +140,26 @@ export function SpreadsheetSheetTabs({ model }: { model: SpreadsheetSession }) {
             aria-pressed={active}
             className={cn('max-w-48 shrink-0 border-b-2', !active && 'border-b-transparent')}
             style={sheet.tab_color ? { borderBottomColor: sheet.tab_color } : undefined}
-            onClick={() => model.showSheet(sheet.sheet_id)}
+            {...{ [SHEET_TAB_ATTRIBUTE]: '' }}
+            onPointerDown={() => {
+              const focused = document.activeElement
+              caret.current =
+                focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement
+                  ? (focused.selectionStart ?? undefined)
+                  : undefined
+            }}
+            onClick={event => {
+              model.showSheet(sheet.sheet_id, caret.current)
+              // A formula still waiting for a reference continues in the formula bar on this sheet.
+              const editing = model.draft.peek()
+              if (!editing) return
+              const bar = event.currentTarget
+                .closest(`[${WORKSPACE_ATTRIBUTE}]`)
+                ?.querySelector<HTMLInputElement>(`[${FORMULA_BAR_ATTRIBUTE}]`)
+              const at = caret.current ?? editing.text.length
+              bar?.focus()
+              requestAnimationFrame(() => bar?.setSelectionRange(at, at))
+            }}
             onDoubleClick={() => editable && setRenaming({ id: sheet.sheet_id, name: sheet.name })}>
             <span className="truncate">{sheet.name}</span>
           </Button>
@@ -188,6 +213,7 @@ export function SpreadsheetSheetTabs({ model }: { model: SpreadsheetSession }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <SpreadsheetStatusBar model={model} />
     </nav>
   )
 }

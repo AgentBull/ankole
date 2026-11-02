@@ -20,7 +20,7 @@ import {
 import { describeOp, type SpreadsheetOp } from '../state/spreadsheet-grid'
 import { SpreadsheetCanvas } from './spreadsheet-canvas'
 import { createSpreadsheetEngine } from './spreadsheet-engine'
-import { SpreadsheetSheetTabs } from './spreadsheet-sheet-tabs'
+import { SpreadsheetSheetTabs, WORKSPACE_ATTRIBUTE } from './spreadsheet-sheet-tabs'
 import { SpreadsheetToolbar } from './spreadsheet-toolbar'
 
 const transport = createClientConfig({}).fetch!
@@ -73,6 +73,10 @@ function announce(notice: SpreadsheetNotice) {
       return
     }
     case 'rejected':
+      if (notice.reason === 'spreadsheet_full') {
+        toast.error(t('pod.spreadsheet.workbook_full'))
+        return
+      }
       toast.error(t('pod.spreadsheet.edit_rejected', { target: describeOp(notice.op).target }), {
         description: notice.message
       })
@@ -181,10 +185,11 @@ function SpreadsheetWorkspace({
         </Alert>
       )}
       <div
+        {...{ [WORKSPACE_ATTRIBUTE]: '' }}
         aria-busy={status === 'loading'}
         className="flex h-[min(78vh,880px)] min-h-[420px] flex-col overflow-hidden rounded-control border border-border bg-background">
         <SpreadsheetToolbar model={model} pageID={pageID} canEdit={canEdit} gridInput={gridInput} />
-        <SpreadsheetCanvas model={model} inputRef={gridInput} />
+        <SpreadsheetCanvas model={model} pageID={pageID} inputRef={gridInput} />
         <SpreadsheetSheetTabs model={model} />
       </div>
     </div>

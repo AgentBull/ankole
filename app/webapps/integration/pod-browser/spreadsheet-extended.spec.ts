@@ -267,9 +267,9 @@ test('sorting, freezing, hiding and resizing persist through their toolbar and h
     await cell(page, 0, 1)
     await active(page).toBe('B1：华北仓')
     await expect(page.getByRole('button', { name: '撤销', exact: true })).toBeDisabled()
-    await cell(page, 1, 1)
+    await cell(page, 0, 0)
     await page.getByRole('button', { name: '冻结窗格', exact: true }).click()
-    await page.getByRole('menuitem', { name: /冻结.*B2.*之前的行和列/ }).click()
+    await page.getByRole('menuitem', { name: /冻结至第.*1.*行.*A.*列/ }).click()
     await saved(page)
     const bounds = (await page.getByRole('grid').boundingBox())!
     await page.mouse.move(bounds.x + 112, bounds.y + 12)

@@ -1762,9 +1762,61 @@ handling comment and access events. The editor sends the selection with
 and paints each collaborator's selection and name in a color derived from the
 collaborator's uid.
 
-Undo and redo are personal. Before this tab sets a cell, pastes values, or
-clears contents, the editor reads the inputs that the affected cells hold, and
-undo writes them back with `range.set_values`. Formats, row and column
+The editor helps with formulas from the kernel's function list, which names
+every function GridCraft evaluates with its category, signature, and
+description; the catalogs translate the descriptions of the common functions.
+While a formula draft is open in the cell editor or the formula bar, typing a
+function name at an operand position lists matching functions, the common ones
+first, and the caret inside a call shows that function's signature with the
+current argument in bold. A press on a cell while the caret waits for an
+operand, after `=`, an opening parenthesis, a separator, or an operator, types
+that cell's reference, and dragging widens it to a range; on another sheet the
+reference names that sheet, and the draft stays open in the formula bar until
+Enter commits it on its own sheet. F4 cycles the reference at the caret through
+its relative and absolute forms, and the grid outlines every reference of the
+draft in its own colour. The **Formulas** menu and Alt+= insert a function over
+the run of numbers above the active cell, or else to its left, and open the
+editor on it; on a range they write one formula per column below it, or one
+after a single row. The status bar shows the sum, average, and count that the
+kernel computes for a selection of several cells.
+
+The freeze menu freezes the first row, the first column, or everything up to
+and including the active row, column, or cell, and a row or column header's
+context menu freezes up to that line; a heavier line marks the frozen panes.
+
+The fill handle at the selection's corner drags out a `range.fill` in series
+mode, and a button at the filled range then offers copying instead or formats
+only, which first undoes the fill's values. Double-clicking the handle fills
+down as far as the data in the column beside the selection reaches. Ctrl+D and
+Ctrl+R copy the first row or column of the selection over the rest, and
+Ctrl+Enter writes the draft into every selected cell, moving a formula's
+relative references with each. A copy writes the displayed text as
+tab-separated values and an HTML table whose `data-ankole-spreadsheet`
+attribute carries the kernel's copied block with its source page, sheet, and
+range. Pasting that block into an Ankole spreadsheet becomes one `range.paste`
+with formulas moved to the destination, a cut pasted in the same page becomes
+`range.move` so references to the cells follow, and pasting from another
+application writes the text of each HTML table cell or each tab-separated
+value. Paste special pastes values, formulas, or formats only; it reads the
+system clipboard when the browser allows and this tab's last copy otherwise.
+The context menu also inserts or deletes rows, columns, and cells in a chosen
+direction and clears contents, formats, or both, and the format painter
+repeats the formats of the selection it took over the next selection, or over
+every selection until Escape when double-clicked.
+
+Pictures enter from the toolbar or the context menu, from a pasted image, or
+from an image file dropped on a cell, which places it in that cell. The editor
+keeps a PNG or JPEG within 2 MiB and 4096 pixels as it is and redraws any other
+image as PNG or JPEG at most 2048 pixels on its longest edge until it fits. A
+floating picture inserts at the active cell at its own size up to 400 pixels;
+dragging moves it, its corner handles resize it with its proportions kept,
+Delete removes it, and its context menu places it in its cell, shows it full
+size, or downloads it. A cell picture is drawn inside its cell with its
+proportions kept, and its context menu lifts it out over the cells.
+
+Undo and redo are personal. Before this tab sets a cell, pastes, fills, clears
+contents, or puts a picture into a cell, the editor reads the inputs that the
+affected cells hold, and undo writes them back with `range.set_values`. Formats, row and column
 changes, and sheet operations are not undoable; the history clears whenever a
 row, column, cell-shift, move, sort, or sheet deletion commits, because earlier
 coordinates no longer name the same cells. A viewer without `node_edit` gets

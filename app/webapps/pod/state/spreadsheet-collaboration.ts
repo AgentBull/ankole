@@ -14,12 +14,19 @@ import {
   selectionRect,
   shiftCell,
   type CellAddress,
+  type ClipboardBlock,
+  type FillMode,
+  type FunctionInfo,
+  type PasteMode,
   type Rect,
+  type RenderImage,
   type Selection,
+  type SelectionStats,
   type SheetInfo,
   type SpreadsheetOp,
   type Viewport
 } from './spreadsheet-grid'
+import { acceptsReference, isFormula } from './spreadsheet-formula'
 
 export type SheetEntry = {
   revision: number
@@ -66,6 +73,13 @@ export type SpreadsheetEngine = {
   sheets(): Promise<SheetInfo[]>
   viewport(sheetID: number, rect: Rect): Promise<Viewport>
   cellInputs(sheetID: number, rect: Rect): Promise<string[][]>
+  selectionStats(sheetID: number, range: string): Promise<SelectionStats>
+  copyBlock(sheetID: number, range: string): Promise<ClipboardBlock>
+  pasteOp(block: ClipboardBlock, sheetID: number, cell: string, mode: PasteMode): Promise<SpreadsheetOp>
+  images(sheetID: number): Promise<RenderImage[]>
+  imageData(sheetID: number, imageID: number): Promise<Uint8Array>
+  cellPicture(sheetID: number, cell: string): Promise<Uint8Array>
+  functions(): Promise<FunctionInfo[]>
   dispose(): void
 }
 
@@ -76,7 +90,7 @@ export type SpreadsheetSource =
 /** What the page tells the author about edits the model could not keep. */
 export type SpreadsheetNotice =
   | { kind: 'conflict'; op: SpreadsheetOp; reason: string }
-  | { kind: 'rejected'; op: SpreadsheetOp; message: string }
+  | { kind: 'rejected'; op: SpreadsheetOp; message: string; reason?: string }
   | { kind: 'discarded'; count: number }
   | { kind: 'failed'; error: unknown }
   | { kind: 'revoked' }
@@ -95,7 +109,18 @@ export type SpreadsheetStatus = 'loading' | 'ready' | 'read_only' | 'too_large' 
 export type PresenceSelection = { sheet_id: number; range: string }
 export type SpreadsheetMember = { uid: string; name: string; color: string; selections: PresenceSelection[] }
 /** The text being typed into one cell, shared by the cell editor and the formula bar. */
-export type CellDraft = { sheetID: number; cell: CellAddress; text: string }
+/**
+ * The cell being edited and its text. `caret`, when set, asks the editors to put the caret there
+ * once; a formula draft may stay open on another sheet while its author points at cells there.
+ */
+export type CellDraft = { sheetID: number; cell: CellAddress; text: string; caret?: number }
+/** A picture as an operation carries it: base64 PNG or JPEG bytes. */
+export type PictureData = { mime: 'image/png' | 'image/jpeg'; data: string; alt?: string }
+export type ImageAnchor = { cell: string; dx: number; dy: number; width: number; height: number }
+/** The range this tab copied or cut, which the grid outlines until Escape or a paste of the cut. */
+export type CopiedRange = { sheetID: number; rect: Rect; cut?: string }
+/** The format painter holds the formats of a copied block until it paints them once, or until Escape. */
+export type FormatPainter = { block: ClipboardBlock; sticky: boolean }
 export type Direction = 'up' | 'down' | 'left' | 'right'
 
 type UndoRecord = { forward: SpreadsheetOp; inverse: SpreadsheetOp }
@@ -157,6 +182,8 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   const draft = signal<CellDraft | null>(null)
   const canUndo = signal(false)
   const canRedo = signal(false)
+  const copied = signal<CopiedRange | null>(null)
+  const painter = signal<FormatPainter | null>(null)
   const activeSheet = computed(() => sheets.value.find(sheet => sheet.sheet_id === activeSheetID.value))
   const editable = computed(() => status.value === 'ready')
 
@@ -178,6 +205,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   let presenceTimer: ReturnType<typeof setTimeout> | undefined
   let presenceSentAt = Number.NEGATIVE_INFINITY
   let presenceNext: PresenceSelection | null = null
+  let functionList: Promise<FunctionInfo[]> | undefined
 
   /** Engine work and state transitions run one at a time, in the order they were requested. */
   const serial = <T>(task: () => Promise<T>): Promise<T> => {
@@ -438,8 +466,8 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       await serial(() => drop(sent, details.changes, { kind: 'conflict', op: sent.op, reason: details.reason }))
       return SEND_DELAY_MS
     }
-    if (reason === 'invalid_operation' || reason === 'invalid_request') {
-      await serial(() => drop(sent, [], { kind: 'rejected', op: sent.op, message: failureMessage(failure) }))
+    if (reason === 'invalid_operation' || reason === 'invalid_request' || reason === 'spreadsheet_full') {
+      await serial(() => drop(sent, [], { kind: 'rejected', op: sent.op, message: failureMessage(failure), reason }))
       return SEND_DELAY_MS
     }
     if (reason && RELOAD_REASONS.has(reason)) {
@@ -537,11 +565,41 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     if (loaded()) announce({ sheet_id: activeSheetID.peek(), range: rangeName(selectionRect(selection.peek())) })
   }
 
-  const setCell = (cell: CellAddress, input: string) => {
-    const sheetID = activeSheetID.peek()
+  const setCell = (cell: CellAddress, input: string, sheetID = activeSheetID.peek()) => {
     const rect = { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col }
     return valueEdit({ type: 'cell.set', sheet_id: sheetID, cell: cellName(cell), input }, sheetID, rect)
   }
+
+  /** Applies an operation that personal undo does not cover. */
+  const perform = (op: SpreadsheetOp) => editSerial(() => applyEdit(op))
+
+  const fill = (source: Rect, to: Rect, mode: FillMode = 'series') => {
+    const sheetID = activeSheetID.peek()
+    const op = { type: 'range.fill', sheet_id: sheetID, range: rangeName(source), to: rangeName(to), mode }
+    return mode === 'formats' ? perform(op) : valueEdit(op, sheetID, to)
+  }
+
+  /** The run of numbers that ends next to `cell`, above it or to its left, as AutoSum picks it. */
+  const numberRun = async (sheetID: number, cell: CellAddress, direction: 'up' | 'left') => {
+    const up = direction === 'up'
+    const end = up ? cell.row - 1 : cell.col - 1
+    if (end < 0 || !engine) return undefined
+    const start = Math.max(0, end - 999)
+    const strip = up
+      ? { r0: start, c0: cell.col, r1: end, c1: cell.col }
+      : { r0: cell.row, c0: start, r1: cell.row, c1: end }
+    const view = await engine.viewport(sheetID, strip)
+    const numbers = new Set(
+      view.cells.filter(found => found.kind === 'number').map(found => (up ? found.row : found.col))
+    )
+    if (!numbers.has(end)) return undefined
+    let first = end
+    while (first > start && numbers.has(first - 1)) first--
+    return up ? { r0: first, c0: cell.col, r1: end, c1: cell.col } : { r0: cell.row, c0: first, r1: cell.row, c1: end }
+  }
+
+  /** A new floating picture's id: random and high, so two editors never pick the same one in practice. */
+  const newImageID = () => 0x0100_0000 + (crypto.getRandomValues(new Uint32Array(1))[0]! % 0x7e00_0000)
 
   const sendPresence = () => {
     presenceTimer = undefined
@@ -661,11 +719,18 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       return engine && loaded() ? engine.cellInputs(sheetID, rect) : Promise.resolve(undefined)
     },
     select,
-    showSheet(sheetID: number) {
+    /**
+     * Shows another sheet. A formula draft whose caret waits for a reference stays open, so its
+     * author can point at cells of that sheet.
+     */
+    showSheet(sheetID: number, caret?: number) {
+      const editing = draft.peek()
+      const pointing =
+        editing && isFormula(editing.text) && acceptsReference(editing.text, caret ?? editing.text.length)
       batch(() => {
         activeSheetID.value = sheetID
         selection.value = cellSelection({ row: 0, col: 0 })
-        draft.value = null
+        if (!pointing) draft.value = null
       })
       if (loaded()) announce({ sheet_id: sheetID, range: 'A1' })
     },
@@ -676,14 +741,203 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     focus() {
       if (loaded()) announce({ sheet_id: activeSheetID.peek(), range: rangeName(selectionRect(selection.peek())) })
     },
+    copied,
+    painter,
     /**
      * Applies an operation that personal undo does not cover: formats, lines, sheets, and notes.
      * Resolves to the operation as committed locally, with assigned sheet ids filled in.
      */
-    perform(op: SpreadsheetOp) {
-      return editSerial(() => applyEdit(op))
-    },
+    perform,
     setCell,
+    /** Every function a formula can call, read once from the kernel. */
+    functions(): Promise<FunctionInfo[]> {
+      if (!engine) return Promise.resolve([])
+      functionList ??= engine.functions().catch(failure => {
+        functionList = undefined
+        throw failure
+      })
+      return functionList
+    },
+    /** The count, sum, and average of a rectangle, as the status bar shows them. */
+    stats(sheetID: number, rect: Rect): Promise<SelectionStats | undefined> {
+      return engine && loaded() ? engine.selectionStats(sheetID, rangeName(rect)) : Promise.resolve(undefined)
+    },
+    images(sheetID: number): Promise<RenderImage[] | undefined> {
+      return engine && loaded() ? engine.images(sheetID) : Promise.resolve(undefined)
+    },
+    imageData(sheetID: number, imageID: number): Promise<Uint8Array | undefined> {
+      return engine && loaded() ? engine.imageData(sheetID, imageID) : Promise.resolve(undefined)
+    },
+    cellPicture(sheetID: number, cell: CellAddress): Promise<Uint8Array | undefined> {
+      return engine && loaded() ? engine.cellPicture(sheetID, cellName(cell)) : Promise.resolve(undefined)
+    },
+    /**
+     * Copies the selection for the clipboard and outlines it. A cut gets a token that a later paste
+     * of the same block turns into a move.
+     */
+    async copy(
+      cut: boolean
+    ): Promise<{ block: ClipboardBlock; sheetID: number; rect: Rect; cut?: string } | undefined> {
+      const { sheetID, rect } = target()
+      if (!engine || !loaded()) return undefined
+      const block = await engine.copyBlock(sheetID, rangeName(rect))
+      const token = cut ? uuidV4() : undefined
+      copied.value = { sheetID, rect, cut: token }
+      return { block, sheetID, rect, cut: token }
+    },
+    clearCopied() {
+      copied.value = null
+      painter.value = null
+    },
+    /**
+     * Pastes a copied block at the top-left of the selection. When it is the block this tab cut,
+     * the paste moves the cells instead, so references to them follow.
+     */
+    async paste(block: ClipboardBlock, mode: PasteMode, cut?: string) {
+      const { sheetID, rect } = target()
+      const at = { row: rect.r0, col: rect.c0 }
+      const source = copied.peek()
+      if (cut && source?.cut === cut && mode === 'all') {
+        copied.value = null
+        return perform({
+          type: 'range.move',
+          sheet_id: source.sheetID,
+          from: rangeName(source.rect),
+          to_sheet_id: sheetID,
+          to_cell: cellName(at)
+        })
+      }
+      if (!engine || status.peek() !== 'ready') return undefined
+      let op: SpreadsheetOp
+      try {
+        op = await engine.pasteOp(block, sheetID, cellName(at), mode)
+      } catch (failure) {
+        options.notify({ kind: 'failed', error: failure })
+        return undefined
+      }
+      const pasted = parseRange(String(op.range))
+      const applied = mode === 'formats' ? perform(op) : valueEdit(op, sheetID, pasted)
+      if (pasted) select({ anchor: at, focus: { row: pasted.r1, col: pasted.c1 } })
+      return applied
+    },
+    /** Takes the selection's formats for the format painter; a sticky painter keeps them for several targets. */
+    async pickFormats(sticky: boolean) {
+      const { sheetID, rect } = target()
+      if (!engine || status.peek() !== 'ready') return
+      painter.value = { block: await engine.copyBlock(sheetID, rangeName(rect)), sticky }
+    },
+    /** Paints the held formats over `rect`, repeating the block to cover it. */
+    async paintFormats(rect: Rect) {
+      const held = painter.peek()
+      if (!held || !engine || status.peek() !== 'ready') return undefined
+      if (!held.sticky) painter.value = null
+      const height = held.block.rows.length
+      const width = held.block.rows[0]?.length ?? 0
+      if (!height || !width) return undefined
+      const single = rect.r0 === rect.r1 && rect.c0 === rect.c1
+      const rows = single ? height : rect.r1 - rect.r0 + 1
+      const cols = single ? width : rect.c1 - rect.c0 + 1
+      const block = {
+        origin: held.block.origin,
+        rows: Array.from({ length: rows }, (_, row) =>
+          Array.from({ length: cols }, (_, col) => held.block.rows[row % height]![col % width]!)
+        )
+      }
+      const sheetID = activeSheetID.peek()
+      const op = await engine.pasteOp(block, sheetID, cellName({ row: rect.r0, col: rect.c0 }), 'formats')
+      return perform(op)
+    },
+    fill,
+    /** Ctrl+D and Ctrl+R: copies the first row or column of the selection over the rest, or the line before a single one. */
+    fillSelection(direction: 'down' | 'right') {
+      const { rect } = target()
+      const down = direction === 'down'
+      const lines = down ? rect.r1 - rect.r0 : rect.c1 - rect.c0
+      if (lines === 0 && (down ? rect.r0 : rect.c0) === 0) return Promise.resolve(undefined)
+      const to = lines === 0 ? (down ? { ...rect, r0: rect.r0 - 1 } : { ...rect, c0: rect.c0 - 1 }) : rect
+      const source = down ? { ...to, r1: to.r0 } : { ...to, c1: to.c0 }
+      return fill(source, to, 'copy')
+    },
+    /** Clears formats, or contents and formats, of the selection. */
+    clear(mode: 'formats' | 'all') {
+      const { sheetID, rect } = target()
+      const op = { type: 'range.clear', sheet_id: sheetID, range: rangeName(rect), mode }
+      return mode === 'formats' ? perform(op) : valueEdit(op, sheetID, rect)
+    },
+    /**
+     * AutoSum and its siblings. On one cell the editor opens with the function over the run of
+     * numbers above (or else to the left); on a range it writes one formula per column below it,
+     * or after a single row.
+     */
+    async autoSum(fn: string) {
+      const { sheetID, rect } = target()
+      if (!engine || status.peek() !== 'ready') return undefined
+      const single = rect.r0 === rect.r1 && rect.c0 === rect.c1
+      if (!single) {
+        if (rect.r0 === rect.r1) {
+          const at = { row: rect.r0, col: rect.c1 + 1 }
+          return setCell(at, `=${fn}(${rangeName(rect)})`)
+        }
+        const row = rect.r1 + 1
+        if (row >= MAX_ROWS) return undefined
+        const values = [
+          Array.from({ length: rect.c1 - rect.c0 + 1 }, (_, index) => {
+            const col = rect.c0 + index
+            return `=${fn}(${rangeName({ r0: rect.r0, c0: col, r1: rect.r1, c1: col })})`
+          })
+        ]
+        return valueEdit(
+          {
+            type: 'range.set_values',
+            sheet_id: sheetID,
+            range: rangeName({ r0: row, c0: rect.c0, r1: row, c1: rect.c1 }),
+            values
+          },
+          sheetID,
+          { r0: row, c0: rect.c0, r1: row, c1: rect.c1 }
+        )
+      }
+      const cell = { row: rect.r0, col: rect.c0 }
+      const run = (await numberRun(sheetID, cell, 'up')) ?? (await numberRun(sheetID, cell, 'left'))
+      const argument = run ? rangeName(run) : ''
+      const text = `=${fn}(${argument})`
+      draft.value = { sheetID, cell, text, caret: text.length - (run ? 0 : 1) }
+      return undefined
+    },
+    /** Inserts a floating picture at `anchor`; the editor names it so later edits can address it. */
+    insertImage(anchor: ImageAnchor, picture: PictureData) {
+      return perform({
+        type: 'image.insert',
+        sheet_id: activeSheetID.peek(),
+        image_id: newImageID(),
+        anchor,
+        picture
+      })
+    },
+    updateImage(imageID: number, anchor: ImageAnchor) {
+      return perform({ type: 'image.update', sheet_id: activeSheetID.peek(), image_id: imageID, anchor })
+    },
+    deleteImage(imageID: number) {
+      return perform({ type: 'image.delete', sheet_id: activeSheetID.peek(), image_id: imageID })
+    },
+    /** Puts a picture into a cell; undo writes the cell's earlier input back, which removes the picture. */
+    setCellPicture(cell: CellAddress, picture: PictureData | null) {
+      const sheetID = activeSheetID.peek()
+      const op = { type: 'cell.picture', sheet_id: sheetID, cell: cellName(cell), picture }
+      return picture ? valueEdit(op, sheetID, { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col }) : perform(op)
+    },
+    imageToCell(imageID: number, cell: CellAddress) {
+      return perform({ type: 'image.to_cell', sheet_id: activeSheetID.peek(), image_id: imageID, cell: cellName(cell) })
+    },
+    imageFromCell(cell: CellAddress, anchor: ImageAnchor) {
+      return perform({
+        type: 'image.from_cell',
+        sheet_id: activeSheetID.peek(),
+        cell: cellName(cell),
+        image_id: newImageID(),
+        anchor
+      })
+    },
     /** Pastes a block of typed values with its top-left corner on `anchor`; empty strings clear cells. */
     setValues(anchor: CellAddress, values: string[][]) {
       const width = Math.max(...values.map(row => row.length))
@@ -763,12 +1017,12 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       return filled.has(line) ? at(line) : at(step > 0 ? end : 0)
     },
     /** Opens the cell editor on `cell` with `text`; the formula bar shows the same draft. */
-    edit(cell: CellAddress, text: string) {
-      draft.value = { sheetID: activeSheetID.peek(), cell, text }
+    edit(cell: CellAddress, text: string, caret?: number) {
+      draft.value = { sheetID: activeSheetID.peek(), cell, text, caret }
     },
-    type(text: string) {
+    type(text: string, caret?: number) {
       const current = draft.peek()
-      if (current) draft.value = { ...current, text }
+      if (current) draft.value = { ...current, text, caret }
     },
     cancelEdit() {
       draft.value = null
@@ -780,12 +1034,38 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     commitEdit(move?: Direction) {
       const current = draft.peek()
       if (!current) return Promise.resolve(undefined)
-      draft.value = null
+      batch(() => {
+        draft.value = null
+        // A formula that pointed at another sheet commits on its own sheet, which shows again.
+        if (current.sheetID !== activeSheetID.peek()) {
+          activeSheetID.value = current.sheetID
+          selection.value = cellSelection(current.cell)
+        }
+      })
       if (move) {
         const [rows, cols] = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[move]
         select(cellSelection(clampCell({ row: current.cell.row + rows!, col: current.cell.col + cols! })))
       }
-      return current.sheetID === activeSheetID.peek() ? setCell(current.cell, current.text) : Promise.resolve(undefined)
+      if (!sheets.peek().some(sheet => sheet.sheet_id === current.sheetID)) return Promise.resolve(undefined)
+      return setCell(current.cell, current.text, current.sheetID)
+    },
+    /**
+     * Ctrl+Enter: commits the draft into every selected cell. A formula is written into the
+     * selection's first cell and filled over the rest, so relative references follow each cell.
+     */
+    async commitToSelection() {
+      const current = draft.peek()
+      const { rect } = target()
+      if (!current) return undefined
+      const single = rect.r0 === rect.r1 && rect.c0 === rect.c1
+      const corner = { row: rect.r0, col: rect.c0 }
+      if (single || current.sheetID !== activeSheetID.peek()) return this.commitEdit()
+      draft.value = null
+      await setCell(corner, current.text)
+      const column = { ...rect, c1: rect.c0 }
+      if (rect.r1 > rect.r0) await fill({ ...column, r1: rect.r0 }, column, 'copy')
+      if (rect.c1 > rect.c0) await fill(column, rect, 'copy')
+      return undefined
     }
   }
 })

@@ -54,6 +54,13 @@ export function createSpreadsheetEngine(): SpreadsheetEngine {
     sheets: () => call('sheets', []),
     viewport: (sheetID, rect) => call('viewport', [sheetID, rect]),
     cellInputs: (sheetID, rect) => call('cellInputs', [sheetID, rect]),
+    selectionStats: (sheetID, range) => call('selectionStats', [sheetID, range]),
+    copyBlock: (sheetID, range) => call('copyBlock', [sheetID, range]),
+    pasteOp: (block, sheetID, cell, mode) => call('pasteOp', [block, sheetID, cell, mode]),
+    images: sheetID => call('images', [sheetID]),
+    imageData: (sheetID, imageID) => call('imageData', [sheetID, imageID]),
+    cellPicture: (sheetID, cell) => call('cellPicture', [sheetID, cell]),
+    functions: () => call('functions', []),
     dispose() {
       worker.terminate()
       if (bootstrapURL) URL.revokeObjectURL(bootstrapURL)

@@ -1,7 +1,18 @@
-import init, { Spreadsheet } from '@ankole/kernel/spreadsheet-wasm'
+import init, { functions as listFunctions, paste_op, Spreadsheet } from '@ankole/kernel/spreadsheet-wasm'
 import wasmURL from '@ankole/kernel/spreadsheet-wasm/ankole_spreadsheet_wasm_bg.wasm?url'
 import type { Rebased } from '../state/spreadsheet-collaboration'
-import { cellName, type Rect, type SheetInfo, type SpreadsheetOp, type Viewport } from '../state/spreadsheet-grid'
+import {
+  cellName,
+  type ClipboardBlock,
+  type FunctionInfo,
+  type PasteMode,
+  type Rect,
+  type RenderImage,
+  type SelectionStats,
+  type SheetInfo,
+  type SpreadsheetOp,
+  type Viewport
+} from '../state/spreadsheet-grid'
 
 /**
  * The spreadsheet kernel in a Web Worker. `confirmed` is the document the server committed;
@@ -68,6 +79,27 @@ const methods = {
   },
   viewport(sheetID: number, rect: Rect): Viewport {
     return JSON.parse(opened(local).viewport(sheetID, rect.r0, rect.c0, rect.r1, rect.c1))
+  },
+  selectionStats(sheetID: number, range: string): SelectionStats {
+    return JSON.parse(opened(local).selection_stats(sheetID, range))
+  },
+  copyBlock(sheetID: number, range: string): ClipboardBlock {
+    return JSON.parse(opened(local).copy_block(sheetID, range))
+  },
+  pasteOp(block: ClipboardBlock, sheetID: number, cell: string, mode: PasteMode): SpreadsheetOp {
+    return JSON.parse(paste_op(JSON.stringify(block), sheetID, cell, mode))
+  },
+  images(sheetID: number): RenderImage[] {
+    return JSON.parse(opened(local).images(sheetID))
+  },
+  imageData(sheetID: number, imageID: number): Uint8Array {
+    return opened(local).image_data(sheetID, imageID)
+  },
+  cellPicture(sheetID: number, cell: string): Uint8Array {
+    return opened(local).cell_picture(sheetID, cell)
+  },
+  functions(): FunctionInfo[] {
+    return JSON.parse(listFunctions())
   },
   cellInputs(sheetID: number, rect: Rect): string[][] {
     const document = opened(local)

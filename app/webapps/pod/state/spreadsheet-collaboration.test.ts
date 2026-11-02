@@ -9,7 +9,7 @@ import {
   type SpreadsheetNotice,
   type SpreadsheetSession
 } from './spreadsheet-collaboration'
-import type { Rect, SheetInfo, SpreadsheetOp } from './spreadsheet-grid'
+import type { Rect, SheetInfo, SpreadsheetOp, Viewport } from './spreadsheet-grid'
 
 const SHEET: SheetInfo = {
   sheet_id: 1,
@@ -29,7 +29,11 @@ type Reply = (event: string, payload: any) => Promise<unknown>
 
 /** A worker stand-in that records calls; tests choose what rebasing and cell inputs return. */
 function fakeEngine(
-  behaviour: { inputs?: (rect: Rect) => string[][]; rebase?: (pending: SpreadsheetOp[]) => Rebased[] } = {}
+  behaviour: {
+    inputs?: (rect: Rect) => string[][]
+    rebase?: (pending: SpreadsheetOp[]) => Rebased[]
+    viewport?: (rect: Rect) => Viewport
+  } = {}
 ) {
   const calls: Call[] = []
   const record = (method: string, ...args: unknown[]) => calls.push({ method, args })
@@ -46,10 +50,24 @@ function fakeEngine(
     },
     promote: async () => void record('promote'),
     sheets: async () => [SHEET],
-    viewport: async () => ({ cells: [], styles: [], merges: [], spills: [], rows: [], cols: [] }),
+    viewport: async (_sheetID, rect) =>
+      behaviour.viewport?.(rect) ?? { cells: [], styles: [], merges: [], spills: [], rows: [], cols: [] },
     cellInputs: async (_sheetID, rect) =>
       behaviour.inputs?.(rect) ??
       Array.from({ length: rect.r1 - rect.r0 + 1 }, () => Array.from({ length: rect.c1 - rect.c0 + 1 }, () => '')),
+    selectionStats: async () => ({ count: 0, numbers: 0, sum: 0, average: null, min: null, max: null }),
+    copyBlock: async (_sheetID, range) => {
+      record('copyBlock', range)
+      return { origin: range.split(':')[0]!, rows: [[{ input: '=A1', value: '1', text: '1', format: {} }]] }
+    },
+    pasteOp: async (block, sheetID, cell, mode) => {
+      record('pasteOp', block, cell, mode)
+      return { type: 'range.paste', sheet_id: sheetID, range: cell, cells: [[{ input: '=B2' }]] }
+    },
+    images: async () => [],
+    imageData: async () => new Uint8Array(),
+    cellPicture: async () => new Uint8Array(),
+    functions: async () => [{ name: 'SUM', category: 'math_trig', signature: 'SUM(number1, ...)', description: '' }],
     dispose: () => void record('dispose')
   }
   return { engine, calls, called: (method: string) => calls.filter(call => call.method === method) }
@@ -527,4 +545,121 @@ test('a viewer without node_edit reads the workbook but cannot queue edits', asy
   expect(model.status.value).toBe('read_only')
   expect(await model.setCell({ row: 0, col: 0 }, 'x')).toBeUndefined()
   expect(called('applyLocal')).toHaveLength(0)
+})
+
+test('AutoSum opens a draft over the numbers above, or writes one formula per column below a range', async () => {
+  const numbers = (rect: Rect): Viewport => ({
+    cells: [2, 3, 4]
+      .filter(row => row >= rect.r0 && row <= rect.r1 && rect.c0 === 1)
+      .map(row => ({ row, col: 1, text: String(row), kind: 'number', style: 0 })),
+    styles: [],
+    merges: [],
+    spills: [],
+    rows: [],
+    cols: []
+  })
+  const { engine, called } = fakeEngine({ viewport: numbers })
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model } = await started(socket, engine)
+  model.select({ anchor: { row: 5, col: 1 }, focus: { row: 5, col: 1 } })
+  await model.autoSum('SUM')
+  expect(model.draft.value).toEqual({ sheetID: 1, cell: { row: 5, col: 1 }, text: '=SUM(B3:B5)', caret: 11 })
+  model.cancelEdit()
+  model.select({ anchor: { row: 0, col: 4 }, focus: { row: 0, col: 4 } })
+  await model.autoSum('AVERAGE')
+  expect(model.draft.value).toMatchObject({ text: '=AVERAGE()', caret: 9 })
+  model.cancelEdit()
+  model.select({ anchor: { row: 2, col: 1 }, focus: { row: 4, col: 2 } })
+  await model.autoSum('MAX')
+  expect(called('applyLocal').at(-1)!.args[0]).toEqual({
+    type: 'range.set_values',
+    sheet_id: 1,
+    range: 'B6:C6',
+    values: [['=MAX(B3:B5)', '=MAX(C3:C5)']]
+  })
+})
+
+test('fills, pastes, and Ctrl+Enter are undoable value edits, and pasting a cut block moves it', async () => {
+  const { engine, called } = fakeEngine({ inputs: rect => [[`was ${rect.r0}`]] })
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model } = await started(socket, engine)
+  await model.fill({ r0: 0, c0: 0, r1: 1, c1: 0 }, { r0: 0, c0: 0, r1: 5, c1: 0 })
+  expect(called('applyLocal').at(-1)!.args[0]).toEqual({
+    type: 'range.fill',
+    sheet_id: 1,
+    range: 'A1:A2',
+    to: 'A1:A6',
+    mode: 'series'
+  })
+  expect(model.canUndo.value).toBe(true)
+
+  model.select({ anchor: { row: 1, col: 1 }, focus: { row: 1, col: 1 } })
+  const copied = await model.copy(true)
+  expect(model.copied.value).toEqual({ sheetID: 1, rect: { r0: 1, c0: 1, r1: 1, c1: 1 }, cut: copied!.cut })
+  model.select({ anchor: { row: 3, col: 3 }, focus: { row: 3, col: 3 } })
+  await model.paste(copied!.block, 'values')
+  expect(called('pasteOp').at(-1)!.args.slice(1)).toEqual(['D4', 'values'])
+  expect(called('applyLocal').at(-1)!.args[0]).toMatchObject({ type: 'range.paste', range: 'D4' })
+  await model.paste(copied!.block, 'all', copied!.cut)
+  expect(called('applyLocal').at(-1)!.args[0]).toEqual({
+    type: 'range.move',
+    sheet_id: 1,
+    from: 'B2',
+    to_sheet_id: 1,
+    to_cell: 'D4'
+  })
+  expect(model.copied.value).toBeNull()
+
+  model.select({ anchor: { row: 0, col: 2 }, focus: { row: 2, col: 3 } })
+  model.edit({ row: 0, col: 2 }, '=A1*2')
+  await model.commitToSelection()
+  expect(
+    called('applyLocal')
+      .slice(-3)
+      .map(call => call.args[0])
+  ).toEqual([
+    { type: 'cell.set', sheet_id: 1, cell: 'C1', input: '=A1*2' },
+    { type: 'range.fill', sheet_id: 1, range: 'C1', to: 'C1:C3', mode: 'copy' },
+    { type: 'range.fill', sheet_id: 1, range: 'C1:C3', to: 'C1:D3', mode: 'copy' }
+  ])
+})
+
+test('the format painter repeats the held formats over the target and lets go unless it is sticky', async () => {
+  const { engine, called } = fakeEngine()
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model } = await started(socket, engine)
+  model.select({ anchor: { row: 0, col: 0 }, focus: { row: 0, col: 0 } })
+  await model.pickFormats(false)
+  await model.paintFormats({ r0: 4, c0: 1, r1: 5, c1: 3 })
+  const [block, cell, mode] = called('pasteOp').at(-1)!.args as [{ rows: unknown[][] }, string, string]
+  expect([block.rows.length, block.rows[0]!.length, cell, mode]).toEqual([2, 3, 'B5', 'formats'])
+  expect(model.painter.value).toBeNull()
+  await model.pickFormats(true)
+  await model.paintFormats({ r0: 0, c0: 0, r1: 0, c1: 0 })
+  expect(model.painter.value?.sticky).toBe(true)
+  model.clearCopied()
+  expect(model.painter.value).toBeNull()
+})
+
+test('a formula draft stays open on another sheet while it waits for a reference and commits on its own sheet', async () => {
+  const { engine, called } = fakeEngine()
+  engine.sheets = async () => [SHEET, { ...SHEET, sheet_id: 2, name: '汇率' }]
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model } = await started(socket, engine)
+  model.edit({ row: 0, col: 0 }, '=SUM(')
+  model.showSheet(2)
+  expect(model.draft.value?.sheetID).toBe(1)
+  model.type('=SUM(汇率!B2')
+  await model.commitEdit('down')
+  expect(model.activeSheetID.value).toBe(1)
+  expect(model.selection.value.anchor).toEqual({ row: 1, col: 0 })
+  expect(called('applyLocal').at(-1)!.args[0]).toEqual({
+    type: 'cell.set',
+    sheet_id: 1,
+    cell: 'A1',
+    input: '=SUM(汇率!B2'
+  })
+  model.edit({ row: 0, col: 0 }, '=A1')
+  model.showSheet(2)
+  expect(model.draft.value).toBeNull()
 })
