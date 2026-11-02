@@ -307,9 +307,13 @@ defmodule AnkoleWeb.PodPageChannel do
               changes: []
             })
 
-        with {:ok, result} <-
-               Spreadsheets.since(socket.assigns.actor, page.id, socket.assigns.revision),
-             do: {:ok, "sheet:changes", result, socket}
+        # A replacement that commits between the page read and the log read
+        # ends spreadsheet editing, so the channel reads the page again.
+        case Spreadsheets.since(socket.assigns.actor, page.id, socket.assigns.revision) do
+          {:ok, result} -> {:ok, "sheet:changes", result, socket}
+          {:error, :invalid_page_type} -> latest(socket)
+          error -> error
+        end
       else
         {:ok, "changes", %{revision: page.revision, object_id: page.object_id, changes: []},
          socket}
