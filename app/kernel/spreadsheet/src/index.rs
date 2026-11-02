@@ -10,6 +10,7 @@ use gridcraft_model::{Visibility, Workbook};
 use serde::Serialize;
 
 use crate::doc::SpreadsheetDoc;
+use crate::ids::SheetId;
 
 /// Longest search text kept for one workbook, in bytes. Large numeric tables would otherwise grow
 /// the search index without adding useful terms.
@@ -93,7 +94,7 @@ pub struct Metadata {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SheetSummary {
     /// The sheet's stable id.
-    pub sheet_id: u32,
+    pub sheet_id: SheetId,
     /// The tab's name.
     pub name: String,
     /// Rows up to the last stored cell.
@@ -112,7 +113,7 @@ pub(crate) fn metadata(doc: &SpreadsheetDoc) -> Metadata {
         .map(|sheet| {
             let used = sheet.used_range();
             SheetSummary {
-                sheet_id: sheet.file_id,
+                sheet_id: SheetId(sheet.file_id),
                 name: sheet.name.clone(),
                 rows: used.map_or(0, |range| range.end.row + 1),
                 cols: used.map_or(0, |range| range.end.col + 1),

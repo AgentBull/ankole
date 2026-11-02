@@ -11,11 +11,12 @@ use gridcraft_model::{
 };
 
 use super::{
-    Axis, Border, BorderStyle, ClearMode, FormatPatch, LineKeyword, LineSize, Outcome, PasteCell,
-    Scalar, check_size,
+    Axis, Border, BorderStyle, ClearMode, FormatPatch, FormulaStorage, LineKeyword, LineSize,
+    MergeShape, Outcome, PasteCell, Scalar, TextInput, check_size,
 };
 use crate::Error;
 use crate::doc::require_sheet;
+use crate::ids::SheetId;
 
 /// Excel's longest cell text and note, in characters.
 const MAX_TEXT_CHARS: usize = 32_767;
@@ -30,14 +31,14 @@ pub(crate) fn sheet_mut(wb: &mut Workbook, index: usize) -> Result<&mut Sheet, E
 
 pub(super) fn cell_set(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     at: CellRef,
     input: &str,
-    array: bool,
+    storage: FormulaStorage,
 ) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
     let mut cell = input_to_cell(wb, index, at, input)?;
-    if array {
+    if storage == FormulaStorage::LegacyArray {
         let Some(formula) = cell.as_mut().and_then(|cell| cell.formula.as_mut()) else {
             return Err(Error::invalid(
                 "an array formula needs input that starts with =",
@@ -60,10 +61,10 @@ pub(super) fn cell_set(
 
 pub(super) fn set_values(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
     values: &[Vec<Option<Scalar>>],
-    parse: bool,
+    input: TextInput,
 ) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
     check_size(range, "range.set_values")?;
@@ -100,7 +101,7 @@ pub(super) fn set_values(
                     style,
                 })
             }
-            Some(Scalar::Text(text)) if !parse && !text.starts_with('=') => {
+            Some(Scalar::Text(text)) if input == TextInput::Literal && !text.starts_with('=') => {
                 check_text(text)?;
                 Some(ModelCell {
                     value: Value::text(text.as_str()),
@@ -127,7 +128,7 @@ pub(super) fn set_values(
 
 pub(super) fn paste(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
     cells: &[Vec<PasteCell>],
 ) -> Result<Outcome, Error> {
@@ -320,7 +321,7 @@ fn wrap_multiline(wb: &mut Workbook, style: StyleId, text: &str) -> StyleId {
 
 pub(super) fn clear(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
     mode: ClearMode,
 ) -> Result<Outcome, Error> {
@@ -374,7 +375,7 @@ pub(super) fn clear(
 
 pub(super) fn format(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
     patch: &FormatPatch,
 ) -> Result<Outcome, Error> {
@@ -558,13 +559,13 @@ fn border_line(border: Border) -> BorderLine {
 
 pub(super) fn merge(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
-    across: bool,
+    shape: MergeShape,
 ) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
     check_size(range, "range.merge")?;
-    let areas: Vec<RangeRef> = if across {
+    let areas: Vec<RangeRef> = if shape == MergeShape::EachRow {
         (range.start.row..=range.end.row)
             .map(|row| {
                 RangeRef::new(
@@ -615,7 +616,11 @@ pub(super) fn merge(
     })
 }
 
-pub(super) fn unmerge(wb: &mut Workbook, sheet_id: u32, range: RangeRef) -> Result<Outcome, Error> {
+pub(super) fn unmerge(
+    wb: &mut Workbook,
+    sheet_id: SheetId,
+    range: RangeRef,
+) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
     let sheet = sheet_mut(wb, index)?;
     let removed: Vec<RangeRef> = sheet
@@ -654,7 +659,7 @@ fn spill_seeds(sheet: &Sheet, index: usize, area: RangeRef) -> Vec<Key> {
 
 pub(super) fn resize(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     axis: Axis,
     start: u32,
     end: u32,
@@ -708,7 +713,7 @@ pub(super) fn resize(
 
 pub(super) fn freeze(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     rows: u32,
     cols: u32,
 ) -> Result<Outcome, Error> {
@@ -724,7 +729,7 @@ pub(super) fn freeze(
 
 pub(super) fn comment(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     at: CellRef,
     text: Option<&str>,
     author: Option<&str>,

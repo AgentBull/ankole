@@ -8,6 +8,7 @@ use super::edit::sheet_mut;
 use super::{HexColor, Outcome};
 use crate::Error;
 use crate::doc::{next_sheet_id, require_sheet, used_ids};
+use crate::ids::SheetId;
 use crate::structure::rewrite_formulas;
 
 /// Checks a sheet name like Excel, and also against the chart sheets GridCraft keeps for saving,
@@ -25,15 +26,15 @@ fn check_name(wb: &Workbook, name: &str, except: Option<usize>) -> Result<(), Er
 
 pub(super) fn insert(
     wb: &mut Workbook,
-    sheet_id: &mut Option<u32>,
+    sheet_id: &mut Option<SheetId>,
     name: &mut Option<String>,
     index: &mut Option<usize>,
 ) -> Result<Outcome, Error> {
     let id = match *sheet_id {
-        Some(id) if id == 0 || used_ids(wb).any(|used| used == id) => {
+        Some(SheetId(id)) if id == 0 || used_ids(wb).any(|used| used == id) => {
             return Err(Error::invalid(format!("sheet_id {id} is already in use")));
         }
-        Some(id) => id,
+        Some(SheetId(id)) => id,
         None => next_sheet_id(wb)?,
     };
     let new_name = name
@@ -61,7 +62,7 @@ pub(super) fn insert(
     if wb.active_sheet() >= at {
         wb.set_active_sheet(wb.active_sheet() + 1);
     }
-    *sheet_id = Some(id);
+    *sheet_id = Some(SheetId(id));
     *name = Some(new_name);
     *index = Some(at);
     Ok(Outcome::structural())
@@ -69,7 +70,7 @@ pub(super) fn insert(
 
 pub(super) fn delete(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     name: &mut Option<String>,
 ) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
@@ -116,7 +117,7 @@ pub(super) fn delete(
 
 pub(super) fn rename(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     name: &mut String,
     old_name: &mut Option<String>,
 ) -> Result<Outcome, Error> {
@@ -172,7 +173,7 @@ fn split_pivot_link(link: &str) -> Option<(String, String)> {
     (!sheet.is_empty() && !pivot.trim().is_empty()).then(|| (sheet, pivot.trim().to_string()))
 }
 
-pub(super) fn reorder(wb: &mut Workbook, sheet_id: u32, to: usize) -> Result<Outcome, Error> {
+pub(super) fn reorder(wb: &mut Workbook, sheet_id: SheetId, to: usize) -> Result<Outcome, Error> {
     let from = require_sheet(wb, sheet_id)?;
     if to >= wb.sheets.len() {
         return Err(Error::invalid(format!("index {to} is past the last sheet")));
@@ -204,7 +205,7 @@ pub(super) fn reorder(wb: &mut Workbook, sheet_id: u32, to: usize) -> Result<Out
 
 pub(super) fn tab_color(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     color: Option<HexColor>,
 ) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;

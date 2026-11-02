@@ -680,7 +680,7 @@ fn blank_workbooks_export_search_text_and_metadata() {
             .metadata
             .sheets
             .first()
-            .map(|s| (s.sheet_id, s.name.as_str())),
+            .map(|s| (s.sheet_id.0, s.name.as_str())),
         Some((1, "Sheet1"))
     );
     assert!(exported.xlsx.len() < 16 * 1024);

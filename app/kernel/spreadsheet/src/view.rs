@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::doc::{SpreadsheetDoc, sheet_by_id};
+use crate::ids::{CellArea, ImageId, SheetId};
 use crate::ops::check_size;
 
 /// A value formatted with its cell's number format, as the grid shows it.
@@ -32,7 +33,7 @@ pub(crate) fn display_text(wb: &Workbook, sheet: &Sheet, at: CellRef) -> String 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SheetInfo {
     /// The sheet's stable id.
-    pub sheet_id: u32,
+    pub sheet_id: SheetId,
     /// The tab's name.
     pub name: String,
     /// Whether the tab is hidden.
@@ -62,7 +63,7 @@ pub fn sheets(doc: &SpreadsheetDoc) -> Vec<SheetInfo> {
         .map(|sheet| {
             let used = sheet.used_range();
             SheetInfo {
-                sheet_id: sheet.file_id,
+                sheet_id: SheetId(sheet.file_id),
                 name: sheet.name.clone(),
                 hidden: sheet.visibility != Visibility::Visible,
                 tab_color: sheet.tab_color.and_then(|color| color.hex(&wb.theme)),
@@ -171,24 +172,21 @@ pub struct RenderBorder {
     pub color: Option<String>,
 }
 
-/// The cells, styles, merged areas, spills, and line sizes of the zero-based rectangle from
-/// `(r0, c0)` to `(r1, c1)` on one sheet.
+/// The cells, styles, merged areas, spills, and line sizes of `area` on one sheet.
 ///
 /// # Errors
 ///
-/// Returns [`Error::Invalid`] for an unknown sheet, or for a rectangle that leaves the worksheet
-/// or covers too many cells.
+/// Returns [`Error::Invalid`] for an unknown sheet, or for an area that leaves the worksheet or
+/// covers too many cells.
 pub fn viewport(
     doc: &SpreadsheetDoc,
-    sheet_id: u32,
-    r0: u32,
-    c0: u32,
-    r1: u32,
-    c1: u32,
+    sheet_id: SheetId,
+    area: CellArea,
 ) -> Result<Viewport, Error> {
     let wb = doc.workbook();
     let sheet = sheet_by_id(wb, sheet_id)?;
-    let (start, end) = (CellRef::new(r0, c0), CellRef::new(r1, c1));
+    let start = CellRef::new(area.first_row, area.first_col);
+    let end = CellRef::new(area.last_row, area.last_col);
     if !start.is_valid() || !end.is_valid() {
         return Err(Error::invalid("the viewport must lie on the worksheet"));
     }
@@ -278,7 +276,7 @@ pub fn viewport(
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RenderImage {
     /// The picture's object id in the workbook.
-    pub image_id: u32,
+    pub image_id: ImageId,
     /// The A1 cell that holds the picture's top-left corner.
     pub cell: String,
     /// The corner's offset into that cell, and the picture's size, in pixels.
@@ -302,13 +300,13 @@ pub struct RenderImage {
 /// # Errors
 ///
 /// Returns [`Error::Invalid`] for an unknown sheet.
-pub fn images(doc: &SpreadsheetDoc, sheet_id: u32) -> Result<Vec<RenderImage>, Error> {
+pub fn images(doc: &SpreadsheetDoc, sheet_id: SheetId) -> Result<Vec<RenderImage>, Error> {
     let sheet = sheet_by_id(doc.workbook(), sheet_id)?;
     Ok(sheet
         .images
         .iter()
         .map(|image| RenderImage {
-            image_id: image.id,
+            image_id: ImageId(image.id),
             cell: image.anchor.cell.a1(),
             dx: image.anchor.dx,
             dy: image.anchor.dy,
@@ -326,11 +324,15 @@ pub fn images(doc: &SpreadsheetDoc, sheet_id: u32) -> Result<Vec<RenderImage>, E
 /// # Errors
 ///
 /// Returns [`Error::Invalid`] for an unknown sheet or picture.
-pub fn image_data(doc: &SpreadsheetDoc, sheet_id: u32, image_id: u32) -> Result<Vec<u8>, Error> {
+pub fn image_data(
+    doc: &SpreadsheetDoc,
+    sheet_id: SheetId,
+    image_id: ImageId,
+) -> Result<Vec<u8>, Error> {
     sheet_by_id(doc.workbook(), sheet_id)?
         .images
         .iter()
-        .find(|image| image.id == image_id)
+        .find(|image| image.id == image_id.0)
         .map(|image| image.data.as_ref().clone())
         .ok_or_else(|| Error::invalid(format!("no picture has image_id {image_id} on this sheet")))
 }
@@ -351,7 +353,7 @@ pub struct CellPictureData {
 /// Returns [`Error::Invalid`] for an unknown sheet, an invalid cell, or a cell without a picture.
 pub fn cell_picture(
     doc: &SpreadsheetDoc,
-    sheet_id: u32,
+    sheet_id: SheetId,
     cell: &str,
 ) -> Result<CellPictureData, Error> {
     let at = CellRef::parse(cell)
@@ -412,7 +414,7 @@ pub struct SelectionStats {
 /// Returns [`Error::Invalid`] for an unknown sheet or an invalid range.
 pub fn selection_stats(
     doc: &SpreadsheetDoc,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: &str,
 ) -> Result<SelectionStats, Error> {
     let wb = doc.workbook();
@@ -565,7 +567,7 @@ fn border_name(style: BorderStyle) -> &'static str {
 /// # Errors
 ///
 /// Returns [`Error::Invalid`] for an unknown sheet or an invalid cell.
-pub fn cell_input(doc: &SpreadsheetDoc, sheet_id: u32, cell: &str) -> Result<String, Error> {
+pub fn cell_input(doc: &SpreadsheetDoc, sheet_id: SheetId, cell: &str) -> Result<String, Error> {
     let wb = doc.workbook();
     let sheet = sheet_by_id(wb, sheet_id)?;
     let at = CellRef::parse(cell)

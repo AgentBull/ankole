@@ -11,18 +11,20 @@ use gridcraft_model::{
 
 use super::edit::sheet_mut;
 use super::{
-    FilterColumn, Outcome, SortKey, ValidationKind, ValidationOperator, ValidationRule, check_size,
+    FilterColumn, Outcome, SortHeader, SortKey, TableChange, ValidationKind, ValidationOperator,
+    ValidationRule, check_size,
 };
 use crate::Error;
 use crate::doc::require_sheet;
+use crate::ids::SheetId;
 use crate::view::display_text;
 
 pub(super) fn sort(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
     keys: &[SortKey],
-    header: bool,
+    header: SortHeader,
 ) -> Result<Outcome, Error> {
     if keys.is_empty() || keys.len() > 64 {
         return Err(Error::invalid("range.sort needs 1 to 64 keys"));
@@ -38,7 +40,7 @@ pub(super) fn sort(
     let index = require_sheet(wb, sheet_id)?;
     let sheet = sheet_mut(wb, index)?;
     // Rows past the last stored cell are empty and would stay in place, so they are left out.
-    let first = range.start.row + u32::from(header);
+    let first = range.start.row + u32::from(header == SortHeader::FirstRow);
     let last = sheet
         .used_range()
         .map_or(0, |used| used.end.row)
@@ -163,7 +165,7 @@ fn move_rows(
 
 pub(super) fn filter(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: Option<RangeRef>,
     columns: &[FilterColumn],
 ) -> Result<Outcome, Error> {
@@ -242,7 +244,7 @@ pub(super) fn filter(
 
 pub(super) fn validation(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
     rule: Option<&ValidationRule>,
 ) -> Result<Outcome, Error> {
@@ -390,13 +392,13 @@ fn check_rule_formula(kind: ValidationKind, text: &str) -> Result<String, Error>
 
 pub(super) fn table(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
-    enabled: bool,
+    change: TableChange,
     name: &mut Option<String>,
 ) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
-    if !enabled {
+    if change == TableChange::Remove {
         let sheet = sheet_mut(wb, index)?;
         let mut hits = sheet
             .tables

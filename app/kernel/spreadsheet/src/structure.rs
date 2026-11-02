@@ -14,6 +14,7 @@ use gridcraft_model::{Anchor, AnchorMode, Formula, LineInfo, Sheet, Table, Table
 
 use crate::Error;
 use crate::doc::require_sheet;
+use crate::ids::SheetId;
 use crate::ops::edit::sheet_mut;
 use crate::ops::{Axis, Outcome, Shift};
 
@@ -39,9 +40,23 @@ fn map_cell(cell: CellRef, edit: &Edit) -> Option<CellRef> {
     map_range(RangeRef::cell(cell), edit).map(|range| range.start)
 }
 
+/// Whether lines or cells are inserted or deleted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LineChange {
+    Insert,
+    Delete,
+}
+
+/// Where a moved block lands relative to the sheet it left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Destination {
+    SameSheet,
+    OtherSheet,
+}
+
 /// Where line `line` lands after inserting or deleting `count` lines at `at`.
-fn map_line(line: u32, at: u32, count: u32, insert: bool) -> Option<u32> {
-    if insert {
+fn map_line(line: u32, at: u32, count: u32, change: LineChange) -> Option<u32> {
+    if change == LineChange::Insert {
         if line >= at {
             line.checked_add(count)
         } else {
@@ -162,7 +177,7 @@ fn rewrite_structural(wb: &mut Workbook, target: &str, edit: &Edit) {
 
 pub(crate) fn insert_lines(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     axis: Axis,
     at: u32,
     count: u32,
@@ -191,7 +206,7 @@ pub(crate) fn insert_lines(
         Axis::Rows => sheet.cells.shift_rows(at, i64::from(count)),
         Axis::Cols => sheet.cells.shift_cols(at, i64::from(count)),
     }
-    shift_sheet_features(sheet, axis, at, count, true);
+    shift_sheet_features(sheet, axis, at, count, LineChange::Insert);
     inherit_line_format(sheet, axis, at, count);
     let name = sheet.name.clone();
     rewrite_structural(
@@ -211,7 +226,7 @@ pub(crate) fn insert_lines(
 
 pub(crate) fn delete_lines(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     axis: Axis,
     at: u32,
     count: u32,
@@ -232,7 +247,7 @@ pub(crate) fn delete_lines(
         Axis::Rows => sheet.cells.shift_rows(at + count, -i64::from(count)),
         Axis::Cols => sheet.cells.shift_cols(at + count, -i64::from(count)),
     }
-    shift_sheet_features(sheet, axis, at, count, false);
+    shift_sheet_features(sheet, axis, at, count, LineChange::Delete);
     let name = sheet.name.clone();
     rewrite_structural(
         wb,
@@ -251,7 +266,7 @@ pub(crate) fn delete_lines(
 
 pub(crate) fn insert_cells(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
     shift: Shift,
 ) -> Result<Outcome, Error> {
@@ -326,7 +341,7 @@ pub(crate) fn insert_cells(
 
 pub(crate) fn delete_cells(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: RangeRef,
     shift: Shift,
 ) -> Result<Outcome, Error> {
@@ -373,9 +388,9 @@ pub(crate) fn delete_cells(
 /// notes, links, and merged areas inside `from` travel with it.
 pub(crate) fn move_range(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     from: RangeRef,
-    to_sheet_id: u32,
+    to_sheet_id: SheetId,
     to_cell: CellRef,
 ) -> Result<Outcome, Error> {
     let source = require_sheet(wb, sheet_id)?;
@@ -458,10 +473,15 @@ pub(crate) fn move_range(
     target_sheet.merges.retain(|merge| !merge.intersects(&dest));
     for (at, mut cell) in cells {
         if let Some(formula) = &cell.formula {
+            let destination = if source == target {
+                Destination::SameSheet
+            } else {
+                Destination::OtherSheet
+            };
             cell.formula = Some(Arc::new(moved_formula(
                 formula,
                 &source_name,
-                source != target,
+                destination,
                 dr,
                 dc,
             )));
@@ -501,12 +521,12 @@ pub(crate) fn move_range(
 fn moved_formula(
     formula: &Formula,
     source_name: &str,
-    other_sheet: bool,
+    destination: Destination,
     dr: i64,
     dc: i64,
 ) -> Formula {
     let expr = formula.expr().map(|expr| {
-        if !other_sheet {
+        if destination == Destination::SameSheet {
             return expr;
         }
         expr.map(&mut |node| match node {
@@ -619,9 +639,9 @@ fn shift_anchor(
 }
 
 /// Moves everything positioned on the sheet for an inserted or deleted line.
-fn shift_sheet_features(sheet: &mut Sheet, axis: Axis, at: u32, count: u32, insert: bool) {
-    let map = |line: u32| map_line(line, at, count, insert);
-    let edit = if insert {
+fn shift_sheet_features(sheet: &mut Sheet, axis: Axis, at: u32, count: u32, change: LineChange) {
+    let map = |line: u32| map_line(line, at, count, change);
+    let edit = if change == LineChange::Insert {
         Edit::Insert {
             axis: axis.grid(),
             at,
@@ -660,7 +680,7 @@ fn shift_sheet_features(sheet: &mut Sheet, axis: Axis, at: u32, count: u32, inse
         match map_range(table.range, &edit) {
             Some(range) => {
                 if axis == Axis::Cols {
-                    shift_table_columns(table, at, count, insert);
+                    shift_table_columns(table, at, count, change);
                 }
                 table.range = range;
             }
@@ -798,7 +818,11 @@ fn shift_cell_features(sheet: &mut Sheet, edit: &Edit) {
                 table,
                 range.start.col,
                 range.width(),
-                matches!(edit, Edit::InsertCells { .. }),
+                if matches!(edit, Edit::InsertCells { .. }) {
+                    LineChange::Insert
+                } else {
+                    LineChange::Delete
+                },
             );
         }
         table.range = map_range(table.range, edit).unwrap_or_default();
@@ -816,8 +840,8 @@ fn shift_cell_features(sheet: &mut Sheet, edit: &Edit) {
 
 /// Columns inserted inside a table become new table columns with unused names; deleted columns
 /// leave it.
-fn shift_table_columns(table: &mut Table, at: u32, count: u32, insert: bool) {
-    if insert {
+fn shift_table_columns(table: &mut Table, at: u32, count: u32, change: LineChange) {
+    if change == LineChange::Insert {
         if at > table.range.start.col && at <= table.range.end.col {
             let position = (at - table.range.start.col) as usize;
             let mut n = table.columns.len();
@@ -908,7 +932,7 @@ mod tests {
     use gridcraft_core::{CellRef, RangeRef};
     use gridcraft_formula::adjust::{Axis, Edit};
 
-    use super::{map_line, map_range};
+    use super::{LineChange, map_line, map_range};
 
     #[test]
     fn ranges_follow_line_edits() {
@@ -935,7 +959,7 @@ mod tests {
             ),
             None
         );
-        assert_eq!(map_line(5, 2, 3, false), Some(2));
-        assert_eq!(map_line(3, 2, 3, false), None);
+        assert_eq!(map_line(5, 2, 3, LineChange::Delete), Some(2));
+        assert_eq!(map_line(3, 2, 3, LineChange::Delete), None);
     }
 }

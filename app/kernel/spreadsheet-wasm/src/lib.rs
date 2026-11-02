@@ -2,7 +2,9 @@
 //!
 //! The worker opens the same `.xlsx` bytes and replays the same committed operations as the
 //! control plane, so both sides compute the same workbook. Every behavior lives in
-//! `ankole_spreadsheet`; this crate only converts arguments and results. Structured results are
+//! `ankole_spreadsheet`; this crate only converts arguments and results. JavaScript passes sheet
+//! ids, picture ids, and coordinates as numbers, and this boundary wraps them in
+//! [`SheetId`], [`ImageId`], and [`CellArea`] before the kernel sees them. Structured results are
 //! JSON text, which the worker parses once and posts to the page.
 #![forbid(unsafe_code)]
 #![warn(
@@ -24,7 +26,7 @@
     )
 )]
 
-use ankole_spreadsheet::SpreadsheetDoc;
+use ankole_spreadsheet::{CellArea, ImageId, SheetId, SpreadsheetDoc};
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -116,8 +118,17 @@ impl Spreadsheet {
         c1: u32,
     ) -> Result<String, JsError> {
         json(
-            &ankole_spreadsheet::viewport(&self.doc, sheet_id, r0, c0, r1, c1)
-                .map_err(|error| js_error(&error))?,
+            &ankole_spreadsheet::viewport(
+                &self.doc,
+                SheetId(sheet_id),
+                CellArea {
+                    first_row: r0,
+                    first_col: c0,
+                    last_row: r1,
+                    last_col: c1,
+                },
+            )
+            .map_err(|error| js_error(&error))?,
         )
     }
 
@@ -136,7 +147,8 @@ impl Spreadsheet {
     ///
     /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
     pub fn cell_input(&self, sheet_id: u32, cell: &str) -> Result<String, JsError> {
-        ankole_spreadsheet::cell_input(&self.doc, sheet_id, cell).map_err(|error| js_error(&error))
+        ankole_spreadsheet::cell_input(&self.doc, SheetId(sheet_id), cell)
+            .map_err(|error| js_error(&error))
     }
 
     /// The document as `.xlsx` bytes.
@@ -157,7 +169,7 @@ impl Spreadsheet {
     /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
     pub fn selection_stats(&self, sheet_id: u32, range: &str) -> Result<String, JsError> {
         json(
-            &ankole_spreadsheet::selection_stats(&self.doc, sheet_id, range)
+            &ankole_spreadsheet::selection_stats(&self.doc, SheetId(sheet_id), range)
                 .map_err(|error| js_error(&error))?,
         )
     }
@@ -170,7 +182,7 @@ impl Spreadsheet {
     /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
     pub fn copy_block(&self, sheet_id: u32, range: &str) -> Result<String, JsError> {
         json(
-            &ankole_spreadsheet::copy_block(&self.doc, sheet_id, range)
+            &ankole_spreadsheet::copy_block(&self.doc, SheetId(sheet_id), range)
                 .map_err(|error| js_error(&error))?,
         )
     }
@@ -181,7 +193,10 @@ impl Spreadsheet {
     ///
     /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
     pub fn images(&self, sheet_id: u32) -> Result<String, JsError> {
-        json(&ankole_spreadsheet::images(&self.doc, sheet_id).map_err(|error| js_error(&error))?)
+        json(
+            &ankole_spreadsheet::images(&self.doc, SheetId(sheet_id))
+                .map_err(|error| js_error(&error))?,
+        )
     }
 
     /// The encoded bytes of the floating picture `image_id`.
@@ -190,7 +205,7 @@ impl Spreadsheet {
     ///
     /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
     pub fn image_data(&self, sheet_id: u32, image_id: u32) -> Result<Vec<u8>, JsError> {
-        ankole_spreadsheet::image_data(&self.doc, sheet_id, image_id)
+        ankole_spreadsheet::image_data(&self.doc, SheetId(sheet_id), ImageId(image_id))
             .map_err(|error| js_error(&error))
     }
 
@@ -200,9 +215,11 @@ impl Spreadsheet {
     ///
     /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
     pub fn cell_picture(&self, sheet_id: u32, cell: &str) -> Result<Vec<u8>, JsError> {
-        Ok(ankole_spreadsheet::cell_picture(&self.doc, sheet_id, cell)
-            .map_err(|error| js_error(&error))?
-            .bytes)
+        Ok(
+            ankole_spreadsheet::cell_picture(&self.doc, SheetId(sheet_id), cell)
+                .map_err(|error| js_error(&error))?
+                .bytes,
+        )
     }
 }
 
@@ -235,7 +252,7 @@ pub fn paste_op(
     let mode: ankole_spreadsheet::PasteMode = serde_json::from_value(serde_json::Value::from(mode))
         .map_err(|error| JsError::new(&format!("invalid paste mode: {error}")))?;
     json(
-        &ankole_spreadsheet::paste_op(&block, sheet_id, cell, mode)
+        &ankole_spreadsheet::paste_op(&block, SheetId(sheet_id), cell, mode)
             .map_err(|error| js_error(&error))?,
     )
 }

@@ -13,6 +13,7 @@ use gridcraft_formula::Expr;
 use gridcraft_formula::adjust::{Edit, adjust, delete_sheet, rename_sheet};
 use gridcraft_model::Workbook;
 
+use crate::ids::SheetId;
 use crate::ops::{Axis, Op, Scalar, Shift, shift_axis};
 use crate::structure::map_range;
 use crate::{ApplyError, Error};
@@ -45,7 +46,7 @@ impl Conflict {
 }
 
 /// Sheet names by `sheet_id` at one revision.
-type Names = HashMap<u32, String>;
+type Names = HashMap<SheetId, String>;
 
 pub(crate) fn rebase(wb: &Workbook, mut op: Op, prior: &[Op]) -> Result<Op, ApplyError> {
     let mut names = names_before(wb, prior)?;
@@ -62,7 +63,7 @@ fn names_before(wb: &Workbook, prior: &[Op]) -> Result<Names, ApplyError> {
     let mut names: Names = wb
         .sheets
         .iter()
-        .map(|sheet| (sheet.file_id, sheet.name.clone()))
+        .map(|sheet| (SheetId(sheet.file_id), sheet.name.clone()))
         .collect();
     let uncommitted =
         || ApplyError::Error(Error::invalid("prior_ops must hold committed operations"));
@@ -106,14 +107,14 @@ fn advance_names(names: &mut Names, committed: &Op) {
 
 /// A committed structural edit as GridCraft's reference adjustment sees it.
 struct Structural {
-    sheet_id: u32,
+    sheet_id: SheetId,
     edit: Edit,
     /// The sheet name the edit applies to, at that revision.
     target: String,
 }
 
 fn structural(committed: &Op, names: &Names) -> Option<Structural> {
-    let name = |id: u32| names.get(&id).cloned().unwrap_or_default();
+    let name = |id: SheetId| names.get(&id).cloned().unwrap_or_default();
     let (sheet_id, edit) = match *committed {
         Op::LineInsert {
             sheet_id,
@@ -302,7 +303,7 @@ fn rewrite_formulas(op: &mut Op, names: &Names, rewrite: &dyn Fn(Expr, &str) -> 
 /// Where a target range on `sheet_id` lands after a committed structural edit. A block moved on
 /// its own sheet carries the targets it contains; a target it only partly covers, or a block moved
 /// to another sheet, is a conflict.
-fn map_target(sheet_id: u32, range: RangeRef, edit: &Structural) -> Result<RangeRef, Conflict> {
+fn map_target(sheet_id: SheetId, range: RangeRef, edit: &Structural) -> Result<RangeRef, Conflict> {
     if sheet_id != edit.sheet_id {
         return Ok(range);
     }
@@ -320,7 +321,7 @@ fn map_target(sheet_id: u32, range: RangeRef, edit: &Structural) -> Result<Range
 
 /// Like [`map_target`] for targets whose shape must not change: a block of values or the block a
 /// structural edit of its own shifts or moves.
-fn map_block(sheet_id: u32, range: RangeRef, edit: &Structural) -> Result<RangeRef, Conflict> {
+fn map_block(sheet_id: SheetId, range: RangeRef, edit: &Structural) -> Result<RangeRef, Conflict> {
     let moved = map_target(sheet_id, range, edit)?;
     if (moved.height(), moved.width()) != (range.height(), range.width()) {
         return Err(Conflict::OverlappingStructuralEdit);
@@ -499,7 +500,7 @@ fn shift_delete(axis: Axis, at: u32, count: u32, edit: &Edit) -> Result<u32, Con
 }
 
 /// The cells an operation writes or reshapes, by sheet, for the concurrent sort and merge check.
-fn footprint(op: &Op) -> Vec<(u32, RangeRef)> {
+fn footprint(op: &Op) -> Vec<(SheetId, RangeRef)> {
     use gridcraft_core::{CellRef, MAX_COLS, MAX_ROWS};
     match op {
         Op::CellSet { sheet_id, cell, .. } | Op::CommentSet { sheet_id, cell, .. } => {

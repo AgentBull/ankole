@@ -8,6 +8,7 @@ use gridcraft_calc::Calc;
 use gridcraft_model::{Sheet, Workbook};
 
 use crate::Error;
+use crate::ids::SheetId;
 use crate::index::SourceReport;
 use crate::ops::{self, Op};
 
@@ -94,17 +95,17 @@ impl SpreadsheetDoc {
 }
 
 /// The position of the sheet whose `sheet_id` is `id`.
-pub(crate) fn sheet_index(wb: &Workbook, id: u32) -> Option<usize> {
-    wb.sheets.iter().position(|sheet| sheet.file_id == id)
+pub(crate) fn sheet_index(wb: &Workbook, id: SheetId) -> Option<usize> {
+    wb.sheets.iter().position(|sheet| sheet.file_id == id.0)
 }
 
 /// Like [`sheet_index`], rejecting an unknown id.
-pub(crate) fn require_sheet(wb: &Workbook, id: u32) -> Result<usize, Error> {
+pub(crate) fn require_sheet(wb: &Workbook, id: SheetId) -> Result<usize, Error> {
     sheet_index(wb, id).ok_or_else(|| Error::invalid(format!("no sheet has sheet_id {id}")))
 }
 
 /// The sheet whose `sheet_id` is `id`, rejecting an unknown id.
-pub(crate) fn sheet_by_id(wb: &Workbook, id: u32) -> Result<&Sheet, Error> {
+pub(crate) fn sheet_by_id(wb: &Workbook, id: SheetId) -> Result<&Sheet, Error> {
     wb.sheets
         .get(require_sheet(wb, id)?)
         .map(AsRef::as_ref)

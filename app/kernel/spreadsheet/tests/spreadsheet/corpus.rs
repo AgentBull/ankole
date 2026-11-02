@@ -573,7 +573,7 @@ fn kept_parts_and_sheet_ids_survive_structural_edits_and_saves() -> TestResult {
             .metadata
             .sheets
             .iter()
-            .map(|s| (s.name.clone(), s.sheet_id))
+            .map(|s| (s.name.clone(), s.sheet_id.0))
             .collect();
         assert_eq!(
             ids,

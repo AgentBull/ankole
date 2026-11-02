@@ -1,7 +1,7 @@
 //! Editing tools of the spreadsheet editor: the fill handle, pasting, selection statistics, and
 //! the function list.
 
-use ankole_spreadsheet::{ApplyError, Error, SelectionStats};
+use ankole_spreadsheet::{ApplyError, CellArea, Error, ImageId, SelectionStats, SheetId};
 use serde_json::json;
 
 use crate::support::{apply, apply_all, blank, cell, formula, number, text, workbook_sheet};
@@ -150,7 +150,7 @@ fn selection_statistics_count_values_and_summarize_numbers() -> Result<(), Error
             set("B1", "TRUE"),
         ],
     );
-    let stats = ankole_spreadsheet::selection_stats(&doc, 1, "A:B")?;
+    let stats = ankole_spreadsheet::selection_stats(&doc, SheetId(1), "A:B")?;
     assert_eq!(
         stats,
         SelectionStats {
@@ -162,9 +162,9 @@ fn selection_statistics_count_values_and_summarize_numbers() -> Result<(), Error
             max: Some(10.0),
         }
     );
-    let empty = ankole_spreadsheet::selection_stats(&doc, 1, "D1:D9")?;
+    let empty = ankole_spreadsheet::selection_stats(&doc, SheetId(1), "D1:D9")?;
     assert_eq!(empty, SelectionStats::default());
-    assert!(ankole_spreadsheet::selection_stats(&doc, 1, "not a range").is_err());
+    assert!(ankole_spreadsheet::selection_stats(&doc, SheetId(1), "not a range").is_err());
     Ok(())
 }
 
@@ -210,7 +210,7 @@ fn floating_pictures_are_inserted_moved_saved_and_deleted() -> Result<(), Error>
         json!({"type": "image.update", "sheet_id": 1, "image_id": 7001, "anchor": {"cell": "C5", "width": 60, "height": 40}}),
     )
     .doc;
-    let images = ankole_spreadsheet::images(&moved, 1)?;
+    let images = ankole_spreadsheet::images(&moved, SheetId(1))?;
     assert_eq!(images.len(), 2);
     assert_eq!(
         (images[0].cell.as_str(), images[0].width, images[0].dx),
@@ -218,7 +218,7 @@ fn floating_pictures_are_inserted_moved_saved_and_deleted() -> Result<(), Error>
     );
     assert_eq!(images[0].alt, "Logo");
     assert_eq!(
-        ankole_spreadsheet::image_data(&moved, 1, 7001)?,
+        ankole_spreadsheet::image_data(&moved, SheetId(1), ImageId(7001))?,
         png_bytes()
     );
 
@@ -228,11 +228,14 @@ fn floating_pictures_are_inserted_moved_saved_and_deleted() -> Result<(), Error>
         json!({"type": "line.insert", "sheet_id": 1, "axis": "rows", "at": 0, "count": 2}),
     )
     .doc;
-    assert_eq!(ankole_spreadsheet::images(&shifted, 1)?[0].cell, "C7");
+    assert_eq!(
+        ankole_spreadsheet::images(&shifted, SheetId(1))?[0].cell,
+        "C7"
+    );
 
     let reopened =
         ankole_spreadsheet::open(&ankole_spreadsheet::export_xlsx(&shifted)?.xlsx, "[]")?;
-    let saved = ankole_spreadsheet::images(&reopened, 1)?;
+    let saved = ankole_spreadsheet::images(&reopened, SheetId(1))?;
     assert_eq!(saved.len(), 2, "the file keeps both pictures");
     assert_eq!(saved[0].cell, "C7");
     assert_eq!(saved[0].digest, images[0].digest);
@@ -242,7 +245,7 @@ fn floating_pictures_are_inserted_moved_saved_and_deleted() -> Result<(), Error>
         json!({"type": "image.delete", "sheet_id": 1, "image_id": 7002}),
     )
     .doc;
-    assert_eq!(ankole_spreadsheet::images(&deleted, 1)?.len(), 1);
+    assert_eq!(ankole_spreadsheet::images(&deleted, SheetId(1))?.len(), 1);
     Ok(())
 }
 
@@ -257,7 +260,7 @@ fn cell_pictures_replace_content_and_convert_to_floating_pictures() -> Result<()
         ],
     );
     assert_eq!(
-        ankole_spreadsheet::cell_picture(&doc, 1, "A1")?,
+        ankole_spreadsheet::cell_picture(&doc, SheetId(1), "A1")?,
         ankole_spreadsheet::CellPictureData {
             bytes: png_bytes(),
             mime: "image/png".to_string()
@@ -268,30 +271,42 @@ fn cell_pictures_replace_content_and_convert_to_floating_pictures() -> Result<()
         0.0,
         "the picture replaced the number"
     );
-    let view = ankole_spreadsheet::viewport(&doc, 1, 0, 0, 1, 0)?;
+    let view = ankole_spreadsheet::viewport(
+        &doc,
+        SheetId(1),
+        CellArea {
+            first_row: 0,
+            first_col: 0,
+            last_row: 1,
+            last_col: 0,
+        },
+    )?;
     assert!(view.cells[0].picture.is_some());
 
     let reopened = ankole_spreadsheet::open(&ankole_spreadsheet::export_xlsx(&doc)?.xlsx, "[]")?;
-    assert!(ankole_spreadsheet::cell_picture(&reopened, 1, "A1").is_ok());
+    assert!(ankole_spreadsheet::cell_picture(&reopened, SheetId(1), "A1").is_ok());
 
     let lifted = apply(
         &doc,
         json!({"type": "image.from_cell", "sheet_id": 1, "cell": "A1", "image_id": 9, "anchor": anchor("A1")}),
     )
     .doc;
-    assert!(ankole_spreadsheet::cell_picture(&lifted, 1, "A1").is_err());
-    assert_eq!(ankole_spreadsheet::images(&lifted, 1)?[0].image_id, 9);
+    assert!(ankole_spreadsheet::cell_picture(&lifted, SheetId(1), "A1").is_err());
+    assert_eq!(
+        ankole_spreadsheet::images(&lifted, SheetId(1))?[0].image_id,
+        ImageId(9)
+    );
     let placed = apply(
         &lifted,
         json!({"type": "image.to_cell", "sheet_id": 1, "image_id": 9, "cell": "B4"}),
     )
     .doc;
-    assert!(ankole_spreadsheet::images(&placed, 1)?.is_empty());
-    assert!(ankole_spreadsheet::cell_picture(&placed, 1, "B4").is_ok());
+    assert!(ankole_spreadsheet::images(&placed, SheetId(1))?.is_empty());
+    assert!(ankole_spreadsheet::cell_picture(&placed, SheetId(1), "B4").is_ok());
 
     let typed = apply(&placed, set("B4", "替换")).doc;
     assert!(
-        ankole_spreadsheet::cell_picture(&typed, 1, "B4").is_err(),
+        ankole_spreadsheet::cell_picture(&typed, SheetId(1), "B4").is_err(),
         "typing replaces the picture"
     );
     assert_eq!(text(&typed, 1, "B4"), "替换");
@@ -356,13 +371,14 @@ fn copied_blocks_paste_formulas_values_and_formats() -> Result<(), Error> {
             json!({"type": "range.format", "sheet_id": 1, "range": "D4", "patch": {"italic": true}}),
         ],
     );
-    let block = ankole_spreadsheet::copy_block(&doc, 1, "A1:B2")?;
+    let block = ankole_spreadsheet::copy_block(&doc, SheetId(1), "A1:B2")?;
     assert_eq!(block.origin, "A1");
     assert_eq!(block.rows[0][1].input, "=A1*10");
     assert_eq!(block.rows[0][1].value, "20");
     assert_eq!(block.rows[0][1].text, "20.0");
 
-    let all = ankole_spreadsheet::paste_op(&block, 1, "C3", ankole_spreadsheet::PasteMode::All)?;
+    let all =
+        ankole_spreadsheet::paste_op(&block, SheetId(1), "C3", ankole_spreadsheet::PasteMode::All)?;
     let pasted = apply(&doc, serde_json::to_value(&all).unwrap_or_default()).doc;
     assert_eq!(formula(&pasted, 1, "D3").as_deref(), Some("=C3*10"));
     assert_eq!(formula(&pasted, 1, "D4").as_deref(), Some("=$A$1+C4"));
@@ -378,8 +394,12 @@ fn copied_blocks_paste_formulas_values_and_formats() -> Result<(), Error> {
         "a full paste replaces the old format"
     );
 
-    let values =
-        ankole_spreadsheet::paste_op(&block, 1, "C3", ankole_spreadsheet::PasteMode::Values)?;
+    let values = ankole_spreadsheet::paste_op(
+        &block,
+        SheetId(1),
+        "C3",
+        ankole_spreadsheet::PasteMode::Values,
+    )?;
     let pasted = apply(&doc, serde_json::to_value(&values).unwrap_or_default()).doc;
     assert_eq!(formula(&pasted, 1, "D3"), None);
     assert_eq!(number(&pasted, 1, "D3"), 20.0);
@@ -388,8 +408,12 @@ fn copied_blocks_paste_formulas_values_and_formats() -> Result<(), Error> {
         "pasting values keeps the destination format"
     );
 
-    let formats =
-        ankole_spreadsheet::paste_op(&block, 1, "C3", ankole_spreadsheet::PasteMode::Formats)?;
+    let formats = ankole_spreadsheet::paste_op(
+        &block,
+        SheetId(1),
+        "C3",
+        ankole_spreadsheet::PasteMode::Formats,
+    )?;
     let pasted = apply(
         &apply(&doc, set("D3", "keep")).doc,
         serde_json::to_value(&formats).unwrap_or_default(),

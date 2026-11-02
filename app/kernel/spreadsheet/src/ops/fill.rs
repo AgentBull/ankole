@@ -19,6 +19,7 @@ use super::edit::sheet_mut;
 use super::{Outcome, check_size};
 use crate::Error;
 use crate::doc::require_sheet;
+use crate::ids::SheetId;
 
 /// How a fill continues its source.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,7 +155,7 @@ enum Plan {
 
 pub(super) fn fill(
     wb: &mut gridcraft_model::Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     source: RangeRef,
     to: RangeRef,
     mode: FillMode,

@@ -35,6 +35,7 @@
 mod clipboard;
 mod doc;
 mod functions;
+mod ids;
 mod index;
 mod ops;
 mod rebase;
@@ -46,10 +47,11 @@ pub use clipboard::{
 };
 pub use doc::SpreadsheetDoc;
 pub use functions::{FunctionInfo, functions};
+pub use ids::{CellArea, ImageId, SheetId};
 pub use index::{Metadata, PLAIN_TEXT_LIMIT, SheetSummary};
 pub use ops::{
-    FillMode, FormatPatch, ImageAnchor, MAX_PICTURE_BYTES, Op, PasteCell, Picture, PictureMime,
-    StructuralEdit,
+    FillMode, FormatPatch, FormulaStorage, ImageAnchor, MAX_PICTURE_BYTES, MergeShape, Op,
+    PasteCell, Picture, PictureMime, SortHeader, StructuralEdit, TableChange, TextInput,
 };
 pub use rebase::Conflict;
 pub use view::{

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Error;
 use crate::doc::{SpreadsheetDoc, sheet_by_id};
+use crate::ids::SheetId;
 use crate::ops::{
     Border, BorderStyle, BordersPatch, FormatPatch, HAlign, HexColor, Op, PasteCell, Range, VAlign,
 };
@@ -66,7 +67,7 @@ pub enum PasteMode {
 /// [`MAX_CLIPBOARD_CELLS`] cells.
 pub fn copy_block(
     doc: &SpreadsheetDoc,
-    sheet_id: u32,
+    sheet_id: SheetId,
     range: &str,
 ) -> Result<ClipboardBlock, Error> {
     let wb = doc.workbook();
@@ -120,7 +121,7 @@ pub fn copy_block(
 /// not fit on the worksheet at `cell`.
 pub fn paste_op(
     block: &ClipboardBlock,
-    sheet_id: u32,
+    sheet_id: SheetId,
     cell: &str,
     mode: PasteMode,
 ) -> Result<Op, Error> {

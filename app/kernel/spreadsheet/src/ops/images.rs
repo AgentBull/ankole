@@ -13,6 +13,7 @@ use super::edit::sheet_mut;
 use super::{ImageAnchor, Outcome, Picture, PictureMime};
 use crate::Error;
 use crate::doc::require_sheet;
+use crate::ids::{ImageId, SheetId};
 
 /// The largest picture one operation may carry, in bytes.
 pub const MAX_PICTURE_BYTES: usize = 2 * 1024 * 1024;
@@ -23,8 +24,8 @@ const MAX_ALT_CHARS: usize = 1_000;
 
 pub(super) fn insert(
     wb: &mut Workbook,
-    sheet_id: u32,
-    image_id: &mut Option<u32>,
+    sheet_id: SheetId,
+    image_id: &mut Option<ImageId>,
     anchor: &ImageAnchor,
     picture: &Picture,
 ) -> Result<Outcome, Error> {
@@ -34,7 +35,7 @@ pub(super) fn insert(
     let id = new_object_id(wb, *image_id)?;
     *image_id = Some(id);
     sheet_mut(wb, index)?.images.push(Image {
-        id,
+        id: id.0,
         anchor: model_anchor(anchor),
         data: Arc::new(picture.data.0.clone()),
         mime: picture.mime.as_str().to_string(),
@@ -45,8 +46,8 @@ pub(super) fn insert(
 
 pub(super) fn update(
     wb: &mut Workbook,
-    sheet_id: u32,
-    image_id: u32,
+    sheet_id: SheetId,
+    image_id: ImageId,
     anchor: &ImageAnchor,
 ) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
@@ -55,7 +56,7 @@ pub(super) fn update(
     let image = sheet
         .images
         .iter_mut()
-        .find(|image| image.id == image_id)
+        .find(|image| image.id == image_id.0)
         .ok_or_else(|| missing(image_id))?;
     image.anchor = Anchor {
         mode: image.anchor.mode,
@@ -64,7 +65,11 @@ pub(super) fn update(
     Ok(Outcome::default())
 }
 
-pub(super) fn delete(wb: &mut Workbook, sheet_id: u32, image_id: u32) -> Result<Outcome, Error> {
+pub(super) fn delete(
+    wb: &mut Workbook,
+    sheet_id: SheetId,
+    image_id: ImageId,
+) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
     take_image(sheet_mut(wb, index)?, image_id)?;
     Ok(Outcome::default())
@@ -72,7 +77,7 @@ pub(super) fn delete(wb: &mut Workbook, sheet_id: u32, image_id: u32) -> Result<
 
 pub(super) fn set_cell_picture(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     at: CellRef,
     picture: Option<&Picture>,
 ) -> Result<Outcome, Error> {
@@ -97,8 +102,8 @@ pub(super) fn set_cell_picture(
 
 pub(super) fn to_cell(
     wb: &mut Workbook,
-    sheet_id: u32,
-    image_id: u32,
+    sheet_id: SheetId,
+    image_id: ImageId,
     at: CellRef,
 ) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
@@ -106,7 +111,7 @@ pub(super) fn to_cell(
     let position = sheet
         .images
         .iter()
-        .position(|image| image.id == image_id)
+        .position(|image| image.id == image_id.0)
         .ok_or_else(|| missing(image_id))?;
     let mime = sheet.images.get(position).map(|image| image.mime.clone());
     if !mime.as_deref().is_some_and(cell_mime) {
@@ -130,9 +135,9 @@ pub(super) fn to_cell(
 
 pub(super) fn from_cell(
     wb: &mut Workbook,
-    sheet_id: u32,
+    sheet_id: SheetId,
     at: CellRef,
-    image_id: &mut Option<u32>,
+    image_id: &mut Option<ImageId>,
     anchor: &ImageAnchor,
 ) -> Result<Outcome, Error> {
     let index = require_sheet(wb, sheet_id)?;
@@ -145,7 +150,7 @@ pub(super) fn from_cell(
         .ok_or_else(|| Error::invalid(format!("{} holds no picture", at.a1())))?;
     let picture = Arc::try_unwrap(picture).unwrap_or_else(|shared| shared.as_ref().clone());
     sheet.images.push(Image {
-        id,
+        id: id.0,
         anchor: model_anchor(anchor),
         data: Arc::new(picture.data),
         mime: picture.mime,
@@ -178,24 +183,24 @@ fn place_in_cell(
     })
 }
 
-fn take_image(sheet: &mut gridcraft_model::Sheet, image_id: u32) -> Result<Image, Error> {
+fn take_image(sheet: &mut gridcraft_model::Sheet, image_id: ImageId) -> Result<Image, Error> {
     let position = sheet
         .images
         .iter()
-        .position(|image| image.id == image_id)
+        .position(|image| image.id == image_id.0)
         .ok_or_else(|| missing(image_id))?;
     Ok(sheet.images.remove(position))
 }
 
-fn missing(image_id: u32) -> Error {
+fn missing(image_id: ImageId) -> Error {
     Error::invalid(format!("no picture has image_id {image_id} on this sheet"))
 }
 
 /// The id a new floating picture gets: the one the editor chose when no object of the workbook
 /// uses it, or else one past every object id in use.
-fn new_object_id(wb: &Workbook, requested: Option<u32>) -> Result<u32, Error> {
-    let Some(id) = requested else {
-        return Ok(wb.next_object_id());
+fn new_object_id(wb: &Workbook, requested: Option<ImageId>) -> Result<ImageId, Error> {
+    let Some(ImageId(id)) = requested else {
+        return Ok(ImageId(wb.next_object_id()));
     };
     let used = wb.sheets.iter().any(|sheet| {
         sheet.images.iter().any(|object| object.id == id)
@@ -207,7 +212,7 @@ fn new_object_id(wb: &Workbook, requested: Option<u32>) -> Result<u32, Error> {
     if id == 0 || used {
         return Err(Error::invalid(format!("image_id {id} is already in use")));
     }
-    Ok(id)
+    Ok(ImageId(id))
 }
 
 fn model_anchor(anchor: &ImageAnchor) -> Anchor {
