@@ -21,7 +21,10 @@ Application.put_env(
   )
 )
 
-Application.put_env(:ankole, AnkoleWeb.Assets, dev_server: nil)
+Application.put_env(:ankole, AnkoleWeb.Assets,
+  dev_server: System.get_env("POD_BROWSER_DEV_SERVER")
+)
+
 # Long-lived browser channels need the production checkout lifecycle. A Sandbox
 # connection belongs to its channel process until that process exits.
 Application.put_env(

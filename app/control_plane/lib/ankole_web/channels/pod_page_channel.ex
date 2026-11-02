@@ -133,9 +133,9 @@ defmodule AnkoleWeb.PodPageChannel do
   def handle_info({:node_committed, _id}, socket) do
     if allowed?(socket) do
       case with_tenant(socket, fn -> latest(socket) end) do
-        {:ok, event, result} ->
-          push(socket, event, json_result(socket, result))
-          {:noreply, assign(socket, :revision, result.revision)}
+        {:ok, event, result, updated} ->
+          push(updated, event, json_result(updated, result))
+          {:noreply, assign(updated, :revision, result.revision)}
 
         _ ->
           {:stop, :normal, socket}
@@ -290,21 +290,46 @@ defmodule AnkoleWeb.PodPageChannel do
   defp latest(%{assigns: %{page_type: :doc}} = socket) do
     with {:ok, result} <-
            Documents.since(socket.assigns.actor, socket.assigns.page_id, socket.assigns.revision),
-         do: {:ok, "changes", result}
-  end
-
-  defp latest(%{assigns: %{spreadsheet?: true}} = socket) do
-    with {:ok, result} <-
-           Spreadsheets.since(
-             socket.assigns.actor,
-             socket.assigns.page_id,
-             socket.assigns.revision
-           ),
-         do: {:ok, "sheet:changes", result}
+         do: {:ok, "changes", result, socket}
   end
 
   defp latest(socket) do
-    with {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view"),
-         do: {:ok, "changes", %{revision: page.revision, object_id: page.object_id, changes: []}}
+    with {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view") do
+      was_spreadsheet? = socket.assigns.spreadsheet?
+      socket = refresh_spreadsheet(socket, Spreadsheets.spreadsheet?(page))
+
+      if socket.assigns.spreadsheet? do
+        if not was_spreadsheet?,
+          do:
+            push(socket, "changes", %{
+              revision: page.revision,
+              object_id: page.object_id,
+              changes: []
+            })
+
+        with {:ok, result} <-
+               Spreadsheets.since(socket.assigns.actor, page.id, socket.assigns.revision),
+             do: {:ok, "sheet:changes", result, socket}
+      else
+        {:ok, "changes", %{revision: page.revision, object_id: page.object_id, changes: []},
+         socket}
+      end
+    end
+  end
+
+  defp refresh_spreadsheet(%{assigns: %{spreadsheet?: current}} = socket, current), do: socket
+
+  defp refresh_spreadsheet(socket, spreadsheet?) do
+    meta = %{socket.assigns.presence_meta | selection: nil, mode: "viewing"}
+    socket = assign(socket, spreadsheet?: spreadsheet?, presence_meta: meta)
+
+    if spreadsheet? do
+      {:ok, _} = AnkoleWeb.PodPresence.track(socket, socket.assigns.uid, meta)
+      push(socket, "presence_state", AnkoleWeb.PodPresence.list(socket))
+    else
+      :ok = AnkoleWeb.PodPresence.untrack(socket, socket.assigns.uid)
+    end
+
+    socket
   end
 end

@@ -527,12 +527,16 @@ fn with_kept_parts(extra_content_types: &str, extra_parts: &[(&str, &str)]) -> V
         text.into_bytes()
     };
     let mut added = vec![
-        ("docProps/custom.xml", CUSTOM_PROPERTIES),
-        ("customXml/item1.xml", CUSTOM_XML),
-        ("customXml/itemProps1.xml", CUSTOM_XML_PROPS),
-        ("customXml/_rels/item1.xml.rels", CUSTOM_XML_RELS),
+        ("docProps/custom.xml", CUSTOM_PROPERTIES.as_bytes()),
+        ("customXml/item1.xml", CUSTOM_XML.as_bytes()),
+        ("customXml/itemProps1.xml", CUSTOM_XML_PROPS.as_bytes()),
+        ("customXml/_rels/item1.xml.rels", CUSTOM_XML_RELS.as_bytes()),
     ];
-    added.extend_from_slice(extra_parts);
+    added.extend(
+        extra_parts
+            .iter()
+            .map(|(name, data)| (*name, data.as_bytes())),
+    );
     rewrite_package(&corpus_file("24_多币种结算.xlsx"), edit, &added)
 }
 
@@ -601,5 +605,75 @@ fn parts_that_saving_drops_flag_unsupported_objects() -> TestResult {
     let exported = ankole_spreadsheet::export_xlsx(&doc)?;
     assert!(exported.metadata.has_unsupported_objects);
     assert!(!package_parts(&exported.xlsx).contains_key("xl/slicers/slicer1.xml"));
+    Ok(())
+}
+
+const MACRO_WORKBOOK: &str = "application/vnd.ms-excel.sheet.macroEnabled.main+xml";
+const VBA_PROJECT: &str = "http://schemas.microsoft.com/office/2006/relationships/vbaProject";
+const MACROS_KEPT: &str = "macros (VBA project) were kept but not executed";
+
+/// File 24 as a macro-enabled workbook. Ankole never reads or runs the VBA project, so arbitrary
+/// binary bytes stand in for one and must come back unchanged, with GridCraft's notice that the
+/// macros were kept but not executed.
+fn with_vba_project(project: &[u8]) -> Vec<u8> {
+    let edit = |name: &str, data: Vec<u8>| {
+        let text = String::from_utf8(data).expect("XML part");
+        let text = match name {
+            "[Content_Types].xml" => text
+                .replace(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+                    MACRO_WORKBOOK,
+                )
+                .replace(
+                    "</Types>",
+                    "<Default Extension=\"bin\" ContentType=\"application/vnd.ms-office.vbaProject\" /></Types>",
+                ),
+            "xl/_rels/workbook.xml.rels" => text.replace(
+                "</Relationships>",
+                &format!(
+                    "<Relationship Type=\"{VBA_PROJECT}\" Target=\"vbaProject.bin\" Id=\"rIdVba\" /></Relationships>"
+                ),
+            ),
+            _ => text,
+        };
+        text.into_bytes()
+    };
+    rewrite_package(
+        &corpus_file("24_多币种结算.xlsx"),
+        edit,
+        &[("xl/vbaProject.bin", project)],
+    )
+}
+
+#[test]
+fn a_macro_enabled_workbook_keeps_its_vba_project_through_edits_and_saves() -> TestResult {
+    let project: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+    let doc = ankole_spreadsheet::open(&with_vba_project(&project), "[]")?;
+    let sheet = sheet_id(&doc, "结算台账");
+    let doc = apply(
+        &doc,
+        json!({"type": "cell.set", "sheet_id": sheet, "cell": "B3", "input": "宏工作簿"}),
+    )
+    .doc;
+    let doc = apply(
+        &doc,
+        json!({"type": "line.insert", "sheet_id": sheet, "axis": "rows", "at": 7, "count": 1}),
+    )
+    .doc;
+    let first = ankole_spreadsheet::export_xlsx(&doc)?;
+    let second = ankole_spreadsheet::export_xlsx(&ankole_spreadsheet::open(&first.xlsx, "[]")?)?;
+    for exported in [&first, &second] {
+        let parts = package_parts(&exported.xlsx);
+        assert_eq!(
+            parts.get("xl/vbaProject.bin").map(Vec::as_slice),
+            Some(project.as_slice())
+        );
+        let content_types = String::from_utf8(parts["[Content_Types].xml"].clone())?;
+        assert!(content_types.contains(MACRO_WORKBOOK), "{content_types}");
+        let relationships = String::from_utf8(parts["xl/_rels/workbook.xml.rels"].clone())?;
+        assert!(relationships.contains(VBA_PROJECT), "{relationships}");
+        assert!(!exported.metadata.has_unsupported_objects);
+        assert_eq!(exported.metadata.warnings, [MACROS_KEPT]);
+    }
     Ok(())
 }

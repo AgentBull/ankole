@@ -1669,6 +1669,11 @@ history does. File collection keeps every object that a snapshot names; see
 On the page channel, a spreadsheet Page joins Presence with the same profile,
 session, `selection`, and `mode` metadata as a document, and `sheet:presence`
 replaces the sender's `selection` with a JSON object of at most 4 KiB or `null`.
+When a file's content changes, the channel checks its current spreadsheet
+status. Uploading a workbook to an open file Page enables spreadsheet events
+and Presence on that connection, and notifies the file view to load the editor.
+Replacing it with another file type removes spreadsheet Presence and returns
+the connection to ordinary file notifications.
 `sheet:apply` commits an operation and replies with `revision`, `changes`,
 `reset_required`, and `acknowledged_revision`; `sheet:sync` replays the entries
 after a revision; and every committed change pushes `sheet:changes` with the
@@ -1678,8 +1683,11 @@ that exceeds the 32 MiB message budget or reaches past pruned entries sets
 `reset_required`.
 
 The browser editor runs the kernel's WebAssembly build in a Web Worker, which
-the Pod bundle loads only when a spreadsheet Page opens. The worker holds two
-documents: the confirmed document, which equals the server's state at the
+the Pod bundle loads only when a spreadsheet Page opens. When the worker entry
+comes from another origin, as it does with a separate Vite development server,
+the editor starts a same-origin Blob module that imports that entry under the
+browser's CORS rules. The editor releases the Blob URL when it stops the worker.
+The worker holds two documents: the confirmed document, which equals the server's state at the
 editor's revision, and the local document, which adds this tab's pending
 operations on top and serves every read. Bootstrap downloads the file with the
 pinned `sha256` from the bootstrap response and replays its operations; when
@@ -1695,8 +1703,10 @@ The editor sends one operation at a time with a 30 ms send delay and queues
 later edits behind the request in flight; each tab numbers its requests with
 its own `client_id` and an increasing `client_seq`, so a retry after a timeout
 is idempotent, and `spreadsheet_busy` repeats the same request after 200 ms
-up to five times. Every reply, push, and sync result applies the entries after
-the editor's revision to the confirmed document in order. When the entries
+up to five times. The saving indicator covers each submitted edit from the
+start of local processing, including work waiting for the worker, through its
+server acknowledgement. Every reply, push, and sync result applies the entries
+after the editor's revision to the confirmed document in order. When the entries
 include other editors' operations and local operations are still pending, the
 worker rebuilds the local document from the confirmed one and rebases each
 pending operation over those entries; a pending operation that conflicts is
@@ -1705,9 +1715,10 @@ again. A `spreadsheet_conflict` reply drops the request in flight the same way
 after applying the missed entries, and a push that skips a revision asks for
 `sheet:sync`. `reset_required`, a `reset` entry, or `client_sequence_conflict`
 discards the pending operations, tells the author, and bootstraps again; the
-same happens after a restore, an upload, or an Agent Drive write. A changed page
-revision that the Pod socket's version check reports also asks for
-`sheet:sync`. The editor shares the page channel with the file Page, which keeps
+same happens after a restore, an upload, or an Agent Drive write. The editor
+also discards and reports an edit that the author submits while that bootstrap
+is still loading. A changed page revision that the Pod socket's version check
+reports also asks for `sheet:sync`. The editor shares the page channel with the file Page, which keeps
 handling comment and access events. The editor sends the selection with
 `sheet:presence` at most every 250 ms, sends `null` when the grid loses focus,
 and paints each collaborator's selection and name in a color derived from the

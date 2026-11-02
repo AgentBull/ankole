@@ -693,6 +693,12 @@ How `pod_browser_server.exs` works:
 - **Real connections and real auth**: The server uses the standard Ecto connection pool (not SQL Sandbox) so Phoenix Channels stay alive across requests, creates a fresh data tenant on each boot, reuses a fixed root-administrator Principal in the privileged tenant, and delivers login OTPs through a local TLS SMTP fixture whose `.mail.json` companion file lets Playwright read delivered codes without bypassing authentication or AuthZ.
 - **Coverage**: The suite verifies live collaborative page edits, Base tables, Applet publishing, access revocation, Office file previews, Console member/guest provisioning and access-version bumps across reloads, iframe module loading, CSS isolation, per-tab identity selection, and the full sample-reservation Applet backend (pending submissions, input retention on rejection, viewer write denial, competing reservations, and paired frontend/backend revision swaps—delaying one real committed HTTP response solely to inspect pending UI state).
 
+To check the development asset path, start Vite with `PORT` matching the fixture
+server's port, then set `POD_BROWSER_DEV_SERVER=http://127.0.0.1:3035` when
+launching the fixture server. Run `spreadsheet.spec.ts` against that fixture to
+exercise the real spreadsheet Worker with Vite and the Pod page on different
+origins. Omit `POD_BROWSER_DEV_SERVER` for production-bundle checks.
+
 For the document multiplayer suite, build a source-mounted Worker image from the
 repository root with Docker running:
 
@@ -721,6 +727,21 @@ The fixture's supervised Worker owner serializes reconciliation and removes its
 own containers and volumes when it stops, including on `SIGTERM`. Normal script
 exit and Worker startup failures stop that same owner. Without this mode, the Agent
 case is skipped; a passing browser-only run does not verify the Worker path.
+
+The spreadsheet Worker integration test uses the same source-mounted image to
+run `ankole-files get` and `ankole-files put` through the real file relay. It
+checks that a download includes pending Human edits and that an Agent's file
+replacement resets spreadsheet collaborators. After building the image above,
+run it in the dedicated spreadsheet test partition:
+
+```bash
+cd app/control_plane
+MIX_ENV=test MIX_TEST_PARTITION=spreadsheet \
+  ANKOLE_E2E_WORKER_IMAGE="$(cat /tmp/ankole-doc-worker-image)" \
+  mix test integration/pod_spreadsheet_worker_test.exs --include external
+```
+
+The fixture removes its Docker Worker and volume when the test finishes.
 
 ### Local browser performance
 

@@ -106,7 +106,7 @@ pub fn package_parts(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
 pub fn rewrite_package(
     bytes: &[u8],
     edit: impl Fn(&str, Vec<u8>) -> Vec<u8>,
-    added: &[(&str, &str)],
+    added: &[(&str, &[u8])],
 ) -> Vec<u8> {
     use std::io::Write;
     let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -117,7 +117,7 @@ pub fn rewrite_package(
     for (name, data) in parts.chain(
         added
             .iter()
-            .map(|(name, data)| (name.to_string(), data.as_bytes().to_vec())),
+            .map(|(name, data)| (name.to_string(), data.to_vec())),
     ) {
         writer.start_file(name, options).expect("zip entry");
         writer.write_all(&data).expect("zip data");

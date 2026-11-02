@@ -368,6 +368,158 @@ test('Enter moves the selection at once, so typing straight on edits the next ce
   expect(model.selection.value.anchor).toEqual({ row: 2, col: 0 })
 })
 
+test('Enter stays unsaved through worker reads, local application, metadata refresh and the server acknowledgement', async () => {
+  const { engine } = fakeEngine()
+  const acknowledged = Promise.withResolvers<unknown>()
+  const socket = fakeChannel(() => acknowledged.promise)
+  const { model } = await started(socket, engine)
+  const reads = Promise.withResolvers<void>()
+  const applied = Promise.withResolvers<void>()
+  const refreshed = Promise.withResolvers<void>()
+  let stage = ''
+  engine.cellInputs = async () => {
+    stage = 'read'
+    await reads.promise
+    return [['before']]
+  }
+  engine.applyLocal = async op => {
+    stage = 'apply'
+    await applied.promise
+    return { op }
+  }
+  engine.sheets = async () => {
+    stage = 'refresh'
+    await refreshed.promise
+    return [SHEET]
+  }
+  model.edit({ row: 0, col: 0 }, 'after')
+  const committed = model.commitEdit('down')
+  expect(model.pending.value).toBeGreaterThan(0)
+  await until(() => stage === 'read')
+  expect(model.pending.value).toBeGreaterThan(0)
+  reads.resolve()
+  await until(() => stage === 'apply')
+  expect(model.pending.value).toBeGreaterThan(0)
+  applied.resolve()
+  await until(() => stage === 'refresh')
+  expect(model.pending.value).toBeGreaterThan(0)
+  refreshed.resolve()
+  await committed
+  await until(() => socket.applies().length === 1)
+  expect(model.pending.value).toBe(1)
+  acknowledged.resolve(acknowledge(1, socket.applies()[0]!.payload))
+  await until(() => model.pending.value === 0)
+})
+
+for (const action of ['format', 'paste', 'clear', 'undo', 'redo'] as const) {
+  test(`${action} is unsaved as soon as its local work is requested`, async () => {
+    const { engine } = fakeEngine()
+    const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+    const { model } = await started(socket, engine)
+    if (action === 'undo' || action === 'redo') {
+      await model.setCell({ row: 0, col: 0 }, 'seed')
+      await until(() => model.pending.value === 0)
+      if (action === 'redo') {
+        await model.undo()
+        await until(() => model.pending.value === 0)
+      }
+    }
+    const released = Promise.withResolvers<void>()
+    let entered = false
+    engine.applyLocal = async op => {
+      entered = true
+      await released.promise
+      return { op }
+    }
+    const run = {
+      format: () => model.perform({ type: 'range.format', sheet_id: 1, range: 'A1', patch: { bold: true } }),
+      paste: () => model.setValues({ row: 0, col: 0 }, [['12', '24']]),
+      clear: () => model.clearContents(),
+      undo: () => model.undo(),
+      redo: () => model.redo()
+    }[action]()
+    expect(model.pending.value).toBeGreaterThan(0)
+    await until(() => entered)
+    expect(model.pending.value).toBeGreaterThan(0)
+    released.resolve()
+    await run
+    await until(() => model.pending.value === 0)
+  })
+}
+
+test('failed worker preparation clears the unsaved count', async () => {
+  const { engine } = fakeEngine()
+  const { model, notices } = await started(fakeChannel(), engine)
+  engine.applyLocal = async () => {
+    throw new Error('invalid format')
+  }
+  await model.perform({ type: 'range.format', sheet_id: 1, range: 'A1', patch: { bold: true } })
+  expect(model.pending.value).toBe(0)
+  expect(notices[0]?.kind).toBe('rejected')
+  engine.cellInputs = async () => {
+    throw new Error('worker stopped')
+  }
+  await expect(model.setCell({ row: 0, col: 0 }, 'unsent')).rejects.toThrow('worker stopped')
+  expect(model.pending.value).toBe(0)
+})
+
+test('a reset discards local work queued behind it before the worker applies it', async () => {
+  const { engine, called } = fakeEngine()
+  const socket = fakeChannel()
+  const { model, notices } = await started(socket, engine, { loads: [0, 9] })
+  socket.emit('sheet:changes', { revision: 9, changes: [], reset_required: true })
+  const queued = model.setCell({ row: 0, col: 0 }, 'old workbook edit')
+  expect(model.pending.value).toBe(1)
+  expect(await queued).toBeUndefined()
+  expect(called('applyLocal')).toHaveLength(0)
+  expect(model.revision.value).toBe(9)
+  expect(model.pending.value).toBe(0)
+  expect(notices).toEqual([{ kind: 'discarded', count: 1 }])
+})
+
+test('an edit committed while a reset reloads the workbook is discarded with a notice', async () => {
+  const { engine, called } = fakeEngine()
+  const socket = fakeChannel()
+  const { model, notices } = await started(socket, engine, { loads: [0, 9] })
+  const reopened = Promise.withResolvers<void>()
+  const open = engine.open
+  engine.open = async (bytes, ops) => {
+    await reopened.promise
+    return open(bytes, ops)
+  }
+  model.edit({ row: 0, col: 0 }, 'typed during reload')
+  socket.emit('sheet:changes', { revision: 9, changes: [], reset_required: true })
+  await until(() => model.status.value === 'loading')
+  expect(await model.commitEdit('down')).toBeUndefined()
+  expect(model.pending.value).toBe(0)
+  expect(notices).toEqual([{ kind: 'discarded', count: 1 }])
+  reopened.resolve()
+  await until(() => model.status.value === 'ready')
+  expect(called('applyLocal')).toHaveLength(0)
+  expect(model.revision.value).toBe(9)
+})
+
+test('disposing during a worker edit clears pending work without sending it later', async () => {
+  const { engine } = fakeEngine()
+  const socket = fakeChannel()
+  const { model } = await started(socket, engine)
+  const released = Promise.withResolvers<void>()
+  let entered = false
+  engine.applyLocal = async op => {
+    entered = true
+    await released.promise
+    return { op }
+  }
+  const edit = model.setCell({ row: 0, col: 0 }, 'closed tab')
+  await until(() => entered)
+  model[Symbol.dispose]()
+  expect(model.pending.value).toBe(0)
+  released.resolve()
+  expect(await edit).toBeUndefined()
+  expect(model.pending.value).toBe(0)
+  expect(socket.applies()).toHaveLength(0)
+})
+
 test('a viewer without node_edit reads the workbook but cannot queue edits', async () => {
   const { engine, called } = fakeEngine()
   const socket = fakeChannel()

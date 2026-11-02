@@ -1,11 +1,27 @@
 import type { SpreadsheetEngine } from '../state/spreadsheet-collaboration'
 import type { EngineMethods, EngineRequest, EngineResponse } from './spreadsheet-worker'
+// Vite generates this URL export; the worker source itself exports no default.
+// oxlint-disable-next-line import/default
+import workerSourceURL from './spreadsheet-worker.ts?worker&url'
 
 type Waiting = { resolve(value: unknown): void; reject(error: Error): void }
 
 /** Starts the spreadsheet worker and calls it with one typed request per message. */
 export function createSpreadsheetEngine(): SpreadsheetEngine {
-  const worker = new Worker(new URL('./spreadsheet-worker.ts', import.meta.url), { type: 'module' })
+  const workerURL = new URL(workerSourceURL, import.meta.url)
+  // Phoenix and Vite use different origins in development. A same-origin module
+  // worker can import Vite's compiled entry with its normal CORS checks.
+  const bootstrapURL =
+    workerURL.origin === location.origin
+      ? undefined
+      : URL.createObjectURL(new Blob([`import ${JSON.stringify(workerURL.href)}`], { type: 'text/javascript' }))
+  let worker: Worker
+  try {
+    worker = new Worker(bootstrapURL ?? workerURL, { type: 'module' })
+  } catch (error) {
+    if (bootstrapURL) URL.revokeObjectURL(bootstrapURL)
+    throw error
+  }
   const waiting = new Map<number, Waiting>()
   let next = 0
   const failAll = (error: Error) => {
@@ -40,6 +56,7 @@ export function createSpreadsheetEngine(): SpreadsheetEngine {
     cellInputs: (sheetID, rect) => call('cellInputs', [sheetID, rect]),
     dispose() {
       worker.terminate()
+      if (bootstrapURL) URL.revokeObjectURL(bootstrapURL)
       failAll(new Error('The spreadsheet worker stopped'))
     }
   }

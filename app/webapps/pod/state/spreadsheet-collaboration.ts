@@ -167,6 +167,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   let tail: Promise<unknown> = Promise.resolve()
   let inFlight: Entry | undefined
   let queue: Entry[] = []
+  const localEdits = new Set<symbol>()
   let sequence = 0
   let pushing = false
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -187,9 +188,32 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
 
   const publishCounts = () => {
     batch(() => {
-      pending.value = (inFlight ? 1 : 0) + queue.length
+      pending.value = localEdits.size + (inFlight ? 1 : 0) + queue.length
       canUndo.value = undoStack.length > 0
       canRedo.value = redoStack.length > 0
+    })
+  }
+
+  /**
+   * Marks an edit as unsaved before waiting for the worker or earlier local work. While a reset
+   * loads the replaced workbook, the editor discards an edit of the old one and tells the author,
+   * as it does for the edits the reset dropped.
+   */
+  const editSerial = (task: () => Promise<SpreadsheetOp | undefined>) => {
+    if (disposed) return Promise.resolve(undefined)
+    if (status.peek() === 'loading') options.notify({ kind: 'discarded', count: 1 })
+    if (status.peek() !== 'ready') return Promise.resolve(undefined)
+    const edit = Symbol()
+    localEdits.add(edit)
+    publishCounts()
+    return serial(async () => {
+      try {
+        if (disposed || !localEdits.has(edit)) return undefined
+        return await task()
+      } finally {
+        localEdits.delete(edit)
+        publishCounts()
+      }
     })
   }
 
@@ -281,7 +305,8 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   }
 
   const reset = async () => {
-    const discarded = (inFlight ? 1 : 0) + queue.length
+    const discarded = localEdits.size + (inFlight ? 1 : 0) + queue.length
+    localEdits.clear()
     inFlight = undefined
     queue = []
     clearTimeout(timer)
@@ -466,7 +491,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     op: SpreadsheetOp,
     record?: (applied: SpreadsheetOp) => UndoRecord | undefined
   ): Promise<SpreadsheetOp | undefined> => {
-    if (!engine || status.peek() !== 'ready') return undefined
+    if (disposed || !engine || status.peek() !== 'ready') return undefined
     let applied: SpreadsheetOp
     try {
       applied = (await engine.applyLocal(op)).op
@@ -474,6 +499,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       options.notify({ kind: 'rejected', op, message: failureMessage(failure) })
       return undefined
     }
+    if (disposed) return undefined
     queue.push({ op: applied, undo: record?.(applied), busy: 0 })
     if (isStructural(applied)) clearHistory()
     await refreshSheets()
@@ -484,7 +510,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
 
   /** An edit of cell values whose inverse restores the inputs the cells held before it. */
   const valueEdit = (op: SpreadsheetOp, sheetID: number, rect: Rect | undefined) =>
-    serial(async () => {
+    editSerial(async () => {
       if (!engine || status.peek() !== 'ready') return undefined
       const before = rect ? await engine.cellInputs(sheetID, rect) : undefined
       return applyEdit(op, applied => {
@@ -497,7 +523,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     })
 
   const replay = (from: 'undo' | 'redo') =>
-    serial(async () => {
+    editSerial(async () => {
       if (status.peek() !== 'ready') return undefined
       const record = (from === 'undo' ? undoStack : redoStack).pop()
       if (!record) return undefined
@@ -585,6 +611,10 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
 
   effect(() => () => {
     disposed = true
+    localEdits.clear()
+    inFlight = undefined
+    queue = []
+    publishCounts()
     clearTimeout(timer)
     clearTimeout(presenceTimer)
     if (channel) {
@@ -651,7 +681,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
      * Resolves to the operation as committed locally, with assigned sheet ids filled in.
      */
     perform(op: SpreadsheetOp) {
-      return serial(() => applyEdit(op))
+      return editSerial(() => applyEdit(op))
     },
     setCell,
     /** Pastes a block of typed values with its top-left corner on `anchor`; empty strings clear cells. */

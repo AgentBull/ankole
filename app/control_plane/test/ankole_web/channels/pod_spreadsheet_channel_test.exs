@@ -134,6 +134,50 @@ defmodule AnkoleWeb.PodSpreadsheetChannelTest do
            } = reply |> Ankole.JSON.encode!() |> Ankole.JSON.decode!()
   end
 
+  test "a viewer receives live cells but cannot edit or access spreadsheet versions", ctx do
+    viewer = human_fixture(%{display_name: "Forecast Reviewer"}).principal
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, ctx.page.id, %{
+        grants: [%{principal_uid: viewer.uid, role: "view"}]
+      })
+
+    owner = join_sheet(ctx.owner, ctx.page)
+    reader = join_sheet(viewer, ctx.page)
+    actor = actor_fixture(viewer.uid)
+    assert {:ok, %{revision: 1}} = Spreadsheets.bootstrap(actor, ctx.page.id)
+
+    ref =
+      push(owner, "sheet:apply", %{
+        "base_revision" => 1,
+        "client_id" => "owner-tab",
+        "client_seq" => 1,
+        "op" => set("B2", "12500")
+      })
+
+    assert_reply ref, :ok, %{revision: 2}, 1_000
+    ref = push(reader, "sheet:sync", %{"revision" => 1})
+
+    assert_reply ref,
+                 :ok,
+                 %{revision: 2, changes: [%{"op" => %{"cell" => "B2", "input" => "12500"}}]},
+                 1_000
+
+    ref =
+      push(reader, "sheet:apply", %{
+        "base_revision" => 2,
+        "client_id" => "viewer-tab",
+        "client_seq" => 1,
+        "op" => set("B2", "0")
+      })
+
+    assert_reply ref, :error, %{reason: "forbidden"}, 1_000
+    assert {:error, :forbidden} = Spreadsheets.versions(actor, ctx.page.id)
+    {:ok, [version]} = Spreadsheets.versions(actor_fixture(ctx.owner.uid), ctx.page.id)
+    assert {:error, :forbidden} = Spreadsheets.restore(actor, ctx.page.id, version.id)
+    assert {:ok, %{revision: 2}} = Spreadsheets.bootstrap(actor, ctx.page.id)
+  end
+
   test "selections travel through presence and the last editor to leave wakes compaction", ctx do
     owner = join_sheet(ctx.owner, ctx.page)
 
@@ -193,6 +237,56 @@ defmodule AnkoleWeb.PodSpreadsheetChannelTest do
     assert_receive {:DOWN, ^owner_ref, :process, _, _}, 1_000
     [due] = all_enqueued(worker: CompactSpreadsheet, args: args)
     assert DateTime.diff(due.scheduled_at, DateTime.utc_now()) <= 1
+  end
+
+  test "an open file channel follows uploads into and out of spreadsheet editing", ctx do
+    actor = actor_fixture(ctx.owner.uid)
+    {:ok, page} = Ankole.Pod.Pages.create(actor, %{type: :file, private_owner_uid: ctx.owner.uid})
+
+    {:ok, _reply, socket} =
+      subscribe_and_join(authenticated_socket(ctx.owner), PodPageChannel, "page:#{page.id}")
+
+    refute_push "presence_state", _presence, 100
+    {:ok, %{xlsx_bytes: bytes}} = Ankole.Kernel.spreadsheet_create_blank("Forecast")
+    assert {:ok, _} = Files.upload(actor, page.id, "file", nil, "Forecast.xlsx", bytes)
+    assert_push "presence_state", _presence, 1_000
+    assert_push "changes", %{revision: 1}, 1_000
+    assert_push "sheet:changes", %{revision: 1, reset_required: true}, 1_000
+
+    selection = %{"sheet_id" => 1, "active_cell" => "B2", "editing" => true}
+    ref = push(socket, "sheet:presence", %{"selection" => selection})
+    assert_reply ref, :ok, _reply, 1_000
+
+    ref =
+      push(socket, "sheet:apply", %{
+        "base_revision" => 1,
+        "client_id" => "upload-tab",
+        "client_seq" => 1,
+        "op" => set("B2", "12500")
+      })
+
+    assert_reply ref, :ok, %{revision: 2}, 1_000
+    {:ok, %{files: [%{object_id: object_id}]}} = Files.manifest(actor, page.id)
+
+    assert {:ok, _} =
+             Files.upload(actor, page.id, "file", object_id, "Forecast.csv", "Budget\n12500")
+
+    assert_push "changes", %{revision: 3}, 1_000
+    assert Process.alive?(socket.channel_pid)
+
+    assert Ankole.Eventually.eventually(fn ->
+             AnkoleWeb.PodPresence.list("page:#{page.id}") == %{}
+           end)
+
+    ref = push(socket, "sheet:sync", %{"revision" => 2})
+    assert_reply ref, :error, %{reason: "invalid_request"}, 1_000
+
+    {:ok, %{files: [%{object_id: object_id}]}} = Files.manifest(actor, page.id)
+    assert {:ok, _} = Files.upload(actor, page.id, "file", object_id, "Revised.xlsx", bytes)
+    assert_push "presence_state", _presence, 1_000
+    assert_push "sheet:changes", %{revision: 4, reset_required: true}, 1_000
+    ref = push(socket, "sheet:presence", %{"selection" => selection})
+    assert_reply ref, :ok, _reply, 1_000
   end
 
   test "documents and other files keep their events and reject spreadsheet events", ctx do
