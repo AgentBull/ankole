@@ -216,6 +216,7 @@ fn category_key(category: Category) -> &'static str {
 }
 
 /// Every function a formula can call, sorted by name. Each name appears once.
+#[must_use]
 pub fn functions() -> Vec<FunctionInfo> {
     let mut list: Vec<FunctionInfo> = gridcraft_functions::all()
         .iter()

@@ -12,6 +12,10 @@ export class Spreadsheet {
      * Executes one canonical operation locally, without rebasing, and returns
      * `{"op": …, "structural_edit": … | null}` as JSON: the operation as the control plane would
      * commit it on the same document.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     apply(op_json: string): string;
     /**
@@ -20,27 +24,51 @@ export class Spreadsheet {
      * [`Spreadsheet::apply`]. When the rebase would have to guess, the error message is exactly
      * the conflict's wire name, such as `target_deleted`, so the caller can tell a conflict from
      * an invalid operation.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     apply_rebased(op_json: string, prior_ops_json: string): string;
     /**
      * The text a cell editor starts from for the A1 cell `cell`.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     cell_input(sheet_id: number, cell: string): string;
     /**
      * The encoded bytes of the picture in the A1 cell `cell`.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     cell_picture(sheet_id: number, cell: string): Uint8Array;
     /**
      * The cells of the A1 range `range` with their inputs, values, and formats, as the JSON a
      * later [`paste_op`] takes.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     copy_block(sheet_id: number, range: string): string;
     /**
      * Creates a workbook with one empty sheet whose `sheet_id` is 1.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     static create_blank(title: string): Spreadsheet;
     /**
      * The document as `.xlsx` bytes.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     export_xlsx(): Uint8Array;
     /**
@@ -50,34 +78,62 @@ export class Spreadsheet {
     fork(): Spreadsheet;
     /**
      * The encoded bytes of the floating picture `image_id`.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     image_data(sheet_id: number, image_id: number): Uint8Array;
     /**
      * The floating pictures of one sheet, as JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     images(sheet_id: number): string;
     /**
      * Reads `.xlsx` bytes and replays the committed operations that are not yet compacted into
      * them, given as a JSON array in revision order.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     static open(bytes: Uint8Array | number[], tail_ops_json: string): Spreadsheet;
     /**
      * The count, sum, average, minimum, and maximum of the A1 range `range`, as JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     selection_stats(sheet_id: number, range: string): string;
     /**
      * The sheet tabs in order, as JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     sheets(): string;
     /**
      * The cells, styles, merged areas, spills, and line sizes of the zero-based rectangle from
      * `(r0, c0)` to `(r1, c1)`, as JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     viewport(sheet_id: number, r0: number, c0: number, r1: number, c1: number): string;
 }
 
 /**
  * Every function a formula can call, sorted by name, as JSON.
+ *
+ * # Errors
+ *
+ * Throws a `JsError` with the kernel's message when the kernel refuses the input.
  */
 export function functions(): string;
 
@@ -85,6 +141,10 @@ export function functions(): string;
  * The `range.paste` operation, as JSON, that pastes the block JSON of
  * [`Spreadsheet::copy_block`] with its top-left cell on the A1 cell `cell`. `mode` is `all`,
  * `values`, `formulas`, or `formats`.
+ *
+ * # Errors
+ *
+ * Throws a `JsError` with the kernel's message when the kernel refuses the input.
  */
 export function paste_op(block_json: string, sheet_id: number, cell: string, mode: string): string;
 

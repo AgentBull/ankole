@@ -59,6 +59,11 @@ pub enum PasteMode {
 }
 
 /// Copies the cells of the A1 range `range`, cut to the part of the sheet that holds content.
+///
+/// # Errors
+///
+/// Returns [`Error::Invalid`] for an unknown sheet, an invalid range, or a block of more than
+/// [`MAX_CLIPBOARD_CELLS`] cells.
 pub fn copy_block(
     doc: &SpreadsheetDoc,
     sheet_id: u32,
@@ -108,6 +113,11 @@ pub fn copy_block(
 
 /// The `range.paste` operation that pastes `block` with its top-left cell on the A1 cell `cell`.
 /// Formulas move their relative references by the distance from the block's origin.
+///
+/// # Errors
+///
+/// Returns [`Error::Invalid`] for an invalid cell, or for a block that is not a rectangle or does
+/// not fit on the worksheet at `cell`.
 pub fn paste_op(
     block: &ClipboardBlock,
     sheet_id: u32,

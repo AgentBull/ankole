@@ -303,6 +303,7 @@ fn with_spreadsheet_stack<R>(call: impl FnOnce() -> R) -> R {
     stacker::grow(8 * 1024 * 1024, call)
 }
 
+/// Returns `{doc, xlsx, plain_text, metadata_json}` for a new workbook with one empty sheet.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn spreadsheet_create_blank_nif<'a>(env: Env<'a>, title: Term<'a>) -> NIFResult<Term<'a>> {
     let title = decode_string(title, "title")?;
@@ -319,6 +320,8 @@ pub fn spreadsheet_create_blank_nif<'a>(env: Env<'a>, title: Term<'a>) -> NIFRes
         .encode(env))
 }
 
+/// Reads `.xlsx` bytes, replays the JSON array of uncompacted operations, and returns
+/// `{doc, plain_text, metadata_json}`.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn spreadsheet_open_nif(
     xlsx: Term<'_>,
@@ -377,6 +380,7 @@ pub fn spreadsheet_apply_nif<'a>(
     }
 }
 
+/// Returns `{xlsx, plain_text, metadata_json}` for the document's current state.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn spreadsheet_export_xlsx_nif<'a>(
     env: Env<'a>,

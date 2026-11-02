@@ -258,7 +258,10 @@ fn cell_pictures_replace_content_and_convert_to_floating_pictures() -> Result<()
     );
     assert_eq!(
         ankole_spreadsheet::cell_picture(&doc, 1, "A1")?,
-        (png_bytes(), "image/png".to_string())
+        ankole_spreadsheet::CellPictureData {
+            bytes: png_bytes(),
+            mime: "image/png".to_string()
+        }
     );
     assert_eq!(
         number(&doc, 1, "A2"),

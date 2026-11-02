@@ -31,21 +31,30 @@ pub(crate) fn display_text(wb: &Workbook, sheet: &Sheet, at: CellRef) -> String 
 /// One sheet tab and what an editor needs before it paints the grid.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SheetInfo {
+    /// The sheet's stable id.
     pub sheet_id: u32,
+    /// The tab's name.
     pub name: String,
+    /// Whether the tab is hidden.
     pub hidden: bool,
+    /// The tab colour as `#RRGGBB`.
     pub tab_color: Option<String>,
     /// Frozen rows and columns.
     pub freeze: Option<(u32, u32)>,
+    /// The height of a row without its own size, in pixels.
     pub default_row_height: f32,
+    /// The width of a column without its own size, in pixels.
     pub default_col_width: f32,
+    /// Whether the grid draws gridlines.
     pub show_gridlines: bool,
     /// Lines up to the last stored cell.
     pub rows: u32,
+    /// Columns up to the last stored cell.
     pub cols: u32,
 }
 
 /// The sheets in tab order.
+#[must_use]
 pub fn sheets(doc: &SpreadsheetDoc) -> Vec<SheetInfo> {
     let wb = doc.workbook();
     wb.sheets
@@ -71,6 +80,7 @@ pub fn sheets(doc: &SpreadsheetDoc) -> Vec<SheetInfo> {
 /// The paintable content of a rectangle of one sheet.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Viewport {
+    /// The cells that hold something to paint, in row-major order.
     pub cells: Vec<RenderCell>,
     /// Distinct styles; cells and lines refer to them by position.
     pub styles: Vec<RenderStyle>,
@@ -80,6 +90,7 @@ pub struct Viewport {
     pub spills: Vec<(String, String)>,
     /// Rows and columns in the viewport whose size, visibility, or style differs from the default.
     pub rows: Vec<RenderLine>,
+    /// Columns in the viewport whose size, visibility, or style differs from the default.
     pub cols: Vec<RenderLine>,
 }
 
@@ -87,11 +98,17 @@ pub struct Viewport {
 /// alignment; `color` is the number format's colour (`[Red]`) when it has one.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RenderCell {
+    /// The zero-based row.
     pub row: u32,
+    /// The zero-based column.
     pub col: u32,
+    /// The value as the cell's number format shows it.
     pub text: String,
+    /// The value's kind, which decides the default alignment.
     pub kind: &'static str,
+    /// The position of the cell's style in [`Viewport::styles`].
     pub style: usize,
+    /// The colour that the number format gives the value, such as `[Red]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
     /// The fingerprint of the picture the cell holds, which the editor paints instead of text.
@@ -110,19 +127,33 @@ pub struct RenderLine {
 /// The part of a cell style a canvas needs: colours resolved to `#RRGGBB` through the theme.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RenderStyle {
+    /// The font family.
     pub font_name: String,
+    /// The font size in points.
     pub font_size: f32,
+    /// Whether the text is bold.
     pub bold: bool,
+    /// Whether the text is italic.
     pub italic: bool,
+    /// Whether the text is underlined.
     pub underline: bool,
+    /// Whether a line runs through the text.
     pub strike: bool,
+    /// The text colour as `#RRGGBB`, or `None` for automatic.
     pub font_color: Option<String>,
+    /// The fill colour as `#RRGGBB`, or `None` without a fill.
     pub fill_color: Option<String>,
+    /// The horizontal alignment, such as `general` or `center`.
     pub h_align: &'static str,
+    /// The vertical alignment, such as `bottom`.
     pub v_align: &'static str,
+    /// Whether text wraps inside the cell.
     pub wrap: bool,
+    /// The indent level.
     pub indent: u8,
+    /// The text rotation in degrees.
     pub rotation: i16,
+    /// The border on each side.
     pub borders: RenderBorders,
 }
 
@@ -142,6 +173,11 @@ pub struct RenderBorder {
 
 /// The cells, styles, merged areas, spills, and line sizes of the zero-based rectangle from
 /// `(r0, c0)` to `(r1, c1)` on one sheet.
+///
+/// # Errors
+///
+/// Returns [`Error::Invalid`] for an unknown sheet, or for a rectangle that leaves the worksheet
+/// or covers too many cells.
 pub fn viewport(
     doc: &SpreadsheetDoc,
     sheet_id: u32,
@@ -241,21 +277,31 @@ pub fn viewport(
 /// A floating picture to paint over the grid.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RenderImage {
+    /// The picture's object id in the workbook.
     pub image_id: u32,
     /// The A1 cell that holds the picture's top-left corner.
     pub cell: String,
     /// The corner's offset into that cell, and the picture's size, in pixels.
     pub dx: f32,
+    /// How far the corner sits below the cell's top edge, in pixels.
     pub dy: f32,
+    /// The picture's width in pixels.
     pub width: f32,
+    /// The picture's height in pixels.
     pub height: f32,
+    /// The picture's MIME type.
     pub mime: String,
+    /// The alternative text that describes the picture.
     pub alt: String,
     /// A fingerprint of the picture's bytes, so an editor decodes each picture once.
     pub digest: String,
 }
 
 /// The floating pictures of one sheet, in drawing order.
+///
+/// # Errors
+///
+/// Returns [`Error::Invalid`] for an unknown sheet.
 pub fn images(doc: &SpreadsheetDoc, sheet_id: u32) -> Result<Vec<RenderImage>, Error> {
     let sheet = sheet_by_id(doc.workbook(), sheet_id)?;
     Ok(sheet
@@ -276,6 +322,10 @@ pub fn images(doc: &SpreadsheetDoc, sheet_id: u32) -> Result<Vec<RenderImage>, E
 }
 
 /// The encoded bytes of the floating picture `image_id`.
+///
+/// # Errors
+///
+/// Returns [`Error::Invalid`] for an unknown sheet or picture.
 pub fn image_data(doc: &SpreadsheetDoc, sheet_id: u32, image_id: u32) -> Result<Vec<u8>, Error> {
     sheet_by_id(doc.workbook(), sheet_id)?
         .images
@@ -285,18 +335,34 @@ pub fn image_data(doc: &SpreadsheetDoc, sheet_id: u32, image_id: u32) -> Result<
         .ok_or_else(|| Error::invalid(format!("no picture has image_id {image_id} on this sheet")))
 }
 
+/// The encoded bytes of a cell picture and their MIME type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellPictureData {
+    /// The encoded PNG or JPEG bytes.
+    pub bytes: Vec<u8>,
+    /// The bytes' MIME type, such as `image/png`.
+    pub mime: String,
+}
+
 /// The encoded bytes and MIME type of the picture in the A1 cell `cell`.
+///
+/// # Errors
+///
+/// Returns [`Error::Invalid`] for an unknown sheet, an invalid cell, or a cell without a picture.
 pub fn cell_picture(
     doc: &SpreadsheetDoc,
     sheet_id: u32,
     cell: &str,
-) -> Result<(Vec<u8>, String), Error> {
+) -> Result<CellPictureData, Error> {
     let at = CellRef::parse(cell)
         .ok_or_else(|| Error::invalid(format!("invalid cell reference `{cell}`")))?;
     sheet_by_id(doc.workbook(), sheet_id)?
         .cell_pictures
         .get(&at)
-        .map(|picture| (picture.data.clone(), picture.mime.clone()))
+        .map(|picture| CellPictureData {
+            bytes: picture.data.clone(),
+            mime: picture.mime.clone(),
+        })
         .ok_or_else(|| Error::invalid(format!("{cell} holds no picture")))
 }
 
@@ -313,11 +379,11 @@ fn fingerprint(data: &[u8]) -> String {
         feed(byte);
     }
     let edge = data.len().min(512);
-    data.iter().take(edge).for_each(|byte| feed(*byte));
-    data.iter()
-        .skip(data.len() - edge)
-        .for_each(|byte| feed(*byte));
-    data.iter().step_by(997).for_each(|byte| feed(*byte));
+    let head = data.iter().take(edge);
+    let tail = data.iter().skip(data.len() - edge);
+    for byte in head.chain(tail).chain(data.iter().step_by(997)) {
+        feed(*byte);
+    }
     format!("{hash:016x}")
 }
 
@@ -328,15 +394,22 @@ pub struct SelectionStats {
     pub count: u64,
     /// Cells whose value is a number.
     pub numbers: u64,
+    /// The sum of the numbers.
     pub sum: f64,
     /// `None` when no cell holds a number, and likewise for `min` and `max`.
     pub average: Option<f64>,
+    /// The smallest number.
     pub min: Option<f64>,
+    /// The largest number.
     pub max: Option<f64>,
 }
 
 /// Counts the values of `range` on one sheet and sums, averages, and bounds its numbers. Only
 /// stored and spilled cells are visited, so a whole-column range costs what the column holds.
+///
+/// # Errors
+///
+/// Returns [`Error::Invalid`] for an unknown sheet or an invalid range.
 pub fn selection_stats(
     doc: &SpreadsheetDoc,
     sheet_id: u32,
@@ -488,6 +561,10 @@ fn border_name(style: BorderStyle) -> &'static str {
 /// The text a cell editor starts from, as GridCraft's editor shows it. Text that would read back
 /// as something else gets a leading `'`, and a constant date shows as a date that reads back as
 /// the same serial rather than as the serial itself.
+///
+/// # Errors
+///
+/// Returns [`Error::Invalid`] for an unknown sheet or an invalid cell.
 pub fn cell_input(doc: &SpreadsheetDoc, sheet_id: u32, cell: &str) -> Result<String, Error> {
     let wb = doc.workbook();
     let sheet = sheet_by_id(wb, sheet_id)?;

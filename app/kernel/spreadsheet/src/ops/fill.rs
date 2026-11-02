@@ -413,7 +413,9 @@ fn numbered_trend(items: &[Item]) -> Option<Plan> {
         [a, b, ..] => b - a,
         [] => return None,
     };
-    let constant = numbers.windows(2).all(|pair| pair[1] - pair[0] == step);
+    let constant = numbers
+        .windows(2)
+        .all(|pair| matches!(pair, [a, b] if b - a == step));
     constant.then(|| Plan::NumberedTrend {
         prefix: prefix.clone(),
         start: i128::from(*number),
@@ -449,7 +451,7 @@ fn list_trend(items: &[Item]) -> Option<Plan> {
     };
     let constant = positions
         .windows(2)
-        .all(|pair| (pair[1] - pair[0]).rem_euclid(size) == step);
+        .all(|pair| matches!(pair, [a, b] if (b - a).rem_euclid(size) == step));
     constant.then_some(Plan::ListTrend {
         list,
         start: position,

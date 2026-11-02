@@ -9,6 +9,28 @@
 //! Documents are copy-on-write. [`apply`] returns a new [`SpreadsheetDoc`] and leaves its input
 //! valid, so a host can keep serving reads from the old document while it commits the new one.
 #![forbid(unsafe_code)]
+// Input from the hosts must never panic, every public item is documented, and pure functions are
+// marked so that ignoring their result is a warning (Google's Rust style guide).
+#![warn(
+    missing_docs,
+    unreachable_pub,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc
+)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        reason = "a failing test should stop at the broken expectation"
+    )
+)]
 
 mod clipboard;
 mod doc;
@@ -31,8 +53,8 @@ pub use ops::{
 };
 pub use rebase::Conflict;
 pub use view::{
-    RenderCell, RenderImage, RenderStyle, SelectionStats, SheetInfo, Viewport, cell_input,
-    cell_picture, image_data, images, selection_stats, sheets, viewport,
+    CellPictureData, RenderCell, RenderImage, RenderStyle, SelectionStats, SheetInfo, Viewport,
+    cell_input, cell_picture, image_data, images, selection_stats, sheets, viewport,
 };
 
 /// Why an input was refused. Every variant carries a message for the caller's error response.
@@ -86,12 +108,19 @@ pub struct Applied {
 /// A serialized workbook with the search text and outline derived from it.
 #[derive(Debug)]
 pub struct Exported {
+    /// The workbook as `.xlsx` bytes.
     pub xlsx: Vec<u8>,
+    /// The search text, as [`plain_text`] returns it.
     pub plain_text: String,
+    /// The sheet outline, as [`metadata`] returns it.
     pub metadata: Metadata,
 }
 
 /// Creates a workbook with one empty sheet whose `sheet_id` is 1.
+///
+/// # Errors
+///
+/// Returns an [`Error`] when GridCraft cannot build or write the blank workbook.
 pub fn create_blank(title: &str) -> Result<(SpreadsheetDoc, Exported), Error> {
     let doc = SpreadsheetDoc::blank(title)?;
     let exported = export_xlsx(&doc)?;
@@ -102,6 +131,11 @@ pub fn create_blank(title: &str) -> Result<(SpreadsheetDoc, Exported), Error> {
 ///
 /// `tail_ops` is a JSON array of committed operations in revision order. They replay without
 /// rebasing because each one was already rebased when it was committed.
+///
+/// # Errors
+///
+/// Returns [`Error::Read`] when `bytes` is not a readable workbook, and [`Error::Invalid`] when
+/// `tail_ops` is not a list of operations that apply to it.
 pub fn open(bytes: &[u8], tail_ops: &str) -> Result<SpreadsheetDoc, Error> {
     let tail = ops::parse_list(tail_ops)?;
     let mut doc = SpreadsheetDoc::read(bytes)?;
@@ -115,6 +149,11 @@ pub fn open(bytes: &[u8], tail_ops: &str) -> Result<SpreadsheetDoc, Error> {
 ///
 /// `doc` must be the document at the latest revision, and `prior_ops` (a JSON array) must hold the
 /// operations committed after the revision the author based `incoming_op` on, in revision order.
+///
+/// # Errors
+///
+/// Returns [`ApplyError::Conflict`] when rebasing would have to guess, and
+/// [`ApplyError::Error`] when the operation or `prior_ops` is invalid for the document.
 pub fn apply(
     doc: &SpreadsheetDoc,
     incoming_op: &str,
@@ -127,6 +166,10 @@ pub fn apply(
 }
 
 /// Serializes the document and derives its search text and outline.
+///
+/// # Errors
+///
+/// Returns [`Error::Write`] when GridCraft cannot write the workbook.
 pub fn export_xlsx(doc: &SpreadsheetDoc) -> Result<Exported, Error> {
     let xlsx = gridcraft_xlsx::write_xlsx(doc.workbook())
         .map_err(|error| Error::Write(error.to_string()))?;
@@ -139,11 +182,13 @@ pub fn export_xlsx(doc: &SpreadsheetDoc) -> Result<Exported, Error> {
 
 /// The document's search text: sheet names, constant text cells, and notes, at most
 /// [`PLAIN_TEXT_LIMIT`] bytes.
+#[must_use]
 pub fn plain_text(doc: &SpreadsheetDoc) -> String {
     index::plain_text(doc.workbook())
 }
 
 /// The document's sheet outline and what reading its source file reported.
+#[must_use]
 pub fn metadata(doc: &SpreadsheetDoc) -> Metadata {
     index::metadata(doc)
 }

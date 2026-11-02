@@ -59,6 +59,7 @@ impl SpreadsheetDoc {
     }
 
     /// The GridCraft workbook of this version.
+    #[must_use]
     pub fn workbook(&self) -> &Workbook {
         &self.wb
     }

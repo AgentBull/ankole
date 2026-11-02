@@ -81,18 +81,26 @@ fn has_dropped_parts(bytes: &[u8]) -> bool {
 /// The workbook outline the control plane caches for page metadata and the editor's first paint.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Metadata {
+    /// The sheets in tab order.
     pub sheets: Vec<SheetSummary>,
+    /// What reading the source file reported about the parts it could not keep.
     pub warnings: Vec<String>,
+    /// Whether saving drops objects of the source file, such as slicers.
     pub has_unsupported_objects: bool,
 }
 
 /// One sheet in tab order. `rows` and `cols` count up to the last stored cell.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SheetSummary {
+    /// The sheet's stable id.
     pub sheet_id: u32,
+    /// The tab's name.
     pub name: String,
+    /// Rows up to the last stored cell.
     pub rows: u32,
+    /// Columns up to the last stored cell.
     pub cols: u32,
+    /// Whether the tab is hidden.
     pub hidden: bool,
 }
 

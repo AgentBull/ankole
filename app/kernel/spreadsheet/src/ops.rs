@@ -28,9 +28,13 @@ pub enum Op {
     /// formula as a one-cell legacy array formula.
     #[serde(rename = "cell.set")]
     CellSet {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cell, in A1 form.
         cell: Cell,
+        /// What the author typed.
         input: String,
+        /// Stores the formula as a one-cell legacy array formula.
         #[serde(default, skip_serializing_if = "is_false")]
         array: bool,
     },
@@ -38,86 +42,135 @@ pub enum Op {
     /// unless `parse` is false; `null` clears a cell's content and keeps its format.
     #[serde(rename = "range.set_values")]
     RangeSetValues {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// The values, row by row, in the shape of `range`.
         values: Vec<Vec<Option<Scalar>>>,
+        /// Reads strings as typed input; `false` stores them as text.
         #[serde(default = "yes", skip_serializing_if = "is_true")]
         parse: bool,
     },
+    /// Removes what `mode` names from the cells of `range`.
     #[serde(rename = "range.clear")]
     RangeClear {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// What to remove from the cells.
         mode: ClearMode,
     },
     /// Applies the same format patch to every cell of the range.
     #[serde(rename = "range.format")]
     RangeFormat {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// The format fields to change.
         patch: FormatPatch,
     },
     /// Merges the range, or each of its rows when `across` is set. Merged areas that intersect the
     /// range are replaced, and only the top-left value of each new area survives.
     #[serde(rename = "range.merge")]
     RangeMerge {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// Merges each row of the range on its own.
         #[serde(default, skip_serializing_if = "is_false")]
         across: bool,
     },
     /// Removes every merged area that intersects the range.
     #[serde(rename = "range.unmerge")]
-    RangeUnmerge { sheet_id: u32, range: Range },
+    RangeUnmerge {
+        /// The sheet, by its stable `sheet_id`.
+        sheet_id: u32,
+        /// The cells, in A1 form.
+        range: Range,
+    },
     /// Sizes, hides, or shows the zero-based lines `start..=end`.
     #[serde(rename = "line.resize")]
     LineResize {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// Whether rows or columns.
         axis: Axis,
+        /// The zero-based first line.
         start: u32,
+        /// The zero-based last line.
         end: u32,
+        /// The new size in pixels, or a keyword.
         size_px: LineSize,
     },
     /// Freezes the top `rows` and left `cols`; zero for both unfreezes.
     #[serde(rename = "sheet.freeze")]
-    SheetFreeze { sheet_id: u32, rows: u32, cols: u32 },
+    SheetFreeze {
+        /// The sheet, by its stable `sheet_id`.
+        sheet_id: u32,
+        /// How many top rows stay in place; zero freezes none.
+        rows: u32,
+        /// How many left columns stay in place; zero freezes none.
+        cols: u32,
+    },
     /// Inserts `count` lines before the zero-based line `at`.
     #[serde(rename = "line.insert")]
     LineInsert {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// Whether rows or columns.
         axis: Axis,
+        /// The zero-based index of the first line.
         at: u32,
+        /// How many lines.
         count: u32,
     },
     /// Deletes `count` lines starting at the zero-based line `at`.
     #[serde(rename = "line.delete")]
     LineDelete {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// Whether rows or columns.
         axis: Axis,
+        /// The zero-based index of the first line.
         at: u32,
+        /// How many lines.
         count: u32,
     },
     /// Inserts blank cells over `range`, shifting the cells there `down` or `right`.
     #[serde(rename = "cells.insert")]
     CellsInsert {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// Which way the cells there move.
         shift: Shift,
     },
     /// Deletes the cells of `range`, shifting the cells after them `up` or `left`.
     #[serde(rename = "cells.delete")]
     CellsDelete {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// Which way the cells after the range move.
         shift: Shift,
     },
     /// Cut and paste: moves the block `from` so that its top-left cell lands on `to_cell` of
     /// `to_sheet_id`, and points references to the block at its new place.
     #[serde(rename = "range.move")]
     RangeMove {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The block to move.
         from: Range,
+        /// The sheet the block moves to.
         to_sheet_id: u32,
+        /// Where the block's top-left cell lands, in A1 form.
         to_cell: Cell,
     },
     /// Pastes a block of cells: each cell's `input` (typed input, with formulas already moved to
@@ -125,8 +178,11 @@ pub enum Op {
     /// cell without `format` keeps its format.
     #[serde(rename = "range.paste")]
     RangePaste {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// The pasted cells, row by row, in the shape of `range`.
         cells: Vec<Vec<PasteCell>>,
     },
     /// Places a picture over the grid. The editor names the new image with an `image_id` that no
@@ -134,54 +190,80 @@ pub enum Op {
     /// without one, the committed operation carries the assigned id.
     #[serde(rename = "image.insert")]
     ImageInsert {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The floating picture, by its object id in the workbook.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image_id: Option<u32>,
+        /// Where the picture sits.
         anchor: ImageAnchor,
+        /// The picture's encoded bytes and type.
         picture: Picture,
     },
     /// Moves or resizes a floating picture.
     #[serde(rename = "image.update")]
     ImageUpdate {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The floating picture, by its object id in the workbook.
         image_id: u32,
+        /// Where the picture sits.
         anchor: ImageAnchor,
     },
     /// Removes a floating picture.
     #[serde(rename = "image.delete")]
-    ImageDelete { sheet_id: u32, image_id: u32 },
+    ImageDelete {
+        /// The sheet, by its stable `sheet_id`.
+        sheet_id: u32,
+        /// The floating picture, by its object id in the workbook.
+        image_id: u32,
+    },
     /// Puts a picture into a cell in place of its content, or removes the cell's picture with
     /// `null`.
     #[serde(rename = "cell.picture")]
     CellPicture {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cell, in A1 form.
         cell: Cell,
+        /// The picture; `null` removes the cell's picture.
         picture: Option<Picture>,
     },
     /// Moves the floating picture `image_id` into `cell`, in place of the cell's content.
     #[serde(rename = "image.to_cell")]
     ImageToCell {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The floating picture, by its object id in the workbook.
         image_id: u32,
+        /// The cell the picture moves into, in A1 form.
         cell: Cell,
     },
     /// Lifts the picture of `cell` out of the cell into a floating picture at `anchor`, named
     /// like a new image of `image.insert`.
     #[serde(rename = "image.from_cell")]
     ImageFromCell {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cell whose picture is lifted out, in A1 form.
         cell: Cell,
+        /// The floating picture, by its object id in the workbook.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image_id: Option<u32>,
+        /// Where the picture sits.
         anchor: ImageAnchor,
     },
     /// Fills `to` from the cells of `range` at its start, as dragging the fill handle does. `to`
     /// holds `range` and reaches past exactly one of its edges.
     #[serde(rename = "range.fill")]
     RangeFill {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The source cells at the start of `to`.
         range: Range,
+        /// The range to fill, which holds `range`.
         to: Range,
+        /// How the fill continues its source.
         #[serde(default, skip_serializing_if = "is_default")]
         mode: FillMode,
     },
@@ -189,10 +271,13 @@ pub enum Op {
     /// the assigned `sheet_id` and name.
     #[serde(rename = "sheet.insert")]
     SheetInsert {
+        /// The new sheet's id; the committed operation always carries it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sheet_id: Option<u32>,
+        /// The new sheet's name; the committed operation always carries it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
+        /// The zero-based tab position; the sheet goes last without one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         index: Option<usize>,
     },
@@ -200,7 +285,9 @@ pub enum Op {
     /// concurrent formulas can be rebased.
     #[serde(rename = "sheet.delete")]
     SheetDelete {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The deleted sheet's name, which the committed operation records.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
@@ -208,27 +295,41 @@ pub enum Op {
     /// be rebased.
     #[serde(rename = "sheet.rename")]
     SheetRename {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The new name.
         name: String,
+        /// The previous name, which the committed operation records.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         old_name: Option<String>,
     },
     /// Moves a sheet to the zero-based tab position `index`.
     #[serde(rename = "sheet.reorder")]
-    SheetReorder { sheet_id: u32, index: usize },
+    SheetReorder {
+        /// The sheet, by its stable `sheet_id`.
+        sheet_id: u32,
+        /// The new zero-based tab position.
+        index: usize,
+    },
     /// Sets the tab colour, or clears it with `null`.
     #[serde(rename = "sheet.tab_color")]
     SheetTabColor {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The tab colour; `null` removes it.
         color: Option<HexColor>,
     },
     /// Sorts the rows of `range` by the key columns, which must lie inside the range. `header`
     /// keeps the first row in place.
     #[serde(rename = "range.sort")]
     RangeSort {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// The key columns, the most significant first.
         keys: Vec<SortKey>,
+        /// Keeps the first row in place as a header.
         #[serde(default, skip_serializing_if = "is_false")]
         header: bool,
     },
@@ -236,24 +337,34 @@ pub enum Op {
     /// fail any column's value list, or removes the filter with `range: null`.
     #[serde(rename = "filter.set")]
     FilterSet {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The filtered range with its header row; `null` removes the filter.
         range: Option<Range>,
+        /// The value lists of the filtered columns.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         columns: Vec<FilterColumn>,
     },
     /// Replaces the data validation of `range`, or removes it with `rule: null`.
     #[serde(rename = "validation.set")]
     ValidationSet {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// The rule; `null` removes validation from the range.
         rule: Option<ValidationRule>,
     },
     /// Sets the note on a cell, or removes it with `text: null`.
     #[serde(rename = "comment.set")]
     CommentSet {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cell, in A1 form.
         cell: Cell,
+        /// The note's text; `null` removes the note.
         text: Option<String>,
+        /// The note's author, which the control plane writes.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         author: Option<String>,
     },
@@ -261,9 +372,13 @@ pub enum Op {
     /// intersects `range` back to a plain range. The committed operation records the table name.
     #[serde(rename = "table.toggle")]
     TableToggle {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The cells, in A1 form.
         range: Range,
+        /// Creates the table when set, and converts it back to a plain range when clear.
         enabled: bool,
+        /// The table's name, which the committed operation records.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
@@ -371,12 +486,17 @@ impl<'de> Deserialize<'de> for HexColor {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImageAnchor {
+    /// The cell that holds the picture's top-left corner, in A1 form.
     pub cell: Cell,
+    /// How far the top-left corner sits right of the cell's left edge, in pixels.
     #[serde(default)]
     pub dx: f32,
+    /// How far the top-left corner sits below the cell's top edge, in pixels.
     #[serde(default)]
     pub dy: f32,
+    /// The picture's width in pixels.
     pub width: f32,
+    /// The picture's height in pixels.
     pub height: f32,
 }
 
@@ -384,7 +504,9 @@ pub struct ImageAnchor {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Picture {
+    /// The encoding.
     pub mime: PictureMime,
+    /// The encoded bytes.
     pub data: Base64,
     /// The alternative text that describes the picture.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -394,14 +516,17 @@ pub struct Picture {
 /// The encodings a picture may use; Excel shows both in floating and in-cell pictures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PictureMime {
+    /// A PNG picture.
     #[serde(rename = "image/png")]
     Png,
+    /// A JPEG picture.
     #[serde(rename = "image/jpeg")]
     Jpeg,
 }
 
 impl PictureMime {
     /// The MIME type of the encoding.
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             PictureMime::Png => "image/png",
@@ -440,6 +565,7 @@ impl<'de> Deserialize<'de> for Base64 {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PasteCell {
+    /// Typed input, with formulas already moved to the destination; absent keeps the content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<String>,
     /// Replaces the cell's whole format: attributes the patch leaves out take their defaults.
@@ -520,39 +646,51 @@ pub enum LineKeyword {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FormatPatch {
+    /// Bold text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bold: Option<bool>,
+    /// Italic text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub italic: Option<bool>,
+    /// A single underline.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub underline: Option<bool>,
+    /// A line through the text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strike: Option<bool>,
     /// The font family, such as `Calibri` or `微软雅黑`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_name: Option<String>,
+    /// The font size in points, from 1 to 409.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<f32>,
+    /// The text colour; `null` restores the automatic colour.
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
     pub font_color: Option<Option<HexColor>>,
+    /// A solid fill; `null` removes the fill.
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
     pub fill_color: Option<Option<HexColor>>,
+    /// The horizontal alignment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub h_align: Option<HAlign>,
+    /// The vertical alignment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub v_align: Option<VAlign>,
+    /// Whether text wraps inside the cell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wrap: Option<bool>,
+    /// The number format code, such as `#,##0.00`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub num_fmt: Option<String>,
+    /// The border sides to change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub borders: Option<BordersPatch>,
 }
@@ -773,38 +911,62 @@ pub enum ValidationOperator {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StructuralEdit {
+    /// Lines were inserted.
     InsertLines {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// Whether rows or columns.
         axis: Axis,
+        /// The zero-based index of the first line.
         at: u32,
+        /// How many lines.
         count: u32,
     },
+    /// Lines were deleted.
     DeleteLines {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// Whether rows or columns.
         axis: Axis,
+        /// The zero-based index of the first line.
         at: u32,
+        /// How many lines.
         count: u32,
     },
+    /// Cells were inserted, and the cells there moved along `axis`.
     InsertCells {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// Whether rows or columns.
         axis: Axis,
+        /// The cells, in A1 form.
         range: Range,
     },
+    /// Cells were deleted, and the cells after them moved along `axis`.
     DeleteCells {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// Whether rows or columns.
         axis: Axis,
+        /// The cells, in A1 form.
         range: Range,
     },
+    /// A block of cells moved.
     Move {
+        /// The sheet, by its stable `sheet_id`.
         sheet_id: u32,
+        /// The block that moved.
         from: Range,
+        /// The sheet the block moves to.
         to_sheet_id: u32,
+        /// Where the block's top-left cell lands, in A1 form.
         to_cell: Cell,
     },
 }
 
 impl Op {
     /// The sheet the operation addresses; `None` for `sheet.insert`, which creates one.
+    #[must_use]
     pub fn sheet_id(&self) -> Option<u32> {
         match self {
             Op::SheetInsert { .. } => None,
@@ -842,6 +1004,7 @@ impl Op {
     }
 
     /// The descriptor of a committed structural operation.
+    #[must_use]
     pub fn structural_edit(&self) -> Option<StructuralEdit> {
         Some(match *self {
             Op::LineInsert {
