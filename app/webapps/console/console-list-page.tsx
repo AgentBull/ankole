@@ -38,7 +38,7 @@ import {
   RiSearchLine
 } from '@remixicon/react'
 
-import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from '@tanstack/react-router'
 import { linkTarget } from '../common/router'
@@ -79,6 +79,7 @@ export function useListCreateTrigger() {
 export function ResourceListPage({
   children,
   columns,
+  clearFiltersRef,
   count,
   createAction,
   createLabel,
@@ -101,6 +102,7 @@ export function ResourceListPage({
   toolbarCanRevealRows = false
 }: {
   children: ReactNode
+  clearFiltersRef?: Ref<HTMLButtonElement>
   columns: string[]
   /** Rows currently rendered. Shown next to the toolbar so a filter reports its effect. */
   count?: number
@@ -185,7 +187,7 @@ export function ResourceListPage({
           A filtered list falls back to nothing: offering "create" to someone
           whose search missed answers a question they did not ask. */}
       {isFiltered && onClearFilters ? (
-        <Button size="sm" type="button" variant="outline" onClick={clearFilters}>
+        <Button ref={clearFiltersRef} size="sm" type="button" variant="outline" onClick={clearFilters}>
           {t('console.empty.clear_filters')}
         </Button>
       ) : (

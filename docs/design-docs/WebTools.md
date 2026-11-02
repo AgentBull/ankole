@@ -145,8 +145,8 @@ Playwright scripts attach to the same default browser session:
   extracts interactive controls and pointer-cursor elements from Playwright's
   JSON tree before applying the output budget, so verbose static copy never
   crowds out actionable controls.
-- `select` matches an option by label or value in one Playwright operation,
-  waits for an available match, and dispatches native input and change events.
+- `select` waits for an option whose label or value matches,
+  prefers the label when different options match the same argument, and dispatches native input and change events.
 - Each snapshot captures element references (`@eN`, or `@f1e3` inside iframes),
   and subsequent commands resolve refs against the latest snapshot; if a ref is
   unknown or its DOM node has detached, the command returns `stale_ref`.

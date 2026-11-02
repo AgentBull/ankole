@@ -638,6 +638,43 @@ export function ScheduleCronEditorPage() {
     return <EditorNotFound backTo={backTo} message={t('console.not_found.description')} />
   }
 
+  const agentField = (
+    <LabeledField
+      label={t('console.agents.agent')}
+      required={!editing}
+      description={!editing ? t('console.schedules.agent_execution_hint') : undefined}>
+      {editing ? (
+        <ReadOnlyValue>
+          {selectedAgent
+            ? selectedAgent.display_name
+              ? `${selectedAgent.display_name} · ${selectedAgent.uid}`
+              : selectedAgent.uid
+            : agentUID || '—'}
+        </ReadOnlyValue>
+      ) : (
+        <Select value={agentUID || null} onValueChange={value => selectAgent(String(value))}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={t('console.select_agent')} />
+          </SelectTrigger>
+          <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
+            {agentList.map(agent => (
+              <SelectItem key={agent.uid} value={agent.uid}>
+                {agent.display_name} · {agent.uid}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </LabeledField>
+  )
+  if (!editing && !agentUID && agentList.length > 0) {
+    return (
+      <ResourceEditorPage title={t('console.schedules.new')} backTo={backTo} submitUnavailable onSubmit={submit}>
+        {agentField}
+      </ResourceEditorPage>
+    )
+  }
+
   const updateBody = editing ? model.toUpdateBody() : undefined
   const unchanged = Boolean(editing && updateBody && Object.keys(updateBody).length === 0)
   const existingRunnable = Boolean(existingRow && isMutableCronStatus(existingRow.status))
@@ -759,33 +796,7 @@ export function ScheduleCronEditorPage() {
         ) : null
       }>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <LabeledField
-          label={t('console.agents.agent')}
-          required={!editing}
-          description={!editing ? t('console.schedules.agent_execution_hint') : undefined}>
-          {editing ? (
-            <ReadOnlyValue>
-              {selectedAgent
-                ? selectedAgent.display_name
-                  ? `${selectedAgent.display_name} · ${selectedAgent.uid}`
-                  : selectedAgent.uid
-                : agentUID || '—'}
-            </ReadOnlyValue>
-          ) : (
-            <Select value={agentUID || null} onValueChange={value => selectAgent(String(value))}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t('console.select_agent')} />
-              </SelectTrigger>
-              <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
-                {agentList.map(agent => (
-                  <SelectItem key={agent.uid} value={agent.uid}>
-                    {agent.display_name} · {agent.uid}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </LabeledField>
+        {agentField}
         {editing ? (
           <LabeledField label={t('console.schedules.owner_session')}>
             <ReadOnlyValue mono>{model.ownerSessionId.value || '—'}</ReadOnlyValue>

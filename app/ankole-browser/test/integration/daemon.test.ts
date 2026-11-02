@@ -89,7 +89,7 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
     const file = join(root, 'select.html')
     await writeFile(
       file,
-      `<!doctype html><select id="colors" onchange="document.title=this.value"><option value="g">Green</option><option value="b" label="Blue">Azure</option></select><select id="later"></select><script>setTimeout(() => document.querySelector('#later').add(new Option('Late label', 'late-value')), 500)</script>`
+      `<!doctype html><select id="colors" onchange="document.title=this.value"><option value="Blue">Earlier value match</option><option value="g">Green</option><option value="b" label="Blue">Azure</option></select><select id="later"></select><script>setTimeout(() => document.querySelector('#later').add(new Option('Late label', 'late-value')), 500)</script>`
     )
     expect((await sendBrowserCommand(selection, { name: 'open', args: { url: `file://${file}` } })).ok).toBe(true)
     for (const [value, expected] of [

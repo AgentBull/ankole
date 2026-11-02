@@ -225,7 +225,7 @@ export class BrowserSession {
             await locator.pressSequentially(command.args.text)
             break
           case 'select':
-            await locator.selectOption(command.args.value)
+            await selectByLabelOrValue(locator, command.args.value)
             break
           case 'check':
             await locator.check()
@@ -597,5 +597,30 @@ function assertInside(root: string, path: string, boundary: string): void {
   const child = relative(resolve(root), resolve(path))
   if (child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(child)) {
     throw new BrowserDataError('invalid_command', `file path must stay inside ${boundary}`)
+  }
+}
+
+async function selectByLabelOrValue(locator: Locator, value: string): Promise<void> {
+  const control = await locator.elementHandle()
+  try {
+    const frame = await control.ownerFrame()
+    if (!frame) throw new BrowserDataError('invalid_command', 'select control is detached')
+    const match = await frame.waitForFunction(
+      ({ control, value }) => {
+        const select = control instanceof HTMLSelectElement ? control : control.closest('label')?.control
+        if (!(select instanceof HTMLSelectElement) || !select.isConnected)
+          throw new Error('Expected an attached select')
+        const options = Array.from(select.options)
+        return options.find(option => option.label === value) ?? options.find(option => option.value === value) ?? false
+      },
+      { control, value }
+    )
+    try {
+      await locator.selectOption(match.asElement()!)
+    } finally {
+      await match.dispose()
+    }
+  } finally {
+    await control.dispose()
   }
 }

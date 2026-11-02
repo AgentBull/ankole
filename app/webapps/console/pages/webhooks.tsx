@@ -154,6 +154,7 @@ export function WebhooksPage() {
       <ResourceListPage
         title={t('console.webhooks.title')}
         description={t('console.webhooks.description')}
+        clearFiltersRef={createTrigger.ref}
         createAction={
           <Button
             ref={createTrigger.ref}

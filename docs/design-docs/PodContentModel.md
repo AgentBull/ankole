@@ -377,7 +377,8 @@ Dialogs use compact layouts, explicit Cancel buttons, searchable Page pickers,
 and focus restoration on close. When a list moves its create action between
 the header and empty state, its dialog returns focus to the currently mounted
 create button. If a list refresh moves that button after the dialog closes,
-the button keeps focus unless the user has moved to another control.
+the button keeps focus unless the user has moved to another control. When the
+last matching Webhook disappears, focus follows the create button to Clear filters.
 Pressing Enter submits ordinary forms, whereas
 destructive confirmations focus Cancel initially; tall dialogs scroll their body
 while pinning the header and action bar, and property pickers stay anchored to
@@ -436,7 +437,8 @@ the user's navigation context stays stable. `Favorites` renders inline above the
 `Space` and `Private` trees whenever the user has favorited Pages, while the
 account switcher, `Trash`, and `Pod settings` sit in the sidebar footer.
 The account button shows the Pod name before the Human name; its accessible
-name includes both names in that same order.
+name includes both names in that same order. When the Pod name is empty, the
+button announces the Human name alone with its account menu label.
 The Pod and Console share sidebar controls. Command/Control+B toggles the
 sidebar while leaving shortcuts inside editable controls to those controls.
 On desktop, the Pod sidebar starts at its 248 px minimum width and its edge

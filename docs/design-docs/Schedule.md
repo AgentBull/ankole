@@ -68,7 +68,8 @@ Under [Human Offboarding](HumanOffboarding.md), both `scheduled_events` and
   The creation action derives the administrator from the authenticated
   Console Principal and supplies the service authorization. The cron editor
   enables its fields after resolving the selected Agent and initializing the
-  draft. Background refreshes preserve edits for the same Agent and rule.
+  draft. If a new schedule link names an unavailable Agent, the operator can
+  choose an active Agent before editing the rule. Background refreshes preserve edits for the same Agent and rule.
 
 At fire admission, Schedule locks and verifies every associated Human *before*
 locking the event, cron rule, or bound Automation Job (locking both Humans in
