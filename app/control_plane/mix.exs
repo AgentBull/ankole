@@ -164,14 +164,23 @@ defmodule Ankole.MixProject do
   end
 
   # Rustler copies a build artifact of each dependency crate that declares a
-  # cdylib crate type. crc-fast, which the OpenDAL S3 service uses, is one, so
-  # the kernel priv directory gets its rlib as `crc_fast.so`. Nothing loads that
-  # file, so the release does not ship it.
+  # cdylib crate type.
+  # - In `ankole_kernel`, OpenDAL's S3 service pulls in `crc-fast`, so Rustler
+  #   copies its rlib to `lib/ankole_kernel-*/priv/native/crc_fast.so`.
+  # - In `ankole`, any NIF crate that depends on `ankole_kernel` as an rlib also
+  #   triggers a copy of `ankole_kernel.so` into `lib/ankole-*/priv/native/`,
+  #   while `Ankole.Kernel` loads its NIF from `lib/ankole_kernel-*/priv/native/`.
+  # Nothing loads those extra copies, so the release removes them.
   defp remove_dependency_native_copies(%Mix.Release{} = release) do
     release.path
     |> Path.join("lib/ankole_kernel-*/priv/native/*")
     |> Path.wildcard()
     |> Enum.reject(&(Path.basename(&1) == "ankole_kernel.so"))
+    |> Enum.each(&File.rm!/1)
+
+    release.path
+    |> Path.join("lib/ankole-*/priv/native/{ankole_kernel,crc_fast}.so")
+    |> Path.wildcard()
     |> Enum.each(&File.rm!/1)
 
     release
@@ -346,8 +355,12 @@ defmodule Ankole.MixProject do
           fn args ->
             extra = Enum.filter(args, &(&1 in ["--no-compile", "--no-deps-check"]))
             Mix.Task.run("app.config", extra)
-            Mix.Task.run("ecto.create", ["--quiet" | extra])
-            Mix.Task.run("ecto.migrate", ["--quiet" | extra])
+
+            unless "--no-start" in args do
+              Mix.Task.run("ecto.create", ["--quiet" | extra])
+              Mix.Task.run("ecto.migrate", ["--quiet" | extra])
+            end
+
             Mix.Tasks.Test.run(args)
           end
         ],

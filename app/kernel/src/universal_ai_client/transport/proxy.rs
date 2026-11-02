@@ -530,7 +530,10 @@ mod tests {
                 idle_ms: 100,
                 total_ms: None,
             },
-            transport: TransportSpec { proxy: None },
+            transport: TransportSpec {
+                proxy: None,
+                ca_cert_pem: None,
+            },
         };
 
         let Err(error) = open_http_stream_for_upstream(&upstream).await else {
@@ -567,7 +570,10 @@ mod tests {
                     idle_ms: 600_000,
                     total_ms: None,
                 },
-                transport: TransportSpec { proxy: None },
+                transport: TransportSpec {
+                    proxy: None,
+                    ca_cert_pem: None,
+                },
             },
             response_context: Default::default(),
             limits: Default::default(),

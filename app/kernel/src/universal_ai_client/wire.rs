@@ -6,6 +6,12 @@ pub struct SSEEvent {
     pub data: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SSEFrame {
+    pub raw: Vec<u8>,
+    pub event: Option<SSEEvent>,
+}
+
 #[derive(Debug, Default)]
 pub struct SSEParser {
     buffer: Vec<u8>,
@@ -28,6 +34,11 @@ impl SSEParser {
     }
 
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<SSEEvent>, StreamError> {
+        let frames = self.push_frames(bytes)?;
+        Ok(frames.into_iter().filter_map(|frame| frame.event).collect())
+    }
+
+    pub fn push_frames(&mut self, bytes: &[u8]) -> Result<Vec<SSEFrame>, StreamError> {
         let bytes = if self.pending_lf && !bytes.is_empty() {
             self.pending_lf = false;
             bytes.strip_prefix(b"\n").unwrap_or(bytes)
@@ -45,7 +56,7 @@ impl SSEParser {
             }
             self.stream_start = false;
         }
-        let mut events = Vec::new();
+        let mut frames = Vec::new();
 
         while let Some((index, boundary_len)) = find_sse_boundary(&self.buffer, self.scan_from) {
             if index > self.max_event_bytes {
@@ -58,8 +69,16 @@ impl SSEParser {
 
             // A trailing CR ends the event immediately; its optional LF may
             // arrive in the next network chunk and belongs to this boundary.
+            // If this boundary is a CRLF split before the final LF (`\r\n\r`),
+            // complete the trailing `\n` in `raw_frame` so `SSEFrame.raw` stays
+            // identical regardless of chunk boundaries while `pending_lf` drops
+            // the duplicate `\n` when the next chunk arrives.
             self.pending_lf =
                 self.buffer.len() == index + boundary_len && self.buffer.last() == Some(&b'\r');
+            let mut raw_frame = self.buffer[..index + boundary_len].to_vec();
+            if self.pending_lf && raw_frame.ends_with(b"\r\n\r") {
+                raw_frame.push(b'\n');
+            }
             let mut raw = &self.buffer[..index];
             while let Some(stripped) = raw.strip_suffix(b"\n").or_else(|| raw.strip_suffix(b"\r")) {
                 raw = stripped;
@@ -68,9 +87,10 @@ impl SSEParser {
             self.buffer.drain(..index + boundary_len);
             self.scan_from = 0;
 
-            if let Some(event) = event {
-                events.push(event);
-            }
+            frames.push(SSEFrame {
+                raw: raw_frame,
+                event,
+            });
         }
 
         // The final line ending may be the first half of an event boundary.
@@ -94,7 +114,7 @@ impl SSEParser {
         }
 
         self.scan_from = self.buffer.len().saturating_sub(b"\r\n\r\n".len() - 1);
-        Ok(events)
+        Ok(frames)
     }
 
     pub fn finish(&mut self) -> Result<(), StreamError> {
@@ -163,7 +183,7 @@ fn parse_sse_event(raw: &[u8]) -> Option<SSEEvent> {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct EventStreamMessage {
+pub(crate) struct EventStreamMessage {
     pub message_type: Option<String>,
     pub event_type: Option<String>,
     pub exception_type: Option<String>,
@@ -173,7 +193,7 @@ pub struct EventStreamMessage {
 }
 
 #[derive(Debug, Default)]
-pub struct AWSEventStreamParser {
+pub(crate) struct AWSEventStreamParser {
     buffer: Vec<u8>,
     max_frame_bytes: usize,
 }

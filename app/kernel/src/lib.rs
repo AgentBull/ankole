@@ -5,10 +5,10 @@
 compile_error!("enable the nif feature or the napi feature, not both");
 
 // The NIF build uses mimalloc. The Node addon uses the host allocator.
-#[cfg(not(feature = "napi"))]
+#[cfg(feature = "nif")]
 use mimalloc::MiMalloc;
 
-#[cfg(not(feature = "napi"))]
+#[cfg(feature = "nif")]
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 

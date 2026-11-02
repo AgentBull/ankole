@@ -164,7 +164,7 @@ async fn run_http_stream(
                     }
                     Ok(Some(Err(reason))) => {
                         let error =
-                            StreamError::new("upstream_read_failed", "read", reason.to_string());
+                            StreamError::new("upstream_read_failed", "read", reason.message);
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -254,7 +254,7 @@ async fn run_http_stream(
                     },
                     Ok(Some(Err(reason))) => {
                         let error =
-                            StreamError::new("upstream_read_failed", "read", reason.to_string());
+                            StreamError::new("upstream_read_failed", "read", reason.message);
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -672,7 +672,7 @@ async fn provider_status_error(
     spec: &StreamSpec,
     status: u16,
     headers: &[(String, String)],
-    body: &mut futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>,
+    body: &mut futures_util::stream::BoxStream<'static, Result<bytes::Bytes, StreamError>>,
 ) -> StreamError {
     let mut excerpt = Vec::new();
 
