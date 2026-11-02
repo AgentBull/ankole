@@ -274,7 +274,7 @@ function EmailOtpFields({
               request.mutate(true)
             }}>
             {model.resendSeconds.value > 0
-              ? t('saas.auth.resend_countdown', { seconds: model.resendSeconds.value })
+              ? t('auth.resend_countdown', { seconds: model.resendSeconds.value })
               : t('auth.resend_code')}
           </Button>
           <Button

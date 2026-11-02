@@ -225,9 +225,7 @@ export class BrowserSession {
             await locator.pressSequentially(command.args.text)
             break
           case 'select':
-            await locator.selectOption({ label: command.args.value }).catch(async () => {
-              await locator.selectOption(command.args.value)
-            })
+            await locator.selectOption(command.args.value)
             break
           case 'check':
             await locator.check()

@@ -414,6 +414,10 @@ it under the new scope before storage. All list and runtime reads go through
 these same resources, while `WorkerEnv` applies tier inheritance and masks
 secrets in API responses.
 
+The Console environment-variable editor disables fields until it has loaded
+the selected variable into its draft. Background reads preserve operator edits,
+and saving a description alone preserves the stored secret.
+
 Operators manage variables through `/api/v2/site/worker-envs`,
 `/api/v2/worker-envs`, and `/api/v2/agents/:agent_uid/worker-envs`, where
 JSON:API policies authorize secret decryption separately from ordinary reads and

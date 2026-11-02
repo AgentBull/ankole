@@ -34,7 +34,7 @@ import {
   type StatusTone
 } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
-import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch } from '../console-list-page'
+import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, useListCreateTrigger } from '../console-list-page'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { instantFromDateTimeLocal } from '../state/token-quota-editor-model'
 
@@ -74,6 +74,7 @@ export function WebhooksPage() {
 
   // Keep the one-time result mounted when the list moves its create button.
   const [open, setOpen] = useState(false)
+  const createTrigger = useListCreateTrigger()
   const [label, setLabel] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [labelError, setLabelError] = useState<string>()
@@ -155,6 +156,7 @@ export function WebhooksPage() {
         description={t('console.webhooks.description')}
         createAction={
           <Button
+            ref={createTrigger.ref}
             type="button"
             onClick={() => {
               resetDialog()
@@ -217,7 +219,7 @@ export function WebhooksPage() {
         ))}
       </ResourceListPage>
       <Dialog open={open} onOpenChange={discardGuard.requestOpenChange}>
-        <DialogContent closeLabel={t('common.close')}>
+        <DialogContent finalFocus={createTrigger.finalFocus} closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.webhooks.create')}</DialogTitle>
             <DialogDescription>

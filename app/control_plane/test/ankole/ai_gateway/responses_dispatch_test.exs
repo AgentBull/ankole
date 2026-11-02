@@ -102,7 +102,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["service_tier"] == "fast"
     assert request.body["prompt_cache_key"] == "cache-a"
 
-    assert body["id"] == "resp_test"
+    assert body["id"] =~ ~r/^tmp_resp_[0-9a-f-]{36}$/
     assert body["model"] == "gpt-5.5"
     assert model_ref["selector"] == "primary"
     assert model_ref["provider_id"] == "openai-responses-main"
@@ -129,7 +129,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       "compatible-compaction-replay"
     )
 
-    assert {:ok, %{body: %{"id" => "resp_compaction_replay"}}} =
+    assert {:ok, %{body: %{"id" => response_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "tools" => nil,
@@ -156,6 +156,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert_receive {:gateway_request, request}
     assert request.body["store"] == false
     assert request.body["tools"] == []
+    assert response_id =~ ~r/^tmp_resp_[0-9a-f-]{36}$/
 
     # The default connection does not declare official OpenAI tool support, so
     # the replay survives in the emulated function space instead of verbatim.
@@ -189,7 +190,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       "compatible-hosted-search"
     )
 
-    assert {:ok, %{body: %{"id" => "resp_hosted_web_search"}}} =
+    assert {:ok, %{body: %{"id" => response_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "current weather in Berlin",
@@ -198,6 +199,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert_receive {:gateway_request, request}
     assert request.body["tools"] == [%{"type" => "web_search"}]
+    assert response_id =~ ~r/^tmp_resp_[0-9a-f-]{36}$/
   end
 
   test "ChatGPT complete responses collect SSE and strip unsupported request fields" do
@@ -2282,7 +2284,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(request.body, "reasoningSummary")
     refute Map.has_key?(request.body, "textVerbosity")
     assert List.last(events)["type"] == "response.completed"
-    assert v1_body["id"] == "resp_azure_v1"
+    assert v1_body["id"] =~ ~r/^tmp_resp_[0-9a-f-]{36}$/
   end
 
   test "standalone compact preserves provider-native output in one version 3 artifact" do

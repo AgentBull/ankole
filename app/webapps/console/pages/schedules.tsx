@@ -497,8 +497,15 @@ export function ScheduleCronEditorPage() {
   const sourceReady =
     model.sourceKey.value === sourceKey || (!existing.isError && (!existing.isStale || existing.isFetchedAfterMount))
   const scheduleDraft = useMemo(
-    () => (editing ? (existingRow && sourceReady ? draftFromCron(existingRow) : undefined) : emptyDraft()),
-    [editing, existingRow, sourceReady]
+    () =>
+      editing
+        ? existingRow && sourceReady
+          ? draftFromCron(existingRow)
+          : undefined
+        : agentUID
+          ? emptyDraft()
+          : undefined,
+    [agentUID, editing, existingRow, sourceReady]
   )
   const draftStatus = useEditorDraft(model, {
     sourceKey,
@@ -638,6 +645,7 @@ export function ScheduleCronEditorPage() {
 
   return (
     <ResourceEditorPage
+      fieldsDisabled={draftStatus !== 'ready'}
       title={editing ? t('console.schedules.edit') : t('console.schedules.new')}
       backTo={backTo}
       dirty={model.dirty.value && !removeCron.isPending}

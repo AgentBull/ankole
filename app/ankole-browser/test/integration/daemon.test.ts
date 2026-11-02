@@ -84,6 +84,47 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
     await rm(root, { recursive: true, force: true })
   }, 20_000)
 
+  test('select accepts labels and values with one wait and dispatches native change events', async () => {
+    const selection = { ...context, session: 'select-options' }
+    const file = join(root, 'select.html')
+    await writeFile(
+      file,
+      `<!doctype html><select id="colors" onchange="document.title=this.value"><option value="g">Green</option><option value="b" label="Blue">Azure</option></select><select id="later"></select><script>setTimeout(() => document.querySelector('#later').add(new Option('Late label', 'late-value')), 500)</script>`
+    )
+    expect((await sendBrowserCommand(selection, { name: 'open', args: { url: `file://${file}` } })).ok).toBe(true)
+    for (const [value, expected] of [
+      ['Blue', 'b'],
+      ['Green', 'g'],
+      ['b', 'b']
+    ]) {
+      expect(
+        (
+          await sendBrowserCommand(
+            selection,
+            { name: 'select', args: { selector: '#colors', value } },
+            { timeoutMs: 2000 }
+          )
+        ).ok
+      ).toBe(true)
+      const selected = await sendBrowserCommand(selection, {
+        name: 'get',
+        args: { property: 'value', selector: '#colors' }
+      })
+      expect(selected).toMatchObject({ ok: true, data: expected })
+      const title = await sendBrowserCommand(selection, { name: 'get', args: { property: 'title' } })
+      expect(title).toMatchObject({ ok: true, data: expected })
+    }
+    expect(
+      (
+        await sendBrowserCommand(
+          selection,
+          { name: 'select', args: { selector: '#later', value: 'late-value' } },
+          { timeoutMs: 2000 }
+        )
+      ).ok
+    ).toBe(true)
+  })
+
   test('closing an earlier inactive tab preserves the selected page, including native close events', async () => {
     const tabsContext = { ...context, session: 'tab-identity' }
     const paths = await Promise.all(

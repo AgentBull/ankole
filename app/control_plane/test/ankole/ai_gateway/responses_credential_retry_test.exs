@@ -61,7 +61,7 @@ defmodule Ankole.AIGateway.ResponsesCredentialRetryTest do
                model: "gpt-5.5"
              })
 
-    assert {:ok, %{body: %{"id" => "resp_pool_rotation"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "hello"
@@ -160,7 +160,7 @@ defmodule Ankole.AIGateway.ResponsesCredentialRetryTest do
     assert by_id["first"]["status"] == "ok"
     assert by_id["second"]["status"] == "ok"
 
-    assert {:ok, %{body: %{"id" => "resp_after_route_failure"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "second request"

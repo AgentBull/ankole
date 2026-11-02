@@ -83,6 +83,7 @@ export function ResourceEditorPage({
   backTo,
   children,
   contentWidth = 'form',
+  fieldsDisabled = false,
   description,
   dirty,
   error,
@@ -102,6 +103,7 @@ export function ResourceEditorPage({
   backTo: string
   children: ReactNode
   contentWidth?: 'form' | 'wide'
+  fieldsDisabled?: boolean
   description?: string
   /**
    * Unsaved-draft flag. When provided, leaving the editor page with a dirty
@@ -181,7 +183,7 @@ export function ResourceEditorPage({
           </div>
         ) : null}
         <div className="grid gap-5 border border-border bg-card p-5 md:p-6">
-          {readOnly ? (
+          {readOnly || fieldsDisabled ? (
             <fieldset className="contents" disabled>
               {children}
             </fieldset>

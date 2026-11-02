@@ -542,7 +542,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                "tool_choice" => %{"type" => "image_generation"}
              })
 
-    assert response["id"] =~ ~r/^resp_[0-9a-f]{32}$/
+    assert response["id"] =~ ~r/^tmp_resp_[0-9a-f-]{36}$/
     assert response["model"] == "test/main-model"
     assert response["status"] == "completed"
     refute Map.has_key?(response, "hosted_tool_metadata")

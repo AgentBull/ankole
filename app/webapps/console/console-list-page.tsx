@@ -38,7 +38,7 @@ import {
   RiSearchLine
 } from '@remixicon/react'
 
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from '@tanstack/react-router'
 import { linkTarget } from '../common/router'
@@ -46,6 +46,30 @@ import { agentListOptions } from './api/agents'
 import { PageHeader, PageStack, RefreshButton } from './console-page'
 import { ErrorBlock } from '../common/error-block'
 import { scheduleResourceSearchCommit } from './state/resource-search'
+
+/** Keep dialog return focus on the create button as it moves between list states. */
+export function useListCreateTrigger() {
+  const finalFocus = useRef<HTMLButtonElement>(null)
+  const ref = useCallback((node: HTMLButtonElement | null) => {
+    finalFocus.current = node
+    if (!node) return
+
+    return () => {
+      finalFocus.current = null
+      if (node.ownerDocument.activeElement !== node) return
+
+      // React replaces the button when a late list refresh changes its location.
+      queueMicrotask(() => {
+        const target = finalFocus.current
+        if (target?.isConnected && target.ownerDocument.activeElement === target.ownerDocument.body) {
+          target.focus()
+        }
+      })
+    }
+  }, [])
+
+  return { ref, finalFocus }
+}
 
 /**
  * List-page frame: title, optional create action, and a data table with

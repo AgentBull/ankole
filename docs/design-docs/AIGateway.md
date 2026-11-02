@@ -23,6 +23,10 @@ control plane, Codex runs Background Agent Job turns on the Worker, `Sessions`
 completes the triggering input, and `Conversations.Delivery` delivers the final
 reply to the external chat platform.
 
+The Console Provider editor waits for the provider catalog and existing provider
+data before enabling its fields. It seeds defaults once for each selected
+provider, so background reads preserve operator edits.
+
 ## What Runs in Each Process
 
 Responsibility splits cleanly across process boundaries:
@@ -689,7 +693,9 @@ process and drop active upstream I/O immediately if the capability process exits
 Stateless Responses run without writing to `ai_gateway_conversations` or
 `ai_gateway_messages`, mint temporary IDs prefixed with `tmp_resp_` (which
 `GET /responses/:response_id` never returns), and support both HTTP and
-WebSocket transports:
+WebSocket transports. A Response uses the same gateway-issued temporary ID in
+its lifecycle events, terminal envelope, and socket-local continuation history;
+upstream provider IDs do not replace it:
 
 - **HTTP (`POST /responses`)**: always stateless—accepts `store=false` and
   rejects `store=true`, `conversation`, and `previous_response_id`. Codex uses

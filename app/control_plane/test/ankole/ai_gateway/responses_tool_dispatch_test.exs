@@ -49,7 +49,7 @@ defmodule Ankole.AIGateway.ResponsesToolDispatchTest do
       %{"type" => "programmatic_tool_calling"}
     ]
 
-    assert {:ok, %{body: %{"id" => "resp_native_ptc_tools"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "Run the native program.",
@@ -131,7 +131,7 @@ defmodule Ankole.AIGateway.ResponsesToolDispatchTest do
       }
     ]
 
-    assert {:ok, %{body: %{"id" => "resp_native_collaboration_schema"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "Delegate the next step.",
@@ -189,7 +189,7 @@ defmodule Ankole.AIGateway.ResponsesToolDispatchTest do
       }
     ]
 
-    assert {:ok, %{body: %{"id" => "resp_compatible_codex_schema"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(
                agent.uid,
                %{"model" => "primary", "input" => "Delegate.", "tools" => tools},
@@ -202,7 +202,7 @@ defmodule Ankole.AIGateway.ResponsesToolDispatchTest do
 
     # The declaration survives for any caller on this wire, because the wire can
     # carry it. Who called is not the question; what the wire can express is.
-    assert {:ok, %{body: %{"id" => "resp_compatible_codex_schema"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "Delegate.",
@@ -342,7 +342,7 @@ defmodule Ankole.AIGateway.ResponsesToolDispatchTest do
       %{"type" => "programmatic_tool_calling"}
     ]
 
-    assert {:ok, %{body: %{"id" => "resp_chatgpt_native_ptc_tools"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "Run the main Agent program.",
@@ -368,7 +368,7 @@ defmodule Ankole.AIGateway.ResponsesToolDispatchTest do
       %{"type" => "programmatic_tool_calling"}
     ]
 
-    assert {:ok, %{body: %{"id" => "resp_chatgpt_native_ptc_tools"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(
                agent.uid,
                %{
@@ -417,7 +417,7 @@ defmodule Ankole.AIGateway.ResponsesToolDispatchTest do
       %{"type" => "programmatic_tool_calling"}
     ]
 
-    assert {:ok, %{body: %{"id" => "resp_native_direct_tool"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "Run tools.",
@@ -479,7 +479,7 @@ defmodule Ankole.AIGateway.ResponsesToolDispatchTest do
       }
     ]
 
-    assert {:ok, %{body: %{"id" => "resp_native_ptc_history"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => history,
@@ -523,7 +523,7 @@ defmodule Ankole.AIGateway.ResponsesToolDispatchTest do
       %{"type" => "programmatic_tool_calling"}
     ]
 
-    assert {:ok, %{body: %{"id" => "resp_native_tool_search"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "Find and use the lookup tool.",

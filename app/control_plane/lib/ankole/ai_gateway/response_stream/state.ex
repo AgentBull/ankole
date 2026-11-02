@@ -24,7 +24,6 @@ defmodule Ankole.AIGateway.ResponseStream.State do
             public_items: [],
             durable_items: [],
             local_response_id: nil,
-            provider_response_id: nil,
             terminal_response: nil,
             terminal_error: nil,
             terminal?: false,
@@ -65,7 +64,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       stateful: stateful,
       issuer: Map.get(meta, "issuer"),
       upstream_progress: Keyword.get(opts, :upstream_progress, UpstreamProgress.new()),
-      local_response_id: "resp_#{UUIDv7.autogenerate()}",
+      local_response_id: "tmp_resp_#{UUIDv7.autogenerate()}",
       image_persistence:
         ImageStreamPersistence.new(subject_uid, message_id: stateful_message_id(stateful)),
       max_tool_calls:
@@ -247,7 +246,6 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     state = %{
       state
       | public_lifecycle_started?: true,
-        provider_response_id: state.provider_response_id || response_id,
         sequence_number: sequence
     }
 
@@ -306,7 +304,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         {Map.put(event, "sequence_number", sequence), sequence}
       end
 
-    state = state |> remember_provider_response_id(event) |> account_tool_calls(event)
+    state = account_tool_calls(state, event)
 
     if terminal? do
       event = reconcile_terminal_item_snapshots(state, event)
@@ -1612,18 +1610,6 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp remember_provider_response_id(state, %{"response" => %{"id" => response_id}})
-       when is_binary(response_id) do
-    %{state | provider_response_id: state.provider_response_id || response_id}
-  end
-
-  defp remember_provider_response_id(state, %{"response_id" => response_id})
-       when is_binary(response_id) do
-    %{state | provider_response_id: state.provider_response_id || response_id}
-  end
-
-  defp remember_provider_response_id(state, _event), do: state
-
   defp rewrite_response_id(event, %{stateful: %{message_id: message_id}}) do
     new_id = "resp_#{message_id}"
 
@@ -1632,7 +1618,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     |> rewrite_top_level_response_id(new_id)
   end
 
-  defp rewrite_response_id(event, %{provider_response_id: response_id})
+  defp rewrite_response_id(event, %{local_response_id: response_id})
        when is_binary(response_id) do
     event
     |> rewrite_nested_response_id(response_id)
@@ -1653,9 +1639,6 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp rewrite_top_level_response_id(event, _new_id), do: event
 
   defp cleanup_response_id(%{stateful: %{message_id: message_id}}), do: "resp_#{message_id}"
-
-  defp cleanup_response_id(%{provider_response_id: response_id}) when is_binary(response_id),
-    do: response_id
 
   defp cleanup_response_id(%{local_response_id: response_id}) when is_binary(response_id),
     do: response_id

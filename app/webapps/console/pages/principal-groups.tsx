@@ -260,6 +260,7 @@ export function PrincipalGroupEditorPage() {
 
   return (
     <ResourceEditorPage
+      fieldsDisabled={draftStatus !== 'ready'}
       title={mode === 'new' ? t('console.principal_groups.new') : (name ?? '')}
       description={t('console.principal_groups.editor_description')}
       backTo="/access/groups"

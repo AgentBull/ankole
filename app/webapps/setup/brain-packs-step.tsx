@@ -67,7 +67,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
         className="grid gap-7"
         onSubmit={event => {
           event.preventDefault()
-          if (model.canSubmit()) mutation.mutate()
+          if (seeded && model.canSubmit()) mutation.mutate()
         }}>
         <ErrorBlock error={query.error ?? mutation.error} />
         <section className="grid gap-4">
@@ -78,7 +78,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
               autoComplete="organization"
               autoFocus
               required
-              disabled={mutation.isPending}
+              disabled={!seeded || mutation.isPending}
               maxLength={120}
               value={model.companyName.value}
               onChange={event => {
@@ -103,7 +103,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
                     spellCheck={false}
                     maxLength={63}
                     className="min-w-0 flex-1"
-                    disabled={mutation.isPending}
+                    disabled={!seeded || mutation.isPending}
                     value={model.customSlug.value ?? ''}
                     onChange={event => {
                       model.customSlug.value = event.target.value.toLowerCase()
@@ -113,7 +113,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={mutation.isPending}
+                    disabled={!seeded || mutation.isPending}
                     onClick={() => {
                       model.editingSlug.value = false
                     }}>
@@ -131,7 +131,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
                     variant="ghost"
                     size="icon-sm"
                     aria-label={t('setup.edit_slug')}
-                    disabled={model.transliteration.value === 'loading' || mutation.isPending}
+                    disabled={!seeded || model.transliteration.value === 'loading' || mutation.isPending}
                     onClick={() => model.editSlug(slug)}>
                     <RiEditLine aria-hidden />
                   </Button>
@@ -170,7 +170,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
                   className="flex cursor-pointer items-start gap-3 rounded-control border border-border/70 bg-card/60 px-4 py-4 transition-colors has-data-checked:border-border-strong has-data-checked:bg-accent/40">
                   <Checkbox
                     checked={selected.has(pack.name)}
-                    disabled={mutation.isPending}
+                    disabled={!seeded || mutation.isPending}
                     onCheckedChange={value => {
                       model.setPackSelected(pack.name, value === true)
                       mutation.reset()
@@ -193,7 +193,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
 
         <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
           <Button
-            disabled={!query.data || !model.canSubmit() || mutation.isPending}
+            disabled={!seeded || !model.canSubmit() || mutation.isPending}
             aria-busy={mutation.isPending}
             type="submit">
             {t('setup.save_industry')}

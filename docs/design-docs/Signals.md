@@ -255,6 +255,10 @@ populated—and omitting or sending an empty secret field preserves the existing
 encrypted value.
 
 Disabling a Binding keeps its routing rule, configuration, and history intact.
+The Console Binding editor enables fields only after the Agent list, adapter
+catalog, and selected Binding have initialized its draft. Later background
+reads preserve the operator's edits.
+
 The Console hides disabled Bindings by default while still letting operators
 reveal, edit, or re-enable them. If an enabled Binding carries an
 `unavailable_reason`, Ankole rejects new input on that Binding until an operator
@@ -283,7 +287,8 @@ durable Outbox admission rules.
 
 ### Shared Personal-Assistant Bots
 
-Lark and Slack support `sender_personal_assistant` routing. A shared binding
+Lark and Slack support `sender_personal_assistant` routing. Callers can omit
+`agent_uid` or send `null` when creating a shared binding. A shared binding
 defaults to the filter `signal.channel.kind == 'im_dm'` and manual identity
 review. Observe requires `im_dm` for this routing mode even when the operator
 changes the binding filter. IdentityAdmission resolves an active member of the binding's tenant

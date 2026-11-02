@@ -163,6 +163,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
   if (status === 'absent') return <EditorNotFound backTo="/tenants" message={t('console.tenants.not_found')} />
   return (
     <ResourceEditorPage
+      fieldsDisabled={status !== 'ready'}
       title={selected?.display_name ?? t('console.tenants.new')}
       description={t('console.tenants.editor_description')}
       backTo="/tenants"
