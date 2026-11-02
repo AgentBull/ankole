@@ -8,6 +8,7 @@ use gridcraft_calc::Calc;
 use gridcraft_model::{Sheet, Workbook};
 
 use crate::Error;
+use crate::autofit;
 use crate::ids::SheetId;
 use crate::index::SourceReport;
 use crate::ops::{self, Op};
@@ -86,6 +87,9 @@ impl SpreadsheetDoc {
             }
             calc
         };
+        // Rows whose content or fonts changed take their automatic height from the new values.
+        let rows = autofit::touched_rows(&wb, op);
+        autofit::fit_rows(&mut wb, &rows);
         Ok(Self {
             wb: Arc::new(wb),
             calc,

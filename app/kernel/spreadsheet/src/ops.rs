@@ -254,6 +254,23 @@ pub enum Op {
         /// Where the picture sits.
         anchor: ImageAnchor,
     },
+    /// Puts back the formats that [`format_snapshot`](crate::format_snapshot) read from `range`,
+    /// as undo does. Whole rows or columns take back their line formats, and lines left out of
+    /// `lines` lose theirs. Cells listed in `cells` take back their own formats; any other cell
+    /// in the range loses its own format, and a cell that holds nothing then disappears.
+    #[serde(rename = "range.restore_formats")]
+    RangeRestoreFormats {
+        /// The sheet, by its stable `sheet_id`.
+        sheet_id: SheetId,
+        /// The cells, in A1 form.
+        range: Range,
+        /// The line formats of whole rows or columns, by offset from the range's first line.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lines: Vec<LineFormat>,
+        /// The formats of the cells that held their own, by offset from the range's first cell.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cells: Vec<CellFormat>,
+    },
     /// Fills `to` from the cells of `range` at its start, as dragging the fill handle does. `to`
     /// holds `range` and reaches past exactly one of its edges.
     #[serde(rename = "range.fill")]
@@ -680,6 +697,28 @@ impl From<TableChange> for bool {
     }
 }
 
+/// The format of one whole row or column in a format snapshot.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LineFormat {
+    /// The line's offset from the first line of the range.
+    pub offset: u32,
+    /// The line's full format.
+    pub format: FormatPatch,
+}
+
+/// The format of one cell in a format snapshot.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CellFormat {
+    /// The cell's row offset from the first row of the range.
+    pub row: u32,
+    /// The cell's column offset from the first column of the range.
+    pub col: u32,
+    /// The cell's full format.
+    pub format: FormatPatch,
+}
+
 /// One cell of `range.paste`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -806,6 +845,12 @@ pub struct FormatPatch {
     /// Whether text wraps inside the cell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wrap: Option<bool>,
+    /// The indent level, from 0 to 250.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub indent: Option<u8>,
+    /// The text rotation in degrees from -90 to 90, or 255 for stacked vertical text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<i16>,
     /// The number format code, such as `#,##0.00`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub num_fmt: Option<String>,
@@ -1104,6 +1149,7 @@ impl Op {
             | Op::RangeMove { sheet_id, .. }
             | Op::RangeFill { sheet_id, .. }
             | Op::RangePaste { sheet_id, .. }
+            | Op::RangeRestoreFormats { sheet_id, .. }
             | Op::ImageInsert { sheet_id, .. }
             | Op::ImageUpdate { sheet_id, .. }
             | Op::ImageDelete { sheet_id, .. }
@@ -1319,6 +1365,12 @@ pub(crate) fn execute(wb: &mut Workbook, op: &mut Op) -> Result<Outcome, Error> 
             range,
             cells,
         } => edit::paste(wb, *sheet_id, range.0, cells),
+        Op::RangeRestoreFormats {
+            sheet_id,
+            range,
+            lines,
+            cells,
+        } => edit::restore_formats(wb, *sheet_id, range.0, lines, cells),
         Op::ImageInsert {
             sheet_id,
             image_id,

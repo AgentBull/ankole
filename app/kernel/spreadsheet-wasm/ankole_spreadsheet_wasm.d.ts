@@ -77,6 +77,15 @@ export class Spreadsheet {
      */
     fork(): Spreadsheet;
     /**
+     * The formats of the A1 range `range` that undo puts back with `range.restore_formats`, as
+     * JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
+     */
+    format_snapshot(sheet_id: number, range: string): string;
+    /**
      * The encoded bytes of the floating picture `image_id`.
      *
      * # Errors
@@ -163,6 +172,7 @@ export interface InitOutput {
     readonly spreadsheet_create_blank: (a: number, b: number) => [number, number, number];
     readonly spreadsheet_export_xlsx: (a: number) => [number, number, number, number];
     readonly spreadsheet_fork: (a: number) => number;
+    readonly spreadsheet_format_snapshot: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly spreadsheet_image_data: (a: number, b: number, c: number) => [number, number, number, number];
     readonly spreadsheet_images: (a: number, b: number) => [number, number, number, number];
     readonly spreadsheet_open: (a: number, b: number, c: number, d: number) => [number, number, number];

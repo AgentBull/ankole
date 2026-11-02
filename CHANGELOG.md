@@ -11,7 +11,7 @@
   people can edit the same workbook at once and see each other's selections;
   Ankole moves an edit that crosses another person's row or column change to
   the right cells and formulas, and asks you to redo an edit it cannot place.
-  Undo and redo cover your own cell values. Editors can restore earlier
+  Undo and redo cover your own values, formats, and merges. Editors can restore earlier
   versions from the page history, downloads and Agent file reads always
   return the latest edits, and search finds text inside spreadsheet cells.
   Workbooks larger than the editing limit (20 MiB by default) offer the
@@ -36,7 +36,8 @@
   clear formats. Pictures float over the cells or sit inside one; you can
   insert, paste, or drop them, move and resize them, switch them between the two
   kinds, view them full size, and download them, and they stay in the
-  downloaded `.xlsx`.
+  downloaded `.xlsx`. Rows without a height set by hand grow with larger fonts
+  and wrapped text, and shrink back when they go.
 
 ## Version 2.0.0-alpha.46 (2026-11-02)
 

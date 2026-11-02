@@ -462,3 +462,142 @@ fn fills_can_skip_formats_or_copy_only_formats() {
     assert_eq!(text(&formats, 1, "A3"), "keep");
     assert!(font(&formats, "A3").bold && font(&formats, "A4").bold);
 }
+
+fn format(range: &str, patch: serde_json::Value) -> serde_json::Value {
+    json!({"type": "range.format", "sheet_id": 1, "range": range, "patch": patch})
+}
+
+fn row_size(doc: &ankole_spreadsheet::SpreadsheetDoc, row: u32) -> Option<f32> {
+    workbook_sheet(doc, 1)
+        .rows
+        .get(&row)
+        .and_then(|info| info.size)
+}
+
+#[test]
+fn rows_grow_with_large_fonts_and_wrapped_text_unless_their_height_was_set() {
+    let doc = apply_all(
+        &blank(),
+        &[set("A1", "dasd啊"), format("A1", json!({"font_size": 24}))],
+    );
+    let grown = row_size(&doc, 0).unwrap_or_default();
+    assert!(grown > 40.0, "a 24 pt font needs a taller row, got {grown}");
+    let back = apply(&doc, format("A1", json!({"font_size": 11}))).doc;
+    assert_eq!(
+        row_size(&back, 0),
+        None,
+        "the row returns to the default height"
+    );
+
+    let wrapped = apply_all(
+        &blank(),
+        &[
+            set(
+                "B2",
+                "一段很长很长的说明文字，会在这一列里折成好几行显示出来",
+            ),
+            format("B2", json!({"wrap": true})),
+        ],
+    );
+    assert!(row_size(&wrapped, 1).unwrap_or_default() > 40.0);
+    let cleared = apply(
+        &wrapped,
+        json!({"type": "range.clear", "sheet_id": 1, "range": "B2", "mode": "contents"}),
+    )
+    .doc;
+    assert_eq!(row_size(&cleared, 1), None);
+
+    let fixed = apply_all(
+        &blank(),
+        &[
+            json!({"type": "line.resize", "sheet_id": 1, "axis": "rows", "start": 2, "end": 2, "size_px": 18}),
+            set("A3", "固定"),
+            format("A3", json!({"font_size": 36})),
+        ],
+    );
+    assert_eq!(
+        row_size(&fixed, 2),
+        Some(18.0),
+        "a height the author set stays"
+    );
+    let automatic = apply(
+        &fixed,
+        json!({"type": "line.resize", "sheet_id": 1, "axis": "rows", "start": 2, "end": 2, "size_px": "auto"}),
+    )
+    .doc;
+    assert!(
+        row_size(&automatic, 2).unwrap_or_default() > 50.0,
+        "auto fits the content again"
+    );
+}
+
+#[test]
+fn a_format_snapshot_restores_cell_line_and_blank_cell_formats() -> Result<(), Error> {
+    let doc = apply_all(
+        &blank(),
+        &[
+            set("B2", "保留"),
+            format("B2", json!({"italic": true, "indent": 2, "rotation": 45})),
+            json!({"type": "cell.picture", "sheet_id": 1, "cell": "C3", "picture": picture()}),
+            format("2:2", json!({"fill_color": "#FFEE00"})),
+        ],
+    );
+    let style = |doc: &ankole_spreadsheet::SpreadsheetDoc, a1: &str| {
+        let sheet = workbook_sheet(doc, 1);
+        doc.workbook().styles.get(sheet.style_id(cell(a1))).clone()
+    };
+    let before = ["B2", "C3", "D4", "A2"].map(|a1| style(&doc, a1));
+    let stored = workbook_sheet(&doc, 1).cells.iter().count();
+
+    let snapshot = ankole_spreadsheet::format_snapshot(&doc, SheetId(1), "B2:D4")?;
+    let formatted = apply(
+        &doc,
+        format("B2:D4", json!({"bold": true, "fill_color": "#FF0000"})),
+    )
+    .doc;
+    assert!(style(&formatted, "D4").font.bold);
+    let restored = apply(
+        &formatted,
+        json!({"type": "range.restore_formats", "sheet_id": 1, "range": "B2:D4", "lines": snapshot.lines, "cells": snapshot.cells}),
+    )
+    .doc;
+    assert_eq!(
+        ["B2", "C3", "D4", "A2"].map(|a1| style(&restored, a1)),
+        before
+    );
+    assert_eq!(text(&restored, 1, "B2"), "保留");
+    assert!(
+        ankole_spreadsheet::cell_picture(&restored, SheetId(1), "C3").is_ok(),
+        "the picture stays"
+    );
+    assert_eq!(
+        workbook_sheet(&restored, 1).cells.iter().count(),
+        stored,
+        "blank cells the format added are gone again"
+    );
+
+    let lines = ankole_spreadsheet::format_snapshot(&doc, SheetId(1), "1:3")?;
+    assert_eq!(lines.lines.len(), 1, "row 2 holds a line format");
+    let reformatted = apply(&doc, format("1:3", json!({"font_color": "#0000FF"}))).doc;
+    let undone = apply(
+        &reformatted,
+        json!({"type": "range.restore_formats", "sheet_id": 1, "range": "1:3", "lines": lines.lines, "cells": lines.cells}),
+    )
+    .doc;
+    assert_eq!(style(&undone, "A2"), before[3]);
+    assert!(
+        workbook_sheet(&undone, 1)
+            .rows
+            .get(&0)
+            .and_then(|info| info.style)
+            .is_none()
+    );
+    assert!(
+        workbook_sheet(&undone, 1)
+            .rows
+            .get(&2)
+            .and_then(|info| info.style)
+            .is_none()
+    );
+    Ok(())
+}

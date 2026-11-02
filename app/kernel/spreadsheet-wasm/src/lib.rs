@@ -187,6 +187,19 @@ impl Spreadsheet {
         )
     }
 
+    /// The formats of the A1 range `range` that undo puts back with `range.restore_formats`, as
+    /// JSON.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
+    pub fn format_snapshot(&self, sheet_id: u32, range: &str) -> Result<String, JsError> {
+        json(
+            &ankole_spreadsheet::format_snapshot(&self.doc, SheetId(sheet_id), range)
+                .map_err(|error| js_error(&error))?,
+        )
+    }
+
     /// The floating pictures of one sheet, as JSON.
     ///
     /// # Errors

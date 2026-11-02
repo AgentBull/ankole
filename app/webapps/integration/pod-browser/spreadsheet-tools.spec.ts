@@ -271,3 +271,54 @@ test('pictures float over cells, sit in cells, move, convert and survive the dow
     await context.close()
   }
 })
+
+test('larger fonts grow their row, and Command+Z undoes formats and merges', async ({ browser }) => {
+  const { context, page } = await session(browser)
+  let id: string | undefined
+  try {
+    id = await create(page, '撤销格式.xlsx')
+    await enter(page, 0, 0, 'dasd啊')
+    await enter(page, 2, 0, '左')
+    await enter(page, 2, 1, '右')
+    await cell(page, 0, 0)
+    await page.getByRole('combobox', { name: '字号', exact: true }).click()
+    await page.getByRole('option', { name: '24', exact: true }).click()
+    await saved(page)
+
+    await cell(page, 0, 0)
+    await page.getByRole('button', { name: '加粗', exact: true }).click()
+    await saved(page)
+    await page.keyboard.press('ControlOrMeta+Z')
+    await saved(page)
+
+    // Row 1 is taller now, so row 3 sits lower than the default grid puts it.
+    const third = await point(page, 2, 0)
+    const rowOneGrowth = 44 - 20
+    await page.mouse.click(third.x, third.y + rowOneGrowth)
+    await page.keyboard.down('Shift')
+    await page.mouse.click(third.x + 64, third.y + rowOneGrowth)
+    await page.keyboard.up('Shift')
+    await page.getByRole('button', { name: '合并单元格', exact: true }).click()
+    await saved(page)
+    await page.keyboard.press('ControlOrMeta+Z')
+    await saved(page)
+
+    const workbook = await download(page)
+    try {
+      const view = JSON.parse(workbook.viewport(1, 0, 0, 2, 1))
+      const style = (row: number, col: number) =>
+        view.styles[
+          view.cells.find((entry: { row: number; col: number }) => entry.row === row && entry.col === col).style
+        ]
+      expect(style(0, 0)).toMatchObject({ font_size: 24, bold: false })
+      expect(view.rows.find((entry: { index: number }) => entry.index === 0).size).toBeGreaterThan(40)
+      expect(view.merges).toEqual([])
+      expect(workbook.cell_input(1, 'B3')).toBe('右')
+    } finally {
+      workbook.free()
+    }
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})

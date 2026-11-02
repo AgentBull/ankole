@@ -4,6 +4,7 @@ import type { Rebased } from '../state/spreadsheet-collaboration'
 import {
   cellName,
   type ClipboardBlock,
+  type FormatSnapshot,
   type FunctionInfo,
   type PasteMode,
   type Rect,
@@ -88,6 +89,9 @@ const methods = {
   },
   pasteOp(block: ClipboardBlock, sheetID: number, cell: string, mode: PasteMode): SpreadsheetOp {
     return JSON.parse(paste_op(JSON.stringify(block), sheetID, cell, mode))
+  },
+  formatSnapshot(sheetID: number, range: string): FormatSnapshot {
+    return JSON.parse(opened(local).format_snapshot(sheetID, range))
   },
   images(sheetID: number): RenderImage[] {
     return JSON.parse(opened(local).images(sheetID))

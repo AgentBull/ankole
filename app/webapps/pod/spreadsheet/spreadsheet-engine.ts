@@ -57,6 +57,7 @@ export function createSpreadsheetEngine(): SpreadsheetEngine {
     selectionStats: (sheetID, range) => call('selectionStats', [sheetID, range]),
     copyBlock: (sheetID, range) => call('copyBlock', [sheetID, range]),
     pasteOp: (block, sheetID, cell, mode) => call('pasteOp', [block, sheetID, cell, mode]),
+    formatSnapshot: (sheetID, range) => call('formatSnapshot', [sheetID, range]),
     images: sheetID => call('images', [sheetID]),
     imageData: (sheetID, imageID) => call('imageData', [sheetID, imageID]),
     cellPicture: (sheetID, cell) => call('cellPicture', [sheetID, cell]),

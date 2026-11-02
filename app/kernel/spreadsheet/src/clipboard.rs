@@ -190,7 +190,7 @@ fn moved_formula(input: &str, rows: i64, cols: i64) -> String {
 
 /// Every attribute of `style` that a format patch can set, so applying the patch to any cell
 /// reproduces the style.
-fn full_format(wb: &Workbook, style: &Style) -> FormatPatch {
+pub(crate) fn full_format(wb: &Workbook, style: &Style) -> FormatPatch {
     let hex = |color: Color| {
         color
             .resolve(&wb.theme)
@@ -215,6 +215,8 @@ fn full_format(wb: &Workbook, style: &Style) -> FormatPatch {
         h_align: Some(HAlign::from(style.align.h)),
         v_align: Some(VAlign::from(style.align.v)),
         wrap: Some(style.align.wrap),
+        indent: Some(style.align.indent),
+        rotation: Some(style.align.rotation),
         num_fmt: Some(style.num_fmt.as_str().to_string()),
         borders: Some(BordersPatch {
             left: border(&style.borders.left),

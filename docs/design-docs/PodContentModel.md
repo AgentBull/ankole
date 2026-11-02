@@ -1629,6 +1629,13 @@ of a note itself. Retrying a `(client_id, client_seq)` pair acknowledges the
 earlier commit, and a different operation under the same pair is a
 `client_sequence_conflict`.
 
+A row whose height its author did not set takes its height from its content
+after every operation that changes the content or format of its cells: the
+largest font in the row, and wrapped text by its line count, estimated from
+average glyph widths the way GridCraft estimates them, so the server and every
+browser compute the same heights. Merged cells do not count, and a height set
+with `line.resize` stays until `size_px` is `auto` again.
+
 Operations cover typed values, formats, merges, lines, cell shifts, moves,
 sheets, notes, sorting, filters, validation, and tables, plus three editing
 tools. `range.fill` fills a range from the cells at its start, as the fill
@@ -1639,7 +1646,12 @@ keeps the filled cells' formats, and `formats` copies only formats. A formula
 moves its relative references with each repetition. `range.paste` writes a
 copied block: each cell carries typed input, with formulas already moved to the
 destination, and its full format, so pasting everything, values, formulas, or
-formats is one operation that rebases like typed input. Pictures are PNG or JPEG
+formats is one operation that rebases like typed input. `range.restore_formats`
+gives a range the formats of a snapshot whose cell and line offsets count from
+the range's start, so it rebases like a format: the listed cells and, for whole
+rows or columns, the listed lines take their format, the other cells and lines
+of the range lose theirs, and blank cells that only held a format disappear.
+Pictures are PNG or JPEG
 files of at most 2 MiB that travel base64 in the operation. `image.insert`,
 `image.update`, and `image.delete` place, move or resize, and remove a floating
 picture that moves with the cell under its top-left corner; `cell.picture` puts
@@ -1814,12 +1826,30 @@ Delete removes it, and its context menu places it in its cell, shows it full
 size, or downloads it. A cell picture is drawn inside its cell with its
 proportions kept, and its context menu lifts it out over the cells.
 
-Undo and redo are personal. Before this tab sets a cell, pastes, fills, clears
-contents, or puts a picture into a cell, the editor reads the inputs that the
-affected cells hold, and undo writes them back with `range.set_values`. Formats, row and column
-changes, and sheet operations are not undoable; the history clears whenever a
-row, column, cell-shift, move, sort, or sheet deletion commits, because earlier
-coordinates no longer name the same cells. A viewer without `node_edit` gets
+Undo and redo are personal, and each step may apply several operations. Before
+this tab types into, pastes over, fills, or clears cells, or puts a picture into
+a cell, the editor reads the inputs that the affected cells hold, and undo
+writes them back with `range.set_values`. Before it changes formats, the editor
+reads a format snapshot of the range with the kernel's `format_snapshot`: the
+cells that hold a format of their own and, for whole rows or columns, the lines
+that hold a line format. Undo puts them back with `range.restore_formats`, which
+also takes away formats added since and removes the blank cells that only held
+them. Formats travel as format patches, so undo brings back a pattern or
+gradient fill as its foreground colour and does not keep a diagonal border.
+Edits that change both, such as typing, pasting everything, filling, and
+clearing all, restore the inputs and then the formats. Undoing a merge unmerges
+the merged bounds, merges again the areas the bounds held before, and puts back
+the cleared values and formats; undoing an unmerge merges the areas again. The
+outline border's four sides are one step. The editor reads this state inside
+its edit queue, so an undo pressed right after an edit always undoes that edit.
+Sorting, cell shifts, moves, row and column inserts and deletes, line sizes,
+freezing, notes, floating pictures, filters, validation, tables, and sheet
+operations are not undoable, and neither is a format change over more than
+100,000 stored cells or a merge over more than 1,000,000 cells, so the history
+ends when this tab applies one. It
+also clears whenever another editor's row, column, cell-shift, move, sort, or
+sheet deletion commits, because earlier coordinates no longer name the same
+cells. A viewer without `node_edit` gets
 the same grid with selection, copy, and live updates, and neither editing
 controls nor the version history.
 A file larger than `max_file_bytes` starts no worker. When the bootstrap

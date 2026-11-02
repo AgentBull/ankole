@@ -56,6 +56,10 @@ function fakeEngine(
       behaviour.inputs?.(rect) ??
       Array.from({ length: rect.r1 - rect.r0 + 1 }, () => Array.from({ length: rect.c1 - rect.c0 + 1 }, () => '')),
     selectionStats: async () => ({ count: 0, numbers: 0, sum: 0, average: null, min: null, max: null }),
+    formatSnapshot: async (_sheetID, range) => {
+      record('formatSnapshot', range)
+      return { lines: [], cells: [{ row: 0, col: 0, format: { bold: false } }] }
+    },
     copyBlock: async (_sheetID, range) => {
       record('copyBlock', range)
       return { origin: range.split(':')[0]!, rows: [[{ input: '=A1', value: '1', text: '1', format: {} }]] }
@@ -340,13 +344,23 @@ test('undo restores the previous input of a cell and redo applies the edit again
   expect(model.canRedo.value).toBe(true)
   await model.redo()
   const applied = called('applyLocal').map(call => call.args[0])
+  const formats = (range: string) => ({
+    type: 'range.restore_formats',
+    sheet_id: 1,
+    range,
+    lines: [],
+    cells: [{ row: 0, col: 0, format: { bold: false } }]
+  })
+  // Typed input can set a number format, so undo puts back the input and then the format.
   expect(applied.slice(2)).toEqual([
     { type: 'range.set_values', sheet_id: 1, range: 'A2', values: [[null]] },
+    formats('A2'),
     { type: 'range.set_values', sheet_id: 1, range: 'A1', values: [['before']] },
+    formats('A1'),
     { type: 'cell.set', sheet_id: 1, cell: 'A1', input: 'after' }
   ])
   await until(() => model.pending.value === 0)
-  expect(socket.applies()).toHaveLength(5)
+  expect(socket.applies()).toHaveLength(7)
 })
 
 test('a pushed change that skips a revision catches up with sheet:sync', async () => {
@@ -662,4 +676,71 @@ test('a formula draft stays open on another sheet while it waits for a reference
   model.edit({ row: 0, col: 0 }, '=A1')
   model.showSheet(2)
   expect(model.draft.value).toBeNull()
+})
+
+test('formats, outlines, merges, and unmerges are undo steps, and other edits end the history', async () => {
+  const merged = (rect: Rect): Viewport => ({
+    cells: [],
+    styles: [],
+    merges: rect.r0 <= 1 && rect.c0 <= 1 ? ['B2:C2'] : [],
+    spills: [],
+    rows: [],
+    cols: []
+  })
+  const { engine, called } = fakeEngine({ viewport: merged })
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model } = await started(socket, engine)
+  const applied = () => called('applyLocal').map(call => call.args[0] as SpreadsheetOp)
+
+  await model.format({ r0: 0, c0: 0, r1: 1, c1: 1 }, { bold: true })
+  expect(called('formatSnapshot').at(-1)!.args).toEqual(['A1:B2'])
+  await model.undo()
+  expect(applied().at(-1)).toMatchObject({ type: 'range.restore_formats', range: 'A1:B2' })
+  await model.redo()
+  expect(applied().at(-1)).toEqual({ type: 'range.format', sheet_id: 1, range: 'A1:B2', patch: { bold: true } })
+
+  const outline = ['A1:B1', 'A2:B2', 'A1:A2', 'B1:B2'].map(range => ({
+    type: 'range.format',
+    range,
+    patch: { borders: { top: { style: 'thin' } } }
+  }))
+  await model.formatEach({ r0: 0, c0: 0, r1: 1, c1: 1 }, outline)
+  const before = applied().length
+  await model.undo()
+  expect(applied().length - before).toBe(1)
+
+  await model.merge({ r0: 1, c0: 0, r1: 1, c1: 1 })
+  await model.undo()
+  expect(
+    applied()
+      .slice(-4)
+      .map(op => [op.type, op.range])
+  ).toEqual([
+    ['range.unmerge', 'A2:C2'],
+    ['range.merge', 'B2:C2'],
+    ['range.set_values', 'A2:C2'],
+    ['range.restore_formats', 'A2:C2']
+  ])
+
+  await model.unmerge({ r0: 1, c0: 1, r1: 1, c1: 2 })
+  await model.undo()
+  expect(applied().at(-1)).toEqual({ type: 'range.merge', sheet_id: 1, range: 'B2:C2' })
+
+  expect(model.canUndo.value).toBe(true)
+  await model.perform({ type: 'sheet.freeze', sheet_id: 1, rows: 1, cols: 0 })
+  expect(model.canUndo.value).toBe(false)
+  expect(model.canRedo.value).toBe(false)
+})
+
+test('an undo pressed while a merge reads its areas undoes that merge, not the edit before it', async () => {
+  const { engine, called } = fakeEngine()
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model } = await started(socket, engine)
+  await model.format({ r0: 0, c0: 0, r1: 0, c1: 0 }, { font_size: 24 })
+  const merging = model.merge({ r0: 2, c0: 0, r1: 2, c1: 1 })
+  expect(model.pending.value).toBeGreaterThan(0)
+  await Promise.all([merging, model.undo()])
+  const types = called('applyLocal').map(call => (call.args[0] as SpreadsheetOp).type)
+  expect(types.slice(-4)).toEqual(['range.merge', 'range.unmerge', 'range.set_values', 'range.restore_formats'])
+  expect(model.canUndo.value).toBe(true)
 })

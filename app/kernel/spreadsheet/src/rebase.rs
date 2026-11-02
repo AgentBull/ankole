@@ -369,6 +369,9 @@ fn move_targets(op: &mut Op, edit: &Structural) -> Result<(), Conflict> {
         } => range.0 = map_block(*sheet_id, range.0, edit)?,
         Op::RangePaste {
             sheet_id, range, ..
+        }
+        | Op::RangeRestoreFormats {
+            sheet_id, range, ..
         } => range.0 = map_block(*sheet_id, range.0, edit)?,
         Op::ImageInsert {
             sheet_id, anchor, ..
@@ -530,6 +533,9 @@ fn footprint(op: &Op) -> Vec<(SheetId, RangeRef)> {
         } => vec![(*sheet_id, range.0)],
         Op::RangeFill { sheet_id, to, .. } => vec![(*sheet_id, to.0)],
         Op::RangePaste {
+            sheet_id, range, ..
+        }
+        | Op::RangeRestoreFormats {
             sheet_id, range, ..
         } => vec![(*sheet_id, range.0)],
         Op::CellPicture { sheet_id, cell, .. }

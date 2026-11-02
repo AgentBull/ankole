@@ -88,6 +88,11 @@ export type ClipboardCell = { input: string; value: string; text: string; format
 /** A block that the kernel copied, with the cell it came from so a paste can move references. */
 export type ClipboardBlock = { origin: string; rows: ClipboardCell[][] }
 export type PasteMode = 'all' | 'values' | 'formulas' | 'formats'
+/** The formats of a range that `range.restore_formats` puts back, as the kernel read them. */
+export type FormatSnapshot = {
+  lines: { offset: number; format: Record<string, unknown> }[]
+  cells: { row: number; col: number; format: Record<string, unknown> }[]
+}
 export type FillMode = 'series' | 'copy' | 'values' | 'formats'
 export type RenderLine = { index: number; size: number | null; hidden: boolean; style: number | null }
 export type Viewport = {

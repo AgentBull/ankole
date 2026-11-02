@@ -16,6 +16,7 @@ import {
   type CellAddress,
   type ClipboardBlock,
   type FillMode,
+  type FormatSnapshot,
   type FunctionInfo,
   type PasteMode,
   type Rect,
@@ -75,6 +76,7 @@ export type SpreadsheetEngine = {
   cellInputs(sheetID: number, rect: Rect): Promise<string[][]>
   selectionStats(sheetID: number, range: string): Promise<SelectionStats>
   copyBlock(sheetID: number, range: string): Promise<ClipboardBlock>
+  formatSnapshot(sheetID: number, range: string): Promise<FormatSnapshot>
   pasteOp(block: ClipboardBlock, sheetID: number, cell: string, mode: PasteMode): Promise<SpreadsheetOp>
   images(sheetID: number): Promise<RenderImage[]>
   imageData(sheetID: number, imageID: number): Promise<Uint8Array>
@@ -123,7 +125,25 @@ export type CopiedRange = { sheetID: number; rect: Rect; cut?: string }
 export type FormatPainter = { block: ClipboardBlock; sticky: boolean }
 export type Direction = 'up' | 'down' | 'left' | 'right'
 
-type UndoRecord = { forward: SpreadsheetOp; inverse: SpreadsheetOp }
+/** One undo step: the operations it applied, and the operations that put their target back. */
+type UndoRecord = { forward: SpreadsheetOp[]; inverse: SpreadsheetOp[] }
+/** What an undoable edit puts back: the inputs of its cells, their formats, or both. */
+type Capture = 'values' | 'formats' | 'both'
+/**
+ * One undoable edit: the operations it applies in order, and the range whose current state its
+ * inverse puts back. `before` runs ahead of that restore, and `undoable: false` marks an edit whose
+ * state cannot be read, so it applies and ends the undo history.
+ */
+type UndoPlan = {
+  ops: SpreadsheetOp[]
+  sheetID: number
+  rect?: Rect
+  capture: Capture
+  before?: SpreadsheetOp[]
+  undoable?: false
+}
+/** The most cells whose inputs an undo step reads cell by cell; larger edits read the used area. */
+const MAX_UNDO_CELLS = 200_000
 type Entry = { op: SpreadsheetOp; undo?: UndoRecord; request?: SheetRequest; busy: number }
 type PresenceMeta = { name?: string | null; selection?: PresenceSelection | null }
 
@@ -515,10 +535,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
    * Applies a local edit and queues it for the server; the kernel rejects an invalid one at once.
    * Callers run it inside `serial`.
    */
-  const applyEdit = async (
-    op: SpreadsheetOp,
-    record?: (applied: SpreadsheetOp) => UndoRecord | undefined
-  ): Promise<SpreadsheetOp | undefined> => {
+  const applyEdit = async (op: SpreadsheetOp, record?: UndoRecord): Promise<SpreadsheetOp | undefined> => {
     if (disposed || !engine || status.peek() !== 'ready') return undefined
     let applied: SpreadsheetOp
     try {
@@ -528,7 +545,8 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       return undefined
     }
     if (disposed) return undefined
-    queue.push({ op: applied, undo: record?.(applied), busy: 0 })
+    record?.forward.push(applied)
+    queue.push({ op: applied, undo: record, busy: 0 })
     if (isStructural(applied)) clearHistory()
     await refreshSheets()
     publishCounts()
@@ -536,19 +554,66 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     return applied
   }
 
-  /** An edit of cell values whose inverse restores the inputs the cells held before it. */
-  const valueEdit = (op: SpreadsheetOp, sheetID: number, rect: Rect | undefined) =>
+  /** The part of `rect` inside the sheet's used area, where cells can hold content. */
+  const usedPart = (sheetID: number, rect: Rect) => {
+    const sheet = sheets.peek().find(item => item.sheet_id === sheetID)
+    return sheet && sheet.rows && sheet.cols
+      ? intersect(rect, { r0: 0, c0: 0, r1: sheet.rows - 1, c1: sheet.cols - 1 })
+      : undefined
+  }
+
+  /**
+   * The operations that put `rect` back as it is now: first the inputs of its cells, then their
+   * formats. `undefined` when the formats cannot be read, as in a range with too many cells.
+   */
+  const inverseOf = async (sheetID: number, rect: Rect, capture: Capture) => {
+    if (!engine) return undefined
+    const inverse: SpreadsheetOp[] = []
+    if (capture !== 'formats') {
+      const cells = (rect.r1 - rect.r0 + 1) * (rect.c1 - rect.c0 + 1)
+      const read = cells <= MAX_UNDO_CELLS ? rect : usedPart(sheetID, rect)
+      if (read) inverse.push(restoreOp(sheetID, read, await engine.cellInputs(sheetID, read)))
+    }
+    if (capture !== 'values') {
+      try {
+        const snapshot = await engine.formatSnapshot(sheetID, rangeName(rect))
+        inverse.push({ type: 'range.restore_formats', sheet_id: sheetID, range: rangeName(rect), ...snapshot })
+      } catch {
+        return undefined
+      }
+    }
+    return inverse
+  }
+
+  /**
+   * Applies the edit that `plan` describes as one undo step. `plan` runs inside the edit queue, so
+   * what it reads includes every earlier edit and a later undo cannot overtake it.
+   */
+  const planned = (plan: () => Promise<UndoPlan | undefined>) =>
     editSerial(async () => {
       if (!engine || status.peek() !== 'ready') return undefined
-      const before = rect ? await engine.cellInputs(sheetID, rect) : undefined
-      return applyEdit(op, applied => {
-        if (!rect || !before) return undefined
-        const record = { forward: applied, inverse: restoreOp(sheetID, rect, before) }
+      const next = await plan()
+      if (!next) return undefined
+      const { ops, sheetID, rect, capture, before = [] } = next
+      // Without a rectangle there is nothing to put back, as when clearing past the used area.
+      const inverse = next.undoable === false ? undefined : rect ? await inverseOf(sheetID, rect, capture) : []
+      const record = inverse ? { forward: [], inverse: [...before, ...inverse] } : undefined
+      let applied: SpreadsheetOp | undefined
+      for (const op of ops) {
+        applied = await applyEdit(op, record)
+        if (!applied) break
+      }
+      if (record?.forward.length) {
         undoStack.push(record)
         redoStack = []
-        return record
-      })
+      } else if (!record && applied) clearHistory()
+      publishCounts()
+      return applied
     })
+
+  /** Applies `ops` in order as one undo step whose inverse puts `rect` back. */
+  const recorded = (ops: SpreadsheetOp[], sheetID: number, rect: Rect | undefined, capture: Capture) =>
+    planned(async () => ({ ops, sheetID, rect, capture }))
 
   const replay = (from: 'undo' | 'redo') =>
     editSerial(async () => {
@@ -557,7 +622,9 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       if (!record) return undefined
       ;(from === 'undo' ? redoStack : undoStack).push(record)
       publishCounts()
-      return applyEdit(from === 'undo' ? record.inverse : record.forward)
+      let applied: SpreadsheetOp | undefined
+      for (const op of from === 'undo' ? record.inverse : record.forward) applied = await applyEdit(op)
+      return applied
     })
 
   const select = (next: Selection) => {
@@ -565,18 +632,40 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     if (loaded()) announce({ sheet_id: activeSheetID.peek(), range: rangeName(selectionRect(selection.peek())) })
   }
 
+  /** Typed input can give a cell a number format, so undo puts back both its input and its format. */
   const setCell = (cell: CellAddress, input: string, sheetID = activeSheetID.peek()) => {
     const rect = { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col }
-    return valueEdit({ type: 'cell.set', sheet_id: sheetID, cell: cellName(cell), input }, sheetID, rect)
+    return recorded([{ type: 'cell.set', sheet_id: sheetID, cell: cellName(cell), input }], sheetID, rect, 'both')
   }
 
-  /** Applies an operation that personal undo does not cover. */
-  const perform = (op: SpreadsheetOp) => editSerial(() => applyEdit(op))
+  /**
+   * Applies an operation that personal undo does not cover, such as a line, sheet, note, or sort
+   * change. The undo history ends there, so undo never skips past it to an earlier edit.
+   */
+  const perform = (op: SpreadsheetOp) =>
+    editSerial(async () => {
+      const applied = await applyEdit(op)
+      if (applied) {
+        clearHistory()
+        publishCounts()
+      }
+      return applied
+    })
 
   const fill = (source: Rect, to: Rect, mode: FillMode = 'series') => {
     const sheetID = activeSheetID.peek()
     const op = { type: 'range.fill', sheet_id: sheetID, range: rangeName(source), to: rangeName(to), mode }
-    return mode === 'formats' ? perform(op) : valueEdit(op, sheetID, to)
+    return recorded([op], sheetID, to, mode === 'formats' ? 'formats' : 'both')
+  }
+
+  /** Reads the merged areas that touch `rect`, or `undefined` when the area is too large to read. */
+  const mergesIn = async (sheetID: number, rect: Rect) => {
+    try {
+      const view = await engine!.viewport(sheetID, rect)
+      return view.merges.map(parseRange).filter((merge): merge is Rect => merge !== undefined)
+    } catch {
+      return undefined
+    }
   }
 
   /** The run of numbers that ends next to `cell`, above it or to its left, as AutoSum picks it. */
@@ -807,18 +896,18 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
           to_cell: cellName(at)
         })
       }
-      if (!engine || status.peek() !== 'ready') return undefined
-      let op: SpreadsheetOp
-      try {
-        op = await engine.pasteOp(block, sheetID, cellName(at), mode)
-      } catch (failure) {
-        options.notify({ kind: 'failed', error: failure })
-        return undefined
-      }
-      const pasted = parseRange(String(op.range))
-      const applied = mode === 'formats' ? perform(op) : valueEdit(op, sheetID, pasted)
-      if (pasted) select({ anchor: at, focus: { row: pasted.r1, col: pasted.c1 } })
-      return applied
+      return planned(async () => {
+        let op: SpreadsheetOp
+        try {
+          op = await engine!.pasteOp(block, sheetID, cellName(at), mode)
+        } catch (failure) {
+          options.notify({ kind: 'failed', error: failure })
+          return undefined
+        }
+        const pasted = parseRange(String(op.range))
+        if (pasted) select({ anchor: at, focus: { row: pasted.r1, col: pasted.c1 } })
+        return { ops: [op], sheetID, rect: pasted, capture: mode === 'formats' ? 'formats' : 'both' }
+      })
     },
     /** Takes the selection's formats for the format painter; a sticky painter keeps them for several targets. */
     async pickFormats(sticky: boolean) {
@@ -844,8 +933,10 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
         )
       }
       const sheetID = activeSheetID.peek()
-      const op = await engine.pasteOp(block, sheetID, cellName({ row: rect.r0, col: rect.c0 }), 'formats')
-      return perform(op)
+      return planned(async () => {
+        const op = await engine!.pasteOp(block, sheetID, cellName({ row: rect.r0, col: rect.c0 }), 'formats')
+        return { ops: [op], sheetID, rect: parseRange(String(op.range)), capture: 'formats' }
+      })
     },
     fill,
     /** Ctrl+D and Ctrl+R: copies the first row or column of the selection over the rest, or the line before a single one. */
@@ -858,11 +949,71 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       const source = down ? { ...to, r1: to.r0 } : { ...to, c1: to.c0 }
       return fill(source, to, 'copy')
     },
+    /** Patches the format of `rect` as one undo step. */
+    format(rect: Rect, patch: Record<string, unknown>) {
+      const sheetID = activeSheetID.peek()
+      return recorded(
+        [{ type: 'range.format', sheet_id: sheetID, range: rangeName(rect), patch }],
+        sheetID,
+        rect,
+        'formats'
+      )
+    },
+    /** Applies several format operations inside `rect`, such as the four sides of an outline, as one undo step. */
+    formatEach(rect: Rect, ops: SpreadsheetOp[]) {
+      const sheetID = activeSheetID.peek()
+      return recorded(
+        ops.map(op => ({ ...op, sheet_id: sheetID })),
+        sheetID,
+        rect,
+        'formats'
+      )
+    },
+    /**
+     * Merges `rect`. Undo unmerges the merged bounds, merges again the areas the bounds held before,
+     * and puts back the values and formats the merge cleared.
+     */
+    merge(rect: Rect) {
+      const sheetID = activeSheetID.peek()
+      const op = { type: 'range.merge', sheet_id: sheetID, range: rangeName(rect) }
+      return planned(async () => {
+        const touching = await mergesIn(sheetID, rect)
+        const area = touching?.reduce(
+          (bounds, merge) => ({
+            r0: Math.min(bounds.r0, merge.r0),
+            c0: Math.min(bounds.c0, merge.c0),
+            r1: Math.max(bounds.r1, merge.r1),
+            c1: Math.max(bounds.c1, merge.c1)
+          }),
+          rect
+        )
+        // Unmerging the bounds also removes merges inside them that do not touch `rect`, so undo
+        // merges every area that the bounds held before.
+        const held = area && (await mergesIn(sheetID, area))
+        if (!area || !held) return { ops: [op], sheetID, capture: 'both', undoable: false }
+        const before = [
+          { type: 'range.unmerge', sheet_id: sheetID, range: rangeName(area) },
+          ...held.map(merge => ({ type: 'range.merge', sheet_id: sheetID, range: rangeName(merge) }))
+        ]
+        return { ops: [op], sheetID, rect: area, capture: 'both', before }
+      })
+    },
+    /** Removes the merged areas that touch `rect`; undo merges them again. */
+    unmerge(rect: Rect) {
+      const sheetID = activeSheetID.peek()
+      const op = { type: 'range.unmerge', sheet_id: sheetID, range: rangeName(rect) }
+      return planned(async () => {
+        const touching = await mergesIn(sheetID, rect)
+        if (!touching) return { ops: [op], sheetID, capture: 'formats', undoable: false }
+        const before = touching.map(merge => ({ type: 'range.merge', sheet_id: sheetID, range: rangeName(merge) }))
+        return { ops: [op], sheetID, capture: 'formats', before }
+      })
+    },
     /** Clears formats, or contents and formats, of the selection. */
     clear(mode: 'formats' | 'all') {
       const { sheetID, rect } = target()
       const op = { type: 'range.clear', sheet_id: sheetID, range: rangeName(rect), mode }
-      return mode === 'formats' ? perform(op) : valueEdit(op, sheetID, rect)
+      return recorded([op], sheetID, rect, mode === 'formats' ? 'formats' : 'both')
     },
     /**
      * AutoSum and its siblings. On one cell the editor opens with the function over the run of
@@ -886,15 +1037,12 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
             return `=${fn}(${rangeName({ r0: rect.r0, c0: col, r1: rect.r1, c1: col })})`
           })
         ]
-        return valueEdit(
-          {
-            type: 'range.set_values',
-            sheet_id: sheetID,
-            range: rangeName({ r0: row, c0: rect.c0, r1: row, c1: rect.c1 }),
-            values
-          },
+        const below = { r0: row, c0: rect.c0, r1: row, c1: rect.c1 }
+        return recorded(
+          [{ type: 'range.set_values', sheet_id: sheetID, range: rangeName(below), values }],
           sheetID,
-          { r0: row, c0: rect.c0, r1: row, c1: rect.c1 }
+          below,
+          'both'
         )
       }
       const cell = { row: rect.r0, col: rect.c0 }
@@ -924,7 +1072,9 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     setCellPicture(cell: CellAddress, picture: PictureData | null) {
       const sheetID = activeSheetID.peek()
       const op = { type: 'cell.picture', sheet_id: sheetID, cell: cellName(cell), picture }
-      return picture ? valueEdit(op, sheetID, { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col }) : perform(op)
+      return picture
+        ? recorded([op], sheetID, { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col }, 'both')
+        : perform(op)
     },
     imageToCell(imageID: number, cell: CellAddress) {
       return perform({ type: 'image.to_cell', sheet_id: activeSheetID.peek(), image_id: imageID, cell: cellName(cell) })
@@ -950,10 +1100,11 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
         .slice(0, rect.r1 - rect.r0 + 1)
         .map(row => Array.from({ length: rect.c1 - rect.c0 + 1 }, (_, index) => (row[index] ? row[index] : null)))
       const sheetID = activeSheetID.peek()
-      return valueEdit(
-        { type: 'range.set_values', sheet_id: sheetID, range: rangeName(rect), values: rows },
+      return recorded(
+        [{ type: 'range.set_values', sheet_id: sheetID, range: rangeName(rect), values: rows }],
         sheetID,
-        rect
+        rect,
+        'both'
       )
     },
     /** Clears the selected contents; undo restores the cells that held content, within the used area. */
@@ -964,10 +1115,11 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
         sheet && sheet.rows && sheet.cols
           ? intersect(rect, { r0: 0, c0: 0, r1: sheet.rows - 1, c1: sheet.cols - 1 })
           : undefined
-      return valueEdit(
-        { type: 'range.clear', sheet_id: sheetID, range: rangeName(rect), mode: 'contents' },
+      return recorded(
+        [{ type: 'range.clear', sheet_id: sheetID, range: rangeName(rect), mode: 'contents' }],
         sheetID,
-        used
+        used,
+        'values'
       )
     },
     undo() {

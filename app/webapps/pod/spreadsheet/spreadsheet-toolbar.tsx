@@ -216,7 +216,12 @@ export function SpreadsheetToolbar({
     void model.perform({ ...op, sheet_id: sheetID })
     gridInput.current?.focus({ preventScroll: true })
   }
-  const format = (patch: Record<string, unknown>) => perform({ type: 'range.format', range, patch })
+  /** Runs an undoable edit of the selection and gives the grid its focus back. */
+  const undoable = (edit: Promise<unknown>) => {
+    void edit
+    gridInput.current?.focus({ preventScroll: true })
+  }
+  const format = (patch: Record<string, unknown>) => undoable(model.format(rect, patch))
   const lines = (axis: 'rows' | 'cols') => selectedLines(rect, axis, active)
   const insert = (axis: 'rows' | 'cols', after: boolean) =>
     perform({ type: 'line.insert', axis, at: after ? lines(axis).end + 1 : lines(axis).start, count: 1 })
@@ -230,12 +235,20 @@ export function SpreadsheetToolbar({
       format({ borders: { left: side, right: side, top: side, bottom: side } })
       return
     }
-    const edge = (r0: number, c0: number, r1: number, c1: number, side: string) =>
-      perform({ type: 'range.format', range: rangeName({ r0, c0, r1, c1 }), patch: { borders: { [side]: THIN } } })
-    edge(rect.r0, rect.c0, rect.r0, rect.c1, 'top')
-    edge(rect.r1, rect.c0, rect.r1, rect.c1, 'bottom')
-    edge(rect.r0, rect.c0, rect.r1, rect.c0, 'left')
-    edge(rect.r0, rect.c1, rect.r1, rect.c1, 'right')
+    const edge = (r0: number, c0: number, r1: number, c1: number, side: string): SpreadsheetOp => ({
+      type: 'range.format',
+      range: rangeName({ r0, c0, r1, c1 }),
+      patch: { borders: { [side]: THIN } }
+    })
+    // The four sides are one undo step.
+    undoable(
+      model.formatEach(rect, [
+        edge(rect.r0, rect.c0, rect.r0, rect.c1, 'top'),
+        edge(rect.r1, rect.c0, rect.r1, rect.c1, 'bottom'),
+        edge(rect.r0, rect.c0, rect.r1, rect.c0, 'left'),
+        edge(rect.r0, rect.c1, rect.r1, rect.c1, 'right')
+      ])
+    )
   }
   const style = current.style
   const align =
@@ -310,7 +323,7 @@ export function SpreadsheetToolbar({
             <ToolButton
               label={t('pod.spreadsheet.clear_formats')}
               disabled={!editable}
-              onClick={() => perform({ type: 'range.clear', range, mode: 'formats' })}>
+              onClick={() => undoable(model.clear('formats'))}>
               <RiFormatClear />
             </ToolButton>
             <Separator orientation="vertical" className="mx-1 h-5" />
@@ -439,14 +452,14 @@ export function SpreadsheetToolbar({
               <ToolButton
                 label={t('pod.spreadsheet.unmerge_cells')}
                 disabled={!editable}
-                onClick={() => perform({ type: 'range.unmerge', range })}>
+                onClick={() => undoable(model.unmerge(rect))}>
                 <RiSplitCellsHorizontal />
               </ToolButton>
             ) : (
               <ToolButton
                 label={t('pod.spreadsheet.merge_cells')}
                 disabled={!editable || (rect.r0 === rect.r1 && rect.c0 === rect.c1)}
-                onClick={() => perform({ type: 'range.merge', range })}>
+                onClick={() => undoable(model.merge(rect))}>
                 <RiMergeCellsHorizontal />
               </ToolButton>
             )}

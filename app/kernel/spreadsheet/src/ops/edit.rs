@@ -11,8 +11,8 @@ use gridcraft_model::{
 };
 
 use super::{
-    Axis, Border, BorderStyle, ClearMode, FormatPatch, FormulaStorage, LineKeyword, LineSize,
-    MergeShape, Outcome, PasteCell, Scalar, TextInput, check_size,
+    Axis, Border, BorderStyle, CellFormat, ClearMode, FormatPatch, FormulaStorage, LineFormat,
+    LineKeyword, LineSize, MergeShape, Outcome, PasteCell, Scalar, TextInput, check_size,
 };
 use crate::Error;
 use crate::doc::require_sheet;
@@ -178,6 +178,105 @@ pub(super) fn paste(
         changed,
         structural: false,
     })
+}
+
+pub(super) fn restore_formats(
+    wb: &mut Workbook,
+    sheet_id: SheetId,
+    range: RangeRef,
+    lines: &[LineFormat],
+    cells: &[CellFormat],
+) -> Result<Outcome, Error> {
+    let index = require_sheet(wb, sheet_id)?;
+    for format in lines
+        .iter()
+        .map(|line| &line.format)
+        .chain(cells.iter().map(|cell| &cell.format))
+    {
+        check_patch(format)?;
+    }
+    let restyle = |wb: &mut Workbook, patch: &FormatPatch| {
+        wb.styles
+            .derive(StyleId::default(), |style| apply_patch(style, patch))
+    };
+    let (full_rows, full_cols) = (range.is_full_rows(), range.is_full_cols());
+    if full_rows || full_cols {
+        // The same axis that range.format chose: rows unless the range is the whole sheet.
+        let rows = full_rows && !full_cols;
+        let (first, last) = if rows {
+            (range.start.row, range.end.row)
+        } else {
+            (range.start.col, range.end.col)
+        };
+        let mut kept: HashMap<u32, StyleId> = HashMap::new();
+        for line in lines {
+            let at = first
+                .checked_add(line.offset)
+                .filter(|at| *at <= last)
+                .ok_or_else(|| Error::invalid("a line format lies outside the range"))?;
+            kept.insert(at, restyle(wb, &line.format));
+        }
+        let sheet = sheet_mut(wb, index)?;
+        let infos = if rows {
+            &mut sheet.rows
+        } else {
+            &mut sheet.cols
+        };
+        let styled: Vec<u32> = infos
+            .range(first..=last)
+            .filter(|(_, info)| info.style.is_some())
+            .map(|(line, _)| *line)
+            .collect();
+        for line in styled {
+            if !kept.contains_key(&line)
+                && let Some(info) = infos.get_mut(&line)
+            {
+                info.style = None;
+                if *info == LineInfo::default() {
+                    infos.remove(&line);
+                }
+            }
+        }
+        for (line, style) in kept {
+            infos.entry(line).or_default().style = Some(style);
+        }
+    }
+    let mut listed: HashMap<CellRef, StyleId> = HashMap::new();
+    for cell in cells {
+        let at = range
+            .start
+            .offset(i64::from(cell.row), i64::from(cell.col))
+            .filter(|at| range.contains(*at))
+            .ok_or_else(|| Error::invalid("a cell format lies outside the range"))?;
+        listed.insert(at, restyle(wb, &cell.format));
+    }
+    let sheet = sheet_mut(wb, index)?;
+    let stored: Vec<CellRef> = sheet.cells.iter_range(range).map(|(at, _)| at).collect();
+    for at in stored {
+        if listed.contains_key(&at) {
+            continue;
+        }
+        // A cell that held no format of its own falls back to its row or column format; one that
+        // holds nothing either goes away, keeping a picture placed in it.
+        let empty = sheet
+            .cell(at)
+            .is_some_and(|cell| cell.value.is_empty() && cell.formula.is_none());
+        if empty {
+            sheet.cells.remove(at);
+        } else {
+            let fallback = sheet
+                .rows
+                .get(&at.row)
+                .and_then(|info| info.style)
+                .or_else(|| sheet.cols.get(&at.col).and_then(|info| info.style))
+                .unwrap_or_default();
+            sheet.set_style(at, fallback);
+        }
+    }
+    for (at, style) in listed {
+        sheet.set_style(at, style);
+    }
+    Ok(Outcome::default())
 }
 
 /// What typing `input` into a cell produces, as GridCraft's editor defines it: a formula when it
@@ -448,7 +547,24 @@ pub(super) fn format(
 /// Excel limits a font name to 31 characters.
 const MAX_FONT_NAME_CHARS: usize = 31;
 
+/// Excel's deepest indent and its code for stacked vertical text.
+const MAX_INDENT: u8 = 250;
+const VERTICAL_TEXT: i16 = 255;
+
 fn check_patch(patch: &FormatPatch) -> Result<(), Error> {
+    if patch.indent.is_some_and(|indent| indent > MAX_INDENT) {
+        return Err(Error::invalid(format!(
+            "indent must be at most {MAX_INDENT}"
+        )));
+    }
+    if patch
+        .rotation
+        .is_some_and(|rotation| !(-90..=90).contains(&rotation) && rotation != VERTICAL_TEXT)
+    {
+        return Err(Error::invalid(
+            "rotation must lie in -90..=90 degrees, or be 255 for vertical text",
+        ));
+    }
     if patch
         .font_size
         .is_some_and(|size| !(1.0..=409.0).contains(&size))
@@ -513,6 +629,12 @@ fn apply_patch(style: &mut Style, patch: &FormatPatch) {
     }
     if let Some(wrap) = patch.wrap {
         style.align.wrap = wrap;
+    }
+    if let Some(indent) = patch.indent {
+        style.align.indent = indent;
+    }
+    if let Some(rotation) = patch.rotation {
+        style.align.rotation = rotation;
     }
     if let Some(code) = &patch.num_fmt {
         style.num_fmt = NumFmt::new(code);

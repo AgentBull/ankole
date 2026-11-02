@@ -124,6 +124,12 @@ test('formatting, sheet names and cross-sheet formulas survive a real download',
   let id: string | undefined
   try {
     id = await create(page, '季度销售格式.xlsx')
+    // Row 3 comes first: the 18 pt font below makes row 1 taller and moves later rows down.
+    await enter(page, 2, 0, '1250.5')
+    await cell(page, 2, 0)
+    await page.getByRole('button', { name: '数字格式', exact: true }).click()
+    await page.getByRole('menuitem', { name: '货币', exact: true }).click()
+    await saved(page)
     await enter(page, 0, 0, '季度销售')
     await cell(page, 0, 0)
     for (const label of ['加粗', '斜体', '下划线', '居中', '自动换行']) {
@@ -143,11 +149,6 @@ test('formatting, sheet names and cross-sheet formulas survive a real download',
     await page.getByRole('button', { name: '合并单元格', exact: true }).click()
     await saved(page)
 
-    await enter(page, 2, 0, '1250.5')
-    await cell(page, 2, 0)
-    await page.getByRole('button', { name: '数字格式', exact: true }).click()
-    await page.getByRole('menuitem', { name: '货币', exact: true }).click()
-    await saved(page)
     await page.getByRole('button', { name: '添加工作表', exact: true }).click()
     const tabs = page.getByRole('navigation', { name: '工作表', exact: true })
     await expect(tabs.getByRole('button', { name: 'Sheet2', exact: true })).toBeVisible()
