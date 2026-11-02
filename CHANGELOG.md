@@ -13,7 +13,8 @@
   and Worker-provider input; preserve drafts during background refreshes.
 - Select browser options by label first, then by value when no label matches,
   including when a page replaces the control while options load. Preserve exact
-  label spacing and fire one change event when selection opens a dialog.
+  label spacing and fire one change event when selection opens a dialog. Report
+  expired browser actions as retryable timeouts.
 - Let operators choose an active Agent when a new schedule link names an unavailable
   one. Keep switches disabled while forms load and return focus to Clear filters
   when the last matching Webhook disappears.

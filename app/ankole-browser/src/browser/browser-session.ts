@@ -442,7 +442,7 @@ export class BrowserSession {
               warnings: []
             }
           } catch (error) {
-            const failure = renderedFetchFailure(error)
+            const failure = browserError(error)
             results[index] = {
               url: value,
               error: failure.message,
@@ -549,13 +549,6 @@ const RenderedFetchMinimumSettleMs = 1_000
 const RenderedFetchStableWindowMs = 600
 const RenderedFetchMaximumSettleMs = 3_000
 const RenderedFetchSampleIntervalMs = 200
-
-function renderedFetchFailure(error: unknown): ReturnType<typeof browserError> {
-  if (error instanceof Error && error.name === 'TimeoutError') {
-    return { code: 'timeout', message: error.message, retryable: true, details: {} }
-  }
-  return browserError(error)
-}
 
 async function waitForReadableText(page: Page, deadline: number): Promise<string> {
   const startedAt = Date.now()
