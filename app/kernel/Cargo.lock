@@ -142,6 +142,7 @@ dependencies = [
 name = "ankole_spreadsheet"
 version = "0.1.0"
 dependencies = [
+ "base64-simd",
  "gridcraft-calc",
  "gridcraft-core",
  "gridcraft-formula",

@@ -8,6 +8,9 @@ defmodule Ankole.Pod.SpreadsheetsTest do
   alias Ankole.Pod.{FileCache, Files, Pages, PageSnapshot, Spreadsheets, SpreadsheetOp}
   alias Ankole.Pod.Jobs.CompactSpreadsheet
 
+  # A 1×1 PNG.
+  @png "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
   @limits %{
     "max_file_bytes" => 20_971_520,
     "compaction_idle_seconds" => 30,
@@ -72,6 +75,11 @@ defmodule Ankole.Pod.SpreadsheetsTest do
       |> where([snapshot], snapshot.page_id == ^page_id)
       |> order_by([snapshot], [snapshot.created_at, snapshot.id])
       |> Repo.all()
+
+  defp package_parts(bytes) do
+    {:ok, files} = :zip.unzip(bytes, [:memory])
+    Map.new(files, fn {name, data} -> {List.to_string(name), data} end)
+  end
 
   defp object_id(page_id) do
     {:ok, node} = Drive.fetch_node(page_id)
@@ -361,6 +369,46 @@ defmodule Ankole.Pod.SpreadsheetsTest do
     {:ok, _} = Spreadsheets.apply_op(ctx.actor, page.id, request(6, "tab", 6, insert))
     [job] = all_enqueued(worker: CompactSpreadsheet, args: args)
     assert DateTime.diff(job.scheduled_at, DateTime.utc_now()) <= 1
+  end
+
+  test "a picture wakes compaction now and must leave the workbook within the editing limit",
+       ctx do
+    {:ok, _} = limits(%{"compaction_idle_seconds" => 600})
+    page = ctx.page
+    args = %{"page_id" => page.id, "tenant_id" => Repo.tenant_id!()}
+    {:ok, %{files: [%{size: size}]}} = Files.manifest(ctx.actor, page.id)
+    png = Base.decode64!(@png)
+
+    insert = fn image_id ->
+      %{
+        "type" => "image.insert",
+        "sheet_id" => 1,
+        "image_id" => image_id,
+        "anchor" => %{"cell" => "B2", "width" => 64, "height" => 64},
+        "picture" => %{"mime" => "image/png", "data" => @png}
+      }
+    end
+
+    assert {:ok, %{revision: 2}} =
+             Spreadsheets.apply_op(ctx.actor, page.id, request(1, "tab", 1, insert.(41)))
+
+    [job] = all_enqueued(worker: CompactSpreadsheet, args: args)
+    assert DateTime.diff(job.scheduled_at, DateTime.utc_now()) <= 1
+
+    {:ok, _} = limits(%{"max_file_bytes" => size + byte_size(png) - 1})
+
+    assert {:error, :spreadsheet_full} =
+             Spreadsheets.apply_op(ctx.actor, page.id, request(2, "tab", 2, insert.(42)))
+
+    # Compaction moves the picture from the log into the file.
+    assert :ok = perform_job(CompactSpreadsheet, args)
+
+    refute Repo.exists?(
+             from entry in SpreadsheetOp, where: entry.page_id == ^page.id and not entry.compacted
+           )
+
+    {:ok, _entry, bytes} = Files.read(ctx.actor, page.id, "Untitled.xlsx")
+    assert Map.has_key?(package_parts(bytes), "xl/media/image1.png")
   end
 
   test "compaction writes the log into a new object, cache, history checkpoint, and pruned log",

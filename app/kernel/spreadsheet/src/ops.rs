@@ -13,7 +13,12 @@ use crate::Error;
 
 mod data;
 pub(crate) mod edit;
+mod fill;
+mod images;
 mod sheets;
+
+pub use fill::FillMode;
+pub use images::MAX_PICTURE_BYTES;
 
 /// One canonical operation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -115,6 +120,71 @@ pub enum Op {
         to_sheet_id: u32,
         to_cell: Cell,
     },
+    /// Pastes a block of cells: each cell's `input` (typed input, with formulas already moved to
+    /// their new place) and its full `format`. A cell without `input` keeps its content, and a
+    /// cell without `format` keeps its format.
+    #[serde(rename = "range.paste")]
+    RangePaste {
+        sheet_id: u32,
+        range: Range,
+        cells: Vec<Vec<PasteCell>>,
+    },
+    /// Places a picture over the grid. The editor names the new image with an `image_id` that no
+    /// object of the workbook uses, so later operations can address it before the commit returns;
+    /// without one, the committed operation carries the assigned id.
+    #[serde(rename = "image.insert")]
+    ImageInsert {
+        sheet_id: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image_id: Option<u32>,
+        anchor: ImageAnchor,
+        picture: Picture,
+    },
+    /// Moves or resizes a floating picture.
+    #[serde(rename = "image.update")]
+    ImageUpdate {
+        sheet_id: u32,
+        image_id: u32,
+        anchor: ImageAnchor,
+    },
+    /// Removes a floating picture.
+    #[serde(rename = "image.delete")]
+    ImageDelete { sheet_id: u32, image_id: u32 },
+    /// Puts a picture into a cell in place of its content, or removes the cell's picture with
+    /// `null`.
+    #[serde(rename = "cell.picture")]
+    CellPicture {
+        sheet_id: u32,
+        cell: Cell,
+        picture: Option<Picture>,
+    },
+    /// Moves the floating picture `image_id` into `cell`, in place of the cell's content.
+    #[serde(rename = "image.to_cell")]
+    ImageToCell {
+        sheet_id: u32,
+        image_id: u32,
+        cell: Cell,
+    },
+    /// Lifts the picture of `cell` out of the cell into a floating picture at `anchor`, named
+    /// like a new image of `image.insert`.
+    #[serde(rename = "image.from_cell")]
+    ImageFromCell {
+        sheet_id: u32,
+        cell: Cell,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image_id: Option<u32>,
+        anchor: ImageAnchor,
+    },
+    /// Fills `to` from the cells of `range` at its start, as dragging the fill handle does. `to`
+    /// holds `range` and reaches past exactly one of its edges.
+    #[serde(rename = "range.fill")]
+    RangeFill {
+        sheet_id: u32,
+        range: Range,
+        to: Range,
+        #[serde(default, skip_serializing_if = "is_default")]
+        mode: FillMode,
+    },
     /// Adds an empty sheet at `index` (the end by default). The committed operation always carries
     /// the assigned `sheet_id` and name.
     #[serde(rename = "sheet.insert")]
@@ -201,6 +271,10 @@ pub enum Op {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 fn is_true(value: &bool) -> bool {
@@ -292,6 +366,87 @@ impl<'de> Deserialize<'de> for HexColor {
     }
 }
 
+/// Where a floating picture sits: its top-left corner `dx`, `dy` pixels into `cell`, and its
+/// size in pixels. The picture moves with its cell when lines are inserted or deleted.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageAnchor {
+    pub cell: Cell,
+    #[serde(default)]
+    pub dx: f32,
+    #[serde(default)]
+    pub dy: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// An encoded PNG or JPEG picture.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Picture {
+    pub mime: PictureMime,
+    pub data: Base64,
+    /// The alternative text that describes the picture.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub alt: String,
+}
+
+/// The encodings a picture may use; Excel shows both in floating and in-cell pictures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PictureMime {
+    #[serde(rename = "image/png")]
+    Png,
+    #[serde(rename = "image/jpeg")]
+    Jpeg,
+}
+
+impl PictureMime {
+    /// The MIME type of the encoding.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PictureMime::Png => "image/png",
+            PictureMime::Jpeg => "image/jpeg",
+        }
+    }
+}
+
+/// Bytes written as standard base64 text.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Base64(pub Vec<u8>);
+
+impl std::fmt::Debug for Base64 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Base64({} bytes)", self.0.len())
+    }
+}
+
+impl Serialize for Base64 {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&base64_simd::STANDARD.encode_to_string(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for Base64 {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        base64_simd::STANDARD
+            .decode_to_vec(text.as_bytes())
+            .map(Base64)
+            .map_err(|_| serde::de::Error::custom("data must be standard base64"))
+    }
+}
+
+/// One cell of `range.paste`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PasteCell {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
+    /// Replaces the cell's whole format: attributes the patch leaves out take their defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<FormatPatch>,
+}
+
 /// A JSON scalar written into one cell by `range.set_values`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -371,6 +526,11 @@ pub struct FormatPatch {
     pub italic: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub underline: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strike: Option<bool>,
+    /// The font family, such as `Calibri` or `微软雅黑`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<f32>,
     #[serde(
@@ -481,6 +641,62 @@ pub enum VAlign {
     Bottom,
     Justify,
     Distributed,
+}
+
+impl From<gridcraft_model::HAlign> for HAlign {
+    fn from(align: gridcraft_model::HAlign) -> Self {
+        use gridcraft_model::HAlign as Model;
+        match align {
+            Model::General => HAlign::General,
+            Model::Left => HAlign::Left,
+            Model::Center => HAlign::Center,
+            Model::Right => HAlign::Right,
+            Model::Fill => HAlign::Fill,
+            Model::Justify => HAlign::Justify,
+            Model::CenterAcross => HAlign::CenterAcross,
+            Model::Distributed => HAlign::Distributed,
+        }
+    }
+}
+
+impl From<HAlign> for gridcraft_model::HAlign {
+    fn from(align: HAlign) -> Self {
+        match align {
+            HAlign::General => Self::General,
+            HAlign::Left => Self::Left,
+            HAlign::Center => Self::Center,
+            HAlign::Right => Self::Right,
+            HAlign::Fill => Self::Fill,
+            HAlign::Justify => Self::Justify,
+            HAlign::CenterAcross => Self::CenterAcross,
+            HAlign::Distributed => Self::Distributed,
+        }
+    }
+}
+
+impl From<gridcraft_model::VAlign> for VAlign {
+    fn from(align: gridcraft_model::VAlign) -> Self {
+        use gridcraft_model::VAlign as Model;
+        match align {
+            Model::Top => VAlign::Top,
+            Model::Center => VAlign::Center,
+            Model::Bottom => VAlign::Bottom,
+            Model::Justify => VAlign::Justify,
+            Model::Distributed => VAlign::Distributed,
+        }
+    }
+}
+
+impl From<VAlign> for gridcraft_model::VAlign {
+    fn from(align: VAlign) -> Self {
+        match align {
+            VAlign::Top => Self::Top,
+            VAlign::Center => Self::Center,
+            VAlign::Bottom => Self::Bottom,
+            VAlign::Justify => Self::Justify,
+            VAlign::Distributed => Self::Distributed,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -605,6 +821,14 @@ impl Op {
             | Op::CellsInsert { sheet_id, .. }
             | Op::CellsDelete { sheet_id, .. }
             | Op::RangeMove { sheet_id, .. }
+            | Op::RangeFill { sheet_id, .. }
+            | Op::RangePaste { sheet_id, .. }
+            | Op::ImageInsert { sheet_id, .. }
+            | Op::ImageUpdate { sheet_id, .. }
+            | Op::ImageDelete { sheet_id, .. }
+            | Op::CellPicture { sheet_id, .. }
+            | Op::ImageToCell { sheet_id, .. }
+            | Op::ImageFromCell { sheet_id, .. }
             | Op::SheetDelete { sheet_id, .. }
             | Op::SheetRename { sheet_id, .. }
             | Op::SheetReorder { sheet_id, .. }
@@ -802,6 +1026,45 @@ pub(crate) fn execute(wb: &mut Workbook, op: &mut Op) -> Result<Outcome, Error> 
             to_sheet_id,
             to_cell,
         } => crate::structure::move_range(wb, *sheet_id, from.0, *to_sheet_id, to_cell.0),
+        Op::RangeFill {
+            sheet_id,
+            range,
+            to,
+            mode,
+        } => fill::fill(wb, *sheet_id, range.0, to.0, *mode),
+        Op::RangePaste {
+            sheet_id,
+            range,
+            cells,
+        } => edit::paste(wb, *sheet_id, range.0, cells),
+        Op::ImageInsert {
+            sheet_id,
+            image_id,
+            anchor,
+            picture,
+        } => images::insert(wb, *sheet_id, image_id, anchor, picture),
+        Op::ImageUpdate {
+            sheet_id,
+            image_id,
+            anchor,
+        } => images::update(wb, *sheet_id, *image_id, anchor),
+        Op::ImageDelete { sheet_id, image_id } => images::delete(wb, *sheet_id, *image_id),
+        Op::CellPicture {
+            sheet_id,
+            cell,
+            picture,
+        } => images::set_cell_picture(wb, *sheet_id, cell.0, picture.as_ref()),
+        Op::ImageToCell {
+            sheet_id,
+            image_id,
+            cell,
+        } => images::to_cell(wb, *sheet_id, *image_id, cell.0),
+        Op::ImageFromCell {
+            sheet_id,
+            cell,
+            image_id,
+            anchor,
+        } => images::from_cell(wb, *sheet_id, cell.0, image_id, anchor),
         Op::SheetInsert {
             sheet_id,
             name,

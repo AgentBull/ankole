@@ -93,6 +93,57 @@ impl Spreadsheet {
             .map_err(js_error)?
             .xlsx)
     }
+
+    /// The count, sum, average, minimum, and maximum of the A1 range `range`, as JSON.
+    pub fn selection_stats(&self, sheet_id: u32, range: &str) -> Result<String, JsError> {
+        json(&ankole_spreadsheet::selection_stats(&self.doc, sheet_id, range).map_err(js_error)?)
+    }
+
+    /// The cells of the A1 range `range` with their inputs, values, and formats, as the JSON a
+    /// later [`paste_op`] takes.
+    pub fn copy_block(&self, sheet_id: u32, range: &str) -> Result<String, JsError> {
+        json(&ankole_spreadsheet::copy_block(&self.doc, sheet_id, range).map_err(js_error)?)
+    }
+
+    /// The floating pictures of one sheet, as JSON.
+    pub fn images(&self, sheet_id: u32) -> Result<String, JsError> {
+        json(&ankole_spreadsheet::images(&self.doc, sheet_id).map_err(js_error)?)
+    }
+
+    /// The encoded bytes of the floating picture `image_id`.
+    pub fn image_data(&self, sheet_id: u32, image_id: u32) -> Result<Vec<u8>, JsError> {
+        ankole_spreadsheet::image_data(&self.doc, sheet_id, image_id).map_err(js_error)
+    }
+
+    /// The encoded bytes of the picture in the A1 cell `cell`.
+    pub fn cell_picture(&self, sheet_id: u32, cell: &str) -> Result<Vec<u8>, JsError> {
+        Ok(ankole_spreadsheet::cell_picture(&self.doc, sheet_id, cell)
+            .map_err(js_error)?
+            .0)
+    }
+}
+
+/// Every function a formula can call, sorted by name, as JSON.
+#[wasm_bindgen]
+pub fn functions() -> Result<String, JsError> {
+    json(&ankole_spreadsheet::functions())
+}
+
+/// The `range.paste` operation, as JSON, that pastes the block JSON of
+/// [`Spreadsheet::copy_block`] with its top-left cell on the A1 cell `cell`. `mode` is `all`,
+/// `values`, `formulas`, or `formats`.
+#[wasm_bindgen]
+pub fn paste_op(
+    block_json: &str,
+    sheet_id: u32,
+    cell: &str,
+    mode: &str,
+) -> Result<String, JsError> {
+    let block: ankole_spreadsheet::ClipboardBlock = serde_json::from_str(block_json)
+        .map_err(|error| JsError::new(&format!("invalid copied block: {error}")))?;
+    let mode: ankole_spreadsheet::PasteMode = serde_json::from_value(serde_json::Value::from(mode))
+        .map_err(|error| JsError::new(&format!("invalid paste mode: {error}")))?;
+    json(&ankole_spreadsheet::paste_op(&block, sheet_id, cell, mode).map_err(js_error)?)
 }
 
 /// A conflict reports only its wire name; every other refusal reports its message.

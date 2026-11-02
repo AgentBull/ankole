@@ -13,6 +13,7 @@ workspace = true
 # Upgrading GridCraft means changing this one revision for every crate and
 # running the spreadsheet tests, which include the golden round-trip corpus.
 [dependencies]
+base64-simd = "0.8.0"
 gridcraft-calc = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
 gridcraft-core = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
 gridcraft-formula = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }

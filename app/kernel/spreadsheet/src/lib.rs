@@ -10,18 +10,30 @@
 //! valid, so a host can keep serving reads from the old document while it commits the new one.
 #![forbid(unsafe_code)]
 
+mod clipboard;
 mod doc;
+mod functions;
 mod index;
 mod ops;
 mod rebase;
 mod structure;
 mod view;
 
+pub use clipboard::{
+    ClipboardBlock, ClipboardCell, MAX_CLIPBOARD_CELLS, PasteMode, copy_block, paste_op,
+};
 pub use doc::SpreadsheetDoc;
+pub use functions::{FunctionInfo, functions};
 pub use index::{Metadata, PLAIN_TEXT_LIMIT, SheetSummary};
-pub use ops::{Op, StructuralEdit};
+pub use ops::{
+    FillMode, FormatPatch, ImageAnchor, MAX_PICTURE_BYTES, Op, PasteCell, Picture, PictureMime,
+    StructuralEdit,
+};
 pub use rebase::Conflict;
-pub use view::{RenderCell, RenderStyle, SheetInfo, Viewport, cell_input, sheets, viewport};
+pub use view::{
+    RenderCell, RenderImage, RenderStyle, SelectionStats, SheetInfo, Viewport, cell_input,
+    cell_picture, image_data, images, selection_stats, sheets, viewport,
+};
 
 /// Why an input was refused. Every variant carries a message for the caller's error response.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]

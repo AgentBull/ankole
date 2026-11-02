@@ -220,7 +220,7 @@ defmodule Ankole.Pod.Serialization do
       "move_requires_manage" ->
         403
 
-      "file_too_large" ->
+      code when code in ~w(file_too_large spreadsheet_full) ->
         413
 
       code

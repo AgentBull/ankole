@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use gridcraft_core::{CellRef, RangeRef, Value};
+use gridcraft_core::{CellRef, DateSystem, RangeRef, Value};
 use gridcraft_model::{
     BorderLine, BorderStyle, Color, LineInfo, PatternType, Sheet, StyleId, Visibility, Workbook,
 };
@@ -11,7 +11,7 @@ use gridcraft_numfmt::{Formatted, NumberFormat, format_value};
 use serde::Serialize;
 
 use crate::Error;
-use crate::doc::{SpreadsheetDoc, require_sheet};
+use crate::doc::{SpreadsheetDoc, sheet_by_id};
 use crate::ops::check_size;
 
 /// A value formatted with its cell's number format, as the grid shows it.
@@ -94,6 +94,9 @@ pub struct RenderCell {
     pub style: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// The fingerprint of the picture the cell holds, which the editor paints instead of text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -148,10 +151,7 @@ pub fn viewport(
     c1: u32,
 ) -> Result<Viewport, Error> {
     let wb = doc.workbook();
-    let sheet = wb
-        .sheets
-        .get(require_sheet(wb, sheet_id)?)
-        .ok_or_else(|| Error::invalid("unknown sheet"))?;
+    let sheet = sheet_by_id(wb, sheet_id)?;
     let (start, end) = (CellRef::new(r0, c0), CellRef::new(r1, c1));
     if !start.is_valid() || !end.is_valid() {
         return Err(Error::invalid("the viewport must lie on the worksheet"));
@@ -166,7 +166,14 @@ pub fn viewport(
         .map(|(at, _)| *at)
         .filter(|at| range.contains(*at) && sheet.cell(*at).is_none());
     at_cells.extend(spilled);
+    let pictured = sheet
+        .cell_pictures
+        .range(range.start..=range.end)
+        .map(|(at, _)| *at)
+        .filter(|at| range.contains(*at) && sheet.cell(*at).is_none());
+    at_cells.extend(pictured);
     at_cells.sort_unstable();
+    at_cells.dedup();
     let cells = at_cells
         .into_iter()
         .map(|at| {
@@ -187,6 +194,10 @@ pub fn viewport(
                     .color
                     .and_then(|color| color.rgb())
                     .map(|[r, g, b]| format!("#{r:02X}{g:02X}{b:02X}")),
+                picture: sheet
+                    .cell_pictures
+                    .get(&at)
+                    .map(|picture| fingerprint(&picture.data)),
             }
         })
         .collect();
@@ -225,6 +236,151 @@ pub fn viewport(
         rows,
         cols,
     })
+}
+
+/// A floating picture to paint over the grid.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RenderImage {
+    pub image_id: u32,
+    /// The A1 cell that holds the picture's top-left corner.
+    pub cell: String,
+    /// The corner's offset into that cell, and the picture's size, in pixels.
+    pub dx: f32,
+    pub dy: f32,
+    pub width: f32,
+    pub height: f32,
+    pub mime: String,
+    pub alt: String,
+    /// A fingerprint of the picture's bytes, so an editor decodes each picture once.
+    pub digest: String,
+}
+
+/// The floating pictures of one sheet, in drawing order.
+pub fn images(doc: &SpreadsheetDoc, sheet_id: u32) -> Result<Vec<RenderImage>, Error> {
+    let sheet = sheet_by_id(doc.workbook(), sheet_id)?;
+    Ok(sheet
+        .images
+        .iter()
+        .map(|image| RenderImage {
+            image_id: image.id,
+            cell: image.anchor.cell.a1(),
+            dx: image.anchor.dx,
+            dy: image.anchor.dy,
+            width: image.anchor.width,
+            height: image.anchor.height,
+            mime: image.mime.clone(),
+            alt: image.alt.clone(),
+            digest: fingerprint(&image.data),
+        })
+        .collect())
+}
+
+/// The encoded bytes of the floating picture `image_id`.
+pub fn image_data(doc: &SpreadsheetDoc, sheet_id: u32, image_id: u32) -> Result<Vec<u8>, Error> {
+    sheet_by_id(doc.workbook(), sheet_id)?
+        .images
+        .iter()
+        .find(|image| image.id == image_id)
+        .map(|image| image.data.as_ref().clone())
+        .ok_or_else(|| Error::invalid(format!("no picture has image_id {image_id} on this sheet")))
+}
+
+/// The encoded bytes and MIME type of the picture in the A1 cell `cell`.
+pub fn cell_picture(
+    doc: &SpreadsheetDoc,
+    sheet_id: u32,
+    cell: &str,
+) -> Result<(Vec<u8>, String), Error> {
+    let at = CellRef::parse(cell)
+        .ok_or_else(|| Error::invalid(format!("invalid cell reference `{cell}`")))?;
+    sheet_by_id(doc.workbook(), sheet_id)?
+        .cell_pictures
+        .get(&at)
+        .map(|picture| (picture.data.clone(), picture.mime.clone()))
+        .ok_or_else(|| Error::invalid(format!("{cell} holds no picture")))
+}
+
+/// A cache key for picture bytes: FNV-1a over the length, both ends, and a sample of the middle,
+/// so a multi-megabyte picture costs a few hundred steps per viewport.
+fn fingerprint(data: &[u8]) -> String {
+    const PRIME: u64 = 0x0100_0000_01b3;
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut feed = |byte: u8| {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(PRIME);
+    };
+    for byte in (data.len() as u64).to_le_bytes() {
+        feed(byte);
+    }
+    let edge = data.len().min(512);
+    data.iter().take(edge).for_each(|byte| feed(*byte));
+    data.iter()
+        .skip(data.len() - edge)
+        .for_each(|byte| feed(*byte));
+    data.iter().step_by(997).for_each(|byte| feed(*byte));
+    format!("{hash:016x}")
+}
+
+/// Statistics of a selection, as a status bar shows them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct SelectionStats {
+    /// Cells that show a value.
+    pub count: u64,
+    /// Cells whose value is a number.
+    pub numbers: u64,
+    pub sum: f64,
+    /// `None` when no cell holds a number, and likewise for `min` and `max`.
+    pub average: Option<f64>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
+/// Counts the values of `range` on one sheet and sums, averages, and bounds its numbers. Only
+/// stored and spilled cells are visited, so a whole-column range costs what the column holds.
+pub fn selection_stats(
+    doc: &SpreadsheetDoc,
+    sheet_id: u32,
+    range: &str,
+) -> Result<SelectionStats, Error> {
+    let wb = doc.workbook();
+    let sheet = sheet_by_id(wb, sheet_id)?;
+    let range = RangeRef::parse(range)
+        .filter(|range| range.end.is_valid())
+        .ok_or_else(|| Error::invalid(format!("invalid range reference `{range}`")))?;
+    let spilled = sheet
+        .spill
+        .range(range.start..=range.end)
+        .map(|(at, _)| *at)
+        .filter(|at| range.contains(*at) && sheet.cell(*at).is_none());
+    let mut stats = SelectionStats::default();
+    for at in sheet
+        .cells
+        .iter_range(range)
+        .map(|(at, _)| at)
+        .chain(spilled)
+    {
+        match sheet.value(at) {
+            Value::Empty => {}
+            Value::Text(text) if text.is_empty() => {}
+            Value::Number(number) => {
+                stats.count += 1;
+                stats.numbers += 1;
+                stats.sum += number;
+                stats.min = Some(stats.min.map_or(number, |min| min.min(number)));
+                stats.max = Some(stats.max.map_or(number, |max| max.max(number)));
+            }
+            _ => stats.count += 1,
+        }
+    }
+    if stats.numbers > 0 {
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "a selection holds far fewer than 2^52 cells"
+        )]
+        let average = stats.sum / stats.numbers as f64;
+        stats.average = Some(average);
+    }
+    Ok(stats)
 }
 
 struct StyleIndex<'a> {
@@ -334,29 +490,31 @@ fn border_name(style: BorderStyle) -> &'static str {
 /// the same serial rather than as the serial itself.
 pub fn cell_input(doc: &SpreadsheetDoc, sheet_id: u32, cell: &str) -> Result<String, Error> {
     let wb = doc.workbook();
-    let sheet = wb
-        .sheets
-        .get(require_sheet(wb, sheet_id)?)
-        .ok_or_else(|| Error::invalid("unknown sheet"))?;
+    let sheet = sheet_by_id(wb, sheet_id)?;
     let at = CellRef::parse(cell)
         .ok_or_else(|| Error::invalid(format!("invalid cell reference `{cell}`")))?;
+    Ok(cell_input_at(wb, sheet, at))
+}
+
+/// [`cell_input`] for a resolved sheet and cell.
+pub(crate) fn cell_input_at(wb: &Workbook, sheet: &Sheet, at: CellRef) -> String {
     let raw = sheet.input_text(at);
     let Some(stored) = sheet.cell(at).filter(|stored| stored.formula.is_none()) else {
-        return Ok(raw);
+        return raw;
     };
     let code = wb.styles.get(stored.style).num_fmt.as_str();
     let reads_as = |text: &str| gridcraft_core::parse::parse_input(text, wb.date_system).value;
     match &stored.value {
-        Value::Text(text) if code != "@" && needs_quote(text, &reads_as) => Ok(format!("'{raw}")),
+        Value::Text(text) if code != "@" && needs_quote(text, &reads_as) => format!("'{raw}"),
         Value::Number(number) if NumberFormat::parse_cached(code).is_date() => {
             let reads_back = |text: &str| matches!(reads_as(text), Value::Number(n) if (n - number).abs() < 1e-9);
             let shown = display_text(wb, sheet, at);
             if reads_back(&shown) {
-                return Ok(shown);
+                return shown;
             }
             let Some(dt) = gridcraft_core::date::datetime_from_serial(wb.date_system, *number)
             else {
-                return Ok(raw);
+                return raw;
             };
             let time = format!("{:02}:{:02}:{:02}", dt.hour, dt.minute, dt.second);
             let date = format!("{:04}-{:02}-{:02}", dt.year, dt.month, dt.day);
@@ -367,9 +525,32 @@ pub fn cell_input(doc: &SpreadsheetDoc, sheet_id: u32, cell: &str) -> Result<Str
             } else {
                 format!("{date} {time}")
             };
-            Ok(if reads_back(&iso) { iso } else { raw })
+            if reads_back(&iso) { iso } else { raw }
         }
-        _ => Ok(raw),
+        _ => raw,
+    }
+}
+
+/// What typing reproduces `value` in a General cell: numbers to 15 significant digits, booleans
+/// and errors by name, and text with a leading `'` when it would read back as something else.
+pub(crate) fn value_input(value: &Value, date_system: DateSystem) -> String {
+    match value {
+        Value::Empty => String::new(),
+        Value::Number(number) => gridcraft_core::number_to_text(*number),
+        Value::Bool(true) => "TRUE".to_string(),
+        Value::Bool(false) => "FALSE".to_string(),
+        Value::Error(error) => error.as_str().to_string(),
+        Value::Text(text) => {
+            let reads_as = |text: &str| gridcraft_core::parse::parse_input(text, date_system).value;
+            if needs_quote(text, &reads_as) {
+                format!("'{text}")
+            } else {
+                text.to_string()
+            }
+        }
+        Value::Array(_) => {
+            format_value(value, &NumberFormat::parse_cached("General"), date_system).text
+        }
     }
 }
 

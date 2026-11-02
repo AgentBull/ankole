@@ -1629,12 +1629,35 @@ of a note itself. Retrying a `(client_id, client_seq)` pair acknowledges the
 earlier commit, and a different operation under the same pair is a
 `client_sequence_conflict`.
 
+Operations cover typed values, formats, merges, lines, cell shifts, moves,
+sheets, notes, sorting, filters, validation, and tables, plus three editing
+tools. `range.fill` fills a range from the cells at its start, as the fill
+handle does: in `series` mode a run of numbers follows its linear trend, a lone
+number or numbered text counts up, and weekday, month, and quarter names
+continue their list, while `copy` repeats the source, `values` continues it and
+keeps the filled cells' formats, and `formats` copies only formats. A formula
+moves its relative references with each repetition. `range.paste` writes a
+copied block: each cell carries typed input, with formulas already moved to the
+destination, and its full format, so pasting everything, values, formulas, or
+formats is one operation that rebases like typed input. Pictures are PNG or JPEG
+files of at most 2 MiB that travel base64 in the operation. `image.insert`,
+`image.update`, and `image.delete` place, move or resize, and remove a floating
+picture that moves with the cell under its top-left corner; `cell.picture` puts
+a picture into a cell in place of its value or formula, and typing into the
+cell removes it; `image.to_cell` and `image.from_cell` convert one kind into the
+other. The editor names a new floating picture with an `image_id` that no
+object of the workbook uses, so later operations can address the picture
+before its commit returns. A picture that would take the file, the uncompacted
+log, and the picture together past `max_file_bytes` is rejected with
+`spreadsheet_full`, so inserting it cannot make the workbook uneditable.
+
 Compaction writes the log into the file. Every commit moves the Page's single
 `Ankole.Pod.Jobs.CompactSpreadsheet` wakeup to `compaction_idle_seconds` after
 the commit; reaching `compaction_op_threshold` uncompacted operations, or
 `compaction_structural_threshold` uncompacted row, column, or cell-shift
-operations, moves it to now, and so does the last editor leaving the page
-channel. Compaction exports the workbook outside any transaction and stores it
+operations, moves it to now, and so do a committed picture, which leaves its
+bytes in the log only until the file holds them, and the last editor leaving the
+page channel. Compaction exports the workbook outside any transaction and stores it
 as a new object. Under the Page row lock it then names that object at the file
 node, marks the exported operations `compacted`, refreshes the search cache,
 records a history checkpoint when one is due, and prunes compacted operations

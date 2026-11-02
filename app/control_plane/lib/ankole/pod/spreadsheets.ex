@@ -36,6 +36,9 @@ defmodule Ankole.Pod.Spreadsheets do
   @name ~r/\.xls[xm](?: \(\d+\))?$/i
   # The operations that move cells, so that replaying them recalculates the whole workbook.
   @structural ~w(line.insert line.delete cells.insert cells.delete range.move)
+  # The operations that carry picture bytes. The log holds the bytes only until compaction
+  # writes the picture into the file.
+  @picture_ops ~w(image.insert cell.picture)
 
   @doc """
   Whether a file name, or a page through its file, is a spreadsheet.
@@ -206,12 +209,34 @@ defmodule Ankole.Pod.Spreadsheets do
         {:ok, %{page_id: page.id, result: replayed}}
 
       %{changes: prior} ->
-        with {:ok, doc} <- catch_up(document, page),
+        with :ok <- picture_room(page, request.op, limits),
+             {:ok, doc} <- catch_up(document, page),
              {:ok, applied} <- rebase(doc, request.op, prior, page) do
           save(actor, page, request, prior, applied, limits)
         end
     end
   end
+
+  # A picture must leave the workbook editable, so the file, the pending log, and the
+  # picture together stay within the editing limit.
+  defp picture_room(page, %{"type" => type, "picture" => %{"data" => data}}, limits)
+       when type in @picture_ops and is_binary(data) and is_integer(limits.max_file_bytes) do
+    with {:ok, file} <- page_file(page) do
+      pending =
+        SpreadsheetOp
+        |> Ash.Query.filter(page_id == ^page.id and not compacted)
+        |> Ankole.Ash.aggregate!([{:bytes, :sum, field: :wire_bytes}])
+        |> Map.fetch!(:bytes)
+
+      picture = div(byte_size(data) * 3, 4)
+
+      if (file.size || 0) + (pending || 0) + picture <= limits.max_file_bytes,
+        do: :ok,
+        else: {:error, :spreadsheet_full}
+    end
+  end
+
+  defp picture_room(_page, _op, _limits), do: :ok
 
   defp rebase(doc, op, prior, page) do
     case Ankole.Kernel.spreadsheet_apply(doc, op, Enum.map(prior, & &1.op)) do
@@ -248,7 +273,7 @@ defmodule Ankole.Pod.Spreadsheets do
              author: ActorRef.from_actor(actor),
              created_at: now
            }),
-         :ok <- schedule_compaction_in_tx(page.id, now, limits, applied.structural_edit) do
+         :ok <- schedule_compaction_in_tx(page.id, now, limits, applied) do
       {:ok,
        %{
          page_id: page.id,
@@ -263,21 +288,25 @@ defmodule Ankole.Pod.Spreadsheets do
     end
   end
 
-  # Every commit postpones the idle compaction. Enough pending operations, or
-  # enough structural ones, which recalculate the whole workbook on replay,
-  # wake it now.
-  defp schedule_compaction_in_tx(page_id, now, limits, structural_edit) do
+  # Every commit postpones the idle compaction. A picture, enough pending
+  # operations, or enough structural ones, which recalculate the whole workbook
+  # on replay, wake it now.
+  defp schedule_compaction_in_tx(page_id, now, limits, applied) do
     args = %{page_id: page_id}
     due = DateTime.add(now, limits.compaction_idle_seconds, :second)
 
     with :ok <- Ankole.Job.schedule_in_tx(CompactSpreadsheet, args, due) do
-      if compaction_due?(page_id, limits, structural_edit),
+      if compaction_due?(page_id, limits, applied),
         do: Ankole.Job.schedule_in_tx(CompactSpreadsheet, args, now, only_earlier: true),
         else: :ok
     end
   end
 
-  defp compaction_due?(page_id, limits, structural_edit) do
+  defp compaction_due?(_page_id, _limits, %{committed_op: %{"type" => type}})
+       when type in @picture_ops,
+       do: true
+
+  defp compaction_due?(page_id, limits, %{structural_edit: structural_edit}) do
     pending = Ash.Query.filter(SpreadsheetOp, page_id == ^page_id and not compacted)
 
     Ankole.Ash.count!(pending) >= limits.compaction_op_threshold or

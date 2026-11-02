@@ -277,6 +277,15 @@ fn rewrite_formulas(op: &mut Op, names: &Names, rewrite: &dyn Fn(Expr, &str) -> 
                 }
             }
         }
+        Op::RangePaste { cells, .. } => {
+            for input in cells
+                .iter_mut()
+                .flatten()
+                .filter_map(|cell| cell.input.as_mut())
+            {
+                fix(input);
+            }
+        }
         Op::ValidationSet {
             rule: Some(rule), ..
         } => {
@@ -356,6 +365,36 @@ fn move_targets(op: &mut Op, edit: &Structural) -> Result<(), Conflict> {
         | Op::CellsDelete {
             sheet_id, range, ..
         } => range.0 = map_block(*sheet_id, range.0, edit)?,
+        Op::RangePaste {
+            sheet_id, range, ..
+        } => range.0 = map_block(*sheet_id, range.0, edit)?,
+        Op::ImageInsert {
+            sheet_id, anchor, ..
+        }
+        | Op::ImageUpdate {
+            sheet_id, anchor, ..
+        } => anchor.cell.0 = map_target(*sheet_id, RangeRef::cell(anchor.cell.0), edit)?.start,
+        Op::CellPicture { sheet_id, cell, .. } | Op::ImageToCell { sheet_id, cell, .. } => {
+            cell.0 = map_target(*sheet_id, RangeRef::cell(cell.0), edit)?.start;
+        }
+        Op::ImageFromCell {
+            sheet_id,
+            cell,
+            anchor,
+            ..
+        } => {
+            cell.0 = map_target(*sheet_id, RangeRef::cell(cell.0), edit)?.start;
+            anchor.cell.0 = map_target(*sheet_id, RangeRef::cell(anchor.cell.0), edit)?.start;
+        }
+        Op::RangeFill {
+            sheet_id,
+            range,
+            to,
+            ..
+        } => {
+            range.0 = map_block(*sheet_id, range.0, edit)?;
+            to.0 = map_block(*sheet_id, to.0, edit)?;
+        }
         Op::RangeMove {
             sheet_id,
             from,
@@ -398,6 +437,7 @@ fn move_targets(op: &mut Op, edit: &Structural) -> Result<(), Conflict> {
             }
         }
         Op::FilterSet { range: None, .. }
+        | Op::ImageDelete { .. }
         | Op::SheetFreeze { .. }
         | Op::SheetInsert { .. }
         | Op::SheetDelete { .. }
@@ -486,6 +526,14 @@ fn footprint(op: &Op) -> Vec<(u32, RangeRef)> {
         | Op::TableToggle {
             sheet_id, range, ..
         } => vec![(*sheet_id, range.0)],
+        Op::RangeFill { sheet_id, to, .. } => vec![(*sheet_id, to.0)],
+        Op::RangePaste {
+            sheet_id, range, ..
+        } => vec![(*sheet_id, range.0)],
+        Op::CellPicture { sheet_id, cell, .. }
+        | Op::ImageToCell { sheet_id, cell, .. }
+        | Op::ImageFromCell { sheet_id, cell, .. } => vec![(*sheet_id, RangeRef::cell(cell.0))],
+        Op::ImageInsert { .. } | Op::ImageUpdate { .. } | Op::ImageDelete { .. } => Vec::new(),
         Op::FilterSet {
             sheet_id, range, ..
         } => range.iter().map(|range| (*sheet_id, range.0)).collect(),

@@ -11,8 +11,8 @@ use gridcraft_model::{
 };
 
 use super::{
-    Axis, Border, BorderStyle, ClearMode, FormatPatch, HAlign, LineKeyword, LineSize, Outcome,
-    Scalar, VAlign, check_size,
+    Axis, Border, BorderStyle, ClearMode, FormatPatch, LineKeyword, LineSize, Outcome, PasteCell,
+    Scalar, check_size,
 };
 use crate::Error;
 use crate::doc::require_sheet;
@@ -125,6 +125,60 @@ pub(super) fn set_values(
     })
 }
 
+pub(super) fn paste(
+    wb: &mut Workbook,
+    sheet_id: u32,
+    range: RangeRef,
+    cells: &[Vec<PasteCell>],
+) -> Result<Outcome, Error> {
+    let index = require_sheet(wb, sheet_id)?;
+    check_size(range, "range.paste")?;
+    let (height, width) = (range.height() as usize, range.width() as usize);
+    if cells.len() != height || cells.iter().any(|row| row.len() != width) {
+        return Err(Error::invalid(format!(
+            "cells must hold {height} rows of {width} cells to paste into {}",
+            range.a1()
+        )));
+    }
+    for pasted in cells.iter().flatten() {
+        if let Some(format) = &pasted.format {
+            check_patch(format)?;
+        }
+    }
+    let mut changed = Vec::new();
+    for (at, pasted) in range.iter().zip(cells.iter().flatten()) {
+        let current = wb
+            .sheet(index)
+            .map(|sheet| sheet.style_id(at))
+            .unwrap_or_default();
+        let style = match &pasted.format {
+            Some(patch) => wb
+                .styles
+                .derive(StyleId::default(), |style| apply_patch(style, patch)),
+            None => current,
+        };
+        match &pasted.input {
+            Some(input) => {
+                let cell = typed_cell(wb, style, input)?;
+                let sheet = sheet_mut(wb, index)?;
+                match cell.filter(|cell| !cell.is_blank()) {
+                    Some(cell) => sheet.set_cell(at, cell),
+                    None => {
+                        sheet.remove_cell(at);
+                    }
+                }
+                changed.push((index, at));
+            }
+            None if style != current => sheet_mut(wb, index)?.set_style(at, style),
+            None => {}
+        }
+    }
+    Ok(Outcome {
+        changed,
+        structural: false,
+    })
+}
+
 /// What typing `input` into a cell produces, as GridCraft's editor defines it: a formula when it
 /// starts with `=` (or reads as a signed function call), otherwise a value parsed like Excel's
 /// en-US typed input, with the number format the input implies. The cell keeps its style.
@@ -134,11 +188,16 @@ fn input_to_cell(
     at: CellRef,
     input: &str,
 ) -> Result<Option<ModelCell>, Error> {
-    check_text(input)?;
     let style = wb
         .sheet(sheet)
         .map(|sheet| sheet.style_id(at))
         .unwrap_or_default();
+    typed_cell(wb, style, input)
+}
+
+/// What typing `input` into a cell of style `style` produces; see [`input_to_cell`].
+fn typed_cell(wb: &mut Workbook, style: StyleId, input: &str) -> Result<Option<ModelCell>, Error> {
+    check_text(input)?;
     if input.is_empty() {
         let cell = ModelCell {
             style,
@@ -385,12 +444,24 @@ pub(super) fn format(
     Ok(Outcome::default())
 }
 
+/// Excel limits a font name to 31 characters.
+const MAX_FONT_NAME_CHARS: usize = 31;
+
 fn check_patch(patch: &FormatPatch) -> Result<(), Error> {
     if patch
         .font_size
         .is_some_and(|size| !(1.0..=409.0).contains(&size))
     {
         return Err(Error::invalid("font_size must be between 1 and 409 points"));
+    }
+    if patch
+        .font_name
+        .as_deref()
+        .is_some_and(|name| name.trim().is_empty() || name.chars().count() > MAX_FONT_NAME_CHARS)
+    {
+        return Err(Error::invalid(format!(
+            "font_name must hold 1 to {MAX_FONT_NAME_CHARS} characters"
+        )));
     }
     if patch.num_fmt.as_deref().is_some_and(|code| {
         code.is_empty() || code.chars().count() > gridcraft_numfmt::MAX_FORMAT_CODE_CHARS
@@ -418,6 +489,12 @@ fn apply_patch(style: &mut Style, patch: &FormatPatch) {
             Underline::None
         };
     }
+    if let Some(strike) = patch.strike {
+        font.strike = strike;
+    }
+    if let Some(name) = &patch.font_name {
+        font.name.clone_from(name);
+    }
     if let Some(size) = patch.font_size {
         font.size = size;
     }
@@ -428,25 +505,10 @@ fn apply_patch(style: &mut Style, patch: &FormatPatch) {
         style.fill = fill.map_or(Fill::default(), |color| Fill::solid(Color::Rgb(color.0)));
     }
     if let Some(h) = patch.h_align {
-        style.align.h = match h {
-            HAlign::General => gridcraft_model::HAlign::General,
-            HAlign::Left => gridcraft_model::HAlign::Left,
-            HAlign::Center => gridcraft_model::HAlign::Center,
-            HAlign::Right => gridcraft_model::HAlign::Right,
-            HAlign::Fill => gridcraft_model::HAlign::Fill,
-            HAlign::Justify => gridcraft_model::HAlign::Justify,
-            HAlign::CenterAcross => gridcraft_model::HAlign::CenterAcross,
-            HAlign::Distributed => gridcraft_model::HAlign::Distributed,
-        };
+        style.align.h = h.into();
     }
     if let Some(v) = patch.v_align {
-        style.align.v = match v {
-            VAlign::Top => gridcraft_model::VAlign::Top,
-            VAlign::Center => gridcraft_model::VAlign::Center,
-            VAlign::Bottom => gridcraft_model::VAlign::Bottom,
-            VAlign::Justify => gridcraft_model::VAlign::Justify,
-            VAlign::Distributed => gridcraft_model::VAlign::Distributed,
-        };
+        style.align.v = v.into();
     }
     if let Some(wrap) = patch.wrap {
         style.align.wrap = wrap;

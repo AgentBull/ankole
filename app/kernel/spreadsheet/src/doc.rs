@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use gridcraft_calc::Calc;
-use gridcraft_model::Workbook;
+use gridcraft_model::{Sheet, Workbook};
 
 use crate::Error;
 use crate::index::SourceReport;
@@ -100,6 +100,14 @@ pub(crate) fn sheet_index(wb: &Workbook, id: u32) -> Option<usize> {
 /// Like [`sheet_index`], rejecting an unknown id.
 pub(crate) fn require_sheet(wb: &Workbook, id: u32) -> Result<usize, Error> {
     sheet_index(wb, id).ok_or_else(|| Error::invalid(format!("no sheet has sheet_id {id}")))
+}
+
+/// The sheet whose `sheet_id` is `id`, rejecting an unknown id.
+pub(crate) fn sheet_by_id(wb: &Workbook, id: u32) -> Result<&Sheet, Error> {
+    wb.sheets
+        .get(require_sheet(wb, id)?)
+        .map(AsRef::as_ref)
+        .ok_or_else(|| Error::invalid(format!("no sheet has sheet_id {id}")))
 }
 
 /// The id a new sheet gets: one past every id in use, including the chart sheets GridCraft keeps
