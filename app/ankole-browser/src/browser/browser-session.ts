@@ -132,7 +132,7 @@ export class BrowserSession {
       case 'scrollintoview':
       case 'drag':
       case 'upload':
-        return await this.action(command)
+        return await this.action(command, deadline)
       case 'get':
         return await this.get(command.args)
       case 'is':
@@ -180,7 +180,7 @@ export class BrowserSession {
     return { url: page.url(), title: this.registry.cachedTitle() }
   }
 
-  private async action(command: PointerActionCommand): Promise<Record<string, unknown>> {
+  private async action(command: PointerActionCommand, deadline: number): Promise<Record<string, unknown>> {
     const page = this.registry.currentPage()
     this.guard.assertRendererAvailable(command.name)
     if (command.name === 'press') {
@@ -225,7 +225,7 @@ export class BrowserSession {
             await locator.pressSequentially(command.args.text)
             break
           case 'select':
-            await selectByLabelOrValue(locator, command.args.value)
+            await selectByLabelOrValue(locator, command.args.value, deadline)
             break
           case 'check':
             await locator.check()
@@ -600,28 +600,30 @@ function assertInside(root: string, path: string, boundary: string): void {
   }
 }
 
-async function selectByLabelOrValue(locator: Locator, value: string): Promise<void> {
-  const control = await locator.elementHandle()
-  try {
-    const frame = await control.ownerFrame()
-    if (!frame) throw new BrowserDataError('invalid_command', 'select control is detached')
-    const match = await frame.waitForFunction(
-      ({ control, value }) => {
-        const select = control instanceof HTMLSelectElement ? control : control.closest('label')?.control
-        if (!(select instanceof HTMLSelectElement) || !select.isConnected) {
-          throw new Error('Expected an attached select')
-        }
+async function selectByLabelOrValue(locator: Locator, value: string, deadline: number): Promise<void> {
+  while (Date.now() < deadline) {
+    const match = await locator.evaluate(
+      (element, value) => {
+        const select = element instanceof HTMLSelectElement ? element : element.closest('label')?.control
+        if (!(select instanceof HTMLSelectElement)) throw new Error('Expected a select control')
         const options = Array.from(select.options)
-        return options.find(option => option.label === value) ?? options.find(option => option.value === value) ?? false
+        if (options.some(option => option.label === value)) return { label: value }
+        if (options.some(option => option.value === value)) return { value }
+        return null
       },
-      { control, value }
+      value,
+      { timeout: Math.max(1, deadline - Date.now()) }
     )
-    try {
-      await locator.selectOption(match.asElement()!)
-    } finally {
-      await match.dispose()
-    }
-  } finally {
-    await control.dispose()
+    if (match) {
+      try {
+        await locator.selectOption(match, { timeout: Math.max(1, Math.min(250, deadline - Date.now())) })
+        return
+      } catch (error) {
+        if (!(error instanceof Error && error.name === 'TimeoutError')) throw error
+      }
+    } else await Bun.sleep(Math.min(100, Math.max(0, deadline - Date.now())))
   }
+  throw new BrowserDataError('timeout', 'select option was unavailable before the command deadline', {
+    retryable: true
+  })
 }

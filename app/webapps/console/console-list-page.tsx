@@ -21,7 +21,7 @@ import {
   EmptyTitle,
   Input,
   Skeleton,
-  Switch,
+  SwitchRow,
   Table,
   TableBody,
   TableCell,
@@ -584,10 +584,12 @@ export function FilterSwitch({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
-      <Switch checked={checked} onCheckedChange={onChange} />
-      {label}
-    </label>
+    <SwitchRow
+      rowClassName="flex shrink-0 items-center gap-2 text-sm text-muted-foreground"
+      label={label}
+      checked={checked}
+      onCheckedChange={onChange}
+    />
   )
 }
 

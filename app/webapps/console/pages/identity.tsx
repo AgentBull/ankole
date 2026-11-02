@@ -9,7 +9,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch,
+  SwitchRow,
   TableCell,
   toast
 } from '@ankole/uikit'
@@ -355,13 +355,18 @@ export function IdentityProviderEditorPage() {
           </LabeledField>
         </div>
 
-        <label className="flex cursor-pointer items-center justify-between gap-4 border border-border bg-muted/30 p-4">
-          <span className="grid gap-1">
-            <span className="text-sm font-medium">{t('console.identity.enabled')}</span>
-            <span className="text-xs text-muted-foreground">{t('console.identity.enabled_hint')}</span>
-          </span>
-          <Switch checked={model.enabled.value} onCheckedChange={checked => (model.enabled.value = checked)} />
-        </label>
+        <SwitchRow
+          rowClassName="flex cursor-pointer items-center justify-between gap-4 border border-border bg-muted/30 p-4"
+          label={
+            <span className="grid gap-1">
+              <span className="text-sm font-medium">{t('console.identity.enabled')}</span>
+              <span className="text-xs text-muted-foreground">{t('console.identity.enabled_hint')}</span>
+            </span>
+          }
+          labelFirst
+          checked={model.enabled.value}
+          onCheckedChange={checked => (model.enabled.value = checked)}
+        />
 
         {activeAdapter ? (
           <ConfigFields

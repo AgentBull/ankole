@@ -11,7 +11,8 @@
   WebSocket continuation without storing those Responses.
 - Wait for initial editor data before accepting identity-provider, scheduled-rule,
   and Worker-provider input; preserve drafts during background refreshes.
-- Select browser options by label first, then by value when no label matches.
+- Select browser options by label first, then by value when no label matches,
+  including when a page replaces the control while options load.
 - Let operators choose an active Agent when a new schedule link names an unavailable
   one. Keep switches disabled while forms load and return focus to Clear filters
   when the last matching Webhook disappears.

@@ -1,5 +1,6 @@
 'use client'
 
+import { useId, type ReactNode } from 'react'
 import { Switch as SwitchPrimitive } from '@base-ui/react/switch'
 
 import { cn } from '../lib/utils'
@@ -37,4 +38,25 @@ function Switch({
   )
 }
 
-export { Switch }
+function SwitchRow({
+  label,
+  labelFirst,
+  rowClassName,
+  id,
+  ...props
+}: Parameters<typeof Switch>[0] & { label: ReactNode; labelFirst?: boolean; rowClassName: string }) {
+  const generatedID = useId()
+  const switchID = id ?? generatedID
+  return (
+    <div className={cn('relative isolate', rowClassName)}>
+      <label
+        htmlFor={switchID}
+        className={cn('cursor-pointer after:absolute after:inset-0 after:-z-1', !labelFirst && 'order-last')}>
+        {label}
+      </label>
+      <Switch id={switchID} {...props} />
+    </div>
+  )
+}
+
+export { Switch, SwitchRow }

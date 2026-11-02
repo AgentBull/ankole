@@ -1,4 +1,4 @@
-import { Button, Input, Switch } from '@ankole/uikit'
+import { Button, Input, SwitchRow } from '@ankole/uikit'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AppConfigurationItem } from '../api/configuration-types'
@@ -142,14 +142,13 @@ function SmtpSettingsEditor({
           {t('console.settings.keep_saved_password')}
         </Button>
       ) : null}
-      <label className="flex items-center gap-3">
-        <Switch
-          checked={draft.ssl === true}
-          onCheckedChange={next => set('ssl', next)}
-          aria-label={t('console.settings.smtp_implicit_tls')}
-        />
-        {t('console.settings.smtp_implicit_tls')}
-      </label>
+      <SwitchRow
+        rowClassName="flex items-center gap-3"
+        label={t('console.settings.smtp_implicit_tls')}
+        checked={draft.ssl === true}
+        onCheckedChange={next => set('ssl', next)}
+        aria-label={t('console.settings.smtp_implicit_tls')}
+      />
       <p className="text-xs text-muted-foreground">{t('console.settings.smtp_tls_hint')}</p>
       <details>
         <summary className="text-sm">{t('console.settings.advanced')}</summary>

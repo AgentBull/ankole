@@ -32,7 +32,7 @@ import type { TFunction } from 'i18next'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
 import i18n from '../../common/i18n'
@@ -440,7 +440,10 @@ export function ScheduleCronEditorPage() {
   const agentUID = editing ? routeAgentUID : resolveAgentUID(agentList, routeAgentUID)
   const selectedAgent = (agents.data ?? []).find(agent => agent.uid === agentUID)
 
+  const recoveryAgent = useRef<string | null>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
   const selectAgent = (uid: string) => {
+    if (!agentUID) recoveryAgent.current = uid
     setSearchParams({ agent: uid }, { replace: true })
     model.resetAgentScope()
   }
@@ -512,6 +515,12 @@ export function ScheduleCronEditorPage() {
     source: scheduleDraft,
     absent: () => editing && requestErrorCode(existing.error) === 'not_found'
   })
+
+  useEffect(() => {
+    if (recoveryAgent.current !== agentUID || draftStatus !== 'ready') return
+    recoveryAgent.current = null
+    if (document.activeElement === document.body) nameInput.current?.focus()
+  }, [agentUID, draftStatus])
 
   // Save errors render once in the page ErrorBlock; a toast on top of the
   // same message would say it twice.
@@ -875,6 +884,7 @@ export function ScheduleCronEditorPage() {
           invalidError={t('common.field_required', { field: t('console.schedules.name') })}>
           <Input
             pattern=".*\S.*"
+            ref={nameInput}
             value={model.name.value}
             onChange={event => {
               model.name.value = event.target.value
