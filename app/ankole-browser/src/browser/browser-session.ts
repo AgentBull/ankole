@@ -602,26 +602,26 @@ function assertInside(root: string, path: string, boundary: string): void {
 
 async function selectByLabelOrValue(locator: Locator, value: string, deadline: number): Promise<void> {
   while (Date.now() < deadline) {
-    const match = await locator.evaluate(
+    const match = await locator.evaluateHandle(
       (element, value) => {
         const select = element instanceof HTMLSelectElement ? element : element.closest('label')?.control
         if (!(select instanceof HTMLSelectElement)) throw new Error('Expected a select control')
         const options = Array.from(select.options)
-        if (options.some(option => option.label === value)) return { label: value }
-        if (options.some(option => option.value === value)) return { value }
-        return null
+        return options.find(option => option.label === value) ?? options.find(option => option.value === value) ?? null
       },
       value,
       { timeout: Math.max(1, deadline - Date.now()) }
     )
-    if (match) {
-      try {
-        await locator.selectOption(match, { timeout: Math.max(1, Math.min(250, deadline - Date.now())) })
+    try {
+      const option = match.asElement()
+      if (option) {
+        await locator.selectOption(option, { timeout: Math.max(1, deadline - Date.now()) })
         return
-      } catch (error) {
-        if (!(error instanceof Error && error.name === 'TimeoutError')) throw error
       }
-    } else await Bun.sleep(Math.min(100, Math.max(0, deadline - Date.now())))
+    } finally {
+      await match.dispose()
+    }
+    await Bun.sleep(Math.min(100, Math.max(0, deadline - Date.now())))
   }
   throw new BrowserDataError('timeout', 'select option was unavailable before the command deadline', {
     retryable: true
