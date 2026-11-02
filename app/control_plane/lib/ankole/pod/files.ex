@@ -4,18 +4,21 @@ defmodule Ankole.Pod.Files do
 
   Manifest reads and commits run in top-level transactions under the Drive node
   lock. File replacements compare object IDs; Applet publications compare Pod
-  revisions.
+  revisions. A manifest, a read that does not pin a digest, and a file
+  replacement first write a spreadsheet page's pending edits into its object
+  (`Ankole.Pod.Spreadsheets.flush_if_dirty/1`), so they see the latest bytes.
   """
 
   alias Ankole.Files, as: Drive
   alias Ankole.Files.Access
-  alias Ankole.Pod.{Pages, PodFile}
+  alias Ankole.Pod.{Pages, PodFile, Spreadsheets}
   require Ash.Query
   alias Ankole.Repo
 
   @doc "Lists one page's current file manifest. Paths are relative to the page directory."
   def manifest(%Ankole.AuthZ.Actor{} = actor, page_id) do
-    Repo.transact_top_level(fn -> manifest_in_tx(actor, page_id) end)
+    with :ok <- Spreadsheets.flush_if_dirty(page_id),
+         do: Repo.transact_top_level(fn -> manifest_in_tx(actor, page_id) end)
   end
 
   @doc false
@@ -57,17 +60,29 @@ defmodule Ankole.Pod.Files do
     end
   end
 
-  @doc "Resolves an authorized immutable file reference without downloading its bytes."
+  @doc """
+  Resolves an authorized immutable file reference without downloading its bytes.
+
+  A pinned digest resolves exactly those bytes while they are the page's
+  file; a spreadsheet editor pairs them with the operations it bootstrapped.
+  """
   def resolve_read(actor, page_id, relative, digest \\ nil) do
-    Repo.transact_top_level(fn ->
-      with {:ok, _path} <- page_path(page_id, relative),
-           {:ok, page} <- Pages.lock(page_id, :share),
-           {:ok, action} <- required_read_action(page, relative),
-           {:ok, _} <- Pages.authorize(actor, page.id, action),
-           {:ok, file} <- manifest_read(fetch_file(page_id, relative), digest),
-           :ok <- check_digest(file, digest),
-           do: {:ok, file}
-    end)
+    with :ok <- latest_bytes(page_id, digest),
+         do:
+           Repo.transact_top_level(fn -> resolve_read_in_tx(actor, page_id, relative, digest) end)
+  end
+
+  defp latest_bytes(page_id, nil), do: Spreadsheets.flush_if_dirty(page_id)
+  defp latest_bytes(_page_id, _digest), do: :ok
+
+  defp resolve_read_in_tx(actor, page_id, relative, digest) do
+    with {:ok, _path} <- page_path(page_id, relative),
+         {:ok, page} <- Pages.lock(page_id, :share),
+         {:ok, action} <- required_read_action(page, relative),
+         {:ok, _} <- Pages.authorize(actor, page.id, action),
+         {:ok, file} <- manifest_read(fetch_file(page_id, relative), digest),
+         :ok <- check_digest(file, digest),
+         do: {:ok, file}
   end
 
   @doc "Returns the action required to read a normalized page-relative path."
@@ -146,6 +161,7 @@ defmodule Ankole.Pod.Files do
       ) do
     with {:ok, page} <- authorize_upload(actor, page_id, role),
          :ok <- allowed_role(page, role),
+         :ok <- replaceable(page_id, role),
          {:ok, stored} <- Drive.store(source) do
       commit_upload(
         actor,
@@ -222,7 +238,8 @@ defmodule Ankole.Pod.Files do
         position
       ) do
     with {:ok, attachment} <- message_attachment(actor, message_id, position),
-         {:ok, _page} <- authorize_upload(actor, page_id, "file") do
+         {:ok, _page} <- authorize_upload(actor, page_id, "file"),
+         :ok <- replaceable(page_id, "file") do
       commit_upload(
         actor,
         page_id,
@@ -235,6 +252,11 @@ defmodule Ankole.Pod.Files do
       )
     end
   end
+
+  # A replaced spreadsheet first takes its pending edits, so that the version
+  # kept for it holds them.
+  defp replaceable(page_id, "file"), do: Spreadsheets.flush_if_dirty(page_id)
+  defp replaceable(_page_id, _role), do: :ok
 
   defp message_attachment(actor, message_id, position)
        when is_integer(position) and position >= 0 do
@@ -393,7 +415,8 @@ defmodule Ankole.Pod.Files do
   end
 
   defp commit_upload_object(actor, page, "file", path, object_id, content_type) do
-    with :ok <- rename_upload(actor, page, path),
+    with :ok <- Spreadsheets.keep_replaced_in_tx(actor, page),
+         :ok <- rename_upload(actor, page, path),
          do:
            Drive.commit_node_object_in_tx(actor, page.id, object_id, %{
              content_type: content_type,
@@ -715,7 +738,8 @@ defmodule Ankole.Pod.Files do
     end)
   end
 
-  defp entry(file) do
+  @doc "Returns the manifest entry of a page file, with its path relative to the page directory."
+  def entry(file) do
     %{
       path: file.path,
       object_id: file.object_id,

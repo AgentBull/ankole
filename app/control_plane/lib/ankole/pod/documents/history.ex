@@ -1,5 +1,12 @@
 defmodule Ankole.Pod.Documents.History do
-  @moduledoc "Owns durable document checkpoints and restores under the page row lock."
+  @moduledoc """
+  Owns durable page checkpoints and their retention under the page row lock.
+
+  A document snapshot keeps the document XML, and this module also restores
+  it. A spreadsheet snapshot names the file object that held the workbook;
+  `Ankole.Pod.Spreadsheets` lists and restores those. Both kinds share one
+  checkpoint interval, retention period, and per-page limit.
+  """
   require Ash.Query
   alias Ankole.{AuthZ, Kernel, Repo}
   alias Ankole.Files.Access
@@ -91,17 +98,9 @@ defmodule Ankole.Pod.Documents.History do
 
   @doc "Captures the current document before a write; the caller holds the page update lock."
   def checkpoint_in_tx(page, content, now, reason \\ :checkpoint) do
-    latest =
-      PageSnapshot
-      |> Ash.Query.filter(page_id == ^page.id and created_at >= ^cutoff(now))
-      |> Ash.Query.sort(created_at: :desc, id: :desc)
-      |> Ash.Query.limit(1)
-      |> Ash.Query.select([:id, :created_at])
-      |> Ankole.Ash.read_one!()
+    latest = latest_in_tx(page.id, now)
 
-    due = is_nil(latest) or DateTime.diff(now, latest.created_at, :second) >= @checkpoint_seconds
-
-    if reason != :checkpoint or due do
+    if reason != :checkpoint or due?(latest, now) do
       with {:ok, info} <- Kernel.page_comment_info(content.content) do
         duplicate =
           reason == :checkpoint and same_checkpoint?(latest, page, info.stripped_xml, now)
@@ -129,6 +128,103 @@ defmodule Ankole.Pod.Documents.History do
       :ok
     end
   end
+
+  @doc """
+  Records a periodic spreadsheet checkpoint; the caller holds the page update lock.
+
+  A file checkpoint follows the document rule: it is due once the newest
+  snapshot is older than the checkpoint interval, and it is skipped when that
+  snapshot already holds the same bytes. `object` carries `id` and `sha256`.
+  """
+  def file_checkpoint_in_tx(page, object, revision, author, now) do
+    latest = latest_in_tx(page.id, now)
+
+    if due?(latest, now) and not same_file?(latest, object),
+      do: append_file_in_tx(page, object, revision, :checkpoint, author, now),
+      else: :ok
+  end
+
+  @doc """
+  Appends a snapshot that names a spreadsheet's file object; the caller holds the page update lock.
+
+  The snapshot takes the page's current file name as its title, and the
+  page's history limit applies afterwards.
+  """
+  def append_file_in_tx(page, object, revision, reason, author, now) do
+    with {:ok, _} <-
+           Ankole.Ash.create(PageSnapshot, :append, %{
+             page_id: page.id,
+             revision: revision,
+             title: page.name,
+             object_id: object.id,
+             author: author,
+             document_updated_at: now,
+             created_at: now,
+             reason: reason
+           }),
+         do: prune_in_tx(page.id, now)
+  end
+
+  @doc "Whether a retained snapshot of the page names the object."
+  def file_kept_in_tx?(page_id, object_id),
+    do:
+      PageSnapshot
+      |> Ash.Query.filter(
+        page_id == ^page_id and object_id == ^object_id and created_at >= ^cutoff()
+      )
+      |> Ankole.Ash.exists?()
+
+  @doc "Whether the page keeps any retained snapshot."
+  def kept_in_tx?(page_id),
+    do:
+      PageSnapshot
+      |> Ash.Query.filter(page_id == ^page_id and created_at >= ^cutoff())
+      |> Ankole.Ash.exists?()
+
+  @doc "Lists the retained spreadsheet snapshots of a page, newest first, with their object digests and sizes."
+  def file_snapshots_in_tx(page_id),
+    do:
+      PageSnapshot
+      |> file_query(page_id)
+      |> Ash.Query.sort(created_at: :desc, id: :desc)
+      |> Ankole.Ash.read!()
+
+  @doc "Returns one retained spreadsheet snapshot of a page."
+  def fetch_file_in_tx(page_id, id) do
+    case PageSnapshot
+         |> file_query(page_id)
+         |> Ash.Query.filter(id == ^id)
+         |> Ankole.Ash.read_one!() do
+      nil -> {:error, :not_found}
+      snapshot -> {:ok, snapshot}
+    end
+  end
+
+  defp file_query(query, page_id),
+    do:
+      query
+      |> Ash.Query.filter(
+        page_id == ^page_id and not is_nil(object_id) and created_at >= ^cutoff()
+      )
+      |> Ash.Query.load([:sha256, :size])
+
+  defp latest_in_tx(page_id, now),
+    do:
+      PageSnapshot
+      |> Ash.Query.filter(page_id == ^page_id and created_at >= ^cutoff(now))
+      |> Ash.Query.sort(created_at: :desc, id: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.Query.select([:id, :created_at, :object_id])
+      |> Ash.Query.load(:sha256)
+      |> Ankole.Ash.read_one!()
+
+  defp due?(latest, now),
+    do: is_nil(latest) or DateTime.diff(now, latest.created_at, :second) >= @checkpoint_seconds
+
+  defp same_file?(nil, _object), do: false
+
+  defp same_file?(latest, object),
+    do: latest.object_id == object.id or latest.sha256 == object.sha256
 
   defp cutoff(now \\ DateTime.utc_now(:microsecond)),
     do: DateTime.add(now, -@retention_days * 86_400, :second)

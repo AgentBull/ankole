@@ -1,5 +1,16 @@
 # Changelog
 
+## Version 2.0.0-alpha.46 (2026-11-02)
+
+- Make `.xlsx` and `.xlsm` file pages editable spreadsheets on the server. Each
+  page keeps an operation log, so several people can edit the same workbook:
+  Ankole moves an edit that crosses another person's row or column change to
+  the right cells and formulas, and rejects an edit it cannot place so its
+  author can confirm it again. Downloads and Agent file reads always return
+  the latest bytes, search finds text inside spreadsheet cells, and each
+  spreadsheet keeps restorable versions in the page history. Operators can
+  tune the editable file size and compaction with `pod.spreadsheet.limits`.
+
 ## Version 2.0.0-alpha.45 (2026-11-01)
 
 - Replaying a recorded tool result or workflow round returns the existing record

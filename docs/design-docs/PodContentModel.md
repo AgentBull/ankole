@@ -387,9 +387,9 @@ Control+K elsewhere) opens the editor's link form instead; the menu still opens
 where the editor cannot add a link, such as in code. Control+K on Apple
 platforms always opens the menu, so it never deletes text to the line end. Both the menu and the dedicated
 search view share title-and-body Page search, which matches a Page when every
-whitespace-separated word of the query appears in its title or body in any
-order; only the first 16 distinct words filter. Scoped lists, favorites,
-recents, and Trash filter with the same rule.
+whitespace-separated word of the query appears in its title, its body, or the
+cell text of its spreadsheet in any order; only the first 16 distinct words
+filter. Scoped lists, favorites, recents, and Trash filter with the same rule.
 The search view persists its query in the `q` URL parameter across result
 clicks, Back navigation, and reloads. Search hits, quick-navigation items, and Page references in Chat render
 visible ancestor breadcrumbs so users can tell identically named Pages apart,
@@ -743,11 +743,12 @@ navigation state they use instead of subscribing to every URL change.
 
 Search and directory lists enforce access before applying result caps:
 
-- **Full-text search**: Matches titles and plain-text bodies across visible
-  Pages (including shared child Pages whose parent is hidden), ranks title
-  similarity ahead of body matches via trigram indexes, and returns up to 30
-  Pages. Matching reads stored Pod titles, current file and folder names, and
-  plain-text bodies through their own indexes; the Page projection supplies
+- **Full-text search**: Matches titles, plain-text bodies, and the cell text of
+  spreadsheet files across visible Pages (including shared child Pages whose
+  parent is hidden), ranks title similarity ahead of body matches via trigram
+  indexes, and returns up to 30 Pages. Matching reads stored Pod titles, current
+  file and folder names, plain-text bodies, and spreadsheet cell text through
+  their own indexes; the Page projection supplies
   each result's display title and ranking. Move pickers pass `exclude_subtree_of` to strip the moving Page and all
   its descendants—even when intermediate ancestors do not match the query—before
   the 30-row cap. Move, copy, and saved-artifact destination searches pass
@@ -756,8 +757,9 @@ Search and directory lists enforce access before applying result caps:
   source Page's parent when editable or require picking an editable destination
   first.
 - **Scoped lists, favorites, recents, and Trash**: Scoped text queries filter
-  titles and bodies before the 200-row cap. Favorites and recents filter to
-  visible live Pages first and sort by favorite or visit timestamp with Page ID
+  titles, bodies, and spreadsheet cell text before the 200-row cap. Favorites
+  and recents filter to visible live Pages first and sort by favorite or visit
+  timestamp with Page ID
   as tie-breaker. Trash lists scan top-level deleted Pages in deletion-time
   order in batches before the 200-row cap; during that check, each candidate
   ignores its own deletion tombstone while still hiding Pages under a deleted
@@ -775,15 +777,16 @@ file relay cannot commit once its turn closes or its Job attempt is superseded.
 ### Persistence and transactions
 
 `Ankole.Pod` is the root Ash domain, owning the durable `Properties`, `PageContent`,
-`PageChange`, `PageUserState`, `BaseTable`, `BaseField`, and `BaseView`
-resources alongside stateless `*.Browser` resources serving `/api/v2/pod`
-JSON:API routes (where browser actions validate query operators as closed enums
+`PageChange`, `PageUserState`, `PageSnapshot`, `SpreadsheetOp`, `FileCache`,
+`BaseTable`, `BaseField`, and `BaseView` resources alongside stateless
+`*.Browser` resources serving `/api/v2/pod` JSON:API routes (where browser
+actions validate query operators as closed enums
 before serializing them to the JSON strings expected by the shared Base query
 compiler).
 
 Every Pod write—or read requiring a row lock—opens `Repo.transact_top_level/2`
 in its owning module (`Ankole.Pod.Pages`, `Pages.Sharing`, `Documents`, `Files`,
-`Applets` or `Bases`). Topology and sharing writes acquire
+`Spreadsheets`, `Applets` or `Bases`). Topology and sharing writes acquire
 the tenant Drive tree lock first and then lock the Agent's turn, whereas document
 content and Base record writes skip the tree lock. Intra-domain callers compose
 `*_in_tx` helpers inside an existing transaction (for example, Base copy calling
@@ -850,6 +853,9 @@ Within the domain:
   edits expand to full role bitmasks, payloads supplying both a role and an
   action set must match, and `AuthZ` persists the underlying `permission_grants`
   rows and triggers anchor maintenance.
+- `Ankole.Pod.Spreadsheets` owns spreadsheet Pages: the operation log, its
+  compaction into the file, and the file search cache; see
+  [Spreadsheet Pages](#spreadsheet-pages).
 
 Read isolation matches each operation's locking needs:
 
@@ -874,9 +880,9 @@ checks the setting again each day so a later positive value applies to Pages
 already in Trash). When
 purge begins, it stamps a purge-started marker in the same transaction that
 rechecks eligibility—blocking any subsequent restore—cleans Base tables via the
-Base cleanup contract, and deletes page content, file references, grants, and
-child Pages in bounded batches while keeping the root Page row last so an
-interrupted job can safely resume.
+Base cleanup contract, and deletes page content, spreadsheet operation logs and
+search caches, file references, grants, and child Pages in bounded batches while
+keeping the root Page row last so an interrupted job can safely resume.
 
 ## Documents and collaboration
 
@@ -1022,7 +1028,10 @@ independent of title changes.
 
 ### Version history
 
-`Ankole.Pod.Documents.History` owns immutable `PageSnapshot` checkpoints.
+`Ankole.Pod.Documents.History` owns immutable `PageSnapshot` checkpoints. This
+section describes document checkpoints; spreadsheet Pages keep their versions
+in the same history, with a file object in place of body XML (see
+[Spreadsheet Pages](#spreadsheet-pages)).
 Readers need `node_edit` to list, preview, export, or restore them: sharing the
 current document with a viewer or contributor does not expose deleted historical
 content. Each snapshot stores canonical body XML without comment marks, title,
@@ -1531,8 +1540,10 @@ and presentations. Workbook and presentation viewers lazy-load their rendering
 libraries and stream bytes from the authorized Pod file URL without sending
 files to any external service—supporting sheet switching for workbooks, slide
 switching for presentations, and original-file downloads (preview fidelity
-follows supported format features and installed fonts; online Office editing is
-outside v1 scope).
+follows supported format features and installed fonts). Spreadsheet Pages add
+collaborative editing and version history (see
+[Spreadsheet Pages](#spreadsheet-pages)); other workbook formats and
+presentations stay read-only.
 
 Native Conversation messages carry Page links and verified attachments:
 
@@ -1563,6 +1574,114 @@ Native Conversation messages carry Page links and verified attachments:
   Message across continuations until a new Human message starts a continuation,
   staying strictly within the same Agent and tenant and halting on cycles or
   missing messages.
+
+### Spreadsheet Pages
+
+A spreadsheet Page is a file Page whose name ends in `.xlsx` or `.xlsm`,
+ignoring case and the ` (n)` that Drive appends to a duplicate name;
+`Ankole.Pod.Spreadsheets.spreadsheet?/1` owns that rule, so the Page type stays
+`file`. `POST /api/v2/pod/spreadsheet-pages` creates one with a blank workbook
+named after the optional title (`Untitled.xlsx` by default), and uploading or
+saving a workbook to a file Page makes it one too. The file node's current
+object holds the authoritative `.xlsx` bytes, and the logical workbook is that
+object plus the operations in `pod_spreadsheet_ops` that are not yet
+`compacted`. The log and the search cache (`pod_file_caches`) reference the
+Page's `pages` row, whose `revision` keys every log entry; `Spreadsheets`
+creates that row with the first log entry when a Drive file has none.
+
+Editors work at cell-commit granularity. An editor loads
+`GET /api/v2/pod/pages/:id/spreadsheet`, which returns the Page `revision`, the
+current file (`path`, `object_id`, `sha256`, `size`), the uncompacted
+operations in revision order, and the cached workbook metadata; it downloads
+the file pinned to that `sha256` and replays the operations in the browser's
+copy of the same kernel. It then sends one canonical operation at a time on the
+page channel. Each operation names its sheet by the stable `sheet_id` and its
+cells by absolute A1 references, and carries `base_revision`, `client_id`, and
+`client_seq`. Under the Page row lock the control plane rebases the operation
+over the operations committed after `base_revision`: row and column inserts or
+deletes move its target cells and rewrite its formula references, and sheet
+renames rewrite cross-sheet references. When rebasing would have to guess—the
+target cells or sheet were deleted, structural edits overlap, or a concurrent
+sort or merge intersects the edit—the operation is rejected with
+`spreadsheet_conflict`, whose details carry the kernel `reason`, the current
+`revision`, and the missed `changes`, so the editor replays them and asks its
+author to confirm the edit again. A committed operation advances the Page
+revision and is stored as the kernel committed it. The server writes the author
+of a note itself. Retrying a `(client_id, client_seq)` pair acknowledges the
+earlier commit, and a different operation under the same pair is a
+`client_sequence_conflict`.
+
+Compaction writes the log into the file. Every commit moves the Page's single
+`Ankole.Pod.Jobs.CompactSpreadsheet` wakeup to `compaction_idle_seconds` after
+the commit; reaching `compaction_op_threshold` uncompacted operations, or
+`compaction_structural_threshold` uncompacted row, column, or cell-shift
+operations, moves it to now, and so does the last editor leaving the page
+channel. Compaction exports the workbook outside any transaction and stores it
+as a new object. Under the Page row lock it then names that object at the file
+node, marks the exported operations `compacted`, refreshes the search cache,
+records a history checkpoint when one is due, and prunes compacted operations
+older than `pod.ot_replay_window` revisions. Compaction does not advance the
+Page revision, and operations committed during the export wait for the next
+compaction. Volatile functions such as `NOW()` change the exported bytes on each
+compaction.
+
+Every reader of the bytes sees the latest edits: a file manifest, any Pod file
+read or download without a pinned `sha256`, and the Agent `files.get` RPC run
+`Spreadsheets.flush_if_dirty/1` first, which costs
+one index probe when nothing is pending. A read that pins a `sha256` returns
+exactly those bytes while the node still names them, because the pinning editor
+pairs them with the operations it loaded; once compaction or a replacement
+names another object, the read fails with `manifest_changed` and the editor
+bootstraps again.
+
+Any other write that names a new object at the node—a Pod upload, an Agent
+Drive write, or a restore—reaches `Spreadsheets.object_committed_in_tx/3`
+through the Drive content owner. In the writer's transaction it marks every
+earlier operation `compacted`, advances the revision, and appends a `reset`
+entry, so an editor that catches up past it bootstraps again. Pod uploads and
+restores compact pending operations into the current object first; other Drive
+writes replace the object as it stands, so the replaced version lacks edits
+that compaction had not written yet. When the new file is not a spreadsheet,
+its search cache is removed and its history remains. A workbook that the kernel
+cannot read, or that exceeds `max_file_bytes`, keeps no search cache, and
+editing it fails with `invalid_spreadsheet` or `file_too_large`.
+
+Versions live in the Page history ([Version history](#version-history)). A
+spreadsheet snapshot names a file object instead of body XML, so a version never
+copies bytes, and it shares the five-minute checkpoint interval, 30-day
+retention, and 200-snapshot limit of document checkpoints. The first object of
+a spreadsheet records `created`, and a replacement records `uploaded`; a
+replaced object that no retained snapshot names yet stays as a `checkpoint`.
+Compaction records a `checkpoint` of its new object when the newest snapshot is
+at least five minutes old and holds different bytes, and a workbook that reached
+its Page without a history records its original object as `created` before the
+first compaction replaces it. `GET /api/v2/pod/pages/:id/spreadsheet/versions`
+lists the retained versions newest first with each author's profile, and
+`POST /api/v2/pod/pages/:id/spreadsheet/versions/:version_id/restore` records
+the current object as `before_restore`, names the version's object and file name
+at the node, and records it as `restored`. Both require `node_edit`, as document
+history does. File collection keeps every object that a snapshot names; see
+[Files](Files.md#spreadsheet-pages).
+
+On the page channel, a spreadsheet Page joins Presence with the same profile,
+session, `selection`, and `mode` metadata as a document, and `sheet:presence`
+replaces the sender's `selection` with a JSON object of at most 4 KiB or `null`.
+`sheet:apply` commits an operation and replies with `revision`, `changes`,
+`reset_required`, and `acknowledged_revision`; `sheet:sync` replays the entries
+after a revision; and every committed change pushes `sheet:changes` with the
+entries after the channel's last revision. Each entry carries `revision`, `kind`
+(`op` or `reset`), `client_id`, `client_seq`, `op`, and `created_at`. A replay
+that exceeds the 32 MiB message budget or reaches past pruned entries sets
+`reset_required`.
+
+`pod.spreadsheet.limits` bounds the feature per tenant: `max_file_bytes`
+(default 20 MiB) is the largest file an editor may load or edit, and a larger
+file returns `file_too_large` so the browser offers the download only;
+`compaction_idle_seconds` (30), `compaction_op_threshold` (100), and
+`compaction_structural_threshold` (10) tune compaction. Each control-plane node
+keeps at most 64 opened workbooks in memory and drops one after ten idle
+minutes; the cache never owns state, so a node that misses reopens the Page's
+object and replays the uncompacted operations.
 
 ## Applets
 

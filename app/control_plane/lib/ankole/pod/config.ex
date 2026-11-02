@@ -11,6 +11,12 @@ defmodule Ankole.Pod.Config do
   }
   @limit_keys Map.keys(@defaults)
   @applet_defaults %{"timeout_ms" => 60_000, "heap_mb" => 128}
+  @spreadsheet_defaults [
+    max_file_bytes: 20 * 1024 * 1024,
+    compaction_idle_seconds: 30,
+    compaction_op_threshold: 100,
+    compaction_structural_threshold: 10
+  ]
   def definitions do
     [
       Definition.new!(
@@ -38,6 +44,16 @@ defmodule Ankole.Pod.Config do
         default_value: @defaults,
         description:
           "Base query and record limits: query_rows, record_bytes, group_count, and statement_timeout_ms."
+      ),
+      Definition.new!(
+        key: "pod.spreadsheet.limits",
+        scope: :tenant,
+        encrypted: false,
+        schema: Schema.new(&validate_spreadsheet_limits/1),
+        default_value:
+          Map.new(@spreadsheet_defaults, fn {key, value} -> {to_string(key), value} end),
+        description:
+          "Spreadsheet page limits: max_file_bytes for online editing, and compaction_idle_seconds, compaction_op_threshold, and compaction_structural_threshold for writing edits into the file."
       ),
       Definition.new!(
         key: "pod.ot_replay_window",
@@ -87,6 +103,27 @@ defmodule Ankole.Pod.Config do
   end
 
   defp validate_applet_limits(_), do: {:error, :invalid_limits}
+
+  @doc "Returns the spreadsheet page limits as a map with atom keys."
+  def spreadsheet_limits do
+    with {:ok, limits} <- AppConfigure.get_by_key("pod.spreadsheet.limits"),
+         do:
+           {:ok,
+            Map.new(@spreadsheet_defaults, fn {key, _default} ->
+              {key, Map.fetch!(limits, to_string(key))}
+            end)}
+  end
+
+  defp validate_spreadsheet_limits(limits) when is_map(limits) do
+    keys = Enum.map(@spreadsheet_defaults, fn {key, _default} -> to_string(key) end)
+
+    if Enum.sort(Map.keys(limits)) == Enum.sort(keys) and
+         Enum.all?(Map.values(limits), &(is_integer(&1) and &1 > 0)),
+       do: {:ok, limits},
+       else: {:error, :invalid_limits}
+  end
+
+  defp validate_spreadsheet_limits(_), do: {:error, :invalid_limits}
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
   defp positive_integer(_), do: {:error, :invalid_positive_integer}

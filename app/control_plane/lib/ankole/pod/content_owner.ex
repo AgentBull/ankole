@@ -1,15 +1,24 @@
 defmodule Ankole.Pod.ContentOwner do
-  @moduledoc "Cleans Pod content before Drive removes the referenced nodes."
+  @moduledoc """
+  Keeps Pod content consistent with the Drive nodes it describes.
+
+  Pod cleans its content before Drive removes the referenced nodes, renames
+  pages after their nodes, and keeps a spreadsheet's operation log in step
+  with the page's object (`Ankole.Pod.Spreadsheets`).
+  """
   @behaviour Ankole.Files.ContentOwner
   require Ash.Query
 
   alias Ankole.Pod.{
+    FileCache,
     PageChange,
     PageDailyActivity,
     PageComment,
     PageContent,
     PageSnapshot,
-    PageUserState
+    PageUserState,
+    Spreadsheets,
+    SpreadsheetOp
   }
 
   @batch_size 1000
@@ -45,6 +54,15 @@ defmodule Ankole.Pod.ContentOwner do
 
   def rename_node_in_tx(_old, _node, _actor), do: :ok
 
+  @impl true
+  def object_committed_in_tx(previous, %{kind: :file} = node, actor),
+    do: Spreadsheets.object_committed_in_tx(actor, previous, node)
+
+  def object_committed_in_tx(_previous, _node, _actor), do: :ok
+
+  @impl true
+  def flush_node(id), do: Spreadsheets.flush_if_dirty(id)
+
   defp delete_page_resources(ids) do
     replies = Ash.Query.filter(PageComment, page_id in ^ids and not is_nil(root_id))
 
@@ -53,6 +71,8 @@ defmodule Ankole.Pod.ContentOwner do
         [
           {PageUserState, :purge},
           {PageChange, :prune},
+          {SpreadsheetOp, :prune},
+          {FileCache, :purge},
           {PageComment, :purge},
           {PageSnapshot, :purge},
           {PageDailyActivity, :purge},

@@ -71,6 +71,26 @@ defmodule Ankole.Pod.Serialization do
       |> enum_json(:kind)
       |> Ankole.JSON.plain()
 
+  def spreadsheet_op_json(entry),
+    do:
+      entry
+      |> Map.take([:revision, :kind, :client_id, :client_seq, :op, :created_at])
+      |> enum_json(:kind)
+      |> Ankole.JSON.plain()
+
+  @doc "A spreadsheet snapshot from the page history, with its author profile."
+  def spreadsheet_version_json(snapshot, profiles),
+    do: %{
+      id: snapshot.id,
+      revision: snapshot.revision,
+      sha256: Base.encode16(snapshot.sha256, case: :lower),
+      size: snapshot.size,
+      file_name: snapshot.title,
+      reason: snapshot.reason,
+      author: author_json(snapshot.author, profiles),
+      created_at: snapshot.created_at
+    }
+
   def document_json(%{page: page, content: content}),
     do: %{page: page_json(page), content: content_json(content)}
 
@@ -207,7 +227,7 @@ defmodule Ankole.Pod.Serialization do
       when code in ~w(revision_conflict title_conflict document_conflict sharing_conflict cannot_restore manifest_changed
                           field_conflict record_conflict record_exists schema_conflict local_table_changed
                           client_sequence_conflict applet_revision_changed
-                          position_conflict) ->
+                          position_conflict spreadsheet_conflict spreadsheet_busy) ->
         409
 
       _ ->

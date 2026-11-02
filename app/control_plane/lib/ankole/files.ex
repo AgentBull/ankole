@@ -54,7 +54,8 @@ defmodule Ankole.Files do
       {"drive_nodes", "object_id"},
       {"message_attachments", "object_id"},
       {"delivery_attachments", "object_id"},
-      {"pod_files", "object_id"}
+      {"pod_files", "object_id"},
+      {"page_snapshots", "object_id"}
     ]
 
   defdelegate node_committed(node), to: Nodes, as: :content_committed
@@ -94,6 +95,8 @@ defmodule Ankole.Files do
   defdelegate commit_node_object_in_tx(actor, id, object, attrs \\ %{}),
     to: NodeContents,
     as: :commit_in_tx
+
+  defdelegate rewrite_node_object_in_tx(id, object), to: NodeContents, as: :rewrite_in_tx
 
   defdelegate create_conversation_file_in_tx(conversation_id, name, object, attrs \\ %{}),
     to: NodeContents

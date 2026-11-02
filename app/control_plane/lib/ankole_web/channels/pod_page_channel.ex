@@ -2,8 +2,10 @@ defmodule AnkoleWeb.PodPageChannel do
   @moduledoc false
   use AnkoleWeb, :channel
   import AnkoleWeb.PodChannel, only: [allowed?: 1, recheck: 1, revoke: 1, with_tenant: 2]
-  alias Ankole.Pod.{Documents, Pages}
+  alias Ankole.Pod.{Documents, Pages, Spreadsheets}
   alias Ankole.Pod.Serialization, as: JSON
+
+  @selection_bytes 4096
 
   intercept(["presence_diff"])
 
@@ -21,13 +23,15 @@ defmodule AnkoleWeb.PodPageChannel do
         session = Ankole.Ecto.UUIDv7.autogenerate()
         author = Ankole.ActorRef.from_actor(socket.assigns.actor)
         profile = JSON.author_profiles([author])[author]
-        if detail.page.type == :doc, do: send(self(), :track_presence)
+        spreadsheet? = Spreadsheets.spreadsheet?(detail.page)
+        if detail.page.type == :doc or spreadsheet?, do: send(self(), :track_presence)
 
         {:ok, Map.put(JSON.detail_json(detail), :presence_session, session),
          assign(socket, %{
            page_id: id,
            page_type: detail.page.type,
            revision: detail.page.revision,
+           spreadsheet?: spreadsheet?,
            presence_meta:
              Map.merge(profile, %{session_id: session, selection: nil, mode: "viewing"})
          })}
@@ -53,6 +57,35 @@ defmodule AnkoleWeb.PodPageChannel do
   def handle_in("presence", %{"selection" => selection}, %{assigns: %{page_type: :doc}} = socket) do
     if valid_selection?(selection) do
       with_tenant(socket, fn -> update_presence(socket, selection) end)
+    else
+      {:reply, {:error, %{reason: "invalid_request"}}, socket}
+    end
+  end
+
+  def handle_in("sheet:apply", attrs, %{assigns: %{spreadsheet?: true}} = socket),
+    do:
+      reply_with(socket, fn ->
+        Spreadsheets.apply_op(socket.assigns.actor, socket.assigns.page_id, attrs)
+      end)
+
+  def handle_in(
+        "sheet:sync",
+        %{"revision" => revision},
+        %{assigns: %{spreadsheet?: true}} = socket
+      ),
+      do:
+        reply_with(socket, fn ->
+          Spreadsheets.since(socket.assigns.actor, socket.assigns.page_id, revision)
+        end)
+
+  def handle_in(
+        "sheet:presence",
+        %{"selection" => selection},
+        %{assigns: %{spreadsheet?: true}} = socket
+      )
+      when is_map(selection) or is_nil(selection) do
+    if byte_size(Torque.encode!(selection)) <= @selection_bytes do
+      with_tenant(socket, fn -> update_sheet_presence(socket, selection) end)
     else
       {:reply, {:error, %{reason: "invalid_request"}}, socket}
     end
@@ -100,8 +133,8 @@ defmodule AnkoleWeb.PodPageChannel do
   def handle_info({:node_committed, _id}, socket) do
     if allowed?(socket) do
       case with_tenant(socket, fn -> latest(socket) end) do
-        {:ok, result} ->
-          push(socket, "changes", json_result(result))
+        {:ok, event, result} ->
+          push(socket, event, json_result(socket, result))
           {:noreply, assign(socket, :revision, result.revision)}
 
         _ ->
@@ -119,6 +152,43 @@ defmodule AnkoleWeb.PodPageChannel do
       {:noreply, socket}
     else
       revoke(socket)
+    end
+  end
+
+  # The last editor to leave a spreadsheet wakes compaction, so the file
+  # catches up with the log soon after everyone closes the page. Presence
+  # still lists this channel's own entry while it terminates.
+  @impl true
+  def terminate(_reason, %{assigns: %{spreadsheet?: true}} = socket) do
+    present =
+      for {_uid, %{metas: metas}} <- AnkoleWeb.PodPresence.list(socket), meta <- metas, do: meta
+
+    if length(present) <= 1,
+      do: with_tenant(socket, fn -> Spreadsheets.compact_now(socket.assigns.page_id) end)
+
+    :ok
+  end
+
+  def terminate(_reason, _socket), do: :ok
+
+  # A spreadsheet selection names cells, not a document revision, so it never goes stale.
+  defp update_sheet_presence(socket, selection) do
+    with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
+         {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view") do
+      editing =
+        not is_nil(selection) and
+          match?({:ok, _}, Pages.authorize(socket.assigns.actor, page.id, "node_edit"))
+
+      meta = %{
+        socket.assigns.presence_meta
+        | selection: selection,
+          mode: if(editing, do: "editing", else: "viewing")
+      }
+
+      {:ok, _} = AnkoleWeb.PodPresence.update(socket, socket.assigns.uid, meta)
+      {:reply, :ok, assign(socket, :presence_meta, meta)}
+    else
+      _ -> revoke(socket)
     end
   end
 
@@ -186,7 +256,8 @@ defmodule AnkoleWeb.PodPageChannel do
       if AnkoleWeb.PodSocket.active?(socket.assigns) do
         case fun.() do
           {:ok, result} ->
-            {:reply, {:ok, json_result(result)}, assign(socket, :revision, result.revision)}
+            {:reply, {:ok, json_result(socket, result)},
+             assign(socket, :revision, result.revision)}
 
           {:error, reason} ->
             if allowed?(socket) do
@@ -204,14 +275,36 @@ defmodule AnkoleWeb.PodPageChannel do
     end)
   end
 
-  defp json_result(result),
+  defp json_result(%{assigns: %{spreadsheet?: true}}, result),
+    do:
+      Map.update(
+        result,
+        :changes,
+        [],
+        &Enum.map(&1, fn entry -> JSON.spreadsheet_op_json(entry) end)
+      )
+
+  defp json_result(_socket, result),
     do: Map.update(result, :changes, [], &Enum.map(&1, fn change -> JSON.change_json(change) end))
 
-  defp latest(%{assigns: %{page_type: :doc}} = socket),
-    do: Documents.since(socket.assigns.actor, socket.assigns.page_id, socket.assigns.revision)
+  defp latest(%{assigns: %{page_type: :doc}} = socket) do
+    with {:ok, result} <-
+           Documents.since(socket.assigns.actor, socket.assigns.page_id, socket.assigns.revision),
+         do: {:ok, "changes", result}
+  end
+
+  defp latest(%{assigns: %{spreadsheet?: true}} = socket) do
+    with {:ok, result} <-
+           Spreadsheets.since(
+             socket.assigns.actor,
+             socket.assigns.page_id,
+             socket.assigns.revision
+           ),
+         do: {:ok, "sheet:changes", result}
+  end
 
   defp latest(socket) do
     with {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view"),
-         do: {:ok, %{revision: page.revision, object_id: page.object_id, changes: []}}
+         do: {:ok, "changes", %{revision: page.revision, object_id: page.object_id, changes: []}}
   end
 end

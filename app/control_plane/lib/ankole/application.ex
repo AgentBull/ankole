@@ -49,6 +49,7 @@ defmodule Ankole.Application do
       [
         Ankole.Repo,
         Ankole.Pod.BaseCluster,
+        Ankole.Pod.Spreadsheets.NodeCache,
         {Phoenix.PubSub, name: Ankole.PubSub},
         AnkoleWeb.PodPresence,
         Ankole.OIDC.SigningKey,

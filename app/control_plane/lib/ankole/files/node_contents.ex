@@ -4,7 +4,7 @@ defmodule Ankole.Files.NodeContents do
   require Ash.Query
 
   alias Ankole.AuthZ.Actor
-  alias Ankole.Files.{Access, Nodes, Objects, Paths}
+  alias Ankole.Files.{Access, ContentOwner, Nodes, Objects, Paths}
   alias Ankole.Files.Schemas.Node
   alias Ankole.Repo
 
@@ -23,6 +23,12 @@ defmodule Ankole.Files.NodeContents do
     end
   end
 
+  @doc """
+  Names an object at a file node under the writer's authority, in the caller's transaction.
+
+  The content owner then reconciles the content it keeps beside the object
+  (`Ankole.Files.ContentOwner.object_committed_in_tx/3`).
+  """
   def commit_in_tx(actor, id, stored, attrs \\ %{}) do
     require_transaction!(:commit_in_tx)
 
@@ -38,8 +44,32 @@ defmodule Ankole.Files.NodeContents do
                object_id: object.id,
                updated_at: DateTime.utc_now(:microsecond)
              })
-           ) do
+           ),
+         :ok <- ContentOwner.object_committed_in_tx(node, updated, actor) do
       {:ok, Paths.project(updated, object, updated.name)}
+    end
+  end
+
+  @doc """
+  Names the content owner's rewrite of a file node's object, in the caller's transaction.
+
+  The content owner already authorized the edits that the new object holds,
+  so this call neither authorizes nor reports the write back to the owner.
+  """
+  def rewrite_in_tx(id, stored) do
+    require_transaction!(:rewrite_in_tx)
+
+    with {:ok, %{kind: :file} = node} <- Nodes.lock(id),
+         {:ok, object} <- Objects.complete_in_tx(stored),
+         {:ok, updated} <-
+           Ankole.Ash.update(node, :update_in_tx, %{
+             object_id: object.id,
+             updated_at: DateTime.utc_now(:microsecond)
+           }) do
+      {:ok, Paths.project(updated, object, updated.name)}
+    else
+      {:ok, _node} -> {:error, :not_a_file}
+      error -> error
     end
   end
 

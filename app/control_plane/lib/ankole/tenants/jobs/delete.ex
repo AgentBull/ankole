@@ -14,7 +14,8 @@ defmodule Ankole.Tenants.Jobs.Delete do
   @tables ~w(
     base_records base_views base_fields base_tables
     pod_files message_attachments delivery_attachments
-    page_user_states page_changes page_comments page_snapshots page_daily_activity page_contents permission_grants pages drive_nodes
+    page_user_states page_changes page_comments page_snapshots page_daily_activity page_contents
+    pod_spreadsheet_ops pod_file_caches permission_grants pages drive_nodes
     conversation_action_cards external_message_refs conversation_messages conversation_participants
     cron_schedules session_ambient_judgments scheduled_events
     sessions agent_computer_worker_envs

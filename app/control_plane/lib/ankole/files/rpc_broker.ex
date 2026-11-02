@@ -1,6 +1,7 @@
 defmodule Ankole.Files.RPCBroker do
   @moduledoc "Drive RPCs resolve node identities and stream bytes through the calling Worker's relay."
   alias Ankole.{Files, Principals, WorkerFiles}
+  alias Ankole.Files.ContentOwner
   alias Ankole.AuthZ.Actor
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers.RPCWire
@@ -31,13 +32,21 @@ defmodule Ankole.Files.RPCBroker do
   def handle_get(agent_uid, %FabricProto.FilesGetRequest{} = request, ctx) do
     with {:ok, actor} <- actor(agent_uid, request.automation_attempt, ctx),
          {:ok, target} <- home_relative_path(request.home_relative_path),
-         {:ok, file} <- requested_file(actor, request),
+         {:ok, file} <- current_file(actor, request),
          {:ok, opts} <- transfer_opts(ctx),
          :ok <- send_file(file.object_id, target, opts) do
       {:ok, %FabricProto.FilesGetResponse{file: drive_file(file)}}
     else
       {:error, reason} -> error(ctx, reason)
     end
+  end
+
+  # The content owner first writes pending edits into the node, so the Agent
+  # receives the object that holds them.
+  defp current_file(actor, request) do
+    with {:ok, file} <- requested_file(actor, request),
+         :ok <- ContentOwner.flush_node(file.node_id),
+         do: requested_file(actor, request)
   end
 
   defp requested_file(actor, %{node_id: id}) when is_binary(id) and id != "" do

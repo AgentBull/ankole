@@ -831,6 +831,26 @@ export type PodRealtimeFilter = {
   or?: Array<PodRealtimeFilter>
 }
 
+/**
+ * A "Resource object" representing a pod_spreadsheet_operation
+ */
+export type PodSpreadsheetOperation = {
+  /**
+   * An attributes object for a pod_spreadsheet_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_spreadsheet_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type PodBaseTableDeleteData = {
   body?: never
   path: {
@@ -3610,6 +3630,44 @@ export type ConversationExecutionResponses = {
 
 export type ConversationExecutionResponse = ConversationExecutionResponses[keyof ConversationExecutionResponses]
 
+export type PodSpreadsheetRestoreData = {
+  body?: never
+  path: {
+    version_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore'
+}
+
+export type PodSpreadsheetRestoreErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodSpreadsheetRestoreError = PodSpreadsheetRestoreErrors[keyof PodSpreadsheetRestoreErrors]
+
+export type PodSpreadsheetRestoreResponses = {
+  /**
+   * Success
+   */
+  201: {
+    file: {
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }
+    page_id: string
+    revision: number
+  }
+}
+
+export type PodSpreadsheetRestoreResponse = PodSpreadsheetRestoreResponses[keyof PodSpreadsheetRestoreResponses]
+
 export type PodBaseAggregateData = {
   /**
    * Request body for the podBaseAggregate operation on pod_base_operation resource
@@ -4428,6 +4486,54 @@ export type PostConversationMessageResponses = {
 }
 
 export type PostConversationMessageResponse = PostConversationMessageResponses[keyof PostConversationMessageResponses]
+
+export type PodSpreadsheetData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/spreadsheet'
+}
+
+export type PodSpreadsheetErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodSpreadsheetError = PodSpreadsheetErrors[keyof PodSpreadsheetErrors]
+
+export type PodSpreadsheetResponses = {
+  /**
+   * Success
+   */
+  200: {
+    file: {
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }
+    metadata?: {
+      [key: string]: unknown
+    } | null
+    ops: Array<{
+      client_id: string
+      client_seq: number
+      op: {
+        [key: string]: unknown
+      }
+      revision: number
+    }>
+    page_id: string
+    revision: number
+  }
+}
+
+export type PodSpreadsheetResponse = PodSpreadsheetResponses[keyof PodSpreadsheetResponses]
 
 export type PodBaseTableCreateData = {
   /**
@@ -5620,6 +5726,50 @@ export type PodPageHistoryResponses = {
 }
 
 export type PodPageHistoryResponse = PodPageHistoryResponses[keyof PodPageHistoryResponses]
+
+export type PodSpreadsheetVersionsData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/spreadsheet/versions'
+}
+
+export type PodSpreadsheetVersionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodSpreadsheetVersionsError = PodSpreadsheetVersionsErrors[keyof PodSpreadsheetVersionsErrors]
+
+export type PodSpreadsheetVersionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    versions: Array<{
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      created_at: string
+      file_name: string
+      id: string
+      reason: 'created' | 'uploaded' | 'checkpoint' | 'before_restore' | 'restored'
+      revision: number
+      sha256: string
+      size: number
+    }>
+  }
+}
+
+export type PodSpreadsheetVersionsResponse = PodSpreadsheetVersionsResponses[keyof PodSpreadsheetVersionsResponses]
 
 export type PodBaseViewDeleteData = {
   body?: never
@@ -6842,6 +6992,42 @@ export type RenamePodMemberResponses = {
 }
 
 export type RenamePodMemberResponse = RenamePodMemberResponses[keyof RenamePodMemberResponses]
+
+export type PodSpreadsheetCreateData = {
+  /**
+   * Request body for the podSpreadsheetCreate operation on pod_spreadsheet_operation resource
+   */
+  body?: {
+    data: {
+      parent_id?: string | null
+      private_owner_uid?: string | null
+      title?: string | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/spreadsheet-pages'
+}
+
+export type PodSpreadsheetCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodSpreadsheetCreateError = PodSpreadsheetCreateErrors[keyof PodSpreadsheetCreateErrors]
+
+export type PodSpreadsheetCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    page: PodPageType
+  }
+}
+
+export type PodSpreadsheetCreateResponse = PodSpreadsheetCreateResponses[keyof PodSpreadsheetCreateResponses]
 
 export type PodMeData = {
   body?: never

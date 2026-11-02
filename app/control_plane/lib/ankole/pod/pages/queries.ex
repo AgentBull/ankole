@@ -420,6 +420,16 @@ defmodule Ankole.Pod.Pages.Queries do
           ^tenant,
           ^patterns
         )
+      ),
+      Ash.Query.filter(
+        query,
+        type == :file and
+          fragment(
+            "/* pod_search:file_text */ ? IN (SELECT c.page_id FROM pod_file_caches c WHERE c.tenant_id = ?::text::uuid AND c.plain_text ILIKE ANY(?::text[]))",
+            id,
+            ^tenant,
+            ^patterns
+          )
       )
     ]
 
@@ -581,12 +591,14 @@ defmodule Ankole.Pod.Pages.Queries do
   defp filter_list_title(query, term) when is_binary(term), do: filter_text(query, term)
   defp filter_list_title(query, _term), do: query
 
-  # Every whitespace-separated word must appear in the title or the body, in any order.
+  # Every whitespace-separated word must appear in the title, the body, or a
+  # spreadsheet's cell text, in any order.
   defp filter_text(query, text) do
     Enum.reduce(text_patterns(text) || [], query, fn pattern, query ->
       Ash.Query.filter(
         query,
-        ilike(title, ^pattern) or exists(content, ilike(plain_text, ^pattern))
+        ilike(title, ^pattern) or exists(content, ilike(plain_text, ^pattern)) or
+          exists(file_cache, ilike(plain_text, ^pattern))
       )
     end)
   end
@@ -611,10 +623,12 @@ defmodule Ankole.Pod.Pages.Queries do
       SELECT p.id::text, state.visited_at FROM page_user_states state
       JOIN pod_page_nodes p ON p.tenant_id = $1::text::uuid AND p.id = state.page_id
       LEFT JOIN page_contents pc ON pc.tenant_id = p.tenant_id AND pc.page_id = p.id
+      LEFT JOIN pod_file_caches fc ON fc.tenant_id = p.tenant_id AND fc.page_id = p.id
       WHERE state.tenant_id = $1::text::uuid AND state.principal_uid = $2::text
         AND state.#{field} IS NOT NULL AND p.deleted_at IS NULL
         AND p.id = ANY($3::text[]::uuid[])
-        AND ($4::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word)
+        AND ($4::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word
+            OR COALESCE(fc.plain_text, '') ILIKE word)
           FROM unnest($4::text[]) word))
       ORDER BY state.#{field} DESC, p.id LIMIT 200
       """,
@@ -660,11 +674,13 @@ defmodule Ankole.Pod.Pages.Queries do
       """
       SELECT p.id::text, p.deleted_at FROM pod_page_nodes p
       LEFT JOIN page_contents pc ON pc.tenant_id = p.tenant_id AND pc.page_id = p.id
+      LEFT JOIN pod_file_caches fc ON fc.tenant_id = p.tenant_id AND fc.page_id = p.id
       WHERE p.tenant_id = $1::text::uuid AND p.deleted_at IS NOT NULL
         AND NOT (p.id = ANY($5::text[]::uuid[]))
         AND ($2::timestamp IS NULL OR p.deleted_at < $2::timestamp
           OR (p.deleted_at = $2::timestamp AND p.id > $3::text::uuid))
-        AND ($4::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word)
+        AND ($4::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word
+            OR COALESCE(fc.plain_text, '') ILIKE word)
           FROM unnest($4::text[]) word))
       ORDER BY p.deleted_at DESC, p.id LIMIT 200
       """,
