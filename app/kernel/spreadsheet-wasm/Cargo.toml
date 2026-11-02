@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 description = "WebAssembly bindings that run Ankole spreadsheet documents in a browser Web Worker"
+license = "Apache-2.0"
 publish = false
 
 [lib]
