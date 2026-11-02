@@ -343,6 +343,7 @@ function AgentEditor({ uid }: { uid?: string }) {
 
   return (
     <ResourceEditorPage
+      fieldsDisabled={draftStatus !== 'ready'}
       title={
         mode === 'new' ? t('console.agents.new') : selectedAgent?.display_name || selectedAgent?.uid || (uid ?? '')
       }

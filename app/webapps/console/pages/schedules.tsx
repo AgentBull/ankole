@@ -32,7 +32,7 @@ import type { TFunction } from 'i18next'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
 import i18n from '../../common/i18n'
@@ -440,7 +440,10 @@ export function ScheduleCronEditorPage() {
   const agentUID = editing ? routeAgentUID : resolveAgentUID(agentList, routeAgentUID)
   const selectedAgent = (agents.data ?? []).find(agent => agent.uid === agentUID)
 
+  const recoveryAgent = useRef<string | null>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
   const selectAgent = (uid: string) => {
+    if (!agentUID) recoveryAgent.current = uid
     setSearchParams({ agent: uid }, { replace: true })
     model.resetAgentScope()
   }
@@ -497,14 +500,27 @@ export function ScheduleCronEditorPage() {
   const sourceReady =
     model.sourceKey.value === sourceKey || (!existing.isError && (!existing.isStale || existing.isFetchedAfterMount))
   const scheduleDraft = useMemo(
-    () => (editing ? (existingRow && sourceReady ? draftFromCron(existingRow) : undefined) : emptyDraft()),
-    [editing, existingRow, sourceReady]
+    () =>
+      editing
+        ? existingRow && sourceReady
+          ? draftFromCron(existingRow)
+          : undefined
+        : agentUID
+          ? emptyDraft()
+          : undefined,
+    [agentUID, editing, existingRow, sourceReady]
   )
   const draftStatus = useEditorDraft(model, {
     sourceKey,
     source: scheduleDraft,
     absent: () => editing && requestErrorCode(existing.error) === 'not_found'
   })
+
+  useEffect(() => {
+    if (recoveryAgent.current !== agentUID || draftStatus !== 'ready') return
+    recoveryAgent.current = null
+    if (document.activeElement === document.body) nameInput.current?.focus()
+  }, [agentUID, draftStatus])
 
   // Save errors render once in the page ErrorBlock; a toast on top of the
   // same message would say it twice.
@@ -631,6 +647,43 @@ export function ScheduleCronEditorPage() {
     return <EditorNotFound backTo={backTo} message={t('console.not_found.description')} />
   }
 
+  const agentField = (
+    <LabeledField
+      label={t('console.agents.agent')}
+      required={!editing}
+      description={!editing ? t('console.schedules.agent_execution_hint') : undefined}>
+      {editing ? (
+        <ReadOnlyValue>
+          {selectedAgent
+            ? selectedAgent.display_name
+              ? `${selectedAgent.display_name} · ${selectedAgent.uid}`
+              : selectedAgent.uid
+            : agentUID || '—'}
+        </ReadOnlyValue>
+      ) : (
+        <Select value={agentUID || null} onValueChange={value => selectAgent(String(value))}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={t('console.select_agent')} />
+          </SelectTrigger>
+          <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
+            {agentList.map(agent => (
+              <SelectItem key={agent.uid} value={agent.uid}>
+                {agent.display_name} · {agent.uid}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </LabeledField>
+  )
+  if (!editing && !agentUID && agentList.length > 0) {
+    return (
+      <ResourceEditorPage title={t('console.schedules.new')} backTo={backTo} submitUnavailable onSubmit={submit}>
+        {agentField}
+      </ResourceEditorPage>
+    )
+  }
+
   const updateBody = editing ? model.toUpdateBody() : undefined
   const unchanged = Boolean(editing && updateBody && Object.keys(updateBody).length === 0)
   const existingRunnable = Boolean(existingRow && isMutableCronStatus(existingRow.status))
@@ -638,6 +691,7 @@ export function ScheduleCronEditorPage() {
 
   return (
     <ResourceEditorPage
+      fieldsDisabled={draftStatus !== 'ready'}
       title={editing ? t('console.schedules.edit') : t('console.schedules.new')}
       backTo={backTo}
       dirty={model.dirty.value && !removeCron.isPending}
@@ -751,33 +805,7 @@ export function ScheduleCronEditorPage() {
         ) : null
       }>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <LabeledField
-          label={t('console.agents.agent')}
-          required={!editing}
-          description={!editing ? t('console.schedules.agent_execution_hint') : undefined}>
-          {editing ? (
-            <ReadOnlyValue>
-              {selectedAgent
-                ? selectedAgent.display_name
-                  ? `${selectedAgent.display_name} · ${selectedAgent.uid}`
-                  : selectedAgent.uid
-                : agentUID || '—'}
-            </ReadOnlyValue>
-          ) : (
-            <Select value={agentUID || null} onValueChange={value => selectAgent(String(value))}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t('console.select_agent')} />
-              </SelectTrigger>
-              <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
-                {agentList.map(agent => (
-                  <SelectItem key={agent.uid} value={agent.uid}>
-                    {agent.display_name} · {agent.uid}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </LabeledField>
+        {agentField}
         {editing ? (
           <LabeledField label={t('console.schedules.owner_session')}>
             <ReadOnlyValue mono>{model.ownerSessionId.value || '—'}</ReadOnlyValue>
@@ -856,6 +884,7 @@ export function ScheduleCronEditorPage() {
           invalidError={t('common.field_required', { field: t('console.schedules.name') })}>
           <Input
             pattern=".*\S.*"
+            ref={nameInput}
             value={model.name.value}
             onChange={event => {
               model.name.value = event.target.value

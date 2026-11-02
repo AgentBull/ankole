@@ -222,6 +222,11 @@ impl TimeoutSpec {
 pub struct TransportSpec {
     #[serde(default)]
     pub proxy: Option<String>,
+    // Custom root CA certificate in PEM format for HTTP and SSE upstreams
+    // (such as local TLS test fixtures). WebSocket upstreams (`open_websocket`)
+    // use the system trust store and ignore this field.
+    #[serde(default)]
+    pub ca_cert_pem: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -39,6 +39,43 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     :ok
   end
 
+  for {variant, agent_attrs} <- [{"omitted", %{}}, {"null", %{"agent_uid" => nil}}] do
+    test "admin creates a shared Lark binding with #{variant} agent_uid", %{conn: conn} do
+      name = "shared-#{unquote(variant)}"
+
+      attrs =
+        Map.merge(unquote(Macro.escape(agent_attrs)), %{
+          "routing_mode" => "sender_personal_assistant",
+          "config" => lark_config(name)
+        })
+
+      conn = conn |> console_conn() |> api_put("/api/v2/signal-bindings/lark/#{name}", attrs)
+
+      assert %{"signal_binding" => binding} = json_response(conn, 200)
+      assert binding["agent_uid"] == nil
+      assert binding["routing_mode"] == "sender_personal_assistant"
+      assert binding["filters"] == %{"cel" => "signal.channel.kind == 'im_dm'"}
+      assert is_binary(binding["id"])
+
+      assert %{"signal_binding" => replay} =
+               conn
+               |> recycle_api()
+               |> api_put("/api/v2/signal-bindings/lark/#{name}", attrs)
+               |> json_response(200)
+
+      assert replay["id"] == binding["id"]
+
+      assert %{"signal_binding" => persisted} =
+               conn
+               |> recycle_api()
+               |> api_get("/api/v2/signal-bindings/#{binding["id"]}")
+               |> json_response(200)
+
+      assert persisted["agent_uid"] == nil
+      assert persisted["routing_mode"] == "sender_personal_assistant"
+    end
+  end
+
   test "admin creates a Lark signal binding with the record-only default", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 

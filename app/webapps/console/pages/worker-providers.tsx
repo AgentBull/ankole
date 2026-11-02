@@ -227,6 +227,7 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
 
   return (
     <ResourceEditorPage
+      fieldsDisabled={status !== 'ready'}
       title={providerID ? (selected?.display_name ?? providerID) : t('console.worker_providers.new')}
       description={t('console.worker_providers.editor_description')}
       backTo={providersPath}

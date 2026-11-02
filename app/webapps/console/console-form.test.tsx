@@ -83,6 +83,23 @@ describe('console forms', () => {
     expect(html).not.toContain('type="submit"')
   })
 
+  test('blocks fields during initialization while keeping the save action visible', async () => {
+    for (const fieldsDisabled of [true, false]) {
+      const html = await renderWithRouter(
+        <ResourceEditorPage
+          backTo="/resources"
+          fieldsDisabled={fieldsDisabled}
+          submitUnavailable={fieldsDisabled}
+          onSubmit={() => {}}
+          title="New resource">
+          <Input value="" />
+        </ResourceEditorPage>
+      )
+      expect(html.includes('<fieldset class="contents" disabled="">')).toBe(fieldsDisabled)
+      expect(html).toContain('type="submit"')
+    }
+  })
+
   test('keeps a stored secret out of the editable input value', () => {
     const html = renderToStaticMarkup(
       <ConfigFields

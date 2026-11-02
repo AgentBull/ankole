@@ -29,7 +29,7 @@ export function useEditorDraft<Source>(
   }, [isAbsent, model, source, sourceKey])
 
   if (isAbsent) return 'absent'
-  if (source === undefined || model.sourceKey.value !== sourceKey) return 'loading'
+  if (model.sourceKey.value !== sourceKey) return 'loading'
   return 'ready'
 }
 

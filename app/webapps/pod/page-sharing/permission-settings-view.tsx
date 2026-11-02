@@ -1,6 +1,6 @@
 import { usePageMetadata } from '../use-page-metadata'
 import { useTranslation } from 'react-i18next'
-import { Badge, Button, Switch } from '@ankole/uikit'
+import { Badge, Button, SwitchRow } from '@ankole/uikit'
 import type { PageSharingDetail } from '../content-api'
 import { ContentError } from '../content-primitives'
 import type { SharingGrant } from '../state/page-sharing'
@@ -36,18 +36,20 @@ export function PermissionSettingsView({
 
       <div className="grid gap-4 overflow-y-auto px-4 pb-4">
         {!isPrivateRoot && (
-          <label className="flex items-start justify-between gap-3 rounded-control border border-border p-3 text-sm">
-            <div className="min-w-0 flex-1 grid gap-1">
-              <span className="font-medium text-foreground">{t('pod.sharing.inherit_switch_label')}</span>
-              <span className="text-xs leading-4 text-muted-foreground">{t('pod.sharing.inherit_switch_desc')}</span>
-            </div>
-            <Switch
-              checked={sharing.inherit_permissions}
-              disabled={mutations.pending}
-              onCheckedChange={checked => mutations.setInheritPermissions(checked)}
-              className="mt-0.5"
-            />
-          </label>
+          <SwitchRow
+            rowClassName="flex items-start justify-between gap-3 rounded-control border border-border p-3 text-sm"
+            label={
+              <span className="grid min-w-0 gap-1">
+                <span className="font-medium text-foreground">{t('pod.sharing.inherit_switch_label')}</span>
+                <span className="text-xs leading-4 text-muted-foreground">{t('pod.sharing.inherit_switch_desc')}</span>
+              </span>
+            }
+            labelFirst
+            checked={sharing.inherit_permissions}
+            disabled={mutations.pending}
+            onCheckedChange={checked => mutations.setInheritPermissions(checked)}
+            className="mt-0.5"
+          />
         )}
 
         <section className="grid gap-2">

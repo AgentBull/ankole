@@ -66,7 +66,11 @@ Under [Human Offboarding](HumanOffboarding.md), both `scheduled_events` and
 - Site Console cron rules accept AI colleagues and run as `service` work under the selected Agent's
   permissions. `created_by` records the authenticated administrator for audit.
   The creation action derives the administrator from the authenticated
-  Console Principal and supplies the service authorization.
+  Console Principal and supplies the service authorization. The cron editor
+  enables its fields after resolving the selected Agent and initializing the
+  draft. If a new schedule link names an unavailable Agent, the operator can
+  choose an active Agent. The editor then focuses the schedule name so the operator
+  can continue typing. Background refreshes preserve edits for the same Agent and rule.
 
 At fire admission, Schedule locks and verifies every associated Human *before*
 locking the event, cron rule, or bound Automation Job (locking both Humans in

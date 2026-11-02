@@ -1352,7 +1352,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       }
     }
 
-    assert {:push, {:text, _pushed}, state} =
+    assert {:push, {:text, pushed}, state} =
              handle_test_event(
                %{
                  subject_uid: agent.uid,
@@ -1364,7 +1364,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                4
              )
 
-    assert Map.has_key?(state.response_history, "resp_socket_cached")
+    response_id = Ankole.JSON.decode!(pushed)["response"]["id"]
+    assert String.starts_with?(response_id, "tmp_resp_")
+    assert Map.has_key?(state.response_history, response_id)
 
     tool_result = %{
       "type" => "function_call_output",
@@ -1377,7 +1379,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "type" => "response.create",
         "model" => "primary",
         "store" => false,
-        "previous_response_id" => "resp_socket_cached",
+        "previous_response_id" => response_id,
         "input" => [tool_result]
       })
 
@@ -1395,7 +1397,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            ] = upstream_request["input"]
 
     _ = AIGateway.cancel_response_stream(state.active_stream.stream)
-    assert active.socket_previous_response_id == "resp_socket_cached"
+    assert active.socket_previous_response_id == response_id
   end
 
   test "response.create reports previous_response_not_found for uncached store false continuation" do
@@ -1887,6 +1889,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       |> stateless_active_stream([request_item])
       |> Map.put(:max_tool_calls, MaxToolCalls.new(0, :anthropic_messages))
 
+    response_id = active.test_semantic.local_response_id
+    assert String.starts_with?(response_id, "tmp_resp_")
+
     web_search_item = %{
       "type" => "web_search_call",
       "id" => "search_stateless",
@@ -1925,14 +1930,14 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert %{
              "type" => "response.completed",
              "response" => %{
-               "id" => "provider_resp_stateless_limit",
+               "id" => ^response_id,
                "status" => "completed",
                "output" => []
              }
            } = Ankole.JSON.decode!(completed_chunk)
 
     assert %{items: [^request_item]} =
-             state.response_history["provider_resp_stateless_limit"]
+             state.response_history[response_id]
   end
 
   test "stateful terminal frame tolerates an already terminal row" do
@@ -3280,7 +3285,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       |> Map.put(:public_items, items)
       |> Map.put(:durable_items, items)
       |> Map.put(:max_tool_calls, Keyword.get(opts, :max_tool_calls))
-      |> Map.put(:provider_response_id, Keyword.get(opts, :provider_response_id))
       |> Map.put(:sequence_number, Keyword.get(opts, :seq))
 
     %{

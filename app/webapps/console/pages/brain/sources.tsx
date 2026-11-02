@@ -34,7 +34,7 @@ import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { DiscardConfirmDialog, LabeledField, focusFirstInvalidControl, useDialogDiscardGuard } from '../../console-form'
-import { ResourceListPage } from '../../console-list-page'
+import { ResourceListPage, useListCreateTrigger } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 import { BrainScopeLabel, BrainScopeSelector } from './brain-scope'
 
@@ -45,6 +45,7 @@ type BrainSource = Flat<NonNullable<ListBrainSourcesResponse['data']>[number]>
 export function BrainSourcesPage() {
   const { t } = useTranslation()
   const [registerOpen, setRegisterOpen] = useState(false)
+  const registerTrigger = useListCreateTrigger()
   const [kind, setKind] = useState<(typeof SOURCE_KINDS)[number]>('file')
   const [upstreamID, setUpstreamID] = useState('')
   const [name, setName] = useState('')
@@ -135,7 +136,7 @@ export function BrainSourcesPage() {
         emptyIcon={<RiInboxArchiveLine aria-hidden />}
         pagination={sources}
         createAction={
-          <Button size="sm" type="button" onClick={openRegister}>
+          <Button ref={registerTrigger.ref} size="sm" type="button" onClick={openRegister}>
             {t('console.brain.register_source')}
           </Button>
         }>
@@ -210,7 +211,10 @@ export function BrainSourcesPage() {
       </ResourceListPage>
 
       <Dialog open={registerOpen} onOpenChange={registerGuard.requestOpenChange}>
-        <DialogContent closeLabel={t('common.close')} showCloseButton={!register.isPending}>
+        <DialogContent
+          finalFocus={registerTrigger.finalFocus}
+          closeLabel={t('common.close')}
+          showCloseButton={!register.isPending}>
           <DialogHeader>
             <DialogTitle>{t('console.brain.register_source_title')}</DialogTitle>
             <DialogDescription>{t('console.brain.register_source_description')}</DialogDescription>

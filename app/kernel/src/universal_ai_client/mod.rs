@@ -6,7 +6,7 @@
 //! the public Ankole Response lifecycle stay with the host. Each protocol's request-body builder and response
 //! state machine live paired in `api_resolver/<protocol>.rs`.
 
-mod api_resolver;
+pub mod api_resolver;
 mod client;
 mod downstream;
 mod error;
@@ -14,10 +14,13 @@ mod hosted_responses;
 mod request_builder;
 mod spec;
 mod transport;
-mod wire;
+pub mod wire;
 
 pub use client::{
     APIResolverKind, ChunkOrigin, EventSink, ModelRequestSpec, RawRequestSpec, RequestHandle,
     RequestResultSink, StreamEvent, StreamHandle, StreamLimits, StreamSpec, UpstreamKind,
     start_model_request, start_raw_request, start_stream,
 };
+pub use error::StreamError;
+pub use spec::{ResponseContext, TimeoutSpec, TransportSpec, UpstreamSpec};
+pub use transport::{HTTPResponse, HTTPStream, HttpTransport, SemanticIdle, safe_response_headers};

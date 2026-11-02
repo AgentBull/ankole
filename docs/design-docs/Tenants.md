@@ -24,7 +24,11 @@ list: a build can point `tenant_slug_blacklist` at a local TOML file containing
 a `slugs` array, which compilation embeds into the `Tenant` resource and tracks
 as an external dependency.
 
-During initial setup, the company and business step updates the privileged
+The Console tenant editor disables fields while the selected tenant is loading.
+Once initialized, its draft remains editable during background refreshes.
+
+During initial setup, the company and business step enables its fields once
+the stored profile and pack selection initialize its draft. It updates the privileged
 tenant's display name and slug through this same profile contract. The browser
 setup session holds the selected industry packs until setup completion installs
 them in the completion transaction.

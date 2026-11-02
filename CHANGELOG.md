@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.46 (2026-11-02)
+## Version 2.0.0-alpha.47 (2026-11-02)
 
 - Create and edit spreadsheets in Pod. The page create menus offer a new
   **Spreadsheet**, which starts as a blank `Untitled.xlsx`, and every `.xlsx` or
@@ -18,6 +18,33 @@
   download only, and `.xls`, `.xlsb`, `.ods`, `.csv`, and `.tsv` files keep
   their read-only previews. Operators can tune the editable file size and
   compaction with `pod.spreadsheet.limits`.
+
+## Version 2.0.0-alpha.46 (2026-11-02)
+
+- Keep the shared email verification form’s resend countdown in the public auth catalogs.
+- Disable Agent, model-provider, Signal Binding, tenant, group, permission-grant,
+  Worker environment-variable, and SaaS invitation-code fields until their initial
+  drafts load, so arriving data cannot overwrite operator input. Apply the same
+  initialization gate to the setup company profile and business selection.
+- Keep temporary Response IDs consistent across HTTP, streamed events, and
+  WebSocket continuation without storing those Responses.
+- Wait for initial editor data before accepting identity-provider, scheduled-rule,
+  and Worker-provider input; preserve drafts during background refreshes.
+- Select browser options by label first, then by value when no label matches,
+  including when a page replaces the control while options load. Preserve exact
+  label spacing and fire one change event when selection opens a dialog. Report
+  expired browser actions as retryable timeouts.
+- Let operators choose an active Agent when a new schedule link names an unavailable
+  one. Keep switches disabled while forms load and return focus to Clear filters
+  when the last matching Webhook disappears.
+- Accept an omitted Agent UID when creating a shared personal-assistant Bot.
+- Match the Pod account button's accessible name to its visible identity order
+  in every supported language.
+- Refresh root directory queries when committed Page changes use a concrete
+  root ID, so new Pages appear in the Space tree.
+- Return focus to the Brain source and Webhook create buttons when list updates
+  move those buttons during or after the creation dialog closes, without taking
+  focus from another control the user has selected.
 
 ## Version 2.0.0-alpha.45 (2026-11-01)
 

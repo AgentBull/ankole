@@ -377,7 +377,12 @@ request. Both full-page views and document embeds consume links from the same
 content context.
 
 Dialogs use compact layouts, explicit Cancel buttons, searchable Page pickers,
-and focus restoration on close. Pressing Enter submits ordinary forms, whereas
+and focus restoration on close. When a list moves its create action between
+the header and empty state, its dialog returns focus to the currently mounted
+create button. If a list refresh moves that button after the dialog closes,
+the button keeps focus unless the user has moved to another control. When the
+last matching Webhook disappears, focus follows the create button to Clear filters.
+Pressing Enter submits ordinary forms, whereas
 destructive confirmations focus Cancel initially; tall dialogs scroll their body
 while pinning the header and action bar, and property pickers stay anchored to
 their trigger field.
@@ -434,6 +439,9 @@ opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
 the user's navigation context stays stable. `Favorites` renders inline above the
 `Space` and `Private` trees whenever the user has favorited Pages, while the
 account switcher, `Trash`, and `Pod settings` sit in the sidebar footer.
+The account button shows the Pod name before the Human name; its accessible
+name includes both names in that same order. When the Pod name is empty, the
+button announces the Human name alone with its account menu label.
 The Pod and Console share sidebar controls. Command/Control+B toggles the
 sidebar while leaving shortcuts inside editable controls to those controls.
 On desktop, the Pod sidebar starts at its 248 px minimum width and its edge
@@ -712,10 +720,17 @@ continue to own editable document drafts, including pending title changes.
 
 After a successful create, move, delete, or restore, the browser applies the
 committed change to cached directories and continues the user action while
-mounted queries refresh in the background. The browser immediately removes a
-restored Page from each cached Trash filter. When a Page is renamed, the browser
-updates the shared metadata and refreshes search membership, Page details, history,
-and insights while preserving unrelated comments and Base table queries.
+mounted queries refresh in the background. Ankole returns physical
+parent IDs for committed mutations. The browser uses Space and Private scope
+aliases for root-directory queries.
+The browser inserts new rows into exact parent-directory caches. It rereads
+the specified scope's root membership, or both roots when the scope is unknown.
+Ankole stores private ownership on root nodes, so the browser cannot determine
+a descendant's scope from its physical parent ID alone. The same rule applies
+to authorized tree events. The browser preserves cached membership and freshness
+for unrelated nested directories and other identities. It immediately removes a restored Page from each cached Trash filter. When a Page is renamed,
+the browser updates the shared metadata and refreshes search membership, Page
+details, history, and insights while preserving unrelated comments and Base table queries.
 Conversation list events invalidate the shared recent-query prefix used by
 Home and the sidebar.
 Page, directory, Agent, conversation, teammate-search, and Base snapshot queries

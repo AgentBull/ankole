@@ -8,7 +8,7 @@ use super::spec::{APIResolverKind, ResponseContext};
 
 mod anthropic;
 mod aws_bedrock_converse;
-mod core;
+pub mod core;
 mod custom_tool_emulation;
 mod embeddings;
 mod google_embeddings;
@@ -26,8 +26,7 @@ mod web;
 
 use self::anthropic::*;
 use self::aws_bedrock_converse::*;
-use self::core::APIProtocol;
-pub use self::core::APIResolver;
+pub use self::core::{APIProtocol, APIResolver};
 use self::custom_tool_emulation::*;
 use self::embeddings::*;
 use self::google_embeddings::*;

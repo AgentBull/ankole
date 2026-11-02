@@ -9,7 +9,7 @@ pub struct APIResolver {
     prepare_error: Option<StreamError>,
 }
 
-pub(super) trait APIProtocol: std::fmt::Debug + Send + Sync {
+pub trait APIProtocol: std::fmt::Debug + Send + Sync {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(context.resolved_provider_request_object())
     }

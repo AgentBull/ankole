@@ -1,4 +1,4 @@
-import { Badge, Button, Dialog, DialogContent, DialogTitle, Switch } from '@ankole/uikit'
+import { Badge, Button, Dialog, DialogContent, DialogTitle, SwitchRow } from '@ankole/uikit'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -48,17 +48,19 @@ export function DocumentInsights({
               <DocumentActivity daily={insights.data.daily} />
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold">{t('pod.document.viewers')}</h3>
-                <label className="flex items-center justify-between gap-4 rounded border border-border p-3 text-sm">
-                  <span>
-                    <span className="block font-medium">{t('pod.document.show_my_visits')}</span>
-                    <span className="mt-1 block text-xs text-fg-secondary">{t('pod.document.visit_visibility')}</span>
-                  </span>
-                  <Switch
-                    checked={!(privacy.isPending ? privacy.variables : insights.data.hide_visits)}
-                    disabled={privacy.isPending}
-                    onCheckedChange={checked => privacy.mutate(!checked)}
-                  />
-                </label>
+                <SwitchRow
+                  rowClassName="flex items-center justify-between gap-4 rounded border border-border p-3 text-sm"
+                  label={
+                    <span>
+                      <span className="block font-medium">{t('pod.document.show_my_visits')}</span>
+                      <span className="mt-1 block text-xs text-fg-secondary">{t('pod.document.visit_visibility')}</span>
+                    </span>
+                  }
+                  labelFirst
+                  checked={!(privacy.isPending ? privacy.variables : insights.data.hide_visits)}
+                  disabled={privacy.isPending}
+                  onCheckedChange={checked => privacy.mutate(!checked)}
+                />
                 <ContentError error={privacy.error} />
                 {insights.data.can_view_readers ? (
                   <DocumentViewers pageID={detail.page.id} />

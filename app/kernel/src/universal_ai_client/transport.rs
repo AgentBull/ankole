@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use futures_util::{StreamExt, stream::BoxStream};
+use futures_util::{StreamExt, future::BoxFuture, stream::BoxStream};
 use reqwest::Method;
 use reqwest::Url as URL;
 use reqwest::header::HeaderMap;
@@ -28,27 +28,27 @@ use proxy::{parse_upstream_url, resolved_proxy, websocket_transport_stream};
 ///
 /// Callers start each wait after downstream read capacity is available, so
 /// downstream backpressure does not use this budget.
-pub(crate) struct SemanticIdle {
+pub struct SemanticIdle {
     budget: Duration,
     spent: Duration,
 }
 
 impl SemanticIdle {
-    pub(crate) fn new(budget: Duration) -> Self {
+    pub fn new(budget: Duration) -> Self {
         Self {
             budget,
             spent: Duration::ZERO,
         }
     }
 
-    pub(crate) async fn wait<F: Future>(&mut self, future: F) -> Result<F::Output, Elapsed> {
+    pub async fn wait<F: Future>(&mut self, future: F) -> Result<F::Output, Elapsed> {
         let started = Instant::now();
         let result = timeout(self.budget.saturating_sub(self.spent), future).await;
         self.spent = self.spent.saturating_add(started.elapsed());
         result
     }
 
-    pub(crate) fn progressed(&mut self) {
+    pub fn progressed(&mut self) {
         self.spent = Duration::ZERO;
     }
 }
@@ -59,7 +59,7 @@ impl<T> AsyncIO for T where T: AsyncRead + AsyncWrite + Send + Unpin {}
 
 pub(crate) type BoxedIO = Box<dyn AsyncIO>;
 
-pub type UpstreamWebSocket = WebSocketStream<MaybeTLSStream<BoxedIO>>;
+pub(crate) type UpstreamWebSocket = WebSocketStream<MaybeTLSStream<BoxedIO>>;
 
 static HTTP_CLIENTS: LazyLock<BoundedCache<ClientKey, reqwest::Client>> =
     LazyLock::new(|| BoundedCache::new(MAX_HTTP_CLIENT_CACHE_ENTRIES));
@@ -69,13 +69,20 @@ const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 64;
 pub struct HTTPStream {
     pub status: u16,
     pub headers: Vec<(String, String)>,
-    pub body: BoxStream<'static, Result<Bytes, reqwest::Error>>,
+    pub body: BoxStream<'static, Result<Bytes, StreamError>>,
 }
 
 pub struct HTTPResponse {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+}
+
+pub trait HttpTransport: Send + Sync {
+    fn open_http_stream<'a>(
+        &'a self,
+        upstream: &'a UpstreamSpec,
+    ) -> BoxFuture<'a, Result<HTTPStream, StreamError>>;
 }
 
 pub fn safe_response_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
@@ -104,11 +111,11 @@ fn safe_provider_header(name: &str) -> bool {
     name.starts_with("x-codex-") || name == "cf-mitigated" || name == "retry-after"
 }
 
-pub async fn open_http_stream(spec: &StreamSpec) -> Result<HTTPStream, StreamError> {
+pub(crate) async fn open_http_stream(spec: &StreamSpec) -> Result<HTTPStream, StreamError> {
     open_http_stream_for_upstream(&spec.upstream).await
 }
 
-pub async fn send_http_request(
+pub(crate) async fn send_http_request(
     upstream: &UpstreamSpec,
     max_response_bytes: usize,
 ) -> Result<HTTPResponse, StreamError> {
@@ -166,7 +173,18 @@ pub(super) async fn open_http_stream_for_upstream(
             )
         })
         .collect();
-    let body = response.bytes_stream().boxed();
+    let body = response
+        .bytes_stream()
+        .map(|chunk| {
+            chunk.map_err(|reason| {
+                StreamError::new(
+                    "response_body_read_failed",
+                    "read",
+                    format!("upstream response body read failed: {reason}"),
+                )
+            })
+        })
+        .boxed();
     Ok(HTTPStream {
         status,
         headers,
@@ -175,7 +193,7 @@ pub(super) async fn open_http_stream_for_upstream(
 }
 
 async fn collect_http_body(
-    body: &mut BoxStream<'static, Result<Bytes, reqwest::Error>>,
+    body: &mut BoxStream<'static, Result<Bytes, StreamError>>,
     idle_timeout: Duration,
     total_timeout: Option<Duration>,
     max_response_bytes: usize,
@@ -195,7 +213,7 @@ async fn collect_http_body(
 }
 
 async fn collect_http_body_until_idle(
-    body: &mut BoxStream<'static, Result<Bytes, reqwest::Error>>,
+    body: &mut BoxStream<'static, Result<Bytes, StreamError>>,
     idle_timeout: Duration,
     max_response_bytes: usize,
 ) -> Result<Vec<u8>, StreamError> {
@@ -214,13 +232,7 @@ async fn collect_http_body_until_idle(
             return Ok(collected);
         };
 
-        let bytes = next.map_err(|reason| {
-            StreamError::new(
-                "response_body_read_failed",
-                "read",
-                format!("upstream response body read failed: {reason}"),
-            )
-        })?;
+        let bytes = next?;
 
         if collected.len().saturating_add(bytes.len()) > max_response_bytes {
             return Err(StreamError::new(
@@ -238,6 +250,7 @@ async fn collect_http_body_until_idle(
 struct ClientKey {
     proxy: Option<String>,
     connect_ms: u64,
+    ca_cert_pem: Option<String>,
 }
 
 impl ClientKey {
@@ -245,6 +258,13 @@ impl ClientKey {
         Self {
             proxy: proxy.map(URL::to_string),
             connect_ms: upstream.timeout.connect_ms,
+            ca_cert_pem: upstream
+                .transport
+                .ca_cert_pem
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned),
         }
     }
 }
@@ -263,7 +283,7 @@ fn client_for(upstream: &UpstreamSpec) -> Result<reqwest::Client, StreamError> {
     Ok(client)
 }
 
-pub async fn open_websocket(
+pub(crate) async fn open_websocket(
     spec: &StreamSpec,
 ) -> Result<(UpstreamWebSocket, u16, Vec<(String, String)>), StreamError> {
     let proxy = resolved_proxy(&spec.upstream)?;
@@ -297,6 +317,8 @@ pub async fn open_websocket(
     // TCP, TLS, and the WebSocket upgrade are the connect phase. The first-byte
     // and idle budgets start only after the upgrade returns 101, so a stalled
     // open must fail on the connect budget, not on the model output budget.
+    // `TransportSpec.ca_cert_pem` applies only to HTTP clients; WebSocket
+    // connections use the default system trust roots (`connector: None`).
     let connect = async {
         let stream = websocket_transport_stream(&target, proxy.as_ref()).await?;
         client_async_tls_with_config(request, stream, None, None)
@@ -352,6 +374,23 @@ fn build_client(
         .connect_timeout(upstream.timeout.connect_duration())
         .http1_only();
 
+    if let Some(ca_pem) = upstream
+        .transport
+        .ca_cert_pem
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        let cert = reqwest::Certificate::from_pem(ca_pem.as_bytes()).map_err(|reason| {
+            StreamError::new(
+                "invalid_ca_cert",
+                "connect",
+                format!("invalid CA certificate PEM: {reason}"),
+            )
+        })?;
+        builder = builder.add_root_certificate(cert);
+    }
+
     if let Some(proxy) = proxy {
         builder = builder.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(|_reason| {
             StreamError::new("invalid_proxy", "connect", "proxy URL is invalid")
@@ -398,7 +437,10 @@ mod tests {
                 idle_ms: 100,
                 total_ms: None,
             },
-            transport: TransportSpec { proxy: None },
+            transport: TransportSpec {
+                proxy: None,
+                ca_cert_pem: None,
+            },
         };
 
         for connect_ms in 1..=MAX_HTTP_CLIENT_CACHE_ENTRIES as u64 + 16 {

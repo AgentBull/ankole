@@ -3,7 +3,7 @@ import {
   Button,
   Input,
   Skeleton,
-  Switch,
+  SwitchRow,
   Table,
   TableBody,
   TableCell,
@@ -282,14 +282,13 @@ export function WorkerEnvAgentSection({
           </div>
         </TableCell>
         <TableCell>
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-            <Switch
-              checked={draft.secret}
-              size="sm"
-              onCheckedChange={checked => setDraft(current => ({ ...current, secret: checked }))}
-            />
-            {t('console.worker_envs.secret')}
-          </label>
+          <SwitchRow
+            rowClassName="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+            label={t('console.worker_envs.secret')}
+            checked={draft.secret}
+            size="sm"
+            onCheckedChange={checked => setDraft(current => ({ ...current, secret: checked }))}
+          />
         </TableCell>
         <TableCell className="text-right">
           <div className="flex items-center justify-end gap-1">

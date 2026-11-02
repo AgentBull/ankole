@@ -1078,7 +1078,7 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     assert created["type"] == "response.created"
     assert event["item"]["type"] == "program_output"
     state = :sys.get_state(stream.pid)
-    assert state.semantic.provider_response_id == created["response"]["id"]
+    assert state.semantic.local_response_id == created["response"]["id"]
     assert state.outstanding_credit == 0
     assert Process.alive?(stream.pid)
 
