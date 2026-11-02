@@ -33,6 +33,9 @@ export function isFileNotFound(error: unknown): boolean {
 
 export function browserError(error: unknown): BrowserError {
   if (error instanceof BrowserDataError) return error.toBrowserError()
+  if (error instanceof Error && error.name === 'TimeoutError') {
+    return { code: 'timeout', message: error.message, retryable: true, details: {} }
+  }
   if (error instanceof DOMException && error.name === 'AbortError') {
     return { code: 'cancelled', message: error.message || 'operation cancelled', retryable: true, details: {} }
   }

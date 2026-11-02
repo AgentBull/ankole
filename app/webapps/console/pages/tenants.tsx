@@ -1,6 +1,6 @@
 import { flushSync } from 'react-dom'
 import { principalLabel } from '../state/principal-label'
-import { Badge, Button, Input, Switch, TableCell, TableRow, toast } from '@ankole/uikit'
+import { Badge, Button, Input, SwitchRow, TableCell, TableRow, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiBuildingLine } from '@remixicon/react'
@@ -163,6 +163,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
   if (status === 'absent') return <EditorNotFound backTo="/tenants" message={t('console.tenants.not_found')} />
   return (
     <ResourceEditorPage
+      fieldsDisabled={status !== 'ready'}
       title={selected?.display_name ?? t('console.tenants.new')}
       description={t('console.tenants.editor_description')}
       backTo="/tenants"
@@ -249,19 +250,18 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
           <div className="grid gap-3">
             <p className="text-sm text-muted-foreground">{t('console.tenants.packs_hint')}</p>
             {brainPacks.data?.map(pack => (
-              <label
+              <SwitchRow
                 key={pack}
-                className="flex min-h-11 cursor-pointer items-center justify-between gap-3 border border-border bg-muted/30 px-4 py-2.5 text-sm font-medium text-foreground">
-                <span className="font-mono text-xs">{pack}</span>
-                <Switch
-                  checked={model.brainPacks.value.includes(pack)}
-                  onCheckedChange={checked => {
-                    model.brainPacks.value = checked
-                      ? [...model.brainPacks.value, pack]
-                      : model.brainPacks.value.filter(value => value !== pack)
-                  }}
-                />
-              </label>
+                rowClassName="flex min-h-11 cursor-pointer items-center justify-between gap-3 border border-border bg-muted/30 px-4 py-2.5 text-sm font-medium text-foreground"
+                label={<span className="font-mono text-xs">{pack}</span>}
+                labelFirst
+                checked={model.brainPacks.value.includes(pack)}
+                onCheckedChange={checked => {
+                  model.brainPacks.value = checked
+                    ? [...model.brainPacks.value, pack]
+                    : model.brainPacks.value.filter(value => value !== pack)
+                }}
+              />
             ))}
           </div>
         )}

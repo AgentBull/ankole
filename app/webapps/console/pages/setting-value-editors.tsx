@@ -6,7 +6,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch
+  Switch,
+  SwitchRow
 } from '@ankole/uikit'
 import { useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -73,14 +74,13 @@ function OptionalTokensEditor({ value, onChange }: SettingValueEditorProps) {
   const enabled = value !== 'null'
   return (
     <div className="grid gap-3">
-      <label className="flex items-center gap-3">
-        <Switch
-          checked={enabled}
-          onCheckedChange={next => onChange(next ? '' : 'null')}
-          aria-label={t('console.settings.explicit_output_limit')}
-        />
-        {t(enabled ? 'console.settings.explicit_output_limit' : 'console.settings.no_explicit_limit')}
-      </label>
+      <SwitchRow
+        rowClassName="flex items-center gap-3"
+        label={t(enabled ? 'console.settings.explicit_output_limit' : 'console.settings.no_explicit_limit')}
+        checked={enabled}
+        onCheckedChange={next => onChange(next ? '' : 'null')}
+        aria-label={t('console.settings.explicit_output_limit')}
+      />
       {enabled ? (
         <Input
           type="number"
@@ -109,10 +109,13 @@ function DurationSettingEditor({ item, value, onChange }: SettingValueEditorProp
   return (
     <div className="grid gap-3">
       {toggle ? (
-        <label className="flex items-center gap-3">
-          <Switch checked={enabled} onCheckedChange={next => onChange(next ? '' : '0')} aria-label={t(toggle.on)} />
-          {t(enabled ? toggle.on : toggle.off)}
-        </label>
+        <SwitchRow
+          rowClassName="flex items-center gap-3"
+          label={t(enabled ? toggle.on : toggle.off)}
+          checked={enabled}
+          onCheckedChange={next => onChange(next ? '' : '0')}
+          aria-label={t(toggle.on)}
+        />
       ) : null}
       {enabled ? (
         <div className="flex flex-wrap items-center gap-2">

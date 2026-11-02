@@ -290,6 +290,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
 
   return (
     <ResourceEditorPage
+      fieldsDisabled={draftStatus !== 'ready'}
       title={mode === 'new' ? t('console.permission_grants.new') : t('console.permission_grants.edit')}
       description={t('console.permission_grants.editor_description')}
       backTo={backTo}

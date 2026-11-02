@@ -48,7 +48,9 @@ attributes. Each provider type's `definition/0` callback serves as the single
 source of truth for its configuration schema, credential fields, example YAML,
 memory-pause support, and maximum instance lifetime; the Console kinds endpoint
 projects `kind`, `example`, and credential fields directly from `definition/0`
-without maintaining a separate type list.
+without maintaining a separate type list. The Console enables the provider form
+after the type catalog initializes its draft; background refreshes preserve
+operator edits.
 
 `Ankole.AgentWorkers.Providers` is a separate Ash domain from
 `Ankole.AgentWorkers` because each Ash domain mounts in one JSON:API router:

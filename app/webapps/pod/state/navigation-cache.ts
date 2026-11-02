@@ -162,7 +162,18 @@ function matchesDirectory(query: Query, location: DirectoryLocation) {
 
 export async function refreshDirectories(client: QueryClient, locations: DirectoryLocation[]) {
   await Promise.all([
-    client.invalidateQueries({ predicate: query => locations.some(location => matchesDirectory(query, location)) }),
+    client.invalidateQueries({
+      predicate: query => {
+        const suffix = query.queryKey.slice(contentKeys.lists.length)
+        if (!isPageList(query) || suffix[0] !== 'children') return false
+        // Writes return physical parent IDs; root queries use a scope alias and must reread their membership.
+        return locations.some(
+          location =>
+            matchesDirectory(query, location) ||
+            (suffix[2] === null && (!location.scope || suffix[1] === location.scope))
+        )
+      }
+    }),
     client.invalidateQueries({
       predicate: query => {
         const suffix = query.queryKey.slice(contentKeys.lists.length)
@@ -210,9 +221,10 @@ export async function applyTreeChange(
   ])
 }
 
+// Drive roots carry private ownership; their descendants do not.
 const pageDirectory = (page: Page): DirectoryLocation => ({
   parent_id: page.parent_id,
-  scope: page.private_owner_uid ? 'private' : 'space'
+  scope: page.private_owner_uid ? 'private' : undefined
 })
 
 function adjustCachedChildCount(client: QueryClient, parentID: string | null | undefined, delta: number) {

@@ -84,6 +84,79 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
     await rm(root, { recursive: true, force: true })
   }, 20_000)
 
+  test('select accepts labels and values with one wait and dispatches native change events', async () => {
+    const selection = { ...context, session: 'select-options' }
+    const file = join(root, 'select.html')
+    await writeFile(
+      file,
+      `<!doctype html>
+      <select id="colors" onchange="document.title=this.value">
+        <option value="Blue">Earlier value match</option>
+        <option value="near" label="Blue  Sky">Near match</option>
+        <option value="sky" label="Blue Sky">Exact match</option>
+        <option value="g">Green</option><option value="b" label="Blue">Azure</option>
+      </select>
+      <select id="later"></select>
+      <select id="confirmation" onchange="document.title=String(++changes); confirm('Changed')">
+        <option>First</option><option>Second</option>
+      </select>
+      <script>
+        let changes = 0;
+        requestAnimationFrame = () => 0;
+        setTimeout(() => {
+          const next = document.createElement('select');
+          next.id = 'later';
+          next.add(new Option('Late label', 'late-value'));
+          document.querySelector('#later').replaceWith(next);
+        }, 500);
+      </script>`
+    )
+    expect((await sendBrowserCommand(selection, { name: 'open', args: { url: `file://${file}` } })).ok).toBe(true)
+    for (const [value, expected] of [
+      ['Blue', 'b'],
+      ['Blue Sky', 'sky'],
+      ['Green', 'g'],
+      ['b', 'b']
+    ]) {
+      expect(
+        (
+          await sendBrowserCommand(
+            selection,
+            { name: 'select', args: { selector: '#colors', value } },
+            { timeoutMs: 2000 }
+          )
+        ).ok
+      ).toBe(true)
+      const selected = await sendBrowserCommand(selection, {
+        name: 'get',
+        args: { property: 'value', selector: '#colors' }
+      })
+      expect(selected).toMatchObject({ ok: true, data: expected })
+      const title = await sendBrowserCommand(selection, { name: 'get', args: { property: 'title' } })
+      expect(title).toMatchObject({ ok: true, data: expected })
+    }
+    expect(
+      (
+        await sendBrowserCommand(
+          selection,
+          { name: 'select', args: { selector: '#later', value: 'late-value' } },
+          { timeoutMs: 2000 }
+        )
+      ).ok
+    ).toBe(true)
+    const blocked = await sendBrowserCommand(selection, {
+      name: 'select',
+      args: { selector: '#confirmation', value: 'Second' }
+    })
+    expect(blocked).toMatchObject({ ok: false, error: { code: 'dialog_blocked' } })
+    await Bun.sleep(350)
+    expect((await sendBrowserCommand(selection, { name: 'dialog', args: { action: 'dismiss' } })).ok).toBe(true)
+    expect(await sendBrowserCommand(selection, { name: 'get', args: { property: 'title' } })).toMatchObject({
+      ok: true,
+      data: '1'
+    })
+  })
+
   test('closing an earlier inactive tab preserves the selected page, including native close events', async () => {
     const tabsContext = { ...context, session: 'tab-identity' }
     const paths = await Promise.all(

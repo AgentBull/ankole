@@ -465,6 +465,7 @@ export function SignalBindingEditorPage() {
 
   return (
     <ResourceEditorPage
+      fieldsDisabled={draftStatus !== 'ready'}
       title={editing ? t('common.edit') : t('console.signals.new')}
       description={editing ? t('console.signals.edit_hint') : t('console.signals.editor_description')}
       backTo={returnPath}

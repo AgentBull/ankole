@@ -3,8 +3,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { errors } from 'playwright-core'
 import { BrowserDaemonServer } from '../src/daemon/server'
-import { BrowserDataError } from '../src/errors'
+import { BrowserDataError, browserError } from '../src/errors'
 import {
   BrowserMaterialSchema,
   BrowserRequestSchema,
@@ -160,4 +161,13 @@ test('daemon rejects malformed and non-object JSON lines as invalid_command', as
     await server.close()
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('Playwright timeouts reach the caller as retryable command timeouts', () => {
+  expect(browserError(new errors.TimeoutError('select deadline expired'))).toEqual({
+    code: 'timeout',
+    message: 'select deadline expired',
+    retryable: true,
+    details: {}
+  })
 })

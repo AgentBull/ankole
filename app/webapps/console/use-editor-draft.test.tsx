@@ -25,6 +25,14 @@ describe('useEditorDraft', () => {
     expect(renderStatus(queryClient, queryKey, model, 'selected')).toContain('>absent<')
   })
 
+  test('keeps a seeded selection editable while its query refreshes', () => {
+    const queryClient = freshQueryClient()
+    const queryKey = ['editor-draft', 'refresh'] as const
+    queryClient.setQueryData<DraftCache>(queryKey, {})
+    expect(renderStatus(queryClient, queryKey, recordingModel('selected'), 'selected')).toContain('>ready<')
+    expect(renderStatus(queryClient, queryKey, recordingModel('old'), 'selected')).toContain('>loading<')
+  })
+
   test('does not replace a seeded draft when the same query refetches', () => {
     const model = recordingModel()
     seedEditorDraft(model, 'selected', 'cached', false)

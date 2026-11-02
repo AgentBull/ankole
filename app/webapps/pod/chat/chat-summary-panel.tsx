@@ -1,4 +1,4 @@
-import { Button, Switch } from '@ankole/uikit'
+import { Button, SwitchRow } from '@ankole/uikit'
 import { RiCloseLine } from '@remixicon/react'
 import { useTranslation } from 'react-i18next'
 import type { ConversationDetail } from '../api'
@@ -65,17 +65,14 @@ export function ChatSummaryPanel({
               />
             )}
             {room.roomMode === 'group' && (
-              <label className="pod-chat-member pod-chat-subtle">
-                <Switch
-                  checked={agent.mayIntervene}
-                  aria-label={t('pod.chat_room.intervene_agent', { name: agent.displayName })}
-                  disabled={actions.participants.isPending}
-                  onCheckedChange={checked =>
-                    actions.participants.mutate({ agentUID: agent.uid, mayIntervene: checked })
-                  }
-                />
-                {t('pod.chat_room.intervene')}
-              </label>
+              <SwitchRow
+                rowClassName="pod-chat-member pod-chat-subtle"
+                label={t('pod.chat_room.intervene')}
+                checked={agent.mayIntervene}
+                aria-label={t('pod.chat_room.intervene_agent', { name: agent.displayName })}
+                disabled={actions.participants.isPending}
+                onCheckedChange={checked => actions.participants.mutate({ agentUID: agent.uid, mayIntervene: checked })}
+              />
             )}
           </div>
         ))}

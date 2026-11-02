@@ -343,6 +343,7 @@ export function WorkerEnvEditorPage() {
   return (
     <>
       <ResourceEditorPage
+        fieldsDisabled={draftStatus !== 'ready'}
         title={mode === 'new' ? t('console.worker_envs.new') : (name ?? '')}
         description={item?.description ?? t('console.worker_envs.editor_description')}
         backTo="/worker-envs"

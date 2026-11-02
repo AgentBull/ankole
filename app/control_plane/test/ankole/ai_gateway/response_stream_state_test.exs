@@ -44,6 +44,44 @@ defmodule Ankole.AIGateway.ResponseStream.StateTest do
     end
   end
 
+  test "stateless events keep one temporary ID across provider IDs and terminal outcomes" do
+    for status <- ~w(completed failed incomplete) do
+      state = State.new("agent-test", %{}, %{"api_resolver" => "openai_responses"})
+      public_id = state.local_response_id
+      assert String.starts_with?(public_id, "tmp_resp_")
+      created = %{"type" => "response.created", "response" => %{"id" => "provider_first"}}
+      {:ok, state, [public_created], :continue} = State.observe(state, created, 0)
+      assert public_created["response"]["id"] == public_id
+
+      delta = %{
+        "type" => "response.output_text.delta",
+        "response_id" => "provider_first",
+        "delta" => "ok"
+      }
+
+      {:ok, state, [public_delta], :continue} = State.observe(state, delta, 1)
+      assert public_delta["response_id"] == public_id
+
+      terminal = %{
+        "type" => "response." <> status,
+        "response" => %{"id" => "provider_last", "status" => status, "output" => []}
+      }
+
+      {:ok, state, events, {:terminal, outcome, _}} = State.observe(state, terminal, 2)
+      assert List.last(events)["response"]["id"] == public_id
+      assert outcome.terminal_response["id"] == public_id
+      assert State.display_snapshot(state).response_id == public_id
+    end
+  end
+
+  test "stored responses expose their durable message ID" do
+    state = State.new("agent-test", %{}, %{}, stateful: %{message_id: "durable"})
+    event = %{"type" => "response.created", "response" => %{"id" => "provider"}}
+    {:ok, state, [public], :continue} = State.observe(state, event, 0)
+    assert public["response"]["id"] == "resp_durable"
+    assert State.display_snapshot(state).response_id == "resp_durable"
+  end
+
   test "the display snapshot keeps every text and reasoning delta at the public watermark" do
     state = State.new("agent-test", %{}, %{"api_resolver" => "openai_responses"})
 

@@ -1378,7 +1378,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert response =~ "event: response.completed"
     assert response =~ "data: [DONE]"
     assert response =~ ~s("type":"response.completed")
-    assert response =~ ~s("id":"resp_sse")
+    assert_temporary_response_ids(events)
     assert_sse_event_names_match_body_types(response)
 
     assert_receive {:gateway_request, request}
@@ -1572,11 +1572,14 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     {:ok, _state, [completed], {:terminal, outcome, :keep_upstream}} =
       ResponseStreamState.observe(state, terminal, 5)
 
+    response_id = state.local_response_id
+    assert String.starts_with?(response_id, "tmp_resp_")
+
     assert %{
              "type" => "response.completed",
              "sequence_number" => 3,
              "response" => %{
-               "id" => "resp_http_limit",
+               "id" => ^response_id,
                "status" => "completed",
                "output" => [
                  %{"id" => "search_1", "status" => "completed", "type" => "web_search_call"}
@@ -1726,7 +1729,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert get_resp_header(conn, "content-type") == ["text/event-stream"]
     assert response =~ "event: response.completed"
     assert response =~ "data: [DONE]"
-    assert response =~ ~s("id":"resp_native_controller")
+    assert_temporary_response_ids(decode_sse_events(response))
     assert_sse_event_names_match_body_types(response)
   end
 
@@ -2024,7 +2027,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       })
 
     assert body = json_response(conn, 200)
-    assert body["id"] == "resp_json"
+    assert body["id"] =~ ~r/^tmp_resp_[0-9a-f-]{36}$/
+    assert {:error, :not_found} = Ankole.AIGateway.retrieve_response(agent.uid, body["id"])
     assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
     refute response(conn, 200) =~ "data: [DONE]"
 
@@ -2072,6 +2076,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
       body = json_response(conn, 200)
       assert_openresponses_response_resource(body)
+      assert body["id"] =~ ~r/^tmp_resp_[0-9a-f-]{36}$/
       assert body["status"] == "completed"
       assert body["model"] == "openai/gpt-5.5"
       assert length(body["output"]) > 0
@@ -2828,5 +2833,16 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       nil -> {:ok, Enum.find(events, &(&1["type"] == "response.completed"))["response"], events}
       error -> {:error, error["status"], error["error"]["code"]}
     end
+  end
+
+  defp assert_temporary_response_ids(events) do
+    ids =
+      events
+      |> Enum.flat_map(fn event -> [get_in(event, ["response", "id"]), event["response_id"]] end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    assert [id] = ids
+    assert id =~ ~r/^tmp_resp_[0-9a-f-]{36}$/
   end
 end

@@ -351,6 +351,7 @@ export function ProviderEditorPage() {
 
   return (
     <ResourceEditorPage
+      fieldsDisabled={draftStatus !== 'ready'}
       title={mode === 'new' ? t('console.providers.new') : (providerID ?? '')}
       description={t('console.providers.editor_description')}
       backTo="/providers"

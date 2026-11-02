@@ -12,7 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch
+  SwitchRow
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
 import type { TFunction } from 'i18next'
@@ -175,15 +175,14 @@ export function ModelProfileEditorCard({
         </CollapsibleTrigger>
         <div className="flex shrink-0 items-center gap-2 pr-4">
           {providerHosted ? (
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Switch
-                aria-label={providerHosted.label}
-                checked={providerHosted.checked}
-                disabled={disabled || providerHosted.pending}
-                onCheckedChange={providerHosted.onChange}
-              />
-              {providerHosted.label}
-            </label>
+            <SwitchRow
+              rowClassName="flex items-center gap-2 text-xs text-muted-foreground"
+              label={providerHosted.label}
+              aria-label={providerHosted.label}
+              checked={providerHosted.checked}
+              disabled={disabled || providerHosted.pending}
+              onCheckedChange={providerHosted.onChange}
+            />
           ) : null}
           {providerHosted?.onReset ? (
             <Button

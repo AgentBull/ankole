@@ -21,7 +21,7 @@ import {
   EmptyTitle,
   Input,
   Skeleton,
-  Switch,
+  SwitchRow,
   Table,
   TableBody,
   TableCell,
@@ -38,7 +38,7 @@ import {
   RiSearchLine
 } from '@remixicon/react'
 
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from '@tanstack/react-router'
 import { linkTarget } from '../common/router'
@@ -46,6 +46,30 @@ import { agentListOptions } from './api/agents'
 import { PageHeader, PageStack, RefreshButton } from './console-page'
 import { ErrorBlock } from '../common/error-block'
 import { scheduleResourceSearchCommit } from './state/resource-search'
+
+/** Keep dialog return focus on the create button as it moves between list states. */
+export function useListCreateTrigger() {
+  const finalFocus = useRef<HTMLButtonElement>(null)
+  const ref = useCallback((node: HTMLButtonElement | null) => {
+    finalFocus.current = node
+    if (!node) return
+
+    return () => {
+      finalFocus.current = null
+      if (node.ownerDocument.activeElement !== node) return
+
+      // React replaces the button when a late list refresh changes its location.
+      queueMicrotask(() => {
+        const target = finalFocus.current
+        if (target?.isConnected && target.ownerDocument.activeElement === target.ownerDocument.body) {
+          target.focus()
+        }
+      })
+    }
+  }, [])
+
+  return { ref, finalFocus }
+}
 
 /**
  * List-page frame: title, optional create action, and a data table with
@@ -55,6 +79,7 @@ import { scheduleResourceSearchCommit } from './state/resource-search'
 export function ResourceListPage({
   children,
   columns,
+  clearFiltersRef,
   count,
   createAction,
   createLabel,
@@ -77,6 +102,7 @@ export function ResourceListPage({
   toolbarCanRevealRows = false
 }: {
   children: ReactNode
+  clearFiltersRef?: Ref<HTMLButtonElement>
   columns: string[]
   /** Rows currently rendered. Shown next to the toolbar so a filter reports its effect. */
   count?: number
@@ -161,7 +187,7 @@ export function ResourceListPage({
           A filtered list falls back to nothing: offering "create" to someone
           whose search missed answers a question they did not ask. */}
       {isFiltered && onClearFilters ? (
-        <Button size="sm" type="button" variant="outline" onClick={clearFilters}>
+        <Button ref={clearFiltersRef} size="sm" type="button" variant="outline" onClick={clearFilters}>
           {t('console.empty.clear_filters')}
         </Button>
       ) : (
@@ -558,10 +584,12 @@ export function FilterSwitch({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
-      <Switch checked={checked} onCheckedChange={onChange} />
-      {label}
-    </label>
+    <SwitchRow
+      rowClassName="flex shrink-0 items-center gap-2 text-sm text-muted-foreground"
+      label={label}
+      checked={checked}
+      onCheckedChange={onChange}
+    />
   )
 }
 

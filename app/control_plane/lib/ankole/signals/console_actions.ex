@@ -71,7 +71,7 @@ defmodule Ankole.Signals.ConsoleActions do
   defp execute(%{action: %{name: :console_put_binding}, arguments: attrs}) do
     with {:ok, result} <-
            Bindings.put_binding(
-             attrs.agent_uid,
+             Map.get(attrs, :agent_uid),
              attrs.adapter_id,
              attrs.binding_name,
              binding_attrs(attrs)

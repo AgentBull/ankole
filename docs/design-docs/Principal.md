@@ -30,6 +30,10 @@ tenant in the `Ankole.Repo` process context. Site inventory operations can list
 tenant-qualified records, then enter each tenant before invoking its domain
 operations.
 
+The Console Agent editor disables its fields until it has initialized the draft
+from the Agent and Worker Provider data. Background refreshes preserve the
+operator's initialized draft.
+
 Resource actions enforce strict field boundaries: profile actions accept only
 profile attributes and cannot modify identity, status, or `access_version`,
 whereas Human revocation updates both `status` and `access_version` atomically
@@ -486,6 +490,7 @@ Provider configuration and directory sync reviews run through `/api/v2/identity-
 and `/api/v2/identity-providers` in the Site Console (and
 `/api/v2/pod/admin/identity-providers` in Pod settings):
 
+- The provider editor enables its fields after the adapter catalog and provider list initialize its draft. Background refreshes preserve the initialized draft.
 - Read responses redact stored secrets, and submitting a blank secret field
   keeps the existing stored secret.
 - Approving a directory sync requires matching the current snapshot fingerprint

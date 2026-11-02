@@ -284,6 +284,7 @@ defmodule Ankole.AIGateway do
            Map.fetch!(upstream_response, :body)
          ) do
       {:ok, body} ->
+        body = Map.put(body, "id", "tmp_resp_#{Ankole.Ecto.UUIDv7.autogenerate()}")
         {:ok, gateway_response(200, body, runtime)}
 
       {:error, error} ->

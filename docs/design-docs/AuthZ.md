@@ -374,6 +374,9 @@ memberships bound to that directory provider without touching `operator` groups
 or other providers' bindings, and chat group sync operates strictly within the
 `im_group` domain.
 
+The Console group editor disables fields until the selected group initializes
+its draft; background refreshes preserve subsequent edits.
+
 ## Manage Grants
 
 `Ankole.AuthZ` provides operations to:
@@ -382,6 +385,9 @@ or other providers' bindings, and chat group sync operates strictly within the
 - create a grant or upsert one by its natural key (updating only `description`,
   `metadata`, and `updated_at` when the natural key already exists)
 - update or delete a grant by ID
+
+The Console grant editor disables fields until the selected grant initializes
+its draft; background refreshes preserve subsequent edits.
 
 ### Node actions
 

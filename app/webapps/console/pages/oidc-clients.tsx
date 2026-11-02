@@ -41,7 +41,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch,
+  SwitchRow,
   TableCell,
   Textarea,
   toast,
@@ -469,17 +469,19 @@ export function OIDCClientEditorPage() {
           </LabeledField>
         </div>
 
-        <label className="flex cursor-pointer items-center justify-between gap-4 border border-border bg-muted/30 p-4">
-          <span className="grid gap-1">
-            <span className="text-sm font-medium">{t('console.oidc_clients.enabled')}</span>
-            <span className="text-xs leading-5 text-muted-foreground">{t('console.oidc_clients.enabled_hint')}</span>
-          </span>
-          <Switch
-            checked={draft.enabled}
-            disabled={fieldsDisabled}
-            onCheckedChange={checked => setDraft({ ...draft, enabled: checked })}
-          />
-        </label>
+        <SwitchRow
+          rowClassName="flex cursor-pointer items-center justify-between gap-4 border border-border bg-muted/30 p-4"
+          label={
+            <span className="grid gap-1">
+              <span className="text-sm font-medium">{t('console.oidc_clients.enabled')}</span>
+              <span className="text-xs leading-5 text-muted-foreground">{t('console.oidc_clients.enabled_hint')}</span>
+            </span>
+          }
+          labelFirst
+          checked={draft.enabled}
+          disabled={fieldsDisabled}
+          onCheckedChange={checked => setDraft({ ...draft, enabled: checked })}
+        />
 
         <LabeledField
           label={t('console.oidc_clients.redirect_uris')}

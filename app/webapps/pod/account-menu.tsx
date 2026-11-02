@@ -80,7 +80,11 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
     <DropdownMenu onOpenChange={open => open && void session.refetch()}>
       <DropdownMenuTrigger
         className="pod-account-trigger"
-        aria-label={t('pod.sidebar.account_menu', { name, tenant: tenantName })}>
+        aria-label={
+          tenantName
+            ? t('pod.sidebar.account_menu', { name, tenant: tenantName })
+            : t('pod.sidebar.account_menu_name', { name })
+        }>
         <span aria-hidden className="pod-account-mark">
           {initial(tenantName || name)}
         </span>
