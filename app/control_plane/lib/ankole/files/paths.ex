@@ -355,6 +355,8 @@ defmodule Ankole.Files.Paths do
   defp normalize_prefix(""), do: {:ok, ""}
   defp normalize_prefix(prefix), do: Files.normalize_path(prefix)
 
+  # Paths use byte order. The database collation can differ per installation,
+  # and `list_snapshot_in_tx/3` compares the `:after` cursor in Elixir.
   defp rows(root_id, prefix, opts, containers, own) do
     %{columns: columns, rows: rows} =
       Repo.query!(
@@ -373,10 +375,10 @@ defmodule Ankole.Files.Paths do
         FROM subtree n LEFT JOIN file_objects object ON object.tenant_id = n.tenant_id AND object.id = n.object_id
         WHERE n.type = 'file'
           AND ($3 = '' OR n.path = $3 OR left(n.path, length($3) + 1) = $3 || '/')
-          AND ($4::text IS NULL OR n.path > $4)
+          AND ($4::text IS NULL OR n.path COLLATE "C" > $4)
           AND ((NOT n.is_acl_anchor AND n.acl_anchor_id = ANY($6::text[]::uuid[]))
             OR (n.is_acl_anchor AND n.id = ANY($7::text[]::uuid[])))
-        ORDER BY n.path LIMIT $5
+        ORDER BY n.path COLLATE "C" LIMIT $5
         """,
         [
           Repo.tenant_id!(),

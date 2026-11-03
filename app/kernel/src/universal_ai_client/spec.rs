@@ -218,8 +218,9 @@ pub struct TransportSpec {
     #[serde(default)]
     pub proxy: Option<String>,
     // Custom root CA certificate in PEM format for HTTP and SSE upstreams
-    // (such as local TLS test fixtures). WebSocket upstreams (`open_websocket`)
-    // use the system trust store and ignore this field.
+    // in test builds. WebSocket upstreams (`open_websocket`) use the system
+    // trust store and ignore this field.
+    #[cfg(feature = "test-ca")]
     #[serde(default)]
     pub ca_cert_pem: Option<String>,
 }
@@ -1220,5 +1221,16 @@ mod transport_tests {
         )
         .unwrap();
         assert_eq!(transport.proxy.as_deref(), Some("http://proxy.test:8080"));
+    }
+
+    #[cfg(feature = "test-ca")]
+    #[test]
+    fn ca_cert_pem_is_deserialized_when_test_ca_feature_is_enabled() {
+        let transport: TransportSpec = serde_json::from_str(
+            r#"{"proxy":"http://proxy.test:8080","ca_cert_pem":"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"}"#,
+        )
+        .unwrap();
+        assert_eq!(transport.proxy.as_deref(), Some("http://proxy.test:8080"));
+        assert!(transport.ca_cert_pem.is_some());
     }
 }

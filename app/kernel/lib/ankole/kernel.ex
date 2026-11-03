@@ -3,7 +3,21 @@ defmodule Ankole.Kernel do
   Native kernel helpers loaded by the Elixir control plane.
   """
 
+  # A dependency compiles with `Mix.env() == :prod`, so the build path also
+  # names the environment.
+  @build_env (cond do
+                Mix.env() == :test or Path.basename(Mix.Project.build_path()) == "test" -> :test
+                Mix.env() == :dev or Path.basename(Mix.Project.build_path()) == "dev" -> :dev
+                true -> :prod
+              end)
   @rustler_mode if(Mix.env() == :prod, do: :release, else: :debug)
+  @rustler_features if(@build_env == :test, do: ["nif", "test-ca"], else: ["nif"])
+  # Dev and test builds share `app/kernel/priv` through `_build` symlinks.
+  # Test builds enable `test-ca`. Thus each of them loads its own NIF file.
+  @rustler_load_path (case @build_env do
+                        :prod -> "priv/native/ankole_kernel"
+                        env -> "priv/native/ankole_kernel_#{env}"
+                      end)
 
   @sccache_remote_env_keys ~w(
     SCCACHE_BUCKET
@@ -87,9 +101,23 @@ defmodule Ankole.Kernel do
     # Elixir external resources, so keep it absolute instead of using `.`.
     path: Path.expand("../..", __DIR__),
     default_features: false,
-    features: ["nif"],
+    features: @rustler_features,
+    load_from: {:ankole_kernel, @rustler_load_path},
     mode: @rustler_mode,
     env: @rustler_env
+
+  # Rustler always writes `priv/native/ankole_kernel`. Copy it to the
+  # environment-specific name. Remove the old file first, because a running VM
+  # can have it loaded.
+  if @build_env != :prod do
+    for source <- Path.wildcard("priv/native/ankole_kernel.{so,dll}") do
+      target = @rustler_load_path <> Path.extname(source)
+      File.rm(target)
+      File.cp!(source, target)
+    end
+
+    Mix.Project.build_structure()
+  end
 
   # The Cargo root also contains Mix and Bun outputs. Rustler lists those as
   # external resources, but they are not inputs to the native library.
