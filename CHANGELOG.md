@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.50 (2026-11-03)
+## Version 2.0.0-alpha.51 (2026-11-04)
 
 - Create and edit spreadsheets in Pod. The page create menus offer a new
   **Spreadsheet**, which starts as a blank `Untitled.xlsx`, and every `.xlsx` or
@@ -49,6 +49,10 @@
   kinds, view them full size, and download them, and they stay in the
   downloaded `.xlsx`. Rows without a height set by hand grow with larger fonts
   and wrapped text, and shrink back when they go.
+
+## Version 2.0.0-alpha.50 (2026-11-03)
+
+- Internal changes only.
 
 ## Version 2.0.0-alpha.49 (2026-11-03)
 
