@@ -6,8 +6,7 @@ mod tests;
 mod websocket_model;
 
 pub use core::{
-    APIResolverKind, ChunkOrigin, EventSink, ModelRequestSpec, RawRequestSpec, RequestHandle,
-    RequestResultSink, StreamEvent, StreamHandle, StreamLimits, StreamSpec, UpstreamKind,
+    ChunkOrigin, EventSink, RequestHandle, RequestResultSink, StreamEvent, StreamHandle,
     start_model_request, start_raw_request, start_stream,
 };
 pub(super) use core::{StreamCommand, run_model_request_once};

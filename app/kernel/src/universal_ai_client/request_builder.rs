@@ -4,7 +4,7 @@ use super::api_resolver::APIResolver;
 use super::error::StreamError;
 use super::spec::{ModelRequestSpec, StreamSpec, UpstreamKind, UpstreamSpec};
 
-pub fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, StreamError> {
+pub(crate) fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, StreamError> {
     match spec.upstream.kind {
         UpstreamKind::WebSocketText => {
             if spec.upstream.websocket_initial_messages.is_empty() {
@@ -23,7 +23,7 @@ pub fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, StreamErr
     Ok(spec)
 }
 
-pub fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<UpstreamSpec, StreamError> {
+pub(crate) fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<UpstreamSpec, StreamError> {
     let mut upstream = spec.stream_upstream();
     let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
     upstream.body = Some(encode_json(&Value::Object(resolver.build_body()?))?);

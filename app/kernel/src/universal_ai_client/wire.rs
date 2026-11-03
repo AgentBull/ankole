@@ -33,7 +33,7 @@ impl SSEParser {
         }
     }
 
-    pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<SSEEvent>, StreamError> {
+    pub(crate) fn push(&mut self, bytes: &[u8]) -> Result<Vec<SSEEvent>, StreamError> {
         let frames = self.push_frames(bytes)?;
         Ok(frames.into_iter().filter_map(|frame| frame.event).collect())
     }
@@ -184,12 +184,12 @@ fn parse_sse_event(raw: &[u8]) -> Option<SSEEvent> {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct EventStreamMessage {
-    pub message_type: Option<String>,
-    pub event_type: Option<String>,
-    pub exception_type: Option<String>,
-    pub error_code: Option<String>,
-    pub error_message: Option<String>,
-    pub payload: Vec<u8>,
+    pub(crate) message_type: Option<String>,
+    pub(crate) event_type: Option<String>,
+    pub(crate) exception_type: Option<String>,
+    pub(crate) error_code: Option<String>,
+    pub(crate) error_message: Option<String>,
+    pub(crate) payload: Vec<u8>,
 }
 
 #[derive(Debug, Default)]
@@ -199,14 +199,14 @@ pub(crate) struct AWSEventStreamParser {
 }
 
 impl AWSEventStreamParser {
-    pub fn new(max_frame_bytes: usize) -> Self {
+    pub(crate) fn new(max_frame_bytes: usize) -> Self {
         Self {
             buffer: Vec::new(),
             max_frame_bytes: max_frame_bytes.max(16),
         }
     }
 
-    pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<EventStreamMessage>, StreamError> {
+    pub(crate) fn push(&mut self, bytes: &[u8]) -> Result<Vec<EventStreamMessage>, StreamError> {
         self.buffer.extend_from_slice(bytes);
         if self.buffer.len() > self.max_frame_bytes && self.buffer.len() < 12 {
             return Err(StreamError::new(
@@ -280,7 +280,7 @@ impl AWSEventStreamParser {
         Ok(messages)
     }
 
-    pub fn finish(&mut self) -> Result<(), StreamError> {
+    pub(crate) fn finish(&mut self) -> Result<(), StreamError> {
         if self.buffer.is_empty() {
             Ok(())
         } else {
