@@ -622,3 +622,82 @@ fn anthropic_one_shot_max_tokens_stop_reason_maps_to_incomplete() {
     assert_eq!(response["usage"]["input_tokens"], 3);
     assert_eq!(response["usage"]["output_tokens"], 5);
 }
+
+#[test]
+fn anthropic_build_body_maps_required_tool_choice_to_any_when_thinking_is_off() {
+    for provider_options in [
+        json!({}),
+        json!({"thinking": {"type": "disabled"}}),
+        json!({"thinking": {"type": "between_tools"}}),
+    ] {
+        let resolver = APIResolver::new(
+            APIResolverKind::AnthropicMessages,
+            ResponseContext {
+                model: "claude-test".to_string(),
+                request: json!({
+                    "input": "call a tool",
+                    "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+                    "tool_choice": "required"
+                }),
+                provider_options,
+                stream: None,
+                include_model: true,
+            },
+        );
+
+        let body = Value::Object(resolver.build_body().unwrap());
+        assert_eq!(body["tool_choice"], json!({"type": "any"}));
+    }
+}
+
+#[test]
+fn anthropic_build_body_downgrades_forced_tool_choice_to_auto_when_thinking_is_enabled() {
+    for thinking in [
+        json!({"type": "enabled", "budget_tokens": 2048}),
+        json!({"type": "adaptive"}),
+    ] {
+        for tool_choice in [
+            json!("required"),
+            json!("any"),
+            json!({"type": "required"}),
+            json!({"type": "function", "name": "lookup"}),
+            json!({"type": "tool", "name": "lookup"}),
+        ] {
+            let resolver = APIResolver::new(
+                APIResolverKind::AnthropicMessages,
+                ResponseContext {
+                    model: "claude-test".to_string(),
+                    request: json!({
+                        "input": "call a tool",
+                        "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+                        "tool_choice": tool_choice
+                    }),
+                    provider_options: json!({"thinking": thinking}),
+                    stream: None,
+                    include_model: true,
+                },
+            );
+
+            let body = Value::Object(resolver.build_body().unwrap());
+            assert_eq!(body["tool_choice"], json!({"type": "auto"}));
+        }
+
+        let none_resolver = APIResolver::new(
+            APIResolverKind::AnthropicMessages,
+            ResponseContext {
+                model: "claude-test".to_string(),
+                request: json!({
+                    "input": "do not call a tool",
+                    "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+                    "tool_choice": "none"
+                }),
+                provider_options: json!({"thinking": thinking}),
+                stream: None,
+                include_model: true,
+            },
+        );
+
+        let none_body = Value::Object(none_resolver.build_body().unwrap());
+        assert_eq!(none_body["tool_choice"], json!({"type": "none"}));
+    }
+}

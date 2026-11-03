@@ -809,7 +809,7 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
             .unwrap_or_else(|| json!(4096)),
     );
 
-    for key in ["temperature", "top_p", "metadata"] {
+    for key in ["temperature", "top_p", "metadata", "thinking"] {
         maybe_put_from(&mut body, &request, key);
     }
 
@@ -817,7 +817,8 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
         body.insert("tools".to_string(), tools);
     }
 
-    if let Some(tool_choice) = anthropic_tool_choice(request.get("tool_choice")) {
+    let thinking_enabled = anthropic_thinking_enabled(body.get("thinking"));
+    if let Some(tool_choice) = anthropic_tool_choice(request.get("tool_choice"), thinking_enabled) {
         body.insert("tool_choice".to_string(), tool_choice);
     }
 
@@ -1198,7 +1199,19 @@ fn anthropic_function_call_item(context: &ResponseContext, call: &ToolCall, stat
     item
 }
 
-fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
+// Anthropic rejects `any` and `tool` choices with HTTP 400 when extended or
+// adaptive thinking is active, allowing only `auto` or `none`.
+fn anthropic_thinking_enabled(thinking: Option<&Value>) -> bool {
+    matches!(
+        thinking
+            .and_then(Value::as_object)
+            .and_then(|map| map.get("type"))
+            .and_then(Value::as_str),
+        Some("enabled" | "adaptive")
+    )
+}
+
+fn anthropic_tool_choice(choice: Option<&Value>, thinking_enabled: bool) -> Option<Value> {
     match choice {
         Some(Value::Object(map)) => match map.get("type").and_then(Value::as_str) {
             Some("function" | "custom") => {
@@ -1207,6 +1220,9 @@ fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
                     .and_then(Value::as_object)
                     .unwrap_or(map);
                 let name = function.get("name").and_then(Value::as_str)?;
+                if thinking_enabled {
+                    return Some(json!({ "type": "auto" }));
+                }
                 let namespace = function
                     .get("namespace")
                     .or_else(|| map.get("namespace"))
@@ -1218,6 +1234,9 @@ fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
             }
             Some("tool") => {
                 let name = map.get("name").and_then(Value::as_str)?;
+                if thinking_enabled {
+                    return Some(json!({ "type": "auto" }));
+                }
                 let name = map
                     .get("namespace")
                     .and_then(Value::as_str)
@@ -1225,9 +1244,25 @@ fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
                     .unwrap_or_else(|| flattened_namespace_tool_name("", name));
                 Some(json!({ "type": "tool", "name": name }))
             }
+            Some("any" | "required") => {
+                if thinking_enabled {
+                    Some(json!({ "type": "auto" }))
+                } else {
+                    Some(json!({ "type": "any" }))
+                }
+            }
+            Some("auto") => Some(json!({ "type": "auto" })),
+            Some("none") => Some(json!({ "type": "none" })),
             _type => None,
         },
         Some(Value::String(value)) if value == "auto" => Some(json!({ "type": "auto" })),
+        Some(Value::String(value)) if value == "required" || value == "any" => {
+            if thinking_enabled {
+                Some(json!({ "type": "auto" }))
+            } else {
+                Some(json!({ "type": "any" }))
+            }
+        }
         Some(Value::String(value)) if value == "none" => Some(json!({ "type": "none" })),
         _choice => None,
     }
