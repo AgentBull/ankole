@@ -15,7 +15,6 @@ pub(super) fn test_image_spec(url: &str) -> HostedImageGenerationSpec {
         tool_config: json!({"type": "image_generation"}),
         selected_model: "openai/gpt-image-2".to_string(),
         prepared_request: Box::new(ModelRequestSpec::from_json(&spec.to_string()).unwrap()),
-        endpoint_capabilities: json!({}),
         provider_tag: "openai/gpt-image-2:openai".to_string(),
         provider_slug: "openai".to_string(),
         resolved_references: vec![],

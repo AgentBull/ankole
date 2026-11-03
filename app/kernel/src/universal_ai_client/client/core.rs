@@ -16,9 +16,7 @@ use crate::universal_ai_client::{
     api_resolver, error::StreamError, hosted_responses, request_builder, transport,
 };
 
-pub use crate::universal_ai_client::spec::{
-    APIResolverKind, ModelRequestSpec, RawRequestSpec, StreamLimits, StreamSpec, UpstreamKind,
-};
+pub(super) use crate::universal_ai_client::spec::{ModelRequestSpec, RawRequestSpec, StreamSpec};
 
 pub type EventSink = Arc<dyn Fn(StreamEvent) + Send + Sync + 'static>;
 

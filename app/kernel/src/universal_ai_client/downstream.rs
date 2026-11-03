@@ -1,15 +1,15 @@
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
-pub struct DownstreamChunk {
-    pub bytes: Vec<u8>,
+pub(crate) struct DownstreamChunk {
+    pub(crate) bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct DownstreamEncoder;
+pub(crate) struct DownstreamEncoder;
 
 impl DownstreamEncoder {
-    pub fn encode_event(self, event: &Value) -> DownstreamChunk {
+    pub(crate) fn encode_event(self, event: &Value) -> DownstreamChunk {
         DownstreamChunk {
             bytes: sonic_rs::to_vec(event).unwrap_or_else(|_| b"{}".to_vec()),
         }

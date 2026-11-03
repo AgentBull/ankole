@@ -17,10 +17,11 @@ mod transport;
 pub mod wire;
 
 pub use client::{
-    APIResolverKind, ChunkOrigin, EventSink, ModelRequestSpec, RawRequestSpec, RequestHandle,
-    RequestResultSink, StreamEvent, StreamHandle, StreamLimits, StreamSpec, UpstreamKind,
+    ChunkOrigin, EventSink, RequestHandle, RequestResultSink, StreamEvent, StreamHandle,
     start_model_request, start_raw_request, start_stream,
 };
 pub use error::StreamError;
-pub use spec::{ResponseContext, TimeoutSpec, TransportSpec, UpstreamSpec};
+pub use spec::{
+    APIResolverKind, ResponseContext, TimeoutSpec, TransportSpec, UpstreamKind, UpstreamSpec,
+};
 pub use transport::{HTTPResponse, HTTPStream, HttpTransport, SemanticIdle, safe_response_headers};

@@ -73,19 +73,19 @@ impl UpstreamKind {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct StreamSpec {
-    pub api_resolver: APIResolverKind,
-    pub upstream: UpstreamSpec,
+pub(crate) struct StreamSpec {
+    pub(crate) api_resolver: APIResolverKind,
+    pub(crate) upstream: UpstreamSpec,
     #[serde(default)]
-    pub response_context: ResponseContext,
+    pub(crate) response_context: ResponseContext,
     #[serde(default)]
-    pub limits: StreamLimits,
+    pub(crate) limits: StreamLimits,
     #[serde(default)]
-    pub hosted_tools: Option<HostedToolsSpec>,
+    pub(crate) hosted_tools: Option<HostedToolsSpec>,
 }
 
 impl StreamSpec {
-    pub fn from_json(json: &str) -> KernelResult<Self> {
+    pub(crate) fn from_json(json: &str) -> KernelResult<Self> {
         let spec: Self = sonic_rs::from_str(json).map_err(|reason| {
             KernelError::new(format!("spec must contain valid JSON: {reason}"))
         })?;
@@ -143,21 +143,21 @@ pub struct UpstreamSpec {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct PreparedHTTPRequestSpec {
-    pub method: String,
-    pub url: String,
+pub(crate) struct PreparedHTTPRequestSpec {
+    pub(crate) method: String,
+    pub(crate) url: String,
     #[serde(default)]
-    pub headers: Vec<(String, String)>,
+    pub(crate) headers: Vec<(String, String)>,
     #[serde(default)]
-    pub body: Option<String>,
+    pub(crate) body: Option<String>,
     #[serde(default)]
-    pub timeout: TimeoutSpec,
+    pub(crate) timeout: TimeoutSpec,
     #[serde(default)]
-    pub transport: TransportSpec,
+    pub(crate) transport: TransportSpec,
 }
 
 impl PreparedHTTPRequestSpec {
-    pub fn to_upstream_spec(&self) -> UpstreamSpec {
+    pub(crate) fn to_upstream_spec(&self) -> UpstreamSpec {
         UpstreamSpec {
             kind: UpstreamKind::HTTPSSE,
             method: self.method.clone(),
@@ -226,17 +226,17 @@ pub struct TransportSpec {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct StreamLimits {
+pub(crate) struct StreamLimits {
     #[serde(default = "default_max_sse_event_bytes")]
-    pub max_sse_event_bytes: usize,
+    pub(crate) max_sse_event_bytes: usize,
     #[serde(default = "default_max_eventstream_frame_bytes")]
-    pub max_eventstream_frame_bytes: usize,
+    pub(crate) max_eventstream_frame_bytes: usize,
     #[serde(default = "default_max_websocket_text_bytes")]
-    pub max_websocket_text_bytes: usize,
+    pub(crate) max_websocket_text_bytes: usize,
     #[serde(default = "default_max_pending_chunks")]
-    pub max_pending_chunks: usize,
+    pub(crate) max_pending_chunks: usize,
     #[serde(default = "default_max_pending_bytes")]
-    pub max_pending_bytes: usize,
+    pub(crate) max_pending_bytes: usize,
 }
 
 impl Default for StreamLimits {
@@ -252,9 +252,9 @@ impl Default for StreamLimits {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct RequestLimits {
+pub(crate) struct RequestLimits {
     #[serde(default = "default_max_response_bytes")]
-    pub max_response_bytes: usize,
+    pub(crate) max_response_bytes: usize,
 }
 
 impl Default for RequestLimits {
@@ -292,11 +292,11 @@ impl Default for ResponseContext {
 }
 
 impl ResponseContext {
-    pub fn resolved_request(&self) -> Value {
+    pub(crate) fn resolved_request(&self) -> Value {
         Value::Object(self.resolved_request_object())
     }
 
-    pub fn resolved_request_object(&self) -> Map<String, Value> {
+    pub(crate) fn resolved_request_object(&self) -> Map<String, Value> {
         let mut request = self
             .provider_options
             .as_object()
@@ -332,7 +332,7 @@ impl ResponseContext {
         request
     }
 
-    pub fn resolved_provider_request(&self) -> Value {
+    pub(crate) fn resolved_provider_request(&self) -> Value {
         Value::Object(self.resolved_provider_request_object())
     }
 
@@ -356,10 +356,10 @@ impl ResponseContext {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct HostedToolsSpec {
-    pub image_generation: HostedImageGenerationSpec,
+pub(crate) struct HostedToolsSpec {
+    pub(crate) image_generation: HostedImageGenerationSpec,
     #[serde(default)]
-    pub public_request: Value,
+    pub(crate) public_request: Value,
 }
 
 impl HostedToolsSpec {
@@ -375,19 +375,17 @@ impl HostedToolsSpec {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct HostedImageGenerationSpec {
+pub(crate) struct HostedImageGenerationSpec {
     #[serde(default)]
-    pub tool_config: Value,
-    pub selected_model: String,
-    pub prepared_request: Box<ModelRequestSpec>,
+    pub(crate) tool_config: Value,
+    pub(crate) selected_model: String,
+    pub(crate) prepared_request: Box<ModelRequestSpec>,
+    pub(crate) provider_tag: String,
+    pub(crate) provider_slug: String,
     #[serde(default)]
-    pub endpoint_capabilities: Value,
-    pub provider_tag: String,
-    pub provider_slug: String,
+    pub(crate) resolved_references: Vec<Value>,
     #[serde(default)]
-    pub resolved_references: Vec<Value>,
-    #[serde(default)]
-    pub limits: Value,
+    pub(crate) limits: Value,
 }
 
 const MAX_FUNCTION_CALL_ARGUMENT_BYTES: usize = 256 * 1024;
@@ -674,19 +672,19 @@ fn remove_trailing_json_commas(input: &str) -> String {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct ModelRequestSpec {
-    pub api_resolver: APIResolverKind,
-    pub upstream: PreparedHTTPRequestSpec,
+pub(crate) struct ModelRequestSpec {
+    pub(crate) api_resolver: APIResolverKind,
+    pub(crate) upstream: PreparedHTTPRequestSpec,
     #[serde(default)]
-    pub response_context: ResponseContext,
+    pub(crate) response_context: ResponseContext,
     #[serde(default)]
-    pub limits: RequestLimits,
+    pub(crate) limits: RequestLimits,
     #[serde(default)]
-    pub hosted_tools: Option<HostedToolsSpec>,
+    pub(crate) hosted_tools: Option<HostedToolsSpec>,
 }
 
 impl ModelRequestSpec {
-    pub fn from_json(json: &str) -> KernelResult<Self> {
+    pub(crate) fn from_json(json: &str) -> KernelResult<Self> {
         let spec: Self = sonic_rs::from_str(json).map_err(|reason| {
             KernelError::new(format!(
                 "model request spec must contain valid JSON: {reason}"
@@ -706,20 +704,20 @@ impl ModelRequestSpec {
         Ok(())
     }
 
-    pub fn stream_upstream(&self) -> UpstreamSpec {
+    pub(crate) fn stream_upstream(&self) -> UpstreamSpec {
         self.upstream.to_upstream_spec()
     }
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct RawRequestSpec {
-    pub upstream: PreparedHTTPRequestSpec,
+pub(crate) struct RawRequestSpec {
+    pub(crate) upstream: PreparedHTTPRequestSpec,
     #[serde(default)]
-    pub limits: RequestLimits,
+    pub(crate) limits: RequestLimits,
 }
 
 impl RawRequestSpec {
-    pub fn from_json(json: &str) -> KernelResult<Self> {
+    pub(crate) fn from_json(json: &str) -> KernelResult<Self> {
         let spec: Self = sonic_rs::from_str(json).map_err(|reason| {
             KernelError::new(format!(
                 "raw request spec must contain valid JSON: {reason}"
@@ -733,7 +731,7 @@ impl RawRequestSpec {
         validate_prepared_http_request(&self.upstream, "raw_request")
     }
 
-    pub fn stream_upstream(&self) -> UpstreamSpec {
+    pub(crate) fn stream_upstream(&self) -> UpstreamSpec {
         self.upstream.to_upstream_spec()
     }
 }

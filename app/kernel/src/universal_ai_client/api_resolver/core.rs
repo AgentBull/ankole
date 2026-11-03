@@ -109,7 +109,7 @@ impl APIResolver {
         self.protocol.build_body(&self.provider_context)
     }
 
-    pub fn websocket_initial_messages(&self) -> Result<Vec<String>, StreamError> {
+    pub(crate) fn websocket_initial_messages(&self) -> Result<Vec<String>, StreamError> {
         self.check_prepared()?;
         self.protocol
             .websocket_initial_messages(&self.provider_context)
@@ -150,7 +150,7 @@ impl APIResolver {
             .classify_provider_rejection(&self.context, status, body)
     }
 
-    pub fn provider_exception_status(&self, exception_type: &str) -> Option<u16> {
+    pub(crate) fn provider_exception_status(&self, exception_type: &str) -> Option<u16> {
         self.protocol.provider_exception_status(exception_type)
     }
 
