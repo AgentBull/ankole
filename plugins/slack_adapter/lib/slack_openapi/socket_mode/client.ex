@@ -63,6 +63,7 @@ defmodule SlackOpenAPI.SocketMode.Client do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     opts = validate_opts!(opts)
 
     state = %__MODULE__{
@@ -312,6 +313,7 @@ defmodule SlackOpenAPI.SocketMode.Client do
   end
 
   defp reconnect_immediately(state, reason) do
+    state = clear_reconnect_timer(state)
     Logger.info("slack_openapi Socket Mode refresh requested: #{inspect(reason)}")
     send(self(), :connect)
     %{state | reconnect_timer: nil}

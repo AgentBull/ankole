@@ -16,7 +16,6 @@ import { errorMessage } from '../../common/errors'
 
 const MAX_METADATA_BYTES = 64 * 1024
 const MAX_ENABLED_SKILLS = 128
-const MAX_ENABLED_SERVERS = 32
 const MAX_DEPENDENCIES_PER_SKILL = 64
 const MAX_FILTERED_TOOLS_PER_SERVER = 256
 const ServerName = z
@@ -140,7 +139,6 @@ export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServe
       const candidate = serverConfigFromDependency(skillName, dependency)
       const existing = servers.get(candidate.name)
       if (!existing) {
-        assertMCPResourceLimit('aggregate enabled servers', servers.size + 1, MAX_ENABLED_SERVERS)
         servers.set(candidate.name, candidate)
         continue
       }
@@ -208,7 +206,7 @@ function serverConfigFromDependency(skillName: string, dependency: ParsedMCPDepe
       ...(dependency.description ? { description: dependency.description } : {}),
       transport: dependency.transport,
       url: dependency.url,
-      ...(dependency.protocol_version ? { protocolVersion: dependency.protocol_version } : {}),
+      protocolVersion: dependency.protocol_version ?? 'auto',
       ...(dependency.bearer_token_env_var ? { bearerTokenEnvVar: dependency.bearer_token_env_var } : {}),
       ...(dependency.enabled_tools ? { enabledTools: dependency.enabled_tools } : {}),
       ...(dependency.disabled_tools ? { disabledTools: dependency.disabled_tools } : {}),

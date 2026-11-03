@@ -32,10 +32,9 @@ defmodule Ankole.Sessions.Run.Tape do
 
   @doc "Restores a run inside the caller's transaction. See `restore/1`."
   def restore_in_tx(%{__struct__: Run} = run) do
-    with {:ok, reclaimed} <- reclaim_in_tx(run) do
-      publish_reclaimed(reclaimed)
-      restore_receipts(run)
-    end
+    with {:ok, reclaimed} <- reclaim_in_tx(run),
+         {:ok, restored} <- restore_receipts(run),
+         do: {:ok, restored, reclaimed}
   end
 
   defp restore_receipts(run) do

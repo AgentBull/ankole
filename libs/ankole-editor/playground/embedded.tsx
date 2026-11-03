@@ -328,6 +328,7 @@ function EmbeddedHost() {
         <div data-testid="second-editor" className="embedding-panel">
           <BlockEditor
             ariaLabel="Second document"
+            kind={new URLSearchParams(location.search).has('knowledge') ? 'knowledge' : 'doc'}
             labels={labels}
             host={host}
             initial={'# Second\n\nBeta text'}

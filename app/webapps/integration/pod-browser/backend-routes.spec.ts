@@ -181,16 +181,16 @@ test('an embedded Applet stays available after closing a responsive Page chat', 
     const available = application.getByRole('status', { name: 'Available samples', exact: true })
     await expect(available).toHaveText(/^\d+$/)
     const stock = await available.innerText()
-    await page.getByRole('button', { name: '页面对话', exact: true }).click()
-    await expect(page.getByRole('complementary', { name: '页面对话', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '助理', exact: true }).click()
+    await expect(page.getByRole('complementary', { name: '助理', exact: true })).toBeVisible()
     await page.setViewportSize({ width: 390, height: 844 })
-    const chat = page.getByRole('dialog', { name: '页面对话', exact: true })
+    const chat = page.getByRole('dialog', { name: '助理', exact: true })
     await expect(chat).toBeVisible()
     // The modal correctly removes the background Applet from the accessible tree.
     await expect
       .poll(() => embedded.locator('iframe').evaluate(element => !!element.closest('[aria-hidden="true"]')))
       .toBe(true)
-    await chat.getByRole('button', { name: '关闭页面对话', exact: true }).click()
+    await chat.getByRole('button', { name: '关闭助理', exact: true }).click()
     await expect(chat).toBeHidden()
     await expect
       .poll(() => embedded.locator('iframe').evaluate(element => !!element.closest('[aria-hidden="true"]')))

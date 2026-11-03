@@ -19,7 +19,8 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiAddLine,
+  RiArrowDownSLine,
+  RiArrowUpSLine,
   RiMoreLine,
   RiPushpinLine,
   RiNotificationOffLine,
@@ -27,12 +28,12 @@ import {
   RiDeleteBinLine,
   RiLogoutBoxLine
 } from '@remixicon/react'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
-import { podKeys, chatError } from '../api'
+import { podKeys, chatError, agentsQuery, conversationAttentionQuery, type PodAgent } from '../api'
 import {
   podConversations,
   updateConversation,
@@ -41,27 +42,27 @@ import {
 } from '../api/generated/sdk.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { contentError } from '../content-errors'
+import { formatPageTimestamp } from '../content-list'
+import { RootSectionToggle } from '../page-navigation'
 import type { RoomUpdate } from './room-api'
 import { ChatAvatar } from './chat-avatar'
+import {
+  AgentName,
+  ChatRowStatus,
+  ConversationGlyph,
+  ConversationTitle,
+  conversationLabel,
+  conversationPath,
+  type RoomRow
+} from './conversation-row'
+import { useDebouncedValue } from '../../common/use-debounced-value'
 
-export type RoomRow = NonNullable<Awaited<ReturnType<typeof podConversations>>>['conversations'][number]
-export function conversationSection(
-  date: string | null | undefined,
-  now = new Date()
-): 'today' | 'yesterday' | 'week' | 'older' {
-  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const activity = date ? new Date(date).getTime() : 0
-  return activity >= day
-    ? 'today'
-    : activity >= day - 86400000
-      ? 'yesterday'
-      : activity >= day - 7 * 86400000
-        ? 'week'
-        : 'older'
-}
+const ATTENTION = ['waiting_choice', 'streaming', 'queued', 'running_background', 'unread']
+/** Expanding the assistant group shows this many recent tasks before "Show all", so the IM list stays in view. */
+const RECENT_TASKS = 5
 
 export function ChatSidebar() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const client = useQueryClient(),
     navigate = useNavigate(),
     pathname = useLocation({ select: location => location.pathname })
@@ -69,6 +70,14 @@ export function ChatSidebar() {
   const [deleting, setDeleting] = useState<RoomRow>(),
     [leaving, setLeaving] = useState<RoomRow>(),
     [renaming, setRenaming] = useState<string>()
+  const agents = useQuery(agentsQuery)
+  const attention = useQuery(conversationAttentionQuery)
+  const [filter, setFilter] = useState('')
+  const search = useDebouncedValue(filter, 180)
+  // Collapsed, the assistant group still shows every task that needs attention ("peek").
+  const [assistant, setAssistant] = useState<'peek' | 'recent' | 'all'>('peek')
+  const [pinnedOpen, setPinnedOpen] = useState(true)
+  const [messagesOpen, setMessagesOpen] = useState(true)
   const keepFocusInRow = useRef(false)
   const menuFinalFocus = () => {
     const restore = !keepFocusInRow.current
@@ -76,9 +85,17 @@ export function ChatSidebar() {
     return restore
   }
   const rooms = useInfiniteQuery({
-    queryKey: [...podKeys.conversations, 'sidebar'],
+    queryKey: [...podKeys.conversations, 'sidebar', search],
     initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }) => podConversations({ query: { cursor: pageParam, limit: 40 }, signal }),
+    queryFn: ({ pageParam, signal }) =>
+      podConversations({ query: { cursor: pageParam, limit: 40, query: search }, signal }),
+    getNextPageParam: last => last.nextCursor ?? undefined
+  })
+  const imRooms = useInfiniteQuery({
+    queryKey: [...podKeys.conversations, 'sidebar', 'im', search],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam, signal }) =>
+      podConversations({ query: { cursor: pageParam, limit: 40, query: search, imOnly: true }, signal }),
     getNextPageParam: last => last.nextCursor ?? undefined
   })
   const onError = (error: unknown) => toast.error(requestErrorMessage(contentError(chatError(error))))
@@ -97,10 +114,9 @@ export function ChatSidebar() {
       setDeleting(undefined)
       client.removeQueries({ queryKey: podKeys.detail(room.id) })
       void client.invalidateQueries({ queryKey: podKeys.conversations })
+      void client.invalidateQueries({ queryKey: podKeys.agents })
       if (room.pageID) void client.invalidateQueries({ queryKey: podKeys.pageConversations(room.pageID) })
-      if (pathname === podLocation(`/conversations/${room.id}`).pathname) {
-        void navigate({ to: podLocation('/').pathname })
-      }
+      if (pathname === conversationPath(room)) void navigate({ to: podLocation('/').pathname })
     },
     onError
   })
@@ -112,164 +128,271 @@ export function ChatSidebar() {
       client.removeQueries({ queryKey: podKeys.detail(room.id) })
       void client.invalidateQueries({ queryKey: podKeys.conversations })
       if (room.pageID) void client.invalidateQueries({ queryKey: podKeys.pageConversations(room.pageID) })
-      if (pathname === podLocation(`/conversations/${room.id}`).pathname) {
-        void navigate({ to: podLocation('/').pathname })
-      }
+      if (pathname === conversationPath(room)) void navigate({ to: podLocation('/').pathname })
     },
     onError
   })
-  const sections = new Map<string, RoomRow[]>()
-  for (const room of rooms.data?.pages.flatMap(page => page.conversations) ?? []) {
-    const key = room.viewer.pinned ? 'pinned' : conversationSection(room.lastActivityAt)
-    sections.set(key, [...(sections.get(key) ?? []), room])
-  }
+  const listedRooms = [
+    ...new Map(
+      [
+        ...(rooms.data?.pages.flatMap(page => page.conversations) ?? []),
+        ...(imRooms.data?.pages.flatMap(page => page.conversations) ?? []),
+        ...(!search ? (attention.data ?? []) : [])
+      ].map(room => [room.id, room])
+    ).values()
+  ].sort((a, b) => Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt))
+  const pinned = listedRooms.filter(room => room.viewer.pinned)
+  const tasks = listedRooms.filter(room => !room.viewer.pinned && room.conversationKind === 'assistant_task')
+  const messages = listedRooms.filter(room => !room.viewer.pinned && room.conversationKind !== 'assistant_task')
+  const knownDMs = new Set(
+    listedRooms.filter(room => room.conversationKind === 'colleague_dm').map(room => room.agents[0]?.uid)
+  )
+  const query = search.trim().replace(/^@/, '').toLocaleLowerCase()
+  const colleagues = (agents.data?.agents ?? []).filter(
+    agent =>
+      !knownDMs.has(agent.uid) &&
+      `${agent.uid} ${agent.displayName} ${agent.role ?? ''}`.toLocaleLowerCase().includes(query)
+  )
+  const searching = !!search
+  const shownTasks =
+    searching || assistant === 'all'
+      ? tasks
+      : tasks.filter(
+          (room, index) => ATTENTION.includes(room.rowStatus) || (assistant === 'recent' && index < RECENT_TASKS)
+        )
+  const hiddenTasks = tasks.length - shownTasks.length
+  useEffect(() => {
+    if (assistant !== 'peek' && tasks.length < RECENT_TASKS && rooms.hasNextPage && !rooms.isFetchingNextPage) {
+      void rooms.fetchNextPage()
+    }
+  }, [assistant, tasks.length, rooms.hasNextPage, rooms.isFetchingNextPage, rooms.fetchNextPage])
   const close = () => {
     if (isMobile) setOpenMobile(false)
   }
-  const newChatPath = podLocation('/').pathname
+  const roomRow = (room: RoomRow) => {
+    const target = conversationPath(room)
+    const dm = room.conversationKind === 'colleague_dm'
+    const twoLines = room.conversationKind !== 'assistant_task'
+    const title = conversationLabel(room, t('pod.content.untitled'))
+    const time = twoLines ? formatPageTimestamp(room.lastActivityAt, i18n.language) : ''
+    const menu = (
+      <>
+        {!dm && (
+          <DropdownMenuItem
+            onClick={() => {
+              keepFocusInRow.current = true
+              setRenaming(room.id)
+            }}>
+            {t('pod.chat_room.rename')}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={() => update.mutate({ id: room.id, data: { pinned: !room.viewer.pinned } })}>
+          <RiPushpinLine aria-hidden />
+          {t(room.viewer.pinned ? 'pod.chat_room.unpin' : 'pod.chat_room.pin')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => update.mutate({ id: room.id, data: { muted: !room.viewer.muted } })}>
+          {room.viewer.muted ? <RiNotificationLine aria-hidden /> : <RiNotificationOffLine aria-hidden />}
+          {t(room.viewer.muted ? 'pod.chat_room.unmute' : 'pod.chat_room.mute')}
+        </DropdownMenuItem>
+        {room.canDelete && (
+          <DropdownMenuItem variant="destructive" onClick={() => setDeleting(room)}>
+            <RiDeleteBinLine aria-hidden />
+            {t('pod.chat_room.delete')}
+          </DropdownMenuItem>
+        )}
+        {!room.canDelete && room.accessScope === 'participants' && (
+          <DropdownMenuItem variant="destructive" onClick={() => setLeaving(room)} disabled={leave.isPending}>
+            <RiLogoutBoxLine aria-hidden />
+            {t('pod.chat_room.leave')}
+          </DropdownMenuItem>
+        )}
+      </>
+    )
+    const muted = room.viewer.muted && (
+      <RiNotificationOffLine className="size-3 shrink-0" aria-label={t('pod.chat_room.mute')} />
+    )
+    return (
+      <ContextMenu key={room.id}>
+        <ContextMenuTrigger render={<SidebarMenuItem className="pod-chat-row" data-lines={twoLines ? 2 : 1} />}>
+          {renaming === room.id ? (
+            <div className="pod-chat-row-editing">
+              <ConversationGlyph room={room} size={twoLines ? 'md' : 'sm'} />
+              <ChatRenameField room={room} onDone={() => setRenaming(undefined)} />
+            </div>
+          ) : (
+            <>
+              <SidebarMenuButton
+                render={<Link to={target} />}
+                isActive={pathname === target}
+                onClick={close}
+                title={title}>
+                <ConversationGlyph room={room} size={twoLines ? 'md' : 'sm'} />
+                {twoLines ? (
+                  <span className="pod-chat-row-copy" dir="auto">
+                    <span className="pod-chat-row-line">
+                      <span className="pod-chat-row-title">
+                        <ConversationTitle room={room} />
+                      </span>
+                      <span className="pod-chat-row-trailing">{time}</span>
+                    </span>
+                    <span className="pod-chat-row-line">
+                      <span className="pod-chat-row-preview">{room.latestMessagePreview}</span>
+                      <span className="pod-chat-row-trailing">
+                        {muted}
+                        <ChatRowStatus status={room.rowStatus} />
+                      </span>
+                    </span>
+                  </span>
+                ) : (
+                  <span className="pod-chat-row-line" dir="auto">
+                    <span className="pod-chat-row-title">
+                      <ConversationTitle room={room} />
+                    </span>
+                    <span className="pod-chat-row-trailing">
+                      {muted}
+                      <ChatRowStatus status={room.rowStatus} />
+                    </span>
+                  </span>
+                )}
+              </SidebarMenuButton>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="pod-chat-row-menu"
+                  render={
+                    <Button size="icon-xs" variant="ghost" aria-label={t('pod.chat_room.room_actions', { title })} />
+                  }>
+                  <RiMoreLine aria-hidden />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" finalFocus={menuFinalFocus}>
+                  {menu}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
+        </ContextMenuTrigger>
+        <ContextMenuContent finalFocus={menuFinalFocus}>{menu}</ContextMenuContent>
+      </ContextMenu>
+    )
+  }
+  const colleagueRow = (agent: PodAgent) => {
+    const target = podLocation(`/dm/${encodeURIComponent(agent.uid)}`).pathname
+    return (
+      <SidebarMenuItem key={agent.uid} className="pod-chat-row" data-lines={2}>
+        <SidebarMenuButton render={<Link to={target} />} isActive={pathname === target} onClick={close}>
+          <span className="pod-conversation-glyph" data-size="md">
+            <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
+          </span>
+          <span className="pod-chat-row-copy">
+            <span className="pod-chat-row-line">
+              <span className="pod-chat-row-title">
+                <AgentName agent={agent} />
+              </span>
+            </span>
+            <span className="pod-chat-row-line">
+              <span className="pod-chat-row-preview">{agent.role}</span>
+            </span>
+          </span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    )
+  }
+  const loadedTasks = `${tasks.length}${rooms.hasNextPage ? '+' : ''}`
   return (
     <div className="pod-chat-sidebar">
-      <div className="pb-1">
-        <Link
-          to={newChatPath}
-          className="nav-row pod-nav-link"
-          aria-current={pathname === newChatPath ? 'page' : undefined}
-          onClick={close}>
-          <RiAddLine aria-hidden />
-          <span className="truncate">{t('pod.chat.new_conversation')}</span>
-        </Link>
-      </div>
+      <Input
+        className="pod-chat-filter"
+        type="search"
+        value={filter}
+        onChange={event => setFilter(event.target.value)}
+        onKeyDown={event => {
+          if (event.key === 'Escape' && filter) {
+            event.preventDefault()
+            setFilter('')
+          }
+        }}
+        aria-label={t('pod.superagent.filter')}
+        placeholder={t('pod.superagent.filter')}
+      />
       {rooms.isPending && (
-        <p role="status" className="p-2">
+        <p role="status" className="pod-tree-empty">
           {t('pod.chat.loading_history')}
         </p>
       )}
-      {rooms.error && (
+      {(rooms.error || imRooms.error) && (
         <div className="p-2">
           <p role="alert">{t('pod.chat.history_failed')}</p>
-          <Button size="xs" variant="outline" onClick={() => void rooms.refetch()}>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => {
+              void rooms.refetch()
+              void imRooms.refetch()
+            }}>
             {t('pod.chat.retry_load')}
           </Button>
         </div>
       )}
-      {['pinned', 'today', 'yesterday', 'week', 'older']
-        .filter(key => sections.has(key))
-        .map(section => (
-          <section key={section}>
-            <h3 className="pod-chat-section-label">{t(`pod.chat_room.section_${section}`)}</h3>
-            <SidebarMenu>
-              {sections.get(section)!.map(room => {
-                const isRenaming = renaming === room.id
-                const menu = (
-                  <>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        keepFocusInRow.current = true
-                        setRenaming(room.id)
-                      }}>
-                      {t('pod.chat_room.rename')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => update.mutate({ id: room.id, data: { pinned: !room.viewer.pinned } })}>
-                      <RiPushpinLine aria-hidden />
-                      {t(room.viewer.pinned ? 'pod.chat_room.unpin' : 'pod.chat_room.pin')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => update.mutate({ id: room.id, data: { muted: !room.viewer.muted } })}>
-                      {room.viewer.muted ? <RiNotificationLine aria-hidden /> : <RiNotificationOffLine aria-hidden />}
-                      {t(room.viewer.muted ? 'pod.chat_room.unmute' : 'pod.chat_room.mute')}
-                    </DropdownMenuItem>
-                    {room.canDelete && (
-                      <DropdownMenuItem variant="destructive" onClick={() => setDeleting(room)}>
-                        <RiDeleteBinLine aria-hidden />
-                        {t('pod.chat_room.delete')}
-                      </DropdownMenuItem>
-                    )}
-                    {!room.canDelete && room.accessScope === 'participants' && (
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={() => setLeaving(room)}
-                        disabled={leave.isPending}>
-                        <RiLogoutBoxLine aria-hidden />
-                        {t('pod.chat_room.leave')}
-                      </DropdownMenuItem>
-                    )}
-                  </>
-                )
-                return (
-                  <ContextMenu key={room.id}>
-                    <ContextMenuTrigger render={<SidebarMenuItem className="pod-chat-row flex items-center" />}>
-                      {isRenaming ? (
-                        <div className="flex h-7 w-full min-w-0 items-center gap-2 pr-1 pl-2 text-[13px]">
-                          {room.agents.length > 0 && (
-                            <span className="pod-chat-avatar-cluster">
-                              {room.agents.slice(0, 2).map(agent => (
-                                <ChatAvatar key={agent.uid} name={agent.displayName} src={agent.avatarURL} agent />
-                              ))}
-                            </span>
-                          )}
-                          <ChatRenameField room={room} onDone={() => setRenaming(undefined)} />
-                        </div>
-                      ) : (
-                        <>
-                          <SidebarMenuButton
-                            render={<Link to={podLocation(`/conversations/${room.id}`).pathname} />}
-                            isActive={pathname === podLocation(`/conversations/${room.id}`).pathname}
-                            onClick={close}
-                            title={room.title || t('pod.content.untitled')}>
-                            {room.agents.length > 0 && (
-                              <span className="pod-chat-avatar-cluster">
-                                {room.agents.slice(0, 2).map(agent => (
-                                  <ChatAvatar key={agent.uid} name={agent.displayName} src={agent.avatarURL} agent />
-                                ))}
-                              </span>
-                            )}
-                            <span className="min-w-0 flex-1 truncate text-left" dir="auto">
-                              {room.title || t('pod.content.untitled')}
-                            </span>
-                            {room.viewer.muted && (
-                              <RiNotificationOffLine className="size-3 shrink-0" aria-label={t('pod.chat_room.mute')} />
-                            )}
-                          </SidebarMenuButton>
-                          <span className="pod-chat-row-status">
-                            <ChatRowStatus status={room.rowStatus} />
-                          </span>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              className="pod-chat-row-menu"
-                              render={
-                                <Button
-                                  size="icon-xs"
-                                  variant="ghost"
-                                  aria-label={t('pod.chat_room.room_actions', { title: room.title })}
-                                />
-                              }>
-                              <RiMoreLine aria-hidden />
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" finalFocus={menuFinalFocus}>
-                              {menu}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </>
-                      )}
-                    </ContextMenuTrigger>
-                    <ContextMenuContent finalFocus={menuFinalFocus}>{menu}</ContextMenuContent>
-                  </ContextMenu>
-                )
-              })}
-            </SidebarMenu>
-          </section>
-        ))}
-      {!rooms.isPending && !rooms.error && !sections.size && (
-        <p className="p-2 text-fg-tertiary">{t('pod.sidebar.chat_empty')}</p>
+      {pinned.length > 0 && (
+        <ChatSection
+          label={t('pod.chat_room.section_pinned')}
+          open={pinnedOpen || searching}
+          onToggle={() => setPinnedOpen(!pinnedOpen)}>
+          {(pinnedOpen || searching) && pinned.map(roomRow)}
+        </ChatSection>
       )}
-      {rooms.hasNextPage && (
+      {tasks.length > 0 && (
+        <ChatSection
+          label={t('pod.chat.personal_assistant')}
+          count={loadedTasks}
+          open={assistant !== 'peek' || searching}
+          onToggle={() => setAssistant(assistant === 'peek' ? 'recent' : 'peek')}
+          footer={
+            !searching &&
+            assistant !== 'peek' &&
+            (hiddenTasks > 0 || assistant === 'all') && (
+              <button
+                type="button"
+                className="nav-row pod-nav-link pod-chat-section-more"
+                onClick={() => {
+                  if (assistant === 'all') {
+                    if (rooms.hasNextPage) void rooms.fetchNextPage()
+                    else setAssistant('recent')
+                  } else setAssistant('all')
+                }}>
+                {assistant === 'all' && !rooms.hasNextPage ? (
+                  <RiArrowUpSLine aria-hidden />
+                ) : (
+                  <RiArrowDownSLine aria-hidden />
+                )}
+                <span>
+                  {assistant === 'all'
+                    ? t(rooms.hasNextPage ? 'pod.superagent.show_more' : 'pod.superagent.show_less')
+                    : t('pod.superagent.show_all', { count: hiddenTasks })}
+                </span>
+              </button>
+            )
+          }>
+          {shownTasks.map(roomRow)}
+        </ChatSection>
+      )}
+      {(messages.length > 0 || colleagues.length > 0) && (
+        <ChatSection
+          label={t('pod.superagent.messages_colleagues')}
+          open={messagesOpen || searching}
+          onToggle={() => setMessagesOpen(!messagesOpen)}>
+          {(messagesOpen || searching) && [...messages.map(roomRow), ...colleagues.map(colleagueRow)]}
+        </ChatSection>
+      )}
+      {!rooms.isPending && !rooms.error && !listedRooms.length && !colleagues.length && (
+        <p className="pod-tree-empty">{t(searching ? 'pod.superagent.no_matches' : 'pod.sidebar.chat_empty')}</p>
+      )}
+      {imRooms.hasNextPage && (
         <Button
           className="w-full"
           size="sm"
           variant="ghost"
-          disabled={rooms.isFetchingNextPage}
-          onClick={() => void rooms.fetchNextPage()}>
+          disabled={imRooms.isFetchingNextPage}
+          onClick={() => void imRooms.fetchNextPage()}>
           {t('pod.chat_room.load_more')}
         </Button>
       )}
@@ -380,12 +503,31 @@ function ChatRenameField({ room, onDone }: { room: RoomRow; onDone(): void }) {
   )
 }
 
-export function ChatRowStatus({ status }: { status: RoomRow['rowStatus'] }) {
-  const { t } = useTranslation()
-  if (status === 'idle') return null
+/** A Chat sidebar group, headed and toggled the same way as the Home sections. */
+function ChatSection({
+  label,
+  count,
+  open,
+  onToggle,
+  footer,
+  children
+}: {
+  label: string
+  count?: string
+  open: boolean
+  onToggle(): void
+  footer?: ReactNode
+  children: ReactNode
+}) {
   return (
-    <span role="img" aria-label={t(`pod.chat_room.status_${status}`)} title={t(`pod.chat_room.status_${status}`)}>
-      <span className={`pod-chat-status-dot pod-chat-status-${status}`} />
-    </span>
+    <section aria-label={label} className="pod-nav-section">
+      <div className="pod-nav-section-heading">
+        <RootSectionToggle open={open} label={label} onToggle={onToggle} />
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {count && <span className="pod-chat-section-count">{count}</span>}
+      </div>
+      <SidebarMenu>{children}</SidebarMenu>
+      {footer}
+    </section>
   )
 }

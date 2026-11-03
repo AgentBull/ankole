@@ -221,7 +221,7 @@ defmodule Ankole.Signals.WebhooksTest do
                now: @now
              )
 
-    assert endpoint.automation_job_id == job.id
+    assert Ankole.Signals.source_automation_job_id(endpoint) == job.id
 
     assert {:ok,
             %{

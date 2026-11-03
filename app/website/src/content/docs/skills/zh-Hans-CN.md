@@ -5,16 +5,14 @@ section: User guide
 order: 32
 ---
 
-站点管理控制台中的 **Agent 能力库** 页面集中管理两类职责边界完全正交的扩展组件：一类是作用于租户与单个 Agent 的模型层能力（**Agent Plugin** 与 **Skill**），另一类则是严格限定在**站点级（Site-Scoped）**的底层平台扩展（**Control Plane Plugin**，仅在顶部作用域选为**全局默认值**时显示）。
-
-这三类组件全部是随当前部署镜像构建分发的第一方受信代码。Agent 能力库并非开放的第三方插件市场——在页面上开启任何能力，都不会在运行时从公网拉取未经审计的外部代码。
+成员在 **Meta Ankole → Skills** 中管理完整技能包，Console 的 **Agent 能力库** 也提供能力开关；站点管理员在站点管理控制台管理 Control Plane Plugin。内置技能和 Agent Plugin 随 Ankole 分发，有权限的成员可以创建或导入自定义 Skill。
 
 ## 先分清三类能力
 
 | 类型 | 作用域 | 核心用途 | 生效时机 |
 |---|---|---|---|
 | **Agent Plugin** | 租户默认值 + 单 Agent 覆盖 | 将一组配套的 Skill、MCP 集成与工作区模板打包为完整业务能力 | Agent 的下一轮工作 |
-| **Skill** | 租户默认值 + 单 Agent 覆盖 | 向 Agent 传授某类可重复工作的标准作业说明与配套脚本资源 | Agent 的下一轮工作 |
+| **Skill** | 为所有 Agent 开启，或绑定指定 Agent | 向 Agent 传授某类可重复工作的标准作业说明与配套脚本资源 | Agent 的下一轮工作 |
 | **Control Plane Plugin** | 仅站点级（`/api/v2/site/control-plane-plugins`） | 编译期装入的全栈平台扩展（含子系统适配器、受监督 OTP 进程、外层 HTTP Plug、扩展路由、领域事务钩子、配置表单与前端强类型 UI 插槽） | 随构建固定启用（`activation: :always`），或控制面下次启动时生效（`activation: :optional`） |
 
 ### Agent Plugin：一组可以共同启用的能力
@@ -63,11 +61,9 @@ ankole-runtime: any
 
 该字段仅控制对应 Skill 出现在哪一类执行环境的目录中，本身不会触发后台任务创建。例如，Deep Research 的入口协调 Skill 标记为 `main`，专门负责在聊天窗口中与用户敲定调研范围并派发任务；而真正承担长耗时文献检索与交叉验证的子 Skill，则在后台任务环境中加载运行。
 
-#### Ankole 扩展：通过 Brain 发现 Skill
+#### 共享技能包
 
-部分专业 SOP 与细分方法论只有在遇到特定类型的课题时才派得上用场，若常驻在每次请求的默认目录里反而白白消耗上下文。为此，随系统发布的内置 Skill 可在头部声明 `brain-recall-only: true`：它依然是标准 Skill，继续遵循原有的父级 Agent Plugin 开关、单 Skill 启用状态、`ankole-runtime` 执行位置限制及 `skill_view` 加载契约，区别仅在于平时不列入模型直接可见的默认 Skill 目录，改由 Brain 通过语义检索按需召回。
-
-运行时，Brain 会检索各候选 Skill 的名称、描述与标签；一旦命中相关条目，Agent 即可调用 `skill_view` 读取详情——`skill_view` 会严格核查 `ankole-runtime` 约束，在匹配的执行环境中加载正文，或返回明确的环境路由提示与权限拒绝。只要关闭了该 Skill 或其所属的父级 Agent Plugin，当前 Agent 就既无法通过 Brain 检索到它，也无法直接加载它（注：此语义发现路径要求实例已启用 Brain）。这一模式非常适合存放体量较大、按需取用但无需每轮常驻提示词的专业方法论与行业 Playbook。
+每个 Skill 包含必选的 `SKILL.md` 和配套文件，统一在 [Meta Ankole](../agent-library/) 中管理。启用技能的 Agent 可从 `/drive/Skills/<slug>/` 读取完整包。`skill_view` 加载清单，参考文件由 Agent 按相对路径主动读取。技能指令与 Brain 知识各自独立。
 
 ### Control Plane Plugin：站点级全栈平台扩展
 
@@ -84,26 +80,15 @@ Control Plane Plugin 与 OpenAI Plugin 毫无关系，既不进入任何 Agent �
 
 ## 管理 Agent Plugin 和 Skill
 
-### 设置实例默认值
+### 启用 Skill
 
-1. 打开 Console 的 **Agent 能力库** 页面。
-2. 将顶部作用域保持为**全局默认值**。
-3. 在 **Agent Plugins** 或 **Skills** 标签页中找到目标能力项。
-4. 切换默认启用或关闭状态。
+打开 **Meta Ankole → Skills** 并选择技能。管理员可为所有 Agent 开启技能，或绑定指定 AI 同事；每位成员可为自己的助理开关技能。全局开关开启时，个体开关显示为已开启且不可修改；关闭全局开关后，原有个体绑定恢复。自定义技能创建时默认关闭。
 
-此处设定的默认值决定了后续新建 Agent 以及未单独配置例外覆盖的现有 Agent 是否默认拥有该能力。开关变更不会打断已经在途运行的推理回合，自该 Agent 的下一轮工作起才会加载更新后的能力集合。
+Agent Plugin 中的技能还要求该 Agent 已启用父 Plugin。修改在下一轮工作生效；已创建的后台任务仍受初始能力白名单限制。
 
-日常运维中最省心的做法是：将绝大多数岗位通用的基础能力设为全局默认开启，再针对个别职责受限的 Agent 单独收窄；而对于仅服务于少数专职岗位、依赖高权限外部密钥或伴随明显外发风险的能力，则建议保持全局默认关闭，仅对目标 Agent 定向放开。
+### 配置 Agent Plugin
 
-### 为单个 Agent 设置例外
-
-1. 在 **Agent 能力库** 页面顶部，将作用域下拉框切换为目标 Agent。
-2. 找到需要调整的 Agent Plugin 或 Skill。
-3. 将状态设为**跟随全局**、**开启**或**关闭**。
-
-选择**跟随全局**代表清除该 Agent 的独立覆盖值，日后调整全局默认开关时该 Agent 会随之同步变化；显式选定**开启**或**关闭**则会保存为该 Agent 专属的独立策略。
-
-当一个 Agent Plugin 内包含多个子 Skill 时，关闭父级 Plugin 会令其下辖的所有子 Skill 暂时一并停用，但不会覆盖各子 Skill 原本保存的独立开关状态；日后重新开启父级 Plugin 后，各子 Skill 会立即恢复原先各自的启用或关闭设置。
+在 Console 的 **Agent 能力库** 中，选择**全局默认值**设置 Plugin 默认状态，或选择某个 Agent，将其设为**跟随全局**、**开启**或**关闭**。关闭 Plugin 会使成员技能不可用，但保留技能绑定。
 
 ### 复核技能教训
 
@@ -143,10 +128,10 @@ kubectl -n ankole rollout restart deployment/ankole-control-plane
 
 ### Agent Plugin 和 Skill
 
-- **在能力库列表中找不到目标项**：检查当前运行的部署镜像版本是否已打包该组件——能力库仅展示随当前实例构建安装的第一方组件。
+- **找不到目标能力**：检查已安装的包与当前作用域。自定义技能通过 Meta Ankole 创建或导入，官方包需包含在部署中。
 - **单个 Skill 显示已开启，但 Agent 依然无法调用**：检查其所属的父级 Agent Plugin 是否处于关闭状态，确认开启后发起新一轮对话再试。
 - **某项 Skill 只在主对话中可见，或只在后台任务中可用**：核对该 Skill 头部声明的 `ankole-runtime` 字段——设为 `main` 的不会注入后台任务，设为 `background_job` 的也不会出现在日常前台对话中。
-- **调整全局默认值后，个别 Agent 并未同步生效**：这些 Agent 大概率配置了单 Agent 独立覆盖值，请将顶部作用域切换至对应 Agent 检查并改回“跟随全局”。
+- **个别 Agent 未跟随 Plugin 全局默认值**：检查该 Agent 的 Plugin 覆盖设置。Skill 使用全局开关与个体绑定决定是否启用。
 - **创建后台任务时无法选用预期的工作区模板**：确认提供该模板的 Agent Plugin 已对当前 Agent 启用，且该插件包内确实包含 `workspace-template/` 目录。
 
 ### Control Plane Plugin

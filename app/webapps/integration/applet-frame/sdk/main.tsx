@@ -101,6 +101,13 @@ const runtime: AppletRuntime = {
   instanceID: 'sdk-fixture',
   actions: ['node_view', 'node_contribute'],
   revision: 7,
+  runs: {
+    key: id => ['sdk-fixture', 'run', id],
+    get: async () => {
+      throw new Error('This fixture exercises table and route reads')
+    },
+    subscribe: () => () => {}
+  },
   routes: {
     key: () => ['sdk-fixture', 'routes', 7],
     async call<T>({ method, path, ...request }: RouteCall) {

@@ -152,7 +152,7 @@ defmodule Ankole.Principals.Humans do
   # (people/<uid> or agents/<uid>); the creation transaction keeps that
   # invariant so holder attribution and recall never miss a subject page.
   def insert_principal(attrs) do
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
 
     with :ok <- allow_guest_admission(attrs),
          {:ok, principal} <-
@@ -164,17 +164,17 @@ defmodule Ankole.Principals.Humans do
   end
 
   defp ensure_private_root(%Principal{type: :agent, uid: uid}) do
-    with {:ok, _} <- Ankole.Files.ensure_private_root_in_tx(uid), do: :ok
+    with {:ok, _} <- Ankole.Pod.ensure_private_root_in_tx(uid), do: :ok
   end
 
   defp ensure_private_root(%Principal{type: :human, membership: :member, uid: uid}) do
-    with {:ok, _} <- Ankole.Files.ensure_private_root_in_tx(uid), do: :ok
+    with {:ok, _} <- Ankole.Pod.ensure_private_root_in_tx(uid), do: :ok
   end
 
   defp ensure_private_root(_principal), do: :ok
 
   defp ensure_canonical_brain_object(%Principal{type: type} = principal)
-       when type in [:human, :agent] do
+       when type == :human do
     Ankole.Brain.Objects.ensure_canonical_object_in_tx(
       principal.uid,
       type,
@@ -236,7 +236,7 @@ defmodule Ankole.Principals.Humans do
   def change_human_membership(_uid, _membership), do: {:error, :invalid_membership}
 
   def change_human_membership_in_tx(uid, membership) do
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
 
     with :ok <- allow_guest_admission(%{membership: membership}),
          {:ok, principal} <- lock_principal_in_tx(uid),
@@ -246,6 +246,7 @@ defmodule Ankole.Principals.Humans do
              Ankole.Ash.update(principal, :membership_in_tx, %{membership: membership}),
            :ok <- ensure_private_root(principal),
            :ok <- Principals.sync_personal_assistant_in_tx(principal),
+           :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(principal),
            do: {:ok, principal}
     end
   end

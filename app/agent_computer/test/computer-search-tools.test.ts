@@ -9,6 +9,8 @@ import { FffSearchRuntime } from '../src/tools/computer/fff-search'
 import { createFindTool } from '../src/tools/computer/find-tool'
 import { createGrepTool } from '../src/tools/computer/grep-tool'
 import { createLsTool } from '../src/tools/computer/ls-tool'
+import { DriveView } from '../src/drive/mounts'
+import { resolveScopedDrivePath, visibleDrivePath } from '../src/drive/paths'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
 
 function textOf(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -349,4 +351,38 @@ describe('read_file budget clipping', () => {
     expect(text).toContain(`${nextOffset - 1}|`)
     expect(text).not.toContain(`\n${nextOffset}|`)
   })
+})
+
+it('structured tools expose the same Brain, Skill and contract roots as the execution namespace', async () => {
+  const { agentHome, workspaceRoot } = makeHome()
+  const scope = join(agentHome, 'scope')
+  const library = join(agentHome, 'library')
+  const chat = join(agentHome, 'chat')
+  for (const path of [`${scope}/Brain`, `${scope}/Public`, `${scope}/AgentDrive`, `${library}/Skills/demo`, chat]) {
+    mkdirSync(path, { recursive: true })
+  }
+  writeFileSync(`${library}/AGENTS.md`, 'Agent contract')
+  writeFileSync(`${library}/DESIGN.md`, 'Design contract')
+  writeFileSync(`${library}/Skills/demo/SKILL.md`, 'Skill manifest')
+  const mount = (path: string) => ({ key: path, path, references: 1, token: '', endpoint: '' })
+  const view = new DriveView(
+    'test',
+    mount(scope),
+    mount(chat),
+    mount(library),
+    join(agentHome, 'recovery'),
+    async () => {},
+    () => {}
+  )
+  const ls = createLsTool({ ...searchContext(agentHome, workspaceRoot), driveView: view })
+  const root = textOf(await ls.execute('root', { path: '/drive' }))
+  for (const name of ['Brain/', 'Skills/', 'AGENTS.md', 'DESIGN.md', 'ChatDrive/', 'Public/', 'AgentDrive/']) {
+    expect(root).toContain(name)
+  }
+  const packageFiles = textOf(await ls.execute('skill', { path: '/drive/Skills/demo' }))
+  expect(packageFiles).toContain('SKILL.md')
+  const resolved = await resolveScopedDrivePath(view, '/drive/Skills/demo/SKILL.md')
+  expect(resolved).toBe(`${library}/Skills/demo/SKILL.md`)
+  expect(visibleDrivePath(view, resolved)).toBe('/drive/Skills/demo/SKILL.md')
+  expect(await resolveScopedDrivePath(view, '/drive/AGENTS.md')).toBe(`${library}/AGENTS.md`)
 })

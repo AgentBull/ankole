@@ -1,62 +1,7 @@
 defmodule Ankole.Signals.CloudEvents do
   @moduledoc "Structured JSON CloudEvents source adapter with endpoint-specific routing."
 
-  require Ash.Query
-  alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Ecto.JSONPayload
-  alias Ankole.Principals.WorkAccess
-  alias Ankole.Signals
-  alias Ankole.Signals.{Binding, BindingFilters}
-
-  @doc "Routes a validated CloudEvent to each matching subscription in one transaction."
-  def accept_in_tx(endpoint, event, now) do
-    with {:ok, event} <- normalize(event) do
-      reference = "webhook-endpoint://#{endpoint.id}"
-
-      Binding
-      |> Ash.Query.filter(
-        adapter == "cloudevents" and config_ref == ^reference and enabled and
-          is_nil(unavailable_reason)
-      )
-      |> Ash.Query.sort(agent_uid: :asc, name: :asc)
-      |> Ankole.Ash.read!()
-      |> Enum.reduce_while({:ok, []}, fn binding, {:ok, accepted} ->
-        case BindingFilters.match_event?(binding.filters, event, binding) do
-          :no_match ->
-            {:cont, {:ok, accepted}}
-
-          :match ->
-            with {:ok, target} <- target(binding, event),
-                 {:ok, signal} <-
-                   Signals.accept_in_tx(%{
-                     producer: :external,
-                     source: event["source"],
-                     id: event["id"],
-                     type: event["type"],
-                     subject: event["subject"],
-                     time: event["time"] || now,
-                     data: event["data"],
-                     extensions:
-                       Map.drop(event, ~w(specversion id source type subject time data)),
-                     target: target,
-                     sender: nil,
-                     authorization: WorkAccess.service()
-                   }) do
-              {:cont, {:ok, [signal | accepted]}}
-            else
-              error -> {:halt, error}
-            end
-
-          error ->
-            {:halt, error}
-        end
-      end)
-      |> case do
-        {:ok, accepted} -> {:ok, accepted |> Enum.reverse() |> Enum.uniq_by(& &1.id)}
-        error -> error
-      end
-    end
-  end
 
   @doc "Validates the supported structured JSON event fields without altering producer identity."
   def normalize(%{"specversion" => "1.0"} = event) do
@@ -115,24 +60,6 @@ defmodule Ankole.Signals.CloudEvents do
 
   defp extension_value?(value) when is_binary(value), do: valid_string?(value)
   defp extension_value?(_value), do: false
-
-  defp target(%Binding{agent_uid: uid, target: target}, _event)
-       when map_size(target) == 1 do
-    case ExecutionTarget.parse(target) do
-      {:conversation, id} ->
-        {:ok, %{agent_uid: uid, conversation_id: id}}
-
-      {:session, key} ->
-        if Ankole.Sessions.Key.routable?(key),
-          do: {:ok, %{agent_uid: uid, session_id: key}},
-          else: {:error, :invalid_signal_target}
-
-      :error ->
-        {:error, :invalid_signal_target}
-    end
-  end
-
-  defp target(_binding, _event), do: {:error, :invalid_signal_target}
 
   defp context_text(value) when is_binary(value) do
     if value != "" and valid_string?(value),

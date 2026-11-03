@@ -32,22 +32,13 @@ group memory の開示モードは、複数のメンバーが回答を閲覧で�
 
 ダイレクトメッセージではどちらのモードでも同じ動作になります。グループ内でより広い情報共有を明示的に許容している場合を除き、通常は **Strict** を選択してください。知識境界と開示制御の全体像については、[Brain](../brain/) を参照してください。
 
-## 永続的なドキュメントを設定する
+## Agent の規約を設定する
 
-Agent の詳細ページで **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** を開きます。
+**Meta Ankole → Agents** で全体の基準または個別 Agent の `AGENTS.md` と `DESIGN.md` を編集します。`AGENTS.md` は行動と責務、`DESIGN.md` は Web ページ、スライド、文書、図表の視覚表現を定義します。
 
-| ドキュメント | 書くべき内容 |
-|---|---|
-| `MISSION.md` | Agent の存在目的、担当する業務範囲、どのような状態を完了とみなすか |
-| `SOUL.md` | コミュニケーションのスタイル、意思決定の基準、不確実な状況への向き合い方 |
-| `DESIGN.md` | Web ページ、スライド、ドキュメント、チャートなど視覚的な制作物のデザインシステム |
-| `ConfidentialityPolicy.md` | Agent が Brain に知識を書き込む際、どのように audience スコープを選ぶか |
+各 Agent の規約は、全体の基準を継承、追記、または置換できます。DESIGN のメタデータにはデザイントークン、本文には適用方法を記述します。個人アシスタントの設定を閲覧・編集できるのは所有者本人だけです。[Agent Library](../agent-library/) を参照してください。
 
-`DESIGN.md` には <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md 形式</a>を使用します。YAML frontmatter にカラー、タイポグラフィ、余白、角丸、コンポーネントなどのデザイントークンを記述し、Markdown 本文にデザイン原則と適用ガイドラインを記述します。Ankole にはすぐに使える標準デザインシステムが用意されていますが、**Console → Agents → DESIGN** から自社ブランドのデザインシステムに置き換えることもできます。
-
-なお、業務ワークフローや権限境界、行動ルールを `DESIGN.md` には記述しないでください。それらは `MISSION.md`、`SOUL.md`、`ConfidentialityPolicy.md`、または個別の Skill に記述します。`ConfidentialityPolicy.md` は Agent 自身が能動的に Brain へ書き込む際の判断基準として使われます（チャットからの自動学習では、会話の参加者にもとづいて audience が自動的に決まります）。最初はシンプルで明確な記述から始め、実際の運用を通じて必要になったルールだけを段階的に追加していくのが効果的です。
-
-保存した変更は次の会話から反映されます。すでに実行中の作業は、開始時点で読み込まれたバージョンのまま最後まで処理されます。
+保存した変更は、Codex Job の再開を含む次の Turn から適用されます。現在の Turn は開始時に全文を読み込んだ規約を使います。
 
 ## モデルを設定する
 

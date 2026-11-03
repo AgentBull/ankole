@@ -2,8 +2,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium, expect } from '@playwright/test'
-import { podLocation } from './common/browser-context'
+import anyAscii from 'any-ascii'
+import { installPageTransliteration, podLocation, podPagePath, podPageRouteID } from './common/pod-url'
 import { uuidShorten } from './common/uuid-url'
+
+installPageTransliteration(anyAscii)
 
 const state = JSON.parse(readFileSync(process.argv[1], 'utf8'))
 const browser = await chromium.launch()
@@ -25,10 +28,13 @@ page.on('requestfailed', request => {
 const path = value => podLocation(value).pathname
 const url = value => `${state.base_url}${path(value)}`
 
-async function capture(name) {
+async function capture(
+  name,
+  id = state.report_id ?? state.applet_id ?? state.child_id ?? state.page_id ?? state.conversation_id
+) {
   const directory = process.env.POD_REAL_LLM_ARTIFACT_DIR ?? join(tmpdir(), 'ankole-pod-real-llm-artifacts')
   mkdirSync(directory, { recursive: true })
-  const path = join(directory, `${name}-${state.report_id ?? state.applet_id ?? state.child_id ?? state.page_id}.png`)
+  const path = join(directory, `${name}-${id}.png`)
   // Preserve contenteditable styles while capturing live embeds.
   await page.screenshot({ path, fullPage: true, caret: 'initial' })
   screenshots.push(path)
@@ -36,11 +42,13 @@ async function capture(name) {
 
 async function openDeliveredPage(conversationID, pageID) {
   await page.goto(url(`/conversations/${conversationID}`))
-  const link = page.locator(`a.link[href*="${path(`/pages/${pageID}`)}"]`).last()
+  const link = page.locator(`.pod-chat-agent-message a[href*="${uuidShorten(pageID)}"]`).last()
   await expect(link).toBeVisible({ timeout: 30_000 })
   const href = await link.getAttribute('href')
   await link.click()
-  await expect.poll(() => new URL(page.url()).pathname).toBe(path(`/pages/${pageID}`))
+  await expect
+    .poll(() => podPageRouteID(new URL(page.url()).pathname.replace(/^\/(?:pages|meta\/brain)\//, '')))
+    .toBe(pageID)
   return { href, opened_url: page.url() }
 }
 
@@ -48,12 +56,40 @@ async function sendMessage() {
   let composer = page
   if (state.page_id) {
     await page.goto(url(`/pages/${state.page_id}`))
-    await page.getByRole('button', { name: 'Page chat', exact: true }).click()
-    composer = page.getByRole('complementary', { name: 'Page chat', exact: true })
+    await page.getByRole('button', { name: 'Assistant', exact: true }).click()
+    composer = page.getByRole('complementary', { name: 'Assistant', exact: true })
     await expect(composer).toBeVisible()
-    await expect(composer.getByText('Current page:', { exact: false })).toBeVisible()
+    await expect(composer.locator('.pod-page-chat-header')).toBeVisible()
+  } else if (state.peer_origin_id) {
+    await page.goto(url(`/conversations/${state.peer_origin_id}`))
+    const href = path(`/dm/${state.colleague_uid}`)
+    const card = page
+      .locator('[data-peer-exchange]')
+      .filter({ has: page.locator(`a[href="${href}"]`) })
+      .last()
+    const disclosure = card.locator('details')
+    await expect(card).toBeVisible({ timeout: 30_000 })
+    await expect(disclosure).not.toHaveAttribute('open')
+    await capture('peer-card', state.peer_origin_id)
+    await card.locator('summary').click()
+    await expect(disclosure).toHaveAttribute('open', '')
+    await capture('peer-card-expanded', state.peer_origin_id)
+    await card.locator('summary').click()
+    await card.getByRole('link', { name: `← @${state.colleague_uid}`, exact: true }).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => new URL(page.url()).pathname).toBe(href)
+    await page.reload()
+    await expect.poll(() => new URL(page.url()).pathname).toBe(href)
   } else {
-    await page.goto(url(state.conversation_id ? `/conversations/${state.conversation_id}` : '/'))
+    await page.goto(
+      url(
+        state.conversation_id
+          ? `/conversations/${state.conversation_id}`
+          : state.colleague_uid
+            ? `/dm/${state.colleague_uid}`
+            : '/'
+      )
+    )
   }
   const input = composer.getByRole('textbox', { name: 'Message', exact: true })
   await expect(input).toBeEnabled({ timeout: 30_000 })
@@ -77,9 +113,20 @@ async function sendMessage() {
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(detail.conversation.id))
     expect(detail.conversation.pageID).toBe(state.page_id)
     await page.reload()
-    await expect(page.getByRole('complementary', { name: 'Page chat', exact: true })).toContainText(state.text)
+    await expect(page.getByRole('complementary', { name: 'Assistant', exact: true })).toContainText(state.text)
   } else {
-    await expect.poll(() => new URL(page.url()).pathname).toBe(path(`/conversations/${detail.conversation.id}`))
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe(path(state.colleague_uid ? `/dm/${state.colleague_uid}` : `/conversations/${detail.conversation.id}`))
+  }
+  if (state.facts) {
+    const reply = composer
+      .locator('.pod-chat-agent-message > div > .pod-chat-markdown')
+      .filter({ hasText: state.facts[0] })
+      .last()
+    for (const fact of state.facts) await expect(reply).toContainText(fact, { timeout: 300_000 })
+    await expect(reply).toBeVisible()
+    await capture(state.colleague_uid ? 'peer-dm-followup' : 'assistant-followup', detail.conversation.id)
   }
   return {
     conversation_id: detail.conversation.id,
@@ -87,6 +134,144 @@ async function sendMessage() {
     page_id: submitted.pageID ?? null,
     text: submitted.text
   }
+}
+
+async function editSkill() {
+  await page.goto(`${state.base_url}/meta/skills/${state.skill_slug}`)
+  const manifest = page.locator('section').filter({ has: page.getByRole('heading', { name: 'SKILL.md', exact: true }) })
+  await manifest.getByRole('button', { name: 'Edit', exact: true }).click()
+  await manifest.locator('.editor-content').fill(state.text)
+  const saved = page.waitForResponse(
+    response =>
+      response.request().method() === 'PUT' &&
+      new URL(response.url()).pathname.endsWith(`/meta/skills/${state.skill_slug}`)
+  )
+  await manifest.getByRole('button', { name: 'Save', exact: true }).click()
+  expect((await saved).status()).toBe(200)
+  await manifest.getByRole('button', { name: 'Edit', exact: true }).waitFor()
+  await page.reload()
+  await expect(manifest).toContainText(state.text)
+  await capture('team-skill-edit', state.skill_slug)
+  return { skill_slug: state.skill_slug }
+}
+
+async function editKnowledge() {
+  await page.goto(url(`/pages/${state.page_id}`))
+  const knowledge = page.locator('[data-knowledge-page]')
+  await knowledge.getByRole('button', { name: 'Edit', exact: true }).click()
+  await knowledge.locator('.editor-content').fill(state.text)
+  const saved = page.waitForResponse(
+    response =>
+      response.request().method() === 'PUT' &&
+      new URL(response.url()).pathname.endsWith(`/pages/${state.page_id}/content`)
+  )
+  await knowledge.getByRole('button', { name: 'Save', exact: true }).click()
+  expect((await saved).status()).toBe(200)
+  await knowledge.getByRole('button', { name: 'Edit', exact: true }).waitFor()
+  await page.reload()
+  await expect(knowledge).toContainText(state.text)
+  await capture('team-knowledge-edit')
+  return { page_id: state.page_id, text: await knowledge.innerText() }
+}
+
+async function knowledge() {
+  const delivery = await openDeliveredPage(state.conversation_id, state.page_id)
+  await expect(page.getByRole('textbox', { name: 'Page title', exact: true })).toHaveValue(state.title)
+  const content = page.locator('[data-knowledge-page]')
+  await expect(content.locator('[contenteditable="true"]')).toHaveCount(0)
+  for (const fact of state.facts) await expect(content).toContainText(fact)
+  await page.reload()
+  for (const fact of state.facts) await expect(content).toContainText(fact)
+  await capture('saved-pilot-proposal')
+  return { action: 'knowledge', page_id: state.page_id, ...delivery }
+}
+
+async function answerPeer() {
+  await page.goto(url('/'))
+  await page.getByRole('tab', { name: 'Home', exact: true }).click()
+  const chatBadge = page
+    .getByRole('tab', { name: 'Chat', exact: true })
+    .getByLabel('1 conversations need attention', { exact: true })
+  await expect(chatBadge).toHaveText('1')
+  await expect.poll(async () => (await chatBadge.boundingBox())?.width ?? 0).toBeGreaterThan(5)
+  await expect(chatBadge).toBeInViewport()
+  const recent = page.locator('.pod-navigation').locator(`a[href="${path(`/conversations/${state.conversation_id}`)}"]`)
+  await expect(recent).toBeVisible()
+  await expect(recent.getByRole('img', { name: 'Waiting for a decision', exact: true })).toBeVisible()
+  await capture('peer-attention-home')
+  await page.getByRole('tab', { name: 'Chat', exact: true }).click()
+  const sidebar = page.locator('.pod-chat-sidebar')
+  await expect(sidebar.getByRole('button', { name: 'Personal assistant', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'false'
+  )
+  const task = sidebar.locator(`a[href="${path(`/conversations/${state.conversation_id}`)}"]`)
+  await expect(task).toBeVisible()
+  await expect(task.locator('..').getByRole('img', { name: 'Waiting for a decision', exact: true })).toBeVisible()
+  await task.click()
+  const card = page.locator('.pod-chat-choice-card[data-state="pending"]')
+  await expect(card).toBeVisible({ timeout: 30_000 })
+  await expect(card.locator('..')).toContainText('Legal colleague')
+  const exchange = page.locator('[data-peer-exchange]').first()
+  await exchange.getByRole('button', { name: 'View details', exact: true }).click()
+  const drawer = page.getByRole('dialog')
+  await expect(drawer).toContainText(state.colleague_uid)
+  await expect(drawer).toContainText('contract')
+  await drawer.getByRole('button', { name: 'Close', exact: true }).click()
+  await card.getByRole('textbox', { name: 'Your answer', exact: true }).fill(state.answer)
+  const response = page.waitForResponse(
+    response =>
+      response.request().method() === 'POST' && /\/interactions\/[^/]+\/answer$/.test(new URL(response.url()).pathname)
+  )
+  await card.getByRole('button', { name: 'Answer', exact: true }).click()
+  expect((await response).status()).toBe(201)
+  await expect(page.locator('.pod-chat-choice-card[data-state="answered"]')).toBeVisible()
+  const reply = page
+    .locator('.pod-chat-agent-message > div > .pod-chat-markdown')
+    .filter({ hasText: state.facts[0] })
+    .last()
+  for (const fact of state.facts) await expect(reply).toContainText(fact, { timeout: 300_000 })
+  const latest = page.getByRole('button', { name: 'Scroll to latest message', exact: true })
+  if (await latest.isVisible()) await latest.click()
+  await expect(reply).toBeInViewport()
+  await expect(reply).toBeVisible()
+  await expect(page.locator('.pod-chat-choice-card[data-state="pending"]')).toHaveCount(0)
+  await expect(task).toHaveCount(0, { timeout: 30_000 })
+  const exchanges = page.locator('[data-peer-exchange]')
+  await expect(exchanges.getByRole('status').filter({ hasText: 'Decision needed' })).toHaveCount(0)
+  await expect(exchanges.getByRole('button', { name: 'Stop response', exact: true })).toHaveCount(0)
+  await capture('peer-answer')
+  return { answered: true }
+}
+
+async function comment() {
+  await page.goto(url(`/pages/${state.page_id}`))
+  await page.locator('.pod-page-header').getByRole('button', { name: 'Comments', exact: true }).click()
+  const panel = page.getByRole('complementary', { name: 'Comments', exact: true })
+  const input = panel.getByRole('textbox', { name: 'Add a comment…', exact: true })
+  await input.fill(`@${state.colleague_uid}`)
+  await expect(panel.getByRole('option')).toHaveCount(1)
+  await panel.getByRole('option').click()
+  await input.press('End')
+  await input.pressSequentially(state.text)
+  await expect(input).toHaveValue(`@Legal colleague ${state.text}`)
+  const response = page.waitForResponse(
+    response =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith(`/pages/${state.page_id}/comments`)
+  )
+  await panel.getByRole('button', { name: 'Send', exact: true }).click()
+  const result = await response
+  expect(result.status()).toBe(201)
+  const detail = await result.json()
+  const reply = panel
+    .locator(`[data-thread-id="${detail.comment.id}"] .pod-comment-entry`)
+    .filter({ hasText: state.facts[0] })
+    .last()
+  for (const fact of state.facts) await expect(reply).toContainText(fact, { timeout: 300_000 })
+  await expect(reply).toBeVisible()
+  await capture('peer-comment-followup')
+  return { comment_id: detail.comment.id }
 }
 
 async function report() {
@@ -129,19 +314,19 @@ async function report() {
   await expect.poll(() => joinedTables).toBeGreaterThan(joinsBeforeReload)
   expect(socketErrors).toEqual([])
   if (!state.add_sale) {
-    const toggle = page.getByRole('button', { name: 'Page chat', exact: true })
+    const toggle = page.getByRole('button', { name: 'Assistant', exact: true })
     const expandedBefore = await toggle.getAttribute('aria-expanded')
     if (expandedBefore !== 'true') await toggle.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(state.conversation_id))
-    const panel = page.getByRole('complementary', { name: 'Page chat', exact: true })
+    const panel = page.getByRole('complementary', { name: 'Assistant', exact: true })
     const title = await page.getByRole('textbox', { name: 'Page title', exact: true }).inputValue()
-    await expect(panel.getByText(`Current page: ${title}`, { exact: true })).toBeVisible()
+    await expect(panel.locator('.pod-page-chat-header')).toHaveAttribute('title', title)
     await expect(panel.getByRole('region', { name: 'Conversation messages', exact: true })).toContainText('Cedar')
     navigation.page_chat_expanded_before = expandedBefore
     navigation.page_chat_conversation_id = new URL(page.url()).searchParams.get('chat')
     await capture('report-updated-page-chat')
-    await page.getByRole('button', { name: 'Close page chat', exact: true }).click()
+    await page.getByRole('button', { name: 'Close assistant', exact: true }).click()
     await page.getByRole('textbox', { name: 'Page title', exact: true }).scrollIntoViewIfNeeded()
     await capture('final-sales-report')
     await total.scrollIntoViewIfNeeded()
@@ -236,9 +421,9 @@ async function inventory() {
   await capture(state.reserve ? 'backend-applet-created' : 'backend-applet-updated')
   await page.setViewportSize({ width: 390, height: 844 })
   if (new URL(page.url()).searchParams.has('chat')) {
-    const chat = page.getByRole('dialog', { name: 'Page chat', exact: true })
+    const chat = page.getByRole('dialog', { name: 'Assistant', exact: true })
     await expect(chat).toBeVisible()
-    await chat.getByRole('button', { name: 'Close page chat', exact: true }).click()
+    await chat.getByRole('button', { name: 'Close assistant', exact: true }).click()
     await expect(chat).toBeHidden()
     await expect.poll(() => new URL(page.url()).searchParams.has('chat')).toBe(false)
   }
@@ -269,7 +454,7 @@ async function movedPage() {
     .first()
   const child = parent.getByRole('link', { name: state.child_title, exact: true })
   await expect(child).toHaveCount(1)
-  await expect(child).toHaveAttribute('href', path(`/pages/${state.child_id}`))
+  await expect(child).toHaveAttribute('href', podPagePath(state.child_id, state.child_title))
   await expect(page.locator('.editor-content')).toContainText(state.marker)
   await capture('agent-moved-page')
   await expect(page.locator('main').last().getByRole('link', { name: state.parent_title, exact: true })).toBeVisible()
@@ -313,6 +498,11 @@ async function document() {
 try {
   const actions = {
     send_message: sendMessage,
+    edit_knowledge: editKnowledge,
+    edit_skill: editSkill,
+    knowledge,
+    answer_peer: answerPeer,
+    comment,
     report,
     counter,
     inventory,

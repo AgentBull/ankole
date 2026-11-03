@@ -796,7 +796,7 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp append_batch_signal(batch, type, now) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     :ok =
       Ankole.Signals.lock_target_in_tx(%{

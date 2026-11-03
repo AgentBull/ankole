@@ -10,6 +10,12 @@ export async function validateNavigationURL(value: string, material: BrowserMate
   } catch {
     throw new BrowserDataError('invalid_command', `invalid URL: ${value}`)
   }
+  if (url.protocol === 'file:' && /^\/drive(?:\/|-recovery(?:\/|$)|$)/.test(decodeURIComponent(url.pathname))) {
+    throw new BrowserDataError(
+      'invalid_command',
+      'Drive files belong to the execution view; use the file tools to read them'
+    )
+  }
   if (url.protocol === 'file:' && material.navigation.allow_file_urls) return url
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new BrowserDataError('invalid_command', `unsupported browser URL protocol: ${url.protocol}`)

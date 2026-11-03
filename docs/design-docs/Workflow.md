@@ -231,6 +231,11 @@ after terminal cleanup commits, it wakes the owner Session; and `attention`
 sleeps emit their owner Signal in the tool's post-commit hook, with
 `EnsureDriver` and the Reconciler healing any missed PubSub wakeups.
 
+`ProgramRunner` owns transient replay handles. A waiter monitors that owner and
+receives an error if it exits. A task crash keeps its failure reason distinct
+from cancellation. `RunServer` releases an unused handle before allocating its
+successor and cancels its active replay during supervised shutdown.
+
 ## Human Work Authorization
 
 Under [Human Offboarding](HumanOffboarding.md), every Workflow run freezes

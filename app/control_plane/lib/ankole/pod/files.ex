@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Files do
   @moduledoc """
   Pod-managed objects and file-node content, with node authorization.
 
-  Manifest reads and commits run in top-level transactions under the Drive node
+  Manifest reads and commits run in top-level transactions under the Page row
   lock. File replacements compare object IDs; Applet publications compare Pod
   revisions. A manifest, a read that does not pin a digest, and a file
   replacement first write a spreadsheet page's pending edits into its object
@@ -10,7 +10,7 @@ defmodule Ankole.Pod.Files do
   """
 
   alias Ankole.Files, as: Drive
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Pages, PodFile, Spreadsheets}
   require Ash.Query
   alias Ankole.Repo
@@ -115,13 +115,6 @@ defmodule Ankole.Pod.Files do
   end
 
   defp readable_files(files, _actor, _page), do: files
-
-  @doc "Resolves a revision-pinned Applet asset under its page lock, then reads immutable bytes."
-  def resolve_applet_frame_asset(actor, page_id, expected_revision, relative) do
-    with {:ok, file} <- resolve_applet_frame_object(actor, page_id, expected_revision, relative),
-         {:ok, bytes} <- Drive.read_object(file.object_id),
-         do: {:ok, {file.content_type, hex(file.sha256), bytes}}
-  end
 
   @doc "Resolves a revision-pinned Applet object under its page lock."
   def resolve_applet_frame_object(actor, page_id, expected_revision, relative) do
@@ -291,6 +284,9 @@ defmodule Ankole.Pod.Files do
       Access.write(
         authority,
         fn -> publish_in_tx(actor, page_id, base_revision, upserts, routes) end,
+        before_fence: fn ->
+          Ankole.AutomationJobs.sync_applet_policies_in_tx(page_id, routes["actions"])
+        end,
         after_commit: &committed/1
       )
     end
@@ -325,8 +321,7 @@ defmodule Ankole.Pod.Files do
     end)
   end
 
-  @doc false
-  def publish_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, upserts, routes) do
+  defp publish_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, upserts, routes) do
     write_file_in_tx(actor, page_id, "node_edit", fn page ->
       with :ok <- require_type(page, :applet),
            :ok <- revision(page, base_revision),
@@ -347,7 +342,8 @@ defmodule Ankole.Pod.Files do
            page_id: page.id,
            revision: page.revision,
            files: Enum.map(result.files, &entry/1),
-           routes: routes
+           routes: routes["routes"],
+           actions: routes["actions"]
          }}
       end
     end)
@@ -376,7 +372,7 @@ defmodule Ankole.Pod.Files do
     writer = if role == "file", do: &Access.write_tree/3, else: &Access.write/3
 
     writer.(authority, fn -> commit_upload_in_tx(actor, page_id, upload) end,
-      root_ids: if(role == "file", do: fn -> Drive.root_ids([page_id]) end, else: []),
+      root_ids: if(role == "file", do: fn -> Ankole.Pod.root_ids([page_id]) end, else: []),
       after_commit: &committed/1
     )
   end
@@ -418,7 +414,7 @@ defmodule Ankole.Pod.Files do
     with :ok <- Spreadsheets.keep_replaced_in_tx(actor, page),
          :ok <- rename_upload(actor, page, path),
          do:
-           Drive.commit_node_object_in_tx(actor, page.id, object_id, %{
+           Ankole.Pod.commit_node_object_in_tx(actor, page.id, object_id, %{
              content_type: content_type,
              source: "pod"
            })
@@ -437,11 +433,11 @@ defmodule Ankole.Pod.Files do
   defp rename_upload(_actor, %{name: name}, name), do: :ok
 
   defp rename_upload(actor, page, name) do
-    with {:ok, _} <- Drive.rename_node_in_tx(actor, page.id, name), do: :ok
+    with {:ok, _} <- Ankole.Pod.rename_node_in_tx(actor, page.id, name), do: :ok
   end
 
   @doc "Publishes a committed page file change to the page channel."
-  def committed(%{page_id: id}), do: Drive.node_committed(%{id: id})
+  def committed(%{page_id: id}), do: Ankole.Pod.node_committed(%{id: id})
 
   defp write_file_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, action, fun) do
     with {:ok, page} <- Pages.lock(page_id),
@@ -464,8 +460,8 @@ defmodule Ankole.Pod.Files do
   end
 
   defp authorize_file_write(actor, page, :file_content) do
-    Drive.authorize_node_write(actor, %{
-      kind: page.type,
+    Ankole.Pod.authorize_node_write(actor, %{
+      type: page.type,
       id: page.id,
       parent_id: page.parent_id,
       object_id: page.object_id
@@ -525,7 +521,7 @@ defmodule Ankole.Pod.Files do
   defp inspect_backend(_page_id, upserts, env) do
     case Enum.find(upserts, &(&1.path == "server/main.js")) do
       nil ->
-        {:ok, []}
+        {:ok, %{"routes" => [], "actions" => %{}}}
 
       file ->
         with {:ok, source} <- Drive.read_object(file.object_id),
@@ -580,7 +576,7 @@ defmodule Ankole.Pod.Files do
   end
 
   defp allowed_role(%{type: :file}, "file"), do: :ok
-  defp allowed_role(%{type: :doc}, "asset"), do: :ok
+  defp allowed_role(%{type: type}, "asset") when type in [:doc, :knowledge], do: :ok
   defp allowed_role(%{type: :base}, "attachment"), do: :ok
   defp allowed_role(_page, _role), do: {:error, :invalid_file_role}
   defp require_type(%{type: type}, type), do: :ok
@@ -608,7 +604,7 @@ defmodule Ankole.Pod.Files do
 
   defp page_path(id, relative) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         {:ok, relative} <- Drive.normalize_existing_path(relative),
+         {:ok, relative} <- Drive.normalize_path(relative),
          do: {:ok, prefix(id) <> "/" <> relative}
   end
 
@@ -625,11 +621,11 @@ defmodule Ankole.Pod.Files do
 
   @doc false
   def list_files(node_id, prefix \\ "") do
-    case if(node_id, do: Drive.fetch_node(node_id), else: {:ok, nil}) do
-      {:ok, %{kind: :file, object_id: nil}} ->
+    case if(node_id, do: Ankole.Pod.fetch_node(node_id), else: {:ok, nil}) do
+      {:ok, %{type: :file, object_id: nil}} ->
         {:ok, []}
 
-      {:ok, %{kind: :file} = node} ->
+      {:ok, %{type: :file} = node} ->
         with {:ok, file} <- node_file(node), do: {:ok, [file]}
 
       {:ok, _} ->
@@ -656,7 +652,7 @@ defmodule Ankole.Pod.Files do
 
   @doc false
   def fetch_file(node_id, relative) do
-    with {:ok, path} <- Drive.normalize_existing_path(relative),
+    with {:ok, path} <- Drive.normalize_path(relative),
          {:ok, files} <- list_files(node_id),
          file when not is_nil(file) <- Enum.find(files, &(&1.path == path)),
          do: {:ok, file},

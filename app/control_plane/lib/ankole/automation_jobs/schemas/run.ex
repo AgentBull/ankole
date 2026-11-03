@@ -46,7 +46,40 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
     )
 
     attribute(:automation_job_id, :integer, allow_nil?: false, public?: true)
-    attribute(:event, Ankole.Ash.Types.JSONMap, allow_nil?: false, public?: true)
+
+    attribute(:event, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      public?: true,
+      constraints: [max_bytes: 1_048_576]
+    )
+
+    attribute(:signal_id, :string, public?: true)
+    attribute(:causation_id, :string, public?: true)
+    attribute(:correlation_id, :string, public?: true)
+    attribute(:binding_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:concurrency_key, :string, default: "default", allow_nil?: false, public?: true)
+    attribute(:coalesce_key, :string)
+
+    attribute(:slice_count, :integer,
+      default: 0,
+      allow_nil?: false,
+      constraints: [min: 0],
+      public?: true
+    )
+
+    attribute(:attempts_in_slice, :integer, default: 0, allow_nil?: false, constraints: [min: 0])
+    attribute(:attempt_idempotent, :boolean, default: false, allow_nil?: false)
+    attribute(:attempt_deadline_at, :utc_datetime_usec)
+
+    attribute(:progress, Ankole.Ash.Types.JSONMap,
+      default: %{},
+      allow_nil?: false,
+      constraints: [max_bytes: 16384],
+      public?: true
+    )
+
+    attribute(:last_published_revision, :integer, public?: true)
+    attribute(:result, Ankole.Ash.Types.JSONValue, public?: true)
 
     attribute(:attempts, :integer,
       default: 0,
@@ -106,9 +139,15 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
     derive_sort?(false)
 
     default_fields([
+      :id,
       :automation_job_id,
       :status,
       :attempts,
+      :slice_count,
+      :progress,
+      :result,
+      :signal_id,
+      :last_published_revision,
       :started_at,
       :finished_at,
       :exit_code,
@@ -130,6 +169,8 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
       transition(:settle, from: [:queued, :running], to: :failed)
       transition(:settle, from: :running, to: :succeeded)
       transition(:retry, from: :running, to: :queued)
+      transition(:defer_capacity, from: :running, to: :queued)
+      transition(:continue_slice, from: :running, to: :queued)
       transition(:stop_human_work, from: :queued, to: :cancelled)
     end
   end
@@ -160,12 +201,17 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
 
     create :enqueue do
       primary?(true)
-      accept([:automation_job_id, :event])
-    end
 
-    create :record_failed do
-      accept([:automation_job_id, :event, :finished_at, :error])
-      change(transition_state(:failed))
+      accept([
+        :automation_job_id,
+        :event,
+        :signal_id,
+        :causation_id,
+        :correlation_id,
+        :binding_id,
+        :concurrency_key,
+        :coalesce_key
+      ])
     end
 
     update :wait_for_worker do
@@ -173,8 +219,18 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
     end
 
     update :start do
-      accept([:attempt_id, :started_at, :finished_at, :error])
+      accept([
+        :attempt_id,
+        :started_at,
+        :finished_at,
+        :error,
+        :attempt_deadline_at,
+        :attempt_idempotent,
+        :last_published_revision
+      ])
+
       change(atomic_update(:attempts, expr(attempts + 1)))
+      change(atomic_update(:attempts_in_slice, expr(attempts_in_slice + 1)))
       change(transition_state(:running))
     end
 
@@ -190,12 +246,35 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
         :stdout,
         :stderr,
         :stdout_truncated,
-        :stderr_truncated
+        :stderr_truncated,
+        :result
       ])
     end
 
     update :retry do
       accept([:attempt_id, :error])
+      change(transition_state(:queued))
+    end
+
+    update :defer_capacity do
+      accept([])
+      change(set_attribute(:attempt_id, nil))
+      change(set_attribute(:attempt_deadline_at, nil))
+      change(atomic_update(:attempts_in_slice, expr(attempts_in_slice - 1)))
+      change(transition_state(:queued))
+    end
+
+    update :coalesce do
+      accept([:event, :signal_id, :causation_id, :correlation_id, :binding_id])
+      change(filter(expr(status == :queued and attempts == 0 and slice_count == 0)))
+    end
+
+    update :continue_slice do
+      accept([:progress])
+      change(set_attribute(:attempt_id, nil))
+      change(set_attribute(:attempts_in_slice, 0))
+      change(set_attribute(:attempt_deadline_at, nil))
+      change(atomic_update(:slice_count, expr(slice_count + 1)))
       change(transition_state(:queued))
     end
 

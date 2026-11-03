@@ -584,7 +584,7 @@ defmodule Ankole.E2E.WaitHelpers do
           ])
         ),
       receipts:
-        Ankole.Sessions.Receipts
+        Ankole.Sessions.Receipt
         |> where(
           [receipt],
           receipt.agent_uid in subquery(

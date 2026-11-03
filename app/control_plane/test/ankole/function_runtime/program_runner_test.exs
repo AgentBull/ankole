@@ -89,6 +89,37 @@ defmodule Ankole.FunctionRuntime.ProgramRunnerTest do
              ProgramRunner.run("text(1)", [], [])
   end
 
+  test "await returns when the runner dies instead of leaving the caller blocked" do
+    parent = self()
+
+    owner =
+      spawn_link(fn ->
+        handle = ProgramRunner.new_handle()
+        send(parent, {:waiting, self()})
+        send(parent, {:await_result, ProgramRunner.await(handle)})
+      end)
+
+    assert_receive {:waiting, ^owner}
+    server = Process.whereis(ProgramRunner)
+
+    assert eventually(fn ->
+             {:monitored_by, observers} = Process.info(server, :monitored_by)
+             owner in observers
+           end)
+
+    Process.exit(server, :kill)
+    assert_receive {:await_result, {:error, error}}, 1_000
+    assert error =~ "program runner exited"
+    assert eventually(fn -> is_pid(Process.whereis(ProgramRunner)) end)
+  end
+
+  test "releases a replay handle that was never started" do
+    handle = ProgramRunner.new_handle()
+    assert :ok = ProgramRunner.release(handle)
+    assert {:error, _} = ProgramRunner.start(handle, "text(1)", [], [])
+    assert {:error, _} = ProgramRunner.await(handle)
+  end
+
   defp eventually(check, attempts \\ 100)
   defp eventually(_check, 0), do: false
 

@@ -9,13 +9,13 @@
 
 ```bash
 # 按 approval_code 查询审批定义详情
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals get --params '{"approval_code":"<APPROVAL_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals get --params '{"approval_code":"<APPROVAL_CODE>"}'
 
 # 表格格式输出，便于快速浏览顶层字段
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals get --params '{"approval_code":"<APPROVAL_CODE>"}' --format table
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals get --params '{"approval_code":"<APPROVAL_CODE>"}' --format table
 
 # 预览 API 调用，不执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals get --params '{"approval_code":"<APPROVAL_CODE>"}' --dry-run
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals get --params '{"approval_code":"<APPROVAL_CODE>"}' --dry-run
 ```
 
 ## 参数
@@ -34,13 +34,13 @@
 如果你已经有 `approval_code`，可直接查询：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals get --params '{"approval_code":"<APPROVAL_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals get --params '{"approval_code":"<APPROVAL_CODE>"}'
 ```
 
 如果你还没有 `approval_code`，先搜索可发起审批定义：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals search --data '{"keyword":"请假"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals search --data '{"keyword":"请假"}'
 ```
 
 ## 输出重点字段

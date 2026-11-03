@@ -216,7 +216,7 @@ defmodule Ankole.Pod.AppletsTest do
 
     assert {:ok, %{"objectId" => object_id}} = write.("before trash", nil)
     assert {:ok, _} = Pages.delete(actor, page.id)
-    assert {:error, %{code: "not_found", status: 404}} = write.("after trash", object_id)
+    assert {:error, %{code: "page_trashed", status: 422}} = write.("after trash", object_id)
     assert {:ok, _, "before trash"} = Files.read(actor, target.id, "data.txt")
   end
 

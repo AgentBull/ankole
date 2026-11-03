@@ -30,7 +30,7 @@ my-skill/
 └── templates/
 ```
 
-디렉터리 이름에는 영문 소문자, 숫자, 하이픈(`-`), 밑줄(`_`)만 사용하십시오. 기본 내장 Skill은 `app/library/skills/` 아래에 위치하며, 개별 설치된 Skill은 해당 Agent의 파일 공간에 저장됩니다.
+식별자는 Pod 안에서 고유해야 하며 영문 소문자나 숫자로 시작합니다. 소문자, 숫자, 마침표, 하이픈, 밑줄을 사용할 수 있습니다. 기본 Skill은 `app/library/skills/`에 두며, 사용자 정의 패키지는 **Meta Ankole → Skills**에서 만들거나 가져옵니다.
 
 ### frontmatter 작성
 
@@ -50,25 +50,11 @@ platforms: [linux]
 
 Agent는 `description` 문구를 보고 해당 Skill 본문을 펼쳐 읽을지 결정하므로, 언제 이 Skill을 써야 하는지 구체적인 발동 조건(trigger)을 적어야 합니다. 전용 워크스페이스 격리가 필요한 작업이면 `ankole-runtime: background_job`을 지정하고, Linux 전용 CLI 도구에 의존하는 경우에만 `platforms: [linux]`를 덧붙이십시오.
 
-### 배포되는 Skill을 Brain에서 발견할 수 있게 하기
+### 완전한 Skill 패키지
 
-매 턴마다 시스템 프롬프트 목록에 실어 보낼 필요는 없지만, 현재 작업과 의미상 맞닿아 있을 때 찾아내야 하는 사내 SOP나 방법론에는 `brain-recall-only: true`를 지정하십시오.
+Skill은 필수 `SKILL.md`와 부속 파일로 구성됩니다. Frontmatter와 본문을 함께 편집하고, 스크립트·템플릿·바이너리 자료·참고 문서는 패키지 내 상대 경로를 유지합니다. 공식 Skill, Agent Plugin Skill, 사용자 정의 Skill의 식별자는 Pod 전체에서 고유해야 합니다.
 
-```yaml
----
-name: idea-lineage
-description: Trace how one idea evolved through memory — first mention, best articulation, reversals, and the current live version, each cited from stored evidence.
-tags:
-  - idea lineage
-  - how my thinking evolved
-brain-recall-only: true
----
-```
-
-이 옵션은 배포 이미지에 포함되는 독립형 Skill과 Agent Plugin 내부의 Skill에서만 지원되며, Agent가 런타임에 설치한 로컬 Skill에는 적용되지 않습니다. 배포용 Skill 이름은 소속된 Agent Plugin과 무관하게 전역에서 고유해야 합니다(플러그인 이름이 별도 네임스페이스를 붙이지 않습니다). Brain은 표준 Skill 메타데이터로부터 `lazyload-agent-skills/<name>` 검색 레코드를 자동 생성합니다.
-
-이때 `SKILL.md`에 `slug`, `type`, `title`, `aliases` 같은 Brain Object 전용 필드를 임의로 넣지 마십시오. Brain은 표준 필드인 `name`, `description`, `tags`만 색인해 자연어 질의와 매칭하며, Skill 본문이나 부속 파일, Agent별 교훈은 Brain 저장소에 복제하지 않습니다. Brain 검색으로 항목을 찾은 뒤에도 실제 본문은 반드시 `skill_view` 도구를 통해서만 읽습니다.
-
+`SKILL.md`에서 부속 파일을 명시적으로 참조하여 필요할 때 읽도록 합니다. 메인 Agent는 `/drive/Skills/<slug>/`를 사용하며 백그라운드 Job은 해당 Job에 허용된 패키지를 사용합니다. Skill을 활성화한 Agent는 패키지 전체를 읽을 수 있습니다. 열람 범위를 제한해야 하는 업무 데이터는 Brain이나 별도로 공유한 협업 페이지에 저장합니다.
 ### 본문 작성
 
 기본 추론 역량은 충분하지만 조직 내부의 고유 규칙은 모르는 동료에게 업무를 인계한다는 기준으로 다음 다섯 가지를 명확히 적으십시오.
@@ -101,7 +87,7 @@ dependencies:
 
 작성을 마쳤다면 테스트용 Agent에서 해당 Skill을 켜고 실제 업무 요청을 보내 보십시오. Agent가 의도한 시점에 Skill을 골라 필요한 부속 파일을 읽고 완료 기준을 지키는지를 확인합니다. 만약 Skill 자체를 고르지 못한다면 `description`의 발동 조건을 더 선명하게 다듬고, 실행 순서가 흔들린다면 본문의 단계와 제약 조건을 더 구체적으로 적으십시오.
 
-`brain-recall-only`로 선언한 Skill은 일반 턴의 기본 프롬프트 카탈로그에서 빠지는지, 그리고 이름·설명·태그와 관련된 질의를 했을 때 Brain 검색으로 정상 발견되는지도 함께 확인하십시오. 또한 호환되는 실행 표면에서는 `skill_view`가 전체 본문을 로드하고 호환되지 않는 표면에서는 설계된 라우팅 안내나 거부 응답을 반환하는지 점검한 뒤, 마지막으로 해당 Skill이나 상위 Agent Plugin을 비활성화했을 때 검색과 로드가 모두 차단되는지 확인하십시오.
+상대 경로, 실행 가능한 스크립트, 지원하는 실행 환경에서의 로드와 지원하지 않는 환경의 안내를 확인합니다. “모든 Agent에서 활성화”를 끄고 AI 동료와 내 어시스턴트의 개별 설정을 각각 검증하세요. 전체 스위치를 켰다가 꺼도 개별 설정은 유지되어야 합니다. 적용되는 개별 설정을 모두 해제하거나 상위 Plugin을 끄면 활성 카탈로그에서 제외되고 `skill_view`로도 읽을 수 없어야 합니다.
 
 ## Control Plane Plugin 개발
 

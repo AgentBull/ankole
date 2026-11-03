@@ -1,4 +1,6 @@
+import { fieldIcons } from './base-field-types'
 import { createAppletRoutes } from './applet-routes'
+import { createAppletRuns } from './applet-runs'
 import { pageCreated } from './state/navigation-cache'
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
@@ -47,9 +49,10 @@ import {
 import { contentKeys, limitPageTitle, podRequest, type PageDetail } from './content-api'
 import { ErrorBoundary } from '../common/error-boundary'
 import { useContent } from './content-context'
+import { usePageHref } from './use-page-metadata'
 import { ContentError } from './content-primitives'
 import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
-import { BaseViewContent, RecordForm, fieldIcons, type ViewProps } from './base-views'
+import { BaseViewContent, RecordForm, type ViewProps } from './base-views'
 import { QueryControls } from './base-query-controls'
 import { FieldEditorButton } from './base-fields'
 import { podBaseCopy } from './api/generated/sdk.gen'
@@ -107,6 +110,7 @@ export function BasePage({
       queryClient: client,
       readDenial,
       base,
+      runs: createAppletRuns(client, realtime, detail.page.id),
       pod: { request: podRequest },
       channel: name => realtime.channel(detail.page.id, name),
       principal: realtime.principal
@@ -313,7 +317,8 @@ function TableWorkspace({
   inline?: InlineView
 }) {
   const { t } = useTranslation()
-  const { base, pageHref } = useContent()
+  const { base } = useContent()
+  const pageHref = usePageHref()
   const schema = useQuery(baseSchemaQuery(tableID))
   useSignals()
   const model = useModel(TableWorkspaceModel)

@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.VocabularyTest do
   use Ankole.DataCase, async: true
+  import Ankole.BrainFixtures
 
   import Ankole.PrincipalsFixtures
 
@@ -15,19 +16,16 @@ defmodule Ankole.Brain.VocabularyTest do
     assert Vocabulary.closest_terms("zzzzqqqq") == []
   end
 
-  test "a type rejection carries the closest vocabulary terms" do
+  test "knowledge metadata accepts domain-specific entity types" do
     {:ok, _result} = SchemaPacks.install_packs([])
     %{principal: human} = human_fixture()
 
-    assert {:error, {:unknown_object_type, "tickets", details}} =
-             Ankole.Errors.reason(
-               Ankole.Brain.create_object(
-                 %{slug: "notes/some-note", type: "tickets", title: "Note", body: ""},
-                 human.uid
-               )
+    assert {:ok, page} =
+             page_fixture_result(
+               %{slug: "notes/support", type: "ticket", title: "Support", body: ""},
+               human.uid
              )
 
-    assert "note" in details.installed_types
-    assert "ticket" in details.vocabulary_terms
+    assert page.meta["entity_type"] == "ticket"
   end
 end

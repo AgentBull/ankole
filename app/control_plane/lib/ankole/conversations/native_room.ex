@@ -1,7 +1,7 @@
 defmodule Ankole.Conversations.NativeRoom do
   @moduledoc false
-  require Ash.Query
   require Ash.Expr
+  require Ash.Query
   alias Ankole.{AIGateway, Conversations, Repo}
 
   alias Ankole.Conversations.{
@@ -24,8 +24,8 @@ defmodule Ankole.Conversations.NativeRoom do
 
   defp list_in_tx(actor, opts) do
     uid = Ankole.AuthZ.Actor.uid(actor)
-    {:ok, reachable} = Ankole.Files.Access.reachable_anchors(actor)
-    pages = Ankole.Files.visible_node_ids(reachable)
+    {:ok, reachable} = Ankole.Pod.Access.reachable_anchors(actor)
+    pages = Ankole.Pod.visible_node_ids(reachable)
     pattern = if opts[:query], do: "%" <> Repo.escape_like(opts[:query]) <> "%"
     order = Keyword.get(opts, :order, :pinned)
 
@@ -49,7 +49,8 @@ defmodule Ankole.Conversations.NativeRoom do
       else
         Ash.Query.filter(
           query,
-          exists(Participant, conversation_id == parent(id) and principal_uid == ^uid)
+          native_access_scope == :participants and
+            exists(Participant, conversation_id == parent(id) and principal_uid == ^uid)
         )
       end
 
@@ -66,13 +67,98 @@ defmodule Ankole.Conversations.NativeRoom do
           ),
         else: query
 
+    query = if opts[:attention], do: attention_query(query, uid), else: query
+    query = if opts[:im_only], do: im_query(query, uid), else: query
+
     cursor = if opts[:cursor], do: cursor_row(opts[:cursor], uid)
 
     query
     |> after_cursor(cursor, order)
-    |> Ash.Query.limit(opts[:limit] || 100)
+    |> then(&if(opts[:attention], do: &1, else: Ash.Query.limit(&1, opts[:limit] || 100)))
     |> Ankole.Ash.read!()
     |> project_rooms(actor, reachable)
+  end
+
+  defp im_query(query, uid) do
+    case Ankole.Principals.personal_assistant(uid) do
+      %{uid: assistant_uid} ->
+        Ash.Query.filter(
+          query,
+          not exists(
+            Participant,
+            conversation_id == parent(id) and principal_uid == ^assistant_uid
+          )
+        )
+
+      nil ->
+        query
+    end
+  end
+
+  defp attention_query(query, uid) do
+    ids = query |> Ash.Query.select([:id]) |> Ankole.Ash.read!() |> Enum.map(& &1.id)
+    peers = Conversations.Peers.exchanges(ids)
+    origins = Map.new(peers, &{&1.id, &1.origin_conversation_id})
+    all_ids = ids ++ Map.keys(origins)
+
+    active =
+      Ankole.Signals.list_signals!(
+        query: [
+          filter:
+            Ash.Expr.expr(
+              conversation_id in ^all_ids and
+                (status in [:queued, :running] or
+                   exists(
+                     Ankole.Conversations.Delivery.PreviewState,
+                     signal_id == parent(id) and
+                       fragment(
+                         "EXISTS (SELECT 1 FROM jsonb_each(?->'interactions') AS interaction WHERE interaction.value->>'state' = 'pending')",
+                         checkpoint
+                       )
+                   ))
+            ),
+          select: [:conversation_id]
+        ]
+      )
+      |> Enum.map(&Map.get(origins, &1.conversation_id, &1.conversation_id))
+
+    sessions = Enum.map(ids, &Ankole.Sessions.Key.conversation/1)
+
+    jobs =
+      Ankole.BackgroundAgentJobs.list_jobs!(
+        query: [
+          filter: [
+            owner_session_id: [in: sessions],
+            status: [in: [:queued, :running, :waiting_on_user]]
+          ],
+          select: [:owner_session_id]
+        ]
+      )
+
+    workflows =
+      Ankole.Workflow.list_runs!(
+        query: [
+          filter: [owner_session_id: [in: sessions], status: :running],
+          select: [:owner_session_id]
+        ]
+      )
+
+    active =
+      active ++
+        Enum.map(jobs ++ workflows, fn work ->
+          {:conversation, id} = Ankole.Sessions.Key.parse(work.owner_session_id)
+          id
+        end)
+
+    Ash.Query.filter(
+      query,
+      id in ^active or
+        exists(
+          Participant,
+          conversation_id == parent(id) and principal_uid == ^uid and not muted and
+            last_read_seq < parent(last_notifiable_seq)
+        )
+    )
   end
 
   defp cursor_row(id, uid) do
@@ -86,13 +172,33 @@ defmodule Ankole.Conversations.NativeRoom do
         %{
           id: id,
           last_activity_at: conversation.last_activity_at,
+          recent_activity_at:
+            latest_visit(conversation.last_activity_at, member && member.last_visited_at),
           pin: member && member.pinned_at
         }
     end
   end
 
-  defp order_rooms(query, :recent, _uid),
-    do: Ash.Query.sort(query, last_activity_at: :desc, id: :desc)
+  defp order_rooms(query, :recent, uid) do
+    query =
+      Ash.Query.aggregate(query, :viewer_visit, :first, :participants,
+        field: :last_visited_at,
+        query: [filter: [principal_uid: uid]],
+        authorize?: false
+      )
+
+    visit = %Ash.Query.Ref{attribute: query.aggregates.viewer_visit, resource: Conversation}
+
+    query =
+      Ash.Query.calculate(
+        query,
+        :recent_activity_at,
+        :utc_datetime_usec,
+        Ash.Expr.expr(if(is_nil(^visit) or ^visit < last_activity_at, last_activity_at, ^visit))
+      )
+
+    Ash.Query.sort(query, [{query.calculations.recent_activity_at, :desc}, {:id, :desc}])
+  end
 
   defp order_rooms(query, :pinned, uid) do
     query =
@@ -109,14 +215,25 @@ defmodule Ankole.Conversations.NativeRoom do
     ])
   end
 
+  defp latest_visit(activity, nil), do: activity
+
+  defp latest_visit(activity, visit),
+    do: if(DateTime.compare(visit, activity) == :gt, do: visit, else: activity)
+
   defp after_cursor(query, nil, _order), do: query
 
-  defp after_cursor(query, %{id: id, last_activity_at: activity}, :recent),
-    do:
-      Ash.Query.filter(
-        query,
-        last_activity_at < ^activity or (last_activity_at == ^activity and id < ^id)
-      )
+  defp after_cursor(query, %{id: id, recent_activity_at: activity}, :recent) do
+    recent = %Ash.Query.Ref{
+      attribute: query.calculations.recent_activity_at,
+      resource: Conversation
+    }
+
+    Ash.Query.filter(
+      query,
+      ^recent < type(^activity, :utc_datetime_usec) or
+        (^recent == type(^activity, :utc_datetime_usec) and id < ^id)
+    )
+  end
 
   defp after_cursor(query, %{id: id, last_activity_at: activity, pin: nil}, :pinned) do
     viewer_pin = %Ash.Query.Ref{attribute: query.aggregates.viewer_pin, resource: Conversation}
@@ -207,6 +324,9 @@ defmodule Ankole.Conversations.NativeRoom do
       case conversation do
         %Conversation{kind: :native, native_access_scope: :anchor_page, page_id: page} ->
           if Native.authorize_page(actor, page) == :ok, do: conversation
+
+        %Conversation{kind: :native, native_access_scope: :agent_peer} ->
+          nil
 
         %Conversation{kind: :native} ->
           case participant(id, Ankole.AuthZ.Actor.uid(actor)) do
@@ -311,6 +431,7 @@ defmodule Ankole.Conversations.NativeRoom do
       with {:ok, principal} <- Ankole.Principals.get_principal(uid),
            true <- principal.status == :active and principal.type in [:human, :agent],
            :ok <- if(principal.type == :agent, do: Native.authorize_agent(actor, uid), else: :ok),
+           :ok <- member_kind_allowed(conversation, principal),
            existing = participant(conversation.id, uid),
            {:ok, _} <-
              join(conversation.id, uid, if(principal.type == :agent, do: :agent, else: :member)) do
@@ -325,6 +446,34 @@ defmodule Ankole.Conversations.NativeRoom do
 
   def ensure_members(_, _, _), do: {:error, :invalid_request}
 
+  defp member_kind_allowed(%{room_mode: :group}, %{type: :agent, uid: uid}) do
+    if Ankole.Principals.get_agent_record!(uid).type == :personal_assistant,
+      do: {:error, :forbidden_room_operation},
+      else: :ok
+  end
+
+  defp member_kind_allowed(_, _), do: :ok
+
+  def direct_conversations(human_uid) do
+    Conversation
+    |> Ash.Query.filter(dm_human_uid == ^human_uid)
+    |> Ash.Query.select([:id, :dm_colleague_uid])
+    |> Ankole.Ash.read!()
+    |> Map.new(&{&1.dm_colleague_uid, &1.id})
+  end
+
+  def assistant_task?(conversation) do
+    Enum.any?(agents(conversation.id), fn principal ->
+      Ankole.Principals.get_agent_record!(principal.uid).type == :personal_assistant
+    end)
+  end
+
+  def protected_dm?(conversation),
+    do: not is_nil(conversation.dm_human_uid) or assistant_task?(conversation)
+
+  def mentioned_members(conversation, attrs),
+    do: if(assistant_task?(conversation), do: [], else: explicit_agents(attrs))
+
   def promote(conversation) do
     counts =
       Enum.frequencies_by(
@@ -333,13 +482,18 @@ defmodule Ankole.Conversations.NativeRoom do
       )
 
     if conversation.room_mode == :dm and
-         (Map.get(counts, :agent, 0) > 1 or Map.get(counts, :human, 0) > 1),
-       do: Ankole.Ash.update(conversation, :promote_to_group, %{}),
-       else: {:ok, conversation}
+         (Map.get(counts, :agent, 0) > 1 or Map.get(counts, :human, 0) > 1) do
+      if protected_dm?(conversation),
+        do: {:error, :forbidden_room_operation},
+        else: Ankole.Ash.update(conversation, :promote_to_group, %{})
+    else
+      {:ok, conversation}
+    end
   end
 
   def target_uids(actor, id, attrs) do
-    explicit = explicit_agents(attrs)
+    conversation = Conversations.get_conversation!(id)
+    explicit = if assistant_task?(conversation), do: [], else: explicit_agents(attrs)
     active_agents = Enum.filter(agents(id), &(&1.status == :active))
 
     invited =
@@ -445,6 +599,7 @@ defmodule Ankole.Conversations.NativeRoom do
                ),
              %Conversation{} = conversation <- Native.visible_conversation(actor, id, lock: true),
              :ok <- require_member_or_owner(actor, conversation),
+             :ok <- allow_membership_change(conversation, add, remove),
              {:ok, added} <- ensure_members(actor, conversation, add),
              :ok <- remove_members(actor, conversation, remove),
              :ok <- set_intervention(actor, conversation, attrs),
@@ -467,6 +622,12 @@ defmodule Ankole.Conversations.NativeRoom do
     end
   end
 
+  defp allow_membership_change(conversation, add, remove) do
+    if (add != [] or remove != []) and protected_dm?(conversation),
+      do: {:error, :forbidden_room_operation},
+      else: :ok
+  end
+
   def owner?(actor, conversation),
     do:
       conversation.created_by == Ankole.AuthZ.Actor.uid(actor) or
@@ -474,7 +635,7 @@ defmodule Ankole.Conversations.NativeRoom do
         (conversation.native_access_scope == :anchor_page and
            match?(
              {:ok, _},
-             Ankole.Files.authorize_node(actor, conversation.page_id, "node_manage")
+             Ankole.Pod.authorize_node(actor, conversation.page_id, "node_manage")
            ))
 
   defp require_member_or_owner(actor, conversation) do
@@ -643,6 +804,9 @@ defmodule Ankole.Conversations.NativeRoom do
         scope = if to_string(scope) == "anchor_page", do: :anchor_page, else: :participants
 
         cond do
+          protected_dm?(conversation) and scope != :participants ->
+            {:error, :forbidden_room_operation}
+
           not owner?(actor, conversation) ->
             {:error, :forbidden_room_operation}
 
@@ -693,6 +857,7 @@ defmodule Ankole.Conversations.NativeRoom do
             :last_read_seq,
             min(max(seq, member.last_read_seq), conversation.sequence_high_water)
           )
+          |> Map.put(:last_visited_at, DateTime.utc_now(:microsecond))
       end
 
     with {:ok, _} <- Ankole.Ash.update(member, :update_preferences, updates), do: :ok

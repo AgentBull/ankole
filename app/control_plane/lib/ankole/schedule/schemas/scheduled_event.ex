@@ -53,7 +53,6 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     :requested_at,
     :idempotency_key,
     :cron_schedule_id,
-    :automation_job_id,
     :cron_fire_slot_at,
     :tool_call_id,
     :source_signal_id,
@@ -81,11 +80,8 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     foreign_key_names([
       {:agent_uid, "scheduled_events_agent_uid_fkey"},
       {:cron_schedule_id, "scheduled_events_cron_schedule_id_fkey"},
-      {:automation_job_id, "scheduled_events_automation_job_id_fkey"},
-      {:automation_job_run_id, "scheduled_events_automation_job_run_id_fkey"},
       {:source_signal_id, "scheduled_events_source_signal_id_fkey"},
       {:conversation_id, "scheduled_events_conversation_id_fkey"},
-      {:signal_id, "scheduled_events_signal_id_fkey"},
       {:origin_ai_message_id, "scheduled_events_origin_ai_message_id_fkey"}
     ])
 
@@ -118,8 +114,6 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     attribute(:requested_at, :utc_datetime_usec, allow_nil?: false, public?: true)
     attribute(:idempotency_key, :string, allow_nil?: false, public?: true)
     attribute(:cron_schedule_id, Ankole.Ash.Types.UUIDv7, public?: true)
-    attribute(:automation_job_id, :integer, public?: true)
-    attribute(:automation_job_run_id, :integer, public?: true)
     attribute(:cron_fire_slot_at, :utc_datetime_usec, public?: true)
     attribute(:tool_call_id, :string, public?: true)
     attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
@@ -173,8 +167,6 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       :requested_at,
       :idempotency_key,
       :cron_schedule_id,
-      :automation_job_id,
-      :automation_job_run_id,
       :cron_fire_slot_at,
       :tool_call_id,
       :origin_ai_message_id,
@@ -257,7 +249,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
 
     create :create_event do
       primary?(true)
-      accept(@create_fields)
+      accept([:id | @create_fields])
     end
 
     create :record_cancelled do
@@ -275,7 +267,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     end
 
     update :fire do
-      accept([:signal_id, :automation_job_run_id, :fired_at, :last_fire_error])
+      accept([:signal_id, :fired_at, :last_fire_error])
       change(transition_state(:fired))
     end
 
@@ -294,7 +286,6 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
         :wake_payload,
         :due_at,
         :timezone,
-        :automation_job_id,
         :binding_name,
         :conversation_id,
         :provider_thread_id,

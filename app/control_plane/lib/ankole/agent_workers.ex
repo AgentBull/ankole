@@ -34,6 +34,8 @@ defmodule Ankole.AgentWorkers do
   defdelegate prepare_rename(agent_uid), to: ReconcileJob
   defdelegate rename_worker_in_tx(worker, new_uid), to: ReconcileJob
 
+  defdelegate effective_env_parts(uid), to: Ankole.AgentWorkers.WorkerEnv
+
   resources do
     resource(Ankole.AgentWorkers.WorkerEnv.ConsoleOperations)
 
@@ -108,14 +110,19 @@ defmodule Ankole.AgentWorkers do
     Ankole.Ash.read_across_tenants!(query)
   end
 
-  @doc "Counts the Worker rows of one provider in every tenant."
-  @spec provider_worker_count(String.t()) :: non_neg_integer()
-  def provider_worker_count(provider_id) do
+  @doc "Counts each provider's Worker rows across every tenant in one query."
+  @spec provider_worker_counts([String.t()]) :: %{String.t() => non_neg_integer()}
+  def provider_worker_counts(provider_ids) do
+    aggregates =
+      provider_ids
+      |> Enum.uniq()
+      |> Enum.map(&{&1, :count, query: [filter: [provider_id: &1]]})
+
     Repo.across_tenants(fn ->
       AgentWorker
       |> Ash.Query.for_read(:across_tenants)
-      |> Ash.Query.filter(provider_id == ^provider_id)
-      |> Ankole.Ash.count!()
+      |> Ash.Query.filter(provider_id in ^provider_ids)
+      |> Ankole.Ash.aggregate!(aggregates)
     end)
   end
 
@@ -437,31 +444,6 @@ defmodule Ankole.AgentWorkers do
       end)
       |> case do
         {:ok, _workers} -> {:cont, :ok}
-        {:error, _error} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  @doc "Assigns legacy unbound Workers inside the bootstrap registry transaction."
-  @spec assign_legacy_provider_in_tx(String.t()) :: :ok | {:error, term()}
-  def assign_legacy_provider_in_tx(provider_id) do
-    query =
-      AgentWorker
-      |> Ash.Query.filter(is_nil(provider_id) and state != :deleting)
-      |> Ash.Query.sort(agent_uid: :asc)
-      |> Ash.Query.lock(:for_update)
-
-    workers =
-      query
-      |> Ash.Query.for_read(:across_tenants)
-      |> Ankole.Ash.read_across_tenants!(lock_identity: {:rows, "agent_workers", :agent_uid})
-
-    Enum.reduce_while(workers, :ok, fn worker, :ok ->
-      Repo.with_tenant(worker.tenant_id, fn ->
-        Ankole.Ash.update(worker, :assign_provider, %{provider_id: provider_id})
-      end)
-      |> case do
-        {:ok, _updated} -> {:cont, :ok}
         {:error, _error} = error -> {:halt, error}
       end
     end)

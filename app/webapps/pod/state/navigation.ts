@@ -9,7 +9,7 @@ export type CollapsibleSection = NavigationScope | 'recent' | 'favorites'
  * person followed stays the only marked one even when another section lists the page.
  */
 export type PodSidebarNavigationState = {
-  keepSidebarTab?: 'home' | 'chat'
+  keepSidebarTab?: 'home' | 'chat' | 'meta'
   sidebarSection?: CollapsibleSection
 }
 
@@ -26,15 +26,25 @@ export function isSidebarSectionActive(
 }
 
 export type RecentEntry<
-  P extends { id: string; visited_at?: string | null; updated_at?: string },
-  R extends { id: string; lastActivityAt?: string | null }
+  P extends { id: string; visited_at?: string | null; updated_at?: string; relevantUnread?: number },
+  R extends {
+    id: string
+    lastActivityAt?: string | null
+    rowStatus?: string
+    viewer?: { lastVisitedAt?: string | null }
+  }
 > =
   | { kind: 'page'; id: string; timestamp: string | undefined; time: number; page: P }
   | { kind: 'conversation'; id: string; timestamp: string | undefined; time: number; room: R }
 
 export function mergeRecentEntries<
-  P extends { id: string; visited_at?: string | null; updated_at?: string },
-  R extends { id: string; lastActivityAt?: string | null }
+  P extends { id: string; visited_at?: string | null; updated_at?: string; relevantUnread?: number },
+  R extends {
+    id: string
+    lastActivityAt?: string | null
+    rowStatus?: string
+    viewer?: { lastVisitedAt?: string | null }
+  }
 >(pages: P[], conversations: R[]): RecentEntry<P, R>[] {
   const entries: RecentEntry<P, R>[] = [
     ...pages.map((page): RecentEntry<P, R> => {
@@ -43,12 +53,31 @@ export function mergeRecentEntries<
       return { kind: 'page', id: page.id, timestamp, time: Number.isNaN(parsed) ? 0 : parsed, page }
     }),
     ...conversations.map((room): RecentEntry<P, R> => {
-      const timestamp = room.lastActivityAt ?? undefined
+      const timestamp = [room.lastActivityAt, room.viewer?.lastVisitedAt]
+        .filter((time): time is string => !!time)
+        .sort()
+        .at(-1)
       const parsed = timestamp ? Date.parse(timestamp) : NaN
       return { kind: 'conversation', id: room.id, timestamp, time: Number.isNaN(parsed) ? 0 : parsed, room }
     })
   ]
-  return entries.sort((left, right) => right.time - left.time || left.id.localeCompare(right.id))
+  const chronological = entries.sort((left, right) => right.time - left.time || left.id.localeCompare(right.id))
+  const priority = (entry: RecentEntry<P, R>) =>
+    entry.kind === 'page'
+      ? entry.page.relevantUnread
+        ? 2
+        : 0
+      : entry.room.rowStatus === 'waiting_choice'
+        ? 3
+        : ['streaming', 'queued', 'running_background'].includes(entry.room.rowStatus ?? '')
+          ? 1
+          : 0
+  const retained = chronological
+    .filter(entry => priority(entry) > 0)
+    .sort((a, b) => priority(b) - priority(a) || b.time - a.time)
+    .slice(0, 3)
+  const retainedKeys = new Set(retained.map(entry => `${entry.kind}:${entry.id}`))
+  return [...retained, ...chronological.filter(entry => !retainedKeys.has(`${entry.kind}:${entry.id}`))]
 }
 
 type Preferences = { rootOpen: Record<CollapsibleSection, boolean>; expanded: Set<string> }

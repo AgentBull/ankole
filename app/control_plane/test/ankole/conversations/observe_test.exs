@@ -1252,7 +1252,7 @@ defmodule Ankole.Conversations.ObserveTest do
       assert Map.take(stored_attachment, Map.keys(attachment)) == attachment
 
       assert {:ok, source_conversation_id} =
-               Ankole.Files.node_conversation_id(stored_attachment["node_id"])
+               Ankole.Pod.node_conversation_id(stored_attachment["node_id"])
 
       assert source_conversation_id == conversation_id!("lark:chat:group-a")
 
@@ -2656,7 +2656,7 @@ defmodule Ankole.Conversations.ObserveTest do
       assert kept["materialization_state"] == "complete"
 
       assert {:ok, %{source: "inbound"}} =
-               Ankole.Files.authorize_node(agent.uid, kept["node_id"], "node_view")
+               Ankole.Pod.authorize_node(agent.uid, kept["node_id"], "node_view")
     end
   end
 

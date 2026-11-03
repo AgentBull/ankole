@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file ankole/runtime_fabric/v1/envelope.proto.
  */
 export const file_ankole_runtime_fabric_v1_envelope: GenFile = /*@__PURE__*/
-  fileDesc("CidhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvZW52ZWxvcGUucHJvdG8SGGFua29sZS5ydW50aW1lX2ZhYnJpYy52MSIgCgpTZXNzaW9uS2V5EhIKCnNlc3Npb25faWQYAiABKAkiUgoGUnVuUmVmEjUKB3Nlc3Npb24YASABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuU2Vzc2lvbktleRIRCglzaWduYWxfaWQYAiABKAkiQAoKSm9iVHVyblJlZhIRCglzaWduYWxfaWQYAiABKAkSDgoGam9iX2lkGAMgASgEEg8KB2F0dGVtcHQYBCABKA0ijwoKCEVudmVsb3BlEhgKEHByb3RvY29sX3ZlcnNpb24YASABKA0SEgoKbWVzc2FnZV9pZBgCIAEoCRIwCgZzdHJlYW0YBCABKA4yIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuU3RyZWFtEhUKDXRyYW5zcG9ydF9zZXEYCCABKAQSRQoQd29ya2VyX2hlYXJ0YmVhdBgVIAEoCzIpLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3JrZXJIZWFydGJlYXRIABI5Cgp0dXJuX3N0YXJ0GB4gASgLMiMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5TdGFydEgAEkMKD21haWxib3hfdXBkYXRlZBgfIAEoCzIoLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5NYWlsYm94VXBkYXRlZEgAEj8KDXR1cm5fYWNjZXB0ZWQYISABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybkFjY2VwdGVkSAASPQoMdHVybl9jb250cm9sGCIgASgLMiUuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5Db250cm9sSAASQwoPd29ya2VyX3Byb2dyZXNzGCMgASgLMiguYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtlclByb2dyZXNzSAASQQoOd29ya3NwYWNlX29wZW4YJCABKAsyJy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya3NwYWNlT3BlbkgAEkMKD3dvcmtzcGFjZV9yZWFkeRglIAEoCzIoLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3Jrc3BhY2VSZWFkeUgAEkMKD3dvcmtzcGFjZV9jbG9zZRgmIAEoCzIoLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3Jrc3BhY2VDbG9zZUgAEjcKCXRvb2xfY2FsbBgnIAEoCzIiLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ub29sQ2FsbEgAEjsKC3Rvb2xfY2FuY2VsGCggASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlRvb2xDYW5jZWxIABI7Cgt0b29sX3N0YXR1cxgpIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ub29sU3RhdHVzSAASPwoNdG9vbF9wcm9ncmVzcxgqIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ub29sUHJvZ3Jlc3NIABI7Cgt0b29sX3Jlc3VsdBgrIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ub29sUmVzdWx0SAASRQoQY29udHJvbF9zaHV0ZG93bhgyIAEoCzIpLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Db250cm9sU2h1dGRvd25IABI7CgtycGNfcmVxdWVzdBhGIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SUENSZXF1ZXN0SAASPQoMcnBjX3Jlc3BvbnNlGEcgASgLMiUuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJQQ1Jlc3BvbnNlSAASNwoJcnBjX2Vycm9yGEggASgLMiIuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJQQ0Vycm9ySABCBgoEYm9keSJNChJGZXRjaFJ1bnRpbWVDb25maWcSEwoLc3NyZl9maWx0ZXIYASABKAgSIgoacmVuZGVyZWRfZmV0Y2hfaWRsZV90dGxfbXMYAiABKA0ixAMKDVdvcmtzcGFjZU9wZW4SLQoDcnVuGAEgASgLMiAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJ1blJlZhIUCgx3b3Jrc3BhY2VfaWQYAiABKAQSTAoLcnVudGltZV9lbnYYAyADKAsyNy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya3NwYWNlT3Blbi5SdW50aW1lRW52RW50cnkSUQoNYWdlbnRfY29udGV4dBgEIAEoCzI6LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BZ2VudENvbnZlcnNhdGlvbkNvbnRleHRSZXNwb25zZRIUCgxiaW5kaW5nX25hbWUYBSABKAkSSgoUZmV0Y2hfcnVudGltZV9jb25maWcYCCABKAsyLC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuRmV0Y2hSdW50aW1lQ29uZmlnEhcKD2lkbGVfdGltZW91dF9tcxgHIAEoBBoxCg9SdW50aW1lRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUoECAYQB1IZZmV0Y2hfcnVudGltZV9jb25maWdfanNvbiLYAQoOV29ya3NwYWNlUmVhZHkSLQoDcnVuGAEgASgLMiAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJ1blJlZhINCgVlcnJvchgCIAEoCRI/CgZyZWFzb24YAyABKA4yLy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya3NwYWNlUmVhZHkuUmVhc29uIkcKBlJlYXNvbhIJCgVSRUFEWRAAEgwKCENBUEFDSVRZEAESDAoIRFJBSU5JTkcQAhIWChJQUkVQQVJBVElPTl9GQUlMRUQQAyI/Cg5Xb3Jrc3BhY2VDbG9zZRItCgNydW4YASABKAsyIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVuUmVmIqYBCghUb29sQ2FsbBItCgNydW4YASABKAsyIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVuUmVmEhMKC3Jlc3BvbnNlX2lkGAIgASgJEg8KB2NhbGxfaWQYAyABKAkSEQoJbmFtZXNwYWNlGAQgASgJEgwKBG5hbWUYBSABKAkSFgoOYXJndW1lbnRzX2pzb24YBiABKAwSDAoEbW9kZRgHIAEoCSJhCgpUb29sQ2FuY2VsEi0KA3J1bhgBIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYSEwoLcmVzcG9uc2VfaWQYAiABKAkSDwoHY2FsbF9pZBgDIAEoCSJwCgpUb29sU3RhdHVzEi0KA3J1bhgBIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYSEwoLcmVzcG9uc2VfaWQYAiABKAkSDwoHY2FsbF9pZBgDIAEoCRINCgVzdGF0ZRgEIAEoCSJ+CgxUb29sUHJvZ3Jlc3MSLQoDcnVuGAEgASgLMiAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJ1blJlZhITCgtyZXNwb25zZV9pZBgCIAEoCRIPCgdjYWxsX2lkGAMgASgJEhkKEXByZXNlbnRhdGlvbl9qc29uGAQgASgMIsUBCgpUb29sUmVzdWx0Ei0KA3J1bhgBIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYSEwoLcmVzcG9uc2VfaWQYAiABKAkSDwoHY2FsbF9pZBgDIAEoCRIUCgxjb250ZW50X2pzb24YBCABKAwSFAoMZGV0YWlsc19qc29uGAUgASgMEhAKCGlzX2Vycm9yGAYgASgIEhQKDGZhaWx1cmVfa2luZBgHIAEoCRIOCgZpbWFnZXMYCCADKAwilgEKD1dvcmtlckhlYXJ0YmVhdBIWCg5pbmNhcm5hdGlvbl9pZBgEIAEoCRIUCgxhY3RpdmVfc2xvdHMYBSABKA0SEQoJbWF4X3Nsb3RzGAggASgNEhcKD2F2YWlsYWJsZV9zbG90cxgJIAEoDRIUCgxhY3RpdmVfdGFza3MYCiABKA0SEwoLaWRsZV9mb3JfbXMYCyABKAQiXQoOU2lnbmFsRW52ZWxvcGUSEQoJc2lnbmFsX2lkGAEgASgJEgwKBHR5cGUYAyABKAkSFAoMcGF5bG9hZF9qc29uGAYgASgMEhQKDGJpbmRpbmdfbmFtZRgHIAEoCSLyBAoJVHVyblN0YXJ0EjIKBHR1cm4YASABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSm9iVHVyblJlZhI4CgZzaWduYWwYAiABKAsyKC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuU2lnbmFsRW52ZWxvcGUSOQoJbW9kZWxfcmVmGAMgASgLMiYuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5Nb2RlbFJlZhIcChRyZXF1ZXN0X2NvbnRleHRfanNvbhgEIAEoDBI6Cgxob3N0ZWRfdG9vbHMYDCADKA4yJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSG9zdGVkVG9vbBJKChRmZXRjaF9ydW50aW1lX2NvbmZpZxgLIAEoCzIsLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5GZXRjaFJ1bnRpbWVDb25maWcSSAoLcnVudGltZV9lbnYYBiADKAsyMy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVyblN0YXJ0LlJ1bnRpbWVFbnZFbnRyeRIMCgRtb2RlGAggASgJElEKDWFnZW50X2NvbnRleHQYCiABKAsyOi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRDb252ZXJzYXRpb25Db250ZXh0UmVzcG9uc2UaMQoPUnVudGltZUVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFKBAgFEAZKBAgJEApSEWhvc3RlZF90b29sc19qc29uUhlmZXRjaF9ydW50aW1lX2NvbmZpZ19qc29uIqkCCgxUdXJuTW9kZWxSZWYSEwoLcHJvdmlkZXJfaWQYAiABKAkSDQoFbW9kZWwYAyABKAkSFQoNcHJvdmlkZXJfa2luZBgEIAEoCRIYChBpbnB1dF9tb2RhbGl0aWVzGAUgAygJEkkKGXZpc2lvbl9mYWxsYmFja19tb2RlbF9yZWYYBiABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybk1vZGVsUmVmEh0KFXByb3ZpZGVyX29wdGlvbnNfanNvbhgIIAEoDBIkChxzdXBwb3J0c19wYXJhbGxlbF90b29sX2NhbGxzGAkgASgIEhsKDmNvbnRleHRfbGVuZ3RoGAogASgNSACIAQFCEQoPX2NvbnRleHRfbGVuZ3RoSgQIBxAIIn4KDk1haWxib3hVcGRhdGVkEjIKBHR1cm4YAiABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSm9iVHVyblJlZhI4CgZzaWduYWwYAyABKAsyKC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuU2lnbmFsRW52ZWxvcGUiQgoMVHVybkFjY2VwdGVkEjIKBHR1cm4YASABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSm9iVHVyblJlZiJoCgtUdXJuQ29udHJvbBIyCgR0dXJuGAEgASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkpvYlR1cm5SZWYSDwoHY29tbWFuZBgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAwiRAoOV29ya2VyUHJvZ3Jlc3MSMgoEdHVybhgBIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Kb2JUdXJuUmVmIiEKD0NvbnRyb2xTaHV0ZG93bhIOCgZyZWFzb24YASABKAki3wEKClJQQ1JlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIOCgZtZXRob2QYAiABKAkSGAoQZGVhZGxpbmVfdW5peF9tcxgDIAEoAxIPCgdwYXlsb2FkGAQgASgMEi0KA3J1bhgHIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYSNgoIam9iX3R1cm4YCCABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSm9iVHVyblJlZkoECAUQBkoECAYQB1IEdHVyblIJYWdlbnRfdWlkIjIKC1JQQ1Jlc3BvbnNlEhIKCnJlcXVlc3RfaWQYASABKAkSDwoHcGF5bG9hZBgCIAEoDCJmCghSUENFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEgwKBGNvZGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCRIUCgxkZXRhaWxzX2pzb24YBCABKAwSEQoJcmV0cnlhYmxlGAUgASgIKl4KBlN0cmVhbRIWChJTVFJFQU1fVU5TUEVDSUZJRUQQABISCg5TVFJFQU1fQ09OVFJPTBABEhIKDlNUUkVBTV9EVVJBQkxFEAISFAoQU1RSRUFNX1RFTEVNRVRSWRADKlEKD1Byb3RvY29sVmVyc2lvbhIgChxQUk9UT0NPTF9WRVJTSU9OX1VOU1BFQ0lGSUVEEAASHAoYUFJPVE9DT0xfVkVSU0lPTl9DVVJSRU5UEAsqfgoKSG9zdGVkVG9vbBIbChdIT1NURURfVE9PTF9VTlNQRUNJRklFRBAAEiAKHEhPU1RFRF9UT09MX0lNQUdFX0dFTkVSQVRJT04QARIaChZIT1NURURfVE9PTF9XRUJfU0VBUkNIEAISFQoRSE9TVEVEX1RPT0xfQlJBSU4QA2IGcHJvdG8z", [file_ankole_runtime_fabric_v1_rpc]);
+  fileDesc("CidhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvZW52ZWxvcGUucHJvdG8SGGFua29sZS5ydW50aW1lX2ZhYnJpYy52MSIgCgpTZXNzaW9uS2V5EhIKCnNlc3Npb25faWQYAiABKAkiUgoGUnVuUmVmEjUKB3Nlc3Npb24YASABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuU2Vzc2lvbktleRIRCglzaWduYWxfaWQYAiABKAkiQAoKSm9iVHVyblJlZhIRCglzaWduYWxfaWQYAiABKAkSDgoGam9iX2lkGAMgASgEEg8KB2F0dGVtcHQYBCABKA0i0goKCEVudmVsb3BlEhgKEHByb3RvY29sX3ZlcnNpb24YASABKA0SEgoKbWVzc2FnZV9pZBgCIAEoCRIwCgZzdHJlYW0YBCABKA4yIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuU3RyZWFtEhUKDXRyYW5zcG9ydF9zZXEYCCABKAQSRQoQd29ya2VyX2hlYXJ0YmVhdBgVIAEoCzIpLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3JrZXJIZWFydGJlYXRIABI5Cgp0dXJuX3N0YXJ0GB4gASgLMiMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5TdGFydEgAEkMKD21haWxib3hfdXBkYXRlZBgfIAEoCzIoLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5NYWlsYm94VXBkYXRlZEgAEj8KDXR1cm5fYWNjZXB0ZWQYISABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybkFjY2VwdGVkSAASPQoMdHVybl9jb250cm9sGCIgASgLMiUuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5Db250cm9sSAASQwoPd29ya2VyX3Byb2dyZXNzGCMgASgLMiguYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtlclByb2dyZXNzSAASQQoOd29ya3NwYWNlX29wZW4YJCABKAsyJy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya3NwYWNlT3BlbkgAEkMKD3dvcmtzcGFjZV9yZWFkeRglIAEoCzIoLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3Jrc3BhY2VSZWFkeUgAEkMKD3dvcmtzcGFjZV9jbG9zZRgmIAEoCzIoLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3Jrc3BhY2VDbG9zZUgAEjcKCXRvb2xfY2FsbBgnIAEoCzIiLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ub29sQ2FsbEgAEjsKC3Rvb2xfY2FuY2VsGCggASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlRvb2xDYW5jZWxIABI7Cgt0b29sX3N0YXR1cxgpIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ub29sU3RhdHVzSAASPwoNdG9vbF9wcm9ncmVzcxgqIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ub29sUHJvZ3Jlc3NIABI7Cgt0b29sX3Jlc3VsdBgrIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ub29sUmVzdWx0SAASQQoOdmZzX2ludmFsaWRhdGUYLCABKAsyJy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVmZzSW52YWxpZGF0ZUgAEkUKEGNvbnRyb2xfc2h1dGRvd24YMiABKAsyKS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQ29udHJvbFNodXRkb3duSAASOwoLcnBjX3JlcXVlc3QYRiABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUlBDUmVxdWVzdEgAEj0KDHJwY19yZXNwb25zZRhHIAEoCzIlLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SUENSZXNwb25zZUgAEjcKCXJwY19lcnJvchhIIAEoCzIiLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SUENFcnJvckgAQgYKBGJvZHkiTQoSRmV0Y2hSdW50aW1lQ29uZmlnEhMKC3NzcmZfZmlsdGVyGAEgASgIEiIKGnJlbmRlcmVkX2ZldGNoX2lkbGVfdHRsX21zGAIgASgNIoEECg1Xb3Jrc3BhY2VPcGVuEi0KA3J1bhgBIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYSFAoMd29ya3NwYWNlX2lkGAIgASgEEkwKC3J1bnRpbWVfZW52GAMgAygLMjcuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtzcGFjZU9wZW4uUnVudGltZUVudkVudHJ5ElEKDWFnZW50X2NvbnRleHQYBCABKAsyOi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRDb252ZXJzYXRpb25Db250ZXh0UmVzcG9uc2USFAoMYmluZGluZ19uYW1lGAUgASgJEkoKFGZldGNoX3J1bnRpbWVfY29uZmlnGAggASgLMiwuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkZldGNoUnVudGltZUNvbmZpZxIXCg9pZGxlX3RpbWVvdXRfbXMYByABKAQSOwoJZHJpdmVfdmZzGAkgASgLMiguYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkRyaXZlVmZzQ29uZmlnGjEKD1J1bnRpbWVFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBSgQIBhAHUhlmZXRjaF9ydW50aW1lX2NvbmZpZ19qc29uIn4KDkRyaXZlVmZzQ29uZmlnEg0KBXRva2VuGAEgASgJEhAKCGVuZHBvaW50GAIgASgJEg0KBXNjb3BlGAMgASgJEgwKBHZpZXcYBCABKAkSFwoPY29udmVyc2F0aW9uX2lkGAUgASgJEhUKDWxpYnJhcnlfc2NvcGUYBiABKAkiNAoNVmZzSW52YWxpZGF0ZRIQCghub2RlX2lkcxgBIAMoCRIRCglhbGxfY2xlYW4YAiABKAgi2AEKDldvcmtzcGFjZVJlYWR5Ei0KA3J1bhgBIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYSDQoFZXJyb3IYAiABKAkSPwoGcmVhc29uGAMgASgOMi8uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtzcGFjZVJlYWR5LlJlYXNvbiJHCgZSZWFzb24SCQoFUkVBRFkQABIMCghDQVBBQ0lUWRABEgwKCERSQUlOSU5HEAISFgoSUFJFUEFSQVRJT05fRkFJTEVEEAMiPwoOV29ya3NwYWNlQ2xvc2USLQoDcnVuGAEgASgLMiAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJ1blJlZiKmAQoIVG9vbENhbGwSLQoDcnVuGAEgASgLMiAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJ1blJlZhITCgtyZXNwb25zZV9pZBgCIAEoCRIPCgdjYWxsX2lkGAMgASgJEhEKCW5hbWVzcGFjZRgEIAEoCRIMCgRuYW1lGAUgASgJEhYKDmFyZ3VtZW50c19qc29uGAYgASgMEgwKBG1vZGUYByABKAkiYQoKVG9vbENhbmNlbBItCgNydW4YASABKAsyIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVuUmVmEhMKC3Jlc3BvbnNlX2lkGAIgASgJEg8KB2NhbGxfaWQYAyABKAkicAoKVG9vbFN0YXR1cxItCgNydW4YASABKAsyIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVuUmVmEhMKC3Jlc3BvbnNlX2lkGAIgASgJEg8KB2NhbGxfaWQYAyABKAkSDQoFc3RhdGUYBCABKAkifgoMVG9vbFByb2dyZXNzEi0KA3J1bhgBIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYSEwoLcmVzcG9uc2VfaWQYAiABKAkSDwoHY2FsbF9pZBgDIAEoCRIZChFwcmVzZW50YXRpb25fanNvbhgEIAEoDCLFAQoKVG9vbFJlc3VsdBItCgNydW4YASABKAsyIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVuUmVmEhMKC3Jlc3BvbnNlX2lkGAIgASgJEg8KB2NhbGxfaWQYAyABKAkSFAoMY29udGVudF9qc29uGAQgASgMEhQKDGRldGFpbHNfanNvbhgFIAEoDBIQCghpc19lcnJvchgGIAEoCBIUCgxmYWlsdXJlX2tpbmQYByABKAkSDgoGaW1hZ2VzGAggAygMIqkBCg9Xb3JrZXJIZWFydGJlYXQSFgoOaW5jYXJuYXRpb25faWQYBCABKAkSFAoMYWN0aXZlX3Nsb3RzGAUgASgNEhEKCW1heF9zbG90cxgIIAEoDRIXCg9hdmFpbGFibGVfc2xvdHMYCSABKA0SFAoMYWN0aXZlX3Rhc2tzGAogASgNEhMKC2lkbGVfZm9yX21zGAsgASgEEhEKCWRyaXZlX3ZmcxgMIAEoCCJdCg5TaWduYWxFbnZlbG9wZRIRCglzaWduYWxfaWQYASABKAkSDAoEdHlwZRgDIAEoCRIUCgxwYXlsb2FkX2pzb24YBiABKAwSFAoMYmluZGluZ19uYW1lGAcgASgJIq8FCglUdXJuU3RhcnQSMgoEdHVybhgBIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Kb2JUdXJuUmVmEjgKBnNpZ25hbBgCIAEoCzIoLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5TaWduYWxFbnZlbG9wZRI5Cgltb2RlbF9yZWYYAyABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybk1vZGVsUmVmEhwKFHJlcXVlc3RfY29udGV4dF9qc29uGAQgASgMEjoKDGhvc3RlZF90b29scxgMIAMoDjIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ib3N0ZWRUb29sEkoKFGZldGNoX3J1bnRpbWVfY29uZmlnGAsgASgLMiwuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkZldGNoUnVudGltZUNvbmZpZxJICgtydW50aW1lX2VudhgGIAMoCzIzLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5UdXJuU3RhcnQuUnVudGltZUVudkVudHJ5EgwKBG1vZGUYCCABKAkSUQoNYWdlbnRfY29udGV4dBgKIAEoCzI6LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BZ2VudENvbnZlcnNhdGlvbkNvbnRleHRSZXNwb25zZRI7Cglkcml2ZV92ZnMYDSABKAsyKC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuRHJpdmVWZnNDb25maWcaMQoPUnVudGltZUVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFKBAgFEAZKBAgJEApSEWhvc3RlZF90b29sc19qc29uUhlmZXRjaF9ydW50aW1lX2NvbmZpZ19qc29uIqkCCgxUdXJuTW9kZWxSZWYSEwoLcHJvdmlkZXJfaWQYAiABKAkSDQoFbW9kZWwYAyABKAkSFQoNcHJvdmlkZXJfa2luZBgEIAEoCRIYChBpbnB1dF9tb2RhbGl0aWVzGAUgAygJEkkKGXZpc2lvbl9mYWxsYmFja19tb2RlbF9yZWYYBiABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybk1vZGVsUmVmEh0KFXByb3ZpZGVyX29wdGlvbnNfanNvbhgIIAEoDBIkChxzdXBwb3J0c19wYXJhbGxlbF90b29sX2NhbGxzGAkgASgIEhsKDmNvbnRleHRfbGVuZ3RoGAogASgNSACIAQFCEQoPX2NvbnRleHRfbGVuZ3RoSgQIBxAIIn4KDk1haWxib3hVcGRhdGVkEjIKBHR1cm4YAiABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSm9iVHVyblJlZhI4CgZzaWduYWwYAyABKAsyKC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuU2lnbmFsRW52ZWxvcGUiQgoMVHVybkFjY2VwdGVkEjIKBHR1cm4YASABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSm9iVHVyblJlZiJoCgtUdXJuQ29udHJvbBIyCgR0dXJuGAEgASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkpvYlR1cm5SZWYSDwoHY29tbWFuZBgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAwiRAoOV29ya2VyUHJvZ3Jlc3MSMgoEdHVybhgBIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Kb2JUdXJuUmVmIiEKD0NvbnRyb2xTaHV0ZG93bhIOCgZyZWFzb24YASABKAki3wEKClJQQ1JlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIOCgZtZXRob2QYAiABKAkSGAoQZGVhZGxpbmVfdW5peF9tcxgDIAEoAxIPCgdwYXlsb2FkGAQgASgMEi0KA3J1bhgHIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYSNgoIam9iX3R1cm4YCCABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSm9iVHVyblJlZkoECAUQBkoECAYQB1IEdHVyblIJYWdlbnRfdWlkIjIKC1JQQ1Jlc3BvbnNlEhIKCnJlcXVlc3RfaWQYASABKAkSDwoHcGF5bG9hZBgCIAEoDCJmCghSUENFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEgwKBGNvZGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCRIUCgxkZXRhaWxzX2pzb24YBCABKAwSEQoJcmV0cnlhYmxlGAUgASgIKl4KBlN0cmVhbRIWChJTVFJFQU1fVU5TUEVDSUZJRUQQABISCg5TVFJFQU1fQ09OVFJPTBABEhIKDlNUUkVBTV9EVVJBQkxFEAISFAoQU1RSRUFNX1RFTEVNRVRSWRADKlEKD1Byb3RvY29sVmVyc2lvbhIgChxQUk9UT0NPTF9WRVJTSU9OX1VOU1BFQ0lGSUVEEAASHAoYUFJPVE9DT0xfVkVSU0lPTl9DVVJSRU5UEAwqfgoKSG9zdGVkVG9vbBIbChdIT1NURURfVE9PTF9VTlNQRUNJRklFRBAAEiAKHEhPU1RFRF9UT09MX0lNQUdFX0dFTkVSQVRJT04QARIaChZIT1NURURfVE9PTF9XRUJfU0VBUkNIEAISFQoRSE9TVEVEX1RPT0xfQlJBSU4QA2IGcHJvdG8z", [file_ankole_runtime_fabric_v1_rpc]);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.SessionKey
@@ -204,6 +204,12 @@ export type Envelope = Message<"ankole.runtime_fabric.v1.Envelope"> & {
     case: "toolResult";
   } | {
     /**
+     * @generated from field: ankole.runtime_fabric.v1.VfsInvalidate vfs_invalidate = 44;
+     */
+    value: VfsInvalidate;
+    case: "vfsInvalidate";
+  } | {
+    /**
      * @generated from field: ankole.runtime_fabric.v1.ControlShutdown control_shutdown = 50;
      */
     value: ControlShutdown;
@@ -296,6 +302,11 @@ export type WorkspaceOpen = Message<"ankole.runtime_fabric.v1.WorkspaceOpen"> & 
    * @generated from field: uint64 idle_timeout_ms = 7;
    */
   idleTimeoutMs: bigint;
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.DriveVfsConfig drive_vfs = 9;
+   */
+  driveVfs?: DriveVfsConfig | undefined;
 };
 
 /**
@@ -304,6 +315,72 @@ export type WorkspaceOpen = Message<"ankole.runtime_fabric.v1.WorkspaceOpen"> & 
  */
 export const WorkspaceOpenSchema: GenMessage<WorkspaceOpen> = /*@__PURE__*/
   messageDesc(file_ankole_runtime_fabric_v1_envelope, 5);
+
+/**
+ * Root-supervisor capability. Never project this credential into model env.
+ *
+ * @generated from message ankole.runtime_fabric.v1.DriveVfsConfig
+ */
+export type DriveVfsConfig = Message<"ankole.runtime_fabric.v1.DriveVfsConfig"> & {
+  /**
+   * @generated from field: string token = 1;
+   */
+  token: string;
+
+  /**
+   * @generated from field: string endpoint = 2;
+   */
+  endpoint: string;
+
+  /**
+   * @generated from field: string scope = 3;
+   */
+  scope: string;
+
+  /**
+   * @generated from field: string view = 4;
+   */
+  view: string;
+
+  /**
+   * @generated from field: string conversation_id = 5;
+   */
+  conversationId: string;
+
+  /**
+   * @generated from field: string library_scope = 6;
+   */
+  libraryScope: string;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.DriveVfsConfig.
+ * Use `create(DriveVfsConfigSchema)` to create a new message.
+ */
+export const DriveVfsConfigSchema: GenMessage<DriveVfsConfig> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 6);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.VfsInvalidate
+ */
+export type VfsInvalidate = Message<"ankole.runtime_fabric.v1.VfsInvalidate"> & {
+  /**
+   * @generated from field: repeated string node_ids = 1;
+   */
+  nodeIds: string[];
+
+  /**
+   * @generated from field: bool all_clean = 2;
+   */
+  allClean: boolean;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.VfsInvalidate.
+ * Use `create(VfsInvalidateSchema)` to create a new message.
+ */
+export const VfsInvalidateSchema: GenMessage<VfsInvalidate> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 7);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WorkspaceReady
@@ -330,7 +407,7 @@ export type WorkspaceReady = Message<"ankole.runtime_fabric.v1.WorkspaceReady"> 
  * Use `create(WorkspaceReadySchema)` to create a new message.
  */
 export const WorkspaceReadySchema: GenMessage<WorkspaceReady> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 6);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 8);
 
 /**
  * @generated from enum ankole.runtime_fabric.v1.WorkspaceReady.Reason
@@ -361,7 +438,7 @@ export enum WorkspaceReady_Reason {
  * Describes the enum ankole.runtime_fabric.v1.WorkspaceReady.Reason.
  */
 export const WorkspaceReady_ReasonSchema: GenEnum<WorkspaceReady_Reason> = /*@__PURE__*/
-  enumDesc(file_ankole_runtime_fabric_v1_envelope, 6, 0);
+  enumDesc(file_ankole_runtime_fabric_v1_envelope, 8, 0);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WorkspaceClose
@@ -378,7 +455,7 @@ export type WorkspaceClose = Message<"ankole.runtime_fabric.v1.WorkspaceClose"> 
  * Use `create(WorkspaceCloseSchema)` to create a new message.
  */
 export const WorkspaceCloseSchema: GenMessage<WorkspaceClose> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 7);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 9);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ToolCall
@@ -425,7 +502,7 @@ export type ToolCall = Message<"ankole.runtime_fabric.v1.ToolCall"> & {
  * Use `create(ToolCallSchema)` to create a new message.
  */
 export const ToolCallSchema: GenMessage<ToolCall> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 8);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 10);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ToolCancel
@@ -452,7 +529,7 @@ export type ToolCancel = Message<"ankole.runtime_fabric.v1.ToolCancel"> & {
  * Use `create(ToolCancelSchema)` to create a new message.
  */
 export const ToolCancelSchema: GenMessage<ToolCancel> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 9);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 11);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ToolStatus
@@ -484,7 +561,7 @@ export type ToolStatus = Message<"ankole.runtime_fabric.v1.ToolStatus"> & {
  * Use `create(ToolStatusSchema)` to create a new message.
  */
 export const ToolStatusSchema: GenMessage<ToolStatus> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 10);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 12);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ToolProgress
@@ -516,7 +593,7 @@ export type ToolProgress = Message<"ankole.runtime_fabric.v1.ToolProgress"> & {
  * Use `create(ToolProgressSchema)` to create a new message.
  */
 export const ToolProgressSchema: GenMessage<ToolProgress> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 11);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 13);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ToolResult
@@ -568,7 +645,7 @@ export type ToolResult = Message<"ankole.runtime_fabric.v1.ToolResult"> & {
  * Use `create(ToolResultSchema)` to create a new message.
  */
 export const ToolResultSchema: GenMessage<ToolResult> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 12);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 14);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WorkerHeartbeat
@@ -607,6 +684,11 @@ export type WorkerHeartbeat = Message<"ankole.runtime_fabric.v1.WorkerHeartbeat"
    * @generated from field: uint64 idle_for_ms = 11;
    */
   idleForMs: bigint;
+
+  /**
+   * @generated from field: bool drive_vfs = 12;
+   */
+  driveVfs: boolean;
 };
 
 /**
@@ -614,7 +696,7 @@ export type WorkerHeartbeat = Message<"ankole.runtime_fabric.v1.WorkerHeartbeat"
  * Use `create(WorkerHeartbeatSchema)` to create a new message.
  */
 export const WorkerHeartbeatSchema: GenMessage<WorkerHeartbeat> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 13);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 15);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.SignalEnvelope
@@ -649,7 +731,7 @@ export type SignalEnvelope = Message<"ankole.runtime_fabric.v1.SignalEnvelope"> 
  * Use `create(SignalEnvelopeSchema)` to create a new message.
  */
 export const SignalEnvelopeSchema: GenMessage<SignalEnvelope> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 14);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 16);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.TurnStart
@@ -704,6 +786,11 @@ export type TurnStart = Message<"ankole.runtime_fabric.v1.TurnStart"> & {
    * @generated from field: ankole.runtime_fabric.v1.AgentConversationContextResponse agent_context = 10;
    */
   agentContext?: AgentConversationContextResponse | undefined;
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.DriveVfsConfig drive_vfs = 13;
+   */
+  driveVfs?: DriveVfsConfig | undefined;
 };
 
 /**
@@ -711,7 +798,7 @@ export type TurnStart = Message<"ankole.runtime_fabric.v1.TurnStart"> & {
  * Use `create(TurnStartSchema)` to create a new message.
  */
 export const TurnStartSchema: GenMessage<TurnStart> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 15);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 17);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.TurnModelRef
@@ -765,7 +852,7 @@ export type TurnModelRef = Message<"ankole.runtime_fabric.v1.TurnModelRef"> & {
  * Use `create(TurnModelRefSchema)` to create a new message.
  */
 export const TurnModelRefSchema: GenMessage<TurnModelRef> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 16);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 18);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.MailboxUpdated
@@ -789,7 +876,7 @@ export type MailboxUpdated = Message<"ankole.runtime_fabric.v1.MailboxUpdated"> 
  * Use `create(MailboxUpdatedSchema)` to create a new message.
  */
 export const MailboxUpdatedSchema: GenMessage<MailboxUpdated> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 17);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 19);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.TurnAccepted
@@ -809,7 +896,7 @@ export type TurnAccepted = Message<"ankole.runtime_fabric.v1.TurnAccepted"> & {
  * Use `create(TurnAcceptedSchema)` to create a new message.
  */
 export const TurnAcceptedSchema: GenMessage<TurnAccepted> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 18);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 20);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.TurnControl
@@ -836,7 +923,7 @@ export type TurnControl = Message<"ankole.runtime_fabric.v1.TurnControl"> & {
  * Use `create(TurnControlSchema)` to create a new message.
  */
 export const TurnControlSchema: GenMessage<TurnControl> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 19);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 21);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WorkerProgress
@@ -853,7 +940,7 @@ export type WorkerProgress = Message<"ankole.runtime_fabric.v1.WorkerProgress"> 
  * Use `create(WorkerProgressSchema)` to create a new message.
  */
 export const WorkerProgressSchema: GenMessage<WorkerProgress> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 20);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 22);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ControlShutdown
@@ -870,7 +957,7 @@ export type ControlShutdown = Message<"ankole.runtime_fabric.v1.ControlShutdown"
  * Use `create(ControlShutdownSchema)` to create a new message.
  */
 export const ControlShutdownSchema: GenMessage<ControlShutdown> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 21);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 23);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RPCRequest
@@ -916,7 +1003,7 @@ export type RPCRequest = Message<"ankole.runtime_fabric.v1.RPCRequest"> & {
  * Use `create(RPCRequestSchema)` to create a new message.
  */
 export const RPCRequestSchema: GenMessage<RPCRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 22);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 24);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RPCResponse
@@ -940,7 +1027,7 @@ export type RPCResponse = Message<"ankole.runtime_fabric.v1.RPCResponse"> & {
  * Use `create(RPCResponseSchema)` to create a new message.
  */
 export const RPCResponseSchema: GenMessage<RPCResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 23);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 25);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RPCError
@@ -977,7 +1064,7 @@ export type RPCError = Message<"ankole.runtime_fabric.v1.RPCError"> & {
  * Use `create(RPCErrorSchema)` to create a new message.
  */
 export const RPCErrorSchema: GenMessage<RPCError> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 24);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 26);
 
 /**
  * Logical stream of one envelope on the Worker Channel. The channel event
@@ -1025,9 +1112,9 @@ export enum ProtocolVersion {
   UNSPECIFIED = 0,
 
   /**
-   * @generated from enum value: PROTOCOL_VERSION_CURRENT = 11;
+   * @generated from enum value: PROTOCOL_VERSION_CURRENT = 12;
    */
-  CURRENT = 11,
+  CURRENT = 12,
 }
 
 /**

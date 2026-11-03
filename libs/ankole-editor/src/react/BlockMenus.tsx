@@ -1,3 +1,4 @@
+import { isKnowledge, knowledgeBlockTypes } from '../editor/knowledge'
 import { Button } from '@ankole/uikit/components/button'
 import { Input } from '@ankole/uikit/components/input'
 import {
@@ -412,7 +413,9 @@ function BlockActions() {
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent className="block-menu ankole-editor-overlay" aria-label={label('turn_into_type')}>
           <BlockTypeItems
-            options={blockOptions.filter(option => option.turnInto)}
+            options={blockOptions.filter(
+              option => option.turnInto && (!isKnowledge(state) || knowledgeBlockTypes.has(option.type))
+            )}
             current={selected.length === 1 ? blockTypeAt(state, selected[0]!.before) : null}
             onChoose={type => turnInto(type)()}
           />

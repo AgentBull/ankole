@@ -12,31 +12,31 @@
 
 ```bash
 # 先预览请求，不实际执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks add_sign \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks add_sign \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","add_sign_type":1,"add_sign_user_ids":["ou_xxx"],"approval_method":1,"comment":"前加签给财务复核"}' \
   --params '{"user_id_type":"open_id"}' \
   --dry-run
 
 # 前加签（需要 approval_method）
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks add_sign \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks add_sign \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","add_sign_type":1,"add_sign_user_ids":["ou_xxx"],"approval_method":1,"comment":"请先补充审核"}' \
   --params '{"user_id_type":"open_id"}' \
   --yes
 
 # 后加签（需要 approval_method）
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks add_sign \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks add_sign \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","add_sign_type":2,"add_sign_user_ids":["ou_xxx","ou_yyy"],"approval_method":2,"comment":"当前审批完成后请两位继续审核"}' \
   --params '{"user_id_type":"open_id"}' \
   --yes
 
 # 并加签（常见场景可不传 approval_method）
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks add_sign \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks add_sign \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","add_sign_type":3,"add_sign_user_ids":["123456789"],"comment":"并加签给项目 owner"}' \
   --params '{"user_id_type":"user_id"}' \
   --yes
 
 # 通过文件传入请求体，适合较长 comment 或较多加签人
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks add_sign \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks add_sign \
   --data @./add-sign-body.json \
   --params '{"user_id_type":"open_id"}' \
   --yes
@@ -83,7 +83,7 @@
 先查到待办任务：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks query --params '{"topic":"1"}'
 ```
 
 常用到的字段：
@@ -99,7 +99,7 @@
 如需先确认表单、节点、审批流进度，可继续查看实例详情：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 ```
 
 ## 使用建议

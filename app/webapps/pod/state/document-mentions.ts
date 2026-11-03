@@ -2,7 +2,7 @@ import { batch, signal, type ReadonlySignal, type Signal } from '@preact/signals
 import type { QueryClient } from '@tanstack/react-query'
 import type { MentionTarget } from '@ankole/block-editor/editor'
 import i18n from '../../common/i18n'
-import { podRouteID } from '../../common/browser-context'
+import { podPagePathnameID } from '../../common/pod-url'
 import {
   pageAPI,
   type MentionCandidatesResponse,
@@ -122,6 +122,7 @@ export class MentionStore {
             type: candidate.type,
             title: candidate.title,
             icon: candidate.icon ?? null,
+            system_key: candidate.system_key,
             private_owner_uid: candidate.private_owner_uid ?? null,
             ancestors: candidate.ancestors,
             updated_at: candidate.updated_at,
@@ -297,9 +298,7 @@ export function matchPodPageUrl(rawUrl: string, currentOrigin?: string): string 
     return null
   }
   if (parsed.search !== '' || parsed.hash !== '') return null
-  const match = /^\/pages\/([^/?#]+)\/?$/.exec(parsed.pathname)
-  if (!match?.[1]) return null
-  return podRouteID(match[1]) ?? null
+  return podPagePathnameID(parsed.pathname, { allowTrailingSlash: true }) ?? null
 }
 
 export function readPageMention(client: QueryClient, id: string): ResolvedPageMention | undefined {

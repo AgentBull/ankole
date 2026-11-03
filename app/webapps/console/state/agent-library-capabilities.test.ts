@@ -21,10 +21,11 @@ const spreadsheetSkill: AgentLibrarySkillCapabilityItem = {
   agent_plugin_id: 'office',
   description: 'Create and validate spreadsheet files',
   effective_enabled: true,
-  global_default_enabled: true,
+  enabled_for_all: true,
+  revision: 1,
   id: 'office:xlsx',
   name: 'xlsx',
-  override_enabled: null,
+  bound: false,
   source_kind: 'builtin'
 }
 

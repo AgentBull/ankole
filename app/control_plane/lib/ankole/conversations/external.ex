@@ -127,7 +127,7 @@ defmodule Ankole.Conversations.External do
   end
 
   def observe_conversation_in_tx(%{agent_uid: agent_uid}, observation, now) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
     provider_id = Ankole.Attrs.get(observation, :provider_conversation_id)
 
     if is_binary(provider_id) and String.trim(provider_id) != "" do
@@ -144,6 +144,7 @@ defmodule Ankole.Conversations.External do
                  provider_conversation_id: provider_id
                })
              ),
+           {:ok, _} <- Ankole.Pod.Pages.Tree.ensure_conversation_root_in_tx(conversation.id),
            {:ok, _} <- ensure_agent(conversation.id, agent_uid) do
         {:ok, conversation}
       end
@@ -153,7 +154,7 @@ defmodule Ankole.Conversations.External do
   end
 
   def observe_in_tx(conversation_id, observation, now) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
     provider_id = Ankole.Attrs.get(observation, :provider_message_id)
 
     with :ok <- validate_provider_message_id(provider_id),

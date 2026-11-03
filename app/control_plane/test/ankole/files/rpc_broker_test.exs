@@ -74,13 +74,15 @@ defmodule Ankole.Files.RPCBrokerTest do
 
     assert :ok =
              Ankole.Repo.transact_top_level(fn ->
-               Files.lock_tree_in_tx()
-               {:ok, node} = Files.fetch_node(file.id)
+               Ankole.Pod.lock_tree_in_tx()
+               {:ok, node} = Ankole.Pod.fetch_node(file.id)
 
                {:ok, _} =
-                 Files.Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
+                 Ankole.Pod.Access.update_anchor_in_tx(node, :sharing, %{
+                   inherit_permissions: false
+                 })
 
-               Files.Access.put_role(
+               Ankole.Pod.Access.put_role(
                  %{principal_uid: uid},
                  "drive:**:#{file.id}:node",
                  "view",
@@ -93,7 +95,9 @@ defmodule Ankole.Files.RPCBrokerTest do
 
     assert {:error, :forbidden} = Files.fetch(uid, file.path)
     assert {:ok, %{files: []}} = Files.list(uid, "conditional")
-    assert {:error, :forbidden} = Files.authorize_node(actor_fixture(uid), file.id, "node_view")
+
+    assert {:error, :forbidden} =
+             Ankole.Pod.authorize_node(actor_fixture(uid), file.id, "node_view")
 
     assert {:ok, %{files: [listed]}} =
              RPCBroker.handle_list(uid, %FabricProto.FilesListRequest{prefix: "conditional"}, ctx)

@@ -1,3 +1,4 @@
+import type { DriveView } from '../../../drive/mounts'
 import { Result, isRecord, ms, recordValue, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { errorMessage, toError } from '../../../common/errors'
 import { agentProcessArgv, killProcessGroup } from '../../execution/process-group'
@@ -51,11 +52,8 @@ type CodexAppServerSpawner = (
   }
 ) => CodexAppServerProcess
 
-/** Typed Bun process adapter and deterministic spawn seam for tests. */
-const spawnCodexAppServer: CodexAppServerSpawner = (commandArgv, options) =>
-  Bun.spawn(agentProcessArgv(commandArgv), options) as unknown as CodexAppServerProcess
-
 export type CodexAppServerClientOptions = {
+  driveView?: DriveView
   command?: string
   commandArgv?: string[]
   args?: string[]
@@ -140,7 +138,7 @@ export class CodexAppServerClient {
 
   constructor(
     private readonly opts: CodexAppServerClientOptions,
-    spawn: CodexAppServerSpawner = spawnCodexAppServer
+    spawn?: CodexAppServerSpawner
   ) {
     const commandArgv = opts.commandArgv ?? [
       opts.command ?? process.env.ANKOLE_CODEX_BINARY ?? 'codex',
@@ -150,7 +148,14 @@ export class CodexAppServerClient {
     ]
     // Its own process group lets the client end the commands that Codex
     // started together with the app-server.
-    this.proc = spawn(commandArgv, {
+    const spawner =
+      spawn ??
+      (((argv, options) =>
+        Bun.spawn(
+          agentProcessArgv(argv, opts.driveView),
+          options
+        ) as unknown as CodexAppServerProcess) as CodexAppServerSpawner)
+    this.proc = spawner(commandArgv, {
       cwd: opts.cwd,
       env: opts.env,
       stdin: 'pipe',

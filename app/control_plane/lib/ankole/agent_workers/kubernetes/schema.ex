@@ -77,6 +77,16 @@ defmodule Ankole.AgentWorkers.Kubernetes.Schema do
         "storage" => C.field(storage, :location),
         "cache" => C.field(cache, :instance),
         "serviceAccount" => C.field(name(), :instance),
+        "fuseDeviceResource" =>
+          C.field(
+            %{
+              "type" => "string",
+              "minLength" => 3,
+              "pattern" => "^[a-z0-9.-]+/[a-zA-Z0-9._-]+$",
+              "default" => "smarter-devices/fuse"
+            },
+            :instance
+          ),
         "podTemplate" => C.field(C.object(%{"spec" => pod}, ["spec"]), :instance)
       }),
       ~w(namespace storage serviceAccount podTemplate)

@@ -69,16 +69,23 @@ defmodule Ankole.LockOrder do
       "background_agent_jobs" => 7,
       "workflow_runs" => 7,
       "automation_jobs" => 7,
+      "signal_bindings" => 7,
+      "signal_webhook_endpoints" => 7,
       "cron_schedules" => 7,
       "scheduled_events" => 8,
       "background_agent_job_turns" => 8,
       "workflow_agent_calls" => 8,
       "automation_job_runs" => 8,
+      "automation_job_states" => 8,
+      "signal_binding_receipts" => 8,
       "sessions" => 10,
       "signals" => 11,
       "conversation_action_cards" => 11,
-      "drive_nodes" => 12,
       "file_objects" => 12,
+      "skills" => 12,
+      "skill_files" => 12,
+      "agent_skills" => 12,
+      "agent_contracts" => 12,
       "pod_files" => 12,
       "pages" => 12
     }
@@ -86,7 +93,9 @@ defmodule Ankole.LockOrder do
     # including when both belong to the parent-work rank. Likewise, Action Cards
     # always lock before their source Signal row at rank 11.
     @row_dependencies %{
-      "automation_jobs" => "cron_schedules",
+      "automation_jobs" => ["signal_bindings", "signal_webhook_endpoints", "cron_schedules"],
+      "signal_bindings" => ["signal_webhook_endpoints", "cron_schedules"],
+      "automation_job_runs" => ["automation_job_states"],
       "conversation_action_cards" => "signals"
     }
 
@@ -127,8 +136,8 @@ defmodule Ankole.LockOrder do
       check_control_plane_lock!()
 
       cond do
-        String.starts_with?(key, "drive-tree:") -> check(2, {:drive_tree, key})
-        String.starts_with?(key, "drive-root:") -> check(2.5, {:drive_root, key})
+        String.starts_with?(key, "page-tree:") -> check(2, {:page_tree, key})
+        String.starts_with?(key, "page-root:") -> check(2.5, {:page_root, key})
         String.contains?(key, ":running_slots:") -> check(6, {:slots, key})
         true -> :ok
       end
@@ -158,26 +167,22 @@ defmodule Ankole.LockOrder do
       end
     end
 
-    defp check_root_order!({:drive_root, key}, held) do
+    defp check_root_order!({:page_root, key}, held) do
       if Enum.any?(held, fn
-           {:drive_root, previous} -> previous > key
+           {:page_root, previous} -> previous > key
            _ -> false
          end),
-         do: raise(ArgumentError, "Drive root locks must be acquired in node ID order")
+         do: raise(ArgumentError, "Page root locks must be acquired in Page ID order")
     end
 
     defp check_root_order!(_lock, _held), do: :ok
 
     defp check_row_dependency!({:row, table, _} = lock, held) do
-      case @row_dependencies[table] do
-        nil ->
-          :ok
-
-        dependent ->
-          if Enum.any?(held, &match?({:row, ^dependent, _}, &1)) do
-            raise ArgumentError,
-                  "work lock order violation: #{inspect(lock)} must precede #{dependent}"
-          end
+      for dependent <- List.wrap(@row_dependencies[table]) do
+        if Enum.any?(held, &match?({:row, ^dependent, _}, &1)) do
+          raise ArgumentError,
+                "work lock order violation: #{inspect(lock)} must precede #{dependent}"
+        end
       end
     end
 

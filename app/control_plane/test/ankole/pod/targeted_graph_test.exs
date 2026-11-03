@@ -4,7 +4,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Snapshot
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Page, Pages}
 
   test "targeted rights match the full graph through conditional Userset cycles" do
@@ -80,7 +80,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
             {d, 0},
             {e, if(ip == "10.0.0.1", do: 17, else: 0)}
           ] do
-        page = Repo.get!(Page, page.id)
+        page = Repo.get_by!(Page, id: page.id)
 
         assert {:ok, targeted} =
                  Access.reachable_anchors(
@@ -205,7 +205,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
              )
 
     for {id, expected} <- [{a.id, 8}, {b.id, 0}] do
-      page = Repo.get!(Page, id)
+      page = Repo.get_by!(Page, id: id)
 
       assert {:ok, full} =
                Access.reachable_anchors(Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
@@ -228,7 +228,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
     assert {:ok, _} =
              Access.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
-               Repo.get!(Page, a.id),
+               Repo.get_by!(Page, id: a.id),
                "node_manage",
                trash: true
              )
@@ -236,7 +236,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
     assert {:error, :forbidden} =
              Access.authorize(
                Ankole.PrincipalsFixtures.actor_fixture(viewer.uid),
-               Repo.get!(Page, b.id),
+               Repo.get_by!(Page, id: b.id),
                "node_manage",
                trash: true
              )
@@ -270,11 +270,11 @@ defmodule Ankole.Pod.TargetedGraphTest do
                context: context
              )
 
-    assert Access.page_bits(Repo.get!(Page, page.id), rights) == 9
+    assert Access.page_bits(Repo.get_by!(Page, id: page.id), rights) == 9
   end
 
   defp assert_equivalent(uid, id, expected) do
-    page = Repo.get!(Page, id)
+    page = Repo.get_by!(Page, id: id)
     assert {:ok, full} = Access.reachable_anchors(Ankole.PrincipalsFixtures.actor_fixture(uid))
 
     assert {:ok, targeted} =

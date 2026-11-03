@@ -1,6 +1,7 @@
-import { state, request as podRequest, selectChatAgent } from './fixtures'
+import { state, request as podRequest } from './fixtures'
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { uuidV4 } from '@agentbull/active-support'
 import type { ConversationDetail } from '../../pod/api'
 import { conversationRoute } from './routes'
 
@@ -29,7 +30,15 @@ async function clearPending(page: Page, id: string) {
 
 async function createChat(page: Page) {
   await page.goto('/')
-  await selectChatAgent(page)
+  const group = await request(page, '/conversations', 'POST', {
+    conversationID: uuidV4(),
+    messageID: uuidV4(),
+    roomMode: 'group',
+    agentUIDs: [state.agent_uid],
+    participantUIDs: [state.member.uid],
+    text: 'Attachment preview browser fixture'
+  })
+  await page.goto(conversationRoute(group.conversation.id))
   const composer = page.locator('.pod-chat-composer')
   const choose = page.waitForEvent('filechooser')
   await composer.getByRole('button', { name: '添加文件', exact: true }).click()
@@ -52,13 +61,11 @@ async function createChat(page: Page) {
   await composer.getByRole('textbox', { name: '消息', exact: true }).fill('Attachment preview browser fixture')
   const sent = page.waitForResponse(
     response =>
-      response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/v2/pod/conversations/${group.conversation.id}/messages`
   )
   await composer.getByRole('button', { name: '发送消息', exact: true }).click()
   const detail = (await (await sent).json()) as ConversationDetail
-  await request(page, `/conversations/${detail.conversation.id}/participants`, 'POST', {
-    addUIDs: [state.member.uid]
-  })
   await page.goto(conversationRoute(detail.conversation.id))
   return detail.conversation.id
 }
@@ -80,16 +87,20 @@ test('real frozen attachments preview in the same chat with bounded text, escape
     const trigger = page.getByRole('button', { name: fileLabel('预览', 'preview-note.txt') })
     const expectedIdentity = await page.locator('meta[name="ankole-authentication"]').getAttribute('content')
     let reads = 0
-    // Keep the real HTTP adapter: the first read reaches the server with a missing path.
+    // Keep the real HTTP adapter: the first read requests a missing attachment position.
     await page.route('**/api/v2/pod/conversations/*/attachments/**', async route => {
       const url = new URL(route.request().url())
-      if (url.searchParams.get('path') === attachment.path && reads++ === 0) {
-        url.searchParams.set('path', 'missing-preview-file.txt')
+      if (url.searchParams.get('position') === String(attachment.position) && reads++ === 0) {
+        url.searchParams.set('position', '999')
         return route.continue({ url: url.toString() })
       }
       return route.continue()
     })
-    const read = page.waitForRequest(request => new URL(request.url()).searchParams.get('path') === attachment.path)
+    const read = page.waitForRequest(
+      request =>
+        request.url().includes('/attachments/') &&
+        new URL(request.url()).searchParams.get('position') === String(attachment.position)
+    )
     const rejected = page.waitForResponse(
       response => response.url().includes('/attachments/') && response.status() === 404
     )
@@ -170,11 +181,12 @@ test('real frozen attachments preview in the same chat with bounded text, escape
     await viewport.press('+')
     await expect(imageDialog.getByRole('toolbar')).toContainText('200%')
     const box = (await viewport.boundingBox())!
+    const imageStart = (await image.boundingBox())!
     await page.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2)
     await page.mouse.down()
     await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2, { steps: 5 })
     await page.mouse.up()
-    expect(await viewport.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
+    await expect.poll(async () => (await image.boundingBox())!.x).toBeLessThan(imageStart.x - box.width * 0.3)
     await viewport.press('0')
     await expect(imageDialog.getByRole('toolbar')).toContainText('100%')
     await page.keyboard.press('Escape')
@@ -218,7 +230,8 @@ test('closing a pending preview aborts its request, and removing its owning mess
       .flatMap(message => message.attachments)
       .find(attachment => attachment.name === 'preview-note.txt')!
     expect(attachment).toBeTruthy()
-    const matches = (url: string) => new URL(url).searchParams.get('path') === attachment.path
+    const matches = (url: string) =>
+      url.includes('/attachments/') && new URL(url).searchParams.get('position') === String(attachment.position)
     page.on('requestfailed', request => {
       if (matches(request.url())) failed++
     })
@@ -267,7 +280,6 @@ test('local text and image previews keep unsent text and selected files in the c
   const page = await context.newPage()
   try {
     await page.goto('/')
-    await selectChatAgent(page)
     const composer = page.locator('.pod-chat-composer')
     const message = composer.getByRole('textbox', { name: '消息', exact: true })
     await message.fill('Keep my unsent draft')

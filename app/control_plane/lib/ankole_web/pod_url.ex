@@ -3,6 +3,11 @@ defmodule AnkoleWeb.PodURL do
   alias Ankole.{Kernel, Tenants}
 
   @host_policy Application.compile_env(:ankole, :host_policy)
+  @short_uuid_len 26
+  @max_incoming_slug_len 120
+  @max_page_slug_len 60
+  @min_word_boundary_len 16
+  @incoming_slug_pattern ~r/\A[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*\z/
 
   def origin(conn, %Tenants.Tenant{} = tenant) do
     if @host_policy do
@@ -111,6 +116,12 @@ defmodule AnkoleWeb.PodURL do
 
   def local_host(_), do: :error
 
+  def page_path(id, title \\ nil) when is_binary(id) do
+    short = short_id(id) || raise ArgumentError, "invalid Page ID: #{inspect(id)}"
+    slug = if is_binary(title) and title != "", do: Kernel.page_url_slug(title), else: ""
+    if slug == "", do: "/pages/" <> short, else: "/pages/" <> slug <> "-" <> short
+  end
+
   def path(conn) do
     segments =
       case conn.path_info do
@@ -137,27 +148,98 @@ defmodule AnkoleWeb.PodURL do
 
   defp browser_path([]), do: {:ok, "/"}
 
+  defp browser_path(["meta" | rest]),
+    do:
+      {:ok,
+       "/" <>
+         Enum.map_join(["meta" | rest], "/", &URI.encode(&1, fn c -> URI.char_unreserved?(c) end))}
+
+  defp browser_path(["dm", uid]), do: {:ok, "/dm/" <> URI.encode(uid, &URI.char_unreserved?/1)}
+
   defp browser_path(["content", scope])
        when scope in ~w(all space private shared recent favorites trash search),
        do: {:ok, "/content/" <> scope}
 
   defp browser_path(["content", _scope]), do: {:ok, "/content/space"}
 
-  defp browser_path([kind, value]) when kind in ~w(pages conversations) do
+  defp browser_path(["pages", value]) do
+    case page_segment(value) do
+      nil -> {:error, :not_found}
+      segment -> {:ok, "/pages/" <> segment}
+    end
+  end
+
+  defp browser_path(["conversations", value]) do
     case short_id(value) do
       nil -> {:error, :not_found}
-      short -> {:ok, "/" <> kind <> "/" <> short}
+      short -> {:ok, "/conversations/" <> short}
     end
   end
 
   defp browser_path(_), do: {:error, :not_found}
 
-  defp short_id(value) do
-    case Kernel.uuid_shorten(value) do
+  defp page_segment(value) do
+    case short_id(value) do
       short when is_binary(short) -> short
-      _ -> if is_binary(Kernel.uuid_expand(value)), do: value
+      nil -> slugged_page_segment(value)
     end
   end
+
+  defp slugged_page_segment(value) when byte_size(value) > @short_uuid_len + 1 do
+    prefix_len = byte_size(value) - @short_uuid_len - 1
+
+    case value do
+      <<prefix::binary-size(^prefix_len), "-", suffix::binary-size(@short_uuid_len)>>
+      when prefix_len <= @max_incoming_slug_len ->
+        with true <- Regex.match?(@incoming_slug_pattern, prefix),
+             short when is_binary(short) <- canonical_short_id(suffix) do
+          slug =
+            prefix
+            |> String.downcase(:ascii)
+            |> String.replace("_", "-")
+            |> truncate_page_slug()
+
+          slug <> "-" <> short
+        else
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp slugged_page_segment(_), do: nil
+
+  defp truncate_page_slug(slug) when byte_size(slug) <= @max_page_slug_len, do: slug
+
+  defp truncate_page_slug(slug) do
+    sliced =
+      slug
+      |> binary_part(0, @max_page_slug_len)
+      |> String.trim_trailing("-")
+
+    case List.last(:binary.matches(sliced, "-")) do
+      {index, 1} when index >= @min_word_boundary_len -> binary_part(sliced, 0, index)
+      _ -> sliced
+    end
+  end
+
+  defp short_id(value) when is_binary(value) do
+    case Kernel.uuid_shorten(value) do
+      short when is_binary(short) -> short
+      _ -> canonical_short_id(value)
+    end
+  end
+
+  defp short_id(_), do: nil
+
+  defp canonical_short_id(value) when byte_size(value) == @short_uuid_len do
+    lower = String.downcase(value, :ascii)
+    if is_binary(Kernel.uuid_expand(lower)), do: lower
+  end
+
+  defp canonical_short_id(_), do: nil
 
   defp domain do
     host = AnkoleWeb.Endpoint.config(:url)[:host] || "localhost"

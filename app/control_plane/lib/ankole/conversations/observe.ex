@@ -179,7 +179,7 @@ defmodule Ankole.Conversations.Observe do
   def accept_action_in_tx(binding, fact, now) do
     # Keep the same tree -> channel -> root -> Principal -> Session -> Signal lock order
     # across all managed callbacks so Action Cards and ordinary answers compose cleanly.
-    with :ok <- Ankole.Files.lock_tree_in_tx(),
+    with :ok <- Ankole.Pod.lock_tree_in_tx(),
          {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
          {:ok, channel} <- conversation_in_tx(fact) do
       if managed_action_card_callback?(fact) do
@@ -194,19 +194,31 @@ defmodule Ankole.Conversations.Observe do
               {:ok, %{status: :stale_action}}
 
             {:accepted, resolution} ->
-              fact = %{
-                fact
-                | action: accepted_reply_action(fact.action, resolution),
-                  sender_key: Map.get(fact.action, "operator_principal_uid")
-              }
-
-              append_action_event(binding, fact, channel, now)
+              append_reply_action(binding, fact, channel, resolution, now)
 
             :unmanaged ->
               append_action_event(binding, fact, channel, now)
           end
         end
       end
+    end
+  end
+
+  defp append_reply_action(binding, fact, channel, resolution, now) do
+    fact = %{
+      fact
+      | action: accepted_reply_action(fact.action, resolution),
+        sender_key: Map.get(fact.action, "operator_principal_uid")
+    }
+
+    source = Ankole.Signals.get_signal!(resolution["source_signal_id"])
+
+    if source && Ankole.Conversations.Peers.exchange(source.conversation_id) do
+      with {:ok, signal} <-
+             Ankole.Conversations.Peers.answer_external_in_tx(source, fact, resolution),
+           do: {:ok, signal_append_result(signal, %{conversation: channel})}
+    else
+      append_action_event(binding, fact, channel, now)
     end
   end
 
@@ -359,7 +371,7 @@ defmodule Ankole.Conversations.Observe do
   # late receive before writing anything.
   @doc false
   def accept_entry_in_tx(binding, fact, now) do
-    with :ok <- Ankole.Files.lock_tree_in_tx(),
+    with :ok <- Ankole.Pod.lock_tree_in_tx(),
          {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
          :ok <- lock_entry_consumers(binding, fact),
          :ok <- lock_entry(fact) do
@@ -841,7 +853,14 @@ defmodule Ankole.Conversations.Observe do
         :error -> nil
       end
 
+    peer_origin =
+      Ankole.Conversations.Peers.callback_origin(source, binding.id, fact.conversation_id)
+
     cond do
+      peer_origin ->
+        {sender, session} = peer_origin
+        {:ok, %{fact | agent_uid: sender, session_id: session}}
+
       match?(
         %Signal{reply_binding_id: id, conversation_id: conversation_id}
         when id == binding.id and conversation_id == fact.conversation_id,

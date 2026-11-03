@@ -876,7 +876,8 @@ progress-only heartbeat updates never renew the response lease. Tool-result
 journals deduplicate against a tenant-scoped partial expression index on
 `metadata.tool_result_idempotency_key`: retrying an immutable upsert returns the
 first committed journal (and a cross-tenant key collision raises a stale-record
-error). Compaction checkpoints insert immutably, joining the caller's admission
+error). The key hashes the subject, anchor and reconciled output items using
+deterministic Erlang term encoding. Compaction checkpoints insert immutably, joining the caller's admission
 transaction whenever admission writes a checkpoint alongside a new `generating`
 row.
 

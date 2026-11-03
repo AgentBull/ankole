@@ -1,4 +1,4 @@
-import { usePageMetadata, usePagesMetadata } from './use-page-metadata'
+import { usePageHref, usePageMetadata, usePagesMetadata } from './use-page-metadata'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, Input } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -7,7 +7,6 @@ import type { TFunction } from 'i18next'
 import { Link } from '@tanstack/react-router'
 import type { ConversationMessage } from './api'
 import { podKeys, type ConversationAttachment } from './api'
-import { podLocation } from '../common/browser-context'
 import { limitPageTitle, pageAPI, pageQuery, pageSearchQuery, type Page, type PageDetail } from './content-api'
 import { pageCreated } from './state/navigation-cache'
 import { ContentError } from './content-primitives'
@@ -60,6 +59,7 @@ export function MessageArtifacts({ message, conversationID }: { message: Message
 
 export function MessagePageReference({ id }: { id: string }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const query = useQuery(pageQuery(id))
   const page = usePageMetadata(query.data?.page)
   if (query.error) return <span className="text-fg-tertiary">{t('pod.content.cannot_display')}</span>
@@ -71,7 +71,7 @@ export function MessagePageReference({ id }: { id: string }) {
     )
   }
   return (
-    <Link className="link pod-object-reference" to={podLocation(`/pages/${id}`).pathname}>
+    <Link className="link pod-object-reference" to={pageHref(id, page.title)}>
       <PageIcon page={page} />
       <span>{page.title || t('pod.content.untitled')}</span>
     </Link>
@@ -90,6 +90,7 @@ export function SaveMessageButton({
   onSaved?: (page: PageDetail['page']) => void
 }) {
   const { t } = useTranslation()
+  const pageHref = usePageHref()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState(() => defaultSaveTitle(message, attachment, t))
   const [selectedParent, setParent] = useState<string>()
@@ -149,7 +150,7 @@ export function SaveMessageButton({
     save.isPending || !pages.data || !validParent || (parent === 'private' && !pages.data.principal_uid)
   if (saved) {
     return onSaved ? null : (
-      <Link className="link pod-chat-saved-page" to={podLocation(`/pages/${saved.id}`).pathname}>
+      <Link className="link pod-chat-saved-page" to={pageHref(saved.id, saved.title)}>
         <PageIcon page={saved} />
         {saved.title || t('pod.content.untitled')}
       </Link>

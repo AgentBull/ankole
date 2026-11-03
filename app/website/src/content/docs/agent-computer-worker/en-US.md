@@ -34,11 +34,9 @@ Each Agent's persistent Home directory is mounted at `/workspace`, with `/agents
 ```text
 /workspace/
 ├── .codex/
-├── SOUL.md
-├── MISSION.md
+├── AGENTS.md
 ├── DESIGN.md
-├── ConfidentialityPolicy.md
-├── installed-skills/
+├── .ankole/turn-skills/<job-signal-id>/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
@@ -46,11 +44,9 @@ Each Agent's persistent Home directory is mounted at `/workspace`, with `/agents
     └── temp/
 ```
 
-Models see these absolute container paths directly: the Worker performs no path translation, and every command's working directory must stay inside Agent Home. At the root of `/workspace`, four documents managed by the [Agent Library](../agent-library/) govern the Agent: `SOUL.md` and `MISSION.md` define behavior and responsibilities, `DESIGN.md` specifies the design system for visual work, and `ConfidentialityPolicy.md` guides audience selection when writing to Brain. Alongside them, `installed-skills/`, `sessions/`, and `jobs/` hold Skills, conversation workspaces, and Background Agent Job workspaces; PostgreSQL assigns each Session a stable numeric `workspace-id` starting at `10000`.
+`~/AGENTS.md` and `~/DESIGN.md` project the complete effective contracts from [Agent Library](../agent-library/). Each turn also refreshes `$CODEX_HOME/AGENTS.md`. Main Agent runs read enabled packages from the shared, read-only `/drive/Skills/<slug>/` mount. Background Agent Jobs materialize their allowed packages under `.ankole/turn-skills/<signal-id>/`; their initial capability whitelist can shrink, but cannot expand when an operator later enables another Skill. `sessions/` holds conversation workspaces with stable PostgreSQL numeric IDs starting at `10000`, and `jobs/` holds Background Agent Job projects and their own instruction files.
 
 Agent Home survives instance deletion and container image updates—rebuilding a Worker clears only `/var/cache/ankole`. Storage durability follows the backing provider: local Docker volumes depend on the host disk, whereas forcing a Cloudflare Worker stop can lose writes made since the last R2 backup. See [Workers](../worker-management/) for provider storage limits.
-
-Attachments, published files, Skills, and Automation scripts live separately in the control-plane Files drive rather than in `/workspace`. Agents use `ankole-files` to read from or publish to that drive, while keeping Job workspaces and Codex threads in persistent Home. Before starting a turn, the Worker synchronizes `installed-skills/` with the control-plane drive.
 
 Codex Home lives at `/workspace/.codex`. Because raw thread files stay in persistent Home, Codex can resume threads across Worker replacements even after the rebuildable SQLite cache at `/var/cache/ankole/codex` is recreated. Background Jobs load Skills on demand through `skill_view`.
 

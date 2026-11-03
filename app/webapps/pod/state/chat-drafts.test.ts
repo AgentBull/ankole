@@ -2,6 +2,18 @@ import { describe, expect, test } from 'bun:test'
 import { ChatDrafts } from './chat-drafts'
 
 describe('Pod conversation drafts', () => {
+  test('New Chat opens a clean task and keeps the unsent draft available for recovery', () => {
+    const drafts = new ChatDrafts()
+    const first = drafts.get()
+    first.draft.value = 'Unsent task'
+    drafts.startNew()
+    expect(drafts.get()).not.toBe(first)
+    expect(drafts.get().draft.value).toBe('')
+    const [saved] = drafts.unconfirmedStandalone()
+    expect(drafts.get(saved!.id)).toBe(first)
+    expect(first.draft.value).toBe('Unsent task')
+    expect(first.conversationID.value).toBeUndefined()
+  })
   test('an unconfirmed standalone create releases New but retains its owner, attachments and retry IDs', () => {
     const drafts = new ChatDrafts()
     const first = drafts.get()

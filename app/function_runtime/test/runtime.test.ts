@@ -37,13 +37,14 @@ async function invoke(
   context = { method: 'POST', path: '/' },
   options: {
     page?: string
+    lane?: 'route' | 'action'
     revision?: number
     timeout?: number
     call?: (frame: { operation: string; args: unknown[] }) => Promise<unknown>
   } = {}
 ) {
   const runId = crypto.randomUUID()
-  const path = `/v1/applet/invoke?tenant_id=test&page_id=${options.page || sha}&revision=${options.revision || 1}&sha256=${sha}&run_id=${runId}&timeout_ms=${options.timeout || 2000}`
+  const path = `/v1/applet/invoke?tenant_id=test&page_id=${options.page || sha}&revision=${options.revision || 1}&sha256=${sha}&run_id=${runId}&timeout_ms=${options.timeout || 2000}&lane=${options.lane || 'route'}`
   const ready = await fetch(base + path, { headers })
   expect(ready.status).toBe(204)
   try {
@@ -81,11 +82,11 @@ describe('real edge-runtime protocol', () => {
   test('capacity saturation rejects new work without failing liveness', async () => {
     const sha = await publish('export default {"GET /":()=>1}')
     const runs: string[] = []
-    const capacity = Number(process.env.ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY || 32)
+    const capacity = 24
     try {
       for (let index = 0; index < capacity; index++) {
         const runId = crypto.randomUUID()
-        const path = `/v1/applet/invoke?tenant_id=health&page_id=health&revision=1&sha256=${sha}&run_id=${runId}&timeout_ms=30000`
+        const path = `/v1/applet/invoke?tenant_id=health&page_id=health&revision=1&sha256=${sha}&run_id=${runId}&timeout_ms=30000&memory_mb=64`
         expect((await fetch(base + path, { headers })).status).toBe(204)
         runs.push(runId)
       }
@@ -98,6 +99,50 @@ describe('real edge-runtime protocol', () => {
     }
     expect((await post('/v1/applet/inspect', { source: 'export default {"GET /":()=>1}' })).status).toBe(200)
   })
+
+  test('six background slices leave foreground capacity and use separate pools', async () => {
+    const sha = await publish(`let count=0; export default {
+      routes:{'POST /':()=>++count},
+      actions:{work:{idempotent:true,handler:async()=>{
+        const bytes=new Uint8Array(150*1024*1024); bytes.fill(1);
+        await AnkoleRuntime.admin.base.query('hold'); return ++count + bytes[0] - 1
+      }}}
+    }`)
+    const page = crypto.randomUUID()
+    let release!: () => void
+    const hold = new Promise<void>(resolve => {
+      release = resolve
+    })
+    let ready = 0
+    const background = Array.from({ length: 6 }, () =>
+      invoke(sha, { actionKey: 'work' } as any, {
+        page,
+        lane: 'action',
+        timeout: 20000,
+        call: async () => {
+          ready++
+          await hold
+          return {}
+        }
+      })
+    )
+    try {
+      for (let i = 0; i < 500 && ready < 6; i++) await Bun.sleep(10)
+      expect(ready).toBe(6)
+      const path = `/v1/applet/invoke?tenant_id=test&page_id=${page}&revision=1&sha256=${sha}&run_id=${crypto.randomUUID()}&lane=action`
+      expect((await fetch(base + path, { headers })).status).toBe(503)
+      expect((await invoke(sha, undefined, { page })).body).toBe(1)
+      expect(await run('text("foreground PTC");')).toMatchObject({
+        status: 'completed',
+        output: [{ kind: 'text', value: 'foreground PTC' }]
+      })
+      expect((await fetch(`${base}/_internal/health`)).status).toBe(200)
+    } finally {
+      release()
+    }
+    const results = await Promise.all(background)
+    expect(results.every(result => result.status === 200 && result.body === 1)).toBe(true)
+  }, 30000)
 
   test('separate Applet workers have separate temporary files', async () => {
     const sha = await publish(
@@ -156,7 +201,7 @@ describe('real edge-runtime protocol', () => {
       ws.send(JSON.stringify({ type: 'cancel', run_id: runId }))
       const inspected = await post('/v1/applet/inspect', { source: 'export default {"GET /":()=>1}', timeout_ms: 5000 })
       expect(inspected.status).toBe(200)
-      expect(await inspected.json()).toEqual({ routes: ['GET /'] })
+      expect(await inspected.json()).toMatchObject({ routes: ['GET /'] })
     } finally {
       let cleanupTimer!: ReturnType<typeof setTimeout>
       await Promise.race([
@@ -221,7 +266,7 @@ describe('real edge-runtime protocol', () => {
       await (
         await post('/v1/applet/inspect', { source: 'export default {"GET /":()=>{throw Error("not invoked")}}' })
       ).json()
-    ).toEqual({ routes: ['GET /'] })
+    ).toEqual({ routes: ['GET /'], actions: {}, concurrencyKeys: {} })
     const invalid = await post('/v1/applet/inspect', { source: 'export default {"GET /:x":()=>1,"GET /:y":()=>2}' })
     expect(invalid.status).toBe(422)
     const guarded = await post('/v1/applet/inspect', {
@@ -240,7 +285,7 @@ describe('real edge-runtime protocol', () => {
       env: { HOOK: 'https://example.com/hook' }
     })
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ routes: ['GET /'] })
+    expect(await response.json()).toEqual({ routes: ['GET /'], actions: {}, concurrencyKeys: {} })
   })
   test('inspection and invocation support CommonJS builtin loading and global Buffer', async () => {
     const source = `import {createRequire} from 'node:module';
@@ -251,7 +296,7 @@ describe('real edge-runtime protocol', () => {
       export default {'GET /':()=>({text:bytes.toString(),digest})};`
     const inspected = await post('/v1/applet/inspect', { source })
     expect(inspected.status).toBe(200)
-    expect(await inspected.json()).toEqual({ routes: ['GET /'] })
+    expect(await inspected.json()).toMatchObject({ routes: ['GET /'] })
     const sha = await publish(source)
     expect(await invoke(sha, { method: 'GET', path: '/' })).toMatchObject({
       status: 200,
@@ -265,7 +310,7 @@ describe('real edge-runtime protocol', () => {
       export default {'POST /':()=>({label,capabilities:runtime===AnkoleRuntime})};`
     const inspected = await post('/v1/applet/inspect', { source, timeout_ms: 1000 })
     expect(inspected.status).toBe(200)
-    expect(await inspected.json()).toEqual({ routes: ['POST /'] })
+    expect(await inspected.json()).toEqual({ routes: ['POST /'], actions: {}, concurrencyKeys: {} })
     const sha = await publish(source)
     expect(await invoke(sha, undefined, { timeout: 1000 })).toMatchObject({
       status: 200,

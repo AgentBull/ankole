@@ -98,6 +98,7 @@ export default defineConfig({
     resolve(consumer, 'smoke.ts'),
     `
 import { BlockEditor, useEditor, type EditorHandle } from '@ankole/block-editor'
+import { KnowledgeReader } from '@ankole/block-editor/reader'
 import {
   PageCollaboration,
   PageSession,
@@ -147,6 +148,7 @@ const host: EditorHost = {
 const response: PageChanges = { revision: 0, changes: [] }
 const verifyHandle = (handle: EditorHandle | null, session: MentionSession | null) => ({ handle, session })
 if (
+  !KnowledgeReader ||
   !BlockEditor ||
   !useEditor ||
   !PageCollaboration ||

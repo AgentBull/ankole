@@ -2,7 +2,7 @@ defmodule Ankole.Files.NodeLifecycleTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.{Files, Repo}
-  alias Ankole.Files.Nodes
+  alias Ankole.Pod.Pages.Tree, as: Nodes
 
   setup do
     principal = human_fixture().principal
@@ -13,11 +13,13 @@ defmodule Ankole.Files.NodeLifecycleTest do
   test "private root deletion cascades through nested ACL anchors and retains immutable objects",
        ctx do
     {outer, inner, file} = subtree(ctx.root)
-    assert {:ok, _} = Files.write_node(ctx.actor, file.id, "retained for object GC")
+    assert {:ok, _} = Ankole.Pod.write_node(ctx.actor, file.id, "retained for object GC")
     assert {:ok, file} = Nodes.fetch(file.id)
 
     assert :ok =
-             Repo.transact_top_level(fn -> Files.delete_private_root_in_tx(ctx.principal.uid) end)
+             Repo.transact_top_level(fn ->
+               Ankole.Pod.delete_private_root_in_tx(ctx.principal.uid)
+             end)
 
     for node <- [ctx.root, outer, inner, file],
         do: assert({:error, :not_found} == Nodes.fetch(node.id))
@@ -40,14 +42,14 @@ defmodule Ankole.Files.NodeLifecycleTest do
 
     assert {:ok, root} =
              Repo.transact_top_level(fn ->
-               Files.ensure_conversation_root_in_tx(conversation_id)
+               Ankole.Pod.ensure_conversation_root_in_tx(conversation_id)
              end)
 
     {outer, inner, file} = subtree(root)
 
     assert :ok =
              Repo.transact_top_level(fn ->
-               Files.delete_conversation_root_in_tx(conversation_id)
+               Ankole.Pod.delete_conversation_root_in_tx(conversation_id)
              end)
 
     for node <- [root, outer, inner, file],
@@ -60,7 +62,7 @@ defmodule Ankole.Files.NodeLifecycleTest do
     {outer, inner, file} = subtree(ctx.root)
     assert {:ok, _} = Nodes.trash(ctx.actor, outer.id)
     assert {:ok, _} = Nodes.purge(ctx.actor, outer.id)
-    assert :ok = Ankole.Files.Jobs.PurgeNode.run(%Oban.Job{args: %{"node_id" => outer.id}})
+    assert :ok = Ankole.Pod.Jobs.PurgeTree.run(%Oban.Job{args: %{"node_id" => outer.id}})
 
     for node <- [outer, inner, file], do: assert({:error, :not_found} == Nodes.fetch(node.id))
     assert {:ok, _} = Nodes.fetch(ctx.root.id)
@@ -68,10 +70,10 @@ defmodule Ankole.Files.NodeLifecycleTest do
 
   test "an empty file in the trash cannot receive its first object", ctx do
     assert {:ok, file} =
-             Nodes.create(ctx.actor, %{parent_id: ctx.root.id, kind: :file, name: "empty.txt"})
+             Nodes.create(ctx.actor, %{parent_id: ctx.root.id, type: :file, name: "empty.txt"})
 
     assert {:ok, _} = Nodes.trash(ctx.actor, file.id)
-    assert {:error, :not_found} = Files.write_node(ctx.actor, file.id, "must not attach")
+    assert {:error, :not_found} = Ankole.Pod.write_node(ctx.actor, file.id, "must not attach")
     assert {:ok, %{object_id: nil}} = Nodes.fetch(file.id)
   end
 
@@ -81,7 +83,7 @@ defmodule Ankole.Files.NodeLifecycleTest do
                {:ok, outer} =
                  Nodes.create_in_tx(%{
                    parent_id: root.id,
-                   kind: :folder,
+                   type: :doc,
                    name: "outer",
                    has_local_acl: true
                  })
@@ -89,14 +91,14 @@ defmodule Ankole.Files.NodeLifecycleTest do
                {:ok, passthrough} =
                  Nodes.create_in_tx(%{
                    parent_id: outer.id,
-                   kind: :folder,
+                   type: :doc,
                    name: "pass-through"
                  })
 
                {:ok, inner} =
                  Nodes.create_in_tx(%{
                    parent_id: passthrough.id,
-                   kind: :folder,
+                   type: :doc,
                    name: "inner",
                    has_local_acl: true
                  })
@@ -104,12 +106,12 @@ defmodule Ankole.Files.NodeLifecycleTest do
                {:ok, leaf_parent} =
                  Nodes.create_in_tx(%{
                    parent_id: inner.id,
-                   kind: :folder,
+                   type: :doc,
                    name: "leaf-parent"
                  })
 
                {:ok, file} =
-                 Nodes.create_in_tx(%{parent_id: leaf_parent.id, kind: :file, name: "file"})
+                 Nodes.create_in_tx(%{parent_id: leaf_parent.id, type: :file, name: "file"})
 
                {:ok, {outer, inner, file}}
              end)

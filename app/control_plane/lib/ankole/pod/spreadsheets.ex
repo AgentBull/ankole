@@ -25,7 +25,7 @@ defmodule Ankole.Pod.Spreadsheets do
   alias Ankole.{ActorRef, Repo}
   alias Ankole.AuthZ.Actor
   alias Ankole.Files, as: Drive
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Config, FileCache, Files, Page, Pages, Serialization, SpreadsheetOp}
   alias Ankole.Pod.Documents.History
   alias Ankole.Pod.Jobs.CompactSpreadsheet
@@ -397,7 +397,9 @@ defmodule Ankole.Pod.Spreadsheets do
          {:ok, export} <- Ankole.Kernel.spreadsheet_export_xlsx(doc),
          {:ok, stored} <- Drive.store(export.xlsx_bytes),
          {:ok, _flushed} <-
-           Repo.transact_top_level(fn -> compact_in_tx(id, revision, stored, export) end) do
+           Repo.transact_top_level(fn -> compact_in_tx(id, revision, stored, export) end,
+             after_commit: &compacted(&1, id)
+           ) do
       :ok
     else
       :error -> :ok
@@ -405,6 +407,11 @@ defmodule Ankole.Pod.Spreadsheets do
       error -> error
     end
   end
+
+  # Worker Drive mounts read the page's object, so they refresh once a
+  # compaction names a new one.
+  defp compacted(:compacted, page_id), do: Ankole.Pod.node_committed(%{id: page_id})
+  defp compacted(:current, _page_id), do: :ok
 
   defp pending?(page_id),
     do:
@@ -454,7 +461,7 @@ defmodule Ankole.Pod.Spreadsheets do
     with {:ok, window} <- Config.ot_replay_window(),
          {:ok, current} <- Drive.fetch_object(page.object_id),
          :ok <- keep_original_in_tx(page, current, first.revision - 1, first.author, now),
-         {:ok, file} <- Drive.rewrite_node_object_in_tx(page.id, stored),
+         {:ok, file} <- Ankole.Pod.Files.Content.rewrite_in_tx(page.id, stored),
          {:ok, _compacted} <- Ankole.Ash.update_where(exported, :compact),
          :ok <- put_cache_in_tx(page.id, file.object_id, export, now),
          :ok <-
@@ -509,8 +516,8 @@ defmodule Ankole.Pod.Spreadsheets do
   @doc """
   Records an object that a writer named at a file page, in the caller's transaction.
 
-  `Ankole.Pod.ContentOwner` calls this after Drive names `node.object_id` at
-  the page; `previous` is the node before the write. A page that is a
+  `Ankole.Pod.Files.Content.commit_in_tx/4` calls this after it names
+  `node.object_id` at the page; `previous` is the node before the write. A page that is a
   spreadsheet now, or that kept an operation log before, compacts every
   pending operation and appends a `reset` entry at a new revision. Its history
   keeps the replaced object as a `checkpoint` and the new spreadsheet as
@@ -518,7 +525,7 @@ defmodule Ankole.Pod.Spreadsheets do
   object, so a restore that records its own `before_restore` and `restored`
   snapshots adds none here. The search cache follows the new object.
   """
-  def object_committed_in_tx(%Actor{} = actor, previous, node) do
+  def object_committed_in_tx(%Actor{} = actor, previous, %Page{type: :file} = node) do
     logged? = logged?(node.id)
 
     if logged? or spreadsheet?(node.name) do
@@ -556,6 +563,8 @@ defmodule Ankole.Pod.Spreadsheets do
       :ok
     end
   end
+
+  def object_committed_in_tx(_actor, _previous, _node), do: :ok
 
   defp logged?(page_id),
     do: SpreadsheetOp |> Ash.Query.filter(page_id == ^page_id) |> Ankole.Ash.exists?()
@@ -649,7 +658,7 @@ defmodule Ankole.Pod.Spreadsheets do
          {:ok, version_id} <- cast_id(version_id),
          :ok <- flush_if_dirty(page_id) do
       Access.write_tree(authority, fn -> restore_in_tx(actor, page_id, version_id) end,
-        root_ids: fn -> Drive.root_ids([page_id]) end,
+        root_ids: fn -> Ankole.Pod.root_ids([page_id]) end,
         after_commit: &Files.committed/1
       )
     end

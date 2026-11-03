@@ -15,7 +15,7 @@ defmodule Ankole.Brain.Jobs.LearnSource do
     max_attempts: 3,
     unique: [
       period: :infinity,
-      keys: [:source_id],
+      keys: [:source_id, :page_id, :revision],
       states: Oban.Job.states() -- [:completed, :cancelled, :discarded]
     ]
 
@@ -26,6 +26,14 @@ defmodule Ankole.Brain.Jobs.LearnSource do
     if Ankole.Tenants.accepting_work?(Ankole.Repo.tenant_id!()), do: run_active(job), else: :ok
   end
 
+  defp run_active(%Oban.Job{args: %{"page_id" => page_id, "revision" => revision}}) do
+    case SourceLearning.learn_page(page_id, revision) do
+      {:ok, _} -> :ok
+      {:error, :stale_run} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp run_active(%Oban.Job{args: %{"source_id" => source_id}}) do
     case SourceLearning.learn(source_id) do
       {:ok, _report} -> :ok
@@ -33,6 +41,10 @@ defmodule Ankole.Brain.Jobs.LearnSource do
       {:error, :source_archived} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  def enqueue_page(page_id, revision) do
+    %{"page_id" => page_id, "revision" => revision} |> new() |> Oban.insert()
   end
 
   @doc """

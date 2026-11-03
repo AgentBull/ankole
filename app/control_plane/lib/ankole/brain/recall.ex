@@ -22,12 +22,12 @@ defmodule Ankole.Brain.Recall do
   alias Ankole.Brain.Config
   alias Ankole.Brain.ContextPack
   alias Ankole.Brain.Embeddings
-  alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Links
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Link
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
+  alias Ankole.Pod.Page, as: Node
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Repo
 
@@ -43,7 +43,6 @@ defmodule Ankole.Brain.Recall do
   @rerank_timeout_ms 5_000
   @max_chunks_per_page 2
   @max_recall_entities 3
-  @retrieved_throttle_seconds 300
   @ln2 :math.log(2)
 
   @type disclosure :: Ankole.Brain.Access.disclosure()
@@ -72,7 +71,7 @@ defmodule Ankole.Brain.Recall do
       {:error, :missing_query}
     else
       with {:ok, access} <- Access.for_readers(querier_uid, disclosure),
-           {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid),
+           visibility = access,
            {:ok, {entity_slug, neighborhood}} <-
              entity_neighborhood(params[:entity], visibility) do
         query_vector = query_embedding(query)
@@ -82,7 +81,7 @@ defmodule Ankole.Brain.Recall do
         chunks =
           chunk_arm(access, visibility, disclosure, query, query_vector, limit, neighborhood)
 
-        claims = Access.filter_disclosable(claims, & &1.audience_scope, disclosure)
+        claims = Access.filter_disclosable(claims, & &1.source_node_id, disclosure)
 
         entities =
           matched_entities(
@@ -95,29 +94,45 @@ defmodule Ankole.Brain.Recall do
             Keyword.get(opts, :conversation_id)
           )
 
-        {claim_payload, entity_payload, chunk_payload} =
-          assemble(claims, entities, chunks, budget)
-
-        touch_retrieved(chunk_payload, claim_payload, entity_payload)
-
-        {:ok,
-         %{
-           claims: claim_payload,
-           entities: entity_payload,
-           chunks: chunk_payload
-         }}
+        {:ok, assemble(claims, entities, chunks, budget)}
       end
     end
   end
 
-  defp claim_arm(access, visibility, query, query_vector, limit, neighborhood) do
+  # Native retrieval queries keep their permission joins alongside BM25/vector ranking.
+  defp filter_claim_sources(query, access),
+    do: query |> Ankole.Brain.Claims.filter_live_parents() |> filter_source(access)
+
+  defp filter_source(query, access) do
+    query
+    |> join(:inner, [row], node in Node,
+      on: node.tenant_id == row.tenant_id and node.id == row.source_node_id,
+      as: :knowledge_source
+    )
+    |> where(
+      [knowledge_source: node],
+      is_nil(node.deleted_at) and
+        ((not node.is_acl_anchor and node.acl_anchor_id in ^access.containers) or
+           (node.is_acl_anchor and node.id in ^access.pages))
+    )
+  end
+
+  defp filter_current_claims(query),
+    do:
+      where(
+        query,
+        [claim],
+        (claim.claim_type == :fact and is_nil(claim.expired_at)) or
+          (claim.claim_type == :take and claim.active == true)
+      )
+
+  defp claim_arm(access, _visibility, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
 
     base =
       Claim
-      |> Access.filter_claims(access)
-      |> Access.filter_current_claims()
-      |> LazySkillVisibility.filter_claims(visibility)
+      |> filter_claim_sources(access)
+      |> filter_current_claims()
       |> claim_neighborhood_filter(neighborhood)
 
     bm25_ids =
@@ -139,6 +154,7 @@ defmodule Ankole.Brain.Recall do
     rows =
       Claim
       |> Ash.Query.filter(id in ^fused_ids)
+      |> Ash.Query.deselect(:embedding)
       |> Ankole.Ash.read!()
       |> Map.new(&{&1.id, &1})
 
@@ -160,7 +176,7 @@ defmodule Ankole.Brain.Recall do
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.map(fn %{claim: claim} ->
       Map.merge(
-        %{audience_scope: claim.audience_scope},
+        %{source_node_id: claim.source_node_id},
         %{claim: claim}
       )
     end)
@@ -206,10 +222,9 @@ defmodule Ankole.Brain.Recall do
 
     base =
       Chunk
-      |> join(:inner, [chunk], object in Object, on: object.id == chunk.object_id)
+      |> join(:inner, [chunk], object in Ankole.Pod.Page, on: object.id == chunk.page_id)
       |> where([_chunk, object], is_nil(object.deleted_at))
-      |> Access.filter_chunks(access)
-      |> LazySkillVisibility.filter_chunks(visibility)
+      |> filter_source(access)
       |> chunk_neighborhood_filter(neighborhood)
 
     bm25_ids =
@@ -233,7 +248,11 @@ defmodule Ankole.Brain.Recall do
     rows =
       Chunk
       |> Ash.Query.filter(id in ^fused_ids)
-      |> Ash.Query.load(:object)
+      |> Ash.Query.deselect(:embedding)
+      |> Ash.Query.load(
+        object: Ash.Query.deselect(Object, [:body, :xml, :meta, :upstream_state]),
+        source_node: Ash.Query.select(Ankole.Pod.Page, [:name, :type, :updated_at])
+      )
       |> Ankole.Ash.read!()
       |> Map.new(fn chunk -> {chunk.id, {chunk, chunk.object}} end)
 
@@ -242,15 +261,32 @@ defmodule Ankole.Brain.Recall do
       |> Enum.map(&Map.get(rows, &1))
       |> Enum.reject(&is_nil/1)
       |> Enum.map(fn {chunk, object} ->
-        %{chunk: chunk, object: object, score: Map.fetch!(fused_scores, chunk.id)}
+        object = if object && Access.visible_node?(access, object), do: object
+        subject_page_id = if object, do: chunk.subject_page_id
+
+        object =
+          object ||
+            %Object{
+              id: chunk.source_node_id,
+              title: chunk.source_node.name,
+              type: Atom.to_string(chunk.source_node.type),
+              updated_at: chunk.source_node.updated_at
+            }
+
+        %{
+          chunk: chunk,
+          object: object,
+          subject_page_id: subject_page_id,
+          score: Map.fetch!(fused_scores, chunk.id)
+        }
       end)
 
     hits
-    |> Access.filter_disclosable(& &1.chunk.audience_scope, disclosure)
+    |> Access.filter_disclosable(& &1.chunk.source_node_id, disclosure)
     |> cap_chunks_per_page()
     |> maybe_rerank(query)
     |> apply_adjacency_boost(visibility)
-    |> apply_recency_and_salience(bm25_set)
+    |> apply_recency_and_salience(bm25_set, access)
     |> Enum.sort_by(& &1.score, :desc)
   end
 
@@ -260,7 +296,7 @@ defmodule Ankole.Brain.Recall do
   defp cap_chunks_per_page(hits) do
     {kept_rev, _counts} =
       Enum.reduce(hits, {[], %{}}, fn hit, {acc, counts} ->
-        slug = hit.object.slug
+        slug = hit.object.id
         count = Map.get(counts, slug, 0)
 
         if count >= @max_chunks_per_page,
@@ -337,21 +373,18 @@ defmodule Ankole.Brain.Recall do
   # Pages adjacent (one link hop) to at least two hit pages get a small
   # graph boost.
   defp apply_adjacency_boost(hits, visibility) do
-    hit_slugs = hits |> Enum.map(& &1.object.slug) |> Enum.uniq()
+    hit_slugs = hits |> Enum.map(& &1.object.id) |> Enum.uniq()
 
     if length(hit_slugs) < @adjacency_min_hits do
       hits
     else
       adjacency =
         Link
-        |> where(
-          [link],
-          link.from_object_slug in ^hit_slugs or link.to_object_slug in ^hit_slugs
-        )
-        |> LazySkillVisibility.filter_links(visibility)
-        |> select([link], {link.from_object_slug, link.to_object_slug})
-        |> Repo.all()
-        |> Enum.flat_map(fn {from, to} ->
+        |> Ash.Query.filter(from_page_id in ^hit_slugs or to_page_id in ^hit_slugs)
+        |> Access.filter_links(visibility)
+        |> Ash.Query.select([:from_page_id, :to_page_id])
+        |> Ankole.Ash.read!()
+        |> Enum.flat_map(fn %{from_page_id: from, to_page_id: to} ->
           [{from, to}, {to, from}]
         end)
         |> Enum.filter(fn {hit, _neighbor} -> hit in hit_slugs end)
@@ -361,7 +394,7 @@ defmodule Ankole.Brain.Recall do
         end)
 
       Enum.map(hits, fn hit ->
-        if Map.get(adjacency, hit.object.slug, 0) >= @adjacency_min_hits,
+        if Map.get(adjacency, hit.object.id, 0) >= @adjacency_min_hits,
           do: %{hit | score: hit.score * @adjacency_boost},
           else: hit
       end)
@@ -371,23 +404,23 @@ defmodule Ankole.Brain.Recall do
   # Recency and salience boosts apply only to lexical (BM25-backed) hits so a
   # fresh or salient page cannot promote a tangential vector-only passage over
   # exact lexical matches.
-  defp apply_recency_and_salience(hits, bm25_set) do
+  defp apply_recency_and_salience(hits, bm25_set, access) do
     lexical_slugs =
       hits
       |> Enum.filter(&MapSet.member?(bm25_set, &1.chunk.id))
-      |> Enum.map(& &1.object.slug)
+      |> Enum.map(& &1.object.id)
       |> Enum.uniq()
 
     if lexical_slugs == [] do
       hits
     else
-      take_counts = load_take_counts(lexical_slugs)
+      take_counts = load_take_counts(lexical_slugs, access)
       today = Date.utc_today()
 
       Enum.map(hits, fn hit ->
         if MapSet.member?(bm25_set, hit.chunk.id) do
           recency = recency_factor(hit.object, today)
-          salience = salience_factor(Map.get(take_counts, hit.object.slug, {0, 0.0, 0}))
+          salience = salience_factor(Map.get(take_counts, hit.object.id, {0, 0.0, 0}))
           %{hit | score: hit.score * recency * salience}
         else
           hit
@@ -396,16 +429,17 @@ defmodule Ankole.Brain.Recall do
     end
   end
 
-  defp load_take_counts(slugs) do
+  defp load_take_counts(slugs, access) do
     Claim
+    |> filter_claim_sources(access)
     |> where([claim], claim.claim_type == :take and claim.active == true)
-    |> where([claim], claim.object_slug in ^slugs)
-    |> group_by([claim], claim.object_slug)
+    |> where([claim], claim.subject_page_id in ^slugs)
+    |> group_by([claim], claim.subject_page_id)
     |> select([claim], {
-      claim.object_slug,
+      claim.subject_page_id,
       count(claim.id),
       sum(fragment("LEAST(GREATEST(?, 0.0), 1.0)", claim.weight)),
-      filter(count(claim.id), like(claim.holder, "people/%") or like(claim.holder, "agents/%"))
+      filter(count(claim.id), claim.holder not in ["world", "brain"])
     })
     |> Repo.all()
     |> Map.new(fn {slug, count, weight_sum, members} ->
@@ -540,131 +574,61 @@ defmodule Ankole.Brain.Recall do
   # their relational links, then chunks (already capped at two per page in
   # `chunk_arm/7`).
   defp assemble(claims, entities, chunks, budget) do
-    {claim_payload, used_tokens} = pack_claims(claims, budget)
-    {entity_payload, used_tokens} = pack_entities(entities, used_tokens, budget)
-    chunk_payload = pack_chunks(chunks, used_tokens, budget)
-    {claim_payload, entity_payload, chunk_payload}
+    %{claims: [], entities: [], chunks: []}
+    |> pack(:claims, Enum.map(claims, &claim_payload/1), budget)
+    |> pack(:entities, entities, budget)
+    |> pack(:chunks, Enum.map(chunks, &chunk_payload/1), budget)
   end
 
-  defp pack_claims(claims, budget) do
-    {claim_payload, used_tokens} =
-      Enum.reduce_while(claims, {[], 0}, fn %{claim: claim}, {acc, used} ->
-        tokens = claim_tokens(claim)
-
-        if used + tokens > budget do
-          {:cont, {acc, used}}
-        else
-          payload = %{
-            id: claim.id,
-            claim_type: Atom.to_string(claim.claim_type),
-            claim: claim.claim,
-            context: claim.context,
-            kind: claim.kind,
-            holder: claim.holder,
-            confidence: claim.confidence,
-            weight: claim.weight,
-            notability: claim.notability,
-            valid_from: claim.valid_from,
-            valid_until: claim.valid_until,
-            since_date: claim.since_date,
-            until_date: claim.until_date,
-            object_slug: claim.object_slug,
-            conversation_id: claim.conversation_id,
-            provenance: claim.provenance,
-            audience_scope: claim.audience_scope
-          }
-
-          {:cont, {[payload | acc], used + tokens}}
-        end
+  # Measure the same JSON the tool delivers, including provenance and the envelope.
+  # Keep each entry whole: clipping a qualification or source changes its meaning.
+  defp pack(result, key, entries, budget) do
+    accepted =
+      Enum.reduce(entries, [], fn entry, packed ->
+        candidate = Map.put(result, key, Enum.reverse([entry | packed]))
+        encoded = candidate |> Ankole.JSON.plain() |> Ankole.JSON.encode!()
+        if Chunker.estimate_tokens(encoded) <= budget, do: [entry | packed], else: packed
       end)
 
-    {Enum.reverse(claim_payload), used_tokens}
+    Map.put(result, key, Enum.reverse(accepted))
   end
 
-  defp claim_tokens(%Claim{claim: text, context: context})
-       when is_binary(context) and context != "" do
-    Chunker.estimate_tokens(text <> "\n" <> context)
+  defp claim_payload(%{claim: claim}) do
+    %{
+      id: claim.id,
+      claim_type: Atom.to_string(claim.claim_type),
+      claim: claim.claim,
+      context: claim.context,
+      kind: claim.kind,
+      holder: claim.holder,
+      confidence: claim.confidence,
+      weight: claim.weight,
+      notability: claim.notability,
+      valid_from: claim.valid_from,
+      valid_until: claim.valid_until,
+      since_date: claim.since_date,
+      until_date: claim.until_date,
+      subject_page_id: claim.subject_page_id,
+      conversation_id: claim.conversation_id,
+      provenance: claim.provenance,
+      source_node_id: claim.source_node_id
+    }
   end
 
-  defp claim_tokens(%Claim{claim: text}), do: Chunker.estimate_tokens(text)
-
-  defp pack_entities(entities, used_tokens, budget) do
-    {entity_payload, used} =
-      Enum.reduce_while(entities, {[], used_tokens}, fn card, {acc, used} ->
-        tokens = entity_tokens(card)
-
-        if used + tokens > budget do
-          {:cont, {acc, used}}
-        else
-          {:cont, {[card | acc], used + tokens}}
-        end
-      end)
-
-    {Enum.reverse(entity_payload), used}
-  end
-
-  defp entity_tokens(card) do
-    facts = Enum.map_join(card.facts, "\n", & &1.claim)
-    edges = Enum.map_join(card.edges, "\n", &"#{&1.link_type}:#{&1.to}")
-    aka = Enum.join(card.aka, ", ")
-
-    [card.slug, card.title, card.type, aka, facts, edges]
-    |> Enum.reject(&(is_nil(&1) or &1 == ""))
-    |> Enum.join("\n")
-    |> Chunker.estimate_tokens()
-  end
-
-  defp pack_chunks(chunks, used_tokens, budget) do
-    {chunk_payload, _used} =
-      Enum.reduce_while(chunks, {[], used_tokens}, fn hit, {acc, used} ->
-        tokens = Chunker.estimate_tokens(hit.chunk.chunk_text)
-
-        if used + tokens > budget do
-          {:cont, {acc, used}}
-        else
-          payload = %{
-            object_slug: hit.object.slug,
-            title: hit.object.title,
-            type: hit.object.type,
-            chunk_index: hit.chunk.chunk_index,
-            content_kind: Atom.to_string(hit.chunk.content_kind),
-            text: hit.chunk.chunk_text,
-            audience_scope: hit.chunk.audience_scope
-          }
-
-          {:cont, {[payload | acc], used + tokens}}
-        end
-      end)
-
-    Enum.reverse(chunk_payload)
+  defp chunk_payload(hit) do
+    %{
+      subject_page_id: hit.subject_page_id,
+      title: hit.object.title,
+      type: hit.object.type,
+      chunk_index: hit.chunk.chunk_index,
+      content_kind: Atom.to_string(hit.chunk.content_kind),
+      text: hit.chunk.chunk_text,
+      source_node_id: hit.chunk.source_node_id
+    }
   end
 
   defp normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_positive_int(_other, default), do: default
-
-  # Retrieved pages remember the hit for freshness maintenance; a five-minute
-  # throttle keeps hot pages from writing on every recall.
-  defp touch_retrieved(chunk_payload, claim_payload, entity_payload) do
-    slugs =
-      (Enum.map(chunk_payload, & &1.object_slug) ++
-         Enum.map(claim_payload, & &1.object_slug) ++
-         Enum.map(entity_payload, & &1.slug))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-
-    if slugs != [] do
-      threshold = DateTime.add(DateTime.utc_now(), -@retrieved_throttle_seconds, :second)
-
-      {:ok, _touched} =
-        Object
-        |> Ash.Query.filter(
-          slug in ^slugs and (is_nil(last_retrieved_at) or last_retrieved_at < ^threshold)
-        )
-        |> Ankole.Ash.update_where(:touch_retrieved, %{}, select: [:id])
-    end
-
-    :ok
-  end
 
   # Resolving an entity narrows both arms to the entity's parent container
   # and one-hop link neighborhood. An entity that does not resolve is an
@@ -673,20 +637,17 @@ defmodule Ankole.Brain.Recall do
   defp entity_neighborhood("", _visibility), do: {:ok, {nil, nil}}
 
   defp entity_neighborhood(entity, visibility) when is_binary(entity) do
-    case Ankole.Brain.Objects.resolve_reference(entity, lazy_skill_visibility: visibility) do
+    case Ankole.Brain.Objects.resolve_reference(entity, access: visibility) do
       {:ok, object} ->
         neighbors =
           Link
-          |> where(
-            [link],
-            link.from_object_slug == ^object.slug or link.to_object_slug == ^object.slug
-          )
-          |> LazySkillVisibility.filter_links(visibility)
-          |> select([link], {link.from_object_slug, link.to_object_slug})
-          |> Repo.all()
-          |> Enum.flat_map(fn {from, to} -> [from, to] end)
+          |> Ash.Query.filter(from_page_id == ^object.id or to_page_id == ^object.id)
+          |> Access.filter_links(visibility)
+          |> Ash.Query.select([:from_page_id, :to_page_id])
+          |> Ankole.Ash.read!()
+          |> Enum.flat_map(fn %{from_page_id: from, to_page_id: to} -> [from, to] end)
 
-        {:ok, {object.slug, Enum.uniq([object.slug | neighbors])}}
+        {:ok, {object.id, Enum.uniq([object.id | neighbors])}}
 
       {:ambiguous, candidates} ->
         {:error, {:ambiguous_entity, candidates}}
@@ -699,12 +660,12 @@ defmodule Ankole.Brain.Recall do
   defp claim_neighborhood_filter(query, nil), do: query
 
   defp claim_neighborhood_filter(query, slugs),
-    do: where(query, [claim], claim.object_slug in ^slugs)
+    do: where(query, [claim], claim.subject_page_id in ^slugs)
 
   defp chunk_neighborhood_filter(query, nil), do: query
 
   defp chunk_neighborhood_filter(query, slugs),
-    do: where(query, [_chunk, object], object.slug in ^slugs)
+    do: where(query, [_chunk, object], object.id in ^slugs)
 
   defp query_embedding(query) do
     case Embeddings.embed_texts([query]) do

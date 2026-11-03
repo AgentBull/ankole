@@ -16,14 +16,10 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Config
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Jobs.ProcessConversationSlice
-  alias Ankole.Brain.LibraryKnowledge
-  alias Ankole.Brain.Links
   alias Ankole.Brain.OIDCClientLearning
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.ConversationsLearning
-  alias Ankole.Logging
   alias Ankole.Repo
 
   @embed_batch_limit 500
@@ -36,20 +32,14 @@ defmodule Ankole.Brain.SelfHealing do
   @spec sweep() :: {:ok, map()} | {:error, term()}
   def sweep do
     if Config.enabled?() do
-      # Library knowledge first: pages it lands get their chunks and
-      # embeddings in the same sweep instead of one cycle later.
-      library_knowledge = sync_library_knowledge()
       rechunked = rechunk_stale_objects()
-      linked = reconcile_body_links()
       embedded = embed_pending()
       slices = sweep_idle_channels()
       oidc_sources = OIDCClientLearning.sweep()
 
       {:ok,
        %{
-         library_knowledge: library_knowledge,
          rechunked: rechunked,
-         linked: linked,
          embedded: embedded,
          slices: slices,
          oidc_sources: oidc_sources
@@ -59,39 +49,25 @@ defmodule Ankole.Brain.SelfHealing do
     end
   end
 
-  @doc "Reconciles stale body links independently of model configuration."
-  def reconcile_body_links do
-    Object
-    |> Ash.Query.filter(
-      is_nil(deleted_at) and (is_nil(links_extracted_at) or links_extracted_at < updated_at)
-    )
-    |> Ash.Query.limit(@rechunk_batch_limit)
-    |> Ankole.Ash.read!()
-    |> Enum.count(fn object ->
-      match?(
-        {:ok, _},
-        Repo.transact_top_level(fn -> Links.reconcile_object_links_in_tx(object.slug) end)
-      )
-    end)
-  end
-
-  # Rechunks objects whose chunking signature differs from the current one.
-  #
-  @spec rechunk_stale_objects() :: non_neg_integer()
   defp rechunk_stale_objects do
     chunking = Config.chunking()
     signature = Chunker.signature(chunking)
 
-    Object
+    Chunk
     |> Ash.Query.filter(
-      is_nil(deleted_at) and (is_nil(chunking_signature) or chunking_signature != ^signature)
+      exists(page_node, is_nil(deleted_at)) and
+        (page_revision != fragment("COALESCE(?, 0)", object.revision) or
+           is_nil(chunking_signature) or chunking_signature != ^signature)
     )
+    |> Ash.Query.distinct(:page_id)
+    |> Ash.Query.select([:page_id])
     |> Ash.Query.limit(@rechunk_batch_limit)
     |> Ankole.Ash.read!()
-    |> Enum.count(fn object ->
+    |> Enum.map(& &1.page_id)
+    |> Enum.count(fn id ->
       match?(
-        {:ok, _object},
-        Repo.transact_top_level(fn -> Chunks.reconcile_in_tx(object, chunking: chunking) end)
+        {:ok, _},
+        Repo.transact_top_level(fn -> Chunks.reconcile_node_in_tx(id, chunking: chunking) end)
       )
     end)
   end
@@ -122,6 +98,7 @@ defmodule Ankole.Brain.SelfHealing do
     # starve fresh content out of the per-sweep batch.
     |> Ash.Query.sort(embedding_failed?: :asc)
     |> Ash.Query.limit(@embed_batch_limit)
+    |> Ash.Query.deselect(:embedding)
     |> Ankole.Ash.read!()
     |> Enum.chunk_every(@embed_call_size)
     |> Enum.reduce(0, fn batch, count ->
@@ -137,6 +114,7 @@ defmodule Ankole.Brain.SelfHealing do
     )
     |> Ash.Query.sort(embedding_failed?: :asc)
     |> Ash.Query.limit(@embed_batch_limit)
+    |> Ash.Query.deselect(:embedding)
     |> Ankole.Ash.read!()
     |> Enum.chunk_every(@embed_call_size)
     |> Enum.reduce(0, fn batch, count ->
@@ -178,22 +156,6 @@ defmodule Ankole.Brain.SelfHealing do
         end)
 
         0
-    end
-  end
-
-  defp sync_library_knowledge do
-    case LibraryKnowledge.sync() do
-      {:ok, report} ->
-        report
-
-      {:error, reason} ->
-        Logging.warning(
-          "brain.self_healing.library_knowledge_failed",
-          "library knowledge synchronization failed",
-          %{reason: inspect(reason)}
-        )
-
-        %{status: :error, reason: inspect(reason)}
     end
   end
 

@@ -34,7 +34,8 @@ defmodule Ankole.Brain.RequestContext do
   defp subject_context(subject_uid), do: {:ok, Context.for_subject(subject_uid)}
 
   defp turn_context(subject_uid, signal_id) do
-    with {:ok, event} <- owned_event(subject_uid, signal_id) do
+    with {:ok, event} <- owned_event(subject_uid, signal_id),
+         {:ok, holder} <- Scope.canonical_page_id(subject_uid) do
       conversation_id = event_conversation_id(event)
 
       {:ok,
@@ -51,7 +52,7 @@ defmodule Ankole.Brain.RequestContext do
              do: {:conversation, conversation_id},
              else: page_fallback(subject_uid)
            ),
-         holder_default: Scope.principal_page_slug(:agent, subject_uid),
+         holder_default: holder,
          write_fence: fn -> live_turn_fence(subject_uid, event.id) end
        }}
     end
@@ -129,7 +130,7 @@ defmodule Ankole.Brain.RequestContext do
   end
 
   defp page_fallback(subject_uid) do
-    case Scope.canonical_slug(subject_uid) do
+    case Scope.canonical_page_id(subject_uid) do
       {:ok, slug} -> {:page, slug}
       {:error, _reason} = error -> error
     end
@@ -204,6 +205,13 @@ defmodule Ankole.Brain.RequestContext do
     end)
   end
 
+  def external_audience(%Conversation{kind: :external} = channel) do
+    case strict_channel_recipient_uids(channel, nil, nil) do
+      {:ok, people} -> people
+      {:error, _} -> []
+    end
+  end
+
   defp strict_channel_recipient_uids(
          %Conversation{kind: :external, external_kind: :im_group} = channel,
          _asker,
@@ -234,6 +242,18 @@ defmodule Ankole.Brain.RequestContext do
     case human_speaker_uids(conversation_id) do
       [] -> {:error, :empty_dm_recipient_set}
       recipients -> {:ok, recipients}
+    end
+  end
+
+  defp strict_channel_recipient_uids(
+         %Conversation{native_access_scope: scope} = channel,
+         _asker,
+         _agent
+       )
+       when scope in [:agent_peer, :anchor_page] do
+    case Ankole.Conversations.conversation_audience(channel) do
+      [] -> {:error, :empty_native_recipient_set}
+      people -> {:ok, people}
     end
   end
 
@@ -307,33 +327,10 @@ defmodule Ankole.Brain.RequestContext do
     end
   end
 
-  # The conversation's audience is the default write scope, mirroring the
-  # Signals-processing defaults: a DM learns for its asker, a member-backed
-  # group learns for its member Group. Everything else, scheduled turns and
-  # non-IM channels, falls back to the Agent's own principal scope. `world` is
-  # an explicit model choice, never a default: the derived default also
-  # bounds how far a poisoned claim or misjudged source can reach.
   defp derived_conversation_scope(%Signal{} = event, agent_uid) do
-    channel =
-      case event_conversation_id(event) do
-        nil -> nil
-        id -> Ankole.Conversations.get_conversation!(id)
-      end
-
-    asker = asker_uid(event)
-
-    case channel do
-      %Conversation{kind: :native, created_by: uid} when is_binary(uid) ->
-        {:ok, Scope.principal(uid)}
-
-      %Conversation{kind: :external, external_kind: :im_group, principal_group_id: group_id} ->
-        Scope.member_group_scope(group_id)
-
-      %Conversation{kind: :external, external_kind: :im_dm} when is_binary(asker) ->
-        {:ok, Scope.principal(asker)}
-
-      _other ->
-        {:ok, Scope.principal(Ankole.Principals.authority_uid(agent_uid))}
+    case event_conversation_id(event) do
+      nil -> {:ok, Scope.principal(Ankole.Principals.authority_uid(agent_uid))}
+      id -> Scope.conversation(id)
     end
   end
 end

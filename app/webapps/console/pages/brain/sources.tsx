@@ -36,7 +36,7 @@ import { formatConsoleDate } from '../../console-primitives'
 import { DiscardConfirmDialog, LabeledField, focusFirstInvalidControl, useDialogDiscardGuard } from '../../console-form'
 import { ResourceListPage, useListCreateTrigger } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
-import { BrainScopeLabel, BrainScopeSelector } from './brain-scope'
+import { BrainSourceLabel, BrainSourceSelector } from './brain-scope'
 
 const SOURCE_KINDS = ['file', 'url'] as const
 
@@ -109,7 +109,7 @@ export function BrainSourcesPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const scopeGuard = useDialogDiscardGuard({
-    dirty: sourceScope !== (scopeTarget?.default_audience_scope ?? ''),
+    dirty: sourceScope !== (scopeTarget?.default_source_node_id ?? ''),
     onOpenChange: open => !open && setScopeTarget(undefined),
     pending: updateScope.isPending
   })
@@ -152,8 +152,8 @@ export function BrainSourcesPage() {
             </TableCell>
             <TableCell className="max-w-[280px] truncate font-mono text-xs">{source.upstream_id}</TableCell>
             <TableCell>
-              {source.default_audience_scope ? (
-                <BrainScopeLabel scope={source.default_audience_scope} />
+              {source.default_source_node_id ? (
+                <BrainSourceLabel nodeID={source.default_source_node_id} />
               ) : (
                 <span className="text-xs text-muted-foreground">
                   {source.kind === 'oidc_client' ? t('console.brain.source_scope_private') : '—'}
@@ -181,7 +181,7 @@ export function BrainSourcesPage() {
                       type="button"
                       variant="ghost"
                       onClick={() => {
-                        setSourceScope(source.default_audience_scope ?? '')
+                        setSourceScope(source.default_source_node_id ?? '')
                         setScopeTarget(source)
                       }}>
                       {t('console.brain.default_scope')}
@@ -237,7 +237,7 @@ export function BrainSourcesPage() {
                     kind,
                     upstream_id: upstreamID.trim(),
                     name: name.trim(),
-                    ...(scope.trim() ? { default_audience_scope: scope.trim() } : {})
+                    ...(scope.trim() ? { default_source_node_id: scope.trim() } : {})
                   }
                 }
               })
@@ -274,7 +274,7 @@ export function BrainSourcesPage() {
               <Input required value={name} onChange={event => setName(event.target.value)} />
             </LabeledField>
             <LabeledField label={t('console.brain.default_scope')}>
-              <BrainScopeSelector
+              <BrainSourceSelector
                 ariaLabel={t('console.brain.default_scope')}
                 unsetLabel={t('console.brain.scope_unset', { defaultValue: 'Source default' })}
                 value={scope}
@@ -312,12 +312,12 @@ export function BrainSourcesPage() {
               if (scopeTarget) {
                 updateScope.mutate({
                   path: { source_id: scopeTarget.id },
-                  body: { data: { scope: sourceScope.trim() || null } }
+                  body: { data: { source_node_id: sourceScope.trim() || null } }
                 })
               }
             }}>
             <LabeledField label={t('console.brain.scope')}>
-              <BrainScopeSelector
+              <BrainSourceSelector
                 ariaLabel={t('console.brain.scope')}
                 unsetLabel={t('console.brain.source_scope_private')}
                 value={sourceScope}

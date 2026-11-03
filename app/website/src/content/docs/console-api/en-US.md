@@ -101,7 +101,6 @@ Library defaults apply at the selected tenant level, with optional overrides per
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id` | Override a plugin for one agent |
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/skills/:id` | Override a skill for one agent |
 | `GET` | `/api/v2/agents/:agent_uid/library-documents` | List library documents for an agent |
-| `PUT` | `/api/v2/agents/:agent_uid/library-documents/:document_kind` | Set a library document |
 | `GET` | `/api/v2/agents/:agent_uid/skill-lessons` | List active and retired Skill lessons |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | Add a human Skill lesson to an enabled Skill |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Retire a Skill lesson |

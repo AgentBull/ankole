@@ -7,9 +7,28 @@ defmodule Ankole.Pod.Documents do
   """
   require Ash.Query
   alias Ankole.{ActorRef, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Comments, PageChange, PageContent, Pages}
   alias Ankole.Pod.Documents.{History, Insights}
+
+  def vfs_markdown(%{type: :knowledge, id: id}), do: Ankole.Pod.Knowledge.export(id)
+
+  def vfs_markdown(%{type: :doc, id: id}) do
+    with {:ok, content} when not is_nil(content) <-
+           PageContent |> Ash.Query.filter(page_id == ^id) |> Ankole.Ash.read_one(),
+         do: Ankole.Kernel.vfs_document_export(content.content),
+         else: (
+           {:ok, nil} -> {:error, :not_found}
+           error -> error
+         )
+  end
+
+  def write_vfs_markdown_in_tx(actor, id, markdown) do
+    with {:ok, page} <- Pages.lock(id),
+         content = content!(page),
+         {:ok, parsed} <- Ankole.Kernel.vfs_document_reconcile(content.content, markdown),
+         do: write_in_tx(actor, id, page.revision, {:ok, parsed})
+  end
 
   def write(uid, id, base_revision, xml, authority \\ nil)
 
@@ -270,6 +289,7 @@ defmodule Ankole.Pod.Documents do
     author = ActorRef.from_writer(uid, Repo.tenant_id!(), [])
 
     with {:ok, window} <- Ankole.Pod.Config.ot_replay_window(),
+         {:ok, projection} <- Ankole.Kernel.vfs_projection(:doc, parsed.xml, page.metadata),
          {:ok, info} <- Ankole.Kernel.page_comment_info(parsed.xml),
          {:ok, previous} <- Ankole.Kernel.page_comment_info(content.content),
          :ok <- Comments.validate_marks_in_tx(page.id, info.ids),
@@ -290,10 +310,14 @@ defmodule Ankole.Pod.Documents do
              })
            ),
          {:ok, page} <-
-           Ankole.Pod.Pages.update_properties_in_tx(page, :advance_revision, %{
-             updated_at:
-               if(edited or Keyword.get(opts, :force, false), do: now, else: page.updated_at)
-           }),
+           Ankole.Pod.Pages.update_properties_in_tx(
+             page,
+             :advance_revision,
+             Map.merge(projection, %{
+               updated_at:
+                 if(edited or Keyword.get(opts, :force, false), do: now, else: page.updated_at)
+             })
+           ),
          {:ok, _} <-
            Ankole.Ash.create(
              PageChange,
@@ -309,7 +333,8 @@ defmodule Ankole.Pod.Documents do
            PageChange
            |> Ash.Query.filter(page_id == ^page.id and revision <= ^(page.revision - window))
            |> Ankole.Ash.destroy_where(:prune) do
-      {:ok, %{page: page, content: content}}
+      with :ok <- Ankole.Brain.Knowledge.page_changed_in_tx(page, content),
+           do: {:ok, %{page: page, content: content}}
     end
   end
 

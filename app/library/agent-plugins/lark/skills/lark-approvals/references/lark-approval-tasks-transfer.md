@@ -12,25 +12,25 @@
 
 ```bash
 # 先预览请求，不实际执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks transfer \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks transfer \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","transfer_user_id":"ou_xxx","comment":"请你继续处理"}' \
   --params '{"user_id_type":"open_id"}' \
   --dry-run
 
 # 按 open_id 转交审批任务
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks transfer \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks transfer \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","transfer_user_id":"ou_xxx","comment":"转交给你处理"}' \
   --params '{"user_id_type":"open_id"}' \
   --yes
 
 # 按 user_id 转交审批任务
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks transfer \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks transfer \
   --data '{"instance_code":"<INSTANCE_CODE>","task_id":"<TASK_ID>","transfer_user_id":"123456789","comment":"请补充审核"}' \
   --params '{"user_id_type":"user_id"}' \
   --yes
 
 # 通过文件传入请求体，适合较长 comment
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks transfer \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks transfer \
   --data @./transfer-body.json \
   --params '{"user_id_type":"open_id"}' \
   --yes
@@ -57,7 +57,7 @@
 先查到待办任务：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks query --params '{"topic":"1"}'
 ```
 
 常用到的字段：
@@ -73,7 +73,7 @@
 如需先确认表单、节点、审批流进度，可继续查看实例详情：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 ```
 
 ## 使用建议

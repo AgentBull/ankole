@@ -3,9 +3,8 @@ defmodule Ankole.Brain.Claims do
   Claim write path: atomic Facts and calibratable Takes.
 
   Every write validates the scope, holder, weight grid, and content gates.
-  Facts run semantic dedup inside the same parent container, holder, and
-  audience scope; two Agents that learn the same shared fact through
-  different channels merge at write time. Claim changes insert a new row and
+  Facts run semantic dedup only inside the same subject page and source node. Different sources
+  keep independent facts even when their present readers happen to match. Claim changes insert a new row and
   connect the old one with `superseded_by`; Take resolution updates in
   place, once.
 
@@ -21,7 +20,7 @@ defmodule Ankole.Brain.Claims do
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Scope
   alias Ankole.Repo
 
@@ -54,12 +53,17 @@ defmodule Ankole.Brain.Claims do
     query
     |> join(:left, [claim], object in Object,
       as: :claim_parent_object,
-      on: object.tenant_id == claim.tenant_id and object.slug == claim.object_slug
+      on: object.tenant_id == claim.tenant_id and object.id == claim.subject_page_id
+    )
+    |> join(:inner, [claim], source in Ankole.Pod.Page,
+      on:
+        source.tenant_id == claim.tenant_id and source.id == claim.source_node_id and
+          is_nil(source.deleted_at)
     )
     |> where(
       [claim, claim_parent_object: object],
-      is_nil(claim.object_slug) or
-        (not is_nil(object.slug) and is_nil(object.deleted_at))
+      is_nil(claim.subject_page_id) or
+        (not is_nil(object.id) and is_nil(object.deleted_at))
     )
   end
 
@@ -81,13 +85,13 @@ defmodule Ankole.Brain.Claims do
 
   @doc """
   Prepares the `:console_list` read of Claims: Claims, newest
-  first, that match the Object slug, the Claim type, the current state, and
+  first, that match the subject Page ID, the Claim type, the current state, and
   the text search.
   """
   @spec console_list(Ash.Query.t(), map()) :: Ash.Query.t()
   def console_list(query, _context) do
     query
-    |> maybe_console_object(Ash.Query.get_argument(query, :object_slug))
+    |> maybe_console_object(Ash.Query.get_argument(query, :subject_page_id))
     |> maybe_console_type(Ash.Query.get_argument(query, :claim_type))
     |> maybe_console_status(Ash.Query.get_argument(query, :status))
     |> maybe_console_search(Ash.Query.get_argument(query, :search))
@@ -100,19 +104,21 @@ defmodule Ankole.Brain.Claims do
       when is_binary(principal_uid) and is_list(opts) do
     limit = Keyword.fetch!(opts, :limit)
 
-    holder_slugs = [
-      Scope.principal_page_slug(:human, principal_uid),
-      Scope.principal_page_slug(:agent, principal_uid)
-    ]
+    page_ids =
+      case Scope.canonical_page_id(principal_uid) do
+        {:ok, id} -> [id]
+        {:error, _} -> []
+      end
 
-    scope = "principal:#{principal_uid}"
+    scope = Scope.principal(principal_uid)
 
     principal_ref =
       Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: principal_uid})
 
     Claim
     |> Ash.Query.filter(
-      holder in ^holder_slugs or author == ^principal_ref or audience_scope == ^scope
+      holder in ^page_ids or subject_page_id in ^page_ids or author == ^principal_ref or
+        source_node_id == ^scope
     )
     |> Ash.Query.sort(created_at: :desc)
     |> Ash.Query.limit(limit)
@@ -162,7 +168,7 @@ defmodule Ankole.Brain.Claims do
          :ok <- validate_notability(attrs[:notability]),
          :ok <- validate_grid_value(attrs[:confidence], :confidence),
          :ok <- validate_holder(attrs[:holder]),
-         :ok <- validate_scope(attrs[:audience_scope], writer),
+         :ok <- validate_scope(attrs[:source_node_id], writer),
          :ok <- validate_required_provenance(attrs[:provenance]),
          :ok <- validate_valid_from(attrs[:valid_from]) do
       {:ok, resolve_embedding(attrs[:claim], opts)}
@@ -216,7 +222,7 @@ defmodule Ankole.Brain.Claims do
          :ok <- validate_open_kind(attrs[:kind]),
          :ok <- validate_grid_value(attrs[:weight], :weight),
          :ok <- validate_holder(attrs[:holder]),
-         :ok <- validate_scope(attrs[:audience_scope], writer),
+         :ok <- validate_scope(attrs[:source_node_id], writer),
          :ok <- validate_required_provenance(attrs[:provenance]),
          {:ok, until_date} <- cast_until_date(attrs[:until_date]) do
       {embedding, signature} = resolve_embedding(attrs[:claim], opts)
@@ -225,12 +231,12 @@ defmodule Ankole.Brain.Claims do
       attrs = %{
         author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
         provenance_session: attrs[:provenance_session],
-        object_slug: attrs[:object_slug],
+        subject_page_id: attrs[:subject_page_id],
         conversation_id: attrs[:conversation_id],
         claim: attrs[:claim],
         kind: attrs[:kind],
         holder: attrs[:holder],
-        audience_scope: attrs[:audience_scope],
+        source_node_id: attrs[:source_node_id],
         weight: attrs[:weight] * 1.0,
         since_date: attrs[:since_date],
         until_date: until_date,
@@ -278,9 +284,9 @@ defmodule Ankole.Brain.Claims do
         attrs
         |> Map.put_new(:kind, old.kind)
         |> Map.put_new(:holder, old.holder)
-        |> Map.put_new(:audience_scope, old.audience_scope)
+        |> Map.put_new(:source_node_id, old.source_node_id)
         |> Map.put_new(:provenance, old.provenance)
-        |> Map.put(:object_slug, old.object_slug)
+        |> Map.put(:subject_page_id, old.subject_page_id)
         |> Map.put(:conversation_id, old.conversation_id)
 
       result =
@@ -367,10 +373,10 @@ defmodule Ankole.Brain.Claims do
   revision; expired rows keep the history.
   """
   @spec expire_source_session_facts(String.t(), String.t()) :: non_neg_integer()
-  def expire_source_session_facts(object_slug, session) do
+  def expire_source_session_facts(subject_page_id, session) do
     Claim
     |> Ash.Query.filter(claim_type == :fact and is_nil(expired_at))
-    |> Ash.Query.filter(object_slug == ^object_slug and provenance_session == ^session)
+    |> Ash.Query.filter(subject_page_id == ^subject_page_id and provenance_session == ^session)
     |> update_claims_in_tx(:expire_fact, %{at: DateTime.utc_now(:microsecond)})
   end
 
@@ -420,13 +426,23 @@ defmodule Ankole.Brain.Claims do
   def repoint_in_tx(duplicate, canonical) do
     claims =
       Claim
-      |> Ash.Query.filter(object_slug == ^duplicate)
-      |> update_claims_in_tx(:reparent, %{object_slug: canonical})
+      |> Ash.Query.filter(subject_page_id == ^duplicate.id)
+      |> update_claims_in_tx(:reparent, %{subject_page_id: canonical.id})
+
+    Claim
+    |> Ash.Query.filter(source_node_id == ^duplicate.id)
+    |> update_claims_in_tx(:repoint_source, %{source_node_id: canonical.id})
 
     holders =
-      Claim
-      |> Ash.Query.filter(holder == ^duplicate)
-      |> update_claims_in_tx(:reassign_holder, %{holder: canonical})
+      Enum.reduce([{duplicate.id, canonical.id}, {duplicate.slug, canonical.slug}], 0, fn
+        {old, new}, count ->
+          moved =
+            Claim
+            |> Ash.Query.filter(holder == ^old)
+            |> update_claims_in_tx(:reassign_holder, %{holder: new})
+
+          count + moved
+      end)
 
     {claims, holders}
   end
@@ -607,8 +623,7 @@ defmodule Ankole.Brain.Claims do
     candidates =
       Claim
       |> current_external_facts()
-      |> where([claim], claim.holder == ^attrs[:holder])
-      |> where([claim], claim.audience_scope == ^attrs[:audience_scope])
+      |> where([claim], claim.source_node_id == ^attrs[:source_node_id])
       |> where([claim], not is_nil(claim.embedding))
       |> where([claim], claim.embedding_signature == ^signature)
       |> parent_filter(attrs)
@@ -650,12 +665,12 @@ defmodule Ankole.Brain.Claims do
          now
        ) do
     attrs = %{
-      object_slug: claim.object_slug,
+      subject_page_id: claim.subject_page_id,
       conversation_id: claim.conversation_id,
       claim: claim.claim,
       kind: claim.kind,
       holder: claim.holder,
-      audience_scope: claim.audience_scope
+      source_node_id: claim.source_node_id
     }
 
     case current_dedup_action(attrs, {embedding, signature}) do
@@ -723,15 +738,20 @@ defmodule Ankole.Brain.Claims do
     end
   end
 
-  defp parent_filter(query, %{object_slug: slug}) when is_binary(slug),
-    do: where(query, [claim], claim.object_slug == ^slug)
-
-  defp parent_filter(query, %{conversation_id: channel_id})
-       when is_binary(channel_id),
-       do: where(query, [claim], claim.conversation_id == ^channel_id)
+  defp parent_filter(query, attrs) do
+    where(
+      query,
+      [claim],
+      fragment(
+        "? IS NOT DISTINCT FROM ?",
+        claim.subject_page_id,
+        type(^attrs[:subject_page_id], Ecto.UUID)
+      )
+    )
+  end
 
   defp maybe_console_object(query, slug) when is_binary(slug) and slug != "",
-    do: Ash.Query.filter(query, object_slug == ^slug)
+    do: Ash.Query.filter(query, subject_page_id == ^slug)
 
   defp maybe_console_object(query, _slug), do: query
 
@@ -753,7 +773,7 @@ defmodule Ankole.Brain.Claims do
           query,
           fragment("? ILIKE ?", claim, ^pattern) or fragment("? ILIKE ?", kind, ^pattern) or
             fragment("? ILIKE ?", holder, ^pattern) or
-            fragment("? ILIKE ?", object_slug, ^pattern) or
+            fragment("?::text ILIKE ?", subject_page_id, ^pattern) or
             fragment("?::text ILIKE ?", author, ^pattern)
         )
     end
@@ -773,12 +793,12 @@ defmodule Ankole.Brain.Claims do
 
     attrs = %{
       author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
-      object_slug: attrs[:object_slug],
+      subject_page_id: attrs[:subject_page_id],
       conversation_id: attrs[:conversation_id],
       claim: attrs[:claim],
       kind: attrs[:kind],
       holder: attrs[:holder],
-      audience_scope: attrs[:audience_scope],
+      source_node_id: attrs[:source_node_id],
       notability: attrs[:notability],
       context: attrs[:context],
       valid_from: attrs[:valid_from],
@@ -798,22 +818,18 @@ defmodule Ankole.Brain.Claims do
     Ankole.Ash.update(old, action, %{superseded_by: new_claim_id})
   end
 
+  defp validate_parent(%{subject_page_id: nil}), do: :ok
+
   defp validate_parent(attrs) do
-    object_slug = attrs[:object_slug]
-    channel_id = attrs[:conversation_id]
-
-    cond do
-      is_binary(object_slug) and is_nil(channel_id) ->
-        case Objects.get_by_slug(object_slug) do
-          {:ok, _object} -> :ok
-          {:error, :not_found} -> {:error, {:unknown_parent_object, object_slug}}
-        end
-
-      is_binary(channel_id) and is_nil(object_slug) ->
+    case attrs[:subject_page_id] do
+      nil ->
         :ok
 
-      true ->
-        {:error, :claim_parent_required}
+      id ->
+        case Objects.get_by_slug(id) do
+          {:ok, %{deleted_at: nil}} -> :ok
+          _ -> {:error, {:unknown_subject_page, id}}
+        end
     end
   end
 
@@ -914,7 +930,7 @@ defmodule Ankole.Brain.Claims do
         :ok
 
       writer_uid when is_binary(writer_uid) ->
-        if Scope.satisfied_by?(claim.audience_scope, writer_uid) or
+        if Scope.satisfied_by?(claim.source_node_id, writer_uid) or
              claim.author == Ankole.ActorRef.from_writer(writer_uid, Repo.tenant_id!(), []),
            do: :ok,
            else: {:error, :writer_not_in_claim_scope}

@@ -12,22 +12,22 @@
 
 ```bash
 # 先预览请求，不实际执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks remind \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks remind \
   --data '{"instance_code":"<INSTANCE_CODE>","task_ids":["<TASK_ID>"],"comment":"请尽快处理"}' \
   --dry-run
 
 # 催办单个审批任务
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks remind \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks remind \
   --data '{"instance_code":"<INSTANCE_CODE>","task_ids":["<TASK_ID>"],"comment":"请尽快审批该单据"}' \
   --yes
 
 # 同一实例下催办多个任务
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks remind \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks remind \
   --data '{"instance_code":"<INSTANCE_CODE>","task_ids":["<TASK_ID_1>","<TASK_ID_2>"],"comment":"请相关审批人尽快处理"}' \
   --yes
 
 # 通过文件传入请求体，适合较长 comment 或多个 task_ids
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks remind \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks remind \
   --data @./remind-body.json \
   --yes
 ```
@@ -50,7 +50,7 @@
 先查到待办任务：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks query --params '{"topic":"1"}'
 ```
 
 常用到的字段：
@@ -65,7 +65,7 @@
 如需进一步确认当前审批流、节点和人员信息，可继续查看实例详情：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 ```
 
 ## 使用建议

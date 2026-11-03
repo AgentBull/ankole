@@ -86,6 +86,45 @@ defmodule Ankole.ConversationsTest do
     assert_no_adapter_rows()
   end
 
+  test "deleting a conversation removes its Applet Jobs before its Page tree", %{
+    human: human,
+    agent: agent
+  } do
+    request = attrs(agent)
+    assert {:ok, _} = Ankole.ConversationsFixtures.create(human.uid, request)
+    actor = actor_fixture(human)
+    assert {:ok, root} = Ankole.Pod.conversation_root(request.conversation_id)
+    assert {:ok, page} = Ankole.Pod.Pages.create(actor, %{parent_id: root.id, type: "applet"})
+
+    Ankole.FilesFixtures.publish_applet_fixture(
+      %{actor: actor, page: page},
+      "export default {actions:{work:{handler:()=>true}}}"
+    )
+
+    assert {:ok, job} =
+             Ankole.AutomationJobs.create_applet_job(actor, page.id, "work", %{
+               authorization_kind: "service"
+             })
+
+    assert {:ok, _} =
+             Ankole.Signals.put_event_binding(actor, %{
+               config_ref: "applet://#{page.id}",
+               automation_job_id: job.id
+             })
+
+    assert {:ok, _} =
+             Ankole.Signals.emit("applet://#{page.id}", %{
+               id: "conversation-event",
+               type: "test.changed"
+             })
+
+    assert {:ok, _} = Conversations.delete(actor, request.conversation_id, force_stop: true)
+    assert {:error, :not_found} = Ankole.Pod.Pages.fetch(page.id)
+    assert {:ok, nil} = Ankole.AutomationJobs.get_automation_job(job.id)
+    assert Repo.aggregate(Ankole.AutomationJobs.Schemas.Run, :count) == 0
+    assert Repo.aggregate(Binding, :count) == 0
+  end
+
   test "retries preserve one fact, while changed IDs or content conflict", %{
     human: human,
     agent: agent
@@ -313,8 +352,8 @@ defmodule Ankole.ConversationsTest do
     human: human,
     agent: agent
   } do
-    first = attrs(agent)
-    second = attrs(agent)
+    first = Map.put(attrs(agent), :room_mode, :group)
+    second = Map.put(attrs(agent), :room_mode, :group)
 
     for attrs <- [first, second] do
       assert {:ok, _} = in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, attrs) end)
@@ -372,7 +411,9 @@ defmodule Ankole.ConversationsTest do
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
     assert_receive {:conversation_event, ^first_id, :status}
     assert_receive {:conversation_event, ^second_id, :status}
-    assert Conversations.list(Ankole.PrincipalsFixtures.actor_fixture(human.uid)) == []
+    retained = Conversations.list(Ankole.PrincipalsFixtures.actor_fixture(human.uid))
+    assert Enum.sort(Enum.map(retained, & &1.conversation.id)) == Enum.sort([first_id, second_id])
+    assert Enum.all?(retained, &(&1.agents == []))
   end
 
   test "bad identifiers and blank or malformed text leave no accepted facts", %{
@@ -802,9 +843,9 @@ defmodule Ankole.ConversationsTest do
              end)
 
     actor = Ankole.PrincipalsFixtures.actor_fixture(human.uid)
-    assert {:ok, _} = Ankole.Files.Nodes.trash(actor, page.id)
-    assert {:ok, _} = Ankole.Files.Nodes.purge(actor, page.id)
-    assert :ok = Ankole.Files.Jobs.PurgeNode.run(%Oban.Job{args: %{"node_id" => page.id}})
+    assert {:ok, _} = Ankole.Pod.Pages.Tree.trash(actor, page.id)
+    assert {:ok, _} = Ankole.Pod.Pages.Tree.purge(actor, page.id)
+    assert :ok = Ankole.Pod.Jobs.PurgeTree.run(%Oban.Job{args: %{"node_id" => page.id}})
 
     assert {:ok, %{conversation: %{page_id: nil}}} =
              Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)

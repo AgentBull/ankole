@@ -4,7 +4,6 @@ defmodule Ankole.AutomationJobs.AttemptAccess do
   alias Ankole.AuthZ.Actor
   alias Ankole.AutomationJobs.AttemptRef
   alias Ankole.AutomationJobs.Schemas.{Job, Run}
-  alias Ankole.Principals.WorkAccess
   alias Ankole.Repo
 
   def authorize_actor(attempt, %{worker_id: uid} = ctx) do
@@ -13,15 +12,11 @@ defmodule Ankole.AutomationJobs.AttemptAccess do
   end
 
   def authorize_actor_in_tx(%AttemptRef{agent_uid: uid} = ref, %{worker_id: uid}) do
-    # Check the Human before the Job and Run rows.
-    with %Job{} = snapshot <- Ankole.Ash.read_one!(Ash.Query.filter(Job, id == ^ref.job_id)),
-         :ok <- WorkAccess.check_in_tx(snapshot),
-         %Job{status: :active, agent_uid: ^uid} = job <- lock(Job, ref.job_id),
+    with %Job{agent_uid: ^uid} <- lock(Job, ref.job_id),
          %Run{status: :running, automation_job_id: job_id, attempt_id: attempt_id} <-
            lock(Run, ref.run_id),
          true <- job_id == ref.job_id and attempt_id == ref.attempt_id,
-         {:ok, principal} <- Ankole.Principals.get_principal(uid),
-         {:ok, _human} <- human(job) do
+         {:ok, principal} <- Ankole.Principals.get_principal(uid) do
       {:ok,
        Actor.new(principal,
          turn_authority: {ref, uid},
@@ -33,17 +28,23 @@ defmodule Ankole.AutomationJobs.AttemptAccess do
     end
   end
 
-  def authorize_actor_in_tx(_, _), do: {:error, :automation_job_attempt_not_active}
-
-  defp human(%{authorization_kind: "human", human_uid: uid, human_access_version: version}) do
-    case Ankole.Principals.get_principal(uid) do
-      {:ok, %{type: :human, status: :active, access_version: ^version} = human} -> {:ok, human}
-      _ -> {:error, :human_access_revoked}
+  def authorize_actor_in_tx(%AttemptRef{agent_uid: nil, principal_uid: uid} = ref, %{
+        principal_uid: uid
+      }) do
+    with %Job{executor_kind: :applet_function} <- lock(Job, ref.job_id),
+         %Run{status: :running, automation_job_id: job_id, attempt_id: attempt_id} <-
+           lock(Run, ref.run_id),
+         true <- job_id == ref.job_id and attempt_id == ref.attempt_id,
+         {:ok, principal} <- Ankole.Principals.get_principal(uid) do
+      {:ok,
+       Actor.new(principal, turn_authority: {ref, uid}, authn: %{"surface" => "applet_action"})}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :automation_job_attempt_not_active}
     end
   end
 
-  defp human(%{authorization_kind: "service"}), do: {:ok, nil}
-  defp human(_), do: {:error, :work_authorization_review_required}
+  def authorize_actor_in_tx(_, _), do: {:error, :automation_job_attempt_not_active}
 
   defp lock(schema, id) do
     table = if schema == Job, do: "automation_jobs", else: "automation_job_runs"

@@ -71,9 +71,9 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 
 在底层接入上，`Sessions.CodexJob` 从内核 Signal 准入每次任务尝试，并将运行中引导（steer）事件与常规会话消息分道处理，防止发往主会话的普通消息误干扰后台任务。任务内的每一轮模型调用均经由 AIGateway 按已锁定的模型绑定发出；若目标 Provider 配有多把密钥，凭据挑选、会话亲和、令牌刷新与故障切换均由 AIGateway 统一托管。
 
-后台任务与主 Agent 复用同一个 Ankole `skill_view` 加载器：常规兼容 Skill 会直接列入任务的 Skill 目录；声明了 `brain-recall-only: true` 的 Skill 则不在目录中列出，而是通过 Brain 按需检索发现（当调用 `get_page` 命中对应的发现记录时，会自动转发给 `skill_view` 加载）。每次实际读取 `SKILL.md` 或附属参考文件前，加载器都会向控制面实时核验当前 Agent Plugin 与 Skill 的有效启用状态，因此即便任务正在运行，也无法继续读取已被管理员紧急关闭的 Skill。
+后台任务与主 Agent 使用同一个 `skill_view` 加载器。当前启用的技能目录和每次页面读取都遵循本次会话的 Drive 可见范围。每个 Turn 开始前，Worker 物化当前可见的技能包，包括脚本和 MCP 声明；`skill_view` 在每次读取时检查当前启用状态。
 
-首次初始化任务工作区时，运行器会自动拼装工作区根目录下的 `AGENTS.md`：若指定了工作区模板则置于最前，随后追加渲染后的任务上下文（包含该 Agent 的 `SOUL.md`、`MISSION.md` 及本次执行参数）。同时，生成的 Codex 项目配置会将原生子 Agent 等待时间的下限设为 1 分钟、默认值设为 2 分钟（上限不额外覆盖，沿用 Codex 默认值），以减少因过短空等待超时导致的模型无效重入（背景详见 [openai/codex#35259](https://github.com/openai/codex/issues/35259)）。后续续接的线程会直接复用已生成的项目 `AGENTS.md`。
+每个 Turn 启动或续跑前，Worker 都会将完整的 Agent 有效契约刷新到 `$CODEX_HOME/AGENTS.md` 和 `~/AGENTS.md`，将视觉规范刷新到 `~/DESIGN.md`。项目内的指令由工作区模板或代码仓库维护。任务上下文和技能目录通过开发者指令传入。Codex 原生子 Agent 的最短等待时间为 1 分钟，默认等待时间为 10 分钟。
 
 ## 运维界面
 

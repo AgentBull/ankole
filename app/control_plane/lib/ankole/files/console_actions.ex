@@ -1,10 +1,13 @@
 defmodule Ankole.Files.ConsoleActions do
   @moduledoc "Browses and manages tenant Drive nodes independently of Worker availability."
   use Ash.Resource.Actions.Implementation
+  require Ash.Expr
   require Ash.Query
   alias Ankole.{Errors, Files, Repo, Tenants}
-  alias Ankole.Files.{Access, Nodes, Objects}
-  alias Ankole.Files.Schemas.Node
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
+  alias Ankole.Files.Objects
+  alias Ankole.Pod.Page, as: Node
 
   def download(actor, tenant_id, id),
     do: authorized(actor, :console_download, %{tenant_id: tenant_id, id: id})
@@ -54,38 +57,53 @@ defmodule Ankole.Files.ConsoleActions do
          attrs = Map.put(attrs, :parent_id, parent_id),
          {:ok, ancestors} <- ancestors(attrs.parent_id),
          {:ok, cursor} <- decode_cursor(attrs.after) do
-      query = Node |> Ash.Query.filter(is_nil(deleted_at))
+      filter = Ash.Expr.expr(is_nil(deleted_at))
 
-      query =
+      filter =
         if attrs.parent_id,
-          do: Ash.Query.filter(query, parent_id == ^attrs.parent_id),
-          else: Ash.Query.filter(query, is_nil(parent_id))
+          do: Ash.Expr.expr(^filter and parent_id == ^attrs.parent_id),
+          else: Ash.Expr.expr(^filter and is_nil(parent_id))
 
-      query =
+      filter =
         if is_nil(attrs.parent_id) and attrs.owner_uid,
-          do: Ash.Query.filter(query, private_owner_uid == ^attrs.owner_uid),
-          else: query
+          do: Ash.Expr.expr(^filter and private_owner_uid == ^attrs.owner_uid),
+          else: filter
 
-      query =
+      filter =
         case cursor do
-          nil -> query
-          {name, id} -> Ash.Query.filter(query, name > ^name or (name == ^name and id > ^id))
+          nil -> filter
+          {name, id} -> Ash.Expr.expr(^filter and (name > ^name or (name == ^name and id > ^id)))
         end
 
       nodes =
-        query
-        |> Ash.Query.sort(name: :asc, id: :asc)
-        |> Ash.Query.limit(attrs.limit + 1)
-        |> Ankole.Ash.read!()
+        Ankole.Pod.list_page_records!(
+          query: [filter: filter, sort: [name: :asc, id: :asc], limit: attrs.limit + 1]
+        )
 
       page = Enum.take(nodes, attrs.limit)
       cursor = if length(nodes) > attrs.limit, do: encode_cursor(List.last(page))
-      {:ok, %{nodes: Enum.map(page, &node_json/1), ancestors: ancestors, next_after: cursor}}
+      object_ids = page |> Enum.map(& &1.object_id) |> Enum.reject(&is_nil/1)
+
+      sizes =
+        Ankole.Files.Schemas.FileObject
+        |> Ash.Query.filter(id in ^object_ids)
+        |> Ash.Query.select([:size])
+        |> Ankole.Ash.read!()
+        |> Map.new(&{&1.id, &1.size})
+
+      {:ok,
+       %{
+         nodes: Enum.map(page, &node_json(&1, Map.get(sizes, &1.object_id, 0))),
+         ancestors: ancestors,
+         next_after: cursor
+       }}
     end
   end
 
   defp execute(:console_create, attrs, actor) do
-    with {:ok, node} <- Nodes.create(actor, Map.take(attrs, [:parent_id, :name, :kind])),
+    with {:ok, parent} <- Nodes.fetch(attrs.parent_id),
+         type = attrs[:kind] || if(parent.type == :knowledge, do: :knowledge, else: :doc),
+         {:ok, node} <- Nodes.create(actor, %{parent_id: parent.id, name: attrs.name, type: type}),
          do: {:ok, %{id: node.id}}
   end
 
@@ -101,9 +119,9 @@ defmodule Ankole.Files.ConsoleActions do
   end
 
   defp execute(:console_download, attrs, actor) do
-    with {:ok, %{kind: :file} = node} <- Nodes.authorize(actor, attrs.id, "node_view"),
+    with {:ok, %{type: :file} = node} <- Nodes.authorize(actor, attrs.id, "node_view"),
          {:ok, object} <- download_object(node.object_id),
-         do: {:ok, %{node: node, object: object}},
+         do: {:ok, %{node: Map.take(node, [:name, :content_type]), object: object}},
          else: (
            {:ok, _} -> {:error, :not_found}
            error -> error
@@ -122,7 +140,7 @@ defmodule Ankole.Files.ConsoleActions do
               Nodes.create_in_tx(%{
                 parent_id: parent.id,
                 name: attrs.name,
-                kind: :file,
+                type: :file,
                 object_id: object.id,
                 source: "console",
                 content_type: attrs.content_type,
@@ -172,15 +190,19 @@ defmodule Ankole.Files.ConsoleActions do
         _ -> nil
       end
 
+    node_json(node, if(object, do: object.size, else: 0))
+  end
+
+  defp node_json(node, size) do
     %{
       id: node.id,
       parent_id: node.parent_id,
       name: node.name,
-      kind: to_string(node.kind),
+      kind: to_string(node.type),
       object_id: node.object_id,
       private_owner_uid: node.private_owner_uid,
       conversation_id: node.conversation_id,
-      size: if(object, do: object.size, else: 0),
+      size: size,
       content_type: node.content_type,
       updated_at: DateTime.to_iso8601(node.updated_at)
     }

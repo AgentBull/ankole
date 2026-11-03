@@ -4,6 +4,7 @@ import { type RuntimeRPCClient } from '../lanes/rpc_lane'
 import { type WorkerRPCContext, type WorkerRPCHandlers } from '../lanes/rpc_contract'
 import type { WorkerConfig } from './config'
 import { throwingRPCRequester } from './rpc_requests'
+import { driveMounts } from '../drive/mounts'
 
 /** The Worker's config without its credential: no handler needs it. */
 type HandlerConfig = Pick<WorkerConfig, 'agentHomeRoot' | 'builtinSkillsRoot' | 'internalSkillsRoot'>
@@ -27,6 +28,10 @@ export function createWorkerRPCHandlers(
     }
   }
   return {
+    flushDriveFiles: (request, context) =>
+      own(context, async signal => ({
+        nodeIds: await driveMounts.flushPaths(request.viewKey, request.paths, config.agentHomeRoot, signal)
+      })),
     async close() {
       shutdown.abort(new DOMException('Worker stopped', 'AbortError'))
       await Promise.allSettled(active)

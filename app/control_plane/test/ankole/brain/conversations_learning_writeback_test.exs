@@ -4,6 +4,7 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
   # extraction against a faked provider upstream, so what is asserted is
   # what the channel actually stores — holder, audience, and parent.
   use Ankole.AIGatewayCase
+  import Ankole.BrainFixtures
 
   import Ecto.Query
 
@@ -62,6 +63,55 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
     %{agent: agent, alice: alice, channel: channel}
   end
 
+  test "learning a repeated entity preserves the team's document and completes the slice", %{
+    channel: channel
+  } do
+    {:ok, original} =
+      page_fixture_result(
+        %{
+          slug: "companies/review-acme",
+          type: "company",
+          title: "Acme",
+          body: "Agreed renewal terms."
+        },
+        :system
+      )
+
+    base_url =
+      start_upstream_server(fn %{path: "chat/completions", body: body} ->
+        output = %{
+          "items" => [
+            %{
+              "type" => "object",
+              "object_type" => "company",
+              "slug" => original.slug,
+              "title" => "Extracted Acme",
+              "body" => "An incomplete model summary."
+            }
+          ]
+        }
+
+        {:json, 200, chat_completion_body(body["model"], Ankole.JSON.encode!(output))}
+      end)
+
+    {:ok, _provider} =
+      ProviderConfigs.create_provider(%{
+        provider_id: "brain-extract-existing-entity",
+        provider_kind: "openrouter",
+        base_url: base_url,
+        credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+      })
+
+    configure_brain_maintainer_profile!("light", "brain-extract-existing-entity", "fake-extract")
+
+    assert {:ok, %{status: :complete}} = ConversationsLearning.process_conversation(channel.id)
+    refute ConversationsLearning.has_pending_slice?(channel.id)
+    assert {:ok, page} = Ankole.Brain.Objects.get_by_slug(original.id)
+
+    assert {page.title, page.body, page.revision} ==
+             {original.title, original.body, original.revision}
+  end
+
   test "the learning request includes installed relation vocabulary", %{channel: channel} do
     assert {:ok, %{status: :complete}} = ConversationsLearning.process_conversation(channel.id)
     assert_receive {:learning_request, request}
@@ -69,6 +119,136 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
     assert prompt =~ "Installed relation vocabulary:"
     assert prompt =~ "part_of (inverse has_part)"
     assert prompt =~ "Other labels"
+  end
+
+  test "titles and aliases reach the model and variant declarations reuse the original page",
+       ctx do
+    {:ok, company} =
+      page_fixture_result(
+        %{slug: "companies/jizhi-tech", type: "company", title: "激智科技", body: "团队维护的公司档案"},
+        :system
+      )
+
+    {:ok, protocol} =
+      page_fixture_result(
+        %{
+          slug: "documents/trading-review",
+          type: "document",
+          title: "交易复盘规程",
+          meta: %{"aliases" => ["复盘协议"]}
+        },
+        :system
+      )
+
+    insert_entry!(ctx.channel.id, "entities", "激智科技下季度扩产，复盘协议更新至 v1.4。", ctx.alice.uid)
+
+    configure_items!([
+      %{
+        "type" => "object",
+        "slug" => "companies/jizhikeji",
+        "object_type" => "company",
+        "title" => "激智科技"
+      },
+      %{
+        "type" => "object",
+        "slug" => "projects/review-v14",
+        "object_type" => "document",
+        "title" => "复盘协议"
+      },
+      valid_item(ctx.alice.uid)
+      |> Map.merge(%{"subject_page_id" => "companies/jizhikeji", "claim" => "激智科技计划下季度扩产"}),
+      valid_item(ctx.alice.uid)
+      |> Map.merge(%{"subject_page_id" => "projects/review-v14", "claim" => "复盘协议更新至 v1.4"})
+    ])
+
+    assert {:ok, %{status: :complete, written: %{claims: 2, rejected: 0}}} =
+             ConversationsLearning.process_conversation(ctx.channel.id)
+
+    assert_receive {:entity_learning_prompt, prompt}
+    assert prompt =~ company.id
+    assert prompt =~ protocol.id
+    assert prompt =~ "复盘协议"
+    assert {:error, :not_found} = Ankole.Brain.Objects.get_by_slug("companies/jizhikeji")
+    assert {:error, :not_found} = Ankole.Brain.Objects.get_by_slug("projects/review-v14")
+    assert {:ok, unchanged} = Ankole.Brain.Objects.get_by_slug(company.id)
+    assert {unchanged.body, unchanged.revision} == {company.body, company.revision}
+
+    assert Enum.sort(Repo.all(from c in Claim, select: c.subject_page_id)) ==
+             Enum.sort([company.id, protocol.id])
+  end
+
+  test "new entities use the selected type directory and all references follow the page", ctx do
+    configure_items!([
+      %{
+        "type" => "object",
+        "slug" => "concepts/cerebras",
+        "object_type" => "company",
+        "title" => "Cerebras",
+        "body" => "Private research content"
+      },
+      valid_item(ctx.alice.uid)
+      |> Map.merge(%{
+        "subject_page_id" => "concepts/cerebras",
+        "claim" => "Cerebras designs wafer-scale processors"
+      }),
+      %{
+        "type" => "timeline",
+        "subject_page_id" => "concepts/cerebras",
+        "date" => "2026-11-01",
+        "summary" => "Cerebras announced a product"
+      },
+      %{
+        "type" => "link",
+        "from" => "people/" <> ctx.alice.uid,
+        "to" => "concepts/cerebras",
+        "link_type" => "researches"
+      }
+    ])
+
+    assert {:ok, %{status: :complete, written: %{claims: 1, timelines: 1, links: 1, rejected: 0}}} =
+             ConversationsLearning.process_conversation(ctx.channel.id)
+
+    assert {:error, :not_found} = Ankole.Brain.Objects.get_by_slug("concepts/cerebras")
+    assert {:ok, company} = Ankole.Brain.Objects.get_by_slug("companies/cerebras")
+    assert company.type == "company"
+    assert company.body == ""
+    assert Repo.one!(Claim).subject_page_id == company.id
+    assert Repo.one!(Ankole.Brain.Schemas.Timeline).subject_page_id == company.id
+
+    assert Repo.exists?(
+             from l in Ankole.Brain.Schemas.Link,
+               where: l.to_page_id == ^company.id and l.link_type == "researches"
+           )
+  end
+
+  test "ambiguous entity names preserve useful claims without merging people or inventing another",
+       ctx do
+    for slug <- ["people/alex-sales", "people/alex-legal"] do
+      {:ok, _} = page_fixture_result(%{slug: slug, type: "person", title: "Alex"}, :system)
+    end
+
+    configure_items!([
+      %{
+        "type" => "object",
+        "slug" => "people/alex-new",
+        "object_type" => "person",
+        "title" => "Alex"
+      },
+      valid_item(ctx.alice.uid)
+      |> Map.merge(%{
+        "subject_page_id" => "people/alex-new",
+        "claim" => "Alex requested a written contract; which Alex is not identified"
+      })
+    ])
+
+    assert {:ok, %{status: :complete, written: %{claims: 1, objects: 0, rejected: 1}}} =
+             ConversationsLearning.process_conversation(ctx.channel.id)
+
+    assert {:error, :not_found} = Ankole.Brain.Objects.get_by_slug("people/alex-new")
+    assert Repo.one!(Claim).subject_page_id == nil
+
+    assert {:ok, Repo.one!(Claim).source_node_id} ==
+             Ankole.Brain.Scope.conversation(ctx.channel.id)
   end
 
   test "idle slice discovery excludes completed channels and keeps the first new arrival",
@@ -202,10 +382,10 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
              |> Repo.all()
 
     assert claim.holder == "people/" <> alice.uid
-    assert claim.audience_scope == "principal:" <> alice.uid
+    assert {:ok, claim.source_node_id} == Ankole.Brain.Scope.conversation(channel.id)
     # The entity never resolved, so the claim parents on the channel; the
     # participant's context-pack card is what carries it back.
-    assert claim.object_slug == nil
+    assert claim.subject_page_id == nil
   end
 
   test "a group chat cannot promote learned memory to world", %{
@@ -232,7 +412,7 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
              |> where([claim], claim.kind == "preference")
              |> Repo.all()
 
-    assert claim.audience_scope == "group:#{group.name}"
+    assert {:ok, claim.source_node_id} == Ankole.Brain.Scope.conversation(channel.id)
   end
 
   test "an invalid or all-rejected extraction leaves the slice pending for a later retry", %{
@@ -346,8 +526,8 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
 
   describe "existing page writeback" do
     setup %{alice: alice} do
-      {:ok, _object} =
-        Ankole.Brain.create_object(
+      {:ok, object} =
+        page_fixture_result(
           %{slug: "companies/acme", type: "company", title: "Acme Corporation"},
           :system
         )
@@ -364,7 +544,7 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
               "holder" => holder,
               "notability" => "high",
               "confidence" => 0.7,
-              "object_slug" => "companies/acme",
+              "subject_page_id" => object.id,
               "provenance" => "renewal message"
             }
           ]
@@ -401,14 +581,39 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
                ConversationsLearning.process_conversation(channel.id)
 
       assert [%{slug: "companies/acme"}] =
-               Ankole.Brain.Schemas.Object
+               Ankole.Brain.Schemas.Page
                |> where([object], like(object.slug, "companies/%"))
                |> Repo.all()
 
       assert [claim] = Claim |> where([claim], claim.kind == "commitment") |> Repo.all()
-      assert claim.object_slug == "companies/acme"
+      assert claim.subject_page_id == page_id("companies/acme")
       assert claim.holder == "people/" <> alice.uid
     end
+  end
+
+  defp configure_items!(items) do
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(fn %{path: "chat/completions", body: body} ->
+        send(
+          test_pid,
+          {:entity_learning_prompt, Enum.map_join(body["messages"], "\n", & &1["content"])}
+        )
+
+        {:json, 200,
+         chat_completion_body(body["model"], Ankole.JSON.encode!(%{"items" => items}))}
+      end)
+
+    {:ok, _} =
+      ProviderConfigs.create_provider(%{
+        provider_id: "entity-learning",
+        provider_kind: "openrouter",
+        base_url: base_url,
+        credential_pool: %{"entries" => [%{"label" => "Test", "api_key" => "sk-test"}]}
+      })
+
+    configure_brain_maintainer_profile!("light", "entity-learning", "fake-extract")
   end
 
   defp insert_channel!(overrides \\ %{}) do

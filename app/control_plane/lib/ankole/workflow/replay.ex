@@ -65,6 +65,7 @@ defmodule Ankole.Workflow.Replay do
         commit_pending_in_tx(run_id, pending_calls, expected_memo_length)
       end
     end)
+    |> publish_signals()
     |> Ankole.Workflow.Lifecycle.cleanup_terminal_transition()
   end
 
@@ -75,6 +76,7 @@ defmodule Ankole.Workflow.Replay do
     Repo.transact_top_level(fn ->
       conclude_replay_in_tx(run_id, expected_memo_length, :completed, result_text, %{})
     end)
+    |> publish_signals()
     |> Ankole.Workflow.Lifecycle.cleanup_terminal_transition()
   end
 
@@ -87,8 +89,19 @@ defmodule Ankole.Workflow.Replay do
     Repo.transact_top_level(fn ->
       conclude_replay_in_tx(run_id, expected_memo_length, :failed, nil, error)
     end)
+    |> publish_signals()
     |> Ankole.Workflow.Lifecycle.cleanup_terminal_transition()
   end
+
+  defp publish_signals({:ok, result} = outcome) do
+    Ankole.Signals.publish_committed(
+      List.wrap(result[:wakeup_event]) ++ List.wrap(result[:dispatch_events])
+    )
+
+    outcome
+  end
+
+  defp publish_signals(error), do: error
 
   defp conclude_replay_in_tx(run_id, expected_memo_length, status, result_text, error) do
     case Ankole.Workflow.Slot.lock_run(run_id) do

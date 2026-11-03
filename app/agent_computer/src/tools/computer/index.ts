@@ -8,8 +8,10 @@ import { createFindTool } from './find-tool'
 import { createGrepTool } from './grep-tool'
 import { createLsTool } from './ls-tool'
 import { createReadFileTool } from './read-file-tool'
+import type { DriveView } from '../../drive/mounts'
 
 export interface ComputerToolsBinding {
+  driveView?: DriveView
   agentHome: string
   workspaceRoot: string
   /** Operator-managed shell variables resolved for this turn's agent. */
@@ -42,11 +44,13 @@ export function computerToolsForContext(context: ComputerToolContext): WorkerAge
 function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolContext {
   const computer = createContainerComputer(binding.agentHome, binding.workspaceRoot, {
     workerEnv: binding.workerEnv,
-    runtimeEnv: binding.runtimeEnv
+    runtimeEnv: binding.runtimeEnv,
+    driveView: binding.driveView
   })
   return {
     agentHome: binding.agentHome,
     workspaceRoot: binding.workspaceRoot,
+    driveView: binding.driveView,
     computer
   }
 }

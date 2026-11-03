@@ -43,7 +43,7 @@ test('a spreadsheet page edits cells, collaborates live, keeps versions, and dow
     const response = await created
     expect(response.status()).toBe(201)
     id = ((await response.json()) as { page: { id: string } }).page.id
-    await expect(owner).toHaveURL(state.base_url + pageRoute(id))
+    await expect(owner).toHaveURL(state.base_url + pageRoute(id, undefined, 'Untitled.xlsx'))
     await expect(sheetGrid(owner)).toBeVisible()
 
     await clickCell(owner, 0, 0)

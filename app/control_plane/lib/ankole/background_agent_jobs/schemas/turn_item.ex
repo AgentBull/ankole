@@ -2,9 +2,9 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.TurnItem do
   @moduledoc """
   One append-only sanitized semantic thread item of a BackgroundAgentJob Turn.
 
-  This stream is the one turn content record from the Worker. Every
-  trajectory read path projects its messages from these rows at read time,
-  and thread replay reads them back when a lost Codex thread must be rebuilt.
+  This stream is the one turn content record from the Worker. Ankole projects
+  trajectory messages from these rows at read time and retains items without
+  a display projection as audit records.
   """
 
   use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.BackgroundAgentJobs
@@ -67,10 +67,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.TurnItem do
 
   actions do
     defaults([:read])
-
-    read :replay_page do
-      pagination(offset?: true, max_page_size: 200, countable: false)
-    end
 
     create :append do
       accept([:turn_id, :position, :revision, :item_key, :item])

@@ -53,7 +53,8 @@ async function upload(page: Page, id: string, name: string, bytes: Uint8Array) {
     result = await retried
   }
   expect(result.status()).toBe(200)
-  await expect(page).toHaveURL(state.base_url + pageRoute(id))
+  // The upload renames the Page after the file, so its canonical address carries the new title.
+  await expect(page).toHaveURL(state.base_url + pageRoute(id, undefined, name))
   const manifest = await request<{ files: { path: string; size: number }[] }>(page, `/pages/${id}/files`)
   expect(manifest.files).toHaveLength(1)
   expect(manifest.files[0].size).toBe(bytes.byteLength)

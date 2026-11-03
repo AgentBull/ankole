@@ -13,6 +13,7 @@ const row = (id: string): NavigationPage => ({
   type: 'doc',
   position: id,
   inherit_permissions: true,
+  metadata: {},
   has_children: false,
   actions: ['node_view'],
   role: 'view'

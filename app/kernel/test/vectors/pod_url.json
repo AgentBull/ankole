@@ -1,64 +1,126 @@
 {
-  "description": "Shared vectors for the Pod browser URL grammar. The Elixir control plane normalizes incoming browser URLs. The browser mirror in app/webapps/common/browser-context.ts builds outgoing browser URLs. Both read these vectors. The Rust kernel owns the UUID codec in uuid_url.json, not this grammar.",
+  "description": "Shared vectors for the Pod browser URL grammar and Page title slugs. The Elixir control plane normalizes incoming browser URLs. The browser mirror in app/webapps/common/pod-url.ts builds outgoing browser URLs. Both read these vectors. The Rust kernel owns the UUID codec in uuid_url.json and the AnyAscii title slugifier.",
+  "slugs": [
+    { "title": "", "slug": "" },
+    { "title": "   ", "slug": "" },
+    { "title": "---", "slug": "" },
+    { "title": "Hello World", "slug": "hello-world" },
+    { "title": "Release v1.2.3", "slug": "release-v123" },
+    { "title": "Café résumé", "slug": "cafe-resume" },
+    { "title": "Привет мир", "slug": "privet-mir" },
+    { "title": "θεός", "slug": "theos" },
+    { "title": "emoji 🎉 test 🚀", "slug": "emoji-tada-test-rocket" },
+    { "title": "产品规划", "slug": "chan-pin-gui-hua" },
+    { "title": "2026产品规划 & Q4 Design Spec", "slug": "2026-chan-pin-gui-hua-q4-design-spec" },
+    { "title": "日本語のタイトル", "slug": "ri-ben-yu-notaitoru" },
+    { "title": "한국어 제목", "slug": "hangugeo-jemog" },
+    { "title": "iPhone 16 Pro Max & OpenAI", "slug": "iphone-16-pro-max-openai" },
+    { "title": "notes 中文 #1.txt", "slug": "notes-zhong-wen-1txt" },
+    {
+      "title": "A very long document title that keeps going and going past sixty characters easily in English",
+      "slug": "a-very-long-document-title-that-keeps-going-and-going-past"
+    }
+  ],
+  "page_paths": [
+    {
+      "id": "00112233-4455-6677-8899-aabbccddeeff",
+      "title": "",
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz"
+    },
+    {
+      "id": "00112233-4455-6677-8899-aabbccddeeff",
+      "title": "---",
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz"
+    },
+    {
+      "id": "01a05864-9833-7581-88ac-578af1df1818",
+      "title": "2026产品规划 & Q4 Design Spec",
+      "expected_path": "/pages/2026-chan-pin-gui-hua-q4-design-spec-01m1c6961kep0rhb2qhbrxy60r"
+    }
+  ],
   "routes": [
     {
       "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
       "query": {},
-      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
+      "expected_query": {}
+    },
+    {
+      "path": "/pages/0024H36H2NCSVRH6DAQF6DVVQZ",
+      "query": {},
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
+      "expected_query": {}
+    },
+    {
+      "path": "/pages/q4-design-spec-0024h36h2ncsvrh6daqf6dvvqz",
+      "query": {},
+      "expected_path": "/pages/q4-design-spec-0024h36h2ncsvrh6daqf6dvvqz",
+      "expected_query": {}
+    },
+    {
+      "path": "/pages/Q4-Design_Spec-0024H36H2NCSVRH6DAQF6DVVQZ",
+      "query": {},
+      "expected_path": "/pages/q4-design-spec-0024h36h2ncsvrh6daqf6dvvqz",
       "expected_query": {}
     },
     {
       "path": "/conversations/00112233-4455-6677-8899-aabbccddeeff",
       "query": {},
-      "expected_path": "/conversations/ABEiM0RVZneImaq7zN3u_w",
+      "expected_path": "/conversations/0024h36h2ncsvrh6daqf6dvvqz",
+      "expected_query": {}
+    },
+    {
+      "path": "/conversations/0024H36H2NCSVRH6DAQF6DVVQZ",
+      "query": {},
+      "expected_path": "/conversations/0024h36h2ncsvrh6daqf6dvvqz",
       "expected_query": {}
     },
     {
       "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
       "query": { "tenant_id": "01a15007-9b83-70f3-8830-060ec9b8419f", "chat": "01a15007-9b83-70f3-8830-060ec9b8419f" },
-      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
-      "expected_query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" }
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
+      "expected_query": { "chat": "01m580f6w3e3srgc061v4vggcz" }
     },
     {
-      "path": "/pages/ABEiM0RVZneImaq7zN3u_w",
-      "query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" },
-      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
-      "expected_query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" }
+      "path": "/pages/2026-chan-pin-gui-hua-0024h36h2ncsvrh6daqf6dvvqz",
+      "query": { "chat": "01m580f6w3e3srgc061v4vggcz" },
+      "expected_path": "/pages/2026-chan-pin-gui-hua-0024h36h2ncsvrh6daqf6dvvqz",
+      "expected_query": { "chat": "01m580f6w3e3srgc061v4vggcz" }
     },
     {
       "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
-      "query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" },
-      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
-      "expected_query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" }
+      "query": { "chat": "01m580f6w3e3srgc061v4vggcz" },
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
+      "expected_query": { "chat": "01m580f6w3e3srgc061v4vggcz" }
     },
     {
-      "path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
       "query": { "chat": "01a15007-9b83-70f3-8830-060ec9b8419f" },
-      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
-      "expected_query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" }
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
+      "expected_query": { "chat": "01m580f6w3e3srgc061v4vggcz" }
     },
     {
       "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
       "query": { "chat": "new" },
-      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
       "expected_query": { "chat": "new" }
     },
     {
       "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
-      "query": { "chat": "AAAAAAAAAAAAAAAAAAAAAB" },
-      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
-      "expected_query": { "chat": "AAAAAAAAAAAAAAAAAAAAAB" }
+      "query": { "chat": "80000000000000000000000000" },
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
+      "expected_query": { "chat": "80000000000000000000000000" }
     },
     {
-      "path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
       "query": { "tenant_id": "01a15007-9b83-70f3-8830-060ec9b8419f" },
-      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
       "expected_query": {}
     },
     {
       "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
       "query": { "foo": "bar" },
-      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_path": "/pages/0024h36h2ncsvrh6daqf6dvvqz",
       "expected_query": { "foo": "bar" }
     },
     {
@@ -77,16 +139,40 @@
       "path": "/content/space",
       "query": { "chat": "00112233-4455-6677-8899-aabbccddeeff" },
       "expected_path": "/content/space",
-      "expected_query": { "chat": "ABEiM0RVZneImaq7zN3u_w" }
+      "expected_query": { "chat": "0024h36h2ncsvrh6daqf6dvvqz" }
     }
   ],
   "invalid_routes": [
     {
-      "path": "/pages/AAAAAAAAAAAAAAAAAAAAAB",
+      "path": "/pages/80000000000000000000000000",
+      "query": {}
+    },
+    {
+      "path": "/pages/q4-design-80000000000000000000000000",
+      "query": {}
+    },
+    {
+      "path": "/pages/-0024h36h2ncsvrh6daqf6dvvqz",
+      "query": {}
+    },
+    {
+      "path": "/pages/bad--slug-0024h36h2ncsvrh6daqf6dvvqz",
+      "query": {}
+    },
+    {
+      "path": "/pages/bad.slug-0024h36h2ncsvrh6daqf6dvvqz",
+      "query": {}
+    },
+    {
+      "path": "/pages/ABEiM0RVZneImaq7zN3u_w",
       "query": {}
     },
     {
       "path": "/pages/not-a-uuid",
+      "query": {}
+    },
+    {
+      "path": "/conversations/q4-design-0024h36h2ncsvrh6daqf6dvvqz",
       "query": {}
     },
     {

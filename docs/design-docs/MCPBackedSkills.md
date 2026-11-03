@@ -35,6 +35,26 @@ Responsibilities split cleanly across the stack:
 Because the model selects tools from Skill instructions, MCP serves purely as
 the wire protocol for executing the chosen call.
 
+## Shared Skill Packages
+
+`Ankole.AIAgent.Library.Skills` owns the required `SKILL.md` manifest and
+all companion files in `skills` and `skill_files`. The catalog uses the manifest
+description. `skill_view` reads the manifest, and the Agent explicitly reads
+referenced documents, scripts, templates and `agents/openai.yaml` by relative path.
+
+At startup and during catalog refresh, Ankole compares shipped packages with
+`skills.upstream_state`. The fingerprint covers the manifest and the relative
+paths, hashes and modes of managed files. Ankole updates an unchanged package
+atomically, including upstream additions and removals. If a person changed any
+managed file or the manifest, Ankole preserves the local package and records the
+pending upstream fingerprint. Additional local files remain outside that fingerprint.
+
+The Agent identity determines package enablement. Main runs read complete
+packages from the shared read-only `/drive/Skills` mount. Background Agent Jobs
+and Automation attempts materialize the intersection of their initial Skill
+selection and the Agent's currently enabled Skills before loading MCP dependencies.
+The MCP loader reads the same package files as the Agent.
+
 ## Declaration
 
 The Skill loader accepts MCP entries only under `dependencies.tools`, and every
@@ -84,7 +104,7 @@ declares no MCP dependencies.
 The loader rejects unknown fields, malformed entries, symlinks that escape the
 Skill directory, and metadata files larger than 64 KiB. A single Skill may
 declare at most 64 dependencies, and a single execution may load at most 128
-enabled Skills and 32 distinct MCP servers.
+enabled Skills. MCP servers are resolved from those enabled Skill declarations.
 
 ## Selection and Conflicts
 
@@ -218,6 +238,40 @@ An Automation script invokes `mcporter` via `Bun.spawn` with the same argument
 vector, writing a single JSON object to child `stdin`, checking the exit code,
 and parsing `stdout`. Automation scripts must never write a persistent
 `mcporter` config file.
+
+## Applet tools and streaming files
+
+Applet `AnkoleRuntime.mcp.call` resolves HTTP MCP servers from the executing
+Principal's enabled Skills and their existing credential configuration.
+`AnkoleRuntime.admin.mcp.call` uses the Page's current owner. The server's tool
+schema and annotations determine read-only and idempotency behavior. A GET route
+can call only a tool declaring `readOnlyHint: true`; caller-supplied options cannot
+change that declaration. Schema fields marked `int64` or `uint64` are returned
+as decimal strings, including nested properties and array items. Within one
+Applet invocation, repeated calls to the same tool reuse its discovered definition
+and protocol session. Each call still resolves the Principal's current Skill
+configuration and tool filters; a different Principal or server configuration
+uses a separate cache entry. Invocation completion discards the cache.
+
+HTTP MCP defaults to the stateless `2026-07-28` protocol. Discovery can fall back
+to legacy initialization and session headers when the server rejects the new
+protocol. Tool execution does not replay a non-idempotent call as protocol
+negotiation. The existing Worker MCP configuration has no separate server-count
+limit and defaults its remote transport to automatic protocol selection.
+
+`Ankole.Files.HTTP` owns the shared HTTP/file bridge. Uploading a `file_ref`
+authorizes and resolves an immutable File object in a short transaction, releases
+the database connection, then uploads in 8 MiB chunks. `Ankole.Files.download_http`
+streams a response into the existing File object store and commits the reference
+through Pod Files. Neither direction assembles a large file in memory. JSON
+requests and responses are each limited to 5,000,000 bytes; UTF-8 validation runs
+on the complete buffered response, so split multibyte characters remain valid.
+The bridge decodes gzip and deflate JSON responses with the same limit on decoded
+bytes. Invalid HTTP URLs return a non-retryable error before sending a request.
+
+If a non-idempotent request has sent bytes and loses its response, the bridge
+returns `%{code: "upstream_outcome_unknown", retryable: false, request_sent: true}`.
+The caller reconciles the upstream outcome before deciding whether to retry.
 
 ## Failure Contract
 

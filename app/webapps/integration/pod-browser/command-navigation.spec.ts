@@ -34,16 +34,20 @@ test('command search coalesces a typing burst and opens the current result', asy
   }
 })
 
+const createdTitles = new Map<string, string>()
+
 async function createDocument(page: Page, text?: string) {
   await page.goto(pageRoute(state.report_id))
+  const title = `Command navigation ${crypto.randomUUID()}`
   const { page: created } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
     type: 'doc',
-    title: `Command navigation ${crypto.randomUUID()}`
+    title
   })
+  createdTitles.set(created.id, title)
   if (text) {
     await request(page, `/pages/${created.id}/content`, 'PUT', { base_revision: 0, xml: `<page><p>${text}</p></page>` })
   }
-  await page.goto(pageRoute(created.id))
+  await page.goto(pageRoute(created.id, undefined, title))
   return created.id
 }
 
@@ -64,7 +68,7 @@ test('command search opens a document found by its body and keeps navigation com
     const result = menu.locator(`[cmdk-item][data-value="page:${id}"]`)
     await expect(result).toBeVisible()
     await result.click()
-    await expect(page).toHaveURL(state.base_url + pageRoute(id))
+    await expect(page).toHaveURL(state.base_url + pageRoute(id, undefined, createdTitles.get(id)))
     await expect(page.locator('.editor-content')).toHaveText(text)
 
     await page.getByRole('button', { name: '搜索或跳转', exact: true }).click()
@@ -87,7 +91,9 @@ test('a document search keeps its query when opening a result, going back, and r
     id = await createDocument(page, text)
     await page.goto(listRoute('search'))
     const input = page.getByRole('textbox', { name: '搜索页面', exact: true })
-    const result = page.locator('.pod-content-list').locator(`a[href="${pageRoute(id)}"]`)
+    const result = page
+      .locator('.pod-content-list')
+      .locator(`a[href="${pageRoute(id, undefined, createdTitles.get(id))}"]`)
     await input.pressSequentially(text)
     await expect(input).toBeFocused()
     await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe(text)
@@ -229,10 +235,7 @@ for (const decision of ['proceed', 'cancel'] as const) {
         await expect(blocker).toBeHidden()
         expect(await page.evaluate(() => history.state?.focusComposer ?? null)).toBeNull()
         await page.getByRole('tab', { name: '对话', exact: true }).click()
-        await page
-          .getByRole('tabpanel', { name: '对话', exact: true })
-          .getByRole('link', { name: '新对话', exact: true })
-          .click()
+        await page.locator('.pod-sidebar-header').getByRole('link', { name: '新对话', exact: true }).click()
         await expect(blocker).toBeVisible()
       }
       const downloaded = page.waitForEvent('download')

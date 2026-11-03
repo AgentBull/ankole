@@ -1,0 +1,909 @@
+diff --git a/backend/webdav/api/types.go b/backend/webdav/api/types.go
+index 5ed3dfe..dd659fe 100644
+--- a/backend/webdav/api/types.go
++++ b/backend/webdav/api/types.go
+@@ -68,15 +68,19 @@ type Response struct {
+ // Note that status collects all the status values for which we just
+ // check the first is OK.
+ type Prop struct {
+-	Status       []string  `xml:"DAV: status"`
+-	Name         string    `xml:"DAV: prop>displayname,omitempty"`
+-	Type         *xml.Name `xml:"DAV: prop>resourcetype>collection,omitempty"`
+-	IsCollection *string   `xml:"DAV: prop>iscollection,omitempty"` // this is a Microsoft extension see #2716
+-	Size         int64     `xml:"DAV: prop>getcontentlength,omitempty"`
+-	Modified     Time      `xml:"DAV: prop>getlastmodified,omitempty"`
+-	Checksums    []string  `xml:"prop>checksums>checksum,omitempty"`
+-	Permissions  string    `xml:"prop>permissions,omitempty"`
+-	MESha1Hex    *string   `xml:"ME: prop>sha1hex,omitempty"` // Fastmail-specific sha1 checksum
++	AnkoleMode        string    `xml:"urn:ankole:vfs prop>mode,omitempty"`
++	AnkoleETag        string    `xml:"DAV: prop>getetag,omitempty"`
++	AnkoleFingerprint string    `xml:"urn:ankole:vfs prop>fingerprint,omitempty"`
++	AnkoleNodeID      string    `xml:"urn:ankole:vfs prop>node-id,omitempty"`
++	Status            []string  `xml:"DAV: status"`
++	Name              string    `xml:"DAV: prop>displayname,omitempty"`
++	Type              *xml.Name `xml:"DAV: prop>resourcetype>collection,omitempty"`
++	IsCollection      *string   `xml:"DAV: prop>iscollection,omitempty"` // this is a Microsoft extension see #2716
++	Size              int64     `xml:"DAV: prop>getcontentlength,omitempty"`
++	Modified          Time      `xml:"DAV: prop>getlastmodified,omitempty"`
++	Checksums         []string  `xml:"prop>checksums>checksum,omitempty"`
++	Permissions       string    `xml:"prop>permissions,omitempty"`
++	MESha1Hex         *string   `xml:"ME: prop>sha1hex,omitempty"` // Fastmail-specific sha1 checksum
+ }
+ 
+ // Parse a status of the form "HTTP/1.1 200 OK" or "HTTP/1.1 200"
+diff --git a/backend/webdav/webdav.go b/backend/webdav/webdav.go
+index e5c2d9e..575fc30 100644
+--- a/backend/webdav/webdav.go
++++ b/backend/webdav/webdav.go
+@@ -15,6 +15,7 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"io"
++	"maps"
+ 	"net/http"
+ 	"net/url"
+ 	"os/exec"
+@@ -39,6 +40,7 @@ import (
+ 	"github.com/rclone/rclone/fs/fshttp"
+ 	"github.com/rclone/rclone/fs/hash"
+ 	"github.com/rclone/rclone/fs/list"
++	"github.com/rclone/rclone/internal/ankole"
+ 	"github.com/rclone/rclone/lib/encoder"
+ 	"github.com/rclone/rclone/lib/pacer"
+ 	"github.com/rclone/rclone/lib/rest"
+@@ -218,6 +220,7 @@ type Options struct {
+ 
+ // Fs represents a remote webdav
+ type Fs struct {
++	ankole             *ankole.State
+ 	name               string        // name of this remote
+ 	root               string        // the path we are working on
+ 	opt                Options       // parsed options
+@@ -250,13 +253,18 @@ type Fs struct {
+ //
+ // Will definitely have info but maybe not meta
+ type Object struct {
+-	fs          *Fs       // what this object is part of
+-	remote      string    // The remote path
+-	hasMetaData bool      // whether info below has been set
+-	size        int64     // size of the object
+-	modTime     time.Time // modification time of the object
+-	sha1        string    // SHA-1 of the object content if known
+-	md5         string    // MD5 of the object content if known
++	ankoleDigest      string
++	ankoleRefreshBody bool
++	ankoleETag        string
++	ankoleMode        uint32
++	ankoleNodeID      string
++	fs                *Fs       // what this object is part of
++	remote            string    // The remote path
++	hasMetaData       bool      // whether info below has been set
++	size              int64     // size of the object
++	modTime           time.Time // modification time of the object
++	sha1              string    // SHA-1 of the object content if known
++	md5               string    // MD5 of the object content if known
+ }
+ 
+ // ------------------------------------------------------------
+@@ -705,6 +713,11 @@ var nextCloudURLRegex = regexp.MustCompile(`^(.*)/dav/files/([^/]+)`)
+ // setQuirks adjusts the Fs for the vendor passed in
+ func (f *Fs) setQuirks(ctx context.Context, vendor string) error {
+ 	switch vendor {
++	case "ankole":
++		f.canStream = true
++		f.precision = time.Nanosecond
++		f.ankole = ankole.New(f.Name(), f)
++		return f.ankoleUploadLimit(ctx)
+ 	case "fastmail":
+ 		f.canStream = true
+ 		f.precision = time.Second
+@@ -1004,7 +1017,7 @@ func (f *Fs) ListP(ctx context.Context, dir string, callback fs.ListRCallback) e
+ 	var iErr error
+ 	_, err := f.listAll(ctx, dir, false, false, defaultDepth, func(remote string, isDir bool, info *api.Prop) bool {
+ 		if isDir {
+-			d := fs.NewDir(remote, time.Time(info.Modified))
++			d := fs.NewDir(remote, time.Time(info.Modified)).SetID(info.AnkoleNodeID)
+ 			// .SetID(info.ID)
+ 			// FIXME more info from dir? can set size, items?
+ 			err := list.Add(d)
+@@ -1156,7 +1169,11 @@ func (f *Fs) mkdir(ctx context.Context, dirPath string) (err error) {
+ // Mkdir creates the directory if it doesn't exist
+ func (f *Fs) Mkdir(ctx context.Context, dir string) error {
+ 	dirPath := f.dirPath(dir)
+-	return f.mkdir(ctx, dirPath)
++	err := f.mkdir(ctx, dirPath)
++	if f.ankole != nil {
++		return ankoleError(nil, err)
++	}
++	return err
+ }
+ 
+ // dirNotEmpty returns true if the directory exists and is not Empty
+@@ -1328,6 +1345,10 @@ func (f *Fs) Move(ctx context.Context, src fs.Object, remote string) (fs.Object,
+ //
+ // If destination exists then return fs.ErrorDirExists
+ func (f *Fs) DirMove(ctx context.Context, src fs.Fs, srcRemote, dstRemote string) error {
++	if f.ankole != nil && src == f {
++		_, err := f.ankoleMove(ctx, srcRemote, dstRemote)
++		return err
++	}
+ 	srcFs, ok := src.(*Fs)
+ 	if !ok {
+ 		fs.Debugf(srcFs, "Can't move directory - not same remote type")
+@@ -1474,6 +1495,10 @@ func (o *Object) Size() int64 {
+ // setMetaData sets the metadata from info
+ func (o *Object) setMetaData(info *api.Prop) (err error) {
+ 	o.hasMetaData = true
++	o.ankoleETag = info.AnkoleETag
++	o.ankoleDigest = info.AnkoleFingerprint
++	o.ankoleNodeID = info.AnkoleNodeID
++	o.ankoleMode = parseAnkoleMode(info.AnkoleMode)
+ 	o.size = info.Size
+ 	o.modTime = time.Time(info.Modified)
+ 	if o.fs.hasOCMD5 || o.fs.hasOCSHA1 || o.fs.hasMESHA1 {
+@@ -1618,6 +1643,9 @@ func (o *Object) Storable() bool {
+ // Open an object for read
+ func (o *Object) Open(ctx context.Context, options ...fs.OpenOption) (in io.ReadCloser, err error) {
+ 	var resp *http.Response
++	if o.fs.ankole != nil {
++		return o.ankoleOpen(ctx, options)
++	}
+ 	fs.FixRangeOption(options, o.size)
+ 	opts := rest.Opts{
+ 		Method:  "GET",
+@@ -1644,7 +1672,9 @@ func (o *Object) Open(ctx context.Context, options ...fs.OpenOption) (in io.Read
+ //
+ // The new object may have been created if an error is returned
+ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, options ...fs.OpenOption) (err error) {
+-	err = o.fs.mkParentDir(ctx, o.filePath())
++	if o.fs.ankole == nil {
++		err = o.fs.mkParentDir(ctx, o.filePath())
++	}
+ 	if err != nil {
+ 		return fmt.Errorf("Update mkParentDir failed: %w", err)
+ 	}
+@@ -1678,6 +1708,9 @@ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, op
+ 			return fmt.Errorf("unchunked simple update failed: %w", err)
+ 		}
+ 	}
++	if o.fs.ankole != nil {
++		return nil
++	}
+ 	// read metadata from remote
+ 	o.hasMetaData = false
+ 	err = o.readMetaData(ctx)
+@@ -1761,6 +1794,9 @@ func (o *Object) updateSimple(ctx context.Context, body io.Reader, getBody func(
+ 		extraHeaders = map[string]string{}
+ 	}
+ 
++	if o.fs.ankole != nil {
++		maps.Copy(extraHeaders, ankole.Headers(ctx))
++	}
+ 	opts := rest.Opts{
+ 		Method:        "PUT",
+ 		Path:          filePath,
+@@ -1777,6 +1813,12 @@ func (o *Object) updateSimple(ctx context.Context, body io.Reader, getBody func(
+ 		resp, err = o.fs.srv.Call(ctx, &opts)
+ 		return o.fs.shouldRetry(ctx, resp, err)
+ 	})
++	if o.fs.ankole != nil {
++		if err != nil {
++			return ankoleError(resp, err)
++		}
++		return o.ankoleResponse(resp)
++	}
+ 	if err != nil {
+ 		// Give the WebDAV server a chance to get its internal state in order after the
+ 		// error.  The error may have been local in which case we closed the connection.
+@@ -1798,6 +1840,9 @@ func (o *Object) Remove(ctx context.Context) error {
+ 		Path:       o.filePath(),
+ 		NoResponse: true,
+ 	}
++	if o.fs.ankole != nil {
++		opts.ExtraHeaders = o.fs.ankole.WriteHeaders(o.remote)
++	}
+ 	return o.fs.pacer.Call(func() (bool, error) {
+ 		resp, err := o.fs.srv.Call(ctx, &opts)
+ 		return o.fs.shouldRetry(ctx, resp, err)
+diff --git a/cmd/mount2/fs.go b/cmd/mount2/fs.go
+index 8e16972..171f48a 100644
+--- a/cmd/mount2/fs.go
++++ b/cmd/mount2/fs.go
+@@ -77,6 +77,9 @@ func setAttr(node vfs.Node, attr *fuse.Attr) {
+ 	attr.Owner.Uid = vfs.Opt.UID
+ 	attr.Ino = node.Inode()
+ 	attr.Mode = getMode(node)
++	if mode := vfs.AnkoleMode(node); mode != 0 {
++		attr.Mode = (attr.Mode &^ 0777) | mode
++	}
+ 	attr.Size = Size
+ 	attr.Nlink = 1
+ 	attr.Blocks = Blocks
+@@ -111,6 +114,9 @@ func translateError(err error) syscall.Errno {
+ 		return 0
+ 	}
+ 	_, uErr := fserrors.Cause(err)
++	if code, ok := uErr.(syscall.Errno); ok {
++		return code
++	}
+ 	switch uErr {
+ 	case vfs.OK:
+ 		return 0
+diff --git a/cmd/mount2/mount.go b/cmd/mount2/mount.go
+index 5b27140..4cfa18d 100644
+--- a/cmd/mount2/mount.go
++++ b/cmd/mount2/mount.go
+@@ -26,6 +26,7 @@ func init() {
+ func mountOptions(fsys *FS, f fs.Fs, opt *mountlib.Options) (mountOpts *fuse.MountOptions) {
+ 	mountOpts = &fuse.MountOptions{
+ 		AllowOther:         fsys.opt.AllowOther,
++		DirectMount:        true,
+ 		FsName:             opt.DeviceName,
+ 		Name:               "rclone",
+ 		DisableXAttrs:      true,
+@@ -228,6 +229,7 @@ func mount(VFS *vfs.VFS, mountpoint string, opt *mountlib.Options) (<-chan error
+ 	}
+ 
+ 	rawFS := fusefs.NewNodeFS(root, &opts)
++	fsys.VFS.AnkoleNotify(func(names []string) { root.ankoleInvalidate(names) })
+ 	server, err := fuse.NewServer(rawFS, mountpoint, &opts.MountOptions)
+ 	if err != nil {
+ 		return nil, nil, "", err
+diff --git a/cmd/mount2/node.go b/cmd/mount2/node.go
+index 3b60c65..ca97523 100644
+--- a/cmd/mount2/node.go
++++ b/cmd/mount2/node.go
+@@ -110,6 +110,11 @@ var _ = (fusefs.NodeStatfser)((*Node)(nil))
+ // with the Options.NullPermissions setting. If blksize is unset, 4096
+ // is assumed, and the 'blocks' field is set accordingly.
+ func (n *Node) Getattr(ctx context.Context, f fusefs.FileHandle, out *fuse.AttrOut) syscall.Errno {
++	if f == nil {
++		if err := n.fsys.VFS.AnkoleRefreshExport(n.node); err != nil {
++			return translateError(err)
++		}
++	}
+ 	n.fsys.setAttrOut(n.node, out)
+ 	return 0
+ }
+diff --git a/fs/fingerprint.go b/fs/fingerprint.go
+index 75d3256..33ed0c3 100644
+--- a/fs/fingerprint.go
++++ b/fs/fingerprint.go
+@@ -19,6 +19,9 @@ import (
+ // example if fast is set then this won't include hashes on the local
+ // backend.
+ func Fingerprint(ctx context.Context, o ObjectInfo, fast bool) string {
++	if object, ok := o.(interface{ AnkoleFingerprint() string }); ok && object.AnkoleFingerprint() != "" {
++		return object.AnkoleFingerprint()
++	}
+ 	var (
+ 		out      strings.Builder
+ 		f        = o.Fs()
+diff --git a/rclone.go b/rclone.go
+index 74fde16..397f5df 100644
+--- a/rclone.go
++++ b/rclone.go
+@@ -1,6 +1,8 @@
+ // Sync files and directories to and from local and remote object stores
+ //
+ // Nick Craig-Wood <nick@craig-wood.com>
++//go:build !ankole
++
+ package main
+ 
+ import (
+diff --git a/vfs/dir.go b/vfs/dir.go
+index 9e1c437..be72b17 100644
+--- a/vfs/dir.go
++++ b/vfs/dir.go
+@@ -391,8 +391,6 @@ func (d *Dir) renameTree(dirPath string) {
+ // Reset the directory to new state, discarding all the objects and
+ // reading everything again
+ func (d *Dir) rename(newParent *Dir, fsDir fs.Directory) {
+-	d.ForgetAll()
+-
+ 	d.modTimeMu.Lock()
+ 	d.modTime = fsDir.ModTime(d.vfs.ctx)
+ 	d.modTimeMu.Unlock()
+@@ -409,6 +407,9 @@ func (d *Dir) rename(newParent *Dir, fsDir fs.Directory) {
+ 
+ 	// Rename any remaining items in the tree that we couldn't forget
+ 	d.renameTree(d.path)
++	// Update every known inode before dropping directory entries: the kernel
++	// can still hold a clean child's inode after this rename.
++	d.ForgetAll()
+ 
+ 	// Rename in the cache
+ 	if d.vfs.cache != nil && d.vfs.cache.DirExists(oldPath) {
+@@ -908,8 +909,8 @@ func (d *Dir) stat(leaf string) (Node, error) {
+ 		d.mu.Unlock()
+ 	}
+ 
+-	if !ok {
+-		return nil, ENOENT
++	if !ok || (strings.Contains(d.path, "._abase/") && strings.HasSuffix(d.path, "/.export")) {
++		return d.ankoleStat(leaf)
+ 	}
+ 	return item, nil
+ }
+@@ -940,7 +941,7 @@ func (d *Dir) Size() int64 {
+ 
+ // SetModTime sets the modTime for this dir
+ func (d *Dir) SetModTime(modTime time.Time) error {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	d.modTimeMu.Lock()
+@@ -1045,6 +1046,9 @@ func (d *Dir) checkName(name string) error {
+ //
+ // It returns EINVAL if name isn't a single safe path element.
+ func (d *Dir) Create(name string, flags int) (*File, error) {
++	if d.vfs.AnkoleReadOnly(path.Join(d.path, name)) {
++		return nil, EROFS
++	}
+ 	// fs.Debugf(path, "Dir.Create")
+ 	if err := d.checkName(name); err != nil {
+ 		return nil, err
+@@ -1066,7 +1070,7 @@ func (d *Dir) Create(name string, flags int) (*File, error) {
+ 		return nil, err
+ 	}
+ 	// node doesn't exist so create it
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return nil, EROFS
+ 	}
+ 	if err = d.SetModTime(time.Now()); err != nil {
+@@ -1081,7 +1085,10 @@ func (d *Dir) Create(name string, flags int) (*File, error) {
+ //
+ // It returns EINVAL if name isn't a single safe path element.
+ func (d *Dir) Mkdir(name string) (*Dir, error) {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.AnkoleReadOnly(path.Join(d.path, name)) {
++		return nil, EROFS
++	}
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return nil, EROFS
+ 	}
+ 	if err := d.checkName(name); err != nil {
+@@ -1122,7 +1129,7 @@ func (d *Dir) Mkdir(name string) (*Dir, error) {
+ 
+ // Remove the directory
+ func (d *Dir) Remove() error {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	// Check directory is empty first
+@@ -1150,7 +1157,7 @@ func (d *Dir) Remove() error {
+ 
+ // RemoveAll removes the directory and any contents recursively
+ func (d *Dir) RemoveAll() error {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	// Remove contents of the directory
+@@ -1178,7 +1185,10 @@ func (d *Dir) DirEntry() (entry fs.DirEntry) {
+ // which must be a directory.  The entry to be removed may correspond
+ // to a file (unlink) or to a directory (rmdir).
+ func (d *Dir) RemoveName(name string) error {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.AnkoleReadOnly(path.Join(d.path, name)) {
++		return EROFS
++	}
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	// fs.Debugf(path, "Dir.Remove")
+@@ -1198,8 +1208,11 @@ func (d *Dir) RemoveName(name string) error {
+ //
+ // It returns EINVAL if newName isn't a single safe path element.
+ func (d *Dir) Rename(oldName, newName string, destDir *Dir) error {
++	if d.vfs.AnkoleReadOnly(path.Join(d.path, oldName)) || d.vfs.AnkoleReadOnly(path.Join(destDir.path, newName)) {
++		return EROFS
++	}
+ 	// fs.Debugf(d, "BEFORE\n%s", d.dump())
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	if err := destDir.checkName(newName); err != nil {
+diff --git a/vfs/file.go b/vfs/file.go
+index 11d63d8..ee7d5e2 100644
+--- a/vfs/file.go
++++ b/vfs/file.go
+@@ -17,6 +17,7 @@ import (
+ 	"github.com/rclone/rclone/fs"
+ 	"github.com/rclone/rclone/fs/log"
+ 	"github.com/rclone/rclone/fs/operations"
++	"github.com/rclone/rclone/internal/ankole"
+ 	"github.com/rclone/rclone/vfs/vfscommon"
+ )
+ 
+@@ -196,9 +197,12 @@ func (f *File) Node() Node {
+ 
+ // renameDir - call when parent directory has been renamed
+ func (f *File) renameDir(dPath string) {
+-	f.mu.RLock()
++	f.mu.Lock()
+ 	f.dPath = dPath
+-	f.mu.RUnlock()
++	if remote, ok := f.o.(interface{ AnkoleAtPath(string) fs.Object }); ok {
++		f.o = remote.AnkoleAtPath(f._cachePath())
++	}
++	f.mu.Unlock()
+ }
+ 
+ // applyPendingRename runs a previously set rename operation if there are no
+@@ -225,6 +229,7 @@ func (f *File) rename(ctx context.Context, destDir *Dir, newName string) error {
+ 	d := f.d
+ 	oldPendingRenameFun := f.pendingRenameFun
+ 	oldPath := f._cachePath()
++	oldLeaf, oldDirPath := f.leaf, f.dPath
+ 	newCacheName := f._fixCachePath(newName)
+ 	f.mu.RUnlock()
+ 
+@@ -259,8 +264,19 @@ func (f *File) rename(ctx context.Context, destDir *Dir, newName string) error {
+ 
+ 			// do the move of the remote object
+ 			dstOverwritten, _ := d.Fs().NewObject(ctx, newPath)
+-			newObject, err = operations.Move(ctx, d.Fs(), dstOverwritten, newPath, o)
++			if remote, ok := d.Fs().(interface {
++				AnkoleMove(context.Context, fs.Object, string) (fs.Object, error)
++			}); ok {
++				newObject, err = remote.AnkoleMove(ctx, o, newPath)
++			} else {
++				newObject, err = operations.Move(ctx, d.Fs(), dstOverwritten, newPath, o)
++			}
+ 			if err != nil {
++				if ankole.Terminal(err) && d.vfs.cache != nil && d.vfs.cache.AnkoleState() != nil && d.vfs.cache.Exists(oldPath) {
++					if recoveryErr := d.vfs.cache.AnkoleRenameFailed(ctx, oldPath, newPath, err); recoveryErr != nil {
++						fs.Errorf(oldPath, "preserve rejected rename: %v", recoveryErr)
++					}
++				}
+ 				fs.Errorf(f.Path(), "File.Rename error: %v", err)
+ 				return err
+ 			}
+@@ -313,7 +329,13 @@ func (f *File) rename(ctx context.Context, destDir *Dir, newName string) error {
+ 		return nil
+ 	}
+ 
+-	return renameCall(ctx)
++	err := renameCall(ctx)
++	if err != nil {
++		f.mu.Lock()
++		f.d, f.dPath, f.leaf = d, oldDirPath, oldLeaf
++		f.mu.Unlock()
++	}
++	return err
+ }
+ 
+ // addWriter adds a write handle to the file
+@@ -451,7 +473,7 @@ func (f *File) SetModTime(modTime time.Time) error {
+ 	if f.d.vfs.Opt.NoModTime {
+ 		return nil
+ 	}
+-	if f.d.vfs.Opt.ReadOnly {
++	if f.d.vfs.Opt.ReadOnly || f.d.vfs.AnkoleReadOnly(f._cachePath()) {
+ 		return EROFS
+ 	}
+ 
+@@ -827,6 +849,9 @@ const o_SYMLINK = 0x4000_0000 //nolint:revive
+ //
+ // We ignore O_SYNC and O_EXCL
+ func (f *File) Open(flags int) (fd Handle, err error) {
++	if f.VFS().AnkoleReadOnly(f.Path()) && flags&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
++		return nil, EROFS
++	}
+ 	defer log.Trace(f.Path(), "flags=%s", decodeOpenFlags(flags))("fd=%v, err=%v", &fd, &err)
+ 	var (
+ 		write    bool // if set need write support
+@@ -865,6 +890,15 @@ func (f *File) Open(flags int) (fd Handle, err error) {
+ 		return nil, EPERM
+ 	}
+ 
++	if read {
++		f.mu.RLock()
++		object := f.o
++		f.mu.RUnlock()
++		if object, ok := object.(interface{ AnkoleReadOpened() }); ok {
++			object.AnkoleReadOpened()
++		}
++	}
++
+ 	// If append is set then set read to force openRW
+ 	if flags&os.O_APPEND != 0 {
+ 		read = true
+@@ -925,6 +959,9 @@ func (f *File) Open(flags int) (fd Handle, err error) {
+ 
+ // Truncate changes the size of the named file.
+ func (f *File) Truncate(size int64) (err error) {
++	if f.VFS().AnkoleReadOnly(f.Path()) {
++		return EROFS
++	}
+ 	// make a copy of fh.writers with the lock held then unlock so
+ 	// we can call other file methods.
+ 	f.mu.Lock()
+diff --git a/vfs/vfs.go b/vfs/vfs.go
+index 6c0cb7d..ff10e6e 100644
+--- a/vfs/vfs.go
++++ b/vfs/vfs.go
+@@ -178,19 +178,21 @@ var (
+ 
+ // VFS represents the top level filing system
+ type VFS struct {
+-	f           fs.Fs
+-	ctx         context.Context
+-	root        *Dir
+-	Opt         vfscommon.Options
+-	cache       *vfscache.Cache
+-	cancel      context.CancelFunc
+-	cancelCache context.CancelFunc
+-	usageMu     sync.Mutex
+-	usageTime   time.Time
+-	usage       *fs.Usage
+-	pollMu      sync.Mutex
+-	pollChan    chan time.Duration
+-	inUse       atomic.Int32 // count of number of opens
++	ankoleNotify   func([]string)
++	ankoleNegative sync.Map
++	f              fs.Fs
++	ctx            context.Context
++	root           *Dir
++	Opt            vfscommon.Options
++	cache          *vfscache.Cache
++	cancel         context.CancelFunc
++	cancelCache    context.CancelFunc
++	usageMu        sync.Mutex
++	usageTime      time.Time
++	usage          *fs.Usage
++	pollMu         sync.Mutex
++	pollChan       chan time.Duration
++	inUse          atomic.Int32 // count of number of opens
+ }
+ 
+ // Keep track of active VFS keyed on fs.ConfigString(f)
+@@ -283,6 +285,7 @@ func New(ctx context.Context, f fs.Fs, opt *vfscommon.Options) *VFS {
+ 
+ 	// This can take some time so do it after the Pin
+ 	vfs.SetCacheMode(vfs.Opt.CacheMode)
++	vfs.ankoleAttach()
+ 
+ 	return vfs
+ }
+@@ -603,6 +606,9 @@ func decodeOpenFlags(flags int) string {
+ 
+ // OpenFile a file according to the flags and perm provided
+ func (vfs *VFS) OpenFile(name string, flags int, perm os.FileMode) (fd Handle, err error) {
++	if vfs.AnkoleReadOnly(name) && flags&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
++		return nil, EROFS
++	}
+ 	defer log.Trace(name, "flags=%s, perm=%v", decodeOpenFlags(flags), perm)("fd=%v, err=%v", &fd, &err)
+ 
+ 	// http://pubs.opengroup.org/onlinepubs/7908799/xsh/open.html
+@@ -985,6 +991,9 @@ func (vfs *VFS) CreateSymlink(oldname, newname string) (Node, error) {
+ 		fs.Errorf(newname, "symlinks not supported without the --links flag")
+ 		return nil, ENOSYS
+ 	}
++	if vfs.ankoleVirtualPath(newname) {
++		return nil, EPERM
++	}
+ 
+ 	// Destination can't exist
+ 	_, err := vfs.Stat(newname)
+diff --git a/vfs/vfscache/cache.go b/vfs/vfscache/cache.go
+index ca79f22..91d6286 100644
+--- a/vfs/vfscache/cache.go
++++ b/vfs/vfscache/cache.go
+@@ -78,6 +78,8 @@ type AddVirtualFn func(remote string, size int64, isDir bool) error
+ // This starts background goroutines which can be cancelled with the
+ // context passed in.
+ func New(ctx context.Context, fremote fs.Fs, opt *vfscommon.Options, avFn AddVirtualFn) (*Cache, error) {
++	unlock := ankoleCacheOpening(fremote)
++	defer unlock()
+ 	// Get cache root path.
+ 	// We need it in two variants: OS path as an absolute path with UNC prefix,
+ 	// OS-specific path separators, and encoded with OS-specific encoder. Standard path
+@@ -132,6 +134,7 @@ func New(ctx context.Context, fremote fs.Fs, opt *vfscommon.Options, avFn AddVir
+ 		avFn:       avFn,
+ 	}
+ 
++	c.AnkoleRegister()
+ 	// load in the cache and metadata off disk
+ 	err = c.reload(ctx)
+ 	if err != nil {
+diff --git a/vfs/vfscache/item.go b/vfs/vfscache/item.go
+index f25f907..e1d8b3b 100644
+--- a/vfs/vfscache/item.go
++++ b/vfs/vfscache/item.go
+@@ -8,11 +8,13 @@ import (
+ 	"io"
+ 	"os"
+ 	"sync"
++	"syscall"
+ 	"time"
+ 
+ 	"github.com/rclone/rclone/fs"
+ 	"github.com/rclone/rclone/fs/fserrors"
+ 	"github.com/rclone/rclone/fs/operations"
++	"github.com/rclone/rclone/internal/ankole"
+ 	"github.com/rclone/rclone/lib/file"
+ 	"github.com/rclone/rclone/lib/ranges"
+ 	"github.com/rclone/rclone/vfs/vfscache/downloaders"
+@@ -55,6 +57,8 @@ import (
+ //
+ // The Info field is written to the backing store to store status
+ type Item struct {
++	ankoleDelivered bool
++	ankolePending   fs.Object
+ 	// read only
+ 	c               *Cache                   // cache this is part of
+ 	mu              sync.Mutex               // protect the variables
+@@ -75,6 +79,7 @@ type Item struct {
+ 
+ // Info is persisted to backing store
+ type Info struct {
++	Ankole      *ankole.Write `json:",omitempty"`
+ 	ModTime     time.Time     // last time file was modified
+ 	ATime       time.Time     // last time file was accessed
+ 	Size        int64         // size of the file
+@@ -204,6 +209,9 @@ func (item *Item) load() (exists bool, err error) {
+ 	if err != nil {
+ 		return true, fmt.Errorf("vfs cache item: corrupt metadata: %w", err)
+ 	}
++	if state := item.c.AnkoleState(); state != nil {
++		state.Restore(item.info.Ankole)
++	}
+ 	return true, nil
+ }
+ 
+@@ -343,6 +351,11 @@ func (item *Item) Truncate(size int64) (err error) {
+ 		oldSize = 0
+ 	}
+ 
++	if size != oldSize || item.o == nil {
++		if err := item.ankoleBegin(size); err != nil {
++			return err
++		}
++	}
+ 	err = item._truncate(size)
+ 	if err != nil {
+ 		return err
+@@ -501,6 +514,11 @@ func (item *Item) _createFile(osPath string) (err error) {
+ // Open the local file from the object passed in.  Wraps open()
+ // to provide recovery from out of space error.
+ func (item *Item) Open(o fs.Object) (err error) {
++	if state := item.c.AnkoleState(); state != nil {
++		if err := state.WaitSink(item.c.ctx, item.name); err != nil {
++			return err
++		}
++	}
+ 	for range fs.GetConfig(item.c.ctx).LowLevelRetries {
+ 		item.preAccess()
+ 		err = item.open(o)
+@@ -540,13 +558,22 @@ func (item *Item) open(o fs.Object) (err error) {
+ 	if err != nil {
+ 		return fmt.Errorf("vfs cache item: createItemDir failed: %w", err)
+ 	}
++	if err := item.ankoleReopen(o); err != nil {
++		return err
++	}
+ 
++	if item.ankolePending != nil && item.opens > 0 {
++		o = item.o
++	}
+ 	err = item._checkObject(o)
+ 	if err != nil {
+ 		return fmt.Errorf("vfs cache item: check object failed: %w", err)
+ 	}
+ 
+ 	item.opens++
++	if item.opens == 1 {
++		item.ankoleDelivered = false
++	}
+ 	if item.opens != 1 {
+ 		return nil
+ 	}
+@@ -640,6 +667,9 @@ func unlockMutexForCall(mu *sync.Mutex, f func()) {
+ //
+ // Call with lock held
+ func (item *Item) _store(ctx context.Context, storeFn StoreFn) (err error) {
++	if handled, err := item.ankoleStore(ctx, storeFn); handled {
++		return err
++	}
+ 	// defer log.Trace(item.name, "item=%p", item)("err=%v", &err)
+ 
+ 	// Transfer the temp file to the remote
+@@ -713,6 +743,17 @@ func (item *Item) Close(storeFn StoreFn) (err error) {
+ 		return nil
+ 	}
+ 
++	if item.ankolePending != nil && !item.info.Dirty {
++		if err := item.ankoleApplyPending(); err != nil {
++			return err
++		}
++		if storeFn != nil {
++			o := item.o
++			item.mu.Unlock()
++			storeFn(o)
++			item.mu.Lock()
++		}
++	}
+ 	// opens == 0: check for grace period (only for non-dirty files,
+ 	// dirty files need immediate close so writeback can proceed)
+ 	gracePeriod := time.Duration(item.c.opt.HandleCaching)
+@@ -827,6 +868,10 @@ func (item *Item) _actualClose(storeFn StoreFn, syncWriteBack bool) (err error)
+ 		}
+ 	}
+ 
++	if state := item.c.AnkoleState(); state != nil {
++		state.Closed(item.info.Ankole)
++	}
++
+ 	// upload the file to backing store if changed
+ 	if item.info.Dirty {
+ 		fs.Infof(item.name, "vfs cache: queuing for upload in %v", item.c.opt.WriteBack)
+@@ -986,6 +1031,9 @@ func (item *Item) _removeMeta(reason string) {
+ //
+ // call with lock held
+ func (item *Item) _remove(reason string) (wasWriting bool) {
++	if state := item.c.AnkoleState(); state != nil {
++		state.Cancel(item.info.Ankole)
++	}
+ 	// Cancel writeback, if any
+ 	item.mu.Unlock()
+ 	wasWriting = item.c.writeback.Remove(item.writeBackID)
+@@ -1408,6 +1456,9 @@ func (item *Item) readAt(b []byte, off int64) (n int, err error) {
+ 	defer item.mu.Unlock()
+ 
+ 	err = item._ensure(off, int64(len(b)))
++	if item.ankoleRefreshFirstRead(off, err) {
++		err = item._ensure(off, int64(len(b)))
++	}
+ 	if err != nil {
+ 		return 0, err
+ 	}
+@@ -1424,6 +1475,10 @@ func (item *Item) readAt(b []byte, off int64) (n int, err error) {
+ 	item.info.ATime = time.Now()
+ 	// Do the reading with Item.mu unlocked and cache protected by preAccess
+ 	n, err = item.fd.ReadAt(b, off)
++	if n > 0 {
++		item.ankoleDelivered = true
++		item.ankoleReadBaseline()
++	}
+ 	return n, err
+ }
+ 
+@@ -1436,13 +1491,22 @@ func (item *Item) WriteAt(b []byte, off int64) (n int, err error) {
+ 		item.mu.Unlock()
+ 		return 0, errors.New("vfs cache item WriteAt: internal error: didn't Open file")
+ 	}
+-	item.mu.Unlock()
+-	// Do the writing with Item.mu unlocked
+-	n, err = item.fd.WriteAt(b, off)
++	if item.c.AnkoleState() != nil {
++		if len(b) > 0 {
++			if err := item.ankoleBegin(max(item.info.Size, off+int64(len(b)))); err != nil {
++				item.mu.Unlock()
++				return 0, err
++			}
++		}
++		// Publish the write sequence and its bytes together, before an upload
++		// can capture that sequence. Network transfers still release item.mu.
++		n, err = item.fd.WriteAt(b, off)
++	} else {
++		unlockMutexForCall(&item.mu, func() { n, err = item.fd.WriteAt(b, off) })
++	}
+ 	if err == nil && n != len(b) {
+ 		err = fmt.Errorf("short write: tried to write %d but only %d written", len(b), n)
+ 	}
+-	item.mu.Lock()
+ 	item._written(off, int64(n))
+ 	if n > 0 {
+ 		item._dirty()
+@@ -1525,6 +1589,9 @@ func (item *Item) Sync() (err error) {
+ 	defer item.postAccess()
+ 	item.mu.Lock()
+ 	defer item.mu.Unlock()
++	if item.info.Ankole != nil && item.c.AnkoleState().Snapshot(item.info.Ankole).Failure != "" {
++		return syscall.ESTALE
++	}
+ 	if item.fd == nil {
+ 		return errors.New("vfs cache item sync: internal error: didn't Open file")
+ 	}
+@@ -1553,10 +1620,28 @@ func (item *Item) rename(name string, newName string, newObj fs.Object) (err err
+ 	// id for writeback cancel
+ 	id := item.writeBackID
+ 
++	// A directory rename changes each child's path, not its object or baseline.
++	if newObj == nil {
++		if remote, ok := item.o.(interface{ AnkoleAtPath(string) fs.Object }); ok {
++			newObj = remote.AnkoleAtPath(newName)
++		}
++	}
+ 	// Set internal state
+ 	item.name = newName
+-	item.o = newObj
+-	item._updateFingerprint()
++	if state := item.c.AnkoleState(); state != nil {
++		state.Rename(item.info.Ankole, newName)
++	}
++	refresh := false
++	if remote, ok := newObj.(interface{ AnkoleRefreshBody() bool }); ok {
++		refresh = remote.AnkoleRefreshBody()
++	}
++	if refresh {
++		item.c.AnkoleState().ForgetRead(newName)
++		item.ankolePending = newObj
++	} else {
++		item.o = newObj
++		item._updateFingerprint()
++	}
+ 
+ 	// Rename cache file if it exists
+ 	err = rename(item.c.toOSPath(name), item.c.toOSPath(newName)) // No locking in Cache
+@@ -1574,5 +1659,12 @@ func (item *Item) rename(name string, newName string, newObj fs.Object) (err err
+ 		_ = downloaders.Close(nil)
+ 	}
+ 	item.c.writeback.Rename(id, newName)
++	if refresh && err == nil {
++		item.mu.Lock()
++		if item.opens == 0 && !item.info.Dirty {
++			err = item.ankoleApplyPending()
++		}
++		item.mu.Unlock()
++	}
+ 	return err
+ }
+diff --git a/vfs/vfscache/writeback/writeback.go b/vfs/vfscache/writeback/writeback.go
+index 3e35751..3f3d9e4 100644
+--- a/vfs/vfscache/writeback/writeback.go
++++ b/vfs/vfscache/writeback/writeback.go
+@@ -27,6 +27,7 @@ type Handle uint64
+ 
+ // WriteBack keeps track of the items which need to be written back to the disk at some point
+ type WriteBack struct {
++	ankole bool
+ 	// read and written with atomic, must be 64-bit aligned
+ 	id Handle // id of the last writeBackItem created
+ 
+@@ -62,6 +63,7 @@ func New(ctx context.Context, opt *vfscommon.Options) *WriteBack {
+ //
+ // writeBack.mu must be held to manipulate this
+ type writeBackItem struct {
++	priority  bool
+ 	name      string             // name of the item so we don't have to read it from item
+ 	size      int64              // size of the item so we don't have to read it from item
+ 	id        Handle             // id of the item
+@@ -438,7 +440,11 @@ func (wb *WriteBack) processItems(ctx context.Context) {
+ 	for wbItem := wb._peekItem(); wbItem != nil; wbItem = wb._peekItem() {
+ 		// If reached transfer limit stop the timer - it will be
+ 		// restarted when an upload finishes
+-		if wb.uploads >= fs.GetConfig(wb.ctx).Transfers {
++		limit := fs.GetConfig(wb.ctx).Transfers
++		if wb.ankole && !wbItem.priority {
++			limit = max(1, limit-1)
++		}
++		if wb.uploads >= limit {
+ 			fs.Debugf(wbItem.name, "vfs cache: delaying writeback as --transfers exceeded")
+ 			resetTimer = false
+ 			break
+diff --git a/vfs/read_write.go b/vfs/read_write.go
+--- a/vfs/read_write.go
++++ b/vfs/read_write.go
+@@ -262,11 +262,11 @@
+ 	if fh.writeOnly() {
+ 		return n, EBADF
+ 	}
++	if err = fh.openPending(); err != nil {
++		return n, err
++	}
+ 	if off >= fh._size() {
+ 		return n, io.EOF
+-	}
+-	if err = fh.openPending(); err != nil {
+-		return n, err
+ 	}
+ 	if release {
+ 		// Do the writing with fh.mu unlocked

@@ -20,6 +20,7 @@ defmodule Ankole.Pod.Documents.History.Browser do
     id: [type: UUIDv7, allow_nil?: false],
     revision: [type: :integer, allow_nil?: false],
     title: [type: :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true]],
+    metadata: [type: Ankole.Ash.Types.JSONMap, allow_nil?: false],
     icon: [type: :string, constraints: [trim?: false, allow_empty?: true]],
     created_at: [type: :utc_datetime_usec, allow_nil?: false],
     document_updated_at: [type: :utc_datetime_usec, allow_nil?: false],

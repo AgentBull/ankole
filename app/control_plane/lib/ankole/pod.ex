@@ -13,7 +13,87 @@ defmodule Ankole.Pod do
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
-  defdelegate principal(uid), to: Ankole.Files.Access
+  alias Ankole.Pod.Files.Content, as: NodeContents
+  alias Ankole.Pod.Pages.Tree, as: Nodes
+
+  defdelegate applet_action_package(page_id, contexts \\ [], timeout_ms \\ nil),
+    to: Ankole.Pod.Applets,
+    as: :action_package
+
+  defdelegate authorize_applet(actor, page_id, permission), to: Ankole.Pod.Applets, as: :authorize
+
+  defdelegate verify_applet_package_in_tx(package),
+    to: Ankole.Pod.Applets,
+    as: :verify_package_in_tx
+
+  defdelegate invoke_applet_action(package, context, actor),
+    to: Ankole.Pod.Applets,
+    as: :invoke_action
+
+  defdelegate transfer_applet_owner(actor, page_id, owner_uid),
+    to: Ankole.Pod.Applets,
+    as: :transfer_owner
+
+  defdelegate release_applet_owners_for_tenant_deletion(), to: Ankole.Pod.Pages.Lifecycle
+
+  defdelegate call_applet_function(actor, page_id, request, parent),
+    to: Ankole.Pod.Applets,
+    as: :call_function
+
+  defdelegate node_committed(node), to: Nodes, as: :content_committed
+  defdelegate fetch_node(id), to: Nodes, as: :fetch
+  defdelegate lock_tree_in_tx(), to: Nodes, as: :lock_tree
+  defdelegate lock_root_ids_in_tx(ids), to: Nodes, as: :lock_roots
+  defdelegate root_ids_for_principal(uid), to: Nodes
+  defdelegate root_ids_for_conversations(ids), to: Nodes
+  defdelegate purge_root_jobs_in_tx(root_ids), to: Ankole.Pod.Pages.Lifecycle
+  defdelegate delete_private_root_in_tx(uid), to: Nodes
+  defdelegate delete_conversation_root_in_tx(id), to: Nodes
+  defdelegate root(id), to: Nodes
+  defdelegate root_ids(ids), to: Nodes
+  defdelegate private_root(uid), to: Nodes
+  defdelegate public_root(), to: Nodes
+  defdelegate conversation_root(id), to: Nodes
+  defdelegate ensure_private_root_in_tx(uid), to: Nodes
+  defdelegate ensure_public_root_in_tx(), to: Nodes
+  defdelegate ensure_conversation_root_in_tx(id), to: Nodes
+  defdelegate visible_node_ids(reachable, ids \\ nil, bit \\ 1), to: Nodes, as: :visible_ids
+  defdelegate ancestor_node_ids(ids), to: Nodes, as: :ancestor_ids
+  defdelegate descendant_node_ids(id), to: Nodes, as: :descendants
+  defdelegate shared_root_node_ids(ids, reachable), to: Nodes, as: :shared_root_ids
+  defdelegate acl_anchor_nodes(), to: Nodes, as: :anchor_nodes
+  defdelegate hidden_trashed_node_ids(), to: Nodes, as: :hidden_trashed_ids
+  defdelegate authorize_node(actor, id, action), to: Nodes, as: :authorize
+  defdelegate node_conversation_id(id), to: Nodes, as: :conversation_id
+  defdelegate create_node(actor, attrs), to: Nodes, as: :create
+  defdelegate move_node(actor, id, attrs), to: Nodes, as: :move
+  def rename_node_in_tx(actor, id, name), do: Nodes.move_in_tx(actor, id, %{name: name})
+  defdelegate write_node(actor, id, content), to: NodeContents, as: :write
+
+  defdelegate authorize_node_write(actor, node), to: NodeContents, as: :authorize_write
+
+  @doc """
+  Writes a spreadsheet page's pending edits into its file before a reader takes
+  the bytes. Runs outside a transaction; other nodes return `:ok` at once.
+  """
+  defdelegate flush_node(id), to: Ankole.Pod.Spreadsheets, as: :flush_if_dirty
+
+  defdelegate commit_node_object_in_tx(actor, id, object, attrs \\ %{}),
+    to: NodeContents,
+    as: :commit_in_tx
+
+  defdelegate create_conversation_file_in_tx(conversation_id, name, object, attrs \\ %{}),
+    to: NodeContents
+
+  defdelegate create_private_file_in_tx(agent_uid, name, object, attrs \\ %{}),
+    to: NodeContents
+
+  defdelegate vfs_properties(ids), to: Ankole.Pod.Pages
+  defdelegate vfs_property_in_tx(node, property), to: Ankole.Pod.Pages
+  defdelegate vfs_markdown(node), to: Ankole.Pod.Documents
+  defdelegate write_vfs_markdown_in_tx(actor, id, markdown), to: Ankole.Pod.Documents
+
+  defdelegate principal(uid), to: Ankole.Pod.Access
 
   defdelegate rename_principal_mentions_in_tx(old_uid, new_uid),
     to: Ankole.Pod.Documents.PrincipalMentions,
@@ -31,14 +111,22 @@ defmodule Ankole.Pod do
     as: :publish_principal_rename
 
   resources do
+    resource(Ankole.AutomationJobs.Browser)
+    resource(Ankole.Signals.EventBindingsBrowser)
     resource(Ankole.Principals.PodAdminOperations)
+    resource(Ankole.AIAgent.Library.Browser)
+    resource(Ankole.Principals.MetaBrowser)
+    resource(Ankole.Brain.Browser)
     resource(Ankole.Pod.Pages.Browser)
     resource(Ankole.Pod.Bases.Browser)
     resource(Ankole.Pod.Files.Browser)
     resource(Ankole.Pod.Spreadsheets.Browser)
     resource(Ankole.Pod.Chat.Browser)
-    resource(Ankole.Pod.Page)
-    resource(Ankole.Pod.Properties)
+
+    resource Ankole.Pod.Page do
+      define(:list_page_records, action: :read)
+    end
+
     resource(Ankole.Pod.PodFile)
     resource(Ankole.Pod.PageContent)
     resource(Ankole.Pod.PageChange)
@@ -52,6 +140,7 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.FileCache)
 
     resource(Ankole.Pod.BaseTable)
+    resource(Ankole.Pod.Bases.ChangeOutbox)
     resource(Ankole.Pod.BaseField)
     resource(Ankole.Pod.BaseView)
   end
@@ -62,6 +151,106 @@ defmodule Ankole.Pod do
     show_raised_errors?(false)
 
     routes do
+      base_route "/pages/:page_id", Ankole.AutomationJobs.Browser do
+        route(:get, "/jobs", :list, name: "podAppletJobs", wrap_in_result?: false)
+        route(:post, "/jobs", :create, name: "podAppletJobCreate", wrap_in_result?: false)
+
+        route(:patch, "/jobs/:id", :configure,
+          name: "podAppletJobConfigure",
+          wrap_in_result?: false
+        )
+
+        route(:delete, "/jobs/:id", :delete, name: "podAppletJobDelete", wrap_in_result?: false)
+        route(:get, "/runs/:id", :run, name: "podAppletRun", wrap_in_result?: false)
+      end
+
+      base_route "/pages/:page_id", Ankole.Pod.Pages.Browser do
+        route(:put, "/applet-owner", :transfer_owner,
+          name: "podAppletOwner",
+          wrap_in_result?: false
+        )
+      end
+
+      base_route "/signal-bindings", Ankole.Signals.EventBindingsBrowser do
+        route(:get, "/", :list, name: "podEventBindings", wrap_in_result?: false)
+        route(:put, "/", :put, name: "podEventBindingPut", wrap_in_result?: false)
+      end
+
+      base_route "/meta/agents", Ankole.Principals.MetaBrowser do
+        route(:get, "/", :list, name: "metaAgents", wrap_in_result?: false)
+        route(:post, "/", :create, name: "metaCreateAgent", wrap_in_result?: false)
+        route(:get, "/:uid", :show, name: "metaAgent", wrap_in_result?: false)
+        route(:patch, "/:uid", :update, name: "metaUpdateAgent", wrap_in_result?: false)
+      end
+
+      base_route "/meta/brain", Ankole.Brain.Browser do
+        route(:get, "/", :graph, name: "metaBrain", wrap_in_result?: false)
+      end
+
+      base_route "/meta", Ankole.AIAgent.Library.Browser do
+        route(:get, "/skills", :list, name: "metaSkills", wrap_in_result?: false)
+        route(:post, "/skills", :create, name: "metaCreateSkill", wrap_in_result?: false)
+        route(:post, "/skills/import", :import, name: "metaImportSkill", wrap_in_result?: false)
+        route(:get, "/skills/:slug", :detail, name: "metaSkill", wrap_in_result?: false)
+        route(:put, "/skills/:slug", :save, name: "metaSaveSkill", wrap_in_result?: false)
+
+        route(:delete, "/skills/:slug", :delete,
+          name: "metaDeleteSkill",
+          query_params: [:base_revision],
+          wrap_in_result?: false
+        )
+
+        route(:put, "/skills/:slug/all", :set_all,
+          name: "metaSkillSetAll",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/skills/:slug/bindings", :set_binding,
+          name: "metaSkillSetBinding",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/skills/:slug/file", :read_file,
+          name: "metaSkillFile",
+          query_params: [:path],
+          wrap_in_result?: false
+        )
+
+        route(:put, "/skills/:slug/file", :put_file,
+          name: "metaSkillPutFile",
+          wrap_in_result?: false
+        )
+
+        route(:patch, "/skills/:slug/file", :change_file,
+          name: "metaSkillChangeFile",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/agents/:uid/contracts", :contracts,
+          name: "metaAgentContracts",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/agents/:uid/contracts/:slot", :save_contract,
+          name: "metaSaveAgentContract",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/contracts", :global_contracts,
+          name: "metaGlobalContracts",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/contracts/:slot", :save_global_contract,
+          name: "metaSaveGlobalContract",
+          wrap_in_result?: false
+        )
+      end
+
+      base_route "/comments", Ankole.Pod.Comments.Browser do
+        route(:get, "/attention", :attention, name: "podCommentAttention")
+      end
+
       base_route "/pages/:id/comments", Ankole.Pod.Comments.Browser do
         route(:get, "/", :list, name: "podPageComments", query_params: [:status, :cursor, :limit])
         route(:get, "/summary", :summary, name: "podPageCommentSummary")
@@ -131,12 +320,23 @@ defmodule Ankole.Pod do
 
         route(:get, "/teammates", :teammates, name: "podChatTeammates", query_params: [:query])
 
+        route(:get, "/conversations/attention", :attention, name: "podConversationAttention")
+
         route(:get, "/conversations", :list,
           name: "podConversations",
           query_params: [:pageID, :query, :cursor, :limit, :order]
         )
 
         route(:post, "/conversations", :create, name: "createConversation")
+
+        route(:get, "/conversations/:id/peer-exchanges/:exchange_id", :peer_exchange,
+          name: "podPeerExchange",
+          query_params: [:cursor]
+        )
+
+        route(:post, "/conversations/:id/peer-exchanges/:exchange_id/stop", :stop_peer_exchange,
+          name: "stopPodPeerExchange"
+        )
 
         route(:get, "/conversations/:id", :show,
           name: "conversationDetail",
@@ -220,6 +420,7 @@ defmodule Ankole.Pod do
         route(:delete, "/tables/:id", :delete_table, name: "podBaseTableDelete")
         route(:get, "/tables/:id", :show, name: "podBaseSchema")
         route(:patch, "/tables/:id", :rename_table, name: "podBaseTableRename")
+        route(:put, "/tables/:id/settings", :configure_table, name: "podBaseTableConfigure")
         route(:post, "/tables/:id/query", :query, name: "podBaseQuery")
         route(:post, "/tables/:id/aggregate", :aggregate, name: "podBaseAggregate")
         route(:post, "/tables/:id/records", :write, name: "podBaseWrite")
@@ -303,6 +504,13 @@ defmodule Ankole.Pod do
         route :post, "/pages/:id/embeds/delete", :delete_embeds do
           name("podEmbedsDelete")
         end
+
+        route(:get, "/pages/:id/knowledge", :knowledge_panel, name: "podKnowledgePanel")
+
+        route(:get, "/pages/:id/knowledge/export", :knowledge_export,
+          name: "podKnowledgeExport",
+          query_params: [:snapshot_id]
+        )
 
         route :put, "/pages/:id/content", :write do
           name("podDocumentWrite")

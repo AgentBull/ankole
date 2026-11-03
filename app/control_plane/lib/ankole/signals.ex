@@ -6,6 +6,10 @@ defmodule Ankole.Signals do
   domains. A generic action owns its transaction; the `*_in_tx` functions are
   steps that the generic action of another domain calls in its own transaction.
   """
+  defdelegate put_event_binding(actor, attrs), to: Ankole.Signals.EventBindings, as: :put
+  defdelegate list_event_bindings(actor, ref), to: Ankole.Signals.EventBindings, as: :list
+  defdelegate root_signal_id(id), to: Ankole.Signals.Dispatch
+
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
@@ -73,6 +77,8 @@ defmodule Ankole.Signals do
   end
 
   resources do
+    resource(Ankole.Signals.EventBindingsBrowser)
+    resource(Ankole.Signals.BindingReceipt)
     resource(Ankole.Signals.ConsoleOperations)
 
     resource Ankole.Signals.Signal do
@@ -99,6 +105,31 @@ defmodule Ankole.Signals do
     resource(Ankole.Signals.WebhookEndpoint)
   end
 
+  defdelegate emit(reference, signal, opts \\ []), to: Ankole.Signals.Dispatch
+
+  defdelegate prepare_dispatch(reference, signal, opts \\ []),
+    to: Ankole.Signals.Dispatch,
+    as: :prepare
+
+  defdelegate lock_dispatch_in_tx(plan, works \\ []), to: Ankole.Signals.Dispatch, as: :lock_in_tx
+  defdelegate deliver_dispatch_in_tx(plan), to: Ankole.Signals.Dispatch, as: :deliver_in_tx
+  defdelegate delivery_receipts(signal_id), to: Ankole.Signals.Dispatch, as: :receipts
+  defdelegate source_reference(source), to: Ankole.Signals.SourceBindings, as: :reference
+  defdelegate source_automation_job_id(source), to: Ankole.Signals.SourceBindings, as: :job_id
+  defdelegate source_automation_job_ids(sources), to: Ankole.Signals.SourceBindings, as: :job_ids
+
+  defdelegate lock_source_bindings_in_tx(reference, job_id \\ nil),
+    to: Ankole.Signals.SourceBindings,
+    as: :lock_in_tx
+
+  defdelegate put_source_binding_in_tx(reference, uid, session_id, job_id),
+    to: Ankole.Signals.SourceBindings,
+    as: :put_in_tx
+
+  defdelegate applet_dispatch(context, page, actor, caller, operation, args),
+    to: Ankole.Signals.Dispatch,
+    as: :applet
+
   @doc "Locks a Signal row inside the caller-owned transaction."
   def lock_signal_in_tx(signal_id) do
     Signal
@@ -120,7 +151,7 @@ defmodule Ankole.Signals do
     Ankole.Signals.Binding
     |> Ash.Query.filter(id == ^binding_id)
     |> Ash.Query.lock("FOR SHARE")
-    |> Ankole.Ash.read_one!()
+    |> Ankole.Ash.read_one!(lock_identity: {"signal_bindings", binding_id})
   end
 
   @doc """
@@ -148,18 +179,28 @@ defmodule Ankole.Signals do
   `limit:`.
   """
   def session_queue(agent_uid, session_id, opts \\ []) do
+    priority =
+      if opts[:due_at] && not Ankole.Sessions.Key.job?(session_id),
+        do: [
+          {Ash.Sort.expr_sort(
+             fragment(
+               "CASE WHEN ? IN ('conversation.message.addressed', 'pod.page_comment.addressed', 'im.message.may_intervene', 'signal.action.invoked', 'input.revised') OR ? LIKE 'command.%' THEN 0 WHEN ? = 'agent.peer_message' THEN 1 ELSE 2 END",
+               type,
+               type,
+               type
+             ),
+             :integer
+           ), :asc}
+        ],
+        else: []
+
     agent_uid
     |> open_query(session_id)
     |> due_by(Keyword.get(opts, :due_at))
     |> started(Keyword.get(opts, :started?, false))
-    |> Ash.Query.sort(queue_sequence: :asc)
+    |> Ash.Query.sort(priority ++ [queue_sequence: :asc])
     |> then(&if(limit = opts[:limit], do: Ash.Query.limit(&1, limit), else: &1))
     |> Ankole.Ash.read!()
-  end
-
-  @doc "Gives the runnable or admitted input that the public Session status reports."
-  def session_status_signal(agent_uid, session_id, now) do
-    session_status_signals([{agent_uid, session_id}], now) |> List.first()
   end
 
   @doc "Gives one public work-status input for each requested Session."

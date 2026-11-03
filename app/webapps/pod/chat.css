@@ -294,6 +294,46 @@
   justify-content: flex-end;
   min-height: 50cqh;
 }
+.pod-chat-delegation-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding-inline: 12px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.pod-chat-delegation-hint > svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--fg-tertiary);
+}
+.pod-mention-agent {
+  display: grid;
+  min-width: 0;
+  line-height: 18px;
+}
+.pod-mention-agent > small {
+  font-size: 11px;
+  line-height: 15px;
+}
+.pod-chat-colleague-intro {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.pod-chat-colleague-intro .pod-chat-avatar {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+  font-size: 18px;
+}
+.pod-chat-colleague-uid {
+  color: var(--fg-tertiary);
+  font-size: 13px;
+}
 .pod-chat-home-eyebrow {
   margin-bottom: 8px;
   font-size: 13px;
@@ -307,7 +347,7 @@
   line-height: 1.3;
 }
 .pod-chat-home-subtitle {
-  margin: 8px 0 24px;
+  margin: 8px 0 16px;
   color: var(--fg-secondary);
   font-size: 15px;
   line-height: 24px;
@@ -444,17 +484,6 @@
   font-size: 12px;
   color: var(--fg-secondary);
 }
-.pod-room-header.pod-page-chat-header {
-  gap: 2px;
-}
-/* In a side panel the room title is the sheet title, so it starts on the same edge as the Page path. */
-.pod-page-chat-header .pod-chat-header-title {
-  padding-inline: 6px;
-}
-.pod-page-chat-scope-trigger[data-slot='select-trigger'] {
-  max-width: 120px;
-  padding-inline: 6px;
-}
 .pod-chat-room-body {
   position: relative;
   display: flex;
@@ -584,43 +613,137 @@
   flex: 1;
   margin-left: -4px;
 }
-.pod-chat-section-label {
-  padding: 12px 8px 4px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--fg-tertiary);
+.pod-chat-filter {
+  height: 28px;
+  padding-block: 4px;
+  padding-inline: 8px;
+  font-size: 13px;
 }
+.pod-chat-sidebar {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.pod-chat-section-count {
+  padding-right: 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.pod-chat-section-more {
+  width: 100%;
+  color: var(--fg-tertiary);
+  font-size: 12px;
+}
+/* Sidebar conversation rows. A task row is one 28px line; a DM, group, or colleague row is two lines (name and
+   time, then preview and state) at 44px. The trailing slot keeps time and state aligned in one column, and the
+   row actions button takes its place on hover. */
 .pod-chat-row {
   position: relative;
 }
 .pod-chat-row > [data-slot='sidebar-menu-button'] {
-  padding-right: 28px;
+  padding-right: 4px;
 }
-.pod-chat-row .pod-chat-avatar {
-  width: 18px;
-  height: 18px;
-  font-size: 9px;
+.pod-chat-row[data-lines='2'] > [data-slot='sidebar-menu-button'] {
+  height: 44px;
+  align-items: center;
 }
-.pod-chat-row-status,
+.pod-chat-row-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+.pod-chat-row-line {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+}
+.pod-chat-row-title,
+.pod-chat-row-preview {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pod-chat-row-preview {
+  color: var(--fg-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+.pod-chat-row-trailing {
+  display: flex;
+  min-width: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--fg-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.pod-chat-row-editing {
+  display: flex;
+  min-height: 28px;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 8px;
+  font-size: 13px;
+}
 .pod-chat-row-menu {
   position: absolute;
-  right: 6px;
+  top: 50%;
+  right: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-.pod-chat-row-menu {
   opacity: 0;
+  transform: translateY(-50%);
 }
 .pod-chat-row:hover .pod-chat-row-menu,
 .pod-chat-row:focus-within .pod-chat-row-menu,
 .pod-chat-row:has([data-popup-open]) .pod-chat-row-menu {
   opacity: 1;
 }
-.pod-chat-row:hover .pod-chat-row-status,
-.pod-chat-row:focus-within .pod-chat-row-status,
-.pod-chat-row:has([data-popup-open]) .pod-chat-row-status {
-  opacity: 0;
+.pod-chat-row:hover .pod-chat-row-trailing,
+.pod-chat-row:focus-within .pod-chat-row-trailing,
+.pod-chat-row:has([data-popup-open]) .pod-chat-row-trailing {
+  visibility: hidden;
+}
+/* The conversation mark keeps one width in every list, so titles start on the same edge as page titles. */
+.pod-conversation-glyph {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  place-items: center;
+  color: var(--nav-icon, var(--fg-tertiary));
+}
+.pod-conversation-glyph > svg {
+  width: 16px;
+  height: 16px;
+}
+.pod-conversation-glyph .pod-chat-avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+.pod-conversation-glyph[data-size='md'] {
+  width: 24px;
+  height: 24px;
+}
+.pod-conversation-glyph[data-size='md'] > svg {
+  width: 18px;
+  height: 18px;
+}
+.pod-conversation-glyph[data-size='md'] .pod-chat-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
 }
 .pod-chat-status-dot {
   display: block;
@@ -841,10 +964,6 @@
   background: color-mix(in srgb, var(--ring) 30%, transparent);
   outline: none;
 }
-.pod-page-chat-scope {
-  min-width: 0;
-  max-width: 40%;
-}
 @container (max-width: 620px) {
   .pod-chat-home-guides {
     grid-template-columns: 1fr;
@@ -882,8 +1001,11 @@
   .pod-chat-row-menu {
     opacity: 1;
   }
-  .pod-chat-row-status {
-    right: 32px;
+  .pod-chat-row > [data-slot='sidebar-menu-button'] {
+    padding-right: 30px;
+  }
+  .pod-chat-row .pod-chat-row-trailing {
+    visibility: visible;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1686,6 +1808,104 @@
   font-size: 16px;
   line-height: 24px;
   font-weight: 600;
+}
+/* A delegation reads as one quiet line under the assistant's turn: who has the work, the task, and its state.
+   A finished delegation adds the start of the colleague's answer beneath the line. */
+.pod-peer-exchange {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 12px;
+  padding: 6px 8px 6px 10px;
+  border-left: 2px solid var(--border);
+  font-size: 13px;
+  line-height: 20px;
+}
+.pod-peer-exchange[data-state='waiting'] {
+  border-left-color: var(--warning);
+}
+.pod-peer-exchange[data-state='working'] {
+  border-left-color: var(--fg-tertiary);
+}
+.pod-peer-exchange-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+.pod-peer-exchange-head > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--fg-tertiary);
+}
+.pod-peer-exchange[data-state='done'] .pod-peer-exchange-head > svg {
+  color: var(--success-foreground);
+}
+.pod-peer-exchange-summary {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--fg-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pod-peer-exchange-state {
+  flex: none;
+  color: var(--fg-tertiary);
+  font-size: 12px;
+}
+.pod-peer-exchange[data-state='waiting'] .pod-peer-exchange-state {
+  color: var(--warning-foreground);
+}
+.pod-peer-exchange-reply {
+  max-height: 72px;
+  overflow: hidden;
+  padding-left: 22px;
+  color: var(--fg-secondary);
+}
+.pod-peer-exchange-reply[data-clipped] {
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+.pod-peer-exchange-pages {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 22px;
+  list-style: none;
+}
+.pod-peer-log {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+.pod-peer-log-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--fg-secondary);
+  font-size: 13px;
+}
+.pod-peer-log-note {
+  margin: 0;
+  color: var(--warning-foreground);
+  font-size: 13px;
+}
+.pod-peer-log-message {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pod-peer-log-message:last-of-type {
+  border-bottom: 0;
+}
+.pod-peer-log-author {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 500;
 }
 .pod-chat-execution-detail {
   flex: 1;

@@ -1,5 +1,6 @@
 defmodule Ankole.Sessions.CodexJobTest do
   use Ankole.SessionsCase
+  import Ankole.PrincipalsFixtures, only: [human_fixture: 0]
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.CodexJob
   alias Ankole.Sessions.JobTurnRef
@@ -56,6 +57,22 @@ defmodule Ankole.Sessions.CodexJobTest do
     on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
+    %{principal: reader} = human_fixture()
+
+    {:ok, group} =
+      Ankole.AuthZ.create_principal_group(%{
+        name: "dispatch-readers-#{System.unique_integer([:positive])}",
+        display_name: "Dispatch readers",
+        domain: :im_group,
+        kind: :static
+      })
+
+    {:ok, _} = Ankole.AuthZ.replace_static_group_members(group.id, :im_group, [reader.uid])
+
+    Ankole.ExternalConversationsFixtures.external_conversation_fixture("chat-dispatch", %{
+      principal_group_id: group.id
+    })
+
     job = create_job!(agent.uid, "dispatch")
 
     assert {:ok, heavy_profile} = ModelProfiles.get_model_profile(agent.uid, "heavy")
@@ -78,7 +95,12 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert_receive {:actor_lane, envelope}, 200
     turn_start = turn_start_payload!(envelope)
     assert turn_start.turn.job_id == job.id
-    assert {:ok, context} = Ankole.Sessions.Context.resolve(agent.uid, session_key.session_id)
+
+    assert {:ok, context} =
+             Ankole.Sessions.Context.resolve(agent.uid, session_key.session_id, %{
+               "signal_id" => turn_start.turn.signal_id
+             })
+
     claimed = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
     assert {:ok, selected_context} = Ankole.Sessions.Context.job(context, claimed)
 
@@ -88,12 +110,8 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert turn_start.agent_context.skills != []
     assert is_binary(turn_start.agent_context.skills_prompt)
     assert turn_start.agent_context.conversation.timezone == context.conversation.timezone
-    assert turn_start.agent_context.soul == context.documents["soul"]["content"]
-    assert turn_start.agent_context.mission == context.documents["mission"]["content"]
+    assert turn_start.agent_context.agents == context.documents["agents"]["content"]
     assert turn_start.agent_context.design == context.documents["design"]["content"]
-
-    assert turn_start.agent_context.confidentiality_policy ==
-             context.documents["confidentiality_policy"]["content"]
 
     assert turn_start.model_ref.provider_id == heavy_profile["provider_id"]
     assert turn_start.model_ref.provider_kind == "openrouter"

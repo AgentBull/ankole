@@ -103,7 +103,8 @@ test('copying a shared base selects an editable destination and opens an indepen
     const open = owner.getByRole('link', { name: '打开页面', exact: true })
     await expect(owner.getByRole('status').filter({ has: open })).toContainText('已复制为独立页面。')
     await expect(open).toBeVisible()
-    expect(new URL((await open.getAttribute('href'))!, state.base_url).pathname).toBe(pageRoute(copied.page.id))
+    const copiedRoute = pageRoute(copied.page.id, undefined, copiedTitle)
+    expect(new URL((await open.getAttribute('href'))!, state.base_url).pathname).toBe(copiedRoute)
     const copiedSchema = await request<TableSchema>(owner, `/tables/${copied.table.id}`)
     const copiedPrimary = copiedSchema.fields.find(field => field.is_primary)!
     const copiedAmount = copiedSchema.fields.find(field => field.name === 'Amount')!
@@ -112,7 +113,7 @@ test('copying a shared base selects an editable destination and opens an indepen
     expect(copiedRows[0]!.id).not.toBe(sourceRecords[0]!.id)
     expect(copiedRows[0]!.data).toEqual({ [copiedPrimary.id]: 'Original source', [copiedAmount.id]: 23 })
     await open.click()
-    await expect(owner).toHaveURL(url => url.pathname === pageRoute(copied.page.id))
+    await expect(owner).toHaveURL(url => url.pathname === copiedRoute)
     await expect(owner.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(copiedTitle)
     await expect(owner.getByRole('spinbutton', { name: 'Amount', exact: true })).toHaveValue('23')
     await member.goto(location(source.id))

@@ -1,9 +1,12 @@
-import { canCreateChild } from './state/page-location'
-import { usePageMetadata } from './use-page-metadata'
+import { agentsQuery } from './api'
+import { pageDomain, canCreateChild, canRenamePage, canTrashPage } from './state/page-location'
+import { useCanonicalPageUrl, usePageMetadata } from './use-page-metadata'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
-import { PageContent } from './page-content'
+import { PageContent, PageLearning } from './page-content'
+import { KnowledgePage } from './knowledge-page'
 import { DocumentInsights } from './document-insights'
-import { DocumentPage, downloadDraft } from './document-editor'
+import { DocumentPage } from './document-editor'
+import { downloadDraft } from './document-recovery'
 import { pageCreated, updatePageMetadata } from './state/navigation-cache'
 import { InternalAPIError } from '../common/internal-api-client'
 import { BdiLabel } from '../common/bidi-file-name'
@@ -52,13 +55,14 @@ import {
   RiStarFill,
   RiStarLine
 } from '@remixicon/react'
-import { effect, useModel } from '@preact/signals-react'
+import { createModel, effect, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 
-import { Link, useBlocker, useNavigate, useParams } from '@tanstack/react-router'
-import { podID, principalUID, podLocation, podRouteID } from '../common/browser-context'
+import { Link, useBlocker, useLocation, useNavigate, useParams } from '@tanstack/react-router'
+import { podID, principalUID } from '../common/browser-context'
+import { podLocation, podPagePathnameID, podPageRouteID, podRouteID } from '../common/pod-url'
 import { ErrorBoundary } from '../common/error-boundary'
 import { useSearchParams } from '../common/router'
 
@@ -98,7 +102,7 @@ import './page-workspace.css'
 
 export function PageRoute() {
   const { t } = useTranslation()
-  const pageID = podRouteID(useParams({ strict: false }).pageID) ?? ''
+  const pageID = podPageRouteID(useParams({ strict: false }).pageID) ?? ''
   const { state: sidebarState } = useSidebar()
   const navigation = (
     <header className="pod-page-header sheet-header border-b border-border">
@@ -109,6 +113,18 @@ export function PageRoute() {
     </header>
   )
   const page = useQuery(pageQuery(pageID))
+  const pathname = useLocation({ select: location => location.pathname })
+  const navigate = useNavigate()
+  const brainPage =
+    page.data?.page.type === 'knowledge' ||
+    page.data?.ancestors.some(
+      ancestor => ancestor.type === 'knowledge' || ancestor.system_key?.startsWith('ankole_brain')
+    )
+  useEffect(() => {
+    if (brainPage && pathname.startsWith('/pages/')) {
+      void navigate({ to: `/meta/brain/${pageID}`, search: true, replace: true })
+    }
+  }, [brainPage, pathname, pageID, navigate])
   const client = useQueryClient()
   const visited = useRef<string | null>(null)
   useEffect(() => {
@@ -172,7 +188,8 @@ function PageWorkspace({
   const [history, setHistory] = useState(false)
   const commentsTrigger = useRef<HTMLButtonElement>(null)
   const actionsTrigger = useRef<HTMLButtonElement>(null)
-  const copyLink = useCopyPageLink(page.id)
+  const copyLink = useCopyPageLink(page.id, page.title)
+  useCanonicalPageUrl(page.id, page.title)
   const client = useQueryClient()
   const [search, setSearch] = useSearchParams()
   const linkedComment = podRouteID(search.get('commentId') ?? undefined)
@@ -183,7 +200,8 @@ function PageWorkspace({
     commentsMotion.prepare(true)
     setComments(true)
   }, [linkedComment])
-  const selection = search.get('chat')
+  const assistantAvailable = useQuery(agentsQuery).data?.personalAssistantAvailable === true
+  const selection = assistantAvailable ? search.get('chat') : null
   const chat = selection === 'new' || selection === 'latest' ? selection : podRouteID(selection ?? undefined)
   const chatMotion = usePanelMotion(!!chat)
   const chatTrigger = useRef<HTMLButtonElement>(null)
@@ -208,11 +226,36 @@ function PageWorkspace({
     chatDrafts.pageQuote.value = { pageID: page.id, quote: selection.quote }
     if (!chat) selectChat('latest', true)
   }
-  const model = useModel(() => new PageDraftModel(`ankole.pod.document-draft:${podID()}:${principalUID()}:${page.id}`))
-  model.load(page.id, detail.content?.content ?? '<page/>', page.revision, page.title)
-  const documentTools = useModel(
-    () => new DocumentToolsModel(model, `ankole.pod.document-stats:${podID()}:${principalUID()}`)
+  const drafts = useModel(
+    () => new PageDraftModel(page.type, `ankole.pod.document-draft:${podID()}:${principalUID()}:${page.id}`)
   )
+  drafts.load(page.id, detail.content?.content ?? '<page/>', page.revision, page.title)
+  const titleDraft = drafts.title
+  const model = drafts.body()
+  const properties = drafts.properties()
+  const documentTools = useModel(
+    createModel(() => {
+      const current =
+        page.type === 'doc' && model
+          ? new DocumentToolsModel(model, `ankole.pod.document-stats:${podID()}:${principalUID()}`)
+          : undefined
+      effect(() => () => current?.[Symbol.dispose]())
+      return { read: () => current }
+    })
+  ).read()
+  const exportDraft = () =>
+    downloadDraft(
+      model?.xml.value ?? '',
+      titleDraft.value.value,
+      model?.recoveryDrafts.value,
+      properties?.editing.value ? properties.recovery.value : undefined
+    )
+  const readDraft = () => ({
+    xml: model?.xml.value ?? '',
+    title: titleDraft.value.value,
+    revision: model?.revision.value ?? page.revision,
+    hasUnsavedChanges: drafts.hasUnsavedChanges.value
+  })
   const commentDrafts = useModel(
     () => new PageCommentsModel(`ankole.pod.comments:${podID()}:${principalUID()}:${page.id}`)
   )
@@ -288,9 +331,13 @@ function PageWorkspace({
     captureCommentSelection(selection)
   }
   const [titleComposing, setTitleComposing] = useState(false)
-  const dirty = model.hasUnsavedChanges.value
+  const dirty = drafts.hasUnsavedChanges.value
   const blocker = useBlocker({
-    shouldBlockFn: ({ current, next }) => dirty && current.pathname !== next.pathname,
+    shouldBlockFn: ({ current, next }) => {
+      if (!dirty || current.pathname === next.pathname) return false
+      const currentPage = podPagePathnameID(current.pathname)
+      return !currentPage || currentPage !== podPagePathnameID(next.pathname)
+    },
     enableBeforeUnload: false,
     withResolver: true
   })
@@ -300,44 +347,36 @@ function PageWorkspace({
   useEffect(() => {
     const stop = effect(() => {
       // Persist local recovery data after edits, acknowledgements, and explicit discards.
-      void [
-        model.xml.value,
-        model.savedXML.value,
-        model.title.value,
-        model.savedTitle.value,
-        model.titleBase.value,
-        model.recoveryDrafts.value,
-        model.bodyPending.value
-      ]
-      const timer = window.setTimeout(() => model.persist(), 250)
+      void drafts.recovery.value
+      const timer = window.setTimeout(() => drafts.persist(), 250)
       return () => window.clearTimeout(timer)
     })
     const leave = (event: BeforeUnloadEvent) => {
-      model.persist()
-      if (model.hasUnsavedChanges.value) event.preventDefault()
+      drafts.persist()
+      if (drafts.hasUnsavedChanges.value) event.preventDefault()
     }
-    const persist = () => model.persist()
+    const persist = () => drafts.persist()
     const visibility = () => {
-      if (document.visibilityState === 'hidden') model.persist()
+      if (document.visibilityState === 'hidden') drafts.persist()
     }
     window.addEventListener('beforeunload', leave)
     window.addEventListener('pagehide', persist)
     document.addEventListener('visibilitychange', visibility)
     return () => {
       stop()
-      model.persist()
+      drafts.persist()
       window.removeEventListener('beforeunload', leave)
       window.removeEventListener('pagehide', persist)
       document.removeEventListener('visibilitychange', visibility)
     }
-  }, [model])
+  }, [drafts])
   const accessDenied = isRealtimeAccessDenied(loadError)
   const trashed = Boolean(page.deleted_at)
   const toolsAvailable = page.type === 'doc' && !accessDenied && !trashed
-  const commentsAvailable = (page.type === 'doc' || page.type === 'file') && !accessDenied && !trashed
+  const commentsAvailable = ['doc', 'knowledge', 'file'].includes(page.type) && !accessDenied && !trashed
   const commentSummary = useQuery({ ...pageCommentSummaryQuery(page.id), enabled: commentsAvailable })
   useEffect(() => {
-    if (!toolsAvailable) return
+    if (!toolsAvailable || !documentTools) return
     const shortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey || event.isComposing) return
       if (event.key.toLowerCase() === 'i') {
@@ -354,12 +393,10 @@ function PageWorkspace({
   const navigate = useNavigate()
   const [purging, setPurging] = useState(false)
   const edit = !trashed && actions.includes('node_edit') && !accessDenied
-  const canTrash =
-    !trashed &&
-    actions.includes(page.type === 'file' || page.type === 'folder' ? 'node_edit' : 'node_manage') &&
-    !accessDenied
+  const canRename = !accessDenied && canRenamePage({ ...page, actions })
+  const canTrash = !accessDenied && canTrashPage({ ...page, actions })
   const canRestore = trashed && actions.includes('node_manage') && !accessDenied
-  const canMove = canMovePage(detail) && !accessDenied
+  const canMove = !accessDenied && canMovePage({ ...page, actions })
   const contentDetail = trashed ? { ...detail, actions: ['node_view' as const] } : detail
   const restore = useMutation({
     mutationFn: () => pageAPI.restore(page.id),
@@ -369,44 +406,52 @@ function PageWorkspace({
       toast.success(t('pod.content.page_restored'))
     }
   })
-  const purge = usePagePurge(() => void navigate({ to: podLocation('/content/trash').pathname }))
-  const favorites = useQuery(pagesQuery('favorites'))
+  const purge = usePagePurge(
+    () =>
+      void navigate(
+        domain === 'brain'
+          ? { to: '/meta/brain', search: { view: 'trash' } }
+          : { to: podLocation('/content/trash').pathname }
+      )
+  )
+  const domain = pageDomain(page, detail.ancestors)
+  const favorites = useQuery(pagesQuery('favorites', '', domain))
   const favorited = favorites.data?.pages.some(favorite => favorite.id === page.id) ?? false
   const rename = useMutation({
     scope: { id: `page-title:${page.id}` },
-    mutationFn: (title: string) => pageAPI.update(page.id, { title, expected_title: model.titleBase.value }),
+    mutationFn: (title: string) => pageAPI.update(page.id, { title, expected_title: titleDraft.base.value }),
     onSuccess: ({ page }, submitted) => {
-      model.titleSaved(page.title, submitted)
+      titleDraft.acknowledge(page.title, submitted)
       updatePageMetadata(client, { id: page.id, title: page.title })
     },
     onError: error => {
       if (error instanceof InternalAPIError && requestErrorCode(error.payload) === 'title_conflict') {
         const current = requestErrorDetails(error.payload).title
-        if (typeof current === 'string') model.titleRejected(current)
+        if (typeof current === 'string') titleDraft.reject(current)
       }
     }
   })
   const saveTitle = (retry = false) => {
-    if (!edit || model.titleConflict.value || rename.isPending) return
-    const title = model.title.value.trim()
+    if (!canRename || titleDraft.conflict.value || rename.isPending) return
+    const title = titleDraft.value.value.trim()
     if (!retry && rename.isError && rename.variables === title) return
-    if (model.titleDirty.value) rename.mutate(title)
+    if (titleDraft.dirty.value) rename.mutate(title)
   }
-  const title = model.title.value
+  const title = titleDraft.value.value
   const autosaveTitle = useEffectEvent(() => saveTitle())
   useEffect(() => {
-    if (!edit || titleComposing) return
+    if (!canRename || titleComposing) return
     const timer = window.setTimeout(autosaveTitle, 500)
     return () => window.clearTimeout(timer)
-  }, [title, edit, titleComposing, rename.isPending])
+  }, [title, canRename, titleComposing, rename.isPending])
   const finishTitle = async () => {
-    if (model.titleConflict.value) throw new Error(t('pod.document_title.conflict'))
-    if (accessDenied || (!edit && model.titleDirty.value)) {
+    if (titleDraft.conflict.value) throw new Error(t('pod.document_title.conflict'))
+    if (accessDenied || (!canRename && titleDraft.dirty.value)) {
       throw new Error(t('pod.content.could_not_confirm_your_editing_permission_reload_the_page_and'))
     }
-    if (model.titleDirty.value) await rename.mutateAsync(model.title.value.trim())
+    if (titleDraft.dirty.value) await rename.mutateAsync(titleDraft.value.value.trim())
   }
-  const remove = usePageTrash(model.discard)
+  const remove = usePageTrash(drafts.discard)
   const favorite = useMutation({
     mutationFn: () => pageAPI.state(page.id, { favorite: !favorited }),
     onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.list('favorites') })
@@ -416,8 +461,13 @@ function PageWorkspace({
       <PageComments
         key="comments"
         detail={detail}
-        draft={model}
-        editor={editorHandle}
+        content={
+          page.type === 'file'
+            ? { kind: 'file' }
+            : page.type === 'doc' && model
+              ? { kind: 'document', editor: editorHandle, revision: model.revision, ready: model.bodyReady }
+              : { kind: 'page' }
+        }
         model={commentDrafts}
         mobile={isMobile}
         focused={focusedComment}
@@ -451,7 +501,7 @@ function PageWorkspace({
           />
           <div className="flex min-w-0 flex-1 items-center gap-0.5">
             <ErrorBoundary variant="inline" resetKeys={[page.id]}>
-              <PageBreadcrumbs ancestors={detail.ancestors} title={model.title.value} compact={isMobile} />
+              <PageBreadcrumbs ancestors={detail.ancestors} title={titleDraft.value.value} compact={isMobile} />
             </ErrorBoundary>
             {!trashed && (
               <Button
@@ -472,12 +522,13 @@ function PageWorkspace({
             {!accessDenied && !trashed && page.type !== 'doc' && page.type !== 'file' && (
               <PageChildrenMenu
                 pageID={page.id}
+                types={page.type === 'knowledge' ? ['knowledge', 'file'] : undefined}
                 canCreate={canCreateChild({ ...page, actions })}
                 scope={page.private_owner_uid ? 'private' : 'space'}
                 privateOwner={page.private_owner_uid ?? undefined}
               />
             )}
-            {!accessDenied && !trashed && (
+            {!accessDenied && !trashed && assistantAvailable && (
               <Toggle
                 size="sm"
                 aria-label={t('pod.page_chat.title')}
@@ -555,8 +606,9 @@ function PageWorkspace({
                 {toolsAvailable && (
                   <DocumentMenuItems
                     detail={detail}
-                    draft={model}
-                    model={documentTools}
+                    draft={model!}
+                    title={titleDraft.value}
+                    model={documentTools!}
                     mobile={isMobile}
                     openInsights={() => setInsights(true)}
                     openComments={() => openComments()}
@@ -583,7 +635,12 @@ function PageWorkspace({
           <DocumentInsights detail={detail} close={() => setInsights(false)} returnFocus={actionsTrigger} />
         )}
         {history && toolsAvailable && edit && (
-          <DocumentHistory detail={detail} draft={model} close={() => setHistory(false)} returnFocus={actionsTrigger} />
+          <DocumentHistory
+            detail={detail}
+            readDraft={readDraft}
+            close={() => setHistory(false)}
+            returnFocus={actionsTrigger}
+          />
         )}
         {purging && (
           <PermanentDeletePageDialog
@@ -593,9 +650,9 @@ function PageWorkspace({
             onConfirm={() => purge.mutate(page)}
           />
         )}
-        {moving && (
+        {moving && canMove && (
           <MovePageDialog
-            page={page}
+            page={{ ...page, actions }}
             beforeMove={finishTitle}
             close={() => setMoving(false)}
             returnFocus={actionsTrigger}
@@ -627,14 +684,11 @@ function PageWorkspace({
               titleInput.current?.focus()
               titleInput.current?.setSelectionRange(title.length, title.length)
             }}>
-            {model.storageError.value && dirty && (
+            {drafts.storageError.value && dirty && (
               <Alert variant="warning" className="mb-6" role="alert">
                 <AlertDescription>{t('pod.document_title.storage_unavailable')}</AlertDescription>
                 <AlertAction>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => downloadDraft(model.xml.value, model.title.value, model.recoveryDrafts.value)}>
+                  <Button size="sm" variant="outline" onClick={() => exportDraft()}>
                     {t('pod.content.export_draft')}
                   </Button>
                 </AlertAction>
@@ -673,18 +727,21 @@ function PageWorkspace({
             )}
             <div className="pod-page-heading">
               {page.type === 'doc' && <PageIconPicker page={page} editable={edit} />}
-              {edit ? (
+              {canRename ? (
                 <div className="min-w-0 flex-1">
                   <textarea
                     ref={titleInput}
                     aria-label={t('pod.content.page_title')}
                     rows={1}
-                    value={model.title.value}
+                    value={titleDraft.value.value}
                     autoFocus={(page.type === 'doc' || page.type === 'base') && !page.title && !chat}
                     disabled={remove.isPending || accessDenied}
                     placeholder={t('pod.content.untitled')}
                     onChange={event =>
-                      (model.title.value = limitPageTitle(event.target.value.replace(/\n/g, ' '), model.title.value))
+                      (titleDraft.value.value = limitPageTitle(
+                        event.target.value.replace(/\n/g, ' '),
+                        titleDraft.value.value
+                      ))
                     }
                     onCompositionStart={() => setTitleComposing(true)}
                     onCompositionEnd={() => setTitleComposing(false)}
@@ -720,52 +777,57 @@ function PageWorkspace({
                 </h1>
               )}
             </div>
-            {!!loadError && model.hasUnsavedChanges.value && (
+            {!!loadError && drafts.hasUnsavedChanges.value && (
               <p className="mb-3 text-sm">{t('pod.content.could_not_load_the_latest_page_state_your_unsaved_draft')}</p>
             )}
             <ContentError error={loadError} retry={accessDenied ? undefined : reload} />
             {accessDenied && <LocalPageChatDrafts pageID={page.id} />}
-            {accessDenied && model.dirty.value && (
-              <Button variant="outline" size="sm" onClick={() => downloadDraft(model.xml.value, model.title.value)}>
+            {accessDenied && dirty && (
+              <Button variant="outline" size="sm" onClick={() => exportDraft()}>
                 {t('pod.content.export_draft')}
               </Button>
             )}
-            {edit && (
+            {canRename && (
               <p role="status" className="sr-only">
                 {rename.isPending
                   ? t('pod.content.saving_title')
-                  : model.titleDirty.value
+                  : titleDraft.dirty.value
                     ? t('pod.content.title_not_saved')
                     : ''}
               </p>
             )}
-            {model.titleConflict.value ? (
+            {titleDraft.conflict.value ? (
               <div role="alert" className="mb-3 rounded border border-warning p-3 text-sm">
                 <p>{t('pod.document_title.conflict')}</p>
-                <p className="mt-1 break-words">{t('pod.document_title.current', { title: model.savedTitle.value })}</p>
+                <p className="mt-1 break-words">{t('pod.document_title.current', { title: titleDraft.saved.value })}</p>
                 <div className="mt-2 flex gap-2">
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      model.reviewTitle(true)
+                      titleDraft.review(true)
                       rename.reset()
                     }}>
                     {t('pod.document_title.use_current')}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      model.reviewTitle(false)
-                      saveTitle(true)
-                    }}>
-                    {t('pod.document_title.save_draft')}
-                  </Button>
+                  {canRename && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        titleDraft.review(false)
+                        saveTitle(true)
+                      }}>
+                      {t('pod.document_title.save_draft')}
+                    </Button>
+                  )}
                 </div>
               </div>
             ) : (
-              <ContentError error={rename.error} retry={model.titleDirty.value ? () => saveTitle(true) : undefined} />
+              <ContentError
+                error={rename.error}
+                retry={canRename && titleDraft.dirty.value ? () => saveTitle(true) : undefined}
+              />
             )}
             <ContentError error={remove.error || favorite.error || favorites.error || restore.error} />
             {detail.source_conversation && (
@@ -780,24 +842,20 @@ function PageWorkspace({
                 )}
               </p>
             )}
+            {!accessDenied && <PageLearning detail={contentDetail} />}
             {!accessDenied &&
               (page.type === 'doc' ? (
                 (() => {
                   const hideEmptyViewerBody =
-                    !trashed && contentDetail.child_count > 0 && !edit && isDocumentBodyEmpty(model.xml.value)
+                    !trashed && contentDetail.child_count > 0 && !edit && isDocumentBodyEmpty(model!.xml.value)
                   return (
                     <>
                       <ErrorBoundary
                         variant="panel"
                         resetKeys={[page.id, page.revision]}
                         actions={
-                          model.dirty.value || model.recoveryDrafts.value.length > 0 ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() =>
-                                downloadDraft(model.xml.value, model.title.value, model.recoveryDrafts.value)
-                              }>
+                          model!.hasUnsavedChanges.value ? (
+                            <Button type="button" size="sm" onClick={() => exportDraft()}>
                               {t('pod.content.export_draft')}
                             </Button>
                           ) : undefined
@@ -805,13 +863,14 @@ function PageWorkspace({
                         <div ref={documentContent} className={hideEmptyViewerBody ? 'hidden' : undefined}>
                           <DocumentPage
                             detail={contentDetail}
-                            model={model}
+                            model={model!}
+                            title={titleDraft.value}
                             presenceContainer={presenceContainer}
                             onEditor={attachEditor}
                             resolvedCommentIDs={commentSummary.data?.resolved_ids ?? []}
                             onComment={ids => openComments(ids[0] ?? null, ids.length > 1 ? ids : [])}
                             onRequestComment={captureCommentSelection}
-                            onAskAgent={!accessDenied && !trashed ? askAgent : undefined}
+                            onAskAgent={!accessDenied && !trashed && assistantAvailable ? askAgent : undefined}
                           />
                         </div>
                       </ErrorBoundary>
@@ -834,17 +893,27 @@ function PageWorkspace({
                 })()
               ) : (
                 <ErrorBoundary variant="panel" resetKeys={[page.id, page.revision]}>
-                  <PageContent
-                    detail={contentDetail}
-                    onRequestFileComment={!accessDenied && !trashed ? captureFileCommentSelection : undefined}
-                    filePreviewRef={filePreviewRef}
-                  />
+                  {page.type === 'knowledge' && model && properties ? (
+                    <KnowledgePage
+                      detail={contentDetail}
+                      body={model}
+                      draft={properties}
+                      readTitle={() => titleDraft.value.value}
+                      hasUnsavedChanges={() => drafts.hasUnsavedChanges.value}
+                    />
+                  ) : (
+                    <PageContent
+                      detail={contentDetail}
+                      onRequestFileComment={!accessDenied && !trashed ? captureFileCommentSelection : undefined}
+                      filePreviewRef={filePreviewRef}
+                    />
+                  )}
                 </ErrorBoundary>
               ))}
           </div>
           {toolsAvailable && !isMobile && (
             <ErrorBoundary variant="inline" resetKeys={[page.id]}>
-              <DocumentStats model={documentTools} content={documentContent} />
+              <DocumentStats model={documentTools!} content={documentContent} />
             </ErrorBoundary>
           )}
         </div>
@@ -853,11 +922,11 @@ function PageWorkspace({
         ? commentsPanel
         : commentsAvailable &&
           (comments || !chat) && <PodPanelPresence animate={commentsMotion.animate}>{commentsPanel}</PodPanelPresence>}
-      {!accessDenied && !trashed && !comments && (
+      {!accessDenied && !trashed && !comments && assistantAvailable && (
         <PageChat
           mobile={isMobile}
           pageID={page.id}
-          pageTitle={model.title.value}
+          pageTitle={titleDraft.value.value}
           selection={chat ?? null}
           animate={chatMotion.animate}
           select={selectChat}
@@ -875,7 +944,7 @@ function PageWorkspace({
             <Button
               variant="outline"
               onClick={() => {
-                downloadDraft(model.xml.value, model.title.value, model.recoveryDrafts.value)
+                exportDraft()
                 blocker.proceed?.()
               }}>
               {t('pod.content.download_draft_and_leave')}
@@ -883,7 +952,7 @@ function PageWorkspace({
             <Button
               variant="destructive"
               onClick={() => {
-                model.discard()
+                drafts.discard()
                 blocker.proceed?.()
               }}>
               {t('pod.content.discard_changes_and_leave')}

@@ -8,6 +8,7 @@ defmodule Ankole.Pod.Chat.Member do
         displayName: [type: :string, allow_nil?: false],
         avatarURL: [type: :string],
         type: [type: :string, allow_nil?: false],
+        directConversationID: [type: Ankole.Ash.Types.UUIDv7],
         agentType: [type: :string],
         aliases: [type: {:array, :string}],
         role: [type: :string],

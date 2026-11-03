@@ -17,6 +17,7 @@
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",
     "test": "TMPDIR=/tmp bun test --path-ignore-patterns=test/integration/**",
+    "test:rclone": "bash rclone/build.sh --test",
     "test:docker": "cd ../.. && bun run kit agent-computer-test --suite unit",
     "test:integration": "bun ../kernel/scripts/build-node-addon.ts && TMPDIR=/tmp bun test ./test/integration/host",
     "test:integration:linux": "TMPDIR=/tmp bun test ./test/integration/linux",

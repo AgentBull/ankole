@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { request, selectChatAgent, state } from './fixtures'
+import { request, state } from './fixtures'
 import { conversationRoute } from './routes'
 import type { ConversationDetail, PodAgent } from '../../pod/api'
 
@@ -82,6 +82,7 @@ test('edited code is visible while syntax highlighting waits for the new text', 
       conversationID: crypto.randomUUID(),
       messageID,
       agentUID: state.agent_uid,
+      roomMode: 'group',
       text: '```js\nconst original = 1\n```',
       deliveryMode: 'queue'
     })
@@ -193,8 +194,11 @@ test('inline mention search keeps the draft focused and sends the selected Agent
     }
     const queue = page.locator('.pod-chat-queued-strip')
     await expect(queue.locator('.pod-chat-queue-item')).toHaveCount(6)
-    await expect(queue.getByRole('heading')).toHaveText(`${agent.displayName} · 待发送 (6)`)
-    await expect(page.getByRole('combobox', { name: '选择 Agent', exact: true })).toHaveText(agent.displayName)
+    expect(detail.conversation.conversationKind).toBe('assistant_task')
+    expect(detail.conversation.agents).toHaveLength(1)
+    expect(detail.conversation.agents[0]!.agentType).toBe('personal_assistant')
+    await expect(queue.getByRole('heading')).toHaveText(`${detail.conversation.agents[0]!.displayName} · 待发送 (6)`)
+    await expect(page.getByRole('combobox', { name: '选择 Agent', exact: true })).toHaveCount(0)
     expect((await queue.boundingBox())!.height).toBeLessThanOrEqual(176)
     expect((await input.boundingBox())!.y + (await input.boundingBox())!.height).toBeLessThanOrEqual(844)
     await expect(input).toBeEditable()
@@ -214,7 +218,6 @@ test('IME and Escape preserve the draft while inline slash completion executes a
   let id: string | undefined
   try {
     await page.goto('/')
-    await selectChatAgent(page)
     const input = page.getByRole('textbox', { name: '消息', exact: true })
     let sends = 0
     page.on('request', request => {
@@ -302,8 +305,14 @@ test('a mention inserted at a selected range keeps the caret and removing its co
       mayIntervene: false
     })
     await page.goto(conversationRoute(id))
-    await selectChatAgent(page)
     const colleague = created.conversation.agents.find(agent => agent.uid === state.chat_workspace.colleague_uid)!
+    await page.getByRole('combobox', { name: '选择 Agent', exact: true }).click()
+    await page
+      .getByRole('option', {
+        name: created.conversation.agents.find(agent => agent.uid === state.agent_uid)!.displayName,
+        exact: true
+      })
+      .click()
     const before = (await request<ConversationDetail>(page, `/conversations/${id}`)).pendingQueues
       .find(queue => queue.agentUID === colleague.uid)!
       .inputs.map(input => input.messageID)

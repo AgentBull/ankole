@@ -17,6 +17,7 @@ defmodule Ankole.Pod.Config do
     compaction_op_threshold: 100,
     compaction_structural_threshold: 10
   ]
+  @action_defaults %{"timeout_ms" => 240_000, "heap_mb" => 192}
   def definitions do
     [
       Definition.new!(
@@ -35,6 +36,24 @@ defmodule Ankole.Pod.Config do
         default_value: @applet_defaults,
         description:
           "Applet invocation limits: timeout_ms and heap_mb. Includes capability wait time and external memory."
+      ),
+      Definition.new!(
+        key: "pod.applet.action_limits",
+        scope: :tenant,
+        encrypted: false,
+        schema: Schema.new(&validate_applet_limits/1),
+        default_value: @action_defaults,
+        description:
+          "Applet Action slice limits: timeout_ms and heap_mb, including capability wait time."
+      ),
+      Definition.new!(
+        key: "pod.applet.action_runtime_url",
+        scope: :global,
+        encrypted: false,
+        schema: Schema.new(&action_runtime_url/1),
+        default_value: nil,
+        description:
+          "Optional dedicated Function Runtime origin for background Actions. Uses the site's runtime credential; empty uses the shared deployment."
       ),
       Definition.new!(
         key: "pod.base.limits",
@@ -94,6 +113,31 @@ defmodule Ankole.Pod.Config do
     with {:ok, limits} <- AppConfigure.get_by_key("pod.applet.limits"),
          do: {:ok, [timeout_ms: limits["timeout_ms"], heap_mb: limits["heap_mb"]]}
   end
+
+  def action_limits do
+    with {:ok, limits} <- AppConfigure.get_by_key("pod.applet.action_limits"),
+         do: {:ok, [timeout_ms: limits["timeout_ms"], heap_mb: limits["heap_mb"], lane: :action]}
+  end
+
+  def action_runtime_url do
+    {:ok, url} = AppConfigure.get_by_key("pod.applet.action_runtime_url")
+    url
+  end
+
+  defp action_runtime_url(nil), do: {:ok, nil}
+
+  defp action_runtime_url(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host, path: path, userinfo: nil, query: nil, fragment: nil}
+      when scheme in ["http", "https"] and is_binary(host) and path in [nil, "", "/"] ->
+        {:ok, String.trim_trailing(url, "/")}
+
+      _ ->
+        {:error, :invalid_runtime_url}
+    end
+  end
+
+  defp action_runtime_url(_), do: {:error, :invalid_runtime_url}
 
   defp validate_applet_limits(limits) when is_map(limits) do
     if Enum.sort(Map.keys(limits)) == Enum.sort(Map.keys(@applet_defaults)) and

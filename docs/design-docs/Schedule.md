@@ -119,8 +119,8 @@ zone, deduplication key, optional source Signal, AI message, and provider reply
 route. `wake_payload` holds the prompt/input for the future execution,
 `source_provenance` captures the authenticated request and turn-fence metadata
 that created the row, Oban job args point back to the owning event or rule, and
-waking the consumer records the resulting `signal_id` or
-`automation_job_run_id`.
+firing records its root `signal_id`. The Schedule projection resolves delivered
+Signals and Runs through `signal_binding_receipts`, including every fanout target.
 
 State transitions are strictly one-way toward terminal states:
 
@@ -137,11 +137,17 @@ State transitions are strictly one-way toward terminal states:
   and last fire error—never the owner, authorization, source, idempotency key,
   or creation timestamp (reauthorization uses its own dedicated action).
 
-Both Schedule and raw Webhook delivery dispatch work through
-`Signals.Trigger.deliver_in_tx/4`: when `automation_job_id` is set (enforced by
-a foreign key), it inserts a durable `AutomationJob` run; when unbound, it
-appends a Signal in the owning domain, storing typed `signal_id` and
-`automation_job_run_id` references on each source table.
+Schedule and raw Webhook sources route through `Signals.Dispatch`. Their default
+Binding selects an Agent Session or Action. Dispatch locks Jobs, Bindings and
+receipts before Schedule rows and Session queues; all delivery results commit
+with the source transition. `automation_job_id` in source APIs is a projection
+of the default Binding. Historical fired events retain their root Signal ID and
+receipt references even after the ordinary seven-day receipt retention window.
+If a prepared Job or Binding changes before dispatch acquires its locks, the
+fire returns a retryable error without consuming the slot. Oban prepares a fresh
+snapshot on its next attempt. On the final attempt, failures during admission
+or delivery record failed history and advance the rule under the same consumer
+and rule locks used for other terminal fire failures.
 
 Deduplication separates request retries from recurring time slots:
 

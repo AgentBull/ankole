@@ -57,7 +57,8 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
                    "role" => "Research Analyst",
                    "aliases" => [],
                    "mayIntervene" => false,
-                   "modelProfile" => nil
+                   "modelProfile" => nil,
+                   "directConversationID" => nil
                  }
                ]
              }

@@ -82,7 +82,7 @@ defmodule Ankole.Pod.SpreadsheetsTest do
   end
 
   defp object_id(page_id) do
-    {:ok, node} = Drive.fetch_node(page_id)
+    {:ok, node} = Ankole.Pod.fetch_node(page_id)
     node.object_id
   end
 
@@ -494,7 +494,7 @@ defmodule Ankole.Pod.SpreadsheetsTest do
     {:ok, _} =
       Spreadsheets.apply_op(ctx.actor, page.id, request(4, "tab", 4, set("D1", "drive")))
 
-    assert :ok = Ankole.Files.ContentOwner.flush_node(page.id)
+    assert :ok = Ankole.Pod.flush_node(page.id)
     assert {:ok, bytes} = Drive.read_object(object_id(page.id))
     assert object_text(bytes) =~ "drive"
   end
@@ -568,7 +568,7 @@ defmodule Ankole.Pod.SpreadsheetsTest do
     {:ok, _} =
       Spreadsheets.apply_op(ctx.actor, page.id, request(1, "tab", 1, set("A1", "pending")))
 
-    assert {:ok, _file} = Drive.write_node(ctx.actor, page.id, workbook("from the Agent"))
+    assert {:ok, _file} = Ankole.Pod.write_node(ctx.actor, page.id, workbook("from the Agent"))
     replaced = object_id(page.id)
 
     assert [
@@ -665,7 +665,7 @@ defmodule Ankole.Pod.SpreadsheetsTest do
     assert {:ok, _} = Pages.purge(ctx.actor, page.id)
 
     assert :ok =
-             Ankole.Files.Jobs.PurgeNode.perform(%Oban.Job{
+             Ankole.Pod.Jobs.PurgeTree.perform(%Oban.Job{
                args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => page.id}
              })
 

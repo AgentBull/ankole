@@ -7,7 +7,6 @@ defmodule Ankole.Upgrade202610Test do
   alias Ankole.AppConfigure.Crypto
   alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AutomationJobs
-  alias Ankole.AutomationJobs.Schemas.Job
   alias Ankole.Files
   alias Ankole.Plugins.Microsoft365Adapter.Config, as: TeamsConfig
   alias Ankole.Plugins.SlackAdapter.Config, as: SlackConfig
@@ -521,7 +520,7 @@ defmodule Ankole.Upgrade202610Test do
           assert skill_file.tenant_id == tenant.id
           assert script_file.tenant_id == tenant.id
           assert {:error, :not_found} = Files.fetch(other_uid, skill_path)
-          assert Repo.get!(Job, job.id).legacy_directory_path == nil
+          assert legacy_job_path(job.id) == nil
 
           intent =
             intent!(
@@ -606,9 +605,9 @@ defmodule Ankole.Upgrade202610Test do
 
       prefix = with_script.drive_prefix
       assert paths(agent_uid, prefix) == ["#{prefix}/lib/parse.ts", "#{prefix}/main.ts"]
-      assert Repo.get!(Job, with_script.id).legacy_directory_path == nil
+      assert legacy_job_path(with_script.id) == nil
       # A script that this run did not find keeps its path for a later run.
-      assert Repo.get!(Job, without_script.id).legacy_directory_path ==
+      assert legacy_job_path(without_script.id) ==
                "/agents/#{agent_uid}/automation/gone"
     end
 
@@ -626,7 +625,7 @@ defmodule Ankole.Upgrade202610Test do
       assert %{skipped: [{^link, {:not_a_regular_file, :symlink}}]} = import_home(root)
 
       # A symlink is skipped on every run, so it does not keep the job pending.
-      assert Repo.get!(Job, job.id).legacy_directory_path == nil
+      assert legacy_job_path(job.id) == nil
       assert paths(agent_uid, job.drive_prefix) == ["#{job.drive_prefix}/main.ts"]
     end
 
@@ -644,7 +643,7 @@ defmodule Ankole.Upgrade202610Test do
 
       assert %{skipped: [{^unreadable, {:invalid_source, :eacces}}]} = import_home(root)
 
-      assert Repo.get!(Job, job.id).legacy_directory_path != nil
+      assert legacy_job_path(job.id) != nil
 
       File.chmod!(unreadable, 0o644)
       assert %{skipped: []} = import_home(root)
@@ -654,7 +653,7 @@ defmodule Ankole.Upgrade202610Test do
                "#{job.drive_prefix}/secret.ts"
              ]
 
-      assert Repo.get!(Job, job.id).legacy_directory_path == nil
+      assert legacy_job_path(job.id) == nil
     end
 
     test "reports an Agent Home that it cannot read instead of taking it for an empty one", %{
@@ -718,6 +717,12 @@ defmodule Ankole.Upgrade202610Test do
   defp intent!(filter),
     do: Ankole.Conversations.list_intents!(query: [filter: filter]) |> List.first()
 
+  defp legacy_job_path(id) do
+    Repo.one!(
+      from row in "automation_jobs", where: row.id == ^id, select: row.legacy_directory_path
+    )
+  end
+
   defp legacy_job!(agent_uid, legacy_directory_path) do
     unique = System.unique_integer([:positive])
 
@@ -742,7 +747,7 @@ defmodule Ankole.Upgrade202610Test do
 
     prefix = "automation/#{job.id}"
 
-    Repo.update_all(where(Job, id: ^job.id),
+    Repo.update_all(where("automation_jobs", [row], row.id == ^job.id),
       set: [drive_prefix: prefix, legacy_directory_path: legacy_directory_path]
     )
 

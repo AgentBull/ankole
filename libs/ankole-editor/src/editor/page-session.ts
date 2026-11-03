@@ -1,3 +1,5 @@
+import { isKnowledge } from './knowledge'
+import { validateKnowledge } from '../document/knowledge'
 import { checkSource } from '../document/tree'
 import { Wordgard } from '../core/editor'
 import { history } from '../core/history'
@@ -65,6 +67,7 @@ export class PageSession {
       throw new Error('文档已变化，源码草稿已保留。请导出草稿并重新读取文档后合并修改。')
     }
     const tree = write.format === 'xml' ? parseXml(write.source) : parseMarkdown(write.source)
+    if (isKnowledge(this.editor.state)) validateKnowledge(tree)
     // A page that cannot be printed must not replace the current page.
     printMarkdown(tree)
     checkSource(printXml(tree), 'xml')

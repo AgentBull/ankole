@@ -14,6 +14,7 @@ defmodule Ankole.ConversationsHistoryTest do
 
     {:ok, _} =
       Ankole.ConversationsFixtures.create(human.uid, %{
+        room_mode: :group,
         conversation_id: id,
         message_id: Ankole.Kernel.gen_uuid_v7(),
         agent_uid: agent.uid,
@@ -106,6 +107,7 @@ defmodule Ankole.ConversationsHistoryTest do
 
     {:ok, _} =
       Ankole.ConversationsFixtures.create(human.uid, %{
+        room_mode: :group,
         conversation_id: id,
         message_id: Ankole.Kernel.gen_uuid_v7(),
         agent_uid: agent.uid,
@@ -145,6 +147,7 @@ defmodule Ankole.ConversationsHistoryTest do
 
     {:ok, _} =
       Ankole.ConversationsFixtures.create(human.uid, %{
+        room_mode: :group,
         conversation_id: empty_id,
         message_id: Ankole.Kernel.gen_uuid_v7(),
         agent_uid: agent.uid,

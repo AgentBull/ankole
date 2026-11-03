@@ -36,6 +36,7 @@ import {
   type ToolExecutionMechanism
 } from './tool-item'
 import { errorMessage } from '../../../common/errors'
+import type { DriveView } from '../../../drive/mounts'
 
 // Coalesce event bursts before a progress checkpoint. flush() still bypasses
 // this delay at every durability boundary.
@@ -108,6 +109,7 @@ type DeferredCollaborationCall = {
  * before the Job status can commit.
  */
 export class BackgroundAgentJobTurnRecorder {
+  private driveWindow?: Map<string, number>
   private readonly turns = new Map<string, RuntimeTurn>()
   private readonly pendingCollaborationCalls = new Map<string, PendingCollaborationCall>()
   /** Activity-only calls per child thread, in arrival order, waiting for that thread's next input. */
@@ -129,8 +131,19 @@ export class BackgroundAgentJobTurnRecorder {
       ) => Promise<BackgroundAgentJobTurnUpsertResponse>
       checkpointDelayMs?: number
       turnTrace?: WorkerTurnTrace
+      driveView?: DriveView
     }
   ) {}
+
+  async startDriveWindow(): Promise<void> {
+    this.driveWindow = await this.input.driveView?.sequence()
+  }
+
+  async flushDriveWindow(): Promise<string> {
+    const window = this.driveWindow
+    this.driveWindow = undefined
+    return window ? this.input.driveView!.flush(window) : ''
+  }
 
   /**
    * Records a started Turn from the `{ threadId, turn }` shape that Codex

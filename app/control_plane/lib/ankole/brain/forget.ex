@@ -52,7 +52,7 @@ defmodule Ankole.Brain.Forget do
 
   @doc """
   Soft-deletes one object; it leaves ordinary recall and waits for purge.
-  The reason and the caller land in the object's meta until a restore.
+  The reason and the caller are recorded in the object's metadata and revision history.
   """
   @spec forget_object(String.t(), String.t(), caller()) :: {:ok, map()} | {:error, term()}
   def forget_object(slug, reason, caller) when is_binary(reason) do
@@ -60,20 +60,11 @@ defmodule Ankole.Brain.Forget do
       trimmed = String.trim(reason)
       by = caller_label(caller)
 
-      Repo.transact_top_level(fn ->
-        Objects.soft_delete_in_tx(object.slug, reason: trimmed, by: by)
-      end)
-    end
-  end
-
-  @doc false
-  # Soft-deletes one object in the transaction of the Console `:console_forget`
-  # action of `Ankole.Brain.Schemas.Object`.
-  def forget_object_in_tx(slug, reason, caller) do
-    with {:ok, object} <- forget_object_target(slug, reason, caller) do
-      Objects.soft_delete_in_tx(object.slug,
-        reason: String.trim(reason),
-        by: caller_label(caller)
+      Repo.transact_top_level(
+        fn ->
+          Objects.soft_delete_in_tx(object.slug, reason: trimmed, by: by)
+        end,
+        after_commit: &Ankole.Brain.Namespace.committed/1
       )
     end
   end
@@ -109,25 +100,15 @@ defmodule Ankole.Brain.Forget do
   defp validate_eligibility(%Claim{} = claim, caller) when is_binary(caller) do
     reference = Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: caller})
 
-    if claim.author == reference or Scope.satisfied_by?(claim.audience_scope, caller),
+    if claim.author == reference or Scope.satisfied_by?(claim.source_node_id, caller),
       do: :ok,
       else: {:error, :forget_not_eligible}
   end
 
   defp validate_object_eligibility(_object, :admin), do: :ok
 
-  # An object has no single scope; eligibility follows the body scopes: the
-  # caller must satisfy every scoped segment it wants to remove from recall.
   defp validate_object_eligibility(object, caller) when is_binary(caller) do
-    case Ankole.Brain.Markdoc.scopes(object.body) do
-      {:ok, scopes} ->
-        if Enum.all?(scopes, &Scope.satisfied_by?(&1, caller)),
-          do: :ok,
-          else: {:error, :forget_not_eligible}
-
-      {:error, _reason} ->
-        {:error, :forget_not_eligible}
-    end
+    with {:ok, _} <- Ankole.Pod.Pages.Tree.authorize(caller, object.id, "node_manage"), do: :ok
   end
 
   defp forgetting_reason(reason, caller) do

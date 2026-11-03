@@ -9,16 +9,16 @@
 
 ```bash
 # 按关键词搜索可发起审批定义
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals search --data '{"keyword":"请假"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals search --data '{"keyword":"请假"}'
 
 # 使用 page_token 翻页
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals search --data '{"keyword":"请假", "page_token":"example_page_token"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals search --data '{"keyword":"请假", "page_token":"example_page_token"}'
 
 # 表格格式输出，便于快速浏览候选定义
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals search --data '{"keyword":"出差"}' --format table
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals search --data '{"keyword":"出差"}' --format table
 
 # 预览 API 调用，不执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals search --data '{"keyword":"请假"}' --dry-run
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals search --data '{"keyword":"请假"}' --dry-run
 ```
 
 ## 参数
@@ -89,7 +89,7 @@
 ### 1）用户选中了某个定义，继续查看详情
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals approvals get --params '{"approval_code":"<APPROVAL_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" approvals get --params '{"approval_code":"<APPROVAL_CODE>"}'
 ```
 
 ### 2）确认是原生定义后，准备审批草稿

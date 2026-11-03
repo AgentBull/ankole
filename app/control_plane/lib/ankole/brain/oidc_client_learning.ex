@@ -2,7 +2,7 @@ defmodule Ankole.Brain.OIDCClientLearning do
   @moduledoc """
   Pulls stored OIDC Client conversations into Source-owned media pages.
 
-  Each page keeps its learned revision and audience in Object.meta. A changed
+  Each page keeps its learned revision and source node in Pod upstream state. A changed
   conversation replaces that page's facts atomically. Source defaults apply
   when a conversation first enters Brain; later edits do not widen its audience.
   """
@@ -10,12 +10,10 @@ defmodule Ankole.Brain.OIDCClientLearning do
   require Ash.Query
 
   alias Ankole.AIGateway.OIDCClientConversations
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
   alias Ankole.Brain.Jobs.LearnSource
-  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.SourceLearning
   alias Ankole.Brain.Sources
@@ -91,15 +89,18 @@ defmodule Ankole.Brain.OIDCClientLearning do
       |> Ash.Query.filter(managed_by_source_id == ^source.id)
       |> Ash.Query.select([:id, :slug, :meta, :content_hash, :deleted_at])
       |> Ankole.Ash.read!()
-      |> Map.new(&{&1.meta["conversation_id"], &1})
+      |> Map.new(fn page ->
+        state = upstream_state(page)
+        {state["conversation_id"], {page, state}}
+      end)
 
     OIDCClientConversations.conversations(source.upstream_id)
     |> Enum.flat_map(fn conversation ->
-      object = objects[conversation.id]
-
-      if object && object.meta["source_revision"] == conversation.revision,
-        do: [],
-        else: [{conversation, object}]
+      case objects[conversation.id] do
+        {_page, %{"source_revision" => revision}} when revision == conversation.revision -> []
+        {page, _state} -> [{conversation, page}]
+        nil -> [{conversation, nil}]
+      end
     end)
   end
 
@@ -109,8 +110,9 @@ defmodule Ankole.Brain.OIDCClientLearning do
 
     scope =
       if previous,
-        do: previous.meta["audience_scope"],
-        else: source.default_audience_scope || "principal:#{conversation.subject_uid}"
+        do: upstream_state(previous)["source_node_id"],
+        else:
+          source.default_source_node_id || Ankole.Brain.Scope.principal(conversation.subject_uid)
 
     slug = "media/oidc-#{source.id}-#{conversation.id}"
     title = "#{source.name} / #{conversation.id}"
@@ -119,26 +121,30 @@ defmodule Ankole.Brain.OIDCClientLearning do
       slug: slug,
       subtype: "conversation",
       title: title,
-      body: Markdoc.wrap("~~~json\n#{content}\n~~~", scope),
-      meta: %{
+      body: "~~~json\n#{content}\n~~~",
+      source_node_id: scope,
+      upstream_state: %{
         "conversation_id" => conversation.id,
         "source_revision" => material.revision,
-        "audience_scope" => scope
+        "source_node_id" => scope
       }
     }
 
     with {:ok, extraction} <-
            SourceLearning.extract_items(slug, title, conversation_excerpts(material.requests)),
          {:ok, %{object: object, written: written}} <-
-           Repo.transact_top_level(fn ->
-             learn_conversation_in_tx(%{
-               source: source,
-               attrs: attrs,
-               previous: previous,
-               items: extraction.items,
-               scope: scope
-             })
-           end) do
+           Repo.transact_top_level(
+             fn ->
+               learn_conversation_in_tx(%{
+                 source: source,
+                 attrs: attrs,
+                 previous: previous,
+                 items: extraction.items,
+                 scope: scope
+               })
+             end,
+             after_commit: &Ankole.Brain.Namespace.committed/1
+           ) do
       if written.rejected > 0 do
         Logging.warning(
           "brain.oidc_client_items_rejected",
@@ -161,16 +167,21 @@ defmodule Ankole.Brain.OIDCClientLearning do
   # the `:learn_oidc_conversation` action. The locked Source and page fence an
   # archive and a concurrent run.
   def learn_conversation_in_tx(%{source: source, attrs: attrs} = run) do
+    Ankole.Pod.Pages.Tree.lock_tree()
     session = "source:#{source.id}"
 
     with {:ok, current} <- Sources.lock_active(source),
          :ok <- ensure_current(current, source, attrs.slug, run.previous),
          {:ok, object} <- Objects.upsert_source_projection_in_tx(current, attrs),
-         _expired = Claims.expire_source_session_facts(object.slug, session),
-         {:ok, written} <- SourceLearning.write_claims(object, run.items, run.scope, session),
+         {:ok, written} <- SourceLearning.write_claims(object, run.items, object.id, session),
          {:ok, _source} <- Ankole.Ash.update(current, :record_sync, %{}) do
       {:ok, %{object: object, written: written}}
     end
+  end
+
+  defp upstream_state(page) do
+    {:ok, properties} = Ankole.Pod.Pages.fetch(page.id)
+    properties.upstream_state
   end
 
   defp conversation_excerpts(requests) do
@@ -187,13 +198,13 @@ defmodule Ankole.Brain.OIDCClientLearning do
 
   defp ensure_current(current, source, slug, previous) do
     object =
-      Object
-      |> Ash.Query.filter(slug == ^slug)
-      |> Ash.Query.lock(:for_update)
-      |> Ankole.Ash.read_one!()
+      case Objects.lock_object_in_tx(slug) do
+        {:ok, page} -> page
+        {:error, :not_found} -> nil
+      end
 
     case {object, previous} do
-      {nil, nil} when current.default_audience_scope == source.default_audience_scope ->
+      {nil, nil} when current.default_source_node_id == source.default_source_node_id ->
         :ok
 
       {%Object{content_hash: hash, deleted_at: deleted},

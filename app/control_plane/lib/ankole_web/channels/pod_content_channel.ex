@@ -162,7 +162,7 @@ defmodule AnkoleWeb.PodContentChannel do
   defp signature(socket) do
     AnkoleWeb.PodChannel.with_tenant(socket, fn ->
       Ankole.Repo.transact_repeatable_read_only(fn ->
-        Ankole.Files.Access.Graph.context_signature(socket.assigns.actor)
+        Ankole.Pod.Access.Graph.context_signature(socket.assigns.actor)
       end)
     end)
   end

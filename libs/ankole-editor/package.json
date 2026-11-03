@@ -25,7 +25,11 @@
       "types": "./src/editor/index.ts",
       "import": "./src/editor/index.ts"
     },
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./src/styles.css",
+    "./reader": {
+      "types": "./src/reader.ts",
+      "import": "./src/reader.ts"
+    }
   },
   "scripts": {
     "dev": "bun --bun vite --host 127.0.0.1",

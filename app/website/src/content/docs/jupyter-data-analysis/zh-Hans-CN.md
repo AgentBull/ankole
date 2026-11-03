@@ -41,7 +41,7 @@ order: 304
 下面配置一个专门分析团队在频道中所发 CSV 文件的 Agent：
 
 1. 确认 `jupyter-live-kernel` Skill 已启用（默认开启）。
-2. 创建 Agent 并编写 `MISSION.md`：“当频道中出现 CSV 文件时，将其加载进 DataFrame，检查字段结构与汇总统计量，识别异常值，并配图汇报分析结论。”
+2. 创建 Agent 并编写 `AGENTS.md`：“当频道中出现 CSV 文件时，将其加载进 DataFrame，检查字段结构与汇总统计量，识别异常值，并配图汇报分析结论。”
 3. 在频道中直接上传 CSV 附件，或在 Console 中将其上传至 Agent 云盘并在对话中给出路径。
 4. 收到请求后，Agent 会将工作委派给后台任务，启动 Kernel 加载 CSV，经过多轮交互检查与图表生成后，将分析结果发回频道。
 

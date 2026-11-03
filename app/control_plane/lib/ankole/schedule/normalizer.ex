@@ -127,7 +127,7 @@ defmodule Ankole.Schedule.Normalizer do
       "check" => Map.get(wake_payload, "check"),
       "context_summary" => Map.get(wake_payload, "context_summary"),
       "quiet_success" => Map.get(wake_payload, "quiet_success") == true,
-      "automation_job_id" => event.automation_job_id
+      "automation_job_id" => Ankole.Signals.source_automation_job_id(event)
     }
   end
 
@@ -188,7 +188,7 @@ defmodule Ankole.Schedule.Normalizer do
                attrs,
                "automation_job_id",
                automation_job_id,
-               existing.automation_job_id
+               Ankole.Signals.source_automation_job_id(existing)
              )
            ) do
       changes =

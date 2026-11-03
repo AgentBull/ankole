@@ -439,27 +439,46 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     %{input: input, reply: reply, message: message, attachment: attachment}
   end
 
-  def run_reply_attachment_tool_loop(%{
-        fake_feishu: fake_feishu,
-        agent: agent,
-        container: container
-      }) do
+  def run_reply_attachment_tool_loop(
+        %{
+          fake_feishu: fake_feishu,
+          agent: agent,
+          container: container
+        },
+        opts \\ []
+      ) do
     mention = lark_bot_mention()
+    suffix = Keyword.get(opts, :suffix, "1")
+    message_id = "om_reply_attachment_#{suffix}"
+    drive? = Keyword.get(opts, :drive, false)
+    resume? = Keyword.get(opts, :resume, false)
+    filename = if drive?, do: "drive-report.txt", else: "chaos-report.txt"
+
+    instructions =
+      cond do
+        resume? ->
+          "Run CHAOS_DRIVE_RESUME. Read the existing report in ChatDrive, append RESUMED, deliver its path with reply_attachment, then reply exactly CHAOS_REPLY_ATTACHMENT_OK."
+
+        drive? ->
+          "Run CHAOS_DRIVE_ATTACHMENT. Write the file under /drive/ChatDrive/reports, deliver its path with reply_attachment, then reply exactly CHAOS_REPLY_ATTACHMENT_OK."
+
+        true ->
+          "Run CHAOS_REPLY_ATTACHMENT. Create the file, save it with ankole-files put, register its returned nodeId with reply_attachment, then reply exactly CHAOS_REPLY_ATTACHMENT_OK."
+      end
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_reply_attachment_1",
-               message_id: "om_reply_attachment_1",
-               chat_id: "oc_chaos_reply_attachment",
+               event_id: "evt_reply_attachment_#{suffix}",
+               message_id: message_id,
+               chat_id: Keyword.get(opts, :chat_id, "oc_chaos_reply_attachment"),
                chat_type: "p2p",
-               text:
-                 "@_user_1 Run CHAOS_REPLY_ATTACHMENT. Create the file, save it with ankole-files put, register its returned nodeId with reply_attachment, then reply exactly CHAOS_REPLY_ATTACHMENT_OK.",
+               text: "@_user_1 " <> instructions,
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 4_500, :millisecond), :millisecond)
              )
 
-    input = signal_by_provider_message_id!(agent.uid, "om_reply_attachment_1")
+    input = signal_by_provider_message_id!(agent.uid, message_id)
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -470,8 +489,11 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
       rescue
         error in ExUnit.AssertionError ->
           IO.inspect(
-            Enum.filter(Ankole.E2E.FakeOpenAIState.requests(), &(&1.kind == :reply_attachment)),
-            label: "reply attachment actual upstream requests",
+            Ankole.E2E.FakeOpenAIState.requests()
+            |> Enum.filter(&(&1.kind in [:reply_attachment, :drive_attachment]))
+            |> Enum.flat_map(& &1.request["messages"])
+            |> Enum.filter(&(&1["role"] == "tool")),
+            label: "reply attachment tool results",
             limit: :infinity,
             printable_limit: :infinity
           )
@@ -492,27 +514,42 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert final_reply.payload["text"] =~ "CHAOS_REPLY_ATTACHMENT_OK"
     assert is_nil(intent.payload["text"])
 
-    # The command saves the file in the private drive. reply_attachment freezes
+    # The command saves the file in Drive. reply_attachment freezes
     # its immutable object for provider delivery.
-    content = "CHAOS_REPLY_ATTACHMENT_FILE"
-    expected_path = "reports/chaos-report.txt"
+    content = "CHAOS_REPLY_ATTACHMENT_FILE" <> if(resume?, do: "\nRESUMED", else: "")
+    expected_path = "reports/" <> filename
+    messages = ai_messages_for_signal(input.id)
+    assert [result] = successful_tool_results(messages, "reply_attachment")
 
     assert [
              %{
                "node_id" => node_id,
                "object_id" => object_id,
-               "name" => "chaos-report.txt",
-               "mime_type" => "text/plain"
+               "name" => ^filename
              } = attachment
-           ] = intent.payload["attachments"]
+           ] = tool_detail(result, ["attachments"])
+
+    assert {:ok, "text", "plain", _parameters} =
+             Plug.Conn.Utils.media_type(attachment["mime_type"])
 
     assert attachment["size"] == byte_size(content)
-    assert {:ok, file, ^content} = Ankole.Files.read(agent.uid, expected_path)
+
+    file =
+      if drive? do
+        {:ok, root} = Ankole.Pod.Pages.Tree.conversation_root(input.conversation_id)
+        {:ok, directory} = Ankole.Pod.Pages.Tree.child(root.id, "reports")
+        {:ok, file} = Ankole.Pod.Pages.Tree.child(directory.id, filename)
+        assert Ankole.Pod.node_conversation_id(file.id) == {:ok, input.conversation_id}
+        file
+      else
+        assert {:ok, file, ^content} = Ankole.Files.read(agent.uid, expected_path)
+        file
+      end
+
     assert file.id == node_id
     assert file.object_id == object_id
     assert {:ok, ^content} = Ankole.Files.read_object(object_id)
 
-    messages = ai_messages_for_signal(input.id)
     assert command_tool_succeeded?(messages)
     assert tool_result_succeeded?(messages, "reply_attachment")
 

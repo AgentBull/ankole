@@ -74,6 +74,7 @@ defmodule Ankole.OIDC do
   @spec list_clients() :: [map()]
   def list_clients do
     Client
+    |> Ash.Query.load(:allowed_group_ids)
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ankole.Ash.read!()
     |> Enum.map(&projection/1)

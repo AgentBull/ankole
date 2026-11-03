@@ -145,7 +145,7 @@ describe('Pod Agent CLI', () => {
       expect(written.base_revision).toBe(7)
       expect(forwardedXML).toContain('<h1>Heading</h1>')
       expect(written.xml).toBeUndefined()
-      expect(written.markdown).toBeUndefined()
+      expect(written.markdown).toBe('# Heading\n')
       await expect(
         requestSocketLineBridge(
           bridge.socketPath,

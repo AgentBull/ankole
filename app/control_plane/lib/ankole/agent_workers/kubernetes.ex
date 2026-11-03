@@ -370,11 +370,26 @@ defmodule Ankole.AgentWorkers.Kubernetes do
     env =
       env ++ Enum.reject(Map.get(worker, "env", []), &MapSet.member?(names, &1["name"]))
 
+    capacity =
+      provider.settings["cache"]["sizeLimit"] ||
+        get_in(provider.settings, ["cache", "claimTemplate", "resources", "requests", "storage"])
+
+    env = [%{"name" => "ANKOLE_WORKER_CACHE_CAPACITY", "value" => to_string(capacity)} | env]
+
+    device = Map.get(provider.settings, "fuseDeviceResource", "smarter-devices/fuse")
+    resources = Map.get(worker, "resources", %{})
+
+    resources =
+      Enum.reduce(["requests", "limits"], resources, fn key, resources ->
+        Map.update(resources, key, %{device => "1"}, &Map.put(&1, device, "1"))
+      end)
+
     worker =
       Map.merge(worker, %{
         "image" => image,
         "env" => env,
         "volumeMounts" => mounts,
+        "resources" => resources,
         "securityContext" => %{
           "runAsUser" => 0,
           "runAsGroup" => 0,
@@ -382,9 +397,10 @@ defmodule Ankole.AgentWorkers.Kubernetes do
           "allowPrivilegeEscalation" => false,
           "capabilities" => %{
             "drop" => ["ALL"],
-            "add" => ~w(SETUID SETGID CHOWN FOWNER DAC_OVERRIDE KILL)
+            "add" => ~w(SETUID SETGID SETPCAP CHOWN FOWNER DAC_OVERRIDE KILL SYS_ADMIN)
           },
-          "seccompProfile" => %{"type" => "RuntimeDefault"}
+          "seccompProfile" => %{"type" => "RuntimeDefault"},
+          "appArmorProfile" => %{"type" => "Unconfined"}
         }
       })
 

@@ -224,6 +224,30 @@ export function useRoute<Data = unknown, Error = globalThis.Error, Selected = Da
   return useReadResult(result, queryKey)
 }
 
+/** Observe a durable Action, including changes committed while the browser was disconnected. */
+export function useActionRun(runID: number | null) {
+  const runtime = usePod()
+  const [revoked, setRevoked] = useState(false)
+  useEffect(() => {
+    setRevoked(false)
+    if (runID === null) return
+    return runtime.runs.subscribe(runID, event => {
+      if (event.access_revoked) setRevoked(true)
+    })
+  }, [runtime, runID])
+  const queryKey = runtime.runs.key(runID ?? 0)
+  const result = useQuery({
+    queryKey,
+    queryFn: ({ signal }) => runtime.runs.get(runID!, signal),
+    enabled: runID !== null && !revoked
+  })
+  return useReadResult(
+    result,
+    queryKey,
+    revoked ? new Error(t('pod.content.you_no_longer_have_access_to_this_applet')) : undefined
+  )
+}
+
 export function useRouteMutation<Data = unknown, Error = globalThis.Error, Context = unknown>(
   route: MutationRoute,
   options: Omit<UseMutationOptions<Data, Error, RouteVariables, Context>, 'mutationFn'> = {}

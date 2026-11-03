@@ -32,7 +32,7 @@ end
 
 defmodule Ankole.FunctionRuntime.AppletClientTest do
   use ExUnit.Case, async: false
-  alias Ankole.FunctionRuntime.{AppletClient, EndpointPool}
+  alias Ankole.FunctionRuntime.{AppletClient, EndpointPool, HTTP}
 
   setup do
     original = :sys.get_state(EndpointPool)
@@ -69,13 +69,46 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
   end
 
   test "inspection fails over after a real HTTP 503 before running user code" do
-    assert {:ok, ["GET /"]} = AppletClient.inspect("export default {'GET /':()=>true}", [])
+    assert {:ok, %{"routes" => ["GET /"], "actions" => %{}}} =
+             AppletClient.inspect("export default {'GET /':()=>true}", [])
+
     assert_receive {:capacity_rejection, "/v1/applet/inspect"}
   end
 
   test "a refused TCP connection fails over before admission", ctx do
     :ok = GenServer.stop(ctx.server)
-    assert {:ok, ["GET /"]} = AppletClient.inspect("export default {'GET /':()=>true}", [])
+
+    assert {:ok, %{"routes" => ["GET /"], "actions" => %{}}} =
+             AppletClient.inspect("export default {'GET /':()=>true}", [])
+  end
+
+  test "waiting for an occupied HTTP pool returns the caller's timeout", ctx do
+    server = slow_admission(ctx.real, :preflight)
+    {:ok, endpoint, lease} = EndpointPool.checkout()
+
+    try do
+      :ok =
+        Finch.start_pool(
+          Ankole.FunctionRuntime.Finch,
+          Finch.Pool.new(endpoint.url, tag: endpoint.host),
+          protocols: [:http1],
+          size: 1,
+          conn_opts: [hostname: endpoint.host, transport_opts: [inet6: true]]
+        )
+
+      busy = Task.async(fn -> HTTP.at(endpoint, :get, "/occupied", %{}, 5_000) end)
+      assert_receive {:slow_admission, :preflight}, 500
+
+      for _ <- 1..10 do
+        assert {:error, :function_runtime_timeout} = HTTP.at(endpoint, :get, "/waiting", %{}, 5)
+      end
+
+      assert {:ok, 204, ""} = Task.await(busy)
+      refute_receive {:slow_admission, :preflight}
+    after
+      EndpointPool.release(lease)
+      GenServer.stop(server)
+    end
   end
 
   test "an Applet preflight 503 fails over to the real WebSocket adapter" do
@@ -84,7 +117,8 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
     monitor = Process.monitor(client)
     assert_receive {:capacity_rejection, "/v1/applet/invoke"}
 
-    assert_receive {:applet_runtime, ^run_id, :done, %{"status" => 200, "body" => true}},
+    assert_receive {:applet_runtime, ^run_id, :done,
+                    {:completed, %{"status" => 200, "body" => true}}},
                    5_000
 
     assert_receive {:DOWN, ^monitor, :process, ^client, :normal}, 5_000
@@ -110,7 +144,8 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
     AppletClient.reply(client, call_id, {:ok, %{written: true}})
 
     assert_receive {:applet_runtime, ^run_id, :done,
-                    %{"status" => 500, "body" => %{"error" => %{"code" => "handler_error"}}}},
+                    {:aborted,
+                     %{"status" => 500, "body" => %{"error" => %{"code" => "handler_error"}}}}},
                    5_000
 
     assert_receive {:DOWN, ^monitor, :process, ^client, :normal}, 5_000
@@ -128,7 +163,8 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
     monitor = Process.monitor(client)
 
     assert_receive {:applet_runtime, ^run_id, :done,
-                    %{"status" => 504, "body" => %{"error" => %{"code" => "handler_timeout"}}}},
+                    {:rejected,
+                     %{"status" => 504, "body" => %{"error" => %{"code" => "handler_timeout"}}}}},
                    5_000
 
     assert_receive {:DOWN, ^monitor, :process, ^client, :normal}, 5_000
@@ -146,7 +182,11 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
         assert_receive {:slow_admission, ^stage}, 500
 
         assert_receive {:applet_runtime, ^run_id, :done,
-                        %{"status" => 504, "body" => %{"error" => %{"code" => "handler_timeout"}}}},
+                        {:rejected,
+                         %{
+                           "status" => 504,
+                           "body" => %{"error" => %{"code" => "handler_timeout"}}
+                         }}},
                        500
 
         assert_receive {:DOWN, ^monitor, :process, ^client, :normal}, 500
@@ -211,7 +251,7 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
     end
 
     assert_receive {:applet_runtime, ^run_id, :done,
-                    %{"status" => 200, "body" => %{"written" => true}}},
+                    {:completed, %{"status" => 200, "body" => %{"written" => true}}}},
                    5_000
 
     assert_receive {:DOWN, ^monitor, :process, ^client, :normal}, 5_000

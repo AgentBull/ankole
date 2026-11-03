@@ -13,10 +13,13 @@ defmodule Ankole.Pod.Pages.Browser do
     allow(:navigation, check: :guardrail)
     allow(:search, check: :guardrail)
     allow(:show, check: :guardrail)
+    allow(:knowledge_panel, check: :guardrail)
+    allow(:knowledge_export, check: :guardrail)
     allow(:insights, check: :guardrail)
     allow(:viewers, check: :guardrail)
     allow(:create, check: :guardrail)
     allow(:update, check: :guardrail)
+    allow(:transfer_owner, check: :guardrail)
     allow(:move, check: :guardrail)
     allow(:delete, check: :guardrail)
     allow(:restore, check: :guardrail)
@@ -39,6 +42,7 @@ defmodule Ankole.Pod.Pages.Browser do
 
   alias Ankole.Pod.{Documents, Pages, APIError}
   alias Ankole.Ash.Types.{UUIDv7, PrincipalKey}
+  import Ankole.Pod.Serialization, only: [navigation_page: 1]
 
   @role [
     type: :atom,
@@ -169,6 +173,8 @@ defmodule Ankole.Pod.Pages.Browser do
   ]
   @navigation_fields [
     name: [type: :string, allow_nil?: false],
+    metadata: [type: Ankole.Ash.Types.JSONMap, allow_nil?: false],
+    system_key: [type: :string],
     id: [type: UUIDv7, allow_nil?: false],
     has_children: [type: :boolean, allow_nil?: false],
     parent_id: [type: UUIDv7],
@@ -176,7 +182,7 @@ defmodule Ankole.Pod.Pages.Browser do
     type: [
       type: :atom,
       allow_nil?: false,
-      constraints: [one_of: [:doc, :base, :applet, :file, :folder]]
+      constraints: [one_of: [:doc, :knowledge, :base, :applet, :file]]
     ],
     title: [type: :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false]],
     icon: [type: :string],
@@ -227,7 +233,7 @@ defmodule Ankole.Pod.Pages.Browser do
 
   @children_view_fields [
     collapsed: [type: :boolean],
-    view: [type: :atom, constraints: [one_of: [:list, :grid]]],
+    view: [type: :atom, constraints: [one_of: [:list, :grid, :table]]],
     field_order: [
       type: {:array, :atom},
       constraints: [items: @children_view_field]
@@ -243,10 +249,11 @@ defmodule Ankole.Pod.Pages.Browser do
     type: [
       type: :atom,
       allow_nil?: false,
-      constraints: [one_of: [:doc, :base, :applet, :file, :folder]]
+      constraints: [one_of: [:doc, :knowledge, :base, :applet, :file]]
     ],
     title: [type: :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false]],
     icon: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    system_key: [type: :string],
     private_owner_uid: [type: PrincipalKey],
     ancestors: [
       type: {:array, :string},
@@ -280,9 +287,10 @@ defmodule Ankole.Pod.Pages.Browser do
       allow_nil?: false,
       constraints: [one_of: [:ok, :trashed, :restricted]]
     ],
-    type: [type: :atom, constraints: [one_of: [:doc, :base, :applet, :file, :folder]]],
+    type: [type: :atom, constraints: [one_of: [:doc, :knowledge, :base, :applet, :file]]],
     title: [type: :string, constraints: [allow_empty?: true, trim?: false]],
     icon: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    system_key: [type: :string],
     private_owner_uid: [type: PrincipalKey],
     ancestors: [
       type: {:array, :string},
@@ -328,12 +336,6 @@ defmodule Ankole.Pod.Pages.Browser do
         end
       end)
     end)
-  end
-
-  defp navigation_page(page) do
-    page
-    |> Map.take(Keyword.keys(@navigation_fields))
-    |> Map.put(:has_children, page.aggregates.has_children)
   end
 
   @page [type: :struct, constraints: struct_constraints(Ankole.Pod.Page), allow_nil?: false]
@@ -457,6 +459,12 @@ defmodule Ankole.Pod.Pages.Browser do
         allow_nil?: false
       )
 
+      argument(:domain, :atom,
+        constraints: [one_of: [:pages, :brain, :all]],
+        default: :pages,
+        allow_nil?: false
+      )
+
       argument(:query, :string)
 
       run(fn input, context ->
@@ -554,6 +562,12 @@ defmodule Ankole.Pod.Pages.Browser do
         ]
       )
 
+      argument(:domain, :atom,
+        constraints: [one_of: [:pages, :brain, :all]],
+        default: :pages,
+        allow_nil?: false
+      )
+
       argument(:query, :string, allow_nil?: false, constraints: [allow_empty?: true])
       argument(:exclude_subtree_of, UUIDv7)
       argument(:embeddable, :boolean, allow_nil?: false, default: false)
@@ -581,6 +595,15 @@ defmodule Ankole.Pod.Pages.Browser do
           content: @content,
           role: @role,
           actions: @actions,
+          fact_learning: [
+            type: :map,
+            constraints: [
+              fields: [
+                enabled: [type: :boolean, allow_nil?: false],
+                inherited: [type: :boolean, allow_nil?: false]
+              ]
+            ]
+          ],
           child_count: [type: :integer, allow_nil?: false, constraints: [min: 0]],
           source_conversation: [
             type: :map,
@@ -607,7 +630,7 @@ defmodule Ankole.Pod.Pages.Browser do
       constraints(fields: [page: @page])
 
       argument(:type, :atom,
-        constraints: [one_of: [:doc, :base, :file, :folder]],
+        constraints: [one_of: [:doc, :knowledge, :base, :file]],
         default: :doc
       )
 
@@ -619,6 +642,7 @@ defmodule Ankole.Pod.Pages.Browser do
       argument(:saved_from_message_id, UUIDv7)
       argument(:children_view, :map, constraints: [fields: @children_view_fields])
       argument(:xml, :string, constraints: [trim?: false])
+      argument(:metadata, Ankole.Ash.Types.JSONMap)
       argument(:attachment_position, :integer, constraints: [min: 0])
 
       run(fn input, context ->
@@ -630,9 +654,27 @@ defmodule Ankole.Pod.Pages.Browser do
           end
 
         with {:ok, page} <- result do
-          Ankole.Files.Access.authorize_with_permissions(context.actor, page)
+          Ankole.Pod.Access.authorize_with_permissions(context.actor, page)
         end
         |> APIError.result(&%{page: &1})
+      end)
+    end
+
+    action :transfer_owner, :map do
+      constraints(fields: [page: @page])
+
+      argument(:page_id, UUIDv7, allow_nil?: false)
+      argument(:owner_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+
+      run(fn input, context ->
+        APIError.result(
+          Ankole.Pod.transfer_applet_owner(
+            context.actor,
+            input.arguments.page_id,
+            input.arguments.owner_uid
+          ),
+          &%{page: &1}
+        )
       end)
     end
 
@@ -648,6 +690,7 @@ defmodule Ankole.Pod.Pages.Browser do
 
       argument(:icon, :string, constraints: [trim?: false, allow_empty?: true])
       argument(:children_view, :map, constraints: [fields: @children_view_fields])
+      argument(:extract_facts, :boolean)
 
       run(fn input, context ->
         Pages.update(context.actor, input.arguments.id, input.arguments)
@@ -801,19 +844,61 @@ defmodule Ankole.Pod.Pages.Browser do
       end)
     end
 
+    action :knowledge_export, :map do
+      constraints(
+        fields: [
+          markdown: [
+            type: :string,
+            allow_nil?: false,
+            constraints: [trim?: false, allow_empty?: true]
+          ]
+        ]
+      )
+
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:snapshot_id, UUIDv7)
+
+      run(fn input, context ->
+        Ankole.Pod.Knowledge.export(
+          context.actor,
+          input.arguments.id,
+          input.arguments.snapshot_id
+        )
+        |> APIError.result(&%{markdown: &1})
+      end)
+    end
+
+    action :knowledge_panel, :map do
+      constraints(fields: [panel: [type: Ankole.Ash.Types.JSONMap, allow_nil?: false]])
+      argument(:id, UUIDv7, allow_nil?: false)
+
+      run(fn input, context ->
+        with {:ok, _} <- Pages.authorize(context.actor, input.arguments.id, "node_view"),
+             {:ok, panel} <-
+               Ankole.Brain.Knowledge.panel(
+                 Ankole.Brain.Tools.Context.for_subject(Ankole.AuthZ.Actor.uid(context.actor)),
+                 input.arguments.id
+               ),
+             do: {:ok, %{panel: Ankole.JSON.plain(panel)}}
+      end)
+    end
+
     action :write, :map do
       constraints(fields: [page: @page, content: @content])
       argument(:id, UUIDv7, allow_nil?: false)
       argument(:base_revision, :integer, allow_nil?: false, constraints: [min: 0])
       argument(:xml, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
+      argument(:metadata, Ankole.Ash.Types.JSONMap)
+
       run(fn input, context ->
         APIError.result(
-          Documents.write(
+          write_content(
             context.actor,
             input.arguments.id,
             input.arguments.base_revision,
-            input.arguments.xml
+            input.arguments.xml,
+            input.arguments[:metadata]
           )
         )
       end)
@@ -1001,4 +1086,10 @@ defmodule Ankole.Pod.Pages.Browser do
       end)
     end
   end
+
+  defp write_content(actor, id, revision, xml, nil),
+    do: Documents.write(actor, id, revision, xml)
+
+  defp write_content(actor, id, revision, xml, metadata),
+    do: Ankole.Pod.Knowledge.write(actor, id, revision, xml, metadata)
 end

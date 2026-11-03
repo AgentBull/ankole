@@ -6,7 +6,6 @@ tags:
   - Explain it in a very simple way
   - 用大白话
   - 通俗地解释
-brain-recall-only: true
 ankole-runtime: main
 ---
 

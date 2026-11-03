@@ -26,7 +26,7 @@ defmodule Ankole.Principals.RenameTest do
     {:ok, %{comment: comment}} =
       Pod.Comments.create(actor, page.id, %{body: "<mention principal=\"#{owner.uid}\" />"})
 
-    home = Repo.get_by!(Ankole.Brain.Schemas.Object, slug: "people/" <> owner.uid)
+    home = Repo.get_by!(Ankole.Brain.Schemas.Page, slug: "people/" <> owner.uid)
     {:ok, browser} = BrowserSessions.create()
 
     {:ok, login} =
@@ -61,14 +61,14 @@ defmodule Ankole.Principals.RenameTest do
 
     saved = Repo.get_by!(PageContent, page_id: page.id)
     assert saved.content =~ "principal=\"#{renamed.uid}\""
-    assert Repo.get!(Pod.Page, page.id).revision > page.revision
-    assert Repo.get!(Pod.Page, plain.id).revision == plain.revision
+    assert Repo.get_by!(Pod.Page, id: page.id).revision > page.revision
+    assert Repo.get_by!(Pod.Page, id: plain.id).revision == plain.revision
     assert Repo.get_by!(PageContent, page_id: plain.id).content =~ owner.uid
     assert saved.updated_by.uid == renamed.uid
     assert Repo.get!(PageComment, comment.id).body =~ renamed.uid
     assert Repo.get!(PageComment, comment.id).author.uid == renamed.uid
-    assert Repo.get_by!(Ankole.Brain.Schemas.Object, slug: "people/" <> renamed.uid).id == home.id
-    refute Repo.get_by(Ankole.Brain.Schemas.Object, slug: "people/" <> owner.uid)
+    assert Repo.get_by!(Ankole.Brain.Schemas.Page, slug: "people/" <> renamed.uid).id == home.id
+    refute Repo.get_by(Ankole.Brain.Schemas.Page, slug: "people/" <> owner.uid)
   end
 
   test "Human rename rejects UID syntax that cannot name a route or a permission resource" do
@@ -170,71 +170,61 @@ defmodule Ankole.Principals.RenameTest do
     assert Enum.all?(snapshots, &String.contains?(&1.content, "principal=\"#{renamed.uid}\""))
   end
 
-  test "Brain private bodies and canonical links follow a rename, including restored versions" do
+  test "private knowledge, typed mentions and historical restores follow a Principal rename" do
     owner = human_fixture(%{email: "brain-before@example.com"}).principal
     outsider = human_fixture().principal
-    old_slug = Ankole.Brain.principal_page_slug(:human, owner.uid)
-    {:ok, _} = Ankole.Brain.SchemaPacks.install_packs([])
+    actor = actor_fixture(owner)
+    {:ok, home} = Ankole.Brain.Objects.get_by_slug("people/" <> owner.uid)
+    category = Ankole.BrainFixtures.category_fixture(owner.uid)
 
-    body = """
-    Public introduction. [[#{old_slug}|Owner]]
+    xml =
+      "<page><p>Private note. <mention principal=\"#{owner.uid}\" /><mention page=\"#{home.id}\" /></p><pre>#{owner.uid}</pre></page>"
 
-    {% audience scope="principal:#{owner.uid}" %}
-    Private note.
-    {% /audience %}
+    {:ok, page} =
+      Pages.create(actor, %{
+        type: :knowledge,
+        parent_id: category.id,
+        title: "Rename review",
+        xml: xml,
+        metadata: %{"summary" => "Private review"}
+      })
 
-    `[[#{old_slug}]]` and `principal:#{owner.uid}` are literal examples.
-    """
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: owner.uid, role: "manage"}]
+      })
 
-    {:ok, object} =
-      Ankole.Brain.create_object(
-        %{slug: "projects/rename-review", type: "project", title: "Rename review", body: body},
-        owner.uid
-      )
+    {:ok, %{snapshots: [original]}} = Pod.Documents.History.list(actor, page.id)
+    {:ok, _} = Pod.Knowledge.write(actor, page.id, 0, xml, %{"summary" => "Updated review"})
 
-    {:ok, object} =
-      Ankole.Brain.update_object(
-        object.slug,
-        %{body: body <> "\nPublic addition.\n", expected_content_hash: object.content_hash},
-        owner.uid
-      )
-
-    version = Repo.get_by!(Ankole.Brain.Schemas.ObjectVersion, object_id: object.id)
-    assert {:ok, before} = Ankole.Brain.GetPage.get_page(owner.uid, object.slug)
-    assert before.rendered =~ "Private note."
     assert {:ok, %{principal: renamed}} = Principals.rename(owner.uid, "brain-after@example.com")
-    assert {:ok, after_rename} = Ankole.Brain.GetPage.get_page(renamed.uid, object.slug)
-    assert after_rename.rendered =~ "Private note."
-    assert after_rename.content_hash != object.content_hash
+    renamed_actor = actor_fixture(renamed)
+    assert {:ok, %{page: current, content: content}} = Pages.get(renamed_actor, page.id)
+    assert content.content =~ "principal=\"#{renamed.uid}\""
+    assert content.content =~ "page=\"#{home.id}\""
+    assert content.content =~ "<pre>#{owner.uid}</pre>"
+    assert {:error, :forbidden} = Pages.get(actor_fixture(outsider), page.id)
+    assert {:ok, canonical} = Ankole.Brain.Objects.get_by_slug("people/" <> renamed.uid)
+    assert canonical.id == home.id
 
-    assert {:error, :content_hash_conflict} =
-             Ankole.Brain.update_object(
-               object.slug,
-               %{body: body, expected_content_hash: object.content_hash},
-               renamed.uid
+    assert {:ok, %{page: restored, content: restored_content}} =
+             Pod.Documents.History.restore(
+               renamed_actor,
+               page.id,
+               original.id,
+               current.revision,
+               current.updated_at
              )
 
-    stored = Repo.get!(Ankole.Brain.Schemas.Object, object.id)
-    new_slug = Ankole.Brain.principal_page_slug(:human, renamed.uid)
-    assert Ankole.Brain.Markdoc.wikilinks(stored.body) == [new_slug]
-    assert stored.body =~ "`[[#{old_slug}]]`"
-    assert stored.body =~ "`principal:#{owner.uid}`"
-    assert {:ok, other_view} = Ankole.Brain.GetPage.get_page(outsider.uid, object.slug)
-    refute other_view.rendered =~ "Private note."
+    assert restored.metadata == %{"entity_type" => "note", "summary" => "Private review"}
+    assert restored_content.content =~ "principal=\"#{renamed.uid}\""
+    assert restored_content.content =~ "page=\"#{home.id}\""
+    assert restored_content.content =~ "<pre>#{owner.uid}</pre>"
 
     replacement = human_fixture(%{email: "replacement@example.com"}).principal
     assert {:ok, %{principal: replacement}} = Principals.rename(replacement.uid, owner.uid)
-    assert {:ok, reused_name_view} = Ankole.Brain.GetPage.get_page(replacement.uid, object.slug)
-    refute reused_name_view.rendered =~ "Private note."
-
-    assert {:ok, _} = Ankole.Brain.rollback_object(object.slug, version.id, renamed.uid)
-    assert {:ok, restored} = Ankole.Brain.GetPage.get_page(renamed.uid, object.slug)
-    assert restored.rendered =~ "Private note."
-
-    assert Ankole.Brain.Markdoc.wikilinks(Repo.get!(Ankole.Brain.Schemas.Object, object.id).body) ==
-             [
-               new_slug
-             ]
+    assert {:error, :forbidden} = Pages.get(actor_fixture(replacement), page.id)
   end
 
   test "chat targets and typed JSON mentions follow the rename while user text keeps its bytes" do
@@ -267,6 +257,35 @@ defmodule Ankole.Principals.RenameTest do
       |> Repo.all()
 
     assert Enum.any?(participants, &(&1.principal_uid == renamed.uid))
+  end
+
+  test "Agent rename keeps delegated Skill-binding grants", %{} do
+    owner = human_fixture().principal
+    agent = agent_fixture(%{uid: "skill-delegate"}).principal
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: owner.uid,
+        resource_pattern: "tenant_console:agent_skill_binding:#{agent.uid}",
+        action: "update"
+      })
+
+    {:ok, _} = Principals.disable_agent(agent.uid)
+    assert {:ok, _} = Principals.rename(agent.uid, "renamed-skill-delegate")
+
+    assert :ok =
+             Ankole.AuthZ.authorize(
+               actor_fixture(owner),
+               "tenant_console:agent_skill_binding:renamed-skill-delegate",
+               "update"
+             )
+
+    assert {:error, _} =
+             Ankole.AuthZ.authorize(
+               actor_fixture(owner),
+               "tenant_console:agent_skill_binding:skill-delegate",
+               "update"
+             )
   end
 
   test "an Agent rename preserves historical Delivery attachment references" do

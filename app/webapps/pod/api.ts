@@ -17,6 +17,7 @@ import {
   getPodActionCard,
   podAgents,
   podConversations,
+  podConversationAttention,
   conversationDetail,
   createConversation,
   postConversationMessage,
@@ -165,4 +166,9 @@ export function chatError(error: unknown): unknown {
   const code = requestErrorCode(payload) ?? (typeof raw === 'string' ? raw : undefined)
   const key = code ? `pod.chat.errors.${code}` : ''
   return key && i18n.exists(key) ? new Error(i18n.t(key)) : error
+}
+
+export const conversationAttentionQuery = {
+  queryKey: [...podKeys.conversations, 'attention'],
+  queryFn: ({ signal }: { signal: AbortSignal }) => podConversationAttention({ signal })
 }

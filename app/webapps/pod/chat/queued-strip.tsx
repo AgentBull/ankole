@@ -4,6 +4,9 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
   useTreeItemDrag,
   TreeDropIndicator
 } from '@ankole/uikit'
@@ -19,6 +22,7 @@ import {
 } from '@remixicon/react'
 import { useTranslation } from 'react-i18next'
 import type { ConversationDetail, ConversationPendingInput, ConversationQueueRequest } from '../api'
+import { MessageAttachments } from '../chat-attachments'
 
 type Queue = ConversationDetail['pendingQueues'][number]
 export function QueuedStrip({
@@ -81,6 +85,7 @@ export function QueuedStrip({
               {queue.inputs.map((input, index) => (
                 <QueuedRow
                   key={input.messageID}
+                  conversationID={detail.conversation.id}
                   input={input}
                   queue={queue}
                   index={index}
@@ -105,6 +110,7 @@ export function QueuedStrip({
 }
 
 function QueuedRow({
+  conversationID,
   input,
   queue,
   index,
@@ -116,6 +122,7 @@ function QueuedRow({
   edit,
   takeBack
 }: {
+  conversationID: string
   input: ConversationPendingInput
   queue: Queue
   index: number
@@ -162,9 +169,20 @@ function QueuedRow({
         {label}
       </p>
       {!!input.attachments.length && (
-        <span className="pod-chat-queue-files" title={input.attachments.map(attachment => attachment.name).join(', ')}>
-          +{input.attachments.length}
-        </span>
+        <Popover>
+          <PopoverTrigger
+            render={<Button size="xs" variant="ghost" />}
+            aria-label={input.attachments.map(attachment => attachment.name).join(', ')}>
+            +{input.attachments.length}
+          </PopoverTrigger>
+          <PopoverContent className="w-80" align="end">
+            <MessageAttachments
+              conversationID={conversationID}
+              messageID={input.messageID}
+              attachments={input.attachments}
+            />
+          </PopoverContent>
+        </Popover>
       )}
       {(own || queue.inputs.length > 1) && (
         <div className="pod-chat-queue-actions">

@@ -2,13 +2,44 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   @moduledoc false
 
   require Ash.Query
-  alias Ankole.AIAgent.Library.Schemas.AgentSkill
+  alias Ankole.AIAgent.Library.Schemas.Skill
+  alias Ankole.AIAgent.Library.Skills
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.Brain.Config, as: BrainConfig
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Principals
   alias Ankole.Principals.Agent
+
+  def retire_skill_in_tx(name) do
+    AgentSkillLesson
+    |> Ash.Query.filter(skill_name == ^name and is_nil(retired_at))
+    |> update_lessons_in_tx(:retire, %{
+      retired_at: DateTime.utc_now(:microsecond),
+      retire_reason: :obsolete
+    })
+  end
+
+  def rename_skill_in_tx(name, name), do: :ok
+
+  def rename_skill_in_tx(old_name, new_name) do
+    AgentSkillLesson
+    |> Ash.Query.filter(skill_name == ^old_name)
+    |> update_lessons_in_tx(:rename_skill, %{skill_name: new_name})
+  end
+
+  defp update_lessons_in_tx(query, action, attrs) do
+    query
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!()
+    |> Enum.reduce_while(:ok, fn lesson, :ok ->
+      case Ankole.Ash.update(lesson, action, attrs) do
+        {:ok, _} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
 
   def apply_adds_in_tx(agent_uid, adds, context, now, catalog) do
     state = %{
@@ -73,11 +104,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   def skill_lesson_review_docket(agent_uid, horizon, current_release) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
       skill_hashes =
-        AgentSkill
-        |> Ash.Query.filter(agent_uid == ^agent_uid)
-        |> Ash.Query.select([:skill_name, :content_hash])
-        |> Ankole.Ash.read!()
-        |> Map.new(&{&1.skill_name, &1.content_hash})
+        Skills.list() |> Map.new(&{&1.slug, SourceReader.hash(&1.manifest_markdown)})
 
       docket =
         AgentSkillLesson
@@ -137,7 +164,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   unknown skill or lesson is not found.
   """
   def rejection(:skill_not_found),
-    do: Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkill)
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: Skill)
 
   def rejection(:skill_lesson_not_found),
     do: Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkillLesson)
@@ -525,11 +552,9 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
     }
 
   defp current_skill_hash(%AgentSkillLesson{} = lesson) do
-    case AgentSkill
-         |> Ash.Query.filter(agent_uid == ^lesson.agent_uid and skill_name == ^lesson.skill_name)
-         |> Ankole.Ash.read_one!() do
-      %AgentSkill{content_hash: content_hash} -> content_hash
-      nil -> nil
+    case Skills.get(lesson.skill_name) do
+      {:ok, skill} -> SourceReader.hash(skill.manifest_markdown)
+      _ -> nil
     end
   end
 end

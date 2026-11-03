@@ -28,12 +28,64 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     :ok
   end
 
-  test "global defaults and Agent three-state overrides preserve parent and child state independently",
+  test "Site Console manages another tenant's Skill bindings with site grants", %{conn: conn} do
+    conn = console_conn(conn)
+    other = Ankole.DataCase.create_tenant()
+
+    {agent, skill} =
+      Repo.with_tenant(other.id, fn ->
+        owner = human_fixture().principal
+
+        {:ok, _} =
+          Ankole.AuthZ.create_permission_grant(%{
+            principal_uid: owner.uid,
+            resource_pattern: "tenant_console:custom_skills",
+            action: "update"
+          })
+
+        agent = agent_fixture(%{owner_principal_uid: owner.uid}).principal
+
+        {:ok, skill} =
+          Library.Skills.create(actor_fixture(owner), %{
+            slug: "cross-tenant-skill",
+            manifest_xml: "<page />",
+            metadata: %{"name" => "Cross tenant", "description" => "Site management"}
+          })
+
+        {agent, skill}
+      end)
+
+    conn = put_req_header(conn, "x-ankole-tenant", other.id)
+
+    bound =
+      conn
+      |> api(:put, "/api/v2/agents/#{agent.uid}/library-capabilities/skills/#{skill.slug}", %{
+        "enabled" => true
+      })
+      |> json_response(200)
+
+    assert Enum.find(bound["skills"], &(&1["id"] == skill.slug))["bound"]
+  end
+
+  test "Console cannot configure another member's personal assistant Plugin", %{conn: conn} do
+    owner = human_fixture().principal
+    worker_provider_fixture(%{is_default: true})
+    {:ok, %{principal: assistant}} = Ankole.Principals.ensure_personal_assistant(owner.uid)
+
+    conn
+    |> console_conn()
+    |> api(:put, "/api/v2/agents/#{assistant.uid}/library-capabilities/agent-plugins/lark", %{
+      "enabled" => true
+    })
+    |> json_response(403)
+  end
+
+  test "Plugin overrides and positive Skill bindings preserve parent and child state independently",
        %{
          conn: conn
        } do
     %{principal: agent} = agent_fixture()
-    conn = console_conn(conn)
+    conn = meta_console_conn(conn)
 
     global = conn |> api(:get, ~p"/api/v2/agent-library/capabilities") |> json_response(200)
 
@@ -70,6 +122,9 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
     assert plugin(enabled, "lark")["effective_enabled"] == true
 
+    {:ok, row} = Library.Skills.get("lark-im")
+    {:ok, _} = Library.Skills.set_all(operator_actor(), row.slug, false, row.revision)
+
     child_disabled =
       conn
       |> recycle_api()
@@ -80,7 +135,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
       )
       |> json_response(200)
 
-    assert skill(plugin(child_disabled, "lark"), "lark-im")["override_enabled"] == false
+    assert skill(plugin(child_disabled, "lark"), "lark-im")["bound"] == false
     assert skill(plugin(child_disabled, "lark"), "lark-im")["effective_enabled"] == false
 
     parent_disabled =
@@ -91,7 +146,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
       })
       |> json_response(200)
 
-    assert skill(plugin(parent_disabled, "lark"), "lark-im")["override_enabled"] == false
+    assert skill(plugin(parent_disabled, "lark"), "lark-im")["bound"] == false
 
     parent_enabled_again =
       conn
@@ -132,29 +187,25 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
       |> json_response(200)
 
     assert plugin(inherited_enabled, "lark")["effective_enabled"] == true
-    assert skill(plugin(inherited_enabled, "lark"), "lark-im")["override_enabled"] == false
+    assert skill(plugin(inherited_enabled, "lark"), "lark-im")["bound"] == false
   end
 
-  test "Agent-private installed Skills appear only in that Agent's standalone list", %{conn: conn} do
+  test "private Drive folders cannot install runtime Skills", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
-    drive_file_fixture(agent.uid, "skills/private-notes/SKILL.md", """
-    ---
-    name: private-notes
-    description: Private notes Skill.
-    ---
-    Take notes.
-    """)
+    drive_file_fixture(
+      agent.uid,
+      "skills/private-notes/SKILL.md",
+      "---\nname: private-notes\ndescription: Notes\n---\nTake notes."
+    )
 
     response =
       conn
-      |> console_conn()
+      |> meta_console_conn()
       |> api(:get, ~p"/api/v2/agents/#{agent.uid}/library-capabilities")
       |> json_response(200)
 
-    private = Enum.find(response["skills"], &(&1["id"] == "private-notes"))
-    assert private["source_kind"] == "installed"
-    assert private["effective_enabled"] == true
+    refute Enum.any?(response["skills"], &(&1["id"] == "private-notes"))
   end
 
   test "Job creation accepts one enabled workspace template and rejects unavailable templates" do
@@ -173,8 +224,9 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
     assert existing_job.workspace_template_id == "deep-research"
 
-    assert {:ok, _defaults} =
-             AgentPlugins.set_global_skill_default("deep-research:create-deep-research", false)
+    {:ok, _} = Library.sync_agent_skills(agent.uid)
+    {:ok, row} = Library.Skills.get("create-deep-research")
+    assert {:ok, _} = Library.Skills.set_all(operator_actor(), row.slug, false, row.revision)
 
     assert Repo.reload!(existing_job).workspace_template_id == "deep-research"
 
@@ -201,7 +253,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   } do
     assert conn |> api(:get, ~p"/api/v2/agent-library/capabilities") |> json_response(401)
 
-    conn = console_conn(conn)
+    conn = meta_console_conn(conn)
 
     assert %{"errors" => [%{"code" => "not_found"}]} =
              conn
@@ -249,14 +301,16 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
                session_id: BackgroundAgentJobs.job_session_id(job.id)
              })
 
-    assert_receive {:actor_lane, %{body: {:turn_start, _}}}, 2_000
+    # The first dispatch imports the tenant's shipped Skill packages before admission.
+    assert_receive {:actor_lane, %{body: {:turn_start, _}}}, 15_000
+
+    {:ok, row} = Library.Skills.get("pdf")
+    assert {:ok, _} = Library.Skills.set_all(operator_actor(), row.slug, false, row.revision)
 
     response =
       conn
-      |> console_conn()
-      |> api(:put, ~p"/api/v2/agents/#{agent.uid}/library-capabilities/skills/pdf", %{
-        "enabled" => false
-      })
+      |> meta_console_conn()
+      |> api(:get, ~p"/api/v2/agents/#{agent.uid}/library-capabilities")
       |> json_response(200)
 
     assert Enum.find(response["skills"], &(&1["id"] == "pdf"))["effective_enabled"] == false
@@ -264,34 +318,41 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     assert control.command == "skill_disabled"
     assert Torque.decode!(control.payload_json) == %{"skill_names" => ["pdf"]}
 
-    defaults_key = "ai_agent.library.skill_defaults"
-
-    assert {:ok, _defaults} =
-             Ankole.AppConfigure.put_tenant_by_key(defaults_key, %{"ocr" => true})
-
-    assert {:ok, %{skills: %{"ocr" => true}}} =
-             Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-
-    assert {:ok, %{value: %{"value" => %{"ocr" => false}}}} =
-             Repo.transact(fn ->
-               Ankole.Ash.create(Ankole.AppConfigure.AppConfig, :put, %{
-                 scope: "tenant:" <> Repo.tenant_id!(),
-                 key: defaults_key,
-                 input: %{"ocr" => false}
-               })
-             end)
-
-    assert {:ok, %{skills: %{"ocr" => true}}} =
-             Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-
-    assert {:ok, cached_capabilities} = Library.capabilities_for_agent(agent.uid)
-    assert Enum.find(cached_capabilities["skills"], &(&1["id"] == "ocr"))["effective_enabled"]
-
-    assert :ok = Ankole.AIAgent.Library.RuntimeCapabilityChanges.notify_global({:skill, "ocr"})
+    {:ok, row} = Library.Skills.get("ocr")
+    assert {:ok, _} = Library.Skills.set_all(operator_actor(), row.slug, false, row.revision)
     assert_receive {:actor_lane, %{body: {:turn_control, global_control}}}, 2_000
     assert global_control.command == "skill_disabled"
     assert Torque.decode!(global_control.payload_json) == %{"skill_names" => ["ocr"]}
     refute_receive {:actor_lane, _envelope}
+  end
+
+  defp meta_console_conn(conn) do
+    tenant = conn.assigns[:test_tenant] || elem(Ankole.Tenants.privileged(), 1)
+    {conn, uid} = console_conn_with_principal(conn)
+
+    {:ok, _} =
+      Repo.with_tenant(tenant.id, fn ->
+        Ankole.AuthZ.create_permission_grant(%{
+          principal_uid: uid,
+          resource_pattern: "tenant_console:**",
+          action: "update"
+        })
+      end)
+
+    conn
+  end
+
+  defp operator_actor do
+    human = human_fixture().principal
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: human.uid,
+        resource_pattern: "tenant_console:**",
+        action: "update"
+      })
+
+    actor_fixture(human)
   end
 
   defp plugin(capabilities, id), do: Enum.find(capabilities["agent_plugins"], &(&1["id"] == id))
@@ -311,8 +372,16 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   end
 
   defp api(conn, method, path, data \\ nil) do
+    data_tenant = get_req_header(conn, "x-ankole-tenant")
+
     conn =
       if get_req_header(conn, "x-csrf-token") == [], do: recycle(conn), else: recycle_api(conn)
+
+    conn =
+      case data_tenant do
+        [id] -> put_req_header(conn, "x-ankole-tenant", id)
+        [] -> conn
+      end
 
     conn =
       conn

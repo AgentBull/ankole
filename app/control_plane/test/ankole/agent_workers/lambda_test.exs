@@ -514,12 +514,18 @@ defmodule Ankole.AgentWorkers.LambdaTest do
              Ankole.AgentWorkers.workspace_status(agent.uid)
   end
 
-  test "the listed managed version 1 is the built base version 1.0", %{provider: provider} do
-    stub(provider, fn _ -> flunk("the available base must not be rebuilt") end, "worker", [
-      %{"imageVersion" => "1", "status" => "AVAILABLE", "createdAt" => 1}
-    ])
+  test "available managed major versions cover their built minor revisions", %{provider: provider} do
+    for built <- ["1.0", "1.1"] do
+      stub(
+        provider,
+        fn _ -> flunk("the available base must not be rebuilt") end,
+        "worker",
+        [%{"imageVersion" => "1", "status" => "AVAILABLE", "createdAt" => 1}],
+        built
+      )
 
-    assert :ok = Images.prepare(provider, "worker")
+      assert :ok = Images.prepare(provider, "worker")
+    end
   end
 
   test "two sweeps prepare a changed image before the first Agent creates", %{provider: provider} do
@@ -603,7 +609,7 @@ defmodule Ankole.AgentWorkers.LambdaTest do
     assert :ok = Lambda.delete_cache(provider, @uid)
   end
 
-  defp stub(provider, extra, role \\ "worker", managed_versions \\ nil) do
+  defp stub(provider, extra, role \\ "worker", managed_versions \\ nil, base_version \\ nil) do
     image = owned_image(provider) |> put_in(["tags", "ankole-role"], role)
 
     Req.Test.stub(__MODULE__, fn conn ->
@@ -630,7 +636,14 @@ defmodule Ankole.AgentWorkers.LambdaTest do
               Req.Test.json(conn, image)
 
             path == image_path(image["imageArn"]) <> "/versions/1.0" ->
-              Req.Test.json(conn, fixture("version"))
+              Req.Test.json(
+                conn,
+                Map.put(
+                  fixture("version"),
+                  "baseImageVersion",
+                  base_version || fixture("version")["baseImageVersion"]
+                )
+              )
 
             String.contains?(path, "/managed-microvm-images/") ->
               Req.Test.json(

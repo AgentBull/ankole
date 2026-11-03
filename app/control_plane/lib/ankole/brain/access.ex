@@ -1,278 +1,199 @@
 defmodule Ankole.Brain.Access do
-  @moduledoc """
-  Knowledge-boundary context of one querier, applied as SQL prefilters.
-
-  The reachable set is the querier's enumerable scope values plus the
-  author-always-accessible rule, plus the narrowed Agent-owner exemption:
-  an owner reads its Agents' `principal:<agent_uid>` scope and the rows its
-  Agents wrote or hold, but never the Agents' group-shared knowledge.
-  Disclosure filtering is a second, post-hit stage owned by the caller.
-
-  Each filter takes an Ash query. The Ecto form of the Claim and Chunk filters
-  serves only the candidate queries of `Ankole.Brain.Recall` (M9 retrieval),
-  so that the boundary rule has one owner.
-  """
-
-  import Ecto.Query, warn: false
+  @moduledoc "Page visibility shared by knowledge, claims and their disclosure readers."
+  import Bitwise
   require Ash.Query
+  alias Ankole.Pod.Access.Graph
 
-  alias Ankole.Brain.Claims
-  alias Ankole.Brain.Markdoc
-  alias Ankole.Brain.Scope
-  alias Ankole.Repo
-
-  defstruct querier_uid: nil,
-            querier_ref: nil,
-            scopes: [],
-            owned_agent_uids: [],
-            owned_agent_refs: [],
-            owned_holder_slugs: []
-
-  @type t :: %__MODULE__{
-          querier_uid: String.t(),
-          querier_ref: Ankole.ActorRef.t(),
-          scopes: [String.t()],
-          owned_agent_uids: [String.t()],
-          owned_agent_refs: [Ankole.ActorRef.t()],
-          owned_holder_slugs: [String.t()]
-        }
-
-  @doc """
-  Builds the access context of one querier from current relations.
-  """
-  @spec for_querier(String.t()) :: {:ok, t()} | {:error, term()}
-  def for_querier(querier_uid) when is_binary(querier_uid) do
-    with {:ok, scopes} <- Scope.accessible_scopes(querier_uid) do
-      owned_agent_uids =
-        for %{agent: agent} <- Ankole.Principals.list_agents(),
-            agent.owner_principal_uid == querier_uid,
-            do: agent.uid
-
-      {:ok,
-       %__MODULE__{
-         querier_uid: querier_uid,
-         querier_ref: actor_ref(querier_uid),
-         scopes: Enum.uniq(scopes ++ Enum.map(owned_agent_uids, &Scope.principal/1)),
-         owned_agent_uids: owned_agent_uids,
-         owned_agent_refs: Enum.map(owned_agent_uids, &actor_ref/1),
-         owned_holder_slugs: Enum.map(owned_agent_uids, &Scope.principal_page_slug(:agent, &1))
-       }}
-    end
-  end
-
-  @doc """
-  Builds the access context for an Agent and the readers of its current Turn.
-
-  The Agent remains the accountable querier. A resolved conversation reader
-  adds only scopes that every disclosure recipient can receive. An open or
-  unresolved disclosure adds nothing, so background work and failed recipient
-  resolution keep the ordinary querier boundary.
-  """
-  @spec for_readers(String.t(), disclosure()) :: {:ok, t()} | {:error, term()}
-  def for_readers(querier_uid, disclosure) when is_binary(querier_uid) do
-    with {:ok, access} <- for_querier(querier_uid),
-         {:ok, reader_scopes} <- reader_scopes(disclosure) do
-      {:ok, %{access | scopes: Enum.uniq(access.scopes ++ reader_scopes)}}
-    end
-  end
-
-  @doc """
-  Returns whether one bare scope is reachable for this querier. A body
-  segment carries no author or holder, so the owned-Agent exemptions of
-  `reachable?/2` do not apply; membership in the accessible scopes is the
-  whole rule, and `world` is always a member.
-  """
-  @spec scope_reachable?(t(), String.t()) :: boolean()
-  def scope_reachable?(%__MODULE__{} = access, scope), do: scope in access.scopes
-
-  @doc "Checks every audience segment before replacing a caller-visible page body."
-  def guard_body_replacement(body, %__MODULE__{} = access, disclosure) do
-    with {:ok, segments} <- Markdoc.segments(body) do
-      if Enum.all?(segments, fn segment ->
-           scope_reachable?(access, segment.scope) and disclosable?(segment.scope, disclosure) and
-             Scope.validate_writable(segment.scope, access.querier_uid) == :ok
-         end),
-         do: :ok,
-         else: {:error, :hidden_or_protected_segments_use_edit_page}
-    end
-  end
-
-  @doc """
-  Returns whether one already-loaded row is reachable for this querier.
-
-  Reachable rows satisfy an accessible scope, were written by the querier
-  (authors always reach their own writes), or fall under the narrowed owner
-  exemption: rows an owned Agent wrote or holds, except group-scoped
-  organizational knowledge, which an owner cannot reach through its Agent.
-  """
-  @spec reachable?(t(), %{
-          required(:audience_scope) => String.t(),
-          optional(:author) => Ankole.ActorRef.t() | nil,
-          optional(:holder) => String.t() | nil
-        }) :: boolean()
-  def reachable?(%__MODULE__{} = access, row) do
-    scope = row.audience_scope
-    author = Map.get(row, :author)
-    holder = Map.get(row, :holder)
-
-    scope in access.scopes or author == access.querier_ref or
-      ((author in access.owned_agent_refs or holder in access.owned_holder_slugs) and
-         not String.starts_with?(scope, "group:"))
-  end
-
-  @doc """
-  Applies the claim knowledge boundary and current-state predicates to a
-  claims query. Claims on soft-deleted Objects stay out of every read path;
-  signal-channel claims remain reachable.
-  """
-  @spec filter_claims(query, t()) :: query when query: Ash.Query.t() | Ecto.Query.t()
-  def filter_claims(%Ash.Query{} = query, %__MODULE__{} = access) do
-    Ash.Query.filter(
-      query,
-      live_parent? and
-        (audience_scope in ^access.scopes or author == ^access.querier_ref or
-           ((author in ^access.owned_agent_refs or holder in ^access.owned_holder_slugs) and
-              not string_starts_with(audience_scope, "group:")))
-    )
-  end
-
-  def filter_claims(query, %__MODULE__{} = access) do
-    query
-    |> Claims.filter_live_parents()
-    |> where(
-      [claim],
-      claim.audience_scope in ^access.scopes or
-        claim.author == ^access.querier_ref or
-        ((claim.author in ^access.owned_agent_refs or
-            claim.holder in ^access.owned_holder_slugs) and
-           not like(claim.audience_scope, "group:%"))
-    )
-  end
-
-  @doc """
-  Restricts a claims query to the current state: unexpired facts and active
-  takes (the `current?` calculation of the Claim).
-  """
-  @spec filter_current_claims(query) :: query when query: Ash.Query.t() | Ecto.Query.t()
-  def filter_current_claims(%Ash.Query{} = query), do: Ash.Query.filter(query, current? == true)
-
-  def filter_current_claims(query) do
-    where(
-      query,
-      [claim],
-      (claim.claim_type == :fact and is_nil(claim.expired_at)) or
-        (claim.claim_type == :take and claim.active == true)
-    )
-  end
-
-  @doc """
-  Applies the chunk knowledge boundary. Chunks carry no author, so scope is
-  the only reachability rule; the caller keeps soft-deleted hosts out.
-  """
-  @spec filter_chunks(query, t()) :: query when query: Ash.Query.t() | Ecto.Query.t()
-  def filter_chunks(%Ash.Query{} = query, %__MODULE__{} = access),
-    do: Ash.Query.filter(query, audience_scope in ^access.scopes)
-
-  def filter_chunks(query, %__MODULE__{} = access) do
-    where(query, [chunk, ...], chunk.audience_scope in ^access.scopes)
-  end
-
-  @doc """
-  Applies the timeline knowledge boundary as a SQL prefilter, so a `limit`
-  never spends its budget on unreachable rows. The host Object must be live.
-  Timelines carry no holder; reachability is scope, author, or the narrowed
-  owner exemption over the author.
-  """
-  @spec filter_timelines(Ash.Query.t(), t()) :: Ash.Query.t()
-  def filter_timelines(%Ash.Query{} = query, %__MODULE__{} = access) do
-    Ash.Query.filter(
-      query,
-      exists(object, is_nil(deleted_at)) and
-        (audience_scope in ^access.scopes or author == ^access.querier_ref or
-           (author in ^access.owned_agent_refs and
-              not string_starts_with(audience_scope, "group:")))
-    )
-  end
-
-  @typedoc """
-  Disclosure context: who receives the recalled knowledge. Strict mode
-  checks the asker and every present member; relaxed mode checks only the
-  asker. A private chat carries only the asker, so both modes behave the
-  same there. Relaxed mode with no asker is an explicit open read for
-  Console preview and system assembly. Strict mode requires at least one
-  resolved recipient and otherwise discloses nothing.
-  """
+  defstruct querier_uid: nil, reachable: %{}, containers: [], pages: []
+  @type t :: %__MODULE__{}
   @type disclosure :: %{
           mode: :strict | :relaxed,
           asker_uid: String.t() | nil,
           present_uids: [String.t()]
         }
 
-  @doc """
-  Post-hit disclosure check for one scope against the current recipients.
-  """
-  @spec disclosable?(String.t(), disclosure()) :: boolean()
-  def disclosable?(scope, %{mode: mode} = disclosure) do
-    recipients =
-      case mode do
-        :relaxed -> List.wrap(disclosure[:asker_uid])
-        :strict -> List.wrap(disclosure[:asker_uid]) ++ (disclosure[:present_uids] || [])
-      end
-
-    case {mode, Enum.uniq(recipients)} do
-      {:relaxed, []} -> true
-      {:strict, []} -> false
-      {_mode, recipients} -> Scope.satisfied_by_all?(scope, recipients)
-    end
-  end
-
-  @doc """
-  Keeps the rows whose scope is disclosable to the current recipients.
-
-  One call evaluates each distinct scope once, so a result set full of hits
-  from the same few scopes costs a handful of membership resolutions instead
-  of one per row.
-  """
-  @spec filter_disclosable([row], (row -> String.t()), disclosure()) :: [row] when row: term()
-  def filter_disclosable(rows, scope_fun, disclosure) when is_function(scope_fun, 1) do
-    verdicts =
-      rows
-      |> Enum.map(scope_fun)
-      |> Enum.uniq()
-      |> Map.new(&{&1, disclosable?(&1, disclosure)})
-
-    Enum.filter(rows, &Map.fetch!(verdicts, scope_fun.(&1)))
-  end
-
-  @doc """
-  The empty disclosure context: no recipients beyond the querier.
-  """
-  @spec open_disclosure() :: disclosure()
   def open_disclosure, do: %{mode: :relaxed, asker_uid: nil, present_uids: []}
+  def for_querier(uid), do: for_readers(uid, open_disclosure())
+  def for_readers(uid, disclosure), do: for_context(%{querier_uid: uid, disclosure: disclosure})
 
-  defp reader_scopes(%{mode: :relaxed, asker_uid: asker}) when is_binary(asker),
-    do: Scope.accessible_scopes(asker)
+  def for_context(%{querier_uid: uid} = context) do
+    with {:ok, reachable} <- visibility(context) do
+      {containers, pages} = Graph.visibility_ids(reachable)
 
-  defp reader_scopes(%{mode: :strict} = disclosure) do
-    recipients =
-      [disclosure[:asker_uid] | List.wrap(disclosure[:present_uids])]
-      |> Enum.filter(&is_binary/1)
-      |> Enum.uniq()
-
-    case recipients do
-      [first | _rest] ->
-        with {:ok, scopes} <- Scope.accessible_scopes(first) do
-          {:ok, Enum.filter(scopes, &Scope.satisfied_by_all?(&1, recipients))}
-        end
-
-      [] ->
-        {:ok, []}
+      {:ok,
+       %__MODULE__{querier_uid: uid, reachable: reachable, containers: containers, pages: pages}}
     end
   end
 
-  defp reader_scopes(_open_or_invalid), do: {:ok, []}
+  def visibility(context, opts \\ [])
 
-  defp actor_ref(uid) do
-    Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: uid})
+  def visibility(%__MODULE__{reachable: reachable}, _opts), do: {:ok, reachable}
+
+  def visibility(%{querier_uid: uid, disclosure: disclosure} = context, opts) do
+    recipients = recipients(disclosure)
+    authn = Map.get(context, :authn, %{})
+
+    if disclosure.mode == :strict and recipients == [] do
+      {:ok, %{}}
+    else
+      [uid | recipients]
+      |> Enum.uniq()
+      |> Enum.reduce_while({:ok, nil}, fn reader, {:ok, accumulated} ->
+        with {:ok, principal} <- Ankole.Principals.get_principal(reader),
+             {:ok, reachable} <-
+               Graph.reachable_anchors(Ankole.AuthZ.Actor.new(principal, authn: authn), opts) do
+          {:cont, {:ok, intersect_reachable(accumulated, reachable)}}
+        else
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
   end
+
+  def visible_node?(%__MODULE__{reachable: reachable}, node),
+    do: is_nil(node.deleted_at) and band(Graph.page_bits(node, reachable), 1) == 1
+
+  def visible_node?(context, node) do
+    case for_context(context) do
+      {:ok, access} -> visible_node?(access, node)
+      {:error, _} -> false
+    end
+  end
+
+  def visible?(access, id) do
+    case Ankole.Pod.Pages.Tree.fetch(id) do
+      {:ok, node} -> visible_node?(access, node)
+      {:error, _} -> false
+    end
+  end
+
+  def filter_objects(%Ash.Query{} = query, access) do
+    Ash.Query.filter(
+      query,
+      ^Ankole.AuthZ.Checks.PageAnchorFilter.policy(access.reachable).filter
+    )
+  end
+
+  def filter_claims(%Ash.Query{} = query, access) do
+    Ash.Query.filter(
+      query,
+      live_parent? and
+        exists(
+          source_node,
+          is_nil(deleted_at) and
+            ((not is_acl_anchor and acl_anchor_id in ^access.containers) or
+               (is_acl_anchor and id in ^access.pages))
+        )
+    )
+  end
+
+  def filter_chunks(%Ash.Query{} = query, access) do
+    Ash.Query.filter(
+      query,
+      exists(
+        source_node,
+        is_nil(deleted_at) and
+          ((not is_acl_anchor and acl_anchor_id in ^access.containers) or
+             (is_acl_anchor and id in ^access.pages))
+      )
+    )
+  end
+
+  def filter_timelines(query, access) do
+    Ash.Query.filter(
+      query,
+      exists(
+        source_node,
+        is_nil(deleted_at) and
+          ((not is_acl_anchor and acl_anchor_id in ^access.containers) or
+             (is_acl_anchor and id in ^access.pages))
+      )
+    )
+  end
+
+  def filter_links(%Ash.Query{} = query, access) do
+    Ash.Query.filter(
+      query,
+      exists(
+        from_page,
+        is_nil(deleted_at) and
+          ((not is_acl_anchor and acl_anchor_id in ^access.containers) or
+             (is_acl_anchor and id in ^access.pages))
+      ) and
+        exists(
+          to_page,
+          is_nil(deleted_at) and
+            ((not is_acl_anchor and acl_anchor_id in ^access.containers) or
+               (is_acl_anchor and id in ^access.pages))
+        )
+    )
+  end
+
+  def filter_current_claims(query), do: Ash.Query.filter(query, current? == true)
+
+  def disclosable?(source_node_id, disclosure) do
+    case {disclosure.mode, recipients(disclosure)} do
+      {:relaxed, []} ->
+        true
+
+      {:strict, []} ->
+        false
+
+      {_, readers} ->
+        Enum.all?(readers, fn uid ->
+          case for_querier(uid) do
+            {:ok, access} -> visible?(access, source_node_id)
+            {:error, _} -> false
+          end
+        end)
+    end
+  end
+
+  def filter_disclosable(rows, source_fun, disclosure) do
+    case {disclosure.mode, recipients(disclosure)} do
+      {:relaxed, []} ->
+        rows
+
+      {:strict, []} ->
+        []
+
+      {_, readers} ->
+        contexts = Enum.map(readers, &for_querier/1)
+        ids = rows |> Enum.map(source_fun) |> Enum.uniq()
+
+        visible =
+          Ankole.Pod.Page
+          |> Ash.Query.filter(id in ^ids and is_nil(deleted_at))
+          |> Ash.Query.select([:acl_anchor_id, :is_acl_anchor, :deleted_at])
+          |> Ankole.Ash.read!()
+          |> Enum.filter(fn page ->
+            Enum.all?(contexts, fn
+              {:ok, access} -> visible_node?(access, page)
+              {:error, _} -> false
+            end)
+          end)
+          |> MapSet.new(& &1.id)
+
+        Enum.filter(rows, &MapSet.member?(visible, source_fun.(&1)))
+    end
+  end
+
+  defp intersect_reachable(nil, right), do: right
+
+  defp intersect_reachable(left, right) do
+    Map.new(left, fn {id, bits} ->
+      other = Map.get(right, id, %{self_bits: 0, container_bits: 0})
+
+      {id,
+       %{
+         self_bits: band(bits.self_bits, other.self_bits),
+         container_bits: band(bits.container_bits, other.container_bits)
+       }}
+    end)
+  end
+
+  defp recipients(%{mode: :strict} = disclosure),
+    do: Enum.uniq(List.wrap(disclosure[:asker_uid]) ++ (disclosure[:present_uids] || []))
+
+  defp recipients(disclosure), do: List.wrap(disclosure[:asker_uid])
 end

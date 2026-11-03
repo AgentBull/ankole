@@ -44,11 +44,27 @@ defmodule Ankole.Sessions.Tools do
   end
 
   def execute(run, call, tool, args) do
-    case authorize_call(run, tool.name, args) do
-      :ok -> execute_authorized(run, call, tool, args)
-      {:error, _reason} -> error("Tool invocation is not authorized.", "forbidden")
+    with :ok <- authorize_call(run, tool.name, args),
+         {:ok, args} <- resolve_attachments(run, call, tool, args) do
+      execute_authorized(run, call, tool, args)
+    else
+      {:error, reason} -> error(reason)
     end
   end
+
+  defp resolve_attachments(run, call, %{name: name} = tool, args)
+       when name in ["reply_attachment", "send_message"] do
+    # A committed receipt owns immutable attachment bytes. Replaying it must
+    # not depend on the original Worker's mount still being available.
+    if Tool.receipt?(tool, args) &&
+         match?({:ok, _}, Receipts.fetch(Run.response_id(run.model_response), Run.call_id(call))) do
+      {:ok, args}
+    else
+      Ankole.Files.Vfs.Attachments.resolve(run, name, args)
+    end
+  end
+
+  defp resolve_attachments(_run, _call, _tool, args), do: {:ok, args}
 
   def authorize_call(%JobTurnRef{agent_uid: uid, session_id: session} = turn, name, args) do
     with {:ok, event} <- Ankole.Signals.get_signal(turn.signal_id) do

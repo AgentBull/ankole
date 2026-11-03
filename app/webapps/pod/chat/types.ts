@@ -40,6 +40,8 @@ export type ActionCardState = {
   card_id: string
   interaction_id?: string
   action_kind:
+    | 'brain.object.create'
+    | 'pod.knowledge.save'
     | 'pod.page.set_sharing'
     | 'pod.page.delete'
     | 'pod.page.restore'
@@ -58,6 +60,9 @@ export type ActionCardState = {
 
 export type TimelineMessage = Omit<ConversationMessage, 'richContent'> & {
   richContent?: {
+    agent_peer_outbound?: { exchange_id: string; agent_uid: string }
+    agent_peer_inbound?: { exchange_id: string; agent_uid: string }
+    peer_agent_uid?: string
     execution?: ExecutionSummary
     clarify?: ClarifyPrompt
     action_card?: ActionCardState

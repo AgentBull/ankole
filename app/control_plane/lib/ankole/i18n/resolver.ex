@@ -125,6 +125,7 @@ defmodule Ankole.I18n.Resolver do
   #
   @spec fallback_chain(locale()) :: [locale()]
   defp fallback_chain(locale) do
+    locale = exact_loaded_locale(locale, loaded())
     chains = :persistent_term.get(@chain_cache_key, %{})
 
     case Map.get(chains, locale) do

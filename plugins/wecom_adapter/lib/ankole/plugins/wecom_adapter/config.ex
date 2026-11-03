@@ -162,7 +162,7 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
   def app_client(config) when is_map(config) do
     CorpClient.new(
       corp_id: Map.fetch!(config, "corpId"),
-      secret: fn -> Map.fetch!(config, "appSecret") end
+      secret: Map.fetch!(config, "appSecret")
     )
   end
 

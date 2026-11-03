@@ -35,6 +35,7 @@ import { editorPhrases } from '../editor/phrases'
 import type { PhraseSet } from '../core/phrases'
 import { BlockTypeItems } from './BlockTypeItems'
 import { useEditor, useEditorLabel, useEditorState } from './context'
+import { isKnowledge, knowledgeBlockTypes } from '../editor/knowledge'
 
 // How the text looks. Highlight is a look of the text like the others, so it closes this group.
 const buttons = [
@@ -135,7 +136,7 @@ const composingKey = (event: KeyboardEvent) => event.isComposing || event.keyCod
 /** Whether the host acts on any selection, editable or not: asking an Agent about it or commenting on it. */
 const actsOnSelection = (editor: Wordgard) => {
   const host = editorHost(editor)
-  return !!(host?.requestComment || host?.askAgent)
+  return !!((!isKnowledge(editor.state) && host?.requestComment) || host?.askAgent)
 }
 
 type Info = { rect: DOMRect; active: boolean[]; link: boolean; caretLink: LinkInfo | null }
@@ -515,7 +516,7 @@ function SelectionActions({
     hide()
   }
   const askAgent = host?.askAgent
-  const requestComment = host?.requestComment
+  const requestComment = isKnowledge(state) ? undefined : host?.requestComment
   const type = sharedBlockType(state)
   return (
     <>
@@ -562,7 +563,9 @@ function SelectionActions({
                 return false
               }}>
               <BlockTypeItems
-                options={blockOptions.filter(option => option.turnInto)}
+                options={blockOptions.filter(
+                  option => option.turnInto && (!isKnowledge(state) || knowledgeBlockTypes.has(option.type))
+                )}
                 current={type}
                 onChoose={next => turnBlockInto(editor, undefined, next)}
               />
@@ -572,19 +575,22 @@ function SelectionActions({
       )}
       {editable && (
         <div role="group" className="selection-group">
-          {buttons.map(({ format, label: phrase, Icon }, index) => (
-            <Button
-              key={format}
-              variant="ghost"
-              size="icon-sm"
-              aria-label={phrase(state)}
-              title={phrase(state)}
-              aria-pressed={info.active[index]}
-              onMouseDown={event => event.preventDefault()}
-              onClick={() => apply(format)}>
-              <Icon />
-            </Button>
-          ))}
+          {buttons.map(
+            ({ format, label: phrase, Icon }, index) =>
+              (!isKnowledge(state) || !['u', 'mark'].includes(format)) && (
+                <Button
+                  key={format}
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={phrase(state)}
+                  title={phrase(state)}
+                  aria-pressed={info.active[index]}
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => apply(format)}>
+                  <Icon />
+                </Button>
+              )
+          )}
         </div>
       )}
       {(editable || requestComment) && (

@@ -4,8 +4,8 @@ defmodule Ankole.Brain.Calibration do
 
   Owns the two Dreaming phases that measure prediction quality: `grade_takes`
   grades stale or expired active Takes against page evidence, and
-  `calibration_profile` writes each holder's Brier scorecard into the fenced
-  calibration section of the holder page. `brier/1` is the one owner of the
+  `calibration_profile` computes each holder's Brier scorecard from claims.
+  Pod presents the scorecard alongside the knowledge page. `brier/1` is the one owner of the
   score formula; the expert directory reads it for its per-expert card.
   """
 
@@ -17,7 +17,6 @@ defmodule Ankole.Brain.Calibration do
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
   alias Ankole.Brain.ModelCalls
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.TakeDomainAssignment
   alias Ankole.Ecto.UUIDv7
@@ -26,72 +25,6 @@ defmodule Ankole.Brain.Calibration do
 
   @grade_batch_limit 50
   @grade_stale_months 6
-  @calibration_start "<!-- brain:calibration:start -->"
-  @calibration_end "<!-- brain:calibration:end -->"
-  @calibration_pattern ~r/#{Regex.escape(@calibration_start)}[\s\S]*?#{Regex.escape(@calibration_end)}/u
-  @calibration_strip_pattern ~r/[ \t]*\n*#{Regex.escape(@calibration_start)}[\s\S]*?#{Regex.escape(@calibration_end)}\n*/u
-
-  @doc "Returns the start and end HTML comment fences of the calibration scorecard."
-  @spec fence_markers() :: {String.t(), String.t()}
-  def fence_markers, do: {@calibration_start, @calibration_end}
-
-  @doc "Returns whether text contains either calibration fence marker."
-  @spec contains_fence_marker?(String.t()) :: boolean()
-  def contains_fence_marker?(text) when is_binary(text) do
-    String.contains?(text, @calibration_start) or String.contains?(text, @calibration_end)
-  end
-
-  @doc "Extracts all fenced calibration sections in document order."
-  @spec extract_sections(String.t()) :: [String.t()]
-  def extract_sections(body) when is_binary(body) do
-    @calibration_pattern
-    |> Regex.scan(body)
-    |> Enum.map(fn [block] -> block end)
-  end
-
-  @doc "Splits text into alternating `{:text, binary}` and `{:calibration, binary}` spans."
-  @spec split_spans(String.t()) :: [{:text | :calibration, String.t()}]
-  def split_spans(text) when is_binary(text) do
-    case Regex.run(@calibration_pattern, text, return: :index) do
-      nil ->
-        [{:text, text}]
-
-      [{pos, len}] ->
-        before = binary_part(text, 0, pos)
-        fenced = binary_part(text, pos, len)
-        rest = binary_part(text, pos + len, byte_size(text) - pos - len)
-
-        spans =
-          if(before == "", do: [], else: [{:text, before}]) ++
-            [{:calibration, fenced}]
-
-        spans ++ if(rest == "", do: [], else: split_spans(rest))
-    end
-  end
-
-  @doc "Removes the generated calibration scorecard fence from a page body while preserving leading line indentation."
-  @spec strip_calibration_section(String.t()) :: String.t()
-  def strip_calibration_section(body) when is_binary(body) do
-    stripped = Regex.replace(@calibration_strip_pattern, body, "\n\n")
-
-    if String.trim(stripped) == "" do
-      ""
-    else
-      stripped
-      |> String.trim_leading("\n")
-      |> String.trim_trailing()
-    end
-  end
-
-  @doc "Appends a fenced calibration section to the end of a page body."
-  @spec append_section(String.t(), String.t()) :: String.t()
-  def append_section(body, section) when is_binary(body) and is_binary(section) do
-    case String.trim_trailing(body) do
-      "" -> section <> "\n"
-      trimmed -> trimmed <> "\n\n" <> section <> "\n"
-    end
-  end
-
   @doc false
   def grade_takes do
     case grading_context(Config.dreaming_model()) do
@@ -139,6 +72,7 @@ defmodule Ankole.Brain.Calibration do
       |> after_claim(after_id)
       |> Ash.Query.sort(id: :asc)
       |> Ash.Query.limit(@grade_batch_limit)
+      |> Ash.Query.deselect(:embedding)
       |> Ankole.Ash.read!()
 
     report =
@@ -230,18 +164,19 @@ defmodule Ankole.Brain.Calibration do
 
   defp grading_input(model, take) do
     evidence =
-      case take.object_slug do
+      case take.subject_page_id do
         nil ->
           []
 
         slug ->
           Claim
           |> Ash.Query.filter(
-            current_external_fact? and object_slug == ^slug and
-              (audience_scope == "world" or audience_scope == ^take.audience_scope)
+            current_external_fact? and subject_page_id == ^slug and
+              source_node_id == ^take.source_node_id
           )
           |> Ash.Query.sort(valid_from: :desc, id: :desc)
           |> Ash.Query.limit(10)
+          |> Ash.Query.deselect(:embedding)
           |> Ankole.Ash.read!()
       end
 
@@ -384,6 +319,7 @@ defmodule Ankole.Brain.Calibration do
       |> Ash.Query.filter(
         live_parent? and claim_type == :take and resolved_quality in ["correct", "incorrect"]
       )
+      |> Ash.Query.select([:holder, :weight, :resolved_outcome])
       |> Ankole.Ash.read!()
 
     domain_assignments =
@@ -398,10 +334,7 @@ defmodule Ankole.Brain.Calibration do
         {holder, scorecard(takes, domain_assignments)}
       end)
 
-    updated =
-      Enum.count(profiles, fn {holder, card} -> update_calibration_section(holder, card) end)
-
-    %{status: :ok, holders: length(profiles), updated: updated}
+    %{status: :ok, holders: length(profiles), profiles: Map.new(profiles)}
   end
 
   @doc """
@@ -436,51 +369,5 @@ defmodule Ankole.Brain.Calibration do
       |> Enum.sort_by(& &1.domain)
 
     %{count: length(takes), brier: overall, domains: domains}
-  end
-
-  defp update_calibration_section(holder, card) do
-    with {:ok, object} <- Objects.get_by_slug(holder) do
-      section =
-        [
-          @calibration_start,
-          "## Calibration",
-          "",
-          "Resolved takes: #{card.count}; Brier score: #{card.brier}.",
-          Enum.map_join(card.domains, "\n", fn domain ->
-            "- #{domain.domain}: #{domain.count} resolved, Brier #{domain.brier}"
-          end),
-          @calibration_end
-        ]
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
-
-      body = replace_calibration_section(object.body, section)
-
-      if body == object.body do
-        false
-      else
-        case Repo.transact_top_level(fn ->
-               Objects.update_object_in_tx(
-                 object.slug,
-                 %{body: body, expected_content_hash: object.content_hash},
-                 :system,
-                 author: Config.execution_author!()
-               )
-             end) do
-          {:ok, _object} -> true
-          {:error, _reason} -> false
-        end
-      end
-    else
-      {:error, :not_found} -> false
-    end
-  end
-
-  defp replace_calibration_section(body, section) do
-    if Regex.match?(@calibration_pattern, body) do
-      Regex.replace(@calibration_pattern, body, section)
-    else
-      append_section(body, section)
-    end
   end
 end

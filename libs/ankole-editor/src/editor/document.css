@@ -521,3 +521,14 @@
   font: 10px/1.4 var(--font-family-mono);
   color: var(--editor-unknown-label);
 }
+
+/* Readers share document typography while their contents determine the height. */
+.knowledge-reader .editor-content {
+  min-height: 0;
+}
+.knowledge-reader .editor-content > :first-child {
+  margin-block-start: 0;
+}
+.knowledge-reader .editor-content > :last-child {
+  margin-block-end: 0;
+}

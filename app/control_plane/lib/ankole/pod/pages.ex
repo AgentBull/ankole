@@ -1,6 +1,6 @@
 defmodule Ankole.Pod.Pages do
   @moduledoc """
-  Owns Pod properties, page details and personal page state over the Drive tree.
+  Owns Page content, details and personal state alongside the Page tree.
 
   Each operation that changes the tree or reads under a page lock runs in a
   top-level transaction. The `*_in_tx` functions run in the caller's
@@ -8,8 +8,12 @@ defmodule Ankole.Pod.Pages do
   """
   require Ash.Query
   alias Ankole.{ActorRef, AuthZ, Repo}
-  alias Ankole.Files.{Access, Nodes}
-  alias Ankole.Pod.{Page, PageContent, PageUserState, Position, Properties}
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
+  alias Ankole.Pod.Page
+  alias Ankole.Pod.PageContent
+  alias Ankole.Pod.PageUserState
+  alias Ankole.Pod.Position
   alias Ankole.Pod.Pages.{Mentions, Queries, Sharing}
   alias Ankole.Pod.Documents.History
 
@@ -47,11 +51,38 @@ defmodule Ankole.Pod.Pages do
     with {:ok, page} <- fetch(id), do: Access.authorize(actor, page, action, opts)
   end
 
-  def fetch(id) do
-    with {:ok, id} <- Ecto.UUID.cast(id),
-         %Page{} = page <- Page |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!(),
-         do: {:ok, page},
-         else: (_ -> {:error, :not_found})
+  defdelegate fetch(id), to: Nodes
+
+  @doc "Returns cached Markdown metadata without loading page contents."
+  def vfs_properties(ids) do
+    Page |> Ash.Query.filter(id in ^ids) |> Ankole.Ash.read!() |> Map.new(&{&1.id, &1})
+  end
+
+  def vfs_property_in_tx(_node, %{vfs_md_size: size, vfs_content_empty: empty} = property)
+      when is_integer(size) and is_boolean(empty),
+      do: {:ok, property}
+
+  def vfs_property_in_tx(node, _property) do
+    with {:ok, page} <- Nodes.lock(node.id),
+         {:ok, content} <-
+           PageContent |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.read_one(),
+         {:ok, projection} <-
+           Ankole.Kernel.vfs_projection(
+             page.type,
+             if(content, do: content.content, else: "<page />"),
+             page.metadata
+           ),
+         do: Ankole.Ash.update(page, :cache_vfs_projection, projection)
+  end
+
+  @doc "Whether the Page projects as a directory without a body file."
+  def content_empty?(%{vfs_content_empty: empty}) when is_boolean(empty), do: empty
+
+  def content_empty?(page) do
+    content = PageContent |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.read_one!()
+
+    Ankole.Kernel.page_content_empty(if(content, do: content.content, else: "<page />")) == true and
+      map_size(Map.drop(page.metadata, ["extract_facts"])) == 0
   end
 
   @doc "Returns the manageable Page IDs from the caller's evaluated access graph."
@@ -78,13 +109,14 @@ defmodule Ankole.Pod.Pages do
   end
 
   @doc "Creates a page in the caller's transaction."
-  def create_in_tx(%Ankole.AuthZ.Actor{} = actor, attrs) when is_map(attrs) do
+  def create_in_tx(%Ankole.AuthZ.Actor{} = actor, attrs, opts \\ []) when is_map(attrs) do
     lock_tree()
     uid = Ankole.AuthZ.Actor.uid(actor)
 
     with {:ok, principal} <- Access.principal(actor),
          {:ok, parent} <- destination_root_in_tx(actor, attrs),
          {:ok, _} <- Nodes.authorize_child_create(actor, parent),
+         {:ok, metadata} <- Ankole.Brain.Namespace.object_metadata(parent, attrs),
          {:ok, source} <- source_message(actor, Ankole.Attrs.get(attrs, :saved_from_message_id)),
          {:ok, children_view} <-
            normalize_children_view(Ankole.Attrs.get(attrs, :children_view, %{})) do
@@ -92,19 +124,24 @@ defmodule Ankole.Pod.Pages do
       kind = Ankole.Attrs.get(attrs, :type, "doc")
 
       with {:ok, node} <-
-             Nodes.create_in_tx(%{
-               parent_id: parent.id,
-               kind: kind,
-               name: Nodes.name_from_title(title),
-               created_by: ActorRef.from_principal(principal)
-             }),
+             Nodes.create_in_tx(
+               %{
+                 parent_id: parent.id,
+                 type: kind,
+                 name: Nodes.name_from_title(title),
+                 owner_uid: if(kind in [:applet, "applet"], do: uid),
+                 created_by: ActorRef.from_principal(principal)
+               },
+               opts
+             ),
            {:ok, _} <-
-             ensure_properties_in_tx(node.id, %{
+             initialize_metadata_in_tx(node.id, %{
                title: title,
                icon: Ankole.Attrs.get(attrs, :icon),
                position: Ankole.Attrs.get(attrs, :position),
                saved_from_message_id: source && source.id,
-               children_view: children_view
+               children_view: children_view,
+               metadata: metadata
              }),
            {:ok, page} <- fetch(node.id),
            :ok <-
@@ -114,6 +151,7 @@ defmodule Ankole.Pod.Pages do
                Ankole.Attrs.get(attrs, :skip_default_table, false),
                Ankole.Attrs.get(attrs, :xml)
              ),
+           :ok <- Ankole.Brain.Knowledge.page_changed_in_tx(page, nil),
            do: {:ok, page}
     end
   end
@@ -143,7 +181,8 @@ defmodule Ankole.Pod.Pages do
     end
   end
 
-  defp destination_root_in_tx(actor, attrs) do
+  @doc false
+  def destination_root_in_tx(actor, attrs) do
     parent = Ankole.Attrs.get(attrs, :parent_id)
     owner = Ankole.Attrs.get(attrs, :private_owner_uid)
 
@@ -165,20 +204,21 @@ defmodule Ankole.Pod.Pages do
     end
   end
 
-  def ensure_properties_in_tx(id, attrs \\ %{}) do
-    with {:ok, node} <- Nodes.fetch(id) do
-      Ankole.Ash.create(
-        Properties,
-        :ensure,
-        Map.merge(%{id: id, created_at: node.created_at, updated_at: node.updated_at}, attrs)
-      )
-    end
+  def initialize_metadata_in_tx(id, attrs) do
+    with {:ok, page} <- fetch(id),
+         do: update_properties_in_tx(page, :initialize_metadata, attrs)
   end
 
   def update_properties_in_tx(page, action, attrs) do
-    with {:ok, properties} <- ensure_properties_in_tx(page.id),
-         {:ok, _} <- Ankole.Ash.update(properties, action, attrs),
-         do: fetch(page.id)
+    with {:ok, properties} <- fetch(page.id),
+         {:ok, updated} <- Ankole.Ash.update(properties, action, attrs) do
+      if updated.type in [:doc, :knowledge] and Map.has_key?(attrs, :metadata) and
+           not Map.has_key?(attrs, :vfs_content_empty) do
+        vfs_property_in_tx(updated, nil)
+      else
+        {:ok, updated}
+      end
+    end
   end
 
   def update(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
@@ -197,6 +237,7 @@ defmodule Ankole.Pod.Pages do
     with {:ok, page} <- lock(id),
          {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_edit"),
          :ok <- check_title_base(page, attrs),
+         {:ok, learning_changes} <- page_learning_changes(actor, page, attrs),
          {:ok, children_view} <- merge_children_view(page.children_view, attrs) do
       changes =
         Map.new([:title, :icon], fn key ->
@@ -216,22 +257,54 @@ defmodule Ankole.Pod.Pages do
       now = DateTime.utc_now(:microsecond)
 
       updated_at =
-        if identity_edited? or Ankole.Attrs.get(attrs, :children_view, :missing) == :missing,
-          do: now,
-          else: page.updated_at
+        if identity_edited? or map_size(learning_changes) > 0 or
+             Ankole.Attrs.get(attrs, :children_view, :missing) == :missing,
+           do: now,
+           else: page.updated_at
 
       with :ok <- record_document_edit(page, changes, actor, now),
            :ok <- rename_from_title_in_tx(page, attrs) do
         # An unchanged value is not sent, so a legacy title above the length limit allows icon edits.
-        update_properties_in_tx(
-          page,
-          :edit,
-          changes
-          |> Map.filter(fn {key, value} -> Map.fetch!(page, key) != value end)
-          |> Map.put(:children_view, children_view)
-          |> Map.put(:updated_at, updated_at)
-        )
+        result =
+          update_properties_in_tx(
+            page,
+            :edit,
+            changes
+            |> Map.filter(fn {key, value} -> Map.fetch!(page, key) != value end)
+            |> Map.put(:children_view, children_view)
+            |> Map.merge(learning_changes)
+            |> Map.put(:updated_at, updated_at)
+          )
+
+        with {:ok, updated} <- result do
+          if Map.has_key?(learning_changes, :metadata) and updated.metadata["extract_facts"] do
+            :ok = Ankole.Brain.Knowledge.page_learning_enabled_in_tx(updated.id)
+          end
+
+          {:ok, updated}
+        end
       end
+    end
+  end
+
+  defp page_learning_changes(actor, page, attrs) do
+    case Ankole.Attrs.get(attrs, :extract_facts, :missing) do
+      :missing ->
+        {:ok, %{}}
+
+      enabled when is_boolean(enabled) ->
+        with %{} <- Ankole.Brain.Knowledge.page_learning(page),
+             {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_manage") do
+          if page.metadata["extract_facts"] == enabled,
+            do: {:ok, %{}},
+            else: {:ok, %{metadata: Map.put(page.metadata, "extract_facts", enabled)}}
+        else
+          nil -> {:error, :invalid_request}
+          error -> error
+        end
+
+      _ ->
+        {:error, :invalid_request}
     end
   end
 
@@ -243,6 +316,12 @@ defmodule Ankole.Pod.Pages do
          do: :ok
   end
 
+  defp rename_from_title_in_tx(
+         %{type: :knowledge, metadata: %{"subtype" => "internal", "entity_type" => type}},
+         _attrs
+       )
+       when type in ["person", "agent"], do: :ok
+
   defp rename_from_title_in_tx(page, attrs) do
     case Ankole.Attrs.get(attrs, :title, :missing) do
       :missing ->
@@ -250,10 +329,12 @@ defmodule Ankole.Pod.Pages do
 
       title ->
         with {:ok, node} <- Nodes.fetch(page.id),
+             {:ok, old_path} <- Nodes.path(node),
              {:ok, _} <-
                Nodes.update_in_tx(node, :rename, %{
                  name: Nodes.available_name(node.parent_id, Nodes.name_from_title(title), node.id)
                }),
+             :ok <- Ankole.Pod.Pages.Lifecycle.move_node_in_tx(node.id, old_path),
              do: :ok
     end
   end
@@ -302,7 +383,8 @@ defmodule Ankole.Pod.Pages do
 
   defp normalize_children_view_value(value), do: value
 
-  defp record_document_edit(%{type: :doc} = page, changes, actor, now) do
+  defp record_document_edit(%{type: type} = page, changes, actor, now)
+       when type in [:doc, :knowledge] do
     if Enum.any?(changes, fn {key, value} -> Map.fetch!(page, key) != value end) do
       content =
         PageContent
@@ -581,6 +663,7 @@ defmodule Ankole.Pod.Pages do
          content: content,
          role: page.role,
          actions: page.actions,
+         fact_learning: Ankole.Brain.Knowledge.page_learning(page),
          child_count: Queries.visible_child_count_in_tx(actor, page, reachable)
        }}
     end
@@ -632,9 +715,7 @@ defmodule Ankole.Pod.Pages do
   The upsert changes only the supplied fields. A row without flags is removed.
   """
   def save_state_in_tx(principal_uid, page_id, changes) do
-    with {:ok, node} <- Nodes.fetch(page_id),
-         {:ok, _} <-
-           if(node.kind == :file, do: {:ok, nil}, else: ensure_properties_in_tx(page_id)),
+    with {:ok, _} <- Nodes.fetch(page_id),
          {:ok, updated} <-
            Ankole.Ash.create(
              PageUserState,
@@ -664,13 +745,11 @@ defmodule Ankole.Pod.Pages do
   defp state_flags(_attrs), do: {:error, :invalid_request}
 
   @doc "Locks one page row in the caller's transaction."
-  def lock(id, mode \\ :update) do
-    with {:ok, _} <- Nodes.lock(id, mode), do: fetch(id)
-  end
+  defdelegate lock(id, mode \\ :update), to: Nodes
 
   defdelegate lock_tree(), to: Nodes
 
-  defdelegate broadcast(id), to: Ankole.Files, as: :broadcast_node
+  defdelegate broadcast(id), to: Nodes
 
   def broadcast_comments(id) do
     Phoenix.PubSub.broadcast(Ankole.PubSub, "pod-page:" <> id, {:comments_committed, id})
@@ -727,7 +806,7 @@ defmodule Ankole.Pod.Pages do
 
   @doc "Publishes a committed change of one page."
   def committed_page(%Page{id: id}) do
-    Ankole.Files.node_committed(%{id: id})
+    Nodes.content_committed(%{id: id})
   end
 
   def committed_page(_result), do: :ok
@@ -739,12 +818,34 @@ defmodule Ankole.Pod.Pages do
          else: (_ -> {:error, :forbidden})
   end
 
+  defp replace_initial_content(%{page_id: id} = attrs) do
+    content = PageContent |> Ash.Query.filter(page_id == ^id) |> Ankole.Ash.read_one!()
+    Ankole.Ash.update(content, :replace, Map.delete(attrs, :page_id))
+  end
+
+  defp initial_content(%{type: :knowledge} = page, _uid, _skip, xml) do
+    with {:ok, parsed} <- Ankole.Kernel.knowledge_validate(xml || "<page />"),
+         {:ok, projection} <- Ankole.Kernel.vfs_projection(:knowledge, parsed.xml, page.metadata),
+         {:ok, _} <- update_properties_in_tx(page, :cache_vfs_projection, projection),
+         {:ok, content} <-
+           replace_initial_content(%{
+             page_id: page.id,
+             content: parsed.xml,
+             plain_text: parsed.plain_text,
+             updated_by: page.created_by,
+             updated_at: page.updated_at
+           }),
+         do: History.checkpoint_in_tx(page, content, page.created_at, :created)
+  end
+
   defp initial_content(%{type: :doc} = page, uid, _skip, xml) do
     with {:ok, parsed} <- Ankole.Kernel.page_validate(xml || "<page />"),
+         {:ok, projection} <- Ankole.Kernel.vfs_projection(:doc, parsed.xml, page.metadata),
+         {:ok, _} <- update_properties_in_tx(page, :cache_vfs_projection, projection),
          {:ok, info} <- Ankole.Kernel.page_comment_info(parsed.xml),
          :ok <- Ankole.Pod.Comments.validate_marks_in_tx(page.id, info.ids),
          {:ok, content} <-
-           Ankole.Ash.create(PageContent, :create_in_tx, %{
+           replace_initial_content(%{
              page_id: page.id,
              content: parsed.xml,
              plain_text: parsed.plain_text,

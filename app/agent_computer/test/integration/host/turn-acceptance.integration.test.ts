@@ -110,8 +110,9 @@ function fixture(plans: Array<Error | undefined>, maxConcurrentSlots = 1) {
     resume,
     acceptanceCount: () => sent.filter(envelope => envelope.body.case === 'turnAccepted').length,
     executionCount: () =>
-      sent.filter(envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'files.list')
-        .length,
+      sent.filter(
+        envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'background_agent_job.get'
+      ).length,
     cleanup: async () => {
       await active.control(stopping)
       await until(() => drain.activeTaskCount === 0)

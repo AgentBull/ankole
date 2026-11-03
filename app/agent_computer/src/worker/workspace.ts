@@ -24,7 +24,6 @@ export function prepareActorWorkspace(config: Pick<WorkerConfig, 'agentHomeRoot'
 function prepareAgentHome(agentHomeRoot: string) {
   const paths = agentHomePaths(agentHomeRoot)
   mkdirAgentSync(paths.codexHome, 0o700)
-  mkdirAgentSync(paths.installedSkills)
   mkdirAgentSync(paths.sessions)
   mkdirAgentSync(paths.jobs)
   return paths

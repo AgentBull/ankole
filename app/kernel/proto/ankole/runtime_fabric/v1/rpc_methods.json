@@ -67,13 +67,6 @@
     "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobTurnUpsertResponse"
   },
   {
-    "method": "background_agent_job.turn_items.list",
-    "scope": "turn",
-    "effect": "read",
-    "request_type": "ankole.runtime_fabric.v1.BackgroundAgentJobTurnItemsListRequest",
-    "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobTurnItemsListResponse"
-  },
-  {
     "method": "files.commit",
     "scope": "worker_agent",
     "request_type": "ankole.runtime_fabric.v1.FilesCommitRequest",
@@ -124,6 +117,12 @@
     "effect": "read",
     "request_type": "ankole.runtime_fabric.v1.ReadToolRequest",
     "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "vfs.flush",
+    "owner": "worker",
+    "request_type": "ankole.runtime_fabric.v1.VfsFlushRequest",
+    "response_type": "ankole.runtime_fabric.v1.VfsFlushResponse"
   },
   {
     "method": "webhook.endpoint.cancel",

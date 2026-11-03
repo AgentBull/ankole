@@ -51,6 +51,8 @@ defmodule Ankole.Pod.Serialization do
       :object_id,
       :saved_from_message_id,
       :children_view,
+      :metadata,
+      :system_key,
       :created_at,
       :updated_at,
       :deleted_at,
@@ -62,6 +64,26 @@ defmodule Ankole.Pod.Serialization do
       role -> role
     end)
     |> Ankole.JSON.plain()
+  end
+
+  def navigation_page(page) do
+    page
+    |> Map.take([
+      :name,
+      :metadata,
+      :system_key,
+      :id,
+      :parent_id,
+      :private_owner_uid,
+      :type,
+      :title,
+      :icon,
+      :position,
+      :inherit_permissions,
+      :role,
+      :actions
+    ])
+    |> Map.put(:has_children, page.aggregates.has_children)
   end
 
   def change_json(change),
@@ -90,9 +112,6 @@ defmodule Ankole.Pod.Serialization do
       author: author_json(snapshot.author, profiles),
       created_at: snapshot.created_at
     }
-
-  def document_json(%{page: page, content: content}),
-    do: %{page: page_json(page), content: content_json(content)}
 
   def detail_json(detail),
     do: %{

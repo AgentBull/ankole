@@ -48,6 +48,7 @@ defmodule Ankole.Conversations.ActionCardsTest do
              Conversations.create(actor_fixture(alice), %{
                conversation_id: room_id,
                agent_uid: agent.uid,
+               room_mode: :group,
                message_id: Ecto.UUID.generate(),
                text: "Help me manage workspace permissions."
              })
@@ -64,6 +65,149 @@ defmodule Ankole.Conversations.ActionCardsTest do
       event: event,
       existing_drivers: existing_drivers
     }
+  end
+
+  test "external IM knowledge proposals direct the user to an authorized Pod owner", ctx do
+    event = Ankole.SignalsFixtures.external_session_signal_fixture(ctx.agent.uid)
+    category = Ankole.BrainFixtures.category_fixture(ctx.alice.uid)
+
+    {:ok, page} =
+      Pages.create(actor_fixture(ctx.alice), %{
+        type: :knowledge,
+        parent_id: category.id,
+        title: "External rule"
+      })
+
+    assert {:error, reason} =
+             ActionCards.prepare_draft(
+               %{agent_uid: ctx.agent.uid, event: event},
+               "external-knowledge",
+               %{
+                 "action_kind" => "pod.knowledge.save",
+                 "summary" => "Proposed shared rule",
+                 "node_id" => page.id,
+                 "base_revision" => 0,
+                 "markdown" => "Shared rule draft"
+               }
+             )
+
+    assert reason =~ "Pod"
+    assert reason =~ "owner"
+    assert Repo.aggregate(ActionCard, :count) == 0
+    assert {:ok, %{page: %{revision: 0}}} = Pages.get(actor_fixture(ctx.alice), page.id)
+  end
+
+  test "a visible Brain category can receive an object after human approval", ctx do
+    category = Ankole.BrainFixtures.category_fixture(ctx.alice.uid)
+
+    message =
+      propose_native_card(ctx, "brain-create", %{
+        "action_kind" => "brain.object.create",
+        "summary" => "Create an approved note",
+        "node_id" => category.id,
+        "category" => "notes",
+        "title" => "Human-approved note",
+        "base_revision" => 0,
+        "markdown" => "Approved evidence"
+      })
+
+    card_id = message.rich_content["action_card"]["card_id"]
+
+    assert {:ok, _} =
+             Conversations.resolve_action_card(
+               actor_fixture(ctx.alice),
+               ctx.room_id,
+               card_id,
+               :confirm
+             )
+
+    [page] =
+      Enum.filter(
+        Ankole.Pod.Pages.Tree.list_children(category.id),
+        &(&1.title == "Human-approved note")
+      )
+
+    assert {:ok, %{page: %{type: :knowledge}, content: content}} =
+             Pages.get(actor_fixture(ctx.alice), page.id)
+
+    assert content.plain_text =~ "Approved evidence"
+  end
+
+  for concurrent_edit? <- [false, true] do
+    @tag concurrent_edit?: concurrent_edit?
+    test "knowledge proposal commits body and metadata only at its captured revision (race=#{concurrent_edit?})",
+         ctx do
+      actor = actor_fixture(ctx.alice)
+      category = Ankole.BrainFixtures.category_fixture(ctx.alice.uid)
+
+      {:ok, page} =
+        Pages.create(actor, %{
+          type: :knowledge,
+          title: "Team rule",
+          parent_id: category.id,
+          xml: "<page><p>Original rule</p></page>",
+          metadata: %{"summary" => "original"}
+        })
+
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(ctx.alice.uid, page.id, %{
+          grants: [
+            %{principal_uid: ctx.agent.uid, role: "view"},
+            %{principal_uid: ctx.bob.uid, role: "view"}
+          ]
+        })
+
+      message =
+        propose_native_card(ctx, "knowledge-save", %{
+          "action_kind" => "pod.knowledge.save",
+          "summary" => "Update the team rule",
+          "node_id" => page.id,
+          "base_revision" => page.revision,
+          "markdown" => "---\nsummary: approved\n---\nNew rule\n"
+        })
+
+      card_id = message.rich_content["action_card"]["card_id"]
+      card = Repo.get_by!(ActionCard, id: card_id)
+      assert card.payload["diff"] =~ "New rule"
+      assert card.preconditions["expected_revision"] == page.revision
+
+      assert Conversations.ActionCards.client_card_state(card)["payload"]["base_revision"] ==
+               page.revision
+
+      refute Map.has_key?(card.payload, "base_revision")
+
+      assert {:error, :forbidden} =
+               Conversations.resolve_action_card(
+                 actor_fixture(ctx.bob),
+                 ctx.room_id,
+                 card_id,
+                 :confirm
+               )
+
+      if ctx.concurrent_edit? do
+        assert {:ok, _} =
+                 Ankole.Pod.Knowledge.write(
+                   actor,
+                   page.id,
+                   page.revision,
+                   "<page><p>Concurrent rule</p></page>",
+                   %{"summary" => "concurrent"}
+                 )
+      end
+
+      assert {:ok, _} = Conversations.resolve_action_card(actor, ctx.room_id, card_id, :confirm)
+      assert {:ok, %{page: current, content: content}} = Pages.get(actor, page.id)
+
+      if ctx.concurrent_edit? do
+        assert Repo.get_by!(ActionCard, id: card_id).status == :stale
+        assert current.metadata == %{"summary" => "concurrent"}
+        assert content.plain_text =~ "Concurrent rule"
+      else
+        assert Repo.get_by!(ActionCard, id: card_id).status == :executed
+        assert current.metadata == %{"summary" => "approved"}
+        assert content.plain_text =~ "New rule"
+      end
+    end
   end
 
   for target <- [:document, :base_table] do

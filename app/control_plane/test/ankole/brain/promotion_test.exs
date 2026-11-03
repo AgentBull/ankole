@@ -75,7 +75,7 @@ defmodule Ankole.Brain.PromotionTest do
       {:ok, _tag} =
         Ankole.Repo.insert(%Ankole.Brain.Schemas.Tag{
           id: Ankole.Ecto.UUIDv7.autogenerate(),
-          object_slug: slug,
+          subject_page_id: elem(Objects.get_by_slug(slug), 1).id,
           tag: "research",
           created_at: DateTime.utc_now(:microsecond)
         })
@@ -91,19 +91,19 @@ defmodule Ankole.Brain.PromotionTest do
       assert {:ok, %{type: "agent"}} = Objects.get_by_slug(slug)
     end
 
-    test "retypes tagged objects with referencing rows and keeps old slugs resolvable", %{
+    test "retypes tagged pages without moving their directories or rewriting graph identity", %{
       human: human
     } do
-      {:ok, _note} =
+      {:ok, note} =
         Ankole.Brain.create_object(
           %{slug: "notes/reconciliation-q2", type: "note", title: "Q2 reconciliation"},
-          human.uid
+          :system
         )
 
-      {:ok, _peer} =
+      {:ok, peer} =
         Ankole.Brain.create_object(
           %{slug: "companies/acme", type: "company", title: "Acme"},
-          human.uid
+          :system
         )
 
       # The migration target carries every slug-referencing row kind at once:
@@ -111,7 +111,7 @@ defmodule Ankole.Brain.PromotionTest do
       {:ok, _tag} =
         Ankole.Repo.insert(%Ankole.Brain.Schemas.Tag{
           id: Ankole.Ecto.UUIDv7.autogenerate(),
-          object_slug: "notes/reconciliation-q2",
+          subject_page_id: note.id,
           tag: "reconciliation",
           created_at: DateTime.utc_now(:microsecond)
         })
@@ -119,35 +119,35 @@ defmodule Ankole.Brain.PromotionTest do
       {:ok, _fact} =
         Ankole.Brain.write_fact(
           %{
-            object_slug: "notes/reconciliation-q2",
+            subject_page_id: note.id,
             claim: "Q2 reconciliation closed with zero variance",
             kind: "event",
             holder: "world",
-            audience_scope: "world",
+            source_node_id: Ankole.Brain.Scope.world(),
             notability: "medium",
             confidence: 0.75,
             valid_from: DateTime.utc_now(:microsecond),
             provenance: "test"
           },
-          human.uid
+          :system
         )
 
       {:ok, _timeline} =
         Timelines.write_timeline(
           %{
-            object_slug: "notes/reconciliation-q2",
+            subject_page_id: note.id,
             date: ~D[2026-06-30],
             summary: "Reconciliation closed",
             provenance: "test",
-            audience_scope: "world"
+            source_node_id: Ankole.Brain.Scope.world()
           },
-          human.uid
+          :system
         )
 
       {:ok, _link} =
         Links.upsert_link(%{
-          from_object_slug: "notes/reconciliation-q2",
-          to_object_slug: "companies/acme",
+          from_page_id: note.id,
+          to_page_id: peer.id,
           link_type: "relates_to"
         })
 
@@ -162,19 +162,19 @@ defmodule Ankole.Brain.PromotionTest do
       assert %SchemaType{primitive: "concept", slug_prefix: "reconciliations/"} =
                Repo.get_by(SchemaType, name: "reconciliation")
 
-      # The old slug resolves through the redirect and lands on the new type.
+      # Classification changes metadata while the page stays in its chosen directory.
       assert {:ok, migrated} = Objects.resolve_slug("notes/reconciliation-q2")
-      assert migrated.slug == "reconciliations/reconciliation-q2"
+      assert migrated.slug == note.slug
       assert migrated.type == "reconciliation"
 
-      # Referencing rows followed the rename atomically.
-      assert [%ClaimRow{object_slug: "reconciliations/reconciliation-q2"}] = Repo.all(ClaimRow)
+      # Every attached record keeps the same immutable page identity.
+      assert Enum.map(Repo.all(ClaimRow), & &1.subject_page_id) == [note.id]
 
       assert Repo.all(Ankole.Brain.Schemas.Timeline)
-             |> Enum.map(& &1.object_slug) == ["reconciliations/reconciliation-q2"]
+             |> Enum.map(& &1.subject_page_id) == [note.id]
 
       assert Repo.all(Ankole.Brain.Schemas.Link)
-             |> Enum.map(& &1.from_object_slug) == ["reconciliations/reconciliation-q2"]
+             |> Enum.map(& &1.from_page_id) == [note.id]
 
       assert Repo.get_by(SchemaSuggestion, id: suggestion.id).status == :approved
     end

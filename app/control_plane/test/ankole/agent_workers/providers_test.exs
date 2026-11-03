@@ -13,7 +13,7 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
 
   alias Ankole.AgentWorkers.Providers.Configuration
   alias Ankole.AgentWorkers.Providers.Provider
-  alias Ankole.AgentWorkers.Providers.Seed
+  alias Ankole.Upgrade202610.WorkerProviders, as: Seed
 
   alias Ankole.AgentWorkers.AgentWorker
 
@@ -147,10 +147,10 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
              Configuration.digest(definition.schema, base)
   end
 
-  test "provider settings digests retain the pre-refactor values" do
+  test "provider settings digests include their normalized defaults" do
     for {module, digest} <- [
           {Docker, "7d5aca0bdbed0b444eec2e4ddf6ffaf79e5c82b3a8238074b14f880adec51378"},
-          {Kubernetes, "82cdbfebc00ec9e36ba7f743406fc156d326f1d6d441b373f1deb2b25c00ecf4"}
+          {Kubernetes, "7ba2e380cf42e524b763d1b2c04b63e30a81e7652dbdb26ed3b2dddcc4b0ae92"}
         ] do
       definition = module.definition()
       assert {:ok, settings} = Configuration.parse(definition.schema, definition.example)
@@ -382,6 +382,50 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
     assert Repo.get!(Provider, provider.id)
     Repo.with_tenant(other.id, fn -> Repo.delete!(foreign) end)
     assert {:ok, _} = Providers.delete(provider.provider_id)
+  end
+
+  test "provider counts preserve input order, zeros and cross-tenant Workers in one query" do
+    assert {:ok, busy} = Providers.create(attrs("count-busy"))
+    assert {:ok, empty} = Providers.create(attrs("count-empty"))
+    assert {:ok, other_provider} = Providers.create(attrs("count-other"))
+    other_tenant = create_tenant()
+    uid = Ecto.UUID.generate()
+    Repo.insert!(%AgentWorker{agent_uid: uid, provider_id: busy.provider_id})
+
+    Repo.insert!(%AgentWorker{
+      agent_uid: Ecto.UUID.generate(),
+      provider_id: other_provider.provider_id
+    })
+
+    Repo.with_tenant(other_tenant.id, fn ->
+      Repo.insert!(%AgentWorker{agent_uid: uid, provider_id: busy.provider_id})
+    end)
+
+    handler_id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        Repo.config()[:telemetry_prefix] ++ [:query],
+        fn _event, _measurements, metadata, test_pid ->
+          if self() == test_pid and metadata.source == "agent_workers",
+            do: send(test_pid, {handler_id, metadata.query})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:ok, [1, 0, 2, 2]} =
+             Ankole.AgentWorkers.Providers.Projection.calculate(
+               [other_provider, empty, busy, busy],
+               [field: :agent_count],
+               %{}
+             )
+
+    assert_received {^handler_id, _query}
+    refute_received {^handler_id, _extra_query}
+    assert Ankole.AgentWorkers.provider_worker_counts([]) == %{}
   end
 
   test "an assignment is permanent and deletion waits for every Worker row" do

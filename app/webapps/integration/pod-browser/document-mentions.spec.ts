@@ -75,23 +75,26 @@ test('inline @ mentions replace block page references, render hover/click cards,
 
     // Mention self (@Browser owner) -> highlighted with data-mention-self="true".
     await owner.keyboard.type(' @Browser owner')
-    await expect(menu.getByRole('option').filter({ hasText: 'Browser owner' })).toBeVisible()
-    await owner.keyboard.press('Enter')
+    const selfOption = menu.getByRole('option').filter({ hasText: state.owner.uid })
+    await expect(selfOption).toBeVisible()
+    await selfOption.click()
     const selfChip = editor.locator(`[data-mention-principal="${state.owner.uid}"] button.pod-mention-principal`)
     await expect(selfChip).toHaveText(/Browser owner/)
     await expect(selfChip).toHaveAttribute('data-mention-self', 'true')
 
     // Mention colleague (@Browser member) and AI Agent (@Browser content Agent).
     await owner.keyboard.type(' @Browser member')
-    await expect(menu.getByRole('option').filter({ hasText: 'Browser member' })).toBeVisible()
-    await owner.keyboard.press('Enter')
+    const memberOption = menu.getByRole('option').filter({ hasText: state.member.uid })
+    await expect(memberOption).toBeVisible()
+    await memberOption.click()
     const memberChip = editor.locator(`[data-mention-principal="${state.member.uid}"] button.pod-mention-principal`)
     await expect(memberChip).toHaveText(/Browser member/)
     await expect(memberChip).not.toHaveAttribute('data-mention-self', 'true')
 
     await owner.keyboard.type(' @Browser content Agent')
-    await expect(menu.getByRole('option').filter({ hasText: 'Browser content Agent' })).toBeVisible()
-    await owner.keyboard.press('Enter')
+    const agentOption = menu.getByRole('option').filter({ hasText: state.agent_uid })
+    await expect(agentOption).toBeVisible()
+    await agentOption.click()
     const agentChip = editor.locator(`[data-mention-principal="${state.agent_uid}"] button.pod-mention-principal`)
     await expect(agentChip).toHaveText(/Browser content Agent/)
 
@@ -122,7 +125,7 @@ test('inline @ mentions replace block page references, render hover/click cards,
     // Renaming the referenced page updates the inline mention title live in the SPA session without mutating canonical XML.
     const renamedTitle = `Renamed target ${Date.now()}`
     await pageChip.click()
-    await expect(owner).toHaveURL(state.base_url + pageRoute(targetID))
+    await expect(owner).toHaveURL(state.base_url + pageRoute(targetID, undefined, targetTitle))
     const targetTitleInput = owner.getByRole('textbox', { name: '页面标题', exact: true })
     await expect(targetTitleInput).toHaveValue(targetTitle)
     await targetTitleInput.fill(renamedTitle)
@@ -132,7 +135,7 @@ test('inline @ mentions replace block page references, render hover/click cards,
       .toBe(renamedTitle)
 
     await owner.goBack()
-    await expect(owner).toHaveURL(state.base_url + pageRoute(docID))
+    await expect(owner).toHaveURL(state.base_url + pageRoute(docID, undefined, 'Mention authoring'))
     await expect(editor.locator(`[data-mention-page="${targetID}"] a.pod-mention-page`)).toHaveText(renamedTitle)
 
     // In-editor selection copy (mentionPlainText) reads shared pageMetadata and reflects the renamed title immediately.
@@ -207,7 +210,7 @@ test('inline @ mentions replace block page references, render hover/click cards,
     await owner.getByRole('menuitem', { name: '在下方添加 Block', exact: true }).click()
     await owner.getByRole('menuitem', { name: '新建页面', exact: true }).hover()
     await owner.getByRole('menuitem', { name: '文档', exact: true }).click()
-    await expect(owner).not.toHaveURL(state.base_url + pageRoute(docID))
+    await expect(owner).not.toHaveURL(state.base_url + pageRoute(docID, undefined, 'Mention authoring'))
     const childDocID = pageIDFromURL(owner.url())
     createdIDs.push(childDocID)
     const savedParent = await request<{ content: { content: string } }>(owner, `/pages/${docID}`)

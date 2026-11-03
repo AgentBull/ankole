@@ -87,6 +87,18 @@ export function rpcStub(
   const driveRPC = fixture.drive.rpc as unknown as (...args: unknown[]) => Promise<unknown>
   const requester = async (method: string, payload: unknown, ...rest: unknown[]) => {
     if (method.startsWith('files.')) return driveRPC(method, payload, ...rest)
+    if (method === 'pod.read') {
+      const request = payload as { operation: string; paramsJson: Uint8Array }
+      if (request.operation === 'skills.bundle') {
+        const name = jsonObjectFromBytes(request.paramsJson, 'Skill bundle')!.name
+        const prefix = `skills/${name}/`
+        const files = fixture.drive.paths(prefix.slice(0, -1)).map(path => {
+          const file = fixture.drive.files.get(path)!
+          return { path: path.slice(prefix.length), content: file.content.toString('base64'), mode: file.mode }
+        })
+        return { bodyJson: jsonBytes({ files }) }
+      }
+    }
     if (method === 'worker_env.resolve') {
       expect(payload).toMatchObject({ bindingName: opts.bindingName ?? '' })
       const operatorVars = { AUTOMATION_TEST_VALUE: 'available' }

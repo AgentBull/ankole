@@ -15,7 +15,7 @@ defmodule Ankole.Sessions.Tools.Message do
     "name" => "send_message",
     "activity" => "processing",
     "description" =>
-      "Send a message through one of your IM bindings. Use a reachable conversation_id, or a principal_uid when the adapter can resolve that person's existing direct conversation. Attachments are UUIDs of Drive file nodes; the Agent must be allowed to read each one. The result reports sent only after provider delivery; failed reports its reason; unknown means the provider may have delivered it; queued means delivery is still pending. Do not resend an unknown message or claim delivery from queued.",
+      "Send a message through one of your IM bindings. Use a reachable conversation_id, or a principal_uid when the adapter can resolve that person's existing direct conversation. Attachments are Drive file node UUIDs or absolute /drive file paths; the Agent must be allowed to read each one. The result reports sent only after provider delivery; failed reports its reason; unknown means the provider may have delivered it; queued means delivery is still pending. Do not resend an unknown message or claim delivery from queued.",
     "parameters" => %{
       "type" => "object",
       "properties" => %{
@@ -45,7 +45,7 @@ defmodule Ankole.Sessions.Tools.Message do
         "attachments" => %{
           "type" => "array",
           "maxItems" => 16,
-          "items" => %{"type" => "string", "format" => "uuid"}
+          "items" => %{"type" => "string", "minLength" => 1}
         }
       },
       "required" => ~w(destination text),

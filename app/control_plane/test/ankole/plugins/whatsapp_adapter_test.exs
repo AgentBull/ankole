@@ -218,6 +218,43 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert {:ok, %{status: 404}} = Webhook.handle_webhook(unknown_app)
     end
 
+    test "another tenant sharing an app ID cannot block or receive this tenant's webhook" do
+      %{principal: agent} = agent_fixture(%{uid: "zzz-whatsapp-owner"})
+      assert {:ok, _} = put_whatsapp_binding(agent.uid, "wa-owner")
+      other = Ankole.DataCase.create_tenant()
+
+      Repo.with_tenant(other.id, fn ->
+        %{principal: peer} = agent_fixture(%{uid: "aaa-whatsapp-peer"})
+
+        assert {:ok, _} =
+                 put_whatsapp_binding(peer.uid, "wa-peer", %{
+                   "config" =>
+                     Map.merge(binding_config(), %{
+                       "phoneNumberId" => @other_phone_number_id,
+                       "appSecret" => "peer-secret",
+                       "verifyToken" => "peer-token"
+                     })
+                 })
+      end)
+
+      assert {:ok, %{status: 200, body: "challenge-1"}} =
+               Webhook.handle_webhook(verification_request(@verify_token, "subscribe"))
+
+      request = signed_request(value([text_message("only the matching tenant")]))
+      assert {:ok, %{status: 200}} = Webhook.handle_webhook(request)
+      assert Repo.aggregate(Message, :count) == 1
+      assert Repo.with_tenant(other.id, fn -> Repo.aggregate(Message, :count) end) == 0
+
+      forged = %{
+        request
+        | headers: %{"x-hub-signature-256" => Signature.sign(request.raw_body, "peer-secret")}
+      }
+
+      assert {:ok, %{status: 200}} = Webhook.handle_webhook(forged)
+      assert Repo.aggregate(Message, :count) == 1
+      assert Repo.with_tenant(other.id, fn -> Repo.aggregate(Message, :count) end) == 0
+    end
+
     test "verifies the signature, stores each message once, and refuses an unknown App" do
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_whatsapp_binding(agent.uid, "wa-main")

@@ -30,22 +30,13 @@ group memory 공개 모드는 여러 사람이 함께 보는 대화방에서 Age
 
 1:1 대화(direct message)에서는 두 모드가 동일하게 동작합니다. 해당 그룹에서 완화된 공개 기준을 명시적으로 허용한 경우가 아니라면 **Strict**를 유지하세요. 전체 지식 구조와 공개 범위 모델은 [Brain](../brain/)을 참조하세요.
 
-## durable 문서 설정
+## Agent 규약 설정
 
-Agent 상세 페이지에서 **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** 탭을 열어 네 문서를 작성합니다.
+**Meta Ankole → Agents**에서 전역 기준 또는 개별 Agent의 `AGENTS.md`와 `DESIGN.md`를 편집합니다. `AGENTS.md`는 행동과 책임을, `DESIGN.md`는 웹 페이지·슬라이드·문서·차트의 시각 규칙을 정의합니다.
 
-| 문서 | 작성 내용 |
-|---|---|
-| `MISSION.md` | Agent의 존재 목적, 담당 업무 범위, 완료로 인정되는 결과물의 기준 |
-| `SOUL.md` | 소통 어조, 의사결정 방식, 불확실한 상황을 다루는 태도 |
-| `DESIGN.md` | 웹 페이지, 슬라이드, 문서, 차트 등 시각 산출물에 적용할 디자인 시스템 |
-| `ConfidentialityPolicy.md` | Agent가 Brain에 직접 지식을 기록할 때 공개 범위(audience scope)를 고르는 기준 |
+각 Agent 규약은 전역 기준을 상속하거나 내용을 추가하거나 완전히 대체할 수 있습니다. DESIGN 메타데이터에는 디자인 토큰을, 본문에는 사용법을 기록합니다. 개인 어시스턴트의 설정은 소유자 본인만 보고 편집할 수 있습니다. [Agent Library](../agent-library/)를 참조하세요.
 
-`DESIGN.md`는 <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md format</a>을 따릅니다. YAML frontmatter에는 색상, 타이포그래피, 간격, 모서리 반경, 컴포넌트 같은 디자인 토큰을 정의하고, Markdown 본문에는 시각 원칙과 적용 가이드를 기술합니다. Ankole에는 즉시 활용할 수 있는 기본 디자인 시스템이 내장되어 있으며, **Console → Agents → DESIGN**에서 조직 브랜드에 맞게 교체할 수 있습니다.
-
-업무 워크플로나 권한 경계, 일반 행동 규칙은 `DESIGN.md`에 넣지 말고 `MISSION.md`, `SOUL.md`, `ConfidentialityPolicy.md` 또는 개별 Skill에 작성하세요. 참고로 `ConfidentialityPolicy.md`는 Agent가 도구를 통해 직접 Brain에 지식을 기록할 때 참고하는 지침이며, 대화 내용을 바탕으로 자동 학습할 때는 해당 대화의 참여자 구성을 기준으로 공개 범위가 결정됩니다. 처음에는 꼭 필요한 핵심 원칙만 간결하게 적어 두고, 실제 업무를 운영하면서 필요한 규칙만 점진적으로 추가하는 편이 효과적입니다.
-
-문서를 수정해 저장하면 그 이후에 시작되는 대화부터 반영되며, 이미 실행 중인 작업은 시작 시점에 읽어들인 문서 버전으로 끝까지 진행됩니다.
+저장한 변경은 Codex Job 재개를 포함한 다음 턴부터 적용됩니다. 현재 턴에서는 시작할 때 전체를 읽은 규약을 사용합니다.
 
 ## 모델 구성
 

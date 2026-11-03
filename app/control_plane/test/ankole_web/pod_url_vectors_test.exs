@@ -20,6 +20,16 @@ defmodule AnkoleWeb.PodURLVectorsTest do
     end
   end
 
+  test "outgoing Page paths match the shared Pod URL vectors" do
+    for %{
+          "id" => id,
+          "title" => title,
+          "expected_path" => expected_path
+        } <- @vectors["page_paths"] do
+      assert PodURL.page_path(id, title) == expected_path
+    end
+  end
+
   test "malformed route IDs fail closed" do
     for %{"path" => path, "query" => query} <- @vectors["invalid_routes"] do
       assert {:error, :not_found} = path |> browser_conn(query) |> PodURL.path()

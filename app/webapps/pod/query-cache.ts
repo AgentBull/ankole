@@ -18,6 +18,7 @@ export async function acceptConversationResult(client: QueryClient, result: Conv
 export async function refreshConversationQueries(client: QueryClient, conversationID: string): Promise<void> {
   await Promise.all([
     refreshQuery(client, podKeys.detail(conversationID)),
+    refreshQuery(client, [...podKeys.detail(conversationID), 'peer'], false),
     refreshQuery(client, podKeys.conversations, false)
   ])
 }

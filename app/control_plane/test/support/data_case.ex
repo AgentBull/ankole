@@ -83,8 +83,9 @@ defmodule Ankole.DataCase do
           )
 
         Ankole.Repo.with_tenant(tenant.id, fn ->
-          :ok = Ankole.Files.Access.initialize_space()
+          :ok = Ankole.Pod.Access.initialize_space()
           {:ok, _system} = Ankole.Principals.ensure_system_principals_in_tx()
+          :ok = Ankole.AIAgent.Library.Contracts.initialize_in_tx()
         end)
 
         {:ok, tenant}

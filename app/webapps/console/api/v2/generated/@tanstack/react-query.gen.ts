@@ -23,7 +23,6 @@ import {
   completeBackgroundAgentJob,
   createAgent,
   createAgentSkillLesson,
-  createBrainObject,
   createBrainSource,
   createCronSchedule,
   createDriveNode,
@@ -55,8 +54,6 @@ import {
   enableAgent,
   enqueueBrainDream,
   forgetBrainClaim,
-  forgetBrainObject,
-  forkBrainObject,
   getAgent,
   getAgentAppConfiguration,
   getAgentLibraryCapabilities,
@@ -98,7 +95,6 @@ import {
   listBrainMergeSuggestions,
   listBrainObjects,
   listBrainObjectTypes,
-  listBrainObjectVersions,
   listBrainPrincipalKnowledge,
   listBrainSources,
   listBrainSuggestions,
@@ -145,19 +141,16 @@ import {
   removePrincipalGroupMember,
   renameAgent,
   renameHuman,
-  replaceAgentLibraryDocument,
   requeueSignalDelivery,
   resetAgentTokenQuota,
   resetAppConfiguration,
   resolveBrainTake,
-  restoreBrainObject,
   restoreHumanAccess,
   resumeCronSchedule,
   retireAgentSkillLesson,
   retryHumanWorkCleanup,
   retryOidcLogoutDelivery,
   reviewIdentityDirectoryEvent,
-  rollbackBrainObject,
   rotateOidcClientSecret,
   runCronSchedule,
   runIdentityProviderSync,
@@ -172,7 +165,6 @@ import {
   updateAgentWorkerEnv,
   updateAppConfiguration,
   updateAppConfigurationGroup,
-  updateBrainObject,
   updateBrainSource,
   updateCronSchedule,
   updateHuman,
@@ -240,9 +232,6 @@ import type {
   CreateAgentSkillLessonData,
   CreateAgentSkillLessonError,
   CreateAgentSkillLessonResponse,
-  CreateBrainObjectData,
-  CreateBrainObjectError,
-  CreateBrainObjectResponse,
   CreateBrainSourceData,
   CreateBrainSourceError,
   CreateBrainSourceResponse,
@@ -336,12 +325,6 @@ import type {
   ForgetBrainClaimData,
   ForgetBrainClaimError,
   ForgetBrainClaimResponse,
-  ForgetBrainObjectData,
-  ForgetBrainObjectError,
-  ForgetBrainObjectResponse,
-  ForkBrainObjectData,
-  ForkBrainObjectError,
-  ForkBrainObjectResponse,
   GetAgentAppConfigurationData,
   GetAgentAppConfigurationError,
   GetAgentAppConfigurationResponse,
@@ -465,9 +448,6 @@ import type {
   ListBrainObjectTypesData,
   ListBrainObjectTypesError,
   ListBrainObjectTypesResponse,
-  ListBrainObjectVersionsData,
-  ListBrainObjectVersionsError,
-  ListBrainObjectVersionsResponse,
   ListBrainPrincipalKnowledgeData,
   ListBrainPrincipalKnowledgeError,
   ListBrainPrincipalKnowledgeResponse,
@@ -603,9 +583,6 @@ import type {
   RenameHumanData,
   RenameHumanError,
   RenameHumanResponse,
-  ReplaceAgentLibraryDocumentData,
-  ReplaceAgentLibraryDocumentError,
-  ReplaceAgentLibraryDocumentResponse,
   RequeueSignalDeliveryData,
   RequeueSignalDeliveryError,
   RequeueSignalDeliveryResponse,
@@ -618,9 +595,6 @@ import type {
   ResolveBrainTakeData,
   ResolveBrainTakeError,
   ResolveBrainTakeResponse,
-  RestoreBrainObjectData,
-  RestoreBrainObjectError,
-  RestoreBrainObjectResponse,
   RestoreHumanAccessData,
   RestoreHumanAccessError,
   RestoreHumanAccessResponse,
@@ -639,9 +613,6 @@ import type {
   ReviewIdentityDirectoryEventData,
   ReviewIdentityDirectoryEventError,
   ReviewIdentityDirectoryEventResponse,
-  RollbackBrainObjectData,
-  RollbackBrainObjectError,
-  RollbackBrainObjectResponse,
   RotateOidcClientSecretData,
   RotateOidcClientSecretError,
   RotateOidcClientSecretResponse,
@@ -684,9 +655,6 @@ import type {
   UpdateAppConfigurationGroupError,
   UpdateAppConfigurationGroupResponse,
   UpdateAppConfigurationResponse,
-  UpdateBrainObjectData,
-  UpdateBrainObjectError,
-  UpdateBrainObjectResponse,
   UpdateBrainSourceData,
   UpdateBrainSourceError,
   UpdateBrainSourceResponse,
@@ -1329,105 +1297,6 @@ export const updatePermissionGrantMutation = (
     }
   }
   return mutationOptions
-}
-
-/**
- * replace_agent_library_document operation on agent_library_console resource
- */
-export const replaceAgentLibraryDocumentMutation = (
-  options?: Partial<Options<ReplaceAgentLibraryDocumentData>>
-): UseMutationOptions<
-  ReplaceAgentLibraryDocumentResponse,
-  ReplaceAgentLibraryDocumentError,
-  Options<ReplaceAgentLibraryDocumentData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    ReplaceAgentLibraryDocumentResponse,
-    ReplaceAgentLibraryDocumentError,
-    Options<ReplaceAgentLibraryDocumentData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await replaceAgentLibraryDocument({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const listBrainObjectVersionsQueryKey = (options: Options<ListBrainObjectVersionsData>) =>
-  createQueryKey('listBrainObjectVersions', options)
-
-/**
- * list_brain_object_versions operation on brain_object_version resource
- */
-export const listBrainObjectVersionsOptions = (options: Options<ListBrainObjectVersionsData>) =>
-  queryOptions<
-    ListBrainObjectVersionsResponse,
-    ListBrainObjectVersionsError,
-    ListBrainObjectVersionsResponse,
-    ReturnType<typeof listBrainObjectVersionsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await listBrainObjectVersions({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: listBrainObjectVersionsQueryKey(options)
-  })
-
-export const listBrainObjectVersionsInfiniteQueryKey = (
-  options: Options<ListBrainObjectVersionsData>
-): QueryKey<Options<ListBrainObjectVersionsData>> => createQueryKey('listBrainObjectVersions', options, true)
-
-/**
- * list_brain_object_versions operation on brain_object_version resource
- */
-export const listBrainObjectVersionsInfiniteOptions = (options: Options<ListBrainObjectVersionsData>) => {
-  const opts = infiniteQueryOptions<
-    ListBrainObjectVersionsResponse,
-    ListBrainObjectVersionsError,
-    InfiniteData<ListBrainObjectVersionsResponse>,
-    QueryKey<Options<ListBrainObjectVersionsData>>,
-    | {
-        after?: string
-        before?: string
-        limit?: number
-      }
-    | Pick<QueryKey<Options<ListBrainObjectVersionsData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<QueryKey<Options<ListBrainObjectVersionsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  page: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await listBrainObjectVersions({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: listBrainObjectVersionsInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
 }
 
 export const listDefaultModelProfilesQueryKey = (options?: Options<ListDefaultModelProfilesData>) =>
@@ -2200,29 +2069,6 @@ export const setGlobalLibrarySkillMutation = (
 }
 
 /**
- * forget_brain_object operation on brain_object resource
- */
-export const forgetBrainObjectMutation = (
-  options?: Partial<Options<ForgetBrainObjectData>>
-): UseMutationOptions<ForgetBrainObjectResponse, ForgetBrainObjectError, Options<ForgetBrainObjectData>> => {
-  const mutationOptions: UseMutationOptions<
-    ForgetBrainObjectResponse,
-    ForgetBrainObjectError,
-    Options<ForgetBrainObjectData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await forgetBrainObject({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * delete_default_model_profile operation on agent_model_configuration resource
  */
 export const deleteDefaultModelProfileMutation = (
@@ -2805,29 +2651,6 @@ export const listSystemPrincipalsOptions = (options?: Options<ListSystemPrincipa
     },
     queryKey: listSystemPrincipalsQueryKey(options)
   })
-
-/**
- * restore_brain_object operation on brain_object resource
- */
-export const restoreBrainObjectMutation = (
-  options?: Partial<Options<RestoreBrainObjectData>>
-): UseMutationOptions<RestoreBrainObjectResponse, RestoreBrainObjectError, Options<RestoreBrainObjectData>> => {
-  const mutationOptions: UseMutationOptions<
-    RestoreBrainObjectResponse,
-    RestoreBrainObjectError,
-    Options<RestoreBrainObjectData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await restoreBrainObject({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 /**
  * update_app_configuration_group operation on app_configuration_operation resource
@@ -3973,52 +3796,6 @@ export const listBrainObjectsInfiniteOptions = (options?: Options<ListBrainObjec
 }
 
 /**
- * update_brain_object operation on brain_object resource
- */
-export const updateBrainObjectMutation = (
-  options?: Partial<Options<UpdateBrainObjectData>>
-): UseMutationOptions<UpdateBrainObjectResponse, UpdateBrainObjectError, Options<UpdateBrainObjectData>> => {
-  const mutationOptions: UseMutationOptions<
-    UpdateBrainObjectResponse,
-    UpdateBrainObjectError,
-    Options<UpdateBrainObjectData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await updateBrainObject({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * create_brain_object operation on brain_object resource
- */
-export const createBrainObjectMutation = (
-  options?: Partial<Options<CreateBrainObjectData>>
-): UseMutationOptions<CreateBrainObjectResponse, CreateBrainObjectError, Options<CreateBrainObjectData>> => {
-  const mutationOptions: UseMutationOptions<
-    CreateBrainObjectResponse,
-    CreateBrainObjectError,
-    Options<CreateBrainObjectData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await createBrainObject({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * put_default_provider_hosted operation on agent_model_configuration resource
  */
 export const putDefaultProviderHostedMutation = (
@@ -4035,29 +3812,6 @@ export const putDefaultProviderHostedMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await putDefaultProviderHosted({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * fork_brain_object operation on brain_object resource
- */
-export const forkBrainObjectMutation = (
-  options?: Partial<Options<ForkBrainObjectData>>
-): UseMutationOptions<ForkBrainObjectResponse, ForkBrainObjectError, Options<ForkBrainObjectData>> => {
-  const mutationOptions: UseMutationOptions<
-    ForkBrainObjectResponse,
-    ForkBrainObjectError,
-    Options<ForkBrainObjectData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await forkBrainObject({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -4643,29 +4397,6 @@ export const bindIdentityMappingRequestMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await bindIdentityMappingRequest({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * rollback_brain_object operation on brain_object resource
- */
-export const rollbackBrainObjectMutation = (
-  options?: Partial<Options<RollbackBrainObjectData>>
-): UseMutationOptions<RollbackBrainObjectResponse, RollbackBrainObjectError, Options<RollbackBrainObjectData>> => {
-  const mutationOptions: UseMutationOptions<
-    RollbackBrainObjectResponse,
-    RollbackBrainObjectError,
-    Options<RollbackBrainObjectData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await rollbackBrainObject({
         ...options,
         ...fnOptions,
         throwOnError: true

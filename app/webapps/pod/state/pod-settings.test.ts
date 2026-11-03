@@ -135,6 +135,8 @@ test('routeSidebarTab and podRouteTitle preserve sidebar context and format rout
   expect(podRouteTitle('/', t)).toBe('pod.sidebar.tabs.chat · Ankole')
   expect(podRouteTitle('/conversations/abc', t, 'Design review')).toBe('Design review · Ankole')
   expect(podRouteTitle('/conversations/abc', t, '   ')).toBe('pod.sidebar.tabs.chat · Ankole')
+  expect(podRouteTitle('/dm/legal', t, '法务合规')).toBe('法务合规 · Ankole')
+  expect(podRouteTitle('/dm/legal', t)).toBe('legal · Ankole')
   expect(podRouteTitle('/content/space', t)).toBe('pod.content.space · Ankole')
   expect(podRouteTitle('/content/search', t)).toBe('pod.content.search_pages · Ankole')
 })

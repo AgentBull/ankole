@@ -1,9 +1,12 @@
 import { mkdirAgentSync } from '../../../src/common/agent-user'
 import { Slots } from '../../../src/worker/lifecycle_messages'
-import { AgentConversationContextResponseSchema } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import {
+  AgentConversationContextResponseSchema,
+  RuntimeSkillSummarySchema
+} from '../../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BrowserRuntime } from '../../../src/browser-runtime'
@@ -52,7 +55,20 @@ function fixture(slots = 2, capacityChanged = async (): Promise<void> => {}) {
     const data =
       method === 'worker_env.resolve'
         ? { vars: {}, operatorVars: {}, bindingVars: {} }
-        : await drive.rpc(method as 'files.list', payload as never, undefined)
+        : method === 'pod.read'
+          ? {
+              bodyJson: jsonBytes({
+                files: [
+                  { path: 'SKILL.md', content: Buffer.from('Use scripts/check.sh').toString('base64'), mode: 0o444 },
+                  {
+                    path: 'scripts/check.sh',
+                    content: Buffer.from('#!/bin/sh\necho fallback-skill').toString('base64'),
+                    mode: 0o555
+                  }
+                ]
+              })
+            }
+          : await drive.rpc(method as 'files.list', payload as never, undefined)
     rpc.resolve(
       create(RPCResponseSchema, {
         requestId: request.requestId,
@@ -130,11 +146,51 @@ describe('real workspace command adoption', () => {
       await until(() =>
         f.sent.some(e => e.body.case === 'workspaceReady' && e.body.value.run?.signalId === run.signalId)
       )
-      for (const name of ['SOUL', 'MISSION', 'DESIGN', 'ConfidentialityPolicy']) {
+      for (const name of ['AGENTS', 'DESIGN']) {
         expect(readFileSync(join(f.root, `${name}.md`), 'utf8')).toBe(`${name} ${version}`)
       }
       if (version === 'updated') await f.spaces.close(create(WorkspaceCloseSchema, { run }))
     }
+    expect(readdirSync(join(f.root, '.ankole', 'turn-skills'))).toEqual([])
+  })
+
+  it('opens without FUSE, executes a bundled Skill, and removes the turn copy on close', async () => {
+    const f = fixture()
+    f.spaces.open(
+      create(WorkspaceOpenSchema, {
+        ...f.open,
+        agentContext: create(AgentConversationContextResponseSchema, {
+          ...context('fallback'),
+          skills: [
+            create(RuntimeSkillSummarySchema, {
+              skillName: 'fallback',
+              sourceKind: 'shared',
+              relativePath: 'fallback',
+              description: 'Fallback skill'
+            })
+          ]
+        })
+      })
+    )
+    await until(() => f.sent.some(e => e.body.case === 'workspaceReady'))
+    const ready = f.sent.find(e => e.body.case === 'workspaceReady')!
+    expect(ready.body.case === 'workspaceReady' && ready.body.value.error).toBe('')
+    expect(ready.body.case === 'workspaceReady' && ready.body.value.reason).toBe(WorkspaceReady_Reason.READY)
+    const copy = join(f.root, '.ankole', 'turn-skills', f.run.signalId)
+    f.spaces.call(
+      create(ToolCallSchema, {
+        ...f.call,
+        argumentsJson: jsonBytes({ command: `'${join(copy, 'fallback/scripts/check.sh')}'` })
+      })
+    )
+    await until(() => f.sent.some(e => e.body.case === 'toolResult'))
+    const result = f.sent.find(e => e.body.case === 'toolResult')!
+    expect(result.body.case === 'toolResult' && result.body.value.isError).toBe(false)
+    expect(result.body.case === 'toolResult' && new TextDecoder().decode(result.body.value.contentJson)).toContain(
+      'fallback-skill'
+    )
+    await f.spaces.close(create(WorkspaceCloseSchema, { run: f.run }))
+    expect(existsSync(copy)).toBe(false)
   })
 
   it('retains running commands and cached receipts across a lost connection without repeating an effect (G3)', async () => {
@@ -250,9 +306,7 @@ describe('real workspace command adoption', () => {
 
 function context(version: string) {
   return create(AgentConversationContextResponseSchema, {
-    soul: `SOUL ${version}`,
-    mission: `MISSION ${version}`,
-    design: `DESIGN ${version}`,
-    confidentialityPolicy: `ConfidentialityPolicy ${version}`
+    agents: `AGENTS ${version}`,
+    design: `DESIGN ${version}`
   })
 }

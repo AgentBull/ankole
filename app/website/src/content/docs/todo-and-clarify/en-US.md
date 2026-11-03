@@ -25,4 +25,4 @@ When `clarify` succeeds, the Driver records the normalized question and choices 
 
 Native Codex Jobs use their own human-input lifecycle: when a Job requests user input, Ankole transitions it to `waiting_on_user` and releases its active Worker slot until the owner's reply resumes it; see [Background Agent Jobs](../background-agent-jobs/).
 
-Neither task-list behavior nor `clarify` turn termination exposes separate Console tuning flags—adjust the Agent's `MISSION.md`, `SOUL.md`, or enabled Skills when you want to change how eagerly it plans or asks questions. See [Agents](../agents/) and [The agent loop](../agent-loop/).
+Neither task-list behavior nor `clarify` turn termination exposes separate Console tuning flags—adjust the Agent's `AGENTS.md`, or enabled Skills when you want to change how eagerly it plans or asks questions. See [Agents](../agents/) and [The agent loop](../agent-loop/).

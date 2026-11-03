@@ -35,7 +35,7 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   defp committed(grant) do
-    if grant_affects_pod?(grant), do: Ankole.Files.Access.broadcast_change()
+    if grant_affects_pod?(grant), do: Ankole.Pod.Access.broadcast_change()
   end
 
   def create_permission_grant(attrs) do
@@ -127,7 +127,7 @@ defmodule Ankole.AuthZ.Grants do
   @doc "Deletes a group's grants and refreshes their Page anchors in the caller's transaction."
   def delete_group_grants_in_tx(group_id) do
     :ok = Repo.require_transaction()
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
     query = Grant |> Ash.Query.filter(group_id == ^group_id)
 
     targets =
@@ -151,7 +151,7 @@ defmodule Ankole.AuthZ.Grants do
   def grant_affects_pod?(_attrs), do: false
 
   defp lock_pod(attrs), do: lock_pod?(grant_affects_pod?(attrs))
-  defp lock_pod?(true), do: Ankole.Files.lock_tree_in_tx()
+  defp lock_pod?(true), do: Ankole.Pod.lock_tree_in_tx()
   defp lock_pod?(false), do: :ok
 
   defp lock_current_grant(id, attrs) do
@@ -189,7 +189,7 @@ defmodule Ankole.AuthZ.Grants do
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.reduce_while(:ok, fn id, :ok ->
-      case Ankole.Files.Access.refresh_anchor_in_tx(id) do
+      case Ankole.Pod.Access.refresh_anchor_in_tx(id) do
         :ok -> {:cont, :ok}
         {:error, _} = error -> {:halt, error}
       end
@@ -367,7 +367,7 @@ defmodule Ankole.AuthZ.Grants do
 
   defp normalize_target(attrs), do: {:ok, attrs}
 
-  defp page_action?(action), do: action in Ankole.Files.Access.page_actions()
+  defp page_action?(action), do: action in Ankole.Pod.Access.page_actions()
 
   defp refuse_page_action(action) do
     if page_action?(action),

@@ -254,15 +254,15 @@ defmodule Ankole.MixProject do
       {:swoosh, "~> 1.29"},
       {:mjml, "~> 6.0", runtime: false},
       {:gen_smtp, "~> 1.3"},
-      {:codepagex, "~> 0.2.0"},
+      {:codepagex, "~> 0.3.0"},
       {:mint_web_socket, "~> 1.0"},
       {:localize, "~> 1.3"},
       {:oban, "~> 2.24"},
       {:crontab, "~> 1.2"},
       {:open_api_spex, "~> 3.22"},
       {:open_feature, "~> 0.1"},
-      {:attesto, "== 2.7.0"},
-      {:attesto_client, "== 2.11.1"},
+      {:attesto, "== 2.10.0"},
+      {:attesto_client, "== 2.13.0"},
       {:ash, "== 3.37.2"},
       {:ash_postgres, "== 2.15.2"},
       {:ash_state_machine, "== 0.3.0"},
@@ -344,6 +344,7 @@ defmodule Ankole.MixProject do
             "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs " <>
             "../../tools/e2e/suites/conversations_cli_real_llm_e2e_test.exs " <>
             "../../tools/e2e/suites/pod_skill_lessons_real_llm_e2e_test.exs " <>
+            "../../tools/e2e/suites/pod_superagent_real_llm_e2e_test.exs " <>
             "../../tools/e2e/suites/pod_content_real_llm_e2e_test.exs --trace"
         ],
         "e2e.ai_gateway_real_provider": [

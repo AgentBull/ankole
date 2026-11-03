@@ -45,7 +45,15 @@ export type BaseView = {
   version: number
   position?: string
 }
-export type BaseTable = { id: string; page_id: string; name: string; data_version: number; record_count: number }
+export type BaseTable = {
+  id: string
+  page_id: string
+  name: string
+  data_version: number
+  record_count: number
+  unique_field_ids: string[]
+  emit_changes: boolean
+}
 export type TableSchema = {
   table: BaseTable
   fields: BaseField[]
@@ -86,6 +94,7 @@ export type AggregateResult = {
 }
 export type RecordWrite = {
   creates?: { id?: string; data: RecordData }[]
+  upserts?: { data: RecordData }[]
   updates?: { id: string; data: RecordData; expected_versions: Versions }[]
   deletes?: { id: string; expected_versions: Versions }[]
 }
@@ -129,12 +138,28 @@ export type RoutesAPI = {
   call<T = unknown>(request: RouteCall): Promise<T>
   key(): readonly unknown[]
 }
+export type ActionRun = {
+  id: number
+  automation_job_id: number
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  slice_count: number
+  attempts: number
+  progress: Record<string, unknown>
+  result?: unknown
+  error?: string | null
+}
+export type RunsAPI = {
+  get(runID: number, signal?: AbortSignal): Promise<ActionRun>
+  key(runID: number): readonly unknown[]
+  subscribe(runID: number, callback: (event: { access_revoked?: boolean }) => void): () => void
+}
 export type AppletRuntime = {
   pageID: string
   instanceID: string
   actions: readonly ('node_view' | 'node_comment' | 'node_contribute' | 'node_edit' | 'node_manage')[]
   revision: number
   routes: RoutesAPI
+  runs: RunsAPI
   queryClient: QueryClient
   readDenial(query: Query): unknown
   base: BaseAPI

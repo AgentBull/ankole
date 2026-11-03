@@ -2,12 +2,12 @@ defmodule Ankole.Pod.Bases.Schema do
   @moduledoc """
   Changes Base fields and views and converts the stored record values.
 
-  Each change runs in a top-level transaction through `Ankole.Files.Access.write/3`.
+  Each change runs in a top-level transaction through `Ankole.Pod.Access.write/3`.
   The write result gives the written definition and the changed tables; the
   table rooms get the change after the commit.
   """
   require Ash.Query
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Bases, BaseField, BaseRepo, BaseTable, BaseView, Formula}
   alias Ankole.Pod.Bases.{DDL, Physical, Write}
 
@@ -21,6 +21,86 @@ defmodule Ankole.Pod.Bases.Schema do
              do: {:ok, table, write}
       end)
     end)
+  end
+
+  def configure_table(actor, id, attrs) do
+    write(actor.turn_authority, fn ->
+      schema_write(actor, id, fn write ->
+        with {:ok, candidate} <-
+               Ankole.Ash.for_update(
+                 write.table,
+                 :configure,
+                 atom_attrs(attrs, [:unique_field_ids, :emit_changes])
+               )
+               |> Ash.Changeset.apply_attributes(),
+             :ok <- validate_unique_fields(candidate, fields(id)),
+             :ok <- configure_storage(write, candidate),
+             {:ok, table} <-
+               Ankole.Ash.update(
+                 write.table,
+                 :configure,
+                 Map.take(candidate, [:unique_field_ids, :emit_changes])
+               ) do
+          {:ok, table, %{write | table: table, tables: Map.put(write.tables, id, table)}}
+        end
+      end)
+    end)
+  end
+
+  defp validate_unique_fields(table, definitions) do
+    valid =
+      for field <- definitions,
+          field.type in [:text, :number, :checkbox, :datetime] or
+            (field.type == :select and field.config["multiple"] != true),
+          do: field.id
+
+    keys = table.unique_field_ids
+
+    if length(keys) == length(Enum.uniq(keys)) and Enum.all?(keys, &(&1 in valid)),
+      do: :ok,
+      else: {:error, :invalid_unique_fields}
+  end
+
+  defp configure_storage(write, table) do
+    check = fn ->
+      if table.unique_field_ids != [] and
+           Ankole.Pod.Bases.Records.duplicate_keys?(table, fields(table.id)) do
+        {:error, :duplicate_unique_key}
+      else
+        if table.storage_mode == :physical do
+          BaseRepo.ensure_outbox!()
+
+          if table.unique_field_ids != write.table.unique_field_ids,
+            do: Physical.unique_index!(table)
+        end
+
+        {:ok, :ok}
+      end
+    end
+
+    result =
+      if table.storage_mode == :physical,
+        do:
+          BaseRepo.run(write.shard, check,
+            ddl: true,
+            deadline: write.deadline,
+            timezone: write.timezone
+          ),
+        else: check.()
+
+    case result do
+      {:ok, :ok} -> :ok
+      error -> error
+    end
+  end
+
+  defp unique_field_change(table, old, candidate) do
+    if old.id in table.unique_field_ids and
+         (old.type != candidate.type or
+            (old.type == :select and
+               old.config["multiple"] == true != (candidate.config["multiple"] == true))),
+       do: {:error, :unique_field_referenced},
+       else: :ok
   end
 
   def create_field(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
@@ -118,6 +198,7 @@ defmodule Ankole.Pod.Bases.Schema do
                  strip_edge_config(atom_attrs(attrs, [:name, :type, :config, :position]))
                )
                |> Ash.Changeset.apply_attributes(),
+             :ok <- unique_field_change(table, field, candidate),
              candidate <- carry_reverse(field, candidate),
              {:ok, candidate} <-
                prepare_changed_formula(field, candidate, definitions, attrs),
@@ -161,6 +242,7 @@ defmodule Ankole.Pod.Bases.Schema do
         cond do
           is_nil(field) -> {:error, :not_found}
           field.version != version -> {:error, {:schema_conflict, field}}
+          id in table.unique_field_ids -> {:error, :unique_field_referenced}
           field.is_primary -> {:error, :primary_field_required}
           Enum.any?(fields(table.id), &Formula.references?(&1, id)) -> {:error, :field_referenced}
           true -> delete_field_in_tx(field, write)

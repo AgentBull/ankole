@@ -1,3 +1,4 @@
+import { isKnowledge } from './knowledge'
 import { tablePresentation } from './table-presentation'
 import type { Command } from '../core/command'
 import { type ChangeSet, type Plot } from '../core/doc'
@@ -60,6 +61,12 @@ export function changeTable(
   scope: TableScope = 'column',
   renderedWidth?: number
 ): boolean {
+  if (
+    isKnowledge(editor.state) &&
+    ['merge', 'split', 'header', 'header_column', 'full_width', 'distribute'].includes(action)
+  ) {
+    return false
+  }
   let context = editableTable(editor.state)
   if (!context) return false
   // Normalize uneven rows only for structural operations, in the same undoable transaction.
@@ -184,15 +191,19 @@ export function changeTable(
           return GardSelection.near(cx, (pos ?? table.start) + 1, 1)
         }
   }
-  dispatchStep(editor, {
-    ...Transaction.merge(editor.state, padded, { ...operation, sequential: true }),
-    userEvent: 'table.configure'
-  })
+  dispatchStep(
+    editor,
+    knowledgeHeaders(editor.state, {
+      ...Transaction.merge(editor.state, padded, { ...operation, sequential: true }),
+      userEvent: 'table.configure'
+    })
+  )
   editor.focus()
   return true
 }
 
 export function colorTableCells(editor: Wordgard, color: string | null, scope: TableScope): boolean {
+  if (isKnowledge(editor.state)) return false
   const context = editableTable(editor.state)
   if (!context || (color !== null && !/^#[0-9a-fA-F]{6}$/.test(color))) return false
   const changes: ChangeSet.Spec[] = []
@@ -207,7 +218,7 @@ export function colorTableCells(editor: Wordgard, color: string | null, scope: T
 
 export function resizeTable(editor: Wordgard, pos: number, widths: readonly number[]): boolean {
   const table = editor.state.doc.nodeAt(pos)
-  if (editor.state.readOnly || table?.type !== Table.type || !widths.length) return false
+  if (isKnowledge(editor.state) || editor.state.readOnly || table?.type !== Table.type || !widths.length) return false
   const value = widths.map(width => Math.max(25, Math.min(9999, Math.round(width)))).join(',')
   dispatchStep(editor, { changes: { from: pos, add: TableWidths.of(value) }, userEvent: 'table.resize' })
   return true
@@ -218,16 +229,40 @@ export function moveTableAxis(editor: Wordgard, axis: 'row' | 'column', destinat
   if (!context) return false
   const edit = moveAxis(context, axis, destination)
   if (!edit) return false
-  dispatchStep(editor, {
-    changes: edit.changes,
-    selection: cx => {
-      const map = TableMap.get(cx.doc.nodeAt(context.table.before) as Plot, context.table.start)
-      return GardSelection.near(cx, map.cellAt(edit.column, edit.row)! + 1, 1)
-    },
-    userEvent: 'table.move'
-  })
+  dispatchStep(
+    editor,
+    knowledgeHeaders(editor.state, {
+      changes: edit.changes,
+      selection: cx => {
+        const map = TableMap.get(cx.doc.nodeAt(context.table.before) as Plot, context.table.start)
+        return GardSelection.near(cx, map.cellAt(edit.column, edit.row)! + 1, 1)
+      },
+      userEvent: 'table.move'
+    })
+  )
   editor.focus()
   return true
+}
+
+/** GFM tables always use their first row as the header, including after row insertion or deletion. */
+function knowledgeHeaders(state: GardState, spec: Transaction.Spec): Transaction.Spec {
+  if (!isKnowledge(state)) return spec
+  const transaction = state.update(spec)
+  const changes: ChangeSet.Spec[] = []
+  transaction.newDoc.iterate((node, pos) => {
+    if (node.type !== Table.type) return
+    const map = TableMap.get(node as Plot, pos + 1)
+    for (let row = 0; row < map.height; row++) {
+      for (let col = 0; col < map.width; col++) {
+        const at = map.cellAt(col, row)!
+        const cell = map.getCell(at)
+        const type = row === 0 ? HeaderCell : DataCell
+        if (cell.type !== type.type) changes.push({ from: at, to: at + 1, insert: [type.withMarks(cell.marks)] })
+      }
+    }
+    return false
+  })
+  return changes.length ? Transaction.merge(state, transaction, { changes, sequential: true }) : spec
 }
 
 /** CSV preserves visible cell text; merged continuations are empty, and spreadsheet formulas are inert. */

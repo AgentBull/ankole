@@ -78,6 +78,7 @@ defmodule DingTalkOpenAPI.Stream.Client do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     dispatcher = Keyword.fetch!(opts, :dispatcher)
 
     state = %__MODULE__{
@@ -367,6 +368,7 @@ defmodule DingTalkOpenAPI.Stream.Client do
   end
 
   defp reconnect_immediately(state) do
+    state = clear_reconnect_timer(state)
     send(self(), :connect)
     %{state | reconnect_timer: nil}
   end

@@ -1,3 +1,4 @@
+import { isKnowledge } from '../editor/knowledge'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@ankole/uikit/components/button'
@@ -265,31 +266,32 @@ export function TableTools() {
               />
             )
           })}
-          {geometry.columns.slice(1).map(
-            (right, index) =>
-              right > geometry.left &&
-              right <= geometry.right + 1 && (
-                <button
-                  key={index}
-                  className="table-resizer"
-                  role="separator"
-                  aria-label={`${label('table_resize')} ${index + 1}`}
-                  aria-orientation="vertical"
-                  aria-valuemin={25}
-                  aria-valuemax={9999}
-                  aria-valuenow={Math.round(right - geometry.columns[index]!)}
-                  style={{ left: right - 4, top: geometry.top, height: geometry.bottom - geometry.top }}
-                  onPointerDown={event => resize(index, event)}
-                  onKeyDown={event => {
-                    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-                    event.preventDefault()
-                    const widths = geometry.columns.slice(1).map((right, i) => right - geometry.columns[i]!)
-                    widths[index] = widths[index]! + (event.key === 'ArrowLeft' ? -10 : 10)
-                    resizeTable(editor, table, widths)
-                  }}
-                />
-              )
-          )}
+          {!isKnowledge(state) &&
+            geometry.columns.slice(1).map(
+              (right, index) =>
+                right > geometry.left &&
+                right <= geometry.right + 1 && (
+                  <button
+                    key={index}
+                    className="table-resizer"
+                    role="separator"
+                    aria-label={`${label('table_resize')} ${index + 1}`}
+                    aria-orientation="vertical"
+                    aria-valuemin={25}
+                    aria-valuemax={9999}
+                    aria-valuenow={Math.round(right - geometry.columns[index]!)}
+                    style={{ left: right - 4, top: geometry.top, height: geometry.bottom - geometry.top }}
+                    onPointerDown={event => resize(index, event)}
+                    onKeyDown={event => {
+                      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                      event.preventDefault()
+                      const widths = geometry.columns.slice(1).map((right, i) => right - geometry.columns[i]!)
+                      widths[index] = widths[index]! + (event.key === 'ArrowLeft' ? -10 : 10)
+                      resizeTable(editor, table, widths)
+                    }}
+                  />
+                )
+            )}
           <button
             className="table-add table-add-row"
             aria-label={label('table_add_row')}

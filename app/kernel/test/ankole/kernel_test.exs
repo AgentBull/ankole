@@ -35,37 +35,6 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.generate_key() =~ ~r/\A[0-9a-f]{64}\z/
   end
 
-  test "brain_markdoc_analyze/1 crosses the JSON NIF boundary" do
-    body =
-      "public\n{% audience scope=\"principal:alice\" %}\n" <>
-        "private [[people/alice]]\n{% /audience %}"
-
-    assert %{
-             "segments" => [
-               %{"scope" => "world", "text" => "public\n", "tagged" => false},
-               %{
-                 "scope" => "principal:alice",
-                 "text" => "\nprivate [[people/alice]]\n",
-                 "tagged" => true
-               },
-               %{"scope" => "world", "text" => "", "tagged" => false}
-             ],
-             "wikilinks" => ["people/alice"]
-           } =
-             NativeKernel.brain_markdoc_analyze(body)
-
-    assert %{
-             "error" => %{
-               "code" => "unclosed_audience_tag",
-               "line" => 1
-             }
-           } =
-             NativeKernel.brain_markdoc_analyze(
-               "{% audience scope=\"principal:alice\" %}\n" <>
-                 "~~~markdoc\n{% /audience %}\n~~~\n"
-             )
-  end
-
   test "markdown code ranges keep original UTF-8 bytes across the native boundary" do
     source = "中文 ``a`b`` and ```unclosed\r\n<div>"
     assert [{start, length}] = NativeKernel.markdown_code_ranges("中文 ``a`b``")
@@ -483,8 +452,11 @@ defmodule Ankole.KernelTest do
              ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
   end
 
-  test "short UUIDs cross the NIF boundary with the shared canonical URL vectors" do
+  test "short UUIDs and Page slugs cross the NIF boundary with the shared canonical URL vectors" do
     vectors = Path.expand("../vectors/uuid_url.json", __DIR__) |> File.read!() |> Torque.decode!()
+
+    pod_vectors =
+      Path.expand("../vectors/pod_url.json", __DIR__) |> File.read!() |> Torque.decode!()
 
     for %{"uuid" => uuid, "short" => short} <- vectors["valid"] do
       assert NativeKernel.uuid_shorten(uuid) == short
@@ -496,6 +468,10 @@ defmodule Ankole.KernelTest do
 
     for value <- vectors["invalid_uuid"],
         do: assert({:error, _} = NativeKernel.uuid_shorten(value))
+
+    for %{"title" => title, "slug" => slug} <- pod_vectors["slugs"] do
+      assert NativeKernel.page_url_slug(title) == slug
+    end
   end
 
   test "universal AI client sends raw HTTP requests" do

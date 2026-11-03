@@ -30,22 +30,13 @@ The disclosure mode for group memory controls what knowledge the Agent may draw 
 
 In one-on-one direct messages, both modes behave identically. Use **Strict** unless the group explicitly accepts broader disclosure. See [Brain](../brain/) for the full knowledge and disclosure model.
 
-## Set the durable documents
+## Set Agent contracts
 
-Open **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** on the Agent page:
+Open **Meta Ankole → Agents** to edit the global baseline or an Agent’s `AGENTS.md` and `DESIGN.md`. `AGENTS.md` defines behavior and responsibilities; `DESIGN.md` holds visual rules for web pages, slides, documents and charts.
 
-| Document | What to write |
-|---|---|
-| `MISSION.md` | Why the Agent exists, what work it owns, and what a complete result means |
-| `SOUL.md` | How it communicates, how it makes decisions, and how it handles uncertainty |
-| `DESIGN.md` | The design system for web pages, slides, documents, charts, and other visual artifacts |
-| `ConfidentialityPolicy.md` | How the Agent chooses an audience scope when it writes knowledge to Brain |
+Each Agent contract can inherit the global baseline, append to it or override it. DESIGN metadata holds design tokens and its body explains their use. Only the owner can view or edit a personal assistant’s configuration. See [Agent Library](../agent-library/).
 
-`DESIGN.md` follows the <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md format</a>: YAML frontmatter defines design tokens such as colors, typography, spacing, border corners, and components, while the Markdown body explains the visual principles and how to apply them. Ankole ships a ready-to-use default design system that you can replace with your organization's brand under **Console → Agents → DESIGN**.
-
-Keep workflows, permission boundaries, and behavioral rules out of `DESIGN.md`—place them in `MISSION.md`, `SOUL.md`, `ConfidentialityPolicy.md`, or a dedicated Skill instead. Note that `ConfidentialityPolicy.md` guides explicit Brain writes initiated by the Agent, whereas automatic memory extraction from chat uses the conversation's participant audience. Start with concise documents, and add rules only when real work shows that they are needed.
-
-Saved edits apply to subsequent turns; work that is already running continues with the document snapshot that it loaded when the turn started.
+Saved edits take effect on the next turn, including a resumed Codex Job. The current turn uses the complete contract it loaded at startup.
 
 ## Configure models
 

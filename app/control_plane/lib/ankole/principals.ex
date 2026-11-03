@@ -84,6 +84,7 @@ defmodule Ankole.Principals do
   end
 
   resources do
+    resource(Ankole.Principals.MetaBrowser)
     resource(Ankole.Principals.PodAdminOperations)
     resource(Ankole.Principals.Access)
 

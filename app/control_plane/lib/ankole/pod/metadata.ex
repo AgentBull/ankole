@@ -10,7 +10,7 @@ defmodule Ankole.Pod.Metadata do
   import Bitwise, only: [band: 2]
 
   alias Ankole.Files, as: Drive
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
 
   @custom_emoji "metadata/custom-emoji/"
   @max_emoji_bytes 1024 * 1024

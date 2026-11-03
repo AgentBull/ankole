@@ -14,6 +14,7 @@ import {
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
+  RiArrowRightUpLine,
   RiArrowUpLine,
   RiCheckLine,
   RiCloseLine,
@@ -55,6 +56,8 @@ export function Composer({
   agents,
   agentsLoaded,
   personalAssistant = false,
+  assistantAvailable = false,
+  directColleague = false,
   agentUID,
   detail,
   commands,
@@ -71,6 +74,8 @@ export function Composer({
   agents: PodAgent[]
   agentsLoaded: boolean
   personalAssistant?: boolean
+  assistantAvailable?: boolean
+  directColleague?: boolean
   agentUID: string
   detail?: ConversationDetail
   commands: ChatCommands
@@ -84,7 +89,7 @@ export function Composer({
   onAnswer?(interactionID: string, answer: ClarifyAnswer): Promise<ConversationDetail>
 }) {
   useSignals()
-  const { t } = useTranslation(),
+  const { t, i18n } = useTranslation(),
     navigate = useNavigate()
   const shell = useRef<HTMLDivElement>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
@@ -119,11 +124,10 @@ export function Composer({
     !!answerQuestion &&
     answerQuestion.state === 'pending' &&
     !!answerQuestion.agentUID &&
-    callable.has(answerQuestion.agentUID) &&
-    !!detail?.conversation.agents.some(agent => agent.uid === answerQuestion.agentUID && agent.active)
+    callable.has(answerQuestion.agentUID)
   const roomAgents = (detail?.conversation.agents ?? agents).filter(agent => agent.active && callable.has(agent.uid))
   const group = detail?.conversation.roomMode === 'group'
-  const humanOnly = detail?.conversation.accessScope === 'anchor_page' && roomAgents.length === 0
+  const humanOnly = (group || detail?.conversation.accessScope === 'anchor_page') && roomAgents.length === 0
   const recipientUID =
     answerQuestion?.agentUID ??
     model.editing.value?.agentUID ??
@@ -316,6 +320,8 @@ export function Composer({
           existing={!!detail}
           working={working}
           hasAgents={roomAgents.length > 0}
+          canNew={assistantAvailable}
+          canRename={detail?.conversation.conversationKind !== 'colleague_dm'}
           query={picker.query}
           id={completionID}
           input={textarea}
@@ -329,6 +335,8 @@ export function Composer({
             detail={detail}
             pagesOnly={picker.kind === 'page' || !!model.editing.value}
             allowAgents={!answerID}
+            personalAssistant={personalAssistant}
+            participantsOnly={directColleague || detail?.conversation.conversationKind === 'colleague_dm'}
             query={picker.query}
             id={completionID}
             input={textarea}
@@ -337,6 +345,19 @@ export function Composer({
             onClose={close}
           />
         )
+      )}
+      {personalAssistant && model.mentions.value.some(mention => mention.type === 'agent') && (
+        // A colleague mention in an assistant task is a delegation, not an invitation, so the composer says so.
+        <p className="pod-chat-delegation-hint" role="note">
+          <RiArrowRightUpLine aria-hidden />
+          {t('pod.superagent.mention_hint', {
+            colleagues: new Intl.ListFormat(i18n.language, { type: 'conjunction' }).format(
+              model.mentions.value
+                .filter(mention => mention.type === 'agent')
+                .map(mention => recipientNames.get(mention.uid) ?? mention.displayName)
+            )
+          })}
+        </p>
       )}
       <form
         {...chatAttachmentHandlers(
@@ -498,8 +519,10 @@ export function Composer({
                 onClick={() => open('slash')}>
                 <RiCommandLine aria-hidden />
               </Button>
-              {personalAssistant && !conversationID ? (
-                <span className="px-2 text-xs text-fg-secondary">{t('pod.chat.personal_assistant')}</span>
+              {personalAssistant || directColleague || detail?.conversation.conversationKind === 'colleague_dm' ? (
+                <span className="px-2 text-xs text-fg-secondary">
+                  {personalAssistant ? t('pod.chat.personal_assistant') : recipientNames.get(agentUID)}
+                </span>
               ) : (
                 <Select
                   key={roomAgents.map(agent => agent.uid).join(':')}

@@ -60,6 +60,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
         assert {:ok, _} =
                  Ankole.ConversationsFixtures.create(owner.uid, %{
+                   room_mode: :group,
                    conversation_id: id,
                    message_id: Ecto.UUID.generate(),
                    agent_uid: agent_uid,
@@ -120,7 +121,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
     for id <- conversation_ids do
       assert_receive {:conversation_event, ^id, :status}
 
-      assert {:error, :conversation_not_found} =
+      assert {:ok, %{agents: []}} =
                Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), id)
     end
 

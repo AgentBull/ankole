@@ -12,6 +12,7 @@ defmodule AnkoleWeb.PodStream do
   def open(conn, %{conversation: conversation}) do
     scope = %{
       id: conversation.id,
+      peer_origin: conversation.origin_conversation_id,
       session: Ankole.Sessions.Key.conversation(conversation.id),
       actor: conn.assigns.authz_actor,
       access_topic: "drive-access:" <> Ankole.Repo.tenant_id!(),
@@ -74,6 +75,15 @@ defmodule AnkoleWeb.PodStream do
       when is_map_key(agents, uid) and
              :erlang.map_get(:model, :erlang.map_get(uid, agents)) == model ->
         gateway_event(conn, scope, event, gateway)
+
+      {:session_event, _, _, _} ->
+        loop(conn, scope)
+
+      {:conversation_event, _, _} ->
+        loop(conn, scope)
+
+      {:ai_gateway_event, _, _} ->
+        loop(conn, scope)
     after
       timeout -> tick(conn, scope)
     end
@@ -163,6 +173,10 @@ defmodule AnkoleWeb.PodStream do
       )
     end
   end
+
+  defp gateway_event(conn, %{peer_origin: origin} = scope, :reasoning_delta, _gateway)
+       when not is_nil(origin),
+       do: loop(conn, scope)
 
   defp gateway_event(conn, scope, event, %{payload: %{text: text}} = gateway)
        when event in [:output_text_delta, :reasoning_delta] and is_binary(text) do
@@ -297,6 +311,9 @@ defmodule AnkoleWeb.PodStream do
         snapshot ->
           payload =
             Map.merge(snapshot, %{conversationID: scope.id, agentUID: uid, agentName: agent.name})
+            |> then(fn payload ->
+              if scope.peer_origin, do: Map.put(payload, :thinkingSummary, ""), else: payload
+            end)
 
           agent = %{
             agent
@@ -384,9 +401,18 @@ defmodule AnkoleWeb.PodStream do
     with %{"principal_uid" => uid} <- AnkoleWeb.Session.pod_session(conn),
          true <- uid == conn.assigns.current_principal_uid,
          {:ok, principal} <- Ankole.Principals.get_principal(uid),
-         do: Native.visible_conversation?(%{scope.actor | principal: principal}, scope.id),
+         do: visible?(%{scope.actor | principal: principal}, scope),
          else: (_ -> false)
   end
+
+  defp visible?(actor, %{peer_origin: nil, id: id}), do: Native.visible_conversation?(actor, id)
+
+  defp visible?(actor, scope),
+    do:
+      match?(
+        {:ok, _},
+        Ankole.Conversations.visible_peer_exchange(actor, scope.peer_origin, scope.id)
+      )
 
   defp frame(event, data),
     do: ["event: ", to_string(event), "\ndata: ", Ankole.JSON.encode!(data), "\n\n"]

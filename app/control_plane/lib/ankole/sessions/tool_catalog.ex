@@ -23,6 +23,9 @@ defmodule Ankole.Sessions.ToolCatalog do
           Tools.Web,
           Ankole.Sessions.Scheduled,
           Ankole.Sessions.Presentation,
+          Tools.Peers,
+          Tools.RelatedContext,
+          Tools.Pod,
           Tools.Message
         ],
         fn owner ->

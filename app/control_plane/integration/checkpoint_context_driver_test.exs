@@ -20,10 +20,10 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
     %{principal: agent} = agent_fixture()
     {:ok, _} = SchemaPacks.install_packs([])
 
-    {:ok, _} =
+    {:ok, page} =
       Ankole.Brain.create_object(
         %{slug: "concepts/wire-format", type: "concept", title: "Wire Format"},
-        agent.uid
+        :system
       )
 
     {:ok, _} = Links.add_alias("concepts/wire-format", "Wire Format")
@@ -31,17 +31,17 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
     {:ok, _} =
       Ankole.Brain.write_fact(
         %{
-          object_slug: "concepts/wire-format",
+          subject_page_id: page.id,
           claim: "DRIVER_TASK_MEMORY",
           kind: "fact",
           holder: "world",
-          audience_scope: "world",
+          source_node_id: Ankole.Brain.Scope.world(),
           notability: "medium",
           confidence: 0.9,
           valid_from: DateTime.utc_now(:microsecond),
           provenance: "test"
         },
-        agent.uid
+        :system
       )
 
     recorded = start_supervised!({Agent, fn -> %{main: [], light: []} end})

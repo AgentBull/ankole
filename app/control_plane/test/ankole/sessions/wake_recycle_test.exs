@@ -89,6 +89,7 @@ defmodule Ankole.Sessions.WakeRecycleTest do
 
       assert {:ok, detail} =
                ConversationsFixtures.create(human.uid, %{
+                 room_mode: :group,
                  conversation_id: conversation_id,
                  message_id: first_msg_id,
                  agent_uid: agent.uid,
@@ -250,6 +251,7 @@ defmodule Ankole.Sessions.WakeRecycleTest do
 
         assert {:ok, detail} =
                  ConversationsFixtures.create(human.uid, %{
+                   room_mode: :group,
                    conversation_id: Ecto.UUID.generate(),
                    message_id: message_id,
                    agent_uid: agent.uid,
@@ -319,6 +321,7 @@ defmodule Ankole.Sessions.WakeRecycleTest do
 
       assert {:ok, detail} =
                ConversationsFixtures.create(human.uid, %{
+                 room_mode: :group,
                  conversation_id: conversation_id,
                  message_id: first_msg_id,
                  agent_uid: agent.uid,
@@ -455,6 +458,7 @@ defmodule Ankole.Sessions.WakeRecycleTest do
 
       assert {:ok, detail} =
                ConversationsFixtures.create(human.uid, %{
+                 room_mode: :group,
                  conversation_id: conversation_id,
                  message_id: first_msg_id,
                  agent_uid: agent.uid,

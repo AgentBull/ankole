@@ -6,6 +6,7 @@ import { type RuntimeSkillSummary } from '../fabric/generated/ankole/runtime_fab
 export interface SkillFileRoots {
   builtinSkillsRoot: string
   internalSkillsRoot?: string
+  driveSkillsRoot?: string
   agentInstalledSkillsRoot: string
 }
 
@@ -43,6 +44,10 @@ export function skillAvailableInRuntime(skill: RuntimeSkillSummary, runtime: Ank
 
 export function resolveSkillFilesystemRoot(skill: RuntimeSkillSummary, input: { skillRoots: SkillFileRoots }): string {
   const relativePath = normalizeSkillRelativePath(skill.relativePath)
+  if (skill.skillRoot === 'drive') {
+    if (!input.skillRoots.driveSkillsRoot) throw new Error('Drive Skills are not mounted')
+    return join(input.skillRoots.driveSkillsRoot, relativePath)
+  }
   const sourceKind = skill.sourceKind
   if (sourceKind === 'builtin') {
     const rootName = skill.skillRoot || undefined
@@ -71,7 +76,7 @@ export function assertValidSkillName(name: string): void {
 }
 
 export function isValidSkillName(name: string): boolean {
-  return /^[a-z][a-z0-9_-]{0,63}$/.test(name)
+  return /^[a-z0-9][a-z0-9._-]{0,95}$/.test(name)
 }
 
 function normalizeSkillRelativePath(relativePath: string): string {

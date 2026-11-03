@@ -23,19 +23,29 @@ defmodule Ankole.Sessions.Context do
   alias Ankole.SystemConfig
 
   @spec resolve(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def resolve(agent_uid, session_id) do
+  def resolve(agent_uid, session_id, metadata \\ nil) do
     with {:ok, conversation} <- resolve_conversation(agent_uid, session_id),
          {:ok, agent} <- agent_profile(agent_uid),
          {:ok, documents} <- Library.list_agent_documents(agent_uid),
+         {:ok, request_context} <- Ankole.Brain.RequestContext.build(agent_uid, metadata),
          {:ok, %{"skills" => skills, "agent_plugins" => agent_plugins}} <-
-           Library.runtime_catalog_for_agent(agent_uid) do
+           Library.runtime_catalog_for_agent(agent_uid, request_context: request_context) do
       {:ok,
        %{
          agent: agent,
          conversation: conversation_info(conversation),
          documents: documents,
          skills: skills,
-         agent_plugins: agent_plugins
+         agent_plugins: agent_plugins,
+         drive_instructions:
+           if(
+             match?(
+               {:ok, %{capacity: %{"drive_vfs" => true}}},
+               Ankole.AgentWorkers.get_agent_worker(agent_uid)
+             ),
+             do: Prompt.mounted_drive_instructions(),
+             else: ""
+           )
        }}
     end
   end

@@ -21,23 +21,20 @@ defmodule Ankole.Pod.FileCommentsTest do
 
     {:ok, private_root} =
       Repo.transact_top_level(fn ->
-        Ankole.Files.ensure_private_root_in_tx(owner.principal.uid)
+        Ankole.Pod.ensure_private_root_in_tx(owner.principal.uid)
       end)
 
     {:ok, file_node} =
-      Ankole.Files.create_node(owner, %{
+      Ankole.Pod.create_node(owner, %{
         parent_id: private_root.id,
-        kind: :file,
+        type: :file,
         name: "budget.csv"
       })
 
-    # Verify Unified Drive invariant: a pure Drive `:file` node has no `pages` properties row.
-    assert Repo.one(
-             from(p in "pages", where: p.id == type(^file_node.id, :binary_id), select: p.id)
-           ) == nil
+    assert {:ok, %{type: :file}} = Pages.fetch(file_node.id)
 
     {:ok, uploaded_v1} =
-      Ankole.Files.write_node(
+      Ankole.Pod.write_node(
         owner,
         file_node.id,
         "Department,Amount\nR&D,1200\nMarketing,800\n"
@@ -67,7 +64,7 @@ defmodule Ankole.Pod.FileCommentsTest do
     }
   end
 
-  test "supports all four multimodal file anchors, object_id version pinning,anchor_outdated on replacement, and PageUserState watermarks without a pages row",
+  test "supports multimodal file anchors, object_id version pinning, outdated anchors on replacement, and PageUserState watermarks",
        ctx do
     # 1. CSV row anchor
     assert {:ok, %{comment: csv_thread}} =
@@ -128,7 +125,7 @@ defmodule Ankole.Pod.FileCommentsTest do
                anchor: %{"kind" => "lines", "start_line" => 9, "end_line" => 2}
              })
 
-    # Read summary & acknowledge watermark on `:file` node (exercises `page_user_states -> drive_nodes` FK)
+    # Read summary & acknowledge watermark on `:file` node (exercises `page_user_states -> pages` FK)
     assert {:ok, %{unread_count: 4, activity_at: watermark}} =
              Activity.summary(ctx.owner, ctx.file_page.id)
 
@@ -142,7 +139,7 @@ defmodule Ankole.Pod.FileCommentsTest do
 
     # Replace file bytes -> `object_id` advances -> existing anchors report `anchor_outdated: true`
     {:ok, uploaded_v2} =
-      Ankole.Files.write_node(
+      Ankole.Pod.write_node(
         ctx.owner,
         ctx.file_page.id,
         "Department,Amount\nR&D,1500\nMarketing,900\nSales,400\n"

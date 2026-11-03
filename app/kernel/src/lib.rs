@@ -32,9 +32,6 @@ pub mod authz;
 #[cfg(any(test, feature = "nif"))]
 pub mod brain_chunker;
 
-#[cfg(feature = "brain_markdoc")]
-pub mod brain_markdoc;
-
 #[cfg(feature = "markdown")]
 pub mod markdown;
 
@@ -43,6 +40,9 @@ pub mod signals;
 
 #[cfg(any(test, feature = "nif"))]
 pub mod page_document;
+
+#[cfg(any(test, feature = "nif"))]
+pub mod vfs;
 
 #[cfg(feature = "object_store")]
 pub mod object_store;

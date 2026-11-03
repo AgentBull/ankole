@@ -1,4 +1,4 @@
-import { TableRow, useMutation, useQuery, Link } from '../../tenant-context'
+import { TableRow, useMutation, useQuery } from '../../tenant-context'
 import { principalLabel } from '../../state/principal-label'
 import {
   Badge,
@@ -28,8 +28,8 @@ import { AddMembershipPicker } from '../../add-membership-picker'
 import { LabeledField } from '../../console-form'
 import { PageHeader, PageStack } from '../../console-page'
 import { SinglePrincipalPicker } from '../../principal-picker'
-import { BrainSubNav, brainObjectPath } from './brain-nav'
-import { BrainHolderLabel, BrainScopeLabel } from './brain-scope'
+import { BrainSubNav } from './brain-nav'
+import { BrainPageLink, BrainHolderLabel, BrainSourceLabel } from './brain-scope'
 
 /** Runs recall as any Principal to diagnose knowledge boundaries and disclosure behavior. */
 export function BrainSearchPreviewPage() {
@@ -213,16 +213,10 @@ export function BrainSearchPreviewPage() {
                         <BrainHolderLabel holder={claim.holder} />
                       </TableCell>
                       <TableCell className="font-mono text-xs">
-                        {claim.object_slug ? (
-                          <Link className="link" to={brainObjectPath(claim.object_slug)}>
-                            {claim.object_slug}
-                          </Link>
-                        ) : (
-                          '—'
-                        )}
+                        {claim.subject_page_id ? <BrainPageLink pageID={claim.subject_page_id} /> : '—'}
                       </TableCell>
                       <TableCell>
-                        <BrainScopeLabel scope={claim.audience_scope} />
+                        <BrainSourceLabel nodeID={claim.source_node_id} />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -241,16 +235,14 @@ export function BrainSearchPreviewPage() {
               <div className="grid gap-3">
                 {result.chunks.map((chunk, index) => (
                   <article
-                    key={`${chunk.object_slug}-${chunk.chunk_index}-${index}`}
+                    key={`${chunk.subject_page_id}-${chunk.chunk_index}-${index}`}
                     className="grid gap-2 border border-border bg-card p-4">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       <span className="font-semibold">{chunk.title}</span>
-                      <Link className="link font-mono" to={brainObjectPath(chunk.object_slug)}>
-                        {chunk.object_slug}
-                      </Link>
+                      <BrainPageLink pageID={chunk.subject_page_id} />
                       <Badge variant="outline">{chunk.type}</Badge>
                       <Badge variant="outline">#{chunk.chunk_index}</Badge>
-                      <BrainScopeLabel scope={chunk.audience_scope} />
+                      <BrainSourceLabel nodeID={chunk.source_node_id} />
                     </div>
                     <p className="text-xs whitespace-pre-wrap leading-5 text-muted-foreground">{chunk.text}</p>
                   </article>

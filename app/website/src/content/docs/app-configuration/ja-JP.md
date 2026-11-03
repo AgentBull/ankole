@@ -41,7 +41,6 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 | `ai_agent.max_output_tokens` | Tenant | 1 回のモデル応答に対する出力トークンの上限 |
 | `ai_agent.inactivity_timeout_ms` | Tenant | モデルまたは Provider からの応答が途絶えた際、turn を終了するまでの待機時間（ミリ秒） |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Agent Plugin の既定の有効／無効状態 |
-| `ai_agent.library.skill_defaults` | Tenant | Skill の既定の有効／無効状態 |
 | `background_agent_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる BackgroundAgentJob の上限。既定値 `3`、有効範囲 `1`〜`64` |
 | `automation_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる自動化スクリプトの上限。既定値 `10`、有効範囲 `1`〜`64` |
 
@@ -68,16 +67,15 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 
 ### Brain
 
+Brain はテナントのシステム主体 `ankole_brain` としてモデルを呼び出します。抽出（`light`）、分析（`heavy`）、URL 取得（`web_fetch`）、再順位付け（`rerank`）は Console のモデル設定で管理し、Pod とサイトの設定を継承します。
+
 | キー | 適用範囲 | 用途 |
 |---|---|---|
 | `brain.enabled` | Tenant | Brain の検索・学習・保守処理を有効にする。無効化しても保存済みの知識は保持される |
-| `brain.maintainer_agent_uid` | Tenant | Brain のメンテナンスを担当する有効な Agent。Brain によるすべてのモデル呼び出しはこの Agent の ID で実行され、使用量もこの Agent に帰属する。対象 Agent が無効になると、再有効化または別 Agent への変更を行うまでモデル呼び出しと URL Source の取得が停止する。モデルの変更は Agent ページで `light`、`heavy`、`web_fetch` プロファイルを編集して行う |
 | `brain.embedding_model` | Site | ベクトル検索に使用する Provider、モデル、次元数。空欄の場合はベクトル検索が無効になる |
-| `brain.rerank_model` | Tenant | 検索結果の rerank に使用する Provider とモデル。空欄の場合はスコア融合後の順序がそのまま使われる |
 | `brain.search_tokenizer` | Site | BM25 トークナイザー（`icu`、`jieba`、`lindera_japanese`、`lindera_korean`）。変更後は BM25 インデックスの再構築が必要 |
 | `brain.chunking` | Tenant | Source チャンクのサイズ、オーバーラップ、入力上限 |
 | `brain.forgetting` | テナント | 記憶の種類ごとの減衰半減期 |
-| `brain.soft_delete_retention_hours` | テナント | Dreaming がソフト削除したオブジェクトを完全削除するまでの保持時間。既定 `72` 時間 |
 | `brain.dreaming_task_cron` | Tenant | 知識の統合処理（Dreaming）を定期実行するスケジュール |
 | `brain.self_healing_task_cron` | Tenant | 古くなったチャンク、embedding、検索インデックスの投影を再構築するスケジュール |
 | `brain.signal_channel_batch_idle_time` | Tenant | 未処理のチャットメッセージが学習処理へ送られるまでのアイドル秒数（会話終了時にも学習が開始される） |

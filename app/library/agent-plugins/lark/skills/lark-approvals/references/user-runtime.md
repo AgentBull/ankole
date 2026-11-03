@@ -28,13 +28,13 @@ The wrapper stores the new app secret through `lark-cli profile add --app-secret
 1. Check the profile.
 
    ```bash
-   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals profile status
+   "$LARK_APPROVALS_DIR/scripts/lark-approvals" profile status
    ```
 
 2. If the result is `not_configured`, start PersonalAgent app registration.
 
    ```bash
-   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals profile begin feishu
+   "$LARK_APPROVALS_DIR/scripts/lark-approvals" profile begin feishu
    ```
 
    Use `lark` instead of `feishu` only for a Lark tenant. Give the exact `verification_url` to the user and end the Turn. The wrapper keeps the temporary device code in the selected profile's locked CLI state and does not print it for the model to repeat.
@@ -42,7 +42,7 @@ The wrapper stores the new app secret through `lark-cli profile add --app-secret
 3. After the user confirms authorization, complete app registration.
 
    ```bash
-   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals profile complete
+   "$LARK_APPROVALS_DIR/scripts/lark-approvals" profile complete
    ```
 
    A pending result means that authorization has not reached the provider. Wait for the user; do not start another registration.
@@ -52,13 +52,13 @@ The wrapper stores the new app secret through `lark-cli profile add --app-secret
 5. Check user login.
 
    ```bash
-   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals auth status --verify
+   "$LARK_APPROVALS_DIR/scripts/lark-approvals" auth status --verify
    ```
 
 6. If user identity is unavailable, start approval-scope login.
 
    ```bash
-   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals auth begin
+   "$LARK_APPROVALS_DIR/scripts/lark-approvals" auth begin
    ```
 
    Give the exact `verification_url` to the user and end the Turn. The wrapper keeps the temporary device code in the selected profile's locked CLI state and does not print it.
@@ -66,7 +66,7 @@ The wrapper stores the new app secret through `lark-cli profile add --app-secret
 7. After the user confirms authorization, complete login.
 
    ```bash
-   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals auth complete
+   "$LARK_APPROVALS_DIR/scripts/lark-approvals" auth complete
    ```
 
 Profile creation, both temporary device codes, profile preflight, login completion, and logout use a file lock in the shared CLI configuration directory. Profile preflight sets profile strict mode to `off` because one PersonalAgent profile must support both identities. The wrapper pins approval commands to user identity and file upload to the same profile's app identity. Approval reads, file uploads, and approval writes do not take this lock, so different profiles can run in parallel.

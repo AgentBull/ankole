@@ -48,7 +48,7 @@ export function buildCodexJobProjection(input: { tools: WorkerAgentTool[] }): Co
       }
       try {
         const result = await tool.execute(params.callId, parsed.data, signal)
-        return { contentItems: dynamicToolContentItems(result), success: true }
+        return { contentItems: dynamicToolContentItems(result), success: result.isError !== true }
       } catch (error) {
         return dynamicToolFailure(errorMessage(error))
       }

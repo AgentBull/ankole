@@ -13,7 +13,7 @@ defmodule Ankole.AuthZ do
 
   defdelegate validate_turn_authority(authority), to: Ankole.AuthZ.TurnAuthority, as: :validate
 
-  defdelegate authorize_turn_in_tx(authority),
+  defdelegate authorize_turn_in_tx(authority, opts \\ []),
     to: Ankole.AuthZ.TurnAuthority,
     as: :authorize_in_tx
 

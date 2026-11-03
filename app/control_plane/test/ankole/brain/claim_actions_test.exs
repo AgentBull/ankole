@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.ClaimActionsTest do
   use Ankole.DataCase, async: true
+  import Ankole.BrainFixtures
 
   alias Ankole.Brain.{Claims, SchemaPacks}
   alias Ankole.Brain.Schemas.Claim
@@ -8,12 +9,29 @@ defmodule Ankole.Brain.ClaimActionsTest do
     {:ok, _} = SchemaPacks.install_packs([])
 
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "notes/claim-actions", type: "note", title: "Claims"},
         :system
       )
 
     %{object: object}
+  end
+
+  test "forgetting a page preserves its reason and removes its derived knowledge", %{
+    object: object
+  } do
+    fact = fact!(object)
+
+    assert {:ok, forgotten} =
+             Ankole.Brain.Forget.forget_object(object.id, "  superseded evidence  ", :admin)
+
+    assert forgotten.deleted_at
+    assert forgotten.meta["forgotten"]["reason"] == "superseded evidence"
+    assert forgotten.meta["forgotten"]["by"] == "console admin"
+    assert forgotten.revision > object.revision
+    assert {:ok, stored} = Ankole.Brain.Objects.get_by_slug(object.id)
+    assert stored.meta["forgotten"] == forgotten.meta["forgotten"]
+    refute Enum.any?(Claim |> Claims.current_external_facts() |> Repo.all(), &(&1.id == fact.id))
   end
 
   test "record actions keep Fact and Take field families distinct", %{object: object} do
@@ -174,11 +192,11 @@ defmodule Ankole.Brain.ClaimActionsTest do
 
   defp fact_attrs(object) do
     %{
-      object_slug: object.slug,
+      subject_page_id: object.id,
       claim: "An assertion",
       kind: "fact",
       holder: "world",
-      audience_scope: "world",
+      source_node_id: source_node("world"),
       notability: "medium",
       confidence: 0.75,
       valid_from: DateTime.utc_now(),
@@ -188,11 +206,11 @@ defmodule Ankole.Brain.ClaimActionsTest do
 
   defp take!(object, overrides \\ %{}) do
     attrs = %{
-      object_slug: object.slug,
+      subject_page_id: object.id,
       claim: "A prediction",
       kind: "forecast",
       holder: "world",
-      audience_scope: "world",
+      source_node_id: source_node("world"),
       weight: 0.75,
       provenance: "claim actions"
     }

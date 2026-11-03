@@ -30,7 +30,7 @@ my-skill/
 └── templates/
 ```
 
-ディレクトリ名には英小文字、数字、ハイフン、アンダースコアを使用します。システム同梱の組み込み Skill は `app/library/skills/` 配下に置かれ、個別インストールされた Skill は各 Agent のファイル領域に配置されます。
+識別子は Pod 内で一意とし、英小文字または数字で始めます。英小文字、数字、ピリオド、ハイフン、アンダースコアを使用できます。同梱の Skill は `app/library/skills/` に置きます。カスタムパッケージは **Meta Ankole → Skills** で作成またはインポートします。
 
 ### frontmatter を書く
 
@@ -50,25 +50,11 @@ platforms: [linux]
 
 Agent は `description` の文面を見てその Skill を開くかどうかを判断するため、「どのような依頼や状況のときに使うべきか」という具体的なトリガー条件を記述してください。専用ワークスペースでの分離実行が必要な作業には `ankole-runtime: background_job` を指定し、Linux 固有のコマンドやツールに依存する場合にのみ `platforms: [linux]` を指定します。
 
-### 同梱 Skill を Brain から発見できるようにする
+### 完全な Skill パッケージ
 
-すべてのプロンプトのカタログに常時載せる必要はないものの、進行中の作業と意味的に関連したタイミングで呼び出せるようにしたい SOP や専門メソドロジーには、`brain-recall-only` を設定します。
+Skill は必須の `SKILL.md` と付属ファイルで構成します。Frontmatter と本文はまとめて編集し、スクリプト、テンプレート、バイナリ素材、参照文書はパッケージ内の相対パスを維持します。公式 Skill、Agent Plugin の Skill、カスタム Skill の識別子は Pod 全体で一意です。
 
-```yaml
----
-name: idea-lineage
-description: Trace how one idea evolved through memory — first mention, best articulation, reversals, and the current live version, each cited from stored evidence.
-tags:
-  - idea lineage
-  - how my thinking evolved
-brain-recall-only: true
----
-```
-
-このフィールドを利用できるのは、システム同梱の単体 Skill および Agent Plugin 内の同梱 Skill のみです（Agent が後から個別インストールした Skill ではこの発見モードは使えません）。同梱 Skill の `name` はグローバルに一意である必要があり、Agent Plugin に含まれていても名前空間プレフィックスは付与されません。Brain は標準の Skill メタデータから `lazyload-agent-skills/<name>` の発見用レコードを自動生成します。
-
-なお、Skill のフロントマターに `slug`、`type`、`title`、`aliases` といった Brain オブジェクト用のフィールドを追加しないでください。Brain は `name`、`description`、`tags` を対象に検索を行い、名前とタグを使って自然言語からの照合を行います。`SKILL.md` の本文や同梱ファイル、Agent 固有の Skill 教訓が Brain インデックスへ直接取り込まれることはなく、発見後も必ず `skill_view` ツール経由で読み取られます。
-
+付属ファイルは `SKILL.md` から明示的に参照し、必要なときに読み込みます。メイン Agent は `/drive/Skills/<slug>/` を使い、バックグラウンド Job はその Job に許可されたパッケージを使います。有効化した Agent はパッケージ全体を読めます。閲覧者を限定する業務データは Brain または個別に共有した協業ページに保存します。
 ### 本文を書く
 
 社内固有のローカルルールを知らない有能な実務担当者へ業務を引き継ぐつもりで、次の 5 点を明確に記述します。
@@ -101,7 +87,7 @@ dependencies:
 
 検証用の Agent で作成した Skill を有効化し、実際の業務に近いタスクを依頼して動作を確かめます。Agent が迷わず対象の Skill を選び、必要な補助ファイルを読み取り、完了基準どおりに出力できるかを確認してください。そもそも Skill が選ばれない場合は `description` のトリガー表現を見直し、実行手順がぶれる場合は本文のステップ順序と制約条件をより具体的に書き直します。
 
-`brain-recall-only` を設定した Skill については、通常のシステムプロンプト内カタログに出てこないこと、および名前・説明・タグを手がかりに Brain 検索で発見できることもあわせて確認します。そのうえで、互換性のある実行面では `skill_view` で全文を読み込め、互換性のない実行面では適切なルーティング案内または拒否応答が返ることを検証してください。最後に Skill（または親の Agent Plugin）を無効化し、同じ Agent から検索発見も読み込みもできなくなることを確認します。
+相対パス、実行可能スクリプト、対応する実行環境での読み込み、非対応環境への案内を確認します。「すべての Agent で有効」をオフにして、AI 同僚と自分のアシスタントを個別に設定してください。全体スイッチをオンにしてからオフにしても、個別設定は維持されます。該当する個別設定をすべて解除するか親 Plugin を無効にすると、カタログと `skill_view` から利用できなくなります。
 
 ## Control Plane Plugin を開発する
 

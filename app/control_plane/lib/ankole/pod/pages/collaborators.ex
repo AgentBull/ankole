@@ -4,7 +4,7 @@ defmodule Ankole.Pod.Pages.Collaborators do
   require Ash.Expr
   require Ash.Query
   alias Ankole.{AuthZ, Repo, Tenants}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Page, PageContent, Pages}
 
   def current_space_name do
@@ -40,7 +40,7 @@ defmodule Ankole.Pod.Pages.Collaborators do
     {containers, own} = Access.visibility_ids(reachable)
     visible_anchor_ids = MapSet.union(MapSet.new(containers), MapSet.new(own))
 
-    anchors = Ankole.Files.acl_anchor_nodes() |> Map.new(&{&1.id, &1})
+    anchors = Ankole.Pod.acl_anchor_nodes() |> Map.new(&{&1.id, &1})
 
     private_anchor_ids =
       MapSet.new(
@@ -218,7 +218,7 @@ defmodule Ankole.Pod.Pages.Collaborators do
       tenant_id = Repo.tenant_id!()
 
       contributors
-      |> Enum.filter(&(&1.tenant_id == tenant_id))
+      |> Enum.filter(&match?(%{tenant_id: ^tenant_id}, &1))
       |> Enum.reduce(uids, &MapSet.put(&2, &1.uid))
     else
       _ -> uids

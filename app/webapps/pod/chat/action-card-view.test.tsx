@@ -70,3 +70,36 @@ test('participant approval shows names with stable UIDs and unnamed participants
   expect(html).toContain('Alice Smith (@alice)')
   expect(html).toContain('@bob')
 })
+
+test('knowledge approval exposes the captured version, changes and complete Markdown before approval', () => {
+  const html = render({
+    card_id: 'knowledge-card',
+    action_kind: 'pod.knowledge.save',
+    summary: 'Update the team rule',
+    payload: {
+      node_title: 'Team rule',
+      base_revision: 7,
+      diff: '- Review every month\n+ Review every week',
+      markdown: '---\nsummary: weekly review\n---\n# Review policy\n\n<script>literal draft</script>'
+    }
+  })
+  expect(html).toContain(i18n.t('pod.chat_action_card.page_target', { title: 'Team rule' }))
+  expect(html).toContain('Based on version 7')
+  expect(html).toContain('<details open=""')
+  expect(html).toContain('- Review every month\n+ Review every week')
+  expect(html).toContain('Complete draft')
+  expect(html).toContain('summary: weekly review')
+  expect(html).toContain('&lt;script&gt;literal draft&lt;/script&gt;')
+  expect(html.indexOf('Complete draft')).toBeLessThan(html.indexOf('Confirm &amp; Execute'))
+})
+
+test('an empty knowledge draft remains inspectable as an intentional empty document', () => {
+  const html = render({
+    card_id: 'empty-knowledge-card',
+    action_kind: 'pod.knowledge.save',
+    summary: 'Clear the rule',
+    payload: { node_title: 'Team rule', base_revision: 8, diff: '- Old rule', markdown: '' }
+  })
+  expect(html).toContain('(Empty document)')
+  expect(html).toContain('- Old rule')
+})

@@ -3,7 +3,8 @@ defmodule Ankole.FilesTest do
   import Ankole.PrincipalsFixtures
   import Ankole.FilesFixtures
   alias Ankole.{Files, ObjectStore}
-  alias Ankole.Files.Schemas.{FileObject, Node}
+  alias Ankole.Files.Schemas.FileObject
+  alias Ankole.Pod.Page, as: Node
 
   setup do
     %{principal: agent} = agent_fixture()
@@ -65,7 +66,7 @@ defmodule Ankole.FilesTest do
     assert {:ok, "old"} = Files.read_object(first.object_id)
     assert {:ok, %{object_id: id}, "new"} = Files.read(uid, "report.txt")
     assert id == second.object_id
-    assert Repo.aggregate(from(n in Node, where: n.kind == :file), :count) == 1
+    assert Repo.aggregate(from(n in Node, where: n.type == :file), :count) == 1
   end
 
   test "the last committed close wins without changing either stored object", %{uid: uid} do
@@ -80,12 +81,14 @@ defmodule Ankole.FilesTest do
   end
 
   test "empty files and folders are distinct persisted nodes", %{uid: uid} do
-    {:ok, root} = Files.private_root(uid)
+    {:ok, root} = Ankole.Pod.private_root(uid)
     actor = actor_fixture(uid)
-    {:ok, empty} = Files.create_node(actor, %{parent_id: root.id, kind: :file, name: "empty"})
+
+    {:ok, empty} =
+      Ankole.Pod.create_node(actor, %{parent_id: root.id, type: :file, name: "empty"})
 
     {:ok, _folder} =
-      Files.create_node(actor, %{parent_id: root.id, kind: :folder, name: "folder"})
+      Ankole.Pod.create_node(actor, %{parent_id: root.id, type: :doc, name: "folder"})
 
     assert {:ok, %{object_id: nil}, ""} = Files.read(uid, "empty")
     assert {:error, :not_a_file} = Files.read(uid, "folder")

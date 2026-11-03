@@ -47,9 +47,22 @@ defmodule Ankole.Schedule.Checkbacks do
              updated_attrs.automation_job_id,
              snapshot.agent_uid
            ),
+         :ok <-
+           Ankole.Signals.lock_source_bindings_in_tx(
+             "scheduled-event://#{scheduled_event_id}",
+             updated_attrs.automation_job_id
+           ),
+         :ok <-
+           Ankole.Signals.put_source_binding_in_tx(
+             "scheduled-event://#{scheduled_event_id}",
+             snapshot.agent_uid,
+             snapshot.session_id,
+             updated_attrs.automation_job_id
+           ),
          {:ok, event} <- lock_checkback(scheduled_event_id),
          true <- event == snapshot,
-         {:ok, event} <- Ankole.Ash.update(event, :reschedule, updated_attrs),
+         {:ok, event} <-
+           Ankole.Ash.update(event, :reschedule, Map.delete(updated_attrs, :automation_job_id)),
          :ok <-
            Ankole.Job.schedule_in_tx(
              FireScheduledEvent,

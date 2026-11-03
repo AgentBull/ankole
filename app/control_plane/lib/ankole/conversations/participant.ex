@@ -45,6 +45,7 @@ defmodule Ankole.Conversations.Participant do
 
     attribute(:may_intervene, :boolean, default: false, allow_nil?: false, public?: true)
     attribute(:pinned_at, :utc_datetime_usec, public?: true)
+    attribute(:last_visited_at, :utc_datetime_usec, public?: true)
     attribute(:muted, :boolean, default: false, allow_nil?: false, public?: true)
 
     attribute(:last_read_seq, :integer,
@@ -64,7 +65,7 @@ defmodule Ankole.Conversations.Participant do
     end
 
     update :update_preferences do
-      accept([:pinned_at, :muted, :last_read_seq])
+      accept([:pinned_at, :muted, :last_read_seq, :last_visited_at])
     end
 
     update :set_may_intervene do

@@ -17,11 +17,11 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     signal = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
 
     {:ok, conversation} =
-      Repo.transact(fn -> Files.ensure_conversation_root_in_tx(signal.conversation_id) end)
+      Repo.transact(fn -> Ankole.Pod.ensure_conversation_root_in_tx(signal.conversation_id) end)
 
-    {:ok, human_root} = Files.private_root(human.uid)
-    {:ok, agent_root} = Files.private_root(agent.uid)
-    {:ok, public} = Files.public_root()
+    {:ok, human_root} = Ankole.Pod.private_root(human.uid)
+    {:ok, agent_root} = Ankole.Pod.private_root(agent.uid)
+    {:ok, public} = Ankole.Pod.public_root()
     result = conn |> api_get("/api/v2/drive/#{tenant.id}/nodes") |> json_response(200)
     ids = MapSet.new(Enum.map(result["nodes"], & &1["id"]))
 
@@ -36,7 +36,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     tenant: tenant
   } do
     conn = console_conn(conn)
-    {:ok, root} = Files.public_root()
+    {:ok, root} = Ankole.Pod.public_root()
 
     ids =
       for _ <- 1..2 do
@@ -46,7 +46,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
           |> api_post("/api/v2/drive/#{tenant.id}/nodes", %{
             parent_id: root.id,
             name: "reports",
-            kind: "folder"
+            kind: "doc"
           })
           |> json_response(201)
 
@@ -55,7 +55,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
 
     assert length(Enum.uniq(ids)) == 2
 
-    assert Ankole.Files.Nodes.list_children(root.id)
+    assert Ankole.Pod.Pages.Tree.list_children(root.id)
            |> Enum.filter(&(&1.id in ids))
            |> Enum.map(& &1.name) == ["reports", "reports (1)"]
   end
@@ -67,7 +67,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     {agent, root} =
       Repo.with_tenant(other.id, fn ->
         %{principal: agent} = agent_fixture()
-        {:ok, root} = Files.private_root(agent.uid)
+        {:ok, root} = Ankole.Pod.private_root(agent.uid)
         {agent, root}
       end)
 
@@ -114,7 +114,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
   test "owner filtering accepts named Principal IDs", %{conn: conn, tenant: tenant} do
     conn = console_conn(conn)
     %{principal: agent} = agent_fixture(%{uid: "ops+team@example.com"})
-    {:ok, root} = Files.private_root(agent.uid)
+    {:ok, root} = Ankole.Pod.private_root(agent.uid)
     query = URI.encode_query(%{"owner_uid" => agent.uid})
 
     assert %{"nodes" => [%{"id" => root_id}]} =
@@ -133,9 +133,9 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     conn = console_conn(conn)
     %{principal: agent} = agent_fixture()
     drive_file_fixture(agent.uid, "projects/releases/notes.txt", "notes")
-    {:ok, root} = Files.private_root(agent.uid)
-    [projects] = Ankole.Files.Nodes.list_children(root.id)
-    [releases] = Ankole.Files.Nodes.list_children(projects.id)
+    {:ok, root} = Ankole.Pod.private_root(agent.uid)
+    [projects] = Ankole.Pod.Pages.Tree.list_children(root.id)
+    [releases] = Ankole.Pod.Pages.Tree.list_children(projects.id)
 
     result =
       conn
@@ -156,7 +156,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
   } do
     conn = console_conn(conn)
     %{principal: agent} = agent_fixture()
-    {:ok, root} = Files.private_root(agent.uid)
+    {:ok, root} = Ankole.Pod.private_root(agent.uid)
     size = 128 * 1024 * 1024 + 1
     upload = build_upload!(<<>>)
     {:ok, io} = File.open(upload.path, [:write, :binary])
@@ -191,7 +191,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     conn = console_conn(conn)
     %{principal: agent} = agent_fixture()
     file = drive_file_fixture(agent.uid, "drafts/a.md", "A")
-    {:ok, root} = Files.private_root(agent.uid)
+    {:ok, root} = Ankole.Pod.private_root(agent.uid)
 
     assert %{"id" => folder_id} =
              conn
@@ -199,7 +199,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
              |> api_post("/api/v2/drive/#{tenant.id}/nodes", %{
                parent_id: root.id,
                name: "final",
-               kind: "folder"
+               kind: "doc"
              })
              |> json_response(201)
 
@@ -235,7 +235,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
   } do
     conn = console_conn(conn)
     %{principal: agent} = agent_fixture()
-    {:ok, root} = Files.private_root(agent.uid)
+    {:ok, root} = Ankole.Pod.private_root(agent.uid)
 
     for name <- ["b.txt", "a.txt", "a.txt"] do
       assert conn
@@ -273,7 +273,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     {conn, admin_uid} = console_conn_with_principal(conn)
     %{principal: agent} = agent_fixture()
     file = drive_file_fixture(agent.uid, "notes.txt", "notes")
-    {:ok, root} = Files.private_root(agent.uid)
+    {:ok, root} = Ankole.Pod.private_root(agent.uid)
 
     Repo.delete_all(
       from grant in Grant,

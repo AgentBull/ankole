@@ -3,7 +3,6 @@ defmodule Ankole.Schedule.Fire do
 
   require Ash.Query
 
-  alias Ankole.AutomationJobs.Schemas.Run, as: AutomationJobRun
   alias Ankole.Repo
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Cron
@@ -13,6 +12,57 @@ defmodule Ankole.Schedule.Fire do
   alias Ankole.Schedule.Store
   alias Ankole.Schedule.Jobs.FireCron
 
+  def prepare_event(id, opts) do
+    case Store.get_scheduled_event(id) do
+      nil -> {:ok, nil}
+      event -> prepare_delivery(event, Keyword.get(opts, :now, DateTime.utc_now(:microsecond)))
+    end
+  end
+
+  def prepare_cron(id, now) do
+    case Store.get_cron_schedule(id) do
+      %CronSchedule{status: :active, next_fire_at: %DateTime{}} = schedule ->
+        result =
+          with {:ok, attrs} <-
+                 Cron.event_attrs(
+                   schedule,
+                   schedule.next_fire_at,
+                   schedule.next_fire_at,
+                   now,
+                   "scheduled",
+                   Store.cron_fire_idempotency_key(id, schedule.next_fire_at),
+                   nil
+                 ),
+               do:
+                 prepare_delivery(
+                   struct(ScheduledEvent, Map.put(attrs, :id, Store.reserve_event_id())),
+                   now
+                 )
+
+        case result do
+          {:error, reason} -> {:error, {:cron_fire_failed, reason, schedule.next_fire_at}}
+          result -> result
+        end
+
+      _ ->
+        {:ok, nil}
+    end
+  end
+
+  defp prepare_delivery(event, now) do
+    Ankole.Signals.prepare_dispatch(
+      Ankole.Signals.source_reference(event),
+      signal_payload(event, now),
+      authorization: Ankole.Principals.WorkAccess.fields(event),
+      reply_route: %{
+        binding_name: event.binding_name,
+        conversation_id: event.conversation_id,
+        provider_thread_id: event.provider_thread_id,
+        provider_message_id: event.provider_message_id
+      }
+    )
+  end
+
   @spec fire_due_event_in_tx(pos_integer(), keyword()) ::
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}
           | {:error, term()}
@@ -20,11 +70,14 @@ defmodule Ankole.Schedule.Fire do
       when is_integer(scheduled_event_id) and scheduled_event_id > 0 do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, authorized} <- authorize_fire_in_tx(scheduled_event_id, now),
+    with {:ok, plan} <- dispatch_plan(scheduled_event_id, opts),
+         {:ok, _} <- lock_delivery(plan, Store.get_scheduled_event(scheduled_event_id)),
+         {:ok, authorized} <- authorize_fire_in_tx(scheduled_event_id, now),
          {:ok, event, schedule} <-
            claim_due_event_with_schedule_in_tx(scheduled_event_id, now),
          true <- fire_authorization(event) == fire_authorization(authorized),
-         {:ok, result} <- fire_claimed_event_in_tx(event, schedule, now, opts) do
+         {:ok, result} <-
+           fire_claimed_event_in_tx(event, schedule, now, Keyword.put(opts, :dispatch, plan)) do
       {:ok, result}
     else
       false -> {:error, :scheduled_event_changed}
@@ -34,43 +87,46 @@ defmodule Ankole.Schedule.Fire do
   end
 
   @spec fire_cron_in_tx(Ecto.UUID.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
-  def fire_cron_in_tx(cron_schedule_id, now) when is_binary(cron_schedule_id) do
+  def fire_cron_in_tx(cron_schedule_id, now, plan \\ nil) when is_binary(cron_schedule_id) do
     case Store.get_cron_schedule(cron_schedule_id) do
       %CronSchedule{status: :active} = schedule ->
-        fire_active_cron_in_tx(schedule, now)
+        result =
+          with {:ok, plan} <- if(plan, do: {:ok, plan}, else: prepare_cron(cron_schedule_id, now)),
+               {:ok, _} <- lock_delivery(plan, schedule),
+               do: fire_active_cron_in_tx(schedule, now, plan)
+
+        case result do
+          {:error, {:cron_fire_failed, _, _}} = error -> error
+          {:error, reason} -> {:error, {:cron_fire_failed, reason, schedule.next_fire_at}}
+          result -> result
+        end
 
       _schedule ->
         {:ok, %{status: :noop, scheduled_event: nil}}
     end
   end
 
-  defp fire_active_cron_in_tx(schedule, now) do
-    result =
-      if DateTime.after?(schedule.next_fire_at, now) do
-        with :ok <-
-               Ankole.Job.schedule_in_tx(
-                 FireCron,
-                 %{"cron_schedule_id" => schedule.id},
-                 schedule.next_fire_at
-               ) do
-          {:ok, %{status: :noop, scheduled_event: nil}}
-        end
-      else
-        with :ok <- authorize_work_in_tx(schedule),
-             %CronSchedule{} = locked <-
-               Store.lock_cron_schedule(schedule.id, schedule.automation_job_id),
-             true <- same_cron_fire?(locked, schedule) do
-          fire_locked_cron_in_tx(locked, now)
-        else
-          false -> {:error, :cron_schedule_changed}
-          nil -> {:error, :cron_schedule_changed}
-          {:error, _reason} = error -> error
-        end
+  defp fire_active_cron_in_tx(schedule, now, plan) do
+    if DateTime.after?(schedule.next_fire_at, now) do
+      with :ok <-
+             Ankole.Job.schedule_in_tx(
+               FireCron,
+               %{"cron_schedule_id" => schedule.id},
+               schedule.next_fire_at
+             ) do
+        {:ok, %{status: :noop, scheduled_event: nil}}
       end
-
-    case result do
-      {:error, reason} -> {:error, {:cron_fire_failed, reason, schedule.next_fire_at}}
-      result -> result
+    else
+      with :ok <- authorize_work_in_tx(schedule),
+           %CronSchedule{} = locked <-
+             Store.lock_cron_schedule(schedule.id, :prepared),
+           true <- same_cron_fire?(locked, schedule) do
+        fire_locked_cron_in_tx(locked, now, plan)
+      else
+        false -> {:error, :cron_schedule_changed}
+        nil -> {:error, :cron_schedule_changed}
+        {:error, _reason} = error -> error
+      end
     end
   end
 
@@ -80,23 +136,28 @@ defmodule Ankole.Schedule.Fire do
         :next_fire_at,
         :authorization_kind,
         :human_uid,
-        :human_access_version,
-        :automation_job_id
+        :human_access_version
       ]) ==
         Map.take(schedule, [
           :next_fire_at,
           :authorization_kind,
           :human_uid,
-          :human_access_version,
-          :automation_job_id
+          :human_access_version
         ])
   end
 
-  defp fire_locked_cron_in_tx(schedule, now) do
+  defp fire_locked_cron_in_tx(schedule, now, plan) do
     case Cron.validate_fire_schedule(schedule) do
       :ok ->
-        with {:ok, event} <- insert_cron_history(schedule, now, :fired),
-             {:ok, delivery} <- deliver_scheduled_event(event, now),
+        with {:ok, event} <-
+               insert_cron_history(
+                 schedule,
+                 now,
+                 :fired,
+                 nil,
+                 plan.signal["data"]["scheduled_event_id"]
+               ),
+             {:ok, delivery} <- deliver_scheduled_event(event, now, plan),
              {:ok, event} <- mark_event_fired(event, delivery, now),
              {:ok, _schedule} <-
                Cron.advance_after_fire(schedule, event.cron_fire_slot_at, now) do
@@ -104,13 +165,14 @@ defmodule Ankole.Schedule.Fire do
         end
 
       {:cancel, reason} ->
-        with {:ok, event} <- insert_cron_history(schedule, now, :cancelled, reason) do
+        with {:ok, event} <- insert_cron_history(schedule, now, :cancelled, reason),
+             {:ok, _schedule} <- Cron.advance_after_fire(schedule, event.cron_fire_slot_at, now) do
           {:ok, %{status: :cancelled, scheduled_event: event}}
         end
     end
   end
 
-  defp insert_cron_history(schedule, now, status, reason \\ nil) do
+  defp insert_cron_history(schedule, now, status, reason, reserved_id \\ nil) do
     key = Store.cron_fire_idempotency_key(schedule.id, schedule.next_fire_at)
 
     attrs_result =
@@ -141,6 +203,8 @@ defmodule Ankole.Schedule.Fire do
       end
 
     with {:ok, attrs} <- attrs_result do
+      attrs = if reserved_id, do: Map.put(attrs, :id, reserved_id), else: attrs
+
       case status do
         :cancelled ->
           attrs =
@@ -224,50 +288,27 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp authorize_work_in_tx(work) do
-    job =
-      if work.automation_job_id do
-        {:ok, job} = Ankole.AutomationJobs.get_automation_job(work.automation_job_id)
-        job
-      end
+  defp authorize_work_in_tx(work), do: Ankole.Principals.WorkAccess.check_in_tx(work)
 
-    sources = [work | if(job, do: [job], else: [])]
-
-    with :ok <- Ankole.Tenants.check_work_admission(Ankole.Repo.tenant_id!()),
-         :ok <- Ankole.Principals.WorkAccess.lock_authorizers_in_tx(sources),
-         :ok <- admit_sources_in_tx(sources) do
-      lock_automation_source_in_tx(job)
+  defp dispatch_plan(id, opts) do
+    case Keyword.fetch(opts, :dispatch) do
+      {:ok, plan} -> {:ok, plan}
+      :error -> prepare_event(id, opts)
     end
   end
 
-  defp admit_sources_in_tx(sources) do
-    Enum.reduce_while(sources, :ok, fn source, :ok ->
-      case Ankole.Principals.WorkAccess.check_in_tx(source) do
-        :ok -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp lock_automation_source_in_tx(nil), do: :ok
-
-  defp lock_automation_source_in_tx(snapshot) do
-    locked = Ankole.AutomationJobs.lock_job_in_tx(snapshot.id)
-
-    if locked && fire_authorization(locked) == fire_authorization(snapshot),
-      do: :ok,
-      else: {:error, :automation_job_changed}
-  end
+  defp lock_delivery(nil, _work), do: {:ok, nil}
+  defp lock_delivery(plan, work), do: Ankole.Signals.lock_dispatch_in_tx(plan, List.wrap(work))
 
   defp fire_authorization(work) do
-    Map.take(work, [:authorization_kind, :human_uid, :human_access_version, :automation_job_id])
+    Map.take(work, [:authorization_kind, :human_uid, :human_access_version])
   end
 
   defp claim_due_event_with_schedule_in_tx(scheduled_event_id, now) do
     case Store.get_scheduled_event(scheduled_event_id) do
-      %ScheduledEvent{kind: "cron_fire", cron_schedule_id: cron_schedule_id} = event
+      %ScheduledEvent{kind: "cron_fire", cron_schedule_id: cron_schedule_id}
       when is_binary(cron_schedule_id) ->
-        schedule = Store.lock_cron_schedule(cron_schedule_id, event.automation_job_id)
+        schedule = Store.lock_cron_schedule(cron_schedule_id, :prepared)
 
         case claim_due_event_in_tx(scheduled_event_id, now) do
           {:ok, event} -> {:ok, event, schedule}
@@ -300,9 +341,9 @@ defmodule Ankole.Schedule.Fire do
          %ScheduledEvent{kind: "check_back_later"} = event,
          _schedule,
          now,
-         _opts
+         opts
        ) do
-    with {:ok, delivery} <- deliver_scheduled_event(event, now),
+    with {:ok, delivery} <- deliver_scheduled_event(event, now, opts[:dispatch]),
          {:ok, event} <- mark_event_fired(event, delivery, now) do
       {:ok, fire_result(event, delivery)}
     end
@@ -312,11 +353,11 @@ defmodule Ankole.Schedule.Fire do
          %ScheduledEvent{kind: "cron_fire"} = event,
          schedule,
          now,
-         _opts
+         opts
        ) do
     with %CronSchedule{} = schedule <- schedule,
          :ok <- Cron.validate_fire_schedule(schedule),
-         {:ok, delivery} <- deliver_scheduled_event(event, now),
+         {:ok, delivery} <- deliver_scheduled_event(event, now, opts[:dispatch]),
          {:ok, event} <- mark_event_fired(event, delivery, now) do
       {:ok, fire_result(event, delivery)}
     else
@@ -326,66 +367,36 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp append_scheduled_signal(%ScheduledEvent{} = event, payload, now) do
-    Ankole.Signals.accept_in_tx(%{
-      producer: :kernel,
-      source: payload["source"],
-      id: source_event_id(event),
-      type: signal_type(event),
-      subject: payload["subject"],
-      time: now,
-      data: payload["data"],
-      target: %{agent_uid: event.agent_uid, session_id: event.session_id},
-      authorization: Ankole.Principals.WorkAccess.fields(event),
-      sender: nil,
-      reply_route: %{
-        binding_name: event.binding_name,
-        conversation_id: event.conversation_id,
-        provider_thread_id: event.provider_thread_id,
-        provider_message_id: event.provider_message_id
-      }
-    })
+  defp deliver_scheduled_event(event, now, plan) do
+    signal =
+      signal_payload(event, now)
+      |> Map.put("signal_id", plan.signal["signal_id"])
+      |> Map.put("source", plan.signal["source"])
+
+    deliveries = Enum.map(plan.deliveries, &%{&1 | signal: signal})
+    Ankole.Signals.deliver_dispatch_in_tx(%{plan | signal: signal, deliveries: deliveries})
   end
 
-  defp deliver_scheduled_event(%ScheduledEvent{} = event, now) do
-    payload = signal_payload(event, now)
-
-    Ankole.Signals.Trigger.deliver_in_tx(event, payload, now, fn ->
-      append_scheduled_signal(event, payload, now)
-    end)
-  end
-
-  defp mark_event_fired(
-         %ScheduledEvent{} = event,
-         {:signal, %{id: signal_id}},
-         now
-       ) do
+  defp mark_event_fired(event, delivery, now) do
     Ankole.Ash.update(event, :fire, %{
-      # Source table: signal_id stores signals.id appended for this fire.
-      signal_id: signal_id,
+      signal_id: delivery.signal_id,
       fired_at: now,
       last_fire_error: %{}
     })
   end
 
-  defp mark_event_fired(
-         %ScheduledEvent{} = event,
-         {:automation_job_run, %AutomationJobRun{id: run_id}, _signal},
-         now
-       ) do
-    Ankole.Ash.update(event, :fire, %{
-      automation_job_run_id: run_id,
-      fired_at: now,
-      last_fire_error: %{}
-    })
-  end
+  defp fire_result(event, delivery) do
+    run = Enum.find_value(delivery.receipts, & &1.automation_job_run_id)
+    run = if run, do: Ankole.AutomationJobs.get_run_record(run)
 
-  defp fire_result(event, {:signal, signal}) do
-    %{status: :fired, scheduled_event: event, signal: signal}
-  end
-
-  defp fire_result(event, {:automation_job_run, run, signal}) do
-    %{status: :fired, scheduled_event: event, automation_job_run: run, signal: signal}
+    %{
+      status: :fired,
+      scheduled_event: event,
+      signal: List.first(delivery.signals),
+      signals: delivery.signals,
+      automation_job_run: run,
+      deliveries: delivery.receipts
+    }
   end
 
   defp mark_event_cancelled(%ScheduledEvent{} = event, now, reason) do

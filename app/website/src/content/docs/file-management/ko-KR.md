@@ -7,7 +7,7 @@ order: 31
 
 **대부분의 일상 업무에서는 이 페이지에서 다루는 Console 파일 브라우저를 직접 열 필요가 없습니다. 채팅방에서 Agent에게 바로 파일을 첨부해 보내거나, Pod 워크스페이스의 공유 `file` 페이지와 문서·Base·Chat 첨부 기능을 활용하세요. Console 파일 브라우저는 채팅으로 전달되지 못한 산출물을 회수하거나 저장된 결과물을 직접 확인하고 개별 Agent의 전용 드라이브 폴더를 수동 정리할 때만 사용하면 됩니다.**
 
-각 Agent는 수신 첨부 파일, 생성한 이미지, 게시한 파일, 설치된 Skill, Automation 스크립트를 담는 전용 컨트롤 플레인 드라이브를 가집니다. 반면 팀원들과 함께 쓰는 Pod `file` 페이지와 Pod 첨부 파일은 개별 Agent 드라이브가 아니라 Pod 워크스페이스의 페이지 권한 아래에서 관리됩니다. Agent 드라이브는 해당 Worker가 중지되어 있는 상태에서도 Console에서 언제든 열람하고 관리할 수 있습니다. 참고로 개별 Session 및 Background Job의 작업 디렉터리는 드라이브가 아니라 영속 Home 볼륨에 위치합니다.
+각 Agent는 수신 첨부 파일, 생성한 이미지, 게시한 파일, Automation 스크립트를 담는 전용 컨트롤 플레인 드라이브를 가집니다. 반면 팀원들과 함께 쓰는 Pod `file` 페이지와 Pod 첨부 파일은 개별 Agent 드라이브가 아니라 Pod 워크스페이스의 페이지 권한 아래에서 관리됩니다. Agent 드라이브는 해당 Worker가 중지되어 있는 상태에서도 Console에서 언제든 열람하고 관리할 수 있습니다. 참고로 개별 Session 및 Background Job의 작업 디렉터리는 드라이브가 아니라 영속 Home 볼륨에 위치합니다.
 
 로컬 디렉터리, S3, Cloudflare R2 등 스토리지 백엔드 구성은 [제어면 드라이브 저장소](../drive-storage/)를, 구버전 Home 데이터 이전은 [1.0에서 2.0으로 업그레이드](../upgrade-to-2/)를 참조하세요.
 
@@ -21,7 +21,6 @@ order: 31
 | `chats/<channel>/inbox/` | 해당 대화에서 사용자가 Agent에게 보낸 첨부 파일 |
 | `chats/<channel>/generated/`, `generated/` | Agent가 생성한 이미지(대화 중 생성한 이미지는 `chats/<channel>/generated/`, 채널이 없는 작업은 `generated/`) |
 | `sent/` | Agent가 응답 메시지에 첨부해 보낸 파일 |
-| `skills/` | 해당 Agent에 설치된 Skill 파일(Skill당 하위 폴더 1개) |
 | `automation/` | Automation Job 실행 스크립트 |
 | 그 밖의 폴더 | Agent 또는 사용자가 직접 정리해 저장한 파일 |
 
@@ -49,13 +48,13 @@ order: 31
 
 중요한 자료는 작업 전에 미리 내려받아 두거나 정기 [백업](../backup-and-restore/) 대상에 포함되어 있는지 확인하세요.
 
-또한 `skills/` 아래에 놓인 파일들은 실제로 설치된 Skill 원본입니다. 이곳의 파일을 수정하면 다음 턴부터 해당 Skill의 동작이 곧바로 바뀌므로 주의하세요. Skill 활성화 여부는 [Agent Library](../skills/)에서 관리합니다.
+Skill 패키지는 **Meta Ankole → Skills**에서 가져오고 편집하거나 활성화합니다. Worker는 읽기 전용 `/drive/Skills`에서 활성화된 패키지를 읽습니다. 사용 방법과 Agent 연결은 [Skills](../skills/)를 참고하세요.
 
 ## 재시작 후 남는 것
 
 컨트롤 플레인 드라이브와 영속 Home 볼륨은 Worker 컨테이너가 교체된 뒤에도 그대로 유지됩니다. 다만 작업 디렉터리에만 기록해 둔 파일은 Home 내부에만 머물기 때문에, Console에서 내려받으려면 Agent가 드라이브로 게시해야 합니다. 스토리지 관련 세부 제약은 [Worker](../worker-management/)를 참조하세요.
 
-Agent의 `MISSION`, `SOUL`, `DESIGN`, `CONFIDENTIALITY POLICY`(`ConfidentialityPolicy.md`) 문서는 드라이브 파일이 아니라 Agent 편집기에서 직접 관리하는 항목이며, 실행 시 Worker 환경으로 투영됩니다. 자세한 내용은 [Agents](../agents/)를 참조하세요.
+Agent의 행동 및 디자인 규약은 사람이 **Meta Ankole → Agents**에서 관리합니다. Worker는 최종 유효한 `AGENTS.md`와 `DESIGN.md` 전체를 읽기 전용 런타임 파일로 제공하며 매 턴 갱신합니다. [Agents](../agents/)를 참조하세요.
 
 ## 자주 발생하는 문제
 

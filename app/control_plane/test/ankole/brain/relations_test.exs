@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.RelationsTest do
   use Ankole.DataCase, async: true
+  import Ankole.BrainFixtures
 
   alias Ankole.Brain.Chunks
   alias Ankole.Brain.Links
@@ -14,7 +15,7 @@ defmodule Ankole.Brain.RelationsTest do
 
     for slug <- ["notes/relation-source", "notes/relation-target"] do
       assert {:ok, _} =
-               Ankole.Brain.create_object(
+               page_fixture_result(
                  %{slug: slug, type: "note", title: slug, body: "A note."},
                  :system
                )
@@ -24,17 +25,21 @@ defmodule Ankole.Brain.RelationsTest do
   end
 
   test "repeated edges and aliases report a duplicate instead of an unstored ID" do
-    attrs = %{from_object_slug: "notes/relation-source", to_object_slug: "notes/relation-target"}
+    attrs = %{
+      from_page_id: page_id("notes/relation-source"),
+      to_page_id: page_id("notes/relation-target")
+    }
+
     assert {:ok, %{id: id}} = Links.upsert_link(attrs)
     assert is_binary(id)
     assert {:ok, :duplicate} = Links.upsert_link(attrs)
-    assert {:ok, %{id: _}} = Links.add_alias("notes/relation-source", "alias")
-    assert {:ok, :duplicate} = Links.add_alias("notes/relation-source", "alias")
+    assert {:ok, %{id: _}} = Links.add_alias(page_id("notes/relation-source"), "alias")
+    assert {:ok, :duplicate} = Links.add_alias(page_id("notes/relation-source"), "alias")
   end
 
   test "reconciliation and delayed embeddings cannot restore an old body" do
     assert {:ok, old} = Objects.get_by_slug("notes/relation-source")
-    old_chunk = Repo.get_by!(Chunk, object_id: old.id, chunk_index: 0)
+    old_chunk = Repo.get_by!(Chunk, page_id: old.id, chunk_index: 0)
 
     assert {:ok, _} =
              Ankole.Brain.update_object(
@@ -45,7 +50,7 @@ defmodule Ankole.Brain.RelationsTest do
 
     assert {:ok, current} = Ankole.Brain.reconcile_chunks(old)
     assert current.body == "The current body."
-    chunk = Repo.get_by!(Chunk, object_id: old.id, chunk_index: 0)
+    chunk = Repo.get_by!(Chunk, page_id: old.id, chunk_index: 0)
     assert chunk.chunk_text == "The current body."
 
     {:ok, vector} = Ash.Vector.new(List.duplicate(0.5, 4096))
@@ -63,11 +68,11 @@ defmodule Ankole.Brain.RelationsTest do
 
   test "a repeated timeline returns the persisted row and its original detail" do
     attrs = %{
-      object_slug: "notes/relation-source",
+      subject_page_id: page_id("notes/relation-source"),
       date: ~D[2026-09-05],
       summary: "Event",
       provenance: "test",
-      audience_scope: "world",
+      source_node_id: source_node("world"),
       detail: "Original"
     }
 

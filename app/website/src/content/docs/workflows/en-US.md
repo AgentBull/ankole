@@ -74,7 +74,7 @@ If the control plane restarts mid-run, Ankole replays the fixed program against 
 
 ## What each subagent can access
 
-Every `agent()` call runs in its own isolated control-plane conversation (`wf_task:<call_id>`) without occupying an Agent Worker slot. Each subagent receives the Agent's identity and `MISSION.md` plus its task prompt, and never sees the parent chat transcript or sibling task outputs unless the orchestration script passes them explicitly in a downstream prompt.
+Every `agent()` call runs in its own isolated control-plane conversation (`wf_task:<call_id>`) without occupying an Agent Worker slot. Each subagent receives the Agent's identity and `AGENTS.md` plus its task prompt, and never sees the parent chat transcript or sibling task outputs unless the orchestration script passes them explicitly in a downstream prompt.
 
 Subagents can invoke Web tools and—when Brain is enabled—the read-only `recall` and `get_page` tools. They have no direct shell, file, MCP, Skill, Brain-write, or schedule tools, and cannot launch nested Workflows (orchestration depth is strictly `1`).
 

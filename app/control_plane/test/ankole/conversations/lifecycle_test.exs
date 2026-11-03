@@ -751,7 +751,7 @@ defmodule Ankole.Conversations.LifecycleTest do
       expected_path = local_attachment["path"]
 
       assert {:ok, local_conversation_id} =
-               Ankole.Files.node_conversation_id(local_attachment["node_id"])
+               Ankole.Pod.node_conversation_id(local_attachment["node_id"])
 
       assert local_conversation_id == entry.conversation_id
 

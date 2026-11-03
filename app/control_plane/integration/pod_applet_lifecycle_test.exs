@@ -445,7 +445,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     old = "old\n" <> :binary.copy("a", 131_072)
     new = "new\n" <> :binary.copy("b", 131_072)
     assert {:ok, %{revision: 1}} = publish_existing(ctx.owner, page, 0, "export default {}", old)
-    digest = Base.encode16(:crypto.hash(:sha256, old), case: :lower)
+    digest = :crypto.hash(:sha256, old)
 
     writer =
       Task.async(
@@ -456,7 +456,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     read =
       Repo.bind_tenant(fn ->
-        Files.resolve_applet_frame_asset(actor, page.id, 1, "index.html")
+        Files.resolve_applet_frame_object(actor, page.id, 1, "index.html")
       end)
 
     results =
@@ -471,16 +471,22 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     for result <- results do
       case result do
-        {:ok, {_, ^digest, ^old}} -> :ok
-        {:error, {:applet_revision_changed, %{revision: 2}}} -> :ok
-        other -> flunk("Frame read mixed publication versions: #{inspect(other)}")
+        {:ok, %{sha256: ^digest, object_id: object_id}} ->
+          assert {:ok, ^old} = Drive.read_object(object_id)
+
+        {:error, {:applet_revision_changed, %{revision: 2}}} ->
+          :ok
+
+        other ->
+          flunk("Frame read mixed publication versions: #{inspect(other)}")
       end
     end
 
     assert {:error, {:applet_revision_changed, %{revision: 2}}} =
-             Files.resolve_applet_frame_asset(actor, page.id, 1, "index.html")
+             Files.resolve_applet_frame_object(actor, page.id, 1, "index.html")
 
-    assert {:ok, {_, _, ^new}} = Files.resolve_applet_frame_asset(actor, page.id, 2, "index.html")
+    assert {:ok, file} = Files.resolve_applet_frame_object(actor, page.id, 2, "index.html")
+    assert {:ok, ^new} = Drive.read_object(file.object_id)
   end
 
   test "file writes retain the Pod upload limit before any durable bytes are stored", ctx do
@@ -527,22 +533,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     on_exit(fn -> :gen_tcp.close(listener) end)
     test = self()
 
-    provider =
-      Task.async(fn ->
-        {:ok, socket} = :gen_tcp.accept(listener, 5000)
-        {:ok, _bytes} = :gen_tcp.recv(socket, 0, 5000)
-        send(test, :provider_started)
-        await_peer_close(socket)
-      end)
-
     agent = Ankole.PrincipalsFixtures.agent_fixture().principal.uid
-    tenant = Repo.tenant_id!()
-
-    on_exit(fn ->
-      Repo.with_tenant(tenant, fn ->
-        :ok = Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent)
-      end)
-    end)
 
     {:ok, _} =
       Ankole.AIGateway.ProviderConfigs.create_provider(%{
@@ -575,13 +566,36 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         parent_id: parent.id
       })
 
+    tenant = Repo.tenant_id!()
+
+    on_exit(fn ->
+      Repo.with_tenant(tenant, fn ->
+        {:ok, _} =
+          Applets.transfer_owner(
+            Ankole.PrincipalsFixtures.actor_fixture(agent),
+            applet.id,
+            ctx.owner
+          )
+
+        :ok = Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent)
+      end)
+    end)
+
     {:ok, _} =
       publish_existing(
         agent,
         applet,
         0,
-        "export default {'POST /ai':()=>AnkoleRuntime.ai.generateText({model:'primary',prompt:'Wait'})}"
+        "export default {'POST /ai':()=>AnkoleRuntime.admin.ai.generateText({model:'primary',prompt:'Wait'})}"
       )
+
+    provider =
+      Task.async(fn ->
+        {:ok, socket} = :gen_tcp.accept(listener, 5000)
+        {:ok, _bytes} = :gen_tcp.recv(socket, 0, 5000)
+        send(test, :provider_started)
+        await_peer_close(socket)
+      end)
 
     {:ok, task} =
       Applets.start(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), applet.id, %{
@@ -613,7 +627,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     native =
       for _ <- 1..100 do
-        {micros, {:ok, ["GET /"]}} =
+        {micros, {:ok, %{"routes" => ["GET /"], "actions" => %{}, "concurrencyKeys" => %{}}}} =
           :timer.tc(fn -> Ankole.FunctionRuntime.AppletClient.inspect(source, []) end)
 
         micros

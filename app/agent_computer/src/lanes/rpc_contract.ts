@@ -1,5 +1,7 @@
 import type { DescMessage, MessageInitShape, MessageShape } from '@bufbuild/protobuf'
 import {
+  VfsFlushRequestSchema,
+  VfsFlushResponseSchema,
   FilesCommitRequestSchema,
   FilesCommitResponseSchema,
   FilesGetRequestSchema,
@@ -22,8 +24,6 @@ import {
   BackgroundAgentJobGetRequestSchema,
   BackgroundAgentJobResponseSchema,
   BackgroundAgentJobStatusUpdateRequestSchema,
-  BackgroundAgentJobTurnItemsListRequestSchema,
-  BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
   JSONPassthroughResponseSchema,
@@ -55,6 +55,12 @@ export type RPCOperation =
   | { owner: 'worker'; handler: keyof WorkerRPCHandlers; request: DescMessage; response: DescMessage }
 
 export const rpcOperations = {
+  'vfs.flush': {
+    owner: 'worker',
+    handler: 'flushDriveFiles',
+    request: VfsFlushRequestSchema,
+    response: VfsFlushResponseSchema
+  },
   'pod.read': {
     scope: 'turn_or_automation',
     effect: 'read',
@@ -131,12 +137,6 @@ export const rpcOperations = {
     request: BackgroundAgentJobTurnUpsertRequestSchema,
     response: BackgroundAgentJobTurnUpsertResponseSchema
   },
-  'background_agent_job.turn_items.list': {
-    scope: 'turn',
-    effect: 'read',
-    request: BackgroundAgentJobTurnItemsListRequestSchema,
-    response: BackgroundAgentJobTurnItemsListResponseSchema
-  },
   'files.commit': { scope: 'worker_agent', request: FilesCommitRequestSchema, response: FilesCommitResponseSchema },
   'files.get': { scope: 'worker_agent', request: FilesGetRequestSchema, response: FilesGetResponseSchema },
   'files.list': { scope: 'worker_agent', request: FilesListRequestSchema, response: FilesListResponseSchema },
@@ -205,6 +205,7 @@ export type WorkerRPCHandler<M extends WorkerOwnedRPCMethod> = (
 ) => Promise<MessageInitShape<(typeof rpcOperations)[M]['response']>>
 
 export type WorkerRPCHandlers = {
+  flushDriveFiles?: WorkerRPCHandler<'vfs.flush'>
   runAutomationJob?: WorkerRPCHandler<'automation_job.run'>
   pullWorkerFile?: WorkerRPCHandler<'worker_files.pull'>
   pushWorkerFile?: WorkerRPCHandler<'worker_files.push'>

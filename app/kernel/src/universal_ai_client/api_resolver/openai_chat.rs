@@ -771,7 +771,7 @@ fn chat_completion_body_to_response(
             "id": id,
             "object": "response",
             "created_at": created_at,
-            "completed_at": if status == "completed" { json!(created_at) } else { Value::Null },
+            "completed_at": if status == "completed" { json!(now_seconds()) } else { Value::Null },
             "status": status,
             "incomplete_details": incomplete_reason.map(|reason| json!({"reason": reason})).unwrap_or(Value::Null),
             "model": model,

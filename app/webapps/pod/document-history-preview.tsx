@@ -4,7 +4,7 @@ import type { EditorHost } from '@ankole/block-editor/editor'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { podLocation } from '../common/browser-context'
+import { podPagePath } from '../common/pod-url'
 import { contentKeys, fileURL } from './content-api'
 import { ContentError } from './content-primitives'
 import { createMentionHostAdapters } from './document-mentions'
@@ -124,7 +124,8 @@ function DocumentVersion({ pageID, version, editorKey }: Props) {
       ...createMentionHostAdapters({
         client,
         currentPageID: pageID,
-        pageHref: id => new URL(podLocation(`/pages/${id}`).pathname, window.location.origin).href,
+        pageHref: (id, title) =>
+          references.data?.get(id)?.href ?? new URL(podPagePath(id, title), window.location.origin).href,
         openPage: id => {
           const reference = references.data?.get(id)
           if (reference && !reference.restricted) window.open(reference.href, '_blank', 'noopener,noreferrer')

@@ -673,7 +673,7 @@ defmodule AnkoleWeb.PodContentChannelTest do
     assert version.object_id == object_id
     assert version.revision == before.revision
 
-    assert {:ok, node_write} = Files.write_node(actor, file.id, "node write")
+    assert {:ok, node_write} = Ankole.Pod.write_node(actor, file.id, "node write")
     object_id = node_write.object_id
     assert_push "changes", %{object_id: ^object_id}, 1_000
 
@@ -694,12 +694,12 @@ defmodule AnkoleWeb.PodContentChannelTest do
 
     assert {:error, :cancelled} =
              Repo.transact_top_level(fn ->
-               assert {:ok, _} = Files.commit_node_object_in_tx(actor, file.id, pending)
+               assert {:ok, _} = Ankole.Pod.commit_node_object_in_tx(actor, file.id, pending)
                {:error, :cancelled}
              end)
 
     refute_push "changes", _, 100
-    assert {:ok, %{object_id: ^object_id}} = Files.fetch_node(file.id)
+    assert {:ok, %{object_id: ^object_id}} = Ankole.Pod.fetch_node(file.id)
   end
 
   test "applet revision notifications use the same authorized socket", ctx do
@@ -928,6 +928,76 @@ defmodule AnkoleWeb.PodContentChannelTest do
                PodRoomChannel,
                "applet:#{applet.id}:lobby"
              )
+  end
+
+  test "Run channels enforce personal ownership and recheck Page access before progress delivery",
+       ctx do
+    actor = actor_fixture(ctx.owner.uid)
+    {:ok, page} = Pages.create(actor, %{type: "applet"})
+
+    manifest =
+      for {path, bytes} <- [
+            {"src/main.tsx", "export {}"},
+            {"dist/index.html", "<html/>"},
+            {"server/main.js",
+             "export default {actions:{work:{idempotent:true,handler:async()=>1}}}"}
+          ] do
+        {:ok, blob} = Ankole.Files.store(bytes)
+
+        {:ok, _} =
+          Ankole.Files.commit(ctx.owner.uid, [
+            Map.merge(blob, %{path: "channels/#{path}", source: "agent"})
+          ])
+
+        %{path: path, object_id: blob.object_id, source_path: "channels/#{path}"}
+      end
+
+    {:ok, _} = Ankole.Pod.Files.publish(actor, page.id, 0, manifest)
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
+      })
+
+    runs =
+      for kind <- ["human", "service"], into: %{} do
+        {:ok, job} =
+          Ankole.AutomationJobs.create_applet_job(actor, page.id, "work", %{
+            authorization_kind: kind
+          })
+
+        {:ok, result} =
+          Ankole.Signals.applet_dispatch(%{}, page, actor, actor, "emit", [
+            %{"targetJobId" => job.id}
+          ])
+
+        {kind, result.runId}
+      end
+
+    assert {:error, %{reason: "not_found"}} =
+             subscribe_and_join(authenticated_socket(ctx.reader), "run:#{runs["human"]}")
+
+    assert {:ok, _, _} =
+             subscribe_and_join(authenticated_socket(ctx.owner), "run:#{runs["human"]}")
+
+    assert {:ok, _, socket} =
+             subscribe_and_join(authenticated_socket(ctx.reader), "run:#{runs["service"]}")
+
+    Ankole.AutomationJobs.publish_run(runs["service"])
+    id = runs["service"]
+    assert_push "changed", %{"id" => ^id, "status" => "queued"}, 1_000
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+        inherit_permissions: false,
+        grants: []
+      })
+
+    reference = Process.monitor(socket.channel_pid)
+    Ankole.AutomationJobs.publish_run(id)
+    assert_push "access_revoked", %{}, 1_000
+    assert_receive {:DOWN, ^reference, :process, _, :normal}, 1_000
   end
 
   defp authenticated_socket(principal, ip \\ {127, 0, 0, 1}) do

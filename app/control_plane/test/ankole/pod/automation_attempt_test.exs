@@ -76,12 +76,16 @@ defmodule Ankole.Pod.AutomationAttemptTest do
     end
   end
 
-  test "an attempt requires its assigned Worker, current Human access and review clearance" do
+  test "an admitted Agent attempt keeps its fence after Human revocation, while new admission fails" do
     owner = human_fixture().principal
     human = human_fixture().principal
     agent = Ankole.SessionsCase.agent_fixture().principal
     other = Ankole.SessionsCase.agent_fixture().principal
-    {:ok, page} = Pages.create(actor_fixture(owner), %{private_owner_uid: owner.uid})
+
+    {:ok, page} =
+      Pages.create(actor_fixture(owner), %{type: "base", private_owner_uid: owner.uid})
+
+    {:ok, %{tables: [table]}} = Bases.list_tables(actor_fixture(owner), page.id)
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
@@ -105,8 +109,11 @@ defmodule Ankole.Pod.AutomationAttemptTest do
     {:ok, reviewed_job} =
       Repo.transact(fn -> Ankole.Ash.update(job, :reauthorize, WorkAccess.fields(nil)) end)
 
-    assert {:error, :work_authorization_review_required} =
+    assert {:ok, admitted_actor} =
              AutomationJobs.authorize_attempt_actor(proof, %{worker_id: agent.uid})
+
+    assert {:ok, %{records: [_]}} =
+             Bases.write_records(admitted_actor, table.id, %{creates: [%{data: %{}}]})
 
     {:ok, _} =
       Repo.transact(fn ->
@@ -115,8 +122,24 @@ defmodule Ankole.Pod.AutomationAttemptTest do
 
     Ankole.PrincipalsFixtures.disable_principal_fixture(human.uid)
 
-    assert {:error, :human_access_revoked} =
+    assert {:ok, admitted_actor} =
              AutomationJobs.authorize_attempt_actor(proof, %{worker_id: agent.uid})
+
+    assert {:ok, %{records: [_]}} =
+             Bases.write_records(admitted_actor, table.id, %{creates: [%{data: %{}}]})
+
+    assert {:ok, _} =
+             AutomationJobs.finish_attempt(run.id, run.attempt_id, %{status: "succeeded"})
+
+    assert {:ok, %{status: :skipped}} =
+             Repo.transact(fn ->
+               Ankole.WorkFixtures.dispatch_job_in_tx(job, %{
+                 "id" => Ecto.UUID.generate(),
+                 "source" => "test://revoked",
+                 "type" => "test.triggered",
+                 "data" => %{}
+               })
+             end)
   end
 
   test "Pod file RPCs use the executing Agent permissions and reject missing proof" do
@@ -205,6 +228,45 @@ defmodule Ankole.Pod.AutomationAttemptTest do
     refute Map.has_key?(Ankole.WorkerFilesFake.files(fake), "missing.tsx")
   end
 
+  test "an Agent attempt publishes existing Action policies and rolls them back when its fence closes" do
+    human = human_fixture().principal
+    agent = SessionsCase.agent_fixture(%{owner_principal_uid: human.uid}).principal
+    actor = actor_fixture(agent)
+    {:ok, page} = Pages.create(actor, %{type: "applet", private_owner_uid: agent.uid})
+    source = "export default {actions:{work:{idempotent:false,handler:()=>1}}}"
+    publish_applet_fixture(%{actor: actor, page: page}, source)
+
+    {:ok, action_job} =
+      AutomationJobs.create_applet_job(actor, page.id, "work", %{authorization_kind: "service"})
+
+    {job, run} = attempt(agent, human, :human)
+
+    proof = %Proto.AutomationAttemptRef{
+      job_id: to_string(job.id),
+      run_id: to_string(run.id),
+      attempt_id: run.attempt_id
+    }
+
+    {:ok, attempt_actor} = AutomationJobs.authorize_attempt_actor(proof, %{worker_id: agent.uid})
+    updated_source = String.replace(source, "false", "true")
+    manifest = applet_manifest_fixture(agent.uid, page.id, updated_source)
+
+    assert {:ok, %{revision: 2}} = Ankole.Pod.Files.publish(attempt_actor, page.id, 1, manifest)
+    assert {:ok, %{idempotent: true}} = AutomationJobs.get_automation_job(action_job.id)
+
+    assert {:ok, _} =
+             AutomationJobs.finish_attempt(run.id, run.attempt_id, %{status: "succeeded"})
+
+    manifest = applet_manifest_fixture(agent.uid, page.id, source)
+
+    assert {:error, :automation_job_attempt_not_active} =
+             Ankole.Pod.Files.publish(attempt_actor, page.id, 2, manifest)
+
+    assert {:ok, %{idempotent: true}} = AutomationJobs.get_automation_job(action_job.id)
+    assert {:ok, %{revision: 2}} = Ankole.Pod.Files.manifest(actor, page.id)
+    assert {:ok, _, ^updated_source} = Ankole.Pod.Files.read(actor, page.id, "server/main.js")
+  end
+
   defp attempt(agent, human, kind) do
     source = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
 
@@ -230,7 +292,7 @@ defmodule Ankole.Pod.AutomationAttemptTest do
 
     {:ok, %{automation_job_run: run}} =
       Repo.transact(fn ->
-        AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, %{
+        Ankole.WorkFixtures.dispatch_job_in_tx(job, %{
           "specversion" => "1.0",
           "id" => Ecto.UUID.generate(),
           "source" => "test://pod",

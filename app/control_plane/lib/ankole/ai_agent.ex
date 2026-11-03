@@ -9,9 +9,15 @@ defmodule Ankole.AIAgent do
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
+  defdelegate resolve_mcp_server(principal, skill, name),
+    to: Ankole.AIAgent.Library.MCP,
+    as: :resolve
+
   resources do
     resource(Ankole.AIAgent.Library.AgentPlugins.Schemas.AgentPluginOverride)
-    resource(Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry)
+    resource(Ankole.AIAgent.Library.Schemas.Skill)
+    resource(Ankole.AIAgent.Library.Schemas.SkillFile)
+    resource(Ankole.AIAgent.Library.Schemas.AgentContract)
 
     resource Ankole.AIAgent.Library.Schemas.AgentSkill do
       define(:list_agent_skills, action: :read)
@@ -23,6 +29,7 @@ defmodule Ankole.AIAgent do
 
     resource(Ankole.AIAgent.Console)
     resource(Ankole.AIAgent.Library.Console)
+    resource(Ankole.AIAgent.Library.Browser)
   end
 
   json_api do
@@ -66,11 +73,6 @@ defmodule Ankole.AIAgent do
 
         route(:get, "/library-documents", :documents,
           name: "list_agent_library_documents",
-          wrap_in_result?: false
-        )
-
-        route(:put, "/library-documents/:document_kind", :replace_document,
-          name: "replace_agent_library_document",
           wrap_in_result?: false
         )
       end

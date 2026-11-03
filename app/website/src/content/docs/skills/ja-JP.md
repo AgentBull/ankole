@@ -5,16 +5,14 @@ section: User guide
 order: 32
 ---
 
-Site Admin Console の **Agent Library** ページでは、性質の異なる 2 つの拡張境界を管理します。1 つはテナントおよび個別 Agent スコープのモデル能力（**Agent Plugin** と **Skill**）、もう 1 つは厳密に**サイトスコープ**で管理されるプラットフォーム拡張（**Control Plane Plugin**。スコープを **グローバル既定値** に合わせたときのみ表示）です。
-
-いずれも、デプロイインスタンスのビルド時またはパッケージング時に同梱された信頼できるファーストパーティ製コンポーネントです。Agent Library は外部の公開マーケットプレイスではないため、ここで項目を有効化してもインターネットから未知のコードがダウンロードされることはありません。
+メンバーは **Meta Ankole → Skills** で完全な Skill パッケージを管理します。Console の **Agent Library** でも能力の有効・無効を設定でき、サイト管理者は Site Admin Console で Control Plane Plugin を管理します。組み込み Skill と Agent Plugin は Ankole に同梱され、権限のあるメンバーはカスタム Skill を作成またはインポートできます。
 
 ## 3 種類の能力を理解する
 
 | タイプ | スコープ | 用途 | 変更が適用されるタイミング |
 |---|---|---|---|
 | **Agent Plugin** | テナント既定値 + Agent ごとの上書き | 関連する複数の Skill、MCP 機能、ワークスペーステンプレートを 1 つのパッケージにまとめる | Agent の次の Turn |
-| **Skill** | テナント既定値 + Agent ごとの上書き | 反復可能な単一業務の手順書と補助リソースを提供する | Agent の次の Turn |
+| **Skill** | 全 Agent で有効、または Agent を個別に指定 | 反復可能な単一業務の手順書と補助リソースを提供する | Agent の次の Turn |
 | **Control Plane Plugin** | サイトスコープのみ（`/api/v2/site/control-plane-plugins`） | ビルド時にコンパイルされるフルスタック拡張（サブシステムアダプター、OTP サービス、HTTP Plug、拡張ルート、ドメインフック、設定フィールド、Web UI スロット） | ビルド時に常時有効（`activation: :always`）、またはコントロールプレーンの次回起動時（`activation: :optional`） |
 
 ### Agent Plugin: 1 つの package にまとめられた能力
@@ -71,11 +69,9 @@ ankole-runtime: any
 
 たとえば Deep Research の入り口となる Skill は、元の会話で調査条件を確認してから Job を起動する役割を担うため `main` を指定しており、実際の調査を進める Skill 群は Background Agent Job 側で実行される構成になっています。
 
-#### Ankole 拡張: Brain から Skill を発見する
+#### 共有 Skill パッケージ
 
-特定の業務でしか使わない SOP（標準作業手順書）や専門メソドロジーをすべてのプロンプトに毎回載せていると、コンテキストウィンドウを無駄に消費してしまいます。そこで同梱 Skill では `brain-recall-only: true` を宣言できます。これを有効にしても、Agent Plugin との親子関係、有効・無効の切り替え、実行面（`ankole-runtime`）、および `skill_view` のルールは通常の Skill と変わりません。唯一の違いは、モデルに常時提示する Skill カタログからは除外し、代わりに Brain が意味検索によって必要なタイミングで発見できるようにする点です。
-
-Brain は Skill の名前、説明、タグを対象に検索を行います。関連する Skill が見つかると、Agent は `skill_view` を呼び出して内容を読み込みます。このとき `skill_view` は `ankole-runtime` の制約に従い、現在の実行面と互換性があれば本文を返し、互換性がなければ適切なルーティング案内または拒否応答を返します。Skill または親の Agent Plugin が無効化されている場合は、Brain の検索結果にも現れず読み込むこともできません。なお、この発見経路を利用するには Brain が有効になっている必要があります。常時プロンプトを占有させたくない専門手順書や SOP に最適なモードです。
+各 Skill は必須の `SKILL.md` と付属ファイルで構成され、[Meta Ankole](../agent-library/) で管理します。有効化した Agent は `/drive/Skills/<slug>/` からパッケージ全体を読めます。`skill_view` はマニフェストを読み、参照ファイルは相対パスで明示的に読み込みます。Skill の指示は Brain の知識と別に管理します。
 
 ### Control Plane Plugin: サイトスコープのフルスタック拡張
 
@@ -92,28 +88,15 @@ Control Plane Plugin は、プラットフォーム全体にわたって次の�
 
 ## Agent Plugin と Skill を管理する
 
-### instance の既定値を設定する
+### Skill を有効にする
 
-1. Console で **Agent Library** を開きます。
-2. スコープを **グローバル既定値** に設定します。
-3. **Agent Plugins** または **Skills** から対象の項目を探します。
-4. 既定の状態（有効または無効）を切り替えます。
+**Meta Ankole → Skills** で Skill を選択します。管理者は全 Agent で有効にするか、AI 同僚を個別に指定できます。各メンバーは自分のアシスタントを設定できます。全体スイッチがオンの間、個別スイッチは有効表示で固定されます。オフに戻すと保存済みの個別設定が復元されます。カスタム Skill は作成時には無効です。
 
-グローバル既定値は、今後新しく作成する Agent および個別の上書き設定（override）を持たないすべての Agent に適用されます。すでに実行中の Turn には影響せず、次の Turn から新しい能力セットが読み込まれます。
+Agent Plugin 内の Skill には、親 Plugin の有効化も必要です。変更は次の Turn から適用されます。既存のバックグラウンド Job には作成時の能力の許可リストが適用されます。
 
-汎用性が高くリスクの低い機能はグローバル既定で有効にし、不要な Agent だけ個別に絞り込む運用がシンプルです。
+### Agent Plugin を設定する
 
-反対に、限られた役割でしか使わない機能、専用の認証情報を必要とする機能、あるいは操作リスクの大きい機能は、グローバル既定では無効にしておき、必要な Agent にだけ個別に有効化する方が安全に管理できます。
-
-### 1 つの Agent を override する
-
-1. Agent Library 画面の上部で、スコープを対象の Agent に切り替えます。
-2. 対象の Agent Plugin または Skill を探します。
-3. **グローバルに従う**、**有効**、**無効** のいずれかを選択します。
-
-**グローバルに従う** を選ぶと個別設定が解除され、以降グローバル既定値を変更した際にこの Agent にもそのまま反映されるようになります。**有効** または **無効** を明示的に選んだ場合は、その Agent 専用の上書き設定として維持されます。
-
-なお、複数の Skill を内包する親の Agent Plugin を無効化すると配下の Skill もすべて利用できなくなりますが、各 Skill の個別設定自体は書き換えられずに保持されます。親 Plugin を再度有効化すれば、各 Skill は元の有効・無効状態にそのまま戻ります。
+Console の **Agent Library** で**グローバル既定値**を選んで Plugin の既定値を設定するか、Agent を選び、**グローバルに従う**、**有効**、**無効**を指定します。親 Plugin を無効にすると配下の Skill は利用できなくなりますが、個別設定は維持されます。
 
 ### Skill 教訓を確認する
 
@@ -153,10 +136,10 @@ kubectl -n ankole rollout restart deployment/ankole-control-plane
 
 ### Agent Plugin と Skill
 
-- **目的の機能が見当たらない：** デプロイパッケージに同梱されているか確認してください。Agent Library にはインストール済みのコンポーネントしか表示されません。
+- **目的の能力が見つからない：** インストール済みのパッケージと選択したスコープを確認してください。カスタム Skill は Meta Ankole で作成またはインポートします。公式パッケージはデプロイに含まれている必要があります。
 - **Skill を有効にしたのに Agent が使えない：** 親の Agent Plugin が無効になっていないか確認したうえで、新しい Turn を開始してください。
 - **一部のタスクでしか Skill が現れない：** `ankole-runtime` の設定を確認してください。`main` 指定の Skill は Background Agent Job には渡されず、`background_job` 指定の Skill は通常のメイン Agent 会話には渡されません。
-- **一部の Agent にグローバル既定値の変更が効かない：** その Agent に個別の上書き設定（override）が入っている可能性があります。スコープを該当 Agent に切り替えて確認してください。
+- **Plugin の既定値が一部の Agent に反映されない：** その Agent の Plugin 上書き設定を確認してください。Skill は全体スイッチと個別設定で有効・無効が決まります。
 - **Background Agent Job でワークスペーステンプレートを選べない：** 対象の Agent で該当する Agent Plugin が有効になっているか、およびその Plugin に `workspace-template/` が含まれているかを確認してください。
 
 ### Control Plane Plugin

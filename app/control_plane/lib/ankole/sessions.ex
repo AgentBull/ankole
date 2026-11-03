@@ -116,7 +116,7 @@ defmodule Ankole.Sessions do
                {Admission.driver(key), {key, tenant_id}}
              ) do
           {:ok, pid} -> {:ok, pid}
-          {:error, {:already_started, pid}} -> {:ok, pid}
+          {:error, {:already_started, pid}} when is_pid(pid) -> {:ok, pid}
           {:error, _} = error -> error
         end
 

@@ -17,7 +17,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
   Returns `{messages, truncated?}` for one semantic item.
 
   An empty message list means the item carries no projectable content; the
-  item itself stays stored for replay.
+  item itself stays stored as an audit record.
   """
   @spec project(map()) :: {[map()], boolean()}
   def project(%{"type" => type} = item) do

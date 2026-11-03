@@ -14,28 +14,29 @@ defmodule Ankole.Tenants.Jobs.Delete do
   @tables ~w(
     base_records base_views base_fields base_tables
     pod_files message_attachments delivery_attachments
+    drive_vfs_exports
     page_user_states page_changes page_comments page_snapshots page_daily_activity page_contents
-    pod_spreadsheet_ops pod_file_caches permission_grants pages drive_nodes
+    pod_spreadsheet_ops pod_file_caches permission_grants
     conversation_action_cards external_message_refs conversation_messages conversation_participants
     cron_schedules session_ambient_judgments scheduled_events
     sessions agent_computer_worker_envs
-    agent_library_container_entries agent_plugin_overrides agent_skill_lessons agent_skills
+    agent_plugin_overrides agent_skill_lessons agent_skills agent_contracts skill_files skills
     ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records
-    app_configurations automation_job_runs signal_webhook_endpoints
+    app_configurations base_change_outbox automation_job_states signal_binding_receipts automation_job_runs automation_jobs signal_webhook_endpoints
     background_agent_job_turn_items brain_chunks brain_take_domain_assignments
     brain_contradictions brain_links brain_merge_suggestions brain_object_aliases
-    brain_object_versions brain_timelines brain_slug_aliases brain_tags brain_schema_suggestions
+    brain_timelines brain_slug_aliases brain_tags brain_schema_suggestions
     brain_schema_calibration_domains brain_schema_link_types brain_schema_types
-    brain_sources authn_challenges browser_oidc_states oidc_authorization_requests browser_pod_authentications browser_authentications session_tool_receipts session_round_states
+    brain_sources pages authn_challenges browser_oidc_states oidc_authorization_requests browser_pod_authentications browser_authentications session_tool_receipts session_round_states
     human_access_events human_access_restrictions principal_site_credentials pod_invitations
     identity_directory_events identity_directory_states identity_mapping_requests
     oidc_authorization_codes oidc_client_groups oidc_refresh_tokens oidc_refresh_token_families oidc_logout_requests
     oidc_logout_deliveries principal_external_identities
     principal_group_external_bindings principal_group_memberships deliveries
     conversation_inbound_batches conversation_input_tombstones signal_bindings
-    workflow_agent_calls delivery_previews signals ai_gateway_messages automation_jobs
+    workflow_agent_calls delivery_previews signals ai_gateway_messages
     background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups
-    workflow_runs ai_gateway_conversations background_agent_jobs brain_objects
+    workflow_runs ai_gateway_conversations background_agent_jobs
     oidc_clients human_users file_objects
   )
   # Keep cleanup's completion evidence and its referenced Human until the
@@ -65,7 +66,8 @@ defmodule Ankole.Tenants.Jobs.Delete do
     else
       # Human cleanup must commit while its Principal still exists. Merely
       # enqueueing WorkCleanup would let deletion erase that job's input first.
-      with :ok <- cleanup_human_work() do
+      with :ok <- cleanup_human_work(),
+           {:ok, 0} <- Ankole.Pod.release_applet_owners_for_tenant_deletion() do
         agents = Principals.list_principals!(query: [filter: [type: :agent], limit: 50])
 
         cond do
@@ -81,6 +83,9 @@ defmodule Ankole.Tenants.Jobs.Delete do
           true ->
             finish(tenant)
         end
+      else
+        {:ok, _released} -> {:snooze, 1}
+        result -> result
       end
     end
   end
@@ -140,14 +145,14 @@ defmodule Ankole.Tenants.Jobs.Delete do
   end
 
   # Delete leaves first so one parent cannot cascade through an unbounded subtree.
-  defp delete_batch(tenant_id, "drive_nodes") do
+  defp delete_batch(tenant_id, "pages") do
     Ecto.Adapters.SQL.query!(
       Repo,
       """
-      DELETE FROM drive_nodes WHERE tenant_id = $1::text::uuid AND ctid IN (
-        SELECT page.ctid FROM drive_nodes AS page
+      DELETE FROM pages WHERE tenant_id = $1::text::uuid AND ctid IN (
+        SELECT page.ctid FROM pages AS page
         WHERE page.tenant_id = $1::text::uuid AND NOT EXISTS (
-          SELECT 1 FROM drive_nodes AS child
+          SELECT 1 FROM pages AS child
           WHERE child.tenant_id = page.tenant_id AND child.parent_id = page.id
         ) LIMIT 200
       )
@@ -159,7 +164,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   defp delete_batch(tenant_id, table) when table in ["permission_grants", "principal_groups"] do
     {:ok, result} =
       Repo.transact(fn ->
-        Ankole.Files.lock_tree_in_tx()
+        Ankole.Pod.lock_tree_in_tx()
         {:ok, delete_rows(tenant_id, table)}
       end)
 
@@ -187,7 +192,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   end
 
   defp finish_in_tx(tenant) do
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
 
     case Tenants.Tenant
          |> Ash.Query.filter(id == ^tenant.id)

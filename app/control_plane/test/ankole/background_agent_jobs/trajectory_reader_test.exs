@@ -85,7 +85,7 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
         {"garbage", "not-a-cursor"},
         {"version 1 shape",
          encode(%{"v" => 1, "attempt" => 1, "turn_id" => ctx.newer.id, "group_position" => 0})},
-        {"replay-only item",
+        {"item without a display projection",
          encode(%{"v" => 2, "attempt" => 1, "turn_id" => ctx.newer.id, "position" => 1})},
         {"missing position",
          encode(%{"v" => 2, "attempt" => 1, "turn_id" => ctx.newer.id, "position" => 9})},
@@ -401,111 +401,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
     end
   end
 
-  describe "lineage_replay" do
-    test "walks the workspace lineage lead threads chronologically and skips child threads" do
-      %{principal: agent} = background_agent_fixture()
-      source = create_job!(agent.uid, "replay-source")
-      base = DateTime.utc_now(:microsecond)
-
-      source_attempt_one = %{source | attempts: 1, runtime_thread_id: "thread-lead-1"}
-
-      record_turn!(source_attempt_one, %{
-        thread: "thread-lead-1",
-        turn_id: "turn-lead-1",
-        started_at: DateTime.add(base, -50),
-        items: [user("源任务"), assistant("a-1", "第一步完成")]
-      })
-
-      record_turn!(source_attempt_one, %{
-        thread: "thread-child",
-        turn_id: "turn-child",
-        started_at: DateTime.add(base, -40),
-        items: [assistant("c-1", "child noise")]
-      })
-
-      record_turn!(%{source | attempts: 2, runtime_thread_id: "thread-lead-2"}, %{
-        thread: "thread-lead-2",
-        turn_id: "turn-lead-2",
-        started_at: DateTime.add(base, -30),
-        items: [assistant("a-2", "重建后继续")]
-      })
-
-      source =
-        source
-        |> Ecto.Changeset.change(
-          status: :succeeded,
-          attempts: 2,
-          runtime_thread_id: "thread-lead-2"
-        )
-        |> Repo.update!()
-
-      respawn =
-        create_job!(agent.uid, "replay-respawn")
-        |> Ecto.Changeset.change(
-          continued_from_job_id: source.id,
-          workspace_owner_job_id: source.workspace_owner_job_id,
-          runtime_thread_id: "thread-lead-3",
-          attempts: 1
-        )
-        |> Repo.update!()
-
-      record_turn!(respawn, %{
-        thread: "thread-lead-3",
-        turn_id: "turn-lead-3",
-        started_at: DateTime.add(base, -20),
-        items: [assistant("a-3", "续接补充")]
-      })
-
-      assert {:ok, %{units: items, next_cursor: nil}} =
-               TrajectoryReader.page(respawn, :lineage_replay, nil, %{items: 200})
-
-      assert Enum.map(items, & &1.item_key) == ["user-源任务", "a-1", "a-2", "a-3"]
-
-      assert Enum.map(items, & &1.runtime_thread_id) ==
-               ["thread-lead-1", "thread-lead-1", "thread-lead-2", "thread-lead-3"]
-
-      assert %{"type" => "userMessage"} = hd(items).item
-    end
-
-    test "pages the stream with the shared cursor and stops when the stream ends" do
-      job = running_job!("replay-paging", attempts: 1)
-
-      record_turn!(job, %{
-        turn_id: "turn-page",
-        items: Enum.map(0..204, &assistant("item-#{&1}", "消息 #{&1}"))
-      })
-
-      assert {:ok, %{units: first_page, next_cursor: cursor}} =
-               TrajectoryReader.page(job, :lineage_replay, nil, %{items: 200})
-
-      assert length(first_page) == 200
-      assert is_binary(cursor)
-
-      assert {:ok, %{units: second_page, next_cursor: nil}} =
-               TrajectoryReader.page(job, :lineage_replay, cursor, %{items: 200})
-
-      assert Enum.map(second_page, & &1.position) == Enum.to_list(200..204)
-
-      exact = running_job!("replay-exact", attempts: 1)
-
-      record_turn!(exact, %{
-        turn_id: "turn-exact",
-        items: Enum.map(0..199, &assistant("item-#{&1}"))
-      })
-
-      assert {:ok, %{units: whole, next_cursor: nil}} =
-               TrajectoryReader.page(exact, :lineage_replay, nil, %{items: 200})
-
-      assert length(whole) == 200
-
-      assert {:error, :invalid_background_agent_job_trajectory_cursor} =
-               TrajectoryReader.page(job, :lineage_replay, "not-a-cursor", %{items: 200})
-
-      assert {:error, :invalid_background_agent_job_trajectory_cursor} =
-               BackgroundAgentJobs.replay_items_page(job, "not-a-cursor")
-    end
-  end
-
   defp read(%{job: job, turns: turns}, groups, cursor \\ nil) do
     TrajectoryReader.page(job, {:current_attempt_lead, turns}, cursor, %{
       groups: groups,
@@ -606,13 +501,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
 
   defp assistant(id, text \\ nil),
     do: %{"type" => "agentMessage", "id" => id, "text" => text || "text #{id}"}
-
-  defp user(text),
-    do: %{
-      "type" => "userMessage",
-      "id" => "user-#{text}",
-      "content" => [%{"type" => "text", "text" => text}]
-    }
 
   defp silent_reasoning(id), do: %{"type" => "reasoning", "id" => id, "summary" => []}
 

@@ -1,223 +1,67 @@
 defmodule Ankole.Brain.Scope do
-  @moduledoc """
-  Audience scope values for the Brain knowledge space.
+  @moduledoc "Source nodes and deterministic Principal knowledge paths."
+  alias Ankole.Pod.Pages.Tree, as: Nodes
 
-  A scope is a normalized text value: `world`, `group:<principal_groups.name>`,
-  or `principal:<principals.uid>`. The prefix is part of the value, so group
-  names and Principal UIDs keep independent namespaces. Group membership is
-  resolved against current relations at check time; memberships are never
-  materialized into memory rows.
-  """
-
-  alias Ankole.AuthZ
-  alias Ankole.Principals
-
-  @type t :: String.t()
-
-  @spec world() :: t()
-  defp world, do: "world"
-
-  @doc "Builds a group scope value."
-  @spec group(String.t()) :: t()
-  def group(name) when is_binary(name), do: "group:" <> name
-
-  @doc "Builds a principal scope value."
-  @spec principal(String.t()) :: t()
-  def principal(uid) when is_binary(uid), do: "principal:" <> uid
-
-  @doc "Builds the canonical page slug of a Human or Agent Principal."
-  @spec principal_page_slug(:human | :agent, String.t()) :: String.t()
   def principal_page_slug(:human, uid), do: "people/" <> uid
   def principal_page_slug(:agent, uid), do: "agents/" <> uid
 
-  @doc "Parses a canonical Principal page slug without querying its type."
-  @spec parse_principal_page_slug(String.t()) :: {:ok, {:human | :agent, String.t()}} | :error
   def parse_principal_page_slug(slug) do
     case String.split(slug, "/", parts: 2) do
       ["people", uid] -> {:ok, {:human, uid}}
       ["agents", uid] -> {:ok, {:agent, uid}}
-      _other -> :error
+      _ -> :error
     end
   end
 
-  @doc "Resolves the audience scope of an IM member group."
-  @spec member_group_scope(String.t() | nil) ::
-          {:ok, t()} | {:error, :im_group_without_member_group}
-  def member_group_scope(nil), do: {:error, :im_group_without_member_group}
+  def canonical_slug(uid) do
+    with {:ok, principal} <- Ankole.Principals.get_principal(uid),
+         do: {:ok, principal_page_slug(principal.type, uid)}
+  end
 
-  def member_group_scope(group_id) do
-    case AuthZ.get_principal_group(group_id) do
-      {:ok, member_group} -> {:ok, group(member_group.name)}
-      {:error, :not_found} -> {:error, :im_group_without_member_group}
+  def canonical_page_id(uid) do
+    with {:ok, path} <- canonical_slug(uid),
+         {:ok, page} <- Ankole.Brain.Objects.get_by_slug(path),
+         do: {:ok, page.id}
+  end
+
+  def principal(uid) do
+    case Nodes.private_root(Ankole.Principals.authority_uid(uid)) do
+      {:ok, node} -> node.id
+      {:error, _} -> nil
     end
   end
 
-  @doc """
-  Parses a scope value into its structured form.
-  """
-  @spec parse(term()) ::
-          {:ok, :world | {:group, String.t()} | {:principal, String.t()}}
-          | {:error, :invalid_audience_scope}
-  def parse("world"), do: {:ok, :world}
-  def parse("group:" <> name) when name != "", do: {:ok, {:group, name}}
-  def parse("principal:" <> uid) when uid != "", do: {:ok, {:principal, uid}}
-  def parse(_value), do: {:error, :invalid_audience_scope}
+  def conversation(id) do
+    with {:ok, node} <- Nodes.conversation_root(id), do: {:ok, node.id}
+  end
 
-  @doc """
-  Validates that a scope is well-formed and refers to an existing Group or
-  Principal. `world` always validates.
-  """
-  @spec validate(term()) :: :ok | {:error, term()}
-  def validate(scope) do
-    case parse(scope) do
-      {:ok, :world} ->
-        :ok
+  def world do
+    with {:ok, node} <- Ankole.Brain.Namespace.root(), do: node.id
+  end
 
-      {:ok, {:group, name}} ->
-        case AuthZ.get_principal_group(name) do
-          {:ok, _group} -> :ok
-          {:error, :not_found} -> {:error, {:unknown_scope_group, name}}
-        end
-
-      {:ok, {:principal, uid}} ->
-        case Principals.get_principal(uid) do
-          {:ok, _principal} -> :ok
-          {:error, _reason} -> {:error, {:unknown_scope_principal, uid}}
-        end
-
-      {:error, _reason} = error ->
-        error
+  def parse(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :invalid_source_node_id}
     end
   end
 
-  @doc """
-  Returns whether one Principal currently satisfies a scope.
-
-  Reads and writes use the same rule. `world` accepts active Human members,
-  Agents, and System Principals. A principal scope accepts its own Principal.
-  A group scope accepts current group members at check time.
-  """
-  @spec satisfied_by?(t(), String.t()) :: boolean()
-  def satisfied_by?(scope, principal_uid) when is_binary(principal_uid) do
-    case parse(scope) do
-      {:ok, :world} ->
-        world_member?(principal_uid)
-
-      {:ok, {:principal, uid}} ->
-        uid == principal_uid
-
-      {:ok, {:group, name}} ->
-        case AuthZ.get_principal_group(name) do
-          {:ok, group} -> AuthZ.principal_in_group?(principal_uid, group)
-          {:error, :not_found} -> false
-        end
-
-      {:error, _reason} ->
-        false
-    end
+  def validate(id) do
+    with {:ok, node} <- Nodes.fetch(id),
+         true <- is_nil(node.deleted_at),
+         do: :ok,
+         else: (_ -> {:error, :invalid_source_node_id})
   end
 
-  @doc """
-  Validates write eligibility for one scope and writer.
-
-  `world` accepts active Human members, Agents, and System Principals. A
-  principal scope requires the target Principal to exist; the writer does not
-  have to match it. A group scope requires the writer to currently satisfy it.
-  A Principal can file knowledge into its own organizational ranges but cannot
-  claim a range it does not belong to. Owner read exemptions never extend writes.
-  """
-  @spec validate_writable(term(), String.t()) :: :ok | {:error, term()}
-  def validate_writable(scope, writer_uid) when is_binary(writer_uid) do
-    case parse(scope) do
-      {:ok, :world} ->
-        if world_member?(writer_uid), do: :ok, else: {:error, :forbidden}
-
-      {:ok, {:principal, uid}} ->
-        case Principals.get_principal(uid) do
-          {:ok, _principal} -> :ok
-          {:error, _reason} -> {:error, {:unknown_scope_principal, uid}}
-        end
-
-      {:ok, {:group, name}} ->
-        case AuthZ.get_principal_group(name) do
-          {:ok, group} ->
-            if AuthZ.principal_in_group?(Principals.authority_uid(writer_uid), group),
-              do: :ok,
-              else: {:error, {:writer_not_in_scope_group, name}}
-
-          {:error, :not_found} ->
-            {:error, {:unknown_scope_group, name}}
-        end
-
-      {:error, _reason} = error ->
-        error
-    end
+  def validate_writable(id, uid) do
+    with {:ok, _} <- Nodes.authorize(uid, id, "node_view"), do: :ok
   end
 
-  @doc """
-  Returns the enumerable scope values one querier can reach.
-
-  The set contains `principal:<own uid>` and one `group:<name>` for every
-  current group, including computed groups. Eligible Principals also get
-  `world`. The values feed SQL predicates directly, so knowledge-boundary
-  filtering is a prefilter instead of a post-hit filter. Author accessibility is a separate
-  predicate owned by the query layer.
-  """
-  @spec accessible_scopes(String.t()) :: {:ok, [t()]} | {:error, term()}
-  def accessible_scopes(principal_uid) when is_binary(principal_uid) do
-    with {:ok, uid} <- Principals.normalize_uid(principal_uid),
-         {:ok, groups} <- AuthZ.list_current_groups_for_principal(uid) do
-      scopes = [principal(uid) | Enum.map(groups, &group(&1.name))]
-      {:ok, if(world_member?(uid), do: [world() | scopes], else: scopes)}
-    end
+  def satisfied_by?(id, uid) do
+    with {:ok, access} <- Ankole.Brain.Access.for_querier(uid),
+         do: Ankole.Brain.Access.visible?(access, id),
+         else: (_ -> false)
   end
 
-  @doc """
-  Returns whether every listed Principal satisfies one scope. Strict
-  group-chat disclosure asks this over the present-member set; a static
-  group resolves the whole set with one membership query.
-  """
-  @spec satisfied_by_all?(t(), [String.t()]) :: boolean()
-  def satisfied_by_all?(scope, principal_uids) when is_list(principal_uids) do
-    case parse(scope) do
-      {:ok, :world} ->
-        Enum.all?(principal_uids, &world_member?/1)
-
-      {:ok, {:principal, uid}} ->
-        Enum.all?(principal_uids, &(&1 == uid))
-
-      {:ok, {:group, name}} ->
-        case AuthZ.get_principal_group(name) do
-          {:ok, group} -> AuthZ.all_in_group?(principal_uids, group)
-          {:error, :not_found} -> false
-        end
-
-      {:error, _reason} ->
-        false
-    end
-  end
-
-  defp world_member?(uid) do
-    case Principals.get_principal(uid) do
-      {:ok, %{status: :active, type: :human, membership: :member}} -> true
-      {:ok, %{status: :active, type: type}} when type in [:agent, :system] -> true
-      _ -> false
-    end
-  end
-
-  @doc """
-  Returns the canonical Object slug of one Principal: `people/<uid>` for
-  humans and `agents/<uid>` for Agents.
-  """
-  @spec canonical_slug(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def canonical_slug(principal_uid) do
-    with {:ok, uid} <- Principals.normalize_uid(principal_uid) do
-      case Principals.get_principal(uid) do
-        {:ok, %{type: :human}} -> {:ok, principal_page_slug(:human, uid)}
-        {:ok, %{type: :agent}} -> {:ok, principal_page_slug(:agent, uid)}
-        {:ok, %{type: :system}} -> {:error, {:no_canonical_object, uid}}
-        {:error, :not_found} -> {:error, {:unknown_principal, uid}}
-      end
-    end
-  end
+  def satisfied_by_all?(id, uids), do: Enum.all?(uids, &satisfied_by?(id, &1))
 end

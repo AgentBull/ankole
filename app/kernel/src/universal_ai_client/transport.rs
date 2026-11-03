@@ -107,8 +107,11 @@ fn safe_header_map(headers: &HeaderMap) -> Vec<(String, String)> {
 }
 
 fn safe_provider_header(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name.starts_with("x-codex-") || name == "cf-mitigated" || name == "retry-after"
+    name.as_bytes()
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"x-codex-"))
+        || name.eq_ignore_ascii_case("cf-mitigated")
+        || name.eq_ignore_ascii_case("retry-after")
 }
 
 pub(crate) async fn open_http_stream(spec: &StreamSpec) -> Result<HTTPStream, StreamError> {

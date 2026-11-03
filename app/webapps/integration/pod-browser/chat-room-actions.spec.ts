@@ -111,6 +111,7 @@ test('saving a message keeps its quotation and structured Page reference in the 
       conversationID: crypto.randomUUID(),
       messageID: sourceID,
       agentUID: state.agent_uid,
+      roomMode: 'group',
       text: quote,
       deliveryMode: 'queue'
     })
@@ -191,6 +192,7 @@ test('a quotation selected during a real send remains in the draft after accepta
       conversationID: crypto.randomUUID(),
       messageID: sourceID,
       agentUID: state.agent_uid,
+      roomMode: 'group',
       text: 'An earlier observation to quote.',
       deliveryMode: 'queue'
     })

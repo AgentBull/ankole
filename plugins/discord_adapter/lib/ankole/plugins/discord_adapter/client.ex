@@ -134,7 +134,13 @@ defmodule Ankole.Plugins.DiscordAdapter.Client do
           {:ok, %{body: binary(), filename: String.t() | nil}} | {:error, Error.t()}
   def download(%__MODULE__{} = client, url) when is_binary(url) do
     request_opts =
-      [method: :get, url: url, retry: false, receive_timeout: @default_receive_timeout]
+      [
+        method: :get,
+        url: url,
+        retry: false,
+        decode_body: false,
+        receive_timeout: @default_receive_timeout
+      ]
       |> Keyword.merge(client.request_options)
 
     case Req.request(request_opts) do

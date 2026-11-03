@@ -601,6 +601,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
 
   defp write(worker, action, changes) do
     {:ok, updated} = Ankole.Ash.update(worker, action, Map.new(changes))
+
     updated
   end
 

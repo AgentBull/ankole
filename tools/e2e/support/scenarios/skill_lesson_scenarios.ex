@@ -532,8 +532,8 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
                  claim: "The internal launch codename is #{@codename}.",
                  kind: "fact",
                  holder: "agents/" <> agent.uid,
-                 audience_scope: "world",
-                 object_slug: "agents/" <> agent.uid,
+                 source_node_id: Ankole.Brain.Scope.world(),
+                 subject_page_id: elem(Ankole.Brain.Scope.canonical_page_id(agent.uid), 1),
                  provenance: "skill lesson e2e seed",
                  notability: "high",
                  confidence: 0.95,
@@ -570,7 +570,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     assert finished.result["output_text"] =~ @codename,
            "the job did not report the recalled codename: #{inspect(finished.result["output_text"])}"
 
-    object = Repo.get_by!(Ankole.Brain.Schemas.Object, slug: "agents/" <> agent.uid)
+    object = Repo.get_by!(Ankole.Brain.Schemas.Page, slug: "agents/" <> agent.uid)
     assert %DateTime{} = object.last_retrieved_at
     assert DateTime.compare(object.last_retrieved_at, started_at) != :lt
 

@@ -183,7 +183,7 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
         ],
         skillRoots
       })
-    ).rejects.toThrow('MCP aggregate enabled servers exceeds the 32-count limit')
+    ).resolves.toHaveLength(33)
 
     writeMetadata(
       builtinSkillsRoot,

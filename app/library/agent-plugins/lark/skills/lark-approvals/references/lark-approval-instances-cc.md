@@ -12,31 +12,31 @@
 
 ```bash
 # 先预览请求，不实际执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances cc \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances cc \
   --data '{"instance_code":"<INSTANCE_CODE>","cc_user_ids":["ou_xxx"],"comment":"抄送给项目 owner 了解进展"}' \
   --params '{"user_id_type":"open_id"}' \
   --dry-run
 
 # 按 open_id 抄送一个人
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances cc \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances cc \
   --data '{"instance_code":"<INSTANCE_CODE>","cc_user_ids":["ou_xxx"],"comment":"抄送给你知悉"}' \
   --params '{"user_id_type":"open_id"}' \
   --yes
 
 # 一次抄送多个人
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances cc \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances cc \
   --data '{"instance_code":"<INSTANCE_CODE>","cc_user_ids":["ou_xxx","ou_yyy"],"comment":"请相关同学同步关注"}' \
   --params '{"user_id_type":"open_id"}' \
   --yes
 
 # 按 user_id 抄送
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances cc \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances cc \
   --data '{"instance_code":"<INSTANCE_CODE>","cc_user_ids":["123456789"],"comment":"抄送给财务负责人"}' \
   --params '{"user_id_type":"user_id"}' \
   --yes
 
 # 通过文件传入请求体
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances cc \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances cc \
   --data @./cc-body.json \
   --params '{"user_id_type":"open_id"}' \
   --yes
@@ -62,13 +62,13 @@
 如果你要找“我发起的审批实例”，可先查询已发起列表：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated --params '{"page_size":20}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated --params '{"page_size":20}'
 ```
 
 如果你已经在任务列表中定位到某个审批，也可以从任务里拿到实例 Code：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" tasks query --params '{"topic":"1"}'
 ```
 
 常用到的字段：
@@ -85,7 +85,7 @@
 如需先确认审批表单、当前节点、流转状态，可继续查看实例详情：
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 ```
 
 ## 使用建议

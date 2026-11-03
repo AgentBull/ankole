@@ -15,7 +15,7 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
     {:ok, _object} =
       Ankole.Brain.create_object(
         %{slug: "companies/acme", type: "company", title: "Acme"},
-        human.uid
+        :system
       )
 
     {:ok, %{claim: a}} = write_fact(human, "Acme headquarters are in Berlin")
@@ -27,11 +27,11 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
   defp write_fact(human, text) do
     Ankole.Brain.write_fact(
       %{
-        object_slug: "companies/acme",
+        subject_page_id: elem(Ankole.Brain.Objects.get_by_slug("companies/acme"), 1).id,
         claim: text,
         kind: "fact",
         holder: "world",
-        audience_scope: "world",
+        source_node_id: Ankole.Brain.Scope.world(),
         notability: "medium",
         confidence: 0.75,
         valid_from: DateTime.utc_now(:microsecond),
@@ -73,15 +73,15 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
            end)
   end
 
-  test "contradiction candidates keep audience scopes separate", %{human: human} do
+  test "contradiction candidates keep evidence sources separate", %{human: human} do
     assert {:ok, %{claim: private}} =
              Ankole.Brain.write_fact(
                %{
-                 object_slug: "companies/acme",
+                 subject_page_id: elem(Ankole.Brain.Objects.get_by_slug("companies/acme"), 1).id,
                  claim: "Confidential acquisition target",
                  kind: "fact",
                  holder: "world",
-                 audience_scope: "principal:#{human.uid}",
+                 source_node_id: Ankole.Brain.Scope.principal(human.uid),
                  notability: "medium",
                  confidence: 0.75,
                  valid_from: DateTime.utc_now(:microsecond),

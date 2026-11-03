@@ -230,7 +230,10 @@ defmodule Ankole.Conversations.IMGroupProjection do
   end
 
   defp lock_group(namespace, external_id) do
-    Ankole.AdvisoryLock.lock!(Ankole.Repo, "im_group:#{namespace}:#{external_id}")
+    Ankole.AdvisoryLock.lock!(
+      Ankole.Repo,
+      "im_group:#{Ankole.Repo.tenant_id!()}:#{namespace}:#{external_id}"
+    )
 
     :ok
   end

@@ -48,7 +48,7 @@ To set up a coding Agent that reviews pull requests:
 
 1. In **Console → Environment variables**, store your personal access token as an encrypted variable named `GIT_TOKEN`.
 2. Create the Agent and bind its `primary`, `light`, and `heavy` model profiles. Configure the Background Agent Jobs profile only if you want to override its fallback model.
-3. Write a `MISSION.md` document that specifies the target repository, review criteria, and branch naming conventions.
+3. Write a `AGENTS.md` document that specifies the target repository, review criteria, and branch naming conventions.
 4. In a connected chat channel, ask the Agent: "Review the latest PR on `your-repo`. Clone, check out, run the tests, and report what you find."
 5. The Agent clones the repository, checks out the branch, runs the test suite with `command`, and posts its findings—either directly in the conversation or through a Background Agent Job.
 

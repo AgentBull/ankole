@@ -40,7 +40,57 @@ These fixtures do not prove AWS behavior.
   [aws-beam](https://github.com/aws-beam): signing input and the default
   credential chain, including EKS Pod Identity.
 
-Cloud checks still need a temporary AWS account session, S3 build bucket,
-build IAM role, EFS, VPC connector, and a reachable control plane. They must
-exercise termination and recreation, image replacement, NFS 4.1 directory
-deletion, suspend/resume, hook timeout, and provider isolation.
+Cloud checks need a temporary AWS account session, S3 build bucket, build IAM
+role, EFS, VPC connector, and a reachable control plane. The complete storage
+suite exercises termination and recreation, image replacement, NFS 4.1 directory
+deletion, suspend/resume, and provider isolation. The `drive_vfs` selection uses
+one Agent and one image to check actual mounts and freeze/thaw; shared file
+semantics run locally. See the commands in CONTRIBUTING.md.
+
+## Live Drive verification, 2026-11-02
+
+The focused run used `us-west-2`, ARM64, 4096 MiB, EFS, the production Lambda
+adapter, and a public HTTPS/WebSocket control plane. The adapter requested
+`additionalOsCapabilities: ALL`. The OCI image was
+`966239516738.dkr.ecr.us-west-2.amazonaws.com/ankole-vfs-1102@sha256:0fdf41a65bd4084e72cd8803ebc7ea4f2eaa0b0c5d1d80ff771d382585bbba54`;
+the AWS image was `ankole-test-c1a89687531d4f4f`.
+
+To avoid rebuilding an existing cloud fixture, this invocation copied the
+repository's focused test body and reused its dedicated tenant, Agent, image,
+and MicroVM. Only fixture setup and teardown differed:
+
+```sh
+MIX_TEST_PARTITION=lambda_worker_vfs_delivery_1102_1530 bun run test \
+  /tmp/ankole-lambda-vfs-1102/focused_reuse_test.exs --only drive_vfs --trace
+```
+
+All behavioral assertions passed: real FUSE admission, mounted ChatDrive writes,
+AWS suspension for 65 seconds, the same instance and incarnation after resume,
+and reading and appending to the same conversation's existing file. The real
+Worker executed commands and delivered byte-exact attachments through the Lark
+adapter to its protocol fixture. No model or platform fixture replaced the
+Lambda, FUSE, DAV, or Files adapter. The run took 190.9 seconds. Its log is
+`/tmp/ankole-lambda-vfs-1102/test-focused-reuse.log`.
+
+This is not a passing complete ExUnit run: teardown tried to delete a new fake
+model provider while the reused Agent's model profiles still referenced it
+(`provider_in_use`). The test requested real MicroVM termination. Earlier full
+storage-suite attempts also did not pass, and image replacement and provider
+isolation were not completed in this acceptance.
+
+The live log exposed a shared thaw-ordering race: credential refresh could reach
+the control plane before renewed Worker admission and receive 401. The Worker
+now waits for admission before refresh. This final change was verified locally
+against the real Phoenix/WebSocket protocol, including a simulated 65-second
+clock gap with the old socket still open: 8 integration tests and 29 transport
+unit tests passed. Worker type checking passed. The final ordering fix was not
+uploaded for another AWS image build.
+
+Cleanup was verified through AWS reads: every test MicroVM was terminated; the
+test images, ECR repository, S3 build bucket, EFS, network connector, security
+group, and both IAM roles were absent. The reused VPC, subnet, and NAT were left
+untouched. The dedicated test database partitions, both local tunnels, and
+temporary credential files were removed. This also removed the reused fixture's
+model-profile references. Verification records are
+`/tmp/ankole-lambda-vfs-1102/cleanup-verified.json` and
+`/tmp/ankole-lambda-vfs-1102/cleaned-databases.json`.

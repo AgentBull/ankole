@@ -10,6 +10,7 @@ import { SESSION_CONTEXT_ID_ENV } from '../core/execution/turn_runtime_env'
 import type { ContentPart, WorkerAgentTool } from '../core/types'
 import { imageBytes } from '../common/image-bytes'
 import { Drive } from '../drive/drive'
+import { driveMounts, type DriveView } from '../drive/mounts'
 import {
   createEnvelope,
   envelopeHeader,
@@ -33,7 +34,9 @@ import type {
 import { WorkspaceReady_Reason } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { runRefFromProto } from '../lanes/session_lane'
 import type { RuntimeRPCClient } from '../lanes/rpc_lane'
-import { materializeSkills } from '../skills/drive_skills'
+import { skillAvailableInRuntime } from '../skills/effective-skill'
+import { linkMountedSkills, materializeKnowledgeSkills } from '../skills/knowledge-skills'
+import { join } from 'node:path'
 import { createComputerTools } from '../tools/computer'
 import { loadEnabledSkillMCPServers } from '../tools/mcp'
 import { renderedFallbackFetch } from '../tools/web/web-tools'
@@ -52,6 +55,7 @@ type Result = {
 }
 type Call = { abort: AbortController; result?: Result; promise: Promise<void> }
 type Workspace = {
+  driveView?: DriveView
   run: RunRefMessage
   ready: Promise<void>
   tools: WorkerAgentTool[]
@@ -60,6 +64,7 @@ type Workspace = {
   timer?: ReturnType<typeof setTimeout>
   closing: boolean
   materials?: PreparedExecutionMaterials
+  cleanupSkills?: () => Promise<void>
   closeBridge?: () => void
   updateContextId?: (nextContextId?: string) => void
   closed: Promise<void>
@@ -222,11 +227,16 @@ export class Workspaces {
       await space.ready.catch(() => undefined)
       space.closeBridge?.()
       await space.materials?.cleanup()
+      await space.cleanupSkills?.()
     } finally {
-      this.spaces.delete(run.session.session_id)
-      this.slots.release()
-      space.finish()
-      await this.slots.publish()
+      try {
+        await space.driveView?.release()
+      } finally {
+        this.spaces.delete(run.session.session_id)
+        this.slots.release()
+        space.finish()
+        await this.slots.publish()
+      }
     }
   }
 
@@ -240,15 +250,27 @@ export class Workspaces {
     const paths = agentHomePaths(this.config.agentHomeRoot)
     const rpc = throwingRPCRequester(this.rpcClient)
     const drive = new Drive({ agentHome: paths.home, rpc })
-    await materializeSkills(drive, paths.installedSkills)
+    space.driveView = await driveMounts.acquire(input.driveVfs)
     if (!input.agentContext) throw new Error('Workspace preparation requires the Agent document snapshot')
     const context = materializeAgentLibraryDocuments(paths, input.agentContext)
+    const enabledSkills = context.skills.filter(skill => skillAvailableInRuntime(skill, 'main'))
+    const turnSkills = join(paths.home, '.ankole', 'turn-skills', run.signal_id)
+    const materialized = space.driveView
+      ? undefined
+      : await materializeKnowledgeSkills({
+          root: turnSkills,
+          frame: { run },
+          skills: enabledSkills,
+          rpc
+        })
+    space.cleanupSkills = materialized?.cleanup ?? (await linkMountedSkills(turnSkills))
+    const skillsRoot = materialized?.root ?? join(space.driveView!.library.path, 'Skills')
     const mcpServers = await loadEnabledSkillMCPServers({
-      enabledSkills: context.skills,
+      enabledSkills: materialized?.skills ?? enabledSkills,
       skillRoots: {
-        builtinSkillsRoot: this.config.builtinSkillsRoot,
-        agentInstalledSkillsRoot: paths.installedSkills,
-        internalSkillsRoot: this.config.internalSkillsRoot
+        builtinSkillsRoot: skillsRoot,
+        agentInstalledSkillsRoot: skillsRoot,
+        driveSkillsRoot: skillsRoot
       },
       runtime: 'main'
     })
@@ -272,6 +294,7 @@ export class Workspaces {
       renderedFetch: { config: fetchConfig, browserRuntime: this.browser }
     })
     space.tools = createComputerTools({
+      driveView: space.driveView,
       agentHome: paths.home,
       workspaceRoot: workspace,
       workerEnv: space.materials.workerEnv,

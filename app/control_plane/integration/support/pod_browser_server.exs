@@ -34,6 +34,17 @@ Application.put_env(
   |> Keyword.put(:pool, DBConnection.ConnectionPool)
 )
 
+if System.get_env("POD_BROWSER_ACTIONS") == "true" do
+  Application.put_env(
+    :ankole,
+    Oban,
+    Application.fetch_env!(:ankole, Oban)
+    |> Keyword.put(:testing, :disabled)
+    |> Keyword.put(:plugins, [])
+    |> Keyword.put(:queues, automation_jobs: 6)
+  )
+end
+
 {:ok, _} = Application.ensure_all_started(:ankole)
 Logger.configure(level: :warning)
 
@@ -43,7 +54,12 @@ require Ash.Query
 alias Ankole.Pod.{Bases, Pages}
 alias AnkoleWeb.Session, as: WebSession
 
-tenant = Ankole.DataCase.create_tenant()
+{:ok, tenant} =
+  Ankole.Tenants.create(%{
+    slug: "test-" <> Ankole.Ecto.UUIDv7.autogenerate(),
+    display_name: "Test tenant"
+  })
+
 Repo.put_tenant_id(tenant.id)
 default_locale = System.get_env("POD_BROWSER_LOCALE", "zh-Hans-CN")
 {:ok, _} = Ankole.I18n.put_default_locale(default_locale)
@@ -73,6 +89,11 @@ viewer_account = Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Browse
 owner = owner_account.principal
 member = member_account.principal
 viewer = viewer_account.principal
+
+guest_account =
+  Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Browser guest", membership: :guest})
+
+guest = guest_account.principal
 
 # Login forms use the production mailer with a real local TLS SMTP peer.
 mailbox_path = System.fetch_env!("POD_BROWSER_STATE_PATH") <> ".mail.json"
@@ -219,7 +240,7 @@ model_provider_id = "pod-browser-model-" <> tenant.id
     end
   end)
 
-for human <- [owner, member, viewer] do
+for human <- [owner, member, viewer, guest] do
   {:ok, _} =
     AuthZ.create_permission_grant(%{
       principal_uid: human.uid,
@@ -268,6 +289,7 @@ end
       %{principal_uid: owner.uid, role: "manage"},
       %{principal_uid: member.uid, role: "edit"},
       %{principal_uid: viewer.uid, role: "view"},
+      %{principal_uid: guest.uid, role: "view"},
       %{principal_uid: agent.uid, role: "edit"}
     ]
   })
@@ -526,6 +548,7 @@ chat_material =
 
     {:ok, _conversation} =
       Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        room_mode: :group,
         conversation_id: conversation_id,
         agent_uid: agent.uid,
         message_id: input_id,
@@ -579,6 +602,7 @@ chat_material =
                  Ankole.Conversations.create_in_tx(
                    Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                    %{
+                     room_mode: :group,
                      conversation_id: id,
                      agent_uid: agent.uid,
                      message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -613,6 +637,7 @@ chat_material =
 
     {:ok, failed_detail} =
       Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        room_mode: :group,
         conversation_id: chat_failed_conversation_id,
         agent_uid: agent.uid,
         message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -644,6 +669,7 @@ chat_material =
             Ankole.Conversations.create_in_tx(
               Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
               %{
+                room_mode: :group,
                 conversation_id: history_conversation_id,
                 agent_uid: agent.uid,
                 message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -682,11 +708,12 @@ chat_material =
 
     recovery_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
     recovery_message_id = Ankole.Ecto.UUIDv7.autogenerate()
+    {:ok, %{principal: assistant}} = Ankole.Principals.ensure_personal_assistant(owner.uid)
 
     {:ok, _} =
       Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
         conversation_id: recovery_conversation_id,
-        agent_uid: agent.uid,
+        agent_uid: assistant.uid,
         message_id: recovery_message_id,
         page_id: report.id,
         text: "A saved Conversation for local draft recovery."
@@ -697,7 +724,7 @@ chat_material =
     {:ok, _} =
       Repo.transact(fn ->
         with :ok <-
-               Ankole.Sessions.Queue.lock_session_in_tx(agent.uid, recovery_input.session_id) do
+               Ankole.Sessions.Queue.lock_session_in_tx(assistant.uid, recovery_input.session_id) do
           Ankole.Sessions.Queue.mark_event_completed_in_tx(
             recovery_input,
             DateTime.utc_now(:microsecond)
@@ -832,6 +859,7 @@ state = %{
     cookies: cookies.(viewer),
     email: viewer_account.human_user.email
   },
+  guest: %{uid: guest.uid, cookies: cookies.(guest), email: guest_account.human_user.email},
   site_admin:
     Repo.with_tenant(privileged_tenant_id, fn ->
       %{
@@ -862,6 +890,19 @@ state =
         report,
         model_provider_id
       )
+    )
+  else
+    state
+  end
+
+state =
+  if System.get_env("POD_BROWSER_ACTIONS") == "true" do
+    Code.require_file("pod_action_material.exs", __DIR__)
+
+    Map.put(
+      state,
+      :actions,
+      Ankole.PodActionMaterial.seed(agent, backend_report, repository, state_path)
     )
   else
     state

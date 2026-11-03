@@ -9,22 +9,22 @@
 
 ```bash
 # 查询我发起的审批列表
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated --params '{"page_size":20}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated --params '{"page_size":20}'
 
 # 只看某个审批定义下我发起的实例
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated --params '{"definition_code":"<DEFINITION_CODE>","page_size":20}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated --params '{"definition_code":"<DEFINITION_CODE>","page_size":20}'
 
 # 按发起时间范围筛选（秒级时间戳）
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated --params '{"start_timestamp":"<START_SECONDS>","end_timestamp":"<END_SECONDS>","page_size":20}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated --params '{"start_timestamp":"<START_SECONDS>","end_timestamp":"<END_SECONDS>","page_size":20}'
 
 # 使用 page_token 翻页
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated --params '{"page_size":20,"page_token":"example_page_token"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated --params '{"page_size":20,"page_token":"example_page_token"}'
 
 # 表格格式输出，便于快速浏览
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated --params '{"page_size":20}' --format table
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated --params '{"page_size":20}' --format table
 
 # 预览 API 调用，不执行
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated --params '{"page_size":20}' --dry-run
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated --params '{"page_size":20}' --dry-run
 ```
 
 ## 参数
@@ -80,23 +80,23 @@
 ### 1) 找到我要操作的审批实例
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated --params '{"page_size":20}' --format table
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated --params '{"page_size":20}' --format table
 ```
 
 拿到 `instances[].instance_code` 后，可继续：
 
 ```bash
 # 查看审批实例详情
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 
 # 撤回审批实例
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances cancel --data '{"instance_code":"<INSTANCE_CODE>"}' --yes
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances cancel --data '{"instance_code":"<INSTANCE_CODE>"}' --yes
 ```
 
 ### 2) 只看某类审批
 
 ```bash
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances initiated \
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances initiated \
   --params '{"definition_code":"<DEFINITION_CODE>","page_size":20}' \
  
 ```
@@ -118,11 +118,11 @@
 
 ```bash
 # 查看单个审批实例详情
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances get --params '{"instance_code":"<INSTANCE_CODE>"}'
 
 # 撤回审批实例
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances cancel --data '{"instance_code":"<INSTANCE_CODE>"}' --yes
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances cancel --data '{"instance_code":"<INSTANCE_CODE>"}' --yes
 
 # 给审批实例追加抄送人
-/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals instances cc --data '{"instance_code":"<INSTANCE_CODE>","cc_user_ids":["<USER_ID>"]}' --params '{"user_id_type":"open_id"}' --yes
+"$LARK_APPROVALS_DIR/scripts/lark-approvals" instances cc --data '{"instance_code":"<INSTANCE_CODE>","cc_user_ids":["<USER_ID>"]}' --params '{"user_id_type":"open_id"}' --yes
 ```

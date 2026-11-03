@@ -1,3 +1,15 @@
+import {
+  RiAttachmentLine,
+  RiCalendarLine,
+  RiCheckboxLine,
+  RiFormula,
+  RiHashtag,
+  RiLink,
+  RiListCheck,
+  RiText,
+  RiTimeLine,
+  RiUserLine
+} from '@remixicon/react'
 import { t } from 'i18next'
 import type { BaseField, FieldType, Value } from '@ankole/applet-sdk/types'
 
@@ -66,4 +78,33 @@ export function displayValue(field: BaseField, value: Value) {
     return value.map(item => (typeof item === 'object' && item && 'name' in item ? item.name : item)).join(', ')
   }
   return typeof value === 'object' ? JSON.stringify(value) : String(value)
+}
+
+export const fieldIcons = {
+  text: RiText,
+  number: RiHashtag,
+  auto_number: RiHashtag,
+  select: RiListCheck,
+  datetime: RiCalendarLine,
+  checkbox: RiCheckboxLine,
+  user: RiUserLine,
+  attachment: RiAttachmentLine,
+  link: RiLink,
+  formula: RiFormula,
+  created_at: RiTimeLine,
+  updated_at: RiTimeLine,
+  created_by: RiUserLine,
+  updated_by: RiUserLine
+}
+
+export function effectiveFieldType(field: BaseField) {
+  if (field.type === 'formula') return String(field.config.result_type ?? 'text')
+  if (field.type === 'auto_number') return 'number'
+  if (['created_at', 'updated_at'].includes(field.type)) return 'datetime'
+  if (['created_by', 'updated_by'].includes(field.type)) return 'person'
+  if (field.type === 'checkbox') return 'boolean'
+  if (['attachment', 'user', 'link'].includes(field.type) || (field.type === 'select' && field.config.multiple)) {
+    return 'array'
+  }
+  return field.type
 }

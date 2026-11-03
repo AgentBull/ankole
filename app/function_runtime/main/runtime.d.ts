@@ -1,8 +1,9 @@
 declare const AsyncLocalStorage: typeof import('node:async_hooks').AsyncLocalStorage
-declare const importApplet: () => Promise<{ default: Record<string, (input: unknown) => unknown> }>
+declare const importApplet: () => Promise<{ default: Record<string, any> }>
 
 declare namespace Deno {
   const env: { get(name: string): string | undefined }
+  function readTextFileSync(path: string): string
   function mkdirSync(path: string, options: { recursive: boolean }): void
   function upgradeWebSocket(request: Request): { socket: WebSocket; response: Response }
   function serve(handler: (request: Request) => Response | Promise<Response>): unknown

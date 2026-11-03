@@ -6,8 +6,10 @@ defmodule Ankole.AIAgent.Library.Console.Actions do
   alias Ankole.AIAgent.Library.{AgentPlugins, RuntimeCapabilityChanges}
 
   @impl true
-  def run(input, _opts, _context) do
-    input.action.name |> action(input.arguments) |> Ankole.Errors.wrap(&describe/1)
+  def run(input, _opts, context) do
+    input.action.name
+    |> dispatch(input.arguments, context.actor)
+    |> Ankole.Errors.wrap(&describe/1)
   end
 
   defp action(:global_capabilities, args) do
@@ -27,16 +29,6 @@ defmodule Ankole.AIAgent.Library.Console.Actions do
          do: {:ok, capabilities}
   end
 
-  defp action(:set_global_skill, args) do
-    with {:ok, _value} <-
-           Library.set_global_skill_default(args.id, args.enabled,
-             config_scope: args.defaults_scope
-           ),
-         {:ok, capabilities} <- action(:global_capabilities, args),
-         :ok <- notify_defaults(args.defaults_scope, {:skill, args.id}),
-         do: {:ok, capabilities}
-  end
-
   defp action(:set_agent_plugin, args) do
     with {:ok, _value} <- AgentPlugins.set_agent_override(args.agent_uid, args.id, args[:enabled]),
          {:ok, capabilities} <- Library.capabilities_for_agent(args.agent_uid),
@@ -47,32 +39,41 @@ defmodule Ankole.AIAgent.Library.Console.Actions do
          do: {:ok, capabilities}
   end
 
-  defp action(:set_agent_skill, args) do
-    with {:ok, _value} <-
-           Library.set_agent_skill_override(args.agent_uid, args.id, args[:enabled]),
-         {:ok, capabilities} <- Library.capabilities_for_agent(args.agent_uid),
-         :ok <-
-           RuntimeCapabilityChanges.notify_agent(args.agent_uid, {:skill, args.id},
-             capabilities: capabilities
-           ),
-         do: {:ok, capabilities}
-  end
-
   defp action(:documents, args) do
     with {:ok, documents} <- Library.list_agent_documents(args.agent_uid),
          do: {:ok, %{library_documents: documents}}
   end
 
-  defp action(:replace_document, args) do
-    with {:ok, document} <-
-           Library.replace_agent_document(
-             args.agent_uid,
-             args.document_kind,
-             args.content,
-             args.expected_content_hash
-           ),
-         do: {:ok, %{library_document: document}}
+  defp dispatch(:set_agent_plugin, args, actor) do
+    with :ok <- Library.Management.agent(actor, args.agent_uid, "update"),
+         do: action(:set_agent_plugin, args)
   end
+
+  defp dispatch(:set_global_skill, args, actor) do
+    slug = args.id |> String.split(":") |> List.last()
+
+    with {:ok, _} <- Library.Skills.set_all(actor, slug, args.enabled, args.base_revision),
+         do: Library.global_capabilities()
+  end
+
+  defp dispatch(:set_agent_skill, args, actor) do
+    slug = args.id |> String.split(":") |> List.last()
+
+    with {:ok, _} <-
+           Library.Skills.set_binding(
+             actor,
+             slug,
+             args.agent_uid,
+             args.enabled
+           ),
+         do: Library.capabilities_for_agent(args.agent_uid)
+  end
+
+  defp dispatch(name, args, actor) when name in [:documents, :agent_capabilities] do
+    with :ok <- Library.Management.agent(actor, args.agent_uid, "read"), do: action(name, args)
+  end
+
+  defp dispatch(name, args, _actor), do: action(name, args)
 
   def default_read_permissions(args, _attrs, resource, action),
     do:
@@ -80,14 +81,14 @@ defmodule Ankole.AIAgent.Library.Console.Actions do
         args,
         resource,
         action,
-        ~w(ai_agent.library.agent_plugin_defaults ai_agent.library.skill_defaults)
+        ["ai_agent.library.agent_plugin_defaults"]
       )
 
   def default_plugin_permissions(args, _attrs, resource, action),
     do: default_permissions(args, resource, action, ["ai_agent.library.agent_plugin_defaults"])
 
   def default_skill_permissions(args, _attrs, resource, action),
-    do: default_permissions(args, resource, action, ["ai_agent.library.skill_defaults"])
+    do: default_permissions(args, resource, action, [])
 
   defp default_permissions(args, resource, action, keys) do
     if args["defaults_scope"] in [:global, "global"],
@@ -106,11 +107,8 @@ defmodule Ankole.AIAgent.Library.Console.Actions do
   defp describe(reason) when reason in [:not_found, :agent_plugin_not_found, :skill_not_found],
     do: Ankole.Errors.Invalid.NotFound.exception(resource: Library.Console)
 
-  defp describe(:agent_library_document_conflict),
-    do: {:conflict, "Agent library document changed since it was loaded", []}
-
-  defp describe(reason) when reason in [:invalid_document_kind, :invalid_agent_document],
-    do: {"Agent library document is invalid", []}
+  defp describe(:forbidden), do: Ash.Error.Forbidden.exception([])
+  defp describe({:forbidden, _}), do: Ash.Error.Forbidden.exception([])
 
   defp describe(_reason), do: {"Agent Library capability is invalid", []}
 end

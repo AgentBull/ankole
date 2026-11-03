@@ -5,7 +5,7 @@ defmodule Ankole.Principals.Agents do
 
   alias Ankole.AgentWorkers
   alias Ankole.AIAgent.Library
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Principals
   alias Ankole.Principals.{Agent, Humans, Principal}
   alias Ankole.Repo
@@ -35,7 +35,7 @@ defmodule Ankole.Principals.Agents do
   def ensure_personal_assistant(owner_uid) do
     result =
       Repo.transact_top_level(fn ->
-        Ankole.Files.lock_tree_in_tx()
+        Ankole.Pod.lock_tree_in_tx()
 
         with {:ok, %Principal{type: :human, status: :active, membership: :member} = owner} <-
                Humans.get_principal(owner_uid),
@@ -165,7 +165,7 @@ defmodule Ankole.Principals.Agents do
   end
 
   def create_agent_in_tx(attrs) do
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
     agent_attrs = Humans.take_attrs(attrs, @agent_fields)
     provider_id = Ankole.Attrs.get(attrs, :worker_provider_id)
 
@@ -177,8 +177,10 @@ defmodule Ankole.Principals.Agents do
          {:ok, principal} <- Humans.insert_principal(agent_principal_attrs(attrs)),
          {:ok, agent} <- insert_agent(principal.uid, agent_attrs),
          :ok <- grant_assistant_owner_in_tx(agent),
-         :ok <- Library.seed_agent_library_in_tx(principal.uid, agent.type),
+         :ok <- Ankole.Files.lock_drive(principal.uid),
          :ok <- lock_assistant_owner_in_tx(agent),
+         :ok <- Library.seed_agent_library_in_tx(principal.uid, agent.type),
+         {:ok, _} <- Ankole.Brain.Namespace.ensure_agent_in_tx(principal.uid, agent.type),
          :ok <- AgentWorkers.insert_in_tx(principal.uid, provider_id) do
       {:ok, %{principal: principal, agent: agent}}
     end
@@ -252,7 +254,8 @@ defmodule Ankole.Principals.Agents do
          :ok <- Humans.ensure_principal_type(principal, :agent),
          :ok <- validate_assistant_owner(Principals.get_agent_record!(uid)),
          conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(principal.uid),
-         {:ok, principal} <- Ankole.Ash.update(principal, :enable_in_tx, %{}) do
+         {:ok, principal} <- Ankole.Ash.update(principal, :enable_in_tx, %{}),
+         :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(principal) do
       {:ok, {principal, conversation_ids}}
     end
   end
@@ -264,7 +267,8 @@ defmodule Ankole.Principals.Agents do
                   {:ok, principal} <- Humans.lock_principal_in_tx(uid),
                   :ok <- Humans.ensure_principal_type(principal, :agent),
                   conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(uid),
-                  {:ok, principal} <- Ankole.Ash.update(principal, :disable_in_tx, %{}) do
+                  {:ok, principal} <- Ankole.Ash.update(principal, :disable_in_tx, %{}),
+                  :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(principal) do
                {:ok, {principal, conversation_ids}}
              end
            end,
@@ -286,8 +290,8 @@ defmodule Ankole.Principals.Agents do
   end
 
   def delete_agent_in_tx(uid) do
-    Ankole.Files.lock_tree_in_tx()
-    Ankole.Files.lock_root_ids_in_tx(Ankole.Files.root_ids_for_principal(uid))
+    Ankole.Pod.lock_tree_in_tx()
+    Ankole.Pod.lock_root_ids_in_tx(Ankole.Pod.root_ids_for_principal(uid))
 
     with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid),
          {:ok, principal} <- Humans.lock_principal_in_tx(uid),
@@ -301,13 +305,21 @@ defmodule Ankole.Principals.Agents do
   defp change_agent_status_in_tx(principal) do
     case principal.status do
       :active ->
-        Ankole.Ash.update(principal, :disable_in_tx, %{})
+        with {:ok, principal} <- Ankole.Ash.update(principal, :disable_in_tx, %{}),
+             :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(principal),
+             do: {:ok, principal}
 
       :disabled ->
+        :ok =
+          Ankole.Pod.purge_root_jobs_in_tx(
+            Ankole.Pod.root_ids_for_principal(principal.uid) ++
+              Ankole.Conversations.deletion_root_ids_for_agent_in_tx(principal.uid)
+          )
+
         Access.grants(principal_uid: principal.uid, action: [in: Access.page_actions()])
         |> Access.remove_grants()
 
-        :ok = Ankole.Files.delete_private_root_in_tx(principal.uid)
+        :ok = Ankole.Pod.delete_private_root_in_tx(principal.uid)
         :ok = Ankole.Conversations.delete_for_agent_in_tx(principal.uid)
         :ok = AgentWorkers.mark_deleting_in_tx(principal.uid)
         :ok = Ankole.Signals.Bindings.delete_agent_config_rows_in_tx(principal.uid)

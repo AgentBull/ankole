@@ -39,23 +39,18 @@ defmodule AnkoleWeb.Plugs.WebhookCallbackBodyReader do
   def call(conn, _opts), do: conn
 
   defp read_callback_body(conn) do
-    case read_body(conn, length: @max_body_bytes, read_length: 64 * 1024) do
-      {:ok, body, conn} when byte_size(body) <= @max_body_bytes ->
+    case AnkoleWeb.BoundedBody.read(conn, @max_body_bytes) do
+      {:ok, body, conn} ->
         conn
         |> put_private(@private_key, body)
         |> then(&%{&1 | body_params: %{}})
 
-      {:ok, _body, conn} ->
+      {:error, :too_large, conn} ->
         conn
         |> send_resp(413, "")
         |> halt()
 
-      {:more, _partial, conn} ->
-        conn
-        |> send_resp(413, "")
-        |> halt()
-
-      {:error, _reason} ->
+      {:error, _reason, conn} ->
         conn
         |> send_resp(400, "")
         |> halt()

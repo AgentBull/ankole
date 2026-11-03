@@ -57,7 +57,6 @@ const AgentLibraryPage = lazyRouteComponent(() => import('./pages/agent-library'
 const AgentPluginDetailPage = lazyRouteComponent(() => import('./pages/agent-library'), 'AgentPluginDetailPage')
 const BrainObjectDrawer = lazyRouteComponent(() => import('./pages/brain/objects'), 'BrainObjectDrawer')
 const BrainObjectsPage = lazyRouteComponent(() => import('./pages/brain/objects'), 'BrainObjectsPage')
-const BrainObjectEditorPage = lazyRouteComponent(() => import('./pages/brain/object-editor'), 'BrainObjectEditorPage')
 const BrainClaimsPage = lazyRouteComponent(() => import('./pages/brain/claims'), 'BrainClaimsPage')
 const BrainContradictionsPage = lazyRouteComponent(
   () => import('./pages/brain/contradictions'),
@@ -169,12 +168,6 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
         getParentRoute: () => bodyRoute,
         path: 'brain',
         component: () => <Navigate to="/brain/objects" replace />
-      }),
-      createRoute({ getParentRoute: () => bodyRoute, path: 'brain/objects/new', component: BrainObjectEditorPage }),
-      createRoute({
-        getParentRoute: () => bodyRoute,
-        path: 'brain/objects/$slug/edit',
-        component: BrainObjectEditorPage
       }),
       brainObjectsRoute.addChildren([
         createRoute({ getParentRoute: () => brainObjectsRoute, path: '/', component: () => null }),

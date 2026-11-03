@@ -16,7 +16,7 @@ import {
   type ConversationDetail
 } from './api'
 import { ChatModel, mergeMessages } from './state/chat'
-import { LocalChatDrafts, UnconfirmedChats, useChatDraft } from './chat-drafts'
+import { LocalChatDrafts, UnconfirmedChats, useChatDraft, useChatDrafts } from './chat-drafts'
 import { useChatHistory } from './chat-history'
 import { editingSnapshot, useChatCommands, type ChatCommands } from './chat-commands'
 import { ChatAttachmentDrafts } from './chat-attachments'
@@ -26,8 +26,9 @@ import { deleteConversation } from './api/generated/sdk.gen'
 import { Composer } from './chat/composer'
 import { TurnTimeline } from './chat/turn-timeline'
 import { ChatHomeView, ChatHomeToolbar } from './chat/chat-home-view'
-import { RoomHeader, type PageChatHeaderControls } from './chat/room-header'
+import { RoomHeader } from './chat/room-header'
 import { SharePopover } from './chat/share-popover'
+import { NewGroupDialog } from './chat/new-group-dialog'
 import { ChatSummaryPanel } from './chat/chat-summary-panel'
 import { SessionFindBar } from './chat/session-find-bar'
 import { QueuedStrip } from './chat/queued-strip'
@@ -36,16 +37,36 @@ import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-
 import './chat.css'
 
 export function ChatRoute() {
+  useSignals()
+  const drafts = useChatDrafts()
   const { conversationID } = useParams({ strict: false })
   const location = useLocation()
-  const colleagueUID = new URLSearchParams(location.searchStr).get('agent') ?? undefined
   const fullID = podRouteID(conversationID)
   const locationKey = (location.state as { __TSR_key?: string } | null)?.__TSR_key ?? location.href
   return (
     <ChatPage
-      key={fullID ?? conversationID ?? locationKey}
+      key={fullID ?? conversationID ?? `${locationKey}:${drafts.newChatVersion.value}`}
       conversationID={fullID ?? conversationID}
-      colleagueUID={colleagueUID}
+    />
+  )
+}
+
+export function DirectChatRoute() {
+  const { colleagueUid } = useParams({ strict: false })
+  const agents = useQuery(agentsQuery)
+  const client = useQueryClient()
+  const colleague = agents.data?.agents.find(agent => agent.uid === colleagueUid)
+  const started = useCallback(() => {
+    void client.invalidateQueries({ queryKey: podKeys.agents })
+  }, [client])
+  if (agents.isPending) return <ChatHomeToolbar />
+  if (agents.error) return <RequestFailure error={agents.error} retry={() => void agents.refetch()} />
+  return (
+    <ChatPage
+      key={colleagueUid}
+      colleagueUID={colleagueUid}
+      conversationID={colleague?.directConversationID ?? undefined}
+      onConversationStarted={started}
     />
   )
 }
@@ -56,7 +77,6 @@ export function ChatPage({
   pageID,
   accessScope,
   pageHeader,
-  pageChat,
   onConversationStarted,
   onNewConversation,
   onExitConversation
@@ -66,7 +86,6 @@ export function ChatPage({
   pageID?: string
   accessScope?: 'participants' | 'anchor_page'
   pageHeader?: ReactNode
-  pageChat?: PageChatHeaderControls
   onConversationStarted?: (id: string) => void
   onNewConversation?: () => void
   onExitConversation?: () => void
@@ -75,7 +94,7 @@ export function ChatPage({
   const { t, i18n } = useTranslation()
   const navigate = useNavigate(),
     client = useQueryClient()
-  const { drafts, model, selectDraft } = useChatDraft(requestedConversationID, pageID)
+  const { drafts, model, selectDraft } = useChatDraft(requestedConversationID, pageID, colleagueUID)
   const conversationID = requestedConversationID ?? model.conversationID.value
   const [sharing, setSharing] = useState(false),
     [summary, setSummary] = useState(false),
@@ -139,10 +158,17 @@ export function ChatPage({
   })
   const data = detail.data,
     history = useChatHistory(conversationID, data)
+  const nonAssistantPageChat =
+    !!pageID && !!data && !detail.error && data.conversation.conversationKind !== 'assistant_task'
+  useEffect(() => {
+    if (nonAssistantPageChat) onNewConversation?.()
+  }, [nonAssistantPageChat, onNewConversation])
   const assistant = agents.data?.personalAssistant
   const availableAgents = [...(agents.data?.agents ?? []), ...(assistant ? [assistant] : [])]
   const selected = colleagueUID ?? model.selectedAgentUID.value
-  const personalAssistant = !!agents.data?.personalAssistantAvailable && !selected
+  const personalAssistant = data
+    ? data.conversation.conversationKind === 'assistant_task'
+    : !!agents.data?.personalAssistantAvailable && !selected
   const agentUID =
     data?.conversation.agents.find(agent => agent.uid === model.targetAgentUID.value)?.uid ??
     data?.conversation.agents[0]?.uid ??
@@ -179,6 +205,7 @@ export function ChatPage({
       model.markGone()
       client.removeQueries({ queryKey: podKeys.detail(conversationID!) })
       void client.invalidateQueries({ queryKey: podKeys.conversations })
+      void client.invalidateQueries({ queryKey: podKeys.agents })
       if (pageID) void client.invalidateQueries({ queryKey: podKeys.pageConversations(pageID) })
       if (onExitConversation) onExitConversation()
       else void navigate({ to: podLocation('/').pathname })
@@ -206,6 +233,7 @@ export function ChatPage({
   }, [client, conversationID, detail.error, model])
   const lastReadSeq = data?.conversation.viewer.lastReadSeq,
     lastSeq = data?.messageRange.lastSeq
+  const visitedRoom = useRef<string | null>(null)
   const atBottom = model.reading.value[pageID ? 'page' : 'standalone']?.atBottom !== false
   useEffect(() => {
     const markRead = () => {
@@ -213,11 +241,11 @@ export function ChatPage({
         conversationID &&
         lastSeq &&
         lastReadSeq != null &&
-        lastReadSeq < lastSeq &&
-        atBottom &&
+        (visitedRoom.current !== conversationID || (lastReadSeq < lastSeq && atBottom)) &&
         document.visibilityState === 'visible'
       ) {
-        actions.update.mutate({ lastReadSeq: lastSeq })
+        visitedRoom.current = conversationID
+        actions.update.mutate({ lastReadSeq: atBottom ? lastSeq : lastReadSeq })
       }
     }
     markRead()
@@ -249,6 +277,8 @@ export function ChatPage({
       model={model}
       agents={callableAgents}
       personalAssistant={personalAssistant}
+      assistantAvailable={!!agents.data?.personalAssistantAvailable}
+      directColleague={!!colleagueUID}
       agentsLoaded={agents.isSuccess}
       agentUID={agentUID}
       detail={data}
@@ -269,6 +299,15 @@ export function ChatPage({
       {t('pod.chat.retry_send')}
     </Button>
   )
+  if (nonAssistantPageChat) return <>{pageHeader}</>
+  if (!conversationID && !colleagueUID && !pageID && agents.isSuccess && !agents.data.personalAssistantAvailable) {
+    return (
+      <section className="pod-chat pod-chat-standalone">
+        <ChatHomeToolbar />
+        <p className="m-auto p-6 text-sm text-fg-secondary">{t('pod.superagent.choose_colleague')}</p>
+      </section>
+    )
+  }
   if (!conversationID) {
     return (
       <section
@@ -278,6 +317,7 @@ export function ChatPage({
         <ChatHomeView
           composer={composer}
           pageID={pageID}
+          colleague={colleagueUID ? availableAgents.find(agent => agent.uid === colleagueUID) : undefined}
           showSuggestions={!model.hasContent.value && !model.links.value.length}
           onSuggestion={text => {
             model.draft.value = text
@@ -365,20 +405,22 @@ export function ChatPage({
       : undefined
   return (
     <section ref={root} tabIndex={-1} className={cn('pod-chat', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
-      <RoomHeader
-        detail={data}
-        embedded={!!pageID}
-        pageChat={pageChat}
-        onInvite={() => setSharing(true)}
-        onFind={toggleFinding}
-        onSummary={event => changeSummary(!summary, event)}
-        summaryOpen={summary}
-        summaryTrigger={summaryTrigger}
-        onDelete={() => setDeleting(true)}
-        onExitConversation={onExitConversation}
-        editing={renaming}
-        onEditingChange={setRenaming}
-      />
+      {pageID ? (
+        pageHeader
+      ) : (
+        <RoomHeader
+          detail={data}
+          onInvite={() => setSharing(true)}
+          onFind={toggleFinding}
+          onSummary={event => changeSummary(!summary, event)}
+          summaryOpen={summary}
+          summaryTrigger={summaryTrigger}
+          onDelete={() => setDeleting(true)}
+          onExitConversation={onExitConversation}
+          editing={renaming}
+          onEditingChange={setRenaming}
+        />
+      )}
       {finding && <SessionFindBar root={root} history={history} inputRef={findInput} onClose={closeFinding} />}
       <div className="pod-chat-room-body">
         <div className="pod-chat-room-main">
@@ -416,10 +458,7 @@ export function ChatPage({
                     message => message.authorType === 'agent' && message.authorUID === run.agentUID
                   )?.authorDisplayName
               }))}
-              canAnswer={uid =>
-                data.conversation.agents.some(agent => agent.uid === uid && agent.active) &&
-                availableAgents.some(agent => agent.uid === uid)
-              }
+              canAnswer={uid => availableAgents.some(agent => agent.uid === uid && agent.active)}
               readOnlyReason={t('pod.chat_room.answer_unavailable')}
               onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
               onResolveActionCard={(cardID, decision) => actions.resolveActionCard.mutateAsync({ cardID, decision })}
@@ -508,7 +547,11 @@ export function ChatPage({
           )}
         </PodPanelPresence>
       </div>
-      <SharePopover detail={data} open={sharing} onOpenChange={setSharing} />
+      {data.conversation.conversationKind === 'group' ? (
+        <SharePopover detail={data} open={sharing} onOpenChange={setSharing} />
+      ) : (
+        <NewGroupDialog detail={data} open={sharing} onOpenChange={setSharing} />
+      )}
       <Dialog open={deleting} onOpenChange={open => !remove.isPending && setDeleting(open)}>
         <DialogContent closeLabel={t('common.close')} showCloseButton={!remove.isPending}>
           <DialogTitle>{t(commands.working ? 'pod.chat_room.stop_delete' : 'pod.chat_room.delete')}</DialogTitle>

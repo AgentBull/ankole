@@ -76,11 +76,46 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
             |> Enum.map(& &1["catalog_name"])
             |> Enum.filter(&(&1 in selected))
             |> Enum.sort()
-            |> Enum.map(&Map.fetch!(members, {id, &1}))
+            |> Enum.flat_map(fn name -> List.wrap(members[{id, name}]) end)
         end
       end)
 
     standalone ++ plugin_skills
+  end
+
+  def for_turn({%Ankole.Sessions.JobTurnRef{} = ref, _}),
+    do: for_signal(ref.agent_uid, ref.signal_id)
+
+  def for_turn(_authority), do: {:ok, nil}
+
+  def for_signal(_agent_uid, nil), do: {:ok, nil}
+
+  def for_signal(agent_uid, signal_id) do
+    with {:ok, %{agent_uid: ^agent_uid} = signal} <- Ankole.Signals.get_signal(signal_id) do
+      case Ankole.Sessions.Key.parse(signal.session_id) do
+        {:job, id} ->
+          with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
+               %{runtime_projection: %{} = projection} <-
+                 Ankole.BackgroundAgentJobs.get_job_for_agent(id, agent_uid) do
+            {:ok, Map.take(projection, ["skills", "agent_plugins"])}
+          else
+            _ ->
+              {:error, :background_agent_job_runtime_projection_invalid}
+          end
+
+        _ ->
+          {:ok, nil}
+      end
+    end
+  end
+
+  def allows_skill?(nil, _skill), do: true
+
+  def allows_skill?(projection, skill) do
+    Enum.any?(
+      projection["skills"],
+      &(&1["name"] == skill.slug and &1["agent_plugin_id"] == skill.agent_plugin_id)
+    )
   end
 
   @spec turn_start_overrides(map()) :: {:ok, map()} | {:error, term()}

@@ -5,7 +5,8 @@ defmodule Ankole.Pod.Comments do
 
   alias Ankole.{ActorRef, AuthZ, Conversations, JSON, Principals, Repo, Signals}
   alias Ankole.AIGateway.ModelProfiles
-  alias Ankole.Files.{Access, Nodes}
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
   alias Ankole.Files.Path, as: FilePath
   alias Ankole.Pod.{Documents, PageComment, PageContent, Pages, Serialization}
   alias Ankole.Pod.Comments.Activity
@@ -309,8 +310,8 @@ defmodule Ankole.Pod.Comments do
           nil,
           fn ->
             # Enforce strict outermost lock order:
-            # 2 (drive-tree) -> 2.5 (drive-root) -> 3 (principals) -> 9/10 (sessions)
-            # -> [conversations] -> 11 (signals) -> 12 (drive_nodes / pages).
+            # 2 (page-tree) -> 2.5 (page-root) -> 3 (principals) -> 9/10 (sessions)
+            # -> [conversations] -> 11 (signals) -> 12 (pages / pages).
             with {:ok, page_preview} <- Pages.fetch(id),
                  {:ok, preview_caps} <- live_capabilities_in_tx(actor, page_preview),
                  :ok <- require_any_mutation_capability(preview_caps),
@@ -390,6 +391,15 @@ defmodule Ankole.Pod.Comments do
     end
   end
 
+  defp preview_root_for_wakeup_in_tx(%{type: :knowledge}, comment_id, body, nil, attrs) do
+    if Enum.any?(
+         [:anchor, :base_revision, :from, :to, :quote],
+         &(not is_nil(Ankole.Attrs.get(attrs, &1)))
+       ),
+       do: {:error, :invalid_comment_anchor},
+       else: {:ok, %{id: comment_id, body: body, quote: nil, anchor: nil}}
+  end
+
   defp preview_root_for_wakeup_in_tx(%{type: :file} = page, comment_id, body, nil, attrs) do
     cond do
       Enum.any?([:base_revision, :from, :to], &(not is_nil(Ankole.Attrs.get(attrs, &1)))) ->
@@ -429,6 +439,13 @@ defmodule Ankole.Pod.Comments do
       true ->
         {:ok, comment, page}
     end
+  end
+
+  defp maybe_anchor(_actor, %{type: :knowledge} = page, comment, attrs) do
+    if Enum.any?(
+         [:anchor, :base_revision, :from, :to, :quote],
+         &(not is_nil(Ankole.Attrs.get(attrs, &1)))
+       ), do: {:error, :invalid_comment_anchor}, else: {:ok, comment, page}
   end
 
   defp maybe_anchor(actor, %{type: :file} = page, comment, attrs) do
@@ -472,6 +489,9 @@ defmodule Ankole.Pod.Comments do
       error -> error
     end
   end
+
+  defp put_anchor(_actor, %{type: :knowledge}, _comment, _attrs),
+    do: {:error, :invalid_comment_anchor}
 
   defp put_anchor(actor, %{type: :file} = page, comment, attrs) do
     raw_anchor = Ankole.Attrs.get(attrs, :anchor)
@@ -634,6 +654,8 @@ defmodule Ankole.Pod.Comments do
     end
   end
 
+  defp remove_empty_anchor(_actor, %{type: :knowledge} = page, _comment), do: {:ok, page}
+
   defp remove_empty_anchor(actor, %{type: :file} = page, comment) do
     root_id = comment.root_id || comment.id
     {:ok, root} = fetch(page.id, root_id)
@@ -673,11 +695,13 @@ defmodule Ankole.Pod.Comments do
          do: {:ok, info.ids}
   end
 
-  defp comment_anchor_ids_in_tx(%{type: :file}), do: {:ok, []}
+  defp comment_anchor_ids_in_tx(%{type: type}) when type in [:knowledge, :file], do: {:ok, []}
 
   defp present(comment, actor, page, caps, ids, profiles) do
     own = own?(actor, comment)
     root = is_nil(comment.root_id)
+    can_edit = is_nil(comment.deleted_at) && (caps.manage || (caps.comment && own))
+    can_resolve = root && (caps.edit || (caps.comment && own))
 
     profile = Serialization.author_json(comment.author, profiles)
 
@@ -685,6 +709,9 @@ defmodule Ankole.Pod.Comments do
       case page.type do
         :doc ->
           {nil, comment.id in ids, false}
+
+        :knowledge ->
+          {nil, false, false}
 
         :file ->
           outdated =
@@ -714,10 +741,10 @@ defmodule Ankole.Pod.Comments do
       anchor_present: anchor_present,
       anchor_outdated: anchor_outdated,
       author: profile,
-      can_edit: is_nil(comment.deleted_at) && (caps.manage || (caps.comment && own)),
-      can_delete: is_nil(comment.deleted_at) && (caps.manage || (caps.comment && own)),
-      can_resolve: root && (caps.edit || (caps.comment && own)),
-      can_reanchor: root && (caps.edit || (caps.comment && own))
+      can_edit: can_edit,
+      can_delete: can_edit,
+      can_resolve: can_resolve,
+      can_reanchor: page.type != :knowledge && can_resolve
     })
   end
 
@@ -818,7 +845,7 @@ defmodule Ankole.Pod.Comments do
     {:ok, locked_principals} =
       Principals.lock_principals_in_tx(Enum.sort(Enum.uniq([human_uid | agent_uids])))
 
-    principal_by_uid = Map.new(locked_principals, &{&1.uid, &1})
+    principal_by_uid = locked_principals |> Ankole.Ash.load!(:agent) |> Map.new(&{&1.uid, &1})
 
     :ok =
       Queue.lock_sessions_in_tx(
@@ -1060,7 +1087,7 @@ defmodule Ankole.Pod.Comments do
   defp root_comment(_), do: {:error, :invalid_comment_reply}
   defp revision(%{revision: value}, value), do: :ok
   defp revision(page, _), do: {:error, {:revision_conflict, page.revision}}
-  defp commentable(%{type: type}) when type in [:doc, :file], do: :ok
+  defp commentable(%{type: type}) when type in [:doc, :knowledge, :file], do: :ok
   defp commentable(_), do: {:error, :invalid_page_type}
 
   defp body(value) when is_binary(value),

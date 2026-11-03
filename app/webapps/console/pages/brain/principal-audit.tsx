@@ -1,4 +1,4 @@
-import { TableRow, useQuery, Link } from '../../tenant-context'
+import { TableRow, useQuery } from '../../tenant-context'
 import { principalLabel } from '../../state/principal-label'
 import { ActorLabel } from '../../actor-label'
 import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, Skeleton } from '@ankole/uikit'
@@ -14,8 +14,8 @@ import { LabeledField } from '../../console-form'
 import { PageHeader, PageStack } from '../../console-page'
 import { formatConsoleDate } from '../../console-primitives'
 import { SinglePrincipalPicker } from '../../principal-picker'
-import { BrainSubNav, brainObjectPath } from './brain-nav'
-import { BrainHolderLabel, BrainScopeLabel } from './brain-scope'
+import { BrainSubNav } from './brain-nav'
+import { BrainPageLink, BrainHolderLabel, BrainSourceLabel } from './brain-scope'
 import { ClaimStateBadge } from './claims'
 
 /** Audits every claim where one Principal is holder, author, or the audience. */
@@ -111,16 +111,10 @@ export function BrainPrincipalAuditPage() {
                   <ActorLabel actor={claim.author} />
                 </TableCell>
                 <TableCell className="font-mono text-xs">
-                  {claim.object_slug ? (
-                    <Link className="link" to={brainObjectPath(claim.object_slug)}>
-                      {claim.object_slug}
-                    </Link>
-                  ) : (
-                    '—'
-                  )}
+                  {claim.subject_page_id ? <BrainPageLink pageID={claim.subject_page_id} /> : '—'}
                 </TableCell>
                 <TableCell>
-                  <BrainScopeLabel scope={claim.audience_scope} />
+                  <BrainSourceLabel nodeID={claim.source_node_id} />
                 </TableCell>
                 <TableCell>
                   <ClaimStateBadge claim={claim} />

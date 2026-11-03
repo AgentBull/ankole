@@ -26,7 +26,15 @@ function records(rows: BaseRecord[], version: number, complete = true): RecordsR
 
 function schema(version: number, count: number, mode: TableSchema['mode'] = 'local'): TableSchema {
   return {
-    table: { id: tableID, page_id: 'base', name: 'Tasks', record_count: count, data_version: version },
+    table: {
+      id: tableID,
+      page_id: 'base',
+      name: 'Tasks',
+      record_count: count,
+      data_version: version,
+      unique_field_ids: [],
+      emit_changes: false
+    },
     fields: [{ id: 'name', name: 'Name', type: 'text', config: {}, version: 1, is_primary: true }],
     views: [],
     mode

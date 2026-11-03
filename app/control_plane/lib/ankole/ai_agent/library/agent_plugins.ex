@@ -14,7 +14,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   alias Ankole.AIAgent.Library.AgentPlugins.Contract
   alias Ankole.AIAgent.Library.AgentPlugins.Schemas.AgentPluginOverride
   alias Ankole.AIAgent.Library.AgentPlugins.SourceReader
-  alias Ankole.AIAgent.Library.Schemas.AgentSkill
+  alias Ankole.AIAgent.Library.Skills
   alias Ankole.Principals
   alias Ankole.Principals.Agent
 
@@ -52,7 +52,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
       {:ok,
        agent_plugins
        |> Enum.take(@max_catalog_plugins)
-       |> Enum.map(&capability(&1, nil, %{}, %{}, defaults))}
+       |> Enum.map(&capability(&1, nil, %{}, MapSet.new(), defaults))}
     end
   end
 
@@ -84,7 +84,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   def capabilities_from_sources(agent_uid, agent_plugins, opts) do
     with {:ok, defaults} <- defaults(opts) do
       plugin_overrides = plugin_overrides(agent_uid)
-      skill_overrides = agent_plugin_skill_overrides(agent_uid)
+      skill_overrides = Skills.bindings(agent_uid)
 
       {:ok,
        agent_plugins
@@ -140,23 +140,6 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   def set_global_default(_agent_plugin_id, _enabled, _opts),
     do: {:error, :invalid_agent_plugin_default}
 
-  @spec set_global_skill_default(String.t(), boolean(), keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def set_global_skill_default(skill_id, enabled, opts \\ [])
-
-  def set_global_skill_default(skill_id, enabled, opts) when is_boolean(enabled) do
-    with {:ok, agent_plugins} <- sources(opts),
-         true <- member_skill_id?(agent_plugins, skill_id) do
-      Config.put_skill_default(skill_id, enabled, Keyword.get(opts, :config_scope, :tenant))
-    else
-      false -> {:error, :skill_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  def set_global_skill_default(_skill_id, _enabled, _opts),
-    do: {:error, :invalid_skill_default}
-
   @spec set_agent_override(String.t(), String.t(), boolean() | nil, keyword()) ::
           {:ok, AgentPluginOverride.t() | nil} | {:error, term()}
   def set_agent_override(agent_uid, agent_plugin_id, enabled, opts \\ [])
@@ -207,22 +190,29 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     skills =
       Enum.map(agent_plugin.skills, fn skill ->
         id = stable_skill_id(agent_plugin.id, skill.name)
-        skill_global_default = Map.get(defaults.skills, id, true)
-        skill_override = Map.get(skill_overrides, skill.name)
 
-        skill_enabled =
-          if is_boolean(skill_override), do: skill_override, else: skill_global_default
+        case Skills.get(skill.name) do
+          {:ok, stored} ->
+            Ankole.AIAgent.Library.capability(stored, skill_overrides)
+            |> Map.put("id", id)
+            |> Map.put(
+              "effective_enabled",
+              effective and Skills.enabled?(stored, skill_overrides)
+            )
 
-        %{
-          "id" => id,
-          "name" => skill.name,
-          "description" => skill.description,
-          "source_kind" => "builtin",
-          "agent_plugin_id" => agent_plugin.id,
-          "global_default_enabled" => skill_global_default,
-          "override_enabled" => if(agent_uid, do: skill_override, else: nil),
-          "effective_enabled" => effective and skill_enabled
-        }
+          {:error, :not_found} ->
+            %{
+              "id" => id,
+              "name" => skill.name,
+              "description" => skill.description,
+              "source_kind" => "agent_plugin",
+              "agent_plugin_id" => agent_plugin.id,
+              "enabled_for_all" => false,
+              "bound" => false,
+              "effective_enabled" => false,
+              "revision" => 0
+            }
+        end
       end)
 
     %{
@@ -297,18 +287,10 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     |> Map.new(&{&1.agent_plugin_id, &1.enabled})
   end
 
-  defp agent_plugin_skill_overrides(agent_uid) do
-    AgentSkill
-    |> Ash.Query.filter(agent_uid == ^agent_uid and not is_nil(agent_plugin_id))
-    |> Ankole.Ash.read!()
-    |> Map.new(&{&1.skill_name, &1.enabled_override})
-  end
-
   defp defaults(opts) do
     case Keyword.get(opts, :agent_library_defaults) do
-      %{agent_plugins: agent_plugins, skills: skills}
-      when is_map(agent_plugins) and is_map(skills) ->
-        {:ok, %{agent_plugins: agent_plugins, skills: skills}}
+      %{agent_plugins: agent_plugins} when is_map(agent_plugins) ->
+        {:ok, %{agent_plugins: agent_plugins}}
 
       _value ->
         Config.defaults()
@@ -320,14 +302,6 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
       {:ok, %{agent: %Agent{}}} -> :ok
       {:error, _error} = error -> error
     end
-  end
-
-  defp member_skill_id?(agent_plugins, skill_id) do
-    Enum.any?(agent_plugins, fn agent_plugin ->
-      Enum.any?(agent_plugin.skills, fn skill ->
-        stable_skill_id(agent_plugin.id, skill.name) == skill_id
-      end)
-    end)
   end
 
   defp reject_duplicate_skill_names(sources) do

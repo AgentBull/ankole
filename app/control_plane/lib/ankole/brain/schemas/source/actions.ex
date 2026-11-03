@@ -34,7 +34,7 @@ defmodule Ankole.Brain.Schemas.Source.Actions do
 
   defp action(:update_default_scope, %{arguments: args}, _context) do
     args.source_id
-    |> Ankole.Brain.Sources.update_default_scope_in_tx(args[:scope])
+    |> Ankole.Brain.Sources.update_default_scope_in_tx(args[:source_node_id])
     |> Ankole.Brain.Console.result(Source)
   end
 end

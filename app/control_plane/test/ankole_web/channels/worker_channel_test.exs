@@ -15,6 +15,22 @@ defmodule AnkoleWeb.WorkerChannelTest do
   alias AnkoleWeb.WorkerChannel
 
   setup do
+    previous = Application.get_env(:ankole, WorkerChannel)
+
+    # Only these flow-control tests need small budgets and a short timeout.
+    # Real Worker integrations use the channel's production defaults.
+    Application.put_env(:ankole, WorkerChannel,
+      command_ack_timeout_ms: 300,
+      pending_command_limit: 2,
+      inflight: [durable: {2, 64 * 1024 * 1024}]
+    )
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:ankole, WorkerChannel),
+        else: Application.put_env(:ankole, WorkerChannel, previous)
+    end)
+
     %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
     :ok = SessionsCase.provision_worker(agent.uid)
 
@@ -312,6 +328,35 @@ defmodule AnkoleWeb.WorkerChannelTest do
       assert_push "reply", {:binary, _bytes}, 1_000
     end
 
+    test "a response route failure returns RPC credit for subsequent requests", ctx do
+      {socket, route} = join!(ctx)
+
+      from(worker in AgentWorker, where: worker.agent_uid == ^ctx.worker_id)
+      |> Repo.update_all(set: [transport_route: "replaced-route"])
+
+      for seq <- 1..3 do
+        id = "stale-#{seq}"
+        ref = push(socket, "durable", {:binary, sealed(rpc_request_envelope(id), :durable, seq)})
+        assert_reply ref, :ok, %{"acked_seq" => ^seq}, 1_000
+        assert_push "reply", {:binary, bytes}, 1_000
+        assert {:ok, %{body: {:rpc_error, error}}} = RuntimeFabric.decode_and_validate(bytes)
+        assert error.request_id == id
+        assert error.code == "rpc_request_failed"
+      end
+
+      from(worker in AgentWorker, where: worker.agent_uid == ^ctx.worker_id)
+      |> Repo.update_all(set: [transport_route: route])
+
+      ref =
+        push(socket, "durable", {:binary, sealed(rpc_request_envelope("recovered"), :durable, 4)})
+
+      assert_reply ref, :ok, %{"acked_seq" => 4}, 1_000
+      assert_push "reply", {:binary, bytes}, 1_000
+
+      assert {:ok, %{body: {:rpc_response, %{request_id: "recovered"}}}} =
+               RuntimeFabric.decode_and_validate(bytes)
+    end
+
     test "credits recover as messages complete and the cumulative sequence advances", ctx do
       {socket, _route} = join!(ctx)
 
@@ -335,6 +380,53 @@ defmodule AnkoleWeb.WorkerChannelTest do
   end
 
   describe "commands from the control plane" do
+    test "committed page creation, deletion and restoration refresh Drive without disconnecting the Worker",
+         ctx do
+      owner = Ankole.PrincipalsFixtures.human_fixture().principal
+      actor = Ankole.PrincipalsFixtures.actor_fixture(owner.uid)
+
+      assert {:ok, _, socket} =
+               ctx
+               |> connect!()
+               |> subscribe_and_join(
+                 WorkerChannel,
+                 "worker",
+                 Map.put(join_payload(ctx), "drive_vfs", true)
+               )
+
+      assert_push "command", {:binary, initial}, 1_000
+
+      assert {:ok, %FabricProto.Envelope{transport_seq: seq}} =
+               RuntimeFabric.decode_and_validate(initial)
+
+      push(socket, "ack", %{"acked_seq" => seq, "message_credit" => 8, "byte_credit" => 1_000_000})
+
+      expect_refresh = fn ->
+        assert_push "command", {:binary, bytes}, 1_000
+
+        assert {:ok,
+                %FabricProto.Envelope{
+                  transport_seq: seq,
+                  body: {:vfs_invalidate, %FabricProto.VfsInvalidate{all_clean: true}}
+                }} = RuntimeFabric.decode_and_validate(bytes)
+
+        push(socket, "ack", %{
+          "acked_seq" => seq,
+          "message_credit" => 8,
+          "byte_credit" => 1_000_000
+        })
+
+        assert Process.alive?(socket.channel_pid)
+      end
+
+      assert {:ok, page} = Ankole.Pod.Pages.create(actor, %{title: "Worker Drive update"})
+      expect_refresh.()
+      assert {:ok, _} = Ankole.Pod.Pages.delete(actor, page.id)
+      expect_refresh.()
+      assert {:ok, _} = Ankole.Pod.Pages.restore(actor, page.id)
+      expect_refresh.()
+    end
+
     test "send_mandatory returns after the worker acknowledges", ctx do
       {socket, route} = join!(ctx)
       envelope = command_envelope()

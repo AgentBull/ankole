@@ -1,26 +1,139 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
-import { pageRoute } from './pod-browser/routes'
+import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
+import { conversationRoute, pageRoute, uuidShorten } from './pod-browser/routes'
+import type { ConversationDetail } from '../pod/api'
+import type { PodAgentsResponse } from '../pod/api/generated/types.gen'
+import type { ListAgentLibraryDocumentsResponse } from '../console/api/v2/generated/types.gen'
 
-test('selecting either Agent in a compiled Pod enables sending and retains the selection', async ({ page }) => {
-  await page.route('**/api/v2/pod/**', route =>
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v2/browser/session', route =>
     route.fulfill({
-      json: route.request().url().endsWith('/agents')
-        ? {
-            agents: [
-              { uid: 'agent-one', displayName: 'First Agent', active: true, type: 'agent', mayIntervene: false },
-              { uid: 'agent-two', displayName: 'Second Agent', active: true, type: 'agent', mayIntervene: false }
-            ]
-          }
-        : { conversations: [] }
+      json: {
+        authenticated: true,
+        principalUID: 'person',
+        displayName: 'Person',
+        canManagePod: false,
+        accounts: [],
+        pendingAccounts: [],
+        siteAuthentications: []
+      } satisfies BrowserSessionResponse
     })
   )
-  await page.goto('/')
+})
+
+test('knowledge approval exposes changes, keyboard-openable full draft and captured version before confirmation', async ({
+  page
+}, testInfo) => {
+  const card = {
+    card_id: 'knowledge-proposal',
+    interaction_id: 'knowledge-review',
+    action_kind: 'pod.knowledge.save',
+    summary: 'Update the team rule',
+    target_node_id: '019a2b00-0000-7000-8000-000000000001',
+    conversation_id: '019a2b00-0000-7000-8000-000000000002',
+    conversation_kind: 'native',
+    status: 'prepared',
+    payload: {
+      node_title: 'Team review policy',
+      base_revision: 7,
+      diff: '- Review every month\n+ Review every week',
+      markdown: `---\nsummary: weekly review\n---\n# Team review policy\n\nReview every week.\n\n${'Complete draft detail.\n'.repeat(80)}End of complete draft.`
+    }
+  }
+  let currentCard = { ...card, resolved_by_name: '' }
+  const decisions: unknown[] = []
+  await page.route('**/api/v2/pod/**', route => {
+    const path = new URL(route.request().url()).pathname
+    return route.fulfill({
+      json: path.endsWith('/agents')
+        ? { agents: [], personalAssistantAvailable: false }
+        : path.endsWith('/conversations')
+          ? { conversations: [], nextCursor: null }
+          : []
+    })
+  })
+  await page.route('**/api/v2/pod/action-cards/knowledge-proposal**', async route => {
+    if (route.request().method() === 'POST') {
+      decisions.push(route.request().postDataJSON())
+      currentCard = { ...card, status: 'executed', resolved_by_name: 'Alice' }
+    }
+    return route.fulfill({ json: currentCard })
+  })
+  await page.goto('/?actionCard=knowledge-proposal')
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Team review policy')
+  await expect(dialog).toContainText('Based on version 7')
+  await expect(dialog.locator('details[open] pre')).toContainText('- Review every month\n+ Review every week')
+  const fullDraft = dialog.locator('details').filter({ has: page.getByText('Complete draft', { exact: true }) })
+  await expect(fullDraft).not.toHaveAttribute('open')
+  await fullDraft.locator('summary').focus()
+  await page.keyboard.press('Enter')
+  await expect(fullDraft).toHaveAttribute('open')
+  await expect(fullDraft.locator('pre')).toContainText('summary: weekly review')
+  await expect(fullDraft.locator('pre')).toContainText('End of complete draft.')
+  expect(decisions).toEqual([])
+  await dialog.screenshot({ path: testInfo.outputPath('knowledge-approval.png') })
+  await dialog.getByRole('button', { name: 'Confirm & Execute', exact: true }).click()
+  await expect(dialog).toContainText(/Confirmed and executed by.*Alice/)
+  expect(decisions).toEqual([{ data: { decision: 'confirm' } }])
+})
+
+test('selecting either Agent in a group enables sending and retains the selection and draft', async ({ page }) => {
+  const agents = [
+    { uid: 'agent-one', displayName: 'First Agent', active: true, type: 'agent', mayIntervene: false },
+    { uid: 'agent-two', displayName: 'Second Agent', active: true, type: 'agent', mayIntervene: false }
+  ]
+  const detail: ConversationDetail = {
+    conversation: {
+      id: '00112233-4455-6677-8899-aabbccddeeff',
+      title: 'Group recipients',
+      accessScope: 'participants',
+      canDelete: true,
+      canManage: true,
+      roomMode: 'group',
+      conversationKind: 'group',
+      titleCustomized: true,
+      createdBy: 'person',
+      lastMessageSeq: 0,
+      lastActivityAt: '2026-10-16T00:00:00Z',
+      rowStatus: 'idle',
+      viewer: { uid: 'person', pinned: false, muted: false, lastReadSeq: 0 },
+      agents,
+      participants: [
+        { uid: 'person', displayName: 'Person', active: true, type: 'human', mayIntervene: false },
+        ...agents
+      ]
+    },
+    messages: [],
+    activities: [],
+    pendingInteractions: [],
+    pendingQueues: [],
+    linkedRuns: [],
+    artifacts: { pageIDs: [], attachments: [] },
+    removedMessageIDs: [],
+    olderMessagesBeforeSeq: null,
+    messageRange: { firstSeq: 0, lastSeq: 0 }
+  }
+  await page.route('**/api/v2/pod/**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/agents')) {
+      return route.fulfill({
+        json: { agents, personalAssistant: null, personalAssistantAvailable: false } satisfies PodAgentsResponse
+      })
+    }
+    if (path.endsWith('/attention')) return route.fulfill({ json: [] })
+    if (path.endsWith('/conversations')) return route.fulfill({ json: { conversations: [detail.conversation] } })
+    if (path.endsWith('/events')) return route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' })
+    return route.fulfill({ json: detail })
+  })
+  await page.goto(conversationRoute(detail.conversation.id))
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Draft only')
   const recipient = page.getByRole('combobox', { name: 'Choose an Agent', exact: true })
   for (const name of ['Second Agent', 'First Agent']) {
     await recipient.click()
     await page.getByRole('option', { name, exact: true }).click()
     await expect(recipient).toContainText(name)
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Draft only')
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled()
   }
 })
@@ -218,106 +331,31 @@ test('a rejected save notification does not cover the corrected Save action', as
   await expect.poll(() => attempts).toBe(2)
 })
 
-test('a library reload keeps edits made while the response is pending', async ({ page }) => {
-  const documents = Object.fromEntries(
-    ['mission', 'soul', 'design', 'confidentiality_policy'].map(kind => [
-      kind,
-      { kind, content: `Initial ${kind}`, content_hash: `hash-${kind}` }
-    ])
-  )
-  const started = Promise.withResolvers<void>()
-  const release = Promise.withResolvers<void>()
-  let reloading = false
-  let failRead = false
-  await page.route('**/api/v2/agents/agent-one/library-documents**', async route => {
-    if (route.request().method() === 'PUT') {
-      return route.fulfill({
-        status: 409,
-        json: { error: { code: 'agent_library_document_conflict', message: 'Changed elsewhere' } }
-      })
-    }
-    if (failRead) {
-      return route.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'Reload unavailable' } } })
-    }
-    if (reloading) {
-      started.resolve()
-      await release.promise
-    }
-    return route.fulfill({ json: { library_documents: documents } })
-  })
-  try {
-    await page.goto('/library/agent-one')
-    const panel = page.getByRole('tabpanel', { name: 'MISSION', exact: true })
-    await panel.getByRole('button', { name: 'Edit', exact: true }).click()
-    await panel.getByRole('textbox').fill('Conflicting draft')
-    await panel.getByRole('button', { name: 'Save', exact: true }).click()
-    const reload = panel.getByRole('button', { name: 'Discard draft and reload', exact: true })
-    await expect(reload).toBeVisible()
-    documents.mission = { kind: 'mission', content: 'Remote mission', content_hash: 'remote-hash' }
-    reloading = true
-    await reload.click()
-    await started.promise
-    await panel.getByRole('textbox').fill('Newer local mission')
-    const delivered = page.waitForEvent('requestfinished', {
-      predicate: request => request.method() === 'GET' && request.url().endsWith('/library-documents')
+test('Console previews the complete effective Agent contracts without editing them', async ({ page }) => {
+  await page.route('**/api/v2/agents/agent-one/library-documents**', route =>
+    route.fulfill({
+      json: {
+        library_documents: {
+          agents: {
+            kind: 'agents',
+            content: 'Whole Agent contract',
+            content_hash: 'agents-hash'
+          },
+          design: {
+            kind: 'design',
+            content: 'Whole visual contract',
+            content_hash: 'design-hash'
+          }
+        }
+      } satisfies ListAgentLibraryDocumentsResponse
     })
-    release.resolve()
-    await delivered
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-    await expect(panel.getByRole('textbox')).toHaveValue('Newer local mission')
-    failRead = true
-    await reload.click()
-    await expect(panel).toContainText('Reload unavailable')
-    await expect(panel.getByRole('textbox')).toHaveValue('Newer local mission')
-    failRead = false
-    await reload.click()
-    await expect(panel.getByText('Remote mission', { exact: true })).toBeVisible()
-    await expect(panel.getByRole('textbox')).toHaveCount(0)
-  } finally {
-    release.resolve()
-  }
-})
-
-test('a library save completed after leaving the editor supplies the next visit and CAS hash', async ({ page }) => {
-  const documents = Object.fromEntries(
-    ['mission', 'soul', 'design', 'confidentiality_policy'].map(kind => [
-      kind,
-      { kind, content: `Initial ${kind}`, content_hash: `hash-${kind}` }
-    ])
-  )
-  const writes: Route[] = []
-  await page.route('**/api/v2/agents/agent-one/library-documents**', route => {
-    if (route.request().method() === 'PUT') {
-      writes.push(route)
-      return
-    }
-    return route.fulfill({ json: { library_documents: documents } })
-  })
-  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route =>
-    route.fulfill({ json: { app_configurations: [] } })
   )
   await page.goto('/library/agent-one')
-  const panel = page.getByRole('tabpanel', { name: 'MISSION', exact: true })
-  await panel.getByRole('button', { name: 'Edit', exact: true }).click()
-  await panel.getByRole('textbox').fill('Saved mission')
-  await panel.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect.poll(() => writes.length).toBe(1)
-  await page
-    .getByRole('navigation', { name: 'Regression navigation' })
-    .getByRole('link', { name: 'Settings', exact: true })
-    .click()
-  documents.mission = { kind: 'mission', content: 'Saved mission', content_hash: 'saved-hash' }
-  await writes[0]!.fulfill({ json: { library_document: documents.mission } })
-  await page.getByRole('link', { name: 'Library', exact: true }).click()
-  await expect(panel.getByText('Saved mission', { exact: true })).toBeVisible()
-  await panel.getByRole('button', { name: 'Edit', exact: true }).click()
-  await panel.getByRole('textbox').fill('Next revision')
-  await panel.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect.poll(() => writes.length).toBe(2)
-  expect(writes[1]!.request().postDataJSON()).toEqual({
-    data: { content: 'Next revision', expected_content_hash: 'saved-hash' }
-  })
-  await writes[1]!.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'Fixture stopped' } } })
+  const contracts = page.locator('section').filter({ has: page.getByRole('heading', { name: 'AGENTS / DESIGN' }) })
+  await expect(contracts.getByText('AGENTS.md', { exact: true })).toBeVisible()
+  await expect(contracts.getByText('DESIGN.md', { exact: true })).toBeVisible()
+  await expect(contracts.locator('pre')).toHaveText(['Whole Agent contract', 'Whole visual contract'])
+  await expect(page.getByRole('textbox')).toHaveCount(0)
 })
 
 test('saving a revealed Agent secret masks the old value and a later reveal loads the replacement', async ({
@@ -619,4 +657,100 @@ test('document Page title Tab, last-line ArrowDown, and body Shift+Tab follow No
   })
   await title.press('ArrowDown')
   await expect(body).toBeFocused()
+})
+
+test('Pod Page URLs canonicalize non-ASCII title slugs, resolve stale or bare short IDs, and fall back to bare short IDs when untitled', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1100, height: 800 })
+  const id = '01a05864-9833-7581-88ac-578af1df1818'
+  const ancestorID = '019a2b00-0000-7000-8000-000000000001'
+  const untitledID = '00112233-4455-6677-8899-aabbccddeeff'
+  const shortID = uuidShorten(id)
+  const ancestorShortID = uuidShorten(ancestorID)
+  const untitledShortID = uuidShorten(untitledID)
+  expect(shortID).toBe('01m1c6961kep0rhb2qhbrxy60r')
+
+  let titleValue = '2026产品规划 & Q4 Design Spec'
+  await page.route('**/api/v2/pod/**', route => {
+    const url = new URL(route.request().url())
+    const method = route.request().method()
+    if (url.pathname === `/api/v2/pod/pages/${id}` && method === 'PATCH') {
+      titleValue = route.request().postDataJSON().data.title ?? ''
+    }
+    if (url.pathname === `/api/v2/pod/pages/${id}`) {
+      return route.fulfill({
+        json: {
+          actions: ['node_view', 'node_edit', 'node_manage'],
+          role: 'manage',
+          ancestors: [
+            { id: ancestorID, title: '产品总览 Overview' },
+            { id: untitledID, title: '' }
+          ],
+          child_count: 0,
+          content: { content: '<page/>', plain_text: '' },
+          page: {
+            id,
+            title: titleValue,
+            type: 'doc',
+            position: 'a0',
+            revision: 1,
+            inherit_permissions: true,
+            created_at: '2026-11-02T00:00:00Z',
+            updated_at: '2026-11-02T00:00:00Z'
+          }
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/pages/${id}/state`) return route.fulfill({ status: 204 })
+    if (url.pathname === '/api/v2/pod/realtime-token') return new Promise(() => {})
+    if (url.pathname === '/api/v2/pod/pages') {
+      return route.fulfill({
+        json: {
+          pages: [
+            { id, title: titleValue, type: 'doc', position: 'a0', child_count: 0, scope: 'space' },
+            { id: untitledID, title: '', type: 'doc', position: 'a1', child_count: 0, scope: 'space' }
+          ],
+          can_create_space: true,
+          can_create_private: true
+        }
+      })
+    }
+    if (url.pathname.endsWith('/children')) {
+      return route.fulfill({ json: { pages: [], can_create_space: true, can_create_private: true } })
+    }
+    if (url.pathname.endsWith('/attention')) return route.fulfill({ json: [] })
+    if (url.pathname.endsWith('/agents')) return route.fulfill({ json: { agents: [] } })
+    return route.fulfill({ json: { pages: [], conversations: [], entries: [] } })
+  })
+
+  await page.goto(`/pages/${shortID}`)
+  await expect(page).toHaveURL(new RegExp(`/pages/2026-chan-pin-gui-hua-q4-design-spec-${shortID}$`))
+
+  await page.goto(`/pages/old-draft-title-${shortID}`)
+  await expect(page).toHaveURL(new RegExp(`/pages/2026-chan-pin-gui-hua-q4-design-spec-${shortID}$`))
+
+  const breadcrumbs = page.getByRole('navigation', { name: 'Page path', exact: true })
+  await expect(breadcrumbs.locator(`a[href="/pages/${untitledShortID}"]`)).toBeVisible()
+  await breadcrumbs.getByRole('button', { name: 'Show hidden parent pages', exact: true }).click()
+  await expect(page.locator(`a[href="/pages/chan-pin-zong-lan-overview-${ancestorShortID}"]`)).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await expect(page.locator(`a[href="/pages/2026-chan-pin-gui-hua-q4-design-spec-${shortID}"]`).first()).toBeVisible()
+  await expect(page.locator(`a[href="/pages/${untitledShortID}"]`).first()).toBeVisible()
+
+  const title = page.getByRole('textbox', { name: 'Page title', exact: true })
+  await title.click()
+  await title.fill('')
+  await title.press('Tab')
+  await expect(page).toHaveURL(new RegExp(`/pages/${shortID}$`))
+
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
+  await page.evaluate(() => {
+    window.history.pushState({}, '', '/pages/%E0%A4%A')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  })
+  await expect(page.getByRole('alert')).toBeVisible()
+  expect(pageErrors).toEqual([])
 })

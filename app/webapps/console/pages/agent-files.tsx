@@ -111,7 +111,7 @@ export function AgentFilesPage() {
             }
             const created = await createDriveNode({
               path: { tenant_id: tenantID },
-              body: { data: { parent_id: directory, name: part, kind: 'folder' } },
+              body: { data: { parent_id: directory, name: part } },
               throwOnError: true
             })
             directory = created.data.id
@@ -224,7 +224,7 @@ export function AgentFilesPage() {
               if (currentParentID && newFolder?.trim()) {
                 create.mutate({
                   path: { tenant_id: tenantID },
-                  body: { data: { parent_id: currentParentID, name: newFolder.trim(), kind: 'folder' } }
+                  body: { data: { parent_id: currentParentID, name: newFolder.trim() } }
                 })
               }
             }}>

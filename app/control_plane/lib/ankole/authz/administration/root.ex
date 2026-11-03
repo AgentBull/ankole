@@ -60,7 +60,6 @@ defmodule Ankole.AuthZ.Root do
   end
 
   def admin_group_name, do: @admin_group_name
-  def pod_admin_group_name, do: "pod_admin"
 
   def pod_admin?(uid) do
     Membership
@@ -126,7 +125,7 @@ defmodule Ankole.AuthZ.Root do
   administration to another tenant.
   """
   def delete_site_admin_group_in_tx do
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
 
     case Group
          |> Ash.Query.filter(name == ^@admin_group_name and built_in == true)
@@ -149,6 +148,18 @@ defmodule Ankole.AuthZ.Root do
       built_in: true,
       computed_condition: @all_humans_condition,
       description: "Computed group for active human Principals",
+      metadata: %{}
+    })
+  end
+
+  def ensure_all_agents_group do
+    upsert_builtin_group(%{
+      name: "all_agents",
+      display_name: "All Agents",
+      kind: :computed,
+      built_in: true,
+      computed_condition: ~s(principal.type == "agent" && principal.status == "active"),
+      description: "Computed group for active Agent Principals",
       metadata: %{}
     })
   end

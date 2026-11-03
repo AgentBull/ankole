@@ -30,7 +30,7 @@ my-skill/
 └── templates/
 ```
 
-目录名称仅限使用小写英文字母、数字、连字符（`-`）或下划线（`_`）。随源码构建分发的内置 Skill 存放在仓库的 `app/library/skills/` 目录下，单独安装到某个具体 Agent 名下的自定义 Skill 则保存在该 Agent 专属的云盘文件空间内。
+技能标识在 Pod 内唯一，以小写字母或数字开头，可包含小写字母、数字、点、连字符和下划线。随源码分发的内置 Skill 位于 `app/library/skills/`；成员在 **Meta Ankole → Skills** 中创建或导入自定义技能包。
 
 ### 写 frontmatter
 
@@ -50,25 +50,11 @@ platforms: [linux]
 
 由于 Agent 在日常对话中全靠阅读 `description` 来判断当前任务是否需要展开该 Skill，请在 `description` 中写明清晰具体的触发场景。若该项工作耗时较长或强依赖独立任务工作区，请显式指定 `ankole-runtime: background_job`；仅当脚本确需依赖 Linux 专属命令行工具时，再声明 `platforms: [linux]`。
 
-### 让 Brain 发现随产品发布的 Skill
+### 完整技能包
 
-如果某份专业 SOP 或细分方法论不宜每轮都塞进所有 Agent 的默认目录浪费上下文，但又希望在遇到语义高度相关的课题时能被精准召回，可在头部加上 `brain-recall-only: true`：
+每个 Skill 包含必选的 `SKILL.md` 和配套文件。Frontmatter 与正文一起编辑，脚本、模板、二进制素材和参考文档保留包内相对路径。官方技能、Agent Plugin 技能和自定义技能共用 Pod 内唯一的标识。
 
-```yaml
----
-name: idea-lineage
-description: 追溯一个想法在记忆中的演变——首次提出、最佳表述、立场反转与当前版本，每项都引用已存证据。
-tags:
-  - 想法演变
-  - 思想脉络
-brain-recall-only: true
----
-```
-
-这一按需语义召回模式仅支持随产品构建发布的独立内置 Skill 及 Agent Plugin 内包含的子 Skill，不支持单独上传安装到某个 Agent 文件空间的自定义 Skill。所有随产品发布的 Skill 名称依然保持全局唯一，归入某个 Agent Plugin 并不会为其额外叠加命名空间前缀；系统会根据标准 Skill 元数据在 Brain 中自动派生对应的 `lazyload-agent-skills/<name>` 发现索引记录。
-
-编写时请保持纯粹的标准 Skill Frontmatter，切勿混入 `slug`、`type`、`title` 或 `aliases` 等 Brain 知识页专属字段——Brain 会直接索引 `name`、`description` 与 `tags`，并利用名称和标签完成自然语言检索匹配。注意，Skill 正文、附属参考文件以及单 Agent 专属的技能教训均不会写入 Brain 索引库；检索命中后，Agent 依然只能调用 `skill_view` 工具按权限加载正文。
-
+在 `SKILL.md` 中明确引用配套文件，供 Agent 按需读取。主 Agent 使用 `/drive/Skills/<slug>/`，后台任务使用该任务获准的技能包。启用技能的 Agent 可以读取整个包；有特定共享范围的业务数据应存入 Brain 或单独共享的协作页面。
 ### 写正文
 
 撰写 `SKILL.md` 正文的目标，是让一个具备通用推理能力、但事先并不了解你们团队内部约定的 Agent 能够稳健交付合格结果。正文中至少应交代清楚以下五要素：
@@ -101,7 +87,7 @@ dependencies:
 
 先在测试 Agent 上开启新写的 Skill，向其发送一条贴近真实业务的测试指令，观察 Agent 能否准确命中该 Skill、按指引读取配套参考文件并严格落实交付标准：若发现 Agent 根本没有点开该 Skill，请优先优化 Frontmatter 中的 `description` 触发描述；若选中后执行步骤跳脱不稳，则进一步收紧正文中的步骤顺序与边界约束。
 
-对于声明了 `brain-recall-only: true` 的内置 Skill，还需额外验证整套按需发现闭环：确认常规对话提示词的默认目录中未列出该条目，而通过名称、描述或标签语义检索 Brain 时能够顺利召回；确认调用 `skill_view` 时，在匹配的 `ankole-runtime` 环境中能正常加载全文，在不兼容的执行环境中则按契约返回路由提示或拒绝结果；最后关闭该 Skill（或其所属的父级 Agent Plugin），确认同一个 Agent 随即既无法在 Brain 中检索到它，也无法再通过 `skill_view` 加载它。
+验证包内相对路径、可执行脚本、兼容运行时加载和不兼容运行时的路由提示。关闭“为所有 Agent 开启”后，分别验证 AI 同事绑定与自己的助理绑定；全局开关打开再关闭后，个体绑定应原样恢复。取消所有适用绑定或关闭父 Plugin 后，该技能应退出启用目录，`skill_view` 应拒绝加载。
 
 ## 开发 Control Plane Plugin
 

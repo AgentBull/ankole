@@ -110,7 +110,7 @@ defmodule Ankole.Principals.Invitations do
   def accept_site_in_tx(id, proof) do
     :ok = Repo.require_transaction()
 
-    with :ok <- Ankole.Files.lock_tree_in_tx(),
+    with :ok <- Ankole.Pod.lock_tree_in_tx(),
          {:ok, invitation} <- lock(id),
          :ok <- usable?(invitation),
          :ok <- require_email(invitation, proof.verified_email),

@@ -24,7 +24,7 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     actor: actor
   } do
     detail = create!(alice, a)
-    assert detail.conversation.room_mode == :dm
+    assert detail.conversation.room_mode == :group
     refute Native.visible_conversation?(actor_fixture(bob.uid), detail.conversation.id)
 
     assert {:ok, group} =
@@ -287,6 +287,7 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
                  conversation_id: Ash.UUIDv7.generate(),
                  message_id: Ash.UUIDv7.generate(),
                  agent_uid: a.uid,
+                 room_mode: :group,
                  text: text,
                  attachments: attachments
                })
@@ -314,7 +315,7 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     a: a,
     actor: actor
   } do
-    dm = create!(alice, a)
+    dm = create!(alice, a, :dm)
     group = create!(alice, a)
     id = group.conversation.id
     assert {:ok, _} = Conversations.manage_participants(actor, id, %{add_uids: [bob.uid]})
@@ -442,7 +443,7 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
 
     assert {:ok, _} = post(bob_actor, id, "I joined through the page")
     assert NativeRoom.participant(id, bob.uid)
-    assert Enum.any?(Conversations.list_rooms(bob_actor), &(&1.conversation.id == id))
+    refute Enum.any?(Conversations.list_rooms(bob_actor), &(&1.conversation.id == id))
     assert {:ok, _} = Ankole.AuthZ.delete_permission_grant(grant.id)
     refute Native.visible_conversation?(bob_actor, id)
     refute Enum.any?(Conversations.list_rooms(bob_actor), &(&1.conversation.id == id))
@@ -487,7 +488,7 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     assert {:ok, joined} = Conversations.get(viewer_actor, id)
     assert joined.conversation.room_mode == :group
     assert NativeRoom.participant(id, viewer.uid).role == :member
-    assert Enum.any?(Conversations.list_rooms(viewer_actor), &(&1.conversation.id == id))
+    refute Enum.any?(Conversations.list_rooms(viewer_actor), &(&1.conversation.id == id))
 
     assert {:error, :forbidden} =
              Repo.transact(fn ->
@@ -892,12 +893,13 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     refute Native.visible_conversation?(cached, detail.conversation.id)
   end
 
-  defp create!(human, agent) do
+  defp create!(human, agent, mode \\ :group) do
     {:ok, detail} =
       Ankole.ConversationsFixtures.create(human.uid, %{
         conversation_id: Ash.UUIDv7.generate(),
         message_id: Ash.UUIDv7.generate(),
         agent_uid: agent.uid,
+        room_mode: mode,
         text: "Start"
       })
 

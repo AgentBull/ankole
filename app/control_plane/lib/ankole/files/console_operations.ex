@@ -83,7 +83,7 @@ defmodule Ankole.Files.ConsoleOperations do
       argument(:tenant_id, :uuid, allow_nil?: false)
       argument(:parent_id, :uuid, allow_nil?: false)
       argument(:name, :string, allow_nil?: false)
-      argument(:kind, :atom, default: :folder, constraints: [one_of: [:folder, :file]])
+      argument(:kind, :atom, constraints: [one_of: [:doc, :knowledge, :file]])
       run(Ankole.Files.ConsoleActions)
     end
 
@@ -111,9 +111,11 @@ defmodule Ankole.Files.ConsoleOperations do
       constraints(
         fields: [
           node: [
-            type: :struct,
+            type: :map,
             allow_nil?: false,
-            constraints: [instance_of: Ankole.Files.Schemas.Node]
+            constraints: [
+              fields: [name: [type: :string, allow_nil?: false], content_type: [type: :string]]
+            ]
           ],
           object: [type: :struct, constraints: [instance_of: Ankole.Files.Schemas.FileObject]]
         ]

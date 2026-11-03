@@ -11,6 +11,7 @@ defmodule Ankole.Pod.Bases.Browser do
     allow(:tables, check: :guardrail)
     allow(:create_table, check: :guardrail)
     allow(:rename_table, check: :guardrail)
+    allow(:configure_table, check: :guardrail)
     allow(:delete_table, check: :guardrail)
     allow(:show, check: :guardrail)
     allow(:query, check: :guardrail)
@@ -298,6 +299,20 @@ defmodule Ankole.Pod.Bases.Browser do
       end)
     end
 
+    action :configure_table, :map do
+      constraints(fields: [table: @table])
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:unique_field_ids, {:array, UUIDv7})
+      argument(:emit_changes, :boolean)
+
+      run(fn input, context ->
+        APIError.result(
+          Bases.configure_table(context.actor, input.arguments.id, attrs(input)),
+          &%{table: &1}
+        )
+      end)
+    end
+
     action :write, :map do
       constraints(
         fields: [
@@ -313,6 +328,10 @@ defmodule Ankole.Pod.Bases.Browser do
         constraints: [
           items: [fields: [id: [type: UUIDv7], data: [type: RecordData, allow_nil?: false]]]
         ]
+      )
+
+      argument(:upserts, {:array, :map},
+        constraints: [items: [fields: [data: [type: RecordData, allow_nil?: false]]]]
       )
 
       argument(:updates, {:array, :map},

@@ -28,9 +28,9 @@ defmodule Ankole.Brain.Schemas.Claim do
       :claim,
       :kind,
       :holder,
-      :audience_scope,
+      :source_node_id,
       :author,
-      :object_slug,
+      :subject_page_id,
       :conversation_id,
       :notability,
       :confidence,
@@ -58,7 +58,7 @@ defmodule Ankole.Brain.Schemas.Claim do
     migrate?(false)
 
     foreign_key_names([
-      {:object_slug, "brain_claims_object_slug_fkey"},
+      {:subject_page_id, "brain_claims_subject_page_id_fkey"},
       {:conversation_id, "brain_claims_conversation_id_fkey"},
       {:consolidated_into, "brain_claims_consolidated_into_fkey"},
       {:superseded_by, "brain_claims_superseded_by_fkey"}
@@ -67,9 +67,8 @@ defmodule Ankole.Brain.Schemas.Claim do
     check_constraints do
       check_constraint(:claim_type, "brain_claims_type_values")
       check_constraint(:claim_type, "brain_claims_type_shape")
-      check_constraint(:object_slug, "brain_claims_parent_xor")
+
       check_constraint(:claim, "brain_claims_required_text_present")
-      check_constraint(:audience_scope, "brain_claims_audience_scope_shape")
       check_constraint(:graded_quality, "brain_claims_grade_shape")
       check_constraint(:graded_input_hash, "brain_claims_graded_input_shape")
       check_constraint(:graded_by, "brain_claims_grader_shape")
@@ -94,17 +93,13 @@ defmodule Ankole.Brain.Schemas.Claim do
       constraints: [one_of: [:fact, :take]]
     )
 
-    attribute(:object_slug, :string, public?: true, constraints: [trim?: false])
+    attribute(:subject_page_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:claim, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:kind, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:holder, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
 
-    attribute(:audience_scope, :string,
-      public?: true,
-      allow_nil?: false,
-      constraints: [trim?: false]
-    )
+    attribute(:source_node_id, Ankole.Ash.Types.UUIDv7, public?: true, allow_nil?: false)
 
     attribute(:notability, :string, public?: true, constraints: [trim?: false])
     attribute(:context, :string, constraints: [trim?: false, allow_empty?: true])
@@ -154,7 +149,7 @@ defmodule Ankole.Brain.Schemas.Claim do
     read :console_list do
       pagination(keyset?: true, default_limit: 100, max_page_size: 100, countable: false)
 
-      argument(:object_slug, :string, constraints: [trim?: false])
+      argument(:subject_page_id, :string, constraints: [trim?: false])
       argument(:claim_type, :atom, constraints: [one_of: [:fact, :take]])
       argument(:status, :atom, constraints: [one_of: [:current]])
       argument(:search, :string)
@@ -165,12 +160,12 @@ defmodule Ankole.Brain.Schemas.Claim do
       accept([
         :id,
         :author,
-        :object_slug,
+        :subject_page_id,
         :conversation_id,
         :claim,
         :kind,
         :holder,
-        :audience_scope,
+        :source_node_id,
         :notability,
         :context,
         :valid_from,
@@ -191,12 +186,12 @@ defmodule Ankole.Brain.Schemas.Claim do
       accept([
         :id,
         :author,
-        :object_slug,
+        :subject_page_id,
         :conversation_id,
         :claim,
         :kind,
         :holder,
-        :audience_scope,
+        :source_node_id,
         :weight,
         :since_date,
         :until_date,
@@ -312,13 +307,18 @@ defmodule Ankole.Brain.Schemas.Claim do
 
     update :reparent do
       require_atomic?(true)
-      accept([:object_slug])
-      require_attributes([:object_slug])
+      accept([:subject_page_id])
+      require_attributes([:subject_page_id])
     end
 
     update :reassign_holder do
       require_atomic?(true)
       accept([:holder])
+    end
+
+    update :repoint_source do
+      require_atomic?(true)
+      accept([:source_node_id])
     end
 
     # The Console operations. The operator is the actor of the action
@@ -332,7 +332,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:confidence, :float)
       argument(:weight, :float)
       argument(:notability, :string)
-      argument(:audience_scope, :string)
+      argument(:source_node_id, :string)
       argument(:provenance, :string)
       argument(:embedding, :term, public?: false)
 
@@ -363,11 +363,17 @@ defmodule Ankole.Brain.Schemas.Claim do
   end
 
   relationships do
-    belongs_to :object, Ankole.Brain.Schemas.Object do
-      source_attribute(:object_slug)
-      destination_attribute(:slug)
+    belongs_to :source_node, Ankole.Pod.Page do
+      source_attribute(:source_node_id)
       define_attribute?(false)
-      attribute_type(:string)
+      attribute_type(Ankole.Ash.Types.UUIDv7)
+    end
+
+    belongs_to :object, Ankole.Brain.Schemas.Page do
+      source_attribute(:subject_page_id)
+      destination_attribute(:id)
+      define_attribute?(false)
+      attribute_type(Ankole.Ash.Types.UUIDv7)
     end
   end
 
@@ -385,7 +391,10 @@ defmodule Ankole.Brain.Schemas.Claim do
     calculate(
       :live_parent?,
       :boolean,
-      expr(is_nil(object_slug) or exists(object, is_nil(deleted_at)))
+      expr(
+        exists(source_node, is_nil(deleted_at)) and
+          (is_nil(subject_page_id) or exists(object, is_nil(deleted_at)))
+      )
     )
 
     # Self-healing embeds never-tried rows before rows that failed before.

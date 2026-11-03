@@ -1,5 +1,5 @@
 defmodule Ankole.Brain.Schemas.Timeline do
-  @moduledoc "One immutable scoped event, compiled into the object retrieval projection."
+  @moduledoc "One immutable event with an optional subject and a required permission source."
   use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
@@ -12,17 +12,16 @@ defmodule Ankole.Brain.Schemas.Timeline do
       event_object: "brain_timelines_event_dedup_key"
     )
 
-    identity_wheres_to_sql(event_object: "event_object_slug IS NOT NULL")
+    identity_wheres_to_sql(event_object: "event_page_id IS NOT NULL")
 
     foreign_key_names([
-      {:object_slug, "brain_timelines_object_slug_fkey"},
-      {:event_object_slug, "brain_timelines_event_object_slug_fkey"}
+      {:subject_page_id, "brain_timelines_subject_page_id_fkey"},
+      {:event_page_id, "brain_timelines_event_page_id_fkey"}
     ])
 
     check_constraints do
       check_constraint(:summary, "brain_timelines_summary_present")
       check_constraint(:provenance, "brain_timelines_provenance_present")
-      check_constraint(:audience_scope, "brain_timelines_audience_scope_shape")
     end
   end
 
@@ -33,7 +32,7 @@ defmodule Ankole.Brain.Schemas.Timeline do
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
 
-    attribute(:object_slug, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:subject_page_id, Ankole.Ash.Types.UUIDv7)
     attribute(:author, Ankole.Ash.Types.ActorRef)
     attribute(:date, :date, allow_nil?: false)
     attribute(:provenance, :string, allow_nil?: false, constraints: [trim?: false])
@@ -45,33 +44,39 @@ defmodule Ankole.Brain.Schemas.Timeline do
       default: ""
     )
 
-    attribute(:event_object_slug, :string, constraints: [trim?: false])
-    attribute(:audience_scope, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:event_page_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:source_node_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
     attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
   end
 
   identities do
-    identity(:event, [:object_slug, :date, :summary, :provenance])
+    identity(:event, [:subject_page_id, :source_node_id, :date, :summary, :provenance],
+      nils_distinct?: false
+    )
 
-    identity(:event_object, [:event_object_slug, :date],
-      where: expr(not is_nil(event_object_slug))
+    identity(:event_object, [:event_page_id, :source_node_id, :date],
+      where: expr(not is_nil(event_page_id))
     )
   end
 
   actions do
     defaults([:read])
 
+    destroy :remove do
+      transaction?(false)
+    end
+
     create_if_absent :record do
       accept([
         :id,
-        :object_slug,
+        :subject_page_id,
         :author,
         :date,
         :provenance,
         :summary,
         :detail,
-        :event_object_slug,
-        :audience_scope,
+        :event_page_id,
+        :source_node_id,
         :created_at
       ])
 
@@ -80,11 +85,17 @@ defmodule Ankole.Brain.Schemas.Timeline do
   end
 
   relationships do
-    belongs_to :object, Ankole.Brain.Schemas.Object do
-      source_attribute(:object_slug)
-      destination_attribute(:slug)
+    belongs_to :source_node, Ankole.Pod.Page do
+      source_attribute(:source_node_id)
       define_attribute?(false)
-      attribute_type(:string)
+      attribute_type(Ankole.Ash.Types.UUIDv7)
+    end
+
+    belongs_to :object, Ankole.Brain.Schemas.Page do
+      source_attribute(:subject_page_id)
+      destination_attribute(:id)
+      define_attribute?(false)
+      attribute_type(Ankole.Ash.Types.UUIDv7)
     end
   end
 

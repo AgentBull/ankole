@@ -5,7 +5,7 @@ defmodule Ankole.Principals.AgentLifecycleTest do
 
   alias Ankole.AuthZ
   alias Ankole.Pod.Pages
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Principals
 
   test "physical Agent deletion removes its local grants and restores minimal Page anchors" do
@@ -64,14 +64,39 @@ defmodule Ankole.Principals.AgentLifecycleTest do
     assert {:ok, %{parent_anchor_id: ^shared_id}} = Pages.fetch(boundary.id)
 
     agent_actor = actor_fixture(agent)
-    assert {:ok, private_root} = Ankole.Files.private_root(agent.uid)
+    assert {:ok, private_root} = Ankole.Pod.private_root(agent.uid)
 
     assert {:ok, private_page} =
              Pages.create(agent_actor, %{private_owner_uid: agent.uid, title: "Owned"})
 
+    assert {:ok, applet} =
+             Pages.create(agent_actor, %{parent_id: private_root.id, type: "applet"})
+
+    Ankole.FilesFixtures.publish_applet_fixture(
+      %{actor: agent_actor, page: applet},
+      "export default {actions:{work:{handler:()=>true}}}"
+    )
+
+    assert {:ok, job} =
+             Ankole.AutomationJobs.create_applet_job(agent_actor, applet.id, "work", %{
+               authorization_kind: "service"
+             })
+
+    assert {:ok, _} =
+             Ankole.Signals.put_event_binding(agent_actor, %{
+               config_ref: "applet://#{applet.id}",
+               automation_job_id: job.id
+             })
+
+    assert {:ok, _} =
+             Ankole.Signals.emit("applet://#{applet.id}", %{
+               id: "private-event",
+               type: "test.changed"
+             })
+
     assert {:ok, %{status: :disabled}} = Principals.delete_agent(agent.uid)
     assert {:ok, _} = Pages.fetch(private_page.id)
-    assert {:ok, _} = Ankole.Files.fetch_node(private_root.id)
+    assert {:ok, _} = Ankole.Pod.fetch_node(private_root.id)
     assert {:ok, _} = AuthZ.get_permission_grant(grant.id)
     assert {:ok, %{has_local_acl: true, is_acl_anchor: true}} = Pages.fetch(shared.id)
 
@@ -90,8 +115,11 @@ defmodule Ankole.Principals.AgentLifecycleTest do
 
     assert {:ok, %{status: :disabled}} = Principals.delete_agent(agent.uid)
     assert {:error, :not_found} = Principals.get_agent(agent.uid)
+    assert {:ok, nil} = Ankole.AutomationJobs.get_automation_job(job.id)
+    assert Repo.aggregate(Ankole.AutomationJobs.Schemas.Run, :count) == 0
+    assert Repo.aggregate(Ankole.Signals.Binding, :count) == 0
     assert {:error, :not_found} = Pages.fetch(private_page.id)
-    assert {:error, :not_found} = Ankole.Files.fetch_node(private_root.id)
+    assert {:error, :not_found} = Ankole.Pod.fetch_node(private_root.id)
     assert Access.grants(principal_uid: agent.uid) == []
     root_id = root.acl_anchor_id
 

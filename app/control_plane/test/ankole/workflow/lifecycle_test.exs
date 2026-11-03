@@ -1171,7 +1171,6 @@ defmodule Ankole.WorkflowTest do
   test "memo budget failure cancels parallel siblings, stops their turns, and releases capacity" do
     %{principal: agent} = agent_fixture()
     run = run_fixture(agent.uid, max_agent_calls: 1_024)
-    Ankole.SessionsCase.stub_workflow_drivers(run)
     full_arguments = %{"prompt" => String.duplicate("x", 7_990)}
     full_size = byte_size(Torque.encode!(full_arguments))
     empty_size = byte_size(Torque.encode!(%{"prompt" => ""}))
@@ -1796,7 +1795,7 @@ defmodule Ankole.WorkflowTest do
       |> Map.merge(Map.new(overrides))
 
     {:ok, run} = Repo.transact(fn -> Ankole.Ash.create(Run, :create_run, attrs) end)
-    run
+    Ankole.SessionsCase.stub_workflow_drivers(run)
   end
 
   defp insert_call(run, call_seq, schema) do
@@ -1823,15 +1822,9 @@ defmodule Ankole.WorkflowTest do
     pending_calls =
       Enum.map(arguments, &%{namespace: nil, name: "agent", arguments: &1})
 
-    # This fixture tests domain transitions. Oban stays manual; the passive
-    # Driver then receives later delivery.
+    # run_fixture installs passive Drivers before the dispatch commits.
     case Workflow.Replay.commit_replay_pending(run.id, pending_calls, memo_length) do
       {:ok, %{new_calls: [call]}} ->
-        Ankole.SessionsCase.stub_driver(%{
-          agent_uid: run.agent_uid,
-          session_id: Workflow.task_session_id(call.id)
-        })
-
         {:ok, call}
 
       {:error, _reason} = error ->

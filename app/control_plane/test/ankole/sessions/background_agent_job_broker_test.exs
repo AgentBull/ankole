@@ -34,8 +34,6 @@ defmodule Ankole.Sessions.BackgroundAgentJobBrokerTest do
     for {method, payload} <- [
           {"background_agent_job.get", %FabricProto.BackgroundAgentJobGetRequest{job_id: job_id}},
           {"background_agent_job.turn.upsert", turn_upsert_request(job_id)},
-          {"background_agent_job.turn_items.list",
-           %FabricProto.BackgroundAgentJobTurnItemsListRequest{job_id: job_id}},
           {"background_agent_job.status.update",
            %FabricProto.BackgroundAgentJobStatusUpdateRequest{job_id: job_id, status: "running"}}
         ] do
@@ -140,40 +138,6 @@ defmodule Ankole.Sessions.BackgroundAgentJobBrokerTest do
     assert trajectory == %{"format" => "ankole_chatml", "version" => 1}
 
     refute inspect(trajectory) =~ "json_rpc"
-
-    assert {:ok, items_response} =
-             handle_rpc(
-               rpc_request(
-                 "job-turn-items",
-                 "background_agent_job.turn_items.list",
-                 %FabricProto.BackgroundAgentJobTurnItemsListRequest{job_id: job_id},
-                 job_turn: job_turn
-               ),
-               route,
-               agent.uid
-             )
-
-    items_payload =
-      rpc_response_payload!(items_response, FabricProto.BackgroundAgentJobTurnItemsListResponse)
-
-    assert items_payload.next_cursor == ""
-    assert [stored_item] = items_payload.items
-    assert stored_item.item_key == "assistant:researching"
-    assert Torque.decode!(stored_item.item_json)["type"] == "agentMessage"
-
-    assert {:ok, items_rejected} =
-             handle_rpc(
-               rpc_request(
-                 "parent-turn-items",
-                 "background_agent_job.turn_items.list",
-                 %FabricProto.BackgroundAgentJobTurnItemsListRequest{job_id: job_id},
-                 run: parent_turn
-               ),
-               route,
-               agent.uid
-             )
-
-    assert rpc_error(items_rejected)["code"] == "invalid_job_turn_ref"
 
     assert {:ok, in_progress_response} =
              handle_rpc(
@@ -366,14 +330,16 @@ defmodule Ankole.Sessions.BackgroundAgentJobBrokerTest do
     |> Repo.update!()
 
     assert {:ok, %{job: successor}} =
-             BackgroundAgentJobs.respawn_with_dispatch(source.id, %{
-               "agent_uid" => agent.uid,
-               "owner_session_id" => parent.session.session_id,
-               "source_signal_id" => parent.signal_id,
-               "source_tool_call_id" => "continue-source",
-               "message" => "Continue the work.",
-               "reply_route" => source.reply_route
-             })
+             with_stubbed_session_drivers(agent.uid, fn ->
+               BackgroundAgentJobs.respawn_with_dispatch(source.id, %{
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => parent.session.session_id,
+                 "source_signal_id" => parent.signal_id,
+                 "source_tool_call_id" => "continue-source",
+                 "message" => "Continue the work.",
+                 "reply_route" => source.reply_route
+               })
+             end)
 
     key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(successor.id)}
     now = DateTime.add(successor.queued_at, 1, :second)
@@ -470,20 +436,22 @@ defmodule Ankole.Sessions.BackgroundAgentJobBrokerTest do
 
   defp create_job!(agent_uid, parent, suffix, extra \\ %{}) do
     assert {:ok, %{job: job}} =
-             BackgroundAgentJobs.create_with_dispatch(
-               Map.merge(
-                 %{
-                   "agent_uid" => agent_uid,
-                   "owner_session_id" => parent.session.session_id,
-                   "source_signal_id" => parent.signal_id,
-                   "source_tool_call_id" => "job-#{suffix}",
-                   "title" => "Delegated work",
-                   "task" => "Finish the delegated work.",
-                   "reply_route" => %{"binding_name" => "bot"}
-                 },
-                 extra
+             with_stubbed_session_drivers(agent_uid, fn ->
+               BackgroundAgentJobs.create_with_dispatch(
+                 Map.merge(
+                   %{
+                     "agent_uid" => agent_uid,
+                     "owner_session_id" => parent.session.session_id,
+                     "source_signal_id" => parent.signal_id,
+                     "source_tool_call_id" => "job-#{suffix}",
+                     "title" => "Delegated work",
+                     "task" => "Finish the delegated work.",
+                     "reply_route" => %{"binding_name" => "bot"}
+                   },
+                   extra
+                 )
                )
-             )
+             end)
 
     job
   end

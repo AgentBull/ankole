@@ -22,6 +22,7 @@ defmodule AnkoleWeb.AppletRequest do
     after
       if socket, do: ThousandIsland.Socket.setopts(socket, active: false)
       Invocation.cancel(task)
+      Process.demonitor(task.ref, [:flush])
     end
   end
 
@@ -30,7 +31,7 @@ defmodule AnkoleWeb.AppletRequest do
     raw = if socket, do: socket.socket
 
     receive do
-      {^ref, outcome} ->
+      {^ref, {_execution, outcome}} ->
         Process.demonitor(ref, [:flush])
         {{:ok, outcome}, received}
 

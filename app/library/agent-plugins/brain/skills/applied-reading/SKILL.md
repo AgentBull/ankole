@@ -9,7 +9,6 @@ tags:
   - personalized book analysis
   - 读一下
   - 深读
-brain-recall-only: true
 ankole-runtime: any
 ---
 
@@ -36,7 +35,8 @@ me" is a Mirror. Ask only when the request truly carries neither.
 - Pasted or short text: work in place.
 - A book, PDF, or EPUB: create a Background Agent Job. The Job extracts
   chapter text with the `pdf` or `ocr` Skill, reads memory read-only through
-  `recall` and `get_page`, and returns the analysis as its report.
+  `recall` and `ankole-pod pages.read` with the returned page IDs, and
+  returns the analysis as its report.
 - The reader context comes from memory, per section: generate targeted
   `recall` queries from what the author says in that section — the literal
   theme, the psychological parallel, a dated incident it maps to, the person

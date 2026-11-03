@@ -33,7 +33,7 @@ The current modules are:
   bounded retries and per-call timeouts. Large writes consume local files or
   acknowledged binary streams in 8 MiB chunks, though some backends buffer the
   full object. Byte-range reads return only the requested bytes to the caller.
-- `brain_markdoc/` - analysis of Brain bodies over CommonMark.
+- `page_document/knowledge/` - deterministic OKF Markdown and YAML conversion for knowledge pages.
 - `model_image/` - validation and conversion of model images.
 - `signals/` - CEL routing-policy evaluation against a supplied context.
 - `page_document/` - page XML validation, canonical conversion, search text

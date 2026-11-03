@@ -32,7 +32,7 @@ test('sidebar type menu stays anchored, dismisses naturally, retries a failed cr
     const menu = page.getByRole('menu', { name: '新建页面', exact: true })
     await expect(menu).toBeVisible()
     await expect(page.getByRole('dialog', { name: '新建页面', exact: true })).toHaveCount(0)
-    await expect(menu.getByRole('menuitem')).toHaveText(['文档', '多维表', '文件夹', '电子表格', '文件'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['文档', '多维表', '电子表格', '文件'])
     await expect(menu.getByRole('menuitem', { name: '文档', exact: true })).toBeFocused()
     const anchor = (await trigger.boundingBox())!,
       popup = (await menu.boundingBox())!
@@ -297,7 +297,7 @@ test('choosing a file creates one named Page with its bytes and replaces it by d
     const response = await created
     expect(response.ok()).toBe(true)
     id = (await response.json()).page.id
-    await expect(page).toHaveURL(state.base_url + pageRoute(id!))
+    await expect(page).toHaveURL(state.base_url + pageRoute(id!, undefined, 'Quarterly report.txt'))
     const title = page.getByRole('textbox', { name: '页面标题', exact: true })
     await expect(title).toHaveValue('Quarterly report.txt')
     const download = page.getByRole('link', { name: '下载原文件', exact: true })

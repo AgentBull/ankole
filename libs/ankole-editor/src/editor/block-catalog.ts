@@ -3,6 +3,7 @@ import type { PhraseSet } from '../core/phrases'
 import type { GardState } from '../core/state'
 import { acceptsFiles } from './file-upload'
 import { editorPhrases } from './phrases'
+import { isKnowledge, knowledgeBlockTypes } from './knowledge'
 
 /** Block types of the core vocabulary. Block definitions add their own names. */
 export const coreBlockTypes = [
@@ -174,6 +175,7 @@ export function filterBlockOptions(state: GardState, query: string): readonly Bl
   const files = acceptsFiles(state)
   return blockOptions.filter(
     option =>
+      (!isKnowledge(state) || knowledgeBlockTypes.has(option.type)) &&
       (option.type !== 'file' || files) &&
       terms.every(term =>
         `${option.type} ${option.title(state)} ${option.detail(state)} ${option.keywords ?? ''}`

@@ -6,6 +6,7 @@ import { t } from 'i18next'
 import { I18nextProvider, useTranslation } from 'react-i18next'
 import { editorLabels } from './state/editor-labels'
 import { BlockEditor, type EditorHandle } from '@ankole/block-editor'
+import { parseXml } from '@ankole/block-editor/document'
 import {
   insertEmbed,
   insertMention,
@@ -19,7 +20,6 @@ import {
   type EmbedAttributes,
   type PageChanges
 } from '@ankole/block-editor/editor'
-import { parseXml, printMarkdown } from '@ankole/block-editor/document'
 import { Button, Dialog, DialogContent, DialogTitle, DropdownMenuItem, toast } from '@ankole/uikit'
 import { RiCloseLine, RiExternalLinkLine, RiLayoutGridLine } from '@remixicon/react'
 
@@ -32,7 +32,6 @@ import { lazy, Suspense, useEffectEvent, useMemo, useRef, useState, type Synthet
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { useNavigate } from '@tanstack/react-router'
-import { podLocation } from '../common/browser-context'
 import { ErrorBoundary, rootErrorOptions } from '../common/error-boundary'
 import {
   EXTERNAL_TRANSLATION_GUARD_ATTRS,
@@ -48,8 +47,9 @@ import { createMentionHostAdapters } from './document-mentions'
 import { CreatePageSubmenu, uploadFileSubpages, usePageCreation } from './page-create-menu'
 import { uploadPageFile } from './page-files'
 
-import { PageDraftModel } from './state/page-draft'
-import { documentFilename } from './state/document-tools'
+import { DocumentDraftModel } from './state/document-draft'
+import type { ReadonlySignal } from '@preact/signals-react'
+import { DocumentRecovery, downloadDraft } from './document-recovery'
 
 import { parseEmbedView } from './state/view-config'
 import { ContentScope, useContent } from './content-context'
@@ -63,6 +63,7 @@ const PagePicker = lazy(() => import('./page-picker').then(module => ({ default:
 export function DocumentPage({
   detail,
   model,
+  title,
   presenceContainer,
   onEditor,
   resolvedCommentIDs,
@@ -71,7 +72,8 @@ export function DocumentPage({
   onAskAgent
 }: {
   detail: PageDetail
-  model: InstanceType<typeof PageDraftModel>
+  model: InstanceType<typeof DocumentDraftModel>
+  title: ReadonlySignal<string>
   presenceContainer: HTMLElement | null
   onEditor(handle: EditorHandle | null): void
   resolvedCommentIDs: readonly string[]
@@ -135,7 +137,7 @@ export function DocumentPage({
         client,
         currentPageID: detail.page.id,
         pageHref: content.pageHref,
-        openPage: id => void navigate({ to: podLocation(`/pages/${id}`).pathname }),
+        openPage: id => void navigate({ to: content.pageHref(id) }),
         i18n
       }),
       openComment: ids => openComment(ids),
@@ -171,7 +173,7 @@ export function DocumentPage({
                     configure={(config, table) =>
                       update({ ...attributes, ...(table ? { table } : {}), view: JSON.stringify(config) })
                     }
-                    openPage={id => void navigate({ to: podLocation(`/pages/${id}`).pathname })}
+                    openPage={id => void navigate({ to: content.pageHref(id) })}
                   />
                 </ErrorBoundary>
               </ContentScope>
@@ -188,7 +190,7 @@ export function DocumentPage({
           throw new Error(requestErrorMessage(contentError(error)))
         }),
       uploadAsset: file => uploadDocumentAsset(detail.page.id, file),
-      openPage: id => void navigate({ to: podLocation(`/pages/${id}`).pathname }),
+      openPage: id => void navigate({ to: content.pageHref(id) }),
       resolveAsset: src =>
         src.startsWith('ankole:asset/') ? fileURL(detail.page.id, `assets/${src.slice('ankole:asset/'.length)}`) : src,
       deleteEmbeds: async ids => {
@@ -301,7 +303,7 @@ export function DocumentPage({
               : t('pod.content.the_document_has_changed_your_draft_has_been_kept_export')}
           </p>
           <div className="mt-3 flex gap-3">
-            <Button variant="outline" size="sm" onClick={() => downloadDraft(model.xml.value, model.title.value)}>
+            <Button variant="outline" size="sm" onClick={() => downloadDraft(model.xml.value, title.value)}>
               {t('pod.content.export_draft')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => void reload().catch(setAssetError)}>
@@ -310,21 +312,7 @@ export function DocumentPage({
           </div>
         </div>
       )}
-      {model.recoveryDrafts.value.length > 0 && (
-        <div role="alert" className="rounded border border-border p-4 text-sm">
-          <p>{t('pod.content.another_write_replaced_the_document_so_the_current_content_was')}</p>
-          {model.recoveryDrafts.value.map((draft, index) => (
-            <div key={draft} className="mt-2 flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => downloadDraft(draft, model.title.value)}>
-                {t('pod.content.export_kept_draft')} {index + 1}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => model.discardRecoveryDraft(draft)}>
-                {t('common.discard')}
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
+      <DocumentRecovery model={model} title={title.value} />
       <ContentError error={assetError} />
       <ContentError
         error={collaborationError}
@@ -492,7 +480,7 @@ export function DocumentPage({
                   if (!state.pending && !state.error && openCreatedDocument.current) {
                     const id = openCreatedDocument.current
                     openCreatedDocument.current = undefined
-                    void navigate({ to: podLocation(`/pages/${id}`).pathname })
+                    void navigate({ to: content.pageHref(id) })
                   }
                 },
                 reset: draft => {
@@ -618,7 +606,7 @@ export function PageEmbed({
   attributes: EmbedAttributes
   canEdit: boolean
   trashed: boolean
-  model: InstanceType<typeof PageDraftModel>
+  model: InstanceType<typeof DocumentDraftModel>
   remove(): void
   configure(config: Record<string, unknown>, table?: string): void
   openPage(id: string): void
@@ -703,38 +691,4 @@ async function uploadDocumentAsset(pageID: string, file: File) {
   const uploaded = await uploadPageFile(pageID, file, 'asset')
   if (!uploaded.src) throw new Error(t('pod.editor.resource_upload_failed'))
   return { src: uploaded.src, title: file.name, mime: file.type, size: String(file.size) }
-}
-
-function xmlToMarkdown(xml: string): string {
-  try {
-    return printMarkdown(parseXml(xml)).trim()
-  } catch {
-    return xml.trim()
-  }
-}
-
-export function downloadDraft(xml: string, title?: string, recoveryDrafts?: readonly string[]) {
-  const parts: string[] = []
-  const heading = title?.trim()
-  if (heading) parts.push(`# ${heading}`)
-  const body = xmlToMarkdown(xml)
-  if (body) parts.push(body)
-  recoveryDrafts?.forEach((draft, index) => {
-    const kept = xmlToMarkdown(draft)
-    if (kept) parts.push(`---\n\n## ${t('pod.content.export_kept_draft')} ${index + 1}\n\n${kept}`)
-  })
-  downloadFile(
-    `${parts.join('\n\n')}\n`,
-    documentFilename(heading ?? '', 'document-draft'),
-    'text/markdown;charset=utf-8'
-  )
-}
-
-function downloadFile(content: string, filename: string, type: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }))
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

@@ -1,210 +1,35 @@
-import { useMutation, useQuery } from '../tenant-context'
-import { Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, toast } from '@ankole/uikit'
-import { useSignals } from '@preact/signals-react/runtime'
-import { RiEditLine } from '@remixicon/react'
-import { useIsMutating } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useQuery } from '../tenant-context'
+import { Skeleton } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
-import {
-  listAgentLibraryDocumentsOptions,
-  replaceAgentLibraryDocumentMutation
-} from '../api/v2/generated/@tanstack/react-query.gen'
-import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
-import { SaveButton } from '../console-form'
+import { listAgentLibraryDocumentsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { ErrorBlock } from '../../common/error-block'
-import {
-  AGENT_LIBRARY_DOCUMENT_FILES,
-  AGENT_LIBRARY_DOCUMENT_KINDS,
-  agentLibraryDocumentTitle,
-  AgentLibraryEditorModel,
-  type AgentLibraryDocumentKind,
-  type AgentLibraryDocumentSnapshot,
-  type AgentLibraryDocumentSubmission,
-  type AgentLibraryDocumentsSnapshot
-} from '../state/agent-library-editor-model'
-import { useEditorDraft } from '../use-editor-draft'
 
-export function AgentLibraryEditor({
-  agentUID,
-  model
-}: {
-  agentUID: string
-  model: InstanceType<typeof AgentLibraryEditorModel>
-}) {
-  useSignals()
+/** The Console previews the effective contracts managed in Meta Ankole. */
+export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
   const { t } = useTranslation()
-  const pendingSubmissions = useRef(new Map<string, AgentLibraryDocumentSubmission>())
-  const [activeKind, setActiveKind] = useState<AgentLibraryDocumentKind>('mission')
-  const mutationKey = ['agent-library-documents', agentUID]
-  const saving = useIsMutating({ mutationKey }) > 0
-  // A reopened editor waits for earlier saves before it loads its draft source.
-  const documents = useQuery({
-    ...listAgentLibraryDocumentsOptions({ path: { agent_uid: agentUID } }),
-    enabled: !saving,
-    staleTime: 0
-  })
-  const sourceKey = `agent:${agentUID}`
-  const sourceReady =
-    model.sourceKey.value === sourceKey ||
-    (!saving && documents.isFetchedAfterMount && documents.isSuccess && documents.fetchStatus === 'idle')
-  const draftStatus = useEditorDraft(model, {
-    sourceKey,
-    source: sourceReady ? (documents.data?.library_documents as AgentLibraryDocumentsSnapshot | undefined) : undefined,
-    absent: () => requestErrorCode(documents.error) === 'not_found'
-  })
-  const replaceDocument = useMutation({
-    ...replaceAgentLibraryDocumentMutation(),
-    mutationKey,
-    onSuccess: (response, variables) => {
-      const savedAgentUID = variables.path.agent_uid
-      const kind = variables.path.document_kind as AgentLibraryDocumentKind
-      const submissionKey = documentSubmissionKey(savedAgentUID, kind)
-      const submission = pendingSubmissions.current.get(submissionKey)
-      pendingSubmissions.current.delete(submissionKey)
-      const document = response.library_document as AgentLibraryDocumentSnapshot
-
-      if (submission) {
-        const result = model.markSaved(document.kind, document, submission)
-        const messageKey = result.hasUnsavedChanges ? 'saved_with_unsaved_changes' : 'saved'
-        const message = t(`console.agent_library.${messageKey}`, { kind: agentLibraryDocumentTitle(document.kind) })
-        if (result.hasUnsavedChanges) toast.info(message)
-        else toast.success(message)
-      }
-    },
-    onError: (error, variables) => {
-      const savedAgentUID = variables.path.agent_uid
-      const kind = variables.path.document_kind as AgentLibraryDocumentKind
-      pendingSubmissions.current.delete(documentSubmissionKey(savedAgentUID, kind))
-      const conflict = requestErrorCode(error) === 'agent_library_document_conflict'
-      model.setError(kind, conflict ? t('console.agent_library.conflict') : requestErrorMessage(error), conflict)
-    }
-  })
-
-  const save = (kind: AgentLibraryDocumentKind) => {
-    const draft = model.snapshot(kind)
-    model.setError(kind, '')
-    pendingSubmissions.current.set(documentSubmissionKey(agentUID, kind), draft)
-    replaceDocument.mutate({
-      body: {
-        data: {
-          content: draft.content,
-          expected_content_hash: draft.expectedContentHash
-        }
-      },
-      path: { agent_uid: agentUID, document_kind: kind }
-    })
-  }
-
-  const reloadLatest = async (kind: AgentLibraryDocumentKind) => {
-    try {
-      await model.reload(kind, async () => {
-        const result = await documents.refetch({ throwOnError: true })
-        return result.data!.library_documents[kind] as AgentLibraryDocumentSnapshot
-      })
-    } catch (error) {
-      model.setError(kind, requestErrorMessage(error), true)
-    }
-  }
+  const documents = useQuery(listAgentLibraryDocumentsOptions({ path: { agent_uid: agentUID } }))
 
   return (
-    <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
+    <section className="grid min-w-0 gap-4">
       <div className="grid gap-1">
-        <h3 className="break-words title-section">{t('console.agent_library.title')}</h3>
+        <h3 className="title-section">{t('console.agent_library.title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.agent_library.description')}</p>
         <p className="text-xs leading-5 text-muted-foreground">{t('console.agent_library.effect_hint')}</p>
       </div>
-
       <ErrorBlock error={documents.error} />
-      {draftStatus === 'loading' && !documents.error ? (
-        <div className="grid gap-4 border border-border bg-card p-4 md:p-5" aria-busy="true">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-80 w-full" />
-        </div>
-      ) : draftStatus === 'ready' ? (
-        <Tabs
-          className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 border border-border bg-card p-4 md:p-5"
-          value={activeKind}
-          onValueChange={value => {
-            if (isDocumentKind(value)) setActiveKind(value)
-          }}>
-          <TabsList className="w-full min-w-0 justify-start overflow-x-auto">
-            {AGENT_LIBRARY_DOCUMENT_KINDS.map(kind => (
-              <TabsTrigger key={kind} value={kind}>
-                {agentLibraryDocumentTitle(kind)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-
-          {AGENT_LIBRARY_DOCUMENT_KINDS.map(kind => {
-            const state = model.documents[kind]
-            return (
-              <TabsContent key={kind} value={kind} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 pt-1">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-mono text-xs text-muted-foreground">{AGENT_LIBRARY_DOCUMENT_FILES[kind]}</span>
-                  {!state.editing.value ? (
-                    <Button size="xs" type="button" variant="outline" onClick={() => model.beginEdit(kind)}>
-                      <RiEditLine data-icon="inline-start" />
-                      {t('common.edit')}
-                    </Button>
-                  ) : null}
-                </div>
-
-                <ErrorBlock
-                  error={state.error.value}
-                  action={
-                    state.conflict.value ? (
-                      <Button size="xs" type="button" variant="outline" onClick={() => void reloadLatest(kind)}>
-                        {t('console.agent_library.discard_and_reload')}
-                      </Button>
-                    ) : undefined
-                  }
-                />
-
-                {state.editing.value ? (
-                  <>
-                    <Textarea
-                      aria-label={agentLibraryDocumentTitle(kind)}
-                      className="min-h-80 resize-y font-mono text-xs leading-6"
-                      spellCheck={false}
-                      value={state.draft.value}
-                      onChange={event => model.setDraft(kind, event.target.value)}
-                    />
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button size="xs" type="button" variant="ghost" onClick={() => model.cancel(kind)}>
-                        {t('common.cancel')}
-                      </Button>
-                      <SaveButton
-                        disabled={replaceDocument.isPending || state.draft.value === state.sourceContent.value}
-                        loading={replaceDocument.isPending}
-                        size="xs"
-                        type="button"
-                        onClick={() => save(kind)}>
-                        {t('common.save')}
-                      </SaveButton>
-                    </div>
-                  </>
-                ) : state.sourceContent.value ? (
-                  <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-4 font-mono text-xs leading-6">
-                    {state.sourceContent.value}
-                  </pre>
-                ) : (
-                  <div className="border border-dashed border-border p-6 text-sm text-muted-foreground">
-                    {t('console.agent_library.empty')}
-                  </div>
-                )}
-              </TabsContent>
-            )
-          })}
-        </Tabs>
+      {documents.isPending ? <Skeleton className="h-20 w-full" /> : null}
+      {documents.data ? (
+        <ul className="grid gap-3">
+          {(['agents', 'design'] as const).map(kind => (
+            <li key={kind} className="grid gap-2">
+              <span className="font-medium">{kind === 'agents' ? 'AGENTS.md' : 'DESIGN.md'}</span>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded border border-border p-3 text-xs">
+                {documents.data.library_documents[kind].content}
+              </pre>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </section>
   )
-}
-
-function isDocumentKind(value: string): value is AgentLibraryDocumentKind {
-  return AGENT_LIBRARY_DOCUMENT_KINDS.some(kind => kind === value)
-}
-
-function documentSubmissionKey(agentUID: string, kind: AgentLibraryDocumentKind): string {
-  return `${agentUID}:${kind}`
 }

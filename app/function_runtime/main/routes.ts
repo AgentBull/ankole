@@ -1,5 +1,36 @@
 type Route = { key: string; method: string; segments: string[] }
 
+export function validateActions(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('actions must be an object')
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, action]) => {
+      if (
+        !key.trim() ||
+        !action ||
+        typeof action.handler !== 'function' ||
+        (action.idempotent !== undefined && typeof action.idempotent !== 'boolean') ||
+        (action.concurrencyKey !== undefined && typeof action.concurrencyKey !== 'function') ||
+        !['parallel', 'serial_fifo', 'serial_coalesce'].includes(action.concurrency ?? 'parallel') ||
+        !Number.isInteger(action.maxSlices ?? 1000) ||
+        (action.maxSlices ?? 1000) < 1 ||
+        (action.maxSlices ?? 1000) > 100000
+      ) {
+        throw new TypeError(`invalid action: ${key}`)
+      }
+      return [
+        key,
+        {
+          idempotent: action.idempotent ?? false,
+          concurrency: action.concurrency ?? 'parallel',
+          maxSlices: action.maxSlices ?? 1000
+        }
+      ]
+    })
+  )
+}
+
 export function validateRoutes(value: unknown): Route[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('default export must be a route object')

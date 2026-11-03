@@ -1,3 +1,4 @@
+import { searchDrive } from './drive-search'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
@@ -75,7 +76,9 @@ export function createFindTool(
       key: 'conversations.delivery.reply.activity.command_find_files_family',
       bindings: { family: 'find' }
     }),
-    async execute(_toolCallId, params): Promise<AgentToolResult<FindDetails>> {
+    async execute(_toolCallId, params, signal): Promise<AgentToolResult<FindDetails>> {
+      const driveResult = await searchDrive(context, 'find', params, signal)
+      if (driveResult) return driveResult
       const workspaceReal = realpathSync(resolve(context.workspaceRoot))
 
       let root: string

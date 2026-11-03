@@ -56,7 +56,6 @@ describe('settings navigation and search', () => {
   test('task prefixes have one owner and links name the relevant management tab', () => {
     expect(settingGroupID('authn.email.mail')).toBe('smtp')
     expect(settingGroupID('authn.email.send_limits')).toBe('otp')
-    expect(settingOwnerRoute('ai_agent.library.skill_defaults')).toBe('/agent-library?scope=__global__&tab=skills')
     expect(settingOwnerRoute('saas.require_invitation_code')).toBe('/invitation-codes?focus=require-invitation-code')
   })
 })

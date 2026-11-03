@@ -1,9 +1,9 @@
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { scopedPath, driveDeadline } from '../../drive/paths'
+import { readdir, stat } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
-import { pathIsWithin } from '../../core/path-boundary'
 import { compactActivityPath } from '../activity-summary'
 import type { ComputerToolContext } from './context'
 import { MAX_OUTPUT_CHARS, clipLinesToBudget } from './format'
@@ -48,7 +48,7 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
         ? { key: 'conversations.delivery.reply.activity.file_list_target', bindings: { path } }
         : { key: 'conversations.delivery.reply.activity.file_list' }
     },
-    async execute(_toolCallId, params): Promise<AgentToolResult<LsDetails>> {
+    async execute(_toolCallId, params, signal): Promise<AgentToolResult<LsDetails>> {
       const requested = params.path?.trim() || '.'
       const expanded =
         requested === '~'
@@ -64,23 +64,35 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
 
       let target: string
       try {
-        target = await realpath(expanded)
-      } catch {
-        return miss(`Path not found: ${requested}`)
-      }
-      const homeReal = await realpath(resolve(context.agentHome))
-      if (!pathIsWithin(homeReal, target)) {
+        target = await scopedPath(
+          context.driveView,
+          context.agentHome,
+          expanded,
+          signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : undefined
+        )
+        if (!(await driveDeadline(stat(target), signal)).isDirectory()) {
+          return miss(`Not a directory: ${requested}`)
+        }
+      } catch (error) {
         return miss(
-          `Path is outside the agent home: ${requested}. find/grep/ls cover ~ only; use the command tool for other locations.`
+          (error as NodeJS.ErrnoException).code === 'ENOENT'
+            ? `Path not found: ${requested}`
+            : `Cannot access ${requested}: ${error instanceof Error ? error.message : String(error)}`
         )
       }
-      if (!(await stat(target)).isDirectory()) {
-        return miss(`Not a directory: ${requested}`)
-      }
 
-      let entries: Dirent[]
+      let entries: Pick<Dirent, 'name' | 'isDirectory' | 'isSymbolicLink'>[]
       try {
-        entries = await readdir(target, { withFileTypes: true })
+        entries = await driveDeadline(readdir(target, { withFileTypes: true }), signal)
+        if (context.driveView && target === context.driveView.scope.path) {
+          entries = entries.filter(entry => ['Public', 'AgentDrive', 'MyDrive', 'Brain'].includes(entry.name))
+          entries.push(
+            ...(await driveDeadline(readdir(context.driveView.library.path, { withFileTypes: true }), signal))
+          )
+          if (context.driveView.chat) {
+            entries.push({ name: 'ChatDrive', isDirectory: () => true, isSymbolicLink: () => false })
+          }
+        }
       } catch (error) {
         return miss(`Cannot read directory: ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -95,7 +107,14 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
           break
         }
         try {
-          const entryStat = entry.isSymbolicLink() ? await stat(join(target, entry.name)) : entry
+          const entryStat = entry.isSymbolicLink()
+            ? await driveDeadline(
+                scopedPath(context.driveView, context.agentHome, join(target, entry.name), signal).then(path =>
+                  stat(path)
+                ),
+                signal
+              )
+            : entry
           rendered.push(entryStat.isDirectory() ? `${entry.name}/` : entry.name)
         } catch {
           // A dangling symlink or a file deleted mid-listing is not worth failing the call.

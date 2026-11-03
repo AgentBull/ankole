@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.SystemServiceCallsTest do
   use Ankole.AIGatewayCase
+  import Ankole.BrainFixtures
 
   alias Ankole.Brain.{Config, Embeddings, Recall, SchemaPacks}
 
@@ -8,7 +9,7 @@ defmodule Ankole.Brain.SystemServiceCallsTest do
     agent = agent_fixture().principal
 
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{
           slug: "concepts/zirconium",
           type: "concept",
@@ -68,7 +69,7 @@ defmodule Ankole.Brain.SystemServiceCallsTest do
       })
 
     assert {:ok, result} = Recall.recall(agent.uid, %{query: "zirconium"})
-    assert Enum.any?(result.chunks, &(&1.object_slug == object.slug))
+    assert Enum.any?(result.chunks, &(&1.subject_page_id == object.id))
 
     assert_receive {:brain_vector_request,
                     %{path: "embeddings", body: %{"model" => "site-embedding"}}}

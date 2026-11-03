@@ -234,6 +234,7 @@ defmodule Ankole.ScheduleTest do
                    previous
                    |> Map.from_struct()
                    |> Map.take(Ash.Resource.Info.action(ScheduledEvent, :create_event).accept)
+                   |> Map.delete(:id)
                    |> Map.put(:idempotency_key, previous.idempotency_key <> ":replacement")
                    |> Map.put(:source_provenance, %{"replaces_scheduled_event_id" => previous.id})
 
@@ -307,9 +308,11 @@ defmodule Ankole.ScheduleTest do
                  now: @base_time
                )
 
-      ScheduledEvent
-      |> where([scheduled_event], scheduled_event.id == ^event.id)
-      |> Repo.update_all(set: [session_id: ""])
+      reference = "scheduled-event://#{event.id}"
+
+      Ankole.Signals.Binding
+      |> where([binding], binding.config_ref == ^reference)
+      |> Repo.update_all(set: [target: %{"session_id" => ""}])
 
       assert {:error, :invalid_signal_target} =
                Schedule.fire_due_event(event.id, now: due_at, attempt: 3, max_attempts: 10)
@@ -349,7 +352,10 @@ defmodule Ankole.ScheduleTest do
       assert %DateTime{} = fired.fired_at
 
       assert %Signal{type: "check_back_later.wakeup"} =
-               Repo.get!(Signal, fired.signal_id)
+               Repo.get!(
+                 Signal,
+                 hd(Ankole.Signals.delivery_receipts(fired.signal_id)).delivered_signal_id
+               )
     end
 
     test "a slot history rejects a second automatic Signal" do
@@ -1778,7 +1784,7 @@ defmodule Ankole.ScheduleTest do
                  error.private_vars[:constraint_type] == :foreign_key
              end)
 
-      assert {:error, %Ash.Error.Invalid{} = changeset} =
+      assert {:ok, fired} =
                Repo.transact(fn ->
                  with {:ok, event} <-
                         Ankole.Ash.create(ScheduledEvent, :create_event, %{
@@ -1801,7 +1807,8 @@ defmodule Ankole.ScheduleTest do
                  end
                end)
 
-      assert %{signal_id: [_ | _]} = errors_on(changeset)
+      assert is_binary(fired.signal_id)
+      assert Ankole.Signals.delivery_receipts(fired.signal_id) == []
     end
 
     test "cancelled checkback does not fire after source entry tombstone" do
@@ -1990,7 +1997,13 @@ defmodule Ankole.ScheduleTest do
                perform_job(Ankole.Schedule.Jobs.FireCron, %{"cron_schedule_id" => schedule.id})
 
       [event] = Schedule.list_cron_runs(schedule.id, 10)
-      input = Repo.get!(Signal, event.signal_id)
+
+      input =
+        Repo.get!(
+          Signal,
+          hd(Ankole.Signals.delivery_receipts(event.signal_id)).delivered_signal_id
+        )
+
       assert input.type == "cron.fire"
       assert input.conversation_id == source.conversation_id
 

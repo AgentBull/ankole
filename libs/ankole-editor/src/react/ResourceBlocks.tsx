@@ -22,6 +22,7 @@ import {
 import { dispatchStep } from '../editor/block-insert'
 import type { EditorHost } from '../editor/host-context'
 import { useEditor, useEditorLabel, useEditorState } from './context'
+import { isKnowledge } from '../editor/knowledge'
 
 type Kind = ResourceKind | 'embed'
 const containerIDs = new WeakMap<Element, number>()
@@ -94,6 +95,7 @@ export function ResourceBlock({
   const editor = useEditor()
   const label = useEditorLabel()
   const readOnly = useEditorState(state => state.readOnly)
+  const knowledge = useEditorState(isKnowledge)
   const [editing, setEditing] = useState(!attrs.src)
   const [edits, setEdits] = useState<ResourceAttributes>({})
   const draft = { ...attrs, ...edits }
@@ -161,7 +163,7 @@ export function ResourceBlock({
   }
   const upload = async (file: File) => {
     if (!host?.uploadAsset || busy) return
-    if (!/^(image|video)\//.test(file.type)) {
+    if (!(knowledge ? /^image\// : /^(image|video)\//).test(file.type)) {
       setError(label('resource_media_invalid'))
       return
     }
@@ -245,7 +247,7 @@ export function ResourceBlock({
                 className="sr-only"
                 type="file"
                 aria-label={label('resource_upload')}
-                accept="image/*,video/*"
+                accept={knowledge ? 'image/*' : 'image/*,video/*'}
                 disabled={busy}
                 onChange={event => {
                   const file = event.target.files?.[0]
@@ -296,7 +298,7 @@ export function ResourceBlock({
           )}
           {kind === 'media' && (
             <div role="group" aria-label={label('resource_kind')} className="resource-actions">
-              {(['image', 'video'] as const).map(value => (
+              {(knowledge ? (['image'] as const) : (['image', 'video'] as const)).map(value => (
                 <Button
                   key={value}
                   type="button"
@@ -324,7 +326,7 @@ export function ResourceBlock({
       ) : (
         <>
           <div className="resource-toolbar">
-            {!readOnly && kind !== 'embed' && (
+            {!readOnly && !knowledge && kind !== 'embed' && (
               <DropdownMenu>
                 <DropdownMenuTrigger render={<Button variant="ghost" size="xs" aria-label={label('resource_view')} />}>
                   {label(`resource_view_${view}`)}

@@ -7,7 +7,7 @@ import { AppletPage } from './applet-page'
 import { contentKeys, type PageDetail } from './content-api'
 import { PageEmbed } from './document-editor'
 import { PageContent } from './page-content'
-import { PageDraftModel } from './state/page-draft'
+import { DocumentDraftModel } from './state/document-draft'
 
 beforeAll(() => loadLocale('en-US'))
 
@@ -17,11 +17,13 @@ function appletDetail(deletedAt: string | null): PageDetail {
   return {
     page: {
       id: appletID,
+      name: 'Revenue Simulator',
       title: 'Revenue Simulator',
       icon: '🧩',
       type: 'applet',
       position: 'a0',
       inherit_permissions: true,
+      metadata: {},
       revision: 3,
       children_view: {},
       created_at: '2026-10-30T10:00:00Z',
@@ -60,7 +62,7 @@ describe('Trashed Applet Pages remain inactive', () => {
       [false, '2026-10-30T12:00:00Z']
     ] as const) {
       const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false } } })
-      const draft = new PageDraftModel()
+      const draft = new DocumentDraftModel()
       client.setQueryData(contentKeys.page(appletID), appletDetail(embedDeletedAt))
       try {
         const html = renderToStaticMarkup(

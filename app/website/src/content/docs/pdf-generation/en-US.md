@@ -30,7 +30,7 @@ Because the Skill declares `ankole-runtime: background_job`, long compilation an
 To set up an Agent that publishes a weekly status report as a PDF:
 
 1. Confirm that the `pdf` Skill is enabled (it is on by default).
-2. Create the Agent and write its `MISSION.md`: "Produce a weekly status report as a PDF. Gather the week's metrics from the channel history, write the report in Markdown, render to PDF with Typst, verify with Poppler, and post the PDF to the channel."
+2. Create the Agent and write its `AGENTS.md`: "Produce a weekly status report as a PDF. Gather the week's metrics from the channel history, write the report in Markdown, render to PDF with Typst, verify with Poppler, and post the PDF to the channel."
 3. Configure a weekly [schedule](../schedules/).
 4. Each time the schedule fires, the Agent collects the week's updates, writes the Markdown source, compiles and verifies the PDF on its Worker, and posts the finished attachment to the channel.
 

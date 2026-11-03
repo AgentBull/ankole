@@ -11,6 +11,7 @@ defmodule Ankole.Pod.BaseRepo do
   def hex(id), do: id |> Ecto.UUID.cast!() |> String.replace("-", "")
   def table(id), do: "\"#{tenant_schema!()}\".\"tbl_#{hex(id)}\""
   def column(id), do: "\"f_#{hex(id)}\""
+  def outbox, do: "\"#{tenant_schema!()}\".base_change_outbox"
   def states, do: "\"#{tenant_schema!()}\"._table_states"
 
   def edge(name) do
@@ -35,7 +36,7 @@ defmodule Ankole.Pod.BaseRepo do
 
   def run(shard, fun, opts \\ []) do
     :ok = Repo.require_transaction()
-    deadline = Keyword.get(opts, :deadline, Ankole.Files.Access.deadline())
+    deadline = Keyword.get(opts, :deadline, Ankole.Pod.Access.deadline())
     timezone = Keyword.get(opts, :timezone, "UTC")
 
     with_shard(shard, fn ->
@@ -85,6 +86,8 @@ defmodule Ankole.Pod.BaseRepo do
     query!("SELECT pg_advisory_xact_lock(hashtext($1))", [schema])
     query!("CREATE SCHEMA IF NOT EXISTS \"#{schema}\"", [])
 
+    ensure_outbox!()
+
     query!(
       """
       CREATE TABLE IF NOT EXISTS #{states()} (
@@ -94,6 +97,18 @@ defmodule Ankole.Pod.BaseRepo do
         record_count bigint NOT NULL CHECK(record_count >= 0),
         next_auto_number bigint NOT NULL CHECK(next_auto_number >= 1)
       )
+      """,
+      []
+    )
+  end
+
+  def ensure_outbox! do
+    query!(
+      """
+      CREATE TABLE IF NOT EXISTS #{outbox()} (
+        id uuid PRIMARY KEY,tenant_id uuid NOT NULL,page_id uuid NOT NULL,table_id uuid NOT NULL,
+        data_version bigint NOT NULL,actor_ref text NOT NULL,changes jsonb NOT NULL,
+        inserted_at timestamptz NOT NULL DEFAULT now())
       """,
       []
     )

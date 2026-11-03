@@ -80,7 +80,7 @@ Rolling back a Helm release or container tag never reverses Ecto database migrat
 
 ## Adjust the correct durable document
 
-Update `MISSION.md` when an Agent's scope or responsibilities change, `SOUL.md` when its tone or judgment misses the mark, and `DESIGN.md` when generated web pages, slides, documents, or charts need consistent visual styling. Because each file owns one concern, keep behavioral rules out of `DESIGN.md` and visual tokens out of `MISSION.md`.
+Update `AGENTS.md` when an Agent's scope or responsibilities change, `AGENTS.md` when its tone or judgment misses the mark, and `DESIGN.md` when generated web pages, slides, documents, or charts need consistent visual styling. Because each file owns one concern, keep behavioral rules out of `DESIGN.md` and visual tokens out of `AGENTS.md`.
 
 ## One robot per DingTalk agent
 

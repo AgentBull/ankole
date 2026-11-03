@@ -2,6 +2,7 @@ defmodule Ankole.Sessions.CommandsTest do
   alias Ankole.AIGateway.ResponseCommit
   alias Ankole.AIGateway.CompactionPolicy
   use Ankole.SessionsCase
+  import Ankole.BrainFixtures
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Commands
   alias Ankole.Sessions.Model
@@ -195,7 +196,7 @@ defmodule Ankole.Sessions.CommandsTest do
       {:ok, _packs} = Ankole.Brain.SchemaPacks.install_packs([])
 
       {:ok, object} =
-        Ankole.Brain.create_object(
+        page_fixture_result(
           %{
             slug: "concepts/wire-format",
             type: "concept",
@@ -208,11 +209,11 @@ defmodule Ankole.Sessions.CommandsTest do
       {:ok, _claim} =
         Ankole.Brain.write_fact(
           %{
-            object_slug: object.slug,
+            subject_page_id: object.id,
             claim: "MEMORY_ORION",
             kind: "fact",
             holder: "world",
-            audience_scope: "world",
+            source_node_id: source_node("world"),
             notability: "medium",
             confidence: 0.9,
             valid_from: DateTime.utc_now(:microsecond),
@@ -221,7 +222,7 @@ defmodule Ankole.Sessions.CommandsTest do
           agent.uid
         )
 
-      {:ok, _alias} = Ankole.Brain.Links.add_alias(object.slug, "Wire Format")
+      {:ok, _alias} = Ankole.Brain.Links.add_alias(object.id, "Wire Format")
 
       {opening, injection} =
         Ankole.AIGateway.HostedTools.Brain.inject_stateful(

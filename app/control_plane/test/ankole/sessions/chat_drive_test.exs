@@ -25,15 +25,24 @@ defmodule Ankole.Sessions.ChatDriveTest do
         input = input!(agent.uid, provider_id, attachments: [stored])
         assert [attachment] = get_in(input.data, ["entry", "attachments"])
         assert attachment["object_id"] == stored["object_id"]
-        assert {:ok, conversation_id} = Files.node_conversation_id(attachment["node_id"])
+        assert {:ok, conversation_id} = Ankole.Pod.node_conversation_id(attachment["node_id"])
         assert conversation_id == input.conversation_id
-        assert {:ok, _} = Files.authorize_node(agent.uid, attachment["node_id"], "node_view")
+        assert {:ok, _} = Ankole.Pod.authorize_node(agent.uid, attachment["node_id"], "node_view")
         run = prepare_run(input)
         assert Ankole.JSON.encode!(Prompt.user(run, input)) =~ "ankole-pod chat attachment get"
         attachment["node_id"]
       end
 
     assert length(Enum.uniq(nodes)) == 4
+
+    for id <- nodes do
+      assert {:ok, _} =
+               Ankole.Pod.write_node(Ankole.AuthZ.Actor.new(agent), id, "Revised in ChatDrive")
+
+      assert {:ok, revised} = Ankole.Pod.fetch_node(id)
+      refute revised.object_id == stored["object_id"]
+    end
+
     assert {:ok, "private content"} = Files.read_object(stored["object_id"])
   end
 
@@ -102,6 +111,32 @@ defmodule Ankole.Sessions.ChatDriveTest do
     assert Repo.aggregate(Intent, :count) == 4
   end
 
+  test "a committed path attachment replays without the original Worker mount" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+    run = agent.uid |> input!("mock:dm:alice") |> prepare_run()
+    file = drive_file_fixture(agent.uid, "report.txt", "Frozen report")
+
+    {run, call} =
+      response_call(run, "reply_attachment", %{"path" => "/drive/AgentDrive/report.txt"})
+
+    {:ok, tool, args} = Tools.prepare(run, call)
+
+    # Exercise the receipt owner with the node produced by a successful flush.
+    assert {:ok, _receipt} =
+             Ankole.Sessions.Receipts.execute(
+               run,
+               Ankole.Sessions.Run.response_id(run.model_response),
+               Ankole.Sessions.Run.call_id(call),
+               fn -> tool.executor.prepare_in_tx(run, call, %{"node_id" => file.id}) end
+             )
+
+    assert %{is_error: false, details: %{"attachments" => [attachment]}} =
+             Tools.execute(run, call, tool, args)
+
+    assert attachment["object_id"] == file.object_id
+  end
+
   test "a display path cannot disguise a conversation attachment as a private file" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
@@ -131,7 +166,10 @@ defmodule Ankole.Sessions.ChatDriveTest do
 
   defp conversation_file!(id, name, bytes) do
     {:ok, stored} = Files.store(bytes)
-    {:ok, file} = Repo.transact(fn -> Files.create_conversation_file_in_tx(id, name, stored) end)
+
+    {:ok, file} =
+      Repo.transact(fn -> Ankole.Pod.create_conversation_file_in_tx(id, name, stored) end)
+
     file
   end
 

@@ -8,17 +8,29 @@ defmodule Ankole.FunctionRuntime.HTTP do
   def at(endpoint, method, path, body, timeout, observer \\ nil) do
     deadline = System.monotonic_time(:millisecond) + timeout
 
+    :ok =
+      Finch.start_pool(
+        Ankole.FunctionRuntime.Finch,
+        Finch.Pool.new(endpoint.url, tag: endpoint.host),
+        protocols: [:http1],
+        pool_max_idle_time: 60_000,
+        conn_opts: [hostname: endpoint.host, transport_opts: [inet6: true]]
+      )
+
     request =
       Finch.build(
         method,
         endpoint.url <> path,
         [{"content-type", "application/json"} | EndpointPool.authorization()],
-        if(method in [:get, :delete], do: nil, else: Torque.encode!(body))
+        if(method in [:get, :delete], do: nil, else: Torque.encode!(body)),
+        pool_tag: endpoint.host
       )
 
     ref =
       Finch.async_request(request, Ankole.FunctionRuntime.Finch,
-        pool_timeout: timeout,
+        # This caller enforces the deadline and cancels the request below. A
+        # competing pool timeout raises in Finch's linked process instead.
+        pool_timeout: :infinity,
         receive_timeout: timeout,
         request_timeout: timeout
       )
@@ -41,7 +53,7 @@ defmodule Ankole.FunctionRuntime.HTTP do
         case at(endpoint, method, path, body, timeout, observer) do
           result when excluded == [] ->
             if retryable?(result) do
-              EndpointPool.unavailable(endpoint)
+              if match?({:connect_error, _}, result), do: EndpointPool.unavailable(endpoint)
               attempt(method, path, body, timeout, [endpoint.ip], observer)
             else
               result

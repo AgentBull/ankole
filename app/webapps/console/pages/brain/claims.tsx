@@ -45,8 +45,8 @@ import { requestErrorMessage } from '../../../common/request-errors'
 import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../../console-form'
 import { formatConsoleDate } from '../../console-primitives'
 import { FilterSwitch, ResourceListPage, ResourceSearch, useResourceSearchDraft } from '../../console-list-page'
-import { BrainSubNav, brainObjectPath } from './brain-nav'
-import { BrainHolderLabel } from './brain-scope'
+import { BrainSubNav } from './brain-nav'
+import { BrainPageLink, BrainHolderLabel } from './brain-scope'
 
 const RESOLUTION_QUALITIES = ['correct', 'incorrect', 'partial', 'unresolvable'] as const
 
@@ -73,7 +73,7 @@ export function BrainClaimsPage() {
   const [queryDraft, setQueryDraft] = useResourceSearchDraft(query, setQuery)
   const [claimType, setClaimType] = useState<'all' | 'fact' | 'take'>('all')
   const [currentOnly, setCurrentOnly] = useState(true)
-  const [objectSlug, setObjectSlug] = useState(() => searchParams.get('object_slug') ?? '')
+  const [objectSlug, setObjectSlug] = useState(() => searchParams.get('subject_page_id') ?? '')
   const [slugDraft, setSlugDraft] = useResourceSearchDraft(objectSlug, setObjectSlug)
 
   const claims = useInfiniteQuery({
@@ -81,7 +81,7 @@ export function BrainClaimsPage() {
       query: {
         ...(claimType === 'all' ? {} : { claim_type: claimType }),
         ...(currentOnly ? { status: 'current' } : {}),
-        ...(objectSlug.trim() ? { object_slug: objectSlug.trim() } : {}),
+        ...(objectSlug.trim() ? { subject_page_id: objectSlug.trim() } : {}),
         ...(query.trim() ? { search: query.trim() } : {})
       }
     }),
@@ -141,9 +141,9 @@ export function BrainClaimsPage() {
             filters={
               <>
                 <Input
-                  aria-label={t('console.brain.object_slug_filter')}
+                  aria-label={t('console.brain.subject_page_id_filter')}
                   className="w-56 font-mono text-xs"
-                  placeholder={t('console.brain.object_slug_filter')}
+                  placeholder={t('console.brain.subject_page_id_filter')}
                   spellCheck={false}
                   value={slugDraft}
                   onChange={event => setSlugDraft(event.target.value)}
@@ -185,13 +185,7 @@ export function BrainClaimsPage() {
                 <BrainHolderLabel holder={claim.holder} />
               </TableCell>
               <TableCell className="font-mono text-xs">
-                {claim.object_slug ? (
-                  <Link className="link" to={brainObjectPath(claim.object_slug)}>
-                    {claim.object_slug}
-                  </Link>
-                ) : (
-                  '—'
-                )}
+                {claim.subject_page_id ? <BrainPageLink pageID={claim.subject_page_id} /> : '—'}
               </TableCell>
               <TableCell>
                 <ClaimStateBadge claim={claim} />

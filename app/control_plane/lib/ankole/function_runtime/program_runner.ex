@@ -25,10 +25,31 @@ defmodule Ankole.FunctionRuntime.ProgramRunner do
   end
 
   def await(handle) do
-    receive do
-      {:program_runner, ^handle, result} -> result
+    server = Process.whereis(__MODULE__)
+    monitor = Process.monitor(server || __MODULE__)
+
+    try do
+      # Completion is sent before the handle is removed, so a completed result
+      # is already in this mailbox when the owner reports an absent handle.
+      timeout = if server && GenServer.call(server, {:known, handle}), do: :infinity, else: 0
+
+      receive do
+        {:program_runner, ^handle, result} ->
+          result
+
+        {:DOWN, ^monitor, :process, _, reason} ->
+          {:error, "program runner exited: #{inspect(reason)}"}
+      after
+        timeout -> {:error, "program runner is unavailable"}
+      end
+    catch
+      :exit, reason -> {:error, "program runner exited: #{inspect(reason)}"}
+    after
+      Process.demonitor(monitor, [:flush])
     end
   end
+
+  def release(handle), do: GenServer.call(__MODULE__, {:release, handle})
 
   def cancel(handle), do: GenServer.call(__MODULE__, {:cancel, handle})
 
@@ -49,6 +70,12 @@ defmodule Ankole.FunctionRuntime.ProgramRunner do
 
     {:reply, handle, Map.put(state, handle, entry)}
   end
+
+  def handle_call({:known, handle}, _from, state),
+    do: {:reply, Map.has_key?(state, handle), state}
+
+  def handle_call({:release, handle}, _from, state),
+    do: {:reply, :ok, finish(state, handle, {:ok, cancelled_outcome()}, true)}
 
   def handle_call(:active_runs, _from, state),
     do: {:reply, Enum.count(state, fn {_, entry} -> entry.task != nil end), state}
@@ -105,14 +132,24 @@ defmodule Ankole.FunctionRuntime.ProgramRunner do
     end
   end
 
-  def handle_info({:DOWN, ref, :process, _, _}, state) do
+  def handle_info({:DOWN, ref, :process, _, reason}, state) do
     handles =
       for {handle, entry} <- state,
           entry.owner == ref or (not is_nil(entry.caller) and elem(entry.caller, 1) == ref) or
             (not is_nil(entry.task) and entry.task.ref == ref),
           do: handle
 
-    {:noreply, Enum.reduce(handles, state, &finish(&2, &1, {:error, "program_cancelled"}, true))}
+    {:noreply,
+     Enum.reduce(handles, state, fn handle, state ->
+       entry = Map.fetch!(state, handle)
+
+       result =
+         if entry.task && entry.task.ref == ref,
+           do: {:error, "program task exited: #{inspect(reason)}"},
+           else: {:ok, cancelled_outcome()}
+
+       finish(state, handle, result, true)
+     end)}
   end
 
   defp finish(state, handle, result, stop?) do

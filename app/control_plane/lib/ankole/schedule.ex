@@ -180,7 +180,14 @@ defmodule Ankole.Schedule do
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}
           | {:error, term()}
   def fire_due_event(scheduled_event_id, opts \\ []) when is_integer(scheduled_event_id) do
-    Repo.transact_top_level(fn -> Fire.fire_due_event_in_tx(scheduled_event_id, opts) end)
+    with {:ok, plan} <- Fire.prepare_event(scheduled_event_id, opts) do
+      Repo.transact_top_level(
+        fn ->
+          Fire.fire_due_event_in_tx(scheduled_event_id, Keyword.put(opts, :dispatch, plan))
+        end,
+        after_commit: fn result -> Ankole.Signals.publish_committed(Map.get(result, :signals)) end
+      )
+    end
     |> Fire.persist_fire_error(scheduled_event_id, opts)
   end
 
@@ -188,7 +195,11 @@ defmodule Ankole.Schedule do
   def fire_cron(cron_schedule_id, opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact_top_level(fn -> Fire.fire_cron_in_tx(cron_schedule_id, now) end)
+    with {:ok, plan} <- Fire.prepare_cron(cron_schedule_id, now) do
+      Repo.transact_top_level(fn -> Fire.fire_cron_in_tx(cron_schedule_id, now, plan) end,
+        after_commit: fn result -> Ankole.Signals.publish_committed(Map.get(result, :signals)) end
+      )
+    end
     |> Fire.persist_cron_error(cron_schedule_id, now, opts)
   end
 

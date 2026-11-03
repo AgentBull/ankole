@@ -535,6 +535,17 @@ defmodule Ankole.SessionsCase do
   end
 
   defp observe_emit_entry(agent_uid, binding_name, input, opts, true) do
+    with_stubbed_session_drivers(agent_uid, fn ->
+      Observe.emit_entry(
+        Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
+        input,
+        opts
+      )
+    end)
+  end
+
+  @doc "Keeps domain unit tests as the only Driver while their fixture emits new Signals."
+  def with_stubbed_session_drivers(agent_uid, fun) do
     owner = self()
     spawned_ref = make_ref()
     handler = {__MODULE__, :emit_entry_drivers, spawned_ref}
@@ -551,11 +562,7 @@ defmodule Ankole.SessionsCase do
       )
 
     try do
-      case Observe.emit_entry(
-             Ankole.Signals.get_agent_binding!(agent_uid, binding_name).id,
-             input,
-             opts
-           ) do
+      case fun.() do
         {:ok, _result} = ok ->
           ok
 

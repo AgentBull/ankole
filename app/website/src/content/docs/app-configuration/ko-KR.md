@@ -41,7 +41,6 @@ AppConfigure는 제품 설정을 PostgreSQL에 저장하며 대부분의 변경�
 | `ai_agent.max_output_tokens` | 테넌트 | 단일 모델 응답의 최대 출력 토큰 수 |
 | `ai_agent.inactivity_timeout_ms` | 테넌트 | 응답이 없는 모델이나 제공자를 기다린 뒤 턴을 종료하기까지의 제한 시간(밀리초) |
 | `ai_agent.library.agent_plugin_defaults` | 테넌트 | Agent Plugin의 기본 활성화 상태 |
-| `ai_agent.library.skill_defaults` | 테넌트 | Skill의 기본 활성화 상태 |
 | `background_agent_jobs.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 BackgroundAgentJob 수(기본값 `3`, 유효 범위 `1`–`64`) |
 | `automation_jobs.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 자동화 스크립트 수(기본값 `10`, 유효 범위 `1`–`64`) |
 
@@ -68,16 +67,15 @@ Workflow 생성 시 이 설정보다 높은 값을 요청할 수는 없습니다
 
 ### Brain
 
+Brain은 테넌트의 `ankole_brain` 시스템 주체로 모델을 호출합니다. 추출(`light`), 분석(`heavy`), URL 가져오기(`web_fetch`), 재순위화(`rerank`) 프로필은 Console의 모델 설정에서 관리하며 Pod와 사이트 설정을 상속합니다.
+
 | 키 | 범위 | 용도 |
 |---|---|---|
 | `brain.enabled` | 테넌트 | Brain 검색, 학습, 유지 관리를 활성화합니다. 비활성화하더라도 이미 저장된 지식은 보존됩니다. |
-| `brain.maintainer_agent_uid` | 테넌트 | Brain 유지 관리를 전담하는 활성 Agent입니다. 모든 Brain 모델 호출은 이 Agent 명의로 실행되며 토큰 사용량도 이 Agent에 귀속됩니다. 해당 Agent가 비활성화되면 다시 켜거나 다른 활성 Agent로 교체할 때까지 Brain 모델 호출과 URL Source 수집이 중단됩니다. 사용할 `light`, `heavy`, `web_fetch` 프로필은 해당 Agent 상세 페이지에서 설정합니다. |
 | `brain.embedding_model` | 사이트 | 벡터 검색에 사용할 Provider, 모델, 벡터 차원 수입니다. 비워 두면 벡터 검색이 비활성화됩니다. |
-| `brain.rerank_model` | 테넌트 | 검색 결과 재정렬(rerank)에 사용할 Provider와 모델입니다. 비워 두면 하이브리드 융합 순서를 그대로 유지합니다. |
 | `brain.search_tokenizer` | 사이트 | BM25 검색 토크나이저(`icu`, `jieba`, `lindera_japanese`, `lindera_korean`). 값을 변경한 뒤에는 BM25 인덱스를 재구축해야 합니다. |
 | `brain.chunking` | 테넌트 | Source 문서의 청크 크기, 중첩 길이(overlap), 최대 입력 크기 상한입니다. |
 | `brain.forgetting` | 테넌트 | 기억 유형별 감쇠 반감기 |
-| `brain.soft_delete_retention_hours` | 테넌트 | Dreaming이 소프트 삭제 객체를 영구 삭제하기 전 보관 시간. 기본 `72`시간 |
 | `brain.dreaming_task_cron` | 테넌트 | 정기 지식 통합(Dreaming) 작업의 실행 스케줄입니다. |
 | `brain.self_healing_task_cron` | 테넌트 | 오래된 청크, 임베딩, 검색 인덱스 투영을 재구축하는 자가 복구 스케줄입니다. |
 | `brain.signal_channel_batch_idle_time` | 테넌트 | 대화방의 대기 메시지가 학습 배치로 넘어가기까지의 유휴 대기 시간(초)입니다. 대화가 종료될 때도 즉시 학습이 시작됩니다. |

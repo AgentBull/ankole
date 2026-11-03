@@ -1,7 +1,7 @@
 defmodule Ankole.AutomationJobs.AttemptRef do
   @moduledoc "The live execution fence of one Automation Job attempt."
-  @enforce_keys [:job_id, :run_id, :attempt_id, :agent_uid]
-  defstruct [:job_id, :run_id, :attempt_id, :agent_uid]
+  @enforce_keys [:job_id, :run_id, :attempt_id]
+  defstruct [:job_id, :run_id, :attempt_id, :agent_uid, :principal_uid]
 
   @type t :: %__MODULE__{
           job_id: pos_integer(),

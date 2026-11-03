@@ -39,7 +39,9 @@ defmodule Ankole.Sessions.Activity do
     {payload, started_at} =
       case previous do
         {_id, %{"phase" => phase} = saved, at} when phase in ["completed", "failed"] ->
-          {saved, at}
+          if payload["phase"] in ["completed", "failed"],
+            do: {Map.merge(saved, Map.drop(payload, ["phase", "duration_ms"])), at},
+            else: {saved, at}
 
         {_id, _saved, at} ->
           {Map.put(payload, "duration_ms", max(System.monotonic_time(:millisecond) - at, 0)), at}

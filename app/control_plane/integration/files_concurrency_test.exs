@@ -6,9 +6,9 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.Files
-  alias Ankole.Files.Schemas.{FileObject, Node}
+  alias Ankole.Files.Schemas.FileObject
+  alias Ankole.Pod.Page, as: Node
   alias Ankole.ObjectStore
   alias Ecto.Adapters.SQL.Sandbox
 
@@ -79,16 +79,16 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
     assert {:ok, 1} = finish(move)
     assert {:error, :is_a_directory} = finish(parent)
     assert {:ok, _file} = Files.fetch(ctx.agent_uid, "a/value")
-    assert {:ok, %{kind: :folder}} = Files.fetch(ctx.agent_uid, "a")
+    assert {:ok, %{type: :doc}} = Files.fetch(ctx.agent_uid, "a")
   end
 
   test "a tree writer resolves its private root after a concurrent cross-root move", ctx do
     actor = actor_fixture(ctx.agent_uid)
     other = human_fixture().principal
-    {:ok, source_root} = Files.private_root(ctx.agent_uid)
-    {:ok, target_root} = Files.private_root(other.uid)
+    {:ok, source_root} = Ankole.Pod.private_root(ctx.agent_uid)
+    {:ok, target_root} = Ankole.Pod.private_root(other.uid)
 
-    for action <- Ankole.Files.Access.page_actions() do
+    for action <- Ankole.Pod.Access.page_actions() do
       assert {:ok, _} =
                Ankole.AuthZ.create_permission_grant(%{
                  principal_uid: ctx.agent_uid,
@@ -98,19 +98,19 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
     end
 
     {:ok, node} =
-      Files.create_node(actor, %{parent_id: source_root.id, kind: :folder, name: "before"})
+      Ankole.Pod.create_node(actor, %{parent_id: source_root.id, type: :doc, name: "before"})
 
     move =
       hold_transaction(fn ->
-        :ok = Files.lock_tree_in_tx()
-        :ok = Ankole.Files.Nodes.lock_roots([source_root.id, target_root.id])
-        Ankole.Files.Nodes.move_in_tx(actor, node.id, %{parent_id: target_root.id})
+        :ok = Ankole.Pod.lock_tree_in_tx()
+        :ok = Ankole.Pod.Pages.Tree.lock_roots([source_root.id, target_root.id])
+        Ankole.Pod.Pages.Tree.move_in_tx(actor, node.id, %{parent_id: target_root.id})
       end)
 
     snapshot =
       start_unboxed(fn parent ->
         Repo.transact(fn ->
-          :ok = Ankole.Files.Nodes.lock_roots([target_root.id])
+          :ok = Ankole.Pod.Pages.Tree.lock_roots([target_root.id])
           send(parent, {:snapshot_held, self()})
 
           receive do
@@ -122,7 +122,10 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
       end)
 
     assert_blocked_by(snapshot, move)
-    writer = start_unboxed(fn _parent -> Files.move_node(actor, node.id, %{name: "after"}) end)
+
+    writer =
+      start_unboxed(fn _parent -> Ankole.Pod.move_node(actor, node.id, %{name: "after"}) end)
+
     assert_blocked_by(writer, move)
     release(move)
     assert {:ok, _} = finish(move)
@@ -187,28 +190,34 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
 
     assert :ok =
              Repo.transact_top_level(fn ->
-               Files.Access.put_role(%{principal_uid: ctx.agent_uid}, "drive:space:**", "manage")
+               Ankole.Pod.Access.put_role(
+                 %{principal_uid: ctx.agent_uid},
+                 "drive:space:**",
+                 "manage"
+               )
              end)
 
-    {:ok, public} = Files.public_root()
-    {:ok, private} = Files.private_root(ctx.agent_uid)
+    {:ok, public} = Ankole.Pod.public_root()
+    {:ok, private} = Ankole.Pod.private_root(ctx.agent_uid)
 
     {:ok, file} =
-      Files.create_node(actor, %{parent_id: public.id, kind: :file, name: "moving.txt"})
+      Ankole.Pod.create_node(actor, %{parent_id: public.id, type: :file, name: "moving.txt"})
 
     move =
       hold_transaction(fn ->
-        Files.lock_tree_in_tx()
-        Files.lock_root_ids_in_tx([private.id])
-        Files.Nodes.move_in_tx(actor, file.id, %{parent_id: private.id})
+        Ankole.Pod.lock_tree_in_tx()
+        Ankole.Pod.lock_root_ids_in_tx([private.id])
+        Ankole.Pod.Pages.Tree.move_in_tx(actor, file.id, %{parent_id: private.id})
       end)
 
-    writer = start_unboxed(fn _parent -> Files.write_node(actor, file.id, "racing write") end)
+    writer =
+      start_unboxed(fn _parent -> Ankole.Pod.write_node(actor, file.id, "racing write") end)
+
     assert_blocked_by(writer, move)
     release(move)
     assert {:ok, _} = finish(move)
     assert {:ok, written} = finish(writer)
-    assert {:ok, %{object_id: object_id, parent_id: parent_id}} = Files.fetch_node(file.id)
+    assert {:ok, %{object_id: object_id, parent_id: parent_id}} = Ankole.Pod.fetch_node(file.id)
     assert parent_id == private.id
     assert object_id == written.object_id
     assert {:ok, "racing write"} = Files.read_object(object_id)
@@ -219,42 +228,50 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
 
     assert :ok =
              Repo.transact_top_level(fn ->
-               Files.Access.put_role(%{principal_uid: ctx.agent_uid}, "drive:space:**", "manage")
+               Ankole.Pod.Access.put_role(
+                 %{principal_uid: ctx.agent_uid},
+                 "drive:space:**",
+                 "manage"
+               )
              end)
 
-    {:ok, public} = Files.public_root()
-    {:ok, private} = Files.private_root(ctx.agent_uid)
+    {:ok, public} = Ankole.Pod.public_root()
+    {:ok, private} = Ankole.Pod.private_root(ctx.agent_uid)
 
     {:ok, folder} =
-      Files.create_node(actor, %{parent_id: public.id, kind: :folder, name: "anchored"})
+      Ankole.Pod.create_node(actor, %{parent_id: public.id, type: :doc, name: "anchored"})
 
     assert :ok =
              Repo.transact_top_level(fn ->
-               Files.Access.put_role(
+               Ankole.Pod.Access.put_role(
                  %{principal_uid: ctx.agent_uid},
                  "drive:**:#{folder.id}:**",
                  "manage"
                )
              end)
 
-    {:ok, folder} = Files.fetch_node(folder.id)
+    {:ok, folder} = Ankole.Pod.fetch_node(folder.id)
     assert folder.acl_anchor_id == folder.id
 
     {:ok, nested} =
-      Files.create_node(actor, %{parent_id: folder.id, kind: :folder, name: "nested"})
+      Ankole.Pod.create_node(actor, %{parent_id: folder.id, type: :doc, name: "nested"})
 
     {:ok, file} =
-      Files.create_node(actor, %{parent_id: nested.id, kind: :file, name: "value.txt"})
+      Ankole.Pod.create_node(actor, %{parent_id: nested.id, type: :file, name: "value.txt"})
 
-    row = hold_transaction(fn -> Files.Nodes.lock(file.id) end)
+    row = hold_transaction(fn -> Ankole.Pod.Pages.Tree.lock(file.id) end)
 
     writer =
-      start_unboxed(fn _parent -> Files.write_node(actor, file.id, "before ancestor move") end)
+      start_unboxed(fn _parent ->
+        Ankole.Pod.write_node(actor, file.id, "before ancestor move")
+      end)
 
     assert_blocked_by(writer, row)
 
     move =
-      start_unboxed(fn _parent -> Files.move_node(actor, folder.id, %{parent_id: private.id}) end)
+      start_unboxed(fn _parent ->
+        Ankole.Pod.move_node(actor, folder.id, %{parent_id: private.id})
+      end)
 
     assert_blocked_by(move, writer)
     release(row)
@@ -270,13 +287,17 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
   @tag timeout: 120_000
   test "moving and renaming ten thousand nodes preserves every identity", ctx do
     actor = actor_fixture(ctx.agent_uid)
-    {:ok, root} = Files.private_root(ctx.agent_uid)
-    {:ok, source} = Files.create_node(actor, %{parent_id: root.id, kind: :folder, name: "source"})
-    {:ok, target} = Files.create_node(actor, %{parent_id: root.id, kind: :folder, name: "target"})
+    {:ok, root} = Ankole.Pod.private_root(ctx.agent_uid)
+
+    {:ok, source} =
+      Ankole.Pod.create_node(actor, %{parent_id: root.id, type: :doc, name: "source"})
+
+    {:ok, target} =
+      Ankole.Pod.create_node(actor, %{parent_id: root.id, type: :doc, name: "target"})
 
     {:ok, entries} =
       Repo.transact(fn ->
-        :ok = Files.lock_tree_in_tx()
+        :ok = Ankole.Pod.lock_tree_in_tx()
         :ok = Files.lock_drive(ctx.agent_uid)
 
         1..10_000
@@ -284,7 +305,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
           %{
             id: Ash.UUIDv7.generate(),
             parent_id: source.id,
-            kind: :file,
+            type: :file,
             name: "file-#{n}",
             acl_anchor_id: root.id,
             mode: 0o644
@@ -297,7 +318,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
 
     {elapsed, result} =
       :timer.tc(fn ->
-        Files.move_node(actor, source.id, %{parent_id: target.id, name: "renamed"})
+        Ankole.Pod.move_node(actor, source.id, %{parent_id: target.id, name: "renamed"})
       end)
 
     assert {:ok, %{id: id}} = result
@@ -339,46 +360,18 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
     assert Enum.all?(files, &(&1.object_id == ctx.updated.object_id))
   end
 
-  test "catalog sync reads the drive after a concurrent manifest deletion commits", ctx do
+  test "catalog sync is independent of concurrent private Drive changes", ctx do
     Sandbox.unboxed_run(Repo, fn ->
-      assert {:ok, _files} = commit(ctx, "skills/race-notes/SKILL.md")
-
-      assert {:ok, %AgentSkill{enabled_override: false}} =
-               Library.set_agent_skill_override(ctx.agent_uid, "race-notes", false)
+      assert {:ok, _} = commit(ctx, "skills/race-notes/SKILL.md")
+      assert {:ok, _} = Library.sync_agent_skills(ctx.agent_uid)
+      assert {:error, :not_found} = Library.Skills.get("race-notes")
     end)
 
     deletion = hold_transaction(fn -> Files.delete_in_tx(ctx.agent_uid, "skills/race-notes") end)
     sync = start_unboxed(fn _parent -> Library.sync_agent_skills(ctx.agent_uid) end)
-    assert_blocked_by(sync, deletion)
-
+    assert {:ok, %{changed: false}} = finish(sync)
     release(deletion)
     assert {:ok, 1} = finish(deletion)
-    assert {:ok, %{changed: true}} = finish(sync)
-    refute Repo.get_by(AgentSkill, agent_uid: ctx.agent_uid, skill_name: "race-notes")
-  end
-
-  test "catalog sync adopts a concurrent manifest update and preserves its operator override",
-       ctx do
-    {:ok, %AgentSkill{id: id}} =
-      Sandbox.unboxed_run(Repo, fn ->
-        assert {:ok, _files} = commit(ctx, "skills/race-notes/SKILL.md")
-        Library.set_agent_skill_override(ctx.agent_uid, "race-notes", false)
-      end)
-
-    write =
-      hold_transaction(fn ->
-        commit_in_tx(%{ctx | stored: ctx.updated}, "skills/race-notes/SKILL.md")
-      end)
-
-    sync = start_unboxed(fn _parent -> Library.sync_agent_skills(ctx.agent_uid) end)
-    assert_blocked_by(sync, write)
-
-    release(write)
-    assert {:ok, _files} = finish(write)
-    assert {:ok, %{changed: true}} = finish(sync)
-
-    assert %AgentSkill{id: ^id, enabled_override: false, description: "Updated Skill."} =
-             Repo.get_by!(AgentSkill, agent_uid: ctx.agent_uid, skill_name: "race-notes")
   end
 
   defp commit(ctx, path) do

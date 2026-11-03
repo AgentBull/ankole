@@ -273,7 +273,7 @@ defmodule Ankole.Brain.SchemaPacks do
           {:halt, {:error, {:reserved_object_type, name}}}
 
         name != "agent" and String.starts_with?(type["slug_prefix"], "agents/") ->
-          {:halt, {:error, {:reserved_object_slug_prefix, type["slug_prefix"]}}}
+          {:halt, {:error, {:reserved_subject_page_id_prefix, type["slug_prefix"]}}}
 
         true ->
           {:cont, :ok}
@@ -411,7 +411,8 @@ defmodule Ankole.Brain.SchemaPacks do
     with :ok <- insert_pack_rows(seeds, now),
          :ok <- upsert_type_rows(merged.types, now),
          :ok <- insert_link_rows(merged.link_types, now),
-         :ok <- insert_domain_rows(merged.calibration_domains, now) do
+         :ok <- insert_domain_rows(merged.calibration_domains, now),
+         :ok <- Ankole.Brain.Namespace.ensure_categories_in_tx() do
       {:ok,
        %{
          installed: Enum.map(seeds, & &1.manifest["name"]),

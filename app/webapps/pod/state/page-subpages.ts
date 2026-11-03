@@ -3,7 +3,7 @@ import { parseXml } from '@ankole/block-editor/document'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { ChildrenViewPatch, SubpageItem } from '../content-api'
 
-export type SubpageViewMode = 'list' | 'grid'
+export type SubpageViewMode = 'list' | 'grid' | 'table'
 export const SUBPAGE_FIELDS = ['created_by', 'updated_at', 'created_at'] as const
 export type SubpageField = (typeof SUBPAGE_FIELDS)[number]
 export type SubpageSortField = 'title' | 'updated_at' | 'created_at'
@@ -43,7 +43,7 @@ export function normalizeChildrenView(raw?: Record<string, unknown> | null): Nor
   const fieldOrder = normalizeFieldOrder(raw?.field_order)
   return {
     collapsed: typeof raw?.collapsed === 'boolean' ? raw.collapsed : false,
-    view: raw?.view === 'grid' ? 'grid' : 'list',
+    view: raw?.view === 'grid' || raw?.view === 'table' ? raw.view : 'list',
     fieldOrder,
     visibleFields: normalizeVisibleFields(raw?.visible_fields, fieldOrder)
   }

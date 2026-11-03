@@ -269,7 +269,9 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
           assert work.session_id == "cron:#{rule.id}"
         end
 
-        assert event.signal_id == signal.id
+        assert event.signal_id == Ankole.Signals.root_signal_id(signal.id)
+        assert [receipt] = Ankole.Signals.delivery_receipts(event.signal_id)
+        assert receipt.delivered_signal_id == signal.id
         assert Ankole.Sessions.Scheduled.produced_signal?(signal)
 
         assert :ok =

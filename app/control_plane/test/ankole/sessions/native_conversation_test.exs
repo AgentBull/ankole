@@ -25,6 +25,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert {:ok, detail} =
              Repo.transact(fn _repo ->
                Ankole.ConversationsFixtures.create(human.uid, %{
+                 room_mode: :group,
                  conversation_id: id,
                  agent_uid: agent.uid,
                  message_id: Ecto.UUID.generate(),
@@ -48,6 +49,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
     assert {:ok, _} =
              Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.human), %{
+               room_mode: :group,
                conversation_id: id,
                agent_uid: ctx.agent.uid,
                message_id: Ecto.UUID.generate(),
@@ -100,10 +102,27 @@ defmodule Ankole.Sessions.NativeConversationTest do
     actor = Ankole.PrincipalsFixtures.actor_fixture(context.human.uid)
     tool_run = %{agent_uid: context.agent.uid, signal_id: context.event.id, event: context.event}
     names = fn -> Enum.map(Tools.Session.declarations(tool_run), & &1["name"]) end
-    refute "set_channel_standing_orders" in names.()
+
+    assert {:ok, dm} =
+             Conversations.create(actor, %{
+               conversation_id: Ecto.UUID.generate(),
+               message_id: Ecto.UUID.generate(),
+               agent_uid: context.agent.uid,
+               text: "Private discussion"
+             })
+
+    [dm_event] =
+      Ankole.Signals.list_signals!(query: [filter: [conversation_id: dm.conversation.id]])
+
+    dm_run = %{tool_run | event: dm_event, signal_id: dm_event.id}
+
+    refute "set_channel_standing_orders" in Enum.map(
+             Tools.Session.declarations(dm_run),
+             & &1["name"]
+           )
 
     assert {:error, :standing_orders_require_group} =
-             AmbientCuration.set_standing_orders(context.agent.uid, context.event.id, "Orders")
+             AmbientCuration.set_standing_orders(context.agent.uid, dm_event.id, "Orders")
 
     colleague = Ankole.PrincipalsFixtures.human_fixture().principal
 
@@ -173,6 +192,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
     assert {:ok, detail} =
              Conversations.create(actor, %{
+               room_mode: :group,
                conversation_id: Ash.UUIDv7.generate(),
                message_id: message_id,
                agent_uid: context.agent.uid,
@@ -709,6 +729,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
     assert {:error, :conversation_conflict} =
              Ankole.ConversationsFixtures.create(other.uid, %{
+               room_mode: :group,
                conversation_id: context.id,
                agent_uid: context.agent.uid,
                message_id: Ecto.UUID.generate(),
@@ -762,6 +783,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
     assert {:error, :conversation_conflict} =
              Ankole.ConversationsFixtures.create(other.uid, %{
+               room_mode: :group,
                conversation_id: context.id,
                agent_uid: context.agent.uid,
                message_id: Ecto.UUID.generate(),

@@ -91,42 +91,87 @@ defmodule Ankole.TenantsTest do
     assert {:error, :not_found} = Tenants.get(tenant.id)
   end
 
+  test "tenant deletion releases Applet owners before deleting their Agents" do
+    tenant = new_tenant()
+
+    {agent, applet} =
+      Repo.with_tenant(tenant.id, fn ->
+        %{principal: owner} = human_fixture()
+        %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
+        actor = actor_fixture(owner.uid)
+
+        {:ok, applet} =
+          Ankole.Pod.Pages.create(actor, %{type: "applet"})
+
+        {:ok, applet} = Ankole.Pod.transfer_applet_owner(actor, applet.id, agent.uid)
+
+        {agent, applet}
+      end)
+
+    assert applet.owner_uid == agent.uid
+    assert {:ok, _} = Tenants.delete(tenant)
+
+    Repo.with_tenant(tenant.id, fn ->
+      result =
+        Enum.reduce_while(1..100, nil, fn _, _ ->
+          case Ankole.Tenants.Jobs.Delete.run(%Oban.Job{args: %{"tenant_id" => tenant.id}}) do
+            :ok ->
+              {:halt, :ok}
+
+            {:snooze, _} ->
+              if match?(%{state: :deleting}, Ankole.AgentWorkers.get_agent_worker!(agent.uid)) do
+                assert :ok =
+                         Ankole.AgentWorkers.ReconcileJob.run(%Oban.Job{
+                           args: %{"agent_uid" => agent.uid}
+                         })
+              end
+
+              {:cont, :pending}
+          end
+        end)
+
+      assert result == :ok
+    end)
+
+    assert {:error, :not_found} = Tenants.get(tenant.id)
+  end
+
   test "tenant deletion removes nested ACL anchors across multiple leaf batches" do
     tenant = new_tenant()
 
     Repo.with_tenant(tenant.id, fn ->
       admin = human_fixture().principal
-      {:ok, root} = Ankole.Files.Nodes.private_root(admin.uid)
+      {:ok, root} = Ankole.Pod.Pages.Tree.private_root(admin.uid)
 
       assert {:ok, _} =
                Repo.transact_top_level(fn ->
                  {:ok, outer} =
-                   Ankole.Files.Nodes.create_in_tx(%{
+                   Ankole.Pod.Pages.Tree.create_in_tx(%{
                      parent_id: root.id,
-                     kind: :folder,
+                     type: :doc,
                      name: "outer",
                      has_local_acl: true
                    })
 
                  {:ok, passthrough} =
-                   Ankole.Files.Nodes.create_in_tx(%{
+                   Ankole.Pod.Pages.Tree.create_in_tx(%{
                      parent_id: outer.id,
-                     kind: :folder,
+                     type: :doc,
                      name: "pass-through"
                    })
 
                  {:ok, inner} =
-                   Ankole.Files.Nodes.create_in_tx(%{
+                   Ankole.Pod.Pages.Tree.create_in_tx(%{
                      parent_id: passthrough.id,
-                     kind: :folder,
+                     type: :doc,
                      name: "inner",
                      has_local_acl: true
                    })
 
                  {:ok, leaf_parent} =
-                   Ankole.Files.Nodes.create_in_tx(%{
+                   Ankole.Pod.Pages.Tree.create_in_tx(%{
                      parent_id: inner.id,
-                     kind: :folder,
+                     type: :doc,
                      name: "leaf-parent"
                    })
 
@@ -134,7 +179,7 @@ defmodule Ankole.TenantsTest do
                  # anchors must survive until every referring leaf has been removed.
                  Repo.query!(
                    """
-                   INSERT INTO drive_nodes(tenant_id,id,parent_id,kind,name,acl_anchor_id)
+                   INSERT INTO pages(tenant_id,id,parent_id,type,name,acl_anchor_id)
                    SELECT $1::text::uuid,gen_random_uuid(),$2::text::uuid,'file',
                      'file-' || i,$3::text::uuid FROM generate_series(1,401) AS i
                    """,

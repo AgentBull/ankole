@@ -34,6 +34,7 @@ defmodule AnkoleWeb.PodChatArtifactsTest do
         conversationID: id,
         messageID: first_id,
         agentUID: agent.uid,
+        roomMode: "group",
         pageID: reference.id,
         text: "Review the original source and attachment.",
         links: [%{kind: "page", id: reference.id}],
@@ -132,6 +133,7 @@ defmodule AnkoleWeb.PodChatArtifactsTest do
 
     assert {:ok, other} =
              Ankole.ConversationsFixtures.create(uid, %{
+               room_mode: :group,
                conversation_id: Ecto.UUID.generate(),
                message_id: Ecto.UUID.generate(),
                agent_uid: agent.uid,

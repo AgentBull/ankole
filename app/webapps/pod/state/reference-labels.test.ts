@@ -16,7 +16,15 @@ const record = (id: string): BaseRecord => ({
 test('reference labels retain 1000-ID batches and follow response pages smaller than each batch', async () => {
   const ids = Array.from({ length: 1001 }, (_, index) => String(index))
   const definition: TableSchema = {
-    table: { id: 'target', page_id: 'page', name: 'Target', data_version: 1, record_count: ids.length },
+    table: {
+      id: 'target',
+      page_id: 'page',
+      name: 'Target',
+      data_version: 1,
+      record_count: ids.length,
+      unique_field_ids: [],
+      emit_changes: false
+    },
     fields: [{ id: 'name', name: 'Name', type: 'text', config: {}, version: 1, is_primary: true }],
     views: [],
     mode: 'local'

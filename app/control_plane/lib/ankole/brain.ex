@@ -10,21 +10,18 @@ defmodule Ankole.Brain do
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
-  alias Ankole.Brain.{Chunks, Claims, Dreaming, Links, Merge, Objects, Promotion, Sources}
+  alias Ankole.Brain.{Chunks, Claims, Dreaming, Merge, Objects, Promotion, Sources}
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Contradiction
   alias Ankole.Brain.Schemas.MergeSuggestion
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.ObjectVersion
+  alias Ankole.Brain.Schemas.Page
   alias Ankole.Brain.Schemas.SchemaSuggestion
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Repo
 
-  defdelegate principal_page_slug(type, uid), to: Ankole.Brain.Scope
+  defdelegate external_audience(conversation), to: Ankole.Brain.RequestContext
 
-  defdelegate rename_principal_references_in_tx(old_uid, new_uid, principal_type),
-    to: Ankole.Brain.PrincipalReferences,
-    as: :rename_in_tx
+  defdelegate principal_page_slug(type, uid), to: Ankole.Brain.Scope
 
   # The Console API (`AnkoleWeb.JSONAPI.ConsoleRouter`). An Object slug can
   # contain `/`, so an Object operation takes the slug in the query or in the
@@ -61,18 +58,8 @@ defmodule Ankole.Brain do
         )
       end
 
-      base_route "/brain/objects", Object do
+      base_route "/brain/objects", Page do
         index(:console_list, name: "list_brain_objects", derive_sort?: false)
-        route(:post, "/", :console_create, name: "create_brain_object")
-        route(:patch, "/", :console_update, name: "update_brain_object")
-        route(:post, "/fork", :fork_library_page, name: "fork_brain_object")
-        route(:post, "/rollback", :console_rollback, name: "rollback_brain_object")
-        route(:post, "/forget", :console_forget, name: "forget_brain_object")
-        route(:post, "/restore", :restore_object, name: "restore_brain_object")
-      end
-
-      base_route "/brain/object-versions", ObjectVersion do
-        index(:console_list, name: "list_brain_object_versions", derive_sort?: false)
       end
 
       base_route "/brain/claims", Claim do
@@ -120,10 +107,10 @@ defmodule Ankole.Brain do
   end
 
   resources do
+    resource(Ankole.Brain.Browser)
     resource(Ankole.Brain.ConsoleViews)
-    resource(Ankole.Brain.Schemas.Object)
+    resource(Ankole.Brain.Schemas.Page)
     resource(Ankole.Brain.Schemas.Chunk)
-    resource(Ankole.Brain.Schemas.ObjectVersion)
     resource(Ankole.Brain.Schemas.Claim)
     resource(Ankole.Brain.Schemas.Source)
     resource(Ankole.Brain.Schemas.Timeline)
@@ -142,41 +129,38 @@ defmodule Ankole.Brain do
   end
 
   def create_object(attrs, writer),
-    do: Repo.transact_top_level(fn -> Objects.create_object_in_tx(attrs, writer) end)
+    do:
+      Repo.transact_top_level(fn -> Objects.create_object_in_tx(attrs, writer) end,
+        after_commit: &Ankole.Brain.Namespace.committed/1
+      )
 
   def update_object(slug, attrs, writer, opts \\ %{}) do
-    Repo.transact_top_level(fn ->
-      Objects.update_object_in_tx(slug, attrs, writer, author: opts[:author])
-    end)
+    Repo.transact_top_level(
+      fn ->
+        Objects.update_object_in_tx(slug, attrs, writer, author: opts[:author])
+      end,
+      after_commit: &Ankole.Brain.Namespace.committed/1
+    )
   end
 
   def upsert_source_projection(source, attrs),
-    do: Repo.transact_top_level(fn -> Objects.upsert_source_projection_in_tx(source, attrs) end)
+    do:
+      Repo.transact_top_level(fn -> Objects.upsert_source_projection_in_tx(source, attrs) end,
+        after_commit: &Ankole.Brain.Namespace.committed/1
+      )
 
   def soft_delete_object(slug, opts \\ %{}) do
-    Repo.transact_top_level(fn ->
-      Objects.soft_delete_in_tx(slug, reason: opts[:reason], by: opts[:by])
-    end)
+    Repo.transact_top_level(
+      fn ->
+        Objects.soft_delete_in_tx(slug, reason: opts[:reason], by: opts[:by])
+      end,
+      after_commit: &Ankole.Brain.Namespace.committed/1
+    )
   end
-
-  def rollback_object(slug, version_id, writer, opts \\ %{}) do
-    Repo.transact_top_level(fn ->
-      Objects.rollback_in_tx(slug, version_id, writer, author: opts[:author])
-    end)
-  end
-
-  def fork_library_page(slug),
-    do: Repo.transact_top_level(fn -> Objects.fork_library_page_in_tx(slug) end)
-
-  def restore_object(slug),
-    do: Repo.transact_top_level(fn -> Objects.restore_in_tx(slug) end)
 
   def reconcile_chunks(object, opts \\ %{}),
     do:
       Repo.transact_top_level(fn -> Chunks.reconcile_in_tx(object, chunking: opts[:chunking]) end)
-
-  def reconcile_object_links(slug),
-    do: Repo.transact_top_level(fn -> Links.reconcile_object_links_in_tx(slug) end)
 
   def write_fact(attrs, writer, opts \\ %{}),
     do: Claims.write_fact(attrs, writer, opts[:options] || [])
@@ -214,18 +198,24 @@ defmodule Ankole.Brain do
     do: Repo.transact_top_level(fn -> Sources.update_default_scope_in_tx(source_id, scope) end)
 
   def approve_promotion(suggestion_id, decided_by, opts \\ %{}) do
-    Repo.transact_top_level(fn ->
-      Promotion.approve_in_tx(suggestion_id, decided_by, opts[:attrs] || %{})
-    end)
+    Repo.transact_top_level(
+      fn ->
+        Promotion.approve_in_tx(suggestion_id, decided_by, opts[:attrs] || %{})
+      end,
+      after_commit: &Ankole.Brain.Namespace.committed/1
+    )
   end
 
   def reject_promotion(suggestion_id, decided_by),
     do: Repo.transact_top_level(fn -> Promotion.reject_in_tx(suggestion_id, decided_by) end)
 
   def approve_merge(suggestion_id, decided_by, opts \\ %{}) do
-    Repo.transact_top_level(fn ->
-      Merge.approve_in_tx(suggestion_id, decided_by, opts[:attrs] || %{})
-    end)
+    Repo.transact_top_level(
+      fn ->
+        Merge.approve_in_tx(suggestion_id, decided_by, opts[:attrs] || %{})
+      end,
+      after_commit: &Ankole.Brain.Namespace.committed/1
+    )
   end
 
   def reject_merge(suggestion_id, decided_by),

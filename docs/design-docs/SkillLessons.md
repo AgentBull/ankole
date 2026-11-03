@@ -43,8 +43,10 @@ and `teach` synchronize the Skill catalog within the same transaction.
 `Ankole.AIAgent` is the Ash domain that owns the library resources, and other
 domains read lesson rows through its domain functions.
 
-Stored lessons persist even if their Skill is disabled or removed, so historical
-rows remain visible in listings.
+Stored lessons persist when their Skill is disabled or removed, so historical
+rows remain visible in listings. Renaming a custom package moves its lesson
+references with it. Deleting the package retires its active lessons as obsolete;
+creating another package with that slug does not reactivate them.
 
 ## Production: Evidence and Reflection
 
@@ -92,6 +94,12 @@ identifier and Skill content hash against which Ankole validated it. Rejected
 proposals are reported with rejection reasons rather than stored.
 
 ## Review
+
+Dreaming discovers all active Agent Principals, including Agents whose effective
+Skills come entirely from defaults or Plugins. The review fingerprint hashes the
+current Skill manifest from the Library. Each docket entry reports the reasons
+that actually apply: release change, Skill change, or a lease within the review
+horizon.
 
 A dreaming lesson enters the review docket when its lease approaches expiration
 within the review horizon or when its stored `checked_release` or

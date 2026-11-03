@@ -100,6 +100,7 @@ export function subscribeConversationEvents(
       .cancelQueries({ queryKey: podKeys.detail(id) })
       .then(() => client.removeQueries({ queryKey: podKeys.detail(id) }))
     void client.invalidateQueries({ queryKey: podKeys.conversations })
+    void client.invalidateQueries({ queryKey: podKeys.agents })
     if (!hasUnsentChatWork(model)) onExit()
   })
   return () => events.close()

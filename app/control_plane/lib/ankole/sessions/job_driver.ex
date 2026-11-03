@@ -96,8 +96,11 @@ defmodule Ankole.Sessions.JobDriver do
   def handle_event(:info, {:worker, :worker_progress, _}, :running, data),
     do: {:keep_state, data, [{:state_timeout, @poll_ms, :poll}]}
 
-  def handle_event(:info, :reconcile_inbox, :idle, data), do: rebuild(data)
-  def handle_event(:info, {:inbox, _}, :idle, data), do: rebuild(data)
+  def handle_event(:info, :reconcile_inbox, state, data) when state in [:idle, :deferred],
+    do: rebuild(data)
+
+  def handle_event(:info, {:inbox, _}, state, data) when state in [:idle, :deferred],
+    do: rebuild(data)
 
   def handle_event(:info, :reconcile_inbox, state, data) when state in [:starting, :running],
     do: {:keep_state, task(data, :mailbox, fn -> CodexJob.mailbox(data.attempt) end)}
@@ -244,8 +247,8 @@ defmodule Ankole.Sessions.JobDriver do
   end
 
   defp task(data, kind, fun) do
-    if kind == :mailbox and Enum.any?(data.tasks, fn {_, {running, _}} -> running == :mailbox end) do
-      %{data | mailbox_dirty: true}
+    if Enum.any?(data.tasks, fn {_, {running, _}} -> running == kind end) do
+      if kind == :mailbox, do: %{data | mailbox_dirty: true}, else: data
     else
       task = Task.Supervisor.async_nolink(Ankole.Sessions.Tasks, Repo.bind_tenant(fun))
       %{data | tasks: Map.put(data.tasks, task.ref, {kind, task.pid})}

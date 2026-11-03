@@ -135,7 +135,7 @@ test.describe('Pod laboratory performance measurement', () => {
             await action('undo character', () => page.keyboard.press('ControlOrMeta+z'))
             await expect(editable).not.toContainText('x')
             await action('open page chat', async () => {
-              await page.getByRole('button', { name: '页面对话', exact: true }).click()
+              await page.getByRole('button', { name: '助理', exact: true }).click()
               await expect(page.getByRole('textbox', { name: '消息', exact: true })).toBeVisible()
             })
           } else {

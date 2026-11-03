@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import type { DriveView } from '../../drive/mounts'
 import {
   runWorkspaceCommand,
   runWorkspaceProcess,
@@ -28,6 +29,7 @@ export interface ContainerComputer {
 }
 
 interface ContainerComputerOptions {
+  driveView?: DriveView
   /** Operator-managed variables applied to every command. */
   workerEnv?: Record<string, string>
   /** Trusted turn variables applied to every command. */
@@ -133,7 +135,7 @@ export function createContainerComputer(
 
   return {
     runCommand(input) {
-      return runWorkspaceCommand({ ...input, workerEnv, runtimeEnv }, root, cwd)
+      return runWorkspaceCommand({ ...input, workerEnv, runtimeEnv, driveView: options.driveView }, root, cwd)
     },
     async readFileWindow(input, opts) {
       const target = computerPath(root, cwd, input.path, input.cwd)
@@ -147,7 +149,8 @@ export function createContainerComputer(
             String(input.offset),
             String(input.limit)
           ],
-          signal: opts?.signal
+          signal: opts?.signal,
+          driveView: options.driveView
         },
         root,
         cwd
@@ -166,7 +169,8 @@ export function createContainerComputer(
       const result = await runWorkspaceProcess(
         {
           commandArgv: [process.execPath, '-e', ReadFileBytesScript, target, String(input.maxBytes)],
-          signal: opts?.signal
+          signal: opts?.signal,
+          driveView: options.driveView
         },
         root,
         cwd

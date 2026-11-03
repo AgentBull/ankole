@@ -1,5 +1,7 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test, type Page, type Response, type Route } from '@playwright/test'
+import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 import type { ConversationDetail, PodActivity } from '../pod/api'
+import type { PodAgentsResponse, PodConversationsResponse } from '../pod/api/generated/types.gen'
 import { conversationRoute } from './pod-browser/routes'
 
 const base = '/api/v2/pod'
@@ -7,6 +9,7 @@ const oldID = '00112233-4455-6677-8899-aabbccddeeff'
 const agent = {
   uid: 'agent-one',
   displayName: 'Research Agent',
+  agentType: 'personal_assistant',
   active: true,
   type: 'agent' as const,
   mayIntervene: true
@@ -34,6 +37,7 @@ function detail(id = oldID, text = 'Existing history'): ConversationDetail {
       canDelete: true,
       canManage: true,
       roomMode: 'dm',
+      conversationKind: 'assistant_task',
       titleCustomized: false,
       createdBy: 'person',
       lastMessageSeq: 1,
@@ -72,6 +76,19 @@ function detail(id = oldID, text = 'Existing history'): ConversationDetail {
   }
 }
 async function pod(page: Page) {
+  await page.route('**/api/v2/browser/session', route =>
+    route.fulfill({
+      json: {
+        authenticated: true,
+        principalUID: 'person',
+        displayName: 'Person',
+        canManagePod: false,
+        accounts: [],
+        pendingAccounts: [],
+        siteAuthentications: []
+      } satisfies BrowserSessionResponse
+    })
+  )
   await page.addInitScript(() => {
     const streams: EventTarget[] = []
     Object.assign(window, { testStreams: streams })
@@ -93,14 +110,28 @@ async function pod(page: Page) {
   let readError: { status: number; json: unknown } | undefined
   const writes: Route[] = []
   await page.route(`**${base}/**`, async route => {
-    const path = new URL(route.request().url()).pathname
+    const url = new URL(route.request().url())
+    const path = url.pathname
     if (route.request().method() === 'POST') {
       writes.push(route)
       return
     }
-    if (path.endsWith('/agents')) return route.fulfill({ json: { agents: [agent] } })
+    if (path.endsWith('/agents')) {
+      return route.fulfill({
+        json: { agents: [], personalAssistant: agent, personalAssistantAvailable: true } satisfies PodAgentsResponse
+      })
+    }
+    if (path.endsWith('/attention')) return route.fulfill({ json: [] })
     if (path.endsWith('/conversations')) {
-      return route.fulfill({ json: { conversations: [detail().conversation, ...(saved ? [saved.conversation] : [])] } })
+      return route.fulfill({
+        json: {
+          conversations:
+            url.searchParams.get('imOnly') === 'true'
+              ? []
+              : [detail().conversation, ...(saved ? [saved.conversation] : [])],
+          nextCursor: null
+        } satisfies PodConversationsResponse
+      })
     }
     if (readError) return route.fulfill(readError)
     return route.fulfill({ json: path.endsWith(oldID) ? current : (saved ?? detail()) })
@@ -124,45 +155,60 @@ async function pod(page: Page) {
   }
 }
 
+async function openChat(page: Page, path = '/') {
+  await page.goto(path)
+  await page
+    .getByRole('tabpanel', { name: 'Chat' })
+    .getByRole('button', { name: 'Personal assistant', exact: true })
+    .click()
+}
+
 test('a completed create updates the actual sidebar without replacing the conversation the user opened', async ({
   page
 }) => {
   const server = await pod(page)
-  await page.goto('/')
+  await openChat(page)
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('First message')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(1)
-  await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
+  await page
+    .getByRole('tabpanel', { name: 'Chat' })
+    .getByRole('link', { name: 'Existing conversation', exact: true })
+    .click()
   await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
   await server.complete()
-  await expect(page.getByRole('link', { name: 'Created conversation', exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('tabpanel', { name: 'Chat' }).getByRole('link', { name: 'Created conversation', exact: true })
+  ).toBeVisible()
   await expect(page).toHaveURL(url => url.pathname === conversationRoute(oldID))
   await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
 })
 
 test('returning to a new page preserves its separate draft when the old create finishes', async ({ page }) => {
   const server = await pod(page)
-  await page.goto('/')
+  await openChat(page)
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('First message')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(1)
-  await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
-  await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
   await page
     .getByRole('tabpanel', { name: 'Chat' })
-    .getByRole('link', { name: 'New conversation', exact: true })
+    .getByRole('link', { name: 'Existing conversation', exact: true })
     .click()
+  await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'New conversation', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1, name: /What can we work on/ })).toBeVisible()
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Separate draft')
   await server.complete()
-  await expect(page.getByRole('link', { name: 'Created conversation', exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('tabpanel', { name: 'Chat' }).getByRole('link', { name: 'Created conversation', exact: true })
+  ).toBeVisible()
   await expect(page).toHaveURL(url => url.pathname === '/')
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Separate draft')
 })
 
 test('a create that stays on its page still navigates, and retry preserves the submitted IDs', async ({ page }) => {
   const server = await pod(page)
-  await page.goto('/')
+  await openChat(page)
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('First message')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(1)
@@ -180,16 +226,16 @@ test('a failed first create remains reachable from New and retries its original 
   page
 }) => {
   const server = await pod(page)
-  await page.goto('/')
+  await openChat(page)
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Recover this first create')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(1)
   const original = server.writes[0]!.request().postDataJSON().data
-  await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
   await page
     .getByRole('tabpanel', { name: 'Chat' })
-    .getByRole('link', { name: 'New conversation', exact: true })
+    .getByRole('link', { name: 'Existing conversation', exact: true })
     .click()
+  await page.getByRole('link', { name: 'New conversation', exact: true }).click()
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Newer local draft')
   await server.writes[0]!.fulfill({ status: 503, json: { error: 'unavailable' } })
   const recovery = page.getByRole('region', { name: 'Retained chat text' })
@@ -203,13 +249,16 @@ test('a failed first create remains reachable from New and retries its original 
     messageID: original.messageID,
     text: original.text
   })
-  await page
-    .getByRole('tabpanel', { name: 'Chat' })
-    .getByRole('link', { name: 'New conversation', exact: true })
-    .click()
+  await page.getByRole('link', { name: 'New conversation', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('')
+  const newerDraft = recovery.locator('div').filter({ has: page.locator('textarea', { hasText: 'Newer local draft' }) })
+  await expect(newerDraft.getByRole('textbox')).toHaveValue('Newer local draft')
+  await newerDraft.getByRole('button', { name: 'Restore', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Newer local draft')
   await server.complete(1)
-  await expect(page.getByRole('link', { name: 'Created conversation', exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('tabpanel', { name: 'Chat' }).getByRole('link', { name: 'Created conversation', exact: true })
+  ).toBeVisible()
   await expect(page).toHaveURL(url => url.pathname === '/')
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Newer local draft')
 })
@@ -291,9 +340,11 @@ async function streamEvent(page: Page, event = 'conversation') {
   }, event)
 }
 
-test('SSE confirmation keeps POST pending and a late failure does not revive the confirmed send', async ({ page }) => {
+test('SSE confirmation preserves an editable draft while POST is pending, and a late failure does not revive the send', async ({
+  page
+}) => {
   const server = await pod(page)
-  await page.goto(conversationRoute(oldID))
+  await openChat(page, conversationRoute(oldID))
   await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Already committed')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
@@ -304,18 +355,21 @@ test('SSE confirmation keeps POST pending and a late failure does not revive the
   server.setDetail(snapshot)
   await streamEvent(page)
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('')
-  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeDisabled()
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEditable()
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Next draft')
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled()
   await expect(page.getByText('Already committed', { exact: true })).toBeVisible()
   await server.writes[0]!.fulfill({ status: 503, json: { error: 'lost acknowledgement' } })
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Next draft')
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled()
   await expect(page.getByText('Send not confirmed', { exact: true })).not.toBeVisible()
   expect(server.writes).toHaveLength(1)
 })
 
 test('a late POST failure after reopening cannot fail the newer send or change its retry IDs', async ({ page }) => {
   const server = await pod(page)
-  await page.goto(conversationRoute(oldID))
+  await openChat(page, conversationRoute(oldID))
   await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
   const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await composer.fill('Same text')
@@ -325,12 +379,12 @@ test('a late POST failure after reopening cannot fail the newer send or change i
   const snapshot = detail(oldID, first.text)
   snapshot.messages[0] = { ...snapshot.messages[0]!, id: first.messageID, authorType: 'human' }
   server.setDetail(snapshot)
+  await page.getByRole('link', { name: 'New conversation', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1, name: /What can we work on/ })).toBeVisible()
   await page
     .getByRole('tabpanel', { name: 'Chat' })
-    .getByRole('link', { name: 'New conversation', exact: true })
+    .getByRole('link', { name: 'Existing conversation', exact: true })
     .click()
-  await expect(page.getByRole('heading', { level: 1, name: /What can we work on/ })).toBeVisible()
-  await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
   await streamEvent(page)
   await expect(page.getByText('Same text', { exact: true })).toBeVisible()
   await expect(composer).toHaveValue('')
@@ -340,7 +394,7 @@ test('a late POST failure after reopening cannot fail the newer send or change i
   const second = server.writes[1]!.request().postDataJSON().data
   expect(second.messageID).not.toBe(first.messageID)
   await server.writes[0]!.fulfill({ status: 503, json: { error: 'lost first acknowledgement' } })
-  await expect(composer).toBeDisabled()
+  await expect(composer).toBeEditable()
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled()
   await expect(composer).toHaveValue(second.text)
   await expect(page.getByRole('button', { name: 'Retry sending', exact: true })).not.toBeVisible()
@@ -352,7 +406,7 @@ test('a late POST failure after reopening cannot fail the newer send or change i
 
 test('a precise GET gone response hides history and composer and closes the mounted stream', async ({ page }) => {
   const server = await pod(page)
-  await page.goto(conversationRoute(oldID))
+  await openChat(page, conversationRoute(oldID))
   await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
   server.failReads(404, { error: { code: 'conversation_not_found', message: 'Conversation not found' } })
   await streamEvent(page)
@@ -372,7 +426,7 @@ test('a precise GET gone response hides history and composer and closes the moun
 
 test('an independent POST gone response closes the stream even while detail remains cached', async ({ page }) => {
   const server = await pod(page)
-  await page.goto(conversationRoute(oldID))
+  await openChat(page, conversationRoute(oldID))
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('No longer allowed')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(1)
@@ -414,11 +468,18 @@ test('current activity survives reconnect snapshots, clears at completion, and n
   page
 }) => {
   const server = await pod(page)
+  const isDetailRead = (response: Response) =>
+    response.request().method() === 'GET' && new URL(response.url()).pathname === `${base}/conversations/${oldID}`
   let reads = 0
   page.on('request', request => {
     if (request.method() === 'GET' && new URL(request.url()).pathname === `${base}/conversations/${oldID}`) reads++
   })
-  await page.goto(conversationRoute(oldID))
+  // Opening a room marks it read and refreshes the loaded message window.
+  const initialRefresh = page.waitForResponse(
+    response => isDetailRead(response) && new URL(response.url()).searchParams.has('loadedFirstSeq')
+  )
+  await openChat(page, conversationRoute(oldID))
+  await (await initialRefresh).finished()
   await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
   const emit = (snapshot: Record<string, unknown>) =>
     page.evaluate(value => {
@@ -444,15 +505,20 @@ test('current activity survives reconnect snapshots, clears at completion, and n
   const before = reads
   await emit(snapshot)
   await expect(page.getByText('Waiting for computer capacity', { exact: true })).toBeVisible()
+  expect(reads).toBe(before)
+  const disconnectRefresh = page.waitForResponse(isDetailRead)
   await page.evaluate(() => {
     const stream = (window as unknown as { testStreams: EventSource[] }).testStreams.at(-1)!
     stream.onerror?.call(stream, new Event('error'))
   })
+  await (await disconnectRefresh).finished()
   await expect(page.getByText('Waiting for computer capacity', { exact: true })).not.toBeVisible()
+  const reconnectRefresh = page.waitForResponse(isDetailRead)
   await page.evaluate(() => {
     const stream = (window as unknown as { testStreams: EventSource[] }).testStreams.at(-1)!
     stream.onopen?.call(stream, new Event('open'))
   })
+  await (await reconnectRefresh).finished()
   await emit(snapshot)
   await expect(page.getByText('Waiting for computer capacity', { exact: true })).toBeVisible()
   const afterReconnect = reads
@@ -477,7 +543,7 @@ test('current activity survives reconnect snapshots, clears at completion, and n
   await expect(page.getByText('Reading the report', { exact: true })).not.toBeVisible()
   expect(reads).toBe(afterReconnect)
   // Disconnect and reconnect each refresh once; activity frames never do.
-  expect(afterReconnect - before).toBeLessThanOrEqual(2)
+  expect(afterReconnect - before).toBe(2)
 })
 
 test('an in-flight detail cannot restore unavailable activity, while a fresh reconnect snapshot can', async ({
@@ -497,7 +563,7 @@ test('an in-flight detail cannot restore unavailable activity, while a fresh rec
     tools: []
   }
   server.setDetail({ ...detail(), activities: [snapshot] })
-  await page.goto(conversationRoute(oldID))
+  await openChat(page, conversationRoute(oldID))
   await expect(page.getByText('Still waiting for computer capacity', { exact: true })).toBeVisible()
   let held: Route | undefined
   const hold = (route: Route) => {

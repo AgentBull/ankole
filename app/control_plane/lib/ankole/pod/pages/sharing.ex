@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Pages.Sharing do
   @moduledoc "Owns page sharing and Space access settings."
   import Bitwise
   alias Ankole.{AuthZ, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Pages}
   alias Ankole.Pod.Pages.Collaborators
 
@@ -685,7 +685,8 @@ defmodule Ankole.Pod.Pages.Sharing do
     if expected == sharing_version(page, grants), do: :ok, else: {:error, :sharing_conflict}
   end
 
-  defp meaningful_actions?(%{type: type}, "self", actions) when type in [:doc, :file] do
+  defp meaningful_actions?(%{type: type}, "self", actions)
+       when type in [:doc, :knowledge, :file] do
     "node_contribute" not in actions or
       "node_comment" in actions or
       "node_edit" in actions or

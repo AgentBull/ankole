@@ -22,6 +22,7 @@ import type {
 } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { HostedTool } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
+import type { DriveVfsConfig } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 
 export type RunRef = { session: { session_id: string }; signal_id: string }
 export type JobTurnRef = RunRef & { job_id: number; attempt: number }
@@ -58,6 +59,7 @@ export type SignalEnvelope = {
 }
 
 export type TurnStart = {
+  drive_vfs?: DriveVfsConfig
   fetch_runtime_config: RenderedFetchRuntimeConfig
   mode: 'start' | 'adopt'
   agent_context?: AgentConversationContextResponse
@@ -106,6 +108,7 @@ export function turnStartFromEnvelope(envelope: Envelope): TurnStart {
   if (turnStart.mode !== 'start' && turnStart.mode !== 'adopt') throw new Error('invalid turn_start.mode')
   return {
     mode: turnStart.mode,
+    drive_vfs: turnStart.driveVfs,
     agent_context: turnStart.agentContext,
     turn: jobTurnRefFromProto(turnStart.turn, 'turn_start.turn'),
     signal: signalFromProto(turnStart.signal),

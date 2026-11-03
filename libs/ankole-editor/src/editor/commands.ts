@@ -5,11 +5,13 @@ import { formats, ImageTitle } from './schema'
 import { GardSelection } from '../core/state'
 import { Image, ImageAlt } from '../core/types'
 import { dispatchStep } from './block-insert'
+import { isKnowledge } from './knowledge'
 
 export type FormatName = keyof typeof formats
 
 /** Toggle a text format on the selection. Returns whether the command applied. */
 export function toggleFormat(editor: Wordgard, format: FormatName): boolean {
+  if (isKnowledge(editor.state) && !['strong', 'em', 's', 'code'].includes(format)) return false
   return Command.dispatch(editor, toggleMark, formats[format])
 }
 

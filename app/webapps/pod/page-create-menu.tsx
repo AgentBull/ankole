@@ -15,7 +15,7 @@ import { RiAddLine, RiFileAddLine, RiFileExcel2Line, RiLoader4Line } from '@remi
 import { useRef } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { podLocation } from '../common/browser-context'
+import { podPagePath } from '../common/pod-url'
 import { requestErrorMessage } from '../common/request-errors'
 import { podSpreadsheetCreate } from './api/generated/sdk.gen'
 import { directoryCapabilitiesQuery, pageAPI, type Page } from './content-api'
@@ -32,7 +32,7 @@ export type CreatePageOptions = {
   onCreated?: (page: Page) => void
 }
 
-type PageType = 'doc' | 'base' | 'folder' | 'spreadsheet' | 'file'
+type PageType = 'doc' | 'knowledge' | 'base' | 'spreadsheet' | 'file'
 type Destination = { parent_id?: string; private_owner_uid?: string }
 
 export type PageCreation = {
@@ -88,7 +88,7 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
       })
       pageCreated(client, page)
       if (callback) callback(page)
-      else void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
+      else void navigate({ to: podPagePath(page.id, page.title) })
     } catch (error) {
       toast.error(requestErrorMessage(contentError(error)))
     }
@@ -132,7 +132,7 @@ export function useSubpageCreation() {
         const { page } = await mutation.mutateAsync({ input, parentID })
         pageCreated(client, page)
         if (onCreated) onCreated(page)
-        else void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
+        else void navigate({ to: podPagePath(page.id, page.title) })
       } catch (error) {
         toast.error(requestErrorMessage(contentError(error)))
       }
@@ -141,7 +141,7 @@ export function useSubpageCreation() {
   return forParent
 }
 
-const pageTypes = ['doc', 'base', 'folder', 'spreadsheet', 'file'] as const
+const pageTypes = ['doc', 'base', 'spreadsheet', 'file'] as const
 
 function PageTypeItems({ create, types = pageTypes }: { create: PageCreation; types?: readonly PageType[] }) {
   useTranslation()
@@ -164,8 +164,9 @@ export function CreatePageButton({
   compact = false,
   disabled = false,
   label: providedLabel,
+  types,
   onCreated
-}: CreatePageOptions & { compact?: boolean; disabled?: boolean; label?: string }) {
+}: CreatePageOptions & { compact?: boolean; disabled?: boolean; label?: string; types?: readonly PageType[] }) {
   const { t } = useTranslation()
   const label = providedLabel ?? t('pod.content.new_page')
   const needsCapabilities = !parentID && scope === undefined
@@ -199,7 +200,7 @@ export function CreatePageButton({
         {!compact && (create.isPending ? t('pod.content.creating') : label)}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56" aria-label={label}>
-        <PageTypeItems create={create} />
+        <PageTypeItems create={create} types={types} />
       </DropdownMenuContent>
     </DropdownMenu>
   )

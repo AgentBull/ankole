@@ -101,7 +101,6 @@ Agent 是系统的核心工作主体，绝大多数运维配置都围绕它展�
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 为指定 Agent 单独覆盖某个 Plugin 的开关 |
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/skills/:id` | 为指定 Agent 单独覆盖某个 Skill 的开关 |
 | `GET` | `/api/v2/agents/:agent_uid/library-documents` | 读取指定 Agent 的四份长期设定文档 |
-| `PUT` | `/api/v2/agents/:agent_uid/library-documents/:document_kind` | 更新指定类型的长期设定文档 |
 | `GET` | `/api/v2/agents/:agent_uid/skill-lessons` | 列出该 Agent 当前生效及已退役的技能教训 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | 为已启用的 Skill 手动新增人工技能教训 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | 将指定技能教训标记为退役 |

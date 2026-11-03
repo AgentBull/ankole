@@ -33,6 +33,26 @@ defmodule Ankole.E2E.PodContentStory do
     {:ok, owner_principal} = Ankole.Principals.get_principal(owner)
     ctx = Map.put(ctx, :owner_actor, Actor.new(owner_principal))
 
+    assert {:ok, %{principal: assistant}} =
+             Ankole.Principals.create_agent(%{
+               uid: owner <> "_assistant",
+               type: :personal_assistant,
+               display_name: "Personal assistant",
+               role: "Personal assistant",
+               owner_principal_uid: owner,
+               worker_provider_id: Ankole.E2E.DockerWorker.provider_id!()
+             })
+
+    for profile <- ["primary", "light"] do
+      assert {:ok, _} =
+               ModelProfiles.put_model_profile(assistant.uid, profile, %{
+                 provider_id: ctx.provider_id,
+                 model: "deepseek/deepseek-v4.1-flash"
+               })
+    end
+
+    ctx = %{ctx | agent: assistant, container: request_worker!(assistant.uid)}
+
     assert {:ok, _} =
              ModelProfiles.put_model_profile(ctx.agent.uid, "coding", %{
                provider_id: ctx.provider_id,

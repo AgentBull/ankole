@@ -9,7 +9,7 @@ defmodule Ankole.Pod.Documents.History do
   """
   require Ash.Query
   alias Ankole.{AuthZ, Kernel, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Documents, PageContent, Pages, PageSnapshot, Serialization}
 
   @checkpoint_seconds 300
@@ -21,6 +21,7 @@ defmodule Ankole.Pod.Documents.History do
     :revision,
     :title,
     :icon,
+    :metadata,
     :author,
     :document_updated_at,
     :created_at,
@@ -37,7 +38,8 @@ defmodule Ankole.Pod.Documents.History do
         query =
           PageSnapshot
           |> Ash.Query.for_read(:list)
-          |> Ash.Query.filter(page_id == ^page.id and created_at >= ^cutoff())
+          |> Ash.Query.filter(page_id == ^page.id)
+          |> retained(page)
           |> Ash.Query.sort(created_at: :desc, id: :desc)
           |> Ash.Query.select(@summary_fields)
 
@@ -59,7 +61,7 @@ defmodule Ankole.Pod.Documents.History do
   def read(actor, id, snapshot_id) do
     Repo.transact_top_level(fn ->
       with {:ok, page} <- authorized_page(actor, id, :share),
-           {:ok, snapshot} <- fetch(page.id, snapshot_id) do
+           {:ok, snapshot} <- fetch(page, snapshot_id) do
         profiles = Serialization.author_profiles([snapshot.author])
         {:ok, %{snapshot: Map.put(present(snapshot, profiles), :content, snapshot.content)}}
       end
@@ -72,23 +74,41 @@ defmodule Ankole.Pod.Documents.History do
       fn ->
         with {:ok, page} <- authorized_page(actor, id, :update),
              :ok <- current(page, base_revision, updated_at),
-             {:ok, snapshot} <- fetch(page.id, snapshot_id) do
-          content = content!(page.id)
+             {:ok, snapshot} <- fetch(page, snapshot_id) do
+          if page.type == :knowledge do
+            Ankole.Pod.Knowledge.put_in_tx(
+              page.id,
+              Map.merge(restored_metadata(page, snapshot), %{
+                xml: snapshot.content,
+                metadata: snapshot.metadata
+              }),
+              actor: actor,
+              base_revision: base_revision,
+              reason: :restored
+            )
+          else
+            content = content!(page.id)
 
-          with {:ok, parsed} <- Kernel.page_restore_comments(content.content, snapshot.content),
-               :ok <-
-                 checkpoint_in_tx(page, content, DateTime.utc_now(:microsecond), :before_restore),
-               {:ok, page} <-
-                 Ankole.Pod.Pages.update_properties_in_tx(
-                   page,
-                   :edit,
-                   restored_metadata(page, snapshot)
-                 ),
-               {:ok, %{page: restored, content: content} = result} <-
-                 Documents.commit_parsed_in_tx(page, content, actor, parsed, force: true),
-               :ok <-
-                 checkpoint_in_tx(restored, content, DateTime.utc_now(:microsecond), :restored) do
-            {:ok, result}
+            with {:ok, parsed} <- Kernel.page_restore_comments(content.content, snapshot.content),
+                 :ok <-
+                   checkpoint_in_tx(
+                     page,
+                     content,
+                     DateTime.utc_now(:microsecond),
+                     :before_restore
+                   ),
+                 {:ok, page} <-
+                   Ankole.Pod.Pages.update_properties_in_tx(
+                     page,
+                     :edit,
+                     restored_metadata(page, snapshot)
+                   ),
+                 {:ok, %{page: restored, content: content} = result} <-
+                   Documents.commit_parsed_in_tx(page, content, actor, parsed, force: true),
+                 :ok <-
+                   checkpoint_in_tx(restored, content, DateTime.utc_now(:microsecond), :restored) do
+              {:ok, result}
+            end
           end
         end
       end,
@@ -98,12 +118,24 @@ defmodule Ankole.Pod.Documents.History do
 
   @doc "Captures the current document before a write; the caller holds the page update lock."
   def checkpoint_in_tx(page, content, now, reason \\ :checkpoint) do
-    latest = latest_in_tx(page.id, now)
+    latest =
+      PageSnapshot
+      |> Ash.Query.filter(page_id == ^page.id)
+      |> retained(page, now)
+      |> Ash.Query.sort(created_at: :desc, id: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.Query.select([:id, :created_at])
+      |> Ankole.Ash.read_one!()
 
-    if reason != :checkpoint or due?(latest, now) do
+    due =
+      page.type == :knowledge or is_nil(latest) or
+        DateTime.diff(now, latest.created_at, :second) >= @checkpoint_seconds
+
+    if reason != :checkpoint or due do
       with {:ok, info} <- Kernel.page_comment_info(content.content) do
         duplicate =
-          reason == :checkpoint and same_checkpoint?(latest, page, info.stripped_xml, now)
+          page.type != :knowledge and reason == :checkpoint and
+            same_checkpoint?(latest, page, info.stripped_xml, now)
 
         if duplicate do
           :ok
@@ -114,13 +146,14 @@ defmodule Ankole.Pod.Documents.History do
                    revision: page.revision,
                    title: page.title,
                    icon: page.icon,
+                   metadata: page.metadata,
                    content: info.stripped_xml,
                    author: content.updated_by,
                    document_updated_at: page.updated_at,
                    created_at: now,
                    reason: reason
                  }),
-               :ok <- prune_in_tx(page.id, now),
+               :ok <- prune_in_tx(page, now),
                do: :ok
         end
       end
@@ -137,7 +170,7 @@ defmodule Ankole.Pod.Documents.History do
   snapshot already holds the same bytes. `object` carries `id` and `sha256`.
   """
   def file_checkpoint_in_tx(page, object, revision, author, now) do
-    latest = latest_in_tx(page.id, now)
+    latest = latest_file_in_tx(page, now)
 
     if due?(latest, now) and not same_file?(latest, object),
       do: append_file_in_tx(page, object, revision, :checkpoint, author, now),
@@ -162,7 +195,7 @@ defmodule Ankole.Pod.Documents.History do
              created_at: now,
              reason: reason
            }),
-         do: prune_in_tx(page.id, now)
+         do: prune_in_tx(page, now)
   end
 
   @doc "Whether a retained snapshot of the page names the object."
@@ -170,7 +203,8 @@ defmodule Ankole.Pod.Documents.History do
     do:
       PageSnapshot
       |> Ash.Query.filter(
-        page_id == ^page_id and object_id == ^object_id and created_at >= ^cutoff()
+        page_id == ^page_id and object_id == ^object_id and
+          created_at >= ^cutoff(DateTime.utc_now(:microsecond))
       )
       |> Ankole.Ash.exists?()
 
@@ -178,7 +212,9 @@ defmodule Ankole.Pod.Documents.History do
   def kept_in_tx?(page_id),
     do:
       PageSnapshot
-      |> Ash.Query.filter(page_id == ^page_id and created_at >= ^cutoff())
+      |> Ash.Query.filter(
+        page_id == ^page_id and created_at >= ^cutoff(DateTime.utc_now(:microsecond))
+      )
       |> Ankole.Ash.exists?()
 
   @doc "Lists the retained spreadsheet snapshots of a page, newest first, with their object digests and sizes."
@@ -204,14 +240,16 @@ defmodule Ankole.Pod.Documents.History do
     do:
       query
       |> Ash.Query.filter(
-        page_id == ^page_id and not is_nil(object_id) and created_at >= ^cutoff()
+        page_id == ^page_id and not is_nil(object_id) and
+          created_at >= ^cutoff(DateTime.utc_now(:microsecond))
       )
       |> Ash.Query.load([:sha256, :size])
 
-  defp latest_in_tx(page_id, now),
+  defp latest_file_in_tx(page, now),
     do:
       PageSnapshot
-      |> Ash.Query.filter(page_id == ^page_id and created_at >= ^cutoff(now))
+      |> Ash.Query.filter(page_id == ^page.id)
+      |> retained(page, now)
       |> Ash.Query.sort(created_at: :desc, id: :desc)
       |> Ash.Query.limit(1)
       |> Ash.Query.select([:id, :created_at, :object_id])
@@ -226,13 +264,18 @@ defmodule Ankole.Pod.Documents.History do
   defp same_file?(latest, object),
     do: latest.object_id == object.id or latest.sha256 == object.sha256
 
-  defp cutoff(now \\ DateTime.utc_now(:microsecond)),
+  defp retained(query, page, now \\ DateTime.utc_now(:microsecond))
+  defp retained(query, %{type: :knowledge}, _now), do: query
+  defp retained(query, _page, now), do: Ash.Query.filter(query, created_at >= ^cutoff(now))
+
+  defp cutoff(now),
     do: DateTime.add(now, -@retention_days * 86_400, :second)
 
-  defp prune_in_tx(page_id, now) do
+  defp prune_in_tx(page, now) do
     keep =
       PageSnapshot
-      |> Ash.Query.filter(page_id == ^page_id and created_at >= ^cutoff(now))
+      |> Ash.Query.filter(page_id == ^page.id)
+      |> retained(page, now)
       |> Ash.Query.sort(created_at: :desc, id: :desc)
       |> Ash.Query.limit(@max_snapshots)
       |> Ash.Query.select([:id])
@@ -241,7 +284,7 @@ defmodule Ankole.Pod.Documents.History do
 
     with {:ok, _} <-
            PageSnapshot
-           |> Ash.Query.filter(page_id == ^page_id and id not in ^keep)
+           |> Ash.Query.filter(page_id == ^page.id and id not in ^keep)
            |> Ash.Query.select([:id])
            |> Ankole.Ash.destroy_where(:purge),
          do: :ok
@@ -251,7 +294,7 @@ defmodule Ankole.Pod.Documents.History do
   def expire(now) do
     result =
       PageSnapshot
-      |> Ash.Query.filter(created_at < ^cutoff(now))
+      |> Ash.Query.filter(created_at < ^cutoff(now) and page.type != :knowledge)
       |> Ash.Query.limit(1000)
       |> Ash.Query.select([:id])
       |> Ankole.Ash.destroy_where(:purge)
@@ -266,7 +309,7 @@ defmodule Ankole.Pod.Documents.History do
   defp same_checkpoint?(nil, _page, _xml, _now), do: false
 
   defp same_checkpoint?(latest, page, xml, now) do
-    case fetch(page.id, latest.id, now) do
+    case fetch(page, latest.id, now) do
       {:ok, snapshot} ->
         snapshot.content == xml and snapshot.title == page.title and snapshot.icon == page.icon
 
@@ -278,7 +321,7 @@ defmodule Ankole.Pod.Documents.History do
   defp authorized_page(actor, id, mode) do
     with {:ok, page} <- Pages.lock(id, mode),
          {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_edit", trash: false),
-         true <- page.type == :doc,
+         true <- page.type in [:doc, :knowledge],
          do: {:ok, page},
          else: (
            false -> {:error, :invalid_page_type}
@@ -296,9 +339,10 @@ defmodule Ankole.Pod.Documents.History do
     end
   end
 
-  defp fetch(page_id, id, now \\ DateTime.utc_now(:microsecond)) do
+  defp fetch(page, id, now \\ DateTime.utc_now(:microsecond)) do
     case PageSnapshot
-         |> Ash.Query.filter(page_id == ^page_id and id == ^id and created_at >= ^cutoff(now))
+         |> Ash.Query.filter(page_id == ^page.id and id == ^id)
+         |> retained(page, now)
          |> Ankole.Ash.read_one!() do
       nil -> {:error, :not_found}
       snapshot -> {:ok, snapshot}

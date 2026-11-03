@@ -195,6 +195,11 @@ its last advertised grant: the Worker backs off and resends `control` or
 `control` and `durable` unblocked. Dropping telemetry never affects turn
 correctness, and RuntimeFabric provides no durable telemetry spool.
 
+A supervised inbound task reports completion even when its handler raises.
+When an RPC task cannot start or cannot route its response, the owning Channel
+returns an RPC error and releases that request's credit. Subsequent frames can
+therefore advance the cumulative acknowledgement and use the same connection.
+
 Outbound `command` lanes allow up to `64` unacknowledged commands per
 connection, and a single WebSocket binary frame caps at `16 MiB`. If a Channel
 process mailbox exceeds `10,000` messages, the Channel closes the socket so the
@@ -380,12 +385,18 @@ periodic heartbeats, and immediately whenever slot usage changes.
 PostgreSQL-assigned numeric workspace ID, resolved Agent context, Binding,
 trusted runtime environment, `FetchRuntimeConfig`, and inactivity timeout. The
 workspace ID maps to `/workspace/sessions/<workspace-id>`—stable across turns
-for one `(agent, session)`. Upon receipt, the Worker materializes `SOUL`,
-`MISSION`, `DESIGN`, `ConfidentialityPolicy`, and enabled Skills (using the
-exact real Skill paths pre-resolved on the control plane by `WorkerBootstrap`;
-reading a Skill alone never requires a Worker) and replies with
-`workspace_ready` (or an error if setup fails; duplicate `workspace_open` frames
-for the same run adopt the open workspace).
+for one `(agent, session)`. Upon receipt, the Worker refreshes the complete
+`AGENTS.md` and `DESIGN.md` contracts in Agent Home. Workers with FUSE read enabled
+Skills through the shared Library mount. `skill_view` returns a stable directory
+under `/workspace/.ankole/turn-skills/<signal-id>/`: the Worker links it to
+`/drive/Skills` when FUSE is available, or fetches complete packages through
+`skills.bundle` into that directory otherwise. The Worker removes the link or
+local copy when the workspace closes. MCP configuration uses the corresponding
+package directory. The control plane reads Skill
+content directly for `skill_view`, so a content read alone does not require a
+Worker. Setup replies with `workspace_ready`, or an error when preparation
+fails; duplicate `workspace_open` frames for the same run adopt the open
+workspace.
 
 If a recovered tool receipt completes a pending tool batch before an in-flight
 `workspace_open` finishes, the Driver cancels that batch's workspace acquisition
@@ -707,14 +718,17 @@ file RPC, while shared Drive files use `files.get` with `node_id`.
 Agent Plugins and Skills merge filesystem packages with PostgreSQL enablement
 state:
 
-- **Filesystem and drive sync**: Built-in packages ship in the container image,
-  while Agent-installed Skills live under `skills/` in the Agent's drive. The
-  control plane reads all manifests from `Ankole.Files` to sync the catalog
-  (leaving the catalog untouched if a read fails and preserving operator
-  enablement overrides across manifest updates). Ahead of each turn or
-  Automation Job attempt, the Worker syncs its `/workspace` `installed-skills`
-  cache from `skills/`—aborting setup if a download fails (see [Files](Files.md))—without
-  mutating the control-plane catalog.
+- **Package and catalog sync**: `Ankole.AIAgent.Library.Skills` owns complete
+  packages and positive Agent bindings. The control plane reconciles shipped
+  packages against their stored whole-package baseline without changing saved
+  enablement. Main runs read the Agent's enabled packages from the shared,
+  read-only `/drive/Skills` mount, or materialize complete packages through
+  `skills.bundle` when FUSE is unavailable. Background Agent Jobs and Automation attempts
+  obtain `skills.bundle` through `pod.read`, restricted to their initial Skill
+  selection intersected with the Agent's current enablement. They materialize
+  each complete package in a separate execution directory. A download failure
+  aborts preparation.
+
 - **Skill lesson overlays**: Workers batch-fetch per-Agent Skill lessons via
   `skills.overlay.resolve`, which synchronizes the Agent registry once, reads
   Skill and lesson rows as sets, and returns exactly one rendered lesson block

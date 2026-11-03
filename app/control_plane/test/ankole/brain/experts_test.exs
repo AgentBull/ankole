@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.ExpertsTest do
   use Ankole.DataCase, async: true
+  import Ankole.BrainFixtures
 
   import Ankole.PrincipalsFixtures
 
@@ -15,7 +16,7 @@ defmodule Ankole.Brain.ExpertsTest do
     %{principal: outsider} = human_fixture()
 
     {:ok, _topic} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "concepts/quantum-sensing", type: "concept", title: "Quantum Sensing"},
         querier.uid
       )
@@ -25,11 +26,11 @@ defmodule Ankole.Brain.ExpertsTest do
     {:ok, _fact} =
       Ankole.Brain.write_fact(
         %{
-          object_slug: "concepts/quantum-sensing",
+          subject_page_id: page_id("concepts/quantum-sensing"),
           claim: "Quantum sensing market doubles every two years",
           kind: "fact",
           holder: holder,
-          audience_scope: "world",
+          source_node_id: source_node("world"),
           notability: "high",
           confidence: 0.8,
           valid_from: DateTime.utc_now(:microsecond),
@@ -46,11 +47,11 @@ defmodule Ankole.Brain.ExpertsTest do
     {:ok, reachable} =
       Claims.write_take(
         %{
-          object_slug: "concepts/quantum-sensing",
+          subject_page_id: page_id("concepts/quantum-sensing"),
           claim: "Quantum sensing revenue passes one billion by 2027",
           kind: "bet",
           holder: context.holder,
-          audience_scope: "world",
+          source_node_id: source_node("world"),
           weight: 0.8,
           provenance: "test"
         },
@@ -69,11 +70,11 @@ defmodule Ankole.Brain.ExpertsTest do
     {:ok, unreachable} =
       Claims.write_take(
         %{
-          object_slug: "concepts/quantum-sensing",
+          subject_page_id: page_id("concepts/quantum-sensing"),
           claim: "Quantum sensing pilot fails at the outsider site",
           kind: "bet",
           holder: context.holder,
-          audience_scope: "principal:" <> context.outsider.uid,
+          source_node_id: source_node("principal:" <> context.outsider.uid),
           weight: 0.2,
           provenance: "test"
         },

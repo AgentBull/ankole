@@ -123,14 +123,6 @@ defmodule Ankole.Repo.Migrations.CreateAgentWorkers do
 
     execute "INSERT INTO agent_workers (agent_uid) SELECT uid FROM principals WHERE type = 'agent'"
 
-    # Old Worker thread files were transient. Only these Jobs can replay the
-    # stored transcript until they establish a native thread on persistent storage.
-    execute """
-    UPDATE background_agent_jobs
-    SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"legacy_thread_replay":true}'::jsonb
-    WHERE runtime_thread_id IS NOT NULL AND runtime_thread_id <> ''
-    """
-
     drop table(:agent_computer_workers)
     drop table(:actor_session_worker_assignments)
 

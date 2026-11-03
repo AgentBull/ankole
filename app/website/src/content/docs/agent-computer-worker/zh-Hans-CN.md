@@ -34,11 +34,9 @@ Agent Home 是挂载在 `/workspace` 上的持久化存储目录。`/agents/<age
 ```text
 /workspace/
 ├── .codex/
-├── SOUL.md
-├── MISSION.md
+├── AGENTS.md
 ├── DESIGN.md
-├── ConfidentialityPolicy.md
-├── installed-skills/
+├── .ankole/turn-skills/<job-signal-id>/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
@@ -46,11 +44,9 @@ Agent Home 是挂载在 `/workspace` 上的持久化存储目录。`/agents/<age
     └── temp/
 ```
 
-模型看到的绝对路径就是容器内的真实路径，Worker 不会为模型做路径转换，且所有命令的工作目录都必须位于 Agent Home 内部。根目录下，`SOUL.md` 和 `MISSION.md` 定义 Agent 的行事风格与核心职责，`DESIGN.md` 提供制作视觉内容时遵循的设计系统，`ConfidentialityPolicy.md` 指导 Agent 在向 Brain 写入记忆时如何选择披露范围——这四份长期文档均由 [Agent Library](../agent-library/) 统一管理。`installed-skills/`、`sessions/` 和 `jobs/` 分别存放已同步的 Skill、会话工作区与后台任务工作区，其中每个 Session 都会由 PostgreSQL 分配一个从 `10000` 起步的稳定数字工作区 ID。
+`~/AGENTS.md` 与 `~/DESIGN.md` 是 [Agent Library](../agent-library/) 有效契约的完整投影，每轮还会刷新 `$CODEX_HOME/AGENTS.md`。主 Agent 从常驻只读挂载 `/drive/Skills/<slug>/` 读取已启用的完整技能包。后台任务将获准的技能包物化到 `.ankole/turn-skills/<signal-id>/`；任务初始能力白名单可以收窄，但不会因后来启用其他技能而扩大。`sessions/` 按 PostgreSQL 分配的稳定数字 ID（从 `10000` 起）保存会话工作区，`jobs/` 保存后台任务项目及其自己的指令文件。
 
 销毁实例或升级镜像后，Agent Home 中的数据依然保留；重建实例只会清除 `/var/cache/ankole` 缓存目录。需要注意底层存储平台的边界：Docker 本地卷依赖宿主机磁盘；Cloudflare 容器若被强制终止，可能会丢失最近一次 R2 备份之后的写入。各平台的具体存储限制见 [工作节点](../worker-management/)。
-
-控制面云盘独立保存消息附件、已发布文件、已安装 Skill 和 Automation 脚本。需要读写云盘时使用 `ankole-files` 命令行工具；后台任务工作区与 Codex 线程文件则留在持久化的 Agent Home 内。每轮执行开始前，Worker 会将本地 `installed-skills/` 目录与云盘上的 Skill 文件同步对齐。
 
 Codex 的主目录位于 `/workspace/.codex`，线程文件跨实例持久保留；即便 `/var/cache/ankole/codex` 下的可重建 SQLite 缓存被清空替换，Codex 仍可依据线程文件恢复上下文。后台任务在运行期间通过 `skill_view` 按需加载 Skill。
 

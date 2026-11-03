@@ -248,6 +248,29 @@ fn openai_chat_non_streaming_flattens_assistant_content_parts() {
 }
 
 #[test]
+fn openai_chat_non_streaming_completion_uses_the_completion_time() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext::default(),
+    );
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "created": 1,
+                "choices": [{
+                    "message": {"role": "assistant", "content": "done"},
+                    "finish_reason": "stop"
+                }]
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(response["created_at"], json!(1));
+    assert!(response["completed_at"].as_i64().unwrap() > 1);
+}
+
+#[test]
 fn openai_chat_accumulates_tool_calls() {
     let mut resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,

@@ -7,7 +7,7 @@ defmodule Ankole.Pod.Pages.Mentions do
   require Ash.Expr
   require Ash.Query
   alias Ankole.{AuthZ, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Files, Page, PageContent, Pages, PageUserState}
   alias Ankole.Pod.Pages.Collaborators
 
@@ -277,7 +277,7 @@ defmodule Ankole.Pod.Pages.Mentions do
   end
 
   defp visible_pages_query(reachable) do
-    ids = Ankole.Files.visible_node_ids(reachable)
+    ids = Ankole.Pod.visible_node_ids(reachable)
 
     Page
     |> Ash.Query.filter(id in ^ids and not is_root)
@@ -316,6 +316,7 @@ defmodule Ankole.Pod.Pages.Mentions do
       type: page.type,
       title: page.title,
       icon: page.icon,
+      system_key: page.system_key,
       private_owner_uid: page.private_owner_uid,
       ancestors: readable_ancestor_titles(page, ancestor_map, reachable),
       updated_at: page.updated_at
@@ -612,12 +613,18 @@ defmodule Ankole.Pod.Pages.Mentions do
 
       contributor_uids =
         if content do
-          [page.created_by.uid, content.updated_by.uid | Enum.map(content.contributors, & &1.uid)]
+          [page.created_by, content.updated_by | content.contributors]
         else
-          [page.created_by.uid]
+          [page.created_by]
         end
 
-      MapSet.new(grant_uids ++ contributor_uids)
+      MapSet.new(
+        grant_uids ++
+          Enum.flat_map(contributor_uids, fn
+            %{uid: uid} -> [uid]
+            nil -> []
+          end)
+      )
     else
       _ -> MapSet.new()
     end
@@ -689,7 +696,7 @@ defmodule Ankole.Pod.Pages.Mentions do
           status in [:ok, :trashed],
           do: Map.fetch!(pages_by_id, id)
 
-    doc_ids = for %{type: :doc, id: id} <- accessible_pages, do: id
+    doc_ids = for %{type: type, id: id} <- accessible_pages, type in [:doc, :knowledge], do: id
 
     excerpts_by_id =
       if doc_ids == [] do
@@ -715,6 +722,7 @@ defmodule Ankole.Pod.Pages.Mentions do
           type: page.type,
           title: page.title,
           icon: page.icon,
+          system_key: page.system_key,
           private_owner_uid: page.private_owner_uid,
           ancestors: readable_ancestor_titles(page, ancestor_map, reachable),
           updated_at: page.updated_at,
@@ -749,6 +757,7 @@ defmodule Ankole.Pod.Pages.Mentions do
       type: nil,
       title: nil,
       icon: nil,
+      system_key: nil,
       private_owner_uid: nil,
       ancestors: nil,
       updated_at: nil,

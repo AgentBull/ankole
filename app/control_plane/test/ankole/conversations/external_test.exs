@@ -57,6 +57,54 @@ defmodule Ankole.Conversations.ExternalTest do
     )
   end
 
+  test "IM peers and current group members can contribute to their ChatDrive", ctx do
+    %{principal: human} = human_fixture()
+    %{principal: outsider} = human_fixture()
+
+    {:ok, group} =
+      Ankole.AuthZ.create_principal_group(%{name: "chat-drive-members", display_name: "Chat"})
+
+    {:ok, _} = Ankole.AuthZ.add_principal_to_group(human.uid, group.id)
+
+    for {kind, metadata, group_id} <- [
+          {:im_dm, %{"dm_peer_principal_uid" => human.uid}, nil},
+          {:im_group, %{}, group.id}
+        ] do
+      assert {:ok, conversation} =
+               Repo.transact(fn ->
+                 External.observe_conversation_in_tx(
+                   ctx.binding,
+                   %{
+                     provider_conversation_id: "mock:#{kind}",
+                     external_kind: kind,
+                     title: "Drive conversation",
+                     reply_mode: :channel,
+                     metadata: metadata,
+                     principal_group_id: group_id
+                   },
+                   @now
+                 )
+               end)
+
+      {:ok, root} = Ankole.Pod.Pages.Tree.conversation_root(conversation.id)
+
+      for uid <- [ctx.agent.uid, human.uid] do
+        assert {:ok, _} = Ankole.Pod.authorize_node(uid, root.id, "node_view")
+        assert {:ok, _} = Ankole.Pod.authorize_node(uid, root.id, "node_contribute")
+      end
+
+      assert {:error, :forbidden} =
+               Ankole.Pod.authorize_node(outsider.uid, root.id, "node_view")
+
+      if kind == :im_group do
+        assert {:ok, _} = Ankole.AuthZ.remove_principal_from_group(human.uid, group.id)
+
+        assert {:error, :forbidden} =
+                 Ankole.Pod.authorize_node(human.uid, root.id, "node_view")
+      end
+    end
+  end
+
   test "sequence allocation uses the stored counter even with a stale resource", %{
     conversation: conversation
   } do

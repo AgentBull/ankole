@@ -34,7 +34,7 @@ The Console displays only the group-message modes supported by the selected Chan
 
 Slack, Microsoft Teams, Lark, and Feishu support all three modes. Because DingTalk and WeCom deliver only group messages that explicitly @-mention the bot, the Console offers only **Addressed messages only** for those platforms. WeCom imposes several additional platform restrictions—no message recall, no group file attachments, and no bot-initiated conversations—so we do not recommend it as your first channel; see the WeCom tab in [Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule).
 
-Selecting **May intervene** does not cause the Agent to reply to every message; instead, Ankole evaluates each batch of new chatter once so the Agent can decide whether to chime in. To set clear boundaries for a specific room, give the Agent a standing order for that channel directly in chat (for example, "only speak when CI turns red"). If the Agent still chimes in too often, tighten that standing order or refine its `SOUL.md` / `MISSION.md` instructions; see [Ambient intervention](../ambient-intervention/) for details.
+Selecting **May intervene** does not cause the Agent to reply to every message; instead, Ankole evaluates each batch of new chatter once so the Agent can decide whether to chime in. To set clear boundaries for a specific room, give the Agent a standing order for that channel directly in chat (for example, "only speak when CI turns red"). If the Agent still chimes in too often, tighten that standing order or refine its `AGENTS.md` instructions; see [Ambient intervention](../ambient-intervention/) for details.
 
 Choose **Addressed messages only** whenever a group wants strictly on-demand question-and-answer behavior.
 

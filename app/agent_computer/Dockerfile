@@ -11,6 +11,12 @@ ARG AWS_CLI_VERSION=2.38.5
 
 FROM --platform=linux/amd64 cloudflare/sandbox:1.0.0 AS directory-backup
 
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS rclone
+ARG TARGETARCH
+COPY app/agent_computer/rclone /src/rclone
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+  bash /src/rclone/build.sh /ankole-rclone "$TARGETARCH"
+
 FROM ${BASE_IMAGE} AS kernel-addon
 
 ARG TARGETARCH
@@ -270,6 +276,9 @@ RUN set -eux; \
   ! command -v sudo
 
 COPY --from=directory-backup /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
+COPY --from=rclone /ankole-rclone /usr/local/bin/ankole-rclone
+COPY --chmod=755 app/agent_computer/scripts/ankole-drive-view.sh /usr/local/libexec/ankole-drive-view
+COPY --chmod=755 app/agent_computer/scripts/ankole-drive-probe.sh /usr/local/libexec/ankole-drive-probe
 COPY --from=cli-lark /usr/local/libexec/lark-cli /usr/local/libexec/lark-cli
 COPY --from=cli-codex /opt/ankole-cli /opt/ankole-cli
 COPY --from=cli-codex /tmp/cli-codex-bin/ /usr/local/bin/

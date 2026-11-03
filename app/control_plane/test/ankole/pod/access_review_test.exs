@@ -1,8 +1,8 @@
-defmodule Ankole.Files.AccessReviewTest do
+defmodule Ankole.Pod.AccessReviewTest do
   use Ankole.DataCase, async: false
   use ExUnitProperties
   import Ankole.PrincipalsFixtures
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Pages}
 
   setup do
@@ -29,6 +29,7 @@ defmodule Ankole.Files.AccessReviewTest do
   test "reads and repeated tenant scaffolding never restore removed space permissions", ctx do
     {:ok, group} = Access.space_group()
     {:ok, _} = Pages.set_space(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), "view")
+    {:ok, page} = Pages.create(actor_fixture(ctx.owner.uid), %{title: "Space document"})
 
     grant =
       Repo.get_by!(Ankole.AuthZ.Grant,
@@ -55,12 +56,16 @@ defmodule Ankole.Files.AccessReviewTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    assert {:ok, []} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid))
+    assert {:ok, visible} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid))
+    refute Enum.any?(visible, &(&1.id == page.id))
+    assert Enum.all?(visible, &(&1.role == "view"))
+    assert Enum.any?(visible, &(&1.system_key == "ankole_brain"))
     assert {:ok, _} = Pages.space(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid))
     refute_receive {:read_wrote, _}
     :telemetry.detach(handler)
 
-    assert {:ok, []} = Ankole.AuthZ.list_group_grants(group.id)
+    assert {:ok, grants} = Ankole.AuthZ.list_group_grants(group.id)
+    refute Enum.any?(grants, &(&1.resource_pattern == "drive:space:**"))
 
     assert {:error, :forbidden} =
              Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid), %{})
@@ -245,7 +250,7 @@ defmodule Ankole.Files.AccessReviewTest do
 
   test "an Agent can create and move a page into its own Private root", ctx do
     actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid)
-    {:ok, root} = Ankole.Files.Nodes.private_root(ctx.agent.uid)
+    {:ok, root} = Ankole.Pod.Pages.Tree.private_root(ctx.agent.uid)
 
     {:ok, _} =
       Pages.space_agent(
@@ -398,7 +403,7 @@ defmodule Ankole.Files.AccessReviewTest do
 
   test "conditional anchor evaluation uses one native context snapshot", ctx do
     now = DateTime.utc_now(:microsecond)
-    {:ok, root} = Ankole.Files.Nodes.public_root()
+    {:ok, root} = Ankole.Pod.Pages.Tree.public_root()
     actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid)
     assert {:ok, roots} = Access.reachable_anchors(actor)
 
@@ -420,23 +425,15 @@ defmodule Ankole.Files.AccessReviewTest do
     nodes =
       Enum.map(pages, fn page ->
         page
-        |> Map.drop([:type, :title, :position])
         |> Map.merge(%{
-          kind: :doc,
+          type: :doc,
           name: page.title,
           parent_id: root.id,
           parent_anchor_id: root.id
         })
       end)
 
-    properties =
-      Enum.map(
-        pages,
-        &Map.take(&1, [:id, :tenant_id, :title, :position, :created_at, :updated_at])
-      )
-
-    Repo.insert_all(Ankole.Files.Schemas.Node, nodes)
-    Repo.insert_all(Ankole.Pod.Properties, properties)
+    Repo.insert_all(Ankole.Pod.Page, nodes)
 
     grants =
       for page <- pages do

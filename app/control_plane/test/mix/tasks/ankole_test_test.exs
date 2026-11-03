@@ -19,7 +19,7 @@ defmodule Mix.Tasks.Ankole.TestTest do
     end
   end
 
-  test "parses Elixir 1.20 and legacy ExUnit summary counts" do
+  test "parses the supported ExUnit summary counts" do
     assert Mix.Tasks.Ankole.Test.parse_exunit_counts("""
            Finished in 12.3 seconds (4.0s async, 8.3s sync)
 
@@ -34,8 +34,8 @@ defmodule Mix.Tasks.Ankole.TestTest do
            """) == %{tests: 1599, failures: 5, excluded: 16}
 
     assert Mix.Tasks.Ankole.Test.parse_exunit_counts("""
-           84 tests, 0 failures, 3 excluded
-           """) == %{tests: 84, failures: 0, excluded: 3}
+           Result: 0 tests, 3 excluded
+           """) == %{tests: 0, failures: 0, excluded: 3}
   end
 
   test "scales per-partition max_cases unless explicitly provided" do

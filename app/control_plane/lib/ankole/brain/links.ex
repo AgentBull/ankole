@@ -11,7 +11,6 @@ defmodule Ankole.Brain.Links do
   require Ash.Query
 
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Schemas.Tag
@@ -20,30 +19,21 @@ defmodule Ankole.Brain.Links do
   @doc "Returns the object's tags in canonical order."
   def tags_for_object(slug) do
     Tag
-    |> Ash.Query.filter(object_slug == ^slug)
+    |> Ash.Query.filter(subject_page_id == ^slug)
     |> Ash.Query.sort(tag: :asc)
     |> Ankole.Ash.read!()
     |> Enum.map(& &1.tag)
   end
 
   @doc false
-  def normalize_tags(tags) when is_list(tags) do
-    if Enum.all?(tags, &(is_binary(&1) and String.trim(&1) != "")),
-      do: {:ok, tags |> Enum.map(&String.trim/1) |> Enum.uniq() |> Enum.sort()},
-      else: {:error, {:invalid, "tags"}}
-  end
-
-  def normalize_tags(_tags), do: {:error, {:invalid, "tags"}}
-
-  @doc false
   def replace_tags_in_tx(slug, tags) do
     with :ok <- Repo.require_transaction(),
          {:ok, _removed} <-
            Tag
-           |> Ash.Query.filter(object_slug == ^slug and tag not in ^tags)
+           |> Ash.Query.filter(subject_page_id == ^slug and tag not in ^tags)
            |> Ankole.Ash.destroy_where(:remove) do
       Enum.reduce_while(tags, :ok, fn tag, :ok ->
-        case Ankole.Ash.create(Tag, :add, %{object_slug: slug, tag: tag}) do
+        case Ankole.Ash.create(Tag, :add, %{subject_page_id: slug, tag: tag}) do
           {:ok, _tag} -> {:cont, :ok}
           {:error, _error} = error -> {:halt, error}
         end
@@ -51,101 +41,96 @@ defmodule Ankole.Brain.Links do
     end
   end
 
-  @doc """
-  Reconciles body-owned Markdown and alias edges without a model, in the
-  caller's transaction. The `:reconcile_object_links` action of
-  `Ankole.Brain.Schemas.Object` owns the transaction of a single reconcile.
-  """
-  def reconcile_object_links_in_tx(slug) do
-    with :ok <- Repo.require_transaction(),
-         {:ok, object} <- Objects.lock_object_in_tx(slug),
-         true <- is_nil(object.deleted_at) do
-      wikilinks =
-        Enum.map(Markdoc.wikilinks(object.body), &{&1, "", "markdown", nil, "qualified"})
+  @doc "Synchronizes typed page references from XML and business metadata."
+  def reconcile_object_links_in_tx(reference) do
+    with {:ok, page} <- Objects.get_by_slug(reference),
+         :ok <- reconcile_metadata_in_tx(page) do
+      targets =
+        (Regex.scan(~r/<mention\b[^>]*\bpage="([^"]+)"/, page.xml || "", capture: :all_but_first)
+         |> List.flatten()) ++ metadata_references(page.meta)
 
-      mentions =
-        object.body
-        |> match_aliases_in_text()
-        |> Enum.reject(&(&1 == slug))
-        |> Enum.map(&{&1, "mentions", "mentions", "plain", "unqualified"})
+      {:ok, _} =
+        Link
+        |> Ash.Query.filter(origin_page_id == ^page.id and link_source == "page")
+        |> Ankole.Ash.destroy_where(:remove)
 
-      with {:ok, keys} <- insert_body_links(slug, wikilinks ++ mentions),
-           :ok <- remove_stale_body_links(slug, keys),
-           {:ok, _} <- Ankole.Ash.update(object, :stamp_links, %{}) do
-        {:ok, object}
-      end
-    else
-      false -> {:error, :object_deleted}
-      error -> error
-    end
-  end
-
-  defp insert_body_links(slug, links) do
-    Enum.reduce_while(links, {:ok, MapSet.new()}, fn {target, type, source, kind, resolution},
-                                                     {:ok, keys} ->
-      result =
-        with {:ok, target} <- Objects.resolve_slug(target) do
-          if target.slug == slug do
-            {:error, :self_link}
-          else
-            with {:ok, _} <-
-                   upsert_link(%{
-                     from_object_slug: slug,
-                     to_object_slug: target.slug,
-                     link_type: type,
-                     link_source: source,
-                     link_kind: kind,
-                     origin_object_slug: slug,
-                     origin_field: "body",
-                     resolution_type: resolution
-                   }) do
-              {:ok, {target.slug, type, source}}
+      Enum.reduce_while(Enum.uniq(targets), {:ok, page}, fn target, result ->
+        case Objects.get_by_slug(target) do
+          {:ok, target} ->
+            case Ankole.Ash.create(Link, :add, %{
+                   from_page_id: page.id,
+                   to_page_id: target.id,
+                   origin_page_id: page.id,
+                   link_source: "page",
+                   link_type: "references",
+                   origin_field: "content"
+                 }) do
+              {:ok, _} -> {:cont, result}
+              error -> {:halt, error}
             end
-          end
+
+          {:error, :not_found} ->
+            {:cont, result}
         end
-
-      case result do
-        {:ok, key} -> {:cont, {:ok, MapSet.put(keys, key)}}
-        {:error, reason} when reason in [:not_found, :self_link] -> {:cont, {:ok, keys}}
-      end
-    end)
-  end
-
-  defp remove_stale_body_links(slug, keys) do
-    stale_ids =
-      Link
-      |> Ash.Query.filter(
-        origin_object_slug == ^slug and origin_field == "body" and
-          link_source in ["markdown", "mentions"]
-      )
-      |> Ankole.Ash.read!()
-      |> Enum.reject(&MapSet.member?(keys, {&1.to_object_slug, &1.link_type, &1.link_source}))
-      |> Enum.map(& &1.id)
-
-    case Link
-         |> Ash.Query.filter(id in ^stale_ids)
-         |> Ankole.Ash.destroy_where(:remove) do
-      {:ok, _removed} -> :ok
-      {:error, _error} = error -> error
+      end)
     end
   end
 
-  @doc """
-  Upserts one directed edge; the dedup key treats equal NULLs as equal, so
-  one source form of one edge keeps one row.
-  """
-  @spec upsert_link(map()) :: {:ok, Link.t() | :duplicate} | {:error, term()}
+  defp reconcile_metadata_in_tx(page) do
+    with tags = metadata_names(Map.get(page.meta, "tags", [])),
+         aliases = metadata_names(Map.get(page.meta, "aliases", [])),
+         :ok <- replace_tags_in_tx(page.id, tags),
+         normalized = Enum.map(aliases, &normalize_alias/1),
+         {:ok, _} <-
+           ObjectAlias
+           |> Ash.Query.filter(subject_page_id == ^page.id and alias_norm not in ^normalized)
+           |> Ankole.Ash.destroy_where(:remove) do
+      Enum.reduce_while(normalized, :ok, fn name, :ok ->
+        case Ankole.Ash.create(ObjectAlias, :add, %{subject_page_id: page.id, alias_norm: name}) do
+          {:ok, _} -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  defp metadata_names(value) when is_binary(value), do: metadata_names([value])
+
+  defp metadata_names(values) when is_list(values),
+    do:
+      values
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+  defp metadata_names(_), do: []
+
+  defp metadata_references(%{"page_id" => id} = map) when is_binary(id),
+    do: [id | metadata_references(Map.delete(map, "page_id"))]
+
+  defp metadata_references(%{"subject" => id} = map) when is_binary(id),
+    do: [id | metadata_references(Map.delete(map, "subject"))]
+
+  defp metadata_references(map) when is_map(map),
+    do: map |> Map.values() |> Enum.flat_map(&metadata_references/1)
+
+  defp metadata_references(list) when is_list(list),
+    do: Enum.flat_map(list, &metadata_references/1)
+
+  defp metadata_references(_), do: []
+
   def upsert_link(attrs) when is_map(attrs) do
-    with {:ok, from_object} <- Objects.resolve_slug(attrs[:from_object_slug]),
-         {:ok, to_object} <- Objects.resolve_slug(attrs[:to_object_slug]) do
+    with {:ok, from_object} <- Objects.resolve_slug(attrs[:from_page_id]),
+         {:ok, to_object} <- Objects.resolve_slug(attrs[:to_page_id]) do
       row = %{
-        from_object_slug: from_object.slug,
-        to_object_slug: to_object.slug,
+        from_page_id: from_object.id,
+        to_page_id: to_object.id,
         link_type: attrs[:link_type] || "",
         context: attrs[:context] || "",
         link_source: attrs[:link_source],
         link_kind: attrs[:link_kind],
-        origin_object_slug: attrs[:origin_object_slug],
+        origin_page_id: attrs[:origin_page_id],
         origin_field: attrs[:origin_field],
         resolution_type: attrs[:resolution_type],
         created_at: DateTime.utc_now(:microsecond)
@@ -160,18 +145,34 @@ defmodule Ankole.Brain.Links do
   """
   @spec add_alias(String.t(), String.t()) ::
           {:ok, ObjectAlias.t() | :duplicate} | {:error, term()}
-  def add_alias(object_slug, alias_text) when is_binary(alias_text) do
+  def add_alias(subject_page_id, alias_text),
+    do: Repo.transact_top_level(fn -> add_alias_in_tx(subject_page_id, alias_text) end)
+
+  def add_alias_in_tx(subject_page_id, alias_text) when is_binary(alias_text) do
     normalized = normalize_alias(alias_text)
 
     with :ok <- if(normalized == "", do: {:error, :blank_alias}, else: :ok),
-         {:ok, object} <- Objects.resolve_slug(object_slug) do
-      row = %{
-        alias_norm: normalized,
-        object_slug: object.slug,
-        created_at: DateTime.utc_now(:microsecond)
-      }
+         {:ok, page} <- Objects.lock_object_in_tx(subject_page_id) do
+      names = metadata_names(Map.get(page.meta, "aliases", []))
 
-      insert_distinct(ObjectAlias, row)
+      if normalized in Enum.map(names, &normalize_alias/1) do
+        {:ok, :duplicate}
+      else
+        with {:ok, _} <-
+               Objects.update_object_in_tx(
+                 page.id,
+                 %{meta: Map.put(page.meta, "aliases", names ++ [alias_text])},
+                 :system
+               ),
+             do:
+               {:ok,
+                Ankole.Ash.read_one!(
+                  Ash.Query.filter(
+                    ObjectAlias,
+                    subject_page_id == ^page.id and alias_norm == ^normalized
+                  )
+                )}
+      end
     end
   end
 
@@ -193,9 +194,9 @@ defmodule Ankole.Brain.Links do
 
     ObjectAlias
     |> Ash.Query.filter(alias_norm == ^normalized)
-    |> Ash.Query.sort(object_slug: :asc)
+    |> Ash.Query.sort(subject_page_id: :asc)
     |> Ankole.Ash.read!()
-    |> Enum.map(& &1.object_slug)
+    |> Enum.map(& &1.subject_page_id)
   end
 
   @doc """
@@ -216,11 +217,11 @@ defmodule Ankole.Brain.Links do
     else
       ObjectAlias
       |> Ash.Query.filter(fragment("strpos(?, ?) > 0", ^normalized, alias_norm))
-      |> Ash.Query.sort(object_slug: :asc)
-      |> Ash.Query.distinct([:object_slug])
-      |> Ash.Query.select([:object_slug])
+      |> Ash.Query.sort(subject_page_id: :asc)
+      |> Ash.Query.distinct([:subject_page_id])
+      |> Ash.Query.select([:subject_page_id])
       |> Ankole.Ash.read!()
-      |> Enum.map(& &1.object_slug)
+      |> Enum.map(& &1.subject_page_id)
     end
   end
 

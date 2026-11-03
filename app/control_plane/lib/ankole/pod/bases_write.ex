@@ -68,7 +68,7 @@ defmodule Ankole.Pod.Bases.Write do
                limits: limits,
                shard: BaseRepo.shard!(),
                timezone: timezone,
-               deadline: Ankole.Files.Access.deadline(),
+               deadline: Ankole.Pod.Access.deadline(),
                definitions: Map.new(tables, fn {id, _} -> {id, Bases.fields(id)} end)
              }}
           end
@@ -83,14 +83,16 @@ defmodule Ankole.Pod.Bases.Write do
         deleted_ids: MapSet.new(),
         delta: 0,
         inserted: 0,
-        resync: false
+        resync: false,
+        rows: []
       })
 
     deleted = MapSet.union(change.deleted_ids, MapSet.new(Keyword.get(opts, :deleted, [])))
 
     change = %{
       change
-      | resync: change.resync or Keyword.get(opts, :resync, false),
+      | rows: change.rows ++ List.wrap(Keyword.get(opts, :row)),
+        resync: change.resync or Keyword.get(opts, :resync, false),
         changed_ids:
           MapSet.union(change.changed_ids, MapSet.new(Keyword.get(opts, :changed, [])))
           |> MapSet.difference(deleted),
@@ -110,6 +112,8 @@ defmodule Ankole.Pod.Bases.Write do
       if count <= BaseTable.record_limit() do
         case commit(before, change) do
           {:ok, table} ->
+            :ok = Ankole.Pod.Bases.Outbox.append(write, table, change.rows)
+
             {:cont,
              {:ok,
               [

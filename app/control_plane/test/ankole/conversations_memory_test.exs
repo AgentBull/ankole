@@ -181,10 +181,11 @@ defmodule Ankole.ConversationsMemoryTest do
     assert {:ok, source} =
              Sources.get_or_create(%{kind: "conversation", upstream_id: ctx.id, name: "Chat"})
 
+    assert {:ok, source_node_id} = Ankole.Brain.Scope.conversation(ctx.id)
+
     attrs = %{
-      conversation_id: ctx.id,
+      source_node_id: source_node_id,
       holder: "world",
-      audience_scope: "principal:" <> ctx.human.uid,
       provenance_session: "source:" <> source.id,
       provenance: message.text,
       claim: "A learned preference from this conversation",

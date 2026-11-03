@@ -32,7 +32,7 @@ enum Stream {
 // Each host writes CURRENT and rejects an envelope with another version.
 enum ProtocolVersion {
   PROTOCOL_VERSION_UNSPECIFIED = 0;
-  PROTOCOL_VERSION_CURRENT = 11;
+  PROTOCOL_VERSION_CURRENT = 12;
 }
 
 message Envelope {
@@ -61,6 +61,7 @@ message Envelope {
     ToolStatus tool_status = 41;
     ToolProgress tool_progress = 42;
     ToolResult tool_result = 43;
+    VfsInvalidate vfs_invalidate = 44;
     ControlShutdown control_shutdown = 50;
     RPCRequest rpc_request = 70;
     RPCResponse rpc_response = 71;
@@ -90,6 +91,22 @@ message WorkspaceOpen {
   reserved "fetch_runtime_config_json";
   FetchRuntimeConfig fetch_runtime_config = 8;
   uint64 idle_timeout_ms = 7;
+  DriveVfsConfig drive_vfs = 9;
+}
+
+// Root-supervisor capability. Never project this credential into model env.
+message DriveVfsConfig {
+  string token = 1;
+  string endpoint = 2;
+  string scope = 3;
+  string view = 4;
+  string conversation_id = 5;
+  string library_scope = 6;
+}
+
+message VfsInvalidate {
+  repeated string node_ids = 1;
+  bool all_clean = 2;
 }
 
 message WorkspaceReady {
@@ -158,6 +175,7 @@ message WorkerHeartbeat {
   uint32 active_tasks = 10;
   // Milliseconds since active_tasks last became 0; 0 while it is not 0.
   uint64 idle_for_ms = 11;
+  bool drive_vfs = 12;
 }
 
 message SignalEnvelope {
@@ -184,6 +202,7 @@ message TurnStart {
   map<string, string> runtime_env = 6;
   string mode = 8;
   AgentConversationContextResponse agent_context = 10;
+  DriveVfsConfig drive_vfs = 13;
 }
 
 message TurnModelRef {

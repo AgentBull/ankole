@@ -28,17 +28,17 @@ const fixtures = [
       }
     })
   ],
-  ['workspace_ready', envelope('workspace_ready.v11.bin', { case: 'workspaceReady', value: { run, reason: 1 } })],
+  ['workspace_ready', envelope('workspace_ready.v12.bin', { case: 'workspaceReady', value: { run, reason: 1 } })],
   [
     'tool_status',
-    envelope('tool_status.v11.bin', {
+    envelope('tool_status.v12.bin', {
       case: 'toolStatus',
       value: { run, responseId: 'response-1', callId: 'call-1', state: 'unknown' }
     })
   ],
   [
     'tool_result',
-    envelope('tool_result.v11.bin', {
+    envelope('tool_result.v12.bin', {
       case: 'toolResult',
       value: {
         run,

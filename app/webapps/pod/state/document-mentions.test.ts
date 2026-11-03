@@ -78,19 +78,23 @@ describe('MentionStore and internal Pod URL matching', () => {
     stopB()
   })
 
-  test('matchPodPageUrl converts bare current-origin short and canonical Pod page URLs while rejecting external or parameterized URLs', () => {
+  test('matchPodPageUrl converts bare current-origin short, slugged, and canonical Pod page URLs while rejecting external or parameterized URLs', () => {
     const id = '00112233-4455-6677-8899-aabbccddeeff'
-    const short = 'ABEiM0RVZneImaq7zN3u_w'
+    const short = '0024h36h2ncsvrh6daqf6dvvqz'
     const origin = 'https://pod.example.com'
 
     expect(matchPodPageUrl(`https://pod.example.com/pages/${short}`, origin)).toBe(id)
+    expect(matchPodPageUrl(`https://pod.example.com/pages/q4-design-spec-${short}`, origin)).toBe(id)
     expect(matchPodPageUrl(`https://pod.example.com/pages/${id}/`, origin)).toBe(id)
-    expect(matchPodPageUrl(`  https://pod.example.com/pages/${short}  `, origin)).toBe(id)
+    expect(matchPodPageUrl(`https://pod.example.com/meta/brain/${id}`, origin)).toBe(id)
+    expect(matchPodPageUrl(`https://other.example.com/meta/brain/${id}`, origin)).toBeNull()
+    expect(matchPodPageUrl(`  https://pod.example.com/pages/q4-design-spec-${short}  `, origin)).toBe(id)
 
     expect(matchPodPageUrl(`https://other.example.com/pages/${short}`, origin)).toBeNull()
     expect(matchPodPageUrl(`https://pod.example.com/pages/${short}?chat=new`, origin)).toBeNull()
     expect(matchPodPageUrl(`https://pod.example.com/pages/${short}#section`, origin)).toBeNull()
     expect(matchPodPageUrl(`https://pod.example.com/conversations/${short}`, origin)).toBeNull()
+    expect(matchPodPageUrl(`https://pod.example.com/pages/-${short}`, origin)).toBeNull()
     expect(matchPodPageUrl('https://pod.example.com/pages/not-a-valid-uuid', origin)).toBeNull()
   })
 

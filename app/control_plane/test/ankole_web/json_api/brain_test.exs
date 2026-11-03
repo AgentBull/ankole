@@ -7,12 +7,9 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
 
   alias Ankole.AppConfigure.Registry
   alias Ankole.Brain.SchemaPacks
-  alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Contradiction
   alias Ankole.Brain.Schemas.MergeSuggestion
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.SchemaSuggestion
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Ecto.UUIDv7
@@ -21,6 +18,7 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
 
   setup do
     Registry.clear_for_test()
+    {:ok, _} = SchemaPacks.install_packs([])
     {:ok, false} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
     :ok
@@ -65,42 +63,12 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
     |> Map.fetch!("object")
   end
 
-  defp object_form(attrs) do
-    Map.merge(
-      %{
-        "slug" => "notes/v2",
-        "type" => "note",
-        "title" => "V2 object",
-        "body" => "Body.",
-        "meta" => %{}
-      },
-      attrs
-    )
-  end
-
   defp insert_object!(slug, attrs \\ %{}) do
-    now = DateTime.utc_now(:microsecond)
-
     {:ok, object} =
-      Repo.transact(fn ->
-        Ankole.Ash.create(
-          Object,
-          :create,
-          Map.merge(
-            %{
-              id: UUIDv7.autogenerate(),
-              slug: slug,
-              type: "note",
-              title: slug,
-              body: "",
-              meta: %{},
-              created_at: now,
-              updated_at: now
-            },
-            attrs
-          )
-        )
-      end)
+      Ankole.Brain.create_object(
+        Map.merge(%{slug: slug, type: "note", title: slug, body: ""}, attrs),
+        :system
+      )
 
     object
   end
@@ -110,11 +78,11 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       Ankole.Brain.write_fact(
         Map.merge(
           %{
-            object_slug: object.slug,
+            subject_page_id: object.id,
             claim: "A fact",
             kind: "fact",
             holder: "world",
-            audience_scope: "world",
+            source_node_id: object.id,
             notability: "medium",
             valid_from: DateTime.utc_now(),
             confidence: 0.75,
@@ -127,14 +95,6 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       )
 
     claim
-  end
-
-  defp chunk_scopes(object) do
-    Chunk
-    |> where([chunk], chunk.object_id == ^object.id)
-    |> order_by([chunk], asc: chunk.chunk_index)
-    |> Repo.all()
-    |> Enum.map(& &1.audience_scope)
   end
 
   describe "authorization and tenant" do
@@ -163,17 +123,25 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
 
       assert "forbidden" ==
                conn
-               |> api(:post, "/api/v2/brain/objects", object_form(%{"slug" => "notes/refused"}))
+               |> api(:post, "/api/v2/brain/sources", %{
+                 "kind" => "url",
+                 "upstream_id" => "https://refused.example",
+                 "name" => "Refused"
+               })
                |> error_code(403)
 
-      refute Repo.get_by(Object, slug: "notes/refused")
+      refute Repo.get_by(Source, upstream_id: "https://refused.example")
     end
 
     test "a list gives only the rows of the data tenant", %{conn: conn} do
       {conn, _principal_uid} = console_conn_with_principal(conn)
       insert_object!("notes/home-tenant")
       other = Ankole.DataCase.create_tenant()
-      Repo.with_tenant(other.id, fn -> insert_object!("notes/other-tenant") end)
+
+      Repo.with_tenant(other.id, fn ->
+        {:ok, _} = SchemaPacks.install_packs([])
+        insert_object!("notes/other-tenant")
+      end)
 
       assert [%{"slug" => "notes/home-tenant"}] =
                conn |> api(:get, "/api/v2/brain/objects?prefix=notes/") |> records()
@@ -188,283 +156,18 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
   end
 
   describe "objects" do
-    test "a Console writer creates, CAS-updates, and reads the version history", %{conn: conn} do
-      assert {:ok, _} = SchemaPacks.install_packs([])
-      {conn, principal_uid} = console_conn_with_principal(conn)
-
-      body = """
-      Public.
-      {% audience scope="principal:#{principal_uid}" %}
-      Private.
-      {% /audience %}
-      """
-
-      created =
-        conn
-        |> api(
-          :post,
-          "/api/v2/brain/objects",
-          object_form(%{
-            "slug" => "notes/console-edit",
-            "body" => body,
-            "meta" => %{"source" => "console"},
-            "effective_date" => "2026-08-30"
-          })
-        )
-        |> document(201)
-
-      assert created["slug"] == "notes/console-edit"
-      assert created["effective_date"] == "2026-08-30"
-      assert created["managed_by_source_id"] == nil
-
-      object = Repo.get_by!(Object, slug: "notes/console-edit")
-      assert object |> chunk_scopes() |> Enum.sort() == ["principal:#{principal_uid}", "world"]
-      page = object_page(conn, "notes/console-edit")
-      assert page["body"] == body
-
-      updated_body = String.replace(body, "Private.", "Revised private.")
-
-      update = %{
-        "slug" => "notes/console-edit",
-        "title" => "Console edit revised",
-        "body" => updated_body,
-        "meta" => %{"source" => "console"},
-        "expected_content_hash" => page["content_hash"]
-      }
-
-      assert %{"title" => "Console edit revised"} =
-               conn |> api(:patch, "/api/v2/brain/objects", update) |> document(200)
-
-      assert Repo.reload!(object).body == updated_body
-
-      assert "content_hash_conflict" ==
-               conn
-               |> api(:patch, "/api/v2/brain/objects", %{update | "title" => "Stale"})
-               |> error_code(409)
-
-      assert [%{"author" => author, "body" => ^body}] =
-               conn
-               |> api(:get, "/api/v2/brain/object-versions?slug=notes%2Fconsole-edit")
-               |> records()
-
-      assert author["uid"] == principal_uid
-
-      assert "not_found" ==
-               conn
-               |> api(:get, "/api/v2/brain/object-versions?slug=notes%2Fmissing")
-               |> error_code(404)
-    end
-
-    test "Console tags stay when omitted and clear with an explicit empty list", %{conn: conn} do
+    test "the Console reader links to the one Pod content owner", %{conn: conn} do
       {conn, _uid} = console_conn_with_principal(conn)
-      assert {:ok, _} = SchemaPacks.install_packs([])
+      object = insert_object!("notes/read-through", %{body: "Canonical knowledge"})
+      page = object_page(conn, object.id)
+      assert page["page_id"] == object.id
 
-      form =
-        object_form(%{
-          "slug" => "notes/console-tags",
-          "tags" => [" research ", "research", "AI", "multi\nline", "literal\\ntext"]
-        })
+      assert String.ends_with?(
+               page["pod_url"],
+               AnkoleWeb.PodURL.page_path(object.id, object.title)
+             )
 
-      conn |> api(:post, "/api/v2/brain/objects", form) |> document(201)
-      created = object_page(conn, "notes/console-tags")
-      assert created["tags"] == ["AI", "literal\\ntext", "multi\nline", "research"]
-
-      update =
-        form
-        |> Map.drop(["type", "tags"])
-        |> Map.put("expected_content_hash", created["content_hash"])
-
-      conn |> api(:patch, "/api/v2/brain/objects", update) |> document(200)
-      preserved = object_page(conn, "notes/console-tags")
-      assert preserved["tags"] == created["tags"]
-
-      clear =
-        update
-        |> Map.put("tags", [])
-        |> Map.put("expected_content_hash", preserved["content_hash"])
-
-      conn |> api(:patch, "/api/v2/brain/objects", clear) |> document(200)
-      assert object_page(conn, "notes/console-tags")["tags"] == []
-    end
-
-    test "object writes give the domain reason as the error code", %{conn: conn} do
-      assert {:ok, _} = SchemaPacks.install_packs([])
-      {conn, principal_uid} = console_conn_with_principal(conn)
-
-      assert {:ok, _} =
-               Ankole.AuthZ.create_principal_group(%{
-                 name: "restricted",
-                 display_name: "Restricted"
-               })
-
-      cases = [
-        {%{"slug" => "notes/bad slug"}, "invalid_slug"},
-        {%{"type" => "made-up"}, "unknown_object_type"},
-        {%{"body" => "{% audience scope=\"group:restricted\" %}\nSecret\n{% /audience %}"},
-         "writer_not_in_scope_group"},
-        {%{
-           "body" => """
-           {% audience scope="principal:#{principal_uid}" %}
-           private
-           ~~~markdoc
-           {% /audience %}
-           ~~~
-           tail
-           """
-         }, "unclosed_audience_tag"}
-      ]
-
-      for {attrs, code} <- cases do
-        assert code ==
-                 conn
-                 |> api(:post, "/api/v2/brain/objects", object_form(attrs))
-                 |> error_code(422)
-      end
-
-      refute Repo.get_by(Object, slug: "notes/v2")
-      conn |> api(:post, "/api/v2/brain/objects", object_form(%{})) |> document(201)
-
-      assert "slug_taken" ==
-               conn |> api(:post, "/api/v2/brain/objects", object_form(%{})) |> error_code(409)
-
-      assert %{"errors" => [%{"source" => %{"pointer" => _}} | _]} =
-               conn
-               |> api(:post, "/api/v2/brain/objects", Map.delete(object_form(%{}), "title"))
-               |> document(400)
-    end
-
-    test "a deleted object refuses edits and rollbacks until a restore", %{conn: conn} do
-      {:ok, _} = SchemaPacks.install_packs([])
-      {conn, _writer} = console_conn_with_principal(conn)
-      conn |> api(:post, "/api/v2/brain/objects", object_form(%{})) |> document(201)
-      original = object_page(conn, "notes/v2")
-
-      update = %{
-        "slug" => "notes/v2",
-        "title" => "Revised",
-        "body" => "Revised body.",
-        "meta" => %{},
-        "expected_content_hash" => original["content_hash"]
-      }
-
-      conn |> api(:patch, "/api/v2/brain/objects", update) |> document(200)
-      object = Repo.get_by!(Object, slug: "notes/v2")
-      [version] = Repo.all(from(v in ObjectVersion, where: v.object_id == ^object.id))
-
-      assert %{"deleted_at" => deleted_at} =
-               conn
-               |> api(:post, "/api/v2/brain/objects/forget", %{
-                 "slug" => "notes/v2",
-                 "reason" => "Obsolete"
-               })
-               |> document(201)
-
-      assert is_binary(deleted_at)
-      deleted = Repo.reload!(object)
-      assert deleted.meta["forgotten_by"] == "console admin"
-
-      assert "object_deleted" ==
-               conn
-               |> api(:post, "/api/v2/brain/objects/rollback", %{
-                 "slug" => "notes/v2",
-                 "version_id" => version.id
-               })
-               |> error_code(409)
-
-      Ankole.DataCase.assert_persisted_equal(Repo.reload!(object), deleted)
-
-      assert [%{"slug" => "notes/v2"}] =
-               conn |> api(:get, "/api/v2/brain/objects?deleted=true") |> records()
-
-      assert %{"deleted_at" => nil} =
-               conn
-               |> api(:post, "/api/v2/brain/objects/restore", %{"slug" => "notes/v2"})
-               |> document(201)
-
-      assert %{"slug" => "notes/v2"} =
-               conn
-               |> api(:post, "/api/v2/brain/objects/rollback", %{
-                 "slug" => "notes/v2",
-                 "version_id" => version.id
-               })
-               |> document(201)
-
-      assert Repo.reload!(object).body == "Body."
-
-      assert "forget_reason_required" ==
-               conn
-               |> api(:post, "/api/v2/brain/objects/forget", %{
-                 "slug" => "notes/v2",
-                 "reason" => " "
-               })
-               |> error_code(422)
-    end
-
-    test "an edit repairs one stored invalid body", %{conn: conn} do
-      {:ok, _result} = SchemaPacks.install_packs([])
-      {conn, principal_uid} = console_conn_with_principal(conn)
-
-      invalid_body = """
-      {% audience scope="principal:#{principal_uid}" %}
-      private
-      ~~~markdoc
-      {% /audience %}
-      ~~~
-      tail
-      """
-
-      object = insert_object!("notes/repair", %{body: invalid_body, content_hash: "invalid"})
-
-      update = %{
-        "slug" => object.slug,
-        "title" => object.title,
-        "body" => invalid_body,
-        "meta" => %{},
-        "expected_content_hash" => "invalid"
-      }
-
-      assert "unclosed_audience_tag" ==
-               conn |> api(:patch, "/api/v2/brain/objects", update) |> error_code(422)
-
-      repaired_body = """
-      {% audience scope="principal:#{principal_uid}" %}
-      private
-      {% /audience %}
-      """
-
-      conn
-      |> api(:patch, "/api/v2/brain/objects", %{update | "body" => repaired_body})
-      |> document(200)
-
-      assert Repo.reload!(object).body == repaired_body
-      assert chunk_scopes(object) == ["principal:#{principal_uid}"]
-    end
-
-    test "fork moves a Library page into instance ownership", %{conn: conn} do
-      {conn, _uid} = console_conn_with_principal(conn)
-      now = DateTime.utc_now(:microsecond)
-
-      {:ok, source} =
-        Ankole.Ash.create(Source, :register, %{
-          upstream_id: "json-api-fork-library",
-          kind: "library",
-          name: "Fork library",
-          default_audience_scope: "world",
-          config: %{},
-          created_at: now
-        })
-
-      insert_projection!(source, "concepts/json-api-fork", now)
-
-      assert [%{"managed_by_source_id" => source_id}] =
-               conn |> api(:get, "/api/v2/brain/objects?prefix=concepts/json-api") |> records()
-
-      assert source_id == source.id
-
-      assert %{"managed_by_source_id" => nil} =
-               conn
-               |> api(:post, "/api/v2/brain/objects/fork", %{"slug" => "concepts/json-api-fork"})
-               |> document(201)
+      refute Map.has_key?(page, "body")
     end
 
     test "object search filters before the list limit and treats wildcards literally", %{
@@ -473,20 +176,20 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       {conn, _principal_uid} = console_conn_with_principal(conn)
 
       targets = %{
-        "RARE%20OBJECT" => insert_object!("zz/rare-object", %{title: "Rare object"}),
-        "%25" => insert_object!("zz/percent-literal", %{title: "Budget is 20% complete"}),
-        "_" => insert_object!("zz/underscore-literal", %{title: "part_number"}),
-        "%5C" => insert_object!("zz/backslash-literal", %{title: "path\\segment"})
+        "RARE%20OBJECT" => insert_object!("notes/zz/rare-object", %{title: "zz Rare object"}),
+        "%25" => insert_object!("notes/zz/percent-literal", %{title: "Budget is 20% complete"}),
+        "_" => insert_object!("notes/zz/underscore-literal", %{title: "part_number"}),
+        "%5C" => insert_object!("notes/zz/backslash-literal", %{title: "path\\segment"})
       }
 
-      insert_object!("zz/percent-decoy", %{title: "Budget is 201 complete"})
-      insert_object!("zz/underscore-decoy", %{title: "partXnumber"})
-      insert_object!("zz/backslash-decoy", %{title: "pathsegment"})
+      insert_object!("notes/zz/percent-decoy", %{title: "Budget is 201 complete"})
+      insert_object!("notes/zz/underscore-decoy", %{title: "partXnumber"})
+      insert_object!("notes/zz/backslash-decoy", %{title: "pathsegment"})
       for index <- 1..100, do: insert_object!("notes/object-search-fill-#{index}")
 
       unfiltered = conn |> api(:get, "/api/v2/brain/objects") |> records()
       assert length(unfiltered) == 100
-      refute Enum.any?(unfiltered, &(&1["slug"] == "zz/rare-object"))
+      refute Enum.any?(unfiltered, &(&1["slug"] == "notes/zz/rare-object"))
 
       for {search, target} <- targets do
         assert [%{"slug" => slug}] =
@@ -506,10 +209,11 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       {:ok, object} =
         Ankole.Brain.create_object(
           %{slug: "notes/private", type: "note", title: "Private"},
-          other.uid
+          :system
         )
 
-      claim = write_fact!(object, other.uid, %{audience_scope: "principal:#{other.uid}"})
+      {:ok, private} = Ankole.Pod.Pages.Tree.private_root(other.uid)
+      claim = write_fact!(object, other.uid, %{source_node_id: private.id})
 
       assert "writer_not_in_claim_scope" ==
                conn
@@ -538,7 +242,7 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
 
       [replacement] =
         conn
-        |> api(:get, "/api/v2/brain/claims?object_slug=notes%2Fclaims&status=current")
+        |> api(:get, "/api/v2/brain/claims?subject_page_id=#{object.id}&status=current")
         |> records()
 
       assert replacement["claim"] == "A corrected fact"
@@ -564,11 +268,11 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       {:ok, take} =
         Ankole.Brain.Claims.write_take(
           %{
-            object_slug: object.slug,
+            subject_page_id: object.id,
             claim: "The deal closes",
             kind: "bet",
             holder: "world",
-            audience_scope: "world",
+            source_node_id: object.id,
             weight: 0.6,
             provenance: "json api test"
           },
@@ -609,11 +313,11 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
           tenant_id: Repo.tenant_id!(),
           author: author,
           claim_type: :fact,
-          object_slug: object.slug,
+          subject_page_id: object.id,
           claim: claim,
           kind: "fact",
           holder: "world",
-          audience_scope: "world",
+          source_node_id: object.id,
           notability: "medium",
           valid_from: now,
           confidence: 0.75,
@@ -705,26 +409,24 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       conn: conn
     } do
       {conn, admin_uid} = console_conn_with_principal(conn)
-      insert_object!("companies/acme", %{title: "Acme", type: "company"})
+      a = insert_object!("companies/acme", %{title: "Acme", type: "company"})
+      b = insert_object!("companies/other", %{title: "Other", type: "company"})
 
       {:ok, suggestion} =
         Ankole.Ash.create(MergeSuggestion, :suggest, %{
           id: UUIDv7.autogenerate(),
-          a_slug: "companies/acme",
-          b_slug: "companies/gone",
+          a_slug: min(a.id, b.id),
+          b_slug: max(a.id, b.id),
           reason: "same name",
           created_at: DateTime.utc_now(:microsecond)
         })
 
       assert [listed] = conn |> api(:get, "/api/v2/brain/merge-suggestions") |> records()
 
-      assert listed["a_page"] == %{
-               "slug" => "companies/acme",
-               "title" => "Acme",
-               "type" => "company"
-             }
-
-      assert listed["b_page"] == %{"slug" => "companies/gone", "title" => nil, "type" => nil}
+      assert listed["a_page"]["page_id"] == min(a.id, b.id)
+      assert listed["b_page"]["page_id"] == max(a.id, b.id)
+      assert is_binary(listed["a_page"]["pod_url"])
+      assert is_binary(listed["b_page"]["pod_url"])
 
       assert %{"status" => "rejected"} =
                conn
@@ -812,24 +514,27 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
           name: "OIDC Client"
         })
 
-      scope = "principal:#{principal_uid}"
+      {:ok, private} = Ankole.Pod.Pages.Tree.private_root(principal_uid)
+      scope = private.id
 
-      assert %{"default_audience_scope" => ^scope} =
+      assert %{"default_source_node_id" => ^scope} =
                conn
-               |> api(:patch, "/api/v2/brain/sources/#{oidc.id}", %{"scope" => scope})
+               |> api(:patch, "/api/v2/brain/sources/#{oidc.id}", %{"source_node_id" => scope})
                |> document(200)
 
       conn
-      |> api(:patch, "/api/v2/brain/sources/#{oidc.id}", %{"scope" => nil})
+      |> api(:patch, "/api/v2/brain/sources/#{oidc.id}", %{"source_node_id" => nil})
       |> document(200)
 
-      assert Repo.get!(Source, oidc.id).default_audience_scope == nil
+      assert Repo.get!(Source, oidc.id).default_source_node_id == nil
 
       conn
-      |> api(:patch, "/api/v2/brain/sources/#{oidc.id}", %{"scope" => "group:missing"})
+      |> api(:patch, "/api/v2/brain/sources/#{oidc.id}", %{
+        "source_node_id" => UUIDv7.autogenerate()
+      })
       |> document(422)
 
-      assert Repo.get!(Source, oidc.id).default_audience_scope == nil
+      assert Repo.get!(Source, oidc.id).default_source_node_id == nil
 
       assert {:ok, true} = Ankole.AppConfigure.put_global_by_key("brain.enabled", true)
       [url_source] = Repo.all(from(source in Source, where: source.kind == "url"))
@@ -842,16 +547,16 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       assert length(conn |> api(:get, "/api/v2/brain/sources") |> records()) == 2
     end
 
-    test "archiving a Library Source withdraws its managed pages", %{conn: conn} do
+    test "archiving a Source preserves its editable Pod content", %{conn: conn} do
       {conn, _principal_uid} = console_conn_with_principal(conn)
       now = DateTime.utc_now(:microsecond)
 
       {:ok, source} =
         Ankole.Ash.create(Source, :register, %{
           upstream_id: "json-api-archive-library",
-          kind: "library",
+          kind: "url",
           name: "Archive library",
-          default_audience_scope: "world",
+          default_source_node_id: Ankole.Brain.Scope.world(),
           config: %{},
           created_at: now
         })
@@ -864,77 +569,50 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
                |> document(201)
 
       assert is_binary(archived_at)
-      assert Repo.get!(Object, object.id).deleted_at != nil
+      assert {:ok, %{deleted_at: nil}} = Ankole.Pod.Pages.Tree.fetch(object.id)
 
       assert "not_found" ==
                conn
                |> api(:post, "/api/v2/brain/sources/#{UUIDv7.autogenerate()}/archive")
                |> error_code(404)
-
-      assert "not_found" ==
-               conn
-               |> api(:post, "/api/v2/brain/objects/restore", %{"slug" => "notes/missing"})
-               |> error_code(404)
     end
   end
 
-  test "a site administrator in another tenant writes with its own attribution", %{
+  test "a site administrator in another tenant records its own attribution", %{
     conn: conn,
     tenant: tenant
   } do
     {conn, admin_uid} = console_conn_with_principal(conn)
     other = Ankole.DataCase.create_tenant()
-    Repo.with_tenant(other.id, fn -> assert {:ok, _} = SchemaPacks.install_packs([]) end)
-    headers = [{"x-ankole-tenant", other.id}]
 
-    conn
-    |> api(:post, "/api/v2/brain/objects", object_form(%{"slug" => "notes/admin-edit"}), headers)
-    |> document(201)
+    claim =
+      Repo.with_tenant(other.id, fn ->
+        {:ok, _} = SchemaPacks.install_packs([])
+        object = insert_object!("notes/admin-edit")
+        write_fact!(object, :system)
+      end)
 
-    page =
+    result =
       conn
-      |> api(:get, ~p"/api/v2/brain/objects/show?slug=notes%2Fadmin-edit", nil, headers)
-      |> json_response(200)
-      |> Map.fetch!("object")
+      |> api(
+        :post,
+        "/api/v2/brain/claims/#{claim.id}/supersede",
+        %{"claim" => "Corrected across tenant"},
+        [{"x-ankole-tenant", other.id}]
+      )
+      |> document(201)
 
-    conn
-    |> api(
-      :patch,
-      "/api/v2/brain/objects",
-      %{
-        "slug" => "notes/admin-edit",
-        "title" => "Revised admin edit",
-        "body" => page["body"],
-        "meta" => page["meta"],
-        "expected_content_hash" => page["content_hash"]
-      },
-      headers
-    )
-    |> document(200)
-
-    assert [%{"author" => author}] =
-             conn
-             |> api(:get, "/api/v2/brain/object-versions?slug=notes%2Fadmin-edit", nil, headers)
-             |> records()
-
-    assert author == %{"tenant_id" => tenant.id, "uid" => admin_uid}
+    assert result["author"] == %{"tenant_id" => tenant.id, "uid" => admin_uid}
   end
 
-  defp insert_projection!(source, slug, now) do
+  defp insert_projection!(source, slug, _now) do
     {:ok, object} =
-      Repo.transact(fn ->
-        Ankole.Ash.create(Object, :create_projection, %{
-          id: UUIDv7.autogenerate(),
-          slug: slug,
-          type: "concept",
-          title: slug,
-          body: "Managed body",
-          meta: %{},
-          managed_by_source_id: source.id,
-          created_at: now,
-          updated_at: now
-        })
-      end)
+      Ankole.Brain.upsert_source_projection(source, %{
+        slug: slug,
+        type: "concept",
+        title: slug,
+        body: "Managed body"
+      })
 
     object
   end

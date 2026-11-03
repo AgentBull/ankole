@@ -186,13 +186,15 @@ defmodule Ankole.Sessions.Tools.Session do
                   "activity": "action_card_prepare",
                   "receipt": "none",
                   "visible_delivery": true,
-                  "description": "Draft a privilege-escalated Action Card when you lack permission to perform a sensitive workspace operation directly (such as updating page/file sharing, moving a page/file to trash, restoring from trash, deleting a Base table, or adding participants to a Pod native room).\nThe card snapshots current CAS preconditions and renders Confirm & Execute / Cancel controls so an authorized human can execute it with their own permissions.\nOn success it records the prepared card and ends the current turn; when an authorized human confirms it, you receive an [Action Card Executed] wakeup.",
+                  "description": "Draft a privilege-escalated Action Card when you lack permission to perform a sensitive workspace operation directly (such as creating Brain objects (brain.object.create) or saving shared knowledge (pod.knowledge.save), both in native Pod rooms only, updating page/file sharing, moving a page/file to trash, restoring from trash, deleting a Base table, or adding participants to a Pod native room).\nThe card snapshots current CAS preconditions and renders Confirm & Execute / Cancel controls so an authorized human can execute it with their own permissions.\nOn success it records the prepared card and ends the current turn; when an authorized human confirms it, you receive an [Action Card Executed] wakeup.",
                   "parameters": {
                     "type": "object",
                     "properties": {
                       "action_kind": {
                         "type": "string",
                         "enum": [
+                          "pod.knowledge.save",
+                          "brain.object.create",
                           "pod.page.set_sharing",
                           "pod.page.delete",
                           "pod.page.restore",
@@ -201,6 +203,10 @@ defmodule Ankole.Sessions.Tools.Session do
                         ],
                         "description": "Closed action kind to propose."
                       },
+                      "category": {"type": "string", "description": "Installed Brain ontology category for brain.object.create."},
+                      "title": {"type": "string", "description": "Title for a new Brain object."},
+                      "base_revision": {"type": "integer", "minimum": 0, "description": "Revision read before drafting pod.knowledge.save."},
+                      "markdown": {"type": "string", "description": "Complete proposed OKF Markdown and frontmatter for pod.knowledge.save or brain.object.create."},
                       "summary": {
                         "type": "string",
                         "minLength": 1,

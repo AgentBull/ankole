@@ -53,7 +53,10 @@ defmodule Ankole.Pod.DocumentHistoryTest do
     assert {:ok, _} =
              Documents.write(ctx.editor, ctx.page.id, 1, "<page><p>Second edit</p></page>")
 
-    assert length(Repo.all(PageSnapshot)) == 1
+    assert length(
+             Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
+           ) == 1
+
     age_checkpoint(original.id)
 
     assert {:ok, _} = Documents.write(ctx.owner, ctx.page.id, 2, "<page><p>Third edit</p></page>")
@@ -75,7 +78,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
                icon: "📚"
              })
 
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
     age_checkpoint(original.id)
 
     assert {:ok, second} =
@@ -96,15 +99,17 @@ defmodule Ankole.Pod.DocumentHistoryTest do
                expected_title: second.title
              })
 
-    assert length(Repo.all(PageSnapshot)) == 2
+    assert length(
+             Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
+           ) == 2
   end
 
   test "restore keeps a title saved before the length limit and shortens a different long snapshot title",
        ctx do
     long = String.duplicate("长", 300)
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
 
-    Repo.update_all(from(page in Ankole.Pod.Properties, where: page.id == ^ctx.page.id),
+    Repo.update_all(from(page in Ankole.Pod.Page, where: page.id == ^ctx.page.id),
       set: [title: long]
     )
 
@@ -115,13 +120,13 @@ defmodule Ankole.Pod.DocumentHistoryTest do
     {:ok, _} = Documents.write(ctx.editor, ctx.page.id, 0, "<page><p>Edited body</p></page>")
 
     restore = fn ->
-      page = Repo.get!(Ankole.Pod.Page, ctx.page.id)
+      page = Repo.get_by!(Ankole.Pod.Page, id: ctx.page.id)
       History.restore(ctx.editor, page.id, original.id, page.revision, page.updated_at)
     end
 
     assert {:ok, %{page: %{title: ^long}}} = restore.()
 
-    Repo.update_all(from(page in Ankole.Pod.Properties, where: page.id == ^ctx.page.id),
+    Repo.update_all(from(page in Ankole.Pod.Page, where: page.id == ^ctx.page.id),
       set: [title: "Short"]
     )
 
@@ -131,7 +136,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
 
   test "restore creates a new OT revision with before and after checkpoints while keeping location and permissions",
        ctx do
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
     {:ok, _} = Documents.write(ctx.editor, ctx.page.id, 0, "<page><p>Edited body</p></page>")
 
     {:ok, changed} =
@@ -222,7 +227,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
   end
 
   test "restore rejects stale content or metadata without creating snapshots", ctx do
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
 
     {:ok, %{page: edited}} =
       Documents.write(ctx.editor, ctx.page.id, 0, "<page><p>Fresh</p></page>")
@@ -245,14 +250,17 @@ defmodule Ankole.Pod.DocumentHistoryTest do
                edited.updated_at
              )
 
-    assert length(Repo.all(PageSnapshot)) == 1
+    assert length(
+             Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
+           ) == 1
+
     assert Repo.get!(PageContent, ctx.page.id).content == "<page><p>Fresh</p></page>"
     assert renamed.title == "Fresh title"
   end
 
   test "full history requires current edit access and snapshots cannot cross pages or tenants",
        ctx do
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
     assert {:error, :forbidden} = History.list(ctx.viewer, ctx.page.id)
     assert {:error, :forbidden} = History.read(ctx.viewer, ctx.page.id, original.id)
 
@@ -290,7 +298,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
 
   test "annotation-only updates stay out of history and restore preserves current marks and resolution",
        ctx do
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
     age_checkpoint(original.id)
 
     assert {:ok, %{comment: comment, revision: 1}} =
@@ -302,7 +310,10 @@ defmodule Ankole.Pod.DocumentHistoryTest do
              })
 
     assert comment.quote == "Original"
-    assert length(Repo.all(PageSnapshot)) == 1
+
+    assert length(
+             Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
+           ) == 1
 
     assert {:ok, %{contributors: [%{name: "Creator"}]}} =
              Ankole.Pod.Documents.Insights.read(ctx.owner, ctx.page.id)
@@ -342,11 +353,15 @@ defmodule Ankole.Pod.DocumentHistoryTest do
              Comments.list(ctx.owner, ctx.page.id, %{status: :resolved})
 
     assert resolved_at == resolved.resolved_at
-    assert Enum.all?(Repo.all(PageSnapshot), &(not String.contains?(&1.content, "<comment")))
+
+    assert Enum.all?(
+             Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id)),
+             &(not String.contains?(&1.content, "<comment"))
+           )
   end
 
   test "restoring text never resurrects an orphaned historical comment anchor", ctx do
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
 
     assert {:ok, %{comment: comment}} =
              Comments.create(ctx.editor, ctx.page.id, %{
@@ -386,7 +401,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
   test "history pagination excludes full XML and is independent of OT pruning",
        ctx do
     assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.ot_replay_window", 1)
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
 
     {:ok, %{page: changed}} =
       Documents.write(ctx.editor, ctx.page.id, 0, "<page><p>Edited</p></page>")
@@ -425,21 +440,25 @@ defmodule Ankole.Pod.DocumentHistoryTest do
              Comments.create(ctx.editor, ctx.page.id, %{body: "A reply", root_id: comment.id})
 
     assert {:ok, _} = Pages.delete(ctx.owner, ctx.page.id)
-    assert length(Repo.all(PageSnapshot)) == 3
+
+    assert length(
+             Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
+           ) == 3
+
     assert length(Repo.all(PageComment)) == 2
     assert {:ok, _} = Pages.purge(ctx.owner, ctx.page.id)
 
     assert :ok =
-             Ankole.Files.Jobs.PurgeNode.perform(%Oban.Job{
+             Ankole.Pod.Jobs.PurgeTree.perform(%Oban.Job{
                args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => ctx.page.id}
              })
 
-    assert Repo.all(PageSnapshot) == []
+    assert Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id)) == []
     assert Repo.all(PageComment) == []
   end
 
   test "restore checkpoints share the 200-version cap with ordinary checkpoints", ctx do
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
     now = DateTime.utc_now(:microsecond)
 
     for offset <- 1..199 do
@@ -457,12 +476,15 @@ defmodule Ankole.Pod.DocumentHistoryTest do
                })
     end
 
-    oldest = Repo.all(PageSnapshot) |> Enum.sort_by(& &1.created_at, DateTime) |> Enum.take(2)
+    oldest =
+      Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
+      |> Enum.sort_by(& &1.created_at, DateTime)
+      |> Enum.take(2)
 
     assert {:ok, _} =
              History.restore(ctx.owner, ctx.page.id, original.id, 0, ctx.page.updated_at)
 
-    retained = Repo.all(PageSnapshot)
+    retained = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
     assert length(retained) == 200
     refute Enum.any?(retained, fn snapshot -> Enum.any?(oldest, &(&1.id == snapshot.id)) end)
 
@@ -471,7 +493,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
   end
 
   test "expired versions cannot be listed, read, or restored before idle cleanup runs", ctx do
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
     old = DateTime.add(DateTime.utc_now(:microsecond), -31 * 86_400, :second)
     Repo.update_all(from(s in PageSnapshot, where: s.id == ^original.id), set: [created_at: old])
 
@@ -482,16 +504,19 @@ defmodule Ankole.Pod.DocumentHistoryTest do
              History.restore(ctx.owner, ctx.page.id, original.id, 0, ctx.page.updated_at)
 
     assert :ok = History.expire(DateTime.utc_now(:microsecond))
-    assert Repo.all(PageSnapshot) == []
+    assert Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id)) == []
   end
 
   test "the next write replaces an expired checkpoint and prunes it", ctx do
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
     old = DateTime.add(DateTime.utc_now(:microsecond), -31 * 86_400, :second)
     Repo.update_all(from(s in PageSnapshot, where: s.id == ^original.id), set: [created_at: old])
 
     assert {:ok, _} = Documents.write(ctx.owner, ctx.page.id, 0, "<page><p>New</p></page>")
-    assert [checkpoint] = Repo.all(PageSnapshot)
+
+    assert [checkpoint] =
+             Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
+
     assert checkpoint.id != original.id
     assert checkpoint.content == original.content
   end
@@ -506,7 +531,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
                changes: []
              })
 
-    [original] = Repo.all(PageSnapshot)
+    [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
     now = DateTime.utc_now(:microsecond)
     boundary = DateTime.add(now, -30 * 86_400, :second)
 

@@ -5,146 +5,68 @@ section: User guide
 order: 18
 ---
 
-Brain is Ankole's long-term memory system—inspired by GBrain and structured around an enterprise ontology similar to Palantir—that turns durable facts from conversations, files, and web pages into traceable organizational knowledge. Within explicit disclosure boundaries, Agents can recall, revise, and forget what Brain knows.
+Brain derives searchable facts, judgments, events, and relationships from Pod pages and conversations. People and Agents maintain the same knowledge in Pod, while Brain preserves provenance and distinguishes current assertions from superseded ones.
 
-Rather than appending raw transcripts and calling them memory, Brain maintains an up-to-date model of people, organizations, events, judgments, and their relationships. As new evidence arrives, Brain reinforces earlier claims, supersedes outdated ones, or surfaces contradictions—while preserving both the underlying evidence and superseded states for review.
+## Maintain knowledge in Pod
 
-Every Agent within an Ankole tenant shares one knowledge space instead of copying data into isolated per-Agent silos. Because every memory carries its own audience scope, sharing storage never implies unrestricted disclosure.
+**Meta Ankole → Brain** contains the organization knowledge graph and ontology categories. Knowledge entries support Markdown, business properties, references and revision history. People edit them in Pod; Agents use the Brain `write_object` operation. Page IDs stay stable when an entry moves or its title changes. Categories belong to the ontology, while Principal lifecycle operations maintain internal people and Agent profiles.
 
-## What Brain can learn
+A page’s knowledge panel shows the facts, timeline events, backlinks, and calibration scores that the reader can access. The Console’s **Objects** list opens these pages in Pod.
 
-Knowledge enters Brain through four active paths:
+Knowledge enters Brain through these paths:
 
-| Path | Result | Conditions |
-| --- | --- | --- |
-| An Agent calls `remember` | One fact or judgment becomes durable immediately | The Agent must file one atomic claim, give its source, and select a valid audience scope |
-| An Agent calls `put_page` or `edit_page` | A structured subject page is created or revised in place with version history and reconciled `[[slug]]` links | Updates require `expected_revision` optimistic concurrency; multi-audience edits stay within the caller's writable Markdoc scopes while preserving hidden sections |
-| Signals learning processes a conversation | Useful facts, judgments, and open commitments can be learned without an explicit `remember` call | The channel must be a direct message or IM group, and the Brain maintainer Agent must have a usable `light` profile; group learning also needs a synchronized member permission group |
-| An operator registers a Source | A file or web page becomes searchable and can produce extracted claims | Claim extraction needs the maintainer Agent's `light` profile; files must be deployment-readable, and files and fetched page text must be valid UTF-8 no larger than 10 MiB; URLs need the Agent's `web_fetch` profile |
+| Path | Result |
+| --- | --- |
+| An Agent calls `remember` | One atomic Fact or Take with provenance and a source node |
+| A person or Agent updates Pod content | Search passages and page references update with the committed page revision |
+| Conversation learning | Useful facts, judgments, and commitments are extracted from eligible direct-message and group conversations |
+| A registered file or URL Source | Source content becomes a Pod knowledge page and can produce extracted claims |
 
-Signals learning runs once an eligible channel goes idle or its conversation closes, reading the visible channel message slice rather than the Agent's internal model transcript. Extracted claims default to the other person's scope in direct messages and to the synchronized channel-member group's scope in group chats.
+Public Pod business content participates in search and can opt into fact extraction with `extract_facts`. Skill packages and Agent instruction contracts have their own storage and management in Meta Ankole, separate from Brain search and fact extraction.
 
-Once a `remember` call commits, its write persists even if a later step in the turn fails, is cancelled, or is retried—making an acknowledged memory a durable fact in its own right rather than a side effect of a completed reply.
+## Facts, judgments, and evidence
 
-Every registered Source carries a default audience scope; pick the narrowest scope that still serves its intended readers. Archiving a Source halts future extraction runs while keeping knowledge already learned from it intact.
+A **Fact** records an observation with confidence, time, provenance, and a holder. A **Take** records a judgment or prediction with a weight that can later be evaluated. A **Timeline** records a dated event. Typed links connect related pages.
 
-## How Brain represents knowledge
+Every claim and event has a source node. Its subject page is optional: a conversation can contain a useful commitment before anyone creates a separate entity page. The holder identifies who makes an assertion, while the subject identifies what the assertion concerns.
 
-Brain models several distinct record types because each answers a different kind of question:
+## Read and share knowledge
 
-- A **page** describes one stable subject—a person, company, event, project, document, or concept.
-- A **Fact** records a single verifiable observation with its confidence, timestamp, source, holder, and audience scope.
-- A **Take** captures a judgment, prediction, bet, or hypothesis held by a person, Agent, or Brain, carrying a weight so it can later be graded or resolved.
-- A **Timeline** logs what happened to a subject and when.
-- A **Link** connects two related pages.
+Knowledge uses the same current permissions as Drive and Pod. Sharing one page grants access to that page; sharing a container can include its descendants. Restricted page titles, metadata, content, facts, and events follow those boundaries. A claim about a public company can still remain private because its evidence comes from a restricted conversation.
 
-Note that a claim's **holder** is the person or Agent asserting it rather than the subject of the sentence: if Alex says that a supplier is unreliable, Brain records a Take held by Alex, not a Fact held by the supplier.
+Agent reads use the intersection of the Agent’s and requester’s access. In strict group disclosure mode, every participant considered present must also be able to read the source. Relaxed mode checks the Agent and requester. Membership or sharing changes affect subsequent reads immediately.
 
-Each claim must express a single atomic assertion that can change independently. Because Brain retains provenance alongside prior page revisions and superseded claims, correcting a claim updates the current view without erasing how that conclusion formed.
+Conversation learning uses the conversation’s Drive root as the source. For explicit `remember` calls, the Agent uses the request’s source by default and can select another accessible source node according to organization rules in `AGENTS.md`. Ankole enforces the source’s current permissions when retrieving the result.
 
-## How an Agent uses memory
+## Use memory in a task
 
-Brain injects relevant memory automatically at two points: when a conversation starts (and again after context compaction), it assembles a bounded context pack covering participants, recently mentioned subjects, key current facts, and open commitments; on each subsequent text turn, it also points the Agent to named pages matching the incoming message.
-
-Neither automatic injection makes an LLM call—if assembly times out or fails, Brain skips the injection so the turn proceeds normally. Treat recalled text as potentially stale or incomplete background data rather than instructions.
-
-When a task calls for explicit memory lookup or updates, Agents invoke dedicated Brain tools:
+Brain supplies bounded context about participants, mentioned entities, current facts, and open commitments when a conversation starts or resumes after compaction. Subsequent text turns can include pointers to matching names. The Agent can then use:
 
 | Tool | Outcome |
 | --- | --- |
-| `remember` | Records one atomic Fact or Take with provenance and audience scope |
-| `put_page` | Creates a structured page or replaces an existing single-scope page body under `expected_revision` |
-| `edit_page` | Applies exact-match surgical replacements inside caller-writable Markdoc spans under `expected_revision`, returning a compact diff |
-| `learn_source` | Registers one web URL as a Source and starts background learning |
-| `recall` | Returns current Facts and Takes first, followed by exact-alias entity cards and relevant page passages within a token budget |
-| `get_page` | Reads one complete filtered page (with its `revision` and optional pruned Markdoc `content`) by slug or natural-language name; ambiguous names return candidates instead of a guess |
-| `entity` | Returns an entity card with selected facts, relationships, and a backlink count |
-| `whoknows` | Ranks visible people, Agents, and companies whose stored knowledge matches a topic |
-| `delta` | Reports new and expired claims and timeline events within a time range |
-| `synthesize` | Uses recalled evidence, contested claims, and open gaps to write a durable analysis page for one question |
-| `forget` | Expires one Fact, deactivates one Take, or soft-deletes one page, with a recorded reason |
+| `remember` | Record one atomic Fact or Take |
+| `recall` | Retrieve current claims, entity cards, page passages, and timeline passages |
+| `entity` | Inspect a subject’s visible facts and relationships |
+| `whoknows` | Find people, Agents, and organizations associated with a topic |
+| `delta` | Read new and expired claims and events within a time range |
+| `synthesize` | Write an analysis page backed by visible evidence |
 
-### Discover recall-only Skills
+Pod reads offer metadata, a compact outline, or the complete page. The outline keeps introductions and section headings, with long tables and code blocks folded. Agents request full content when the task needs it. Ambiguous names produce candidates for disambiguation.
 
-Shipped Skills that teach specialized SOPs can declare `brain-recall-only: true` so they stay out of every turn's prompt catalog while remaining discoverable through Brain when relevant.
+`/drive/Brain` is a read-only view of the current disclosure scope. The Agent uses `write_object` to create or revise an entry, supplying its category or ID, Markdown and base revision. When direct edit permission is missing, it proposes an Action Card for an authorized human to approve. Skills and instruction contracts are managed by humans in [Meta Ankole](../agent-library/).
 
-For each recall-only Skill, Brain indexes only its `name`, `description`, and `tags` into a `world`-scoped discovery record named `lazyload-agent-skills/<skill-name>`, leaving the `SKILL.md` body, bundled files, and Agent-specific lessons in their authoritative stores to be read via `skill_view`. When `recall` surfaces such a record, the Agent calls `skill_view` (and calling `get_page` on that record delegates to `skill_view` automatically), which enforces `ankole-runtime`: loading the instructions on compatible surfaces, guiding the foreground Agent to delegate background-only Skills, and rejecting any other incompatible read.
+## Keep knowledge current
 
-Before returning candidates, Brain filters against the calling Agent's effective Agent Plugin and Skill settings so a disabled Skill can neither be discovered nor loaded. Because the shared discovery projection stays in storage while disabled, re-enabling the Skill restores discovery immediately without rebuilding the index.
+Scheduled **Dreaming** consolidates evidence, generates analyses, extracts timeline events, evaluates due Takes, and detects contradictions. Operators resolve contradictions in the Console. Retrieval confidence decays with age according to the Fact’s kind; this changes ranking without rewriting the original confidence.
 
-When an Embedding model is configured, `recall` fuses full-text BM25 and vector candidates (falling back to full-text search alone when unconfigured), and when a Rerank model is configured, Brain re-orders the fused results with a cross-encoder.
+Page extraction commits only if its input revision still matches. Removing a source from Drive immediately removes its passages and derived claims from retrieval. Pod owns trash, restoration, permanent deletion, and page history. Archiving a registered Source stops future learning while preserving its Pod content.
 
-## Knowledge and disclosure boundaries
+Scheduled **self-healing** rebuilds stale chunks and embeddings, checks indexes, and queues eligible conversation slices. These search projections can be rebuilt from PostgreSQL content and structured records.
 
-Every protected paragraph, Fact, Take, and Timeline entry carries an explicit audience scope:
+## Operate Brain
 
-| Scope | Who can reach it |
-| --- | --- |
-| `world` | Active Human members (`membership = member`), active Agents, and System Principals in the tenant; external Guests (`membership = guest`) and inactive Principals are excluded |
-| `group:<name>` | Current members of that permission group |
-| `principal:<uid>` | Only that Principal |
+The Console provides **Claims**, **Contradictions**, **Sources**, **Search preview**, **Principal audit**, and **Health**. Operators can correct or expire claims, resolve Takes, inspect provenance, trigger Source learning, and diagnose missing model configuration.
 
-Brain evaluates permission-group membership dynamically on every read and write, so when someone changes teams, future recall reflects their updated access immediately without rewriting historical records.
+Brain runs model calls as the tenant’s `ankole_brain` system Principal. Its effective `light` profile handles extraction, `heavy` handles synthesis and model-based maintenance, and `web_fetch` fetches URL Sources. Operators configure these profiles and `rerank` in the Console model-profile editor; the embedding model is a site setting. Missing optional models limit the corresponding capability; existing knowledge and full-text retrieval remain available. `brain.enabled` controls Brain tools, automatic context, and background learning without deleting stored knowledge.
 
-Authors can always read the Claims and Timeline entries that they wrote, and an Agent's human owner can inspect that Agent's private scope as well as knowledge authored or held by the Agent. Ownership does not grant backdoor access to group-scoped knowledge—the owner must belong to that permission group independently.
-
-Group conversations enforce an additional disclosure check:
-
-- **Strict** (default) discloses group-scoped memory only when every participant considered present in the room already has access to it.
-- **Relaxed** checks only the person who asked the question, without letting other participants in the room narrow the results.
-
-In one-on-one direct messages, both modes behave identically.
-
-A Source or chat channel records provenance—where the evidence came from—without granting access to the extracted knowledge; always set the desired audience scope on the learned content itself. Within a tenant, page-level metadata (slug, title, object type, and existence) is visible across Principals, while protected sections and structured claims are filtered per viewer.
-
-When an Agent calls `remember` explicitly, it chooses an audience scope using its `ConfidentialityPolicy.md` guidance. While Ankole enforces the chosen scope deterministically afterward, the initial scope choice is still a best-effort model judgment. Whenever you need compliance-grade isolation, restrict who can access the Agent through [Principals and permission groups](../principal-and-groups/) rather than relying solely on model classification.
-
-## How knowledge stays current
-
-Scheduled **Dreaming** runs perform the maintenance tasks that require model judgment:
-
-- consolidating related Facts into a cautious Brain-held Take;
-- spotting cross-page patterns and writing evidence-linked synthesis;
-- extracting entity links and timeline events;
-- grading due Takes and updating calibration summaries;
-- flagging potential contradictions.
-
-Dreaming never resolves a contradiction or overwrites conflicting Claims silently; instead, it logs the contradiction so a human operator can resolve or dismiss it in the Console.
-
-As Facts age, Brain decays their retrieval ranking weight according to their kind—adjusting search order without altering stored confidence scores or audit history. Only an explicit `forget` call or operator action changes active validity: expiring a Fact, deactivating a Take, or soft-deleting a page (which remains restorable until the purge window expires), while keeping expired and superseded claims for audit and calibration.
-
-Alongside Dreaming, scheduled **self-healing** maintains searchable projections without calling a reasoning model—repairing stale chunks and embeddings, verifying search indexes, and queueing eligible idle channel slices that still need learning.
-
-## Operate Brain in the Console
-
-In the Console, **Brain** gives operators direct visibility and control over the tenant's knowledge space:
-
-- **Objects** inspects pages, rendered sections, facts, timelines, links, and revision history, with rollback, soft-delete, and restore actions.
-- **Claims** lists Facts and Takes with their provenance and current status, plus controls to correct, forget, or resolve them.
-- **Contradictions** queues detected conflicts for human resolution.
-- **Sources** registers files and URLs, triggers extraction runs, and archives sources.
-- **Search preview** tests `recall` as any chosen Principal and disclosure mode.
-- **Principal audit** lists every record where a given Principal is the holder, author, or target audience.
-- **Health** reports model readiness, learning backlogs, embedding errors, channel prerequisites, and index status.
-
-Tenant settings select the Brain maintainer Agent and optional rerank model, while site settings select the embedding model and vector dimensions. Because every Brain model call executes as the maintainer Agent and attributes usage to it, keep that Agent enabled—disabling it marks Brain unhealthy and halts Brain model calls and URL Source fetching until you re-enable or replace it, though existing knowledge and full-text recall remain available.
-
-| Owner and setting | What it enables |
-| --- | --- |
-| Maintainer Agent `light` profile | Signals learning and claim extraction from Sources |
-| Maintainer Agent `heavy` profile | Model-dependent Dreaming phases and `synthesize` |
-| Maintainer Agent `web_fetch` profile | Readable-text extraction for URL Sources; without it, URL Sources are not learned |
-| Brain Embedding model | Vector recall and semantic Fact deduplication |
-| Brain Rerank model | Cross-encoder ordering after retrieval fusion |
-
-Leaving an optional model unconfigured narrows only that capability and surfaces clearly on **Brain → Health** instead of failing silently. Turning off `brain.enabled` removes Brain tools and automatic context injection and stops background jobs while leaving all stored knowledge intact.
-
-Every tenant starts with the `general` schema pack, and during setup you can add domain packs for private equity and venture capital, public markets, consumer businesses, legal work, software, and consulting. All Agents in the tenant share the installed vocabulary.
-
-## Current limits
-
-Brain currently extracts conversation slices only from direct-message and IM-group channels, and registered Sources support files and web URLs—connector, webhook, and alert streams are not ingested directly.
-
-Treat Brain as an evidence ledger rather than an infallible oracle: when a consequential decision depends on a stored claim, check its provenance source, timestamp, confidence, holder, and contradiction status.
-
-For Brain's architectural boundaries, read [Architecture](../architecture/); for runtime keys, read [AppConfigure](../app-configuration/); and for procedural guardrails distilled from execution trajectories, read [Skill Lessons](../skill-lessons/).
+See [Architecture](../architecture/), [AppConfigure](../app-configuration/), and [Skill Lessons](../skill-lessons/) for related contracts and settings.

@@ -65,7 +65,7 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
     |> Map.put("answer", answer_text(value(presentation, "answer")))
     |> Ankole.Attrs.maybe_put(
       "thought",
-      bounded_optional_text(value(presentation, "thought"), @max_thought_chars)
+      reasoning_text(value(presentation, "thought"))
     )
     |> Ankole.Attrs.maybe_put("plan", normalize_plan(value(presentation, "plan")))
     |> Map.put("activities", normalize_activities(value(presentation, "activities")))
@@ -496,11 +496,11 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
        do: presentation
 
   defp apply_reasoning_delta(presentation, payload) do
-    case bounded_optional_text(
+    case bounded_text(
            value(payload, "text") || value(payload, "delta"),
            @max_thought_chars
          ) do
-      nil ->
+      "" ->
         presentation
 
       delta ->
@@ -1205,6 +1205,13 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
     value
     |> to_safe_string()
     |> String.slice(0, max_chars)
+  end
+
+  defp reasoning_text(value) do
+    case bounded_text(value, @max_thought_chars) do
+      "" -> nil
+      text -> text
+    end
   end
 
   defp bounded_optional_text(value, max_chars) do

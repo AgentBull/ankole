@@ -30,7 +30,7 @@ defmodule Ankole.Sessions.Scheduled do
     [
       query: [
         filter: [
-          signal_id: id,
+          signal_id: Ankole.Signals.root_signal_id(id),
           agent_uid: agent,
           session_id: session,
           kind: kind,

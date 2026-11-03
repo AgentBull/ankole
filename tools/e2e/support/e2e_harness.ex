@@ -120,7 +120,7 @@ defmodule Ankole.E2E.Harness do
     providers = Repo.all(from(p in ProviderConfigs.Provider, select: p.provider_id))
     worker_providers = Enum.map(AgentWorkers.Providers.list(), & &1.provider_id)
     jobs = Repo.all(from(j in Oban.Job, select: j.id))
-    objects = Repo.all(from(o in Ankole.Brain.Schemas.Object, select: o.id))
+    nodes = Repo.all(from(n in Ankole.Pod.Page, select: n.id))
 
     scopes =
       Repo.all(from(c in Ankole.AppConfigure.AppConfig, distinct: c.scope, select: c.scope))
@@ -142,7 +142,11 @@ defmodule Ankole.E2E.Harness do
           created = Repo.all(from(p in Principals.Principal, where: p.uid not in ^principals))
           uids = Enum.map(created, & &1.uid)
 
-          Repo.delete_all(from(o in Ankole.Brain.Schemas.Object, where: o.id not in ^objects))
+          Repo.query!(
+            "SET CONSTRAINTS pages_acl_anchor_fkey, pages_parent_anchor_fkey DEFERRED"
+          )
+
+          Repo.delete_all(from(n in Ankole.Pod.Page, where: n.id not in ^nodes))
           Repo.delete_all(from(c in Ankole.AppConfigure.AppConfig, where: c.scope not in ^scopes))
           # Shared conversations contain the committed fixture statements.
           Repo.delete_all(from(c in Conversation, where: c.id not in ^conversations))
@@ -150,7 +154,7 @@ defmodule Ankole.E2E.Harness do
           for uid <- uids do
             assert {:ok, :ok} =
                      Repo.transact(fn ->
-                       :ok = Ankole.Files.delete_private_root_in_tx(uid)
+                       :ok = Ankole.Pod.delete_private_root_in_tx(uid)
                        {:ok, :ok}
                      end)
           end
@@ -630,11 +634,12 @@ defmodule Ankole.E2E.Harness do
     result
   end
 
-  def setup_lark_domain!(fake_llm_port, fake_feishu, agent_attrs \\ %{}) do
+  def setup_lark_domain!(fake_llm_port, fake_feishu, agent_attrs \\ %{})
+
+  def setup_lark_domain!(fake_llm_port, fake_feishu, agent_attrs)
+      when is_map(agent_attrs) and not is_struct(agent_attrs) do
     uid =
       "agent-lark-e2e-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
-
-    provider_id = "fake-openrouter-e2e-#{Ecto.UUID.generate()}"
 
     %{principal: agent} =
       create_e2e_agent!(
@@ -643,6 +648,12 @@ defmodule Ankole.E2E.Harness do
           agent_attrs
         )
       )
+
+    setup_lark_domain!(fake_llm_port, fake_feishu, agent)
+  end
+
+  def setup_lark_domain!(fake_llm_port, fake_feishu, %Ankole.Principals.Principal{} = agent) do
+    provider_id = "fake-openrouter-e2e-#{Ecto.UUID.generate()}"
 
     create_fake_llm_provider!(provider_id, fake_llm_port, "sk-fake-chaos")
 

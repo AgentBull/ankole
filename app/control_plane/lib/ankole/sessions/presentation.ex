@@ -28,10 +28,15 @@ defmodule Ankole.Sessions.Presentation do
         "activity" => "attachment_prepare",
         "visible_delivery" => true,
         "description" =>
-          "Queue a Drive node for delivery with the final reply. Save local files with ankole-files put first and use its nodeId. A file in a conversation root can only be delivered to that conversation. Success records the selected bytes for delivery; it does not confirm that the provider received them.",
+          "Queue a Drive node for delivery with the final reply. Pass a /drive path to flush it and select the saved bytes, or pass an existing node_id. On Workers without Drive mounts, save local files with ankole-files put first. A file in a conversation root can only be delivered to that conversation. Success records the selected bytes for delivery; it does not confirm that the provider received them.",
         "parameters" => %{
           "type" => "object",
           "properties" => %{
+            "path" => %{
+              "type" => "string",
+              "minLength" => 1,
+              "description" => "Absolute /drive file path, or a local symbolic link into /drive."
+            },
             "node_id" => %{
               "type" => "string",
               "minLength" => 1,
@@ -44,7 +49,7 @@ defmodule Ankole.Sessions.Presentation do
             },
             "mimeType" => %{"type" => "string", "minLength" => 1, "description" => "MIME type."}
           },
-          "required" => ["node_id"],
+          "oneOf" => [%{"required" => ["node_id"]}, %{"required" => ["path"]}],
           "additionalProperties" => false
         },
         "execution_mode" => "sequential",
@@ -170,6 +175,10 @@ defmodule Ankole.Sessions.Presentation do
     do: Ankole.Sessions.Events.publish_status(event.agent_uid, event.session_id)
 
   def publish_committed(%{signal: event} = result) do
+    Ankole.Signals.publish_committed(
+      Map.get(result, :posted, %Ankole.Conversations.PostResult{}).signals
+    )
+
     Enum.each(
       Map.get(result, :posted, %Ankole.Conversations.PostResult{}).messages,
       &Ankole.Conversations.Events.publish_message(&1.conversation_id)
@@ -283,6 +292,10 @@ defmodule Ankole.Sessions.Presentation do
             end
         end
       end)
+      |> case do
+        {:ok, posted} -> Ankole.Conversations.project_peer_reply_in_tx(event, posted, statement)
+        error -> error
+      end
     end
   end
 
@@ -587,8 +600,8 @@ defmodule Ankole.Sessions.Presentation do
     attrs = %{content_type: mime, source: "generated"}
 
     if origin,
-      do: Files.create_conversation_file_in_tx(origin.id, filename, stored, attrs),
-      else: Files.create_private_file_in_tx(agent_uid, filename, stored, attrs)
+      do: Ankole.Pod.create_conversation_file_in_tx(origin.id, filename, stored, attrs),
+      else: Ankole.Pod.create_private_file_in_tx(agent_uid, filename, stored, attrs)
   end
 
   defp generated_image_retry(image_id, reason) do

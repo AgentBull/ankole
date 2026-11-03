@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
   alias Ankole.AIGateway.CompactionRequests
   alias Ankole.AIGateway.CompactionPolicy
   use Ankole.AIGatewayCase
+  import Ankole.BrainFixtures
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Schemas.CompactionArtifact
@@ -31,13 +32,13 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     fact!(agent, "agents/#{agent.uid}", "AGENT_MEMORY")
 
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "concepts/wire-format", type: "concept", title: "Wire Format"},
         agent.uid
       )
 
-    fact!(agent, object.slug, "TASK_MEMORY")
-    {:ok, _} = Links.add_alias(object.slug, "Wire Format")
+    fact!(agent, object.id, "TASK_MEMORY")
+    {:ok, _} = Links.add_alias(object.id, "Wire Format")
 
     {:ok, conversation} =
       Ankole.AIGatewayCase.ensure_conversation(agent.uid, "checkpoint-#{Ecto.UUID.generate()}")
@@ -240,13 +241,13 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
   test "a checkpoint follows its requested anchor rather than a newer conversation branch",
        context do
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "concepts/frame-header", type: "concept", title: "Frame Header"},
         context.agent.uid
       )
 
-    fact!(context.agent, object.slug, "OTHER_TASK_MEMORY")
-    {:ok, _} = Links.add_alias(object.slug, "Frame Header")
+    fact!(context.agent, object.id, "OTHER_TASK_MEMORY")
+    {:ok, _} = Links.add_alias(object.id, "Frame Header")
 
     provider!(context.agent, fn request ->
       {:sse, 200,
@@ -719,15 +720,15 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     end)
   end
 
-  defp fact!(agent, slug, claim) do
+  defp fact!(agent, reference, claim) do
     {:ok, _} =
       Ankole.Brain.write_fact(
         %{
-          object_slug: slug,
+          subject_page_id: page_id(reference),
           claim: claim,
           kind: "fact",
           holder: "world",
-          audience_scope: "world",
+          source_node_id: source_node("world"),
           notability: "medium",
           confidence: 0.9,
           valid_from: DateTime.utc_now(:microsecond),

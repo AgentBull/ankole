@@ -6,7 +6,7 @@ defmodule AnkoleWeb.Plugs.AppletRouteBody do
   def init(opts), do: opts
 
   def call(%{path_info: ["api", "v2", "pod", "pages", _id, "routes" | _]} = conn, _opts) do
-    case read_all(conn, []) do
+    case AnkoleWeb.BoundedBody.read(conn, 8_000_000) do
       {:ok, raw, conn} ->
         parsed =
           case {raw, get_req_header(conn, "content-type")} do
@@ -24,18 +24,13 @@ defmodule AnkoleWeb.Plugs.AppletRouteBody do
 
         conn |> put_private(:applet_route_body, parsed) |> then(&%{&1 | body_params: %{}})
 
-      {:error, _} ->
+      {:error, :too_large, conn} ->
+        conn |> send_resp(413, "") |> halt()
+
+      {:error, _, conn} ->
         conn |> send_resp(400, "") |> halt()
     end
   end
 
   def call(conn, _opts), do: conn
-
-  defp read_all(conn, chunks) do
-    case read_body(conn, length: 8_000_000, read_length: 1_000_000) do
-      {:ok, bytes, conn} -> {:ok, IO.iodata_to_binary(Enum.reverse([bytes | chunks])), conn}
-      {:more, bytes, conn} -> read_all(conn, [bytes | chunks])
-      error -> error
-    end
-  end
 end

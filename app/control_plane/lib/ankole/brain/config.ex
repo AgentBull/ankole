@@ -99,20 +99,6 @@ defmodule Ankole.Brain.Config do
         description: "Fact decay halflives in days per kind."
       ),
       Definition.new!(
-        key: "brain.soft_delete_retention_hours",
-        encrypted: false,
-        scope: :tenant,
-        schema:
-          Schema.new(fn value ->
-            if is_number(value) and value > 0,
-              do: {:ok, value},
-              else: {:error, :invalid_retention_hours}
-          end),
-        default_value: 72,
-        description:
-          "Hours before Dreaming permanently deletes eligible soft-deleted Brain Objects."
-      ),
-      Definition.new!(
         key: @dreaming_task_cron_key,
         encrypted: false,
         scope: :tenant,
@@ -253,8 +239,6 @@ defmodule Ankole.Brain.Config do
   @doc "Returns the complete forgetting settings map."
   @spec forgetting() :: map()
   def forgetting, do: get_or_default(@forgetting_key)
-
-  def soft_delete_retention_hours, do: get_or_default("brain.soft_delete_retention_hours")
 
   @doc "Returns the Dreaming task cron expression."
   @spec dreaming_task_cron() :: String.t()

@@ -99,3 +99,27 @@ export function mediaKind({ src = '', mime = '', kind }: ResourceAttributes): Me
     ? 'video'
     : 'image'
 }
+
+const SAFE_LINK_SCHEME = /^(?:https?:|mailto:|tel:|\/|#)/i
+
+function isEdgeControlOrSpace(code: number): boolean {
+  return code <= 0x20 || code === 0x7f
+}
+
+/** Return a trimmed link href when its scheme or path form is safe for DOM navigation, or null. */
+export function safeLinkHref(value: string): string | null {
+  let start = 0
+  let end = value.length
+  while (start < end && isEdgeControlOrSpace(value.charCodeAt(start))) start++
+  while (end > start && isEdgeControlOrSpace(value.charCodeAt(end - 1))) end--
+  if (start === end) return null
+  for (let i = start; i < end; i++) {
+    const code = value.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) return null
+  }
+  const trimmed = start === 0 && end === value.length ? value : value.slice(start, end)
+  if (SAFE_LINK_SCHEME.test(trimmed) || trimmed.startsWith('ankole:page/') || trimmed.startsWith('ankole:asset/')) {
+    return trimmed
+  }
+  return null
+}

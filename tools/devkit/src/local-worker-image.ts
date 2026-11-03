@@ -29,6 +29,7 @@ const sharedInputRoots = [
   'app/agent_computer/base-image.lock',
   'app/agent_computer/matplotlibrc',
   'app/agent_computer/package.json',
+  'app/agent_computer/rclone',
   'app/agent_computer/scripts',
   'app/agent_computer/tsconfig.json',
   'app/ankole-browser',

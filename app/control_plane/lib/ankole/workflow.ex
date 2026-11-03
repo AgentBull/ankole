@@ -54,9 +54,12 @@ defmodule Ankole.Workflow do
 
   @doc "Sends an owner message to one live task of a run."
   def send_task_message(run_id, call_seq, agent_uid, message, source_tool_call_id) do
-    Repo.transact_top_level(fn ->
-      Mail.send_task_message_in_tx(run_id, call_seq, agent_uid, message, source_tool_call_id)
-    end)
+    Repo.transact_top_level(
+      fn ->
+        Mail.send_task_message_in_tx(run_id, call_seq, agent_uid, message, source_tool_call_id)
+      end,
+      after_commit: fn result -> Ankole.Signals.publish_committed(result.event) end
+    )
   end
 
   @doc "Defers a task Signal until the Agent has free Workflow capacity."

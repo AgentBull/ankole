@@ -17,13 +17,12 @@ defmodule Ankole.Brain.ContextPack do
   alias Ankole.Brain.Config
   alias Ankole.Brain.ContextPackStats
   alias Ankole.Brain.Links
-  alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Link
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Logging
 
@@ -46,7 +45,7 @@ defmodule Ankole.Brain.ContextPack do
 
     with true <- Config.enabled?(),
          {:ok, access} <- Access.for_readers(agent_uid, disclosure),
-         {:ok, visibility} <- LazySkillVisibility.for_querier(agent_uid) do
+         visibility = access do
       forgetting = Config.forgetting()
       now = DateTime.utc_now()
 
@@ -102,7 +101,7 @@ defmodule Ankole.Brain.ContextPack do
           map(),
           DateTime.t(),
           String.t() | nil,
-          LazySkillVisibility.t()
+          Access.t()
         ) :: map() | nil
   def entity_card(slug, access, disclosure, forgetting, now, conversation_id, visibility) do
     case base_card(slug, access, disclosure, forgetting, now, conversation_id, visibility) do
@@ -112,7 +111,7 @@ defmodule Ankole.Brain.ContextPack do
       card ->
         aka =
           ObjectAlias
-          |> Ash.Query.filter(object_slug == ^card.slug)
+          |> Ash.Query.filter(subject_page_id == ^card.id)
           |> Ash.Query.sort(alias_norm: :asc, id: :asc)
           |> Ash.Query.limit(5)
           |> Ash.Query.select([:alias_norm])
@@ -121,18 +120,18 @@ defmodule Ankole.Brain.ContextPack do
 
         outgoing =
           Link
-          |> Ash.Query.filter(from_object_slug == ^card.slug)
-          |> LazySkillVisibility.filter_links(visibility)
-          |> Ash.Query.sort(link_type: :asc, to_object_slug: :asc, id: :asc)
+          |> Ash.Query.filter(from_page_id == ^card.id)
+          |> Access.filter_links(visibility)
+          |> Ash.Query.sort(link_type: :asc, to_page_id: :asc, id: :asc)
           |> Ash.Query.limit(10)
-          |> Ash.Query.select([:link_type, :to_object_slug])
+          |> Ash.Query.select([:link_type, :to_page_id])
           |> Ankole.Ash.read!()
-          |> Enum.map(&%{link_type: &1.link_type, to: &1.to_object_slug})
+          |> Enum.map(&%{link_type: &1.link_type, to: &1.to_page_id})
 
         backlinks =
           Link
-          |> Ash.Query.filter(to_object_slug == ^card.slug)
-          |> LazySkillVisibility.filter_links(visibility)
+          |> Ash.Query.filter(to_page_id == ^card.id)
+          |> Access.filter_links(visibility)
           |> Ankole.Ash.count!()
 
         Map.merge(card, %{aka: aka, edges: outgoing, backlink_count: backlinks})
@@ -148,17 +147,18 @@ defmodule Ankole.Brain.ContextPack do
         nil
 
       {:ok, %Object{} = object} ->
-        if LazySkillVisibility.visible?(visibility, object.slug) do
+        if Access.visible?(visibility, object.id) do
           facts =
-            object.slug
+            object.id
             |> entity_claims(conversation_id)
             |> Ash.Query.filter(claim_type == :fact and is_nil(expired_at))
             |> Access.filter_claims(access)
-            |> LazySkillVisibility.filter_claims(visibility)
+            |> Access.filter_claims(visibility)
             |> Ash.Query.sort(valid_from: :desc, id: :asc)
             |> Ash.Query.limit(50)
+            |> Ash.Query.deselect(:embedding)
             |> Ankole.Ash.read!()
-            |> Access.filter_disclosable(& &1.audience_scope, disclosure)
+            |> Access.filter_disclosable(& &1.source_node_id, disclosure)
             |> Enum.sort_by(
               fn claim ->
                 notability_rank(claim.notability) +
@@ -172,6 +172,7 @@ defmodule Ankole.Brain.ContextPack do
             end)
 
           %{
+            id: object.id,
             slug: object.slug,
             title: object.title,
             type: object.type,
@@ -203,7 +204,7 @@ defmodule Ankole.Brain.ContextPack do
     with true <- Config.enabled?(),
          true <- is_binary(message_text) and String.trim(message_text) != "",
          {:ok, access} <- Access.for_readers(agent_uid, disclosure),
-         {:ok, visibility} <- LazySkillVisibility.for_querier(agent_uid) do
+         visibility = access do
       objects =
         message_text
         |> Links.match_aliases_in_text()
@@ -212,7 +213,7 @@ defmodule Ankole.Brain.ContextPack do
       objects
       |> Enum.take(@pointer_limit)
       |> Enum.map(fn object ->
-        %{slug: object.slug, title: object.title, type: object.type}
+        %{id: object.id, slug: object.slug, title: object.title, type: object.type}
       end)
     else
       _disabled_or_blank -> []
@@ -233,7 +234,7 @@ defmodule Ankole.Brain.ContextPack do
           [String.t()],
           Access.t(),
           disclosure(),
-          LazySkillVisibility.t()
+          Access.t()
         ) :: [String.t()]
   def visible_alias_slugs([], _access, _disclosure, _visibility), do: []
 
@@ -242,7 +243,7 @@ defmodule Ankole.Brain.ContextPack do
 
     slugs
     |> visible_alias_objects(access, disclosure, visibility)
-    |> Enum.map(& &1.slug)
+    |> Enum.map(& &1.id)
     |> Enum.sort_by(&Map.fetch!(order, &1))
   end
 
@@ -250,8 +251,8 @@ defmodule Ankole.Brain.ContextPack do
 
   defp visible_alias_objects(slugs, access, disclosure, visibility) do
     Object
-    |> Ash.Query.filter(slug in ^slugs and is_nil(deleted_at))
-    |> LazySkillVisibility.filter_objects(visibility)
+    |> Ash.Query.filter(id in ^slugs and is_nil(deleted_at))
+    |> Access.filter_objects(visibility)
     |> Ash.Query.sort(slug: :asc)
     |> Ankole.Ash.read!()
     |> visible_pointer_objects(access, disclosure)
@@ -262,34 +263,34 @@ defmodule Ankole.Brain.ContextPack do
 
   defp visible_pointer_objects(objects, access, disclosure) do
     ids = Enum.map(objects, & &1.id)
-    slugs = Enum.map(objects, & &1.slug)
-    by_id = Map.new(objects, &{&1.id, &1.slug})
+    slugs = Enum.map(objects, & &1.id)
+    by_id = Map.new(objects, &{&1.id, &1.id})
 
     chunk_scopes =
       Chunk
-      |> Ash.Query.filter(object_id in ^ids)
+      |> Ash.Query.filter(page_id in ^ids)
       |> Access.filter_chunks(access)
-      |> Ash.Query.distinct([:object_id, :audience_scope])
-      |> Ash.Query.select([:object_id, :audience_scope])
+      |> Ash.Query.distinct([:page_id, :source_node_id])
+      |> Ash.Query.select([:page_id, :source_node_id])
       |> Ankole.Ash.read!()
-      |> Enum.map(&{Map.fetch!(by_id, &1.object_id), &1.audience_scope})
+      |> Enum.map(&{Map.fetch!(by_id, &1.page_id), &1.source_node_id})
 
     claim_scopes =
       Claim
-      |> Ash.Query.filter(object_slug in ^slugs)
+      |> Ash.Query.filter(subject_page_id in ^slugs)
       |> Access.filter_current_claims()
       |> Access.filter_claims(access)
-      |> Ash.Query.distinct([:object_slug, :audience_scope])
-      |> Ash.Query.select([:object_slug, :audience_scope])
+      |> Ash.Query.distinct([:subject_page_id, :source_node_id])
+      |> Ash.Query.select([:subject_page_id, :source_node_id])
       |> Ankole.Ash.read!()
-      |> Enum.map(&{&1.object_slug, &1.audience_scope})
+      |> Enum.map(&{&1.subject_page_id, &1.source_node_id})
 
     visible =
       (chunk_scopes ++ claim_scopes)
       |> Enum.filter(fn {_slug, scope} -> Access.disclosable?(scope, disclosure) end)
       |> MapSet.new(fn {slug, _scope} -> slug end)
 
-    Enum.filter(objects, &MapSet.member?(visible, &1.slug))
+    Enum.filter(objects, &MapSet.member?(visible, &1.id))
   end
 
   # A claim whose named entity does not resolve is filed on the Turn's
@@ -297,12 +298,12 @@ defmodule Ankole.Brain.ContextPack do
   # sit in storage that no card reads. The holder's own card is where it
   # belongs: a channel-filed claim held by somebody else is their knowledge,
   # not this entity's.
-  defp entity_claims(slug, nil), do: Ash.Query.filter(Claim, object_slug == ^slug)
+  defp entity_claims(slug, nil), do: Ash.Query.filter(Claim, subject_page_id == ^slug)
 
   defp entity_claims(slug, conversation_id) do
     Ash.Query.filter(
       Claim,
-      object_slug == ^slug or (conversation_id == ^conversation_id and holder == ^slug)
+      subject_page_id == ^slug or (conversation_id == ^conversation_id and holder == ^slug)
     )
   end
 
@@ -311,7 +312,7 @@ defmodule Ankole.Brain.ContextPack do
       params
       |> Map.get(:participant_uids, [])
       |> Enum.map(fn uid ->
-        case Ankole.Brain.Scope.canonical_slug(uid) do
+        case Ankole.Brain.Scope.canonical_page_id(uid) do
           {:ok, slug} -> slug
           {:error, _reason} -> nil
         end
@@ -325,7 +326,7 @@ defmodule Ankole.Brain.ContextPack do
 
     (participant_slugs ++ mentioned_slugs)
     |> Enum.uniq()
-    |> Enum.filter(&LazySkillVisibility.visible?(visibility, &1))
+    |> Enum.filter(&Access.visible?(visibility, &1))
     |> Enum.take(@pack_entity_limit)
   end
 
@@ -336,7 +337,7 @@ defmodule Ankole.Brain.ContextPack do
       |> Ash.Query.filter(claim_type == :take and active == true and is_nil(resolved_at))
       |> Ash.Query.filter(weight >= 0.6)
       |> Access.filter_claims(access)
-      |> LazySkillVisibility.filter_claims(visibility)
+      |> Access.filter_claims(visibility)
       |> Ash.Query.sort(weight: :desc, id: :asc)
       |> Ash.Query.limit(@open_thread_limit)
       |> Ankole.Ash.read!()
@@ -345,13 +346,13 @@ defmodule Ankole.Brain.ContextPack do
       Claim
       |> Ash.Query.filter(claim_type == :fact and is_nil(expired_at) and kind == "commitment")
       |> Access.filter_claims(access)
-      |> LazySkillVisibility.filter_claims(visibility)
+      |> Access.filter_claims(visibility)
       |> Ash.Query.sort(valid_from: :desc, id: :asc)
       |> Ash.Query.limit(@open_thread_limit)
       |> Ankole.Ash.read!()
 
     (takes ++ commitments)
-    |> Access.filter_disclosable(& &1.audience_scope, disclosure)
+    |> Access.filter_disclosable(& &1.source_node_id, disclosure)
     |> Enum.take(@open_thread_limit)
     |> Enum.map(fn claim ->
       %{
@@ -361,7 +362,7 @@ defmodule Ankole.Brain.ContextPack do
         kind: claim.kind,
         holder: claim.holder,
         weight: claim.weight,
-        object_slug: claim.object_slug
+        subject_page_id: claim.subject_page_id
       }
     end)
   end

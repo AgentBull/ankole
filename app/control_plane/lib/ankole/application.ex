@@ -30,11 +30,10 @@ defmodule Ankole.Application do
     #     compiled plugin during first-run configuration.
     #   - Plugins.Cohort after setup: it resolves one immutable activation snapshot,
     #     starts Plugins.Registry, then starts every child that consumes that snapshot.
-    #   - Worker provider seed import after Plugins: plugin kinds must be active
-    #     before the seed validates their configuration. Oban starts first because
-    #     Plugin startup can enqueue jobs. A recovered job can record
-    #     worker_provider_missing for an unassigned legacy Worker before seed import.
-    #     The seed clears that error when it assigns the provider.
+    #   - Upgrade202610.WorkerProviders runs after Plugins: provider kinds must
+    #     be active before bootstrap validates their configuration. Oban starts
+    #     first because Plugin startup can enqueue jobs. The bootstrap step
+    #     imports providers and completes supported Worker ownership upgrades.
     #   - IdentityProviders.StartupSync after Oban + Plugins: full-sync enqueue
     #     needs the queue, active provider config, and adapter declarations.
     #   - PubSub + AIGateway credential and response-stream processes before
@@ -53,6 +52,7 @@ defmodule Ankole.Application do
         {Phoenix.PubSub, name: Ankole.PubSub},
         AnkoleWeb.PodPresence,
         Ankole.OIDC.SigningKey,
+        Ankole.AIAgent.Library.SourceCache,
         Ankole.AppConfigure.Registry,
         Ankole.AppConfigure.Cache,
         Ankole.Observability,
@@ -61,7 +61,7 @@ defmodule Ankole.Application do
         Ankole.AgentWorkers.Config,
         {Oban, Application.fetch_env!(:ankole, Oban)},
         Ankole.Plugins.Cohort,
-        Ankole.AgentWorkers.Providers.Seed,
+        Ankole.Upgrade202610.WorkerProviders,
         Ankole.Authn.RateLimiter,
         Ankole.AIGateway.CredentialPool,
         Ankole.FunctionRuntime.Supervisor,
@@ -74,6 +74,7 @@ defmodule Ankole.Application do
         Ankole.WorkerFiles.Supervisor,
         Ankole.Conversations.Delivery.Supervisor,
         Ankole.AgentWorkers.Supervisor,
+        Ankole.AIGateway.ModelMetadata.Cache,
         Ankole.Sessions.Supervisor,
         Ankole.Workflow.Supervisor
       ]
@@ -86,9 +87,15 @@ defmodule Ankole.Application do
       )
 
     children =
+      maybe_add_child(
+        children,
+        Ankole.AIAgent.Library.StartupSync,
+        Application.get_env(:ankole, :library_startup_sync, true)
+      )
+
+    children =
       children ++
         [
-          Ankole.AIGateway.ModelMetadata.Cache,
           {DNSCluster, query: Application.get_env(:ankole, :dns_cluster_query) || :ignore},
           AnkoleWeb.Endpoint
         ]

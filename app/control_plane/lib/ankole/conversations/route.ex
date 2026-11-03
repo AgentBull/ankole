@@ -119,9 +119,14 @@ defmodule Ankole.Conversations.Route do
          session_id: session
        })
        when is_integer(id) and type in ["check_back_later.wakeup", "cron.fire"] do
+    root_id = Ankole.Signals.root_signal_id(signal_id)
+
     case Ankole.Work.Owner.get(Ankole.Schedule.Schemas.ScheduledEvent, id) do
-      %{signal_id: ^signal_id, agent_uid: ^uid, session_id: ^session} = event ->
-        if source == "control-plane://schedule/#{event.kind}" do
+      %{signal_id: ^root_id, agent_uid: ^uid, session_id: ^session} = event ->
+        if source in [
+             "ankole:schedule:#{event.cron_schedule_id || event.id}",
+             "control-plane://schedule/#{event.kind}"
+           ] do
           if event.kind == "cron_fire" and is_nil(event.source_signal_id),
             do:
               Ankole.Work.Owner.get(Ankole.Schedule.Schemas.CronSchedule, event.cron_schedule_id),
@@ -142,7 +147,7 @@ defmodule Ankole.Conversations.Route do
        when is_integer(id) and type in ["automation_job.emitted", "automation_job.run_failed"] do
     with %{automation_job_id: job_id} <-
            Ankole.Work.Owner.get(Ankole.AutomationJobs.Schemas.Run, id),
-         true <- source == "control-plane://automation-jobs/#{job_id}",
+         true <- source in ["ankole:job:#{job_id}", "control-plane://automation-jobs/#{job_id}"],
          %{agent_uid: ^uid} = job <-
            Ankole.Work.Owner.get(Ankole.AutomationJobs.Schemas.Job, job_id),
          do: job,
@@ -380,6 +385,7 @@ defmodule Ankole.Conversations.Route do
       route =
         owner.reply_route ||
           %{
+            "binding_id" => source.binding_id,
             "binding_name" => source.binding_name,
             "conversation_id" => source.conversation_id,
             "provider_thread_id" => source.provider_thread_id,

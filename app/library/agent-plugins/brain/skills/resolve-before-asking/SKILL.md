@@ -1,6 +1,6 @@
 ---
 name: resolve-before-asking
-description: Use before you ask anyone who a person, company, or thing is, what role or relationship someone has, or before you present an entity as unknown. Exhaust memory first — entity, recall, get_page, synthesize — then external search, and escalate only with a hypothesis.
+description: Use before you ask anyone who a person, company, or thing is, what role or relationship someone has, or before you present an entity as unknown. Exhaust memory first — entity, recall, full Pod pages, synthesize — then external search, and escalate only with a hypothesis.
 ankole-runtime: any
 ---
 
@@ -24,14 +24,18 @@ Run in order. Stop at the first clear answer.
 
 1. **This conversation.** The thread, its participants, and the channel often
    name the person already.
-2. **`entity`.** The card returns the page, aliases, selected current facts,
-   relations, and backlink count without a model call. A filled card is a
-   resolved entity.
+2. **`entity`.** Pass the name as `name`. The result contains `entity`
+   with its page ID, outline, metadata, current facts, takes, timeline,
+   backlinks, and children; an ambiguous name returns `candidates` instead.
+   A card that establishes the identity resolves the entity.
 3. **`recall`, narrowed with `entity`.** Facts and takes come back first.
    Three timeline entries that repeat one role description settle the
    question.
-4. **`get_page`.** Read the full page — body, current facts, timeline,
-   links — before you conclude the memory does not know.
+4. **Read the full Pod page.** Call `pod_get_page` with the returned page
+   UUID as `id` and `level: "L2"`. Read its `body` and visible children;
+   `entity` supplies current claims, timeline, and relationships. In a
+   Background Agent Job, use `ankole-pod pages.read` with that page ID to
+   read the source text. Do this before concluding that memory does not know.
 5. **`synthesize`.** Only when the answer needs threads connected across many
    pages; it is expensive. A clear synthesis answer ends the chain.
 6. **External search.** Web or channel tools, seeded with the hints steps 1–5

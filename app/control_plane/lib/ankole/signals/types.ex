@@ -6,6 +6,7 @@ defmodule Ankole.Signals.Types do
   """
 
   @supersedes %{
+    "agent.peer_message" => false,
     "automation_job.emitted" => false,
     "automation_job.run_failed" => false,
     "background_agent_job.completed" => false,

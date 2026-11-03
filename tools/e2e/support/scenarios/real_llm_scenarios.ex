@@ -746,7 +746,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert attachment["size"] == byte_size(pptx_content)
     assert {:ok, ^pptx_content} = Ankole.Files.read_object(attachment["object_id"])
-    assert {:ok, _} = Ankole.Files.authorize_node(agent.uid, node_id, "node_view")
+    assert {:ok, _} = Ankole.Pod.authorize_node(agent.uid, node_id, "node_view")
 
     assert [details_result] = tool_results(wakeup_messages, "show_background_job_details")
     assert details_result.arguments == %{"job_id" => job.id, "result_offset" => 0}
@@ -919,7 +919,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     )
 
     assert {:ok, _node} =
-             Ankole.Files.authorize_node(agent.uid, attachment["node_id"], "node_view")
+             Ankole.Pod.authorize_node(agent.uid, attachment["node_id"], "node_view")
 
     stored_message_id = message.id
     assert stored_message_id == input.message_id

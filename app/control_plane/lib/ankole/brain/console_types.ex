@@ -121,180 +121,20 @@ defmodule Ankole.Brain.ConsoleTypes.BrainObjectCandidate do
     ]
 end
 
-defmodule Ankole.Brain.ConsoleTypes.BrainPageContradiction do
-  @moduledoc false
-  use Ash.Type.NewType,
-    subtype_of: :map,
-    constraints: [
-      fields: [
-        axis: [type: :string, allow_nil?: true],
-        claim_id: [type: :string, allow_nil?: false],
-        counterpart: [
-          type: :map,
-          allow_nil?: false,
-          constraints: [
-            fields: [
-              claim: [type: :string, allow_nil?: false],
-              holder: [type: :string, allow_nil?: true],
-              id: [type: :string, allow_nil?: false]
-            ],
-            preserve_nil_values?: true
-          ]
-        ],
-        id: [type: :string, allow_nil?: false],
-        severity: [type: :string, allow_nil?: false],
-        verdict: [type: :string, allow_nil?: false]
-      ],
-      preserve_nil_values?: true
-    ]
-end
-
-defmodule Ankole.Brain.ConsoleTypes.BrainPageFact do
-  @moduledoc false
-  use Ash.Type.NewType,
-    subtype_of: :map,
-    constraints: [
-      fields: [
-        audience_scope: [type: :string, allow_nil?: false],
-        author: [type: Ankole.Ash.Types.ActorRef, allow_nil?: true],
-        claim: [type: :string, allow_nil?: false],
-        confidence: [type: :float, allow_nil?: true],
-        expired_at: [type: :string, allow_nil?: true],
-        holder: [type: :string, allow_nil?: true],
-        id: [type: :string, allow_nil?: false],
-        kind: [type: :string, allow_nil?: true],
-        notability: [type: :string, allow_nil?: true],
-        provenance: [type: :string, allow_nil?: true],
-        superseded_by: [type: :string, allow_nil?: true],
-        valid_from: [type: :string, allow_nil?: true],
-        valid_until: [type: :string, allow_nil?: true]
-      ],
-      preserve_nil_values?: true
-    ]
-end
-
-defmodule Ankole.Brain.ConsoleTypes.BrainPageLinks do
-  @moduledoc false
-  use Ash.Type.NewType,
-    subtype_of: :map,
-    constraints: [
-      fields: [
-        incoming: [
-          type: {:array, :map},
-          allow_nil?: false,
-          constraints: [
-            items: [
-              fields: [
-                context: [type: :string, allow_nil?: true],
-                from: [type: :string, allow_nil?: false],
-                link_type: [type: :string, allow_nil?: false]
-              ],
-              preserve_nil_values?: true
-            ]
-          ]
-        ],
-        outgoing: [
-          type: {:array, :map},
-          allow_nil?: false,
-          constraints: [
-            items: [
-              fields: [
-                context: [type: :string, allow_nil?: true],
-                link_type: [type: :string, allow_nil?: false],
-                to: [type: :string, allow_nil?: false]
-              ],
-              preserve_nil_values?: true
-            ]
-          ]
-        ]
-      ],
-      preserve_nil_values?: true
-    ]
-end
-
-defmodule Ankole.Brain.ConsoleTypes.BrainPageTake do
-  @moduledoc false
-  use Ash.Type.NewType,
-    subtype_of: :map,
-    constraints: [
-      fields: [
-        active: [type: :boolean, allow_nil?: true],
-        audience_scope: [type: :string, allow_nil?: false],
-        author: [type: Ankole.Ash.Types.ActorRef, allow_nil?: true],
-        claim: [type: :string, allow_nil?: false],
-        graded_at: [type: :string, allow_nil?: true],
-        graded_by: [type: :string, allow_nil?: true],
-        resolved_by: [type: :string, allow_nil?: true],
-        graded_confidence: [type: :float, allow_nil?: true],
-        graded_quality: [type: :string, allow_nil?: true],
-        holder: [type: :string, allow_nil?: true],
-        id: [type: :string, allow_nil?: false],
-        kind: [type: :string, allow_nil?: true],
-        provenance: [type: :string, allow_nil?: true],
-        resolved_at: [type: :string, allow_nil?: true],
-        resolved_outcome: [type: :boolean, allow_nil?: true],
-        resolved_quality: [type: :string, allow_nil?: true],
-        since_date: [type: :string, allow_nil?: true],
-        superseded_by: [type: :string, allow_nil?: true],
-        until_date: [type: :string, allow_nil?: true],
-        weight: [type: :float, allow_nil?: true]
-      ],
-      preserve_nil_values?: true
-    ]
-end
-
-defmodule Ankole.Brain.ConsoleTypes.BrainPageTimeline do
-  @moduledoc false
-  use Ash.Type.NewType,
-    subtype_of: :map,
-    constraints: [
-      fields: [
-        audience_scope: [type: :string, allow_nil?: false],
-        author: [type: Ankole.Ash.Types.ActorRef, allow_nil?: true],
-        date: [type: :string, allow_nil?: false],
-        detail: [type: :string, allow_nil?: true],
-        event_object_slug: [type: :string, allow_nil?: true],
-        id: [type: :string, allow_nil?: false],
-        provenance: [type: :string, allow_nil?: true],
-        summary: [type: :string, allow_nil?: false]
-      ],
-      preserve_nil_values?: true
-    ]
-end
-
 defmodule Ankole.Brain.ConsoleTypes.BrainObjectPage do
   @moduledoc false
   use Ash.Type.NewType,
     subtype_of: :map,
     constraints: [
       fields: [
-        body: [type: :string, allow_nil?: false],
-        content_hash: [type: :string, allow_nil?: true],
-        contradictions: [
-          type: {:array, Ankole.Brain.ConsoleTypes.BrainPageContradiction},
-          allow_nil?: false
-        ],
-        deleted: [type: :boolean, allow_nil?: false],
-        edit_block_reason: [type: :string, allow_nil?: true],
-        editable: [type: :boolean, allow_nil?: false],
-        effective_date: [type: :string, allow_nil?: true],
-        facts: [type: {:array, Ankole.Brain.ConsoleTypes.BrainPageFact}, allow_nil?: false],
-        library_managed: [type: :boolean, allow_nil?: true],
-        links: [type: Ankole.Brain.ConsoleTypes.BrainPageLinks, allow_nil?: false],
-        meta: [type: :map, allow_nil?: false],
-        rendered: [type: :string, allow_nil?: false],
+        page_id: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
         slug: [type: :string, allow_nil?: false],
-        subtype: [type: :string, allow_nil?: true],
-        tags: [type: {:array, :string}, allow_nil?: false],
-        takes: [type: {:array, Ankole.Brain.ConsoleTypes.BrainPageTake}, allow_nil?: false],
-        timelines: [
-          type: {:array, Ankole.Brain.ConsoleTypes.BrainPageTimeline},
-          allow_nil?: false
-        ],
         title: [type: :string, allow_nil?: false],
-        type: [type: :string, allow_nil?: false]
-      ],
-      preserve_nil_values?: true
+        type: [type: :string, allow_nil?: false],
+        summary: [type: :string, allow_nil?: false],
+        revision: [type: :integer, allow_nil?: false],
+        pod_url: [type: :string, allow_nil?: false]
+      ]
     ]
 end
 
@@ -349,10 +189,10 @@ defmodule Ankole.Brain.ConsoleTypes.BrainRecallChunk do
     subtype_of: :map,
     constraints: [
       fields: [
-        audience_scope: [type: :string, allow_nil?: false],
+        source_node_id: [type: :string, allow_nil?: false],
         chunk_index: [type: :integer, allow_nil?: false],
         content_kind: [type: :string, allow_nil?: true],
-        object_slug: [type: :string, allow_nil?: false],
+        subject_page_id: [type: :string, allow_nil?: true],
         text: [type: :string, allow_nil?: false],
         title: [type: :string, allow_nil?: false],
         type: [type: :string, allow_nil?: false]
@@ -367,7 +207,7 @@ defmodule Ankole.Brain.ConsoleTypes.BrainRecallClaim do
     subtype_of: :map,
     constraints: [
       fields: [
-        audience_scope: [type: :string, allow_nil?: false],
+        source_node_id: [type: :string, allow_nil?: false],
         claim: [type: :string, allow_nil?: false],
         claim_type: [type: :string, allow_nil?: false],
         confidence: [type: :float, allow_nil?: true],
@@ -376,7 +216,7 @@ defmodule Ankole.Brain.ConsoleTypes.BrainRecallClaim do
         id: [type: :string, allow_nil?: false],
         kind: [type: :string, allow_nil?: true],
         notability: [type: :string, allow_nil?: true],
-        object_slug: [type: :string, allow_nil?: true],
+        subject_page_id: [type: :string, allow_nil?: true],
         provenance: [type: :string, allow_nil?: true],
         since_date: [type: :string, allow_nil?: true],
         until_date: [type: :string, allow_nil?: true],
@@ -418,7 +258,7 @@ defmodule Ankole.Brain.ConsoleTypes.BrainClaim do
     constraints: [
       fields: [
         active: [type: :boolean, allow_nil?: true],
-        audience_scope: [type: :string, allow_nil?: false],
+        source_node_id: [type: :string, allow_nil?: false],
         author: [type: Ankole.Ash.Types.ActorRef, allow_nil?: true],
         claim: [type: :string, allow_nil?: false],
         claim_type: [type: :string, allow_nil?: false],
@@ -434,7 +274,7 @@ defmodule Ankole.Brain.ConsoleTypes.BrainClaim do
         id: [type: :string, allow_nil?: false],
         kind: [type: :string, allow_nil?: true],
         notability: [type: :string, allow_nil?: true],
-        object_slug: [type: :string, allow_nil?: true],
+        subject_page_id: [type: :string, allow_nil?: true],
         provenance: [type: :string, allow_nil?: true],
         resolved_at: [type: :string, allow_nil?: true],
         resolved_outcome: [type: :boolean, allow_nil?: true],

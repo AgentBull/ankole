@@ -56,7 +56,10 @@ defmodule Ankole.Workflow.RunServer do
   @spec ensure_started(pos_integer(), keyword()) :: {:ok, pid()} | {:error, term()}
   def ensure_started(run_id, opts \\ [])
       when is_integer(run_id) and run_id > 0 and is_list(opts) do
-    case Run |> Ash.Query.filter(id == ^run_id) |> Ankole.Ash.read_one() do
+    case Run
+         |> Ash.Query.filter(id == ^run_id)
+         |> Ash.Query.select([:id, :tenant_id])
+         |> Ankole.Ash.read_one() do
       {:ok, nil} -> {:error, :workflow_not_found}
       {:ok, %Run{} = run} -> start_server(run, opts)
       {:error, _reason} = error -> error
@@ -110,6 +113,7 @@ defmodule Ankole.Workflow.RunServer do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     Repo.put_tenant_id(Keyword.fetch!(opts, :tenant_id))
 
     {:ok,
@@ -472,6 +476,7 @@ defmodule Ankole.Workflow.RunServer do
       Process.demonitor(state.replay.monitor, [:flush])
     end
 
+    :ok = ProgramRunner.release(state.handle)
     %{state | replay: nil, handle: ProgramRunner.new_handle()}
   end
 

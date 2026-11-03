@@ -2,12 +2,67 @@ defmodule Ankole.Pod.Comments.Activity do
   @moduledoc "Orders discussion activity and stores each reader's explicit acknowledgment."
   require Ash.Query
   alias Ankole.{ActorRef, AuthZ, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{PageComment, PageContent, Pages, PageUserState}
+
+  def attention(actor) do
+    uid = AuthZ.Actor.uid(actor)
+    actor_ref = ActorRef.from_actor(actor)
+    xml = "<mention principal=\"#{uid}\""
+    markdown = "(principal:#{uid})"
+
+    Repo.transact_repeatable_read_only(fn ->
+      roots =
+        PageComment
+        |> Ash.Query.filter(
+          is_nil(root_id) and (is_nil(deleted_at) or exists(replies, is_nil(deleted_at))) and
+            activity_by != ^actor_ref and
+            not exists(
+              PageUserState,
+              page_id == parent(page_id) and principal_uid == ^uid and
+                comments_read_at >= parent(activity_at)
+            )
+        )
+        |> Ash.Query.filter(
+          author == ^actor_ref or contains(body, ^xml) or contains(body, ^markdown) or
+            exists(
+              replies,
+              author == ^actor_ref or contains(body, ^xml) or contains(body, ^markdown)
+            )
+        )
+        |> Ankole.Ash.read!()
+
+      ids = Enum.map(roots, & &1.page_id)
+
+      with {:ok, reachable} <- Access.reachable_anchors(actor),
+           {:ok, pages} <-
+             Ankole.Pod.Page
+             |> Ash.Query.filter(id in ^ids and is_nil(deleted_at))
+             |> Ankole.AuthZ.Checks.PageAnchorFilter.apply_policy(
+               actor,
+               Ankole.AuthZ.Checks.PageAnchorFilter.policy(reachable)
+             )
+             |> Ankole.Ash.read_authorized(actor) do
+        by_page = Enum.group_by(roots, & &1.page_id)
+
+        {:ok,
+         Enum.map(pages, fn page ->
+           threads = by_page[page.id]
+
+           %{
+             page: page,
+             unread_count: length(threads),
+             activity_at: Enum.max_by(threads, & &1.activity_at, DateTime).activity_at
+           }
+         end)
+         |> Enum.sort_by(& &1.activity_at, {:desc, DateTime})}
+      end
+    end)
+  end
 
   def summary(actor, id) do
     Repo.transact_top_level(fn ->
-      with {:ok, page} when page.type in [:doc, :file] <- Pages.lock(id, :share),
+      with {:ok, page} when page.type in [:doc, :knowledge, :file] <- Pages.lock(id, :share),
            {:ok, _} <- Access.authorize(actor, page, "node_view") do
         {:ok, summary_in_tx(actor, page)}
       else
@@ -20,7 +75,7 @@ defmodule Ankole.Pod.Comments.Activity do
   def acknowledge(actor, id, through) do
     Repo.transact_top_level(
       fn ->
-        with {:ok, page} when page.type in [:doc, :file] <- Pages.lock(id),
+        with {:ok, page} when page.type in [:doc, :knowledge, :file] <- Pages.lock(id),
              {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_view") do
           latest = Ankole.Ash.max!(roots_in_tx(id), :activity_at)
           previous = read_at_in_tx(actor, id)
@@ -97,7 +152,7 @@ defmodule Ankole.Pod.Comments.Activity do
       (is_nil(read_at) || DateTime.compare(root.activity_at, read_at) == :gt)
   end
 
-  defp summary_in_tx(actor, %{type: :doc, id: id}) do
+  defp summary_in_tx(actor, %{type: type, id: id}) when type in [:doc, :knowledge] do
     roots = roots_in_tx(id)
     content = PageContent |> Ash.Query.filter(page_id == ^id) |> Ankole.Ash.read_one!()
     {:ok, info} = Ankole.Kernel.page_comment_info(content.content)

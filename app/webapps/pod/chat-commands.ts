@@ -104,7 +104,7 @@ export function useChatCommands({
         uid: person.uid,
         displayName: person.displayName || person.uid
       }))
-      owner.accepted(submission)
+      owner.accepted({ ...submission, conversationID: data.conversation.id })
       drafts.remember(owner, data.conversation.id, data.conversation.pageID ?? undefined)
       void refreshConversationQueries(client, data.conversation.id)
     },
@@ -184,7 +184,9 @@ export function useChatCommands({
       editing?.agentUID ??
       model.targetAgentUID.value
     const recipientAvailable =
-      !data || chatRecipientAvailable(recipientUID, data.conversation.agents, callableAgentUIDs)
+      !data ||
+      (!!model.answeringInteractionID.value && !!recipientUID && callableAgentUIDs.includes(recipientUID)) ||
+      chatRecipientAvailable(recipientUID, data.conversation.agents, callableAgentUIDs)
     const commandPolicy = chatCommandPolicy({
       sending,
       queuePending,

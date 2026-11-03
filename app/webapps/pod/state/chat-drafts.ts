@@ -7,14 +7,25 @@ type Model = InstanceType<typeof ChatModel>
 export class ChatDrafts {
   private readonly models = new Map<string, Model>()
   private readonly pageModels = new Map<string, Set<Model>>()
+  readonly newChatVersion = signal(0)
+
+  startNew(): void {
+    const current = this.models.get('new:chat')
+    if (current && hasUnsentChatWork(current)) this.remember(current, crypto.randomUUID())
+    else current?.attachments.dispose()
+    this.models.delete('new:chat')
+    this.newChatVersion.value++
+  }
   /**
    * A Page selection that someone asked an Agent about, waiting for that Page's chat to quote it. The chat
    * that opens takes it, because which conversation opens is known only once the chat resolves.
    */
   readonly pageQuote = signal<{ pageID: string; quote: string } | null>(null)
 
-  get(conversationID?: string, pageID?: string): Model {
-    const key = conversationID ? `conversation:${conversationID}` : `new:${pageID ?? 'chat'}`
+  get(conversationID?: string, pageID?: string, colleagueUID?: string): Model {
+    const key = conversationID
+      ? `conversation:${conversationID}`
+      : `new:${colleagueUID ? `dm:${colleagueUID}` : (pageID ?? 'chat')}`
     const existing = this.models.get(key)
     if (existing) {
       this.recordPage(pageID, existing)
@@ -45,12 +56,16 @@ export class ChatDrafts {
   }
 
   unconfirmedStandalone() {
-    return [...this.models.values()].flatMap(model => {
+    return [...this.models.entries()].flatMap(([key, model]) => {
       const pending = model.pending.value
-      if (model.conversationID.value || !pending || [...this.pageModels.values()].some(models => models.has(model))) {
+      if (
+        model.conversationID.value ||
+        (!pending && (!key.startsWith('conversation:') || !hasUnsentChatWork(model))) ||
+        [...this.pageModels.values()].some(models => models.has(model))
+      ) {
         return []
       }
-      return [{ id: pending.conversationID, model }]
+      return [{ id: pending?.conversationID ?? key.slice('conversation:'.length), model }]
     })
   }
 

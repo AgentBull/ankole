@@ -1,18 +1,23 @@
 import type { PageMove as PodPageMove } from '../content-api'
 import type { Page } from '../content-api'
-import { moveDestinations } from './page-location'
+import { canChangePageStructure, moveDestinations } from './page-location'
 
 export type TreeOperation = 'before' | 'after' | 'inside'
 export type DropAvailability = 'available' | 'blocked' | 'not-available'
 
-export function canMovePage(page: Pick<Page, 'actions'>): boolean {
-  return page.actions?.some(action => action === 'node_edit' || action === 'node_manage') === true
+export function canMovePage(
+  page: Pick<Page, 'actions' | 'system_key' | 'is_root' | 'deleted_at' | 'purge_started_at'>
+): boolean {
+  return (
+    canChangePageStructure(page) &&
+    page.actions?.some(action => action === 'node_edit' || action === 'node_manage') === true
+  )
 }
 
 /** Sibling order is the server's `C` collation order with the ID as tie-breaker. */
 export function positionOrder(
-  a: Pick<Page, 'position' | 'id' | 'name' | 'title'>,
-  b: Pick<Page, 'position' | 'id' | 'name' | 'title'>
+  a: Pick<Page, 'position' | 'id' | 'title'> & Partial<Pick<Page, 'name'>>,
+  b: Pick<Page, 'position' | 'id' | 'title'> & Partial<Pick<Page, 'name'>>
 ): number {
   if (a.position == null && b.position != null) return 1
   if (b.position == null && a.position != null) return -1

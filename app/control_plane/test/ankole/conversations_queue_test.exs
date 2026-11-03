@@ -19,6 +19,7 @@ defmodule Ankole.ConversationsQueueTest do
 
     assert {:ok, detail} =
              Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
+               room_mode: :group,
                conversation_id: id,
                agent_uid: agent.uid,
                message_id: Ecto.UUID.generate(),
@@ -440,6 +441,7 @@ defmodule Ankole.ConversationsQueueTest do
 
     assert {:ok, detail} =
              Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), %{
+               room_mode: :group,
                conversation_id: id,
                agent_uid: ctx.agent.uid,
                message_id: Ecto.UUID.generate(),
@@ -601,6 +603,7 @@ defmodule Ankole.ConversationsQueueTest do
 
       assert {:ok, detail} =
                Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), %{
+                 room_mode: :group,
                  conversation_id: id,
                  agent_uid: ctx.agent.uid,
                  message_id: Ecto.UUID.generate(),
@@ -703,6 +706,7 @@ defmodule Ankole.ConversationsQueueTest do
 
     assert {:ok, _} =
              Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), %{
+               room_mode: :group,
                conversation_id: id,
                agent_uid: ctx.agent.uid,
                message_id: Ecto.UUID.generate(),
@@ -755,6 +759,7 @@ defmodule Ankole.ConversationsQueueTest do
 
     assert {:ok, detail} =
              Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), %{
+               room_mode: :group,
                conversation_id: id,
                agent_uid: ctx.agent.uid,
                message_id: Ecto.UUID.generate(),

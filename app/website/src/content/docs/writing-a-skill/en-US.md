@@ -30,7 +30,7 @@ my-skill/
 └── templates/
 ```
 
-Name the directory using lowercase letters, digits, hyphens, or underscores. Shipped first-party Skills live under `app/library/skills/`, while per-Agent installed Skills live in that Agent's drive space.
+Use a tenant-unique slug of lowercase letters, digits, dots, hyphens or underscores, beginning with a letter or digit. Shipped first-party Skills live under `app/library/skills/`. Members create or import custom packages in **Meta Ankole → Skills**.
 
 ### Write the frontmatter
 
@@ -50,25 +50,11 @@ platforms: [linux]
 
 Write a concrete trigger condition in `description`, because the Agent scans descriptions in its catalog to decide when to load the full Skill. Set `ankole-runtime: background_job` whenever the workflow requires an isolated Background Agent Job workspace, and add `platforms: [linux]` only if the Skill invokes Linux-only binaries.
 
-### Make a shipped Skill discoverable through Brain
+### Complete Skill packages
 
-Set `brain-recall-only: true` on specialized SOPs or playbooks that would clutter every system prompt if listed globally, yet should surface automatically when a task matches their topic:
+Ankole stores each Skill as a required `SKILL.md` manifest plus its companion files. Frontmatter and the body are edited together; scripts, templates, binary assets and reference documents retain their relative paths. Official and Agent Plugin Skills share the same tenant-wide slug namespace.
 
-```yaml
----
-name: idea-lineage
-description: Trace how one idea evolved through memory — first mention, best articulation, reversals, and the current live version, each cited from stored evidence.
-tags:
-  - idea lineage
-  - how my thinking evolved
-brain-recall-only: true
----
-```
-
-Ankole supports `brain-recall-only` on shipped standalone Skills and Skills bundled inside Agent Plugins (not on Agent-installed Skills). Every shipped Skill `name` stays globally unique—Agent Plugin membership adds no namespace prefix—and Brain derives the synthetic discovery entry `lazyload-agent-skills/<name>` directly from the Skill's standard frontmatter.
-
-Do not add Brain Object frontmatter keys such as `slug`, `type`, `title`, or `aliases`: Brain indexes only `name`, `description`, and `tags` (using `name` and `tags` for natural-language lookup), while keeping the `SKILL.md` body, companion files, and per-Agent lessons out of Brain storage so they load exclusively through `skill_view` after discovery.
-
+Link companion files explicitly from `SKILL.md` and read them on demand. Main Agent runs use `/drive/Skills/<slug>/`; Background Agent Jobs receive the packages allowed for that Job. The enabled Agent can read the whole package. Put business data with a restricted audience in Brain or a separately shared collaboration page.
 ### Write the body
 
 Write `SKILL.md` for a capable Agent that has no prior context about your team's local conventions, spelling out:
@@ -101,7 +87,7 @@ Agent Computer injects this dependency only while the Skill is enabled. In `SKIL
 
 Enable the Skill on a test Agent and run a realistic prompt end to end, verifying that the Agent picks the Skill, reads any linked reference files, and satisfies every completion check. If the Agent skips the Skill, sharpen `description`; if steps drift out of order, tighten the numbered procedure and constraints.
 
-When testing a `brain-recall-only` Skill, confirm that it is omitted from the default system prompt catalog yet discoverable via Brain search across its `name`, `description`, and `tags`. Verify that `skill_view` loads the full Skill on a compatible runtime surface and applies the expected routing or rejection behavior on an incompatible surface, then disable the Skill (or its parent Agent Plugin) and confirm that the Agent can neither recall nor load it.
+Verify package-relative references, executable scripts, compatible-runtime loading and routing for incompatible runtimes. With “Enable for all Agents” off, test a colleague binding and your assistant binding independently. Turning the global switch on and off must preserve those bindings. Disabling all applicable bindings or the parent Plugin must remove the Skill from the enabled catalog and prevent `skill_view` from loading it.
 
 ## Develop a Control Plane Plugin
 

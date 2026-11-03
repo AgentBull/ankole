@@ -19,6 +19,7 @@ defmodule Ankole.Work.Provenance do
       @work_provenance_fields unquote(
                                 Keyword.take(opts, [
                                   :owner_session?,
+                                  :agent_required?,
                                   :source_signal?,
                                   :reply_route?
                                 ])
@@ -42,10 +43,18 @@ defmodule Ankole.Work.Provenance do
       attribute(:authorization_kind, :string, default: "review_required", public?: true)
       attribute(:human_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
       attribute(:human_access_version, :integer, public?: true)
-      attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false, public?: true)
+
+      attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey,
+        allow_nil?: @work_provenance_fields[:agent_required?] == false,
+        public?: true
+      )
 
       if @work_provenance_fields[:owner_session?],
-        do: attribute(:owner_session_id, :string, allow_nil?: false, public?: true)
+        do:
+          attribute(:owner_session_id, :string,
+            allow_nil?: @work_provenance_fields[:agent_required?] == false,
+            public?: true
+          )
 
       if @work_provenance_fields[:source_signal?],
         do: attribute(:source_signal_id, Ankole.Ash.Types.UUIDv7, public?: true)

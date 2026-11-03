@@ -13,8 +13,6 @@ import {
   RouterProvider,
   useParams
 } from '@tanstack/react-router'
-import { useModel } from '@preact/signals-react'
-import { useSignals } from '@preact/signals-react/runtime'
 import { SetupApp } from '../setup/app'
 import { EmailOtpForm } from '../auth/email-otp-form'
 import { AppProviders, createQueryClient } from '../common/providers'
@@ -24,7 +22,6 @@ import { configureConsoleAPIClient } from '../console/api/client'
 import { createConsoleMutationCache } from '../console/query-client'
 import { ProviderEditorPage, ProvidersListPage } from '../console/pages/providers'
 import { HomePage } from '../console/pages/home'
-import { BrainObjectEditorPage } from '../console/pages/brain/object-editor'
 import { BrainObjectDrawer, BrainObjectsPage } from '../console/pages/brain/objects'
 import { SettingsPage, SettingEditorDrawer, SettingGroupDrawer } from '../console/pages/settings'
 import { WorkerProviderEditorPage } from '../console/pages/worker-providers'
@@ -33,7 +30,6 @@ import { WebhooksPage } from '../console/pages/webhooks'
 import { AgentFilesPage } from '../console/pages/agent-files'
 import { ScheduleCronEditorPage, SchedulesListPage } from '../console/pages/schedules'
 import { AgentLibraryEditor } from '../console/pages/agent-library-editor'
-import { AgentLibraryEditorModel } from '../console/state/agent-library-editor-model'
 import { WorkerEnvAgentSection } from '../console/pages/worker-env-agent-section'
 import { AgentLibraryPage, AgentPluginDetailPage } from '../console/pages/agent-library'
 import { ModelProfilesPage } from '../console/pages/model-profiles'
@@ -148,16 +144,6 @@ const app = setupSurface ? (
       createRoute({ getParentRoute: () => rootRoute, path: '/providers/new', component: ProviderEditorPage }),
       createRoute({ getParentRoute: () => rootRoute, path: '/providers/$providerID', component: ProviderEditorPage }),
       brainNavRoute.addChildren([
-        createRoute({
-          getParentRoute: () => brainNavRoute,
-          path: '/brain/objects/new',
-          component: BrainObjectEditorPage
-        }),
-        createRoute({
-          getParentRoute: () => brainNavRoute,
-          path: '/brain/objects/$slug/edit',
-          component: BrainObjectEditorPage
-        }),
         brainObjectsRoute.addChildren([
           createRoute({ getParentRoute: () => brainObjectsRoute, path: '/', component: () => null }),
           createRoute({ getParentRoute: () => brainObjectsRoute, path: '$', component: BrainObjectDrawer })
@@ -195,9 +181,7 @@ function RegressionNavigation() {
 }
 
 function LibraryTestPage() {
-  useSignals()
-  const model = useModel(AgentLibraryEditorModel)
-  return <AgentLibraryEditor agentUID={useParams({ strict: false }).uid!} model={model} />
+  return <AgentLibraryEditor agentUID={useParams({ strict: false }).uid!} />
 }
 
 // Test-only links change router parameters without replacing the application or its QueryClient.
@@ -205,9 +189,6 @@ function BrainTestNavigation() {
   return (
     <>
       <nav aria-label="Browser test navigation">
-        <Link to="/brain/objects/A/edit">Edit A</Link>
-        <Link to="/brain/objects/B/edit">Edit B</Link>
-        <Link to="/brain/objects/new">New object</Link>
         <Link to="/brain/objects">Object list</Link>
       </nav>
       <Outlet />

@@ -38,39 +38,8 @@ import { RecordFormModel } from './state/record-form'
 import type { ConfiguredView, ViewConfig } from './state/view-config'
 import { requestErrorMessage } from '../common/request-errors'
 import { contentError } from './content-errors'
-import {
-  RiAddLine,
-  RiAttachmentLine,
-  RiCalendarLine,
-  RiCheckboxLine,
-  RiDeleteBinLine,
-  RiExpandDiagonalLine,
-  RiFormula,
-  RiHashtag,
-  RiLink,
-  RiListCheck,
-  RiText,
-  RiTimeLine,
-  RiUserLine
-} from '@remixicon/react'
-import { fieldTypes } from './base-field-types'
-
-export const fieldIcons = {
-  text: RiText,
-  number: RiHashtag,
-  auto_number: RiHashtag,
-  select: RiListCheck,
-  datetime: RiCalendarLine,
-  checkbox: RiCheckboxLine,
-  user: RiUserLine,
-  attachment: RiAttachmentLine,
-  link: RiLink,
-  formula: RiFormula,
-  created_at: RiTimeLine,
-  updated_at: RiTimeLine,
-  created_by: RiUserLine,
-  updated_by: RiUserLine
-}
+import { RiAddLine, RiDeleteBinLine, RiExpandDiagonalLine } from '@remixicon/react'
+import { fieldIcons, fieldTypes } from './base-field-types'
 
 type RecordDrag = { record?: BaseRecord; from?: Value }
 const recordDragType = 'application/ankole-record'

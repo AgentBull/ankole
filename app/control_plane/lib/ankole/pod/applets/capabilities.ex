@@ -1,20 +1,34 @@
 defmodule Ankole.Pod.Applets.Capabilities do
   @moduledoc "The only bridge from Applet code to authorized Pod domain operations."
 
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Bases, Files, Pages, Serialization}
   alias Ankole.Pod.Applets.AI
 
-  def call(context, %Ankole.AuthZ.Actor{} = actor, operation, args) do
-    write? = operation in ["base.write", "file.write"]
+  def call(context, caller, operation, args) do
+    {admin?, operation} =
+      case operation do
+        "admin." <> operation -> {true, operation}
+        operation -> {false, operation}
+      end
 
-    if context["method"] == "GET" and write? do
+    write? =
+      operation in [
+        "base.write",
+        "file.write",
+        "state.set",
+        "state.delete",
+        "signals.emit"
+      ]
+
+    if (context["read_only"] == true or context["method"] == "GET") and write? do
       error(:read_only_route)
     else
       outcome =
         with {:ok, page} <- Pages.fetch(context["applet"]["pageId"]),
-             {:ok, _} <- Access.authorize(actor, page, "node_view", trash: false),
-             do: dispatch(page, actor, operation, args)
+             :ok <- Ankole.Pod.Applets.available(page),
+             {:ok, actor} <- actor(context, page, caller, admin?, operation),
+             do: dispatch_context(context, page, actor, caller, operation, args)
 
       result(outcome)
     end
@@ -40,6 +54,44 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
       error(:handler_error)
   end
+
+  defp actor(context, page, caller, admin?, operation) do
+    cond do
+      operation in ["state.get", "state.set", "state.delete"] ->
+        with {:ok, _} <-
+               if(caller, do: Access.principal(caller), else: Ankole.Pod.Applets.owner(page)),
+             do: {:ok, caller}
+
+      admin? ->
+        with {:ok, principal} <- Ankole.Pod.Applets.owner(page) do
+          authority = Ankole.AutomationJobs.applet_attempt_authority(context, principal.uid)
+
+          {:ok,
+           Ankole.AuthZ.Actor.new(principal,
+             turn_authority: authority || (caller && caller.turn_authority)
+           )}
+        end
+
+      is_nil(caller) ->
+        {:error, :user_authority_unavailable}
+
+      true ->
+        with {:ok, _} <- Access.authorize(caller, page, "node_view", trash: false),
+             do: {:ok, caller}
+    end
+  end
+
+  defp dispatch_context(context, _page, _actor, _caller, "state." <> operation, args),
+    do: Ankole.AutomationJobs.applet_state(context, operation, args)
+
+  defp dispatch_context(context, page, actor, caller, "signals." <> operation, args),
+    do: Ankole.Signals.applet_dispatch(context, page, actor, caller, operation, args)
+
+  defp dispatch_context(context, _page, actor, _caller, "mcp.call", [tool, args, options]),
+    do: Ankole.Pod.Applets.MCP.call(actor, tool, args, options, context)
+
+  defp dispatch_context(_context, page, actor, _caller, operation, args),
+    do: dispatch(page, actor, operation, args)
 
   defp dispatch(_page, actor, "base.schema", [id]), do: Bases.get_table(actor, id)
 
@@ -105,8 +157,8 @@ defmodule Ankole.Pod.Applets.Capabilities do
     end
   end
 
-  defp dispatch(page, _actor, "ai.generateText", [options]) when is_map(options),
-    do: AI.generate_text(page, options)
+  defp dispatch(_page, actor, "ai.generateText", [options]) when is_map(options),
+    do: AI.generate_text(actor, options)
 
   defp dispatch(_page, _actor, _operation, _args), do: {:error, :invalid_request}
 
@@ -126,6 +178,15 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   defp result({:ok, value}), do: {:ok, Serialization.json_value(value)}
   defp result({:error, %{status: _} = error}), do: {:error, error}
+
+  defp result({:error, %{code: code} = failure}),
+    do:
+      {:error,
+       failure
+       |> Map.put(:code, to_string(code))
+       |> Map.put_new(:status, 502)
+       |> Map.put_new(:message, to_string(code))}
+
   defp result({:error, reason}), do: error(reason)
   defp result(_), do: error(:handler_error)
 

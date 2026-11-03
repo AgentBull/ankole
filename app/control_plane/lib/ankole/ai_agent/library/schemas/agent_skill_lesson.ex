@@ -162,6 +162,10 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       change(Ankole.AIAgent.Library.Changes.PrepareLesson, only_when_valid?: true)
     end
 
+    update :rename_skill do
+      accept([:skill_name])
+    end
+
     update :renew do
       accept([:review_after, :checked_release, :checked_skill_hash])
       change(filter(expr(is_nil(retired_at) and author_kind == :dreaming)))
@@ -174,6 +178,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     end
 
     action :console_teach, :struct do
+      transaction?(false)
       constraints(instance_of: __MODULE__)
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:skill_name, :string, allow_nil?: false)

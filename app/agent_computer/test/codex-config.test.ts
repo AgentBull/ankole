@@ -125,11 +125,13 @@ describe('@ankole/agent-computer Codex config', () => {
       codexHome: '/workspace/.codex',
       env: {},
       runtime: aigatewayRuntime(),
+      relatedContext: 'Recent related context: exchange-1',
       originalHumanRequest,
       projectConfig: { developer_instructions: 'Delegated workspace guidance.' }
     })
     const instructions = String(config.developer_instructions)
     expect(instructions).toStartWith('Delegated workspace guidance.')
+    expect(instructions).toContain('Recent related context: exchange-1')
     expect(instructions).toEndWith(originalHumanRequest)
     const encoded = instructions.split('<original_human_request>\n')[1]!.split('\n</original_human_request>')[0]!
     expect(JSON.parse(encoded)).toEqual({

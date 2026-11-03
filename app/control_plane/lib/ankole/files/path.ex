@@ -33,26 +33,6 @@ defmodule Ankole.Files.Path do
 
   def normalize(path), do: {:error, {:invalid_path, path}}
 
-  @doc """
-  Validates a stored drive path for reading, moving away, or deleting legacy entries.
-
-  Preserves addressability of historical nodes whose names predate Bidi/control
-  rejection while still rejecting NUL bytes, empty segments, `.`, and `..`.
-  """
-  @spec normalize_existing(term()) :: {:ok, String.t()} | {:error, {:invalid_path, term()}}
-  def normalize_existing(path) when is_binary(path) do
-    segments = String.split(path, "/")
-
-    valid? =
-      String.valid?(path) and byte_size(path) in 1..@max_path_bytes and
-        not String.contains?(path, <<0>>) and
-        Enum.all?(segments, &valid_existing_segment?/1)
-
-    if valid?, do: {:ok, path}, else: {:error, {:invalid_path, path}}
-  end
-
-  def normalize_existing(path), do: {:error, {:invalid_path, path}}
-
   @doc "Returns true when `segment` is a valid new Drive node or path segment name."
   @spec valid_segment?(term()) :: boolean()
   def valid_segment?(segment) when is_binary(segment) do
@@ -171,9 +151,6 @@ defmodule Ankole.Files.Path do
       |> Enum.map_join(fn chunk -> if String.valid?(chunk), do: chunk, else: "" end)
     end
   end
-
-  defp valid_existing_segment?(segment),
-    do: segment not in ["", ".", ".."] and byte_size(segment) <= @max_segment_bytes
 
   defp bidi_codepoint?(cp) do
     cp == 0x061C or

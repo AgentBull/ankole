@@ -53,7 +53,6 @@ export function prepareAgentPlugins(input: {
   libraryRoot?: string
   initializeProject: boolean
   workspaceTemplateId?: string
-  agentsContent?: string
 }): PreparedAgentPlugins {
   const libraryRoot = input.libraryRoot ?? BUILTIN_AGENT_PLUGINS_ROOT
   const materializedRoot = join(input.codexHome, 'runtime-materials', 'agent-plugins')
@@ -72,12 +71,7 @@ export function prepareAgentPlugins(input: {
   )
 
   if (input.initializeProject) {
-    initializeJobProjectAtomically(
-      input.projectRoot,
-      agentPlugins,
-      input.workspaceTemplateId,
-      input.agentsContent ?? ''
-    )
+    initializeJobProjectAtomically(input.projectRoot, agentPlugins, input.workspaceTemplateId)
   }
 
   return {
@@ -214,8 +208,7 @@ function validateAgentPluginRef(
 function initializeJobProjectAtomically(
   projectRoot: string,
   agentPlugins: PreparedAgentPlugin[],
-  workspaceTemplateId: string | undefined,
-  agentsContent: string
+  workspaceTemplateId: string | undefined
 ): void {
   const parent = dirname(projectRoot)
   mkdirAgentSync(parent)
@@ -224,7 +217,6 @@ function initializeJobProjectAtomically(
     mkdirAgentSync(stagedRoot, 0o700)
     mkdirAgentSync(join(stagedRoot, 'temp'))
     initializeWorkspaceTemplate(stagedRoot, agentPlugins, workspaceTemplateId)
-    appendProjectAgents(stagedRoot, agentsContent)
     if (existsSync(projectRoot)) {
       const current = lstatSync(projectRoot)
       if (current.isSymbolicLink() || !current.isDirectory()) {
@@ -238,15 +230,6 @@ function initializeJobProjectAtomically(
     rmSync(stagedRoot, { recursive: true, force: true })
     throw error
   }
-}
-
-function appendProjectAgents(projectRoot: string, content: string): void {
-  const guidance = content.trim()
-  if (!guidance) throw new Error('Background agent Job guidance is required during project initialization')
-
-  const path = join(projectRoot, 'AGENTS.md')
-  const existing = existsSync(path) ? readFileSync(path, 'utf8').trimEnd() : ''
-  writeFileAtomicSync(path, `${existing ? `${existing}\n\n` : ''}${guidance}\n`, 0o600)
 }
 
 function initializeWorkspaceTemplate(

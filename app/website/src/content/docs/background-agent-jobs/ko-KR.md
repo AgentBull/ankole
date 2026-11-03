@@ -69,9 +69,9 @@ Job이 소유자 세션에 알려야 하는 상태에 도달하면, Ankole은 �
 
 각 Job에는 선택적으로 하나의 초기 workspace 템플릿을 지정할 수 있습니다. 처음으로 실제 실행이 승인(execution admission)되는 트랜잭션에서 사용할 프로바이더 및 모델 바인딩과 당시 활성화된 Agent Plugin·Skill 목록이 함께 고정 기록됩니다. 이후 재시도나 재개 시에는 이 최초 고정 목록과 해당 에이전트의 현재 유효 활성화 목록의 교집합만 허용합니다. 즉, 중간에 관리자가 특정 기능을 끄면 실행 중인 Job에서도 즉시 제외되고 다시 켜면 복원되지만, 최초 승인 시점에 없던 새 기능이 중간에 추가되지는 않습니다. 반면 프로바이더 자격 증명과 수정 가능한 Skill 파일 본문은 매 시점 최신 정본에서 읽어 옵니다. `Sessions.CodexJob`은 커널 Signal로부터 Job 실행 시도를 수락하고 실시간 조종(steer) 이벤트는 별도 경로로 분리해 처리하므로, 일반 세션 메시지 전달이 Job 조종 명령으로 오인되지 않습니다. 모든 모델 호출은 기록된 바인딩을 통해 AIGateway를 거치며, 프로바이더에 여러 자격 증명이 등록되어 있을 때의 선택·세션 친화성(affinity)·토큰 갱신·재시도는 모두 AIGateway가 전담합니다.
 
-Background Agent Job 역시 메인 Agent와 동일한 Ankole `skill_view` 로더를 사용합니다. 백그라운드 실행과 호환되는 일반 Skill은 Job의 Skill 인덱스에 포함되며, `brain-recall-only: true`가 선언된 Skill은 인덱스에서 제외된 채 Brain 검색을 통해 발견됩니다. 모델이 해당 발견 레코드에 대해 `get_page`를 호출하면 내부적으로 `skill_view`로 위임됩니다. 로더는 `SKILL.md`나 부속 참조 파일을 읽을 때마다 컨트롤 플레인에 현재 Agent Plugin 및 Skill 유효 상태를 다시 확인하므로, 실행 도중 비활성화된 Skill은 즉시 읽기가 차단됩니다.
+Background Agent Job은 메인 Agent와 같은 `skill_view` 로더를 사용합니다. 활성 Skill 카탈로그와 각 페이지 읽기에는 해당 대화의 Drive 권한을 적용합니다. Worker는 매 Turn 시작 전에 현재 열람 가능한 Skill 패키지와 스크립트, MCP 선언을 실행 디렉터리에 배치합니다. `skill_view`는 읽을 때마다 활성 상태를 확인합니다.
 
-Job이 작업 공간을 처음 초기화할 때 러너는 선택적 workspace 템플릿을 먼저 배치한 뒤 에이전트의 `SOUL.md`, `MISSION.md`, 실행 메타데이터를 렌더링해 프로젝트의 `AGENTS.md`를 조립합니다. 이때 Codex 프로젝트 설정에서는 네이티브 서브에이전트 대기 시간의 최솟값을 1분, 기본값을 2분으로 지정하고 최댓값은 비워 두어 Codex 기본값을 따르게 합니다. 이를 통해 [openai/codex#35259](https://github.com/openai/codex/issues/35259)에서 다뤄진 짧은 빈 대기 직후 불필요한 모델 turn이 반복되는 현상을 줄입니다. 스레드가 재개될 때는 기존에 생성된 프로젝트 `AGENTS.md`를 그대로 재사용합니다.
+Worker는 Turn 시작과 재개 시 Agent 계약 전문을 `$CODEX_HOME/AGENTS.md`와 `~/AGENTS.md`에, 시각 규격을 `~/DESIGN.md`에 반영합니다. 프로젝트 내부 지침은 워크스페이스 템플릿이나 저장소에서 관리합니다. Job 실행 정보와 Skill 목록은 developer instructions로 전달합니다. Codex 하위 Agent의 최소 대기 시간은 1분, 기본값은 10분입니다.
 
 ## 운영자 표면
 

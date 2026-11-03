@@ -96,12 +96,7 @@ impl StreamSpec {
     fn validate(&self) -> KernelResult<()> {
         match self.upstream.kind {
             UpstreamKind::HTTPSSE | UpstreamKind::HTTPEventstream => {
-                if self.upstream.url.starts_with("ws://") || self.upstream.url.starts_with("wss://")
-                {
-                    return Err(KernelError::new(
-                        "HTTP upstream kind requires an http:// or https:// URL",
-                    ));
-                }
+                validate_http_scheme(&self.upstream.url, "HTTP upstream kind")?;
             }
             UpstreamKind::WebSocketText => {
                 if !self.upstream.url.starts_with("ws://")
@@ -778,15 +773,21 @@ fn default_include_model() -> bool {
     true
 }
 
+fn validate_http_scheme(url: &str, label: &str) -> KernelResult<()> {
+    if url.trim().is_empty() || url.starts_with("http://") || url.starts_with("https://") {
+        Ok(())
+    } else {
+        Err(KernelError::new(format!(
+            "{label} requires an http:// or https:// URL"
+        )))
+    }
+}
+
 fn validate_prepared_http_request(
     upstream: &PreparedHTTPRequestSpec,
     label: &str,
 ) -> KernelResult<()> {
-    if upstream.url.starts_with("ws://") || upstream.url.starts_with("wss://") {
-        return Err(KernelError::new(format!(
-            "{label} requires an http:// or https:// URL"
-        )));
-    }
+    validate_http_scheme(&upstream.url, label)?;
 
     if upstream.method.trim().is_empty() {
         return Err(KernelError::new("upstream.method must not be empty"));
@@ -821,6 +822,30 @@ mod tests {
         assert_eq!(spec.upstream.timeout.first_byte_ms, 1_800_000);
         assert_eq!(spec.upstream.timeout.idle_ms, 1_800_000);
         assert_eq!(spec.upstream.timeout.total_ms, None);
+    }
+
+    #[test]
+    fn http_request_specs_reject_non_http_schemes() {
+        let stream = r#"{
+            "api_resolver": "openai_chat_completions",
+            "upstream": {"kind": "http_sse", "method": "POST", "url": "ftp://example.test/file"}
+        }"#;
+        assert!(StreamSpec::from_json(stream).is_err());
+
+        let model = r#"{
+            "api_resolver": "openai_chat_completions",
+            "upstream": {"method": "POST", "url": "ftp://example.test/file"}
+        }"#;
+        assert!(ModelRequestSpec::from_json(model).is_err());
+
+        let raw = r#"{"upstream": {"method": "GET", "url": "ftp://example.test/file"}}"#;
+        assert!(RawRequestSpec::from_json(raw).is_err());
+
+        let empty = r#"{"upstream": {"method": "GET", "url": ""}}"#;
+        assert_eq!(
+            RawRequestSpec::from_json(empty).unwrap_err().to_string(),
+            "upstream.url must not be empty"
+        );
     }
 
     #[test]

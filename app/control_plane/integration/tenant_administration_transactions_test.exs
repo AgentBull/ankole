@@ -193,12 +193,12 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
              })
 
     assert %{has_local_acl: true, is_acl_anchor: true, acl_anchor_id: child_anchor} =
-             Repo.get!(Page, child.id)
+             Repo.get_by!(Page, id: child.id)
 
     assert child_anchor == child.id
 
     assert %{has_local_acl: false, is_acl_anchor: false, acl_anchor_id: ^child_anchor} =
-             Repo.get!(Page, grandchild.id)
+             Repo.get_by!(Page, id: grandchild.id)
 
     assert {:ok, _} =
              Tenants.transfer_site_administration(context.middle, context.middle_admin.uid)
@@ -208,7 +208,7 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
 
     for page <- [child, grandchild] do
       assert %{has_local_acl: false, is_acl_anchor: false, acl_anchor_id: parent_anchor} =
-               Repo.get!(Page, page.id)
+               Repo.get_by!(Page, id: page.id)
 
       assert parent_anchor == parent.id
       assert {:ok, _} = Pages.authorize(actor_fixture(viewer.uid), page.id, "node_view")

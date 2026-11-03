@@ -353,6 +353,45 @@ rewrite prior model history nor restart an active turn, and because edits
 preserve sequence numbers, later turns do not reread edited Messages that were
 already consumed.
 
+AI-colleague turns receive an audience-filtered related-context index of at
+most eight recent conversations within 180 tokens. Ankole selects recent work
+for the current audience and reads further candidates when Page access excludes
+an entry, so other employees' activity cannot displace that audience's history.
+Within that budget, Ankole keeps each entry's reference ID, kind, and short
+title first, then includes update time, status, and linked Page IDs (summarizing
+excess Page IDs as a remaining count) as space permits. `recall_related_context`
+pages the full public exchange, direct chat or Page comments under the same
+rule: every current Human must belong to the referenced audience, and the
+Agent must retain access to the referenced Page. A peer exchange takes its
+audience from the origin; Page comments use the Page's current Human readers.
+This lets a Human continue private work across entrances without disclosing it
+into a wider group.
+
+Personal assistants receive the callable colleague directory and the full role
+for colleagues explicitly mentioned in the current input. They dispatch work
+without asking the Human to select tools, preserve the original request and
+canonical Page links, and return useful conclusions to the origin. When a
+colleague's role matches a domain review, the assistant delegates early and
+lets that colleague retrieve and apply its role knowledge. Ordinary IM
+conclusions stay within about 100 words; long deliverables belong in Pages.
+While a colleague works or waits for a decision, the assistant handles unrelated
+requests in the same conversation and preserves the pending question. It sends
+new instructions through the peer tool and addresses visible replies to the Human.
+The colleague owns questions about its delegated task and asks the Human through
+the origin's Clarify surface. The assistant leaves those questions to the colleague.
+For document reviews, the assistant grants comment access so the same colleague
+can continue the discussion on the Page.
+
+When an assistant starts processing a peer result, its first model request also
+includes consecutive queued results for the same root Human request and origin
+Session. The replies share the originating reply route, WorkAccess, model profile
+and hop budget. Ankole records their individual Signal identities on the ordinary
+response tape and completes them together with the combined reply. It takes only
+results already pending at preparation; later arrivals start another turn.
+Human input and other tasks form batch boundaries. Ordinary peer results do not
+steer an active Human turn, and stopping the combined turn settles only its
+applied inputs.
+
 ## Execute Tools and Asynchronous Work
 
 Every tool call must supply complete, valid JSON arguments before execution; if
@@ -389,6 +428,12 @@ Session reconciliation failures use the same scrubbed logging—recording the
 operation name without request payloads—while Job Drivers preserve their own
 retry policy. If a post-commit receipt notification fails, the committed receipt
 remains valid and its domain write is never repeated.
+
+Routers use `create_background_job` for long coding, research and batch work,
+then release the foreground turn. Peer sends and read-only recall run in the
+control plane without allocating a Worker. A Job receives the same peer tool
+declarations and uses the fenced RPC adapter; retries reuse its tool-call
+identity. Page editing and sharing use the existing Worker CLI and Pod owners.
 
 Background Agent Jobs and Workflow calls inherit their parent's source
 authorization, explicit reply route, and owner Session, and their dispatch,
@@ -471,12 +516,17 @@ Inside the Driver, native activity is an in-memory observation consisting of one
 phase plus the current turn's tool history; it spawns no extra process, journal,
 or separate pending-call store. The Driver holds the Turn and its `PendingCalls`
 while keeping tracing handles outside execution state, and `Sessions.Activity`
-filters native display fields, ignores late updates for completed tools,
-increments display revisions, and clears transient details on completion, retry,
+filters native display fields and preserves the committed terminal phase and
+duration. A terminal Worker presentation can add its completion label; a late
+running update cannot reopen the tool. Activity increments display revisions
+and clears transient details on completion, retry,
 takeover, or process exit. Every activity snapshot carries the admitted Signal,
 workspace epoch, response identity, and an intra-epoch revision, validated
 against the durable epoch and open input; if the Driver is missing or stopped,
 callers fall back to durable generic status.
+
+The optional stream display read has a 250 ms timeout, keeping a busy model
+stream from occupying the Driver for the caller's whole snapshot deadline.
 
 Only the Run's native source conversation receives live activity events—target
 conversations of a scheduled report do not subscribe to its execution stream.
@@ -505,6 +555,10 @@ branch. Resetting a Session (`command.new` or a kernel-produced
 branch, while leaving shared public conversation history intact and readable
 under the new branch's watermark. Neither retry nor reset affects another
 Agent's Session in a shared room.
+
+Retry restoration returns reclaimed Responses to the transaction owner. That
+owner publishes terminal notifications only after the retry transaction commits;
+a rollback leaves subscribers on the durable pre-retry state.
 
 On conversation admission (`Sessions.WakeRecycle`, configured through
 `sessions.wake_recycle`), Ankole automatically rotates an active model

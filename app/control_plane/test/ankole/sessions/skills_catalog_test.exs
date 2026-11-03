@@ -24,8 +24,7 @@ defmodule Ankole.Sessions.SkillsCatalogTest do
           ),
           skill("evil\u200B-skill"),
           skill("   "),
-          skill("hog", description: String.duplicate("words ", 3_000)),
-          skill("lazy", metadata: %{"brain_recall_only" => true})
+          skill("hog", description: String.duplicate("words ", 3_000))
         ],
         :main
       )
@@ -33,7 +32,6 @@ defmodule Ankole.Sessions.SkillsCatalogTest do
     assert catalog =~ ~s(pdf-report: "Build weekly reports with charts")
     assert catalog =~ "docs:"
     refute catalog =~ "evil"
-    refute catalog =~ "lazy"
     refute catalog =~ "Descriptions shortened"
     refute String.contains?(catalog, ["\u202E", "\u200B"])
   end
@@ -112,9 +110,10 @@ defmodule Ankole.Sessions.SkillsCatalogTest do
            ) ==
              ~w(pdf zeta member-a member-b)
 
-    # A current plugin that lost a selected member is a broken catalog.
-    assert_raise KeyError, fn ->
-      RuntimeProjection.selected_skills(projection, skills -- [member_a], plugins)
-    end
+    # Current page visibility can remove a frozen plugin member.
+    assert Enum.map(
+             RuntimeProjection.selected_skills(projection, skills -- [member_a], plugins),
+             & &1["skill_name"]
+           ) == ~w(pdf zeta member-b)
   end
 end

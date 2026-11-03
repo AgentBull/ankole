@@ -32,7 +32,7 @@ defmodule Ankole.Schedule.Projections do
       "delivery_target_count" => delivery_target_count(schedule),
       "next_fire_at" => Planner.datetime(schedule.next_fire_at),
       "last_fire_at" => Planner.datetime(schedule.last_fire_at),
-      "automation_job_id" => schedule.automation_job_id
+      "automation_job_id" => Ankole.Signals.source_automation_job_id(schedule)
     }
   end
 
@@ -56,8 +56,13 @@ defmodule Ankole.Schedule.Projections do
       "check" => wake_payload["check"],
       "context_summary" => wake_payload["context_summary"],
       "quiet_success" => wake_payload["quiet_success"] == true,
-      "automation_job_id" => event.automation_job_id,
-      "automation_job_run_id" => event.automation_job_run_id,
+      "automation_job_id" => Ankole.Signals.source_automation_job_id(event),
+      "automation_job_run_id" => event_run_id(event),
+      "deliveries" =>
+        Enum.map(
+          Ankole.Signals.delivery_receipts(event.signal_id),
+          &Map.take(&1, [:automation_job_run_id, :delivered_signal_id])
+        ),
       "fired_at" => Planner.datetime(event.fired_at),
       "cancelled_at" => Planner.datetime(event.cancelled_at),
       "last_error" => model_last_error(event.last_fire_error)
@@ -72,13 +77,23 @@ defmodule Ankole.Schedule.Projections do
       "due_at" => Planner.datetime(event.due_at),
       "timezone" => event.timezone,
       "trigger" => wake_payload["trigger"],
-      "automation_job_id" => event.automation_job_id,
-      "automation_job_run_id" => event.automation_job_run_id,
+      "automation_job_id" => Ankole.Signals.source_automation_job_id(event),
+      "automation_job_run_id" => event_run_id(event),
+      "deliveries" =>
+        Enum.map(
+          Ankole.Signals.delivery_receipts(event.signal_id),
+          &Map.take(&1, [:automation_job_run_id, :delivered_signal_id])
+        ),
       "fired_at" => Planner.datetime(event.fired_at),
       "cancelled_at" => Planner.datetime(event.cancelled_at),
       "last_error" => model_last_error(event.last_fire_error)
     }
   end
+
+  defp event_run_id(event),
+    do:
+      Ankole.Signals.delivery_receipts(event.signal_id)
+      |> Enum.find_value(& &1.automation_job_run_id)
 
   defp model_last_error(error) when is_map(error) do
     case Ankole.Attrs.get_string_first(error, "reason") do

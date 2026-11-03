@@ -33,7 +33,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
          :ok <- Lifecycle.lock_job_sessions_in_tx(job),
          %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(ref.signal_id) do
       if job.status != :running do
-        {:ok, %{signal: event, compensation: nil}}
+        {:ok, event}
       else
         error = BackgroundAgentJobs.quota_terminal_error(error, event.agent_uid)
         delay = BackgroundAgentJobs.turn_error_retry_at(error, ref.attempt, now)

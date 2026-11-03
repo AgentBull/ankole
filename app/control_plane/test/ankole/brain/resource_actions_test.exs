@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.ResourceActionsTest do
   use Ankole.DataCase, async: true
+  import Ankole.BrainFixtures
   import Ankole.PrincipalsFixtures
 
   alias Ankole.Brain.{Claims, SchemaPacks}
@@ -10,40 +11,9 @@ defmodule Ankole.Brain.ResourceActionsTest do
     :ok
   end
 
-  test "content and source actions fence stale snapshots and ownership at the database" do
-    {:ok, object} =
-      Ankole.Brain.create_object(
-        %{slug: "notes/action-guard", type: "note", title: "Guard"},
-        :system
-      )
-
-    {:ok, edited} =
-      Ankole.Brain.update_object(
-        object.slug,
-        %{body: "Current", expected_content_hash: object.content_hash},
-        :system
-      )
-
-    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
-             Repo.transact(fn _ ->
-               Ankole.Ash.update(object, :edit, %{
-                 body: "Stale",
-                 expected_content_hash: object.content_hash
-               })
-             end)
-
-    Ankole.DataCase.assert_persisted_equal(
-      Repo.get!(Ankole.Brain.Schemas.Object, object.id),
-      edited
-    )
-
+  test "archive fences stale source revision writes" do
     {:ok, source} =
       Ankole.Brain.Sources.create(%{kind: "file", upstream_id: "guard-source", name: "Guard"})
-
-    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
-             Repo.transact(fn _ ->
-               Ankole.Ash.update(object, :project, %{source_id: source.id, body: "Take over"})
-             end)
 
     {:ok, archived} = Ankole.Brain.archive_source(source.id)
 
@@ -268,17 +238,17 @@ defmodule Ankole.Brain.ResourceActionsTest do
     human = human_fixture().principal
 
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "notes/" <> Ankole.Ecto.UUIDv7.autogenerate(), type: "note", title: "Timeline"},
         human.uid
       )
 
     attrs = %{
-      object_slug: object.slug,
+      subject_page_id: object.id,
       holder: "people/#{human.uid}",
       claim: "Delivery is in Q3",
       kind: "event",
-      audience_scope: "world",
+      source_node_id: source_node("world"),
       notability: "medium",
       confidence: 0.8,
       context: "Delivery",
@@ -301,7 +271,7 @@ defmodule Ankole.Brain.ResourceActionsTest do
     human = human_fixture().principal
 
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "notes/" <> Ankole.Ecto.UUIDv7.autogenerate(), type: "note", title: "Assignment"},
         human.uid
       )
@@ -309,12 +279,12 @@ defmodule Ankole.Brain.ResourceActionsTest do
     {:ok, take} =
       Claims.write_take(
         %{
-          object_slug: object.slug,
+          subject_page_id: object.id,
           holder: "people/#{human.uid}",
           claim: "A forecast",
           kind: "prediction",
           weight: 0.6,
-          audience_scope: "world",
+          source_node_id: source_node("world"),
           provenance: "test"
         },
         human.uid,

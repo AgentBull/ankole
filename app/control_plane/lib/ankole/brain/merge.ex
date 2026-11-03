@@ -23,13 +23,10 @@ defmodule Ankole.Brain.Merge do
   import Ecto.Query, warn: false
   require Ash.Query
 
-  alias Ankole.Brain.Calibration
-  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Links
-  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.MergeSuggestion
-  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.SlugAlias
@@ -45,9 +42,21 @@ defmodule Ankole.Brain.Merge do
   """
   @spec page_summary(String.t()) :: map()
   def page_summary(slug) do
-    case Objects.resolve_slug(slug) do
-      {:ok, object} -> %{slug: object.slug, title: object.title, type: object.type}
-      {:error, :not_found} -> %{slug: slug, title: nil, type: nil}
+    case Objects.resolve_slug(slug, select: [:slug, :title, :type, :deleted_at]) do
+      {:ok, object} ->
+        %{
+          page_id: object.id,
+          slug: object.slug,
+          title: object.title,
+          type: object.type,
+          pod_url:
+            AnkoleWeb.PodURL.current_tenant_url(
+              AnkoleWeb.PodURL.page_path(object.id, object.title)
+            )
+        }
+
+      {:error, :not_found} ->
+        %{page_id: slug, slug: slug, title: nil, type: nil, pod_url: nil}
     end
   end
 
@@ -84,12 +93,14 @@ defmodule Ankole.Brain.Merge do
 
   @doc """
   Approves one pending suggestion and merges the pair in the caller's
-  transaction. `attrs.canonical_slug` names the surviving page and must be
+  transaction. `attrs.canonical_page_id` names the surviving page and must be
   one of the pair; the other page is the duplicate that merges away.
   """
   @spec approve_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t(), map()) ::
           {:ok, map()} | {:error, term()}
   def approve_in_tx(suggestion_id, decided_by, attrs) do
+    Ankole.Pod.Pages.Tree.lock_tree()
+
     with :ok <- Repo.require_transaction(),
          {:ok, suggestion} <- fetch_pending(suggestion_id),
          {:ok, target_slug} <- required_canonical(attrs),
@@ -101,7 +112,7 @@ defmodule Ankole.Brain.Merge do
         # redirect settled this pair, so approval only closes the row.
         with {:ok, _suggestion} <-
                Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
-          {:ok, %{status: :already_merged, canonical_slug: first.slug}}
+          {:ok, %{status: :already_merged, canonical_page_id: first.id}}
         end
       else
         with {:ok, canonical, duplicate} <- orient(first, second, target_slug),
@@ -109,19 +120,20 @@ defmodule Ankole.Brain.Merge do
              :ok <- guard_pair_live(canonical, duplicate),
              :ok <- guard_pair_unmanaged(canonical, duplicate),
              :ok <- guard_duplicate_mergeable(canonical, duplicate),
-             pre_merge_tags = Links.tags_for_object(canonical.slug),
-             {:ok, moved} <- repoint_children(canonical, duplicate),
              {:ok, _alias} <- keep_duplicate_name(canonical, duplicate),
-             {:ok, _duplicate} <- Ankole.Ash.destroy(duplicate, :merge_duplicate),
+             {:ok, canonical} <- Objects.get_by_slug(canonical.id),
+             {:ok, moved} <- repoint_children(canonical, duplicate),
+             :ok <- move_page_children(canonical, duplicate),
+             {:ok, _duplicate} <- Objects.soft_delete_in_tx(duplicate.id),
              {:ok, _redirect} <- insert_redirect(canonical, duplicate),
              {:ok, canonical} <-
-               consolidate_duplicate_body_in_tx(canonical, duplicate, decided_by, pre_merge_tags),
+               consolidate_duplicate_body_in_tx(canonical, duplicate, decided_by),
              {:ok, _suggestion} <-
                Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
           {:ok,
            %{
              status: :merged,
-             canonical_slug: canonical.slug,
+             canonical_page_id: canonical.id,
              merged_slug: duplicate.slug,
              moved: moved
            }}
@@ -148,15 +160,15 @@ defmodule Ankole.Brain.Merge do
     |> join(:inner, [x], y in ObjectAlias,
       on:
         x.tenant_id == y.tenant_id and x.alias_norm == y.alias_norm and
-          x.object_slug < y.object_slug
+          x.subject_page_id < y.subject_page_id
     )
     |> join(:inner, [x, y], a in Object,
       as: :merge_candidate_a,
-      on: a.tenant_id == x.tenant_id and a.slug == x.object_slug
+      on: a.tenant_id == x.tenant_id and a.id == x.subject_page_id
     )
     |> join(:inner, [x, y, a], b in Object,
       as: :merge_candidate_b,
-      on: b.tenant_id == y.tenant_id and b.slug == y.object_slug
+      on: b.tenant_id == y.tenant_id and b.id == y.subject_page_id
     )
     |> join(:inner, [x, y, a, b], type in SchemaType,
       on: type.tenant_id == a.tenant_id and type.name == a.type
@@ -169,10 +181,10 @@ defmodule Ankole.Brain.Merge do
     |> where([x, y, a, b, type], a.type == b.type)
     |> merge_scan_scope()
     |> exclude_recorded_and_principal_pairs()
-    |> group_by([x, y], [x.object_slug, y.object_slug])
-    |> order_by([x, y], asc: x.object_slug, asc: y.object_slug)
+    |> group_by([x, y], [x.subject_page_id, y.subject_page_id])
+    |> order_by([x, y], asc: x.subject_page_id, asc: y.subject_page_id)
     |> limit(@candidate_scan_limit)
-    |> select([x, y], {x.object_slug, y.object_slug, min(x.alias_norm)})
+    |> select([x, y], {x.subject_page_id, y.subject_page_id, min(x.alias_norm)})
     |> Repo.all()
     |> Enum.map(fn {a, b, alias_norm} -> {a, b, ~s(shared alias "#{alias_norm}")} end)
   end
@@ -188,32 +200,44 @@ defmodule Ankole.Brain.Merge do
   # leave the query. Otherwise the same judged or Principal-only prefix can
   # occupy every sweep and prevent later candidates from moving forward.
   defp exclude_recorded_and_principal_pairs(query) do
+    principal_parents =
+      case Ankole.Brain.Namespace.root() do
+        {:ok, root} ->
+          for name <- ~w(people agents),
+              {:ok, node} <- [Ankole.Pod.Pages.Tree.child(root.id, name)],
+              do: node.id
+
+        {:error, :not_found} ->
+          []
+      end
+
     query
     |> where(
       [merge_candidate_a: _a, merge_candidate_b: _b],
       not exists(
         from(suggestion in MergeSuggestion,
           where:
-            suggestion.a_slug == parent_as(:merge_candidate_a).slug and
-              suggestion.b_slug == parent_as(:merge_candidate_b).slug,
+            suggestion.a_slug == fragment("?::text", parent_as(:merge_candidate_a).id) and
+              suggestion.b_slug == fragment("?::text", parent_as(:merge_candidate_b).id),
           select: 1
         )
       )
     )
     |> where(
-      [merge_candidate_a: _a, merge_candidate_b: _b],
-      not (exists(
-             from(principal in Principal,
-               where:
-                 (principal.type == :human and
-                    parent_as(:merge_candidate_a).slug ==
-                      fragment("'people/' || ?", principal.uid)) or
-                   (principal.type == :agent and
+      [merge_candidate_a: a, merge_candidate_b: b],
+      not (a.parent_id in ^principal_parents and b.parent_id in ^principal_parents and
+             exists(
+               from(principal in Principal,
+                 where:
+                   (principal.type == :human and
                       parent_as(:merge_candidate_a).slug ==
-                        fragment("'agents/' || ?", principal.uid)),
-               select: 1
-             )
-           ) and
+                        fragment("'people/' || ?", principal.uid)) or
+                     (principal.type == :agent and
+                        parent_as(:merge_candidate_a).slug ==
+                          fragment("'agents/' || ?", principal.uid)),
+                 select: 1
+               )
+             ) and
              exists(
                from(principal in Principal,
                  where:
@@ -230,9 +254,9 @@ defmodule Ankole.Brain.Merge do
   end
 
   defp required_canonical(attrs) do
-    case attrs[:canonical_slug] do
+    case attrs[:canonical_page_id] do
       slug when is_binary(slug) and slug != "" -> {:ok, slug}
-      _missing -> {:error, :canonical_slug_required}
+      _missing -> {:error, :canonical_page_id_required}
     end
   end
 
@@ -249,102 +273,73 @@ defmodule Ankole.Brain.Merge do
     case Objects.resolve_slug(target_slug) do
       {:ok, %Object{id: id}} when id == first.id -> {:ok, first, second}
       {:ok, %Object{id: id}} when id == second.id -> {:ok, second, first}
-      _other -> {:error, {:canonical_slug_not_in_pair, target_slug}}
+      _other -> {:error, {:canonical_page_id_not_in_pair, target_slug}}
     end
   end
 
   defp lock_pair(canonical, duplicate) do
-    locked =
-      Object
-      |> Ash.Query.filter(slug in ^[canonical.slug, duplicate.slug])
-      |> Ash.Query.sort(slug: :asc)
-      |> Ash.Query.lock(:for_update)
-      |> Ankole.Ash.read!()
-      |> Map.new(&{&1.slug, &1})
+    for id <- Enum.sort([canonical.id, duplicate.id]), do: Ankole.Pod.Pages.Tree.lock(id)
 
-    with %Object{} = canonical <- Map.get(locked, canonical.slug) || {:error, :not_found},
-         %Object{} = duplicate <- Map.get(locked, duplicate.slug) || {:error, :not_found} do
-      {:ok, canonical, duplicate}
-    end
+    with {:ok, canonical} <- Objects.get_by_slug(canonical.id),
+         {:ok, duplicate} <- Objects.get_by_slug(duplicate.id),
+         do: {:ok, canonical, duplicate}
   end
 
   defp guard_pair_live(%Object{deleted_at: nil}, %Object{deleted_at: nil}), do: :ok
   defp guard_pair_live(%Object{}, %Object{}), do: {:error, :not_found}
 
-  defp guard_duplicate_mergeable(%Object{} = canonical, %Object{} = duplicate) do
-    cond do
-      Objects.canonical_principal_page?(duplicate.slug) ->
-        {:error, {:principal_canonical_page, duplicate.slug}}
-
-      true ->
-        with {:ok, _canonical_segments} <- Markdoc.raw_segments(canonical.body),
-             {:ok, _duplicate_segments} <- Markdoc.raw_segments(duplicate.body) do
-          :ok
-        end
-    end
+  defp guard_duplicate_mergeable(_canonical, duplicate) do
+    if Objects.canonical_principal_page?(duplicate.id),
+      do: {:error, {:principal_canonical_page, duplicate.slug}},
+      else: :ok
   end
 
-  defp consolidate_duplicate_body_in_tx(canonical, duplicate, decided_by, pre_merge_tags) do
-    duplicate_body = Calibration.strip_calibration_section(duplicate.body)
+  defp consolidate_duplicate_body_in_tx(canonical, duplicate, decided_by) do
+    xml = "<page>" <> xml_children(canonical.xml) <> xml_children(duplicate.xml) <> "</page>"
 
-    with {:ok, duplicate_segments} <- Markdoc.segments(duplicate_body) do
-      if duplicate_segments == [] do
-        with {:ok, canonical} <- Objects.refresh_content_hash_in_tx(canonical),
-             {:ok, _reconciled} <- Chunks.reconcile_in_tx(canonical) do
-          {:ok, canonical}
-        end
-      else
-        canonical_base = Calibration.strip_calibration_section(canonical.body)
+    aliases =
+      ObjectAlias
+      |> Ash.Query.filter(subject_page_id == ^canonical.id)
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.alias_norm)
 
-        merged_body =
-          append_body_preserving_calibration(canonical.body, canonical_base, duplicate_body)
+    metadata =
+      canonical.meta
+      |> Map.put("tags", Links.tags_for_object(canonical.id))
+      |> Map.put("aliases", aliases)
 
-        with :ok <- verify_merged_scopes(canonical_base, duplicate_body, merged_body),
-             {:ok, updated} <-
-               Objects.update_object_in_tx(
-                 canonical.slug,
-                 %{body: merged_body, expected_content_hash: canonical.content_hash},
-                 :system,
-                 author: decided_by,
-                 snapshot_tags: pre_merge_tags
-               ),
-             {:ok, _links} <- Links.reconcile_object_links_in_tx(updated.slug) do
-          {:ok, updated}
-        end
+    with {:ok, _} <-
+           Ankole.Pod.Knowledge.put_in_tx(
+             canonical.id,
+             %{xml: xml, metadata: metadata},
+             author: decided_by,
+             base_revision: canonical.revision
+           ),
+         do: Objects.get_by_slug(canonical.id)
+  end
+
+  defp xml_children("<page />"), do: ""
+  defp xml_children("<page>" <> rest), do: String.trim_trailing(rest, "</page>")
+
+  defp move_page_children(canonical, duplicate) do
+    duplicate.id
+    |> Ankole.Pod.Pages.Tree.list_children()
+    |> Enum.reduce_while(:ok, fn node, :ok ->
+      result =
+        with {:ok, old_path} <- Ankole.Pod.Pages.Tree.path(node),
+             {:ok, moved} <-
+               Ankole.Pod.Access.update_anchor_in_tx(node, :move, %{
+                 parent_id: canonical.id,
+                 name: Ankole.Pod.Pages.Tree.available_name(canonical.id, node.name, node.id)
+               }),
+             :ok <- Ankole.Pod.Pages.Lifecycle.move_node_in_tx(node.id, old_path),
+             do: {:ok, moved}
+
+      case result do
+        {:ok, _} -> {:cont, :ok}
+        error -> {:halt, error}
       end
-    end
-  end
-
-  defp append_body_preserving_calibration(canonical_body, canonical_base, duplicate_body) do
-    combined =
-      case canonical_base do
-        "" -> duplicate_body
-        text -> text <> "\n\n" <> duplicate_body
-      end
-
-    canonical_body
-    |> Calibration.extract_sections()
-    |> Enum.reduce(combined, &Calibration.append_section(&2, &1))
-  end
-
-  # Verifies that appending `duplicate_body` after `canonical_base` keeps every
-  # non-`world` audience block intact rather than capturing it inside an
-  # unclosed CommonMark code fence or HTML block in `canonical_base`.
-  defp verify_merged_scopes(canonical_base, duplicate_body, merged_body) do
-    with {:ok, canonical_segments} <- Markdoc.raw_segments(canonical_base),
-         {:ok, duplicate_segments} <- Markdoc.raw_segments(duplicate_body),
-         {:ok, merged_segments} <- Markdoc.raw_segments(merged_body) do
-      expected = non_world_pairs(canonical_segments) ++ non_world_pairs(duplicate_segments)
-      actual = non_world_pairs(merged_segments)
-
-      if Enum.frequencies(actual) == Enum.frequencies(expected),
-        do: :ok,
-        else: {:error, :unclosed_block_captures_audience_tags}
-    end
-  end
-
-  defp non_world_pairs(segments) do
-    for %{scope: scope, text: text} <- segments, scope != "world", do: {scope, text}
+    end)
   end
 
   defp guard_pair_unmanaged(%Object{managed_by_source_id: nil}, %Object{managed_by_source_id: nil}),
@@ -358,15 +353,15 @@ defmodule Ankole.Brain.Merge do
     do: {:error, {:library_managed, slug}}
 
   defp repoint_children(canonical, duplicate) do
-    canon = canonical.slug
-    dup = duplicate.slug
+    canon = canonical.id
+    dup = duplicate.id
 
-    {claims, holders} = Ankole.Brain.Claims.repoint_in_tx(dup, canon)
+    {claims, holders} = Ankole.Brain.Claims.repoint_in_tx(duplicate, canonical)
 
     redirects =
       SlugAlias
-      |> Ash.Query.filter(canonical_slug == ^dup)
-      |> Ankole.Ash.update_where(:repoint, %{canonical_slug: canon})
+      |> Ash.Query.filter(canonical_page_id == ^dup)
+      |> Ankole.Ash.update_where(:repoint, %{canonical_page_id: canon})
 
     case redirects do
       {:ok, redirects} ->
@@ -392,46 +387,52 @@ defmodule Ankole.Brain.Merge do
   end
 
   defp repoint_timelines(canon, dup) do
-    # A row whose (date, summary, provenance) twin already exists on the
-    # canonical page is the duplicate this merge removes.
-    Repo.query!(
-      """
-      DELETE FROM brain_timelines AS moved
-      WHERE moved.tenant_id = $3 AND moved.object_slug = $1
-        AND EXISTS (
-          SELECT 1 FROM brain_timelines AS kept
-          WHERE kept.tenant_id = $3 AND kept.object_slug = $2
-            AND kept.date = moved.date
-            AND kept.summary = moved.summary
-            AND kept.provenance = moved.provenance
-        )
-      """,
-      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
-    )
+    params = [Ecto.UUID.dump!(dup), Ecto.UUID.dump!(canon), Ecto.UUID.dump!(Repo.tenant_id!())]
 
-    # Event back-references follow their foreign key's nilify semantics when
-    # repointing would collide with the one-event-per-day key.
+    projected = fn row, field ->
+      "CASE WHEN #{row}.#{field} = $1 THEN $2 ELSE #{row}.#{field} END"
+    end
+
+    same_source =
+      "#{projected.("moved", "source_node_id")} = #{projected.("kept", "source_node_id")}"
+
+    same_subject =
+      "#{projected.("moved", "subject_page_id")} IS NOT DISTINCT FROM #{projected.("kept", "subject_page_id")}"
+
+    same_event =
+      "#{projected.("moved", "event_page_id")} = #{projected.("kept", "event_page_id")}"
+
     Repo.query!(
       """
-      UPDATE brain_timelines AS moved SET event_object_slug = NULL
-      WHERE moved.tenant_id = $3 AND moved.event_object_slug = $1
-        AND EXISTS (
-          SELECT 1 FROM brain_timelines AS kept
-          WHERE kept.tenant_id = $3 AND kept.event_object_slug = $2 AND kept.date = moved.date
-        )
+      DELETE FROM brain_timelines moved USING brain_timelines kept
+      WHERE moved.tenant_id=$3 AND kept.tenant_id=$3 AND moved.id > kept.id
+        AND #{same_subject} AND #{same_source}
+        AND moved.date=kept.date AND moved.summary=kept.summary AND moved.provenance=kept.provenance
       """,
-      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+      params
     )
 
     Repo.query!(
-      "UPDATE brain_timelines SET event_object_slug = $2 WHERE tenant_id = $3 AND event_object_slug = $1",
-      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+      """
+      UPDATE brain_timelines moved SET event_page_id=NULL
+      WHERE moved.tenant_id=$3 AND moved.event_page_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM brain_timelines kept WHERE kept.tenant_id=$3 AND moved.id > kept.id
+          AND #{same_event} AND #{same_source} AND moved.date=kept.date
+      )
+      """,
+      params
     )
 
     %{num_rows: moved} =
       Repo.query!(
-        "UPDATE brain_timelines SET object_slug = $2 WHERE tenant_id = $3 AND object_slug = $1",
-        [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+        """
+        UPDATE brain_timelines moved
+        SET subject_page_id=#{projected.("moved", "subject_page_id")},
+            source_node_id=#{projected.("moved", "source_node_id")},
+            event_page_id=#{projected.("moved", "event_page_id")}
+        WHERE tenant_id=$3 AND ($1 IN (subject_page_id,source_node_id,event_page_id))
+        """,
+        params
       )
 
     moved
@@ -441,26 +442,26 @@ defmodule Ankole.Brain.Merge do
     Repo.query!(
       """
       DELETE FROM #{table} AS moved
-      WHERE moved.tenant_id = $3 AND moved.object_slug = $1
+      WHERE moved.tenant_id = $3 AND moved.subject_page_id = $1
         AND EXISTS (
           SELECT 1 FROM #{table} AS kept
-          WHERE kept.tenant_id = $3 AND kept.object_slug = $2
+          WHERE kept.tenant_id = $3 AND kept.subject_page_id = $2
             AND kept.#{value_column} = moved.#{value_column}
         )
       """,
-      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+      [Ecto.UUID.dump!(dup), Ecto.UUID.dump!(canon), Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     %{num_rows: moved} =
       Repo.query!(
-        "UPDATE #{table} SET object_slug = $2 WHERE tenant_id = $3 AND object_slug = $1",
-        [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+        "UPDATE #{table} SET subject_page_id = $2 WHERE tenant_id = $3 AND subject_page_id = $1",
+        [Ecto.UUID.dump!(dup), Ecto.UUID.dump!(canon), Ecto.UUID.dump!(Repo.tenant_id!())]
       )
 
     moved
   end
 
-  @link_key_columns ~w(from_object_slug to_object_slug link_type link_source origin_object_slug)
+  @link_key_columns ~w(from_page_id to_page_id link_type link_source origin_page_id)
 
   defp repoint_links(canon, dup) do
     # Edges inside the merged pair would become self-links; they carry no
@@ -468,10 +469,10 @@ defmodule Ankole.Brain.Merge do
     Repo.query!(
       """
       DELETE FROM brain_links
-      WHERE tenant_id = $3 AND ((from_object_slug = $1 AND to_object_slug IN ($1, $2))
-         OR (from_object_slug = $2 AND to_object_slug = $1))
+      WHERE tenant_id = $3 AND ((from_page_id = $1 AND to_page_id IN ($1, $2))
+         OR (from_page_id = $2 AND to_page_id = $1))
       """,
-      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+      [Ecto.UUID.dump!(dup), Ecto.UUID.dump!(canon), Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     Enum.reduce(@link_key_columns -- ~w(link_type link_source), 0, fn column, count ->
@@ -496,13 +497,13 @@ defmodule Ankole.Brain.Merge do
           WHERE kept.tenant_id = $3 AND kept.#{column} = $2 AND #{twin_match}
         )
       """,
-      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+      [Ecto.UUID.dump!(dup), Ecto.UUID.dump!(canon), Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     %{num_rows: moved} =
       Repo.query!(
         "UPDATE brain_links SET #{column} = $2 WHERE tenant_id = $3 AND #{column} = $1",
-        [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+        [Ecto.UUID.dump!(dup), Ecto.UUID.dump!(canon), Ecto.UUID.dump!(Repo.tenant_id!())]
       )
 
     moved
@@ -511,17 +512,26 @@ defmodule Ankole.Brain.Merge do
   defp keep_duplicate_name(canonical, duplicate) do
     case Links.normalize_alias(duplicate.title || "") do
       "" -> {:ok, :untitled}
-      _name -> Links.add_alias(canonical.slug, duplicate.title)
+      _name -> Links.add_alias_in_tx(canonical.id, duplicate.title)
     end
   end
 
   defp insert_redirect(canonical, duplicate) do
-    Ankole.Ash.create(SlugAlias, :add, %{
-      alias_slug: duplicate.slug,
-      canonical_slug: canonical.slug,
-      notes: "merge of duplicate page",
-      created_at: DateTime.utc_now(:microsecond)
-    })
+    with {:ok, node} <- Ankole.Pod.Pages.Tree.fetch(duplicate.id),
+         {:ok, path} <- Ankole.Pod.Pages.Tree.path(node) do
+      case Ankole.Brain.Knowledge.brain_path(path) do
+        nil ->
+          {:ok, :outside_brain_namespace}
+
+        slug ->
+          Ankole.Ash.create(SlugAlias, :add, %{
+            alias_slug: slug,
+            canonical_page_id: canonical.id,
+            notes: "merge of duplicate page",
+            created_at: DateTime.utc_now(:microsecond)
+          })
+      end
+    end
   end
 
   defp fetch_pending(suggestion_id) do

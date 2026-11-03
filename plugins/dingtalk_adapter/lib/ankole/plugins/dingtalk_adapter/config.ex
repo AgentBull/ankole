@@ -172,7 +172,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
   def client(config) when is_map(config) do
     Client.new(
       client_id: Map.fetch!(config, "clientId"),
-      client_secret: fn -> Map.fetch!(config, "clientSecret") end
+      client_secret: Map.fetch!(config, "clientSecret")
     )
   end
 

@@ -5,16 +5,14 @@ section: User guide
 order: 32
 ---
 
-The **Agent Library** page in the Site Admin Console manages two distinct extension boundaries: tenant- and Agent-scoped model capabilities (**Agent Plugins** and **Skills**), and strictly **site-scoped** platform extensions (**Control Plane Plugins**, visible only when the scope is set to **Global defaults**).
-
-All three are trusted, first-party components compiled or packaged with your Ankole deployment—enabling an item in Agent Library never downloads untrusted code from the internet.
+Members manage complete Skill packages in **Meta Ankole → Skills**. The **Agent Library** in the Console also provides capability controls, while site administrators manage Control Plane Plugins in the Site Admin Console. Built-in and Agent Plugin packages ship with Ankole; members with the appropriate permission can create or import custom Skills.
 
 ## Understand the three capability types
 
 | Type | Scope | Purpose | When a change applies |
 |---|---|---|---|
 | **Agent Plugin** | Tenant default + per-Agent override | Bundles related Skills, MCP server dependencies, and workspace templates | The Agent's next turn |
-| **Skill** | Tenant default + per-Agent override | Reusable instructions and helper files for one repeatable workflow | The Agent's next turn |
+| **Skill** | All Agents enabled, or explicit Agent bindings | Reusable instructions and helper files for one repeatable workflow | The Agent's next turn |
 | **Control Plane Plugin** | Site-scoped only (`/api/v2/site/control-plane-plugins`) | Full-stack compile-time platform extension (adapters, OTP services, HTTP plugs, extension routes, domain hooks, config fields, and Web UI slots) | Always active with the build (`activation: :always`), or on the next control-plane start (`activation: :optional`) |
 
 ### Agent Plugin: capabilities that share one package
@@ -57,11 +55,9 @@ ankole-runtime: any
 
 `ankole-runtime` controls which execution surface can see and load the Skill—it does not automatically launch a Background Agent Job. For example, the Deep Research entry Skill sets `ankole-runtime: main` so the Main Agent confirms the scope in chat and creates the Job, while the underlying research Skills run inside the Background Agent Job itself.
 
-#### Ankole extension: discover a Skill through Brain
+#### Shared Skill packages
 
-Specialized SOPs and playbooks are relevant only to matching tasks, so listing all of them in every system prompt would waste context tokens. A shipped Skill can set `brain-recall-only: true` to stay out of the default prompt catalog while remaining a standard Skill under all Agent Plugin, enablement, `ankole-runtime`, and `skill_view` rules.
-
-When Brain is enabled, it indexes the Skill's `name`, `description`, and `tags` for semantic recall. Once Brain surfaces a match, the Agent calls `skill_view`, which checks `ankole-runtime` and either loads the Skill on a compatible surface or returns the appropriate routing guidance. Disabling the Skill or its parent Agent Plugin removes it from both Brain recall and `skill_view` for that Agent.
+Each Skill has a required `SKILL.md` and companion files, managed in [Meta Ankole](../agent-library/). An enabled Agent reads the complete package at `/drive/Skills/<slug>/`. `skill_view` loads the manifest; reference files are read explicitly by relative path. Skill instructions are separate from Brain knowledge.
 
 ### Control Plane Plugin: site-scoped full-stack platform extension
 
@@ -78,26 +74,15 @@ Each Control Plane Plugin declares `activation: :optional | :always`. Optional p
 
 ## Manage Agent Plugins and Skills
 
-### Set instance defaults
+### Enable Skills
 
-1. Open **Agent Library** in the Console.
-2. Set the scope selector to **Global defaults**.
-3. Locate the item under **Agent Plugins** or **Skills**.
-4. Toggle its default state on or off.
+Open **Meta Ankole → Skills** and choose a Skill. An administrator can enable it for all Agents or bind individual AI colleagues. Each member can bind their own assistant. When the all-Agents switch is on, individual switches show enabled and are locked. Turning it off restores the saved individual bindings. Custom Skills start disabled.
 
-Global defaults apply to newly created Agents and to existing Agents set to **Follow global**. In-flight turns finish with the capabilities they started with, and Agents pick up the updated set on their next turn.
+A Skill bundled in an Agent Plugin also requires that Plugin to be enabled for the Agent. Changes apply on the next turn; an existing Background Agent Job remains limited to its initial capability whitelist.
 
-As a rule of thumb, enable broadly useful, low-risk Skills by default, and keep specialized, credential-dependent, or higher-risk capabilities disabled globally so you can enable them explicitly on the Agents that need them.
+### Configure Agent Plugins
 
-### Override one Agent
-
-1. At the top of **Agent Library**, switch the scope selector to a specific Agent.
-2. Find the Agent Plugin or Skill.
-3. Choose **Follow global**, **Enabled**, or **Disabled**.
-
-Selecting **Follow global** clears the per-Agent exception so future changes to the global default apply automatically, whereas **Enabled** or **Disabled** pins that Agent's override.
-
-When an Agent Plugin bundles multiple Skills, disabling the parent Plugin makes all of its member Skills unavailable without overwriting their individual overrides—so if you re-enable the parent Plugin later, each member Skill resumes its previous state.
+In the Console’s **Agent Library**, choose **Global defaults** to set a Plugin default, or select an Agent and choose **Follow global**, **Enabled**, or **Disabled**. Disabling a Plugin makes its member Skills unavailable while preserving their bindings.
 
 ### Review Skill lessons
 
@@ -137,10 +122,10 @@ Disabling an optional Control Plane Plugin likewise takes effect on the next con
 
 ### Agent Plugins and Skills
 
-- **A capability does not appear in Agent Library:** Verify that your deployed image includes it—Agent Library lists only components packaged in the current release.
+- **A capability does not appear:** Check the installed package and the selected scope. Create or import custom Skills through Meta Ankole; official packages must be included in the deployment.
 - **A Skill is enabled, but the Agent cannot use it:** Check whether its parent Agent Plugin is disabled, and start a fresh turn after making changes.
 - **A Skill is visible only in certain runs:** Check its `ankole-runtime` field—`main` Skills are hidden inside Background Agent Jobs, and `background_job` Skills are hidden in main-Agent chat turns.
-- **Certain Agents ignore a global default change:** Those Agents likely have explicit **Enabled** or **Disabled** overrides; switch the scope selector to each Agent and check its setting.
+- **An Agent ignores a Plugin default change:** Check its explicit Plugin override. Skill enablement uses the all-Agents switch and individual bindings.
 - **A Background Agent Job cannot use a workspace template:** Confirm that the owning Agent Plugin is enabled for that Agent and includes a `workspace-template/` directory.
 
 ### Control Plane Plugins

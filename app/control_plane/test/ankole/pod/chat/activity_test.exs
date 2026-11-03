@@ -47,6 +47,38 @@ defmodule Ankole.Pod.Chat.ActivityTest do
              data.activity_tools
   end
 
+  test "terminal Worker presentation can add a completion label after the result commits" do
+    data = %{
+      activity_conversation_id: nil,
+      activity_revision: 0,
+      turn: %{pending: %{}},
+      activity_tools: []
+    }
+
+    data = activity(data, "read", "running")
+
+    data =
+      Activity.complete_tool(data, "read", %Ankole.Sessions.ToolResult{
+        is_error: false,
+        duration_ms: 42
+      })
+
+    data =
+      Activity.present(data, %{
+        "kind" => "tool.activity",
+        "payload" => %{
+          "operation_id" => "read",
+          "phase" => "completed",
+          "label" => "Read 3 pages"
+        }
+      })
+
+    assert [
+             {"read", %{"phase" => "completed", "duration_ms" => 42, "label" => "Read 3 pages"},
+              _}
+           ] = data.activity_tools
+  end
+
   test "a long turn keeps every completed step" do
     data = %{
       activity_conversation_id: nil,

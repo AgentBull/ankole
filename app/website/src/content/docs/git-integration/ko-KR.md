@@ -48,7 +48,7 @@ PR을 리뷰하는 코딩 Agent를 설정하는 절차는 다음과 같습니다
 
 1. **Console → Environment variables**에서 PAT를 `GIT_TOKEN` 암호화 변수로 저장합니다.
 2. Agent를 생성하고 필요한 `primary`, `light`, `heavy` 프로필을 바인딩합니다. 기본 fallback 대신 별도 모델을 지정해야 할 때만 Background Agent Jobs 프로필을 추가로 구성합니다.
-3. 저장소 이름, 리뷰 기준, 브랜치 명명 규칙을 담아 `MISSION.md`를 작성합니다.
+3. 저장소 이름, 리뷰 기준, 브랜치 명명 규칙을 담아 `AGENTS.md`를 작성합니다.
 4. 채널에서 Agent에게 "Review the latest PR on `your-repo`. Clone, check out, run the tests, report what you find."라고 요청합니다.
 5. 요청을 받은 Agent는 저장소를 clone해 브랜치를 checkout하고 `command` 도구로 테스트를 실행한 뒤 결과를 보고합니다. 이 작업은 대화 중 직접 처리할 수도 있고 Background Agent Job에 위임할 수도 있습니다.
 

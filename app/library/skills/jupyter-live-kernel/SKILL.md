@@ -33,9 +33,11 @@ Prefer:
 
 Ankole Agent Computer images provide system Python, JupyterLab, ipykernel, and the hamelnb helper dependencies. A per-agent Python environment is optional and holds custom packages for the image Python version.
 
+In the shell that runs these commands, set `JUPYTER_SKILL_DIR` to the `directory` value returned by the current `skill_view` call.
+
 ```bash
-SCRIPT=/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
-BOOTSTRAP=/repo/app/library/skills/jupyter-live-kernel/scripts/ensure_python_env.sh
+SCRIPT="$JUPYTER_SKILL_DIR/scripts/jupyter_live_kernel.py"
+BOOTSTRAP="$JUPYTER_SKILL_DIR/scripts/ensure_python_env.sh"
 NOTEBOOK_DIR="$HOME/notebooks"
 JUPYTER_SOCKET="$PWD/temp/jupyter.sock"
 AGENT_PYTHON="$HOME/.ankole/python/bin/python"
@@ -87,7 +89,7 @@ Minimal shape:
 
 ```bash
 set -euo pipefail
-SCRIPT=/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
+SCRIPT="$JUPYTER_SKILL_DIR/scripts/jupyter_live_kernel.py"
 NOTEBOOK_DIR="$HOME/notebooks"
 NOTEBOOK_PATH=analysis.ipynb
 SESSION_TEMP="$PWD/temp"
@@ -221,7 +223,7 @@ The upstream hamelnb script supports `uv run "$SCRIPT" ...` through inline metad
 Smoke test the bundled integration:
 
 ```bash
-bash /repo/app/library/skills/jupyter-live-kernel/scripts/smoke_live_kernel.sh
+bash "$JUPYTER_SKILL_DIR/scripts/smoke_live_kernel.sh"
 ```
 
 ## Target Selection

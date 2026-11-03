@@ -20,6 +20,7 @@ defmodule Ankole.Sessions.TurnEnvelope do
         context
       ) do
     message_id = "job-start-" <> Ecto.UUID.generate()
+    {:ok, drive_vfs} = Ankole.Files.Vfs.Auth.runtime_config(turn_ref.agent_uid, signal.id)
 
     %FabricProto.Envelope{
       message_id: message_id,
@@ -27,12 +28,14 @@ defmodule Ankole.Sessions.TurnEnvelope do
         {:turn_start,
          %FabricProto.TurnStart{
            mode: mode,
+           drive_vfs: drive_vfs,
            agent_context: if(mode == "start" and not is_nil(context), do: agent_context(context)),
            turn: JobTurnRef.to_proto(turn_ref),
            signal: signal_envelope(signal, turn_ref),
            fetch_runtime_config: fetch_runtime_config(turn_ref.agent_uid),
            model_ref: turn_model_ref(turn_start_spec),
-           request_context_json: Torque.encode!(turn_request_context(turn_start_spec, turn_ref)),
+           request_context_json:
+             Torque.encode!(turn_request_context(turn_start_spec, turn_ref, signal)),
            hosted_tools: turn_hosted_tools(turn_start_spec),
            runtime_env: turn_runtime_env(turn_start_spec)
          }}
@@ -83,22 +86,19 @@ defmodule Ankole.Sessions.TurnEnvelope do
 
   @doc "Encodes the authoritative context snapshot for Worker execution."
   def agent_context(context) do
-    soul = Map.fetch!(context.documents, "soul")
-    mission = Map.fetch!(context.documents, "mission")
+    agents = Map.fetch!(context.documents, "agents")
     design = Map.fetch!(context.documents, "design")
-    confidentiality_policy = Map.fetch!(context.documents, "confidentiality_policy")
 
     %FabricProto.AgentConversationContextResponse{
+      drive_instructions: Map.get(context, :drive_instructions, ""),
       skills_prompt: Map.get(context, :skills_prompt, ""),
       conversation: %FabricProto.ConversationInfo{
         timezone: context.conversation.timezone,
         page_id: Map.get(context.conversation, :page_id) || "",
         pod_instructions: Ankole.Sessions.Prompt.pod_instructions(context.conversation)
       },
-      soul: soul["content"],
-      mission: mission["content"],
+      agents: agents["content"],
       design: design["content"],
-      confidentiality_policy: confidentiality_policy["content"],
       skills: Enum.map(context.skills, &RPCWire.runtime_skill_summary/1),
       agent_plugins: Enum.map(context.agent_plugins, &agent_plugin_catalog_entry/1)
     }
@@ -150,10 +150,32 @@ defmodule Ankole.Sessions.TurnEnvelope do
     config
   end
 
-  defp turn_request_context(turn_start_spec, turn_ref) do
+  defp turn_request_context(turn_start_spec, turn_ref, signal) do
     (Ankole.Attrs.get_truthy(turn_start_spec, :request_context) || %{})
     |> Map.put("original_human_request", Ankole.Sessions.Prompt.original_human_request(turn_ref))
+    |> Map.put("related_context_index", related_context(turn_ref, signal))
     |> Map.put("brain_tools", brain_tools(turn_start_spec))
+    |> Map.put(
+      "peer_tools",
+      Ankole.Sessions.Tools.Peers.declarations(turn_ref) ++
+        Ankole.Sessions.Tools.RelatedContext.declarations()
+    )
+  end
+
+  defp related_context(turn_ref, signal) do
+    run = turn_ref |> Map.from_struct() |> Map.put(:event, signal)
+
+    case Ankole.Conversations.related_context_index(run) do
+      "" ->
+        ""
+
+      index ->
+        "Recent related context (use recall_related_context for details):\n" <>
+          Ankole.Sessions.Prompt.Delimiters.wrap(
+            :context,
+            Ankole.Sessions.Prompt.Delimiters.quoted_context(index)
+          )
+    end
   end
 
   # Code mode calls only the tools Codex declared, so a Job gets the Brain read

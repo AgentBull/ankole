@@ -379,22 +379,21 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert_pod_login(conn, tenant, path)
   end
 
-  test "the canonical Pod serves its shell without the console path", %{
+  test "the canonical Pod and direct-message deep link serve the Pod shell", %{
     conn: conn,
     tenant: tenant
   } do
-    conn =
-      conn
-      |> pod_conn(tenant)
-      |> active_admin_conn()
-      |> get(~p"/")
+    conn = conn |> pod_conn(tenant) |> active_admin_conn()
 
-    html = html_response(conn, 200)
+    for path <- [~p"/", ~p"/dm/legal"] do
+      response = get(conn, path)
+      html = html_response(response, 200)
 
-    entry = if @host_policy, do: "saas-pod", else: "pod"
-    source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!(entry)
-    assert html =~ "http://assets.test/#{String.trim_leading(source, "/")}"
-    refute html =~ "/site-admin-console"
+      entry = if @host_policy, do: "saas-pod", else: "pod"
+      source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!(entry)
+      assert html =~ "http://assets.test/#{String.trim_leading(source, "/")}"
+      refute html =~ "/site-admin-console"
+    end
   end
 
   test "GET /sessions/new uses the edition's Pod entry for a signed-in administrator", %{

@@ -20,6 +20,7 @@ defmodule Ankole.Plugins.EmailAdapterTest.FakeImap do
       socket: nil,
       idle_tag: nil,
       pending_exists: false,
+      idle_prefix: Keyword.get(opts, :idle_prefix, []),
       literal_size: Keyword.get(opts, :literal_size)
     }
 
@@ -97,6 +98,7 @@ defmodule Ankole.Plugins.EmailAdapterTest.FakeImap do
         handle_uid(tag, args, state)
 
       "IDLE" ->
+        Enum.each(state.idle_prefix, &reply(state, &1))
         reply(state, "+ idling")
         if state.pending_exists, do: reply(state, "* #{map_size(state.messages)} EXISTS")
         {:continue, %{state | idle_tag: tag, pending_exists: false}}
@@ -379,6 +381,11 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                Mime.parse_disposition(
                  ~s(attachment; filename*0*=UTF-8''%E6%8A%A5%E5%91%8A; filename*1=" Q3"; filename*2*=%2Epdf)
                )
+    end
+
+    test "preserves semicolons after escaped quotes in an attachment filename" do
+      assert {"attachment", %{"filename" => ~s(a";b.pdf), "size" => "3"}} =
+               Mime.parse_disposition(~S(attachment; filename="a\";b.pdf"; size=3))
     end
 
     test "decodes quoted-printable soft breaks, trailing LWSP, base64 noise, and multipart boundaries" do
@@ -925,6 +932,14 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       assert {:ok, client, :timeout} = Client.idle(client, 100)
       assert :ok = Ankole.Plugins.EmailAdapter.Imap.Client.close(client)
+    end
+
+    test "keeps mailbox changes received before the IDLE continuation" do
+      {:ok, port, _server} = FakeImap.start(idle_prefix: ["* OK still here", "* 2 EXISTS"])
+      {:ok, client} = Client.connect(transport: :tcp, host: "127.0.0.1", port: port)
+      assert {:ok, client, :changed} = Client.idle(client, 100)
+      assert {:ok, client} = Client.noop(client)
+      assert :ok = Client.close(client)
     end
 
     test "refuses a literal larger than the client limit before reading it" do

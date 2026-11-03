@@ -94,7 +94,13 @@ defmodule Ankole.Schedule.Cron do
              schedule.agent_uid,
              attrs[:delivery] || schedule.delivery
            ),
-         changeset = Ankole.Ash.for_update(schedule, :update_definition, attrs),
+         :ok <- maybe_update_binding(schedule, attrs),
+         changeset =
+           Ankole.Ash.for_update(
+             schedule,
+             :update_definition,
+             Map.delete(attrs, :automation_job_id)
+           ),
          recurrence_changed? =
            Ash.Changeset.changing_attribute?(changeset, :schedule) or
              Ash.Changeset.changing_attribute?(changeset, :timezone),
@@ -140,7 +146,10 @@ defmodule Ankole.Schedule.Cron do
 
         %CronSchedule{status: :active} = schedule ->
           with :ok <-
-                 Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
+                 Normalizer.validate_cron_task(
+                   schedule.payload,
+                   Ankole.Signals.source_automation_job_id(schedule)
+                 ),
                :ok <- schedule_wake_in_tx(schedule) do
             {:ok, schedule}
           end
@@ -162,7 +171,10 @@ defmodule Ankole.Schedule.Cron do
 
   defp resume_paused_in_tx(schedule, now, _opts) do
     with :ok <-
-           Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
+           Normalizer.validate_cron_task(
+             schedule.payload,
+             Ankole.Signals.source_automation_job_id(schedule)
+           ),
          {:ok, next_fire_at} <-
            Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
       # A bound that ran out while the schedule was paused makes resume
@@ -204,7 +216,11 @@ defmodule Ankole.Schedule.Cron do
            Ankole.Principals.WorkAccess.check_record_in_tx(CronSchedule, cron_schedule_id),
          %CronSchedule{} = schedule <- Store.lock_cron_schedule(cron_schedule_id),
          :ok <- Store.reject_terminal(schedule),
-         :ok <- Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
+         :ok <-
+           Normalizer.validate_cron_task(
+             schedule.payload,
+             Ankole.Signals.source_automation_job_id(schedule)
+           ),
          {:ok, request_id} <- manual_request_id(opts),
          {:ok, result} <- arm_manual_cron_fire_in_tx(schedule, request_id, now, opts) do
       {:ok, result}
@@ -302,7 +318,10 @@ defmodule Ankole.Schedule.Cron do
   end
 
   defp validate_fire_task(%CronSchedule{} = schedule) do
-    case Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id) do
+    case Normalizer.validate_cron_task(
+           schedule.payload,
+           Ankole.Signals.source_automation_job_id(schedule)
+         ) do
       :ok -> :ok
       {:error, reason} -> {:cancel, reason}
     end
@@ -409,12 +428,37 @@ defmodule Ankole.Schedule.Cron do
 
   defp schedule_wake_in_tx(%CronSchedule{}), do: :ok
 
+  defp maybe_update_binding(schedule, attrs) do
+    if Map.has_key?(attrs, :automation_job_id),
+      do:
+        Ankole.Signals.put_source_binding_in_tx(
+          "schedule://#{schedule.id}",
+          schedule.agent_uid,
+          execution_session_id(schedule.id),
+          attrs.automation_job_id
+        ),
+      else: :ok
+  end
+
   defp insert_cron_schedule_in_tx(attrs) do
     attrs = Map.put(attrs, :id, Ash.UUIDv7.generate())
 
     with {:ok, _attempted} <-
-           Ankole.Ash.create(CronSchedule, :create, attrs, touch_update_defaults?: false),
+           Ankole.Ash.create(CronSchedule, :create, Map.delete(attrs, :automation_job_id),
+             touch_update_defaults?: false
+           ),
          {:ok, persisted} <- Store.lock_cron_by_idempotency(attrs),
+         :ok <-
+           if(attrs.id == persisted.id,
+             do:
+               Ankole.Signals.put_source_binding_in_tx(
+                 "schedule://#{persisted.id}",
+                 persisted.agent_uid,
+                 execution_session_id(persisted.id),
+                 attrs.automation_job_id
+               ),
+             else: :ok
+           ),
          :ok <- schedule_wake_in_tx(persisted) do
       status = if attrs.id == persisted.id, do: :created, else: :already_exists
       {:ok, %{status: status, cron_schedule: persisted}}
@@ -503,7 +547,6 @@ defmodule Ankole.Schedule.Cron do
       idempotency_key: idempotency_key,
       tool_call_id: tool_call_id,
       cron_schedule_id: schedule.id,
-      automation_job_id: schedule.automation_job_id,
       cron_fire_slot_at: slot_at,
       origin_ai_message_id: Attrs.map_text(schedule.created_by || %{}, "origin_ai_message_id"),
       source_provenance: %{

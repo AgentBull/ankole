@@ -206,7 +206,7 @@ defmodule Ankole.Pod.MentionsTest do
                limit: 20
              })
 
-    assert all_result.total_all_matches == 16
+    assert all_result.total_all_matches == 20
 
     assert Enum.map(all_result.ranking, & &1.kind) == [
              :page,
@@ -227,7 +227,7 @@ defmodule Ankole.Pod.MentionsTest do
                limit: 20
              })
 
-    assert length(page_tab.pages) == 12
+    assert length(page_tab.pages) == 16
     assert page_tab.principals == []
 
     assert {:ok, principal_tab} =

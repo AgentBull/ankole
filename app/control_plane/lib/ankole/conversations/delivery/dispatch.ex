@@ -51,7 +51,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
           select: job.args
         )
       )
-      |> MapSet.new(&{&1["agent_uid"], &1["binding_name"], &1["outbound_key"]})
+      |> MapSet.new(&{&1["tenant_id"], &1["agent_uid"], &1["binding_name"], &1["outbound_key"]})
 
     keys =
       Intent
@@ -59,7 +59,10 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
       |> Ash.Query.select([:agent_uid, :binding_name, :outbound_key, :tenant_id])
       |> Ankole.Ash.read_across_tenants!()
       |> Enum.reject(
-        &MapSet.member?(active_keys, {&1.agent_uid, &1.binding_name, &1.outbound_key})
+        &MapSet.member?(
+          active_keys,
+          {&1.tenant_id, &1.agent_uid, &1.binding_name, &1.outbound_key}
+        )
       )
       |> Enum.map(&Map.take(&1, [:agent_uid, :binding_name, :outbound_key, :tenant_id]))
 
@@ -200,7 +203,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   @doc false
   def claim_in_tx(agent_uid, binding_name, outbound_key, %Adapter{} = adapter, now) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     with %Intent{} = intent <-
            Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(
@@ -765,7 +768,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   @doc false
   def finalize_in_tx(intent, phase, result, conversation, now) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     case refetch_claimed_intent(intent, Atom.to_string(phase)) do
       {:ok, current_intent} ->

@@ -86,7 +86,7 @@ defmodule Ankole.Brain.SkillLessons do
   """
 
   @doc """
-  Runs the phase for every agent that has skill registry rows.
+  Runs the phase for every active Agent, including those using default Skills.
   """
   @spec run_phase() :: map()
   def run_phase do
@@ -134,9 +134,10 @@ defmodule Ankole.Brain.SkillLessons do
   end
 
   defp agent_uids do
-    [query: [distinct: [:agent_uid], select: [:agent_uid], sort: [agent_uid: :asc]]]
-    |> Ankole.AIAgent.list_agent_skills!()
-    |> Enum.map(& &1.agent_uid)
+    Ankole.Principals.list_principals!(
+      query: [filter: [type: :agent, status: :active], select: [:uid], sort: [uid: :asc]]
+    )
+    |> Enum.map(& &1.uid)
   end
 
   defp evaluate_trigger(agent_uid, now) do
@@ -357,8 +358,8 @@ defmodule Ankole.Brain.SkillLessons do
 
   defp run_review_call(agent_uid, docket, model, current_release, now) do
     index = review_index(agent_uid, now)
-    skill_hashes = agent_skill_hashes(agent_uid)
-    prompt = review_prompt(agent_uid, docket, index, current_release, skill_hashes)
+    skill_hashes = skill_hashes()
+    prompt = review_prompt(agent_uid, docket, index, current_release, skill_hashes, now)
 
     case ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.skill_lesson_review") do
       {:ok, %{"reviews" => reviews}} when is_list(reviews) ->
@@ -415,13 +416,12 @@ defmodule Ankole.Brain.SkillLessons do
     |> Enum.map(&%{id: &1.id, title: &1.title, status: &1.status})
   end
 
-  defp agent_skill_hashes(agent_uid) do
-    [query: [filter: [agent_uid: agent_uid], select: [:skill_name, :content_hash]]]
-    |> Ankole.AIAgent.list_agent_skills!()
-    |> Map.new(&{&1.skill_name, &1.content_hash})
+  defp skill_hashes do
+    Library.Skills.list()
+    |> Map.new(&{&1.slug, Library.SourceReader.hash(&1.manifest_markdown)})
   end
 
-  defp review_prompt(agent_uid, docket, index, current_release, skill_hashes) do
+  defp review_prompt(agent_uid, docket, index, current_release, skill_hashes, now) do
     changed_skills =
       docket
       |> Enum.filter(&(&1.checked_skill_hash != Map.get(skill_hashes, &1.skill_name)))
@@ -434,7 +434,7 @@ defmodule Ankole.Brain.SkillLessons do
         "",
         "## Notes due",
         "",
-        Enum.map_join(docket, "\n", &docket_line(&1, current_release, skill_hashes)),
+        Enum.map_join(docket, "\n", &docket_line(&1, current_release, skill_hashes, now)),
         "",
         skill_body_sections(agent_uid, changed_skills),
         "## Recent jobs (last #{@review_index_days} days)",
@@ -445,12 +445,13 @@ defmodule Ankole.Brain.SkillLessons do
     )
   end
 
-  defp docket_line(lesson, current_release, skill_hashes) do
+  defp docket_line(lesson, current_release, skill_hashes, now) do
     reasons =
       [
         lesson.checked_release != current_release && "release_changed",
         lesson.checked_skill_hash != Map.get(skill_hashes, lesson.skill_name) && "skill_changed",
-        "lease_due"
+        DateTime.compare(lesson.review_after, DateTime.add(now, @docket_horizon_hours, :hour)) !=
+          :gt && "lease_due"
       ]
       |> Enum.filter(&is_binary/1)
 

@@ -18,6 +18,7 @@ defmodule Ankole.Pod.Comments.Browser do
     allow(:delete, check: :guardrail)
     allow(:resolve, check: :guardrail)
     allow(:anchor, check: :guardrail)
+    allow(:attention, check: :guardrail)
     allow(:summary, check: :guardrail)
     allow(:acknowledge, check: :guardrail)
   end
@@ -77,6 +78,24 @@ defmodule Ankole.Pod.Comments.Browser do
   end
 
   actions do
+    action :attention, {:array, :map} do
+      constraints(
+        items: [
+          fields: [
+            page: [
+              type: :struct,
+              constraints: struct_constraints(Ankole.Pod.Page),
+              allow_nil?: false
+            ],
+            unread_count: [type: :integer, allow_nil?: false],
+            activity_at: [type: :utc_datetime_usec, allow_nil?: false]
+          ]
+        ]
+      )
+
+      run(fn _input, context -> APIError.result(Activity.attention(context.actor)) end)
+    end
+
     action :summary, :map do
       constraints(fields: @summary)
       argument(:id, UUIDv7, allow_nil?: false)

@@ -177,6 +177,25 @@ export function mountApplet(
     },
     revision,
     base,
+    runs: {
+      key: runtime.runs.key,
+      get(...args) {
+        current()
+        return runtime.runs.get(...args)
+      },
+      subscribe(runID, callback) {
+        current()
+        const unsubscribe = runtime.runs.subscribe(runID, event => {
+          if (!disposed) callback(event)
+        })
+        const stop = () => {
+          cleanup.delete(stop)
+          unsubscribe()
+        }
+        cleanup.add(stop)
+        return stop
+      }
+    },
     routes: {
       key: routes.key,
       call(request) {

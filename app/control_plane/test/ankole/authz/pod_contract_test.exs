@@ -54,6 +54,10 @@ defmodule Ankole.AuthZ.PodContractTest do
     assert sql =~ "WITH execution"
     assert_receive {:query, conversations_sql}
     assert conversations_sql =~ "conversation_participants"
+    assert_receive {:query, memberships_sql}
+    assert memberships_sql =~ "principal_group_memberships"
+    assert_receive {:query, external_conversations_sql}
+    assert external_conversations_sql =~ "conversations"
     refute_receive {:query, _}
     :telemetry.detach(handler)
 
@@ -134,7 +138,7 @@ defmodule Ankole.AuthZ.PodContractTest do
     {:ok, second} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{parent_id: root.id})
 
-    refute Repo.get!(Page, first.id).has_local_acl
+    refute Repo.get_by!(Page, id: first.id).has_local_acl
 
     {:ok, grant} =
       AuthZ.create_permission_grant(%{
@@ -144,17 +148,17 @@ defmodule Ankole.AuthZ.PodContractTest do
       })
 
     assert {grant.target_node_id, grant.target_scope} == {first.id, "self"}
-    assert Repo.get!(Page, first.id).has_local_acl
+    assert Repo.get_by!(Page, id: first.id).has_local_acl
 
     {:ok, updated} =
       AuthZ.update_permission_grant(grant, %{resource_pattern: "drive:**:#{second.id}:**"})
 
     assert {updated.target_node_id, updated.target_scope} == {second.id, "container"}
-    refute Repo.get!(Page, first.id).has_local_acl
-    assert Repo.get!(Page, second.id).has_local_acl
+    refute Repo.get_by!(Page, id: first.id).has_local_acl
+    assert Repo.get_by!(Page, id: second.id).has_local_acl
     {:ok, _} = AuthZ.delete_permission_grant(updated.id)
-    refute Repo.get!(Page, second.id).has_local_acl
-    assert Repo.get!(Page, second.id).acl_anchor_id == root.acl_anchor_id
+    refute Repo.get_by!(Page, id: second.id).has_local_acl
+    assert Repo.get_by!(Page, id: second.id).acl_anchor_id == root.acl_anchor_id
   end
 
   test "Pod grants reject resource-dependent CEL, malformed targets, and bare global wildcards" do
@@ -228,10 +232,10 @@ defmodule Ankole.AuthZ.PodContractTest do
                action: "node_view"
              })
 
-    assert {:ok, private_root} = Ankole.Files.private_root(guest.uid)
+    assert {:ok, private_root} = Ankole.Pod.private_root(guest.uid)
 
     assert {:error, :forbidden} =
-             Ankole.Files.Nodes.authorize(actor_fixture(demoted), private_root.id, "node_view")
+             Ankole.Pod.Pages.Tree.authorize(actor_fixture(demoted), private_root.id, "node_view")
 
     refute Repo.exists?(
              from g in Grant,

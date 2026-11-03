@@ -20,11 +20,14 @@ test('a dragged page keeps its new place after reload, undo restores it, and the
   try {
     await page.goto(pageRoute(state.report_id))
     const suffix = Date.now().toString(36)
-    const parent = await create(page, `Drag parent ${suffix}`)
+    const parentTitle = `Drag parent ${suffix}`
+    const parent = await create(page, parentTitle)
     const [first, second, third] = [`First ${suffix}`, `Second ${suffix}`, `Third ${suffix}`]
     for (const title of [first, second, third]) await create(page, title, parent)
-    await page.goto(pageRoute(parent))
-    const children = page.locator('.pod-tree-row', { has: page.locator(`a[href="${pageRoute(parent)}"]`) })
+    await page.goto(pageRoute(parent, undefined, parentTitle))
+    const children = page.locator('.pod-tree-row', {
+      has: page.locator(`a[href="${pageRoute(parent, undefined, parentTitle)}"]`)
+    })
     await expect(children).toHaveCount(1)
     await children.getByRole('button', { name: `Drag parent ${suffix}`, exact: true }).click()
     const titles = () =>
@@ -91,8 +94,10 @@ test('undo at the end of a loaded directory page restores the full sibling order
     for (let index = 0; index < 201; index++) {
       ids.push(await create(page, `${prefix} ${index}`, parent))
     }
-    await page.goto(pageRoute(parent))
-    const parentRow = page.locator('.pod-tree-row', { has: page.locator(`a[href="${pageRoute(parent)}"]`) })
+    await page.goto(pageRoute(parent, undefined, prefix))
+    const parentRow = page.locator('.pod-tree-row', {
+      has: page.locator(`a[href="${pageRoute(parent, undefined, prefix)}"]`)
+    })
     await parentRow.getByRole('button', { name: prefix, exact: true }).click()
     const childRows = page.locator('li', { has: parentRow }).locator('.pod-tree-children > li > .pod-tree-row')
     await expect(childRows).toHaveCount(200)
@@ -282,7 +287,7 @@ test('a page listed in several Sidebar sections marks only the row the user foll
     const opened = context.waitForEvent('page')
     await recentRow.click({ button: 'middle' })
     const newTab = await opened
-    await expect(newTab).toHaveURL(state.base_url + pageRoute(id))
+    await expect(newTab).toHaveURL(state.base_url + pageRoute(id, undefined, title))
     const newNavigation = newTab.getByRole('navigation', { name: '页面导航', exact: true })
     await expect(newNavigation.locator('a[aria-current="page"]')).toHaveCount(1)
     await expect(

@@ -27,7 +27,6 @@ type SharedTurnOptions = {
   /** The Agent's drive in the control plane: the files that other people see or receive. */
   drive: Drive
   builtinSkillsRoot: string
-  agentInstalledSkillsRoot: string
   internalSkillsRoot?: string
   /** Trusted ephemeral variables derived for this Actor turn. */
   runtimeEnv?: Record<string, string>

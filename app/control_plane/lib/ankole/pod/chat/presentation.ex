@@ -97,17 +97,25 @@ defmodule Ankole.Pod.Chat.Presentation do
       title: conversation.title,
       pageID: conversation.page_id,
       roomMode: conversation.room_mode,
+      conversationKind:
+        cond do
+          Enum.any?(projected, &(&1.agentType == "personal_assistant")) -> :assistant_task
+          not is_nil(conversation.dm_colleague_uid) -> :colleague_dm
+          true -> :group
+        end,
       accessScope: conversation.native_access_scope,
       createdBy: conversation.created_by,
       canDelete: detail.owner?,
       canManage: detail.owner?,
       titleCustomized: conversation.title_customized,
       lastMessageSeq: conversation.sequence_high_water,
+      latestMessagePreview: Map.get(detail, :latest_message_preview, ""),
       viewer: %{
         uid: detail.viewer_uid,
         pinned: (viewer && not is_nil(viewer.pinned_at)) || false,
         muted: (viewer && viewer.muted) || false,
-        lastReadSeq: (viewer && viewer.last_read_seq) || 0
+        lastReadSeq: (viewer && viewer.last_read_seq) || 0,
+        lastVisitedAt: viewer && timestamp(viewer.last_visited_at)
       },
       agents: Enum.filter(projected, &(&1.type == "agent")),
       participants: projected,
@@ -150,6 +158,9 @@ defmodule Ankole.Pod.Chat.Presentation do
 
   defp row_status(%{conversation: conversation, agents: agents, viewer: viewer} = detail) do
     cond do
+      pending_interactions(detail) != [] or Map.get(detail, :has_prepared_action_card?, false) ->
+        "waiting_choice"
+
       Enum.any?(
         agents,
         &(detail.statuses[&1.uid].state in [
@@ -159,15 +170,13 @@ defmodule Ankole.Pod.Chat.Presentation do
       ) ->
         "streaming"
 
-      pending_interactions(detail) != [] or Map.get(detail, :has_prepared_action_card?, false) ->
-        "waiting_choice"
-
-      Enum.any?(detail.linked_jobs, &(&1.status in [:queued, :running, :waiting_on_user])) or
+      Map.get(detail, :peer_running?, false) or
+        Enum.any?(detail.linked_jobs, &(&1.status in [:queued, :running, :waiting_on_user])) or
           Enum.any?(detail.linked_workflows, &(&1.status == :running)) ->
         "running_background"
 
       not is_nil(viewer) and not viewer.muted and
-          conversation.sequence_high_water > viewer.last_read_seq ->
+          conversation.last_notifiable_seq > viewer.last_read_seq ->
         "unread"
 
       true ->

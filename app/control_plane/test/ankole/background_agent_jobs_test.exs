@@ -668,7 +668,35 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert get_in(dispatch.data, ["continued_from_job_id"]) == source.id
   end
 
-  test "successor_attrs copies only the inherited fields and the legacy replay marker" do
+  test "upgrade removes replay metadata without changing Job recovery anchors or stored history" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "upgrade-recovery")
+
+    job =
+      Repo.update!(
+        Ecto.Changeset.change(job,
+          runtime_thread_id: "imported-thread",
+          metadata: %{"legacy_thread_replay" => true, "paused_at" => "2026-10-01T00:00:00Z"}
+        )
+      )
+
+    turn = insert_turn!(job, 1, "imported-thread", "imported-turn", "completed")
+    stored_turn = Repo.get!(Turn, turn.id)
+    items = Repo.all(from item in TurnItem, where: item.turn_id == ^turn.id)
+    assert items != []
+
+    for _ <- 1..2 do
+      assert :ok = Repo.without_tenant(&Ankole.Upgrade202610.run/0)
+      upgraded = Repo.get!(Job, job.id)
+      assert upgraded.metadata == %{"paused_at" => "2026-10-01T00:00:00Z"}
+      assert upgraded.runtime_thread_id == job.runtime_thread_id
+      assert upgraded.workspace_owner_job_id == job.workspace_owner_job_id
+      assert Repo.get!(Turn, turn.id) == stored_turn
+      assert Repo.all(from item in TurnItem, where: item.turn_id == ^turn.id) == items
+    end
+  end
+
+  test "successor_attrs copies only inherited fields and preserves successor metadata" do
     source = %Job{
       id: 1500,
       title: "Source title",
@@ -676,7 +704,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       workspace_owner_job_id: 1400,
       workspace_template_id: "deep-research",
       model_profile: "coding",
-      metadata: %{"legacy_thread_replay" => true, "owner_conversation_id" => "conv-source"}
+      metadata: %{"owner_conversation_id" => "conv-source"}
     }
 
     attrs =
@@ -684,7 +712,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         "task" => "Continue.",
         "title" => "Caller title",
         "workspace_template_id" => nil,
-        "metadata" => %{"seeded_from_steer" => true, "legacy_thread_replay" => false}
+        "metadata" => %{"seeded_from_steer" => true}
       })
 
     assert attrs == %{
@@ -695,11 +723,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
              "workspace_template_id" => "deep-research",
              "model_profile" => "coding",
              "continued_from_job_id" => 1500,
-             "metadata" => %{"seeded_from_steer" => true, "legacy_thread_replay" => true}
+             "metadata" => %{"seeded_from_steer" => true}
            }
 
-    without_marker = Job.successor_attrs(%{source | metadata: %{}}, %{"metadata" => %{}})
-    assert without_marker["metadata"] == %{}
+    assert Job.successor_attrs(source, %{"metadata" => %{}})["metadata"] == %{}
   end
 
   test "a steer carried into the successor of a succeeded Job is reported as forwarded" do
@@ -1318,11 +1345,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     active_running_turn =
       insert_turn!(running, 1, "thread-running-stop", "turn-running-stop", "in_progress")
-
-    Ankole.SessionsCase.stub_driver(%{
-      agent_uid: agent.uid,
-      session_id: BackgroundAgentJobs.job_session_id(running.id)
-    })
 
     assert {:ok, %{job: running_stopped, turn: nil}} =
              BackgroundAgentJobs.request_stop(running.id, %{
@@ -2814,6 +2836,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
         do: Ankole.SessionsCase.stub_driver(key)
     end
 
+    passive_wakeups =
+      Enum.count(wakeup_jobs, fn job ->
+        key = %{agent_uid: job.args["agent_uid"], session_id: job.args["session_id"]}
+        not MapSet.member?(Ankole.SessionsCase.driver_pids(), Ankole.Sessions.driver_pid(key))
+      end)
+
     flush_driver_wakeups()
 
     assert %{failure: 0, success: count} =
@@ -2823,7 +2851,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     # tenants. Only these registered Session drivers forward to this test.
     assert wakeup_jobs != []
     assert count >= length(wakeup_jobs)
-    for _ <- wakeup_jobs, do: assert_receive(:reconcile_inbox)
+    for _ <- List.duplicate(:wakeup, passive_wakeups), do: assert_receive(:reconcile_inbox)
   end
 
   defp flush_driver_wakeups do

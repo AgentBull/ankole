@@ -42,8 +42,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     migrate?(false)
 
     foreign_key_names([
-      {:agent_uid, "cron_schedules_agent_uid_fkey"},
-      {:automation_job_id, "cron_schedules_automation_job_id_fkey"}
+      {:agent_uid, "cron_schedules_agent_uid_fkey"}
     ])
 
     check_constraints do
@@ -91,7 +90,6 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       public?: true
     )
 
-    attribute(:automation_job_id, :integer, public?: true)
     timestamps(type: :utc_datetime_usec, public?: true)
   end
 
@@ -100,6 +98,8 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   end
 
   calculations do
+    calculate(:automation_job_id, :integer, __MODULE__.AutomationJobId, public?: true)
+
     calculate(
       :execution_session_id,
       :string,
@@ -120,6 +120,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       :owner_session_id,
       :execution_session_id,
       :binding_name,
+      :automation_job_id,
       :name,
       :schedule,
       :timezone,
@@ -129,7 +130,6 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       :last_fire_at,
       :idempotency_key,
       :created_by,
-      :automation_job_id,
       :inserted_at,
       :updated_at
     ])
@@ -248,8 +248,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
         :next_fire_at,
         :last_fire_at,
         :idempotency_key,
-        :created_by,
-        :automation_job_id
+        :created_by
       ])
 
       validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
@@ -264,8 +263,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
         :schedule,
         :timezone,
         :payload,
-        :delivery,
-        :automation_job_id
+        :delivery
       ])
     end
 

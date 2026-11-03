@@ -13,6 +13,7 @@ defmodule Ankole.Pod.Chat.ReadSnapshotTest do
     for number <- 1..12 do
       assert {:ok, _} =
                Ankole.ConversationsFixtures.create(human.uid, %{
+                 room_mode: :group,
                  conversation_id: Ash.UUIDv7.generate(),
                  message_id: Ash.UUIDv7.generate(),
                  agent_uid: agent.uid,
@@ -46,6 +47,7 @@ defmodule Ankole.Pod.Chat.ReadSnapshotTest do
 
     assert {:ok, detail} =
              Ankole.ConversationsFixtures.create(human.uid, %{
+               room_mode: :group,
                conversation_id: Ash.UUIDv7.generate(),
                message_id: Ash.UUIDv7.generate(),
                agent_uid: agent.uid,

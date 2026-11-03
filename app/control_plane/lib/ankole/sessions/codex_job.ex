@@ -92,10 +92,7 @@ defmodule Ankole.Sessions.CodexJob do
          %Job{} = snapshot <- BackgroundAgentJobs.get_job_for_agent(id, key.agent_uid) do
       prepared = Context.runtime(key, __MODULE__.opts(event, snapshot, opts))
 
-      context =
-        if snapshot.status == :running,
-          do: {:ok, nil},
-          else: Context.resolve(key.agent_uid, key.session_id)
+      context = Context.resolve(key.agent_uid, key.session_id, %{"signal_id" => event.id})
 
       cap = BackgroundAgentJobCap.max_running_per_agent()
 
@@ -281,7 +278,7 @@ defmodule Ankole.Sessions.CodexJob do
 
   @doc false
   def mailbox_in_tx(run) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     events =
       Queue.due(run)

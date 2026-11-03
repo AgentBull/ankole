@@ -3,6 +3,7 @@ defmodule Ankole.Brain.RecallVectorTest do
   # query vector. The regression under test: an uncast bound parameter makes
   # `subvector(unknown, ...)` ambiguous (42725) and kills the vector arm.
   use Ankole.AIGatewayCase
+  import Ankole.BrainFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.Brain.Dreaming
@@ -55,7 +56,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "vector arm retrieves and orders claims through the ANN query", %{member: member} do
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "concepts/pigments", type: "concept", title: "Pigments", body: "Pigment notes."},
         member.uid
       )
@@ -80,7 +81,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "vector arm ignores rows from another embedding signature", %{member: member} do
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "concepts/model-switch", type: "concept", title: "Model Switch"},
         member.uid
       )
@@ -107,7 +108,7 @@ defmodule Ankole.Brain.RecallVectorTest do
          member: member
        } do
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "concepts/disabled-maintainer", type: "concept", title: "Disabled Maintainer"},
         member.uid
       )
@@ -165,7 +166,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "self-healing skips deleted Object claims and keeps channel claims", %{member: member} do
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "concepts/deleted-embedding", type: "concept", title: "Deleted Embedding"},
         member.uid
       )
@@ -182,7 +183,7 @@ defmodule Ankole.Brain.RecallVectorTest do
           claim: "Cobalt channel memory remains live",
           kind: "fact",
           holder: "world",
-          audience_scope: "world",
+          source_node_id: source_node("world"),
           notability: "medium",
           confidence: 0.9,
           valid_from: DateTime.utc_now(:microsecond),
@@ -211,17 +212,17 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "a Fact's first healed vector closes an embedding-outage dedup gap", %{member: member} do
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "concepts/aurora-budget", type: "concept", title: "Aurora budget"},
         member.uid
       )
 
     attrs = %{
-      object_slug: object.slug,
+      subject_page_id: object.id,
       claim: "Aurora's budget is capped at 5000.",
       kind: "fact",
       holder: "world",
-      audience_scope: "world",
+      source_node_id: source_node("world"),
       notability: "medium",
       confidence: 0.9,
       valid_from: DateTime.utc_now(:microsecond),
@@ -258,7 +259,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "evidence found by both routes outranks a fresher single-route claim", %{member: member} do
     {:ok, object} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{slug: "concepts/orders", type: "concept", title: "Orders", body: "Order notes."},
         member.uid
       )
@@ -289,7 +290,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "recency and salience boosts apply only to lexically backed chunk hits", %{member: member} do
     {:ok, older_closer} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{
           slug: "concepts/vector-alpha",
           type: "concept",
@@ -301,7 +302,7 @@ defmodule Ankole.Brain.RecallVectorTest do
       )
 
     {:ok, fresh_salient} =
-      Ankole.Brain.create_object(
+      page_fixture_result(
         %{
           slug: "concepts/vector-beta",
           type: "concept",
@@ -316,11 +317,11 @@ defmodule Ankole.Brain.RecallVectorTest do
       {:ok, _take} =
         Ankole.Brain.Claims.write_take(
           %{
-            object_slug: fresh_salient.slug,
+            subject_page_id: fresh_salient.id,
             claim: "Salient thesis #{idx} on Vector Beta",
             kind: "take",
             holder: "people/#{member.uid}",
-            audience_scope: "world",
+            source_node_id: source_node("world"),
             weight: 0.95,
             provenance: "test"
           },
@@ -334,9 +335,9 @@ defmodule Ankole.Brain.RecallVectorTest do
     # Pure vector query ("lexgateprobeq"): neither chunk has a BM25 match, so
     # fresh_salient receives no recency or salience boost and older_closer stays first.
     assert {:ok, pure_vector} = Recall.recall(member.uid, %{query: "lexgateprobeq"})
-    slugs = Enum.map(pure_vector.chunks, & &1.object_slug)
-    alpha_idx = Enum.find_index(slugs, &(&1 == older_closer.slug))
-    beta_idx = Enum.find_index(slugs, &(&1 == fresh_salient.slug))
+    slugs = Enum.map(pure_vector.chunks, & &1.subject_page_id)
+    alpha_idx = Enum.find_index(slugs, &(&1 == older_closer.id))
+    beta_idx = Enum.find_index(slugs, &(&1 == fresh_salient.id))
     assert alpha_idx != nil and beta_idx != nil
     assert alpha_idx < beta_idx
   end
@@ -344,11 +345,11 @@ defmodule Ankole.Brain.RecallVectorTest do
   defp write_fact(object, member, claim_text, confidence \\ 0.9) do
     Ankole.Brain.write_fact(
       %{
-        object_slug: object.slug,
+        subject_page_id: object.id,
         claim: claim_text,
         kind: "fact",
         holder: "world",
-        audience_scope: "world",
+        source_node_id: source_node("world"),
         notability: "medium",
         confidence: confidence,
         valid_from: DateTime.utc_now(:microsecond),

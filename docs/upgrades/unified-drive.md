@@ -1,5 +1,92 @@
 # Unified Drive upgrade
 
+## Upgrade ownership
+
+`Ankole.Upgrade202610` and its submodules own conversion of supported 1.x data.
+`Ankole.CredentialUpgrade` owns credential preflight and migration helpers.
+Runtime domains consume the converted state.
+
+At application bootstrap, `Ankole.Upgrade202610.WorkerProviders` imports the
+provider seed and assigns unbound imported Workers in one transaction. Its
+`legacy_agents` selector identifies the provider that holds the old Agent Homes;
+it does not select the default provider for new Agents.
+
+The Agent Home importer reads pending Automation script directories directly
+from migration storage. It copies the files into `drive_prefix` and clears the
+pending directory only when that import is complete. Missing files remain
+retryable through the same upgrade command. Automation Job APIs and execution
+use `drive_prefix` exclusively.
+
+The upgrade removes the obsolete `legacy_thread_replay` Job metadata key while
+preserving native thread IDs, Workspace ownership, and stored history. If a
+1.x native thread file is unavailable, the Worker uses the ordinary bounded
+Workspace rebuild, including the source task and final report for continued
+Jobs. Complete stored history remains queryable.
+
+## Meta Ankole separation (2026-11-03)
+
+Migration `20261103020000_separate_meta_ankole` follows the Page ownership migration below. Deploy the matching control plane, browser and Worker image together. It detaches the Brain root while preserving knowledge UUIDs, permissions, graph edges and source anchors. Existing knowledge pages outside Brain become collaboration documents at the same locations, with their content and history intact. Update scripts that addressed those
+collaboration pages through `._awiki.md` to use `._adoc.md`; Brain pages keep
+`._awiki.md`.
+
+The migration transfers Skill manifests, package files and Agent contracts into Library-owned tables. An override contract takes precedence over its append file. These packages and contracts use revision checks for editing; their former Page history and comments are removed. Back up the database and referenced object bytes before migration if that history must remain recoverable.
+
+Old per-Agent skill choices become positive bindings. A Skill becomes enabled for all only when its former default was on, permissions were inherited and no active Agent had explicitly disabled it. Explicit positive choices remain individual bindings even when a Skill is enabled
+for all. Other effective choices become individual bindings. Legacy private installations become disabled-by-default custom packages bound to their original Agent. Conflicting names use the Agent UID prefix when it forms a valid, available slug; otherwise they use `imported-<legacy-row-id>`. Local supplementary documents become ordinary package files and require explicit references from `SKILL.md`.
+An independent root-level `SKILL.md` attachment becomes `SKILL.attachment-<page-id>.md`.
+An incomplete private installation without a manifest stays in the Agent's private
+Drive for recovery; the migration reports its path. Direct upgrades preserve
+shipped Skill overrides and let unchanged Agent contracts inherit global defaults.
+Private `skills/` directories hold ordinary files; install runnable packages in
+Meta Ankole → Skills. The legacy `ai_agent.library.skill_defaults` key is removed,
+and `all_humans` receives custom-Skill update and delete permissions.
+
+Verify the Skills and Agents tabs, inherited and overridden contracts, binary package files and representative Brain references. Interactive Workers read `/drive/Brain`, `/drive/Skills`, `/drive/AGENTS.md` and `/drive/DESIGN.md` through read-only projections. Brain follows the current disclosure recipients; Skills and effective contracts follow Agent identity. Restart old mounts so they use the matching projection and cache scope.
+
+## Page ownership correction (2026-11-03)
+
+Migration `20261103010000_restore_page_ownership` restores the Page tree as the
+source of truth. Deploy the matching control plane, generated browser clients
+and Worker image together, after draining pending Worker writes. Back up the
+control-plane database and retain the referenced immutable objects before
+running migrations. Stop old application instances during the schema change;
+the old and new persistence resources cannot share this schema.
+
+The migration renames the identity table to `pages`, merges its optional Page
+attributes, and retargets dependent foreign keys in one database transaction.
+IDs, parentage, ACLs, trash state, object pointers, revisions, content, history,
+comments and attachment references survive. Within the namespace identified by
+`system_key = 'ankole_brain'`, old `folder` rows become `knowledge`; other old
+folders become `doc`. System roots remain the same root Pages. Missing document
+content is initialized to an empty canonical body. Existing queued tree-purge
+jobs are retargeted to `Ankole.Pod.Jobs.PurgeTree`.
+
+The old `drive_nodes`, `pod_page_nodes` and optional properties table are removed.
+`brain_page_nodes` remains a read-only Page projection. Timeline chunks copy their
+explicit subject from the timeline; the migration rebuilds those cached positions
+without model calls. Historical Brain/Agent
+contract migrations preserve their input until the final Page schema is ready,
+so fresh installations and upgrades through those versions use the same final
+model. Derived Markdown metadata and missing Brain indexes are rebuilt locally;
+this step makes no model calls.
+
+Drive directories use plain names. Update stored script paths and symlink
+targets that contain `._asub` to the corresponding plain directory names. Flush
+pending writes before stopping old mounts, then recreate mounts/caches with the
+matching Worker image. Do not discard a cache containing uncommitted drafts.
+Empty Page bodies disappear from directory listings; their Page directories
+remain. `mkdir` creates an empty Page, filling its matching Markdown file keeps
+its ID, and unlinking the Markdown file clears content while preserving children.
+Creating any subpage requires edit permission on its parent.
+
+Validate Page counts and IDs, parent and ACL edges, content/history counts and
+attachment/object references against the backup. Exercise an empty directory,
+a Page with both body and children, body clearing, and an atomic editor save.
+Rollback requires restoring the database backup and the matching application
+version; the migration intentionally has no lossy reverse conversion.
+
+## Historical Drive migration (2026-10-30)
+
 Before applying migration `20261030120000`, stop all old control-plane writers
 and Workers and back up PostgreSQL and the object store together. The migration
 takes exclusive locks on the old trees, objects, grants, messages, and deliveries.
@@ -191,3 +278,9 @@ This schema upgrade does not publish FUSE. The current Kubernetes baseline lacks
 the required device and mount capability. `ankole-files` continues using the
 unified store until every built-in provider passes the release prerequisite in
 [Agent Workers](../design-docs/AgentWorkers.md#drive-fuse-release-prerequisite).
+
+## Brain document unification
+
+The unification migration maps persisted Brain slugs to Pod page IDs and rewrites typed graph, alias, claim and timeline references. Conversation-only claims keep an empty subject and use their conversation root as the source. Current multi-audience documents become a public parent and separate restricted child pages.
+
+Single-scope document histories become ordered `PageSnapshot` records. If a document's current or historical body contains audience markup, the migration creates clean baseline snapshots for its split current content and discards the mixed historical records. A public history therefore never contains a formerly restricted full document. Migration-only decoding handles the stored audience syntax; runtime knowledge reads and edits use one page ACL.

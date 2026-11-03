@@ -104,7 +104,7 @@ defmodule Ankole.AgentWorkers.WorkerBootstrapTest do
                  ~w(WORKER_ID ANKOLE_WORKER_TENANT_ID ANKOLE_WORKER_STORAGE_NAME ANKOLE_RUNTIME_FABRIC_ENDPOINT
                  ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY ANKOLE_WORKER_STORAGE
                  ANKOLE_WORKER_TASK ANKOLE_WORKER_NFS_SOURCE ANKOLE_WORKER_BOOTSTRAP
-                 ANKOLE_WORKER_ADAPTER_URL ANKOLE_VERSION ANKOLE_ENV
+                 ANKOLE_WORKER_ADAPTER_URL ANKOLE_VERSION ANKOLE_ENV ANKOLE_WORKER_CACHE_CAPACITY
                  HOME CODEX_HOME CODEX_SQLITE_HOME)
                )
     end
@@ -132,18 +132,4 @@ defmodule Ankole.AgentWorkers.WorkerBootstrapTest do
 
   defp restore_env(name, nil), do: System.delete_env(name)
   defp restore_env(name, value), do: System.put_env(name, value)
-
-  test "Skill directories use the three Worker library roots" do
-    for {source, kind, expected} <- [
-          {"builtin", "builtin", "/repo/app/library/skills/example"},
-          {"builtin", "internal", "/repo/internals/skills/skills/example"},
-          {"installed", nil, "/workspace/installed-skills/skills/example"}
-        ] do
-      assert WorkerBootstrap.skill_directory(%{
-               "source_kind" => source,
-               "skill_root" => kind,
-               "relative_path" => "skills/example"
-             }) == expected
-    end
-  end
 end

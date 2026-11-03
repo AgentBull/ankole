@@ -13,7 +13,13 @@ metadata:
 
 This skill consumes the current Agent's `DESIGN.md`. It does not create, edit, lint, diff, or export that document.
 
-Read `~/DESIGN.md` completely with `read_file` before applying the internal VIS. It resolves to the real uppercase file for the current Agent. Treat it as read-only; operators manage it through Ankole Console.
+Resolve the project visual contract before applying the VIS, then read every selected file completely:
+
+1. If the current project directory contains `DESIGN.override.md` or `DESIGN.md`, use that complete project contract. `DESIGN.override.md` wins when both exist.
+2. Otherwise, if it contains `DESIGN.append.md`, read both `~/DESIGN.md` and that supplement.
+3. Otherwise read `~/DESIGN.md`, the current organization and Agent contract projected by Ankole.
+
+The Agent contract projection at `/drive/DESIGN.md` is read-only. People maintain the global baseline and each Agent’s inherit, append or override setting in Pod under Meta Ankole → Agents.
 
 Use this routing contract:
 
@@ -23,7 +29,7 @@ Use this routing contract:
 
 Interpret optional YAML frontmatter as exact design tokens and Markdown prose as intent, rationale, and usage guidance. Translate relevant rules into the artifact's medium instead of forcing web-specific details onto slides, documents, spreadsheets, PDFs, charts, or images. The artifact skill remains authoritative for file construction, accessibility, and verification.
 
-The document always carries a usable VIS: installations ship with Ankole's factory-default visual identity, and operators replace the content in Console when the installation adopts its own.
+The document always carries a usable VIS: installations ship with Ankole's factory-default visual identity, and people maintain their organization’s visual identity on its Pod page.
 
 ## General Design Principles
 

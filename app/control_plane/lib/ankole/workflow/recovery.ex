@@ -22,6 +22,7 @@ defmodule Ankole.Workflow.Recovery do
       |> Ash.Query.filter(
         status == :running or (status in ^terminal and is_nil(cleanup_completed_at))
       )
+      |> Ash.Query.select([:id, :tenant_id])
       |> Ankole.Ash.read_across_tenants!()
 
     runs

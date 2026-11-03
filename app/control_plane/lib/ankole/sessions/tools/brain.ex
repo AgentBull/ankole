@@ -1,6 +1,6 @@
 defmodule Ankole.Sessions.Tools.Brain do
   @moduledoc """
-  The Job read-tool owner for the Brain read operations `recall`, `get_page`,
+  The Job read-tool owner for the Brain read operations `recall`,
   `entity`, `whoknows`, and `delta`.
 
   A codex Job composes its own model requests, and in code mode the model can
@@ -18,10 +18,9 @@ defmodule Ankole.Sessions.Tools.Brain do
   alias Ankole.Sessions.ToolResult
   alias Ankole.Sessions.Tools
 
-  @operations ~w(recall get_page entity whoknows delta)
+  @operations ~w(recall entity whoknows delta)
   @activities %{
     "recall" => "memory_recall",
-    "get_page" => "memory_page_read",
     "entity" => "memory_entity_read",
     "whoknows" => "memory_whoknows",
     "delta" => "memory_delta"
@@ -49,8 +48,7 @@ defmodule Ankole.Sessions.Tools.Brain do
 
   The Signal of the turn must belong to the Job's Agent; a Signal of another
   Agent or an unknown Signal refuses the read. The result output is the JSON
-  document the model receives, with the lazy Skill hint first when the result
-  names a Skill discovery record.
+  document the model receives.
   """
   @spec read(JobTurnRef.t(), String.t(), map()) :: {:ok, ToolResult.t()} | {:error, term()}
   def read(%JobTurnRef{} = turn, operation, args) when operation in @operations do
@@ -63,8 +61,5 @@ defmodule Ankole.Sessions.Tools.Brain do
 
   def read(%JobTurnRef{}, operation, _args), do: {:error, {:unknown_operation, operation}}
 
-  defp output_text(output) do
-    prefix = if Catalog.lazy_skill_result?(output), do: Catalog.lazy_skill_hint(), else: ""
-    prefix <> Ankole.JSON.encode!(output)
-  end
+  defp output_text(output), do: Ankole.JSON.encode!(output)
 end

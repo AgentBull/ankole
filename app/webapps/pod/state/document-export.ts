@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { podLocation } from '../../common/browser-context'
+import { podPagePath, resolvePodPagePath } from '../../common/pod-url'
 import i18n from '../../common/i18n'
 import { InternalAPIError } from '../../common/internal-api-client'
 import { fileURL, metadataFileURL, pageAPI, pageQuery } from '../content-api'
@@ -25,13 +25,17 @@ export async function loadDocumentReferences(
   return new Map<string, DocumentReference>(
     await Promise.all(
       refs.map(async ref => {
-        const href = new URL(podLocation(`/pages/${ref}`).pathname, window.location.origin).href
+        const fallbackHref = new URL(podPagePath(ref), window.location.origin).href
         try {
           // Recheck access when copying; a stale cached title must not survive a read denial.
           const { page } = await client.fetchQuery({ ...pageQuery(ref), staleTime: 0 })
           if (page.deleted_at) {
-            return [ref, { href, title: i18n.t('pod.document.reference_unavailable'), restricted: true }] as const
+            return [
+              ref,
+              { href: fallbackHref, title: i18n.t('pod.document.reference_unavailable'), restricted: true }
+            ] as const
           }
+          const href = new URL(await resolvePodPagePath(ref, page.title), window.location.origin).href
           return [
             ref,
             {
@@ -45,7 +49,7 @@ export async function loadDocumentReferences(
           return [
             ref,
             {
-              href,
+              href: fallbackHref,
               title: i18n.t('pod.mention.restricted_page', {
                 defaultValue: i18n.t('pod.document.reference_unavailable')
               }),
@@ -251,6 +255,12 @@ export async function downloadDocument(
   archive.end()
   if (zipError) throw zipError
   saveDownload(new Blob(chunks, { type: 'application/zip' }), filename.replace(/\.md$/, '.zip'))
+}
+
+/** Knowledge exports use the native codec so business properties and references round-trip. */
+export async function downloadKnowledge(pageID: string, title: string, snapshotID?: string): Promise<void> {
+  const { markdown } = await pageAPI.exportKnowledge(pageID, snapshotID)
+  saveDownload(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }), documentFilename(title))
 }
 
 function saveDownload(blob: Blob, filename: string) {

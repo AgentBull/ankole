@@ -5,16 +5,14 @@ section: User guide
 order: 32
 ---
 
-Site Admin Console의 **Agent Library** 화면에서는 성격이 다른 두 가지 확장 경계를 관리합니다. 하나는 테넌트 및 개별 Agent 단위로 제어하는 모델 능력(**Agent Plugins**와 **Skills**)이고, 다른 하나는 엄격히 **사이트 범위(site-scoped)**로 동작하는 플랫폼 확장(**Control Plane Plugins**, 상단 범위가 **Global defaults**일 때만 표시됨)입니다.
-
-세 유형 모두 현재 배포 이미지 안에 컴파일되거나 함께 패키징된 신뢰된 퍼스트파티 구성 요소입니다. Agent Library는 외부 공개 마켓플레이스가 아니므로, 여기서 항목을 켜더라도 인터넷에서 검증되지 않은 외부 코드를 내려받지 않습니다.
+멤버는 **Meta Ankole → Skills**에서 완전한 Skill 패키지를 관리합니다. Console의 **Agent Library**에서도 기능을 켜고 끌 수 있으며, 사이트 관리자는 Site Admin Console에서 Control Plane Plugin을 관리합니다. 기본 Skill과 Agent Plugin은 Ankole에 포함되며, 권한이 있는 멤버는 사용자 정의 Skill을 만들거나 가져올 수 있습니다.
 
 ## 세 가지 능력 유형 이해하기
 
 | 유형 | 범위 | 용도 | 변경 사항 반영 시점 |
 |---|---|---|---|
 | **Agent Plugin** | 테넌트 기본값 + 에이전트별 재정의 | 연관된 Skills, MCP 의존성, workspace 템플릿을 하나의 패키지로 묶어 제공 | Agent의 다음 턴 |
-| **Skill** | 테넌트 기본값 + 에이전트별 재정의 | 반복 수행하는 단일 작업 유형의 절차 지침과 보조 리소스 제공 | Agent의 다음 턴 |
+| **Skill** | 모든 Agent에서 활성화 또는 개별 Agent 지정 | 반복 수행하는 단일 작업 유형의 절차 지침과 보조 리소스 제공 | Agent의 다음 턴 |
 | **Control Plane Plugin** | 사이트 범위 전용 (`/api/v2/site/control-plane-plugins`) | 컴파일 타임 풀스택 플랫폼 확장(서브시스템 어댑터, OTP 서비스, HTTP 플러그, 확장 라우트, 도메인 훅, 설정 필드, Web UI 슬롯) | 빌드 시 상시 활성 고정(`activation: :always`) 또는 control plane의 다음 시작(`activation: :optional`) |
 
 ### Agent Plugin: 하나의 패키지를 공유하는 능력
@@ -67,11 +65,9 @@ ankole-runtime: any
 
 예를 들어 Deep Research의 진입용 Skill은 원래 대화방에서 요구 사항을 확인하고 Job을 띄워야 하므로 `main`으로 선언되며, 실제 심층 조사를 수행하는 세부 Skills는 생성된 Background Agent Job 안에서 동작합니다.
 
-#### Ankole 확장: Brain을 통해 Skill 발견하기
+#### 공유 Skill 패키지
 
-특정 작업 맥락에서만 가끔 쓰이는 SOP나 방법론을 매번 모든 시스템 프롬프트에 실어 보내면 컨텍스트가 불필요하게 소모됩니다. 이럴 때 배포용 Skill에 `brain-recall-only: true`를 선언하면, 표준 Skill 구조와 Agent Plugin 소속, 활성화 상태, 실행 표면(`ankole-runtime`), `skill_view` 호출 규칙은 그대로 유지하면서 기본 프롬프트 카탈로그에서만 빼고 Brain의 의미 기반 검색으로 필요할 때 찾게 할 수 있습니다.
-
-Brain은 Skill의 이름, 설명, 태그를 색인해 검색합니다. 적합한 항목이 검색되면 Agent가 `skill_view`를 호출하며, `skill_view`는 `ankole-runtime` 조건에 맞는 실행 표면에서는 본문을 로드하고 호환되지 않는 표면에서는 안내된 라우팅 또는 거부 응답을 반환합니다. 해당 Skill이나 상위 Agent Plugin을 비활성화하면 Brain 검색과 로드에서도 즉시 제외됩니다. 이 경로는 Brain이 활성화된 환경에서 동작하며, 평소 프롬프트를 차지하지 않으면서 필요할 때만 꺼내 써야 하는 사내 SOP와 전문 방법론에 잘 맞습니다.
+각 Skill은 필수 `SKILL.md`와 부속 파일로 구성되며 [Meta Ankole](../agent-library/)에서 관리합니다. 활성화한 Agent는 `/drive/Skills/<slug>/`에서 패키지 전체를 읽을 수 있습니다. `skill_view`는 매니페스트를 읽고 참고 파일은 상대 경로로 명시적으로 읽습니다. Skill 지침은 Brain 지식과 별도로 관리합니다.
 
 ### Control Plane Plugin: 사이트 범위 풀스택 플랫폼 확장
 
@@ -88,26 +84,15 @@ Control Plane Plugin은 OpenAI Plugin이 아니며 Agent의 프롬프트 컨텍�
 
 ## Agent Plugins와 Skills 관리
 
-### 인스턴스 기본값 설정
+### Skill 활성화
 
-1. Console에서 **Agent Library**를 엽니다.
-2. 상단 범위를 **Global defaults**로 맞춥니다.
-3. **Agent Plugins** 또는 **Skills** 목록에서 대상 항목을 찾습니다.
-4. 기본 활성화 여부를 켜거나 끕니다.
+**Meta Ankole → Skills**에서 Skill을 선택합니다. 관리자는 모든 Agent에서 활성화하거나 개별 AI 동료를 지정할 수 있습니다. 각 멤버는 자신의 어시스턴트를 설정할 수 있습니다. 전체 스위치가 켜져 있으면 개별 스위치는 활성 상태로 표시되며 변경할 수 없습니다. 전체 스위치를 끄면 저장한 개별 설정이 복원됩니다. 사용자 정의 Skill은 생성 시 비활성 상태입니다.
 
-전역 기본값은 새로 만드는 Agent와 개별 재정의가 없는 기존 Agent 전체에 적용됩니다. 이미 실행 중인 턴에는 영향을 주지 않으며, 다음 턴부터 변경된 능력 집합을 읽어들입니다.
+Agent Plugin에 포함된 Skill은 상위 Plugin도 활성화해야 합니다. 변경 사항은 다음 턴부터 적용되며 기존 백그라운드 Job에는 생성 시의 기능 허용 목록이 적용됩니다.
 
-널리 쓰이면서 위험도가 낮은 범용 기능은 전역 기본값으로 켜 두고 예외적인 Agent에서만 끄는 편이 편리합니다. 반대로 소수 역할에서만 쓰이거나 별도 자격 증명이 필요하고 부작용 위험이 큰 기능은 기본적으로 꺼 둔 뒤, 실제로 필요한 Agent에서만 개별 활성화하는 편이 안전합니다.
+### Agent Plugin 설정
 
-### 에이전트 하나 재정의
-
-1. Agent Library 상단에서 범위를 대상 Agent로 전환합니다.
-2. 조정할 Agent Plugin이나 Skill을 찾습니다.
-3. **Follow global**, **Enabled**, **Disabled** 중 하나를 선택합니다.
-
-**Follow global**을 고르면 개별 예외가 해제되어 이후 전역 기본값이 바뀔 때 이 Agent에도 그대로 반영됩니다. 반면 **Enabled**나 **Disabled**를 명시적으로 지정하면 전역 기본값과 무관하게 해당 Agent 전용 설정으로 유지됩니다.
-
-하나의 Agent Plugin 안에는 여러 Skill이 함께 들어 있을 수 있습니다. 상위 Plugin을 비활성화하면 하위 Skill들도 모두 사용할 수 없게 되지만 각 Skill에 저장된 개별 설정값을 덮어쓰지는 않으므로, 나중에 상위 Plugin을 다시 활성화하면 하위 Skill들도 원래 설정 상태로 돌아옵니다.
+Console의 **Agent Library**에서 **Global defaults**를 선택하여 Plugin 기본값을 설정하거나, Agent를 선택하여 **Follow global**, **Enabled**, **Disabled**를 지정합니다. 상위 Plugin을 끄면 포함된 Skill은 사용할 수 없지만 개별 설정은 유지됩니다.
 
 ### Skill 교훈 검토
 
@@ -147,10 +132,10 @@ kubectl -n ankole rollout restart deployment/ankole-control-plane
 
 ### Agent Plugins와 Skills
 
-- **원하는 항목이 목록에 보이지 않음:** 현재 배포된 이미지·패키지에 해당 구성 요소가 포함되어 있는지 확인하십시오. 라이브러리에는 설치된 항목만 표시됩니다.
+- **원하는 기능이 보이지 않음:** 설치된 패키지와 선택한 범위를 확인하세요. 사용자 정의 Skill은 Meta Ankole에서 만들거나 가져옵니다. 공식 패키지는 배포에 포함되어야 합니다.
 - **Skill을 켰는데도 Agent가 쓰지 못함:** 상위 Agent Plugin이 꺼져 있지 않은지 확인한 뒤 새 턴을 시작해 보십시오.
 - **일부 작업에서만 Skill이 보임:** `SKILL.md`의 `ankole-runtime` 값을 확인하십시오. `main` 전용 Skill은 Background Agent Job에 전달되지 않고, `background_job` 전용 Skill은 일반 메인 Agent 대화에 전달되지 않습니다.
-- **전역 기본값을 바꿨는데 일부 Agent에 반영되지 않음:** 해당 Agent에 개별 재정의가 걸려 있을 가능성이 큽니다. 범위를 해당 Agent로 바꾸어 재정의 상태를 확인하십시오.
+- **일부 Agent가 Plugin 기본값을 따르지 않음:** 해당 Agent의 Plugin 재정의를 확인하세요. Skill은 전체 스위치와 개별 설정으로 활성화 여부를 결정합니다.
 - **Background Agent Job에서 workspace template을 고를 수 없음:** 대상 Agent에 해당 Agent Plugin이 활성화되어 있는지, 그리고 패키지 안에 `workspace-template/` 디렉터리가 실제로 들어 있는지 확인하십시오.
 
 ### Control Plane Plugins

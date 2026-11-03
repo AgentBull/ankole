@@ -32,7 +32,6 @@ defmodule Ankole.AIAgent.Library.Console do
     allow(:set_agent_plugin, resource: "site_console:agent:{agent_uid}:library", action: "update")
     allow(:set_agent_skill, resource: "site_console:agent:{agent_uid}:library", action: "update")
     allow(:documents, resource: "site_console:agent:{agent_uid}:library", action: "read")
-    allow(:replace_document, resource: "site_console:agent:{agent_uid}:library", action: "update")
   end
 
   resource do
@@ -78,14 +77,9 @@ defmodule Ankole.AIAgent.Library.Console do
            Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryCapabilitiesResponse do
       transaction?(false)
 
-      argument(:defaults_scope, :atom,
-        constraints: [one_of: [:global, :tenant]],
-        default: :tenant,
-        allow_nil?: false
-      )
-
       argument(:id, :string, allow_nil?: false)
       argument(:enabled, :boolean, allow_nil?: false)
+      argument(:base_revision, :integer, allow_nil?: false)
       run(__MODULE__.Actions)
     end
 
@@ -110,28 +104,13 @@ defmodule Ankole.AIAgent.Library.Console do
       transaction?(false)
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:id, :string, allow_nil?: false)
-      argument(:enabled, :boolean)
+      argument(:enabled, :boolean, allow_nil?: false)
       run(__MODULE__.Actions)
     end
 
     action :documents, Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentsResponse do
       transaction?(false)
       argument(:agent_uid, :string, allow_nil?: false)
-      run(__MODULE__.Actions)
-    end
-
-    action :replace_document, Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentResponse do
-      transaction?(false)
-      argument(:agent_uid, :string, allow_nil?: false)
-
-      argument(:document_kind, :string, allow_nil?: false)
-
-      argument(:content, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:expected_content_hash, :string, allow_nil?: false)
       run(__MODULE__.Actions)
     end
   end

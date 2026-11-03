@@ -23,7 +23,20 @@ defmodule Ankole.TenancyGuardTest do
   # Rename updates explicit tenant-local fields and complete ActorRefs, including
   # attribution in other tenants. Credential digests and OIDC clients locate the
   # tenant before their entrypoints resolve a Principal name.
+  # Base physical SQL resolves only the current tenant schema and UUID-derived table/column
+  # names. Inline uniqueness binds tenant_id and table_id; the schedule sequence only
+  # allocates an opaque database ID and reads no tenant data.
   @reviewed_query_escapes %{
+    "raw_sql:lib/ankole/schedule/store.ex:reserve_event_id" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:unique_index!" => 2,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:append_changes" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:acknowledge_changes" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:upsert" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:duplicate_keys?" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:unique_record" => 1,
+    "raw_sql:lib/ankole/pod/base_repo.ex:ensure_outbox!" => 1,
+    "raw_sql:lib/ankole/pod/bases_records.ex:duplicate_keys?" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:pending_changes" => 2,
     "across_tenants:lib/ankole/pod/bases.ex:rename_inline_principal_in_tx" => 1,
     "across_tenants:lib/ankole/pod/bases.ex:repair_principal_references" => 1,
     "raw_sql:lib/ankole/pod/bases/physical.ex:rename_principal" => 2,
@@ -67,7 +80,7 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/agent_workers.ex:assign_legacy_provider_in_tx" => 1,
     "across_tenants:lib/ankole/agent_workers.ex:assigned_worker" => 1,
     "across_tenants:lib/ankole/agent_workers.ex:clear_provider_rejections_in_tx" => 1,
-    "across_tenants:lib/ankole/agent_workers.ex:provider_worker_count" => 1,
+    "across_tenants:lib/ankole/agent_workers.ex:provider_worker_counts" => 1,
     "across_tenants:lib/ankole/agent_workers.ex:provider_workers" => 1,
     "across_tenants:lib/ankole/browser_sessions/pod_access.ex:pod_tenant_ids" => 1,
     "across_tenants:lib/ankole/conversations/delivery/dispatch.ex:reconcile_wakeups" => 1,
@@ -93,17 +106,17 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_binding_configurations" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_shared_key" => 1,
     "across_tenants:lib/ankole/workflow/recovery.ex:reconcile_run_wakeups" => 1,
-    "raw_sql:lib/ankole/files/nodes.ex:path" => 1,
-    "raw_sql:lib/ankole/files/access.ex:reanchor_pass_through_children" => 1,
-    "raw_sql:lib/ankole/files/access/graph.ex:query_reachable" => 1,
-    "raw_sql:lib/ankole/files/jobs/purge_node.ex:remove_nodes_in_tx" => 1,
+    "raw_sql:lib/ankole/pod/pages/tree.ex:path" => 1,
+    "raw_sql:lib/ankole/pod/access.ex:reanchor_pass_through_children" => 1,
+    "raw_sql:lib/ankole/pod/access/graph.ex:query_reachable" => 1,
+    "raw_sql:lib/ankole/pod/jobs/purge_tree.ex:remove_nodes_in_tx" => 1,
     "raw_sql:lib/ankole/files/paths.ex:rows" => 1,
     "raw_sql:lib/ankole/files/objects.ex:unreferenced_ids" => 1,
-    "raw_sql:lib/ankole/files/nodes.ex:delete_root_in_tx" => 2,
-    "raw_sql:lib/ankole/files/nodes.ex:hidden_trashed_ids" => 1,
-    "raw_sql:lib/ankole/files/nodes.ex:ancestor_ids" => 1,
-    "raw_sql:lib/ankole/files/nodes.ex:descendants" => 1,
-    "raw_sql:lib/ankole/files/nodes.ex:shared_root_ids" => 1,
+    "raw_sql:lib/ankole/pod/pages/tree.ex:delete_root_in_tx" => 2,
+    "raw_sql:lib/ankole/pod/pages/tree.ex:hidden_trashed_ids" => 1,
+    "raw_sql:lib/ankole/pod/pages/tree.ex:ancestor_ids" => 1,
+    "raw_sql:lib/ankole/pod/pages/tree.ex:descendants" => 1,
+    "raw_sql:lib/ankole/pod/pages/tree.ex:shared_root_ids" => 1,
     "raw_sql:lib/ankole/pod/base_cluster.ex:check_identity!" => 1,
     "raw_sql:lib/ankole/pod/base_cluster.ex:ensure_database!" => 2,
     "raw_sql:lib/ankole/pod/base_cluster.ex:init" => 2,
@@ -111,7 +124,6 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/pod/base_repo.ex:delete_tenant" => 5,
     "raw_sql:lib/ankole/pod/base_repo.ex:ensure_schema!" => 3,
     "raw_sql:lib/ankole/pod/base_repo.ex:run" => 3,
-    "raw_sql:lib/ankole/pod/bases.ex:query_capabilities" => 1,
     "raw_sql:lib/ankole/pod/bases.ex:query_transaction" => 1,
     "raw_sql:lib/ankole/pod/bases/ddl.ex:add_column!" => 1,
     "raw_sql:lib/ankole/pod/bases/ddl.ex:alter_table" => 4,
@@ -166,7 +178,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:next_job_id" => 1,
     "raw_sql:lib/ankole/brain/merge.ex:repoint_link_column" => 2,
     "raw_sql:lib/ankole/brain/merge.ex:repoint_links" => 1,
-    "raw_sql:lib/ankole/brain/merge.ex:repoint_timelines" => 4,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_timelines" => 3,
     "raw_sql:lib/ankole/brain/merge.ex:repoint_unique_rows" => 2,
     "raw_sql:lib/ankole/brain/search_indexes.ex:create_bm25_index" => 1,
     "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_bm25_index" => 2,
@@ -182,6 +194,8 @@ defmodule Ankole.TenancyGuardTest do
     "sql_fragment:lib/ankole/browser_sessions/revocation.ex:cleanup_expired" => 1,
     "sql_fragment:lib/ankole/conversations/delivery/interactions.ex:older_reply_interaction_events" =>
       1,
+    # Inspects a checkpoint JSON value; both resource queries bind the current tenant through Ash.
+    "sql_fragment:lib/ankole/conversations/native_room.ex:attention_query" => 1,
     "sql_fragment:lib/ankole/conversations/inbound_batches.ex:finalized_batch_contains_source_entry?" =>
       1,
     "sql_fragment:lib/ankole/conversations/inbound_batches.ex:observed_entry_batch" => 1,
@@ -217,6 +231,8 @@ defmodule Ankole.TenancyGuardTest do
   @allowed_site_tables MapSet.new(@site_tables ++ @private_site_tables)
 
   @global_unique_indexes %{
+    "base_change_outbox_pkey" =>
+      "Application UUIDv7 identifies one committed Base batch; reads bind tenant_id",
     "agent_workers_token_digest_index" =>
       "A random Worker credential identifies its tenant and Worker before UID validation.",
     "principal_site_credentials_pkey" =>
@@ -229,7 +245,6 @@ defmodule Ankole.TenancyGuardTest do
       "An invitation code identifies one Pod before tenant selection.",
     "file_objects_storage_key_index" =>
       "Each physical object key is unique across tenants; new keys include tenant and random object IDs.",
-    "pages_pkey" => "The application generates each page's globally unique UUIDv7.",
     "page_contents_pkey" => "A globally unique page id owns the document.",
     "page_comments_pkey" => "The application generates each comment's globally unique UUIDv7.",
     "page_snapshots_pkey" =>
@@ -247,13 +262,9 @@ defmodule Ankole.TenancyGuardTest do
     "scheduled_events_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "sessions_pkey" => "The durable row id is generated globally, not from a tenant-local name.",
-    "agent_library_container_entries_pkey" =>
-      "The durable row id is generated globally, not from a tenant-local name.",
     "agent_plugin_overrides_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "agent_skill_lessons_pkey" =>
-      "The durable row id is generated globally, not from a tenant-local name.",
-    "agent_skills_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "agent_workers_transport_route_index" =>
       "RuntimeFabric transport routes are unique across the site.",
@@ -299,10 +310,6 @@ defmodule Ankole.TenancyGuardTest do
     "brain_merge_suggestions_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "brain_object_aliases_pkey" =>
-      "The durable row id is generated globally, not from a tenant-local name.",
-    "brain_object_versions_pkey" =>
-      "The durable row id is generated globally, not from a tenant-local name.",
-    "brain_objects_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "brain_schema_calibration_domains_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
@@ -559,23 +566,31 @@ defmodule Ankole.TenancyGuardTest do
     for schema <- schemas do
       table = schema.__schema__(:source)
 
-      if table == "pod_page_nodes" do
+      if table == "brain_page_nodes" do
         assert schema.__tenancy__() == :tenant
         assert schema.__schema__(:type, :tenant_id) == Ankole.Ecto.UUIDv7
 
-        assert [["drive_nodes"], ["pages"]] =
-                 SQL.query!(Repo, """
-                 SELECT DISTINCT source.relname FROM pg_rewrite rule
-                 JOIN pg_depend dependency ON dependency.objid = rule.oid
-                   AND dependency.classid = 'pg_rewrite'::regclass
-                   AND dependency.refclassid = 'pg_class'::regclass
-                 JOIN pg_class source ON source.oid = dependency.refobjid
-                 WHERE rule.ev_class = 'pod_page_nodes'::regclass AND source.relkind = 'r'
-                 ORDER BY source.relname
-                 """).rows
+        assert [["page_contents"], ["pages"]] ==
+                 SQL.query!(
+                   Repo,
+                   """
+                   SELECT DISTINCT source.relname FROM pg_rewrite rule
+                   JOIN pg_depend dependency ON dependency.objid = rule.oid
+                     AND dependency.classid = 'pg_rewrite'::regclass
+                     AND dependency.refclassid = 'pg_class'::regclass
+                   JOIN pg_class source ON source.oid = dependency.refobjid
+                   WHERE rule.ev_class = $1::text::regclass AND source.relkind = 'r'
+                   ORDER BY source.relname
+                   """,
+                   [table]
+                 ).rows
 
-        [[definition]] = SQL.query!(Repo, "SELECT pg_get_viewdef('pod_page_nodes', true)").rows
-        assert definition =~ "p.tenant_id = n.tenant_id"
+        [[definition]] =
+          SQL.query!(Repo, "SELECT pg_get_viewdef($1::text::regclass, true)", [table]).rows
+
+        assert definition =~ "n.tenant_id = p_1.tenant_id"
+        assert definition =~ "paths.tenant_id = p.tenant_id"
+        assert definition =~ "c.tenant_id = p.tenant_id"
       else
         [row] = Enum.filter(rows, &(hd(&1) == table))
 

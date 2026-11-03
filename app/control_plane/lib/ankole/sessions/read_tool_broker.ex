@@ -10,7 +10,7 @@ defmodule Ankole.Sessions.ReadToolBroker do
 
   # The read-tool owners a Job may call through `tools.read`. Each owner keeps
   # the contract of its main-Agent tool; the broker adds only the Job fence.
-  @owners [Tools.Skill, Tools.Web, Tools.Brain]
+  @owners [Tools.Skill, Tools.Web, Tools.Brain, Tools.RelatedContext]
 
   def handle_read(%JobTurnRef{} = turn, %Proto.ReadToolRequest{} = request, ctx) do
     with {:ok, owner, declaration} <- declaration(request.name),
@@ -40,11 +40,32 @@ defmodule Ankole.Sessions.ReadToolBroker do
   end
 
   defp execute(Tools.Skill, turn, _request, args) do
-    with {:ok, skills} <- Library.runtime_skills_for_agent(turn.agent_uid),
-         do: Tools.Skill.view(turn.agent_uid, args, "background_job", skills)
+    with {:ok, context} <-
+           Ankole.Brain.RequestContext.build(turn.agent_uid, %{"signal_id" => turn.signal_id}),
+         {:ok, projection} <-
+           Ankole.BackgroundAgentJobs.RuntimeProjection.for_signal(turn.agent_uid, turn.signal_id),
+         {:ok, skills} <-
+           Library.runtime_skills_for_agent(turn.agent_uid,
+             request_context: context,
+             runtime_projection: projection
+           ),
+         do:
+           Tools.Skill.view(
+             turn.agent_uid,
+             args,
+             "background_job",
+             skills,
+             context,
+             turn.signal_id
+           )
   end
 
   defp execute(Tools.Brain, turn, request, args), do: Tools.Brain.read(turn, request.name, args)
+
+  defp execute(Tools.RelatedContext, turn, request, args) do
+    run = turn |> Map.from_struct() |> Map.put(:event, Ankole.Signals.get_signal!(turn.signal_id))
+    Tools.RelatedContext.execute(run, %{"name" => request.name}, args)
+  end
 
   defp execute(Tools.Web, turn, request, args) do
     with {:ok, cache} <- decode_object(request.web_cache_json),

@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.47 (2026-11-02)
+## Version 2.0.0-alpha.50 (2026-11-03)
 
 - Create and edit spreadsheets in Pod. The page create menus offer a new
   **Spreadsheet**, which starts as a blank `Untitled.xlsx`, and every `.xlsx` or
@@ -12,8 +12,9 @@
   Ankole moves an edit that crosses another person's row or column change to
   the right cells and formulas, and asks you to redo an edit it cannot place.
   Undo and redo cover your own values, formats, and merges. Editors can restore earlier
-  versions from the page history, downloads and Agent file reads always
-  return the latest edits, and search finds text inside spreadsheet cells.
+  versions from the page history, downloads always return the latest edits,
+  Agents see them in their Drive shortly after editing pauses, and search finds
+  text inside spreadsheet cells.
   Workbooks larger than the editing limit (20 MiB by default) offer the
   download only, and `.xls`, `.xlsb`, `.ods`, `.csv`, and `.tsv` files keep
   their read-only previews. Operators can tune the editable file size and
@@ -48,6 +49,246 @@
   kinds, view them full size, and download them, and they stay in the
   downloaded `.xlsx`. Rows without a height set by hand grow with larger fonts
   and wrapped text, and shrink back when they go.
+
+## Version 2.0.0-alpha.49 (2026-11-03)
+
+- Centralize 1.x Worker provider adoption and pending Automation script imports
+  in dedicated upgrade modules; keep legacy fields out of runtime Job resources.
+  Recover imported Jobs with the bounded Workspace rebuild when native thread
+  files are missing, preserving queryable history and removing transcript replay.
+
+- Recover knowledge bodies and property edits together after reloads, including
+  invalid YAML, and preserve new input when an earlier save finishes. Display
+  Page references inside business properties as links, report malformed knowledge
+  panels, and keep graph and backlink titles in sync with confirmed Page updates.
+- Fix nested transactions in Console promotion and merge reviews so review decisions commit and publish their changes.
+- Remove unused Brain panel types and retired internal read/serialization helpers; use one Drive path contract for reads and writes.
+- Read immutable Applet packages outside Page-lock transactions, batch Worker
+  provider counts, and use deterministic tool-result journal keys. Remove unused
+  VFS message handlers and coalesce the Worker's initial Drive refresh.
+- Repair Skill lesson review and UUID-based memory retrieval, preserve forgetting
+  provenance, and accept document search results without an entity subject.
+  Publish scheduled, webhook, background Job and Workflow inputs immediately
+  after commit. Recover Worker RPC credit on failed responses and report replay
+  owner failures instead of leaving callers waiting.
+- Correct Plugin restart dependencies, credential cache identities, binary
+  attachment downloads, IMAP IDLE handling and fragmented HTTP body limits.
+  Preserve reasoning spaces and completion labels, isolate WhatsApp webhook
+  verification by matching credentials, reduce repeated cache and database work,
+  and enforce tenant foreign keys on the Meta tables.
+
+- Add published Applet Actions with caller and owner execution identities,
+  persistent cursors, serial queues, coalescing and resumable slices. Route
+  schedules, webhooks and Base changes through shared Signal Bindings and
+  receipts, preserving historical deliveries. Add Base business-key upserts and
+  suppress unchanged writes; provide streaming HTTP file transfers and isolate
+  foreground and background Function Runtime capacity within the 2 GiB deployment budget.
+  Let Applet frontends follow durable Run progress and recover the latest result
+  after reconnecting through `useActionRun`. Retry Base deliveries independently
+  by tenant and table, retain the event size limit on the production Run path,
+  and reserve foreground capacity for PTC while honoring the total concurrency limit.
+  Keep filtered Base deliveries in their correct concurrency groups and drain
+  large change backlogs promptly. Wake queued Actions when a publication enables
+  parallel execution, wait for busy runtimes, and distinguish completed function
+  errors from interrupted attempts when deciding whether to retry.
+  Allow tenant deletion to finish when an Agent owns published Applets.
+  Fix Agent Applet publication lock order while keeping Action policies and
+  files atomic and rejecting writes from completed runs.
+  Preserve failed cron history when the final delivery attempt is rejected at admission.
+  Hand off slices only after the current handler finishes, preserve event IDs and
+  Human authorization on Applet emissions, and keep the original caller through
+  owner-authorized child calls. Batch historical delivery migration and receipt
+  cleanup, and reuse MCP tool discovery within each function invocation.
+
+- Add Meta Ankole with a collapsed navigation tree, a Brain graph, editable Skill
+  packages and per-Agent/global AGENTS and DESIGN contracts. Separate knowledge
+  from collaboration roots and move Skills and contracts to independent tables
+  with revision checks. Preserve positive Skill bindings under global enablement.
+  Project Brain read-only by conversation disclosure and cache each Agent's
+  read-only Skills and contracts across conversations; retain admitted Skill
+  selection for background Jobs. Migrate existing packages, contracts and grants.
+  Let members configure their assistant before starting a conversation, search
+  Skills, import package metadata and edit attachments directly from the file
+  list. Show effective Agent instructions and save feedback, with scrollable
+  workspaces on desktop and narrow screens. Keep Worker
+  connections alive during Page tree changes and use the internal Worker origin
+  for Drive mounts.
+  Persist Markdown supplied by Agent document creation so delivered links open
+  the requested content.
+  Isolate Skill drafts across package navigation and keep literal Agent UIDs
+  separate from assistant and global settings routes. Read package directories
+  without repeatedly scanning the capability catalog. Reject conflicting package
+  file paths and preserve distinct legacy knowledge bodies and attachments during
+  migration. Give each Agent list entry a separate, full-width click target.
+  Correct Skill ZIP import tests to distinguish backend file limits from Drive VFS policy.
+  Keep individual Skill bindings independent of package revisions and let editors
+  reconcile conflicts without discarding drafts. Show separate global, colleague
+  and assistant controls without creating an assistant during reads. Complete
+  Brain favorites, moves, trash and semantic links, and derive object types from
+  ontology categories. Handle archived legacy content, orphan contracts and slug
+  collisions during migration. Refresh live contract files in long-running FUSE
+  mounts and enforce admitted Job Skills across every runtime read path.
+  Support interactive Workers without FUSE by materializing enabled Skill packages.
+  Preserve installed package directories, manifest attachments, explicit enablement
+  and inherited Agent defaults during direct upgrades. Remove the legacy Skill
+  defaults setting, manage runnable packages in Meta Ankole, and grant members
+  custom-Skill editing and deletion. Keep generated pattern pages inside Brain
+  with their source's visibility, and load graph summaries without document bodies.
+  Retire active lessons when deleting a Skill and complete Skill renames without
+  reopening the discarded draft or requesting the old address.
+
+- Restore Page as the source of truth for identity, content, subpages and access,
+  and remove the folder Page type. Drive projects empty Pages as directories
+  and populated Pages as body files with optional child directories. Preserve
+  Page IDs, permissions, history and attachments during migration; clearing a
+  body keeps its children. Require parent edit permission to create subpages.
+  Use the Ankole logo for AnkoleBrain and a distinct book icon for knowledge Pages.
+  Preserve empty Page subtrees during structured moves, allow editors to remove
+  empty directories, and keep ordinary ChatDrive filenames writable. Delete
+  Page-owned Actions in lock order when removing conversations or Agents.
+
+- Hide unavailable Page actions across the canvas, sidebar, and child lists.
+  System knowledge Pages display fixed titles and omit rename, move, reorder,
+  and trash controls while keeping authorized content editing and child creation.
+
+- Improve Brain memory selection so routine task completion, delivery and
+  validation messages do not become facts or empty entity pages. Preserve
+  substantive research conclusions, business outcomes and reusable knowledge
+  when they appear alongside execution messages.
+
+- Update the kernel's Rust dependencies to the latest releases that still build
+  on Rust 1.91, including crc32fast 1.5.4. Update control-plane Elixir
+  dependencies to llm_db 2026.11.0, Localize 1.6.1, attesto 2.10.0,
+  attesto_client 2.13.0, and codepagex 0.3.0. The opaque Principal subject
+  patch now applies to attesto 2.10.0.
+
+- Fix native kernel stream completion and input boundaries: completed or failed
+  AI streams no longer emit a later abort event, token truncation avoids excessive
+  shortening across BPE merges, and OpenAI Chat records actual completion
+  times. Provider numeric fields saturate instead of overflowing, JWT configs
+  reject incorrectly typed fields, batch AuthZ rejects empty resources or actions,
+  HTTP specs require HTTP(S), zero-capacity caches stay empty, and WebDAV requests
+  are capped at 1 MiB and 128 XML levels.
+
+## Version 2.0.0-alpha.48 (2026-11-03)
+
+- Automation Job runs whose request never reached the Agent's Worker, because
+  the Worker connection closed or was replaced just as the run was dispatched,
+  now retry on the next attempt instead of being marked failed with an unknown
+  outcome.
+
+## Version 2.0.0-alpha.47 (2026-11-03)
+
+- Use readable `<title-slug>-<short-id>` Pod Page URLs (transliterating
+  non-ASCII titles to ASCII words and falling back to `/pages/<short-id>` when a
+  Page has no title) alongside 26-character lowercase Crockford Base32 short IDs
+  for Pages and Conversations. Bare short-ID links and links carrying an older
+  title slug resolve to the Page and update the address bar to its current
+  canonical path.
+
+- Improve Brain extraction by reusing pages through titles and aliases and
+  separating useful facts from entities worth creating. File new entities by
+  their selected type. Reports keep their own content and permissions while
+  their facts appear on related company pages for authorized readers.
+
+- Mount authorized Drive content into Linux Workers so shell tools and Codex can
+  read and write files, knowledge pages, documents, and Base records through
+  normal paths. Share hot caches across matching conversations, isolate ChatDrive
+  views, preserve rejected drafts, and flush explicit deliveries before sending.
+  Merge separate knowledge edits, copy whole files within a mount without
+  retransferring bytes, skip unchanged saves, and stream large uploads under a
+  configurable site limit. Editor saves keep temporary files out of Trash; one
+  restore recovers a deleted directory and its authorized contents.
+  Let conversation members edit, rename, and delete shared ChatDrive files while
+  sent attachments keep their captured contents.
+  Cancel pending metadata refreshes with their caller and preserve local drafts
+  when recovery metadata cannot be encoded. Report malformed upload metadata
+  without replacing the cached file size with zero.
+  Keep edits made during an upload pending across lost responses, and wait for
+  their remote commit before reporting a successful delivery flush.
+  Check the source revision during server-side copies so a growing source does
+  not exceed the caller's requested byte count or replace the wrong contents.
+  Add bounded Base exports and replay-safe imports, plus the Kubernetes FUSE
+  device and admission configuration. Keep the file CLI fallback while the
+  six-provider live acceptance gate remains open. Recognize Lambda managed-base
+  minor revisions so ready Worker images do not enter a rebuild loop.
+  Give cold FUSE client launches the mount manager's startup budget and report
+  the failing probe stage when a Worker cannot mount Drive.
+  Refresh Drive credentials after renewed Worker admission on thaw, so a stale
+  socket cannot race the control plane's paused state.
+
+- Show knowledge pages in a content-sized reader, with images, tables, code,
+  Callouts, and live references. Empty bodies leave room for child pages and
+  related knowledge. The editor loads when an author chooses Edit; saving or
+  cancelling returns to the reading view.
+- Unify business knowledge, Agent instructions, visual standards, and shared Skills
+  in Pod's `/AnkoleBrain` tree. Knowledge pages support explicit atomic saves,
+  editable properties, long-lived version history, and permission-filtered graph
+  panels. Shared defaults and official Skill packages update when unmodified;
+  local edits and team supplements stay intact. Agent reads follow the current
+  requester and room permissions, and native approval cards let authorized owners
+  confirm proposed knowledge edits without overwriting concurrent changes.
+  Folder managers can enable fact learning directly in Pod, including existing
+  material in subfolders, and stop queued extraction when they disable it.
+  Entering or cancelling a knowledge edit preserves titles that are still saving.
+  Main conversations can create and revise knowledge pages directly, with saved
+  tool results that preserve later human edits when a call resumes.
+  Repeated entity learning preserves existing documents. Brain lookups distinguish
+  the shared namespace from matching paths in other spaces. Draft date properties
+  save without database errors, leading dividers survive Markdown round trips,
+  and execution cleanup removes temporary Skill packages.
+- Keep knowledge summaries and introductions compact while preserving full-page
+  reads and visible outlines. Brain budgets the complete recall response,
+  including evidence sources. Editing page properties preserves unchanged
+  retrieval vectors instead of making them wait for another embedding pass.
+  Brain converts tool-result enums to JSON strings so Ankole can save the
+  conversation history and the Agent can finish its reply.
+- Separate personal-assistant tasks from stable colleague DMs. Home and Chat
+  combine recent work, pending decisions, relevant comment activity, and the
+  colleague directory. New Chat preserves unfinished drafts, DM invitations
+  create a separate group with editable Page references, and DM headers identify
+  the colleague throughout the relationship. Global search also finds colleagues
+  by UID, name, or role, and inactive sidebar tabs keep their attention badges
+  visible. Pages open a private Assistant panel. Queued
+  attachments remain available for preview and download. Removing a top-level
+  private Page returns to its private directory.
+- Keep characters in order when a user types immediately after selecting a
+  colleague mention in a Page comment.
+- Let personal assistants delegate asynchronously to AI colleagues through
+  isolated peer conversations. Show compact progress cards and live details;
+  return clarification and approval requests to the originating conversation.
+  Human answers resume the colleague directly, completed exchanges clear pending
+  controls without opening their details, and stopping or deleting work stops
+  the associated exchange. Clarify ownership and Page-role guidance keep the
+  assistant from duplicating a colleague's questions or limiting document reviews
+  to read-only access.
+- Make personal-assistant and colleague work easier to follow in Pod. Each
+  delegation is one row that names the colleague, states where the work stands,
+  and shows the start of the answer when it arrives; a colleague's question names
+  who is asking. Sidebar rows tell tasks, colleague DMs, and groups apart, show
+  time and the latest message for conversations, and mark work that needs you
+  with a labelled badge. The New chat row no longer overlaps the list below it,
+  DMs no longer show an empty bar above their header, and browser tabs show the
+  colleague's name. Starting a group from a task or a DM asks for a name,
+  members, and a first message, and says what is missing before it can create
+  the group.
+- Expose incremental Page sharing to Agent tools and preserve each colleague's
+  own resource permissions. Add audience-filtered context recall across peer
+  exchanges, DMs, and Page comments, with short IM conclusions and Page-based
+  deliverables. Colleagues retain each requester's recent context even when
+  serving many other projects. Worker directory reads use the browser's compact
+  projection so unloaded Page fields cannot break RPC encoding.
+- Keep historical private conversations reachable under their own titles, and
+  give a new Human instruction its own delegation budget and a visible response
+  when it joins an assistant's running turn.
+- Open a colleague's stable DM directly from a delegation card. Delegation cards
+  distinguish queued, running, and retrying work, and stopping a queued
+  delegation cancels it before execution starts. Related-context indexes keep
+  recall references intact within their token budget when recent delegations
+  attach many Pages, so colleagues can still recall the prior exchange from a
+  follow-up DM. Combine already
+  queued colleague results for the same request into one assistant turn, while
+  keeping later results and other tasks separate.
 
 ## Version 2.0.0-alpha.46 (2026-11-02)
 

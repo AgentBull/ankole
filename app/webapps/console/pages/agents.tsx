@@ -48,7 +48,6 @@ import {
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { useEditorDraft } from '../use-editor-draft'
 import { AgentLibraryEditor } from './agent-library-editor'
-import { AgentLibraryEditorModel } from '../state/agent-library-editor-model'
 import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
 import { ModelProfilesModel } from '../state/model-profiles-model'
@@ -216,7 +215,6 @@ function AgentEditor({ uid }: { uid?: string }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(AgentEditorModel)
-  const libraryModel = useModel(AgentLibraryEditorModel)
   const modelProfilesModel = useModel(ModelProfilesModel)
   const quotaModel = useModel(TokenQuotaEditorModel)
   const [customProfilesDirty, setCustomProfilesDirty] = useState(false)
@@ -351,11 +349,7 @@ function AgentEditor({ uid }: { uid?: string }) {
       backTo="/agents"
       dirty={model.dirty.value}
       supplementaryDirty={
-        libraryModel.dirty.value ||
-        quotaModel.dirty.value ||
-        modelProfilesModel.dirty.value ||
-        customProfilesDirty ||
-        workerEnvDirty
+        quotaModel.dirty.value || modelProfilesModel.dirty.value || customProfilesDirty || workerEnvDirty
       }
       error={
         createAgent.error ??
@@ -387,7 +381,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               />
             </div>
             <AgentWorkerProvider agent={selectedAgent} providers={workerProviders.data ?? []} />
-            <AgentLibraryEditor agentUID={selectedAgent.uid} model={libraryModel} />
+            <AgentLibraryEditor agentUID={selectedAgent.uid} />
             <ModelProfilesEditor
               agent={selectedAgent}
               error={modelProfiles.error}

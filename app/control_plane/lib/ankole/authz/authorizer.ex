@@ -27,7 +27,7 @@ defmodule Ankole.AuthZ.Authorizer do
         check when check in [:public, :guardrail] ->
           {:authorized, state}
 
-        :drive_filter ->
+        :page_filter ->
           case pod_filter(state.actor, subject) do
             {:ok, %{filter: filter}} ->
               {:filter, state, filter}
@@ -61,10 +61,10 @@ defmodule Ankole.AuthZ.Authorizer do
 
   def add_calculations(query, state, _context) do
     case Ankole.AuthZ.Dsl.rule(state.resource, state.action) do
-      %{check: :drive_filter} ->
+      %{check: :page_filter} ->
         with :ok <- Ankole.AuthZ.Checks.ActorGuardrail.check(state.actor, :pod),
-             {:ok, policy} <- Ankole.AuthZ.Checks.DriveAnchorFilter.check(state.actor, query) do
-          {:ok, Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(query, state.actor, policy),
+             {:ok, policy} <- Ankole.AuthZ.Checks.PageAnchorFilter.check(state.actor, query) do
+          {:ok, Ankole.AuthZ.Checks.PageAnchorFilter.apply_policy(query, state.actor, policy),
            state}
         else
           _ -> forbidden()
@@ -82,7 +82,7 @@ defmodule Ankole.AuthZ.Authorizer do
   defp pod_filter(actor, %{context: %{private: %{drive_authorization: {actor, policy}}}}),
     do: {:ok, policy}
 
-  defp pod_filter(actor, query), do: Ankole.AuthZ.Checks.DriveAnchorFilter.check(actor, query)
+  defp pod_filter(actor, query), do: Ankole.AuthZ.Checks.PageAnchorFilter.check(actor, query)
 
   defp forbidden, do: {:error, Ash.Error.Forbidden.exception([])}
 end

@@ -109,57 +109,44 @@ action; if there is no material knowledge gap, answer directly.
 
 ### Decide Which Capabilities an Agent Can Use
 
-Each Agent Plugin and each Skill tracks its own enabled state. Tenant settings
-define the baseline defaults (inheriting from the site when a tenant has no
-override), and an Agent stores only explicit overrides that differ from its
-tenant's effective defaults:
+Agent Plugins use tenant defaults and sparse per-Agent overrides. Skills use
+an all-Agents switch and positive per-Agent bindings:
 
 ```text
 Agent Plugin effective = agent override ?? tenant default
-Plugin Skill effective = parent effective && (agent override ?? tenant default)
-Standalone Skill effective = agent override ?? tenant default
-Agent-installed Skill effective = agent override ?? source default
+Plugin Skill effective = parent effective && (enabled_for_all || bound_to_agent)
+Standalone Skill effective = enabled_for_all || bound_to_agent
 ```
 
-Every member Skill defaults to enabled. When an operator disables a parent
-Plugin, all of its member Skills become unavailable without erasing their saved
-individual settings, so re-enabling the parent restores each member's prior
-choice.
+An official Skill's declared `default_enabled` initializes `enabled_for_all` on
+first synchronization. Custom Skills start disabled. Enabling the all-Agents
+switch preserves individual bindings and locks their editing until the switch
+is turned off. Disabling a parent Plugin makes its member Skills unavailable
+without changing these saved settings.
 
-AppConfigure stores tenant-scoped defaults under two keys:
+AppConfigure owns `ai_agent.library.agent_plugin_defaults`. Ordinary Plugin
+reads use its cache; initial Job projections and capability-change notifications
+read defaults from PostgreSQL through `AgentPlugins.Config.defaults_in_tx/0`.
+Job admission captures the projection inside its transaction. Notifications run
+after the configuration update commits.
 
-- `ai_agent.library.agent_plugin_defaults` (boolean map per Agent Plugin)
-- `ai_agent.library.skill_defaults` (boolean map per Skill)
+Trusted Skill and Agent Plugin source readers keep their short-lived disk
+snapshots in a node-local ETS cache owned by `Library.SourceCache`. Build tools
+can read the same sources before the application starts, without caching them.
 
-Ordinary capability reads hit the AppConfigure cache. By contrast, initial Job
-runtime projections and capability-change notifications read defaults directly
-from PostgreSQL via `AgentPlugins.Config.defaults_in_tx/0` and pass the result
-as `agent_library_defaults`: projection reads run inside the admission
-transaction, whereas notification reads run after the configuration update
-commits.
+`Ankole.AIAgent.Library.Skills` owns manifests, companion files and positive
+bindings in `skills`, `skill_files` and `agent_skills`. Slugs are unique within a
+tenant, including Plugin member Skills. Runtime projections identify a Plugin
+member as `<agent-plugin-id>:<skill-slug>` and a standalone Skill by its slug.
+`source_kind` distinguishes `builtin`, `agent_plugin` and `custom` packages;
+Plugin members also record `agent_plugin_id`. Sparse Plugin overrides remain in
+`agent_plugin_overrides`.
 
-In persistence and APIs, Plugin member Skill IDs use `<agent-plugin-id>:<skill-name>`,
-while standalone Skill IDs use the bare Skill name. PostgreSQL stores sparse
-Agent Plugin overrides in `agent_plugin_overrides` and Skill overrides in
-`agent_skills.enabled_override` (where `NULL` means inherit). Public API
-projections serialize enum fields as strings, whereas internal Ash resource
-records use atoms.
-
-The Agent Library resources own sparse Plugin overrides, Skill catalog
-synchronization, per-Agent enablement, and runtime document writes. Catalog sync
-preserves saved enablement overrides and keeps all member Skill rows current—even
-for disabled Plugins—so saved choices and the Console catalog stay intact.
-Active documents preserve their partial unique path identity and exact content
-bytes. Plugin member rows set `source_kind = "builtin"` and record their parent
-in `agent_plugin_id`; Skill discovery and execution do not branch on a separate
-source kind.
-
-A shipped standalone or Plugin member Skill may set `brain-recall-only: true`.
-Such a Skill retains its global Skill name and normal enablement rules, but
-Ankole omits it from the prompt catalog. Instead, Brain indexes its name,
-description, and tags as a lightweight discovery record, leaving `skill_view` as
-the sole loader for its full body and resources. Agent-installed Skills cannot
-use `brain-recall-only` mode.
+Catalog synchronization preserves saved enablement for disabled Plugins as well.
+The current catalog uses manifest descriptions. `skill_view` reads a manifest
+and per-Agent lessons; companion files are read explicitly by relative path.
+Skill visibility follows Agent identity and enablement. Brain content follows
+its independent page sharing and conversation disclosure rules.
 
 ### What a Job Saves and Loads
 
@@ -189,9 +176,8 @@ Each individual Job then performs purely thread-local selection:
 
 1. Resolves its projected Plugin IDs and Background-eligible member Skills
    against the current catalog.
-2. Renders ordinary selected members in the Job Skill index while keeping all
-   selected members (including `brain-recall-only` Skills) loadable via Ankole's
-   `skill_view`.
+2. Renders selected members in the Job Skill index and loads their current
+   page content through Ankole's `skill_view`.
 3. Projects MCP servers only from enabled member Skills that permit Background
    Agent Jobs.
 
@@ -286,6 +272,13 @@ The six external provider clients live as internal modules of their respective
 Plugins, each with distinct module names and error structs. Once `Repo` and
 AppConfigure finish starting, the active Plugin cohort starts each Plugin's
 caches, token supervisors, and persistent connections under supervision.
+
+Each persistent-connection Plugin groups its Registry, connection owners and
+reconciler under `:rest_for_one`. Losing the Registry therefore restarts its
+dependent owners, while other Plugins continue running. Token caches use the
+same dependency ordering. Clients identify credential caches from the actual
+secret bytes, so changing unrelated presentation settings does not create a
+second token manager.
 
 Static source dependencies point strictly inward from concrete Plugins to core
 domain contracts: domain modules must not reference concrete Plugins, and

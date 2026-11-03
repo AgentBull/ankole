@@ -82,7 +82,7 @@ defmodule Ankole.AgentWorkers.RPCWireTest do
         "source_kind" => "builtin",
         "relative_path" => "bullx-financial-data",
         "skill_root" => "internal",
-        "metadata" => %{"ankole-runtime" => "any", "brain_recall_only" => true},
+        "metadata" => %{"ankole-runtime" => "any"},
         "category" => "data"
       })
 
@@ -93,8 +93,7 @@ defmodule Ankole.AgentWorkers.RPCWireTest do
     assert summary.skill_root == "internal"
 
     assert Torque.decode!(summary.metadata_json) == %{
-             "ankole-runtime" => "any",
-             "brain_recall_only" => true
+             "ankole-runtime" => "any"
            }
 
     assert summary.category == "data"

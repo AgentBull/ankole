@@ -2,8 +2,9 @@ import { writeFileAtomicSync } from '../../../common/atomic-write'
 import { ms } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
 import { chmodSync, existsSync, readFileSync } from 'node:fs'
-import { mkdirAgentSync } from '../../../common/agent-user'
-import { dirname, join } from 'node:path'
+import { rename } from 'node:fs/promises'
+import { mkdirAgentSync, mkdirAgent, chownAgentPath } from '../../../common/agent-user'
+import { dirname, join, relative } from 'node:path'
 import { agentHomePaths, codexSQLiteHome } from '../../agent-home-paths'
 import type { CodexRuntimeConfig } from '../runtime-config'
 import { CODEX_RUNTIME_CONFIG_TOML_ENV, CODEX_RUNTIME_TOKEN_ENV } from './codex-home-lock'
@@ -27,12 +28,13 @@ const AIGATEWAY_AUTH_REFRESH_INTERVAL_MS = ms('5m')
  */
 export const AIGATEWAY_PROVIDER_NAME = 'OpenAI'
 
-export function materializeCodexConfig(input: { agentHomeRoot: string }): MaterializedCodexConfig {
+export function materializeCodexConfig(input: { agentHomeRoot: string; viewKey?: string }): MaterializedCodexConfig {
   const paths = agentHomePaths(input.agentHomeRoot)
+  if (input.viewKey) paths.codexHome = join(paths.codexHome, 'scopes', input.viewKey)
   mkdirAgentSync(paths.codexHome, 0o700)
   chmodSync(paths.codexHome, 0o700)
 
-  const sqliteHome = codexSQLiteHome()
+  const sqliteHome = input.viewKey ? join(codexSQLiteHome(), 'scopes', input.viewKey) : codexSQLiteHome()
   mkdirAgentSync(sqliteHome, 0o700)
 
   const env: Record<string, string> = {
@@ -47,6 +49,33 @@ export function materializeCodexConfig(input: { agentHomeRoot: string }): Materi
   }
 
   return { agentHome: paths.home, codexHome: paths.codexHome, sqliteHome, env }
+}
+
+/** Move only this Job's known rollout into its view when resuming a legacy thread. */
+export async function migrateCodexSession(
+  agentHome: string,
+  codexHome: string,
+  threadID: string
+): Promise<string | undefined> {
+  if (!/^[0-9a-f-]{36}$/i.test(threadID)) return undefined
+  const legacy = join(agentHomePaths(agentHome).codexHome, 'sessions')
+  const destination = join(codexHome, 'sessions')
+  for (const root of [destination, legacy]) {
+    const glob = new Bun.Glob(`**/rollout-*-${threadID}.jsonl`)
+    try {
+      for await (const source of glob.scan({ cwd: root, absolute: true, onlyFiles: true })) {
+        if (root === destination) return source
+        const target = join(destination, relative(root, source))
+        await mkdirAgent(dirname(target), 0o700)
+        await rename(source, target)
+        await chownAgentPath(target)
+        return target
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+  return undefined
 }
 
 export function codexAgentRuntimeBootstrapEnv(

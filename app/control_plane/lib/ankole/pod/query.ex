@@ -26,12 +26,13 @@ defmodule Ankole.Pod.Query do
 
       if is_integer(limit) and limit > 0 and limit <= Keyword.get(opts, :max_limit, 100_000) do
         {limit_param, params} = Formula.bind(params, limit + 1)
+        {offset_param, params} = Formula.bind(params, Keyword.get(opts, :offset, 0))
 
         json_cast = if Keyword.get(opts, :raw_json, false), do: "::text", else: ""
 
         case execute(
                table,
-               "SELECT (#{record_sql(table, fields, projection)})#{json_cast}, jsonb_build_array(#{Enum.map_join(order, ",", &cursor_value/1)}) FROM #{source(table)} r WHERE #{scope(table)} AND (#{where}) AND (#{group}) AND (#{cursor}) AND (#{ids_sql}) ORDER BY #{Enum.join(Enum.map(order, &(&1.sql <> " " <> &1.direction <> " NULLS LAST")) ++ ["r.id ASC"], ",")} LIMIT #{limit_param}",
+               "SELECT (#{record_sql(table, fields, projection)})#{json_cast}, jsonb_build_array(#{Enum.map_join(order, ",", &cursor_value/1)}) FROM #{source(table)} r WHERE #{scope(table)} AND (#{where}) AND (#{group}) AND (#{cursor}) AND (#{ids_sql}) ORDER BY #{Enum.join(Enum.map(order, &(&1.sql <> " " <> &1.direction <> " NULLS LAST")) ++ ["r.id ASC"], ",")} LIMIT #{limit_param} OFFSET #{offset_param}",
                params
              ) do
           {:ok, result} ->

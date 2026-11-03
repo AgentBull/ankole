@@ -4,8 +4,7 @@ defmodule Ankole.Brain.Chunker do
   implementation: recursive delimiter splitting, greedy merge toward the
   target size, sentence-aware overlap, then hard character and token caps.
 
-  BrainV3 adaptations: audience segmentation happens before this module (each
-  input is one single-scope text), the token cap uses the Kernel `o200k_base`
+  Each input belongs to one source node. The token cap uses the Kernel `o200k_base`
   estimator with the configurable `brain.chunking.max_tokens` budget, and
   oversized single runs split on Unicode grapheme boundaries.
   """
@@ -47,7 +46,7 @@ defmodule Ankole.Brain.Chunker do
   end
 
   @doc """
-  Chunks one single-scope text with the given settings map and attaches each
+  Chunks text from one source with the given settings map and attaches each
   chunk's exact `o200k_base` token count.
   """
   @spec chunk_text(String.t(), map()) :: [chunk()]

@@ -15,8 +15,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
   alias Ankole.Pod.BaseRecord
   alias Ankole.Pod.BaseTable
   alias Ankole.Pod.BaseView
-  alias Ankole.Files.Schemas.Node
-  alias Ankole.Pod.Properties
+  alias Ankole.Pod.Page
   alias Ankole.Pod.PageChange
   alias Ankole.Pod.PageContent
   alias Ankole.Pod.PageDailyActivity
@@ -35,8 +34,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
     PageDailyActivity,
     PageChange,
     PageContent,
-    Properties,
-    Node
+    Page
   ]
 
   setup %{tenant: drop} do
@@ -63,7 +61,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
     keep: keep
   } do
     fill(keep)
-    fill(drop)
+    page_ids = fill(drop)
 
     kept_rows =
       Map.new(@schemas, fn schema ->
@@ -72,15 +70,18 @@ defmodule Ankole.Pod.TenantTeardownTest do
 
     # A second connection must see the committed rows that teardown will delete.
     assert Task.async(fn ->
-             Repo.with_tenant(drop.id, fn -> Repo.aggregate(Properties, :count) end)
+             Repo.with_tenant(drop.id, fn ->
+               Repo.all(from(page in Page, where: page.id in ^page_ids, select: page.id))
+               |> Enum.sort()
+             end)
            end)
-           |> Task.await() == 3
+           |> Task.await() == Enum.sort(page_ids)
 
     # Reject a parent deletion while any child remains. A bulk cascade would fail this check.
     Repo.query!("""
     CREATE FUNCTION test_pod_leaf_delete() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
-      IF EXISTS (SELECT 1 FROM drive_nodes WHERE tenant_id = OLD.tenant_id AND parent_id = OLD.id) THEN
+      IF EXISTS (SELECT 1 FROM pages WHERE tenant_id = OLD.tenant_id AND parent_id = OLD.id) THEN
         RAISE EXCEPTION 'page deletion reached a parent before its children';
       END IF;
       RETURN OLD;
@@ -88,14 +89,14 @@ defmodule Ankole.Pod.TenantTeardownTest do
     """)
 
     Repo.query!(
-      "CREATE TRIGGER test_pod_leaf_delete BEFORE DELETE ON drive_nodes FOR EACH ROW EXECUTE FUNCTION test_pod_leaf_delete()"
+      "CREATE TRIGGER test_pod_leaf_delete BEFORE DELETE ON pages FOR EACH ROW EXECUTE FUNCTION test_pod_leaf_delete()"
     )
 
     try do
       assert {:ok, _tenant} = Tenants.delete(drop)
       assert drain(drop.id) == :ok
     after
-      Repo.query!("DROP TRIGGER test_pod_leaf_delete ON drive_nodes")
+      Repo.query!("DROP TRIGGER test_pod_leaf_delete ON pages")
       Repo.query!("DROP FUNCTION test_pod_leaf_delete()")
     end
 
@@ -270,8 +271,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
           updated_at: now
         })
 
-      Ankole.Pod.PagesFixtures.create_record!(PageContent, :create_in_tx, %{
-        page_id: child.id,
+      Ankole.Pod.PagesFixtures.update_record!(Repo.get!(PageContent, child.id), :replace, %{
         content: "<page><p>text</p></page>",
         plain_text: "text",
         updated_by: @author,
@@ -348,25 +348,27 @@ defmodule Ankole.Pod.TenantTeardownTest do
       }
       |> BaseRecord.create_changeset()
       |> Repo.insert!()
+
+      [page.id, child.id, database.id]
     end)
   end
 
   defp create_page!(attrs) do
     {:ok, page} =
       Repo.transact_top_level(fn ->
-        {:ok, root} = Ankole.Files.Nodes.ensure_public_root_in_tx()
+        {:ok, root} = Ankole.Pod.Pages.Tree.ensure_public_root_in_tx()
 
         {:ok, node} =
-          Ankole.Files.Nodes.create_in_tx(%{
+          Ankole.Pod.Pages.Tree.create_in_tx(%{
             id: Map.get_lazy(attrs, :id, &Ankole.Ecto.UUIDv7.autogenerate/0),
             parent_id: Map.get(attrs, :parent_id, root.id),
-            kind: attrs.type,
+            type: attrs.type,
             name: attrs.title,
             created_by: attrs.created_by
           })
 
         {:ok, _} =
-          Ankole.Pod.Pages.ensure_properties_in_tx(
+          Ankole.Pod.Pages.initialize_metadata_in_tx(
             node.id,
             Map.take(attrs, [:title, :position, :created_at, :updated_at])
           )

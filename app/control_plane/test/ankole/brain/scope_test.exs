@@ -1,6 +1,7 @@
 defmodule Ankole.Brain.ScopeTest do
   use Ankole.DataCase, async: true
 
+  import Ankole.BrainFixtures
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AuthZ
@@ -27,7 +28,10 @@ defmodule Ankole.Brain.ScopeTest do
 
   describe "satisfied_by_all?/2" do
     test "world satisfies every recipient set", context do
-      assert Scope.satisfied_by_all?("world", [context.member_a.uid, context.outsider.uid])
+      assert Scope.satisfied_by_all?(source_node("world"), [
+               context.member_a.uid,
+               context.outsider.uid
+             ])
     end
 
     test "a principal scope requires every recipient to be that principal", context do
@@ -38,7 +42,7 @@ defmodule Ankole.Brain.ScopeTest do
     end
 
     test "a group scope requires every recipient to be a current member", context do
-      scope = Scope.group(context.group.name)
+      scope = source_node("group:" <> context.group.name)
 
       assert Scope.satisfied_by_all?(scope, [context.member_a.uid, context.member_b.uid])
       refute Scope.satisfied_by_all?(scope, [context.member_a.uid, context.outsider.uid])
@@ -46,8 +50,8 @@ defmodule Ankole.Brain.ScopeTest do
     end
 
     test "an unknown group or malformed scope satisfies nobody", context do
-      refute Scope.satisfied_by_all?("group:missing-group", [context.member_a.uid])
-      refute Scope.satisfied_by_all?("company", [context.member_a.uid])
+      refute Scope.satisfied_by_all?(Ankole.Ecto.UUIDv7.autogenerate(), [context.member_a.uid])
+      refute Scope.satisfied_by_all?(Ankole.Ecto.UUIDv7.autogenerate(), [context.member_a.uid])
     end
   end
 end

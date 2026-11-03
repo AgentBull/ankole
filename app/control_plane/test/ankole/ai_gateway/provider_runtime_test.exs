@@ -1248,44 +1248,52 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     %{principal: agent} = Ankole.AIGatewayCase.background_agent_fixture()
     {:ok, coding} = ModelProfiles.get_model_profile(agent.uid, "coding")
     :ok = Ankole.SessionsCase.cache_actor_runtime_models(coding["provider_id"])
-    defaults_key = "ai_agent.library.skill_defaults"
-    assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-    assert {:ok, _defaults} = AppConfigure.put_tenant_by_key(defaults_key, %{"ocr" => true})
+    alias Ankole.AIAgent.Library.{Contracts, Skills}
+    human = human_fixture().principal
 
-    assert {:ok, %{skills: %{"ocr" => true}}} =
-             Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: human.uid,
+        resource_pattern: "tenant_console:**",
+        action: "update"
+      })
 
-    assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
+    actor = actor_fixture(human)
+    assert {:ok, _} = Library.sync_agent_skills(agent.uid)
+    {:ok, ocr} = Skills.get("ocr")
+    {:ok, _} = Skills.set_all(actor, ocr.slug, true, ocr.revision)
 
-    assert {:ok, documents} = Library.list_agent_documents(agent.uid)
+    for {slot, body} <- [
+          agents: "Own the next-turn research workflow.\n\nBe exact, calm, and evidence-led.",
+          design: "Use cobalt accents and generous whitespace."
+        ] do
+      {:ok, parsed} = Ankole.Kernel.knowledge_parse(body)
 
-    assert {:ok, _mission} =
-             Library.replace_agent_document(
-               agent.uid,
-               "mission",
-               "Own the next-turn research workflow.",
-               documents["mission"]["content_hash"]
-             )
+      {:ok, _} =
+        Contracts.save(actor, agent.uid, slot, %{
+          mode: :override,
+          content_xml: parsed.xml,
+          metadata: parsed.metadata,
+          base_revision: 0
+        })
+    end
 
-    assert {:ok, _soul} =
-             Library.replace_agent_document(
-               agent.uid,
-               "soul",
-               "Be exact, calm, and evidence-led.",
-               documents["soul"]["content_hash"]
-             )
+    %{principal: reader} = human_fixture()
 
-    assert {:ok, _design} =
-             Library.replace_agent_document(
-               agent.uid,
-               "design",
-               "Use cobalt accents and generous whitespace.",
-               documents["design"]["content_hash"]
-             )
+    {:ok, group} =
+      Ankole.AuthZ.create_principal_group(%{
+        name: "context-readers-#{System.unique_integer([:positive])}",
+        display_name: "Context readers",
+        domain: :im_group,
+        kind: :static
+      })
+
+    {:ok, _} = Ankole.AuthZ.replace_static_group_members(group.id, :im_group, [reader.uid])
 
     channel_id =
       external_conversation_fixture("lark:context", %{
         title: "策略讨论",
+        principal_group_id: group.id,
         metadata: %{"domain" => "feishu"}
       }).id
 
@@ -1317,24 +1325,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, %{"skills" => cached_skills}} = Library.runtime_catalog_for_agent(agent.uid)
     assert Enum.any?(cached_skills, &(&1["skill_name"] == "ocr"))
 
-    # A running attempt reads current rows even when the cache still holds
-    # choices from before this transaction.
+    {:ok, ocr} = Skills.get("ocr")
+    {:ok, _} = Skills.set_all(actor, ocr.slug, false, ocr.revision)
+
     {:ok, projection} =
-      Repo.transact(fn ->
-        assert {:ok, %{value: %{"value" => %{"ocr" => false}}}} =
-                 Ankole.Ash.create(Ankole.AppConfigure.AppConfig, :put, %{
-                   scope: "tenant:" <> Repo.tenant_id!(),
-                   key: defaults_key,
-                   input: %{"ocr" => false}
-                 })
-
-        assert {:ok, %{skills: %{"ocr" => true}}} =
-                 Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-
-        Ankole.BackgroundAgentJobs.RuntimeProjection.capture(agent.uid, %{
-          model_ref: %{"provider_id" => "ai_gateway", "model" => "test"}
-        })
-      end)
+      Ankole.BackgroundAgentJobs.RuntimeProjection.capture(agent.uid, %{
+        model_ref: %{"provider_id" => "ai_gateway", "model" => "test"}
+      })
 
     refute Enum.any?(projection["skills"], &(&1["name"] == "ocr"))
 
@@ -1364,14 +1361,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert context.conversation.origin_channel.kind == "im_group"
     assert context.conversation.origin_channel.label == "策略讨论"
     assert context_payload.conversation.timezone == context.conversation.timezone
-    assert context_payload.mission == "Own the next-turn research workflow."
-    assert context_payload.soul == "Be exact, calm, and evidence-led."
-    assert context_payload.design == "Use cobalt accents and generous whitespace."
-
-    assert {:ok, current_documents} = Library.list_agent_documents(agent.uid)
-
-    assert context_payload.confidentiality_policy ==
-             current_documents["confidentiality_policy"]["content"]
+    assert context_payload.agents =~ "Own the next-turn research workflow."
+    assert context_payload.agents =~ "Be exact, calm, and evidence-led."
+    assert context_payload.design =~ "Use cobalt accents and generous whitespace."
 
     assert Enum.any?(context_payload.skills, &(&1.skill_name == "pdf"))
     refute Enum.any?(context_payload.skills, &(&1.skill_name == "ocr"))

@@ -23,9 +23,23 @@ defmodule Ankole.Brain.ConsoleViews.Actions do
 
   defp action(:show_object, args) do
     case GetPage.get_page_admin(args.slug) do
-      {:ok, page} -> {:ok, %{object: page}}
-      {:ambiguous, candidates} -> {:ok, %{candidates: candidates}}
-      {:error, _reason} = error -> error
+      {:ok, page} ->
+        page =
+          Map.take(page, [:page_id, :slug, :title, :type, :summary, :revision])
+          |> Map.put(
+            :pod_url,
+            AnkoleWeb.PodURL.current_tenant_url(
+              AnkoleWeb.PodURL.page_path(page.page_id, page.title)
+            )
+          )
+
+        {:ok, %{object: page}}
+
+      {:ambiguous, candidates} ->
+        {:ok, %{candidates: candidates}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -58,9 +72,8 @@ defmodule Ankole.Brain.ConsoleViews.Actions do
       :claim,
       :kind,
       :holder,
-      :audience_scope,
-      :object_slug,
-      :conversation_id,
+      :source_node_id,
+      :subject_page_id,
       :notability,
       :confidence,
       :valid_from,
@@ -85,7 +98,7 @@ defmodule Ankole.Brain.ConsoleViews.Actions do
   end
 
   defp describe(:not_found),
-    do: Ankole.Errors.Invalid.NotFound.exception(resource: Ankole.Brain.Schemas.Object)
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: Ankole.Brain.Schemas.Page)
 
   defp describe(:brain_disabled), do: {"Brain is disabled", []}
   defp describe(_reason), do: {"Brain request is invalid", []}

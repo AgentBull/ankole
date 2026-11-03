@@ -97,7 +97,7 @@ export function AgentLibraryPage() {
       params.set('tab', next)
       return params
     })
-  const defaultsScope = searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'
+  const defaultsScope = tab !== 'skills' && searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'
   const siteDefaults = isSiteLibraryDefaults(scope, defaultsScope)
   const [pluginQuery, setPluginQuery] = useState('')
   const [skillQuery, setSkillQuery] = useState('')
@@ -141,6 +141,8 @@ export function AgentLibraryPage() {
             ) : null}
             {scope === GLOBAL_LIBRARY_SCOPE && activeTab === 'control-plane-plugins' ? (
               <Badge variant="secondary">{t('console.settings.scope_global')}</Badge>
+            ) : scope === GLOBAL_LIBRARY_SCOPE && activeTab === 'skills' ? (
+              <Badge variant="secondary">{t('console.settings.scope_tenant')}</Badge>
             ) : scope === GLOBAL_LIBRARY_SCOPE ? (
               <Select
                 value={defaultsScope}
@@ -223,7 +225,7 @@ export function AgentLibraryPage() {
                 scope={scope}
                 pending={capabilityMutations.pending}
                 lessons={lessons}
-                onChange={enabled => capabilityMutations.setSkill(skill.id, enabled)}
+                onChange={enabled => capabilityMutations.setSkill(skill.id, enabled, skill.revision)}
               />
             ))}
           </CapabilityGrid>
@@ -359,7 +361,7 @@ export function AgentPluginDetailPage() {
                   pending={mutations.pending}
                   parentEnabled={plugin.effective_enabled}
                   lessons={lessons}
-                  onChange={enabled => mutations.setSkill(skill.id, enabled)}
+                  onChange={enabled => mutations.setSkill(skill.id, enabled, skill.revision)}
                 />
               ))}
             </CapabilityGrid>
@@ -502,34 +504,17 @@ function SkillCard({
         <CardTitle className="normal-case">{skill.name}</CardTitle>
         <CardDescription>{skill.description}</CardDescription>
         <CardAction>
-          {scope === GLOBAL_LIBRARY_SCOPE ? (
-            <GlobalDefaultSwitch
-              capabilityName={skill.name}
-              checked={skill.global_default_enabled}
-              disabled={pending}
-              onChange={onChange}
-            />
-          ) : (
-            <AgentOverrideControl
-              capabilityName={skill.name}
-              override={skill.override_enabled}
-              effective={skill.effective_enabled}
-              disabled={pending}
-              inheritLabel={
-                skill.source_kind === 'installed'
-                  ? t('console.agent_library_capabilities.inherit_source_default')
-                  : undefined
-              }
-              onChange={onChange}
-            />
-          )}
+          <Switch
+            aria-label={t('pod.meta.toggle_skill', { name: skill.name })}
+            checked={scope === GLOBAL_LIBRARY_SCOPE ? skill.enabled_for_all : skill.effective_enabled}
+            disabled={pending || (scope !== GLOBAL_LIBRARY_SCOPE && skill.enabled_for_all)}
+            onCheckedChange={onChange}
+          />
         </CardAction>
       </CardHeader>
       <CardContent className="mt-auto grid gap-4 border-t border-border pt-4">
         <div className="flex flex-wrap gap-2">
-          {skill.source_kind === 'installed' ? (
-            <Badge variant="secondary">{t('console.agent_library_capabilities.agent_private')}</Badge>
-          ) : null}
+          {skill.source_kind === 'custom' ? <Badge variant="secondary">{t('pod.meta.source_custom')}</Badge> : null}
           {!parentEnabled ? (
             <Badge variant="outline">{t('console.agent_library_capabilities.parent_disabled')}</Badge>
           ) : null}
@@ -981,13 +966,18 @@ function useCapabilityMutations(scope: string, defaultsScope: 'global' | 'tenant
         })
       } else agentPlugin.mutate({ path: { agent_uid: scope, id }, body: { data: { enabled } } })
     },
-    setSkill(id: string, enabled: boolean | null) {
+    setSkill(id: string, enabled: boolean | null, base_revision: number) {
       if (scope === GLOBAL_LIBRARY_SCOPE) {
         globalSkill.mutate({
           path: { id },
-          body: { data: { enabled: enabled === true, defaults_scope: defaultsScope } }
+          body: { data: { enabled: enabled === true, base_revision } }
         })
-      } else agentSkill.mutate({ path: { agent_uid: scope, id }, body: { data: { enabled } } })
+      } else {
+        agentSkill.mutate({
+          path: { agent_uid: scope, id },
+          body: { data: { enabled: enabled === true } }
+        })
+      }
     }
   }
 }

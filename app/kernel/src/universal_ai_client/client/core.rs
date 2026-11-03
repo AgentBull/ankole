@@ -81,17 +81,17 @@ impl StreamHandle {
     }
 
     pub fn cancel(&self) -> KernelResult<()> {
-        let send_result = self.command_tx.try_send(StreamCommand::Cancel);
-        let sink = self.sink.clone();
-        let aborted_sent = self.aborted_sent.clone();
-        let abort_handle = self.abort_handle.clone();
-        io_runtime::runtime()?.spawn(async move {
-            send_aborted_once(&sink, &aborted_sent);
-            abort_handle.abort();
-        });
-
-        match send_result {
-            Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
+        match self.command_tx.try_send(StreamCommand::Cancel) {
+            Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {
+                let sink = self.sink.clone();
+                let aborted_sent = self.aborted_sent.clone();
+                let abort_handle = self.abort_handle.clone();
+                io_runtime::runtime()?.spawn(async move {
+                    send_aborted_once(&sink, &aborted_sent);
+                    abort_handle.abort();
+                });
+                Ok(())
+            }
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 Err(KernelError::new("universal AI client stream is closed"))
             }
@@ -282,6 +282,24 @@ mod tests {
 
         drop(command_rx);
         stream.read(1).unwrap();
+    }
+
+    #[tokio::test]
+    async fn late_cancel_does_not_emit_another_terminal() {
+        let (command_tx, command_rx) = mpsc::channel(1);
+        let (abort_handle, _registration) = AbortHandle::new_pair();
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let stream = StreamHandle {
+            command_tx,
+            abort_handle,
+            sink: Arc::new(move |event| event_tx.send(event).unwrap()),
+            aborted_sent: Arc::new(AtomicBool::new(false)),
+        };
+
+        drop(command_rx);
+        assert!(stream.cancel().is_err());
+        tokio::task::yield_now().await;
+        assert!(event_rx.try_recv().is_err());
     }
 
     #[tokio::test]

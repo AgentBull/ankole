@@ -34,7 +34,7 @@ defmodule Ankole.Principals.Rename do
       do:
         raise(Ankole.Errors.Framework.TransactionRequired, operation: {__MODULE__, :rename_in_tx})
 
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
 
     with {:ok, uid} <- Principals.normalize_uid(uid),
          {:ok, new_uid} <- Principals.normalize_uid(new_uid),
@@ -43,7 +43,6 @@ defmodule Ankole.Principals.Rename do
          {:ok, worker} <- worker_for_rename(principal),
          {:ok, principal} <- Ankole.Ash.update(principal, :rename_in_tx, %{uid: new_uid}),
          :ok <- References.rewrite_in_tx(uid, new_uid, principal.type),
-         :ok <- Ankole.Brain.rename_principal_references_in_tx(uid, new_uid, principal.type),
          {:ok, config_keys} <- rename_agent_scopes(worker, uid, new_uid),
          {:ok, bases} <- Pod.rename_inline_principal_in_tx(uid, new_uid),
          {:ok, pages} <- Pod.rename_principal_mentions_in_tx(uid, new_uid) do

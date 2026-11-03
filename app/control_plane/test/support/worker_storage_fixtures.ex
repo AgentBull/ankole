@@ -2,7 +2,7 @@ defmodule Ankole.WorkerStorageFixtures do
   @moduledoc """
   Shared steps of the cloud Worker storage checks.
 
-  Each check creates two providers of one kind with one Agent on each, then
+  Each check creates providers of one kind with one Agent on each, then
   drives reconciliation directly while it waits for a Worker state.
   """
 
@@ -16,9 +16,9 @@ defmodule Ankole.WorkerStorageFixtures do
   alias Ankole.AgentWorkers.ReconcileJob
   alias Ankole.AgentWorkers.AgentWorker
 
-  @doc "Creates two providers of `kind` and one Agent on each; returns `{uids, provider_ids}`."
-  def storage_agents!(kind, suffix, owner_uid, config, credentials) do
-    ids = Enum.map(~w(a b), &"#{String.replace(kind, "_", "-")}-check-#{&1}-#{suffix}")
+  @doc "Creates `count` providers of `kind` and one Agent on each; returns `{uids, provider_ids}`."
+  def storage_agents!(kind, suffix, owner_uid, config, credentials, count \\ 2) do
+    ids = Enum.map(1..count, &"#{String.replace(kind, "_", "-")}-check-#{&1}-#{suffix}")
 
     uids =
       for id <- ids do
@@ -113,7 +113,11 @@ defmodule Ankole.WorkerStorageFixtures do
     end
 
     slugs = ["people/#{owner_uid}" | Enum.map(uids, &"agents/#{&1}")]
-    Repo.delete_all(from o in Ankole.Brain.Schemas.Object, where: o.slug in ^slugs)
+
+    page_ids =
+      Repo.all(from p in Ankole.Brain.Schemas.Page, where: p.slug in ^slugs, select: p.id)
+
+    Repo.delete_all(from n in Ankole.Pod.Page, where: n.id in ^page_ids)
     Repo.delete_all(from p in Principals.Principal, where: p.uid in ^uids)
     Repo.delete_all(from p in Principals.Principal, where: p.uid == ^owner_uid)
     Repo.delete_all(from job in Oban.Job, where: fragment("?->>'agent_uid'", job.args) in ^uids)

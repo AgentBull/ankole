@@ -20,7 +20,7 @@ pub use crypto::{aead_decrypt, aead_encrypt, derive_key, generate_key};
 pub use encoding::{base64_url_safe_decode, base64_url_safe_encode};
 pub use error::{KernelError, KernelResult};
 pub use hash::xxh3_128_hex;
-pub use ids::{gen_uuid, gen_uuid_v7, uuid_expand, uuid_shorten};
+pub use ids::{gen_uuid, gen_uuid_v7, page_url_slug, uuid_expand, uuid_shorten};
 pub use jwt::{jwt_sign_pem, jwt_verify_jwk};
 pub use phone::phone_normalize_e164;
 pub use search::{ReciprocalRankFusionResult, reciprocal_rank_fusion};

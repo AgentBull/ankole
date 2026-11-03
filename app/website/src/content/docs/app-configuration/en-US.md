@@ -41,7 +41,6 @@ Ankole ships with the built-in AppConfigure keys listed below, and Control Plane
 | `ai_agent.max_output_tokens` | Tenant | Output-token cap for one model response |
 | `ai_agent.inactivity_timeout_ms` | Tenant | Time to wait for an inactive model or Provider before ending the turn |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Default enablement for Agent Plugins |
-| `ai_agent.library.skill_defaults` | Tenant | Default enablement for Skills |
 | `background_agent_jobs.max_running_per_agent` | Tenant | Maximum concurrently running BackgroundAgentJobs per Agent; default `3`, valid range `1`–`64` |
 | `automation_jobs.max_running_per_agent` | Tenant | Maximum concurrently running automation scripts per Agent; default `10`, valid range `1`–`64` |
 
@@ -68,16 +67,15 @@ Updates to these keys apply to newly started Workflow work. An individual run ma
 
 ### Brain
 
+Brain model calls run as the tenant’s `ankole_brain` system Principal. Configure its extraction (`light`), analysis (`heavy`), URL fetching (`web_fetch`), and reranking (`rerank`) profiles in the Console model-profile editor. These profiles inherit Pod and site settings.
+
 | Key | Scope | Purpose |
 |---|---|---|
 | `brain.enabled` | Tenant | Enable Brain retrieval, learning, and maintenance; stored knowledge remains when disabled |
-| `brain.maintainer_agent_uid` | Tenant | Active Agent responsible for Brain maintenance; all Brain model calls run as this Agent and attribute usage to it; disabling it stops those calls and URL Source fetching until it is enabled or replaced; edit its `light`, `heavy`, and `web_fetch` profiles on the Agent page |
 | `brain.embedding_model` | Site | Provider, model, and dimensions for vector retrieval; an empty value disables vector retrieval |
-| `brain.rerank_model` | Tenant | Provider and model for reranking search results; an empty value keeps the fusion order |
 | `brain.search_tokenizer` | Site | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, or `lindera_korean`; a change requires a BM25 index rebuild |
 | `brain.chunking` | Tenant | Source chunk size, overlap, and input limits |
 | `brain.forgetting` | Tenant | Decay half-lives for each memory kind |
-| `brain.soft_delete_retention_hours` | Tenant | Hours before Dreaming permanently purges soft-deleted Objects; default `72` |
 | `brain.dreaming_task_cron` | Tenant | Schedule for regular knowledge consolidation |
 | `brain.self_healing_task_cron` | Tenant | Schedule for rebuilding stale chunk, embedding, and search-index projections |
 | `brain.signal_channel_batch_idle_time` | Tenant | Idle seconds before pending chat messages enter learning; conversation end also triggers learning |

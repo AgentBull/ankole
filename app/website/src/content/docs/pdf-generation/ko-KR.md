@@ -30,7 +30,7 @@ order: 306
 매주 상태 보고서를 PDF로 만들어 공유하는 Agent를 설정하는 절차는 다음과 같습니다.
 
 1. `pdf` skill이 활성화되어 있는지 확인합니다(기본 활성화).
-2. Agent를 생성하고 `MISSION.md`에 `"Produce a weekly status report as a PDF. Gather the week's metrics from the channel history, write the report in Markdown, render to PDF with Typst, verify with Poppler, and post the PDF to the channel."`을 작성합니다.
+2. Agent를 생성하고 `AGENTS.md`에 `"Produce a weekly status report as a PDF. Gather the week's metrics from the channel history, write the report in Markdown, render to PDF with Typst, verify with Poppler, and post the PDF to the channel."`을 작성합니다.
 3. 주간 [스케줄](../schedules/)을 등록합니다.
 4. 스케줄이 실행될 때마다 Agent가 채널 기록에서 컨텍스트를 모아 Markdown 초안을 작성하고, 셸을 통해 `pdf` skill의 도구로 렌더링과 검증을 마친 뒤 완성된 PDF를 채널에 게시합니다.
 

@@ -7,7 +7,7 @@ order: 31
 
 **通常、このページで説明するファイルブラウザを使う必要はありません。日常のやり取りでは、チャットで Agent に直接ファイルを送信するか、Pod ワークスペースで共有の Pod `file` ページやドキュメント/Base/Chat 添付ファイルを利用してください。Console のファイルブラウザは、チャットで届かなかった成果物の回収、保存済み出力の確認、または各 Agent 専用のドライブフォルダを手動で整理する場合にのみ使用します。**
 
-各 Agent は control plane 上に専用のプライベートドライブを持ち、添付ファイル、生成画像、公開ファイル、Skill、Automation スクリプトを保存します。一方、ワークスペース全体で共有する Pod の `file` ページや Pod 添付ファイルは Pod のページ権限のもとで管理され、個別 Agent の Console ドライブには入りません。Agent ドライブは Worker が停止していても Console から操作できます。なお、Session や Job の作業用ワークスペースは永続 Home 側に置かれており、ドライブ内のフォルダとは別物です。
+各 Agent は control plane 上に専用のプライベートドライブを持ち、添付ファイル、生成画像、公開ファイル、Automation スクリプトを保存します。一方、ワークスペース全体で共有する Pod の `file` ページや Pod 添付ファイルは Pod のページ権限のもとで管理され、個別 Agent の Console ドライブには入りません。Agent ドライブは Worker が停止していても Console から操作できます。なお、Session や Job の作業用ワークスペースは永続 Home 側に置かれており、ドライブ内のフォルダとは別物です。
 
 ローカルフォルダや S3・R2 のストレージ設定については [ドライブストレージ設定](../drive-storage/) を、旧 Home からのインポート手順については [1.0 から 2.0 への更新](../upgrade-to-2/) を参照してください。
 
@@ -21,7 +21,6 @@ order: 31
 | `chats/<channel>/inbox/` | その会話で Agent に送信された添付ファイル |
 | `chats/<channel>/generated/`、`generated/` | Agent が生成した画像（会話内では `chats/<channel>/generated/`、チャネルに紐付かない場合は `generated/`） |
 | `sent/` | Agent が返信に添付したファイル |
-| `skills/` | Agent にインストール済みの Skill（Skill ごとに 1 フォルダ） |
 | `automation/` | Automation Job のスクリプト |
 | その他のフォルダ | Agent または利用者が保存したファイル |
 
@@ -49,13 +48,13 @@ order: 31
 
 重要な資料は削除前に手元へダウンロードしておくか、[バックアップ](../backup-and-restore/)の対象に含まれていることを確認してください。
 
-なお、`skills/` 配下にあるファイルはインストール済み Skill の実体そのものです。ここを書き換えると次のターンから Skill の挙動が変わります。Skill の有効化・無効化は [Agent Library](../skills/) から管理してください。
+Skill パッケージのインポート、編集、有効化は **Meta Ankole → Skills** で行います。Worker は有効なパッケージを読み取り専用の `/drive/Skills` から参照します。操作方法と Agent への割り当ては [Skills](../skills/) を参照してください。
 
 ## 再起動後に残るもの
 
 ドライブと永続 Home のデータは、どちらも Worker が置き換えられた後に引き継がれます。ただし、ワークスペース内にのみ書き込まれたファイルは Home 側に残るため、Console から取得したい場合はドライブに公開（保存）させてください。ストレージごとの制約については [Worker](../worker-management/) を参照してください。
 
-また、Agent の `MISSION`、`SOUL`、`DESIGN`、および `CONFIDENTIALITY POLICY`（`ConfidentialityPolicy.md`）の各ドキュメントは Agent エディタで管理されます。これらは実行時に Worker へ投影されますが、ドライブ上のファイルではありません。詳しくは [Agents](../agents/) を参照してください。
+Agent の行動とデザインの規約は、人が **Meta Ankole → Agents** で管理します。Worker は有効な `AGENTS.md` と `DESIGN.md` の全文を読み取り専用のランタイムファイルとして提供し、各 Turn で更新します。[Agents](../agents/) を参照してください。
 
 ## よくある問題
 

@@ -11,7 +11,7 @@ import {
   textStats
 } from './document-tools'
 import { DocumentToolsModel } from './document-tools-model'
-import { PageDraftModel } from './page-draft'
+import { DocumentDraftModel } from './document-draft'
 
 describe('document export and statistics', () => {
   test('Markdown export preserves the title as text and round-trips the complete body', () => {
@@ -70,7 +70,7 @@ describe('document export and statistics', () => {
     const projection = {
       resolveReference: (id: string) =>
         id === pageOk
-          ? { title: 'Q4 Design Spec', href: 'https://pod.example/pages/ABEiM0RVZneImaq7zN3u_w' }
+          ? { title: 'Q4 Design Spec', href: 'https://pod.example/pages/q4-design-spec-0024h36h2ncsvrh6daqf6dvvqz' }
           : { title: 'Restricted page', href: 'https://pod.example/pages/restricted', restricted: true },
       resolvePrincipal: (uid: string) =>
         uid === userOk ? { name: 'Alice Chen' } : { name: 'Restricted user', restricted: true }
@@ -78,7 +78,7 @@ describe('document export and statistics', () => {
 
     const markdown = documentMarkdown(xml, '', projection)
     expect(markdown).toBe(
-      'Review [Q4 Design Spec](https://pod.example/pages/ABEiM0RVZneImaq7zN3u_w) and Restricted page with @Alice Chen and @Restricted user.'
+      'Review [Q4 Design Spec](https://pod.example/pages/q4-design-spec-0024h36h2ncsvrh6daqf6dvvqz) and Restricted page with @Alice Chen and @Restricted user.'
     )
     expect(markdown).not.toContain('<mention')
     expect(markdown).not.toContain('https://pod.example/pages/restricted')
@@ -189,7 +189,7 @@ describe('document export and statistics', () => {
   })
 
   test('DocumentToolsModel skips parsing while hidden, debounces typing updates, and clears timers on dispose', async () => {
-    const draft = new PageDraftModel()
+    const draft = new DocumentDraftModel()
     draft.source.value = 'page-1'
     draft.xml.value = '<page><p>One two</p></page>'
     const tools = new DocumentToolsModel(draft)

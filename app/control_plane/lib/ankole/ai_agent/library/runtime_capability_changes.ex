@@ -18,14 +18,21 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
 
   @spec notify_global(capability()) :: :ok
   def notify_global(capability) do
+    Library.Management.committed(:ok)
+
     active_agent_uids()
-    |> Enum.each(&notify_agent(&1, capability))
+    |> Enum.each(&notify(&1, capability, []))
 
     :ok
   end
 
   @spec notify_agent(String.t(), capability(), keyword()) :: :ok
   def notify_agent(agent_uid, capability, opts \\ []) do
+    Library.Management.committed(:ok)
+    notify(agent_uid, capability, opts)
+  end
+
+  defp notify(agent_uid, capability, opts) do
     capabilities =
       case Keyword.get(opts, :capabilities) do
         %{} = current ->
@@ -33,7 +40,10 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
 
         _value ->
           with {:ok, defaults} <- Config.defaults_in_tx() do
-            Library.capabilities_for_agent(agent_uid, agent_library_defaults: defaults)
+            Library.capabilities_for_agent(agent_uid,
+              agent_library_defaults: defaults,
+              sync: false
+            )
           end
       end
 
@@ -57,9 +67,10 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
   defp disabled_skill_names(capabilities, {:skill, skill_id}) when is_map(capabilities) do
     capabilities
     |> all_skills()
-    |> Enum.find(&(&1["id"] == skill_id))
+    |> Enum.find(&(&1["id"] == skill_id or &1["name"] == skill_id))
     |> case do
       %{"effective_enabled" => false, "name" => name} when is_binary(name) -> [name]
+      nil -> [skill_id]
       _skill -> []
     end
   end

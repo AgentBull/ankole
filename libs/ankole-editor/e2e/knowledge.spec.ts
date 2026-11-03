@@ -1,0 +1,42 @@
+import { expect, test, caret } from './helpers'
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/playground/embedded.html?knowledge')
+})
+
+test('knowledge menus expose the supported vocabulary and refuse a lossy host write', async ({ page }) => {
+  const editor = page.getByRole('textbox', { name: 'Second document', exact: true })
+  await caret(editor.locator('p').last())
+  await editor.press('End')
+  await editor.press('Enter')
+  await editor.pressSequentially('/')
+  const menu = page.getByRole('listbox')
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('option', { name: /Mermaid|数学|书签|分栏|文件/ })).toHaveCount(0)
+  await editor.press('Escape')
+  await editor.press('Backspace')
+  await page.getByLabel('Host source', { exact: true }).fill('<columns><column>A</column><column>B</column></columns>')
+  await page.getByRole('button', { name: 'Apply source without moving focus' }).click()
+  await expect(page.getByLabel('Source write result', { exact: true })).toContainText('Knowledge pages do not support')
+  await expect(editor).toContainText('Beta text')
+  await caret(editor.getByText('Beta text', { exact: true }))
+  await editor.press('Home')
+  await editor.press('Shift+End')
+  const toolbar = page.locator('.selection-toolbar')
+  await expect(toolbar).toBeVisible()
+  await expect(toolbar.getByRole('button', { name: /评论|下划线|高亮|上标|下标/ })).toHaveCount(0)
+})
+
+test('knowledge table header survives deleting its first row', async ({ page }) => {
+  const editor = page.getByRole('textbox', { name: 'Second document', exact: true })
+  await page.getByLabel('Host source', { exact: true }).fill('| Header |\n| --- |\n| First |\n| Second |')
+  await page.getByRole('button', { name: 'Apply source without moving focus' }).click()
+  await expect(editor.locator('tr')).toHaveCount(3)
+  await caret(editor.getByText('Header', { exact: true }))
+  await page.getByRole('button', { name: '行 1', exact: true }).click()
+  await expect(page.getByRole('menuitemcheckbox', { name: /表头/ })).toHaveCount(0)
+  await page.getByRole('menuitem', { name: '删除行', exact: true }).click()
+  await expect(editor.locator('tr')).toHaveCount(2)
+  await expect(editor.locator('th')).toHaveText(['First'])
+  await expect(editor.locator('td')).toHaveText(['Second'])
+})

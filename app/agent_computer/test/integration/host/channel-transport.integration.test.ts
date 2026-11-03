@@ -9,6 +9,35 @@ import { workerLogger } from '../../../src/worker/logging'
 type PhoenixConnection = ChannelSocketLike & { conn: WebSocket | null; heartbeatIntervalMs: number }
 
 describe('RuntimeFabric native WebSocket connection deadline', () => {
+  it('waits for renewed admission after a clock gap before resuming dependent work', async () => {
+    const server = fixture([false, false])
+    const { fabric, socket } = connect(server.port)
+    let clock: ReturnType<typeof spyOn> | undefined
+    try {
+      await waitFor(() => fabric.isReady)
+      const first = socket.conn!
+      expect(first.readyState).toBe(WebSocket.OPEN)
+      const resumedAt = Date.now() + 65_001
+      clock = spyOn(Date, 'now').mockReturnValue(resumedAt)
+
+      let refreshed = false
+      const resumed = fabric.awaitReady().then(() => {
+        refreshed = true
+      })
+      expect(fabric.isReady).toBe(false)
+      expect(refreshed).toBe(false)
+      await resumed
+      expect(refreshed).toBe(true)
+      expect(server.requests).toBe(2)
+      expect(first.readyState).toBe(WebSocket.CLOSED)
+      expect(socket.conn).not.toBe(first)
+    } finally {
+      clock?.mockRestore()
+      fabric.stop()
+      server.stop()
+    }
+  })
+
   it('cancels a hanging handshake after 10 seconds and rejoins through Phoenix backoff', async () => {
     const server = fixture([true, false])
     const log = spyOn(workerLogger, 'warning').mockImplementation(() => undefined)

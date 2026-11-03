@@ -1135,7 +1135,13 @@ defmodule Ankole.AIGateway.ObservabilityTest do
              Ankole.Sessions.Run.finalize(%{run | model_response: response, anchor: response.id})
 
     Observability.finish_turn(run.span)
-    spans = exported_spans()
+    # This flow can outlast the processor's scheduled export interval, so its
+    # completed-input spans may arrive in a later batch than admission spans.
+    spans =
+      exported_spans(fn spans ->
+        Enum.count(spans, &(&1.name == "session.input.completed")) == 2
+      end)
+
     completed = Enum.filter(spans, &(&1.name == "session.input.completed"))
 
     assert MapSet.new(Enum.map(completed, & &1.attributes["ankole.signal.id"])) ==
@@ -1424,17 +1430,24 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     end)
   end
 
-  defp exported_spans do
+  defp exported_spans(complete? \\ fn _ -> true end) do
     assert :ok = :otel_tracer_provider.force_flush()
+    collect_exported_spans([], complete?)
+  end
 
+  defp collect_exported_spans(previous, complete?) do
     receive do
       {:exported_spans, %{resource_spans: resource_spans}} ->
-        for resource <- resource_spans,
-            scope <- resource.scope_spans,
-            span <- scope.spans,
-            do: decode_span(span)
+        batch =
+          for resource <- resource_spans,
+              scope <- resource.scope_spans,
+              span <- scope.spans,
+              do: decode_span(span)
+
+        spans = previous ++ batch
+        if complete?.(spans), do: spans, else: collect_exported_spans(spans, complete?)
     after
-      1_000 -> flunk("OpenTelemetry did not export spans")
+      1_000 -> flunk("OpenTelemetry did not export the expected spans")
     end
   end
 

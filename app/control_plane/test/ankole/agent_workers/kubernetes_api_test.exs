@@ -106,9 +106,10 @@ defmodule Ankole.AgentWorkers.KubernetesAPITest do
                    "allowPrivilegeEscalation" => false,
                    "capabilities" => %{
                      "drop" => ["ALL"],
-                     "add" => ~w(SETUID SETGID CHOWN FOWNER DAC_OVERRIDE KILL)
+                     "add" => ~w(SETUID SETGID SETPCAP CHOWN FOWNER DAC_OVERRIDE KILL SYS_ADMIN)
                    },
-                   "seccompProfile" => %{"type" => "RuntimeDefault"}
+                   "seccompProfile" => %{"type" => "RuntimeDefault"},
+                   "appArmorProfile" => %{"type" => "Unconfined"}
                  }
 
           conn

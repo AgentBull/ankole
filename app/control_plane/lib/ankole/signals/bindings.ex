@@ -867,14 +867,14 @@ defmodule Ankole.Signals.Bindings do
     Binding
     |> Ash.Query.filter(id == ^id)
     |> Ash.Query.lock(:for_update)
-    |> Ankole.Ash.read_one!()
+    |> Ankole.Ash.read_one!(lock_identity: {:rows, "signal_bindings", :id})
   end
 
   defp lock_binding(agent_uid, binding_name) do
     Binding
     |> Ash.Query.filter(agent_uid == ^agent_uid and name == ^binding_name)
     |> Ash.Query.lock(:for_update)
-    |> Ankole.Ash.read_one!()
+    |> Ankole.Ash.read_one!(lock_identity: {:rows, "signal_bindings", :id})
   end
 
   # A caller that selected all tenants reads the Bindings of every tenant.

@@ -11,11 +11,11 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion.Actions do
 
   defp action(:console_approve, %{arguments: args}, context) do
     decided_by = Ankole.Brain.Console.actor_ref(context)
-    attrs = %{canonical_slug: args[:canonical_slug]}
+    attrs = %{canonical_page_id: args[:canonical_page_id]}
 
     with {:ok, _outcome} <-
            Ankole.Brain.Console.result(
-             Ankole.Brain.Merge.approve_in_tx(args.suggestion_id, decided_by, attrs),
+             Ankole.Brain.approve_merge(args.suggestion_id, decided_by, attrs: attrs),
              MergeSuggestion
            ),
          do: :ok
@@ -23,7 +23,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion.Actions do
 
   defp action(:console_reject, %{arguments: args}, context) do
     args.suggestion_id
-    |> Ankole.Brain.Merge.reject_in_tx(Ankole.Brain.Console.actor_ref(context))
+    |> Ankole.Brain.reject_merge(Ankole.Brain.Console.actor_ref(context))
     |> Ankole.Brain.Console.result(MergeSuggestion)
   end
 end

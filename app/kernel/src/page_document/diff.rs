@@ -269,7 +269,7 @@ fn inline(old: &[DocNode], new: &[DocNode], out: &mut Changes) {
 
 /// Myers' bidirectional middle split uses linear working space. Recursion
 /// returns matching coordinates, without retaining an edit-distance trace.
-fn matches<T: PartialEq>(a: &[T], b: &[T]) -> Vec<(usize, usize)> {
+pub(super) fn matches<T: PartialEq>(a: &[T], b: &[T]) -> Vec<(usize, usize)> {
     fn visit<T: PartialEq>(a: &[T], b: &[T], ax: usize, by: usize, out: &mut Vec<(usize, usize)>) {
         let prefix = a.iter().zip(b).take_while(|(a, b)| a == b).count();
         out.extend((0..prefix).map(|i| (ax + i, by + i)));

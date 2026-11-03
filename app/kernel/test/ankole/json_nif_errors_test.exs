@@ -3,12 +3,12 @@ defmodule Ankole.Kernel.JSONNIFErrorsTest do
 
   alias Ankole.Kernel
 
-  test "Markdoc preserves native input errors without trying to decode the error tuple" do
-    assert {:error, reason} = Kernel.brain_markdoc_analyze(<<255>>)
+  test "knowledge preserves native input errors without decoding the error tuple" do
+    assert {:error, reason} = Kernel.knowledge_parse(<<255>>)
     assert is_binary(reason)
 
-    assert %{"segments" => [%{"scope" => "world", "text" => "public"}]} =
-             Kernel.brain_markdoc_analyze("public")
+    assert {:ok, %{xml: "<page><p>public</p></page>", metadata: %{}}} =
+             Kernel.knowledge_parse("public")
   end
 
   test "both AuthZ entry points preserve invalid snapshot errors" do

@@ -39,6 +39,7 @@ export class Slots {
         case: 'workerHeartbeat',
         value: create(WorkerHeartbeatSchema, {
           incarnationId: this.config.incarnationID,
+          driveVfs: process.env.ANKOLE_DRIVE_VFS_AVAILABLE === '1',
           activeSlots: this.count,
           maxSlots: this.config.maxConcurrentSlots,
           availableSlots: this.available(),

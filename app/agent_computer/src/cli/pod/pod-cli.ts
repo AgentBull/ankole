@@ -49,10 +49,15 @@ Read operations:
   base.schema  {id: table_id}
   base.query   {id, filter?, sort?, page_size?, page_token?, ids?}
   base.aggregate {id, filter?, group_by?, metrics}
+  jobs.list {page_id}
+  jobs.get_run {page_id, run_id} — read authorized Run status and progress
+  bindings.list {config_ref}
 
 Write operations:
+  pages.update_sharing {id, upserts?, removes?} — incrementally change sharing; use target_scope: "self" for one page
   pages.set_sharing {id, sharing_version, inherit_permissions?, grants?} — requires manage access
-  pages.create     {type: folder|file|doc|base|applet, title, parent_id?, private_owner_uid?}
+  pages.create     {type: file|doc|knowledge|base|applet, title, parent_id?, private_owner_uid?, markdown?}
+    Knowledge pages require parent_id and markdown, including YAML frontmatter when present.
   pages.update     {id, title?, expected_title?, icon?} — expected_title is required whenever title is supplied
   pages.move       {id, parent_id?, private_owner_uid?}
   pages.delete     {id} — moves the subtree into the trash
@@ -66,6 +71,7 @@ Write operations:
     For role=file, pass the current files.manifest entry's object_id as
     base_object_id; omit it only when the file is empty. Stale replacements fail.
   base.create_table {id: base_page_id, name}
+  base.configure_table {id: table_id, unique_field_ids?, emit_changes?}
   base.delete_table {id: table_id} — requires manage access
   base.create_field {id: table_id, name, type, config?}
   base.update_field {id: field_id, version, ...changes}
@@ -73,8 +79,13 @@ Write operations:
   base.create_view  {id: table_id, name, type, config?}
   base.update_view  {id: view_id, version, ...changes}
   base.delete_view  {id: view_id, version}
-  base.write    {id: table_id, creates?:[{data}], updates?:[{id,data,expected_versions}], deletes?:[{id,expected_versions}]}
+  base.write    {id: table_id, creates?:[{data}], updates?:[{id,data,expected_versions}], deletes?:[{id,expected_versions}], upserts?:[{data}]}
   base.copy     {id: table_id, parent_id: report_page_id, filter?}
+  jobs.create {page_id, action_key, authorization_kind: human|service, label?, config?}
+  jobs.configure {page_id, id, label?, config?}
+  jobs.delete {page_id, id}
+  bindings.put {id?, config_ref, automation_job_id?, agent_uid?, target?, filters?, watched_field_ids?, enabled?}
+  applets.transfer_owner {id: page_id, owner_uid} — current owner or Pod administrator
   applets.call      {id, method: GET|POST|PUT|PATCH|DELETE, path, query?, body?}
     Returns {status, body?, logs?}, including handler errors. Never replay a
     write after a disconnect: first read its saved result.
@@ -93,6 +104,8 @@ Base parameter shapes:
   query results: {records:[{id,data,versions,...}],complete,page_token,data_version}
     When complete is false, pass page_token to the next query with the same
     filter and sort. Aggregate calculates over all matching rows.
+  Upserts require a configured scalar business key and every key value. Unchanged
+  normalized values do not advance versions or emit changes.
   data: {"FIELD_ID": value}; expected_versions: {"FIELD_ID": last_read_version}
     An unwritten field has no expected_versions entry. Creates need no versions.
   field type: text|number|select|datetime|checkbox|user|attachment|auto_number|
@@ -104,14 +117,15 @@ Base parameter shapes:
   view type: grid|kanban|gallery
 
 Page access:
-  view reads content and records. On a Base, contribute writes records and
-  uploads record attachments; edit changes schemas and metadata.
-  Pass parent_id to pages.create to create a child. Folders and conversation
-  roots require contribute; public/private roots, documents, Bases, and Applets
-  require edit. A child inherits permissions; creating it does not grant manage.
+  view reads content and records. On documents and files, contribute adds comment
+  access; use it for document reviews and discussion that continue on the page.
+  On a Base, contribute writes records and uploads record attachments; edit
+  changes schemas and metadata.
+  Pass parent_id to pages.create to create a child. Creating a child requires
+  edit on its parent Page. A child inherits permissions; creating it does not grant manage.
   The first write to an empty file requires contribute on its parent. Replacing
   file content, renaming, or moving an existing file requires edit. Deleting a
-  file or folder requires edit; deleting a document, Base, or Applet requires
+  file requires edit; deleting a document, Knowledge Page, Base, or Applet requires
   manage. Restoring trash and changing sharing require manage.
   A move that changes the subtree's access requires manage on the source, plus
   permission to create a child in the destination. Editing document or Applet
@@ -141,8 +155,19 @@ exports a default route table typed with import type { Routes } from
 '@ankole/applet-sdk/server'. Build bundles it into server/main.js as ESM with external node:* builtins.
 The runtime provides Node builtins, temporary /tmp files, fetch, process.env from
 applet.env.json, and AnkoleRuntime base, file, ai and HttpError. GET handlers cannot write.
+Backend exports may contain {routes, actions}. Each Action declares idempotent,
+concurrency (parallel|serial_fifo|serial_coalesce), concurrencyKey(ctx), maxSlices,
+and handler(ctx). Jobs hold configuration and durable state; code owns policy.
+ctx.state.get/set/delete and ctx.state.scope(name) persist cursors; remainingMs()
+and continueSlice({delaySeconds,progress}) continue the same Run with latest code.
+AnkoleRuntime capabilities use the caller or personal Job owner; team Jobs use
+AnkoleRuntime.admin, which executes as the Applet's current owner. GET and nested
+calls are read-only. signals.emit({targetJobId,type,data}) accepts a same-Page Job;
+signals.call({actionKey,data}) runs synchronously within the remaining budget.
 Applet pull restores source and package files, then runs bun install --ignore-scripts.
-Use useRoute/useRouteMutation in the frontend; route writes do not refresh queries
+Use useActionRun(runId) in the frontend to follow accepted Run progress, results,
+and errors; it refreshes after reconnecting. Use useRoute/useRouteMutation for
+routes; route writes do not refresh queries
 unless the applet explicitly invalidates them.
 Applet view access permits use. Record and file writes require access to the target resource.
 Publish checks base_revision and
@@ -417,6 +442,10 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
   }
   if (args[0] === 'comments') {
     return parseCommentsCommand(args.slice(1), cwd)
+  }
+  if (args[0] === 'page' && args[1] === 'update-sharing') {
+    if (!args[2] || !args[3]) throw new Error('Use page update-sharing <page-id> <JSON body>')
+    return { operation: 'pages.update_sharing', params: { ...parseParams(args[3]), id: args[2] }, cwd }
   }
   if (args[0] === 'page' && args[1] === 'set-sharing') {
     const id = args[2]

@@ -398,7 +398,7 @@ defmodule Ankole.Conversations.Attachments do
     name = present(attachment["name"]) || "attachment"
 
     with {:ok, node} <-
-           Files.create_conversation_file_in_tx(conversation_id, name, object, %{
+           Ankole.Pod.create_conversation_file_in_tx(conversation_id, name, object, %{
              content_type: content_type(attachment),
              source: "inbound"
            }) do

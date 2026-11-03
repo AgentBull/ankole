@@ -60,20 +60,23 @@ defmodule Ankole.Sessions.AmbientCuration do
   def record_judgment_in_tx(key, signal_id, route, attrs) do
     with %Signal{} = event <- Ankole.Signals.get_signal!(signal_id),
          :ok <- Ankole.Sessions.Admission.authorize_new_work_in_tx(event) do
-      lock_and_commit_judgment(key, signal_id, route, attrs)
+      lock_and_commit_judgment(key, event, route, attrs)
     else
       nil -> {:error, :signal_not_found}
       error -> error
     end
   end
 
-  defp lock_and_commit_judgment(key, signal_id, route, attrs) do
+  defp lock_and_commit_judgment(key, snapshot, route, attrs) do
     locked_handoff_job = lock_handoff_job(key, route)
+
+    if snapshot.reply_binding_id,
+      do: Ankole.Signals.share_binding_in_tx(snapshot.reply_binding_id)
 
     sessions = [{key.agent_uid, key.session_id}] ++ handoff_session(locked_handoff_job)
 
     with :ok <- Queue.lock_sessions_in_tx(sessions),
-         {:ok, event} <- locked_ambient_event(key, signal_id) do
+         {:ok, event} <- locked_ambient_event(key, snapshot.id) do
       case AmbientJudgment
            |> Ash.Query.filter(signal_id == ^event.id)
            |> Ankole.Ash.read_one!() do

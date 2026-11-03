@@ -127,7 +127,8 @@ defmodule Ankole.DockerWorkerStorageIntegrationTest do
     assert output =~ "delayed-command-refused"
   end
 
-  test "Home survives container deletion and an image change; rebuild drops only cache; storage deletion drops both volumes" do
+  test "Home survives container deletion and an image change; rebuild drops only cache; storage deletion drops both volumes",
+       %{tenant: tenant} do
     image = System.fetch_env!("ANKOLE_WORKER_PROVIDER_TEST_IMAGE")
     socket = System.get_env("ANKOLE_WORKER_PROVIDER_TEST_SOCKET", "/var/run/docker.sock")
     uid = "storage-#{System.unique_integer([:positive])}"
@@ -158,6 +159,7 @@ defmodule Ankole.DockerWorkerStorageIntegrationTest do
     build_dir = Path.join(System.tmp_dir!(), installation)
 
     on_exit(fn ->
+      Repo.put_tenant_id(tenant.id)
       remove_instances(provider, uid)
       assert {:ok, nil} = Docker.delete_storage(provider, uid, nil)
       System.cmd("docker", ["image", "rm", next_image], stderr_to_stdout: true)

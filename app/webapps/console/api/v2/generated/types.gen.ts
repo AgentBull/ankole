@@ -19,7 +19,7 @@ export type BrainSource = {
     /**
      * Field included by default.
      */
-    default_audience_scope?: string | null
+    default_source_node_id?: string | null
     /**
      * Field included by default.
      */
@@ -63,6 +63,10 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
   config_ref: string
   /**
    * Field included by default.
@@ -81,7 +85,7 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
-  routing_mode: 'ai_colleague' | 'sender_personal_assistant'
+  routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
   /**
    * Field included by default.
    */
@@ -100,50 +104,10 @@ export type SignalBindingType = {
    * Field included by default.
    */
   unmatched_sender_policy: 'manual_review' | 'create_standalone'
-}
-
-/**
- * A "Resource object" representing a brain_object_version
- */
-export type BrainObjectVersion = {
   /**
-   * An attributes object for a brain_object_version
+   * Field included by default.
    */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    author?: {
-      tenant_id: string
-      uid: string
-    } | null
-    /**
-     * Field included by default.
-     */
-    body: string
-    /**
-     * Field included by default.
-     */
-    meta: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    snapshot_at: string
-    /**
-     * Field included by default.
-     */
-    tags: Array<string>
-  }
-  id: string
-  /**
-   * A relationships object for a brain_object_version
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
+  watched_field_ids?: Array<string> | null
 }
 
 /**
@@ -232,7 +196,14 @@ export type AutomationJob = {
     /**
      * Field included by default.
      */
-    agent_uid: string
+    action_key?: string | null
+    /**
+     * Field included by default.
+     */
+    agent_uid?: string | null
+    /**
+     * Field included by default.
+     */
     authorization_kind?: string | null
     /**
      * Field included by default.
@@ -241,9 +212,27 @@ export type AutomationJob = {
     /**
      * Field included by default.
      */
-    drive_prefix: string
+    concurrency_mode: 'parallel' | 'serial_fifo' | 'serial_coalesce'
+    /**
+     * Field included by default.
+     */
+    config: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    drive_prefix?: string | null
+    /**
+     * Field included by default.
+     */
+    executor_kind: 'agent_script' | 'applet_function'
     human_access_version?: number | null
     human_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    idempotent: boolean
     /**
      * Field included by default.
      */
@@ -252,11 +241,18 @@ export type AutomationJob = {
      * Field included by default.
      */
     label: string
-    legacy_directory_path?: string | null
     /**
      * Field included by default.
      */
-    owner_session_id: string
+    max_slices: number
+    /**
+     * Field included by default.
+     */
+    owner_session_id?: string | null
+    /**
+     * Field included by default.
+     */
+    page_id?: string | null
     /**
      * Field included by default.
      */
@@ -281,6 +277,10 @@ export type AutomationJob = {
      * Field included by default.
      */
     status: 'active' | 'cancelled'
+    /**
+     * Field included by default.
+     */
+    unavailable_reason?: string | null
     /**
      * Field included by default.
      */
@@ -449,6 +449,8 @@ export type BrainMergeSuggestion = {
      * Field included by default.
      */
     a_page?: {
+      page_id: string
+      pod_url?: string | null
       slug: string
       title?: string | null
       type?: string | null
@@ -457,6 +459,8 @@ export type BrainMergeSuggestion = {
      * Field included by default.
      */
     b_page?: {
+      page_id: string
+      pod_url?: string | null
       slug: string
       title?: string | null
       type?: string | null
@@ -496,10 +500,6 @@ export type WebhookEndpoint = {
      * Field included by default.
      */
     agent_uid?: string | null
-    /**
-     * Field included by default.
-     */
-    automation_job_id?: number | null
     /**
      * Field included by default.
      */
@@ -693,6 +693,26 @@ export type PermissionGrant = {
 }
 
 /**
+ * A "Resource object" representing a applet_job_operation
+ */
+export type AppletJobOperation = {
+  /**
+   * An attributes object for a applet_job_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a applet_job_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a agent_skill_lesson
  */
 export type AgentSkillLesson = {
@@ -752,6 +772,26 @@ export type AgentSkillLesson = {
   id: string
   /**
    * A relationships object for a agent_skill_lesson
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a meta_agent
+ */
+export type MetaAgent = {
+  /**
+   * An attributes object for a meta_agent
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_agent
    */
   relationships?: {
     [key: string]: never
@@ -938,6 +978,10 @@ export type SignalBinding = {
     /**
      * Field included by default.
      */
+    automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
     config_ref: string
     /**
      * Field included by default.
@@ -956,7 +1000,7 @@ export type SignalBinding = {
     /**
      * Field included by default.
      */
-    routing_mode: 'ai_colleague' | 'sender_personal_assistant'
+    routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
     /**
      * Field included by default.
      */
@@ -975,6 +1019,10 @@ export type SignalBinding = {
      * Field included by default.
      */
     unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    /**
+     * Field included by default.
+     */
+    watched_field_ids?: Array<string> | null
   }
   id: string
   /**
@@ -1298,6 +1346,8 @@ export type BrainMergeSuggestionType = {
    * Field included by default.
    */
   a_page?: {
+    page_id: string
+    pod_url?: string | null
     slug: string
     title?: string | null
     type?: string | null
@@ -1306,6 +1356,8 @@ export type BrainMergeSuggestionType = {
    * Field included by default.
    */
   b_page?: {
+    page_id: string
+    pod_url?: string | null
     slug: string
     title?: string | null
     type?: string | null
@@ -1373,15 +1425,11 @@ export type BrainObject = {
     /**
      * Field included by default.
      */
-    effective_date?: string | null
+    pod_url?: string | null
     /**
      * Field included by default.
      */
-    managed_by_source_id?: string | null
-    /**
-     * Field included by default.
-     */
-    slug: string
+    slug?: string | null
     /**
      * Field included by default.
      */
@@ -1389,15 +1437,15 @@ export type BrainObject = {
     /**
      * Field included by default.
      */
-    title: string
+    title?: string | null
     /**
      * Field included by default.
      */
-    type: string
+    type?: string | null
     /**
      * Field included by default.
      */
-    updated_at: string
+    updated_at?: string | null
   }
   id: string
   /**
@@ -1452,6 +1500,26 @@ export type Principal = {
   id: string
   /**
    * A relationships object for a principal
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a meta_brain
+ */
+export type MetaBrain = {
+  /**
+   * An attributes object for a meta_brain
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_brain
    */
   relationships?: {
     [key: string]: never
@@ -1534,7 +1602,7 @@ export type BrainSourceType = {
   /**
    * Field included by default.
    */
-  default_audience_scope?: string | null
+  default_source_node_id?: string | null
   /**
    * Field included by default.
    */
@@ -1691,41 +1759,6 @@ export type AgentSkillLessonType = {
   skill_name: string
 }
 
-export type BrainObjectType = {
-  /**
-   * Field included by default.
-   */
-  deleted_at?: string | null
-  /**
-   * Field included by default.
-   */
-  effective_date?: string | null
-  /**
-   * Field included by default.
-   */
-  managed_by_source_id?: string | null
-  /**
-   * Field included by default.
-   */
-  slug: string
-  /**
-   * Field included by default.
-   */
-  subtype?: string | null
-  /**
-   * Field included by default.
-   */
-  title: string
-  /**
-   * Field included by default.
-   */
-  type: string
-  /**
-   * Field included by default.
-   */
-  updated_at: string
-}
-
 /**
  * A "Resource object" representing a console_readiness_operation
  */
@@ -1751,10 +1784,6 @@ export type WebhookEndpointType = {
    * Field included by default.
    */
   agent_uid?: string | null
-  /**
-   * Field included by default.
-   */
-  automation_job_id?: number | null
   /**
    * Field included by default.
    */
@@ -1835,10 +1864,6 @@ export type BrainClaimType = {
   /**
    * Field included by default.
    */
-  audience_scope: string
-  /**
-   * Field included by default.
-   */
   author?: {
     tenant_id: string
     uid: string
@@ -1890,10 +1915,6 @@ export type BrainClaimType = {
   /**
    * Field included by default.
    */
-  object_slug?: string | null
-  /**
-   * Field included by default.
-   */
   provenance: string
   /**
    * Field included by default.
@@ -1911,6 +1932,14 @@ export type BrainClaimType = {
    * Field included by default.
    */
   since_date?: string | null
+  /**
+   * Field included by default.
+   */
+  source_node_id: string
+  /**
+   * Field included by default.
+   */
+  subject_page_id?: string | null
   /**
    * Field included by default.
    */
@@ -2254,14 +2283,6 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  automation_job_id?: number | null
-  /**
-   * Field included by default.
-   */
-  automation_job_run_id?: number | null
-  /**
-   * Field included by default.
-   */
   binding_name?: string | null
   /**
    * Field included by default.
@@ -2384,6 +2405,10 @@ export type AutomationJobRun = {
      * Field included by default.
      */
     automation_job_id: number
+    binding_id?: string | null
+    causation_id?: string | null
+    concurrency_key: string
+    correlation_id?: string | null
     /**
      * Field included by default.
      */
@@ -2399,6 +2424,28 @@ export type AutomationJobRun = {
      * Field included by default.
      */
     finished_at?: string | null
+    /**
+     * Field included by default.
+     */
+    last_published_revision?: number | null
+    /**
+     * Field included by default.
+     */
+    progress: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    result?: unknown | null
+    /**
+     * Field included by default.
+     */
+    signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    slice_count: number
     /**
      * Field included by default.
      */
@@ -2447,10 +2494,6 @@ export type BrainClaim = {
      * Field included by default.
      */
     active?: boolean | null
-    /**
-     * Field included by default.
-     */
-    audience_scope: string
     /**
      * Field included by default.
      */
@@ -2505,10 +2548,6 @@ export type BrainClaim = {
     /**
      * Field included by default.
      */
-    object_slug?: string | null
-    /**
-     * Field included by default.
-     */
     provenance: string
     /**
      * Field included by default.
@@ -2526,6 +2565,14 @@ export type BrainClaim = {
      * Field included by default.
      */
     since_date?: string | null
+    /**
+     * Field included by default.
+     */
+    source_node_id: string
+    /**
+     * Field included by default.
+     */
+    subject_page_id?: string | null
     /**
      * Field included by default.
      */
@@ -2693,14 +2740,6 @@ export type ScheduledEvent = {
      */
     agent_uid: string
     authorization_kind?: string | null
-    /**
-     * Field included by default.
-     */
-    automation_job_id?: number | null
-    /**
-     * Field included by default.
-     */
-    automation_job_run_id?: number | null
     /**
      * Field included by default.
      */
@@ -3091,6 +3130,26 @@ export type AgentType = {
 }
 
 /**
+ * A "Resource object" representing a event_binding_operation
+ */
+export type EventBindingOperation = {
+  /**
+   * An attributes object for a event_binding_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a event_binding_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a agent_model_configuration
  */
 export type AgentModelConfiguration = {
@@ -3159,6 +3218,26 @@ export type OidcLogoutDelivery = {
   id: string
   /**
    * A relationships object for a oidc_logout_delivery
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a meta_library
+ */
+export type MetaLibrary = {
+  /**
+   * An attributes object for a meta_library
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_library
    */
   relationships?: {
     [key: string]: never
@@ -3546,24 +3625,26 @@ export type SetGlobalLibraryPluginResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -4157,108 +4238,6 @@ export type UpdatePermissionGrantResponses = {
 
 export type UpdatePermissionGrantResponse = UpdatePermissionGrantResponses[keyof UpdatePermissionGrantResponses]
 
-export type ReplaceAgentLibraryDocumentData = {
-  /**
-   * Request body for the replace_agent_library_document operation on agent_library_console resource
-   */
-  body: {
-    data: {
-      content: string
-      expected_content_hash: string
-    }
-  }
-  path: {
-    document_kind: string
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v2/agents/{agent_uid}/library-documents/{document_kind}'
-}
-
-export type ReplaceAgentLibraryDocumentErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ReplaceAgentLibraryDocumentError =
-  ReplaceAgentLibraryDocumentErrors[keyof ReplaceAgentLibraryDocumentErrors]
-
-export type ReplaceAgentLibraryDocumentResponses = {
-  /**
-   * Success
-   */
-  200: {
-    library_document: {
-      content: string
-      content_hash: string
-      kind: string
-    }
-  }
-}
-
-export type ReplaceAgentLibraryDocumentResponse =
-  ReplaceAgentLibraryDocumentResponses[keyof ReplaceAgentLibraryDocumentResponses]
-
-export type ListBrainObjectVersionsData = {
-  body?: never
-  path?: never
-  query: {
-    /**
-     * Paginates the response with the limit and offset or keyset pagination.
-     */
-    page?: {
-      after?: string
-      before?: string
-      limit?: number
-    }
-    /**
-     * Relationship paths to include in the response
-     */
-    include?: string
-    /**
-     * Limits the response fields to only those listed for each type
-     */
-    fields?: {
-      /**
-       * Comma separated field names for brain_object_version
-       */
-      brain_object_version?: string
-      [key: string]: unknown
-    }
-    slug: string
-  }
-  url: '/api/v2/brain/object-versions'
-}
-
-export type ListBrainObjectVersionsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ListBrainObjectVersionsError = ListBrainObjectVersionsErrors[keyof ListBrainObjectVersionsErrors]
-
-export type ListBrainObjectVersionsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    /**
-     * An array of resource objects representing a brain_object_version
-     */
-    data?: Array<BrainObjectVersion>
-    included?: Array<unknown>
-    meta?: {
-      [key: string]: unknown
-    }
-  }
-}
-
-export type ListBrainObjectVersionsResponse = ListBrainObjectVersionsResponses[keyof ListBrainObjectVersionsResponses]
-
 export type ListDefaultModelProfilesData = {
   body?: never
   path?: never
@@ -4572,7 +4551,6 @@ export type ListBrainPrincipalKnowledgeResponses = {
   200: {
     claims: Array<{
       active?: boolean | null
-      audience_scope: string
       author?: {
         tenant_id: string
         uid: string
@@ -4590,13 +4568,14 @@ export type ListBrainPrincipalKnowledgeResponses = {
       id: string
       kind?: string | null
       notability?: string | null
-      object_slug?: string | null
       provenance?: string | null
       resolved_at?: string | null
       resolved_by?: string | null
       resolved_outcome?: boolean | null
       resolved_quality?: string | null
       since_date?: string | null
+      source_node_id: string
+      subject_page_id?: string | null
       superseded_by?: string | null
       until_date?: string | null
       valid_from?: string | null
@@ -4652,12 +4631,12 @@ export type SupersedeBrainClaimData = {
    */
   body: {
     data: {
-      audience_scope?: string | null
       claim: string
       confidence?: number | null
       kind?: string | null
       notability?: string | null
       provenance?: string | null
+      source_node_id?: string | null
       weight?: number | null
     }
   }
@@ -4692,7 +4671,7 @@ export type ApproveBrainMergeSuggestionData = {
    */
   body?: {
     data: {
-      canonical_slug?: string | null
+      canonical_page_id?: string | null
     }
   }
   path: {
@@ -4806,16 +4785,15 @@ export type PreviewBrainSearchResponses = {
   201: {
     result: {
       chunks: Array<{
-        audience_scope: string
         chunk_index: number
         content_kind?: string | null
-        object_slug: string
+        source_node_id: string
+        subject_page_id?: string | null
         text: string
         title: string
         type: string
       }>
       claims: Array<{
-        audience_scope: string
         claim: string
         claim_type: string
         confidence?: number | null
@@ -4824,9 +4802,10 @@ export type PreviewBrainSearchResponses = {
         id: string
         kind?: string | null
         notability?: string | null
-        object_slug?: string | null
         provenance?: string | null
         since_date?: string | null
+        source_node_id: string
+        subject_page_id?: string | null
         until_date?: string | null
         valid_from?: string | null
         valid_until?: string | null
@@ -5220,9 +5199,9 @@ export type SetAgentLibrarySkillData = {
   /**
    * Request body for the set_agent_library_skill operation on agent_library_console resource
    */
-  body?: {
+  body: {
     data: {
-      enabled?: boolean | null
+      enabled: boolean
     }
   }
   path: {
@@ -5255,24 +5234,26 @@ export type SetAgentLibrarySkillResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -5386,100 +5367,11 @@ export type ShowBrainObjectResponses = {
       type: string
     }> | null
     object?: {
-      body: string
-      content_hash?: string | null
-      contradictions: Array<{
-        axis?: string | null
-        claim_id: string
-        counterpart: {
-          claim: string
-          holder?: string | null
-          id: string
-        }
-        id: string
-        severity: string
-        verdict: string
-      }>
-      deleted: boolean
-      edit_block_reason?: string | null
-      editable: boolean
-      effective_date?: string | null
-      facts: Array<{
-        audience_scope: string
-        author?: {
-          tenant_id: string
-          uid: string
-        } | null
-        claim: string
-        confidence?: number | null
-        expired_at?: string | null
-        holder?: string | null
-        id: string
-        kind?: string | null
-        notability?: string | null
-        provenance?: string | null
-        superseded_by?: string | null
-        valid_from?: string | null
-        valid_until?: string | null
-      }>
-      library_managed?: boolean | null
-      links: {
-        incoming: Array<{
-          context?: string | null
-          from: string
-          link_type: string
-        }>
-        outgoing: Array<{
-          context?: string | null
-          link_type: string
-          to: string
-        }>
-      }
-      meta: {
-        [key: string]: unknown
-      }
-      rendered: string
+      page_id: string
+      pod_url: string
+      revision: number
       slug: string
-      subtype?: string | null
-      tags: Array<string>
-      takes: Array<{
-        active?: boolean | null
-        audience_scope: string
-        author?: {
-          tenant_id: string
-          uid: string
-        } | null
-        claim: string
-        graded_at?: string | null
-        graded_by?: string | null
-        graded_confidence?: number | null
-        graded_quality?: string | null
-        holder?: string | null
-        id: string
-        kind?: string | null
-        provenance?: string | null
-        resolved_at?: string | null
-        resolved_by?: string | null
-        resolved_outcome?: boolean | null
-        resolved_quality?: string | null
-        since_date?: string | null
-        superseded_by?: string | null
-        until_date?: string | null
-        weight?: number | null
-      }>
-      timelines: Array<{
-        audience_scope: string
-        author?: {
-          tenant_id: string
-          uid: string
-        } | null
-        date: string
-        detail?: string | null
-        event_object_slug?: string | null
-        id: string
-        provenance?: string | null
-        summary: string
-      }>
+      summary: string
       title: string
       type: string
     } | null
@@ -5652,7 +5544,7 @@ export type SetGlobalLibrarySkillData = {
    */
   body: {
     data: {
-      defaults_scope: 'global' | 'tenant'
+      base_revision: number
       enabled: boolean
     }
   }
@@ -5685,63 +5577,32 @@ export type SetGlobalLibrarySkillResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
 }
 
 export type SetGlobalLibrarySkillResponse = SetGlobalLibrarySkillResponses[keyof SetGlobalLibrarySkillResponses]
-
-export type ForgetBrainObjectData = {
-  /**
-   * Request body for the forget_brain_object operation on brain_object resource
-   */
-  body: {
-    data: {
-      reason?: string | null
-      slug: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/brain/objects/forget'
-}
-
-export type ForgetBrainObjectErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ForgetBrainObjectError = ForgetBrainObjectErrors[keyof ForgetBrainObjectErrors]
-
-export type ForgetBrainObjectResponses = {
-  /**
-   * Success
-   */
-  201: BrainObjectType
-}
-
-export type ForgetBrainObjectResponse = ForgetBrainObjectResponses[keyof ForgetBrainObjectResponses]
 
 export type DeleteDefaultModelProfileData = {
   body?: never
@@ -5928,7 +5789,7 @@ export type ListBrainClaimsData = {
       brain_claim?: string
       [key: string]: unknown
     }
-    object_slug?: string
+    subject_page_id?: string
     claim_type?: 'fact' | 'take'
     status?: 'current'
     search?: string
@@ -6687,38 +6548,6 @@ export type ListSystemPrincipalsResponses = {
 }
 
 export type ListSystemPrincipalsResponse = ListSystemPrincipalsResponses[keyof ListSystemPrincipalsResponses]
-
-export type RestoreBrainObjectData = {
-  /**
-   * Request body for the restore_brain_object operation on brain_object resource
-   */
-  body: {
-    data: {
-      slug: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/brain/objects/restore'
-}
-
-export type RestoreBrainObjectErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type RestoreBrainObjectError = RestoreBrainObjectErrors[keyof RestoreBrainObjectErrors]
-
-export type RestoreBrainObjectResponses = {
-  /**
-   * Success
-   */
-  201: BrainObjectType
-}
-
-export type RestoreBrainObjectResponse = RestoreBrainObjectResponses[keyof RestoreBrainObjectResponses]
 
 export type UpdateAppConfigurationGroupData = {
   /**
@@ -7600,22 +7429,12 @@ export type ListAgentLibraryDocumentsResponses = {
    */
   200: {
     library_documents: {
-      confidentiality_policy: {
+      agents: {
         content: string
         content_hash: string
         kind: string
       }
       design: {
-        content: string
-        content_hash: string
-        kind: string
-      }
-      mission: {
-        content: string
-        content_hash: string
-        kind: string
-      }
-      soul: {
         content: string
         content_hash: string
         kind: string
@@ -8177,24 +7996,26 @@ export type GetAgentLibraryCapabilitiesResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -8547,88 +8368,6 @@ export type ListBrainObjectsResponses = {
 
 export type ListBrainObjectsResponse = ListBrainObjectsResponses[keyof ListBrainObjectsResponses]
 
-export type UpdateBrainObjectData = {
-  /**
-   * Request body for the update_brain_object operation on brain_object resource
-   */
-  body: {
-    data: {
-      body: string
-      effective_date?: string | null
-      expected_content_hash: string
-      meta: {
-        [key: string]: unknown
-      }
-      slug: string
-      subtype?: string | null
-      tags?: Array<string> | null
-      title: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/brain/objects'
-}
-
-export type UpdateBrainObjectErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type UpdateBrainObjectError = UpdateBrainObjectErrors[keyof UpdateBrainObjectErrors]
-
-export type UpdateBrainObjectResponses = {
-  /**
-   * Success
-   */
-  200: BrainObjectType
-}
-
-export type UpdateBrainObjectResponse = UpdateBrainObjectResponses[keyof UpdateBrainObjectResponses]
-
-export type CreateBrainObjectData = {
-  /**
-   * Request body for the create_brain_object operation on brain_object resource
-   */
-  body: {
-    data: {
-      body: string
-      effective_date?: string | null
-      meta: {
-        [key: string]: unknown
-      }
-      slug: string
-      subtype?: string | null
-      tags?: Array<string> | null
-      title: string
-      type: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/brain/objects'
-}
-
-export type CreateBrainObjectErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type CreateBrainObjectError = CreateBrainObjectErrors[keyof CreateBrainObjectErrors]
-
-export type CreateBrainObjectResponses = {
-  /**
-   * Success
-   */
-  201: BrainObjectType
-}
-
-export type CreateBrainObjectResponse = CreateBrainObjectResponses[keyof CreateBrainObjectResponses]
-
 export type PutDefaultProviderHostedData = {
   /**
    * Request body for the put_default_provider_hosted operation on agent_model_configuration resource
@@ -8676,38 +8415,6 @@ export type PutDefaultProviderHostedResponses = {
 
 export type PutDefaultProviderHostedResponse =
   PutDefaultProviderHostedResponses[keyof PutDefaultProviderHostedResponses]
-
-export type ForkBrainObjectData = {
-  /**
-   * Request body for the fork_brain_object operation on brain_object resource
-   */
-  body: {
-    data: {
-      slug: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/brain/objects/fork'
-}
-
-export type ForkBrainObjectErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ForkBrainObjectError = ForkBrainObjectErrors[keyof ForkBrainObjectErrors]
-
-export type ForkBrainObjectResponses = {
-  /**
-   * Success
-   */
-  201: BrainObjectType
-}
-
-export type ForkBrainObjectResponse = ForkBrainObjectResponses[keyof ForkBrainObjectResponses]
 
 export type RunCronScheduleData = {
   /**
@@ -8900,24 +8607,26 @@ export type SetAgentLibraryPluginResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -9519,7 +9228,7 @@ export type UpdateBrainSourceData = {
    */
   body?: {
     data: {
-      scope?: string | null
+      source_node_id?: string | null
     }
   }
   path: {
@@ -9831,39 +9540,6 @@ export type BindIdentityMappingRequestResponses = {
 
 export type BindIdentityMappingRequestResponse =
   BindIdentityMappingRequestResponses[keyof BindIdentityMappingRequestResponses]
-
-export type RollbackBrainObjectData = {
-  /**
-   * Request body for the rollback_brain_object operation on brain_object resource
-   */
-  body: {
-    data: {
-      slug: string
-      version_id: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/brain/objects/rollback'
-}
-
-export type RollbackBrainObjectErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type RollbackBrainObjectError = RollbackBrainObjectErrors[keyof RollbackBrainObjectErrors]
-
-export type RollbackBrainObjectResponses = {
-  /**
-   * Success
-   */
-  201: BrainObjectType
-}
-
-export type RollbackBrainObjectResponse = RollbackBrainObjectResponses[keyof RollbackBrainObjectResponses]
 
 export type ListPrincipalGroupsData = {
   body?: never
@@ -10449,24 +10125,26 @@ export type GetGlobalLibraryCapabilitiesResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -11098,7 +10776,7 @@ export type CreateDriveNodeData = {
    */
   body: {
     data: {
-      kind?: 'folder' | 'file' | null
+      kind?: 'doc' | 'knowledge' | 'file' | null
       name: string
       parent_id: string
     }
@@ -11419,7 +11097,7 @@ export type CreateBrainSourceData = {
       config?: {
         [key: string]: unknown
       } | null
-      default_audience_scope?: string | null
+      default_source_node_id?: string | null
       kind: string
       name: string
       upstream_id: string

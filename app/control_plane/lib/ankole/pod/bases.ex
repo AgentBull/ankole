@@ -26,7 +26,7 @@ defmodule Ankole.Pod.Bases do
       table.record_count <= @inline_max_rows and
         (table.storage_mode == :physical or table.record_bytes <= @inline_max_bytes)
 
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
 
   alias Ankole.Pod.{
     BaseRepo,
@@ -122,28 +122,31 @@ defmodule Ankole.Pod.Bases do
   end
 
   def list_tables(%Ankole.AuthZ.Actor{} = actor, page_id) do
-    Repo.transact_top_level(fn ->
-      with {:ok, %{type: :base}} <- Pages.authorize(actor, page_id, "node_view") do
-        tables =
-          BaseTable
-          |> Ash.Query.filter(page_id == ^page_id and is_nil(deleting_at))
-          |> Ash.Query.sort(id: :asc)
-          |> Ash.Query.lock("FOR KEY SHARE")
-          |> Ankole.Ash.read!()
+    Repo.transact_top_level(fn -> list_tables_in_tx(actor, page_id) end)
+  end
 
-        result =
-          if Enum.any?(tables, &(&1.storage_mode == :physical)) do
-            BaseRepo.run(BaseRepo.shard!(), fn -> Physical.refresh(tables) end, read_only: true)
-          else
-            {:ok, tables}
-          end
+  @doc false
+  def list_tables_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id) do
+    with {:ok, %{type: :base}} <- Pages.authorize(actor, page_id, "node_view") do
+      tables =
+        BaseTable
+        |> Ash.Query.filter(page_id == ^page_id and is_nil(deleting_at))
+        |> Ash.Query.sort(id: :asc)
+        |> Ash.Query.lock("FOR KEY SHARE")
+        |> Ankole.Ash.read!()
 
-        with {:ok, tables} <- result, do: {:ok, %{tables: Enum.sort_by(tables, & &1.position)}}
-      else
-        {:ok, _} -> {:error, :invalid_page_type}
-        error -> error
-      end
-    end)
+      result =
+        if Enum.any?(tables, &(&1.storage_mode == :physical)) do
+          BaseRepo.run(BaseRepo.shard!(), fn -> Physical.refresh(tables) end, read_only: true)
+        else
+          {:ok, tables}
+        end
+
+      with {:ok, tables} <- result, do: {:ok, %{tables: Enum.sort_by(tables, & &1.position)}}
+    else
+      {:ok, _} -> {:error, :invalid_page_type}
+      error -> error
+    end
   end
 
   def create_table(%Ankole.AuthZ.Actor{} = actor, page_id, attrs, authority \\ nil) do
@@ -232,6 +235,13 @@ defmodule Ankole.Pod.Bases do
     end)
   end
 
+  @doc "Reads a VFS projection within one table snapshot, including physical shard batches."
+  def vfs_read_in_tx(actor, id, fun) do
+    query_transaction(actor, id, fn table, _limits, definitions, context ->
+      fun.(table, definitions, context.views)
+    end)
+  end
+
   defp query_capabilities, do: __MODULE__.Capabilities.query_capabilities()
 
   defp local_snapshot?(table, fields),
@@ -282,6 +292,8 @@ defmodule Ankole.Pod.Bases do
   defdelegate update_view(actor, id, attrs, authority \\ nil), to: Ankole.Pod.Bases.Schema
   defdelegate delete_view(actor, id, version, authority \\ nil), to: Ankole.Pod.Bases.Schema
 
+  defdelegate configure_table(actor, id, attrs), to: Ankole.Pod.Bases.Schema
+
   def write_records(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
     authority = authority || actor.turn_authority
 
@@ -299,10 +311,11 @@ defmodule Ankole.Pod.Bases do
   end
 
   @doc false
-  def write_records_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+  def write_records_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs, opts \\ []) do
     with {:ok, write} <- Write.open(actor, id),
          {:ok, attrs} <- Records.prepare(write, attrs),
-         {:ok, result} <- write_batch(write, attrs),
+         {:ok, result} <-
+           write_batch(write, Map.put(attrs, :vfs_replay, Keyword.get(opts, :vfs_replay, false))),
          do: {:ok, %{table_id: write.table.id, result: result}}
   end
 
@@ -324,7 +337,14 @@ defmodule Ankole.Pod.Bases do
   end
 
   @doc "Publishes committed record changes to the table rooms."
-  def committed_records(%{table_id: id, result: result}), do: broadcast_result(id, result)
+  def committed_records(%{table_id: id, result: result}) do
+    if result.changed_ids != [] or result.deleted_ids != [] or result.resync do
+      Ankole.Pod.Bases.Outbox.wake()
+      broadcast_result(id, result)
+    end
+
+    :ok
+  end
 
   @doc "Publishes committed schema changes to the table rooms."
   def committed_schema(%{changed: changed} = result) do
@@ -362,7 +382,7 @@ defmodule Ankole.Pod.Bases do
       |> Ankole.Ash.read!()
 
     page_ids = Enum.map(tables, & &1.page_id)
-    visible = Ankole.Files.visible_node_ids(reachable, page_ids) |> MapSet.new()
+    visible = Ankole.Pod.visible_node_ids(reachable, page_ids) |> MapSet.new()
 
     tables = Enum.filter(tables, &MapSet.member?(visible, &1.page_id))
     {physical, inline} = Enum.split_with(tables, &(&1.storage_mode == :physical))
@@ -468,16 +488,32 @@ defmodule Ankole.Pod.Bases do
   end
 
   def broadcast_schema(changes) do
-    Enum.each(changes, &notify(&1.id, "schema_changed", %{data_version: &1.data_version}))
+    Enum.each(changes, fn change ->
+      notify(
+        change.id,
+        "schema_changed",
+        %{data_version: change.data_version},
+        Map.get(change, :page_id)
+      )
+    end)
   end
 
-  defp notify(id, event, payload),
-    do:
-      Phoenix.PubSub.broadcast(
-        Ankole.PubSub,
-        "pod-room:table:" <> id,
-        {:room_event, event, payload}
-      )
+  defp notify(id, event, payload, page_id \\ nil) do
+    Phoenix.PubSub.broadcast(
+      Ankole.PubSub,
+      "pod-room:table:" <> id,
+      {:room_event, event, payload}
+    )
+
+    if page_id do
+      Ankole.Pod.Pages.Tree.content_committed(%{id: page_id})
+    else
+      case fetch_table(id) do
+        {:ok, table} -> Ankole.Pod.Pages.Tree.content_committed(%{id: table.page_id})
+        {:error, :not_found} -> :ok
+      end
+    end
+  end
 end
 
 defmodule Ankole.Pod.Bases.Capabilities do
@@ -487,16 +523,5 @@ defmodule Ankole.Pod.Bases.Capabilities do
   @raw_sql_scope :site
 
   @doc "Tells which local query semantics match the database collation."
-  def query_capabilities do
-    [[collation, ctype, provider]] =
-      Ankole.Repo.query!(
-        "SELECT datcollate,datctype,datlocprovider::text FROM pg_database WHERE datname=current_database()",
-        []
-      ).rows
-
-    %{
-      text_contains_ascii: provider == "c" and ctype in ["C", "POSIX"],
-      jsonb_compare: provider == "c" and collation in ["C", "POSIX", "C.UTF-8", "C.utf8"]
-    }
-  end
+  defdelegate query_capabilities(), to: Ankole.Pod.BaseCluster
 end

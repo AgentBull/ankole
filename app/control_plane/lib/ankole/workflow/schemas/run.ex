@@ -153,12 +153,6 @@ defmodule Ankole.Workflow.Schemas.Run do
     calculate(:result_output_bytes, :integer, expr(fragment("octet_length(?)", result_text)))
   end
 
-  aggregates do
-    count :running_call_count, :agent_calls do
-      filter(expr(status == :running))
-    end
-  end
-
   state_machine do
     state_attribute(:status)
     initial_states([:running])

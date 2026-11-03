@@ -28,7 +28,7 @@ defmodule Ankole.Sessions.ScheduledTest do
       {:ok, external} =
         Repo.transact(fn ->
           Ankole.Signals.accept_in_tx(%{
-            source: "control-plane://schedule/check_back_later",
+            source: "ankole:schedule:#{scheduled.id}",
             id: "check_back_later:#{scheduled.id}:wakeup",
             type: "check_back_later.wakeup",
             data: %{"external" => "unchanged"},
@@ -56,7 +56,7 @@ defmodule Ankole.Sessions.ScheduledTest do
       assert Scheduled.produced_signal?(checkback.signal)
 
       for result <- [cron, checkback] do
-        assert result.scheduled_event.signal_id == result.signal.id
+        assert result.scheduled_event.signal_id == Ankole.Signals.root_signal_id(result.signal.id)
         assert Scheduled.produced_signal?(Repo.get!(Signal, result.signal.id))
       end
     end

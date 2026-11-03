@@ -791,6 +791,12 @@ defmodule Ankole.AIGateway.Providers do
        when is_integer(value),
        do: {:cont, :ok}
 
+  defp validate_setting_value(%Setting{type: :string}, _key, value, _error_tag)
+       when is_binary(value), do: {:cont, :ok}
+
+  defp validate_setting_value(%Setting{type: :float}, _key, value, _error_tag)
+       when is_number(value), do: {:cont, :ok}
+
   defp validate_setting_value(%Setting{type: :map}, _key, value, _error_tag)
        when is_map(value),
        do: {:cont, :ok}
@@ -801,7 +807,7 @@ defmodule Ankole.AIGateway.Providers do
   defp validate_setting_value(%Setting{type: nil}, _key, _value, _error_tag), do: {:cont, :ok}
 
   defp validate_setting_value(%Setting{type: type}, key, value, error_tag)
-       when type in [:select, :boolean, :integer, :map],
+       when type in [:select, :boolean, :integer, :float, :string, :map],
        do: {:halt, {:error, {error_tag, {:invalid_setting_type, key, type, value}}}}
 
   defp validate_setting_value(%Setting{type: type}, key, _value, error_tag),

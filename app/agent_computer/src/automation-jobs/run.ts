@@ -13,7 +13,7 @@ import { startPodCLIBridge } from '../cli/pod/pod-cli-bridge'
 import { DRIVE_CLI_SOCKET_ENV, POD_CLI_SOCKET_ENV } from '../core/execution/turn_runtime_env'
 import { Drive } from '../drive/drive'
 import { downloadFolder } from '../drive/folder-sync'
-import { materializeSkills } from '../skills/drive_skills'
+import { materializeKnowledgeSkills } from '../skills/knowledge-skills'
 import { startSocketLineBridge, type SocketLineBridge } from '../core/socket-line-bridge'
 import { prepareExecutionMaterials } from '../core/execution/execution-materials'
 import { commandEnv } from '../core/execution/command-env'
@@ -106,7 +106,17 @@ export async function runAutomationJob(
       return failedResult(`automation job main.ts is missing from ${request.drivePrefix} in the drive`)
     }
 
-    await materializeSkills(drive, paths.installedSkills, skillsRoot)
+    const materialized = await materializeKnowledgeSkills({
+      root: skillsRoot,
+      skills: request.skills,
+      rpc,
+      automationAttempt: {
+        jobId: String(request.automationJobId),
+        runId: String(request.automationJobRunId),
+        attemptId: request.attemptId
+      }
+    })
+    request = { ...request, skills: materialized.skills }
 
     signal.throwIfAborted()
     return await runPreparedJob(request, execution, { ...opts, rpc, signal, deadlineUnixMs })
@@ -149,9 +159,8 @@ async function runPreparedJob(
     skillMCPServers = await loadEnabledSkillMCPServers({
       enabledSkills: request.skills,
       skillRoots: {
-        builtinSkillsRoot: opts.config.builtinSkillsRoot,
-        agentInstalledSkillsRoot: execution.agentInstalledSkillsRoot,
-        ...(opts.config.internalSkillsRoot ? { internalSkillsRoot: opts.config.internalSkillsRoot } : {})
+        builtinSkillsRoot: execution.agentInstalledSkillsRoot,
+        agentInstalledSkillsRoot: execution.agentInstalledSkillsRoot
       }
     })
   } catch (error) {

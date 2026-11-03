@@ -55,7 +55,6 @@ import {
   type AgentCodexRuntimeSession
 } from '../runtime/agent-runtime-manager'
 import { CodexSkillUsageTracker, skillDisabledNotice } from './skill-usage'
-import { fetchReplayTurnItems, wireItemsFromTurnItems } from './thread-replay'
 import { changedWorkspacePaths, snapshotWorkspace, type WorkspaceSnapshot } from './workspace-snapshot'
 
 /**
@@ -126,9 +125,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private pendingCredentialPoolExhaustion: CodexCredentialPoolExhaustion | undefined
   private emptyReportRetries = 0
   private recreatedThreadOnResume = false
-  private replayedThreadOnResume = false
-  private legacyThreadReplay: boolean
-  private suppressRuntimeCapture = false
   private finalizing = false
   private closing = false
   private acceptingServerRequests = true
@@ -154,7 +150,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     this.runtimeThreadID = job.runtimeThreadId || undefined
     this.originalHumanRequest = stringValue(turnStart.request_context?.original_human_request)
     this.initialJobMetadata = jsonObjectFromBytes(job.metadataJson, 'Job metadata') ?? undefined
-    this.legacyThreadReplay = this.initialJobMetadata?.legacy_thread_replay === true
     const savedCompactionSeq = Number(this.initialJobMetadata?.cli_compaction_seq ?? 0)
     this.compactionSeq = Number.isSafeInteger(savedCompactionSeq) && savedCompactionSeq >= 0 ? savedCompactionSeq : 0
     this.modelProfile = codexJobModelProfile(turnStart)
@@ -169,6 +164,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       attempt: job.attempts,
       actorTurn: turnStart.turn,
       turnTrace: workerTurnTrace(turnStart, job.agentUid),
+      driveView: prepared.driveView,
       upsert: request => opts.rpc('background_agent_job.turn.upsert', request, { jobTurn: turnStart.turn })
     })
     this.done = new Promise<void>((resolve, reject) => {
@@ -281,7 +277,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
     const resumeOutcome = await this.resumeExistingThread()
     this.recreatedThreadOnResume = resumeOutcome === 'recreated'
-    this.replayedThreadOnResume = resumeOutcome === 'replayed'
     if (await this.finishClaimedFinalization()) return
     if (!this.runtimeThreadID) await this.startNewThread()
     if (await this.finishClaimedFinalization()) return
@@ -301,7 +296,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     await this.done
   }
 
-  private async resumeExistingThread(): Promise<'none' | 'resumed' | 'replayed' | 'recreated'> {
+  private async resumeExistingThread(): Promise<'none' | 'resumed' | 'recreated'> {
     if (!this.runtimeThreadID || !this.client || !this.runtimeLease) return 'none'
     if (this.shouldRecycleColdIdleThread()) {
       this.opts.logger?.info(
@@ -310,7 +305,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         { job_id: this.jobID, thread_id: this.runtimeThreadID }
       )
       await this.runtimeLease.runtime.retireRoot(this.runtimeThreadID, this)
-      this.legacyThreadReplay = false
       return this.replaceLostThread()
     }
     const resumedThreadID = this.runtimeThreadID
@@ -318,6 +312,9 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       await this.runtimeLease.runtime.resumeRoot(resumedThreadID, this, async () => {
         await this.client!.request('thread/resume', {
           ['threadId']: resumedThreadID,
+          ...(this.prepared.resumePath && resumedThreadID === this.job.runtimeThreadId
+            ? { path: this.prepared.resumePath }
+            : {}),
           cwd: this.prepared.project.root,
           runtimeWorkspaceRoots: [this.prepared.project.root],
           approvalPolicy: 'never',
@@ -360,50 +357,11 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     }
   }
 
-  /**
-   * Uses the existing workspace when native thread recovery fails. Only Jobs
-   * marked at the WorkerProvider migration can replay stored turn items.
-   */
-  private async replaceLostThread(): Promise<'replayed' | 'recreated'> {
-    if (!this.legacyThreadReplay) {
-      this.runtimeThreadID = undefined
-      await this.startNewThread()
-      return 'recreated'
-    }
-
-    let wireItems: ReturnType<typeof wireItemsFromTurnItems> = []
-    try {
-      const stored = await fetchReplayTurnItems(this.opts.rpc, this.turnStart.turn, this.jobID)
-      wireItems = wireItemsFromTurnItems(stored)
-    } catch (error) {
-      this.opts.logger?.warning(
-        'worker.codex_thread_replay_fetch_failed',
-        'stored turn items were not readable for thread replay',
-        { job_id: this.jobID, error: toError(error) }
-      )
-    }
-
+  /** Starts a replacement thread; the caller supplies bounded workspace context. */
+  private async replaceLostThread(): Promise<'recreated'> {
     this.runtimeThreadID = undefined
     await this.startNewThread()
-    if (wireItems.length === 0) return 'recreated'
-
-    this.suppressRuntimeCapture = true
-    try {
-      await this.client!.request('thread/inject_items', {
-        ['threadId']: this.runtimeThreadID,
-        items: wireItems
-      })
-    } catch (error) {
-      this.opts.logger?.warning(
-        'worker.codex_thread_replay_inject_failed',
-        'stored turn items could not be injected into the replacement thread',
-        { job_id: this.jobID, error: toError(error) }
-      )
-      return 'recreated'
-    } finally {
-      this.suppressRuntimeCapture = false
-    }
-    return 'replayed'
+    return 'recreated'
   }
 
   /**
@@ -470,17 +428,10 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           codex_app_server_pid: this.client?.processID,
           cli_compaction_seq: this.compactionSeq,
           mcp_server_names: skills.mcpServers.map(server => server.name).sort(compareCodePointStrings),
-          ...(this.legacyThreadReplay ? { legacy_thread_replay: false } : {}),
           ...(this.recreatedThreadOnResume
             ? {
                 runtime_checkpoint_recreated: true,
                 runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
-              }
-            : {}),
-          ...(this.replayedThreadOnResume
-            ? {
-                runtime_checkpoint_recreated: true,
-                runtime_checkpoint_recovery: 'replayed_from_transcript'
               }
             : {}),
           projected_tool_names: projection.dynamicTools.map(tool => tool.name),
@@ -492,7 +443,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       },
       { jobTurn: this.turnStart.turn }
     )
-    this.legacyThreadReplay = false
   }
 
   private async commit(
@@ -634,6 +584,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
   private async startCodexTurn(input: string): Promise<void> {
     if (!this.client || !this.runtimeThreadID) throw new Error('codex thread is not available')
+    await this.turnRecorder.startDriveWindow()
     this.outputText = ''
     const clientUserMessageID = turnClientUserMessageID(this.turnStart)
     const progressVersion = this.leadRuntimeProgressVersion
@@ -748,7 +699,17 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       if (this.finalizing || this.waitingOnUserInput || this.recoveryInFlight) return
     }
 
+    const driveSummary = await this.turnRecorder
+      .flushDriveWindow()
+      .catch(error => `Drive synchronization is still pending: ${String(error)}`)
     if (status === 'succeeded') {
+      if (driveSummary.includes('Drive write failed:')) {
+        await this.startCodexTurn(
+          `${driveSummary}\nResolve these Drive writes or report the saved recovery files before completing the Job.`
+        )
+        return
+      }
+      if (driveSummary) this.outputText += `\n\n${driveSummary}`
       if (!stringValue(this.outputText)) {
         if (this.emptyReportRetries < 1) {
           this.emptyReportRetries += 1
@@ -792,13 +753,15 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     if (status === 'stopped') {
       await this.commit('stopped', {
         metadata: {
-          stop_reason: stringValue(error.message) ?? 'codex_turn_interrupted'
+          stop_reason: stringValue(error.message) ?? 'codex_turn_interrupted',
+          ...(driveSummary ? { drive_sync: driveSummary } : {})
         }
       })
       return
     }
 
     this.recoveryInFlight = true
+    if (driveSummary) this.outputText += `\n\n${driveSummary}`
     try {
       const poolExhaustion = codexCredentialPoolExhaustion(error) ?? this.pendingCredentialPoolExhaustion
       if (poolExhaustion) throw new CodexCredentialPoolExhaustedError(poolExhaustion, error)
@@ -824,17 +787,11 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       }
       if (decision.action === 'replace_thread') {
         await this.turnRecorder.flush()
-        const outcome = await this.replaceLostThread()
-        await this.persistRuntimeThreadAnchor(
-          outcome === 'replayed' ? 'replayed_from_transcript' : 'new_thread_from_bounded_history'
+        await this.replaceLostThread()
+        await this.persistRuntimeThreadAnchor('new_thread_from_bounded_history')
+        await this.startCodexTurn(
+          recreatedThreadInput(this.job, retryContinuationInput(), await this.continuationSourceContext())
         )
-        if (outcome === 'replayed') {
-          await this.startCodexTurn(retryContinuationInput())
-        } else {
-          await this.startCodexTurn(
-            recreatedThreadInput(this.job, retryContinuationInput(), await this.continuationSourceContext())
-          )
-        }
         return
       }
       if (decision.action === 'durable_retry') throw durableRetryError(error)
@@ -856,10 +813,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
   handleRuntimeNotification(message: JSONRPCMessage): void {
     if (this.finalizing) return
-    // Injected replay items echo back as ordinary runtime notifications. They
-    // restate history the control plane already stores, so recording them
-    // would duplicate the turn content stream.
-    if (this.suppressRuntimeCapture) return
     const projection = projectCodexNotification(message)
     if (projection.type === 'turn_started') {
       this.turnRecorder.recordTurnStarted(jsonObject(message.params), this.declareTurnKind(projection))

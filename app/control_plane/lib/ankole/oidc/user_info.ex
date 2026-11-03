@@ -10,10 +10,12 @@ defmodule Ankole.OIDC.UserInfo do
          :ok <- origin(conn, client) do
       Repo.put_tenant_id(client.tenant_id)
 
-      with {:ok, principal, human} <- Claims.load(claims["sub"]),
-           do:
-             {:ok,
-              Map.put(Claims.project(principal, human, claims["scope"]), "sub", principal.uid)}
+      Repo.transact_top_level(fn ->
+        with {:ok, principal, human} <- Claims.load(claims["sub"]),
+             do:
+               {:ok,
+                Map.put(Claims.project(principal, human, claims["scope"]), "sub", principal.uid)}
+      end)
     end
   end
 

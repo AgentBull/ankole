@@ -90,8 +90,10 @@ defmodule Ankole.AgentWorkers.Lambda.Images do
     end
   end
 
-  # AWS lists a managed version as "1", but reports it as "1.0" on a built image.
-  defp same_base_version?(listed, built), do: listed == built or listed <> ".0" == built
+  # The managed catalog lists the major version; a built image also reports
+  # AWS's minor revision of that same base (for example, "3" and "3.1").
+  defp same_base_version?(listed, built),
+    do: listed == built or listed == hd(String.split(built, ".", parts: 2))
 
   defp patch(provider, image, current, versions) do
     case newest_available(versions) do

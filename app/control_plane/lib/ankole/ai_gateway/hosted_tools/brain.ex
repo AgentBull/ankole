@@ -506,12 +506,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
     {public, downstream}
   end
 
-  # The model receives the JSON document. A result that names lazy Skill
-  # discovery records carries the loading hint first, as the Worker tool did.
-  defp output_text(output) do
-    prefix = if Tools.lazy_skill_result?(output), do: Tools.lazy_skill_hint(), else: ""
-    prefix <> Ankole.JSON.encode!(output)
-  end
+  defp output_text(output), do: Ankole.JSON.encode!(output)
 
   defp decode_arguments(arguments) when is_map(arguments), do: arguments
 
