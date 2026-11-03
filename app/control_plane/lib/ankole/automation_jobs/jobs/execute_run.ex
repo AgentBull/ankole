@@ -7,6 +7,11 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   A wait requests an unavailable Worker and snoozes without an attempt. A timeout
   counts as an infrastructure failure. Each new attempt starts its own script
   execution budget. A finished or cancelled run ends the job without a Worker.
+
+  A request that no Worker Channel accepted is an infrastructure failure and
+  retries. A request that a channel accepted but never answered has an unknown
+  outcome: the Worker may have started the script, so the run fails without
+  another attempt.
   """
 
   use Ankole.Job,
@@ -119,6 +124,13 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
       :ok
     else
       {:error, %{"details_json" => %{"execution_started" => false}} = reason} ->
+        handle_infrastructure_failure(run, reason, oban_job)
+
+      # The directory had no channel for the route, the fence named another
+      # connection, or the channel process ended before it took the call. A
+      # channel that accepted the request answers its waiter from `terminate/2`
+      # instead, so the Worker never saw this attempt.
+      {:error, reason} when reason in [:unknown_route, :stale_route] ->
         handle_infrastructure_failure(run, reason, oban_job)
 
       {:error, reason} ->

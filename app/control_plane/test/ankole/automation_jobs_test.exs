@@ -394,6 +394,30 @@ defmodule Ankole.AutomationJobsTest do
     assert attempt_id == retry.attempt_id
   end
 
+  test "a request that no Worker Channel accepted retries instead of reporting an unknown outcome" do
+    %{principal: agent} = agent_fixture()
+    route = "automation-no-channel-#{agent.uid}"
+    assert {:ok, _} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
+    run = agent.uid |> source_event!() |> job!() |> enqueue!(trigger_event("no-channel"))
+
+    assert {:error, :unknown_route} = execute(run, attempt: 1)
+
+    assert %Run{
+             status: :queued,
+             attempts: 1,
+             attempt_id: nil,
+             error: "infrastructure dispatch failed: :unknown_route"
+           } = Repo.reload!(run)
+
+    :ok = Ankole.AgentWorkers.WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> Ankole.AgentWorkers.WorkerRoute.unregister_local_worker(route) end)
+    retried = Task.async(Repo.bind_tenant(fn -> execute(run, attempt: 2) end))
+    assert_receive {:actor_lane, %{body: {:rpc_request, request}}}, 2_000
+    respond_succeeded(route, request.request_id)
+    assert :ok = Task.await(retried)
+    assert %Run{status: :succeeded, attempts: 2, error: nil} = Repo.reload!(run)
+  end
+
   test "a lost Worker connection after dispatch records unknown outcome without automatic replay" do
     %{principal: agent} = agent_fixture()
     route = "automation-loss-#{agent.uid}"
@@ -965,6 +989,23 @@ defmodule Ankole.AutomationJobsTest do
 
   defp execute(run, opts) do
     perform_job(ExecuteRun, %{"automation_job_run_id" => run.id}, opts)
+  end
+
+  defp respond_succeeded(route, request_id) do
+    {bytes, _} =
+      Ankole.RuntimeFabric.V1.AutomationJobRunResponse.encode!(
+        %Ankole.RuntimeFabric.V1.AutomationJobRunResponse{status: "succeeded", exit_code: 0}
+      )
+
+    :ok =
+      Ankole.AgentWorkers.WorkerRoute.local_inbound(route, %Ankole.RuntimeFabric.V1.Envelope{
+        body:
+          {:rpc_response,
+           %Ankole.RuntimeFabric.V1.RPCResponse{
+             request_id: request_id,
+             payload: IO.iodata_to_binary(bytes)
+           }}
+      })
   end
 
   defp wait_past_ready_timeout(run) do

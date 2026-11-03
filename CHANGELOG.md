@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.48 (2026-11-03)
+
+- Automation Job runs whose request never reached the Agent's Worker, because
+  the Worker connection closed or was replaced just as the run was dispatched,
+  now retry on the next attempt instead of being marked failed with an unknown
+  outcome.
+
 ## Version 2.0.0-alpha.47 (2026-11-03)
 
 - Use readable `<title-slug>-<short-id>` Pod Page URLs (transliterating
