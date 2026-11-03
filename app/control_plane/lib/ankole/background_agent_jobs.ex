@@ -144,14 +144,20 @@ defmodule Ankole.BackgroundAgentJobs do
   In a caller's transaction, use `Dispatch.create_with_dispatch_in_tx/2`.
   """
   def create_with_dispatch(attrs) when is_map(attrs),
-    do: Repo.transact_top_level(fn -> Dispatch.create_with_dispatch_in_tx(attrs) end)
+    do:
+      Repo.transact_top_level(fn -> Dispatch.create_with_dispatch_in_tx(attrs) end,
+        after_commit: fn result -> Ankole.Signals.publish_committed(result.dispatch_event) end
+      )
 
   @doc "Creates one durable successor for a terminal Job and dispatches it atomically."
   def respawn_with_dispatch(source_job_id, attrs)
       when is_integer(source_job_id) and is_map(attrs) do
-    Repo.transact_top_level(fn ->
-      Dispatch.respawn_with_dispatch_in_tx(source_job_id, attrs)
-    end)
+    Repo.transact_top_level(
+      fn ->
+        Dispatch.respawn_with_dispatch_in_tx(source_job_id, attrs)
+      end,
+      after_commit: fn result -> Ankole.Signals.publish_committed(result.dispatch_event) end
+    )
   end
 
   @doc false
@@ -464,9 +470,6 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc "Renders bounded skill-lesson evidence sections for the given Jobs."
   defdelegate evidence_sections(job_ids), to: TurnEvidence
-
-  @doc "Pages the lead-thread turn items of one job's workspace lineage for thread replay."
-  defdelegate replay_items_page(job, cursor), to: Turns
 
   @doc "Fetches one job for an agent."
   defdelegate get_job_for_agent(job_id, agent_uid), to: Queries, as: :get_for_agent

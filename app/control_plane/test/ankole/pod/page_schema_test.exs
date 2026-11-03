@@ -2,13 +2,14 @@ defmodule Ankole.Pod.PageSchemaTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.Pod.{BaseField, BaseRecord, BaseTable, BaseView}
-  alias Ankole.Pod.{Page, PageChange, PageContent, PageUserState, Properties}
-  alias Ankole.Files.Schemas.Node
+  alias Ankole.Pod.Page
+  alias Ankole.Pod.PageChange
+  alias Ankole.Pod.PageContent
+  alias Ankole.Pod.PageUserState
+  alias Ankole.Pod.Page, as: Node
 
   @schemas [
     Page,
-    Properties,
-    Node,
     PageContent,
     PageChange,
     PageUserState,
@@ -21,7 +22,7 @@ defmodule Ankole.Pod.PageSchemaTest do
 
   test "empty titles and empty derived text survive writes and updates" do
     page = new_page()
-    assert Repo.get!(Page, page.id).title == ""
+    assert Repo.get_by!(Page, id: page.id).title == ""
 
     content =
       insert!(PageContent, %{
@@ -56,13 +57,13 @@ defmodule Ankole.Pod.PageSchemaTest do
     other = create_tenant()
 
     Repo.with_tenant(other.id, fn ->
-      assert Repo.get(Page, page.id) == nil
+      assert Repo.get_by(Page, id: page.id) == nil
       assert Repo.all(from(p in Page, where: p.id == ^page.id)) == []
       assert_raise ArgumentError, fn -> Repo.update(change(page, title: "Changed")) end
       assert_raise ArgumentError, fn -> Repo.delete(page) end
     end)
 
-    assert Repo.get!(Page, page.id).title == page.title
+    assert Repo.get_by!(Page, id: page.id).title == page.title
   end
 
   test "the base rejects a missing tenant and invalid page states", %{tenant: tenant} do
@@ -71,33 +72,33 @@ defmodule Ankole.Pod.PageSchemaTest do
     where = " WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid"
 
     assert_sql_constraint(
-      "UPDATE drive_nodes SET kind = 'spreadsheet'" <> where,
+      "UPDATE pages SET type = 'spreadsheet'" <> where,
       args,
-      "drive_nodes_kind"
+      "pages_type"
     )
 
     assert_sql_constraint(
-      "UPDATE drive_nodes SET purge_started_at = now()" <> where,
+      "UPDATE pages SET purge_started_at = now()" <> where,
       args,
-      "drive_nodes_purge_state"
+      "pages_purge_state"
     )
 
     assert_sql_constraint(
-      "UPDATE drive_nodes SET parent_id = id, inherit_permissions = false, parent_anchor_id = $3::text::uuid, private_owner_uid = 'owner'" <>
+      "UPDATE pages SET parent_id = id, inherit_permissions = false, parent_anchor_id = $3::text::uuid, private_owner_uid = 'owner'" <>
         where,
       args ++ [new_page().id],
-      "drive_nodes_root_shape"
+      "pages_root_shape"
     )
 
     missing = Ankole.Ecto.UUIDv7.autogenerate()
 
     assert_sql_constraint(
-      "INSERT INTO drive_nodes(tenant_id,id,name,kind,acl_anchor_id) VALUES($1::text::uuid,$2::text::uuid,'root','folder',$2::text::uuid)",
+      "INSERT INTO pages(tenant_id,id,name,type,acl_anchor_id) VALUES($1::text::uuid,$2::text::uuid,'root','doc',$2::text::uuid)",
       [missing, Ankole.Ecto.UUIDv7.autogenerate()],
-      "drive_nodes_tenant_id_fkey"
+      "pages_tenant_id_fkey"
     )
 
-    assert Repo.get!(Page, page.id).type == :doc
+    assert Repo.get_by!(Page, id: page.id).type == :doc
   end
 
   test "composite references cannot cross a tenant boundary" do
@@ -114,7 +115,7 @@ defmodule Ankole.Pod.PageSchemaTest do
           parent_anchor_id: foreign_page.id
         })
       ),
-      "drive_nodes_parent_fkey"
+      "pages_parent_fkey"
     )
 
     assert_constraint(
@@ -389,7 +390,6 @@ defmodule Ankole.Pod.PageSchemaTest do
     )
   end
 
-  defp action(Properties), do: :ensure
   defp action(PageChange), do: :append
   defp action(PageUserState), do: :put
   defp action(_resource), do: :create_in_tx
@@ -439,13 +439,13 @@ defmodule Ankole.Pod.PageSchemaTest do
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
   defp node_attrs(attrs) do
-    {:ok, root} = Ankole.Files.Nodes.public_root()
+    {:ok, root} = Ankole.Pod.Pages.Tree.public_root()
     id = Ankole.Ecto.UUIDv7.autogenerate()
 
     Map.merge(
       %{
         id: id,
-        kind: :doc,
+        type: :doc,
         name: "Page " <> id,
         parent_id: root.id,
         inherit_permissions: false,
@@ -460,8 +460,7 @@ defmodule Ankole.Pod.PageSchemaTest do
   end
 
   defp new_page(attrs \\ %{}) do
-    node = insert!(Node, node_attrs(%{kind: Map.get(attrs, :type, :doc)}))
-    insert!(Properties, %{id: node.id, title: "", position: "a"})
+    insert!(Node, node_attrs(Map.merge(%{title: ""}, attrs)))
   end
 
   defp new_table(page),

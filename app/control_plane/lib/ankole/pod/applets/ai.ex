@@ -1,14 +1,17 @@
 defmodule Ankole.Pod.Applets.AI do
   @moduledoc "Stateless Applet text generation through Pod model profiles."
 
-  alias Ankole.{AIGateway, Principals}
+  alias Ankole.AIGateway
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.ResponseItems
 
   @profiles ~w(primary light heavy coding vision_fallback)
 
-  def generate_text(%Ankole.Pod.Page{} = _page, options) do
-    with {:ok, principal} <- Principals.system_principal(),
+  def generate_text(%Ankole.AuthZ.Actor{} = actor, options) do
+    with {:ok, principal} <-
+           Ankole.Pod.Access.write(actor.turn_authority, fn ->
+             Ankole.Pod.Access.principal(actor)
+           end),
          :ok <- profile(options["model"]),
          :ok <- prompt(options),
          {:ok, _effort} <- ReasoningEffort.normalize(options["effort"]),

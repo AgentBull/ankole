@@ -11,10 +11,13 @@ defmodule Ankole.Pod.AppletAITest do
     configure(start_upstream_server(fn _ -> {:json, 200, response("completed", text, nil)} end))
 
     assert {:ok, %{text: ^text}} =
-             AI.generate_text(page, %{"model" => "primary", "prompt" => "Write"})
+             AI.generate_text(actor_fixture(page.owner_uid), %{
+               "model" => "primary",
+               "prompt" => "Write"
+             })
   end
 
-  test "AI uses the Pod profile and applet ledger when the creator is disabled and over quota" do
+  test "AI uses the calling Principal and applet ledger independently of the creator quota" do
     agent = agent_fixture().principal.uid
     page = applet(agent)
     test_pid = self()
@@ -74,12 +77,10 @@ defmodule Ankole.Pod.AppletAITest do
     assert request["reasoning"]["effort"] == "low"
     assert request["instructions"] == "Be concise"
 
-    assert {:ok, system} = Ankole.Principals.system_principal()
-
     assert [%{subject_uid: subject_uid, origin: :applet, input_tokens: 7, output_tokens: 3}] =
              Repo.all(from(r in UsageRecord, where: r.model == "applet-ai-test/gpt-5.5"))
 
-    assert subject_uid == system.uid
+    assert subject_uid == viewer(page).principal.uid
   end
 
   test "AI returns partial or empty output on length exhaustion" do
@@ -93,7 +94,10 @@ defmodule Ankole.Pod.AppletAITest do
     )
 
     assert {:ok, %{text: "", finishReason: "length"}} =
-             AI.generate_text(page, %{"model" => "primary", "prompt" => "Think"})
+             AI.generate_text(actor_fixture(page.owner_uid), %{
+               "model" => "primary",
+               "prompt" => "Think"
+             })
   end
 
   test "Human-created Applets need only a Pod profile and reject unsupported inputs" do
@@ -101,7 +105,10 @@ defmodule Ankole.Pod.AppletAITest do
     {:ok, page} = Pages.create(actor_fixture(owner), %{type: "applet"})
 
     assert {:error, %{status: 422, code: "ai_not_configured"}} =
-             AI.generate_text(page, %{"model" => "primary", "prompt" => "Hello"})
+             AI.generate_text(actor_fixture(page.owner_uid), %{
+               "model" => "primary",
+               "prompt" => "Hello"
+             })
 
     test_pid = self()
 
@@ -114,11 +121,14 @@ defmodule Ankole.Pod.AppletAITest do
 
     for model <- ["applet-ai-test/gpt-5.5", "nonexistent-profile", "embedding", "rerank"] do
       assert {:error, %{status: 422, code: "invalid_model"}} =
-               AI.generate_text(page, %{"model" => model, "prompt" => "Hello"})
+               AI.generate_text(actor_fixture(page.owner_uid), %{
+                 "model" => model,
+                 "prompt" => "Hello"
+               })
     end
 
     assert {:error, %{status: 422, code: "invalid_effort"}} =
-             AI.generate_text(page, %{
+             AI.generate_text(actor_fixture(page.owner_uid), %{
                "model" => "primary",
                "prompt" => "Hello",
                "effort" => "extreme"
@@ -127,7 +137,10 @@ defmodule Ankole.Pod.AppletAITest do
     refute_receive {:unexpected_ai, _}
 
     assert {:ok, %{text: "Hello"}} =
-             AI.generate_text(page, %{"model" => "primary", "prompt" => "Hello"})
+             AI.generate_text(actor_fixture(page.owner_uid), %{
+               "model" => "primary",
+               "prompt" => "Hello"
+             })
 
     assert_receive {:unexpected_ai, _}
   end
@@ -143,15 +156,24 @@ defmodule Ankole.Pod.AppletAITest do
       end)
     )
 
-    for {uid, model} <- [{"system", "applet-light"}, {"ankole_brain", "brain-light"}] do
-      assert {:ok, _} =
-               ModelProfiles.put_system_model_profile(uid, "light", %{
-                 provider_id: "applet-ai-test",
-                 model: model
-               })
-    end
+    assert {:ok, _} =
+             ModelProfiles.put_model_profile(page.owner_uid, "light", %{
+               provider_id: "applet-ai-test",
+               model: "applet-light"
+             })
 
-    assert {:ok, _} = AI.generate_text(page, %{"model" => "light", "prompt" => "Summarize"})
+    assert {:ok, _} =
+             ModelProfiles.put_system_model_profile("ankole_brain", "light", %{
+               provider_id: "applet-ai-test",
+               model: "brain-light"
+             })
+
+    assert {:ok, _} =
+             AI.generate_text(actor_fixture(page.owner_uid), %{
+               "model" => "light",
+               "prompt" => "Summarize"
+             })
+
     assert_receive {:service_model, "applet-light"}
 
     assert {:ok, %{"ok" => true}} =
@@ -162,8 +184,10 @@ defmodule Ankole.Pod.AppletAITest do
 
     assert_receive {:service_model, "brain-light"}
 
-    assert [%{subject_uid: "system", origin: :applet}] =
+    assert [%{subject_uid: subject, origin: :applet}] =
              Repo.all(from(r in UsageRecord, where: r.model == "applet-ai-test/applet-light"))
+
+    assert subject == page.owner_uid
 
     assert [%{subject_uid: "ankole_brain", origin: :brain}] =
              Repo.all(from(r in UsageRecord, where: r.model == "applet-ai-test/brain-light"))

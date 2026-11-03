@@ -13,7 +13,11 @@ defmodule Ankole.Pod.Documents.PrincipalMentions do
     actor = AuthZ.Actor.new(system)
 
     contents =
-      PageContent |> Ash.Query.filter(contains(content, "<mention")) |> Ankole.Ash.read!()
+      PageContent
+      |> Ash.Query.filter(contains(content, "<mention"))
+      |> Ash.Query.select([:page_id])
+      |> Ash.Query.sort(page_id: :asc)
+      |> Ankole.Ash.read!()
 
     with {:ok, pages} <- rename_documents(contents, old_uid, new_uid, actor),
          {:ok, snapshots} <- rename_snapshots(old_uid, new_uid),
@@ -58,6 +62,7 @@ defmodule Ankole.Pod.Documents.PrincipalMentions do
   defp rename_snapshots(old, new) do
     PageSnapshot
     |> Ash.Query.filter(contains(content, "<mention"))
+    |> Ash.Query.sort(page_id: :asc, revision: :asc)
     |> Ankole.Ash.read!()
     |> Enum.reduce_while({:ok, []}, fn row, {:ok, ids} ->
       with {:ok, parsed} <- Ankole.Kernel.page_rename_principal(row.content, old, new),
@@ -74,6 +79,7 @@ defmodule Ankole.Pod.Documents.PrincipalMentions do
   defp rename_comments(old, new) do
     PageComment
     |> Ash.Query.filter(contains(body, "<mention") or contains(body, "(principal:"))
+    |> Ash.Query.sort(page_id: :asc, id: :asc)
     |> Ankole.Ash.read!()
     |> Enum.reduce_while({:ok, []}, fn row, {:ok, ids} ->
       with {:ok, _page} <- Pages.lock(row.page_id) do

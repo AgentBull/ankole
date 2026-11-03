@@ -146,6 +146,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
     # The Console review. The reviewer is the actor of the action
     # (Ankole.Brain.Console).
     action :console_approve do
+      transaction?(false)
       argument(:suggestion_id, :uuid, allow_nil?: false)
       argument(:canonical_page_id, :string, constraints: [trim?: false])
 
@@ -153,6 +154,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
     end
 
     action :console_reject, :struct do
+      transaction?(false)
       constraints(instance_of: __MODULE__)
       argument(:suggestion_id, :uuid, allow_nil?: false)
 

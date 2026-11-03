@@ -179,7 +179,7 @@ defmodule Ankole.Conversations.Observe do
   def accept_action_in_tx(binding, fact, now) do
     # Keep the same tree -> channel -> root -> Principal -> Session -> Signal lock order
     # across all managed callbacks so Action Cards and ordinary answers compose cleanly.
-    with :ok <- Ankole.Files.lock_tree_in_tx(),
+    with :ok <- Ankole.Pod.lock_tree_in_tx(),
          {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
          {:ok, channel} <- conversation_in_tx(fact) do
       if managed_action_card_callback?(fact) do
@@ -371,7 +371,7 @@ defmodule Ankole.Conversations.Observe do
   # late receive before writing anything.
   @doc false
   def accept_entry_in_tx(binding, fact, now) do
-    with :ok <- Ankole.Files.lock_tree_in_tx(),
+    with :ok <- Ankole.Pod.lock_tree_in_tx(),
          {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
          :ok <- lock_entry_consumers(binding, fact),
          :ok <- lock_entry(fact) do

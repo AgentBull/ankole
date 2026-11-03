@@ -818,8 +818,8 @@ independent work and end its turn while the exchange continues.
 
 When an Agent needs a Human to authorize a high-privilege mutation that exceeds
 the Agent's own grants, calling `propose_action_card` drafts an `ActionCard` row
-(`conversation_action_cards`, lock rank `11`) for one of six typed actions:
-`pod.knowledge.save`, `pod.page.set_sharing`, `pod.page.delete`,
+(`conversation_action_cards`, lock rank `11`) for one of seven typed actions:
+`brain.object.create`, `pod.knowledge.save`, `pod.page.set_sharing`, `pod.page.delete`,
 `pod.page.restore`, `pod.base.delete_table`, or `conversation.add_participants`. Drafting requires the
 Agent to hold `node_view` on the target node (or participate in the target
 native room for `conversation.add_participants`), snapshots optimistic
@@ -834,7 +834,10 @@ change, the card displays the page title, the captured base revision, and an
 expanded diff. The Human can expand the complete Markdown draft, including its
 metadata, before confirming. The client receives the base revision as a
 projection of the card's `expected_revision` precondition. Knowledge change
-approvals are drafted in native rooms. In external IM, the Agent supplies the
+approvals are drafted in native rooms. A `brain.object.create` card captures an
+installed, writable ontology category, a title and the complete Markdown draft.
+Confirmation creates the object with the category's entity type under the
+Human's authority; it does not require an existing knowledge object. In external IM, the Agent supplies the
 draft and page link for an owner to review and save in Pod. Generic native
 clarification endpoints reject ActionCard interaction IDs; resolution belongs
 to the ActionCard operation and its resource authorization checks.
@@ -842,9 +845,9 @@ to the ActionCard operation and its resource authorization checks.
 Confirming or canceling an `ActionCard` (`POST .../action-cards/:card_id/resolve`
 in Pod WebUI, or interactive button callbacks `confirm` / `cancel` on external IM
 channels) acquires outer locks in strict rank order before touching the card row:
-`drive-tree` (`2`) and `drive-root` (`2.5`), `Principals` (`3`), `Sessions`
+`page-tree` (`2`) and `page-root` (`2.5`), `Principals` (`3`), `Sessions`
 (`9`/`10`), `Conversations`, `conversation_action_cards` (`11`), `Signals`
-(`11`), and `drive_nodes` / `pages` / Base (`12`). Under those locks,
+(`11`), and `pages` / Base (`12`). Under those locks,
 `Ankole.Conversations.ActionCards` verifies the confirming Human's live
 Principal permission (`node_manage`, `node_edit`, `:delete_table`, or room
 invite authority) and captured preconditions. For deletion and restoration, it

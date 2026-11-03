@@ -2,7 +2,7 @@ defmodule Ankole.Pod.HomePlanTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Bases, Documents, PageChange, PageContent, Pages}
 
   test "contributors write records while editors own structure and managers delete tables" do
@@ -27,7 +27,7 @@ defmodule Ankole.Pod.HomePlanTest do
     human_actor = actor_fixture(human)
     mixed_actor = AuthZ.Actor.new(agent)
     assert {:ok, reachable} = Access.reachable_anchors(mixed_actor)
-    assert Access.page_bits(Repo.get!(Ankole.Pod.Page, page.id), reachable) == 23
+    assert Access.page_bits(Repo.get_by!(Ankole.Pod.Page, id: page.id), reachable) == 23
 
     for actor <- [human_actor] do
       assert {:ok, %{records: [record]}} =
@@ -121,7 +121,7 @@ defmodule Ankole.Pod.HomePlanTest do
     outsider = human_fixture().principal
     actor = actor_fixture(owner)
 
-    for type <- ~w(doc base applet folder) do
+    for type <- ~w(doc knowledge base applet) do
       assert {:ok, parent} = Pages.create(actor, %{type: type, private_owner_uid: owner.uid})
       assert {:ok, child} = Pages.create(actor, %{parent_id: parent.id, title: "Manual"})
       assert child.parent_id == parent.id

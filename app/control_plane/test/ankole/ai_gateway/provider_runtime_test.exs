@@ -1248,32 +1248,35 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     %{principal: agent} = Ankole.AIGatewayCase.background_agent_fixture()
     {:ok, coding} = ModelProfiles.get_model_profile(agent.uid, "coding")
     :ok = Ankole.SessionsCase.cache_actor_runtime_models(coding["provider_id"])
-    defaults_key = "ai_agent.library.skill_defaults"
-    assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-    assert {:ok, _defaults} = AppConfigure.put_tenant_by_key(defaults_key, %{"ocr" => true})
+    alias Ankole.AIAgent.Library.{Contracts, Skills}
+    human = human_fixture().principal
 
-    assert {:ok, %{skills: %{"ocr" => true}}} =
-             Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: human.uid,
+        resource_pattern: "tenant_console:**",
+        action: "update"
+      })
 
-    assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
+    actor = actor_fixture(human)
+    assert {:ok, _} = Library.sync_agent_skills(agent.uid)
+    {:ok, ocr} = Skills.get("ocr")
+    {:ok, _} = Skills.set_all(actor, ocr.slug, true, ocr.revision)
 
-    assert {:ok, :ok} =
-             Repo.transact(fn ->
-               alias Ankole.AIAgent.Library.Knowledge
-               {:ok, agents} = Knowledge.system_node("ankole_brain_agents")
-               {:ok, identity} = Knowledge.child(agents.id, agent.uid)
+    for {slot, body} <- [
+          agents: "Own the next-turn research workflow.\n\nBe exact, calm, and evidence-led.",
+          design: "Use cobalt accents and generous whitespace."
+        ] do
+      {:ok, parsed} = Ankole.Kernel.knowledge_parse(body)
 
-               for {name, markdown} <- [
-                     {"AGENTS.override.md",
-                      "Own the next-turn research workflow.\n\nBe exact, calm, and evidence-led."},
-                     {"DESIGN.override.md", "Use cobalt accents and generous whitespace."}
-                   ] do
-                 {:ok, page} = Knowledge.ensure_child_in_tx(identity.id, name, :knowledge)
-                 {:ok, _} = Knowledge.put_markdown_in_tx(page, markdown)
-               end
-
-               {:ok, :ok}
-             end)
+      {:ok, _} =
+        Contracts.save(actor, agent.uid, slot, %{
+          mode: :override,
+          content_xml: parsed.xml,
+          metadata: parsed.metadata,
+          base_revision: 0
+        })
+    end
 
     %{principal: reader} = human_fixture()
 
@@ -1322,24 +1325,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, %{"skills" => cached_skills}} = Library.runtime_catalog_for_agent(agent.uid)
     assert Enum.any?(cached_skills, &(&1["skill_name"] == "ocr"))
 
-    # A running attempt reads current rows even when the cache still holds
-    # choices from before this transaction.
+    {:ok, ocr} = Skills.get("ocr")
+    {:ok, _} = Skills.set_all(actor, ocr.slug, false, ocr.revision)
+
     {:ok, projection} =
-      Repo.transact(fn ->
-        assert {:ok, %{value: %{"value" => %{"ocr" => false}}}} =
-                 Ankole.Ash.create(Ankole.AppConfigure.AppConfig, :put, %{
-                   scope: "tenant:" <> Repo.tenant_id!(),
-                   key: defaults_key,
-                   input: %{"ocr" => false}
-                 })
-
-        assert {:ok, %{skills: %{"ocr" => true}}} =
-                 Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-
-        Ankole.BackgroundAgentJobs.RuntimeProjection.capture(agent.uid, %{
-          model_ref: %{"provider_id" => "ai_gateway", "model" => "test"}
-        })
-      end)
+      Ankole.BackgroundAgentJobs.RuntimeProjection.capture(agent.uid, %{
+        model_ref: %{"provider_id" => "ai_gateway", "model" => "test"}
+      })
 
     refute Enum.any?(projection["skills"], &(&1["name"] == "ocr"))
 

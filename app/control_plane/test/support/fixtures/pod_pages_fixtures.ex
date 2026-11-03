@@ -17,14 +17,14 @@ defmodule Ankole.Pod.PagesFixtures do
             if action in [:edit, :position, :advance_revision] do
               Ankole.Pod.Pages.update_properties_in_tx(record, action, attrs)
             else
-              {:ok, node} = Ankole.Files.Nodes.fetch(record.id)
+              {:ok, node} = Ankole.Pod.Pages.Tree.fetch(record.id)
 
               attrs =
                 if action == :begin_purge,
                   do: Map.put(attrs, :purge_started_at, DateTime.utc_now(:microsecond)),
                   else: attrs
 
-              with {:ok, _} <- Ankole.Files.Nodes.update_in_tx(node, action, attrs),
+              with {:ok, _} <- Ankole.Pod.Pages.Tree.update_in_tx(node, action, attrs),
                    do: Ankole.Pod.Pages.fetch(record.id)
             end
 

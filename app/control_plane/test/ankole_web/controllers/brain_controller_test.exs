@@ -267,7 +267,7 @@ defmodule AnkoleWeb.BrainControllerTest do
           kind: "fact",
           holder: "people/#{member.uid}",
           source_node_id:
-            Ankole.Files.Nodes.private_root(member.uid) |> elem(1) |> Map.fetch!(:id),
+            Ankole.Pod.Pages.Tree.private_root(member.uid) |> elem(1) |> Map.fetch!(:id),
           notability: "high",
           confidence: 0.9,
           valid_from: DateTime.utc_now(:microsecond),

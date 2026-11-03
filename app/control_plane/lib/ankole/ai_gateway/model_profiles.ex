@@ -257,13 +257,17 @@ defmodule Ankole.AIGateway.ModelProfiles do
           {:ok, %{agent: Agent.t(), profile: map() | nil}} | {:error, term()}
   def put_model_profile(agent_uid, profile, attrs) do
     agent_uid = normalize_uid!(agent_uid)
-    Repo.transact_top_level(fn -> put_profile_locked(agent_uid, profile, attrs) end)
+
+    with {:ok, profile} <- normalize_profile(profile),
+         {:ok, normalized_profile} <- normalize_profile_attrs(profile, attrs) do
+      Repo.transact_top_level(fn ->
+        put_profile_locked(agent_uid, profile, normalized_profile)
+      end)
+    end
   end
 
-  defp put_profile_locked(agent_uid, profile, attrs) do
+  defp put_profile_locked(agent_uid, profile, normalized_profile) do
     with %Agent{} = agent <- lock_agent(agent_uid),
-         {:ok, profile} <- normalize_profile(profile),
-         {:ok, normalized_profile} <- normalize_profile_attrs(profile, attrs),
          {:ok, options} <-
            put_profile_options(agent.options || %{}, profile, normalized_profile),
          {:ok, agent} <- update_agent_options(agent, options) do

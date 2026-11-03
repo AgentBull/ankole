@@ -216,8 +216,8 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     assert attachment["name"] == "report-specification.txt"
     assert is_binary(attachment["node_id"])
     assert is_binary(attachment["object_id"])
-    assert {:ok, node} = Ankole.Files.fetch_node(attachment["node_id"])
-    assert {:ok, root} = Ankole.Files.conversation_root(ctx.id)
+    assert {:ok, node} = Ankole.Pod.fetch_node(attachment["node_id"])
+    assert {:ok, root} = Ankole.Pod.conversation_root(ctx.id)
     assert node.parent_id == root.id
     assert {:ok, _} = Conversations.read_attachment_to_file(actor, ctx.id, answer.id, 0, local)
     assert File.read!(local) == bytes

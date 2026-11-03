@@ -297,7 +297,7 @@ defmodule Ankole.Conversations.PeersTest do
                upserts: [%{principal_uid: ctx.colleague.uid, role: "view", target_scope: "self"}]
              })
 
-    assert {:ok, _} = Ankole.Files.authorize_node(actor_fixture(other), page.id, "node_view")
+    assert {:ok, _} = Ankole.Pod.authorize_node(actor_fixture(other), page.id, "node_view")
     peer_id = send_peer(ctx, event, [page.id])
     dm = room(ctx.actor, ctx.colleague.uid)
     [dm_event] = Signals.list_signals!(query: [filter: [conversation_id: dm.conversation.id]])

@@ -39,6 +39,13 @@ defmodule Ankole.Pod.BaseTable do
       constraints: [one_of: [:inline, :physical]]
     )
 
+    attribute(:unique_field_ids, {:array, Ankole.Ash.Types.UUIDv7},
+      public?: true,
+      allow_nil?: false,
+      default: []
+    )
+
+    attribute(:emit_changes, :boolean, public?: true, allow_nil?: false, default: false)
     attribute(:schema_version, :integer, public?: true, allow_nil?: false, default: 0)
     attribute(:record_bytes, :integer, public?: true, allow_nil?: false, default: 0)
     attribute(:deleting_at, :utc_datetime_usec)
@@ -76,6 +83,10 @@ defmodule Ankole.Pod.BaseTable do
 
     create :create_in_tx do
       accept([:id, :page_id, :name, :position])
+    end
+
+    update :configure do
+      accept([:unique_field_ids, :emit_changes])
     end
 
     update :rename do

@@ -454,7 +454,7 @@ defmodule Ankole.Files.Vfs.Base do
   end
 
   defp write_rows(scope, entry, rows, headers, row_index) do
-    Ankole.Files.Access.write(
+    Ankole.Pod.Access.write(
       scope.actor.turn_authority,
       fn ->
         with {:ok, access} <- Ankole.Brain.Access.for_context(scope.context),

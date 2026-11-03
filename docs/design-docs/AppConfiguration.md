@@ -64,6 +64,11 @@ Schemas accept only JSON-compatible values. AppConfigure validates values before
 writing to PostgreSQL, after reading from storage, and when loading a code
 default. During registration, the registry rejects duplicate exact keys.
 
+The Registry publishes declarations as an immutable `:persistent_term` snapshot.
+Reads use that snapshot directly; declaration changes remain serialized through
+the Registry and publish a replacement before returning. Mutable configuration
+values use the separate ETS cache described below.
+
 ## Declare a Family of Keys
 
 Plugins can declare a `PatternDefinition` to cover a family of keys when dynamic

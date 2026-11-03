@@ -19,7 +19,7 @@ defmodule Ankole.Pod.PageContractTest do
   end
 
   test "purge batches select leaves before limiting a large subtree", ctx do
-    {:ok, root} = Pages.create(actor_fixture(ctx.owner.uid), %{type: "folder"})
+    {:ok, root} = Pages.create(actor_fixture(ctx.owner.uid), %{type: "doc"})
     now = DateTime.utc_now(:microsecond)
 
     parents =
@@ -27,7 +27,7 @@ defmodule Ankole.Pod.PageContractTest do
         %{
           id: Ankole.Ecto.UUIDv7.autogenerate(),
           tenant_id: ctx.owner.tenant_id,
-          type: :folder,
+          type: :doc,
           title: "Parent #{n}",
           position: Integer.to_string(n),
           parent_id: root.id,
@@ -49,7 +49,7 @@ defmodule Ankole.Pod.PageContractTest do
 
     assert {:ok, 1000} =
              Repo.transact_top_level(fn ->
-               Ankole.Files.Jobs.PurgeNode.remove_nodes_in_tx(ids)
+               Ankole.Pod.Jobs.PurgeTree.remove_nodes_in_tx(ids)
              end)
 
     assert Repo.aggregate(from(p in Page, where: p.id in ^ids), :count) == 1002
@@ -94,7 +94,7 @@ defmodule Ankole.Pod.PageContractTest do
                | client_seq: 2
              })
 
-    assert Repo.get!(Page, page.id).revision == 1
+    assert Repo.get_by!(Page, id: page.id).revision == 1
   end
 
   test "a reused client sequence with another payload rejects the new edit", ctx do
@@ -231,12 +231,12 @@ defmodule Ankole.Pod.PageContractTest do
     {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id)
 
     assert_enqueued(
-      worker: Ankole.Files.Jobs.PurgeNode,
+      worker: Ankole.Pod.Jobs.PurgeTree,
       args: %{node_id: page.id, tenant_id: Repo.tenant_id!()}
     )
 
     assert {:snooze, seconds} =
-             Ankole.Files.Jobs.PurgeNode.perform(%Oban.Job{
+             Ankole.Pod.Jobs.PurgeTree.perform(%Oban.Job{
                args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => page.id}
              })
 
@@ -244,12 +244,12 @@ defmodule Ankole.Pod.PageContractTest do
     assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("drive.trash_retention_days", 60)
 
     assert {:snooze, longer} =
-             Ankole.Files.Jobs.PurgeNode.perform(%Oban.Job{
+             Ankole.Pod.Jobs.PurgeTree.perform(%Oban.Job{
                args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => page.id}
              })
 
     assert longer > 59 * 86_400
-    assert is_nil(Repo.get!(Page, page.id).purge_started_at)
+    assert is_nil(Repo.get_by!(Page, id: page.id).purge_started_at)
   end
 
   test "zero trash retention keeps deleted pages and purges them once a retention is set again",
@@ -260,24 +260,24 @@ defmodule Ankole.Pod.PageContractTest do
     {:ok, _} = Pages.delete(actor, page.id)
 
     assert_enqueued(
-      worker: Ankole.Files.Jobs.PurgeNode,
+      worker: Ankole.Pod.Jobs.PurgeTree,
       args: %{node_id: page.id, tenant_id: Repo.tenant_id!()}
     )
 
     long_ago = DateTime.add(DateTime.utc_now(:microsecond), -400 * 86_400, :second)
 
-    Repo.update_all(from(n in Ankole.Files.Schemas.Node, where: n.id == ^page.id),
+    Repo.update_all(from(n in Ankole.Pod.Page, where: n.id == ^page.id),
       set: [deleted_at: long_ago]
     )
 
     job = %Oban.Job{args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => page.id}}
 
-    assert {:snooze, 86_400} = Ankole.Files.Jobs.PurgeNode.perform(job)
-    assert is_nil(Repo.get!(Page, page.id).purge_started_at)
+    assert {:snooze, 86_400} = Ankole.Pod.Jobs.PurgeTree.perform(job)
+    assert is_nil(Repo.get_by!(Page, id: page.id).purge_started_at)
 
     assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("drive.trash_retention_days", 30)
-    assert :ok = Ankole.Files.Jobs.PurgeNode.perform(job)
-    assert is_nil(Repo.get(Page, page.id))
+    assert :ok = Ankole.Pod.Jobs.PurgeTree.perform(job)
+    assert is_nil(Repo.get_by(Page, id: page.id))
   end
 
   test "OT replay retains its configured window and a pruned acknowledged retry never applies again",
@@ -359,7 +359,7 @@ defmodule Ankole.Pod.PageContractTest do
              )
 
     refute Map.has_key?(retry, :acknowledged_revision)
-    assert Repo.get!(Page, page.id).revision == 5
+    assert Repo.get_by!(Page, id: page.id).revision == 5
     assert Repo.get!(PageContent, page.id).content == "<page><p>newer!</p></page>"
     assert Repo.aggregate(PageChange, :count) == 3
   end
@@ -481,7 +481,7 @@ defmodule Ankole.Pod.PageContractTest do
     assert {:ok, %{source_conversation: %{deleted: true}}} =
              Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id)
 
-    assert Repo.get(Page, page.id)
+    assert Repo.get_by(Page, id: page.id)
   end
 
   test "navigation bootstraps roots and only the active path with one authorization snapshot",
@@ -723,22 +723,8 @@ defmodule Ankole.Pod.PageContractTest do
   defp insert_page_rows(rows) do
     {:ok, :inserted} =
       Repo.transact(fn ->
-        nodes =
-          Enum.map(rows, fn row ->
-            row
-            |> Map.drop([:type, :title, :position])
-            |> Map.put(:kind, row.type)
-            |> Map.put(:name, row.title)
-          end)
-
-        properties =
-          Enum.map(
-            rows,
-            &Map.take(&1, [:tenant_id, :id, :title, :position, :created_at, :updated_at])
-          )
-
-        Repo.insert_all(Ankole.Files.Schemas.Node, nodes)
-        Repo.insert_all(Ankole.Pod.Properties, properties)
+        pages = Enum.map(rows, &Map.put(&1, :name, &1.title))
+        Repo.insert_all(Ankole.Pod.Page, pages)
         {:ok, :inserted}
       end)
   end

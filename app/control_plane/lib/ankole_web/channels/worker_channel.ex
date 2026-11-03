@@ -101,7 +101,7 @@ defmodule AnkoleWeb.WorkerChannel do
               incarnation_id: ready.incarnation_id,
               vfs_ids: MapSet.new(),
               vfs_all: true,
-              vfs_timer: false,
+              vfs_timer: Map.get(ready, :drive_vfs, false),
               connection_id: connection_id,
               limits: limits,
               streams: Map.new(@streams, &{&1, new_stream()}),
@@ -271,8 +271,10 @@ defmodule AnkoleWeb.WorkerChannel do
 
   @impl true
   def handle_info({:page_updated, id}, socket), do: vfs_changed(socket, id)
-  def handle_info({:page_deleted, id}, socket), do: vfs_changed(socket, id)
-  def handle_info({:page_restored, id}, socket), do: vfs_changed(socket, id)
+
+  def handle_info({:tree_changed, _locations, _id, _removed}, socket),
+    do: vfs_changed(socket, nil)
+
   def handle_info(:vfs_access_changed, socket), do: vfs_changed(socket, nil)
   def handle_info(:access_changed, socket), do: {:noreply, socket}
 
@@ -282,6 +284,17 @@ defmodule AnkoleWeb.WorkerChannel do
 
     socket = push_sequenced(socket, "command", envelope)
     {:noreply, assign(socket, %{vfs_ids: MapSet.new(), vfs_all: false, vfs_timer: false})}
+  end
+
+  def handle_info({:rpc_failed, request_id}, socket) do
+    envelope =
+      Ankole.Sessions.RPCLane.rpc_error_envelope(request_id, %{
+        "code" => "rpc_request_failed",
+        "message" => "Worker request failed"
+      })
+
+    socket = socket |> push_sequenced("reply", envelope) |> release_rpc_task(envelope)
+    {:noreply, socket}
   end
 
   def handle_info({:reply_done, ref, stream, seq, bytes, result}, socket) do

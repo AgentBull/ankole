@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.Page do
   require Ash.Query
-  @moduledoc "Read-only knowledge projection of the Drive tree and Pod page content."
+  @moduledoc "Read-only knowledge projection of the Page tree and content."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.Brain,

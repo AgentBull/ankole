@@ -524,7 +524,7 @@ defmodule Ankole.Sessions.WakeBriefing do
         []
       end
 
-    drive_nodes =
+    pages =
       if String.contains?(cmd, "ankole-files") do
         extract_drive_cli_candidates(cmd)
       else
@@ -540,7 +540,7 @@ defmodule Ankole.Sessions.WakeBriefing do
       |> List.flatten()
       |> Enum.flat_map(&workspace_candidate(&1, base_dir))
 
-    pod_nodes ++ drive_nodes ++ workspace_files
+    pod_nodes ++ pages ++ workspace_files
   end
 
   defp extract_action_objects(%{args: args}, _run) when is_map(args) do
@@ -628,7 +628,7 @@ defmodule Ankole.Sessions.WakeBriefing do
       id = String.downcase(trimmed)
       [%{source: :node, key: id, display_path: "drive:#{id}"}]
     else
-      case Files.normalize_existing_path(String.trim_leading(trimmed, "/")) do
+      case Files.normalize_path(String.trim_leading(trimmed, "/")) do
         {:ok, normalized} when normalized != "" ->
           [%{source: :drive_path, key: normalized, display_path: "drive:/#{normalized}"}]
 
@@ -805,7 +805,7 @@ defmodule Ankole.Sessions.WakeBriefing do
 
   defp reread_candidate(run, %{source: :node, key: node_id}) do
     with {:ok, actor} <- agent_actor(run),
-         {:ok, node} <- Files.authorize_node(actor, node_id, "node_view") do
+         {:ok, node} <- Ankole.Pod.authorize_node(actor, node_id, "node_view") do
       case node do
         %{kind: :doc, id: id, name: name} ->
           case Pages.get(actor, id) do
@@ -877,7 +877,7 @@ defmodule Ankole.Sessions.WakeBriefing do
     tenant_id = Repo.tenant_id!()
 
     task =
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(Ankole.WorkerFiles.TaskSupervisor, fn ->
         Repo.with_tenant(tenant_id, fn ->
           try do
             case WorkerFiles.stream_prefix(rel_path, @reread_max_bytes,

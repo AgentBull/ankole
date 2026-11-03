@@ -1,11 +1,19 @@
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { isRecord } from '@agentbull/active-support'
 import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { RPCRequester, TurnRPCFrame } from '../lanes/rpc_lane'
 import type { RuntimeSkillSummary } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
-/** Each Turn receives only the files selected by its live conversation permissions. */
+/** The model's turn directory resolves inside the command's mounted namespace. */
+export async function linkMountedSkills(root: string): Promise<() => Promise<void>> {
+  await rm(root, { recursive: true, force: true })
+  await mkdir(dirname(root), { recursive: true })
+  await symlink('/drive/Skills', root)
+  return () => rm(root, { recursive: true, force: true })
+}
+
+/** Materializes the enabled packages for one execution. */
 export async function materializeKnowledgeSkills(input: {
   root: string
   frame?: TurnRPCFrame
@@ -47,7 +55,12 @@ export async function materializeKnowledgeSkills(input: {
     }
     return {
       root,
-      skills: input.skills.map(skill => ({ ...skill, sourceKind: 'installed', relativePath: skill.skillName })),
+      skills: input.skills.map(skill => ({
+        ...skill,
+        sourceKind: 'installed',
+        skillRoot: '',
+        relativePath: skill.skillName
+      })),
       cleanup: () => rm(root, { recursive: true, force: true })
     }
   } catch (error) {

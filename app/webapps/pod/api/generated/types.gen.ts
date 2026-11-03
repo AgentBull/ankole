@@ -4,64 +4,192 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
-export type Error = {
+export type PodPageType = {
   /**
-   * An application-specific error code, expressed as a string value.
+   * Field included by default.
    */
-  code?: string
+  actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
   /**
-   * A human-readable explanation specific to this occurrence of the problem.
+   * Field included by default.
    */
-  detail?: string
-  /**
-   * A unique identifier for this particular occurrence of the problem.
-   */
-  id?: string
-  links?: Links
-  source?: {
-    /**
-     * A string indicating which query parameter caused the error.
-     */
-    parameter?: string
-    /**
-     * A JSON Pointer [RFC6901] to the associated entity in the request document [e.g. "/data" for a primary data object, or "/data/attributes/title" for a specific attribute].
-     */
-    pointer?: string
+  children_view: {
+    [key: string]: unknown
   }
   /**
-   * The HTTP status code applicable to this problem, expressed as a string value.
+   * Field included by default.
    */
-  status?: string
+  conversation_id?: string | null
   /**
-   * A short, human-readable summary of the problem. It SHOULD NOT change from occurrence to occurrence of the problem, except for purposes of localization.
+   * Field included by default.
    */
-  title?: string
+  created_at: string
+  /**
+   * Field included by default.
+   */
+  deleted_at?: string | null
+  /**
+   * Field included by default.
+   */
+  icon?: string | null
+  /**
+   * Field included by default.
+   */
+  id: string
+  /**
+   * Field included by default.
+   */
+  inherit_permissions: boolean
+  /**
+   * Field included by default.
+   */
+  is_root?: boolean | null
+  /**
+   * Field included by default.
+   */
+  metadata: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  object_id?: string | null
+  /**
+   * Field included by default.
+   */
+  owner_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  parent_id?: string | null
+  /**
+   * Field included by default.
+   */
+  position?: string | null
+  /**
+   * Field included by default.
+   */
+  private_owner_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  purge_started_at?: string | null
+  /**
+   * Field included by default.
+   */
+  revision: number
+  /**
+   * Field included by default.
+   */
+  role?: 'view' | 'contribute' | 'edit' | 'manage' | null
+  /**
+   * Field included by default.
+   */
+  saved_from_message_id?: string | null
+  /**
+   * Field included by default.
+   */
+  system_key?: string | null
+  /**
+   * Field included by default.
+   */
+  title: string
+  /**
+   * Field included by default.
+   */
+  type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+  /**
+   * Field included by default.
+   */
+  visited_at?: string | null
 }
 
-export type Errors = Array<Error>
-
-/**
- * A link MUST be represented as either: a string containing the link's URL or a link object.
- */
-export type Link = string
-
-export type Links = {
-  [key: string]: Link
+export type SignalBindingType = {
+  /**
+   * Field included by default.
+   */
+  adapter: string
+  /**
+   * Field included by default.
+   */
+  agent_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  config_ref: string
+  /**
+   * Field included by default.
+   */
+  enabled: boolean
+  /**
+   * Field included by default.
+   */
+  filters: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
+  /**
+   * Field included by default.
+   */
+  target: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+  /**
+   * Field included by default.
+   */
+  unavailable_reason?: string | null
+  /**
+   * Field included by default.
+   */
+  unmatched_sender_policy: 'manual_review' | 'create_standalone'
+  /**
+   * Field included by default.
+   */
+  watched_field_ids?: Array<string> | null
 }
 
 /**
- * A "Resource object" representing a pod_admin_operation
+ * A "Resource object" representing a pod_page_content
  */
-export type PodAdminOperation = {
+export type PodPageContent = {
   /**
-   * An attributes object for a pod_admin_operation
+   * An attributes object for a pod_page_content
    */
   attributes?: {
-    [key: string]: never
+    /**
+     * Field included by default.
+     */
+    content: string
+    /**
+     * Field included by default.
+     */
+    plain_text: string
   }
   id: string
   /**
-   * A relationships object for a pod_admin_operation
+   * A relationships object for a pod_page_content
    */
   relationships?: {
     [key: string]: never
@@ -70,13 +198,11 @@ export type PodAdminOperation = {
 }
 
 /**
- * Filters the query to results matching the given filter object
+ * A link MUST be represented as either: a string containing the link's URL or a link object.
  */
-export type PodAdminOperationFilter = {
-  and?: Array<PodAdminOperationFilter>
-  not?: PodAdminOperationFilter
-  or?: Array<PodAdminOperationFilter>
-}
+export type Link = string
+
+export type Errors = Array<Error>
 
 /**
  * A "Resource object" representing a pod_base_field
@@ -141,6 +267,847 @@ export type PodBaseField = {
   type: string
 }
 
+/**
+ * A "Resource object" representing a applet_job_operation
+ */
+export type AppletJobOperation = {
+  /**
+   * An attributes object for a applet_job_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a applet_job_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_chat_operation
+ */
+export type PodChatOperation = {
+  /**
+   * An attributes object for a pod_chat_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_chat_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a meta_agent
+ */
+export type MetaAgent = {
+  /**
+   * An attributes object for a meta_agent
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_agent
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type MetaBrainFilter = {
+  and?: Array<MetaBrainFilter>
+  not?: MetaBrainFilter
+  or?: Array<MetaBrainFilter>
+}
+
+export type Links = {
+  [key: string]: Link
+}
+
+export type Error = {
+  /**
+   * An application-specific error code, expressed as a string value.
+   */
+  code?: string
+  /**
+   * A human-readable explanation specific to this occurrence of the problem.
+   */
+  detail?: string
+  /**
+   * A unique identifier for this particular occurrence of the problem.
+   */
+  id?: string
+  links?: Links
+  source?: {
+    /**
+     * A string indicating which query parameter caused the error.
+     */
+    parameter?: string
+    /**
+     * A JSON Pointer [RFC6901] to the associated entity in the request document [e.g. "/data" for a primary data object, or "/data/attributes/title" for a specific attribute].
+     */
+    pointer?: string
+  }
+  /**
+   * The HTTP status code applicable to this problem, expressed as a string value.
+   */
+  status?: string
+  /**
+   * A short, human-readable summary of the problem. It SHOULD NOT change from occurrence to occurrence of the problem, except for purposes of localization.
+   */
+  title?: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type MetaLibraryFilter = {
+  and?: Array<MetaLibraryFilter>
+  not?: MetaLibraryFilter
+  or?: Array<MetaLibraryFilter>
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type AppletJobOperationFilter = {
+  and?: Array<AppletJobOperationFilter>
+  not?: AppletJobOperationFilter
+  or?: Array<AppletJobOperationFilter>
+}
+
+/**
+ * A "Resource object" representing a pod_base_operation
+ */
+export type PodBaseOperation = {
+  /**
+   * An attributes object for a pod_base_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_base_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_base_table
+ */
+export type PodBaseTable = {
+  /**
+   * An attributes object for a pod_base_table
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    data_version: number
+    /**
+     * Field included by default.
+     */
+    emit_changes: boolean
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    next_auto_number: number
+    /**
+     * Field included by default.
+     */
+    page_id: string
+    /**
+     * Field included by default.
+     */
+    position: string
+    /**
+     * Field included by default.
+     */
+    record_bytes: number
+    /**
+     * Field included by default.
+     */
+    record_count: number
+    /**
+     * Field included by default.
+     */
+    schema_version: number
+    /**
+     * Field included by default.
+     */
+    storage_mode: 'inline' | 'physical'
+    /**
+     * Field included by default.
+     */
+    unique_field_ids: Array<string>
+  }
+  id: string
+  /**
+   * A relationships object for a pod_base_table
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type PodPageUserStateType = {
+  /**
+   * Field included by default.
+   */
+  favorited_at?: string | null
+  /**
+   * Field included by default.
+   */
+  hide_visits: boolean
+  /**
+   * Field included by default.
+   */
+  page_id: string
+  /**
+   * Field included by default.
+   */
+  visited_at?: string | null
+}
+
+/**
+ * A "Resource object" representing a meta_brain
+ */
+export type MetaBrain = {
+  /**
+   * An attributes object for a meta_brain
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_brain
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type PodBaseTableType = {
+  /**
+   * Field included by default.
+   */
+  data_version: number
+  /**
+   * Field included by default.
+   */
+  emit_changes: boolean
+  /**
+   * Field included by default.
+   */
+  id: string
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  next_auto_number: number
+  /**
+   * Field included by default.
+   */
+  page_id: string
+  /**
+   * Field included by default.
+   */
+  position: string
+  /**
+   * Field included by default.
+   */
+  record_bytes: number
+  /**
+   * Field included by default.
+   */
+  record_count: number
+  /**
+   * Field included by default.
+   */
+  schema_version: number
+  /**
+   * Field included by default.
+   */
+  storage_mode: 'inline' | 'physical'
+  /**
+   * Field included by default.
+   */
+  unique_field_ids: Array<string>
+}
+
+export type AutomationJobRunType = {
+  /**
+   * Field included by default.
+   */
+  attempts: number
+  /**
+   * Field included by default.
+   */
+  automation_job_id: number
+  /**
+   * Field included by default.
+   */
+  error?: string | null
+  /**
+   * Field included by default.
+   */
+  exit_code?: number | null
+  /**
+   * Field included by default.
+   */
+  finished_at?: string | null
+  /**
+   * Field included by default.
+   */
+  id: number
+  /**
+   * Field included by default.
+   */
+  last_published_revision?: number | null
+  /**
+   * Field included by default.
+   */
+  progress: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  result?: unknown | null
+  /**
+   * Field included by default.
+   */
+  signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  slice_count: number
+  /**
+   * Field included by default.
+   */
+  started_at?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'queued' | 'running' | 'failed' | 'succeeded' | 'cancelled'
+  /**
+   * Field included by default.
+   */
+  stderr?: string | null
+  /**
+   * Field included by default.
+   */
+  stderr_truncated: boolean
+  /**
+   * Field included by default.
+   */
+  stdout?: string | null
+  /**
+   * Field included by default.
+   */
+  stdout_truncated: boolean
+}
+
+/**
+ * A "Resource object" representing a pod_admin_operation
+ */
+export type PodAdminOperation = {
+  /**
+   * An attributes object for a pod_admin_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_admin_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_document_comment_operation
+ */
+export type PodDocumentCommentOperation = {
+  /**
+   * An attributes object for a pod_document_comment_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_document_comment_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type PodPageContentType = {
+  /**
+   * Field included by default.
+   */
+  content: string
+  /**
+   * Field included by default.
+   */
+  page_id: string
+  /**
+   * Field included by default.
+   */
+  plain_text: string
+}
+
+export type PodBaseViewType = {
+  /**
+   * Field included by default.
+   */
+  config: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  id: string
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  position: string
+  /**
+   * Field included by default.
+   */
+  table_id: string
+  /**
+   * Field included by default.
+   */
+  type: 'grid' | 'kanban' | 'gallery'
+  /**
+   * Field included by default.
+   */
+  version: number
+}
+
+/**
+ * A "Resource object" representing a pod_page_user_state
+ */
+export type PodPageUserState = {
+  /**
+   * An attributes object for a pod_page_user_state
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    favorited_at?: string | null
+    /**
+     * Field included by default.
+     */
+    hide_visits: boolean
+    /**
+     * Field included by default.
+     */
+    page_id: string
+    /**
+     * Field included by default.
+     */
+    visited_at?: string | null
+  }
+  id: string
+  /**
+   * A relationships object for a pod_page_user_state
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_member_account
+ */
+export type PodMemberAccount = {
+  /**
+   * An attributes object for a pod_member_account
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_member_account
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type PodMemberAccountFilter = {
+  and?: Array<PodMemberAccountFilter>
+  not?: PodMemberAccountFilter
+  or?: Array<PodMemberAccountFilter>
+}
+
+export type AutomationJobType = {
+  /**
+   * Field included by default.
+   */
+  action_key?: string | null
+  /**
+   * Field included by default.
+   */
+  agent_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  authorization_kind?: string | null
+  /**
+   * Field included by default.
+   */
+  cancelled_at?: string | null
+  /**
+   * Field included by default.
+   */
+  concurrency_mode: 'parallel' | 'serial_fifo' | 'serial_coalesce'
+  /**
+   * Field included by default.
+   */
+  config: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  drive_prefix?: string | null
+  /**
+   * Field included by default.
+   */
+  executor_kind: 'agent_script' | 'applet_function'
+  /**
+   * Field included by default.
+   */
+  id: number
+  /**
+   * Field included by default.
+   */
+  idempotent: boolean
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  label: string
+  /**
+   * Field included by default.
+   */
+  max_slices: number
+  /**
+   * Field included by default.
+   */
+  owner_session_id?: string | null
+  /**
+   * Field included by default.
+   */
+  page_id?: string | null
+  /**
+   * Field included by default.
+   */
+  provider_message_id?: string | null
+  /**
+   * Field included by default.
+   */
+  reply_route: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  source_provenance: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  source_signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'active' | 'cancelled'
+  /**
+   * Field included by default.
+   */
+  unavailable_reason?: string | null
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+  /**
+   * Field included by default.
+   */
+  wake_on_failure: boolean
+}
+
+/**
+ * A "Resource object" representing a pod_document_history_operation
+ */
+export type PodDocumentHistoryOperation = {
+  /**
+   * An attributes object for a pod_document_history_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_document_history_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_page
+ */
+export type PodPage = {
+  /**
+   * An attributes object for a pod_page
+   */
+  attributes?: {
+    actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
+    /**
+     * Field included by default.
+     */
+    children_view: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    deleted_at?: string | null
+    /**
+     * Field included by default.
+     */
+    icon?: string | null
+    /**
+     * Field included by default.
+     */
+    id: string
+    /**
+     * Field included by default.
+     */
+    inherit_permissions: boolean
+    /**
+     * Field included by default.
+     */
+    is_root?: boolean | null
+    /**
+     * Field included by default.
+     */
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    object_id?: string | null
+    /**
+     * Field included by default.
+     */
+    owner_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    parent_id?: string | null
+    /**
+     * Field included by default.
+     */
+    position?: string | null
+    /**
+     * Field included by default.
+     */
+    private_owner_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    purge_started_at?: string | null
+    /**
+     * Field included by default.
+     */
+    revision: number
+    role?: 'view' | 'contribute' | 'edit' | 'manage' | null
+    /**
+     * Field included by default.
+     */
+    saved_from_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    system_key?: string | null
+    /**
+     * Field included by default.
+     */
+    title: string
+    /**
+     * Field included by default.
+     */
+    type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+    visited_at?: string | null
+  }
+  id: string
+  /**
+   * A relationships object for a pod_page
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type PodAdminOperationFilter = {
+  and?: Array<PodAdminOperationFilter>
+  not?: PodAdminOperationFilter
+  or?: Array<PodAdminOperationFilter>
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type EventBindingOperationFilter = {
+  and?: Array<EventBindingOperationFilter>
+  not?: EventBindingOperationFilter
+  or?: Array<EventBindingOperationFilter>
+}
+
+/**
+ * A "Resource object" representing a pod_file_operation
+ */
+export type PodFileOperation = {
+  /**
+   * An attributes object for a pod_file_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_file_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_base_view
+ */
+export type PodBaseView = {
+  /**
+   * An attributes object for a pod_base_view
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    config: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    position: string
+    /**
+     * Field included by default.
+     */
+    table_id: string
+    /**
+     * Field included by default.
+     */
+    type: 'grid' | 'kanban' | 'gallery'
+    /**
+     * Field included by default.
+     */
+    version: number
+  }
+  id: string
+  /**
+   * A relationships object for a pod_base_view
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type PodBaseFieldType = {
   /**
    * Field included by default.
@@ -193,562 +1160,6 @@ export type PodBaseFieldType = {
 }
 
 /**
- * A "Resource object" representing a pod_base_operation
- */
-export type PodBaseOperation = {
-  /**
-   * An attributes object for a pod_base_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_base_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_base_table
- */
-export type PodBaseTable = {
-  /**
-   * An attributes object for a pod_base_table
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    data_version: number
-    /**
-     * Field included by default.
-     */
-    name: string
-    /**
-     * Field included by default.
-     */
-    next_auto_number: number
-    /**
-     * Field included by default.
-     */
-    page_id: string
-    /**
-     * Field included by default.
-     */
-    position: string
-    /**
-     * Field included by default.
-     */
-    record_bytes: number
-    /**
-     * Field included by default.
-     */
-    record_count: number
-    /**
-     * Field included by default.
-     */
-    schema_version: number
-    /**
-     * Field included by default.
-     */
-    storage_mode: 'inline' | 'physical'
-  }
-  id: string
-  /**
-   * A relationships object for a pod_base_table
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type PodBaseTableType = {
-  /**
-   * Field included by default.
-   */
-  data_version: number
-  /**
-   * Field included by default.
-   */
-  id: string
-  /**
-   * Field included by default.
-   */
-  name: string
-  /**
-   * Field included by default.
-   */
-  next_auto_number: number
-  /**
-   * Field included by default.
-   */
-  page_id: string
-  /**
-   * Field included by default.
-   */
-  position: string
-  /**
-   * Field included by default.
-   */
-  record_bytes: number
-  /**
-   * Field included by default.
-   */
-  record_count: number
-  /**
-   * Field included by default.
-   */
-  schema_version: number
-  /**
-   * Field included by default.
-   */
-  storage_mode: 'inline' | 'physical'
-}
-
-/**
- * A "Resource object" representing a pod_base_view
- */
-export type PodBaseView = {
-  /**
-   * An attributes object for a pod_base_view
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    config: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    name: string
-    /**
-     * Field included by default.
-     */
-    position: string
-    /**
-     * Field included by default.
-     */
-    table_id: string
-    /**
-     * Field included by default.
-     */
-    type: 'grid' | 'kanban' | 'gallery'
-    /**
-     * Field included by default.
-     */
-    version: number
-  }
-  id: string
-  /**
-   * A relationships object for a pod_base_view
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type PodBaseViewType = {
-  /**
-   * Field included by default.
-   */
-  config: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  id: string
-  /**
-   * Field included by default.
-   */
-  name: string
-  /**
-   * Field included by default.
-   */
-  position: string
-  /**
-   * Field included by default.
-   */
-  table_id: string
-  /**
-   * Field included by default.
-   */
-  type: 'grid' | 'kanban' | 'gallery'
-  /**
-   * Field included by default.
-   */
-  version: number
-}
-
-/**
- * A "Resource object" representing a pod_chat_operation
- */
-export type PodChatOperation = {
-  /**
-   * An attributes object for a pod_chat_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_chat_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_document_comment_operation
- */
-export type PodDocumentCommentOperation = {
-  /**
-   * An attributes object for a pod_document_comment_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_document_comment_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_document_history_operation
- */
-export type PodDocumentHistoryOperation = {
-  /**
-   * An attributes object for a pod_document_history_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_document_history_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_file_operation
- */
-export type PodFileOperation = {
-  /**
-   * An attributes object for a pod_file_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_file_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_member_account
- */
-export type PodMemberAccount = {
-  /**
-   * An attributes object for a pod_member_account
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_member_account
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * Filters the query to results matching the given filter object
- */
-export type PodMemberAccountFilter = {
-  and?: Array<PodMemberAccountFilter>
-  not?: PodMemberAccountFilter
-  or?: Array<PodMemberAccountFilter>
-}
-
-/**
- * A "Resource object" representing a pod_page
- */
-export type PodPage = {
-  /**
-   * An attributes object for a pod_page
-   */
-  attributes?: {
-    actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
-    /**
-     * Field included by default.
-     */
-    children_view: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    conversation_id?: string | null
-    /**
-     * Field included by default.
-     */
-    created_at: string
-    /**
-     * Field included by default.
-     */
-    deleted_at?: string | null
-    /**
-     * Field included by default.
-     */
-    icon?: string | null
-    /**
-     * Field included by default.
-     */
-    inherit_permissions: boolean
-    /**
-     * Field included by default.
-     */
-    is_root?: boolean | null
-    /**
-     * Field included by default.
-     */
-    metadata: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    name?: string | null
-    /**
-     * Field included by default.
-     */
-    object_id?: string | null
-    /**
-     * Field included by default.
-     */
-    parent_id?: string | null
-    /**
-     * Field included by default.
-     */
-    position?: string | null
-    /**
-     * Field included by default.
-     */
-    private_owner_uid?: string | null
-    /**
-     * Field included by default.
-     */
-    purge_started_at?: string | null
-    /**
-     * Field included by default.
-     */
-    revision: number
-    role?: 'view' | 'contribute' | 'edit' | 'manage' | null
-    /**
-     * Field included by default.
-     */
-    saved_from_message_id?: string | null
-    /**
-     * Field included by default.
-     */
-    system_key?: string | null
-    /**
-     * Field included by default.
-     */
-    title: string
-    /**
-     * Field included by default.
-     */
-    type: 'folder' | 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
-    /**
-     * Field included by default.
-     */
-    updated_at: string
-    visited_at?: string | null
-  }
-  id: string
-  /**
-   * A relationships object for a pod_page
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type PodPageType = {
-  /**
-   * Field included by default.
-   */
-  actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
-  /**
-   * Field included by default.
-   */
-  children_view: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  conversation_id?: string | null
-  /**
-   * Field included by default.
-   */
-  created_at: string
-  /**
-   * Field included by default.
-   */
-  deleted_at?: string | null
-  /**
-   * Field included by default.
-   */
-  icon?: string | null
-  /**
-   * Field included by default.
-   */
-  id: string
-  /**
-   * Field included by default.
-   */
-  inherit_permissions: boolean
-  /**
-   * Field included by default.
-   */
-  is_root?: boolean | null
-  /**
-   * Field included by default.
-   */
-  metadata: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  name?: string | null
-  /**
-   * Field included by default.
-   */
-  object_id?: string | null
-  /**
-   * Field included by default.
-   */
-  parent_id?: string | null
-  /**
-   * Field included by default.
-   */
-  position?: string | null
-  /**
-   * Field included by default.
-   */
-  private_owner_uid?: string | null
-  /**
-   * Field included by default.
-   */
-  purge_started_at?: string | null
-  /**
-   * Field included by default.
-   */
-  revision: number
-  /**
-   * Field included by default.
-   */
-  role?: 'view' | 'contribute' | 'edit' | 'manage' | null
-  /**
-   * Field included by default.
-   */
-  saved_from_message_id?: string | null
-  /**
-   * Field included by default.
-   */
-  system_key?: string | null
-  /**
-   * Field included by default.
-   */
-  title: string
-  /**
-   * Field included by default.
-   */
-  type: 'folder' | 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
-  /**
-   * Field included by default.
-   */
-  updated_at: string
-  /**
-   * Field included by default.
-   */
-  visited_at?: string | null
-}
-
-/**
- * A "Resource object" representing a pod_page_content
- */
-export type PodPageContent = {
-  /**
-   * An attributes object for a pod_page_content
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    content: string
-    /**
-     * Field included by default.
-     */
-    plain_text: string
-  }
-  id: string
-  /**
-   * A relationships object for a pod_page_content
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type PodPageContentType = {
-  /**
-   * Field included by default.
-   */
-  content: string
-  /**
-   * Field included by default.
-   */
-  page_id: string
-  /**
-   * Field included by default.
-   */
-  plain_text: string
-}
-
-/**
  * A "Resource object" representing a pod_page_operation
  */
 export type PodPageOperation = {
@@ -769,57 +1180,21 @@ export type PodPageOperation = {
 }
 
 /**
- * A "Resource object" representing a pod_page_user_state
+ * Filters the query to results matching the given filter object
  */
-export type PodPageUserState = {
-  /**
-   * An attributes object for a pod_page_user_state
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    favorited_at?: string | null
-    /**
-     * Field included by default.
-     */
-    hide_visits: boolean
-    /**
-     * Field included by default.
-     */
-    page_id: string
-    /**
-     * Field included by default.
-     */
-    visited_at?: string | null
-  }
-  id: string
-  /**
-   * A relationships object for a pod_page_user_state
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
+export type MetaAgentFilter = {
+  and?: Array<MetaAgentFilter>
+  not?: MetaAgentFilter
+  or?: Array<MetaAgentFilter>
 }
 
-export type PodPageUserStateType = {
-  /**
-   * Field included by default.
-   */
-  favorited_at?: string | null
-  /**
-   * Field included by default.
-   */
-  hide_visits: boolean
-  /**
-   * Field included by default.
-   */
-  page_id: string
-  /**
-   * Field included by default.
-   */
-  visited_at?: string | null
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type PodRealtimeFilter = {
+  and?: Array<PodRealtimeFilter>
+  not?: PodRealtimeFilter
+  or?: Array<PodRealtimeFilter>
 }
 
 /**
@@ -843,12 +1218,43 @@ export type PodRealtime = {
 }
 
 /**
- * Filters the query to results matching the given filter object
+ * A "Resource object" representing a event_binding_operation
  */
-export type PodRealtimeFilter = {
-  and?: Array<PodRealtimeFilter>
-  not?: PodRealtimeFilter
-  or?: Array<PodRealtimeFilter>
+export type EventBindingOperation = {
+  /**
+   * An attributes object for a event_binding_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a event_binding_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a meta_library
+ */
+export type MetaLibrary = {
+  /**
+   * An attributes object for a meta_library
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_library
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
 }
 
 export type PodBaseTableDeleteData = {
@@ -1492,6 +1898,360 @@ export type PodVersionsResponses = {
 
 export type PodVersionsResponse = PodVersionsResponses[keyof PodVersionsResponses]
 
+export type PodAppletJobsData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs'
+}
+
+export type PodAppletJobsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobsError = PodAppletJobsErrors[keyof PodAppletJobsErrors]
+
+export type PodAppletJobsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    jobs: Array<AutomationJobType>
+  }
+}
+
+export type PodAppletJobsResponse = PodAppletJobsResponses[keyof PodAppletJobsResponses]
+
+export type PodAppletJobCreateData = {
+  /**
+   * Request body for the podAppletJobCreate operation on applet_job_operation resource
+   */
+  body: {
+    data: {
+      action_key: string
+      authorization_kind?: string | null
+      config?: {
+        [key: string]: unknown
+      } | null
+      label?: string | null
+    }
+  }
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs'
+}
+
+export type PodAppletJobCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobCreateError = PodAppletJobCreateErrors[keyof PodAppletJobCreateErrors]
+
+export type PodAppletJobCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    job: AutomationJobType
+  }
+}
+
+export type PodAppletJobCreateResponse = PodAppletJobCreateResponses[keyof PodAppletJobCreateResponses]
+
+export type MetaGlobalContractsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/contracts'
+}
+
+export type MetaGlobalContractsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaGlobalContractsError = MetaGlobalContractsErrors[keyof MetaGlobalContractsErrors]
+
+export type MetaGlobalContractsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_edit: boolean
+    contracts: Array<{
+      content_markdown: string
+      content_xml: string
+      effective_markdown: string
+      metadata: {
+        [key: string]: unknown
+      }
+      mode: string
+      revision: number
+      slot: string
+    }>
+  }
+}
+
+export type MetaGlobalContractsResponse = MetaGlobalContractsResponses[keyof MetaGlobalContractsResponses]
+
+export type MetaSkillsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/skills'
+}
+
+export type MetaSkillsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillsError = MetaSkillsErrors[keyof MetaSkillsErrors]
+
+export type MetaSkillsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_create: boolean
+    skills: Array<{
+      agent_plugin_id?: string | null
+      assistant_enabled: boolean
+      can_bind_all: boolean
+      can_delete: boolean
+      can_edit: boolean
+      colleague_count: number
+      description: string
+      enabled_for_all: boolean
+      id: string
+      manifest_markdown: string
+      manifest_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      name: string
+      revision: number
+      slug: string
+      source_kind: string
+    }>
+  }
+}
+
+export type MetaSkillsResponse = MetaSkillsResponses[keyof MetaSkillsResponses]
+
+export type MetaCreateSkillData = {
+  /**
+   * Request body for the metaCreateSkill operation on meta_library resource
+   */
+  body: {
+    data: {
+      manifest_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/skills'
+}
+
+export type MetaCreateSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaCreateSkillError = MetaCreateSkillErrors[keyof MetaCreateSkillErrors]
+
+export type MetaCreateSkillResponses = {
+  /**
+   * Success
+   */
+  201: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaCreateSkillResponse = MetaCreateSkillResponses[keyof MetaCreateSkillResponses]
+
+export type MetaSkillFileData = {
+  body?: never
+  path: {
+    slug: string
+  }
+  query: {
+    path: string
+  }
+  url: '/api/v2/pod/meta/skills/{slug}/file'
+}
+
+export type MetaSkillFileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillFileError = MetaSkillFileErrors[keyof MetaSkillFileErrors]
+
+export type MetaSkillFileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    content_base64: string
+    revision: number
+  }
+}
+
+export type MetaSkillFileResponse = MetaSkillFileResponses[keyof MetaSkillFileResponses]
+
+export type MetaSkillChangeFileData = {
+  /**
+   * Request body for the metaSkillChangeFile operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      new_path?: string | null
+      path: string
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}/file'
+}
+
+export type MetaSkillChangeFileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillChangeFileError = MetaSkillChangeFileErrors[keyof MetaSkillChangeFileErrors]
+
+export type MetaSkillChangeFileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSkillChangeFileResponse = MetaSkillChangeFileResponses[keyof MetaSkillChangeFileResponses]
+
+export type MetaSkillPutFileData = {
+  /**
+   * Request body for the metaSkillPutFile operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      content_base64: string
+      content_type: string
+      mode: number
+      path: string
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}/file'
+}
+
+export type MetaSkillPutFileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillPutFileError = MetaSkillPutFileErrors[keyof MetaSkillPutFileErrors]
+
+export type MetaSkillPutFileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSkillPutFileResponse = MetaSkillPutFileResponses[keyof MetaSkillPutFileResponses]
+
 export type PodBaseQueryData = {
   /**
    * Request body for the podBaseQuery operation on pod_base_operation resource
@@ -1571,6 +2331,76 @@ export type PodBaseQueryResponses = {
 
 export type PodBaseQueryResponse = PodBaseQueryResponses[keyof PodBaseQueryResponses]
 
+export type PodAppletJobDeleteData = {
+  body?: never
+  path: {
+    id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{id}'
+}
+
+export type PodAppletJobDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobDeleteError = PodAppletJobDeleteErrors[keyof PodAppletJobDeleteErrors]
+
+export type PodAppletJobDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    job: AutomationJobType
+  }
+}
+
+export type PodAppletJobDeleteResponse = PodAppletJobDeleteResponses[keyof PodAppletJobDeleteResponses]
+
+export type PodAppletJobConfigureData = {
+  /**
+   * Request body for the podAppletJobConfigure operation on applet_job_operation resource
+   */
+  body?: {
+    data: {
+      config?: {
+        [key: string]: unknown
+      } | null
+      label?: string | null
+    }
+  }
+  path: {
+    id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{id}'
+}
+
+export type PodAppletJobConfigureErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobConfigureError = PodAppletJobConfigureErrors[keyof PodAppletJobConfigureErrors]
+
+export type PodAppletJobConfigureResponses = {
+  /**
+   * Success
+   */
+  200: {
+    job: AutomationJobType
+  }
+}
+
+export type PodAppletJobConfigureResponse = PodAppletJobConfigureResponses[keyof PodAppletJobConfigureResponses]
+
 export type PodPageHistoryRestoreData = {
   /**
    * Request body for the podPageHistoryRestore operation on pod_document_history_operation resource
@@ -1641,6 +2471,224 @@ export type PodModelProfilesResponses = {
 }
 
 export type PodModelProfilesResponse = PodModelProfilesResponses[keyof PodModelProfilesResponses]
+
+export type PodAppletOwnerData = {
+  /**
+   * Request body for the podAppletOwner operation on pod_page_operation resource
+   */
+  body: {
+    data: {
+      owner_uid: string
+    }
+  }
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/applet-owner'
+}
+
+export type PodAppletOwnerErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletOwnerError = PodAppletOwnerErrors[keyof PodAppletOwnerErrors]
+
+export type PodAppletOwnerResponses = {
+  /**
+   * Success
+   */
+  200: {
+    page: PodPageType
+  }
+}
+
+export type PodAppletOwnerResponse = PodAppletOwnerResponses[keyof PodAppletOwnerResponses]
+
+export type MetaAgentContractsData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/agents/{uid}/contracts'
+}
+
+export type MetaAgentContractsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaAgentContractsError = MetaAgentContractsErrors[keyof MetaAgentContractsErrors]
+
+export type MetaAgentContractsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_edit: boolean
+    contracts: Array<{
+      content_markdown: string
+      content_xml: string
+      effective_markdown: string
+      metadata: {
+        [key: string]: unknown
+      }
+      mode: string
+      revision: number
+      slot: string
+    }>
+  }
+}
+
+export type MetaAgentContractsResponse = MetaAgentContractsResponses[keyof MetaAgentContractsResponses]
+
+export type MetaDeleteSkillData = {
+  body?: never
+  path: {
+    slug: string
+  }
+  query: {
+    base_revision: number
+  }
+  url: '/api/v2/pod/meta/skills/{slug}'
+}
+
+export type MetaDeleteSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaDeleteSkillError = MetaDeleteSkillErrors[keyof MetaDeleteSkillErrors]
+
+export type MetaDeleteSkillResponses = {
+  /**
+   * Success
+   */
+  200: boolean
+}
+
+export type MetaDeleteSkillResponse = MetaDeleteSkillResponses[keyof MetaDeleteSkillResponses]
+
+export type MetaSkillData = {
+  body?: never
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}'
+}
+
+export type MetaSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillError = MetaSkillErrors[keyof MetaSkillErrors]
+
+export type MetaSkillResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_uids: Array<string>
+    files: Array<{
+      content_type: string
+      id: string
+      mode: number
+      relative_path: string
+    }>
+    skill: {
+      agent_plugin_id?: string | null
+      assistant_enabled: boolean
+      can_bind_all: boolean
+      can_delete: boolean
+      can_edit: boolean
+      colleague_count: number
+      description: string
+      enabled_for_all: boolean
+      id: string
+      manifest_markdown: string
+      manifest_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      name: string
+      revision: number
+      slug: string
+      source_kind: string
+    }
+  }
+}
+
+export type MetaSkillResponse = MetaSkillResponses[keyof MetaSkillResponses]
+
+export type MetaSaveSkillData = {
+  /**
+   * Request body for the metaSaveSkill operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      manifest_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      new_slug?: string | null
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}'
+}
+
+export type MetaSaveSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSaveSkillError = MetaSaveSkillErrors[keyof MetaSaveSkillErrors]
+
+export type MetaSaveSkillResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSaveSkillResponse = MetaSaveSkillResponses[keyof MetaSaveSkillResponses]
 
 export type PodConversationAttentionData = {
   body?: never
@@ -1767,7 +2815,7 @@ export type PodPageNavigationResponses = {
         role: 'view' | 'contribute' | 'edit' | 'manage'
         system_key?: string | null
         title: string
-        type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder'
+        type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
       }>
       parent_id?: string | null
       principal_uid: string
@@ -1789,7 +2837,7 @@ export type PodPageNavigationResponses = {
       role: 'view' | 'contribute' | 'edit' | 'manage'
       system_key?: string | null
       title: string
-      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder'
+      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
     }>
   }
 }
@@ -3985,6 +5033,60 @@ export type EnsurePodPersonalAssistantResponses = {
 export type EnsurePodPersonalAssistantResponse =
   EnsurePodPersonalAssistantResponses[keyof EnsurePodPersonalAssistantResponses]
 
+export type MetaSkillSetAllData = {
+  /**
+   * Request body for the metaSkillSetAll operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      enabled: boolean
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}/all'
+}
+
+export type MetaSkillSetAllErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillSetAllError = MetaSkillSetAllErrors[keyof MetaSkillSetAllErrors]
+
+export type MetaSkillSetAllResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSkillSetAllResponse = MetaSkillSetAllResponses[keyof MetaSkillSetAllResponses]
+
 export type RequestPodEmailBindingData = {
   /**
    * Request body for the requestPodEmailBinding operation on pod_member_account resource
@@ -4260,7 +5362,7 @@ export type PodPageChildrenResponses = {
       role: 'view' | 'contribute' | 'edit' | 'manage'
       system_key?: string | null
       title: string
-      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder'
+      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
       updated_at?: string | null
     }>
     principal_uid: string
@@ -4268,6 +5370,36 @@ export type PodPageChildrenResponses = {
 }
 
 export type PodPageChildrenResponse = PodPageChildrenResponses[keyof PodPageChildrenResponses]
+
+export type PodAppletRunData = {
+  body?: never
+  path: {
+    id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/runs/{id}'
+}
+
+export type PodAppletRunErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletRunError = PodAppletRunErrors[keyof PodAppletRunErrors]
+
+export type PodAppletRunResponses = {
+  /**
+   * Success
+   */
+  200: {
+    run: AutomationJobRunType
+  }
+}
+
+export type PodAppletRunResponse = PodAppletRunResponses[keyof PodAppletRunResponses]
 
 export type PodPageUserStateData = {
   /**
@@ -4746,6 +5878,81 @@ export type UnbindPodCredentialResponses = {
 }
 
 export type UnbindPodCredentialResponse = UnbindPodCredentialResponses[keyof UnbindPodCredentialResponses]
+
+export type PodEventBindingsData = {
+  body?: never
+  path?: never
+  query: {
+    config_ref: string
+  }
+  url: '/api/v2/pod/signal-bindings'
+}
+
+export type PodEventBindingsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodEventBindingsError = PodEventBindingsErrors[keyof PodEventBindingsErrors]
+
+export type PodEventBindingsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    bindings: Array<SignalBindingType>
+  }
+}
+
+export type PodEventBindingsResponse = PodEventBindingsResponses[keyof PodEventBindingsResponses]
+
+export type PodEventBindingPutData = {
+  /**
+   * Request body for the podEventBindingPut operation on event_binding_operation resource
+   */
+  body: {
+    data: {
+      agent_uid?: string | null
+      automation_job_id?: number | null
+      config_ref: string
+      enabled?: boolean | null
+      filters?: {
+        [key: string]: unknown
+      } | null
+      id?: string | null
+      name?: string | null
+      target?: {
+        [key: string]: unknown
+      } | null
+      watched_field_ids?: Array<string> | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/signal-bindings'
+}
+
+export type PodEventBindingPutErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodEventBindingPutError = PodEventBindingPutErrors[keyof PodEventBindingPutErrors]
+
+export type PodEventBindingPutResponses = {
+  /**
+   * Success
+   */
+  200: {
+    binding: SignalBindingType
+  }
+}
+
+export type PodEventBindingPutResponse = PodEventBindingPutResponses[keyof PodEventBindingPutResponses]
 
 export type PodPageCommentResolveData = {
   /**
@@ -5285,6 +6492,48 @@ export type EnablePodAgentResponses = {
 
 export type EnablePodAgentResponse = EnablePodAgentResponses[keyof EnablePodAgentResponses]
 
+export type MetaBrainData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/brain'
+}
+
+export type MetaBrainErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaBrainError = MetaBrainErrors[keyof MetaBrainErrors]
+
+export type MetaBrainResponses = {
+  /**
+   * Success
+   */
+  200: {
+    categories: Array<{
+      can_edit: boolean
+      id: string
+      name: string
+    }>
+    links: Array<{
+      from_page_id: string
+      link_type: string
+      to_page_id: string
+    }>
+    nodes: Array<{
+      id: string
+      slug: string
+      title: string
+      type: string
+    }>
+  }
+}
+
+export type MetaBrainResponse = MetaBrainResponses[keyof MetaBrainResponses]
+
 export type PodKnowledgePanelData = {
   body?: never
   path: {
@@ -5428,8 +6677,9 @@ export type PodMentionsResolveResponses = {
       icon?: string | null
       id: string
       private_owner_uid?: string | null
+      system_key?: string | null
       title?: string | null
-      type?: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder' | null
+      type?: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | null
       updated_at?: string | null
     }>
     principals: Array<{
@@ -5454,6 +6704,7 @@ export type PodPageListData = {
   body?: never
   path?: never
   query?: {
+    domain?: 'pages' | 'brain' | 'all'
     query?: string
     scope?: 'all' | 'space' | 'private' | 'shared' | 'recent' | 'favorites' | 'trash'
   }
@@ -5503,7 +6754,7 @@ export type PodPageCreateData = {
       private_owner_uid?: string | null
       saved_from_message_id?: string | null
       title?: string | null
-      type?: 'doc' | 'knowledge' | 'base' | 'file' | 'folder' | null
+      type?: 'doc' | 'knowledge' | 'base' | 'file' | null
       xml?: string | null
     }
   }
@@ -5748,6 +6999,43 @@ export type PodEmbedsDeleteResponses = {
 }
 
 export type PodEmbedsDeleteResponse = PodEmbedsDeleteResponses[keyof PodEmbedsDeleteResponses]
+
+export type PodBaseTableConfigureData = {
+  /**
+   * Request body for the podBaseTableConfigure operation on pod_base_operation resource
+   */
+  body?: {
+    data: {
+      emit_changes?: boolean | null
+      unique_field_ids?: Array<string> | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}/settings'
+}
+
+export type PodBaseTableConfigureErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseTableConfigureError = PodBaseTableConfigureErrors[keyof PodBaseTableConfigureErrors]
+
+export type PodBaseTableConfigureResponses = {
+  /**
+   * Success
+   */
+  200: {
+    table: PodBaseTableType
+  }
+}
+
+export type PodBaseTableConfigureResponse = PodBaseTableConfigureResponses[keyof PodBaseTableConfigureResponses]
 
 export type PodSpaceAgentDeleteData = {
   body?: never
@@ -6046,6 +7334,11 @@ export type PodBaseWriteData = {
           [key: string]: number
         }
         id: string
+      }> | null
+      upserts?: Array<{
+        data: {
+          [key: string]: unknown
+        }
       }> | null
     }
   }
@@ -6707,6 +8000,58 @@ export type CreateConversationResponses = {
 
 export type CreateConversationResponse = CreateConversationResponses[keyof CreateConversationResponses]
 
+export type MetaImportSkillData = {
+  /**
+   * Request body for the metaImportSkill operation on meta_library resource
+   */
+  body: {
+    data: {
+      content_base64: string
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/skills/import'
+}
+
+export type MetaImportSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaImportSkillError = MetaImportSkillErrors[keyof MetaImportSkillErrors]
+
+export type MetaImportSkillResponses = {
+  /**
+   * Success
+   */
+  201: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaImportSkillResponse = MetaImportSkillResponses[keyof MetaImportSkillResponses]
+
 export type PodPageCommentsReadData = {
   /**
    * Request body for the podPageCommentsRead operation on pod_document_comment_operation resource
@@ -6786,6 +8131,85 @@ export type PodDocumentWriteResponses = {
 }
 
 export type PodDocumentWriteResponse = PodDocumentWriteResponses[keyof PodDocumentWriteResponses]
+
+export type MetaAgentsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/agents'
+}
+
+export type MetaAgentsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaAgentsError = MetaAgentsErrors[keyof MetaAgentsErrors]
+
+export type MetaAgentsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agents: Array<{
+      avatar_url?: string | null
+      can_bind: boolean
+      can_edit: boolean
+      display_name: string
+      role?: string | null
+      type: string
+      uid: string
+    }>
+    can_create: boolean
+  }
+}
+
+export type MetaAgentsResponse = MetaAgentsResponses[keyof MetaAgentsResponses]
+
+export type MetaCreateAgentData = {
+  /**
+   * Request body for the metaCreateAgent operation on meta_agent resource
+   */
+  body: {
+    data: {
+      avatar_url?: string | null
+      display_name: string
+      role: string
+      uid: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/agents'
+}
+
+export type MetaCreateAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaCreateAgentError = MetaCreateAgentErrors[keyof MetaCreateAgentErrors]
+
+export type MetaCreateAgentResponses = {
+  /**
+   * Success
+   */
+  201: {
+    avatar_url?: string | null
+    can_bind: boolean
+    can_edit: boolean
+    display_name: string
+    role?: string | null
+    type: string
+    uid: string
+  }
+}
+
+export type MetaCreateAgentResponse = MetaCreateAgentResponses[keyof MetaCreateAgentResponses]
 
 export type PodPageInsightsData = {
   body?: never
@@ -7121,8 +8545,9 @@ export type PodMentionCandidatesResponses = {
       icon?: string | null
       id: string
       private_owner_uid?: string | null
+      system_key?: string | null
       title: string
-      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | 'folder'
+      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
       updated_at: string
     }>
     principals: Array<{
@@ -7253,6 +8678,55 @@ export type UpdatePodProfileResponses = {
 
 export type UpdatePodProfileResponse = UpdatePodProfileResponses[keyof UpdatePodProfileResponses]
 
+export type MetaSaveAgentContractData = {
+  /**
+   * Request body for the metaSaveAgentContract operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      content_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      mode: 'inherit' | 'append' | 'override'
+    }
+  }
+  path: {
+    slot: 'agents' | 'design'
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/agents/{uid}/contracts/{slot}'
+}
+
+export type MetaSaveAgentContractErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSaveAgentContractError = MetaSaveAgentContractErrors[keyof MetaSaveAgentContractErrors]
+
+export type MetaSaveAgentContractResponses = {
+  /**
+   * Success
+   */
+  200: {
+    content_markdown: string
+    content_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    mode: string
+    revision: number
+    slot: string
+  }
+}
+
+export type MetaSaveAgentContractResponse = MetaSaveAgentContractResponses[keyof MetaSaveAgentContractResponses]
+
 export type ReauthenticatePodMemberData = {
   body?: never
   path?: never
@@ -7313,6 +8787,7 @@ export type PodPageSearchData = {
   body?: never
   path?: never
   query: {
+    domain?: 'pages' | 'brain' | 'all'
     embeddable?: boolean
     exclude_subtree_of?: string
     query: string
@@ -7344,6 +8819,132 @@ export type PodPageSearchResponses = {
 }
 
 export type PodPageSearchResponse = PodPageSearchResponses[keyof PodPageSearchResponses]
+
+export type MetaAgentData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/agents/{uid}'
+}
+
+export type MetaAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaAgentError = MetaAgentErrors[keyof MetaAgentErrors]
+
+export type MetaAgentResponses = {
+  /**
+   * Success
+   */
+  200: {
+    avatar_url?: string | null
+    can_bind: boolean
+    can_edit: boolean
+    display_name: string
+    role?: string | null
+    type: string
+    uid: string
+  }
+}
+
+export type MetaAgentResponse = MetaAgentResponses[keyof MetaAgentResponses]
+
+export type MetaUpdateAgentData = {
+  /**
+   * Request body for the metaUpdateAgent operation on meta_agent resource
+   */
+  body: {
+    data: {
+      avatar_url?: string | null
+      display_name: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/agents/{uid}'
+}
+
+export type MetaUpdateAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaUpdateAgentError = MetaUpdateAgentErrors[keyof MetaUpdateAgentErrors]
+
+export type MetaUpdateAgentResponses = {
+  /**
+   * Success
+   */
+  200: {
+    avatar_url?: string | null
+    can_bind: boolean
+    can_edit: boolean
+    display_name: string
+    role?: string | null
+    type: string
+    uid: string
+  }
+}
+
+export type MetaUpdateAgentResponse = MetaUpdateAgentResponses[keyof MetaUpdateAgentResponses]
+
+export type MetaSaveGlobalContractData = {
+  /**
+   * Request body for the metaSaveGlobalContract operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      content_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      mode: 'inherit' | 'append' | 'override'
+    }
+  }
+  path: {
+    slot: 'agents' | 'design'
+  }
+  query?: never
+  url: '/api/v2/pod/meta/contracts/{slot}'
+}
+
+export type MetaSaveGlobalContractErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSaveGlobalContractError = MetaSaveGlobalContractErrors[keyof MetaSaveGlobalContractErrors]
+
+export type MetaSaveGlobalContractResponses = {
+  /**
+   * Success
+   */
+  200: {
+    content_markdown: string
+    content_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    mode: string
+    revision: number
+    slot: string
+  }
+}
+
+export type MetaSaveGlobalContractResponse = MetaSaveGlobalContractResponses[keyof MetaSaveGlobalContractResponses]
 
 export type PodSpaceData = {
   body?: never
@@ -7430,6 +9031,60 @@ export type PodSpaceWriteResponses = {
 }
 
 export type PodSpaceWriteResponse = PodSpaceWriteResponses[keyof PodSpaceWriteResponses]
+
+export type MetaSkillSetBindingData = {
+  /**
+   * Request body for the metaSkillSetBinding operation on meta_library resource
+   */
+  body: {
+    data: {
+      agent_uid: string
+      enabled: boolean
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}/bindings'
+}
+
+export type MetaSkillSetBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillSetBindingError = MetaSkillSetBindingErrors[keyof MetaSkillSetBindingErrors]
+
+export type MetaSkillSetBindingResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSkillSetBindingResponse = MetaSkillSetBindingResponses[keyof MetaSkillSetBindingResponses]
 
 export type PodSpaceAgentWriteData = {
   /**

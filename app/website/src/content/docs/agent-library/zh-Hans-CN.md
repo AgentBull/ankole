@@ -1,30 +1,32 @@
 ---
 title: Agent Library
-description: 管理 Agent 可用的能力边界：以文件包形式组织的 Skill、基于 Codex 包规范的 Agent Plugin，以及“租户默认 + Agent 覆盖”的启用机制。
+description: 在 Meta Ankole 中管理技能包、Agent 启用关系与指令契约。
 section: Developer guide
 order: 107
 ---
 
-Agent Library 负责计算每个 Agent 当前启用的 Skill 与 Agent Plugin。共享技能存放在 Pod 的 `/AnkoleBrain/skills/<name>`：主页是知识页，脚本和模板是其下的文件子节点。Agent 也可以在个人 Files 空间的 `skills/` 下安装私有技能包。PostgreSQL 保存内容、权限与启用状态，Worker 文件是执行时的副本。
+Agent Library 负责 PostgreSQL 中的技能包与 Agent 指令契约。在 Pod 中，打开 **Meta Ankole → Skills** 管理技能包，打开 **Agents** 管理 AI 同事、我的助理与全局指令。Meta 导航树的目录默认折叠。协作页面与 Brain 知识图谱分别由各自的领域管理。
 
-## 能力与启用规则
+## 技能包与启用范围
 
-每项 Skill 都有 `SKILL.md` 清单，名称采用全局唯一的小写标识。Agent Plugin 将相关 Skill 与可选的 `workspace-template/` 打包。系统依次解析出厂默认值、站点与租户设置、Agent 个体覆盖；Plugin 内的 Skill 还要求父 Plugin 已启用。
+每个 Skill 包含租户内唯一的 `slug`、必选的 `SKILL.md` 清单，以及可选的参考文件、脚本和二进制资产。具有自定义技能权限的成员可以新建或导入技能包；新建的自定义技能默认关闭。Agent 先读取清单，再按其中的指引读取附件。`skill_view` 也会提供经过审核的技能经验。
 
-启用状态与访问权限各自独立。Ankole 只在目录中列出当前会话可读且已启用的技能。人类发起的回合按 Agent、提问者与适用房间参与者的权限交集读取；无人值守自动化按 Agent 自身权限读取。目录提供名称与简介，`skill_view` 按需加载内容。
+技能可以为所有 Agent、指定 AI 同事或自己的助理开启。为所有 Agent 开启时，个体开关锁定，已保存的个体绑定仍然保留；关闭全员选项后，恢复各个体原先的选择。插件技能还要求所属 Agent Plugin 已开启；插件自身的默认值与覆盖设置独立生效。
 
-## 共享内容与升级
+技能只取决于 Agent 身份，切换提问者或参与者不会移除其已启用的技能包。Brain 读取则执行 Agent、提问者与披露对象的权限交集。
 
-管理员在 Pod 中编辑共享技能。系统将当前会话可读的知识子页追加到技能指令中；标记 `metadata.role = "reference"` 的章节保留为按子路径读取的参考资料。Agent 加载技能时，还会收到适用于它的已审核教训，详见[技能教训](../skill-lessons/)。
+## 编辑与上游同步
 
-启动和目录同步时，Ankole 将官方技能包与已保存的基准对账，比较主页元数据、正文，以及每个托管文件的路径、内容摘要与文件模式。内容未被本地修改时，系统原子应用上游更新，包括文件增删；存在本地修改时，系统保留整包并记录待审阅的上游摘要。租户自建的补充知识页与自定义文件不计入托管基准。
+Skills 编辑器管理清单、元数据与包内文件。保存时校验 `base_revision`，拒绝覆盖过期版本。技能与指令契约只保留当前版本，不保存历史快照。官方技能的 `slug` 固定；自定义技能可以改名或删除。
 
-## Agent 规范
+上游同步比较清单与托管文件的哈希。未被本地修改的官方包会原子接收文件新增、更新与删除。本地修改会暂停该包的上游更新，直到完成协调；用户额外上传的本地附件保持不变。
 
-`/AnkoleBrain/AGENTS.md` 定义组织行为与职责，`/AnkoleBrain/DESIGN.md` 定义视觉规范。在 `/AnkoleBrain/agents/<uid>/` 下，`AGENTS.md` 追加岗位职责，`AGENTS.override.md` 完整替换全局规范。对应的 DESIGN 文件分别采用正文追加并合并元数据，或整份替换。空的 override 表示主动清空继承内容。
+## Agent 指令契约
 
-个人助理页面仅对主人和助理开放：主人管理，助理读取。内部同事默认继承组织规范，只有需要定制时才创建个体规范页。
+**Meta Ankole → Agents → 全局设置** 管理全局 `AGENTS.md` 与 `DESIGN.md` 基线。每个 AI 同事或助理可以分别选择继承、追加或覆盖。DESIGN 的追加模式递归合并元数据，并用分隔线连接正文。空白覆盖表示有意清空继承内容。
 
-Console 展示有效能力，并通过链接进入 Pod 编辑规范。`GET /agents/:agent_uid/library-documents` 返回有效 AGENTS、DESIGN 及其来源页。Worker 每轮刷新 `~/AGENTS.md`、`~/DESIGN.md` 和 `$CODEX_HOME/AGENTS.md`，项目目录使用项目自己的指令文件。
+助理配置仅主人本人可读、可改。新助理默认用助理模板覆盖 AGENTS，并继承 DESIGN。正式成员可读取 AI 同事和全局设置，由获授权的管理员修改。
 
-安装方法见[技能](../skills/)，执行路径见[Prompt 组装](../prompt-assembly/)，能力接口见[Console](../console-api/)。
+Worker 在 `/drive/Skills/<slug>/` 挂载已启用的完整技能包，并通过 `/drive/AGENTS.md` 与 `/drive/DESIGN.md` 提供合并后的指令。这些只读挂载跨会话共享常热缓存，可执行脚本保留执行权限；保存修改后，系统通知 Worker 刷新缓存。后台 Job 在恢复时使用准入时记录的技能集合与当前启用集合的交集。
+
+参阅[技能经验](../skill-lessons/)、[编写 Skill](../writing-a-skill/)与[提示词组装](../prompt-assembly/)。

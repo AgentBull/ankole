@@ -1,10 +1,9 @@
 use uuid::Uuid;
 
 /// Structured node spellings shared by forward encoding and new-path parsing.
-pub const SUFFIXES: [(&str, &str); 5] = [
+pub const SUFFIXES: [(&str, &str); 4] = [
     ("knowledge", "._awiki.md"),
     ("doc", "._adoc.md"),
-    ("children", "._asub"),
     ("base", "._abase"),
     ("applet", "._aapp"),
 ];
@@ -30,8 +29,8 @@ pub fn encode(name: &str, kind: &str, id: &str) -> Result<String, String> {
     }
     // Persisted raw names may predate the reserved compound suffixes. Give
     // those files the same identity-qualified spelling used for long names.
-    let reserved_raw =
-        matches!(kind, "file" | "folder") && SUFFIXES.iter().any(|(_, s)| name.ends_with(s));
+    let reserved_raw = matches!(kind, "file" | "folder" | "children")
+        && SUFFIXES.iter().any(|(_, s)| name.ends_with(s));
     if stem.len() + suffix.len() > 255 || reserved_raw {
         let id = Uuid::parse_str(id).map_err(|e| e.to_string())?;
         let digest = blake3::hash(id.as_bytes()).to_hex();

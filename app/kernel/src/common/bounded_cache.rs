@@ -36,10 +36,18 @@ where
     }
 
     pub(crate) fn insert(&self, key: K, value: V) {
+        if self.max_entries == 0 {
+            return;
+        }
+
         let mut guard = self.entries.lock().expect("bounded cache lock");
 
-        if !guard.contains_key(&key)
-            && guard.len() >= self.max_entries
+        if let Some(existing) = guard.get_mut(&key) {
+            *existing = value;
+            return;
+        }
+
+        if guard.len() >= self.max_entries
             && let Some(old_key) = guard.keys().next().cloned()
         {
             guard.remove(&old_key);
@@ -56,5 +64,32 @@ where
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.entries.lock().expect("bounded cache lock").len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replacing_an_entry_preserves_other_entries() {
+        let cache = BoundedCache::new(2);
+        cache.insert("first", 1);
+        cache.insert("second", 2);
+
+        cache.insert("first", 3);
+
+        assert_eq!(cache.get_cloned("first"), Some(3));
+        assert_eq!(cache.get_cloned("second"), Some(2));
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn zero_capacity_stays_empty() {
+        let cache = BoundedCache::new(0);
+        cache.insert("key", 1);
+
+        assert_eq!(cache.get_cloned("key"), None);
+        assert_eq!(cache.len(), 0);
     }
 }

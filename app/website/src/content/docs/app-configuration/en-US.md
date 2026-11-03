@@ -41,7 +41,6 @@ Ankole ships with the built-in AppConfigure keys listed below, and Control Plane
 | `ai_agent.max_output_tokens` | Tenant | Output-token cap for one model response |
 | `ai_agent.inactivity_timeout_ms` | Tenant | Time to wait for an inactive model or Provider before ending the turn |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Default enablement for Agent Plugins |
-| `ai_agent.library.skill_defaults` | Tenant | Default enablement for Skills |
 | `background_agent_jobs.max_running_per_agent` | Tenant | Maximum concurrently running BackgroundAgentJobs per Agent; default `3`, valid range `1`–`64` |
 | `automation_jobs.max_running_per_agent` | Tenant | Maximum concurrently running automation scripts per Agent; default `10`, valid range `1`–`64` |
 

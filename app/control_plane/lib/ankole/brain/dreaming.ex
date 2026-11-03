@@ -364,6 +364,7 @@ defmodule Ankole.Brain.Dreaming do
       |> Ash.Query.filter(current_external_fact? == true and not is_nil(subject_page_id))
       |> Ash.Query.sort(created_at: :desc)
       |> Ash.Query.limit(400)
+      |> Ash.Query.deselect(:embedding)
       |> Ankole.Ash.read!()
 
     ids = Enum.map(claims, & &1.id)

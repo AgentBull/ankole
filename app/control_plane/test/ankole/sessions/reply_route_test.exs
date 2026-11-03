@@ -292,7 +292,15 @@ defmodule Ankole.Sessions.ReplyRouteTest do
             Webhooks.token_digest(token)
           )
 
-        Ankole.Ash.create(WebhookEndpoint, :create, attrs)
+        with {:ok, endpoint} <- Ankole.Ash.create(WebhookEndpoint, :create, attrs),
+             :ok <-
+               Ankole.Signals.put_source_binding_in_tx(
+                 "webhook-endpoint://#{endpoint.id}",
+                 endpoint.agent_uid,
+                 endpoint.session_id,
+                 nil
+               ),
+             do: {:ok, endpoint}
       end)
 
     finish_job!(parent.job)
@@ -335,7 +343,7 @@ defmodule Ankole.Sessions.ReplyRouteTest do
 
     assert {:ok, %{automation_job_run: queued}} =
              Repo.transact(fn ->
-               AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, %{"id" => "trigger"})
+               Ankole.WorkFixtures.dispatch_job_in_tx(job, %{"id" => "trigger"})
              end)
 
     assert {:ok, _worker} =

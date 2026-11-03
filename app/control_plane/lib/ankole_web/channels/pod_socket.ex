@@ -5,6 +5,7 @@ defmodule AnkoleWeb.PodSocket do
   channel "page:*", AnkoleWeb.PodPageChannel
   channel "table:*", AnkoleWeb.PodRoomChannel
   channel "applet:*", AnkoleWeb.PodRoomChannel
+  channel "run:*", AnkoleWeb.PodRoomChannel
 
   def token(conn),
     do:
@@ -62,7 +63,7 @@ defmodule AnkoleWeb.PodSocket do
              Ankole.BrowserSessions.identity(attrs.authentication, attrs.tenant_id),
            true <- uid == attrs.uid,
            {:ok, principal} <- Ankole.Principals.get_principal(uid),
-           {:ok, _} <- Ankole.Files.Access.principal(Ankole.AuthZ.Actor.new(principal)),
+           {:ok, _} <- Ankole.Pod.Access.principal(Ankole.AuthZ.Actor.new(principal)),
            do: true,
            else: (_ -> false)
     end)

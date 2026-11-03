@@ -411,7 +411,8 @@ defmodule Ankole.Brain.SchemaPacks do
     with :ok <- insert_pack_rows(seeds, now),
          :ok <- upsert_type_rows(merged.types, now),
          :ok <- insert_link_rows(merged.link_types, now),
-         :ok <- insert_domain_rows(merged.calibration_domains, now) do
+         :ok <- insert_domain_rows(merged.calibration_domains, now),
+         :ok <- Ankole.Brain.Namespace.ensure_categories_in_tx() do
       {:ok,
        %{
          installed: Enum.map(seeds, & &1.manifest["name"]),

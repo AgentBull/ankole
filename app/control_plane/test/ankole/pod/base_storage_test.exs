@@ -972,7 +972,7 @@ defmodule Ankole.Pod.BaseStorageTest do
       owner = self()
 
       assert {:error, :interrupted} =
-               Ankole.Files.Access.write(
+               Ankole.Pod.Access.write(
                  nil,
                  fn ->
                    {:ok, %{written: field}} =

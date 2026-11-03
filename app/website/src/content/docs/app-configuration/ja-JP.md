@@ -41,7 +41,6 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 | `ai_agent.max_output_tokens` | Tenant | 1 回のモデル応答に対する出力トークンの上限 |
 | `ai_agent.inactivity_timeout_ms` | Tenant | モデルまたは Provider からの応答が途絶えた際、turn を終了するまでの待機時間（ミリ秒） |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Agent Plugin の既定の有効／無効状態 |
-| `ai_agent.library.skill_defaults` | Tenant | Skill の既定の有効／無効状態 |
 | `background_agent_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる BackgroundAgentJob の上限。既定値 `3`、有効範囲 `1`〜`64` |
 | `automation_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる自動化スクリプトの上限。既定値 `10`、有効範囲 `1`〜`64` |
 

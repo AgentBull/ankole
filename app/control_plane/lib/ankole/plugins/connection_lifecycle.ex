@@ -124,6 +124,15 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     end
   end
 
+  @doc "Keeps a plugin's connection registry, owners and reconciler in one restart group."
+  def supervisor_spec(plugin, children) do
+    %{
+      id: plugin,
+      start: {Supervisor, :start_link, [children, [strategy: :rest_for_one]]},
+      type: :supervisor
+    }
+  end
+
   @doc false
   @spec start_link(module(), keyword()) :: GenServer.on_start()
   def start_link(module, opts) when is_atom(module) and is_list(opts) do
@@ -148,6 +157,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         ),
       monitors: %{},
       failures: %{},
+      retry_timers: %{},
       alert: nil
     }
 
@@ -311,6 +321,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   end
 
   def handle_info({:restart_key, key}, state) do
+    state = %{state | retry_timers: Map.delete(state.retry_timers, key)}
     %{registry: registry} = state.module.__connection_lifecycle__()
 
     case {Map.fetch(connection_specs(state.module), key), Registry.lookup(registry, key)} do
@@ -487,8 +498,14 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     )
 
     delay = Enum.at(state.restart_backoff_ms, attempt - 1, List.last(state.restart_backoff_ms))
-    Process.send_after(self(), {:restart_key, key}, delay)
-    %{state | failures: Map.put(state.failures, key, attempt)}
+    if timer = state.retry_timers[key], do: Process.cancel_timer(timer)
+    timer = Process.send_after(self(), {:restart_key, key}, delay)
+
+    %{
+      state
+      | failures: Map.put(state.failures, key, attempt),
+        retry_timers: Map.put(state.retry_timers, key, timer)
+    }
   end
 
   defp schedule_next(%{interval_ms: nil} = state), do: state

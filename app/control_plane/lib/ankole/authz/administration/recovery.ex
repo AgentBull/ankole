@@ -25,7 +25,7 @@ defmodule Ankole.AuthZ.Recovery do
 
   @doc false
   def recover_admin_in_tx(uid) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     case Store.lock_built_in_admin_group_for_update(Root.admin_group_name()) do
       %Group{} = group ->
@@ -57,7 +57,7 @@ defmodule Ankole.AuthZ.Recovery do
 
   def recover_pod_admin_in_tx(uid) do
     :ok = Repo.require_transaction()
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     with {:ok, group} <- Root.ensure_pod_admin_group(),
          {:ok, _} <- Store.lock_group(group.id),

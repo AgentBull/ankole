@@ -5,7 +5,8 @@ defmodule Ankole.Pod.Comments do
 
   alias Ankole.{ActorRef, AuthZ, Conversations, JSON, Principals, Repo, Signals}
   alias Ankole.AIGateway.ModelProfiles
-  alias Ankole.Files.{Access, Nodes}
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
   alias Ankole.Files.Path, as: FilePath
   alias Ankole.Pod.{Documents, PageComment, PageContent, Pages, Serialization}
   alias Ankole.Pod.Comments.Activity
@@ -309,8 +310,8 @@ defmodule Ankole.Pod.Comments do
           nil,
           fn ->
             # Enforce strict outermost lock order:
-            # 2 (drive-tree) -> 2.5 (drive-root) -> 3 (principals) -> 9/10 (sessions)
-            # -> [conversations] -> 11 (signals) -> 12 (drive_nodes / pages).
+            # 2 (page-tree) -> 2.5 (page-root) -> 3 (principals) -> 9/10 (sessions)
+            # -> [conversations] -> 11 (signals) -> 12 (pages / pages).
             with {:ok, page_preview} <- Pages.fetch(id),
                  {:ok, preview_caps} <- live_capabilities_in_tx(actor, page_preview),
                  :ok <- require_any_mutation_capability(preview_caps),
@@ -844,7 +845,7 @@ defmodule Ankole.Pod.Comments do
     {:ok, locked_principals} =
       Principals.lock_principals_in_tx(Enum.sort(Enum.uniq([human_uid | agent_uids])))
 
-    principal_by_uid = Map.new(locked_principals, &{&1.uid, &1})
+    principal_by_uid = locked_principals |> Ankole.Ash.load!(:agent) |> Map.new(&{&1.uid, &1})
 
     :ok =
       Queue.lock_sessions_in_tx(

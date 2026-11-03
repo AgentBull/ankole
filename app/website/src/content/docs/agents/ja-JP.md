@@ -34,9 +34,9 @@ group memory の開示モードは、複数のメンバーが回答を閲覧で�
 
 ## Agent の規約を設定する
 
-Console の Agent 画面から **AGENTS / DESIGN** の参照元リンクを開き、Pod で編集します。`/AnkoleBrain/AGENTS.md` は組織の行動原則、責務、機密保持の規則を定義し、`/AnkoleBrain/DESIGN.md` は Web ページ、スライド、文書、図表の視覚表現を定義します。
+**Meta Ankole → Agents** で全体の基準または個別 Agent の `AGENTS.md` と `DESIGN.md` を編集します。`AGENTS.md` は行動と責務、`DESIGN.md` は Web ページ、スライド、文書、図表の視覚表現を定義します。
 
-`/AnkoleBrain/agents/<uid>/AGENTS.md` は個別の責務を追加し、`AGENTS.override.md` は独立した規約全体を指定します。DESIGN も追加または置換を選べます。YAML メタデータにデザイントークン、本文に適用方法を記述します。個人アシスタントの置換ページは非公開で、所有者が管理します。継承規則は [Agent Library](../agent-library/) を参照してください。
+各 Agent の規約は、全体の基準を継承、追記、または置換できます。DESIGN のメタデータにはデザイントークン、本文には適用方法を記述します。個人アシスタントの設定を閲覧・編集できるのは所有者本人だけです。[Agent Library](../agent-library/) を参照してください。
 
 保存した変更は、Codex Job の再開を含む次の Turn から適用されます。現在の Turn は開始時に全文を読み込んだ規約を使います。
 

@@ -210,9 +210,6 @@ defmodule Ankole.Sessions.Queue do
   def oldest_started(uid, session),
     do: uid |> Signals.session_queue(session, started?: true, limit: 1) |> List.first()
 
-  @doc "Returns runnable or admitted work for the public Session status."
-  def status_event(uid, session, now), do: Signals.session_status_signal(uid, session, now)
-
   def next_ready_event(uid, session, now \\ DateTime.utc_now(:microsecond)),
     do: uid |> Signals.session_queue(session, due_at: now, limit: 1) |> List.first()
 

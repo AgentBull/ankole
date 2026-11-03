@@ -405,7 +405,7 @@ defmodule Ankole.Sessions.ReceiptsTest do
 
     {:ok, folder} =
       Pages.create(actor, %{
-        type: :folder,
+        type: :doc,
         title: "Pilot proposals",
         private_owner_uid: human.uid
       })

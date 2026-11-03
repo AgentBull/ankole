@@ -18,12 +18,22 @@ defmodule AnkoleWeb.PodChannel do
         opts =
           if match?("applet:" <> _, socket.assigns[:room_topic]), do: [trash: false], else: []
 
-        AnkoleWeb.PodSocket.active?(socket.assigns) and
+        AnkoleWeb.PodSocket.active?(socket.assigns) and run_allowed?(socket) and
           match?(
             {:ok, _},
             Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view", opts)
           )
       end)
+
+  defp run_allowed?(%{assigns: %{room_topic: "run:" <> id}} = socket) do
+    with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
+         {:ok, _} <-
+           Ankole.AutomationJobs.get_applet_run(socket.assigns.actor, socket.assigns.page_id, id),
+         do: true,
+         else: (_ -> false)
+  end
+
+  defp run_allowed?(_), do: true
 
   def recheck(socket) do
     if allowed?(socket) do

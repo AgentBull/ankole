@@ -31,6 +31,17 @@ Application.put_env(
   |> Keyword.put(:pool, DBConnection.ConnectionPool)
 )
 
+if System.get_env("POD_BROWSER_ACTIONS") == "true" do
+  Application.put_env(
+    :ankole,
+    Oban,
+    Application.fetch_env!(:ankole, Oban)
+    |> Keyword.put(:testing, :disabled)
+    |> Keyword.put(:plugins, [])
+    |> Keyword.put(:queues, automation_jobs: 6)
+  )
+end
+
 {:ok, _} = Application.ensure_all_started(:ankole)
 Logger.configure(level: :warning)
 
@@ -40,7 +51,12 @@ require Ash.Query
 alias Ankole.Pod.{Bases, Pages}
 alias AnkoleWeb.Session, as: WebSession
 
-tenant = Ankole.DataCase.create_tenant()
+{:ok, tenant} =
+  Ankole.Tenants.create(%{
+    slug: "test-" <> Ankole.Ecto.UUIDv7.autogenerate(),
+    display_name: "Test tenant"
+  })
+
 Repo.put_tenant_id(tenant.id)
 default_locale = System.get_env("POD_BROWSER_LOCALE", "zh-Hans-CN")
 {:ok, _} = Ankole.I18n.put_default_locale(default_locale)
@@ -871,6 +887,19 @@ state =
         report,
         model_provider_id
       )
+    )
+  else
+    state
+  end
+
+state =
+  if System.get_env("POD_BROWSER_ACTIONS") == "true" do
+    Code.require_file("pod_action_material.exs", __DIR__)
+
+    Map.put(
+      state,
+      :actions,
+      Ankole.PodActionMaterial.seed(agent, backend_report, repository, state_path)
     )
   else
     state

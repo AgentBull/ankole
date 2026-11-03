@@ -133,15 +133,18 @@ defmodule Ankole.Brain.OIDCClientLearning do
     with {:ok, extraction} <-
            SourceLearning.extract_items(slug, title, conversation_excerpts(material.requests)),
          {:ok, %{object: object, written: written}} <-
-           Repo.transact_top_level(fn ->
-             learn_conversation_in_tx(%{
-               source: source,
-               attrs: attrs,
-               previous: previous,
-               items: extraction.items,
-               scope: scope
-             })
-           end) do
+           Repo.transact_top_level(
+             fn ->
+               learn_conversation_in_tx(%{
+                 source: source,
+                 attrs: attrs,
+                 previous: previous,
+                 items: extraction.items,
+                 scope: scope
+               })
+             end,
+             after_commit: &Ankole.Brain.Namespace.committed/1
+           ) do
       if written.rejected > 0 do
         Logging.warning(
           "brain.oidc_client_items_rejected",
@@ -164,7 +167,7 @@ defmodule Ankole.Brain.OIDCClientLearning do
   # the `:learn_oidc_conversation` action. The locked Source and page fence an
   # archive and a concurrent run.
   def learn_conversation_in_tx(%{source: source, attrs: attrs} = run) do
-    Ankole.Files.Nodes.lock_tree()
+    Ankole.Pod.Pages.Tree.lock_tree()
     session = "source:#{source.id}"
 
     with {:ok, current} <- Sources.lock_active(source),

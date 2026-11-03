@@ -7,10 +7,11 @@ defmodule Ankole.AIAgent.Library.ConsoleTypes.AgentLibrarySkillCapabilityItem do
         agent_plugin_id: [type: :string, allow_nil?: true],
         description: [type: :string, allow_nil?: false],
         effective_enabled: [type: :boolean, allow_nil?: false],
-        global_default_enabled: [type: :boolean, allow_nil?: false],
+        enabled_for_all: [type: :boolean, allow_nil?: false],
+        revision: [type: :integer, allow_nil?: false],
         id: [type: :string, allow_nil?: false],
         name: [type: :string, allow_nil?: false],
-        override_enabled: [type: :boolean, allow_nil?: true],
+        bound: [type: :boolean, allow_nil?: false],
         source_kind: [type: :string, allow_nil?: false]
       ],
       preserve_nil_values?: true
@@ -65,9 +66,6 @@ defmodule Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryDocumentItem do
       fields: [
         content: [type: :string, allow_nil?: false],
         content_hash: [type: :string, allow_nil?: false],
-        page_id: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
-        page_ids: [type: {:array, Ankole.Ash.Types.UUIDv7}, allow_nil?: false],
-        page_urls: [type: {:array, :string}, allow_nil?: false],
         kind: [type: :string, allow_nil?: false]
       ],
       preserve_nil_values?: true

@@ -238,7 +238,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
              Ankole.Brain.Scope.principal(ctx.human.uid)
 
     assert {:error, :forbidden} =
-             Ankole.Files.Nodes.authorize(ctx.outsider.uid, projection.id, "node_view")
+             Ankole.Pod.Pages.Tree.authorize(ctx.outsider.uid, projection.id, "node_view")
   end
 
   test "each long-conversation excerpt keeps request and speaker attribution", ctx do
@@ -624,17 +624,17 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
   defp group_source!(group) do
     {:ok, source} =
       Repo.transact_top_level(fn ->
-        {:ok, root} = Ankole.AIAgent.Library.Knowledge.root()
+        {:ok, root} = Ankole.Brain.Namespace.root()
 
         with {:ok, node} <-
-               Ankole.AIAgent.Library.Knowledge.ensure_child_in_tx(
+               Ankole.Brain.Namespace.ensure_child_in_tx(
                  root.id,
                  "OIDC source access",
-                 :folder,
+                 :knowledge,
                  inherit_permissions: false
                ),
              :ok <-
-               Ankole.Files.Access.put_role(
+               Ankole.Pod.Access.put_role(
                  %{group_id: group.id},
                  "drive:**:#{node.id}:**",
                  "view"

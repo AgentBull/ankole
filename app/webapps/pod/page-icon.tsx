@@ -1,8 +1,8 @@
 import { usePageMetadata } from './use-page-metadata'
 import {
-  RiFolderLine,
   RiApps2Line,
   RiAttachment2,
+  RiBookOpenLine,
   RiDatabase2Line,
   RiEmotionLine,
   RiFileTextLine
@@ -29,19 +29,27 @@ import { InternalAPIError } from '../common/internal-api-client'
 import { updatePageMetadata } from './state/navigation-cache'
 
 const icons = {
-  folder: RiFolderLine,
   doc: RiFileTextLine,
-  knowledge: RiFileTextLine,
+  knowledge: RiBookOpenLine,
   base: RiDatabase2Line,
   applet: RiApps2Line,
   file: RiAttachment2
 }
 
-/** A Page keeps the same type mark in navigation, references, and pickers. */
-export function PageIcon({ page, className }: { page: Pick<Page, 'type' | 'icon'>; className?: string }) {
+/** A Page keeps the same icon in navigation, references, and pickers. */
+export function PageIcon({
+  page,
+  className
+}: {
+  page: Pick<Page, 'type' | 'icon' | 'system_key'>
+  className?: string
+}) {
   const classes = cn('pod-page-icon', className)
   // A custom emoji whose file fails to load falls back to the Page's type mark.
   const [failedIcon, setFailedIcon] = useState<string | null>(null)
+  if (page.system_key === 'ankole_brain') {
+    return <img src="/images/logo.svg" alt="" draggable={false} className={classes} />
+  }
   if (isCustomEmojiIcon(page.icon) && failedIcon !== page.icon) {
     const icon = page.icon
     return (

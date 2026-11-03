@@ -426,7 +426,7 @@ describe('computer tools', () => {
     const agentHome = mkdtempSync(join(tmpdir(), 'ankole-timeout-kill-'))
     mkdirAgentSync(agentHome, 0o700)
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
-    mkdirSync(workspaceRoot, { recursive: true })
+    mkdirAgentSync(workspaceRoot)
     const pidPath = join(workspaceRoot, 'command.pid')
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)

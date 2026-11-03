@@ -36,7 +36,7 @@ Agent Home は `/workspace` にマウントされる永続ストレージであ�
 ├── .codex/
 ├── AGENTS.md
 ├── DESIGN.md
-├── .ankole/turn-skills/<signal-id>/
+├── .ankole/turn-skills/<job-signal-id>/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
@@ -44,11 +44,9 @@ Agent Home は `/workspace` にマウントされる永続ストレージであ�
     └── temp/
 ```
 
-`~/AGENTS.md` と `~/DESIGN.md` は [Agent Library](../agent-library/) の有効な規約全文を反映します。各 Turn で `$CODEX_HOME/AGENTS.md` も更新します。Skill は現在の会話の権限に従って `.ankole/turn-skills/<signal-id>/` に配置します。`sessions/` は PostgreSQL が `10000` から割り当てる固定の数値 ID ごとの会話ワークスペース、`jobs/` はプロジェクト独自の指示ファイルを含むバックグラウンド作業領域です。
+`~/AGENTS.md` と `~/DESIGN.md` は [Agent Library](../agent-library/) の有効な規約全文を反映し、各 Turn で `$CODEX_HOME/AGENTS.md` も更新します。メイン Agent は常駐する読み取り専用マウント `/drive/Skills/<slug>/` から有効なパッケージを読みます。バックグラウンド Job は許可されたパッケージを `.ankole/turn-skills/<signal-id>/` に配置します。Job 作成時の能力の許可リストは縮小できますが、後から別の Skill を有効にしても拡大しません。`sessions/` は PostgreSQL が `10000` から割り当てる固定の数値 ID ごとの会話ワークスペース、`jobs/` はプロジェクト独自の指示ファイルを含む作業領域です。
 
 Agent Home の内容は、インスタンスの削除やコンテナイメージの更新後も保持されます。環境を再構築した際に削除されるのは `/var/cache/ankole` のみです。ただし、Docker のローカル volume は実行ホストに依存するほか、Cloudflare 環境で強制停止が発生した場合は最後の R2 バックアップ以降の書き込みが失われることがあります。こうした制約については [Worker](../worker-management/) を参照してください。
-
-`~/AGENTS.md` と `~/DESIGN.md` は [Agent Library](../agent-library/) の有効な規約全文を反映します。各 Turn で `$CODEX_HOME/AGENTS.md` も更新します。Skill は現在の会話の権限に従って `.ankole/turn-skills/<signal-id>/` に配置します。`sessions/` は PostgreSQL が `10000` から割り当てる固定の数値 ID ごとの会話ワークスペース、`jobs/` はプロジェクト独自の指示ファイルを含むバックグラウンド作業領域です。
 
 Codex Home は `/workspace/.codex` に配置されます。スレッドファイルはインスタンスの置換後も保持されるため、`/var/cache/ankole/codex` にある再構築可能な SQLite キャッシュが初期化されても処理を再開できます。Background Job で Skill を読み込む際は `skill_view` を使用します。
 

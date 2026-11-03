@@ -34,8 +34,8 @@ import type {
 import { WorkspaceReady_Reason } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { runRefFromProto } from '../lanes/session_lane'
 import type { RuntimeRPCClient } from '../lanes/rpc_lane'
-import { materializeKnowledgeSkills } from '../skills/knowledge-skills'
 import { skillAvailableInRuntime } from '../skills/effective-skill'
+import { linkMountedSkills, materializeKnowledgeSkills } from '../skills/knowledge-skills'
 import { join } from 'node:path'
 import { createComputerTools } from '../tools/computer'
 import { loadEnabledSkillMCPServers } from '../tools/mcp'
@@ -64,8 +64,8 @@ type Workspace = {
   timer?: ReturnType<typeof setTimeout>
   closing: boolean
   materials?: PreparedExecutionMaterials
+  cleanupSkills?: () => Promise<void>
   closeBridge?: () => void
-  closeSkills?: () => Promise<void>
   updateContextId?: (nextContextId?: string) => void
   closed: Promise<void>
   finish: () => void
@@ -227,9 +227,9 @@ export class Workspaces {
       await space.ready.catch(() => undefined)
       space.closeBridge?.()
       await space.materials?.cleanup()
+      await space.cleanupSkills?.()
     } finally {
       try {
-        await space.closeSkills?.()
         await space.driveView?.release()
       } finally {
         this.spaces.delete(run.session.session_id)
@@ -253,18 +253,24 @@ export class Workspaces {
     space.driveView = await driveMounts.acquire(input.driveVfs)
     if (!input.agentContext) throw new Error('Workspace preparation requires the Agent document snapshot')
     const context = materializeAgentLibraryDocuments(paths, input.agentContext)
-    const materialized = await materializeKnowledgeSkills({
-      root: join(paths.home, '.ankole', 'turn-skills', run.signal_id),
-      frame: { run },
-      skills: context.skills.filter(skill => skillAvailableInRuntime(skill, 'main')),
-      rpc
-    })
-    space.closeSkills = materialized.cleanup
+    const enabledSkills = context.skills.filter(skill => skillAvailableInRuntime(skill, 'main'))
+    const turnSkills = join(paths.home, '.ankole', 'turn-skills', run.signal_id)
+    const materialized = space.driveView
+      ? undefined
+      : await materializeKnowledgeSkills({
+          root: turnSkills,
+          frame: { run },
+          skills: enabledSkills,
+          rpc
+        })
+    space.cleanupSkills = materialized?.cleanup ?? (await linkMountedSkills(turnSkills))
+    const skillsRoot = materialized?.root ?? join(space.driveView!.library.path, 'Skills')
     const mcpServers = await loadEnabledSkillMCPServers({
-      enabledSkills: materialized.skills,
+      enabledSkills: materialized?.skills ?? enabledSkills,
       skillRoots: {
-        builtinSkillsRoot: materialized.root,
-        agentInstalledSkillsRoot: materialized.root
+        builtinSkillsRoot: skillsRoot,
+        agentInstalledSkillsRoot: skillsRoot,
+        driveSkillsRoot: skillsRoot
       },
       runtime: 'main'
     })

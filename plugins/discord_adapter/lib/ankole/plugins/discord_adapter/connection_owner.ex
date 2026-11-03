@@ -87,6 +87,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     config = Keyword.fetch!(opts, :config)
     consumer = Keyword.fetch!(opts, :consumer)
     Ankole.Repo.put_tenant_id(Map.fetch!(consumer, :tenant_id))

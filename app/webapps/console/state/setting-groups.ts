@@ -18,7 +18,6 @@ const SETTING_OWNER_ROUTES: Record<string, string> = {
   'principals.identity_providers.active': '/identity',
   'plugins.enabled_ids': '/agent-library?scope=__global__&tab=control-plane-plugins',
   'ai_agent.library.agent_plugin_defaults': '/agent-library?scope=__global__&tab=agent-plugins',
-  'ai_agent.library.skill_defaults': '/agent-library?scope=__global__&tab=skills',
   'saas.require_invitation_code': '/invitation-codes?focus=require-invitation-code'
 }
 

@@ -58,6 +58,7 @@ export function podRouteTitle(
   conversationTitle?: string
 ): string | undefined {
   if (pathname.startsWith('/pages/')) return undefined
+  if (pathname.startsWith('/meta/')) return 'Meta Ankole · Ankole'
   let label: string | undefined
   if (pathname === '/me' || pathname.startsWith('/me/')) {
     label = t('pod.account.title')
@@ -90,7 +91,70 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
   const client = useQueryClient()
   const router = useMemo(() => {
     const rootRoute = createRootRoute({ component: PodShell, errorComponent: PodShellError })
+    const metaRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'meta',
+      component: lazyRouteComponent(() => import('./meta-layout'), 'MetaLayout'),
+      ...routeFeedback
+    })
     const routeTree = rootRoute.addChildren([
+      metaRoute.addChildren([
+        createRoute({
+          getParentRoute: () => metaRoute,
+          path: '/',
+          beforeLoad: () => {
+            throw redirect({ to: '/meta/brain', replace: true })
+          }
+        }),
+        createRoute({
+          getParentRoute: () => metaRoute,
+          path: 'brain',
+          component: lazyRouteComponent(() => import('./meta-brain'), 'MetaBrain'),
+          ...routeFeedback
+        }),
+        createRoute({
+          getParentRoute: () => metaRoute,
+          path: 'brain/$pageID',
+          component: lazyRouteComponent(() => import('./meta-brain'), 'MetaBrainObject'),
+          ...routeFeedback
+        }),
+        createRoute({
+          getParentRoute: () => metaRoute,
+          path: 'skills',
+          component: lazyRouteComponent(() => import('./meta-skills'), 'MetaSkills'),
+          ...routeFeedback
+        }),
+        createRoute({
+          getParentRoute: () => metaRoute,
+          path: 'skills/$skillSlug',
+          component: lazyRouteComponent(() => import('./meta-skills'), 'MetaSkillDetail'),
+          ...routeFeedback
+        }),
+        createRoute({
+          getParentRoute: () => metaRoute,
+          path: 'agents',
+          component: lazyRouteComponent(() => import('./meta-agents'), 'MetaAgents'),
+          ...routeFeedback
+        }),
+        createRoute({
+          getParentRoute: () => metaRoute,
+          path: 'agents/colleagues/$uid',
+          component: lazyRouteComponent(() => import('./meta-agents'), 'MetaAgentDetail'),
+          ...routeFeedback
+        }),
+        createRoute({
+          getParentRoute: () => metaRoute,
+          path: 'agents/assistant',
+          component: lazyRouteComponent(() => import('./meta-agents'), 'MetaAssistant'),
+          ...routeFeedback
+        }),
+        createRoute({
+          getParentRoute: () => metaRoute,
+          path: 'agents/global',
+          component: lazyRouteComponent(() => import('./meta-agents'), 'MetaGlobalSettings'),
+          ...routeFeedback
+        })
+      ]),
       createRoute({
         getParentRoute: () => rootRoute,
         path: 'me',
@@ -160,6 +224,7 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
       stringifySearch: stringifyRouterSearch,
       rewrite: {
         input: ({ url }) => {
+          if (!url.pathname.startsWith('/pages/')) return url
           const id = podPagePathnameID(url.pathname)
           if (!id) return url
           const next = new URL(url)
@@ -167,6 +232,7 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
           return next
         },
         output: ({ url }) => {
+          if (!url.pathname.startsWith('/pages/')) return url
           const id = podPagePathnameID(url.pathname)
           if (!id) return url
           const title = knownPageTitle(client, id)
@@ -418,6 +484,7 @@ function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
   const isLoading = useRouterState({ select: routerState => routerState.isLoading })
   const contentHeader =
     pathname === '/' ||
+    pathname.startsWith('/meta/') ||
     pathname.startsWith('/pages/') ||
     pathname.startsWith('/conversations/') ||
     pathname.startsWith('/dm/')

@@ -120,7 +120,7 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
   // "failed to resolve rollout path" covers the state-mismatch family where
   // the Codex state DB names a rollout file that is gone, unreadable, or not
   // a file. The thread is unrecoverable on this Worker exactly like an
-  // unknown thread, so it must reach the same replay-or-replace ladder.
+  // unknown thread, so it must reach the same thread replacement ladder.
   if (
     /unknown[-_ ]?(session|thread)|thread .*not found|no rollout found|failed to resolve rollout path/.test(message)
   ) {

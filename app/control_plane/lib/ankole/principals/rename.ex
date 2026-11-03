@@ -34,7 +34,7 @@ defmodule Ankole.Principals.Rename do
       do:
         raise(Ankole.Errors.Framework.TransactionRequired, operation: {__MODULE__, :rename_in_tx})
 
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
 
     with {:ok, uid} <- Principals.normalize_uid(uid),
          {:ok, new_uid} <- Principals.normalize_uid(new_uid),

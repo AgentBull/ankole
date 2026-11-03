@@ -5,6 +5,13 @@ export type Login = { uid: string; email: string }
 type Identity = Login & { cookies: Parameters<BrowserContext['addCookies']>[0] }
 
 type State = {
+  actions?: {
+    page_id: string
+    job_id: number
+    target_table_id: string
+    complete_files: unknown[]
+    missing_files: unknown[]
+  }
   document_agent_uid?: string
   agent_actions_url: string
   base_url: string

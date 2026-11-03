@@ -20,12 +20,13 @@ defmodule Ankole.Pod.FilesTest do
     %{owner: owner.uid, reader: reader.uid, agent: agent.uid}
   end
 
-  test "contribute can create and initialize a file but cannot replace or rename it", ctx do
+  test "contribute can initialize an existing file but cannot create, replace or rename it",
+       ctx do
     owner = actor_fixture(ctx.owner)
     reader = actor_fixture(ctx.reader)
 
     {:ok, parent} =
-      Pages.create(owner, %{type: "folder", title: "Drop folder", private_owner_uid: ctx.owner})
+      Pages.create(owner, %{type: "doc", title: "Drop folder", private_owner_uid: ctx.owner})
 
     for action <- ["node_view", "node_contribute"] do
       {:ok, _} =
@@ -36,9 +37,18 @@ defmodule Ankole.Pod.FilesTest do
         })
     end
 
-    assert {:ok, page} =
+    assert {:error, :forbidden} =
              Files.create_from_upload(
                reader,
+               %{parent_id: parent.id},
+               "new.txt",
+               "first",
+               "text/plain"
+             )
+
+    assert {:ok, page} =
+             Files.create_from_upload(
+               owner,
                %{parent_id: parent.id},
                "new.txt",
                "first",
@@ -49,7 +59,7 @@ defmodule Ankole.Pod.FilesTest do
 
     assert {:ok, duplicate} =
              Files.create_from_upload(
-               reader,
+               owner,
                %{parent_id: parent.id},
                "new.txt",
                "second",
@@ -133,7 +143,8 @@ defmodule Ankole.Pod.FilesTest do
              Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
     # A runtime write changes the same token, even if Pod metadata has not changed.
-    assert {:ok, runtime} = Drive.write_node(actor_fixture(ctx.owner), page.id, "runtime bytes")
+    assert {:ok, runtime} =
+             Ankole.Pod.write_node(actor_fixture(ctx.owner), page.id, "runtime bytes")
 
     assert {:error, :manifest_changed} =
              Files.upload(
@@ -442,11 +453,12 @@ defmodule Ankole.Pod.FilesTest do
              })
 
     assert saved.saved_from_message_id == message.id
-    assert saved.title == attachment["name"] <> " (1)"
+    assert saved.title == attachment["name"]
+    assert saved.name == attachment["name"] <> " (1)"
     assert saved.object_id == attachment["object_id"]
 
     assert {:ok, _, "committed report bytes"} =
-             Files.read(actor_fixture(ctx.reader), saved.id, saved.title)
+             Files.read(actor_fixture(ctx.reader), saved.id, saved.name)
 
     Ankole.FilesFixtures.drive_file_fixture(agent, "private/unshared.txt", "private notes")
 
@@ -600,14 +612,14 @@ defmodule Ankole.Pod.FilesTest do
       assert {:error, :not_found} = Files.fetch_file(page.id, path)
     end
 
-    refute Repo.get(Ankole.Pod.Page, page.id)
+    refute Repo.get_by(Ankole.Pod.Page, id: page.id)
   end
 
   defp purge_node(id) do
     old = DateTime.add(DateTime.utc_now(:microsecond), -90, :day)
-    query = from node in Ankole.Files.Schemas.Node, where: node.id == ^id
+    query = from node in Ankole.Pod.Page, where: node.id == ^id
     Repo.update_all(query, set: [deleted_at: old, purge_started_at: old])
-    assert :ok = Ankole.Files.Jobs.PurgeNode.run(%Oban.Job{args: %{"node_id" => id}})
+    assert :ok = Ankole.Pod.Jobs.PurgeTree.run(%Oban.Job{args: %{"node_id" => id}})
   end
 
   defp native_attachment(human) do

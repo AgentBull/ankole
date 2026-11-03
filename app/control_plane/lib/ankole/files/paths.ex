@@ -1,18 +1,18 @@
 defmodule Ankole.Files.Paths do
   @moduledoc "Resolves Agent runtime paths against their private Drive nodes."
 
-  require Ash.Query
-
   alias Ankole.AuthZ.Actor
-  alias Ankole.Files.{Access, Nodes, NodeContents, Objects}
-  alias Ankole.Files.Schemas.Node
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
+  alias Ankole.Pod.Files.Content, as: NodeContents
+  alias Ankole.Files.Objects
   alias Ankole.{Files, Repo}
 
   @default_limit 1000
   @max_limit 5000
 
   def fetch(uid, path) do
-    with {:ok, path} <- Files.normalize_existing_path(path),
+    with {:ok, path} <- Files.normalize_path(path),
          {:ok, root} <- private_root(uid),
          {:ok, node} <- resolve(root, path),
          {:ok, _} <- Nodes.authorize(uid, node.id, "node_view") do
@@ -20,47 +20,20 @@ defmodule Ankole.Files.Paths do
     end
   end
 
-  def fetch_many(uid, paths) do
-    Enum.reduce_while(paths, {:ok, []}, fn path, {:ok, files} ->
-      case fetch(uid, path) do
-        {:ok, file} -> {:cont, {:ok, [file | files]}}
-        {:error, :not_found} -> {:cont, {:ok, files}}
-        error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, files} -> {:ok, Enum.reverse(files)}
-      error -> error
-    end
-  end
-
-  def list_under_prefixes(uid, prefixes) do
-    with {:ok, root} <- private_root(uid),
-         {:ok, files} <- authorized_rows(uid, root.id, "", []) do
-      {:ok,
-       Enum.filter(files, fn row ->
-         Enum.any?(prefixes, &(row.path == &1 or String.starts_with?(row.path, &1 <> "/")))
-       end)}
-    else
-      {:error, :not_found} -> {:ok, []}
-      error -> error
-    end
-  end
-
   def read(uid, path) do
     with {:ok, file} <- fetch(uid, path), {:ok, bytes} <- read_bytes(file), do: {:ok, file, bytes}
   end
 
-  defp read_bytes(%{kind: :file, object_id: nil}), do: {:ok, ""}
-  defp read_bytes(%{kind: :file, object_id: id}), do: Objects.read(id)
+  defp read_bytes(%{type: :file, object_id: nil}), do: {:ok, ""}
+  defp read_bytes(%{type: :file, object_id: id}), do: Objects.read(id)
   defp read_bytes(_), do: {:error, :not_a_file}
 
   def read_to_file(uid, path, local_path) do
     with {:ok, file} <- fetch(uid, path), :ok <- copy_bytes(file, local_path), do: {:ok, file}
   end
 
-  defp copy_bytes(%{kind: :file, object_id: nil}, path), do: File.write(path, "")
-  defp copy_bytes(%{kind: :file, object_id: id}, path), do: Objects.read_to_file(id, path)
+  defp copy_bytes(%{type: :file, object_id: nil}, path), do: File.write(path, "")
+  defp copy_bytes(%{type: :file, object_id: id}, path), do: Objects.read_to_file(id, path)
   defp copy_bytes(_, _), do: {:error, :not_a_file}
 
   def list(uid, prefix \\ "", opts \\ []) do
@@ -184,16 +157,14 @@ defmodule Ankole.Files.Paths do
 
     with {:ok, path} <- Files.normalize_path(path),
          {:ok, node} <- file_for_write(actor, root, path, attrs),
-         {:ok, file} <- NodeContents.commit_in_tx(actor, node.id, attrs),
-         {:ok, node} <- Ankole.Ash.update(node, :update_in_tx, metadata(attrs, path)) do
-      {:ok,
-       %{file | path: path, content_type: node.content_type, mode: node.mode, source: node.source}}
+         {:ok, file} <- NodeContents.commit_in_tx(actor, node.id, attrs, metadata(attrs, path)) do
+      {:ok, %{file | path: path}}
     end
   end
 
   defp file_for_write(actor, root, path, attrs) do
     case resolve(root, path) do
-      {:ok, %{kind: :file} = node} ->
+      {:ok, %{type: :file} = node} ->
         {:ok, node}
 
       {:ok, _} ->
@@ -209,7 +180,7 @@ defmodule Ankole.Files.Paths do
             |> Map.merge(%{
               parent_id: parent.id,
               name: List.last(segments),
-              kind: :file,
+              type: :file,
               created_by: Ankole.ActorRef.from_actor(actor)
             })
 
@@ -225,8 +196,8 @@ defmodule Ankole.Files.Paths do
 
   defp ensure_folders(actor, parent, [name | rest]) do
     result =
-      case child(parent.id, name) do
-        {:ok, %{kind: :file}} ->
+      case Nodes.child(parent.id, name) do
+        {:ok, %{type: :file}} ->
           {:error, :not_a_directory}
 
         {:ok, node} ->
@@ -237,14 +208,11 @@ defmodule Ankole.Files.Paths do
             Nodes.create_in_tx(%{
               parent_id: parent.id,
               name: name,
-              kind: :folder,
+              type: if(parent.type == :knowledge, do: :knowledge, else: :doc),
               mode: 0o755,
               created_by: Ankole.ActorRef.from_actor(actor)
             })
           end
-
-        error ->
-          error
       end
 
     with {:ok, folder} <- result, do: ensure_folders(actor, folder, rest)
@@ -285,15 +253,15 @@ defmodule Ankole.Files.Paths do
   end
 
   defp delete_path(actor, root, path) do
-    with {:ok, path} <- Files.normalize_existing_path(path) do
+    with {:ok, path} <- Files.normalize_path(path) do
       case resolve(root, path) do
         {:ok, node} ->
           ids = Nodes.descendants(node.id)
 
           count =
-            Node
-            |> Ash.Query.filter(id in ^ids and kind == :file and is_nil(deleted_at))
-            |> Ankole.Ash.read!()
+            Ankole.Pod.list_page_records!(
+              query: [filter: [id: [in: ids], type: :file, deleted_at: [is_nil: true]]]
+            )
             |> length()
 
           with {:ok, _} <- Nodes.trash_in_tx(actor, node.id), do: {:ok, count}
@@ -316,7 +284,7 @@ defmodule Ankole.Files.Paths do
   def move_in_tx(uid, from, to) do
     Nodes.lock_tree()
 
-    with {:ok, from} <- Files.normalize_existing_path(from),
+    with {:ok, from} <- Files.normalize_path(from),
          {:ok, to} <- Files.normalize_path(to),
          {:ok, actor} <- NodeContents.actor(uid),
          {:ok, root} <- private_root(uid),
@@ -340,30 +308,18 @@ defmodule Ankole.Files.Paths do
     end
   end
 
-  def lock_root(id) do
-    Ankole.AdvisoryLock.lock!(Repo, "drive-root:#{id}")
-    :ok
-  end
+  def lock_root(id), do: Nodes.lock_roots([id])
 
   def resolve(root, ""), do: {:ok, root}
 
   def resolve(root, path) do
-    with {:ok, path} <- Files.normalize_existing_path(path) do
+    with {:ok, path} <- Files.normalize_path(path) do
       Enum.reduce_while(String.split(path, "/"), {:ok, root}, fn name, {:ok, parent} ->
-        case child(parent.id, name) do
+        case Nodes.child(parent.id, name) do
           {:ok, node} -> {:cont, {:ok, node}}
           error -> {:halt, error}
         end
       end)
-    end
-  end
-
-  defp child(parent_id, name) do
-    case Node
-         |> Ash.Query.filter(parent_id == ^parent_id and name == ^name and is_nil(deleted_at))
-         |> Ankole.Ash.read_one() do
-      {:ok, nil} -> {:error, :not_found}
-      result -> result
     end
   end
 
@@ -404,10 +360,10 @@ defmodule Ankole.Files.Paths do
       Repo.query!(
         """
         WITH RECURSIVE subtree AS (
-          SELECT n.*, n.name::text AS path FROM drive_nodes n
+          SELECT n.*, n.name::text AS path FROM pages n
           WHERE n.tenant_id = $1::text::uuid AND n.parent_id = $2::text::uuid AND n.deleted_at IS NULL
           UNION ALL
-          SELECT n.*, (s.path || '/' || n.name)::text FROM drive_nodes n JOIN subtree s ON n.parent_id = s.id
+          SELECT n.*, (s.path || '/' || n.name)::text FROM pages n JOIN subtree s ON n.parent_id = s.id
           WHERE n.tenant_id = $1::text::uuid AND n.deleted_at IS NULL
         )
         SELECT n.id::text, n.id::text AS node_id, n.object_id::text, n.name, n.path,
@@ -415,7 +371,7 @@ defmodule Ankole.Files.Paths do
           COALESCE(n.content_type, 'application/octet-stream') AS content_type,
           n.source, n.source_conversation_id::text AS conversation_id, n.message_id::text, n.updated_at
         FROM subtree n LEFT JOIN file_objects object ON object.tenant_id = n.tenant_id AND object.id = n.object_id
-        WHERE n.kind = 'file'
+        WHERE n.type = 'file'
           AND ($3 = '' OR n.path = $3 OR left(n.path, length($3) + 1) = $3 || '/')
           AND ($4::text IS NULL OR n.path > $4)
           AND ((NOT n.is_acl_anchor AND n.acl_anchor_id = ANY($6::text[]::uuid[]))

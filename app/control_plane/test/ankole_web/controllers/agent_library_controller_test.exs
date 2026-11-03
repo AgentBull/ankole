@@ -14,7 +14,7 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
     :ok
   end
 
-  test "Console returns the real Pod source links for the Agent contracts", %{conn: conn} do
+  test "Console returns the complete effective Agent contracts", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     conn = conn |> console_conn() |> api(:get, ~p"/api/v2/agents/#{agent.uid}/library-documents")
     assert %{"library_documents" => documents} = json_response(conn, 200)
@@ -22,9 +22,8 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
 
     for kind <- ["agents", "design"] do
       assert documents[kind]["content"] != ""
-      assert [id] = documents[kind]["page_ids"]
-      assert [url] = documents[kind]["page_urls"]
-      assert String.ends_with?(url, "/pages/" <> Ankole.Kernel.uuid_shorten(id))
+      assert is_binary(documents[kind]["content_hash"])
+      assert documents[kind]["kind"] == kind
     end
   end
 

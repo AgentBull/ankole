@@ -26,15 +26,6 @@ defmodule Ankole.Brain.Links do
   end
 
   @doc false
-  def normalize_tags(tags) when is_list(tags) do
-    if Enum.all?(tags, &(is_binary(&1) and String.trim(&1) != "")),
-      do: {:ok, tags |> Enum.map(&String.trim/1) |> Enum.uniq() |> Enum.sort()},
-      else: {:error, {:invalid, "tags"}}
-  end
-
-  def normalize_tags(_tags), do: {:error, {:invalid, "tags"}}
-
-  @doc false
   def replace_tags_in_tx(slug, tags) do
     with :ok <- Repo.require_transaction(),
          {:ok, _removed} <-

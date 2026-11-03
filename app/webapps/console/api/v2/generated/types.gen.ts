@@ -63,6 +63,10 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
   config_ref: string
   /**
    * Field included by default.
@@ -81,7 +85,7 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
-  routing_mode: 'ai_colleague' | 'sender_personal_assistant'
+  routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
   /**
    * Field included by default.
    */
@@ -100,6 +104,10 @@ export type SignalBindingType = {
    * Field included by default.
    */
   unmatched_sender_policy: 'manual_review' | 'create_standalone'
+  /**
+   * Field included by default.
+   */
+  watched_field_ids?: Array<string> | null
 }
 
 /**
@@ -188,7 +196,14 @@ export type AutomationJob = {
     /**
      * Field included by default.
      */
-    agent_uid: string
+    action_key?: string | null
+    /**
+     * Field included by default.
+     */
+    agent_uid?: string | null
+    /**
+     * Field included by default.
+     */
     authorization_kind?: string | null
     /**
      * Field included by default.
@@ -197,9 +212,27 @@ export type AutomationJob = {
     /**
      * Field included by default.
      */
-    drive_prefix: string
+    concurrency_mode: 'parallel' | 'serial_fifo' | 'serial_coalesce'
+    /**
+     * Field included by default.
+     */
+    config: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    drive_prefix?: string | null
+    /**
+     * Field included by default.
+     */
+    executor_kind: 'agent_script' | 'applet_function'
     human_access_version?: number | null
     human_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    idempotent: boolean
     /**
      * Field included by default.
      */
@@ -208,11 +241,18 @@ export type AutomationJob = {
      * Field included by default.
      */
     label: string
-    legacy_directory_path?: string | null
     /**
      * Field included by default.
      */
-    owner_session_id: string
+    max_slices: number
+    /**
+     * Field included by default.
+     */
+    owner_session_id?: string | null
+    /**
+     * Field included by default.
+     */
+    page_id?: string | null
     /**
      * Field included by default.
      */
@@ -237,6 +277,10 @@ export type AutomationJob = {
      * Field included by default.
      */
     status: 'active' | 'cancelled'
+    /**
+     * Field included by default.
+     */
+    unavailable_reason?: string | null
     /**
      * Field included by default.
      */
@@ -459,10 +503,6 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    automation_job_id?: number | null
-    /**
-     * Field included by default.
-     */
     binding_name?: string | null
     /**
      * Field included by default.
@@ -653,6 +693,26 @@ export type PermissionGrant = {
 }
 
 /**
+ * A "Resource object" representing a applet_job_operation
+ */
+export type AppletJobOperation = {
+  /**
+   * An attributes object for a applet_job_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a applet_job_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a agent_skill_lesson
  */
 export type AgentSkillLesson = {
@@ -712,6 +772,26 @@ export type AgentSkillLesson = {
   id: string
   /**
    * A relationships object for a agent_skill_lesson
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a meta_agent
+ */
+export type MetaAgent = {
+  /**
+   * An attributes object for a meta_agent
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_agent
    */
   relationships?: {
     [key: string]: never
@@ -898,6 +978,10 @@ export type SignalBinding = {
     /**
      * Field included by default.
      */
+    automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
     config_ref: string
     /**
      * Field included by default.
@@ -916,7 +1000,7 @@ export type SignalBinding = {
     /**
      * Field included by default.
      */
-    routing_mode: 'ai_colleague' | 'sender_personal_assistant'
+    routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
     /**
      * Field included by default.
      */
@@ -935,6 +1019,10 @@ export type SignalBinding = {
      * Field included by default.
      */
     unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    /**
+     * Field included by default.
+     */
+    watched_field_ids?: Array<string> | null
   }
   id: string
   /**
@@ -1420,6 +1508,26 @@ export type Principal = {
 }
 
 /**
+ * A "Resource object" representing a meta_brain
+ */
+export type MetaBrain = {
+  /**
+   * An attributes object for a meta_brain
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_brain
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a agent_worker
  */
 export type AgentWorker = {
@@ -1676,10 +1784,6 @@ export type WebhookEndpointType = {
    * Field included by default.
    */
   agent_uid?: string | null
-  /**
-   * Field included by default.
-   */
-  automation_job_id?: number | null
   /**
    * Field included by default.
    */
@@ -2179,14 +2283,6 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  automation_job_id?: number | null
-  /**
-   * Field included by default.
-   */
-  automation_job_run_id?: number | null
-  /**
-   * Field included by default.
-   */
   binding_name?: string | null
   /**
    * Field included by default.
@@ -2309,6 +2405,10 @@ export type AutomationJobRun = {
      * Field included by default.
      */
     automation_job_id: number
+    binding_id?: string | null
+    causation_id?: string | null
+    concurrency_key: string
+    correlation_id?: string | null
     /**
      * Field included by default.
      */
@@ -2324,6 +2424,28 @@ export type AutomationJobRun = {
      * Field included by default.
      */
     finished_at?: string | null
+    /**
+     * Field included by default.
+     */
+    last_published_revision?: number | null
+    /**
+     * Field included by default.
+     */
+    progress: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    result?: unknown | null
+    /**
+     * Field included by default.
+     */
+    signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    slice_count: number
     /**
      * Field included by default.
      */
@@ -2618,14 +2740,6 @@ export type ScheduledEvent = {
      */
     agent_uid: string
     authorization_kind?: string | null
-    /**
-     * Field included by default.
-     */
-    automation_job_id?: number | null
-    /**
-     * Field included by default.
-     */
-    automation_job_run_id?: number | null
     /**
      * Field included by default.
      */
@@ -3016,6 +3130,26 @@ export type AgentType = {
 }
 
 /**
+ * A "Resource object" representing a event_binding_operation
+ */
+export type EventBindingOperation = {
+  /**
+   * An attributes object for a event_binding_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a event_binding_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a agent_model_configuration
  */
 export type AgentModelConfiguration = {
@@ -3084,6 +3218,26 @@ export type OidcLogoutDelivery = {
   id: string
   /**
    * A relationships object for a oidc_logout_delivery
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a meta_library
+ */
+export type MetaLibrary = {
+  /**
+   * An attributes object for a meta_library
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_library
    */
   relationships?: {
     [key: string]: never
@@ -3471,24 +3625,26 @@ export type SetGlobalLibraryPluginResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -4632,7 +4788,7 @@ export type PreviewBrainSearchResponses = {
         chunk_index: number
         content_kind?: string | null
         source_node_id: string
-        subject_page_id: string
+        subject_page_id?: string | null
         text: string
         title: string
         type: string
@@ -5043,9 +5199,9 @@ export type SetAgentLibrarySkillData = {
   /**
    * Request body for the set_agent_library_skill operation on agent_library_console resource
    */
-  body?: {
+  body: {
     data: {
-      enabled?: boolean | null
+      enabled: boolean
     }
   }
   path: {
@@ -5078,24 +5234,26 @@ export type SetAgentLibrarySkillResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -5386,7 +5544,7 @@ export type SetGlobalLibrarySkillData = {
    */
   body: {
     data: {
-      defaults_scope: 'global' | 'tenant'
+      base_revision: number
       enabled: boolean
     }
   }
@@ -5419,24 +5577,26 @@ export type SetGlobalLibrarySkillResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -7273,17 +7433,11 @@ export type ListAgentLibraryDocumentsResponses = {
         content: string
         content_hash: string
         kind: string
-        page_id: string
-        page_ids: Array<string>
-        page_urls: Array<string>
       }
       design: {
         content: string
         content_hash: string
         kind: string
-        page_id: string
-        page_ids: Array<string>
-        page_urls: Array<string>
       }
     }
   }
@@ -7842,24 +7996,26 @@ export type GetAgentLibraryCapabilitiesResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -8451,24 +8607,26 @@ export type SetAgentLibraryPluginResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -9967,24 +10125,26 @@ export type GetGlobalLibraryCapabilitiesResponses = {
       override_enabled?: boolean | null
       skills: Array<{
         agent_plugin_id?: string | null
+        bound: boolean
         description: string
         effective_enabled: boolean
-        global_default_enabled: boolean
+        enabled_for_all: boolean
         id: string
         name: string
-        override_enabled?: boolean | null
+        revision: number
         source_kind: string
       }>
       version: string
     }>
     skills: Array<{
       agent_plugin_id?: string | null
+      bound: boolean
       description: string
       effective_enabled: boolean
-      global_default_enabled: boolean
+      enabled_for_all: boolean
       id: string
       name: string
-      override_enabled?: boolean | null
+      revision: number
       source_kind: string
     }>
   }
@@ -10616,7 +10776,7 @@ export type CreateDriveNodeData = {
    */
   body: {
     data: {
-      kind?: 'folder' | 'file' | null
+      kind?: 'doc' | 'knowledge' | 'file' | null
       name: string
       parent_id: string
     }

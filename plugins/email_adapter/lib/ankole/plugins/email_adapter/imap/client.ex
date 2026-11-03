@@ -170,9 +170,9 @@ defmodule Ankole.Plugins.EmailAdapter.Imap.Client do
     {client, tag} = next_tag(client)
 
     with :ok <- send_data(client, [tag, " IDLE\r\n"]),
-         {:ok, line} <- read_line(client),
-         true <- String.starts_with?(line, "+") || {:error, {:idle_rejected, bounded(line)}},
-         {:ok, outcome} <- idle_wait(client, monotonic_ms() + timeout_ms),
+         {:ok, changed?} <- idle_continuation(client, false),
+         {:ok, outcome} <-
+           if(changed?, do: {:ok, :changed}, else: idle_wait(client, monotonic_ms() + timeout_ms)),
          :ok <- send_data(client, "DONE\r\n"),
          {:ok, client, _untagged, _tagged} <- read_tagged(client, tag, []) do
       {:ok, client, outcome}
@@ -342,6 +342,23 @@ defmodule Ankole.Plugins.EmailAdapter.Imap.Client do
   defp close_all([current, parent | stack]),
     do: close_all([[Enum.reverse(current) | parent] | stack])
 
+  defp idle_continuation(client, changed?) do
+    with {:ok, line} <- read_line(client) do
+      cond do
+        String.starts_with?(line, "+") ->
+          {:ok, changed?}
+
+        String.starts_with?(line, "*") ->
+          idle_continuation(client, changed? or mailbox_changed?(line))
+
+        true ->
+          {:error, {:idle_rejected, bounded(line)}}
+      end
+    end
+  end
+
+  defp mailbox_changed?(line), do: Regex.match?(~r/\A\*\s+\d+\s+(EXISTS|RECENT|EXPUNGE)/i, line)
+
   defp idle_wait(client, deadline) do
     remaining = deadline - monotonic_ms()
 
@@ -350,7 +367,7 @@ defmodule Ankole.Plugins.EmailAdapter.Imap.Client do
     else
       case client.transport.recv(client.socket, 0, remaining) do
         {:ok, line} ->
-          if Regex.match?(~r/\A\*\s+\d+\s+(EXISTS|RECENT|EXPUNGE)/i, line),
+          if mailbox_changed?(line),
             do: {:ok, :changed},
             else: idle_wait(client, deadline)
 

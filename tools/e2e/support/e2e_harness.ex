@@ -120,7 +120,7 @@ defmodule Ankole.E2E.Harness do
     providers = Repo.all(from(p in ProviderConfigs.Provider, select: p.provider_id))
     worker_providers = Enum.map(AgentWorkers.Providers.list(), & &1.provider_id)
     jobs = Repo.all(from(j in Oban.Job, select: j.id))
-    nodes = Repo.all(from(n in Ankole.Files.Schemas.Node, select: n.id))
+    nodes = Repo.all(from(n in Ankole.Pod.Page, select: n.id))
 
     scopes =
       Repo.all(from(c in Ankole.AppConfigure.AppConfig, distinct: c.scope, select: c.scope))
@@ -143,10 +143,10 @@ defmodule Ankole.E2E.Harness do
           uids = Enum.map(created, & &1.uid)
 
           Repo.query!(
-            "SET CONSTRAINTS drive_nodes_acl_anchor_fkey, drive_nodes_parent_anchor_fkey DEFERRED"
+            "SET CONSTRAINTS pages_acl_anchor_fkey, pages_parent_anchor_fkey DEFERRED"
           )
 
-          Repo.delete_all(from(n in Ankole.Files.Schemas.Node, where: n.id not in ^nodes))
+          Repo.delete_all(from(n in Ankole.Pod.Page, where: n.id not in ^nodes))
           Repo.delete_all(from(c in Ankole.AppConfigure.AppConfig, where: c.scope not in ^scopes))
           # Shared conversations contain the committed fixture statements.
           Repo.delete_all(from(c in Conversation, where: c.id not in ^conversations))
@@ -154,7 +154,7 @@ defmodule Ankole.E2E.Harness do
           for uid <- uids do
             assert {:ok, :ok} =
                      Repo.transact(fn ->
-                       :ok = Ankole.Files.delete_private_root_in_tx(uid)
+                       :ok = Ankole.Pod.delete_private_root_in_tx(uid)
                        {:ok, :ok}
                      end)
           end

@@ -30,8 +30,13 @@ import { CommentThread, CommentComposer } from './comment-thread'
 import { formatFileAnchorLabel, type FileCommentAnchor } from './file-comment-anchors'
 import { isRealtimeAccessDenied } from './realtime'
 import type { PageCommentsModel } from './state/page-comments'
-import type { PageDraftModel } from './state/page-draft'
+import type { ReadonlySignal } from '@preact/signals-react'
 import { PodPanelSurface, type PanelInputEvent } from './panel-motion'
+
+type CommentContent =
+  | { kind: 'page' }
+  | { kind: 'file' }
+  | { kind: 'document'; editor: EditorHandle | null; revision: ReadonlySignal<number>; ready: ReadonlySignal<boolean> }
 
 type Comments = InstanceType<typeof PageCommentsModel>
 const noSubscription = () => () => {}
@@ -39,8 +44,7 @@ const noEditor = () => null
 
 export function PageComments({
   detail,
-  draft,
-  editor,
+  content: capabilities,
   model,
   mobile,
   focused,
@@ -53,8 +57,7 @@ export function PageComments({
   reveal
 }: {
   detail: PageDetail
-  draft: InstanceType<typeof PageDraftModel>
-  editor: EditorHandle | null
+  content: CommentContent
   model: Comments
   mobile: boolean
   focused: string | null
@@ -69,7 +72,9 @@ export function PageComments({
   useSignals()
   const { t } = useTranslation()
   const client = useQueryClient()
-  const isFile = detail.page.type === 'file'
+  const isFile = capabilities.kind === 'file'
+  const editor = capabilities.kind === 'document' ? capabilities.editor : null
+  const bodyReady = capabilities.kind === 'document' && capabilities.ready.value
   const [status, setStatus] = useState<'open' | 'resolved' | 'all' | 'unread'>('open')
   const effectiveStatus = focused || selectedThreads.length ? 'all' : status
   const requestedIDs = selectedThreads.length ? selectedThreads : focused ? [focused] : []
@@ -89,7 +94,7 @@ export function PageComments({
     ...requested.flatMap(result => (result.data ? [result.data.revision] : []))
   ]
   const listedRevision = revisions.length ? Math.min(...revisions) : undefined
-  const documentRevision = draft.revision.value
+  const documentRevision = capabilities.kind === 'document' ? capabilities.revision.value : detail.page.revision
   useEffect(() => {
     if (!isFile && listedRevision !== undefined && listedRevision < documentRevision) {
       void client.invalidateQueries({ queryKey: contentKeys.comments(detail.page.id) })
@@ -134,10 +139,15 @@ export function PageComments({
     }
   }, [focused, visibleThreads.length])
   const confirmedDocSelection = () => {
-    const range = editor ? model.anchor.value?.read?.(editor.editor.state) : null
+    if (capabilities.kind !== 'document') throw new Error(t('pod.document.reselect_quote'))
+    const range = capabilities.editor ? model.anchor.value?.read?.(capabilities.editor.editor.state) : null
     if (!range) throw new Error(t('pod.document.reselect_quote'))
-    if (!draft.bodyReady.value) throw new Error(t('pod.document.wait_for_save'))
-    return { base_revision: draft.revision.value, from: range.from, to: range.to }
+    if (!capabilities.ready.value) throw new Error(t('pod.document.wait_for_save'))
+    return {
+      base_revision: capabilities.revision.value,
+      from: range.from,
+      to: range.to
+    }
   }
   const confirmedFileSelection = () => {
     const current = model.anchor.value
@@ -234,7 +244,7 @@ export function PageComments({
                   focused={focused === thread.id}
                   unread={thread.unread}
                   hasSelection={hasSelection}
-                  anchorPending={!isFile && !!docSelection && !draft.bodyReady.value}
+                  anchorPending={!isFile && !!docSelection && !bodyReady}
                   refresh={refresh}
                   reveal={fileAnchor => locate(thread.id, fileAnchor)}
                   selectAnchor={() => selectAnchor(thread.id)}
@@ -274,7 +284,7 @@ export function PageComments({
               </Button>
             </div>
           )}
-          {canComment && detail.page.type !== 'knowledge' && (
+          {canComment && capabilities.kind !== 'page' && (
             <Button variant="ghost" size="xs" onClick={() => selectAnchor()}>
               {t('pod.document.use_selection')}
             </Button>
@@ -284,7 +294,7 @@ export function PageComments({
               {t('pod.document.reselect_quote')}
             </p>
           )}
-          {!isFile && docSelection && !draft.bodyReady.value && (
+          {!isFile && docSelection && !bodyReady && (
             <p className="text-xs" role="status">
               {t('pod.document.wait_for_save')}
             </p>
@@ -294,7 +304,7 @@ export function PageComments({
             draftKey="new"
             label={t('pod.document.new_comment')}
             disabled={!canComment}
-            submitDisabled={!!anchor && (!hasSelection || (!isFile && !draft.bodyReady.value))}
+            submitDisabled={!!anchor && (!hasSelection || (!isFile && !bodyReady))}
             send={add}
             refresh={refresh}
           />

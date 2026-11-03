@@ -3,30 +3,10 @@ import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { contentKeys, pageAPI } from './content-api'
 import { ContentError } from './content-primitives'
-import { usePageHref } from './use-page-metadata'
-
-type KnowledgePanelData = {
-  backlinks: { page_id: string; title: string; link_type: string; context?: string }[]
-  claims: {
-    id: string
-    claim_type: string
-    claim: string
-    context?: string
-    confidence?: number
-    since_date?: string
-    provenance?: string
-    source_node_id?: string
-  }[]
-  timelines: {
-    id: string
-    date: string
-    summary: string
-    detail?: string
-    provenance?: string
-    source_node_id?: string
-  }[]
-  scorecard: { takes: number; brier: number | null }
-}
+import { usePageHref, usePagesMetadata } from './use-page-metadata'
+import { pageMetadata } from './state/page-metadata'
+import { parseKnowledgePanel } from './state/knowledge-panel'
+import { PageMention } from './document-mentions'
 
 /** Every row is calculated by the control plane for the current reader. */
 export function KnowledgePanel({ pageID, revision }: { pageID: string; revision: number }) {
@@ -34,9 +14,14 @@ export function KnowledgePanel({ pageID, revision }: { pageID: string; revision:
   const pageHref = usePageHref()
   const query = useQuery({
     queryKey: [...contentKeys.page(pageID), 'knowledge', revision],
-    queryFn: () => pageAPI.knowledge(pageID)
+    queryFn: ({ client }) =>
+      pageMetadata(client).read(
+        async () => parseKnowledgePanel((await pageAPI.knowledge(pageID)).panel),
+        panel => panel.backlinks.map(link => ({ id: link.page_id, title: link.title }))
+      )
   })
-  const panel = query.data?.panel as KnowledgePanelData | undefined
+  const panel = query.data
+  const backlinks = usePagesMetadata((panel?.backlinks ?? []).map(link => ({ ...link, id: link.page_id })))
   return (
     <aside className="space-y-4 border-t border-border pt-4" aria-label={t('pod.knowledge.related')}>
       <ContentError error={query.error} retry={() => void query.refetch()} />
@@ -46,7 +31,7 @@ export function KnowledgePanel({ pageID, revision }: { pageID: string; revision:
             <section>
               <h2 className="mb-2 text-sm font-medium">{t('pod.knowledge.backlinks')}</h2>
               <ul className="space-y-1 text-sm">
-                {panel.backlinks.map((link, index) => (
+                {backlinks.map((link, index) => (
                   <li key={`${link.page_id}:${index}`}>
                     <Link className="link" to={pageHref(link.page_id, link.title)}>
                       {link.title}
@@ -65,7 +50,11 @@ export function KnowledgePanel({ pageID, revision }: { pageID: string; revision:
                 {panel.claims.map(claim => (
                   <li key={claim.id}>
                     <p className="mb-1 text-xs text-fg-secondary">
-                      {t(claim.claim_type === 'fact' ? 'pod.knowledge.fact' : 'pod.knowledge.take')}
+                      {claim.claim_type === 'fact'
+                        ? t('pod.knowledge.fact')
+                        : claim.claim_type === 'take'
+                          ? t('pod.knowledge.take')
+                          : claim.claim_type}
                       {claim.confidence != null &&
                         ` · ${t('pod.knowledge.confidence')}: ${Math.round(claim.confidence * 100)}%`}
                     </p>
@@ -74,11 +63,7 @@ export function KnowledgePanel({ pageID, revision }: { pageID: string; revision:
                     <p className="text-xs text-fg-tertiary">
                       {[claim.since_date, claim.provenance].filter(Boolean).join(' · ')}
                     </p>
-                    {claim.source_node_id && (
-                      <Link className="link text-xs" to={pageHref(claim.source_node_id)}>
-                        {t('pod.knowledge.source')}
-                      </Link>
-                    )}
+                    {claim.source_node_id && <PageMention id={claim.source_node_id} />}
                   </li>
                 ))}
               </ul>
@@ -96,11 +81,7 @@ export function KnowledgePanel({ pageID, revision }: { pageID: string; revision:
                     {event.summary}
                     {event.detail && <p className="text-fg-secondary">{event.detail}</p>}
                     {event.provenance && <p className="text-xs text-fg-tertiary">{event.provenance}</p>}
-                    {event.source_node_id && (
-                      <Link className="link text-xs" to={pageHref(event.source_node_id)}>
-                        {t('pod.knowledge.source')}
-                      </Link>
-                    )}
+                    {event.source_node_id && <PageMention id={event.source_node_id} />}
                   </li>
                 ))}
               </ol>

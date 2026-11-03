@@ -25,7 +25,10 @@ const readOperations = [
   'base.tables',
   'base.schema',
   'base.query',
-  'base.aggregate'
+  'base.aggregate',
+  'jobs.list',
+  'jobs.get_run',
+  'bindings.list'
 ] as const
 const readOperationNames = new Set<string>(readOperations)
 const writeOperations = [
@@ -45,6 +48,12 @@ const writeOperations = [
   'files.upload',
   'applets.publish',
   'applets.call',
+  'applets.transfer_owner',
+  'jobs.create',
+  'jobs.configure',
+  'jobs.delete',
+  'bindings.put',
+  'base.configure_table',
   'base.create_table',
   'base.delete_table',
   'base.create_field',

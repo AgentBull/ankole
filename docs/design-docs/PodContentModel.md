@@ -24,8 +24,8 @@ rather than built-in Base views.
 
 ### Page creation, editing, and navigation
 
-Creating a Page opens a non-modal menu offering document, knowledge, Base, folder, and file
-options:
+Creating a collaboration Page opens a non-modal menu offering document, Base
+and file options. Within Brain, creation offers knowledge objects and file attachments:
 
 - **Documents and Bases** open immediately at the chosen Space root, Private
   root, or parent Page. Inserting a child document from inside a document body
@@ -34,9 +34,10 @@ options:
   `<embed ref="…" />` block, and Agents create and publish Applets
   through their conversation workflow.
 - **Knowledge pages** open in read mode. Edit starts a draft; Save submits the body and business properties together at the captured revision.
-- **Folders** open the shared child list, including its empty state and creation
-  and upload controls. Folder contributors can add children; editors can rename
-  or trash files and folders. Files have no child-creation controls.
+- **Subpages** belong to their parent Page, including when the parent has its
+  own content. Creating a child requires `node_edit` on its parent and the child
+  inherits that parent's permissions. Empty documents and knowledge pages show
+  the child-list creation and upload controls. File pages are leaves.
 - **File pages** prompt for a local file first, then submit its bytes and Page
   attributes to `POST /api/v2/pod/file-pages`, which creates the Page and file
   reference in a single tree transaction (defaulting an empty title to the
@@ -54,10 +55,16 @@ when the version has the same title, and shortens a different restored title to
 writing area, with synchronization status and online participants in the Page
 header.
 
-Page titles and document bodies share one recoverable draft and unsaved-changes
-navigation guard: failed saves keep the user's input, and attempting to navigate
-away with unsaved edits lets the user continue editing, download the draft, or
-discard changes and leave.
+Page titles have their own draft and title comparison baseline. Document and
+knowledge editors own their XML drafts; file, Base and Applet pages create only
+the title draft they use. The Page workspace derives its unsaved-changes guard
+from these drafts and any active knowledge-property edits. Failed saves keep the
+user's input, and navigating away with unsaved edits lets the user continue
+editing, download the draft, or discard changes and leave. The workspace stores
+recovery data under a session-storage key scoped by Pod, Principal and Page, and
+reads recoverable older entries. Knowledge recovery retains property input, including invalid YAML,
+together with the body and its original revision. Draft downloads include the
+body and property input.
 While any dialog submission is in flight, the dialog preserves its inputs and
 blocks dismissal. Document titles auto-save after 500 ms of idle typing and on
 blur (deferring auto-save until any active IME composition finishes). Pressing
@@ -571,23 +578,30 @@ drops expose separate retry actions so reconnecting never unmounts the running
 Applet.
 
 File replacement and message-attachment copies send `base_object_id`, using null
-for an empty file. The control plane compares it under the Drive node lock, so
+for an empty file. The control plane compares it under the Page lock, so
 a concurrent Agent write also makes the browser's selection stale. The page
 channel consumes Drive commit events, and periodic reconciliation compares the
 file's current `object_id`; documents and Applets use their Pod revision.
 
 ## Pages and access
 
-Drive owns `drive_nodes`, its roots, ACL anchors and tree lifecycle. Pod reads
-`pod_page_nodes`, a nonmaterialized left join of nodes and the optional `pages`
-properties row. The properties contain title, icon, position, children view,
-revision, business `metadata`, and internal `upstream_state`. Document, Knowledge,
-Base and Applet nodes have properties at creation. Pod creates
-properties for file and folder nodes when saving metadata or sorting; saving
-personal state also creates properties for folders. For files, Pod stores
-favorites and visits in `PageUserState` without requiring a properties row or
-changing the file's modification time. File nodes are leaves; other kinds can
-have children.
+`Ankole.Pod.Page` persists in `pages` and owns identity, content type, parentage,
+ACL anchors, title, icon, ordering, revision and lifecycle. The Page types are
+`doc`, `knowledge`, `base`, `applet` and `file`. File pages are leaves; other
+Pages can contain subpages alongside their own content. `PageContent` stores
+canonical XML, while `Page.metadata` and `Page.upstream_state` hold business
+properties and internal synchronization state. `PageUserState` stores favorites
+and visits without changing the Page's modification time.
+
+Drive derives directories and files from this Page tree. Public, private and
+conversation roots are system-managed empty document Pages. Their root role
+comes from `parent_id`, `private_owner_uid` and `conversation_id`. These roots
+contain only documents, Bases, Applets and files. The separate Brain root has
+`parent_id = NULL` and `system_key = ankole_brain`; it contains knowledge Pages
+and file attachments. Brain and its categories carry `system_key` identities.
+Domain writes and database constraints enforce this boundary. Ordinary Space
+lists, page search and collaboration move targets exclude the Brain tree.
+
 Creating a `base` Page seeds a default `Table 1` table with a primary `Name`
 text field and a `Grid` view; tables and records belong to their Base rather
 than acting as standalone Pages.
@@ -595,7 +609,7 @@ than acting as standalone Pages.
 Siblings with a position sort first under PostgreSQL `C` collation, followed by
 nodes without positions ordered by name and ID. The first manual sort under a
 parent assigns positions to all its children in the same transaction. Moving a
-Page locks the tenant's Drive tree before checking for cycles so concurrent
+Page locks the tenant's Page tree before checking for cycles so concurrent
 opposite moves cannot form a loop. Callers position a moved Page relative to
 `after_id` or `before_id` (falling back to the end of the parent's children when
 omitted, or returning `position_conflict` if the named sibling lives under a
@@ -607,23 +621,22 @@ Page had no siblings, `undo` carries only the parent and Private owner).
 
 ### Permissions and ACL anchors
 
-`Ankole.Files.Access` layers Drive permissions on Principal and AuthZ using a 5-bit
+`Ankole.Pod.Access` layers Drive permissions on Principal and AuthZ using a 5-bit
 action mask: `node_view = 1`, `node_contribute = 2`, `node_edit = 4`, and
 `node_manage = 8`, plus `node_comment = 16`. Named roles bundle these actions:
 
 - **`view` (`1`)**: Read the Page and its records.
 - **`contribute` (`19`)**: Comment on documents, edit Base records, upload
-  record attachments, create children in folders, and submit initial file content
-  when the parent grants contribution. Public and private roots require edit to
-  create a child.
+  record attachments, and submit initial file content when the parent grants
+  contribution.
 - **`edit` (`23`)**: Edit documents, Page metadata, Base schemas, and Applet
-  source, and create Space-root Pages.
+  source, and create subpages under editable Pages.
 - **`manage` (`31`)**: Manage sharing, delete Base tables, move Pages across
   permission boundaries, and manage Trash.
 
 Current conversation participants receive view, contribute, and edit (`7`) on
-their conversation root. They can edit, rename, and trash shared files and
-folders; structured-page deletion and Trash restoration require manage.
+their conversation root. They can create subpages and edit, rename, and trash
+shared files; Page deletion and Trash restoration require manage.
 
 Page grants live in `permission_grants`, but the general Console grant API
 cannot create, modify, or delete Pod page grants. Tenant creation seeds the
@@ -791,7 +804,7 @@ Search and directory lists enforce access before applying result caps:
 - **Full-text search**: Matches titles and plain-text bodies across visible
   Pages (including shared child Pages whose parent is hidden), ranks title
   similarity ahead of body matches via trigram indexes, and returns up to 30
-  Pages. Matching reads stored Pod titles, current file and folder names, and
+  Pages. Matching reads stored Pod titles, current file names, and
   plain-text bodies through their own indexes; the Page projection supplies
   each result's display title and ranking. Move pickers pass `exclude_subtree_of` to strip the moving Page and all
   its descendants—even when intermediate ancestors do not match the query—before
@@ -829,7 +842,7 @@ help.
 
 ### Persistence and transactions
 
-`Ankole.Pod` is the root Ash domain, owning the durable `Properties`, `PageContent`,
+`Ankole.Pod` is the root Ash domain, owning the durable `Page`, `PageContent`,
 `PageChange`, `PageUserState`, `BaseTable`, `BaseField`, and `BaseView`
 resources alongside stateless `*.Browser` resources serving `/api/v2/pod`
 JSON:API routes (where browser actions validate query operators as closed enums
@@ -839,7 +852,7 @@ compiler).
 Every Pod write—or read requiring a row lock—opens `Repo.transact_top_level/2`
 in its owning module (`Ankole.Pod.Pages`, `Pages.Sharing`, `Documents`, `Files`,
 `Knowledge`, `Applets` or `Bases`). Topology and sharing writes acquire
-the tenant Drive tree lock first and then lock the Agent's turn, whereas document
+the tenant Page tree lock first and then lock the Agent's turn, whereas document
 content and Base record writes skip the tree lock. Intra-domain callers compose
 `*_in_tx` helpers inside an existing transaction (for example, Base copy calling
 `Pages.create_in_tx/1`), and Phoenix channel broadcasts to page, access, and
@@ -848,8 +861,9 @@ transaction commits.
 
 Within the domain:
 
-- `Ankole.Pod.Pages` composes Drive tree operations with Pod properties, page details and personal state.
-- `Ankole.Files.Access` computes ancestor paths, reachable anchors, and access
+- `Ankole.Pod.Pages.Tree` owns Page identity, topology and lifecycle.
+- `Ankole.Pod.Pages` composes tree operations with Page metadata, content and personal state.
+- `Ankole.Pod.Access` computes ancestor paths, reachable anchors, and access
   provenance through its native SQL read model.
 - `Ankole.Pod.Pages.Queries` implements directory cursors, title/body search
   (attaching authorized ancestor breadcrumbs), list scopes (where `all` includes
@@ -865,7 +879,7 @@ Within the domain:
   `space_default`, `space_agent`, `private_owner`, and `ancestor`), and local
   `grants`. Each local grant carries an authoritative `rule_kind` (`role` for
   unconditional Principal or group grants matching a canonical action bundle in
-  `Ankole.Files.Access`, or `advanced` for Usersets, CEL conditions, and custom
+  `Ankole.Pod.Access`, or `advanced` for Usersets, CEL conditions, and custom
   action subsets). When a caller lacks `node_manage`, `Sharing` omits
   collaborator picker `subjects`, omits disabled Principals, inactive Private
   Guest grants, conditional CEL expressions, Userset definitions, and grants
@@ -881,7 +895,7 @@ Within the domain:
   (`Sharing.update_sharing/4`) and `PUT /api/v2/pod/pages/:id/sharing`
   (`Sharing.set_sharing/4`, also backing `pages.set_sharing`) enforce the same
   collaborator, peer-visibility, and scope validation contract under the tenant
-  Drive tree lock—rejecting new or escalated Guest grants on Private subtrees with
+  Page tree lock—rejecting new or escalated Guest grants on Private subtrees with
   `guest_forbidden_in_private` (`422`), restricting Guest managers to visible
   shared-Page peers, and ensuring that the executing manager holds `node_manage` when
   `inherit_permissions` is `false` by adding a container `manage` grant only if
@@ -935,12 +949,13 @@ interrupted job can safely resume.
 
 ## Knowledge pages
 
-A `knowledge` Drive node gives people and Agents one editable home for business
-facts, instructions, visual standards, and shared Skills. `Ankole.Pod.Knowledge`
-owns its writes. `PageContent` stores canonical Page XML; `Properties.metadata`
-stores the document's JSON-compatible YAML Frontmatter. The separate
-`upstream_state` column holds synchronization hashes, managed package files, and
-background processing revisions. Exports contain only business metadata and body.
+A `knowledge` Page gives people and Agents an editable view of an organization
+knowledge object in Brain. `Ankole.Pod.Knowledge` owns its writes. `PageContent`
+stores canonical Page XML; `Page.metadata` stores the document's JSON-compatible
+YAML Frontmatter. The separate `upstream_state` column records source provenance
+and background processing revisions. Exports contain only business metadata and body.
+Pod uses a book icon for a knowledge page without a custom icon, distinguishing
+it from a document's default icon.
 
 The editor accepts headings, paragraphs, inline emphasis and links, lists, code,
 quotes, GFM alerts, rectangular tables with one header row, images, and typed Page
@@ -977,16 +992,28 @@ revision and starts a local draft. The Properties panel edits business fields
 and exposes a YAML drawer for nested values. Save commits XML and metadata in one `base_revision` compare
 and swap transaction, increments the revision, records a complete checkpoint,
 and broadcasts after commit. A conflict preserves the draft and shows the
-current saved version so the writer can reconcile it explicitly. Folder table
-views display child-page business properties with filtering and sorting.
+current saved version so the writer can reconcile it explicitly. A save confirms
+only its captured body and properties; input entered during the request stays
+editable and unsaved. The workspace derives the navigation guard's unsaved state
+from title, body and property drafts.
 
-Public business folders expose a **Learn business facts** switch to their
+Property details and child-page tables share value rendering. Business names stay
+open, nested values keep their structure, and explicit `page_id` and `subject`
+references use the existing authorized Page-mention resolver. Reference objects
+keep their additional fields through editing and saving. Table filtering and
+sorting operate on the authorized pages already loaded into the view. Knowledge
+panels validate their consumed response fields at the request boundary and show
+malformed responses as errors. Graph nodes and backlinks subscribe to the shared
+Page title and icon projection; queries still own authorization, membership and
+relationship refreshes.
+
+Public business Pages expose a **Learn business facts** switch to their
 managers (`node_manage`). The setting updates `metadata.extract_facts` through
 the ordinary Page update operation. Enabling it queues existing documents and
 eligible knowledge throughout the subtree as well as future edits. A child
-folder reports when learning is enabled by an ancestor. Disabling it stops
+Page reports when learning is enabled by an ancestor. Disabling it stops
 future extraction, including queued work; already extracted facts remain.
-Private folders and the automatically managed `/AnkoleBrain` tree do not expose
+Private Pages and the automatically managed `Brain` tree do not expose
 this setting.
 
 Every explicit knowledge save records body, title, icon, metadata, attribution,
@@ -997,12 +1024,78 @@ requires `node_edit`, while current content requires `node_view`.
 `GET /api/v2/pod/pages/:id/knowledge/export` returns canonical OKF Markdown;
 `snapshot_id` selects an authorized historical checkpoint.
 
-`/AnkoleBrain` is the tenant's shared entry point. Drive protects this folder and
-its `agents` and `skills` structure with `system_key`. Formal tenant members and
-Agents can view the shared tree; Pod administrators can manage it. A personal
-assistant's entity page interrupts inheritance and grants access only to its
-owner and the assistant. Page identity is the immutable Drive UUID; moves and
-renames record historical paths without rewriting graph foreign keys.
+### Meta Ankole
+
+The Pod sidebar offers Home, Chat and Meta Ankole. Home contains the Space and
+Private collaboration trees. Meta Ankole has parallel Brain, Skills and Agents
+modules with a matching navigation tree. All Meta branches start collapsed;
+opening a detail route does not expand its ancestors. The disclosure button
+controls expansion separately from the link that opens the module or item.
+Switching sidebar tabs preserves expanded branches. A file-directory label
+expands its branch, and only the current destination receives page highlighting.
+The workspace scrolls beneath the module navigation so long packages and Agent
+contracts remain reachable on desktop and narrow screens.
+
+Brain opens a graph of visible knowledge objects and directed semantic links.
+People can filter by ontology category or keyword, zoom, pan, open a node and
+use the corresponding text list. The graph arranges connected nodes in a grid
+with distinct labels and click targets, and highlights adjacent nodes on focus.
+The all-categories view offers creation with an editable-category selector. Its tree follows the installed ontology. Categories
+have no manual create, rename, move or trash controls. Object details reuse the
+knowledge editor, business properties, sharing, attachments, history and live
+Facts, Takes, Timelines and backlinks panel. A category editor can create an
+object within that category. Internal people and Agent path segments belong to
+Principal lifecycle operations; changing their display titles preserves those
+segments. Brain favorites, trash and move destinations remain within Brain.
+Object children use knowledge or file types. Breadcrumbs and post-delete
+navigation open category views rather than category anchors as documents.
+Chat mentions and pasted Brain URLs resolve to the same Page identities.
+
+Skills lists all shared built-in, plugin and custom packages, with keyword
+search across names, identifiers and descriptions. Members with
+custom-Skill authority can create or import a ZIP package, edit its required
+manifest and upload, replace, rename or delete reference files, executable
+scripts and binary assets. The manifest is a field of the package and has no
+individual delete or rename control. ZIP import reads the name and description
+from the package manifest. The main file list opens text files for editing and
+offers a separate download action for every attachment. Upload, rename and delete
+keep the selected file in sync with the URL; these actions do not require opening
+the sidebar tree. Binary file details offer download and return-to-manifest
+actions. Permanent package and attachment deletion requires confirmation.
+Each package lists its colleague binding count and the current member's
+assistant state. Its enablement panel separates global enablement, a searchable
+colleague multiselect and the current member's assistant switch. Reading a
+package does not create an assistant; an explicit enable action can create it.
+Global enablement shows the individual selections as enabled and locks editing. Turning it off restores
+the saved positive bindings. An active Agent Plugin is also required for each
+of its member Skills. See [Agent Workers](AgentWorkers.md) for persistence and
+runtime selection.
+
+Agents lists AI colleagues, followed by My assistant and Global settings.
+Colleague details use `/meta/agents/colleagues/:uid`; the fixed assistant and
+global entries use `/meta/agents/assistant` and `/meta/agents/global`. Colleague
+UIDs remain literal, including `assistant` and `global`.
+Authorized members create colleagues using a UID, display name and role; Ankole
+uses the default Worker provider. Lists and details show Agent avatars. Members
+without identity-edit permission see read-only details. Each Agent detail offers its identity
+and AGENTS/DESIGN slots with inherit, append and override modes. Global settings
+edits the two baselines. Individual slots also show the saved effective instructions
+computed by the runtime contract owner. Inherit mode explains the global baseline
+and exposes individual content editing when the person selects Append or Override.
+All manifest and contract saves retain the local draft
+on a revision conflict. Loading the latest version for comparison advances the
+draft's base revision while preserving local edits, allowing the person to
+reconcile and save. Leaving an unsaved editor offers continued editing or
+discarding the draft.
+Drafts belong to the selected Skill or Agent contract. Selecting a different
+Skill opens its saved content and a separate package form; a refresh of the same
+Skill preserves its in-progress draft.
+The owner-only assistant and independent capability permissions are specified in
+[Principal](Principal.md).
+
+System Pages show titles as text and hide structural mutation controls. Brain
+objects retain ordinary knowledge editing. An open knowledge draft survives
+loss of edit permission, while save and property controls become unavailable.
 
 Moving a page to Trash removes its subtree from retrieval and expires facts
 derived from those pages. Restoring the subtree rebuilds its retrieval entries
@@ -1010,10 +1103,9 @@ and schedules eligible pages for fresh extraction under their current revisions.
 
 The Brain reads these pages through its ordinary index, source learning, and
 permission-filtered graph projections. The Knowledge panel computes backlinks,
-claims, timelines, and calibration scores for the current reader. Complete
-`AGENTS[.override].md` and `DESIGN[.override].md` contracts use deterministic Agent
-identity assembly; ordinary knowledge and Skills use the requester's intersection
-with the Agent's permissions, plus room disclosure checks. See
+claims, timelines, and calibration scores for the current reader. AGENTS and DESIGN contracts and enabled Skills use the Agent identity.
+Knowledge uses the requester's intersection with the Agent's permissions, plus
+room disclosure checks. See
 [Brain](BrainV3.md) for indexing and source semantics and
 [Agent Workers](AgentWorkers.md) for runtime contract assembly.
 
@@ -1034,7 +1126,7 @@ its permissions in Trash; the Agent also needs the ordinary restore authority.
 Knowledge sharing changes require both actors to manage the page, so a requester
 cannot acquire edit access through an Agent's stronger grant. These checks also
 cover a container whose subtree includes knowledge pages; the broker determines
-that subtree while holding the Drive tree lock.
+that subtree while holding the Page tree lock.
 
 ## Documents and collaboration
 
@@ -1108,23 +1200,34 @@ then uses `Documents.write_in_tx` and its comment-preservation contract. Damaged
 or changed opaque blocks return an error with the original local bytes available
 for recovery. Knowledge pages use their native OKF import/export through
 `._awiki.md`. Both kinds publish precomputed Markdown byte size and fingerprint
-with each saved revision; legacy rows populate the projection under the node lock
-on first access. `._asub` exposes their children even when that collection is empty.
+with each saved revision. The same projection caches whether the canonical body
+and business metadata are empty. Whitespace and empty paragraphs are empty;
+images, tables, code and other structural blocks count as content. Title, icon,
+`system_key`, synchronization state and the `extract_facts` setting do not count.
 
-A stale knowledge-page PUT can merge against the exact revision named by its
-ETag. History supplies that revision from the most recent 200 snapshots. The
-merge strips comment markers from the current and edited XML to match snapshot
-normalization, then compares canonical top-level blocks. Disjoint block changes
-merge; edits to the same block or competing insertions at the same boundary
-return 412. Business properties merge independently by key: a single-sided
-change or an identical value is accepted, while different changes to the same
-key conflict. `upstream_state` stays under its synchronization owner.
+| Page content | Visible children | Drive entries |
+| --- | --- | --- |
+| Empty | Any | `<name>/` only, including an empty directory |
+| Nonempty | None | `<name>._adoc.md` or `<name>._awiki.md` |
+| Nonempty | Present | The Markdown file and `<name>/`, both with the same Page ID |
 
-A successful merge creates the next normal knowledge revision and returns
-`X-Ankole-Refresh-Body: 1`, so the Worker reads the combined body instead of its
-one-sided draft. Missing ancestors, binary conflicts, and stale rich-document
-projections use the scoped recovery path. Invalid Markdown returns 422 with the
-original draft preserved by the Worker.
+The directory path stays stable as the Page gains or loses content. Its child
+namespace can also be addressed directly before the first child exists. In a
+collaboration root, `mkdir` creates an empty document and writing its matching
+Markdown path edits that Page. Clearing or unlinking the Markdown projection
+clears content through the normal revision/history contract and keeps identity
+and children. Deleting its directory uses Page trash semantics. A temporary
+ordinary file moved over a document projection preserves the destination ID,
+children, ACL and history.
+
+Brain knowledge projections are read-only. Humans edit knowledge in Meta Ankole;
+Agents submit attributed writes through the Brain tools and their disclosure
+checks. Skill packages use their own manifest and companion-file storage.
+
+A document write returns `X-Ankole-Refresh-Body: 1` so the Worker reads the
+canonical Markdown, including block anchors, before another edit. Stale
+conditional writes return 412 and preserve the local draft in the scoped
+recovery path. Invalid Markdown returns 422 with the original draft preserved.
 
 ### Persistence
 
@@ -1248,8 +1351,8 @@ OT protocol, including rebasing edits that were awaiting acknowledgement.
 ### Comments and anchored discussions
 
 `Ankole.Pod.Comments` owns node-scoped root threads and one level of replies
-across both Document (`doc`) and File (`file`) Drive nodes (`page_comments.page_id`
-references `drive_nodes`). `node_view` permits reading, while `node_comment`
+across both Document (`doc`) and File (`file`) Pages (`page_comments.page_id`
+references `pages`). `node_view` permits reading, while `node_comment`
 permits posting. Authors can edit or delete their own comments; `node_manage` can
 manage other authors' comments. The root author or a caller with `node_edit` can
 resolve, reopen, or explicitly relocate a thread. Deleting a root with replies
@@ -1262,8 +1365,8 @@ caret after it during the DOM update, so immediate typing stays in order.
 
 When a Human posts or edits a comment or reply containing `@<agent_uid>` (or
 selects an Agent from the comment mention picker), `Ankole.Pod.Comments` acquires
-locks in strict outer rank order (`drive-tree`, `drive-root`, `Principals`,
-`Sessions`, `Conversations`, `Signals`, and `drive_nodes` / `pages`) and accepts
+locks in strict outer rank order (`page-tree`, `page-root`, `Principals`,
+`Sessions`, `Conversations`, `Signals`, and `pages`) and accepts
 a deterministic `pod.page_comment.addressed` Signal
 (`"pod-comment:<comment_id>:<agent_uid>"`) into the target Agent's `anchor_page`
 conversation Session inside the same transaction, provided three authorization
@@ -1305,7 +1408,7 @@ selection. Creation and relocation reject a different current object with
 support the `contribute` role on `self`, including `node_comment`. Markdown
 section anchors follow CommonMark heading nodes, including indented ATX and
 Setext headings, and exclude headings inside code blocks. When a subsequent upload replaces
-`drive_nodes.object_id`, comment reads surface `anchor_outdated: true` so the
+`pages.object_id`, comment reads surface `anchor_outdated: true` so the
 browser and `ankole-pod comments` distinguish earlier-version anchors from
 selections on the current file bytes.
 
@@ -1391,6 +1494,11 @@ for any `<mention />` targets visible to the caller via `ankole-pod pages.read`,
 which holds a shared page lock across the content read (and across any revision
 replay up to the revision captured under that lock).
 
+`pages.create` accepts a document's initial Markdown with its title and parent.
+The broker converts the Markdown through the kernel's document parser, then
+`Pages.create` commits the Page and its body together. Knowledge creation uses
+the Brain write contract and a parent within the ontology tree.
+
 For `pages.write`, the Worker parses Markdown and prints XML using the shared
 editor parser/printer, and streams the XML bytes over the signed WorkerFiles
 relay rather than consuming the RuntimeFabric RPC frame budget. On the control
@@ -1429,7 +1537,7 @@ affected child lists and update their parents' `has_children` flags;
 `page_updated` events patch titles and icons in the shared metadata collection.
 Reconnecting reconciles cached content. Every 60 seconds,
 the server checks admission and reevaluates the authorization context, notifying
-the browser when evaluated subjects, grants, or groups change. `Files.Access`
+the browser when evaluated subjects, grants, or groups change. `Pod.Access`
 publishes committed permission changes from sharing, grant writes, moves across
 ACL anchors, and Page trash or restore operations. Trash and restore can change
 access to other Pages through Userset dependencies even when grants stay the same.
@@ -1554,10 +1662,37 @@ A `RecordWrite` batch contains up to `200` operations:
   to disjoint cells on the same row to succeed concurrently. Within one batch,
   later operations validate against the field versions produced by earlier
   operations in that batch, and any stale baseline rolls back the entire batch.
-  Explicitly clearing a cell increments its field version even when the cell was
-  already empty, and each modified table's version advances once per committed
-  batch (tracked across both endpoints of any modified link via a single
-  transaction journal).
+  Updates compare normalized values with the stored row. An unchanged value,
+  including an already empty cell, leaves field versions, row metadata and the
+  table version unchanged. Each table with actual changes advances its version
+  once per committed batch, including affected link endpoints.
+- **Business-key upserts**: `base_tables.unique_field_ids` declares a composite
+  unique key of stored scalar text, number, checkbox, datetime or single-select
+  fields. Configuration rejects existing duplicate keys and field changes that
+  would invalidate an active key. Inline records resolve keys under the table
+  lock; physical tables use a native unique index and `ON CONFLICT`. Promotion
+  creates the same index. `RecordWrite.upserts` requires every key value and
+  preserves the existing row ID. Unchanged upserts leave metadata and versions
+  intact.
+- **Change subscriptions**: `emit_changes` defaults to false. For enabled tables,
+  the storage transaction writes compact per-row summaries to `base_change_outbox`:
+  inserts/updates carry `id`, `op` and changed field IDs; deletes carry the saved
+  `unique_key`. The Outbox lives beside the rows, in the control-plane database
+  for inline tables and the assigned Base shard for physical tables. Its committed
+  batch UUID is the source event identity. Repeated touches of one row combine
+  their field IDs. Link edits that change additional peer rows produce delivery
+  batches of at most 200 summaries. Delivery wakes after commit. Each wakeup
+  processes at most 100 batches from each storage mode and schedules another
+  pass when either limit is reached; periodic recovery covers abandoned entries.
+  Acknowledgment follows successful Signal dispatch.
+  Rewriting identical normalized values emits no event. This
+  suppresses writeback echoes; applications still own upstream freshness and
+  out-of-order reconciliation.
+  Tenant-specific delivery jobs retry independently. A failing table retains its
+  ordered backlog while the worker delivers other tables, including across inline
+  and physical storage. A sweep schedules each active tenant without waiting for
+  another tenant's delivery to succeed.
+
 - **Idempotent record creation**: Both the browser and the function SDK mint
   UUIDv7 IDs for creates before sending a `RecordWrite`. Retrying an ambiguous
   write reuses those UUIDs, whereas starting a fresh `create` mints a new UUID;
@@ -1822,13 +1957,16 @@ alongside shared chunks, CSS, and `dist/index.html`:
   injected as `process.env` into that publication's function worker). A
   publication manifest covers `src/`, `dist/`, optional `server/main.js`, and
   optional `package.json`, `bun.lock`, `tsconfig.json`, and `applet.env.json`.
-  Publishing swaps all paths atomically and increments the Page revision by one,
-  requiring every content digest to exist in the publishing Agent's drive or on
-  the target Page, and running route inspection (with the published environment)
-  before acquiring the Page write lock to reject invalid handlers or top-level
-  host calls. `dist/` and `assets/` require `node_view`, whereas `src/`,
-  backend, and root project files require `node_edit` (all other Applet paths
-  are rejected across the manifest, HTTP downloads, and Worker transfers; Base
+  Ankole publishes all paths and Action Job policies atomically and increments
+  the Page revision by one. Every content digest must exist in the publishing
+  Agent's drive or on the target Page. Ankole inspects routes with the published
+  environment before acquiring write locks to reject invalid handlers or
+  top-level host calls. It synchronizes Job policies before taking the final
+  Signal or Automation Run lock, then checks the Page revision and commits the
+  manifest. If the execution has ended or the revision has changed, Ankole rolls
+  back both the files and Job policies. `dist/` and `assets/` require `node_view`,
+  whereas `src/`, backend, and root project files require `node_edit` (all other
+  Applet paths are rejected across the manifest, HTTP downloads, and Worker transfers; Base
   record attachments require `node_contribute`, and document assets or
   file-page uploads require `node_edit`). Conversely, `applet pull` requires an
   absent or empty target directory, downloads source and root files into a
@@ -1895,25 +2033,55 @@ observer across Applet generations until the Pod unmounts:
   Page access before every delivery and closing the subscription on denial.
   Applets may also call `fetch`, while the server enforces all Page and Base
   authorization.
+- **`useActionRun(runId)`**: Reads an accepted Action Run and follows committed
+  progress, completion and failure through the shared socket. It refreshes after
+  joining or reconnecting, hides results when access is revoked, and releases
+  its subscription when the Applet generation closes. Passing `null` leaves the
+  hook idle until a button or route returns a Run ID.
 
 ### Backend routes
 
-An Applet's `src/server/main.ts` exports a map of `METHOD /path/:parameter`
-handlers supporting `GET`, `POST`, `PUT`, `PATCH`, and `DELETE` (matching
-literal segments before `:parameter` segments, URL-decoding path parameters,
-grouping repeated query keys into arrays, and keeping bracketed query keys
-literal). Handlers receive `{ method, path, params, query, body, principal,
-pageId, revision, timezone }` with zero credentials: returning a JSON value
-sends HTTP `200`, returning `undefined` sends `204`, throwing
-`AnkoleRuntime.HttpError` returns the specified `4xx` status, and uncaught
-errors return a generic browser message (while Agent calls via `applets.call` /
-`ankole-pod applet call` also receive bounded diagnostics and console output).
+An Applet's `src/server/main.ts` exports `{routes, actions}`. Routes map
+`METHOD /path/:parameter` to handlers for `GET`, `POST`, `PUT`, `PATCH`, and
+`DELETE`; literal segments precede parameters, path parameters are URL-decoded,
+and repeated query keys become arrays. A route receives its request and a context
+with `principal`, `applet: {pageId, revision}`, and `timezone`. Structured route
+results may supply `{status, body}`. Published flat route maps remain supported
+for existing Applets. `AnkoleRuntime.HttpError` carries explicit client errors;
+Agent calls also receive bounded diagnostics and console output.
+
+An Applet has an explicit `owner_uid`, initially its creator. Only that current
+owner or a tenant Pod administrator can transfer ownership. Ordinary capabilities
+use the caller for interactive routes or the enabling Human for personal Jobs.
+`AnkoleRuntime.admin` capabilities use the Page's current owner and record that
+Principal in audit fields. Team Jobs use `admin` capabilities because they have
+no current user. Admission rejects missing/disabled owners and trashed Pages;
+resource AuthZ remains responsible for the actual execution Principal's grants.
+
+Interactive route bodies have an 8,000,000-byte cumulative limit across all
+HTTP fragments. Ankole accepts fragmented bodies within that limit and returns
+HTTP 413 for overflow.
+
+`GET` marks the complete call chain read-only, including nested `signals.call`.
+The host rejects record/file writes, state changes, event emission, slice
+continuation and MCP tools without a server-declared `readOnlyHint: true`.
+`signals.call` stays on the same Page and consumes the caller's remaining budget.
+An `admin.signals.call` uses the Owner to authorize that call while the child
+inherits the original `ctx.principal` and ordinary capability identity. A team
+Job's child therefore has no current user and uses `admin` for owner operations.
+`signals.emit({targetJobId})` durably accepts a same-Page Job and returns its Run
+ID. [Automation Jobs](AutomationJobs.md#applet-actions) defines persistent state,
+serial queues, continuation and authorized progress subscriptions.
 
 Browser requests hit `/api/v2/pod/pages/:id/routes/*path` under standard Pod
 session + CSRF checks and must send `x-ankole-applet-revision` (Agent RPC
 `applets.call` enters the same `Ankole.Pod.Applets.Invocation` owner under the
-Agent's active write fence). Admission locks the Page to verify access and the
-loaded revision/package. Applet execution and each host capability call require
+Agent's active write fence). Admission locks the Page to verify access and
+capture one revision with its source and environment object references. It
+releases the transaction before reading those immutable objects. If concurrent
+publication and object collection remove an old object before it is read, the
+request fails before execution; the caller can refresh and retry. Ankole does
+not replay a failed mutation automatically. Applet execution and each host capability call require
 a live Applet Page, so moving it to Trash closes those entry points. A stale
 revision returns HTTP `409`
 (`applet_revision_changed`), prompting the host to reload the Page and swap in
@@ -1925,8 +2093,8 @@ with native patches under `app/function_runtime/native/patches`:
 
 - **Worker pooling and cache identity**: The runtime's main worker authenticates
   control-plane calls via an internal Bearer token, while user workers receive
-  only the Applet's published `applet.env.json`, pooled by `(tenant, page,
-  revision)` for up to five minutes with `AsyncLocalStorage` isolating each
+  only the Applet's published `applet.env.json`, pooled by `(lane, tenant, page,
+  revision)` for route or action execution with `AsyncLocalStorage` isolating each
   request's capabilities, console logs, and cancellation to its own WebSocket.
   Code and environment hash together into one SHA-256 cache key (UTF-8 source +
   `\n` + compact JSON of environment pairs sorted by UTF-16 key code units).
@@ -1940,13 +2108,28 @@ with native patches under `app/function_runtime/native/patches`:
   call's wall-time limit if abandoned), while caller exit, cancellation,
   timeout, or disconnect settles `Ankole.Pod.Applets.Invocation` once and stops
   pending capability tasks. Replica health checks report process liveness
-  independently of busy invocation slots.
+  independently of busy invocation slots. The HTTP caller includes connection-pool
+  waits in its deadline and cancels the request when that budget expires.
 - **Transport, isolation, and limits**: Pending HTTP/1 Applet requests buffer at
   most `1,048,576` bytes of pipelined client data (including initial read
   buffers)—closing the socket and canceling the invocation on overflow while
   keeping already committed capability writes, or preserving queued requests
   within budget; HTTP/2 stream resets cancel via the transport reset frame.
-  `pod.applet.limits` sets wall-time and heap ceilings alongside per-worker CPU
+  Route limits default to 60 seconds and 128 MiB through `pod.applet.limits`;
+  Action slices default to 240 seconds and 192 MiB through
+  `pod.applet.action_limits`. A 2 GiB replica admits up to 24 foreground and six
+  background invocations, subject to a 1536 MiB active-plus-warm heap reservation.
+  Foreground PTC programs share the route lane. The deployment's
+  `ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY` also caps total active invocations
+  across both lanes.
+  Background reservations are capped at 1152 MiB, leaving foreground capacity.
+  Operators can set the global `pod.applet.action_runtime_url` to a separate
+  Function Runtime origin for background Actions. Ankole uses the same runtime
+  credential and selects the configured deployment on each slice; an empty value
+  selects the shared deployment. Foreground routes keep their own endpoint pool.
+  Idle isolates expire after 20 seconds or are evicted for incoming work; high
+  resident memory retires idle workers and returns `503 runtime_busy`. Each
+  leased isolate serves one invocation. These limits combine with per-worker CPU
   quotas enforced by the native supervisor on each poll (including when soft and
   hard CPU limits match; each user worker runs on its own native thread plus an
   optional Tokio blocking helper so a tight JS loop cannot starve sibling
@@ -1964,10 +2147,8 @@ with native patches under `app/function_runtime/native/patches`:
   Shutting down a user worker terminates its child request while preserving the
   main worker's response; HTTP client disconnects settle the native request once
   and kill unowned one-shot workers (even inside synchronous JS). Aborting a
-  pooled Applet invocation evicts that worker from future pool selection before
-  reporting completion—letting other in-flight calls on it finish while routing
-  new calls to a fresh worker and capping runaway synchronous JS at the CPU
-  limit. Hitting the end-to-end call deadline (which includes replica admission
+  pooled Applet invocation retires its leased isolate before accepting further
+  work, with native CPU limits bounding runaway synchronous JavaScript. Hitting the end-to-end call deadline (which includes replica admission
   and worker boot; expired calls never start a handler) returns `504
   handler_timeout` even if the native socket closes simultaneously.
 
@@ -1990,15 +2171,16 @@ business write:
   A stale object ID returns a conflict. Document assets and Base attachments use
   their standard page-type rules. File capabilities enforce the Worker transfer
   byte cap up front, passing bytes as `Uint8Array` (including empty files).
-- **`ai.generateText`**: Accepts a built-in LLM slot (`model`, plus `effort`,
-  optional `system`, and `prompt`; missing `light` falls back to primary) and
-  executes as the tenant's `system` Principal. Its effective configuration
-  merges that Principal's overrides with Pod and Site defaults.
-  Human-created Applets and Applets whose creator Agent is disabled or over
-  quota can therefore run without consuming any Agent quota. Completed LLM
-  rounds write `applet` usage rows. An unconfigured effective slot returns `422
-  ai_not_configured`, invalid model/effort parameters return `422`, and upstream
-  provider failures return `502`.
+- **`ai.generateText`**: Accepts a built-in model slot, effort, optional system
+  text and prompt. Configuration, authorization and usage attribution follow the
+  selected ordinary or `admin` execution Principal. Missing `light` configuration
+  falls back to primary. An unconfigured slot returns `422 ai_not_configured`,
+  invalid model/effort parameters return `422`, and provider failures return `502`.
+- **MCP and files**: `mcp.call` resolves tools through enabled Skills and the
+  selected execution Principal. Server annotations govern GET access and safe
+  retries; the shared File/HTTP bridge streams large uploads and downloads.
+  [MCP-backed Skills](MCPBackedSkills.md#applet-tools-and-streaming-files) defines
+  protocol negotiation, JSON limits and unknown upstream outcomes.
 
 On the frontend, `useRoute` and `useRouteMutation` wrap TanStack Query—interpolating
 route params, forwarding Query options/results, keying caches by loaded
@@ -2006,10 +2188,10 @@ publication revision and Principal identity, aborting in-flight queries on
 unmount, hiding cached data on authoritative `401`/`403`/`404` while keeping
 prior data on transient errors, and performing no optimistic updates or
 automatic cache invalidation so Applets explicitly invalidate keys via their
-shared `QueryClient` and `routes.key()`. Backend routes cannot create Pages or
-Base schemas, schedule jobs, subscribe to events, access host connectors or
-secrets, stream responses, or return binary HTTP bodies, and reading Applet
-source, backend bundles, or `applet.env.json` requires `node_edit`. When an
+shared `QueryClient` and `routes.key()`. Page Job and event-binding APIs manage
+background work; backend capability calls use the same domain authorization as
+interactive requests. Reading Applet source, backend bundles or `applet.env.json`
+requires `node_edit`. When an
 Agent verifies an Applet visually, its Worker browser runs under a dedicated
 profile via the browser runtime contract, returning the saved Page link and a
 summary of verified interactions.

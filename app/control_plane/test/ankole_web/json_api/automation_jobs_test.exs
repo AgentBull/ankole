@@ -38,7 +38,7 @@ defmodule AnkoleWeb.JSONAPI.AutomationJobsTest do
 
     assert {:ok, %{automation_job_run: run}} =
              Repo.transact(fn ->
-               AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, %{
+               Ankole.WorkFixtures.dispatch_job_in_tx(job, %{
                  "specversion" => "1.0",
                  "id" => "console-trigger",
                  "source" => "test://console",

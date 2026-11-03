@@ -9,11 +9,11 @@ The Elixir control plane assembles the system instructions for every main Agent 
 
 ## Current context
 
-Each run resolves the Agent identity, enabled capabilities, originating conversation, and timezone. Ankole reads the whole effective `AGENTS.md` from `/AnkoleBrain/AGENTS.md` and the Agent’s append or override page. The `DESIGN.md` contract uses the same hierarchy and is available as a complete runtime file.
+Each run resolves the Agent identity, enabled capabilities, originating conversation and timezone. `Ankole.AIAgent.Library.Contracts` combines the global baseline with the Agent’s inherit, append or override setting. The control plane reads the complete effective `AGENTS.md`; `DESIGN.md` uses the same contract owner and is available as a complete runtime file.
 
 `Ankole.Sessions.Prompt.system/1` renders the complete AGENTS contract, completion and authority rules, Job and Workflow policies, memory guidance, environment and tool instructions, the Skill catalog, and the runtime context. Templates live in `app/control_plane/priv/sessions/prompts/`.
 
-The Skill catalog lists descriptions of enabled Skills visible to the current conversation. `skill_view` reads the selected Skill and permitted supplements when needed. The runtime suffix records the Agent, `/workspace`, Session workspace, timezone, conversation start time, and channel. Lark and Feishu share one adapter whose configured domain selects the upstream API.
+The Skill catalog lists descriptions of packages enabled for the Agent. `skill_view` reads a selected manifest on demand, and the Agent explicitly reads its referenced files. The runtime suffix records the Agent, `/workspace`, Session workspace, timezone, conversation start time and channel. Lark and Feishu share one adapter whose configured domain selects the upstream API.
 
 ## Settings and history
 

@@ -36,7 +36,7 @@ Agent Home은 `/workspace`에 마운트되는 영구 스토리지이며, `/agent
 ├── .codex/
 ├── AGENTS.md
 ├── DESIGN.md
-├── .ankole/turn-skills/<signal-id>/
+├── .ankole/turn-skills/<job-signal-id>/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
@@ -44,11 +44,9 @@ Agent Home은 `/workspace`에 마운트되는 영구 스토리지이며, `/agent
     └── temp/
 ```
 
-`~/AGENTS.md`와 `~/DESIGN.md`는 [Agent Library](../agent-library/)의 유효한 규약 전체를 반영합니다. 매 턴 `$CODEX_HOME/AGENTS.md`도 갱신합니다. Skill은 현재 대화 권한에 따라 `.ankole/turn-skills/<signal-id>/`에 배치합니다. `sessions/`에는 PostgreSQL이 `10000`부터 부여하는 고정 숫자 ID별 대화 작업 공간을, `jobs/`에는 프로젝트 자체 지침 파일을 포함한 백그라운드 작업 공간을 둡니다.
+`~/AGENTS.md`와 `~/DESIGN.md`는 [Agent Library](../agent-library/)의 유효한 규약 전체를 반영하며, 매 턴 `$CODEX_HOME/AGENTS.md`도 갱신합니다. 메인 Agent는 상시 읽기 전용 마운트 `/drive/Skills/<slug>/`에서 활성 패키지를 읽습니다. 백그라운드 Job은 허용된 패키지를 `.ankole/turn-skills/<signal-id>/`에 배치합니다. Job 생성 시의 기능 허용 목록은 줄어들 수 있지만 나중에 다른 Skill을 활성화해도 늘어나지 않습니다. `sessions/`에는 PostgreSQL이 `10000`부터 부여하는 고정 숫자 ID별 대화 작업 공간을, `jobs/`에는 프로젝트 자체 지침 파일을 포함한 작업 공간을 둡니다.
 
 Agent Home은 인스턴스가 삭제되거나 컨테이너 이미지가 교체되어도 유지되며, 환경을 재구축할 때는 `/var/cache/ankole`만 비워집니다. 단, Docker 로컬 볼륨은 호스트 디스크에 종속되고, Cloudflare 환경에서는 인스턴스가 강제 종료될 경우 마지막 R2 백업 이후의 쓰기가 유실될 수 있습니다. 플랫폼별 제약 사항은 [Worker](../worker-management/)를 참조하세요.
-
-`~/AGENTS.md`와 `~/DESIGN.md`는 [Agent Library](../agent-library/)의 유효한 규약 전체를 반영합니다. 매 턴 `$CODEX_HOME/AGENTS.md`도 갱신합니다. Skill은 현재 대화 권한에 따라 `.ankole/turn-skills/<signal-id>/`에 배치합니다. `sessions/`에는 PostgreSQL이 `10000`부터 부여하는 고정 숫자 ID별 대화 작업 공간을, `jobs/`에는 프로젝트 자체 지침 파일을 포함한 백그라운드 작업 공간을 둡니다.
 
 Codex Home 경로는 `/workspace/.codex`입니다. 스레드 원본 파일이 영구 Home에 보존되므로, 컨테이너 교체로 `/var/cache/ankole/codex`의 SQLite 캐시가 초기화되더라도 캐시를 재구축해 작업을 이어 갈 수 있습니다. Background Job에서는 `skill_view`를 통해 필요한 Skill을 로드합니다.
 

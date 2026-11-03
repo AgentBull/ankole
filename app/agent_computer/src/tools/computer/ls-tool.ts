@@ -85,7 +85,10 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
       try {
         entries = await driveDeadline(readdir(target, { withFileTypes: true }), signal)
         if (context.driveView && target === context.driveView.scope.path) {
-          entries = entries.filter(entry => ['Public', 'AgentDrive', 'MyDrive'].includes(entry.name))
+          entries = entries.filter(entry => ['Public', 'AgentDrive', 'MyDrive', 'Brain'].includes(entry.name))
+          entries.push(
+            ...(await driveDeadline(readdir(context.driveView.library.path, { withFileTypes: true }), signal))
+          )
           if (context.driveView.chat) {
             entries.push({ name: 'ChatDrive', isDirectory: () => true, isSymbolicLink: () => false })
           }

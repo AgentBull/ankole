@@ -15,8 +15,10 @@ import { useContent } from './content-context'
 import { createMentionHostAdapters } from './document-mentions'
 import { KnowledgeProperties } from './knowledge-properties'
 import { KnowledgePanel } from './knowledge-panel'
-import { KnowledgeDraftModel } from './state/knowledge-draft'
-import { PageDraftModel } from './state/page-draft'
+import { KnowledgeDraftModel, knowledgeSubmission, acknowledgeKnowledge } from './state/knowledge-draft'
+import { DocumentDraftModel } from './state/document-draft'
+import { DraftNavigationGuard } from './draft-navigation-guard'
+import { DocumentRecovery } from './document-recovery'
 import { editorLabels } from './state/editor-labels'
 import { refreshDirectories } from './state/navigation-cache'
 import { DocumentSubpages } from './page-subpages'
@@ -28,18 +30,21 @@ const DocumentHistory = lazy(() => import('./document-history').then(module => (
 
 export function KnowledgePage({
   detail,
-  documentDraft
+  body,
+  draft,
+  readTitle,
+  hasUnsavedChanges
 }: {
   detail: PageDetail
-  documentDraft?: InstanceType<typeof PageDraftModel>
+  body: InstanceType<typeof DocumentDraftModel>
+  draft: InstanceType<typeof KnowledgeDraftModel>
+  readTitle(): string
+  hasUnsavedChanges(): boolean
 }) {
   useSignals()
   const { t, i18n } = useTranslation()
   const content = useContent()
   const pageHref = usePageHref()
-  const localDocument = useModel(PageDraftModel)
-  const body = documentDraft ?? localDocument
-  const draft = useModel(KnowledgeDraftModel)
   const client = useQueryClient()
   const navigate = useNavigate()
   const historyTrigger = useRef<HTMLButtonElement>(null)
@@ -76,23 +81,18 @@ export function KnowledgePage({
     }),
     [client, content, detail.page.id, navigate, i18n, t]
   )
-  useEffect(() => {
-    body.bodyPending.value = draft.dirty.value
-  }, [body, draft.dirty.value])
   const save = useMutation({
-    mutationFn: () =>
-      pageAPI.write(detail.page.id, {
-        xml: body.xml.value,
-        metadata: draft.parsed.value.metadata!,
-        base_revision: body.revision.value
-      }),
-    onSuccess: async result => {
-      body.xml.value = result.content!.content
-      body.saved(result.content!.content, result.page.revision, false)
+    mutationFn: ({ generation: _generation, ...input }: ReturnType<typeof knowledgeSubmission>) =>
+      pageAPI.write(detail.page.id, input),
+    onSuccess: async (result, submitted) => {
+      acknowledgeKnowledge(body, draft, submitted, {
+        xml: result.content!.content,
+        metadata: result.page.metadata ?? {},
+        revision: result.page.revision
+      })
       client.setQueryData<PageDetail>(contentKeys.page(detail.page.id), current =>
         current ? { ...current, ...result } : current
       )
-      draft.finish()
       await Promise.all([
         client.invalidateQueries({ queryKey: contentKeys.page(detail.page.id) }),
         refreshDirectories(client, [])
@@ -132,16 +132,7 @@ export function KnowledgePage({
           {t('pod.document.export')}
         </Button>
         {canEdit && (
-          <Button
-            ref={historyTrigger}
-            variant="ghost"
-            size="sm"
-            disabled={editing}
-            onClick={() => {
-              body.xml.value = source
-              body.saved(source, detail.page.revision, false)
-              setHistory(true)
-            }}>
+          <Button ref={historyTrigger} variant="ghost" size="sm" disabled={editing} onClick={() => setHistory(true)}>
             {t('pod.document.history')}
           </Button>
         )}
@@ -150,9 +141,14 @@ export function KnowledgePage({
             <Button variant="outline" size="sm" disabled={save.isPending} onClick={cancel}>
               {t('common.cancel')}
             </Button>
-            <Button size="sm" disabled={save.isPending || !!draft.parsed.value.error} onClick={() => save.mutate()}>
-              {save.isPending ? t('pod.knowledge.saving') : t('pod.knowledge.save')}
-            </Button>
+            {canEdit && (
+              <Button
+                size="sm"
+                disabled={save.isPending || !!draft.parsed.value.error}
+                onClick={() => save.mutate(knowledgeSubmission(body, draft))}>
+                {save.isPending ? t('pod.knowledge.saving') : t('pod.knowledge.save')}
+              </Button>
+            )}
           </>
         ) : (
           canEdit && (
@@ -163,8 +159,12 @@ export function KnowledgePage({
         )}
       </div>
       <fieldset disabled={save.isPending}>
-        <KnowledgeProperties metadata={metadata} draft={draft} />
+        <KnowledgeProperties
+          metadata={editing ? (draft.parsed.value.metadata ?? metadata) : metadata}
+          draft={canEdit ? draft : undefined}
+        />
       </fieldset>
+      <DocumentRecovery model={body} title={readTitle()} />
       <ContentError error={save.error || comparison.error || download.error || editorError} />
       {save.error instanceof InternalAPIError && save.error.status === 409 && (
         <Button variant="outline" size="sm" disabled={comparison.isPending} onClick={() => comparison.mutate()}>
@@ -178,7 +178,7 @@ export function KnowledgePage({
           <KnowledgeReader xml={comparison.data.content?.content ?? '<page/>'} host={host} pageHref={pageHref} />
         </details>
       )}
-      {editing ? (
+      {editing && canEdit ? (
         <Suspense fallback={<p className="text-sm text-fg-secondary">{t('common.loading')}</p>}>
           <KnowledgeEditor
             key={draft.generation.value}
@@ -193,15 +193,46 @@ export function KnowledgePage({
           />
         </Suspense>
       ) : (
-        <KnowledgeReader xml={source} host={host} pageHref={pageHref} />
+        <KnowledgeReader xml={editing ? body.xml.value : source} host={host} pageHref={pageHref} />
       )}
       <DocumentSubpages detail={detail} canEdit={canEdit} />
       {!detail.page.deleted_at && <KnowledgePanel pageID={detail.page.id} revision={detail.page.revision} />}
-      {history && (
+      {history && canEdit && (
         <Suspense fallback={null}>
-          <DocumentHistory detail={detail} draft={body} close={() => setHistory(false)} returnFocus={historyTrigger} />
+          <DocumentHistory
+            detail={detail}
+            readDraft={() => ({
+              xml: draft.editing.value ? body.xml.value : source,
+              title: readTitle(),
+              revision: draft.editing.value ? body.revision.value : detail.page.revision,
+              hasUnsavedChanges: hasUnsavedChanges()
+            })}
+            close={() => setHistory(false)}
+            returnFocus={historyTrigger}
+          />
         </Suspense>
       )}
     </div>
+  )
+}
+
+/** Embedded knowledge owns only its body and properties; the containing document owns its title. */
+export function EmbeddedKnowledgePage({ detail }: { detail: PageDetail }) {
+  useSignals()
+  const body = useModel(DocumentDraftModel)
+  const draft = useModel(KnowledgeDraftModel)
+  body.load(detail.page.id, detail.content?.content ?? '<page/>', detail.page.revision)
+  const hasUnsavedChanges = () => body.hasUnsavedChanges.value || draft.dirty.value
+  return (
+    <>
+      <DraftNavigationGuard dirty={hasUnsavedChanges()} />
+      <KnowledgePage
+        detail={detail}
+        body={body}
+        draft={draft}
+        readTitle={() => detail.page.title}
+        hasUnsavedChanges={hasUnsavedChanges}
+      />
+    </>
   )
 }

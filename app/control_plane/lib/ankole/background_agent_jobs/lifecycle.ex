@@ -79,9 +79,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       )
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
-    with :ok <- Ankole.Files.lock_tree_in_tx(),
-         :ok <- Ankole.Files.lock_drive(agent_uid),
-         :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Job, job_id),
+    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Job, job_id),
          :ok <- lock_agent_slots(agent_uid),
          %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid) do
       claim_attempt(job, expected_attempt, turn_start_spec, max_running_per_agent)
@@ -109,9 +107,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       )
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
-    with :ok <- Ankole.Files.lock_tree_in_tx(),
-         :ok <- Ankole.Files.lock_drive(agent_uid),
-         :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Job, job_id),
+    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Job, job_id),
          :ok <- lock_agent_slots(agent_uid),
          %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid) do
       claim_continuation(job, expected_attempt, turn_start_spec, max_running_per_agent)
@@ -209,7 +205,13 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   @doc "Wakes the Job driver after a committed `commit_status` action."
-  def publish_status_commit(%{job: job}), do: Ankole.Sessions.job_turn(job)
+  def publish_status_commit(%{job: job} = result) do
+    Ankole.Signals.publish_committed(
+      Enum.reject([result[:wakeup_event], result[:dispatch_event]], &is_nil/1)
+    )
+
+    Ankole.Sessions.job_turn(job)
+  end
 
   def fail_admission_in_tx(nil, _code, _now), do: {:ok, nil}
 

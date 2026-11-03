@@ -2,7 +2,8 @@ defmodule Ankole.Pod.ResourceActionsTest do
   use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.Pod.{Page, Pages, Properties}
+  alias Ankole.Pod.Page
+  alias Ankole.Pod.Pages
 
   test "stored predicates protect copy initialization and nonempty personal state" do
     owner = human_fixture().principal
@@ -58,7 +59,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :applet})
 
-    properties = Repo.get_by!(Properties, id: page.id)
+    properties = Repo.get_by!(Page, id: page.id)
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, second} =
@@ -73,14 +74,14 @@ defmodule Ankole.Pod.ResourceActionsTest do
              end)
 
     assert second.revision == page.revision + 2
-    Ankole.DataCase.assert_persisted_equal(Repo.get_by!(Properties, id: page.id), second)
+    Ankole.DataCase.assert_persisted_equal(Repo.get_by!(Page, id: page.id), second)
   end
 
   test "editing a page cannot replace its identity, type, attribution, or revision" do
     owner = human_fixture().principal
     {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{})
 
-    properties = Repo.get_by!(Properties, id: page.id)
+    properties = Repo.get_by!(Page, id: page.id)
 
     assert {:error, error} =
              Repo.transact(fn _ ->
@@ -99,7 +100,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
            ) ==
              MapSet.new([:id, :type, :created_by, :revision])
 
-    Ankole.DataCase.assert_persisted_equal(Repo.get!(Page, page.id), page)
+    Ankole.DataCase.assert_persisted_equal(Repo.get_by!(Page, id: page.id), page)
   end
 
   test "Bases counters and schema versions advance from stored state" do

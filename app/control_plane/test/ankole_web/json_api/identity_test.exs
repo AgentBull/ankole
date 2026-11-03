@@ -524,7 +524,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
           title: "Shared page"
         })
 
-      for action <- Ankole.Files.Access.page_actions() do
+      for action <- Ankole.Pod.Access.page_actions() do
         assert {400, %{"errors" => [%{"source" => %{"pointer" => "/data/attributes/action"}}]}} =
                  request(
                    conn,

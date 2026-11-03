@@ -57,7 +57,7 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
 
     assert {:ok, file} =
              Repo.transact(fn ->
-               Files.create_conversation_file_in_tx(
+               Ankole.Pod.create_conversation_file_in_tx(
                  ctx.signal.conversation_id,
                  "notes.txt",
                  stored,

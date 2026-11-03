@@ -16,6 +16,7 @@ type Location = { id: string; title: string; private?: boolean }
 export function PagePicker({
   excludeSubtreeOf,
   requiredAction,
+  domain,
   embeddable,
   canSelect,
   roots = [],
@@ -27,6 +28,7 @@ export function PagePicker({
 }: {
   excludeSubtreeOf?: Page['id']
   requiredAction?: PageSearchOptions['required_action']
+  domain?: PageSearchOptions['domain']
   embeddable?: boolean
   canSelect?(page: Page): boolean
   roots?: Location[]
@@ -43,6 +45,7 @@ export function PagePicker({
     pageSearchQuery(settledQuery, {
       exclude_subtree_of: excludeSubtreeOf,
       required_action: requiredAction,
+      domain,
       ...(embeddable ? { embeddable: true } : {})
     })
   )
@@ -53,7 +56,12 @@ export function PagePicker({
   const byID = new Map([...pages, ...ancestors].map(page => [page.id, page]))
   const parentTitle = (page: Page) => {
     const ancestors = pageAncestors(page, byID).map(parent => parent.title || t('pod.content.untitled'))
-    const scope = page.private_owner_uid ? t('pod.content.private') : t('pod.content.space')
+    const scope =
+      domain === 'brain'
+        ? t('pod.meta.brain')
+        : page.private_owner_uid
+          ? t('pod.content.private')
+          : t('pod.content.space')
     return ancestors.length > 0 ? `${scope} / ${ancestors.join(' / ')}` : scope
   }
   return (

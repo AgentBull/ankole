@@ -49,16 +49,18 @@ defmodule Ankole.Pod.Bases.Records do
   def prepare(write, attrs) when is_map(attrs) do
     creates = Ankole.Attrs.get(attrs, :creates, [])
     updates = Ankole.Attrs.get(attrs, :updates, [])
+    upserts = Ankole.Attrs.get(attrs, :upserts, [])
     deletes = Ankole.Attrs.get(attrs, :deletes, [])
 
-    if is_list(creates) and is_list(updates) and is_list(deletes) and
-         (length(creates) + length(updates) + length(deletes)) in 1..200 and
-         Enum.all?(creates ++ updates ++ deletes, &is_map/1) do
+    if is_list(creates) and is_list(updates) and is_list(deletes) and is_list(upserts) and
+         (length(creates) + length(updates) + length(deletes) + length(upserts)) in 1..200 and
+         Enum.all?(creates ++ updates ++ deletes ++ upserts, &is_map/1) do
       fields = Map.fetch!(write.definitions, write.table.id)
 
       with {:ok, creates} <- prepare_rows(creates, fields, write.table.page_id, %{}),
            {:ok, updates} <- prepare_rows(updates, fields, write.table.page_id, nil),
-           do: {:ok, %{creates: creates, updates: updates, deletes: deletes}}
+           {:ok, upserts} <- prepare_rows(upserts, fields, write.table.page_id, nil),
+           do: {:ok, %{creates: creates, updates: updates, deletes: deletes, upserts: upserts}}
     else
       {:error, :invalid_record_batch}
     end
@@ -89,9 +91,9 @@ defmodule Ankole.Pod.Bases.Records do
     with {:ok, creates, replayed} <- pending_creates(write, creates, definitions, replay?),
          {:ok, created, write} <- create(write, creates, definitions),
          {:ok, updated, write} <- update_records(write, updates, definitions, replay?),
+         {:ok, upserted, write} <- upsert(write, Map.get(attrs, :upserts, []), definitions),
          {:ok, write} <- delete(write, deletes),
-         {:ok, changes} <-
-           Write.finish(if(replay?, do: write, else: Write.touch(write, write.table.id))),
+         {:ok, changes} <- Write.finish(write),
          changes <-
            if(changes == [],
              do: [
@@ -105,7 +107,7 @@ defmodule Ankole.Pod.Bases.Records do
              ],
              else: changes
            ),
-         ids <- Enum.uniq(replayed ++ Enum.reverse(created) ++ Enum.reverse(updated)),
+         ids <- Enum.uniq(replayed ++ Enum.reverse(created) ++ Enum.reverse(updated) ++ upserted),
          {:ok, records} <- project(write.table, definitions, ids) do
       {:ok, Write.result(changes, write.table.id) |> Map.put(:records, records)}
     end
@@ -129,17 +131,23 @@ defmodule Ankole.Pod.Bases.Records do
 
   defp create(write, attrs, definitions) do
     attrs
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, [], write}, fn {attrs, index}, {:ok, ids, write} ->
+    |> Enum.reduce_while({:ok, [], write}, fn attrs, {:ok, ids, write} ->
       with id <- Ankole.Attrs.get(attrs, :id, Ankole.Ecto.UUIDv7.autogenerate()),
            patch <-
              Enum.reduce(definitions, attrs.data, fn field, acc ->
                if field.type == :auto_number,
-                 do: Map.put(acc, field.id, write.table.next_auto_number + index),
+                 do:
+                   Map.put(
+                     acc,
+                     field.id,
+                     write.table.next_auto_number +
+                       (get_in(write.changes, [write.table.id, :inserted]) || 0)
+                   ),
                  else: acc
              end),
            clean <- Values.clean(patch),
            :ok <- Values.record_size(clean, write.limits),
+           :ok <- unique(write, clean, id),
            {:ok, record} <-
              %{
                id: id,
@@ -154,7 +162,12 @@ defmodule Ankole.Pod.Bases.Records do
              |> BaseRecord.create_changeset()
              |> persist(write, :insert),
            write <-
-             Write.touch(write, write.table.id, changed: [record.id], delta: 1, inserted: 1),
+             Write.touch(write, write.table.id,
+               changed: [record.id],
+               delta: 1,
+               inserted: 1,
+               row: %{id: record.id, op: "insert", fields: Map.keys(clean)}
+             ),
            {:ok, write} <- maintain_links(write, definitions, %{}, record.data, record.id) do
         {:cont, {:ok, [record.id | ids], write}}
       else
@@ -172,21 +185,8 @@ defmodule Ankole.Pod.Bases.Records do
            :ok <- field_cas(record, data, expected),
            merged <- Map.merge(record.data, data) |> Values.clean(),
            :ok <- Values.record_size(merged, write.limits),
-           {:ok, saved} <-
-             record
-             |> BaseRecord.update_values_changeset(%{
-               data: merged,
-               versions:
-                 Enum.reduce(
-                   Map.keys(data),
-                   record.versions,
-                   &Map.update(&2, &1, 1, fn v -> v + 1 end)
-                 ),
-               updated_by: author(write),
-               updated_at: DateTime.utc_now(:microsecond)
-             })
-             |> persist(write, :update),
-           write <- Write.touch(write, write.table.id, changed: [record.id]),
+           :ok <- unique(write, merged, record.id),
+           {:ok, saved, write} <- update_changed(write, record, data, merged),
            {:ok, write} <- maintain_links(write, definitions, record.data, saved.data, record.id) do
         {:cont, {:ok, [record.id | ids], write}}
       else
@@ -207,6 +207,145 @@ defmodule Ankole.Pod.Bases.Records do
           {:halt, error}
       end
     end)
+  end
+
+  defp update_changed(write, record, data, merged) do
+    changed = Enum.filter(Map.keys(data), &(record.data[&1] != merged[&1]))
+
+    if changed == [] do
+      {:ok, record, write}
+    else
+      with {:ok, saved} <-
+             record
+             |> BaseRecord.update_values_changeset(%{
+               data: merged,
+               versions:
+                 Enum.reduce(changed, record.versions, &Map.update(&2, &1, 1, fn v -> v + 1 end)),
+               updated_by: author(write),
+               updated_at: DateTime.utc_now(:microsecond)
+             })
+             |> persist(write, :update) do
+        {:ok, saved,
+         Write.touch(write, write.table.id,
+           changed: [record.id],
+           row: %{id: record.id, op: "update", fields: changed}
+         )}
+      end
+    end
+  end
+
+  defp upsert(write, rows, fields) do
+    Enum.reduce_while(rows, {:ok, [], write}, fn row, {:ok, ids, write} ->
+      keys = write.table.unique_field_ids
+
+      if keys == [] or Enum.any?(keys, &is_nil(row.data[&1])) do
+        {:halt, {:error, :invalid_upsert_unique_key}}
+      else
+        case upsert_row(write, row, fields) do
+          {:ok, id, next} -> {:cont, {:ok, [id | ids], next}}
+          error -> {:halt, error}
+        end
+      end
+    end)
+    |> case do
+      {:ok, ids, write} -> {:ok, Enum.reverse(ids), write}
+      error -> error
+    end
+  end
+
+  defp upsert_row(%{table: %{storage_mode: :physical}} = write, row, fields) do
+    with {:ok, record, before, changed} <- Physical.upsert(write, row.data),
+         write <- touch_upsert(write, record, before, changed),
+         {:ok, write} <-
+           maintain_links(
+             write,
+             fields,
+             if(before, do: before.data, else: %{}),
+             record.data,
+             record.id
+           ) do
+      {:ok, record.id, write}
+    end
+  end
+
+  defp upsert_row(write, row, fields) do
+    case unique_record(write, row.data) do
+      nil ->
+        with {:ok, [id], next} <- create(write, [row], fields), do: {:ok, id, next}
+
+      id ->
+        with {:ok, record} <- fetch(write, id),
+             {:ok, _, next} <-
+               update_records(
+                 write,
+                 [
+                   %{
+                     id: id,
+                     data: row.data,
+                     expected_versions: Map.take(record.versions, Map.keys(row.data))
+                   }
+                 ],
+                 fields,
+                 false
+               ) do
+          {:ok, id, next}
+        end
+    end
+  end
+
+  defp touch_upsert(write, _record, _before, []), do: write
+
+  defp touch_upsert(write, record, before, changed) do
+    Write.touch(write, write.table.id,
+      changed: [record.id],
+      delta: if(before, do: 0, else: 1),
+      inserted: if(before, do: 0, else: 1),
+      row: %{id: record.id, op: if(before, do: "update", else: "insert"), fields: changed}
+    )
+  end
+
+  defp unique(write, data, id) do
+    case unique_record(write, data) do
+      nil -> :ok
+      ^id -> :ok
+      _existing -> {:error, :duplicate_unique_key}
+    end
+  end
+
+  def unique_record(write, data) do
+    keys = write.table.unique_field_ids
+
+    if keys != [] and Enum.all?(keys, &(not is_nil(data[&1]))) do
+      case write.table.storage_mode do
+        :physical ->
+          Physical.unique_record(write.table, Map.fetch!(write.definitions, write.table.id), data)
+
+        :inline ->
+          Repo.one(
+            from(r in BaseRecord,
+              where:
+                r.table_id == ^write.table.id and
+                  fragment("? @> ?::jsonb", r.data, ^Map.take(data, keys)),
+              select: r.id,
+              limit: 1
+            )
+          )
+      end
+    end
+  end
+
+  def duplicate_keys?(%{storage_mode: :physical} = table, fields),
+    do: Physical.duplicate_keys?(table, fields)
+
+  def duplicate_keys?(table, _fields) do
+    keys = table.unique_field_ids
+    expressions = Enum.map(keys, &"data->'#{Ecto.UUID.cast!(&1)}'")
+    present = Enum.map_join(expressions, " AND ", &"#{&1} IS NOT NULL AND #{&1} != 'null'::jsonb")
+
+    Repo.query!(
+      "SELECT 1 FROM base_records WHERE tenant_id=$1::text::uuid AND table_id=$2::text::uuid AND #{present} GROUP BY #{Enum.join(expressions, ",")} HAVING count(*)>1 LIMIT 1",
+      [Repo.tenant_id!(), table.id]
+    ).rows != []
   end
 
   defp replayed_patch?(write, record, attrs) do
@@ -230,7 +369,18 @@ defmodule Ankole.Pod.Bases.Records do
            true <- Ankole.Attrs.get(attrs, :expected_versions) == record.versions,
            {:ok, write} <- clean_incoming(write, record.id),
            {:ok, _} <- delete_record(write, record) do
-        {:cont, {:ok, Write.touch(write, write.table.id, deleted: [record.id], delta: -1)}}
+        {:cont,
+         {:ok,
+          Write.touch(write, write.table.id,
+            deleted: [record.id],
+            delta: -1,
+            row: %{
+              id: record.id,
+              op: "delete",
+              fields: [],
+              unique_key: Map.take(record.data, write.table.unique_field_ids)
+            }
+          )}}
       else
         false -> {:halt, {:error, {:record_conflict, Ankole.Attrs.get(attrs, :id)}}}
         error -> {:halt, error}

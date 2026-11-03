@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Scope do
   @moduledoc "Source nodes and deterministic Principal knowledge paths."
-  alias Ankole.Files.Nodes
+  alias Ankole.Pod.Pages.Tree, as: Nodes
 
   def principal_page_slug(:human, uid), do: "people/" <> uid
   def principal_page_slug(:agent, uid), do: "agents/" <> uid
@@ -36,7 +36,7 @@ defmodule Ankole.Brain.Scope do
   end
 
   def world do
-    with {:ok, node} <- Ankole.AIAgent.Library.Knowledge.root(), do: node.id
+    with {:ok, node} <- Ankole.Brain.Namespace.root(), do: node.id
   end
 
   def parse(id) do

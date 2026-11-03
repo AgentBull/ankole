@@ -14,7 +14,7 @@ defmodule Ankole.Sessions.Tools.Pod do
       ),
       declaration(
         "pod_list_pages",
-        "List the visible children of a Pod page or folder, with their knowledge summaries. Omit id to find the shared Space roots, including AnkoleBrain.",
+        "List the visible children of a Pod page, with their knowledge summaries. Omit id to find the shared Space roots. Use brain to discover organizational knowledge.",
         %{"id" => id()},
         [],
         true
@@ -32,7 +32,7 @@ defmodule Ankole.Sessions.Tools.Pod do
       ),
       declaration(
         "pod_create_page",
-        "Create a knowledge subpage under a visible editable page or folder. Use skill subpages for team rules and business entity subpages for entity knowledge.",
+        "Create a Brain knowledge object under a visible editable ontology category or knowledge object. Use ankole-pod pages.create with type doc and markdown for collaboration documents. Skills and Agent instructions are managed by humans in Meta Ankole.",
         %{
           "parent_id" => id(),
           "title" => %{"type" => "string"},
@@ -74,8 +74,8 @@ defmodule Ankole.Sessions.Tools.Pod do
   def prepare_in_tx(run, call, args) do
     with {:ok, actor, context} <- request_context(run) do
       if call["name"] == "pod_create_page" do
-        Ankole.Files.lock_tree_in_tx()
-        Ankole.Files.lock_root_ids_in_tx(Ankole.Files.root_ids([args["parent_id"]]))
+        Ankole.Pod.lock_tree_in_tx()
+        Ankole.Pod.lock_root_ids_in_tx(Ankole.Pod.root_ids([args["parent_id"]]))
       end
 
       {:ok, [],

@@ -27,7 +27,7 @@ defmodule Ankole.Brain.Recall do
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.Page, as: Object
-  alias Ankole.Files.Schemas.Node
+  alias Ankole.Pod.Page, as: Node
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Repo
 
@@ -154,6 +154,7 @@ defmodule Ankole.Brain.Recall do
     rows =
       Claim
       |> Ash.Query.filter(id in ^fused_ids)
+      |> Ash.Query.deselect(:embedding)
       |> Ankole.Ash.read!()
       |> Map.new(&{&1.id, &1})
 
@@ -221,9 +222,7 @@ defmodule Ankole.Brain.Recall do
 
     base =
       Chunk
-      |> join(:inner, [chunk], object in Ankole.Files.Schemas.Node,
-        on: object.id == chunk.page_id
-      )
+      |> join(:inner, [chunk], object in Ankole.Pod.Page, on: object.id == chunk.page_id)
       |> where([_chunk, object], is_nil(object.deleted_at))
       |> filter_source(access)
       |> chunk_neighborhood_filter(neighborhood)
@@ -249,7 +248,11 @@ defmodule Ankole.Brain.Recall do
     rows =
       Chunk
       |> Ash.Query.filter(id in ^fused_ids)
-      |> Ash.Query.load([:object, :source_node])
+      |> Ash.Query.deselect(:embedding)
+      |> Ash.Query.load(
+        object: Ash.Query.deselect(Object, [:body, :xml, :meta, :upstream_state]),
+        source_node: Ash.Query.select(Ankole.Pod.Page, [:name, :type, :updated_at])
+      )
       |> Ankole.Ash.read!()
       |> Map.new(fn chunk -> {chunk.id, {chunk, chunk.object}} end)
 
@@ -259,14 +262,14 @@ defmodule Ankole.Brain.Recall do
       |> Enum.reject(&is_nil/1)
       |> Enum.map(fn {chunk, object} ->
         object = if object && Access.visible_node?(access, object), do: object
-        subject_page_id = if object, do: object.id
+        subject_page_id = if object, do: chunk.subject_page_id
 
         object =
           object ||
             %Object{
               id: chunk.source_node_id,
               title: chunk.source_node.name,
-              type: Atom.to_string(chunk.source_node.kind),
+              type: Atom.to_string(chunk.source_node.type),
               updated_at: chunk.source_node.updated_at
             }
 
@@ -436,7 +439,7 @@ defmodule Ankole.Brain.Recall do
       claim.subject_page_id,
       count(claim.id),
       sum(fragment("LEAST(GREATEST(?, 0.0), 1.0)", claim.weight)),
-      filter(count(claim.id), like(claim.holder, "people/%") or like(claim.holder, "agents/%"))
+      filter(count(claim.id), claim.holder not in ["world", "brain"])
     })
     |> Repo.all()
     |> Map.new(fn {slug, count, weight_sum, members} ->

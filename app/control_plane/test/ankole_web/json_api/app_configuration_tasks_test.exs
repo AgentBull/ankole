@@ -78,7 +78,7 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTasksTest do
           {"brain", %{"system.timezone" => "Asia/Singapore"}, []},
           {"brain", %{"brain.enabled" => false}, ["brain.enabled"]},
           {"unknown", %{"brain.enabled" => false}, []},
-          {"library", %{"ai_agent.library.skill_defaults" => %{"missing" => true}}, []}
+          {"library", %{"ai_agent.library.agent_plugin_defaults" => %{"missing" => true}}, []}
         ] do
       conn |> task(group, values, resets) |> json_response(422)
     end
@@ -87,7 +87,7 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTasksTest do
 
     assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} =
              conn
-             |> api(:put, "/api/v2/app-configurations/ai_agent.library.skill_defaults", %{
+             |> api(:put, "/api/v2/app-configurations/ai_agent.library.agent_plugin_defaults", %{
                value: %{"missing" => true}
              })
              |> json_response(422)

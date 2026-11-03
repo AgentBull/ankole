@@ -39,6 +39,7 @@ defmodule Ankole.Brain.Schemas.Chunk do
     )
 
     attribute(:source_node_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+    attribute(:subject_page_id, Ankole.Ash.Types.UUIDv7)
 
     attribute(:chunk_text, :string,
       allow_nil?: false,
@@ -68,6 +69,7 @@ defmodule Ankole.Brain.Schemas.Chunk do
         :chunk_index,
         :content_kind,
         :source_node_id,
+        :subject_page_id,
         :chunk_text,
         :token_count
       ])
@@ -75,7 +77,7 @@ defmodule Ankole.Brain.Schemas.Chunk do
 
     update :advance_revision do
       require_atomic?(true)
-      accept([:page_revision])
+      accept([:page_revision, :subject_page_id])
     end
 
     update :replace_projection do
@@ -84,6 +86,7 @@ defmodule Ankole.Brain.Schemas.Chunk do
       accept([
         :content_kind,
         :source_node_id,
+        :subject_page_id,
         :chunk_text,
         :token_count,
         :page_revision,
@@ -133,13 +136,13 @@ defmodule Ankole.Brain.Schemas.Chunk do
   end
 
   relationships do
-    belongs_to :page_node, Ankole.Files.Schemas.Node do
+    belongs_to :page_node, Ankole.Pod.Page do
       source_attribute(:page_id)
       define_attribute?(false)
       attribute_type(Ankole.Ash.Types.UUIDv7)
     end
 
-    belongs_to :source_node, Ankole.Files.Schemas.Node do
+    belongs_to :source_node, Ankole.Pod.Page do
       source_attribute(:source_node_id)
       define_attribute?(false)
       attribute_type(Ankole.Ash.Types.UUIDv7)

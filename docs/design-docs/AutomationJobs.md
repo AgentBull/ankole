@@ -1,12 +1,10 @@
 # Automation Jobs
 
-An automation job is an Agent-owned script that consumes a trigger. When a
-trigger names an automation job, Ankole runs that script instead of waking the
-Agent. The script can finish silently or emit an event to its owner session.
-
-The Automation Jobs subsystem does not manage trigger timing, webhook admission,
-or Agent turns. Schedule and Signals own those rules and call
-`Ankole.AutomationJobs` only when they need to create a durable run.
+An automation Job holds the configuration and authorization for repeatable work.
+Its `executor_kind` selects an Agent-owned script (`agent_script`) or a published
+Applet Action (`applet_function`). Signals owns event routing through Bindings;
+Schedule owns trigger timing. Each accepted trigger creates or coalesces a
+durable Run before returning to its caller.
 
 `Ankole.AutomationJobs` is the domain module. Every write entry point runs as a
 top-level call inside `Repo.transact_top_level/2`: `create_job`, `cancel_job`,
@@ -14,7 +12,8 @@ top-level call inside `Repo.transact_top_level/2`: `create_job`, `cancel_job`,
 When a trigger domain records a run inside its own transaction, it composes
 `enqueue_run_in_tx`, `validate_bindable_in_tx`, and `lock_job_in_tx`. Reads and
 row locks use Ash queries, and the Job and Run resources apply AshStateMachine
-actions inside the caller's transaction.
+actions inside the caller's transaction. Agent-owned script execution resolves
+files through `drive_prefix`.
 
 A Job transitions only from `active` to `cancelled`. A Run starts either as
 `queued` or as a failed trigger receipt, and only a `queued` Run can start an
@@ -44,32 +43,27 @@ follow-up event cannot authorize new Human work. Independent `service`
 definitions keep their own authorization.
 
 Pod and file RPCs carry an `AutomationAttemptRef` containing `job_id`, `run_id`,
-and `attempt_id`. `AutomationJobs.authorize_attempt_actor/2` verifies the
-calling Worker, the active definition, the running Run, and its current attempt
-UUID, locking the retained Human authorization before locking the definition and
-Run:
+and `attempt_id`. During an admitted attempt, `AttemptAccess` checks the assigned
+Worker or Applet execution Principal and the matching running Run. It does not
+repeat work admission or require the Job to remain active. A stale or completed
+attempt cannot access resources. Every resource operation still checks the
+actual Principal through AuthZ; disabling that Principal denies its access.
 
-- For a `human` definition, the check requires the recorded Human access version
-  to remain current; resource access uses the Agent's own grants.
-- For a `service` definition, the check uses the Agent's node permissions.
-- For a `review_required` definition, the check rejects Pod access.
+An Agent script uses the executing Agent's grants. An Applet Action uses the
+Human who enabled a personal Job for ordinary capabilities and the Page's current
+owner for `AnkoleRuntime.admin` capabilities. A team Job has no current user and
+ordinary capabilities return `user_authority_unavailable`. These execution
+identities also own audit attribution. The retained Human work authorization
+controls new attempts independently of the executing Principal's resource grants.
 
-Each resource operation authorizes the executing Agent's Principal once. The
-retained Human authorization controls attempt admission and revocation without
-intersecting the Human's Drive grants. `drive_prefix` and other private file
-paths resolve in the Agent's private root; shared resources use stable node IDs.
-Message attachments resolve through their frozen object references and current
-conversation membership.
-
-Every Pod write rechecks the attempt inside the transaction that commits its
-content. A tree write acquires the Drive tree lock before locking the Human and
-attempt rows, whereas a content-row write locks the content row after the
-attempt rows. Because `authorize_attempt_actor/2` requires a live matching
-attempt, a stale or completed attempt cannot read or modify Pod data.
+Every Pod write rechecks its attempt fence in the committing transaction. Tree
+locks precede work and content locks. Script private paths resolve in the Agent's
+private root; shared resources use stable Page IDs and attachments use their
+frozen object references with current resource authorization.
 
 ## What PostgreSQL Stores
 
-`automation_jobs` stores one registered script:
+`automation_jobs` stores one reusable definition. Agent scripts retain:
 
 - the owning Agent and Session
 - the source Signal and reply route
@@ -98,23 +92,90 @@ schedule occurrences are not IDs and keep their own numeric ranges.
 
 ## Bind a Trigger
 
-Checkbacks, cron schedules, and callback capabilities carry an optional
-`automation_job_id`.
+`signal_bindings` owns routing for cron schedules, checkbacks, webhooks, Base
+changes, and Applet events. Source create/edit APIs accept `automation_job_id`
+and maintain their default Binding in the same transaction. Agent-script targets
+must be active and belong to the source's Agent. Additional subscriptions use
+`Signals.put_event_binding/2` or `/api/v2/pod/signal-bindings`; Applet Action
+targets require Page contribution access and personal Job ownership.
 
-Before storing a binding, the trigger owner locks and validates the target job,
-which must be `active` and belong to the same Agent. Updating a checkback or
-cron schedule can clear or replace its binding. A callback capability cannot
-change its binding in place; to rebind it, the Agent cancels the capability and
-creates a new one.
+Dispatch locks every target Job before Bindings and receipts, then admits all
+Agent Session deliveries together. Trigger claims, receipts, Runs and Oban wakeups
+commit together. Producer-owned source namespaces and per-Binding receipts give
+retries one durable outcome; [Signals](Signals.md) defines fanout and retention.
 
-An unbound trigger delivers a Signal directly to the Agent, whereas a bound
-trigger records an automation job run instead. Because the control plane commits
-the run together with the trigger claim or schedule advance in a single
-PostgreSQL transaction, a webhook never returns success before its Signal or run
-is durable.
+## Applet Actions
 
-Trigger owners leave the CloudEvents envelope unchanged when the consumer
-changes.
+An Applet publishes `actions` alongside its `routes`. Each Action declares
+`idempotent`, optional `concurrency` (`parallel`, `serial_fifo`, or
+`serial_coalesce`), `concurrencyKey(ctx)`, and `maxSlices` (default 1000).
+Ankole inspects these exports and refreshes all matching Jobs in the same
+transaction as the files and Page revision. It locks these Jobs before checking
+the executing Signal or Automation Run fence. If execution has ended or the
+Page revision has changed, Ankole rolls back the policy refresh and any queued
+wakeups. The code declaration owns policy; Job editors configure its label,
+JSON configuration and authorization, rather than competing policy overrides.
+Multiple Jobs may invoke the same Action with different configuration and state.
+
+Each slice loads the latest publication and snapshots its revision and
+`idempotent` value on the Run. Recovery uses that snapshot even if another
+publication changes policy. A missing Action, trashed Page or unavailable Page
+owner fails that Run and wakes its successor, preserving saved state. Restoring
+the Action or owner lets the next trigger resume from its saved cursor. Revoking
+a personal Job's Human authorization cancels the Job and its queued Runs.
+
+`ctx.state.get/set/delete` stores JSON in `automation_job_states`, keyed by Job,
+scope and key. The default scope is `default`; `ctx.state.scope(name)` selects a
+business partition. Scope and key contain 1–255 characters and each value is at
+most 64 KiB. State follows the Job lifecycle, including deletion on Page purge.
+Conversation deletion and permanent Agent deletion remove Applet Jobs in the
+roots they own before taking Page row locks. The Job's cascading dependents
+are removed in that transaction; Page foreign keys remain restrictive.
+
+`ctx.remainingMs()` reports the current slice budget. A handler returns
+`await ctx.continueSlice({delaySeconds, progress})` to request another slice of
+its Run. After the handler completes, Ankole requests runtime cleanup and then
+increments `slice_count`, resets `attempts_in_slice`, and commits the next Oban
+wakeup with the progress (at most 16 KiB). An exception or oversized result fails
+the current slice without committing a continuation. Synchronous child Actions
+share the parent Job's state but cannot continue its Run.
+
+Every wakeup carries `expected_slice_count`; replaying an earlier wakeup is a
+no-op and cannot bypass the next slice's delay. Each Oban wakeup has five attempts.
+A busy runtime defers the wakeup without spending its retry budget or the slice's
+execution retry budget. Once admitted, a deferred Run keeps its admission count
+and queue position, distinct from an unstarted coalescing tail. Other runtime
+rejections before execution use the wakeup's retry budget. Ankole records a
+completed handler result as terminal, including a nested call's capacity error;
+it does not infer whether execution started from the HTTP status. A lost runtime
+connection leaves the outcome unknown and uses the admitted idempotency snapshot
+and bounded recovery described below. Successful handlers may return any JSON value.
+
+Serial queues use the smallest unfinished Run ID within `(job, concurrency_key)`
+under the Job lock. Only the head gets a wakeup. `serial_coalesce` replaces the
+event of a queued tail only while `attempts = 0 AND slice_count = 0`; PostgreSQL
+enforces one such tail. Retrying or continuing a started Run preserves its place
+and cannot collide with the coalescing tail. Terminal settlement wakes the next
+queued Run in the same transaction. Publishing a change to `parallel` wakes all
+queued Runs as part of the policy update, preserving any already scheduled
+slice delay.
+
+Normal execution uses event-driven wakeups. `ExpireAttempts` handles abandoned
+running attempts, including a crash on Oban's fifth attempt. It requeues a slice
+whose admitted policy was idempotent while `attempts_in_slice < 10`. Otherwise it
+fails the Run with `execution_outcome_unknown` and wakes the next serial head.
+
+Page Job APIs create, list, configure and delete definitions under
+`/api/v2/pod/pages/:page_id/jobs`. A targeted Applet `signals.emit({targetJobId})`
+requires the same Page and `node_contribute`, returning
+`{accepted: true, runId, coalesced}`. Personal Jobs are limited to their Human or
+that Human's personal assistant. Reading `/runs/:id` and joining `run:<id>` use
+the same authorization; team Run progress requires `node_view` on its Page.
+Committed slice and terminal changes publish progress to authorized subscribers.
+Applet frontends use `useActionRun(runId)` from `@ankole/applet-sdk` to read the
+Run and follow its progress, result and error through the host's existing socket.
+The hook refreshes on subscription and reconnection, so a completion committed
+while the browser was disconnected appears without another button click.
 
 ## Run the Script
 
@@ -204,15 +265,14 @@ the run ends in a terminal script failure. Missing `main.ts` files and invalid
 MCP declarations in Skills are also terminal script failures, so Oban never
 retries them.
 
-By contrast, a `timed_out` Worker readiness result, a request that no Worker
-Channel accepted (the route has no channel, the route fence names another
-connection, or the channel process ended before it took the call), and a Worker
-RPC error that confirms `execution_started: false` count as infrastructure
-failures. Setup failures before `main.ts` starts (such as a failed copy from the
-drive or a failed `WorkerEnv` resolution) report exactly that confirmation. When
-Worker readiness times out, admission claims one attempt under its locks before
-recording the failure. Every new attempt records its own `started_at` timestamp
-and receives a fresh ten-minute script budget.
+For Agent scripts, Ankole treats a `timed_out` Worker readiness result,
+`WorkerRoute` errors `:unknown_route` and `:stale_route`, and Worker RPC errors
+that confirm `execution_started: false` as infrastructure failures. The Worker
+reports that confirmation for setup failures before `main.ts` starts, such as a
+failed copy from the drive or a failed `WorkerEnv` resolution. When Worker
+readiness times out, admission claims one attempt under its locks before
+recording the failure. When starting a new attempt, Ankole records `started_at`
+and gives the script a fresh ten-minute execution budget.
 
 After an infrastructure failure, the control plane returns the run to `queued`,
 clears its attempt UUID, and lets Oban dispatch a retry, up to five total
@@ -222,16 +282,17 @@ indefinitely. Likewise, if Human authorization is revoked between attempts,
 admission marks the run `failed` and commits any configured failure notice
 instead of stranding a queued run without a valid retry owner.
 
-A running attempt whose request the Worker Channel accepted but never answered
-has an unknown outcome, whether the connection closes first or the RPC deadline
-(the ten-minute run limit plus ten seconds) passes: the Worker may have started
-the script. The Oban job marks the run `failed` with that reason and does not
-start another attempt. If a node stops during the last permitted Oban attempt,
-Oban discards the job, and the run loses this owner. The `ExpireAttempts` cron
-job runs every five minutes in each tenant and records the same failure for
-every running attempt past its deadline, so a run without an Oban job cannot
-keep a slot of `automation_jobs.max_running_per_agent`. The attempt UUID fences
-the two writers, and the second write is stale.
+For other dispatch failures, including `:socket_closed`, `:timeout`, an
+unconfirmed Worker RPC error, or an invalid Worker response, Ankole records an
+unknown outcome because the Worker may have started the script. The Oban job
+marks the script Run `failed` with that reason and does not start another
+attempt. The same rule applies when a running attempt passes its RPC deadline
+(the ten-minute run limit plus ten seconds). If a node stops during the last
+permitted Oban attempt, Oban discards the job, and the run loses this owner. The
+`ExpireAttempts` cron job runs every five minutes in each tenant and records the
+same failure for every running attempt past its deadline, so a run without an
+Oban job cannot keep a slot of `automation_jobs.max_running_per_agent`. The
+attempt UUID fences the two writers, and the second write is stale.
 
 `WorkerAdmission` tracks Worker liveness. Whenever it marks a route unusable or
 replaces a Worker incarnation, the closing channel immediately answers its
@@ -310,15 +371,18 @@ conversation Turns stay outside this view.
 ## Rules
 
 - Commit every trigger claim together with its consumer record in one transaction.
-- Keep the CloudEvents trigger envelope unchanged when its consumer changes.
-- Allow only the owning Agent to bind, inspect via the Agent API, cancel, or
+- Keep the producer's namespaced CloudEvents identity stable across consumers.
+- For Agent scripts, allow only the owning Agent to bind, inspect via the Agent API, cancel, or
   emit events from a job; allow the Console to inspect job details with the
   owning Agent's `read` permission.
 - Accept `emitEvent` and attempt completion only from the current attempt UUID.
 - Lock the parent Job row before locking the Run row on every Run transition,
   including start, cancellation, completion, and infrastructure recovery.
-- Never retry script failures.
-- Retry infrastructure failures up to five total attempts.
-- Fail every running attempt past its RPC deadline, also when its Oban job is gone.
+- Apply the executor's retry contract: Agent scripts have five infrastructure
+  attempts; Applet slices use the admitted idempotency snapshot and bounded recovery.
+- Recover or terminate expired attempts even when their Oban job is gone.
 - Resolve `emitEvent` only after the emitted Signal is durable in PostgreSQL.
-- Store no script state, DAG, mutex, or trigger schedule inside Automation Jobs.
+- Fan out script `emitEvent` through the Job's default owner Binding and any
+  additional subscriptions. Script failure notices remain private owner notifications.
+- Store Applet checkpoints in `automation_job_states`; Agent scripts own their
+  own application state. Schedule owns trigger timing.

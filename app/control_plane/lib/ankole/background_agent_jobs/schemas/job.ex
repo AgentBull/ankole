@@ -586,8 +586,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   @doc """
   Builds the creation attributes of a successor Job from its source Job and
   the successor's own facts. The inherited fields and the continuation link
-  replace any value in `attrs`; the source's legacy replay marker follows the
-  source.
+  replace any value in `attrs`; metadata belongs to the successor.
   """
   @spec successor_attrs(%__MODULE__{}, map()) :: map()
   def successor_attrs(%__MODULE__{} = source, attrs) when is_map(attrs) do
@@ -596,14 +595,5 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     attrs
     |> Map.merge(inherited)
     |> Map.put("continued_from_job_id", source.id)
-    |> Map.put("metadata", successor_metadata(source, Map.get(attrs, "metadata", %{})))
-  end
-
-  defp successor_metadata(%__MODULE__{metadata: source_metadata}, metadata) do
-    legacy_thread_replay? = (source_metadata || %{})["legacy_thread_replay"] == true
-
-    if legacy_thread_replay?,
-      do: Map.put(metadata, "legacy_thread_replay", true),
-      else: Map.delete(metadata, "legacy_thread_replay")
   end
 end

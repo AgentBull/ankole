@@ -2,7 +2,7 @@ defmodule Ankole.Pod.PagesTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Documents, Page, PageChange, PageContent, Pages, PageUserState}
 
   setup do
@@ -80,7 +80,7 @@ defmodule Ankole.Pod.PagesTest do
     assert {:ok, %{page: moved}} =
              Pages.move(actor, page.id, %{private_owner_uid: ctx.owner.uid})
 
-    assert {:ok, %{private_owner_uid: uid}} = Ankole.Files.Nodes.root(moved.id)
+    assert {:ok, %{private_owner_uid: uid}} = Ankole.Pod.Pages.Tree.root(moved.id)
     assert uid == ctx.owner.uid
     assert {:ok, [visible]} = Pages.list(actor, %{scope: "private"})
     assert visible.id == page.id
@@ -119,7 +119,7 @@ defmodule Ankole.Pod.PagesTest do
     :telemetry.detach(handler)
 
     Repo.update!(
-      Ecto.Changeset.change(Repo.get_by!(Ankole.Files.Schemas.Node, id: root.id),
+      Ecto.Changeset.change(Repo.get_by!(Ankole.Pod.Page, id: root.id),
         parent_id: leaf.id,
         inherit_permissions: false,
         acl_anchor_id: root.id,
@@ -229,7 +229,7 @@ defmodule Ankole.Pod.PagesTest do
     {:ok, child} = Pages.create(editor, %{parent_id: parent.id})
     assert {:error, :forbidden} = Pages.authorize(editor, child.id, "node_manage")
     assert {:ok, nil} = Pages.delete_embeds(editor, parent.id, [child.id])
-    assert %DateTime{} = Repo.get!(Page, child.id).deleted_at
+    assert %DateTime{} = Repo.get_by!(Page, id: child.id).deleted_at
   end
 
   test "trash scans past 200 inaccessible candidates with its database timestamp cursor", ctx do
@@ -563,7 +563,7 @@ defmodule Ankole.Pod.PagesTest do
 
     [a, b, c] = for title <- ~w(A B C), do: create_child(ctx.owner.uid, root.id, title)
 
-    from(p in Ankole.Pod.Properties, where: p.id in ^[a.id, b.id])
+    from(p in Ankole.Pod.Page, where: p.id in ^[a.id, b.id])
     |> Repo.update_all(set: [position: "V"])
 
     [first, second] = Enum.sort([a.id, b.id])
@@ -676,11 +676,11 @@ defmodule Ankole.Pod.PagesTest do
     assert {:error, :cannot_purge} = Pages.purge(actor, root.id)
 
     assert Enum.any?(Repo.all(Oban.Job), fn job ->
-             job.worker == "Ankole.Files.Jobs.PurgeNode" and job.args["node_id"] == root.id and
+             job.worker == "Ankole.Pod.Jobs.PurgeTree" and job.args["node_id"] == root.id and
                job.state == "available"
            end)
 
-    assert :ok = Ankole.Files.Jobs.PurgeNode.run(%Oban.Job{args: %{"node_id" => root.id}})
+    assert :ok = Ankole.Pod.Jobs.PurgeTree.run(%Oban.Job{args: %{"node_id" => root.id}})
     assert {:error, :not_found} = Pages.fetch(root.id)
     assert {:error, :not_found} = Pages.fetch(child.id)
   end
@@ -760,9 +760,9 @@ defmodule Ankole.Pod.PagesTest do
                [child.id]
              )
 
-    assert %DateTime{} = Repo.get!(Page, child.id).deleted_at
+    assert %DateTime{} = Repo.get_by!(Page, id: child.id).deleted_at
 
-    assert is_nil(Repo.get!(Page, referenced.id).deleted_at)
+    assert is_nil(Repo.get_by!(Page, id: referenced.id).deleted_at)
   end
 
   test "batch embed deletion rolls back every child and purge job when one child is forbidden",
@@ -785,15 +785,15 @@ defmodule Ankole.Pod.PagesTest do
     assert {:error, :forbidden} =
              Pages.delete_embeds(editor, parent.id, [own_child.id, other_child.id])
 
-    assert is_nil(Repo.get!(Page, own_child.id).deleted_at)
-    assert is_nil(Repo.get!(Page, other_child.id).deleted_at)
+    assert is_nil(Repo.get_by!(Page, id: own_child.id).deleted_at)
+    assert is_nil(Repo.get_by!(Page, id: other_child.id).deleted_at)
     assert Repo.aggregate(Oban.Job, :count) == before_jobs
 
     assert {:ok, nil} =
              Pages.delete_embeds(owner, parent.id, [own_child.id, other_child.id, own_child.id])
 
-    assert %DateTime{} = Repo.get!(Page, own_child.id).deleted_at
-    assert %DateTime{} = Repo.get!(Page, other_child.id).deleted_at
+    assert %DateTime{} = Repo.get_by!(Page, id: own_child.id).deleted_at
+    assert %DateTime{} = Repo.get_by!(Page, id: other_child.id).deleted_at
   end
 
   test "whole document CAS validates XML before commit and logs incremental changes", ctx do
@@ -863,7 +863,7 @@ defmodule Ankole.Pod.PagesTest do
                "<html />"
              )
 
-    assert Repo.get!(Page, page.id).revision == 1
+    assert Repo.get_by!(Page, id: page.id).revision == 1
     assert Repo.get!(PageContent, page.id).plain_text =~ "Hello"
     assert [%{kind: :change, revision: 1}] = Repo.all(PageChange)
 

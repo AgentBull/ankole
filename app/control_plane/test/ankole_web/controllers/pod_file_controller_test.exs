@@ -14,7 +14,7 @@ defmodule AnkoleWeb.PodFileControllerTest do
     assert %{"page" => %{"id" => id, "object_id" => original}} = json_response(created, 200)
 
     assert {:ok, written} =
-             Ankole.Files.write_node(
+             Ankole.Pod.write_node(
                Ankole.PrincipalsFixtures.actor_fixture(uid),
                id,
                "runtime bytes"
@@ -31,7 +31,7 @@ defmodule AnkoleWeb.PodFileControllerTest do
 
     assert json_response(stale, 409)
     assert {:ok, "runtime bytes"} = Ankole.Files.read_object(written.object_id)
-    assert {:ok, %{object_id: current}} = Ankole.Files.fetch_node(id)
+    assert {:ok, %{object_id: current}} = Ankole.Pod.fetch_node(id)
     assert current == written.object_id
 
     fresh =

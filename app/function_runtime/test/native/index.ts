@@ -201,7 +201,16 @@ Deno.serve(async request => {
         memoryLimitMb: input.kind === 'inspect' ? 64 : 256,
         permissions: input.kind === 'inspect' ? { ...basePermissions, allow_env: [] } : basePermissions
       })
-      const response = await worker.fetch(forward(request))
+      const invocation =
+        input.kind === 'inspect'
+          ? new Request(request.url, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ contexts: [] })
+            })
+          : forward(request)
+      EdgeRuntime.applySupabaseTag(request, invocation)
+      const response = await worker.fetch(invocation)
       const output = (await response.json()) as { routes?: string[]; status?: string }
       if (
         response.status !== 200 ||

@@ -49,9 +49,7 @@ defmodule Ankole.Conversations.AttachmentReferencesTest do
     assert {:ok, "Original bytes"} =
              Delivery.attachment_content(hd(intent.payload["attachments"]))
 
-    Repo.delete_all(
-      from node in Ankole.Files.Schemas.Node, where: node.id == ^attachment["node_id"]
-    )
+    Repo.delete_all(from node in Ankole.Pod.Page, where: node.id == ^attachment["node_id"])
 
     assert {:error,
             %Postgrex.Error{

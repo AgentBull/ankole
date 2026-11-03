@@ -6,6 +6,7 @@ import type { Condition, BaseField, Filter, Sort, Value } from '@ankole/applet-s
 import { Choice } from './content-primitives'
 import { FieldInput, fieldOptions } from './base-fields'
 import { principalUID } from './state/table-query'
+import { effectiveFieldType } from './base-field-types'
 
 const operators: Record<Condition['operator'], string> = {
   get is() {
@@ -138,7 +139,7 @@ export function QueryControls({
                               value: operator.endsWith('empty')
                                 ? undefined
                                 : item.operator.endsWith('empty')
-                                  ? effectiveType(fields.find(field => field.id === item.field_id)!) === 'boolean'
+                                  ? effectiveFieldType(fields.find(field => field.id === item.field_id)!) === 'boolean'
                                     ? false
                                     : null
                                   : item.value
@@ -296,20 +297,8 @@ export function QueryControls({
   )
 }
 
-function effectiveType(field: BaseField) {
-  if (field.type === 'formula') return String(field.config.result_type ?? 'text')
-  if (field.type === 'auto_number') return 'number'
-  if (['created_at', 'updated_at'].includes(field.type)) return 'datetime'
-  if (['created_by', 'updated_by'].includes(field.type)) return 'person'
-  if (field.type === 'checkbox') return 'boolean'
-  if (['attachment', 'user', 'link'].includes(field.type) || (field.type === 'select' && field.config.multiple)) {
-    return 'array'
-  }
-  return field.type
-}
-
 function operatorsFor(field?: BaseField) {
-  const type = field ? effectiveType(field) : 'missing'
+  const type = field ? effectiveFieldType(field) : 'missing'
   const names: Condition['operator'][] =
     type === 'array'
       ? ['contains']
@@ -324,7 +313,7 @@ function operatorsFor(field?: BaseField) {
 }
 
 function newCondition(field: BaseField): Condition {
-  const type = effectiveType(field)
+  const type = effectiveFieldType(field)
   return {
     field_id: field.id,
     operator: type === 'array' ? 'contains' : 'is',
@@ -372,7 +361,7 @@ function FilterValue({
       />
     )
   }
-  const person = effectiveType(field) === 'person'
+  const person = effectiveFieldType(field) === 'person'
   const effective =
     field.type === 'formula' ||
     field.type === 'auto_number' ||
@@ -380,11 +369,11 @@ function FilterValue({
       ? {
           ...field,
           type:
-            effectiveType(field) === 'number'
+            effectiveFieldType(field) === 'number'
               ? ('number' as const)
-              : effectiveType(field) === 'boolean'
+              : effectiveFieldType(field) === 'boolean'
                 ? ('checkbox' as const)
-                : effectiveType(field) === 'datetime'
+                : effectiveFieldType(field) === 'datetime'
                   ? ('datetime' as const)
                   : person
                     ? ('user' as const)

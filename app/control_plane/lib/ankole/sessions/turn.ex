@@ -779,8 +779,8 @@ defmodule Ankole.Sessions.Turn do
       needs_tool_nudge?(run, text) ->
         {:request, %{run | nudged: true, input: [Run.user(@nudge) | run.input]}}
 
-      not run.repaired and stopped_normally?(run) and Run.type(run).repair(run, text) != nil ->
-        {:request, repaired(Run.type(run).repair(run, text))}
+      repair = not run.repaired and stopped_normally?(run) and Run.type(run).repair(run, text) ->
+        {:request, repaired(repair)}
 
       run.input != [] ->
         {:request, run}

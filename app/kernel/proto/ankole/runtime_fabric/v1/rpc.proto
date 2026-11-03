@@ -238,28 +238,6 @@ message BackgroundAgentJobTurnUpsertRequest {
   bytes turn_items_json = 15;
 }
 
-// Pages the stored lead-thread turn items of one Job's workspace lineage in
-// chronological order. The worker replays them into a replacement Codex
-// thread when the native thread state is gone.
-message BackgroundAgentJobTurnItemsListRequest {
-  string job_id = 1;
-  string cursor = 2;
-}
-
-message BackgroundAgentJobTurnItem {
-  string runtime_thread_id = 1;
-  string runtime_turn_id = 2;
-  uint32 position = 3;
-  string item_key = 4;
-  bytes item_json = 5;
-}
-
-message BackgroundAgentJobTurnItemsListResponse {
-  string job_id = 1;
-  repeated BackgroundAgentJobTurnItem items = 2;
-  string next_cursor = 3;
-}
-
 message BackgroundAgentJobStatusUpdateRequest {
   string job_id = 1;
   string status = 2; // queued | running | waiting_on_user | succeeded | failed | stopped

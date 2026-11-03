@@ -62,7 +62,7 @@ instance, updates its image, or rebuilds its cache.
 ├── .codex/
 ├── AGENTS.md
 ├── DESIGN.md
-├── .ankole/turn-skills/<signal-id>/
+├── .ankole/turn-skills/<job-signal-id>/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── AGENTS.md
@@ -113,7 +113,7 @@ process lock live on the local cache filesystem. Rebuilding a Worker removes
 that cache, so native Codex resume relies on the thread files in Home; updating
 the image alone keeps a configured cache volume or PVC.
 
-Pod knowledge pages in PostgreSQL own the organization and Agent contracts.
+`Ankole.AIAgent.Library.Contracts` owns the organization and Agent contracts in PostgreSQL.
 At every turn start and resume, the Worker atomically refreshes the complete
 `~/AGENTS.md`, `~/DESIGN.md`, and `$CODEX_HOME/AGENTS.md` from the control-plane
 snapshot. Native Codex combines its global AGENTS file with project-owned
@@ -126,13 +126,13 @@ the mounted `/drive` filesystem when the startup probe confirms FUSE support.
 `/drive/Public`, `/drive/AgentDrive`, `/drive/MyDrive`, and `/drive/ChatDrive`
 resolve through the existing Files and Principal permission owners. Ordinary shell
 tools read and write these paths directly, including symlinks. The Worker retains
-`files.*` RPCs and `ankole-files` for providers without the capability. Shared Skills live
-as Pod knowledge pages under `/AnkoleBrain/skills`, while private installed
-bundles live under `skills/` in the Agent's drive. The Worker requests enabled
-packages through `pod.read` with the `skills.bundle` operation, applying the
-current conversation's permission intersection. Each turn uses its own
-`.ankole/turn-skills/<signal-id>/` directory; Automation attempts use their own
-run directory. A download failure stops preparation.
+`files.*` RPCs and `ankole-files` for providers without the capability. Enabled Skill packages and effective contracts use an Agent-scoped, shared
+read-only mount at `/drive/Skills`, `/drive/AGENTS.md`, and `/drive/DESIGN.md`.
+Conversation views bind that mount instead of copying the packages each turn.
+`/drive/Brain` remains read-only and uses the conversation disclosure boundary.
+Background Agent Jobs materialize their allowed complete packages through
+`skills.bundle` into `.ankole/turn-skills/<signal-id>/`; their initial capability
+whitelist can shrink but cannot expand on resume. A download failure stops preparation.
 
 Session and Job workspaces are temporary working directories, and Sessions and
 Jobs share the Agent filesystem. Save conversation deliverables in the current
@@ -161,10 +161,9 @@ materializes the optional Lark credential, `mcporter` configuration, and browser
 runtime. Cleanup runs in the fixed order `browser`, `mcporter`, then `Lark`, and
 preserves the first failure encountered.
 
-Jobs read Skill instructions on demand through the Ankole `skill_view` tool.
-The tool and package materializer use the same live permission context. Visible
-supplement pages join the instructions; reference chapters remain separate
-files. Per-Agent lessons remain semantic state in the control plane.
+Agents read Skill manifests on demand through `skill_view`, and read referenced
+files explicitly by relative path. Each enabled package is readable as a whole.
+Per-Agent lessons remain semantic state in the control plane.
 
 Built-in Skills and Agent Plugins ship under `/repo/app/library`, and internal
 images may also provide `/repo/internals/skills`. Plugin packages control

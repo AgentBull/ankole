@@ -19,7 +19,10 @@ defmodule Ankole.Files.Vfs.Auth do
          Ankole.RuntimeFabric.V1.DriveVfsConfig,
          Map.merge(config, %{
            endpoint:
-             String.trim_trailing(endpoints["relayOrigin"] || AnkoleWeb.Endpoint.url(), "/") <>
+             String.trim_trailing(
+               endpoints["relayOrigin"] || Ankole.WorkerFiles.Relay.origin(),
+               "/"
+             ) <>
                "/api/v1/vfs/dav",
            conversation_id: config.conversation_id || ""
          })
@@ -27,9 +30,9 @@ defmodule Ankole.Files.Vfs.Auth do
     end
   end
 
-  def refresh(payload) do
+  def refresh(payload, library_only \\ false) do
     Repo.transact_top_level(fn ->
-      with {:ok, _} <- context_in_tx(payload),
+      with {:ok, _} <- context_in_tx(payload, library_only),
            do:
              SecretKeyBase.seal(
                Torque.encode!(Map.put(payload, "expires_at", System.system_time(:second) + 3600)),
@@ -41,10 +44,16 @@ defmodule Ankole.Files.Vfs.Auth do
 
   def issue(agent_uid, metadata) do
     with {:ok, context} <- Brain.RequestContext.build(agent_uid, metadata),
+         {:ok, projection} <-
+           Ankole.BackgroundAgentJobs.RuntimeProjection.for_signal(
+             agent_uid,
+             Brain.RequestContext.signal_id(metadata)
+           ),
          {:ok, worker} when not is_nil(worker) <- AgentWorkers.get_agent_worker(agent_uid),
          true <- is_binary(worker.incarnation_id) do
       payload = %{
         "tenant_id" => Repo.tenant_id!(),
+        "skill_selection" => projection,
         "agent_uid" => agent_uid,
         "disclosure" => context.disclosure,
         "conversation_id" => context.conversation_id,
@@ -58,6 +67,8 @@ defmodule Ankole.Files.Vfs.Auth do
          %{
            token: token,
            scope: scope_key(payload),
+           library_scope:
+             Kernel.vfs_fingerprint(Torque.encode!([payload["tenant_id"], agent_uid, projection])),
            view: view_key(payload),
            conversation_id: context.conversation_id
          }}
@@ -81,24 +92,32 @@ defmodule Ankole.Files.Vfs.Auth do
          else: (_ -> {:error, :unauthorized})
   end
 
-  def context(payload), do: Repo.transact_top_level(fn -> context_in_tx(payload) end)
+  def context(payload, library_only \\ false),
+    do: Repo.transact_top_level(fn -> context_in_tx(payload, library_only) end)
 
-  defp context_in_tx(payload) do
+  defp context_in_tx(payload, library_only) do
     with {:ok, worker} when not is_nil(worker) <-
            AgentWorkers.get_agent_worker(payload["agent_uid"]),
          true <-
            worker.generation == payload["generation"] &&
              worker.incarnation_id == payload["incarnation"] &&
              worker.state in [:ready, :stale, :draining],
-         {:ok, principal} <- Ankole.Principals.get_principal(payload["agent_uid"]),
+         {:ok, %{status: :active} = principal} <-
+           Ankole.Principals.get_principal(payload["agent_uid"]),
          disclosure = disclosure(payload["disclosure"]),
          context = %{querier_uid: principal.uid, disclosure: disclosure},
-         {:ok, access} <- Brain.Access.for_context(context) do
+         {:ok, access} <-
+           if(library_only,
+             do: {:ok, %Brain.Access{querier_uid: principal.uid}},
+             else: Brain.Access.for_context(context)
+           ) do
       {:ok,
        %{
          actor: Actor.new(principal),
          context: context,
          access: access,
+         library_only: library_only,
+         runtime_projection: payload["skill_selection"],
          conversation_id: payload["conversation_id"]
        }}
     else
@@ -123,7 +142,8 @@ defmodule Ankole.Files.Vfs.Auth do
         payload["agent_uid"],
         disclosure["mode"],
         disclosure["asker_uid"],
-        Enum.sort(disclosure["present_uids"] || [])
+        Enum.sort(disclosure["present_uids"] || []),
+        payload["skill_selection"]
       ])
     )
   end

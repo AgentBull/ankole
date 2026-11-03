@@ -4,6 +4,7 @@ defmodule Ankole.AppConfigure.Registry do
   """
 
   use GenServer
+  @snapshot_key {__MODULE__, :declarations}
 
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Declarations
@@ -55,7 +56,7 @@ defmodule Ankole.AppConfigure.Registry do
   """
   @spec require_definition(Definition.t()) :: {:ok, Definition.t()} | {:error, term()}
   def require_definition(%Definition{key: key}) do
-    GenServer.call(__MODULE__, {:require_definition, key})
+    require_exact(snapshot().definitions, key)
   end
 
   @doc """
@@ -63,7 +64,7 @@ defmodule Ankole.AppConfigure.Registry do
   """
   @spec require_key(String.t()) :: {:ok, registered_definition()} | {:error, term()}
   def require_key(key) when is_binary(key) do
-    GenServer.call(__MODULE__, {:require_key, key})
+    resolve_key(snapshot(), key)
   end
 
   @doc """
@@ -71,7 +72,7 @@ defmodule Ankole.AppConfigure.Registry do
   """
   @spec list_definitions() :: [Definition.t()]
   def list_definitions do
-    GenServer.call(__MODULE__, :list_definitions)
+    snapshot().definitions |> Map.values() |> Enum.sort_by(& &1.key)
   end
 
   @doc """
@@ -79,7 +80,7 @@ defmodule Ankole.AppConfigure.Registry do
   """
   @spec list_patterns() :: [PatternDefinition.t()]
   def list_patterns do
-    GenServer.call(__MODULE__, :list_patterns)
+    snapshot().patterns |> Map.values() |> Enum.sort_by(& &1.id)
   end
 
   @doc """
@@ -88,7 +89,7 @@ defmodule Ankole.AppConfigure.Registry do
   @spec classify_key(String.t()) ::
           {:ok, {:exact, Definition.t()} | {:pattern, PatternDefinition.t()}} | {:error, term()}
   def classify_key(key) when is_binary(key) do
-    GenServer.call(__MODULE__, {:classify_key, key})
+    classify_registered_key(snapshot(), key)
   end
 
   if Mix.env() == :test do
@@ -104,7 +105,7 @@ defmodule Ankole.AppConfigure.Registry do
   @impl true
   def init(_opts) do
     case boot_state() do
-      {:ok, state} -> {:ok, state}
+      {:ok, state} -> {:ok, publish(state)}
       {:error, reason} -> {:stop, reason}
     end
   end
@@ -113,7 +114,7 @@ defmodule Ankole.AppConfigure.Registry do
     @impl true
     def handle_call({:register_definitions, definitions}, _from, state) do
       case put_definitions(state, definitions, :runtime) do
-        {:ok, next_state} -> {:reply, :ok, next_state}
+        {:ok, next_state} -> {:reply, :ok, publish(next_state)}
         {:error, reason} -> {:reply, {:error, reason}, state}
       end
     end
@@ -123,7 +124,7 @@ defmodule Ankole.AppConfigure.Registry do
     @impl true
     def handle_call({:register_patterns, patterns}, _from, state) do
       case put_patterns(state, patterns, :runtime) do
-        {:ok, next_state} -> {:reply, :ok, next_state}
+        {:ok, next_state} -> {:reply, :ok, publish(next_state)}
         {:error, reason} -> {:reply, {:error, reason}, state}
       end
     end
@@ -132,42 +133,24 @@ defmodule Ankole.AppConfigure.Registry do
   @impl true
   def handle_call({:replace_declarations, source, definitions, patterns}, _from, state) do
     case replace_source(state, source, definitions, patterns) do
-      {:ok, next_state} -> {:reply, :ok, next_state}
+      {:ok, next_state} -> {:reply, :ok, publish(next_state)}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
-  end
-
-  @impl true
-  def handle_call({:require_definition, key}, _from, %{definitions: definitions} = state) do
-    {:reply, require_exact(definitions, key), state}
-  end
-
-  @impl true
-  def handle_call({:require_key, key}, _from, state) do
-    {:reply, resolve_key(state, key), state}
-  end
-
-  @impl true
-  def handle_call(:list_definitions, _from, %{definitions: definitions} = state) do
-    {:reply, definitions |> Map.values() |> Enum.sort_by(& &1.key), state}
-  end
-
-  @impl true
-  def handle_call(:list_patterns, _from, %{patterns: patterns} = state) do
-    {:reply, patterns |> Map.values() |> Enum.sort_by(& &1.id), state}
-  end
-
-  @impl true
-  def handle_call({:classify_key, key}, _from, state) do
-    {:reply, classify_registered_key(state, key), state}
   end
 
   if Mix.env() == :test do
     @impl true
     def handle_call(:clear_for_test, _from, _state) do
       {:ok, state} = boot_state()
-      {:reply, :ok, state}
+      {:reply, :ok, publish(state)}
     end
+  end
+
+  defp snapshot, do: :persistent_term.get(@snapshot_key)
+
+  defp publish(state) do
+    :persistent_term.put(@snapshot_key, state)
+    state
   end
 
   defp boot_state do

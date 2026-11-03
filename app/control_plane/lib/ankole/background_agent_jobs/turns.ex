@@ -61,7 +61,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   @model_page_bytes 24 * 1_024
   @model_page_budget %{groups: @trajectory_max_limit, bytes: @model_page_bytes}
   @console_page_budget @model_page_budget
-  @replay_page_budget %{items: 200}
   @attempt_summary_bytes 2_000
   @attempt_summary_budget %{bytes: @attempt_summary_bytes}
   @truncation_suffix "...[truncated]"
@@ -107,21 +106,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Ash.Query.limit(limit)
     |> Ankole.Ash.read!()
     |> Enum.reverse()
-  end
-
-  @doc """
-  Pages the lead-thread turn items of one Job's workspace lineage in
-  chronological order.
-
-  The Worker replays these items into a replacement Codex thread when the
-  Worker-local native thread state is gone.
-  """
-  @spec replay_items_page(Job.t(), String.t() | nil) ::
-          {:ok, %{items: [map()], next_cursor: String.t() | nil}} | {:error, term()}
-  def replay_items_page(%Job{} = job, cursor) do
-    with {:ok, page} <- TrajectoryReader.page(job, :lineage_replay, cursor, @replay_page_budget) do
-      {:ok, %{items: page.units, next_cursor: page.next_cursor}}
-    end
   end
 
   @spec execution_projection(Job.t(), keyword()) :: {:ok, map()} | {:error, atom()}
@@ -694,38 +678,62 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     do: {:error, :invalid_background_agent_job_turn_items}
 
   defp insert_turn_items(%Turn{} = turn, items) do
-    Enum.reduce_while(items, {:ok, false}, fn entry, {:ok, truncated} ->
-      with {:ok, candidate, changeset} <- turn_item_candidate(turn, entry) do
-        existing =
-          TurnItem
-          |> Ash.Query.filter(
-            turn_id == ^turn.id and
-              (position == ^candidate.position or item_key == ^candidate.item_key)
-          )
-          |> Ash.Query.lock(:for_update)
-          |> Ankole.Ash.read!()
+    with {:ok, candidates} <-
+           items
+           |> Enum.map(&turn_item_candidate(turn, &1))
+           |> Ankole.Attrs.collect_results() do
+      positions = Enum.map(candidates, & &1.position)
+      keys = Enum.map(candidates, & &1.item_key)
+
+      existing =
+        TurnItem
+        |> Ash.Query.filter(turn_id == ^turn.id and (position in ^positions or item_key in ^keys))
+        |> Ankole.Ash.read!()
+
+      initial =
+        {Map.new(existing, &{&1.position, &1}), Map.new(existing, &{&1.item_key, &1}), [], false}
+
+      candidates
+      |> Enum.reduce_while({:ok, initial}, fn candidate,
+                                              {:ok, {by_position, by_key, fresh, truncated}} ->
+        matches =
+          [by_position[candidate.position], by_key[candidate.item_key]]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.uniq()
 
         cond do
-          existing == [] ->
-            case Ankole.Ash.create(changeset) do
-              {:ok, _item} ->
-                {_messages, projection_truncated} = TurnItemProjection.project(candidate.item)
-                {:cont, {:ok, truncated or projection_truncated}}
+          matches == [] ->
+            {_messages, clipped?} = TurnItemProjection.project(candidate.item)
 
-              {:error, reason} ->
-                {:halt, {:error, reason}}
-            end
+            next =
+              {Map.put(by_position, candidate.position, candidate),
+               Map.put(by_key, candidate.item_key, candidate), [candidate | fresh],
+               truncated or clipped?}
 
-          Enum.any?(existing, &turn_item_equal?(&1, candidate)) and length(existing) == 1 ->
-            {:cont, {:ok, truncated}}
+            {:cont, {:ok, next}}
+
+          length(matches) == 1 and turn_item_equal?(hd(matches), candidate) ->
+            {:cont, {:ok, {by_position, by_key, fresh, truncated}}}
 
           true ->
             {:halt, {:error, :background_agent_job_turn_item_conflict}}
         end
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
+      end)
+      |> case do
+        {:ok, {_, _, fresh, truncated}} ->
+          inputs =
+            Enum.map(
+              Enum.reverse(fresh),
+              &Map.take(&1, [:turn_id, :position, :revision, :item_key, :item])
+            )
+
+          with {:ok, _items} <- Ankole.Ash.create_all(inputs, TurnItem, :append),
+               do: {:ok, truncated}
+
+        error ->
+          error
       end
-    end)
+    end
   end
 
   defp turn_item_candidate(%Turn{} = turn, %{} = entry) do
@@ -741,7 +749,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       })
 
     case Ash.Changeset.apply_attributes(changeset) do
-      {:ok, candidate} -> {:ok, candidate, changeset}
+      {:ok, candidate} -> {:ok, candidate}
       {:error, invalid} -> {:error, invalid}
     end
   end

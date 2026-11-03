@@ -40,6 +40,7 @@ export type ActionCardState = {
   card_id: string
   interaction_id?: string
   action_kind:
+    | 'brain.object.create'
     | 'pod.knowledge.save'
     | 'pod.page.set_sharing'
     | 'pod.page.delete'

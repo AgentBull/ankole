@@ -69,9 +69,14 @@ defmodule Ankole.Conversations.ActionCardsTest do
 
   test "external IM knowledge proposals direct the user to an authorized Pod owner", ctx do
     event = Ankole.SignalsFixtures.external_session_signal_fixture(ctx.agent.uid)
+    category = Ankole.BrainFixtures.category_fixture(ctx.alice.uid)
 
     {:ok, page} =
-      Pages.create(actor_fixture(ctx.alice), %{type: :knowledge, title: "External rule"})
+      Pages.create(actor_fixture(ctx.alice), %{
+        type: :knowledge,
+        parent_id: category.id,
+        title: "External rule"
+      })
 
     assert {:error, reason} =
              ActionCards.prepare_draft(
@@ -92,17 +97,54 @@ defmodule Ankole.Conversations.ActionCardsTest do
     assert {:ok, %{page: %{revision: 0}}} = Pages.get(actor_fixture(ctx.alice), page.id)
   end
 
+  test "a visible Brain category can receive an object after human approval", ctx do
+    category = Ankole.BrainFixtures.category_fixture(ctx.alice.uid)
+
+    message =
+      propose_native_card(ctx, "brain-create", %{
+        "action_kind" => "brain.object.create",
+        "summary" => "Create an approved note",
+        "node_id" => category.id,
+        "category" => "notes",
+        "title" => "Human-approved note",
+        "base_revision" => 0,
+        "markdown" => "Approved evidence"
+      })
+
+    card_id = message.rich_content["action_card"]["card_id"]
+
+    assert {:ok, _} =
+             Conversations.resolve_action_card(
+               actor_fixture(ctx.alice),
+               ctx.room_id,
+               card_id,
+               :confirm
+             )
+
+    [page] =
+      Enum.filter(
+        Ankole.Pod.Pages.Tree.list_children(category.id),
+        &(&1.title == "Human-approved note")
+      )
+
+    assert {:ok, %{page: %{type: :knowledge}, content: content}} =
+             Pages.get(actor_fixture(ctx.alice), page.id)
+
+    assert content.plain_text =~ "Approved evidence"
+  end
+
   for concurrent_edit? <- [false, true] do
     @tag concurrent_edit?: concurrent_edit?
     test "knowledge proposal commits body and metadata only at its captured revision (race=#{concurrent_edit?})",
          ctx do
       actor = actor_fixture(ctx.alice)
+      category = Ankole.BrainFixtures.category_fixture(ctx.alice.uid)
 
       {:ok, page} =
         Pages.create(actor, %{
           type: :knowledge,
           title: "Team rule",
-          private_owner_uid: ctx.alice.uid,
+          parent_id: category.id,
           xml: "<page><p>Original rule</p></page>",
           metadata: %{"summary" => "original"}
         })

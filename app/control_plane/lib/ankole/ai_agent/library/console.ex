@@ -77,14 +77,9 @@ defmodule Ankole.AIAgent.Library.Console do
            Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryCapabilitiesResponse do
       transaction?(false)
 
-      argument(:defaults_scope, :atom,
-        constraints: [one_of: [:global, :tenant]],
-        default: :tenant,
-        allow_nil?: false
-      )
-
       argument(:id, :string, allow_nil?: false)
       argument(:enabled, :boolean, allow_nil?: false)
+      argument(:base_revision, :integer, allow_nil?: false)
       run(__MODULE__.Actions)
     end
 
@@ -109,7 +104,7 @@ defmodule Ankole.AIAgent.Library.Console do
       transaction?(false)
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:id, :string, allow_nil?: false)
-      argument(:enabled, :boolean)
+      argument(:enabled, :boolean, allow_nil?: false)
       run(__MODULE__.Actions)
     end
 

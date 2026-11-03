@@ -1,13 +1,18 @@
 import { parse } from 'acorn'
 import { buildAppletWorkerBootstrap } from './applet_bootstrap.ts'
 import { CodeCache, type AppletCode } from './code_cache.ts'
+import { InvocationCapacity } from './capacity.ts'
 import { buildPtcRunnerModule, type ProgramRequest } from './ptc_bootstrap.ts'
 
 const token = Deno.env.get('ANKOLE_FUNCTION_RUNTIME_TOKEN')
 if (!token) throw new Error('ANKOLE_FUNCTION_RUNTIME_TOKEN is required')
-const capacity = Number(Deno.env.get('ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY') || 32)
+const appletCapacity = new InvocationCapacity(
+  24,
+  6,
+  1536,
+  Number(Deno.env.get('ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY')) || 32
+)
 const codeCache = new CodeCache()
-let active = 0
 const invocations = new Map<
   string,
   {
@@ -15,8 +20,44 @@ const invocations = new Map<
     release: (aborted?: boolean) => Promise<void>
     started: boolean
     worker?: ReturnType<typeof worker>
+    createdAt?: number
   }
 >()
+type WarmWorker = { instance: EdgeRuntime.UserWorker; memory: number; createdAt: number; idleAt: number }
+const warmWorkers = new Map<string, WarmWorker[]>()
+let warmHeapMb = 0
+function residentBytes() {
+  const status = Deno.readTextFileSync('/proc/self/status')
+  return Number(/^VmRSS:\s+(\d+)/m.exec(status)![1]) * 1024
+}
+async function evictWarmWorkers() {
+  for (const [key, entries] of warmWorkers) {
+    while (
+      entries.length &&
+      (appletCapacity.usedHeapMb + warmHeapMb > 1536 ||
+        Date.now() - entries[0].idleAt > 20000 ||
+        residentBytes() >= 1792 * 1024 * 1024)
+    ) {
+      const entry = entries.shift()!
+      warmHeapMb -= entry.memory
+      await entry.instance.retire()
+    }
+    if (!entries.length) warmWorkers.delete(key)
+  }
+}
+function takeWarmWorker(key: string, memory: number, timeout: number) {
+  const entries = warmWorkers.get(key)
+  const index =
+    entries?.findIndex(entry => entry.memory === memory && Date.now() - entry.createdAt + timeout < 290000) ?? -1
+  if (!entries || index < 0) return undefined
+  const entry = entries.splice(index, 1)[0]
+  warmHeapMb -= entry.memory
+  if (!entries.length) warmWorkers.delete(key)
+  return entry
+}
+setInterval(() => {
+  void evictWarmWorkers()
+}, 5000)
 let draining = false
 addEventListener('drain', () => {
   draining = true
@@ -80,17 +121,17 @@ async function worker(service: string, runId: string, module: string, options: R
   })
 }
 
-function forward(req: Request) {
+function forward(req: Request, body?: string) {
   const headers = new Headers(req.headers)
   headers.delete('authorization')
   headers.delete('content-length')
-  const forwarded = new Request(req.url, { method: req.method, headers })
+  const forwarded = new Request(req.url, { method: req.method, headers, body })
   EdgeRuntime.applySupabaseTag(req, forwarded)
   return forwarded
 }
 
-async function fetchOneShot(instance: Awaited<ReturnType<typeof worker>>, req: Request) {
-  const response = await instance.fetch(forward(req), { signal: req.signal })
+async function fetchOneShot(instance: Awaited<ReturnType<typeof worker>>, req: Request, body?: string) {
+  const response = await instance.fetch(forward(req, body), { signal: req.signal })
   const bytes = await response.arrayBuffer()
   return new Response(bytes, { status: response.status, headers: response.headers })
 }
@@ -116,33 +157,35 @@ Deno.serve(async (req: Request) => {
       await invocation?.release(url.searchParams.get('aborted') === '1')
       return new Response(null, { status: 204 })
     }
-    if (url.pathname !== '/v1/applet/invoke' && (draining || active >= capacity)) return json(503, 'runtime_busy')
+    if (draining) return json(503, 'runtime_busy')
     if (req.method === 'POST' && url.pathname === '/v1/applet/inspect') {
       const payload = await body(req)
       if (typeof payload.source !== 'string') return json(400, 'invalid_request')
       const env = codePayload({ source: payload.source, env: payload.env || {} }).env
-      active++
+      const releaseCapacity = appletCapacity.acquire('route', payload.memory_mb || 64)
+      if (!releaseCapacity) return json(503, 'runtime_busy')
+      await evictWarmWorkers()
+      let instance: Awaited<ReturnType<typeof worker>> | undefined
       try {
-        const instance = await worker(
-          'inspect',
-          crypto.randomUUID(),
-          buildAppletWorkerBootstrap(payload.source, true),
-          {
-            forceCreate: true,
-            context: { supervisor: { requestAbsentTimeoutMs: 0 } },
-            envVars: Object.entries(env),
-            permissions: { ...noPermissions, allow_read: ['/tmp'], allow_write: ['/tmp'], allow_env: [] },
-            memoryLimitMb: payload.memory_mb || 64,
-            workerTimeoutMs: payload.timeout_ms || 5000,
-            cpuTimeSoftLimitMs: payload.timeout_ms || 5000,
-            cpuTimeHardLimitMs: payload.timeout_ms || 5000
-          }
-        )
-        return await fetchOneShot(instance, req)
+        instance = await worker('inspect', crypto.randomUUID(), buildAppletWorkerBootstrap(payload.source, true), {
+          forceCreate: true,
+          context: { supervisor: { requestAbsentTimeoutMs: 0 } },
+          envVars: Object.entries(env),
+          permissions: { ...noPermissions, allow_read: ['/tmp'], allow_write: ['/tmp'], allow_env: [] },
+          memoryLimitMb: payload.memory_mb || 64,
+          workerTimeoutMs: payload.timeout_ms || 5000,
+          cpuTimeSoftLimitMs: payload.timeout_ms || 5000,
+          cpuTimeHardLimitMs: payload.timeout_ms || 5000
+        })
+        return await fetchOneShot(instance, req, JSON.stringify({ contexts: payload.contexts ?? [] }))
       } catch (error: any) {
         return json(422, 'invalid_applet_routes', String(error?.message || error))
       } finally {
-        active--
+        try {
+          await instance?.retire()
+        } finally {
+          releaseCapacity()
+        }
       }
     }
     if (req.method === 'POST' && url.pathname === '/v1/program/run') {
@@ -156,10 +199,13 @@ Deno.serve(async (req: Request) => {
       }
       const sourceFailure = validateProgramSource(payload)
       if (sourceFailure) return Response.json(sourceFailure)
-      active++
+      const releaseCapacity = appletCapacity.acquire('route', 256)
+      if (!releaseCapacity) return json(503, 'runtime_busy')
+      await evictWarmWorkers()
+      let instance: Awaited<ReturnType<typeof worker>> | undefined
       try {
         const timeout = payload.timeout_ms ?? 30000
-        const instance = await worker('ptc', crypto.randomUUID(), buildPtcRunnerModule(payload), {
+        instance = await worker('ptc', crypto.randomUUID(), buildPtcRunnerModule(payload), {
           forceCreate: true,
           context: { supervisor: { requestAbsentTimeoutMs: 0 } },
           memoryLimitMb: 256,
@@ -184,7 +230,11 @@ Deno.serve(async (req: Request) => {
           )
         )
       } finally {
-        active--
+        try {
+          await instance?.retire()
+        } finally {
+          releaseCapacity()
+        }
       }
     }
     if (req.method === 'GET' && url.pathname === '/v1/applet/invoke') {
@@ -192,21 +242,39 @@ Deno.serve(async (req: Request) => {
       const tenant = url.searchParams.get('tenant_id')
       const page = url.searchParams.get('page_id')
       const revision = url.searchParams.get('revision')
+      const lane = url.searchParams.get('lane') || 'route'
+      if (lane !== 'route' && lane !== 'action') return json(400, 'invalid_lane')
       if (!runId || !tenant || !page || !revision) return json(400, 'invalid_request')
       const timeout = Number(url.searchParams.get('timeout_ms')) || 60000
-      const poolKey = `${tenant}:${page}:${revision}`
+      const memory = Number(url.searchParams.get('memory_mb')) || (lane === 'action' ? 192 : 128)
+      const poolKey = `${lane}:${tenant}:${page}:${revision}`
       let lease = invocations.get(runId)
       if (!lease) {
-        if (draining || active >= capacity) return json(503, 'runtime_busy')
+        await evictWarmWorkers()
+        if (draining || residentBytes() >= 1792 * 1024 * 1024) return json(503, 'runtime_busy')
         const code = codeCache.get(url.searchParams.get('sha256') || '')
         if (!code) return json(428, 'applet_code_missing')
-        active++
+        const releaseCapacity = appletCapacity.acquire(lane, memory)
+        if (!releaseCapacity) return json(503, 'runtime_busy')
         let settlement: Promise<void> | undefined
         const release = (aborted = false) => {
           return (settlement ??= (async () => {
-            active--
             clearTimeout(timer)
-            if (aborted && lease?.worker) await (await lease.worker).retire()
+            try {
+              if (lease?.worker) {
+                const instance = await lease.worker
+                if (aborted || draining) await instance.retire()
+                else {
+                  const entries = warmWorkers.get(poolKey) ?? []
+                  entries.push({ instance, memory, createdAt: lease.createdAt!, idleAt: Date.now() })
+                  warmWorkers.set(poolKey, entries)
+                  warmHeapMb += memory
+                }
+              }
+            } finally {
+              releaseCapacity()
+              await evictWarmWorkers()
+            }
           })().finally(() => invocations.delete(runId)))
         }
         const timer = setTimeout(() => {
@@ -221,15 +289,27 @@ Deno.serve(async (req: Request) => {
       const { code, release } = lease
       let instance: Awaited<ReturnType<typeof worker>> | undefined
       try {
-        lease.worker = worker('applet', poolKey, buildAppletWorkerBootstrap(code.source), {
-          poolKey,
-          envVars: Object.entries(code.env),
-          memoryLimitMb: Number(url.searchParams.get('memory_mb')) || 128,
-          workerTimeoutMs: 300000,
-          cpuTimeSoftLimitMs: Math.min(timeout, 10000),
-          cpuTimeHardLimitMs: Math.min(timeout, 15000),
-          permissions: { ...noPermissions, allow_net: [], allow_read: ['/tmp'], allow_write: ['/tmp'], allow_env: [] }
-        })
+        const cached = takeWarmWorker(poolKey, memory, timeout)
+        await evictWarmWorkers()
+        lease.createdAt = cached?.createdAt ?? Date.now()
+        lease.worker = cached
+          ? Promise.resolve(cached.instance)
+          : worker('applet', poolKey, buildAppletWorkerBootstrap(code.source), {
+              poolKey,
+              forceCreate: true,
+              envVars: Object.entries(code.env),
+              memoryLimitMb: memory,
+              workerTimeoutMs: 300000,
+              cpuTimeSoftLimitMs: Math.min(timeout, 10000),
+              cpuTimeHardLimitMs: Math.min(timeout, 15000),
+              permissions: {
+                ...noPermissions,
+                allow_net: [],
+                allow_read: ['/tmp'],
+                allow_write: ['/tmp'],
+                allow_env: []
+              }
+            })
         instance = await lease.worker
         const response = await instance.fetch(forward(req))
         if (response.status !== 101) {

@@ -11,7 +11,7 @@ defmodule Ankole.Conversations.Delivery.Supervisor do
         {Task.Supervisor, name: Ankole.Conversations.Delivery.PreviewTasks},
         {DynamicSupervisor, name: Ankole.Conversations.Delivery.Previews, strategy: :one_for_one}
       ],
-      strategy: :one_for_all
+      strategy: :one_for_one
     )
   end
 end

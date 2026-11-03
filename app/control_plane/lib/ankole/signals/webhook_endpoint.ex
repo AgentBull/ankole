@@ -30,8 +30,7 @@ defmodule Ankole.Signals.WebhookEndpoint do
     foreign_key_names([
       {:agent_uid, "signal_webhook_endpoints_agent_uid_fkey"},
       {:source_signal_id, "signal_webhook_endpoints_source_signal_id_fkey"},
-      {:conversation_id, "signal_webhook_endpoints_conversation_id_fkey"},
-      {:automation_job_id, "signal_webhook_endpoints_automation_job_id_fkey"}
+      {:conversation_id, "signal_webhook_endpoints_conversation_id_fkey"}
     ])
 
     unique_index_names([{[:token_digest], "signal_webhook_endpoints_token_digest_index"}])
@@ -84,7 +83,6 @@ defmodule Ankole.Signals.WebhookEndpoint do
     attribute(:expires_at, :utc_datetime_usec, allow_nil?: false, public?: true)
     attribute(:fired_at, :utc_datetime_usec, public?: true)
     attribute(:cancelled_at, :utc_datetime_usec, public?: true)
-    attribute(:automation_job_id, :integer, public?: true)
     timestamps(type: :utc_datetime_usec, public?: true)
   end
 
@@ -106,7 +104,6 @@ defmodule Ankole.Signals.WebhookEndpoint do
       :event_format,
       :provider_message_id,
       :source_provenance,
-      :automation_job_id,
       :label,
       :mode,
       :status,
@@ -161,8 +158,7 @@ defmodule Ankole.Signals.WebhookEndpoint do
         :source_provenance,
         :label,
         :mode,
-        :expires_at,
-        :automation_job_id
+        :expires_at
       ])
 
       change(transition_state(:active), where: [attribute_equals(:mode, "standing")])

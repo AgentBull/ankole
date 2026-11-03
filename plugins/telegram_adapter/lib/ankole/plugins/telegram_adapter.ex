@@ -79,11 +79,13 @@ defmodule Ankole.Plugins.TelegramAdapter do
   @impl true
   def children do
     [
-      {Registry, keys: :unique, name: Ankole.Plugins.TelegramAdapter.ConnectionRegistry},
-      {Task.Supervisor, name: Ankole.Plugins.TelegramAdapter.PollTaskSupervisor},
-      {DynamicSupervisor,
-       name: Ankole.Plugins.TelegramAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
-      ConnectionReconciler
+      Ankole.Plugins.ConnectionLifecycle.supervisor_spec(__MODULE__, [
+        {Registry, keys: :unique, name: Ankole.Plugins.TelegramAdapter.ConnectionRegistry},
+        {Task.Supervisor, name: Ankole.Plugins.TelegramAdapter.PollTaskSupervisor},
+        {DynamicSupervisor,
+         name: Ankole.Plugins.TelegramAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
+        ConnectionReconciler
+      ])
     ]
   end
 end

@@ -189,7 +189,9 @@ defmodule Ankole.FeaturesTest do
 
   test "transaction evaluation reads PostgreSQL and a rollback leaves the public snapshot unchanged" do
     assert {:ok, true} =
-             Repo.transact(fn -> {:ok, Features.boolean_value_in_tx("fixture.server")} end)
+             Repo.transact(fn ->
+               {:ok, Features.evaluate_details_in_tx("fixture.server").value}
+             end)
 
     refute Features.boolean_value("fixture.experiment")
 
@@ -203,7 +205,7 @@ defmodule Ankole.FeaturesTest do
                  })
 
                refute Features.boolean_value("fixture.experiment")
-               assert Features.boolean_value_in_tx("fixture.experiment")
+               assert Features.evaluate_details_in_tx("fixture.experiment").value
                {:error, :fixture_rollback}
              end)
 

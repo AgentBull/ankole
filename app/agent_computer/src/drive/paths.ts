@@ -31,6 +31,9 @@ export async function resolveScopedDrivePath(
       if (!view.chat) throw new Error('This execution has no ChatDrive')
       return join(view.chat.path, path.slice('/drive/ChatDrive'.length))
     }
+    if (['Skills', 'AGENTS.md', 'DESIGN.md'].some(name => pathIsWithin(`/drive/${name}`, path))) {
+      return join(view.library.path, path.slice('/drive'.length))
+    }
     return join(view.scope.path, path.slice('/drive'.length))
   }
   const operation = async () => {
@@ -68,7 +71,7 @@ export async function scopedPath(
   const target = await resolveScopedDrivePath(view, input, signal)
   const roots = [
     await driveDeadline(realpath(home), signal),
-    ...(view ? [view.scope.path, view.recovery, ...(view.chat ? [view.chat.path] : [])] : [])
+    ...(view ? [view.scope.path, view.library.path, view.recovery, ...(view.chat ? [view.chat.path] : [])] : [])
   ]
   if (!roots.some(root => pathIsWithin(root, target))) {
     throw new Error(`Path is outside the agent home and this execution's Drive: ${input}`)
@@ -80,6 +83,7 @@ export function visibleDrivePath(view: DriveView | undefined, path: string): str
   if (!view) return path
   for (const [host, visible] of [
     [view.chat?.path, '/drive/ChatDrive'],
+    [view.library.path, '/drive'],
     [view.scope.path, '/drive'],
     [view.recovery, '/drive-recovery']
   ]) {

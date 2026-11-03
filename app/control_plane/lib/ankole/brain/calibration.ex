@@ -72,6 +72,7 @@ defmodule Ankole.Brain.Calibration do
       |> after_claim(after_id)
       |> Ash.Query.sort(id: :asc)
       |> Ash.Query.limit(@grade_batch_limit)
+      |> Ash.Query.deselect(:embedding)
       |> Ankole.Ash.read!()
 
     report =
@@ -175,6 +176,7 @@ defmodule Ankole.Brain.Calibration do
           )
           |> Ash.Query.sort(valid_from: :desc, id: :desc)
           |> Ash.Query.limit(10)
+          |> Ash.Query.deselect(:embedding)
           |> Ankole.Ash.read!()
       end
 
@@ -317,6 +319,7 @@ defmodule Ankole.Brain.Calibration do
       |> Ash.Query.filter(
         live_parent? and claim_type == :take and resolved_quality in ["correct", "incorrect"]
       )
+      |> Ash.Query.select([:holder, :weight, :resolved_outcome])
       |> Ankole.Ash.read!()
 
     domain_assignments =

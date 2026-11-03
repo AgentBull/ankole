@@ -122,6 +122,7 @@ export class MentionStore {
             type: candidate.type,
             title: candidate.title,
             icon: candidate.icon ?? null,
+            system_key: candidate.system_key,
             private_owner_uid: candidate.private_owner_uid ?? null,
             ancestors: candidate.ancestors,
             updated_at: candidate.updated_at,

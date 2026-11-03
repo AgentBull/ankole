@@ -11,7 +11,8 @@ import {
   resolvePodPagePath,
   subscribePageTransliteration
 } from '../common/pod-url'
-import { contentKeys, type PageDetail } from './content-api'
+import { cachedPages, contentKeys, type PageDetail } from './content-api'
+import { pageLocation, pageAncestors } from './state/page-location'
 import { pageMetadata, type PageMetadata } from './state/page-metadata'
 
 type PageDisplay = { id: string; title?: string | null; icon?: string | null }
@@ -61,6 +62,15 @@ export function knownPageTitle(client: QueryClient, id: string): string | undefi
 }
 
 export function pageHrefFor(client: QueryClient | undefined, id: string, title?: string | null): string {
+  const detail = client?.getQueryData<PageDetail>(contentKeys.page(id))
+  const pages = client ? cachedPages(client) : []
+  const page = detail?.page ?? pages.find(page => page.id === id)
+  if (page) {
+    return pageLocation(
+      { ...page, title: title ?? page.title },
+      detail?.ancestors ?? pageAncestors(page, new Map(pages.map(page => [page.id, page])))
+    )
+  }
   return podPagePath(id, title ?? (client ? knownPageTitle(client, id) : undefined))
 }
 
@@ -79,8 +89,12 @@ export function usePageHref(): (id: string, title?: string | null) => string {
 export function useResolvePageHref(): (id: string, title?: string | null) => Promise<string> {
   const client = useContext(QueryClientContext)
   return useCallback(
-    (id: string, title?: string | null) =>
-      resolvePodPagePath(id, title ?? (client ? knownPageTitle(client, id) : undefined)),
+    async (id: string, title?: string | null) => {
+      const href = pageHrefFor(client, id, title)
+      return href.startsWith('/meta/')
+        ? href
+        : resolvePodPagePath(id, title ?? (client ? knownPageTitle(client, id) : undefined))
+    },
     [client]
   )
 }

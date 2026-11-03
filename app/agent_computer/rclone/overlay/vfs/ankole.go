@@ -75,7 +75,13 @@ func (vfs *VFS) AnkoleDirty(name string) bool { return vfs.cache != nil && vfs.c
 
 func (vfs *VFS) AnkoleRefreshExport(node Node) error {
 	file, ok := node.(*File)
-	if !ok || !strings.Contains(file.Path(), "._abase/") || !strings.Contains(file.Path(), "/.export/") {
+	if !ok {
+		return nil
+	}
+	name := file.Path()
+	liveContract := vfs.AnkoleReadOnly(name) && (name == "AGENTS.md" || name == "DESIGN.md")
+	liveExport := strings.Contains(name, "._abase/") && strings.Contains(name, "/.export/")
+	if !liveContract && !liveExport {
 		return nil
 	}
 	remote, ok := vfs.f.(interface {
@@ -104,9 +110,6 @@ func (d *Dir) ankoleStat(leaf string) (Node, error) {
 		return nil, ENOENT
 	}
 	name := path.Join(d.path, leaf)
-	if !strings.Contains(name, "._abase/") && !strings.HasSuffix(name, "._asub") {
-		return nil, ENOENT
-	}
 	if until, ok := d.vfs.ankoleNegative.Load(name); ok && time.Now().Before(until.(time.Time)) {
 		return nil, ENOENT
 	}
@@ -139,7 +142,7 @@ func (vfs *VFS) AnkoleCopyFileRange(ctx context.Context, from, to Handle, length
 		return 0, syscall.EOPNOTSUPP
 	}
 	name := target.Node().Path()
-	for _, suffix := range []string{"._adoc.md", "._awiki.md", "._asub", "._abase", "._aapp"} {
+	for _, suffix := range []string{"._adoc.md", "._awiki.md", "._abase", "._aapp"} {
 		if strings.HasSuffix(name, suffix) {
 			return 0, syscall.EOPNOTSUPP
 		}
@@ -176,4 +179,29 @@ func (vfs *VFS) AnkoleCopyFileRange(ctx context.Context, from, to Handle, length
 	target.file.setObject(copied)
 	target.updateSize()
 	return uint32(copied.Size()), nil
+}
+
+// Metadata and write checks share the same immutable Meta Ankole roots.
+func (vfs *VFS) AnkoleReadOnly(name string) bool {
+	remote, ok := vfs.f.(interface{ AnkoleMetaRoots() bool })
+	if !ok || !remote.AnkoleMetaRoots() {
+		return false
+	}
+	root := strings.Split(strings.TrimPrefix(name, "/"), "/")[0]
+	return root == "Brain" || root == "Skills" || root == "AGENTS.md" || root == "DESIGN.md"
+}
+
+func (vfs *VFS) AnkoleMode(node Node) uint32 {
+	if !vfs.AnkoleReadOnly(node.Path()) {
+		return 0
+	}
+	if node.IsDir() {
+		return 0555
+	}
+	if entry, ok := node.DirEntry().(interface{ AnkoleMode() uint32 }); ok {
+		if entry.AnkoleMode()&0111 != 0 {
+			return 0555
+		}
+	}
+	return 0444
 }

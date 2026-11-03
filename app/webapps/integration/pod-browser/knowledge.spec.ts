@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { stringify } from 'yaml'
 import { request, requestWithSharingVersion, state } from './fixtures'
 import { pageRoute } from './routes'
 
@@ -12,11 +13,18 @@ const editor = (page: Page) => knowledge(page).locator('.editor-content[contente
 const reader = (page: Page) => knowledge(page).locator('[data-knowledge-reader]')
 const read = (page: Page, id: string) => request<Knowledge>(page, `/pages/${id}`)
 
+async function brainCategory(page: Page) {
+  const graph = await request<{ categories: { id: string; name: string }[] }>(page, '/meta/brain')
+  const category = graph.categories.find(category => category.name === 'notes')
+  if (!category) throw new Error('The fixture must install the notes ontology category')
+  return category.id
+}
+
 async function create(page: Page, metadata: Record<string, unknown>, parent_id?: string) {
   return request<Knowledge>(page, '/pages', 'POST', {
     type: 'knowledge',
     title: 'Knowledge browser test',
-    parent_id,
+    parent_id: parent_id ?? (await brainCategory(page)),
     xml: '<page><p>Original body</p></page>',
     metadata
   })
@@ -41,6 +49,7 @@ test('knowledge reading has no editor canvas and preserves rich content across e
     const created = await request<Knowledge>(page, '/pages', 'POST', {
       type: 'knowledge',
       title: 'Reader acceptance',
+      parent_id: await brainCategory(page),
       xml: '<page/>',
       metadata: { summary: 'Read first' }
     })
@@ -136,7 +145,9 @@ test('knowledge saves body and nested YAML together, retains each version, and r
   let id: string | undefined
   try {
     await page.goto(state.base_url + pageRoute(state.report_id))
-    id = (await create(page, { colors: { primary: '#123456' }, tags: ['brand'] })).page.id
+    const created = await create(page, { colors: { primary: '#123456' }, tags: ['brand'] })
+    id = created.page.id
+    const firstMetadata = { ...created.page.metadata, colors: { primary: '#abcdef' }, tags: ['brand', 'shared'] }
     await page.goto(state.base_url + pageRoute(id))
     await expect(reader(page)).toContainText('Original body')
     await expect(knowledge(page).locator('.editor-view')).toHaveCount(0)
@@ -147,9 +158,9 @@ test('knowledge saves body and nested YAML together, retains each version, and r
     await editor(page).fill('Saved body')
     await knowledge(page).getByRole('button', { name: 'YAML', exact: true }).click()
     const yaml = page.getByRole('dialog', { name: '属性 · YAML' })
-    await yaml.getByRole('textbox').fill("colors:\n  primary: '#abcdef'\ntags: [brand, shared]\n")
+    await yaml.getByRole('textbox').fill(stringify(firstMetadata))
     await yaml.getByRole('button', { name: '应用到草稿' }).click()
-    expect((await read(page, id)).page.metadata).toEqual({ colors: { primary: '#123456' }, tags: ['brand'] })
+    expect((await read(page, id)).page.metadata).toEqual(created.page.metadata)
     expect((await save(page, id)).ok()).toBe(true)
     await expect(knowledge(page).getByRole('button', { name: '编辑', exact: true })).toBeVisible()
     expect(await read(page, id)).toMatchObject({
@@ -181,9 +192,7 @@ test('knowledge saves body and nested YAML together, retains each version, and r
       .getByRole('dialog', { name: '恢复此版本', exact: true })
       .getByRole('button', { name: '恢复此版本', exact: true })
       .click()
-    await expect
-      .poll(async () => (await read(page, id!)).page.metadata)
-      .toEqual({ colors: { primary: '#abcdef' }, tags: ['brand', 'shared'] })
+    await expect.poll(async () => (await read(page, id!)).page.metadata).toEqual(firstMetadata)
     await page.reload()
     await expect(knowledge(page)).toContainText('#abcdef')
     await expect(knowledge(page).locator('.editor-view')).toHaveCount(0)
@@ -233,7 +242,7 @@ test('folder table filters and sorts knowledge business properties', async ({ br
   let folderID: string | undefined
   try {
     await page.goto(state.base_url + pageRoute(state.report_id))
-    folderID = (await request<Knowledge>(page, '/pages', 'POST', { type: 'folder', title: 'Knowledge table' })).page.id
+    folderID = (await create(page, { summary: 'Knowledge table' })).page.id
     await create(page, { priority: 10, team: 'sales' }, folderID)
     await create(page, { priority: 2, team: 'engineering' }, folderID)
     await page.goto(state.base_url + pageRoute(folderID))
@@ -326,9 +335,14 @@ test('a manager can enable learning for existing folder content and see its inhe
   let id: string | undefined
   try {
     await page.goto(state.base_url + pageRoute(state.report_id))
-    id = (await request<Knowledge>(page, '/pages', 'POST', { type: 'folder', title: '采购资料' })).page.id
-    const child = await request<Knowledge>(page, '/pages', 'POST', { type: 'folder', parent_id: id, title: '供应商' })
-    await create(page, { summary: '供应商复盘' }, child.page.id)
+    id = (await request<Knowledge>(page, '/pages', 'POST', { type: 'doc', title: '采购资料' })).page.id
+    const child = await request<Knowledge>(page, '/pages', 'POST', { type: 'doc', parent_id: id, title: '供应商' })
+    await request(page, '/pages', 'POST', {
+      type: 'doc',
+      parent_id: child.page.id,
+      title: '供应商复盘',
+      xml: '<page><p>Supplier review</p></page>'
+    })
     await page.goto(state.base_url + pageRoute(id))
     const learning = page.getByRole('switch', { name: '学习业务事实', exact: true })
     await expect(learning).not.toBeChecked()
@@ -342,7 +356,7 @@ test('a manager can enable learning for existing folder content and see its inhe
     await page.goto(state.base_url + pageRoute(child.page.id))
     await expect(learning).toBeChecked()
     await expect(learning).toBeDisabled()
-    await expect(page.getByText('上级文件夹已开启学习，设置适用于此文件夹。')).toBeVisible()
+    await expect(page.getByText('上级页面已开启学习，设置适用于此页面。')).toBeVisible()
 
     await page.goto(state.base_url + pageRoute(id))
     await learning.click()
@@ -403,5 +417,83 @@ test('a colleague can correct shared knowledge without seeing the restricted pur
     if (id) await request(owner, `/pages/${id}`, 'DELETE')
     await colleagueContext.close()
     await ownerContext.close()
+  }
+})
+
+test('knowledge recovers unsaved XML and invalid properties together after reload', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto(state.base_url + pageRoute(state.report_id))
+    id = (await create(page, { summary: 'Original metadata' })).page.id
+    await page.goto(state.base_url + pageRoute(id))
+    await knowledge(page).getByRole('button', { name: '编辑', exact: true }).click()
+    await editor(page).fill('Recovered body')
+    await knowledge(page)
+      .getByRole('textbox', { name: /summary.*的值/ })
+      .fill('[')
+    await expect(knowledge(page).getByRole('button', { name: '保存', exact: true })).toBeDisabled()
+    page.once('dialog', dialog => dialog.accept())
+    await page.reload()
+    await expect(editor(page)).toContainText('Recovered body')
+    await expect(knowledge(page).getByRole('textbox', { name: /summary.*的值/ })).toHaveValue('[')
+    await expect(knowledge(page).getByRole('button', { name: '保存', exact: true })).toBeDisabled()
+    expect(await read(page, id)).toMatchObject({
+      page: { revision: 0, metadata: { summary: 'Original metadata' } },
+      content: { content: '<page><p>Original body</p></page>' }
+    })
+    await knowledge(page)
+      .getByRole('textbox', { name: /summary.*的值/ })
+      .fill('Recovered metadata')
+    expect((await save(page, id)).ok()).toBe(true)
+    await expect(knowledge(page).getByRole('button', { name: '编辑', exact: true })).toBeVisible()
+    expect(await read(page, id)).toMatchObject({
+      page: { metadata: { summary: 'Recovered metadata' } },
+      content: { content: '<page><p>Recovered body</p></page>' }
+    })
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
+test('open metadata references resolve Page titles while preserving additional business fields', async ({
+  browser
+}) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  const created: string[] = []
+  try {
+    await page.goto(state.base_url + pageRoute(state.report_id))
+    const target = await create(page, {})
+    created.push(target.page.id)
+    await request(page, `/pages/${target.page.id}`, 'PATCH', {
+      title: 'Referenced business object',
+      expected_title: 'Knowledge browser test'
+    })
+    const metadata = {
+      new_business_role: { page_id: target.page.id, confidence: 0.75, details: { flags: [true, null, 9] } },
+      literal: '2026-11-03'
+    }
+    const source = await create(page, metadata)
+    expect(source.page.metadata).toMatchObject(metadata)
+    created.push(source.page.id)
+    await page.goto(state.base_url + pageRoute(source.page.id))
+    const link = knowledge(page).locator('a.pod-mention-page').filter({ hasText: 'Referenced business object' })
+    await expect(link).toBeVisible()
+    await expect(knowledge(page)).toContainText('confidence: 0.75')
+    await knowledge(page).getByRole('button', { name: '编辑', exact: true }).click()
+    await editor(page).fill('Business body')
+    expect((await save(page, source.page.id)).ok()).toBe(true)
+    expect((await read(page, source.page.id)).page.metadata).toEqual(source.page.metadata)
+    await expect(link).toBeVisible()
+    await link.click()
+    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue('Referenced business object')
+  } finally {
+    for (const id of created.reverse()) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
   }
 })

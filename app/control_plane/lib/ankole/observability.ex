@@ -82,6 +82,8 @@ defmodule Ankole.Observability do
       do:
         GenServer.call(__MODULE__, {:configuration_status, config_fingerprint(runtime_config())}),
       else: "unknown"
+  catch
+    :exit, _ -> "unknown"
   end
 
   defp config_fingerprint(config), do: :crypto.hash(:sha256, :erlang.term_to_binary(config))

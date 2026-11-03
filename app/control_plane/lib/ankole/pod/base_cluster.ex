@@ -38,6 +38,12 @@ defmodule Ankole.Pod.BaseCluster do
     if missing != [], do: raise("BASE_DB_URLS omits assigned shards: #{inspect(missing)}")
 
     initialize_shards!(shards, collation)
+    [[provider, collate, ctype, _locale]] = collation
+
+    :persistent_term.put({__MODULE__, :query_capabilities}, %{
+      text_contains_ascii: provider == "c" and ctype in ["C", "POSIX"],
+      jsonb_compare: provider == "c" and collate in ["C", "POSIX", "C.UTF-8", "C.utf8"]
+    })
 
     children =
       for shard <- shards do
@@ -56,6 +62,8 @@ defmodule Ankole.Pod.BaseCluster do
 
     Supervisor.init(children, strategy: :one_for_one)
   end
+
+  def query_capabilities, do: :persistent_term.get({__MODULE__, :query_capabilities})
 
   defp initialize_shards!([], _collation), do: :ok
 

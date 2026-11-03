@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Documents.Insights do
   @moduledoc "Document readership and daily activity, committed alongside their owning operation."
   require Ash.Query
   alias Ankole.{AuthZ, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{PageDailyActivity, Pages, PageUserState, Serialization}
 
   @session_seconds 300

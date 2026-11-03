@@ -121,7 +121,6 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     dispatch!(job)
     waiting = wait_job!(job.id, :waiting_on_user)
     assert is_binary(waiting.runtime_thread_id)
-    assert waiting.metadata["legacy_thread_replay"] != true
     assert waiting.workspace_owner_job_id == job.id
     path = "/workspace/jobs/#{job.id}/state.txt"
     assert DockerWorker.exec!(ctx.container, ["cat", path]) == "JOB_FILE_BEFORE"

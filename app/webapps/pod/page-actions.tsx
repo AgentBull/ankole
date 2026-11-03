@@ -1,4 +1,4 @@
-import { canCreateChild } from './state/page-location'
+import { pageDomain, pageLocation, canCreateChild, canRenamePage, canTrashPage } from './state/page-location'
 import { usePageMetadata } from './use-page-metadata'
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
@@ -26,7 +26,8 @@ import {
 import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import type { PageMove as PodPageMove } from './content-api'
-import { podLocation, podPagePath, podPageRouteID } from '../common/pod-url'
+import { podLocation, podPageRouteID } from '../common/pod-url'
+import { linkTarget } from '../common/router'
 import { requestErrorMessage } from '../common/request-errors'
 import { cachedPages, contentKeys, pageAPI, type Page, type PageDetail } from './content-api'
 import { useContent } from './content-context'
@@ -93,10 +94,12 @@ export function usePageTrash(onRemoved?: () => void) {
     mutationFn: (page: Page) => pageAPI.remove(page.id),
     onSuccess: (result, page) => {
       onRemoved?.()
+      const ancestors = client.getQueryData<PageDetail>(contentKeys.page(page.id))?.ancestors ?? []
+      const domain = pageDomain(page, ancestors)
       const parent =
         page.parent_id &&
         (client.getQueryData<PageDetail>(contentKeys.page(page.parent_id))?.page ??
-          cachedPages(client).find(candidate => candidate.id === page.parent_id))
+          [...cachedPages(client), ...ancestors].find(candidate => candidate.id === page.parent_id))
       const rootScope = (['private', 'space'] as const).find(scope =>
         client
           .getQueryData<InfiniteData<PodPageChildrenResponse>>(contentKeys.children(scope))
@@ -105,9 +108,11 @@ export function usePageTrash(onRemoved?: () => void) {
       pageRemoved(client, page)
       if (podPageRouteID(pageID) === page.id) {
         const destination = parent
-          ? podPagePath(parent.id, parent.title)
-          : podLocation(`/content/${rootScope ?? (page.private_owner_uid ? 'private' : 'space')}`).pathname
-        void navigate({ to: destination })
+          ? pageLocation(parent, ancestors)
+          : domain === 'brain'
+            ? '/meta/brain'
+            : podLocation(`/content/${rootScope ?? (page.private_owner_uid ? 'private' : 'space')}`).pathname
+        void navigate(linkTarget(destination))
       }
       const count = result.descendant_count
       toast.success(
@@ -196,9 +201,8 @@ export function PageMenuItems({
   const { t } = useTranslation()
   const { pageHref } = useContent()
   const copyLink = useCopyPageLink(page.id, page.title)
-  const canEdit = page.actions?.includes('node_edit') === true
-  const canTrash =
-    page.actions?.includes(page.type === 'file' || page.type === 'folder' ? 'node_edit' : 'node_manage') === true
+  const canRename = canRenamePage(page)
+  const canTrash = canTrashPage(page)
   const canMove = canMovePage(page)
   const up = canMove ? stepRequest(pages, page, -1) : null
   const down = canMove ? stepRequest(pages, page, 1) : null
@@ -216,30 +220,39 @@ export function PageMenuItems({
         {favorited ? <RiStarFill aria-hidden /> : <RiStarLine aria-hidden />}
         {favorited ? t('pod.sidebar.remove_favorite') : t('pod.sidebar.add_favorite')}
       </DropdownMenuItem>
-      {canCreateChild(page) && <CreatePageSubmenu create={createSubpage(page.id)} />}
-      {canMove && (
+      {canCreateChild(page) && (
+        <CreatePageSubmenu
+          create={createSubpage(page.id)}
+          types={page.type === 'knowledge' ? ['knowledge', 'file'] : undefined}
+        />
+      )}
+      {(canRename || canMove) && (
         <>
           <DropdownMenuSeparator />
-          {canEdit && (
-            <>
-              <DropdownMenuItem onClick={onRename}>
-                <RiPencilLine aria-hidden />
-                {t('pod.sidebar.rename')}
-              </DropdownMenuItem>
-            </>
+          {canRename && (
+            <DropdownMenuItem onClick={onRename}>
+              <RiPencilLine aria-hidden />
+              {t('pod.sidebar.rename')}
+            </DropdownMenuItem>
           )}
-          <DropdownMenuItem disabled={!up} onClick={() => up && move(page, up)}>
-            <RiArrowUpLine aria-hidden />
-            {t('pod.sidebar.move_up')}
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={!down} onClick={() => down && move(page, down)}>
-            <RiArrowDownLine aria-hidden />
-            {t('pod.sidebar.move_down')}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onMoveTo}>
-            <RiFolderTransferLine aria-hidden />
-            {t('pod.sidebar.move_to')}
-          </DropdownMenuItem>
+          {up && (
+            <DropdownMenuItem onClick={() => move(page, up)}>
+              <RiArrowUpLine aria-hidden />
+              {t('pod.sidebar.move_up')}
+            </DropdownMenuItem>
+          )}
+          {down && (
+            <DropdownMenuItem onClick={() => move(page, down)}>
+              <RiArrowDownLine aria-hidden />
+              {t('pod.sidebar.move_down')}
+            </DropdownMenuItem>
+          )}
+          {canMove && (
+            <DropdownMenuItem onClick={onMoveTo}>
+              <RiFolderTransferLine aria-hidden />
+              {t('pod.sidebar.move_to')}
+            </DropdownMenuItem>
+          )}
         </>
       )}
       {canTrash && (

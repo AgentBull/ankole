@@ -542,14 +542,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
 
   defp bearer_value(_credential), do: nil
 
-  defp atomize_keys(map) when is_map(map) do
-    Map.new(map, fn
-      {key, value} when is_binary(key) -> {String.to_atom(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
-
-  defp atomize_keys(_value), do: %{}
+  defp atomize_keys(value), do: Ankole.Attrs.existing_atom_keys(value)
 
   defp map_get(map, key) when is_map(map) do
     Ankole.Attrs.get_truthy(map, key)

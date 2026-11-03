@@ -22,10 +22,15 @@ defmodule Ankole.Pod.Applets.Invocation do
   end
 
   def await(task) do
+    {_execution, outcome} = await_execution(task)
+    {:ok, outcome}
+  end
+
+  def await_execution(task) do
     try do
-      {:ok, Task.await(task, :infinity)}
+      Task.await(task, :infinity)
     catch
-      :exit, _ -> {:error, :handler_error}
+      :exit, _ -> {:aborted, failed()}
     end
   end
 
@@ -38,7 +43,7 @@ defmodule Ankole.Pod.Applets.Invocation do
     Process.flag(:trap_exit, true)
     monitor = Process.monitor(owner)
     started = System.monotonic_time(:millisecond)
-    deadline = started + Keyword.get(limits, :timeout_ms, 60_000)
+    deadline = Keyword.get(limits, :deadline, started + Keyword.get(limits, :timeout_ms, 60_000))
 
     {:ok, handle, run_id} = AppletClient.start(source, context, limits, deadline)
 
@@ -47,14 +52,17 @@ defmodule Ankole.Pod.Applets.Invocation do
       run_id: run_id,
       owner_monitor: monitor,
       client_monitor: Process.monitor(handle),
-      context: context,
+      context:
+        context
+        |> Map.put("deadline", deadline)
+        |> Map.put(:mcp_tools, :ets.new(__MODULE__, [:set, :public])),
       authority: authority,
       tasks: %{},
       deadline: deadline
     }
 
     try do
-      outcome = state |> receive_loop() |> normalize_error()
+      outcome = receive_loop(state)
       finish_outcome(context, started, outcome)
     after
       AppletClient.cancel(handle)
@@ -63,12 +71,16 @@ defmodule Ankole.Pod.Applets.Invocation do
     end
   end
 
-  defp finish_outcome(context, started, outcome) do
+  defp finish_outcome(context, started, {execution, outcome}) do
+    outcome = normalize_error(outcome)
     log_outcome(context, started, outcome)
 
-    if context["principal"]["kind"] == "agent",
-      do: outcome,
-      else: Map.drop(outcome, ["logs", "debug"])
+    outcome =
+      if context["principal"]["kind"] == "agent",
+        do: outcome,
+        else: Map.drop(outcome, ["logs", "debug"])
+
+    {execution, outcome}
   end
 
   defp normalize_error(%{"status" => status, "body" => %{"error" => error}} = outcome)
@@ -116,38 +128,40 @@ defmodule Ankole.Pod.Applets.Invocation do
 
       {:DOWN, ^client_monitor, :process, _, _} ->
         stop_tasks(tasks)
-        failed()
+        {:aborted, failed()}
 
-      {:EXIT, _, _} ->
-        receive_loop(state)
+      {:EXIT, pid, reason} ->
+        if Enum.any?(tasks, fn {_, {task, _}} -> task.pid == pid end) or reason == :normal do
+          receive_loop(state)
+        else
+          cancel_invocation(state)
+          exit(reason)
+        end
 
       {:DOWN, ref, :process, _, _} when is_map_key(tasks, ref) ->
         {_task, call_id} = Map.fetch!(tasks, ref)
         AppletClient.reply(handle, call_id, Capabilities.error(:handler_error))
         receive_loop(%{state | tasks: Map.delete(tasks, ref)})
 
-      {:applet_runtime, ^run_id, :done, outcome} ->
+      {:applet_runtime, ^run_id, :done, {execution, outcome}} ->
         stop_tasks(tasks)
-
-        case outcome do
-          %{"status" => _} -> outcome
-          _ -> failed()
-        end
+        {execution, outcome}
     after
       max(0, state.deadline - System.monotonic_time(:millisecond)) ->
         cancel_invocation(state)
 
-        %{
-          "status" => 504,
-          "body" => %{
-            "error" => %{
-              "code" => "handler_timeout",
-              "message" => "Applet invocation timed out",
-              "details" => nil
-            }
-          },
-          "logs" => []
-        }
+        {:aborted,
+         %{
+           "status" => 504,
+           "body" => %{
+             "error" => %{
+               "code" => "handler_timeout",
+               "message" => "Applet invocation timed out",
+               "details" => nil
+             }
+           },
+           "logs" => []
+         }}
     end
   end
 
@@ -171,7 +185,7 @@ defmodule Ankole.Pod.Applets.Invocation do
       tenant_id: Repo.tenant_id!(),
       page_id: context["applet"]["pageId"],
       revision: context["applet"]["revision"],
-      route: context["method"] <> " " <> context["path"],
+      route: context["actionKey"] || context["method"] <> " " <> context["path"],
       duration_ms: System.monotonic_time(:millisecond) - started,
       status: outcome["status"]
     }

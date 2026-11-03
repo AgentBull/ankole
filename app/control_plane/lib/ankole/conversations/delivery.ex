@@ -67,7 +67,7 @@ defmodule Ankole.Conversations.Delivery do
 
   @doc "Restricts a conversation-root file to its owning conversation."
   def verify_attachment_destination(node_id, conversation_id) when is_binary(node_id) do
-    case Ankole.Files.node_conversation_id(node_id) do
+    case Ankole.Pod.node_conversation_id(node_id) do
       {:ok, nil} -> :ok
       {:ok, ^conversation_id} -> :ok
       {:ok, _other_conversation} -> {:error, :attachment_conversation_mismatch}

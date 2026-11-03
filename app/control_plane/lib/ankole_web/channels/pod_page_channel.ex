@@ -12,12 +12,12 @@ defmodule AnkoleWeb.PodPageChannel do
     Ankole.Repo.put_tenant_id(socket.assigns.tenant_id)
 
     with_tenant(socket, fn ->
+      AnkoleWeb.PodChannel.subscribe(socket)
+      Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-page:" <> id)
+      Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> id)
+
       with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
            {:ok, detail} <- Pages.get(socket.assigns.actor, id) do
-        AnkoleWeb.PodChannel.subscribe(socket)
-        Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-page:" <> id)
-        Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> id)
-
         session = Ankole.Ecto.UUIDv7.autogenerate()
         author = Ankole.ActorRef.from_actor(socket.assigns.actor)
         profile = JSON.author_profiles([author])[author]

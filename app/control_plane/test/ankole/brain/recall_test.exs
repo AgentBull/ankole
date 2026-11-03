@@ -3,7 +3,7 @@ defmodule Ankole.Brain.RecallTest do
   import Ankole.PrincipalsFixtures
   import Ankole.BrainFixtures
   alias Ankole.Brain.{Recall, Claims, Access}
-  alias Ankole.Files.Access, as: DriveAccess
+  alias Ankole.Pod.Access, as: DriveAccess
 
   setup do
     %{principal: member} = human_fixture()
@@ -33,7 +33,7 @@ defmodule Ankole.Brain.RecallTest do
 
     {:ok, _} =
       Repo.transact(fn ->
-        {:ok, node} = Ankole.Files.Nodes.fetch(restricted.id)
+        {:ok, node} = Ankole.Pod.Pages.Tree.fetch(restricted.id)
 
         {:ok, node} =
           DriveAccess.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})

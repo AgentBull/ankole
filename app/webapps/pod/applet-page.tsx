@@ -4,6 +4,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next'
 import type { AppletRuntime } from '@ankole/applet-sdk/types'
 import { mountApplet } from './applet-host'
+import { createAppletRuns } from './applet-runs'
 import { contentKeys, pageQuery, podRequest, type PageDetail } from './content-api'
 import { useContent } from './content-context'
 import { ContentError } from './content-primitives'
@@ -45,6 +46,7 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
       queryClient: client,
       readDenial,
       base,
+      runs: createAppletRuns(client, realtime, detail.page.id),
       get principal() {
         return realtime.principal
       },

@@ -1,12 +1,8 @@
 defmodule Ankole.AIAgent.Library.SourceReader do
   @moduledoc """
-  Reads shipped Skill bundles and Agent-installed Skills from their owners.
-
-  Shipped bundles live in the installation library. Installed Skill metadata
-  comes from `SKILL.md` in the Agent's control-plane drive.
+  Reads shipped Skill bundles and default Agent contracts from the installation library.
   """
 
-  alias Ankole.Files
   alias Ankole.Kernel, as: NativeKernel
 
   @default_library_root Path.expand("../../../../../library", __DIR__)
@@ -45,12 +41,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     with {:ok, entries} <- File.ls(root), do: skill_directories(root, entries)
   end
 
-  @doc "Reads installed Skill manifests from the Agent's drive."
-  @spec read_installed_skill_sources(String.t()) :: {:ok, [map()]} | {:error, term()}
-  def read_installed_skill_sources(agent_uid) do
-    read_installed_skill_page(agent_uid, nil, [])
-  end
-
   @doc """
   Strips YAML frontmatter from a skill body.
   """
@@ -75,13 +65,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   """
   @spec normalize_skill_name(term()) :: {:ok, String.t()} | {:error, :invalid_skill_name}
   def normalize_skill_name(name) when is_binary(name) do
-    name =
-      name
-      |> String.trim()
-      |> String.downcase()
-      |> String.replace(~r/[^a-z0-9_-]+/, "-")
-
-    case Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, name) do
+    case Regex.match?(~r/\A[a-z0-9][a-z0-9._-]{0,95}\z/, name) do
       true -> {:ok, name}
       false -> {:error, :invalid_skill_name}
     end
@@ -185,7 +169,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     key = {__MODULE__, :default_template, filename}
     now_ms = System.monotonic_time(:millisecond)
 
-    case :persistent_term.get(key, nil) do
+    case Ankole.AIAgent.Library.SourceCache.get(key, nil) do
       %{expires_at_ms: expires_at_ms, root: ^root, content: content}
       when now_ms < expires_at_ms ->
         content
@@ -193,7 +177,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       _cache_miss ->
         case File.read(Path.join(root, filename)) do
           {:ok, content} ->
-            :persistent_term.put(key, %{
+            Ankole.AIAgent.Library.SourceCache.put(key, %{
               expires_at_ms: now_ms + ttl_ms,
               root: root,
               content: content
@@ -212,22 +196,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       {:ok, content} -> content
       {:error, _reason} -> fallback
     end
-  end
-
-  @doc """
-  Reads one file from a builtin skill bundle.
-  """
-  @spec read_builtin_skill_file(String.t(), String.t()) ::
-          {:ok, String.t()} | {:error, term()}
-  def read_builtin_skill_file(skill_name, file_path) do
-    builtin_skill_roots()
-    |> Enum.reverse()
-    |> Enum.reduce_while({:error, :skill_file_not_found}, fn source_root, _last_error ->
-      case read_skill_file(source_root.root, skill_name, file_path) do
-        {:ok, _content} = ok -> {:halt, ok}
-        {:error, _reason} = error -> {:cont, error}
-      end
-    end)
   end
 
   @doc false
@@ -249,7 +217,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   defp read_builtin_skill_sources_cached(roots, ttl_ms) do
     now_ms = System.monotonic_time(:millisecond)
 
-    case :persistent_term.get(@cache_key, nil) do
+    case Ankole.AIAgent.Library.SourceCache.get(@cache_key, nil) do
       %{expires_at_ms: expires_at_ms, roots: cached_roots, result: {:ok, _sources} = result}
       when cached_roots == roots and now_ms < expires_at_ms ->
         result
@@ -257,7 +225,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       _cache_miss ->
         case read_builtin_skill_sources_uncached(roots) do
           {:ok, _sources} = result ->
-            :persistent_term.put(@cache_key, %{
+            Ankole.AIAgent.Library.SourceCache.put(@cache_key, %{
               expires_at_ms: now_ms + ttl_ms,
               roots: roots,
               result: result
@@ -447,35 +415,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp read_installed_skill_page(agent_uid, after_path, acc) do
-    with {:ok, %{files: files, next_after: next_after}} <-
-           Files.list(agent_uid, "skills", limit: 5_000, after: after_path),
-         {:ok, sources} <-
-           files
-           |> Enum.flat_map(fn file ->
-             case String.split(file.path, "/") do
-               ["skills", name, @skill_file] ->
-                 [read_installed_skill_source(file.object_id, name)]
-
-               _path ->
-                 []
-             end
-           end)
-           |> Ankole.Attrs.collect_results() do
-      acc = Enum.reverse(sources, acc)
-
-      if is_nil(next_after),
-        do: {:ok, Enum.reverse(acc)},
-        else: read_installed_skill_page(agent_uid, next_after, acc)
-    end
-  end
-
-  defp read_installed_skill_source(object_id, name) do
-    with {:ok, raw_skill} <- Files.read_object(object_id) do
-      skill_source(raw_skill, "installed", name)
-    end
-  end
-
   defp skill_source(raw_skill, root_label, normalized_relative_path) do
     with true <- String.valid?(raw_skill) || {:error, :invalid_skill_content},
          {:ok, metadata} <-
@@ -506,22 +445,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          relative_path: normalized_relative_path,
          files: files
        }}
-    end
-  end
-
-  defp read_skill_file(parent_root, relative_path, file_path) do
-    with {:ok, relative_path} <- normalize_virtual_path(relative_path),
-         {:ok, file_path} <- normalize_virtual_path(file_path) do
-      root = Path.expand(Path.join(parent_root, relative_path))
-      path = Path.expand(file_path, root)
-
-      cond do
-        path != root and String.starts_with?(path, root <> "/") ->
-          File.read(path)
-
-        true ->
-          {:error, :invalid_library_path}
-      end
     end
   end
 

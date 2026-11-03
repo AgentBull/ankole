@@ -76,7 +76,8 @@ defmodule Ankole.Brain.Promotion do
            pack_name: pack.name,
            created_at: DateTime.utc_now(:microsecond)
          },
-         {:ok, _type} <- Ankole.Ash.create(SchemaType, :register, type) do
+         {:ok, _type} <- Ankole.Ash.create(SchemaType, :register, type),
+         :ok <- Ankole.Brain.Namespace.ensure_categories_in_tx() do
       migrated = retype_tagged_objects(term, attrs.decided_by)
       {:ok, %{status: :type_created, type: term, migrated: migrated}}
     end

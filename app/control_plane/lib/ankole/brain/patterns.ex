@@ -1,9 +1,9 @@
 defmodule Ankole.Brain.Patterns do
-  @moduledoc "Derives reviewable pattern pages beneath the evidence source that owns their visibility."
+  @moduledoc "Derives Brain analysis pages whose permissions follow their evidence source."
   require Ash.Query
-  alias Ankole.Brain.{Config, Links, ModelCalls}
+  alias Ankole.Brain.{Config, Links, ModelCalls, Namespace, Objects}
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Files.Nodes
+  alias Ankole.Pod.Pages.Tree, as: Nodes
   alias Ankole.Pod.{Knowledge, Pages}
   alias Ankole.Repo
 
@@ -66,14 +66,18 @@ defmodule Ankole.Brain.Patterns do
     with {:ok, output} <-
            ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.patterns"),
          {:ok, patterns} <- validate(output, facts) do
-      Repo.transact_top_level(fn ->
-        Nodes.lock_tree()
-        Nodes.lock_roots(Nodes.root_ids([source]))
+      Repo.transact_top_level(
+        fn ->
+          Nodes.lock_tree()
+          {:ok, brain} = Namespace.root()
+          Nodes.lock_roots(Nodes.root_ids([source, brain.id]))
 
-        with {:ok, _} <- Nodes.lock(source),
-             :ok <- current_evidence(facts),
-             do: write_patterns_in_tx(patterns, source)
-      end)
+          with {:ok, _} <- Nodes.lock(source),
+               :ok <- current_evidence(facts),
+               do: write_patterns_in_tx(patterns, source)
+        end,
+        after_commit: &Ankole.Brain.Namespace.committed/1
+      )
     end
   end
 
@@ -114,10 +118,11 @@ defmodule Ankole.Brain.Patterns do
   @doc false
   def write_patterns_in_tx(patterns, source_id) do
     Nodes.lock_tree()
-    Nodes.lock_roots(Nodes.root_ids([source_id]))
+    {:ok, brain} = Namespace.root()
+    Nodes.lock_roots(Nodes.root_ids([source_id, brain.id]))
 
     with {:ok, source} <- Nodes.lock(source_id),
-         true <- is_nil(source.deleted_at) and source.kind != :file do
+         true <- is_nil(source.deleted_at) and source.type != :file do
       Enum.reduce_while(patterns, {:ok, 0}, fn pattern, {:ok, count} ->
         case save_pattern(source, pattern) do
           {:ok, _} -> {:cont, {:ok, count + 1}}
@@ -131,14 +136,18 @@ defmodule Ankole.Brain.Patterns do
   end
 
   defp save_pattern(source, pattern) do
-    with {:ok, node} <-
-           Ankole.AIAgent.Library.Knowledge.ensure_child_in_tx(
-             source.id,
-             "pattern-" <> pattern.topic,
-             :knowledge
+    with {:ok, brain} <- Namespace.root(),
+         {:ok, category} <- Namespace.ensure_child_in_tx(brain.id, "analysis", :knowledge),
+         {:ok, node} <-
+           Namespace.ensure_child_in_tx(
+             category.id,
+             "pattern-#{source.id}-#{pattern.topic}",
+             :knowledge,
+             inherit_permissions: false
            ),
+         :ok <- Objects.share_source_in_tx(node.id, source.id),
          {:ok, _} <- Nodes.lock(node.id),
-         {:ok, _} <- Pages.ensure_properties_in_tx(node.id, %{title: pattern.title}),
+         {:ok, _} <- Pages.initialize_metadata_in_tx(node.id, %{title: pattern.title}),
          {:ok, page} <- Pages.fetch(node.id),
          true <- page.revision == 0 or page.upstream_state["generated_by"] == "brain.patterns",
          {:ok, parsed} <- Ankole.Kernel.knowledge_parse(pattern.body),
@@ -150,7 +159,10 @@ defmodule Ankole.Brain.Patterns do
                metadata:
                  Map.merge(parsed.metadata, %{"entity_type" => "analysis", "role" => "synthesis"}),
                title: pattern.title,
-               upstream_state: %{"generated_by" => "brain.patterns"}
+               upstream_state: %{
+                 "generated_by" => "brain.patterns",
+                 "source_node_id" => source.id
+               }
              },
              author: Config.execution_author!(),
              base_revision: page.revision

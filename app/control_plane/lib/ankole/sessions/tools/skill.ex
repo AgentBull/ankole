@@ -86,6 +86,7 @@ defmodule Ankole.Sessions.Tools.Skill do
                  request_context: context
                ) do
           directory = "/workspace/.ankole/turn-skills/#{signal_id}/#{args["name"]}"
+
           path = args["filePath"] || "SKILL.md"
 
           text =

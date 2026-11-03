@@ -32,9 +32,9 @@ In one-on-one direct messages, both modes behave identically. Use **Strict** unl
 
 ## Set Agent contracts
 
-Open the Agent's **AGENTS / DESIGN** source links in the Console to edit the corresponding Pod pages. `/AnkoleBrain/AGENTS.md` defines organization behavior, responsibilities, and confidentiality rules; `/AnkoleBrain/DESIGN.md` holds the visual design system for web pages, slides, documents, and charts.
+Open **Meta Ankole → Agents** to edit the global baseline or an Agent’s `AGENTS.md` and `DESIGN.md`. `AGENTS.md` defines behavior and responsibilities; `DESIGN.md` holds visual rules for web pages, slides, documents and charts.
 
-Under `/AnkoleBrain/agents/<uid>/`, an `AGENTS.md` page appends the Agent's responsibilities, while `AGENTS.override.md` supplies a complete independent contract. DESIGN supports the same append or override choice; its YAML metadata holds design tokens and its body explains their use. Personal assistants have an owner-managed private override. See [Agent Library](../agent-library/) for inheritance.
+Each Agent contract can inherit the global baseline, append to it or override it. DESIGN metadata holds design tokens and its body explains their use. Only the owner can view or edit a personal assistant’s configuration. See [Agent Library](../agent-library/).
 
 Saved edits take effect on the next turn, including a resumed Codex Job. The current turn uses the complete contract it loaded at startup.
 

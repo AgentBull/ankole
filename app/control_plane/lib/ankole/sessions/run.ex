@@ -277,7 +277,7 @@ defmodule Ankole.Sessions.Run do
   end
 
   def inject_in_tx(run, events, now) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     ids = Enum.map(events, & &1.id)
 
@@ -467,7 +467,7 @@ defmodule Ankole.Sessions.Run do
   @spec finalize_committed_workflow_input_in_tx(Signal.t()) ::
           {:ok, :not_committed | map()} | {:error, term()}
   def finalize_committed_workflow_input_in_tx(snapshot) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     with :ok <- lock_workflow_in_tx(snapshot),
          %SessionWorkspace{} = workspace <- Fence.lock_workspace_in_tx(snapshot),
@@ -541,7 +541,7 @@ defmodule Ankole.Sessions.Run do
   @spec reject_input_in_tx(Signal.t(), Outcome.t(), term()) ::
           {:ok, map()} | {:error, term()}
   def reject_input_in_tx(snapshot, outcome, reason) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     humans =
       Ankole.Signals.session_queue(snapshot.agent_uid, snapshot.session_id, started?: true)
@@ -589,7 +589,7 @@ defmodule Ankole.Sessions.Run do
 
   @spec finalize_in_tx(t(), Outcome.t(), term()) :: {:ok, map()} | {:error, term()}
   def finalize_in_tx(run, outcome, reason, images \\ %{}) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
     now = DateTime.utc_now(:microsecond)
 
     with :ok <- lock_generated_image_root_in_tx(run, images),
@@ -626,8 +626,8 @@ defmodule Ankole.Sessions.Run do
   defp lock_generated_image_root_in_tx(run, images) do
     if map_size(images) > 0 and
          is_nil(Ankole.Conversations.ExternalTarget.origin(run.conversation)) do
-      with {:ok, root} <- Ankole.Files.private_root(run.agent_uid),
-           do: Ankole.Files.lock_root_ids_in_tx([root.id])
+      with {:ok, root} <- Ankole.Pod.private_root(run.agent_uid),
+           do: Ankole.Pod.lock_root_ids_in_tx([root.id])
     else
       :ok
     end
@@ -635,11 +635,11 @@ defmodule Ankole.Sessions.Run do
 
   @doc "Locks domain work and participating Sessions before the epoch fence."
   def lock_for_write_in_tx(%{kind: :workflow_task} = run) do
-    with :ok <- Ankole.Files.lock_tree_in_tx(), do: lock_workflow_in_tx(run)
+    with :ok <- Ankole.Pod.lock_tree_in_tx(), do: lock_workflow_in_tx(run)
   end
 
   def lock_for_write_in_tx(run) do
-    with :ok <- Ankole.Files.lock_tree_in_tx(),
+    with :ok <- Ankole.Pod.lock_tree_in_tx(),
          :ok <- lock_native_participants_in_tx(run),
          do: Queue.lock_sessions_in_tx(Ankole.Conversations.peer_session_keys(run))
   end

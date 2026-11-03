@@ -209,7 +209,7 @@ defmodule Ankole.Sessions.Prompt do
     """
     Your Drive is mounted at /drive. Use ordinary shell and file tools to read, search, edit, and create files there. Public and AgentDrive are shared across your conversations; MyDrive appears for the current asker, and ChatDrive for the current conversation. Only accessible partitions and entries are visible.
     Save durable files under /drive/AgentDrive or /drive/ChatDrive. reply_attachment accepts an absolute Drive path, including a local symlink to Drive, and flushes that file before delivery. A Job can return the Drive path to its caller.
-    Compound suffixes identify structured content: ._awiki.md is a knowledge page, ._adoc.md a document, ._asub/ its child tree, ._abase/ a Base, and ._aapp/ a read-only applet manifest. Keep document anchor comments intact. Applet publishing uses ankole-pod applet.
+    Drive projects the Page tree. An empty page is a directory; a page with content has a ._awiki.md knowledge file or ._adoc.md document file and a same-name directory for its children. ._abase/ is a Base and ._aapp/ is a read-only applet manifest. Keep document anchor comments intact. Applet publishing uses ankole-pod applet.
     Within a Base table, read .info/schema.json, .export/{csv,tsv,json,jsonl}, or rec_<id>.json; append rows to .import/append.csv or append.jsonl. Import slots reset to empty after upload. Record edits compare only the fields you changed.
     fsync saves local cache bytes; command and Turn completion flush normal writes. Large batches continue in the background. If a write is rejected or conflicts, inspect the reported /drive-recovery file and resolve or report it. Use the local workspace for dependency installs and build intermediates.
     """

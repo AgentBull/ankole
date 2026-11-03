@@ -2,7 +2,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
   use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Page, Pages}
 
   setup do
@@ -76,7 +76,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
                parent_id: right.id
              })
 
-    assert Repo.get!(Page, page.id).parent_id == left.id
+    assert Repo.get_by!(Page, id: page.id).parent_id == left.id
 
     assert {:ok, _} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
@@ -268,7 +268,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
                  parent_id: destination.id
                })
 
-      assert Repo.get!(Page, page.id).parent_id == source.id
+      assert Repo.get_by!(Page, id: page.id).parent_id == source.id
 
       if @source == :private do
         assert {:error, :forbidden} =
@@ -291,7 +291,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
                  parent_id: destination.id
                })
 
-      assert Repo.get!(Page, page.id).parent_id == destination.id
+      assert Repo.get_by!(Page, id: page.id).parent_id == destination.id
 
       assert {:error, :forbidden} =
                Pages.authorize(
@@ -468,7 +468,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
                parent_id: restricted.id
              })
 
-    assert Repo.get!(Page, page.id).parent_id == private.id
+    assert Repo.get_by!(Page, id: page.id).parent_id == private.id
   end
 
   test "equal canonical policies do not discard the space administrator fallback", ctx do

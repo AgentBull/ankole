@@ -41,9 +41,6 @@ export const scopeIcons = {
 }
 
 export const typeLabels: Record<PageType, string> = {
-  get folder() {
-    return t('pod.content.folder')
-  },
   get doc() {
     return t('pod.content.document')
   },

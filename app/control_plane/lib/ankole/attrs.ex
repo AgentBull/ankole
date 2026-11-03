@@ -193,6 +193,21 @@ defmodule Ankole.Attrs do
     end
   end
 
+  @doc "Converts declared atom keys without allocating atoms for arbitrary input keys."
+  def existing_atom_keys(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {existing_atom_key(key), value} end)
+  end
+
+  def existing_atom_keys(_value), do: %{}
+
+  defp existing_atom_key(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> key
+  end
+
+  defp existing_atom_key(key), do: key
+
   defp existing_atom_value(attrs, key) do
     Map.get(attrs, String.to_existing_atom(key))
   rescue

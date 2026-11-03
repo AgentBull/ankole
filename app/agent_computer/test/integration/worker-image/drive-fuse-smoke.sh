@@ -26,7 +26,19 @@ for attempt in $(seq 1 100); do
 done
 curl -sf http://127.0.0.1:5572/ankole/configure -H 'Content-Type: application/json' -d '{"fs":"test","recovery":"/recovery"}'
 python3 - <<'PY'
-import configparser, errno, hashlib, http.client, json, mmap, os, pathlib, sqlite3, urllib.parse, urllib.request
+import configparser, errno, hashlib, http.client, json, mmap, os, pathlib, sqlite3, stat, subprocess, urllib.parse, urllib.request
+drive = pathlib.Path('/mnt/drive')
+script = drive/'Skills/fuse-check/scripts/run.sh'
+assert stat.S_IMODE(script.stat().st_mode) == 0o555
+assert subprocess.check_output([str(script)]) == b'meta-capability'
+for path in [script, drive/'Skills/fuse-check/SKILL.md', drive/'AGENTS.md', drive/'DESIGN.md']:
+    assert stat.S_IMODE(path.stat().st_mode) in [0o444, 0o555]
+    try:
+        path.open('r+b')
+        raise AssertionError(f'{path} accepted a local write')
+    except OSError as error:
+        assert error.errno in [errno.EACCES, errno.EROFS, errno.EPERM], error
+assert stat.S_IMODE((drive/'Brain').stat().st_mode) == 0o555
 root = pathlib.Path('/mnt/drive/AgentDrive/fuse')
 root.mkdir()
 since_seq=0
@@ -49,6 +61,26 @@ def dav(method, name, data=b'', headers=None):
     result=(body,dict(response.getheaders()))
     connection.close()
     return result
+# A long-lived sandbox bind-mount holds the original FUSE inode across edits.
+if os.environ.get('ANKOLE_FUSE_CONTRACT_TEST') == '1':
+    import time
+    def contract(text):
+        request=urllib.request.Request(f'http://{endpoint.netloc}/test-contract', data=text.encode(), method='PUT')
+        return urllib.request.urlopen(request, timeout=30).read()
+    assert contract('') == b''
+    bound=pathlib.Path('/mnt/bound-AGENTS.md')
+    bound.touch()
+    subprocess.run(['mount','--bind',str(drive/'AGENTS.md'),str(bound)], check=True)
+    try:
+        assert bound.read_bytes() == b''
+        for text in ['A growing instruction ' * 1000, 'Short instruction', 'Other instruction', '']:
+            expected=contract(text)
+            time.sleep(1.2)
+            assert bound.stat().st_size == len(expected), (bound.stat().st_size, len(expected))
+            actual=bound.read_bytes()
+            assert actual == expected, (text[:24], len(actual), len(expected), actual[:80], expected[:80])
+    finally:
+        subprocess.run(['umount',str(bound)],check=True)
 chunk=bytes(range(256))*4096
 connection=http.client.HTTPConnection(endpoint.hostname,endpoint.port,timeout=120)
 connection.putrequest('PUT',endpoint.path+'/AgentDrive/fuse/large.bin')
@@ -61,8 +93,6 @@ assert response.status == 201,(response.status,response.read())
 response.read()
 connection.close()
 dav('PUT','unchanged.bin',b'no change')
-original=b'First block.\n\nMiddle block.\n\nLast block.\n'
-dav('PUT','merge._awiki.md',original)
 # Seed remote files before the first local lookup fills the directory cache.
 # A source enlarged after the local size check must not exceed copy_file_range's count.
 dav('PUT','growing-source.bin',b'old')
@@ -104,29 +134,6 @@ with (root/'large-copy.bin').open('r+b') as copied:
 flush()
 assert dav('GET','large-copy.bin',headers={'Range':'bytes=8-15'})[0] == chunk[8:10]+b'EDIT'+chunk[14:16]
 assert dav('GET','large-copy.bin',headers={'Range':'bytes=314572700-314572799'})[0] == chunk[-100:]
-# A worker editing the last block and a browser editing the first should see both.
-knowledge=root/'merge._awiki.md'
-baseline=knowledge.read_bytes()
-dav('PUT','merge._awiki.md',baseline.replace(b'First block.',b'Browser block, longer.'))
-knowledge.write_bytes(baseline.replace(b'Last block.',b'Worker block, longer.'))
-flush()
-merged=knowledge.read_bytes()
-assert b'Browser block, longer.' in merged and b'Worker block, longer.' in merged,merged
-assert knowledge.stat().st_size == len(merged)
-# Slow editor saves take MOVE after the temporary file has already uploaded.
-baseline=knowledge.read_bytes()
-dav('PUT','merge._awiki.md',baseline.replace(b'Browser block, longer.',b'Browser changed again.'))
-slow=root/'slow-save.tmp'
-slow.write_bytes(baseline.replace(b'Worker block, longer.',b'Worker changed again.'))
-flush()
-os.replace(slow,knowledge)
-flush()
-merged=knowledge.read_bytes()
-assert b'Browser changed again.' in merged and b'Worker changed again.' in merged,merged
-assert knowledge.stat().st_size == len(merged)
-req=urllib.request.Request('http://127.0.0.1:5572/ankole/flush-paths',data=b'{"fs":"test","paths":["AgentDrive/fuse/merge._awiki.md"]}',headers={'Content-Type':'application/json'})
-receipt=json.load(urllib.request.urlopen(req))
-assert not receipt['files'],receipt
 # Refreshing the limit uses the same RC operation as token renewal.
 def configure(limit):
     req=urllib.request.Request('http://127.0.0.1:5572/ankole/configure',data=json.dumps({'fs':'test','upload_limit':limit}).encode(),headers={'Content-Type':'application/json'})
@@ -182,18 +189,18 @@ db.commit()
 assert db.execute('select count(*) from items').fetchone()==(2,)
 db.close()
 flush()
-(root/'guide._awiki.md').write_text('# Guide\n\noriginal\n')
+(root/'guide._adoc.md').write_text('# Guide\n\noriginal\n')
 flush()
-text=(root/'guide._awiki.md').read_text()
+text=(root/'guide._adoc.md').read_text()
 (root/'temporary').write_text(text.replace('original','edited'))
-os.replace(root/'temporary',root/'guide._awiki.md')
+os.replace(root/'temporary',root/'guide._adoc.md')
 flush()
-assert 'edited' in (root/'guide._awiki.md').read_text()
-(root/'guide._asub'/'script.py').write_text('print(42)\n')
+assert 'edited' in (root/'guide._adoc.md').read_text()
+(root/'guide'/'script.py').write_text('print(42)\n')
 (root/'link').symlink_to('random.bin')
 assert (root/'link').read_bytes()==b'01XYZ56789'
-pathlib.Path('/tmp/knowledge-link').symlink_to(root/'guide._awiki.md')
-assert 'edited' in pathlib.Path('/tmp/knowledge-link').read_text()
+pathlib.Path('/tmp/document-link').symlink_to(root/'guide._adoc.md')
+assert 'edited' in pathlib.Path('/tmp/document-link').read_text()
 flush()
 base=pathlib.Path('/mnt/drive/AgentDrive/FuseBase._abase/Table 1')
 try:
@@ -219,11 +226,11 @@ after=json.loads(record.read_text())
 assert after['Name']=='edited',after
 assert after['_versions']['Name']==before['_versions']['Name']+1,after
 # A rejected slow atomic save preserves the draft and reports it at flush.
-conflict=root/'conflict._awiki.md'
+conflict=root/'conflict._adoc.md'
 conflict.write_text('Initial paragraph.\n')
 flush()
 baseline=conflict.read_bytes()
-dav('PUT','conflict._awiki.md',b'Browser paragraph.\n')
+dav('PUT','conflict._adoc.md',b'Browser paragraph.\n')
 draft=root/'conflicting-save.tmp'
 draft.write_bytes(baseline.replace(b'Initial',b'Worker'))
 flush()
@@ -233,24 +240,24 @@ try:
 except OSError:
     pass
 rejected=flush(True)
-failure=next(f for f in rejected['files'] if f['Path'].endswith('conflict._awiki.md'))
+failure=next(f for f in rejected['files'] if f['Path'].endswith('conflict._adoc.md'))
 assert '412' in failure['Failure'],rejected
 assert b'Worker paragraph.' in (pathlib.Path('/recovery')/pathlib.Path(failure['Recovery']).name).read_bytes()
-assert b'Browser paragraph.' in dav('GET','conflict._awiki.md')[0]
+assert b'Browser paragraph.' in dav('GET','conflict._adoc.md')[0]
 # A new command window must not replay the earlier failure.
 since_seq=max(f['Seq'] for f in rejected['files'])
 # The temporary file can still be edited and saved after the rejected rename.
-draft.write_bytes(dav('GET','conflict._awiki.md')[0])
+draft.write_bytes(dav('GET','conflict._adoc.md')[0])
 flush()
-req=urllib.request.Request('http://127.0.0.1:5572/ankole/invalidate',data=b'{"fs":"test","paths":["AgentDrive/fuse/conflict._awiki.md"]}',headers={'Content-Type':'application/json'})
+req=urllib.request.Request('http://127.0.0.1:5572/ankole/invalidate',data=b'{"fs":"test","paths":["AgentDrive/fuse/conflict._adoc.md"]}',headers={'Content-Type':'application/json'})
 json.load(urllib.request.urlopen(req))
 conflict.read_bytes()
 os.replace(draft,conflict)
 flush()
-bad=root/'invalid._awiki.md'
+bad=root/'invalid._adoc.md'
 bad.write_text('---\nbroken: [\n---\n')
 rejected=flush(True)
-failure=next(f for f in rejected['files'] if f['Path'].endswith('invalid._awiki.md'))
+failure=next(f for f in rejected['files'] if f['Path'].endswith('invalid._adoc.md'))
 assert '422' in failure['Failure'],rejected
 assert (pathlib.Path('/recovery')/pathlib.Path(failure['Recovery']).name).read_text()=='---\nbroken: [\n---\n'
 bad.write_text('# Corrected\n\nvalid\n')

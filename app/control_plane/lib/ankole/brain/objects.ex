@@ -1,10 +1,10 @@
 defmodule Ankole.Brain.Objects do
   @moduledoc "Resolves knowledge identities and composes writes through the Pod page owner."
   require Ash.Query
-  alias Ankole.AIAgent.Library.Knowledge, as: LibraryKnowledge
+  alias Ankole.Brain.Namespace, as: LibraryKnowledge
   alias Ankole.Brain.{Access, Links, Scope}
   alias Ankole.Brain.Schemas.{Page, SlugAlias, ObjectAlias, SchemaType}
-  alias Ankole.Files.Nodes
+  alias Ankole.Pod.Pages.Tree, as: Nodes
   alias Ankole.Pod.Knowledge
 
   def get_by_slug(reference, opts \\ [])
@@ -13,6 +13,7 @@ defmodule Ankole.Brain.Objects do
   def get_by_slug(reference, opts) do
     with {:ok, id} <- reference_id(reference) do
       query = Ash.Query.filter(Page, id == ^id)
+      query = if opts[:select], do: Ash.Query.select(query, opts[:select]), else: query
 
       query =
         case Keyword.get(opts, :access) do
@@ -22,7 +23,7 @@ defmodule Ankole.Brain.Objects do
 
       case Ankole.Ash.read_one(query) do
         {:ok, nil} -> {:error, :not_found}
-        {:ok, page} -> hydrate(page)
+        {:ok, page} -> if(opts[:select], do: {:ok, page}, else: hydrate(page))
         error -> error
       end
     end
@@ -104,6 +105,7 @@ defmodule Ankole.Brain.Objects do
   def create_object_in_tx(attrs, writer) do
     with {:ok, _} <- LibraryKnowledge.ensure_namespace_in_tx(),
          {:ok, root} <- LibraryKnowledge.root(),
+         :ok <- validate_category(attrs[:slug], writer),
          {:ok, parent, name} <- destination(root, attrs[:slug]),
          :ok <- authorize(writer, parent.id, "node_edit"),
          :ok <- vacant_path(parent.id, name, attrs[:slug]),
@@ -122,6 +124,19 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
+  defp validate_category(slug, writer) when is_binary(slug) do
+    category = slug |> normalize_path() |> String.split("/", trim: true) |> List.first()
+
+    prefixes =
+      SchemaType |> Ankole.Ash.read!() |> Enum.map(&String.trim_trailing(&1.slug_prefix, "/"))
+
+    if category in prefixes or (writer == :system and category in ["people", "agents"]),
+      do: :ok,
+      else: {:error, :unknown_brain_category}
+  end
+
+  defp validate_category(_, _), do: {:error, :unknown_brain_category}
+
   defp vacant_path(parent_id, name, slug) do
     case LibraryKnowledge.child(parent_id, name) do
       {:ok, _} -> {:error, {:slug_taken, slug}}
@@ -136,9 +151,9 @@ defmodule Ankole.Brain.Objects do
     Enum.reduce_while(folders, {:ok, root}, fn part, {:ok, parent} ->
       result =
         case LibraryKnowledge.child(parent.id, part) do
-          {:ok, %{kind: :file}} -> {:error, :not_a_directory}
+          {:ok, %{type: :file}} -> {:error, :not_a_directory}
           {:ok, node} -> {:ok, node}
-          {:error, :not_found} -> LibraryKnowledge.ensure_child_in_tx(parent.id, part, :folder)
+          {:error, :not_found} -> LibraryKnowledge.ensure_child_in_tx(parent.id, part, :knowledge)
         end
 
       case result do
@@ -193,7 +208,7 @@ defmodule Ankole.Brain.Objects do
            ),
          {:ok, node} <- Nodes.fetch(page.id),
          {:ok, _} <-
-           Ankole.Files.Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false}),
+           Ankole.Pod.Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false}),
          :ok <-
            share_source_in_tx(
              page.id,
@@ -202,12 +217,12 @@ defmodule Ankole.Brain.Objects do
          do: get_by_slug(page.id)
   end
 
-  defp share_source_in_tx(page_id, source_id) do
+  def share_source_in_tx(page_id, source_id) do
     Enum.reduce_while(
       [{"node_view", "view"}, {"node_edit", "edit"}, {"node_manage", "manage"}],
       :ok,
       fn {action, role}, :ok ->
-        case Ankole.Files.Access.put_role(
+        case Ankole.Pod.Access.put_role(
                %{source_node_id: source_id, source_action: action},
                "drive:**:#{page_id}:**",
                role
@@ -231,6 +246,7 @@ defmodule Ankole.Brain.Objects do
                  type: if(type == :human, do: "person", else: "agent"),
                  title: display_name || uid,
                  subtype: "internal",
+                 meta: %{"uid" => uid},
                  body: ""
                },
                :system
@@ -256,18 +272,40 @@ defmodule Ankole.Brain.Objects do
          do: get_by_slug(page.id)
   end
 
-  def soft_delete_in_tx(reference, _opts \\ []) do
+  def soft_delete_in_tx(reference, opts \\ []) do
     Nodes.lock_tree()
 
     with {:ok, page} <- get_by_slug(reference),
          {:ok, node} <- Nodes.lock(page.id),
+         {:ok, node} <- record_forgetting_in_tx(node, page, opts),
          {:ok, trashed} <-
-           Ankole.Files.Access.update_anchor_in_tx(node, :trash, %{
+           Ankole.Pod.Access.update_anchor_in_tx(node, :trash, %{
              deleted_at: DateTime.utc_now(:microsecond)
            }),
-         :ok <- Ankole.Files.ContentOwner.trash_node_in_tx(page.id),
+         :ok <- Ankole.Pod.Pages.Lifecycle.trash_node_in_tx(page.id),
          :ok <- Nodes.schedule_purge(trashed),
          do: get_by_slug(page.id)
+  end
+
+  defp record_forgetting_in_tx(node, page, opts) do
+    case Keyword.fetch(opts, :reason) do
+      {:ok, reason} ->
+        forgotten = %{
+          "reason" => reason,
+          "by" => opts[:by],
+          "at" => DateTime.to_iso8601(DateTime.utc_now())
+        }
+
+        with {:ok, %{page: updated}} <-
+               Knowledge.put_in_tx(page.id, %{
+                 xml: page.xml,
+                 metadata: Map.put(page.meta, "forgotten", forgotten)
+               }),
+             do: {:ok, updated}
+
+      :error ->
+        {:ok, node}
+    end
   end
 
   def valid_holder?(holder, _opts \\ []) do
@@ -283,10 +321,8 @@ defmodule Ankole.Brain.Objects do
       |> Ash.Query.sort(:name)
       |> Ankole.Ash.read!()
 
-  def editability(page), do: %{editable: is_nil(page.deleted_at), reason: nil}
   def guard_editable(%{deleted_at: nil}), do: :ok
   def guard_editable(_), do: {:error, :not_found}
-  def refresh_content_hash_in_tx(page), do: get_by_slug(page.id)
 
   defp metadata(attrs, original) do
     original
@@ -304,7 +340,12 @@ defmodule Ankole.Brain.Objects do
   defp maybe_metadata(meta, key, value), do: Map.put(meta, key, value)
 
   defp normalize_path(path),
-    do: path |> String.trim_leading("/") |> String.replace_prefix("AnkoleBrain/", "")
+    do:
+      path
+      |> String.trim_leading("/")
+      |> String.replace_prefix("drive/Brain/", "")
+      |> String.replace_prefix("Brain/", "")
+      |> String.replace_prefix("AnkoleBrain/", "")
 
   defp authorize(:system, _, _), do: :ok
 

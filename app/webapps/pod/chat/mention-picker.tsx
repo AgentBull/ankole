@@ -49,7 +49,7 @@ export function MentionPicker({
     queryFn: ({ signal }) => podChatTeammates({ query: { query: settledQuery }, signal }),
     enabled: !pagesOnly
   })
-  const pages = useQuery(pageSearchQuery(settledQuery))
+  const pages = useQuery(pageSearchQuery(settledQuery, { domain: 'all' }))
   const pageResults = usePagesMetadata(pages.data?.pages ?? [])
   const ancestors = usePagesMetadata(pages.data?.ancestors ?? [])
   const pagesByID = new Map([...pageResults, ...ancestors].map(page => [page.id, page]))

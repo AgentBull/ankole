@@ -1,4 +1,5 @@
-import { canCreateChild } from './state/page-location'
+import { canCreateChild, pageDomain, pageAncestors } from './state/page-location'
+import { canMovePage } from './state/page-move'
 import { usePageMetadata } from './use-page-metadata'
 import { useTranslation } from 'react-i18next'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
@@ -7,7 +8,7 @@ import { lazy, Suspense, useState, type RefObject } from 'react'
 import { principalUID } from '../common/browser-context'
 import { BdiLabel } from '../common/bidi-file-name'
 import { ErrorBoundary } from '../common/error-boundary'
-import { pageAPI, pageQuery, pageSearchQuery, type Page } from './content-api'
+import { cachedPages, pageAPI, pageQuery, pageSearchQuery, type Page } from './content-api'
 import { pageMoved } from './state/navigation-cache'
 import { ContentError } from './content-primitives'
 
@@ -29,12 +30,15 @@ export function MovePageDialog({
   const [target, setTarget] = useState(currentTarget)
   const [selectedSnapshot, setSelectedPage] = useState<Page>()
   const selectedPage = usePageMetadata(selectedSnapshot)
-  const destinations = useQuery(pageSearchQuery('', { exclude_subtree_of: page.id, required_action: 'node_view' }))
+  const client = useQueryClient()
+  const domain = pageDomain(page, pageAncestors(page, new Map(cachedPages(client).map(page => [page.id, page]))))
+  const destinations = useQuery(
+    pageSearchQuery('', { domain, exclude_subtree_of: page.id, required_action: 'node_view' })
+  )
   const currentParent = useQuery({ ...pageQuery(page.parent_id ?? ''), enabled: Boolean(page.parent_id) })
   const parent = usePageMetadata(currentParent.data?.page)
-  const client = useQueryClient()
-  const canCreateSpace = destinations.data?.can_create_space === true
-  const canCreatePrivate = destinations.data?.can_create_private === true
+  const canCreateSpace = domain === 'pages' && destinations.data?.can_create_space === true
+  const canCreatePrivate = domain === 'pages' && destinations.data?.can_create_private === true
   const privateOwner = destinations.data?.principal_uid ?? principalUID()
   const privateTarget = privateOwner ? `private:${privateOwner}` : undefined
   const privateLocation = target.startsWith('private:')
@@ -66,6 +70,7 @@ export function MovePageDialog({
           ? t('pod.content.private')
           : t('pod.content.shared_with_me')
         : selectedPage?.title || (target === page.parent_id ? parent?.title : undefined) || t('pod.content.untitled')
+  if (!canMovePage(page)) return null
   return (
     <Dialog open onOpenChange={next => !next && !move.isPending && close()}>
       <DialogContent
@@ -81,6 +86,7 @@ export function MovePageDialog({
                 label={t('pod.content.destination')}
                 excludeSubtreeOf={page.id}
                 requiredAction="node_view"
+                domain={domain}
                 canSelect={canCreateChild}
                 roots={[
                   ...(canCreateSpace ? [{ id: 'space', title: t('pod.content.space') }] : []),

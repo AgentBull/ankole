@@ -106,15 +106,15 @@ defmodule Ankole.Brain.SynthesisScopeTest do
 
     {:ok, _} =
       Repo.transact(fn ->
-        {:ok, node} = Ankole.Files.Nodes.fetch(page.id)
+        {:ok, node} = Ankole.Pod.Pages.Tree.fetch(page.id)
 
         {:ok, node} =
-          Ankole.Files.Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
+          Ankole.Pod.Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
 
         for uid <- [agent_uid, reader_uid],
             do:
               :ok =
-                Ankole.Files.Access.put_role(
+                Ankole.Pod.Access.put_role(
                   %{principal_uid: uid},
                   "drive:**:#{node.id}:**",
                   "view"

@@ -1,7 +1,8 @@
 defmodule Ankole.Pod.AuthorizationPlanTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Files.{Access, Nodes}
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
   alias Ankole.Pod.{Pages}
 
   @moduletag sandbox: false, timeout: 1_800_000
@@ -119,7 +120,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
     |> insert_rows(Ankole.AuthZ.Grant)
 
     assert Repo.query!(
-             "SELECT count(*), count(*) FILTER (WHERE is_acl_anchor) FROM drive_nodes WHERE tenant_id = $1::text::uuid AND parent_id IS NOT NULL",
+             "SELECT count(*), count(*) FILTER (WHERE is_acl_anchor) FROM pages WHERE tenant_id = $1::text::uuid AND parent_id IS NOT NULL",
              [tenant.id]
            ).rows == [[@page_count, @anchor_count]]
 
@@ -128,7 +129,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
              [tenant.id]
            ).rows == [[@userset_count]]
 
-    Repo.query!("VACUUM (ANALYZE) drive_nodes", [], timeout: 180_000)
+    Repo.query!("VACUUM (ANALYZE) pages", [], timeout: 180_000)
     Repo.query!("VACUUM (ANALYZE) pages", [], timeout: 180_000)
     Repo.query!("VACUUM (ANALYZE) permission_grants", [], timeout: 180_000)
 
@@ -173,7 +174,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
     assert move_query.affected_rows == 62
 
     assert Repo.query!(
-             "SELECT count(*) FROM drive_nodes WHERE tenant_id = $1::text::uuid AND acl_anchor_id = $2::text::uuid",
+             "SELECT count(*) FROM pages WHERE tenant_id = $1::text::uuid AND acl_anchor_id = $2::text::uuid",
              [context.tenant.id, destination]
            ).rows == [[126]]
 
@@ -208,7 +209,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
 
         [[matches]] =
           Repo.query!(
-            "SELECT count(*) FROM pod_page_nodes WHERE tenant_id = $1::text::uuid AND title ILIKE ('%' || $2::text || '%')",
+            "SELECT count(*) FROM pages WHERE tenant_id = $1::text::uuid AND title ILIKE ('%' || $2::text || '%')",
             [context.tenant.id, term]
           ).rows
 
@@ -240,9 +241,9 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
       Repo.query!(
         """
         WITH RECURSIVE subtree AS (
-          SELECT id FROM drive_nodes WHERE tenant_id = $1::text::uuid AND parent_id = $2::text::uuid
+          SELECT id FROM pages WHERE tenant_id = $1::text::uuid AND parent_id = $2::text::uuid
           UNION ALL
-          SELECT p.id FROM drive_nodes p JOIN subtree s ON p.parent_id = s.id
+          SELECT p.id FROM pages p JOIN subtree s ON p.parent_id = s.id
           WHERE p.tenant_id = $1::text::uuid
         ) SELECT count(*) FROM subtree
         """,
@@ -361,7 +362,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
             assert {id, parent, anchor} == {moving.id, destination, destination}
 
             assert Repo.query!(
-                     "SELECT count(*) FROM drive_nodes WHERE tenant_id = $1::text::uuid AND acl_anchor_id = $2::text::uuid",
+                     "SELECT count(*) FROM pages WHERE tenant_id = $1::text::uuid AND acl_anchor_id = $2::text::uuid",
                      [context.tenant.id, destination]
                    ).rows == [[64 + descendants]]
 
@@ -419,9 +420,9 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
     converted =
       Repo.query!(
         """
-        UPDATE drive_nodes p SET parent_id = $2::text::uuid, parent_anchor_id = $2::text::uuid, inherit_permissions = true, has_local_acl = true
+        UPDATE pages p SET parent_id = $2::text::uuid, parent_anchor_id = $2::text::uuid, inherit_permissions = true, has_local_acl = true
         WHERE p.tenant_id = $1::text::uuid AND p.id IN (
-          SELECT candidate.id FROM drive_nodes candidate
+          SELECT candidate.id FROM pages candidate
           WHERE candidate.tenant_id = $1::text::uuid AND candidate.is_acl_anchor
             AND candidate.parent_id IS NOT NULL AND NOT candidate.has_local_acl
           ORDER BY candidate.id LIMIT 100
@@ -445,13 +446,13 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
     assert %{num_rows: 190} =
              Repo.query!(
                """
-               UPDATE drive_nodes p SET parent_id = $2::text::uuid, acl_anchor_id = $2::text::uuid
+               UPDATE pages p SET parent_id = $2::text::uuid, acl_anchor_id = $2::text::uuid
                WHERE p.tenant_id = $1::text::uuid AND p.id IN (
-                 SELECT candidate.id FROM drive_nodes candidate
+                 SELECT candidate.id FROM pages candidate
                  WHERE candidate.tenant_id = $1::text::uuid AND NOT candidate.is_acl_anchor
                    AND candidate.acl_anchor_id <> $2::text::uuid
                    AND NOT EXISTS (
-                     SELECT 1 FROM drive_nodes child
+                     SELECT 1 FROM pages child
                      WHERE child.tenant_id = $1::text::uuid AND child.parent_id = candidate.id
                    )
                  ORDER BY candidate.id LIMIT 190
@@ -460,7 +461,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
                [context.tenant.id, parent]
              )
 
-    Repo.query!("VACUUM (ANALYZE) drive_nodes", [], timeout: 180_000)
+    Repo.query!("VACUUM (ANALYZE) pages", [], timeout: 180_000)
     Repo.query!("VACUUM (ANALYZE) pages", [], timeout: 180_000)
 
     workloads =
@@ -546,21 +547,9 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
     rows
     |> Stream.chunk_every(1_000)
     |> Enum.each(fn batch ->
-      nodes =
-        Enum.map(batch, fn page ->
-          page
-          |> Map.drop([:type, :title, :position])
-          |> Map.merge(%{kind: page.type, name: page.title})
-        end)
-
-      properties =
-        Enum.map(
-          batch,
-          &Map.take(&1, [:id, :tenant_id, :title, :position, :created_at, :updated_at])
-        )
-
-      insert_rows(nodes, Ankole.Files.Schemas.Node)
-      insert_rows(properties, Ankole.Pod.Properties)
+      pages = Enum.map(batch, &Map.put(&1, :name, &1.title))
+      assert {count, nil} = Repo.insert_all(Ankole.Pod.Page, pages, timeout: 180_000)
+      assert count == length(batch)
     end)
   end
 
@@ -578,7 +567,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
 
     page_reads =
       Enum.filter(queries, fn query ->
-        Regex.match?(~r/\b(?:FROM|JOIN)\s+"?pod_page_nodes"?\s/i, query.sql) and
+        Regex.match?(~r/\b(?:FROM|JOIN)\s+"?pages"?\s/i, query.sql) and
           not matches_query?(query.sql, :graph)
       end)
 
@@ -663,12 +652,12 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
 
   defp matches_query?(sql, :directory),
     do:
-      String.contains?(sql, ~s(FROM "pod_page_nodes" AS)) and String.contains?(sql, "LIMIT") and
+      String.contains?(sql, ~s(FROM "pages" AS)) and String.contains?(sql, "LIMIT") and
         not String.contains?(sql, "similarity(")
 
   defp matches_query?(sql, :search),
     do:
-      String.contains?(sql, ~s(FROM "pod_page_nodes" AS)) and String.contains?(sql, "LIMIT") and
+      String.contains?(sql, ~s(FROM "pages" AS)) and String.contains?(sql, "LIMIT") and
         String.contains?(sql, "similarity(")
 
   defp matches_query?(sql, :graph), do: String.contains?(sql, "all_anchors AS (")
@@ -682,7 +671,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
 
   defp assert_dataset!(tenant_id) do
     assert Repo.query!(
-             "SELECT count(*), count(*) FILTER (WHERE is_acl_anchor) FROM drive_nodes WHERE tenant_id = $1::text::uuid AND parent_id IS NOT NULL",
+             "SELECT count(*), count(*) FILTER (WHERE is_acl_anchor) FROM pages WHERE tenant_id = $1::text::uuid AND parent_id IS NOT NULL",
              [tenant_id]
            ).rows == [[@page_count, @anchor_count]]
 
@@ -958,7 +947,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
 
   defp plan_failures(name, [plan]) do
     nodes = plan_nodes(plan["Plan"])
-    page_scans = Enum.filter(nodes, &(&1["Relation Name"] in ["drive_nodes", "pages"]))
+    page_scans = Enum.filter(nodes, &(&1["Relation Name"] in ["pages", "pages"]))
     full_scans = Enum.filter(page_scans, &(&1["Node Type"] in ["Seq Scan", "Parallel Seq Scan"]))
     common = if full_scans == [], do: [], else: ["pages full scan #{inspect(full_scans)}"]
 
@@ -973,7 +962,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
           []
           |> mismatch(
             Enum.any?(page_scans, fn scan ->
-              scan["Index Name"] in ["drive_nodes_pkey"] and
+              scan["Index Name"] in ["pages_pkey"] and
                 scan["Actual Rows"] > 0
             end),
             "targeted dependencies must read pages through their tenant/id key"
@@ -984,24 +973,24 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
           )
 
         :reanchor ->
-          traversal = Enum.filter(nodes, &(&1["Index Name"] == "drive_nodes_parent_index"))
+          traversal = Enum.filter(nodes, &(&1["Index Name"] == "pages_parent_index"))
 
           updates =
             Enum.filter(
               nodes,
-              &(&1["Index Name"] == "drive_nodes_pkey" and &1["Alias"] == "target")
+              &(&1["Index Name"] == "pages_pkey" and &1["Alias"] == "target")
             )
 
           []
           |> mismatch(
             length(traversal) >= 2 and
               Enum.all?(traversal, &(&1["Node Type"] == "Index Only Scan")),
-            "recursive child traversal must use drive_nodes_parent_index Index Only Scan"
+            "recursive child traversal must use pages_parent_index Index Only Scan"
           )
           |> mismatch(
             updates != [] and
               Enum.any?(updates, &(&1["Actual Rows"] > 0 and &1["Actual Loops"] > 0)),
-            "nonempty UPDATE must use drive_nodes_pkey"
+            "nonempty UPDATE must use pages_pkey"
           )
 
         _ ->
@@ -1009,10 +998,10 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
           |> mismatch(
             Enum.any?(
               nodes,
-              &(&1["Index Name"] == "drive_nodes_live_children_index" and
+              &(&1["Index Name"] == "pages_live_children_index" and
                   &1["Node Type"] == "Index Only Scan" and &1["Actual Rows"] > 0)
             ),
-            "directory must use drive_nodes_live_children_index Index Only Scan"
+            "directory must use pages_live_children_index Index Only Scan"
           )
       end
 
@@ -1042,7 +1031,7 @@ defmodule Ankole.Pod.AuthorizationPlanTest do
           refute Repo.get(Ankole.Tenants.Tenant, tenant.id)
 
           assert Repo.query!(
-                   "SELECT (SELECT count(*) FROM drive_nodes WHERE tenant_id = $1::text::uuid), (SELECT count(*) FROM permission_grants WHERE tenant_id = $1::text::uuid)",
+                   "SELECT (SELECT count(*) FROM pages WHERE tenant_id = $1::text::uuid), (SELECT count(*) FROM permission_grants WHERE tenant_id = $1::text::uuid)",
                    [tenant.id]
                  ).rows == [[0, 0]]
 

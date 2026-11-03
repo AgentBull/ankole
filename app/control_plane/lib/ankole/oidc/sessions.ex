@@ -79,8 +79,8 @@ defmodule Ankole.OIDC.Sessions do
          true <-
            (kind != :code and "offline_access" in scopes) or
              (is_nil(session.ended_at) and live_authentication?(session)),
-         :ok <- HumanAccess.check(principal_uid, session.access_version),
          {:ok, principal} <- Ankole.Principals.get_principal(principal_uid),
+         :ok <- HumanAccess.check(principal, session.access_version),
          true <-
            Ankole.Principals.PodLoginPolicy.authentication_allowed?(
              principal,

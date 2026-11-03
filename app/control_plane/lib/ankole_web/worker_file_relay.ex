@@ -60,14 +60,18 @@ defmodule AnkoleWeb.WorkerFileRelay do
       consumer_ref = Process.monitor(session.consumer)
       send(session.consumer, {:relay_opened, transfer_id, self(), size})
 
-      case relay_body(conn, session, consumer_ref, 0) do
-        {:ok, conn} ->
-          send(session.consumer, {:relay_done, transfer_id})
-          send_resp(conn, 200, "")
+      try do
+        case relay_body(conn, session, consumer_ref, 0) do
+          {:ok, conn} ->
+            send(session.consumer, {:relay_done, transfer_id})
+            send_resp(conn, 200, "")
 
-        {:error, reason, conn} ->
-          send(session.consumer, {:relay_failed, transfer_id, reason})
-          reject(conn, reason)
+          {:error, reason, conn} ->
+            send(session.consumer, {:relay_failed, transfer_id, reason})
+            reject(conn, reason)
+        end
+      after
+        Process.demonitor(consumer_ref, [:flush])
       end
     else
       {:error, reason} -> reject(conn, reason)

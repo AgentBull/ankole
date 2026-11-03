@@ -49,7 +49,7 @@ defmodule Ankole.Brain.MergeTest do
 
     {:ok, _} =
       Ankole.Repo.transact_top_level(fn ->
-        properties = Repo.get_by!(Ankole.Pod.Properties, id: object.id)
+        properties = Repo.get_by!(Ankole.Pod.Page, id: object.id)
 
         Ankole.Ash.update(properties, :sync_upstream, %{
           upstream_state: %{"source_id" => source.id}
@@ -58,17 +58,20 @@ defmodule Ankole.Brain.MergeTest do
   end
 
   describe "run_phase/0" do
-    test "private pages matching Principal paths remain ordinary merge candidates", %{
+    test "restricted Brain pages sharing Principal names remain ordinary merge candidates", %{
       human: human
     } do
       other = human_fixture().principal
       actor = actor_fixture(human)
 
+      category = Ankole.BrainFixtures.category_fixture(human.uid, "people")
+
       {:ok, folder} =
         Ankole.Pod.Pages.create(actor, %{
-          type: :folder,
-          title: "people",
-          private_owner_uid: human.uid
+          type: :knowledge,
+          parent_id: category.id,
+          title: "Private contacts",
+          inherit_permissions: false
         })
 
       for uid <- [human.uid, other.uid] do
@@ -415,7 +418,7 @@ defmodule Ankole.Brain.MergeTest do
     end
   end
 
-  test "merging private duplicates preserves shared historical paths", %{human: human} do
+  test "merging restricted Brain duplicates preserves shared historical paths", %{human: human} do
     actor = actor_fixture(human)
 
     {:ok, shared} =
@@ -424,13 +427,16 @@ defmodule Ankole.Brain.MergeTest do
         human.uid
       )
 
-    assert {:ok, _} = Ankole.Files.Nodes.rename(actor, shared.id, "Shared Acme")
+    assert {:ok, _} = Ankole.Pod.Pages.Tree.rename(actor, shared.id, "Shared Acme")
+
+    category = Ankole.BrainFixtures.category_fixture(human.uid, "companies")
 
     {:ok, folder} =
       Ankole.Pod.Pages.create(actor, %{
-        type: :folder,
-        title: "companies",
-        private_owner_uid: human.uid
+        type: :knowledge,
+        parent_id: category.id,
+        title: "Private accounts",
+        inherit_permissions: false
       })
 
     private_pages =

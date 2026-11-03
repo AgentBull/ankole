@@ -27,11 +27,16 @@ defmodule Ankole.Signals.Binding do
     table("signal_bindings")
     repo(Ankole.Repo)
     migrate?(false)
-    foreign_key_names([{:agent_uid, "signal_bindings_agent_uid_fkey"}])
+
+    foreign_key_names([
+      {:agent_uid, "signal_bindings_agent_uid_fkey"},
+      {:automation_job_id, "signal_bindings_job_fkey"}
+    ])
 
     unique_index_names([
       {[:agent_uid, :name], "signal_bindings_agent_name_index"},
-      {[:name], "signal_bindings_shared_name_index"}
+      {[:name], "signal_bindings_shared_name_index"},
+      {[:config_ref, :agent_uid, :target], "signal_bindings_event_target_unique"}
     ])
 
     check_constraints do
@@ -53,10 +58,12 @@ defmodule Ankole.Signals.Binding do
     )
 
     attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
+    attribute(:automation_job_id, :integer, public?: true)
+    attribute(:watched_field_ids, {:array, :string}, public?: true)
     attribute(:name, :string, constraints: [trim?: true], allow_nil?: false, public?: true)
 
     attribute(:routing_mode, Ankole.Ash.Types.State,
-      constraints: [one_of: [:ai_colleague, :sender_personal_assistant]],
+      constraints: [one_of: [:ai_colleague, :sender_personal_assistant, :action]],
       default: :ai_colleague,
       allow_nil?: false,
       public?: true
@@ -94,6 +101,8 @@ defmodule Ankole.Signals.Binding do
     default_fields([
       :routing_mode,
       :agent_uid,
+      :automation_job_id,
+      :watched_field_ids,
       :name,
       :adapter,
       :config_ref,
@@ -123,6 +132,8 @@ defmodule Ankole.Signals.Binding do
 
       upsert_fields([
         :agent_uid,
+        :automation_job_id,
+        :watched_field_ids,
         :name,
         :routing_mode,
         :adapter,
@@ -139,6 +150,8 @@ defmodule Ankole.Signals.Binding do
         :id,
         :routing_mode,
         :agent_uid,
+        :automation_job_id,
+        :watched_field_ids,
         :name,
         :adapter,
         :config_ref,
@@ -184,7 +197,8 @@ defmodule Ankole.Signals.Binding do
   end
 
   defp normalize_target(changeset) do
-    if Ash.Changeset.get_attribute(changeset, :adapter) == "cloudevents" do
+    if Ash.Changeset.get_attribute(changeset, :adapter) == "cloudevents" and
+         Ash.Changeset.get_attribute(changeset, :routing_mode) != :action do
       target = Ash.Changeset.get_attribute(changeset, :target)
 
       case target do

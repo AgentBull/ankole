@@ -13,7 +13,7 @@ defmodule Ankole.Pod.Copy do
   alias __MODULE__.Projection
   alias Ankole.Pod.Bases.{Physical, Promote}
 
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
 
   alias Ankole.Pod.{
     Config,

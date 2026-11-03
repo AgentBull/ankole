@@ -87,11 +87,13 @@ defmodule Ankole.Plugins.WeComAdapter do
   @impl true
   def children do
     [
-      WeComOpenAPI.Supervisor,
-      {Registry, keys: :unique, name: Ankole.Plugins.WeComAdapter.ConnectionRegistry},
-      {DynamicSupervisor,
-       name: Ankole.Plugins.WeComAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
-      ConnectionReconciler
+      Ankole.Plugins.ConnectionLifecycle.supervisor_spec(__MODULE__, [
+        WeComOpenAPI.Supervisor,
+        {Registry, keys: :unique, name: Ankole.Plugins.WeComAdapter.ConnectionRegistry},
+        {DynamicSupervisor,
+         name: Ankole.Plugins.WeComAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
+        ConnectionReconciler
+      ])
     ]
   end
 

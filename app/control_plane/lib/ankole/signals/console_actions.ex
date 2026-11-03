@@ -51,7 +51,10 @@ defmodule Ankole.Signals.ConsoleActions do
          {:ok, failures} <- Delivery.list_stopped_deliveries(agent) do
       {:ok,
        %{
-         signal_bindings: Enum.map(bindings, &signal_binding_json/1),
+         signal_bindings:
+           bindings
+           |> Enum.reject(&(&1.adapter == "internal"))
+           |> Enum.map(&signal_binding_json/1),
          delivery_failures: Enum.map(failures, &signal_delivery_json/1)
        }}
     end

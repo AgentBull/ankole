@@ -1,8 +1,10 @@
 defmodule Ankole.Files.Vfs.Operations do
   @moduledoc "Composes WebDAV changes with the Drive and Pod transaction owners."
   alias Ankole.{Files, Kernel, Repo}
-  alias Ankole.Files.{Access, Nodes}
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
   alias Ankole.Files.Vfs.{Content, Namespace}
+  alias Ankole.Pod.Pages
 
   def propfind(scope, path, depth) do
     result =
@@ -49,6 +51,9 @@ defmodule Ankole.Files.Vfs.Operations do
     end
   end
 
+  def put(_scope, [root | _], _local, _headers)
+      when root in ["Brain", "Skills", "AGENTS.md", "DESIGN.md"], do: {:error, :forbidden}
+
   def put(scope, path, local_path, headers) do
     case Repo.transact_top_level(fn -> Namespace.resolve(scope, path) end) do
       {:ok, %{base_write: _} = entry} ->
@@ -58,6 +63,9 @@ defmodule Ankole.Files.Vfs.Operations do
 
       {:ok, %{kind: kind}} when kind in [:virtual_file, :virtual_directory] ->
         {:error, :forbidden}
+
+      {:ok, %{kind: kind}} when kind in [:root, :folder, :children, :base, :applet] ->
+        {:error, :is_a_directory}
 
       error ->
         if virtual_path?(path),
@@ -74,10 +82,10 @@ defmodule Ankole.Files.Vfs.Operations do
 
   defp put_node(scope, path, local_path, headers) do
     with {:ok, prepared} <- prepare(scope, path, local_path, headers) do
-      topology? = match?({:error, :not_found}, Namespace.resolve(scope, path))
+      topology? = match?({:error, :not_found}, Namespace.resolve_write(scope, path))
 
       write(scope, [path], topology?, fn scope ->
-        case Namespace.resolve(scope, path) do
+        case Namespace.resolve_write(scope, path) do
           {:ok, %{node: nil}} ->
             {:error, :forbidden}
 
@@ -103,27 +111,54 @@ defmodule Ankole.Files.Vfs.Operations do
     end
   end
 
+  def mkdir(_scope, [root | _]) when root in ["Brain", "Skills", "AGENTS.md", "DESIGN.md"],
+    do: {:error, :forbidden}
+
   def mkdir(scope, path) do
     write(scope, [path], true, fn scope -> create_exact_in_tx(scope, path, :folder, nil) end)
   end
+
+  def delete(_scope, [root | _], _headers)
+      when root in ["Brain", "Skills", "AGENTS.md", "DESIGN.md"], do: {:error, :forbidden}
 
   def delete(scope, path, headers) do
     write(scope, [path], true, fn scope ->
       with {:ok, %{node: node, kind: kind} = entry}
            when not is_nil(node) and kind not in [:virtual_file, :virtual_directory] <-
              Namespace.resolve(scope, path),
-           {:ok, _} <- Namespace.authorize(scope, node, Nodes.deletion_action(node)),
-           {:ok, _} <- Nodes.lock(node.id),
-           {:ok, meta} <- Content.stat(entry),
-           :ok <- matches(headers["if-match"], meta.etag),
-           {:ok, deleted} <- Nodes.trash_in_tx(scope.actor, node.id),
-           do: {:ok, deleted},
-           else: (
-             {:ok, _} -> {:error, :forbidden}
-             error -> error
-           )
+           action =
+             if(kind == :doc or empty_directory?(entry),
+               do: "node_edit",
+               else: Nodes.deletion_action(node)
+             ),
+           {:ok, _} <- Namespace.authorize(scope, node, action),
+           {:ok, node} <- Nodes.lock(node.id),
+           {:ok, meta} <- Content.stat(%{entry | node: node}),
+           :ok <- matches(headers["if-match"], meta.etag) do
+        if kind == :doc do
+          with {:ok, _} <- Content.clear_in_tx(scope, node), do: Nodes.fetch(node.id)
+        else
+          if empty_directory?(entry),
+            do: Nodes.trash_empty_directory_in_tx(scope.actor, node.id),
+            else: Nodes.trash_in_tx(scope.actor, node.id)
+        end
+      else
+        {:ok, _} -> {:error, :forbidden}
+        error -> error
+      end
     end)
   end
+
+  defp empty_directory?(%{node: node, kind: kind}) do
+    kind in [:folder, :children] and node.type == :doc and Pages.content_empty?(node) and
+      Nodes.list_children(node.id) == []
+  end
+
+  def move(_scope, [root | _], _destination, _headers)
+      when root in ["Brain", "Skills", "AGENTS.md", "DESIGN.md"], do: {:error, :forbidden}
+
+  def move(_scope, _source, [root | _], _headers)
+      when root in ["Brain", "Skills", "AGENTS.md", "DESIGN.md"], do: {:error, :forbidden}
 
   def move(scope, source, destination, headers) do
     with {:ok, %{node: source_node, kind: kind}}
@@ -150,7 +185,7 @@ defmodule Ankole.Files.Vfs.Operations do
   defp replay_move(scope, destination, headers) do
     write(scope, [destination], false, fn scope ->
       with {:ok, %{node: node} = entry} when not is_nil(node) <-
-             Namespace.resolve(scope, destination),
+             Namespace.resolve_write(scope, destination),
            {:ok, _} <- Namespace.authorize(scope, node, "node_edit"),
            {:ok, node} <- Nodes.lock(node.id),
            true <-
@@ -161,21 +196,24 @@ defmodule Ankole.Files.Vfs.Operations do
              {:ok,
               node
               |> Map.put(:vfs_meta, meta)
-              |> Map.put(:vfs_refresh_body, node.last_vfs_etag != meta.etag)},
+              |> Map.put(:vfs_refresh_body, node.type == :doc or node.last_vfs_etag != meta.etag)},
            else: (_ -> {:error, :not_found})
     end)
   end
 
   defp move_target_in_tx(scope, %{node: node} = source_entry, destination, prepared, headers) do
-    case Namespace.resolve(scope, destination) do
-      {:ok, %{node: %{id: id}}} when id == node.id ->
-        {:ok, node}
+    case Namespace.resolve_write(scope, destination) do
+      {:ok, %{node: %{id: id}, kind: kind}} when id == node.id ->
+        if kind == source_entry.kind,
+          do: receipt_in_tx(node, headers, kind),
+          else: {:error, :precondition_failed}
 
       {:ok, %{node: nil}} ->
         {:error, :forbidden}
 
       {:ok, target} ->
-        if headers["overwrite"] == "F" do
+        if headers["overwrite"] == "F" or
+             (node.type != :file and source_entry.kind != target.kind) do
           {:error, :precondition_failed}
         else
           overwrite_move_in_tx(scope, node, target, prepared, headers)
@@ -191,7 +229,7 @@ defmodule Ankole.Files.Vfs.Operations do
                Nodes.move_in_tx(scope.actor, node.id, %{parent_id: parent.id, name: name},
                  exact_name: true
                ),
-             do: receipt_in_tx(moved, headers),
+             do: receipt_in_tx(moved, headers, source_entry.kind),
              else: (
                false -> {:error, :invalid_kind}
                error -> error
@@ -202,7 +240,7 @@ defmodule Ankole.Files.Vfs.Operations do
     end
   end
 
-  defp overwrite_move_in_tx(scope, %{kind: :file} = source, target, prepared, headers) do
+  defp overwrite_move_in_tx(scope, %{type: :file} = source, target, prepared, headers) do
     with false <- Namespace.collection?(target),
          {:ok, result} <- replace_target_in_tx(scope, target, prepared, headers),
          {:ok, _} <- Nodes.consume_file_in_tx(scope.actor, source.id),
@@ -213,11 +251,20 @@ defmodule Ankole.Files.Vfs.Operations do
          )
   end
 
-  defp overwrite_move_in_tx(scope, source, %{node: target}, _prepared, headers)
-       when source.kind == target.kind and
-              source.kind in [:doc, :knowledge, :base, :applet, :folder] do
+  defp overwrite_move_in_tx(
+         _scope,
+         %{type: :doc},
+         %{kind: :doc, node: %{vfs_content_empty: true}},
+         _prepared,
+         _headers
+       ),
+       do: {:error, :precondition_failed}
+
+  defp overwrite_move_in_tx(scope, source, %{node: target, kind: kind}, _prepared, headers)
+       when source.type == target.type and
+              source.type in [:doc, :base, :applet] do
     with {:ok, _} <- Namespace.authorize(scope, target, "node_manage"),
-         {:ok, meta} <- Content.stat(Namespace.entry(target, target.kind)),
+         {:ok, meta} <- Content.stat(Namespace.entry(target, kind)),
          :ok <- matches(headers["if-match"], meta.etag),
          {:ok, _} <- Nodes.trash_in_tx(scope.actor, target.id),
          {:ok, moved} <-
@@ -227,10 +274,13 @@ defmodule Ankole.Files.Vfs.Operations do
              %{parent_id: target.parent_id, name: target.name},
              exact_name: true
            ),
-         do: receipt_in_tx(moved, headers)
+         do: receipt_in_tx(moved, headers, kind)
   end
 
   defp overwrite_move_in_tx(_, _, _, _, _), do: {:error, :precondition_failed}
+
+  def copy(_scope, _source, [root | _], _headers)
+      when root in ["Brain", "Skills", "AGENTS.md", "DESIGN.md"], do: {:error, :forbidden}
 
   def copy(scope, source, destination, headers) do
     write(scope, [source, destination], true, fn scope ->
@@ -239,7 +289,7 @@ defmodule Ankole.Files.Vfs.Operations do
            :ok <- matches(headers["x-ankole-expected-etag"], meta.etag) do
         prepared = %{stored: source_node.object_id, content_type: source_node.content_type}
 
-        case Namespace.resolve(scope, destination) do
+        case Namespace.resolve_write(scope, destination) do
           {:ok, %{kind: :file} = target} ->
             if headers["overwrite"] == "F",
               do: {:error, :precondition_failed},
@@ -268,19 +318,30 @@ defmodule Ankole.Files.Vfs.Operations do
          {:ok, _} <- Namespace.authorize(scope, parent, Nodes.child_create_action(parent)),
          {:error, :not_found} <- Nodes.child(parent.id, name) do
       case kind do
-        kind when kind in [:file, :folder] ->
+        :file ->
           attrs = %{
             parent_id: parent.id,
             name: name,
-            kind: kind,
+            type: :file,
             created_by: Ankole.ActorRef.from_actor(scope.actor)
           }
 
           with {:ok, node} <- Nodes.create_in_tx(attrs, exact_name: true),
                do: bind_created_in_tx(scope, node, prepared)
 
-        kind when kind in [:doc, :knowledge] and not is_nil(prepared) ->
-          with {:ok, page} <- Content.create_in_tx(scope, parent, name, kind, prepared),
+        :folder ->
+          Pages.create_in_tx(
+            scope.actor,
+            %{
+              parent_id: parent.id,
+              title: name,
+              type: :doc
+            },
+            exact_name: true
+          )
+
+        :doc when not is_nil(prepared) ->
+          with {:ok, page} <- Content.create_in_tx(scope, parent, name, :doc, prepared),
                do: Nodes.fetch(page.id)
 
         _ ->
@@ -292,14 +353,14 @@ defmodule Ankole.Files.Vfs.Operations do
     end
   end
 
-  defp bind_created_in_tx(scope, %{kind: :file} = node, prepared) do
+  defp bind_created_in_tx(scope, %{type: :file} = node, prepared) do
     with {:ok, _} <- Content.replace_in_tx(scope, node, prepared), do: Nodes.fetch(node.id)
   end
 
   defp bind_created_in_tx(_scope, node, _prepared), do: {:ok, node}
 
   def replace_target_in_tx(scope, %{node: node, kind: kind} = entry, prepared, headers)
-      when kind in [:file, :doc, :knowledge] do
+      when kind in [:file, :doc] do
     with {:ok, _} <- Namespace.authorize(scope, node, "node_edit"),
          {:ok, current} <- Nodes.lock(node.id),
          {:ok, meta} <- Content.stat(%{entry | node: current}) do
@@ -309,13 +370,17 @@ defmodule Ankole.Files.Vfs.Operations do
           {:ok,
            current
            |> Map.put(:vfs_meta, meta)
-           |> Map.put(:vfs_refresh_body, current.last_vfs_etag != meta.etag)}
+           |> Map.put(
+             :vfs_refresh_body,
+             current.type == :doc or current.last_vfs_etag != meta.etag
+           )}
 
-        headers["if-none-match"] == "*" ->
+        headers["if-none-match"] == "*" and
+            not (current.type == :doc and Pages.content_empty?(current)) ->
           {:error, :precondition_failed}
 
         true ->
-          with {:ok, refresh?} <-
+          with {:ok, _} <-
                  Content.replace_version_in_tx(
                    scope,
                    current,
@@ -324,16 +389,15 @@ defmodule Ankole.Files.Vfs.Operations do
                    meta.etag
                  ),
                {:ok, updated} <- Nodes.fetch(current.id),
-               {:ok, updated} <- receipt_in_tx(updated, headers),
-               do: {:ok, Map.put(updated, :vfs_refresh_body, refresh?)}
+               do: receipt_in_tx(updated, headers)
       end
     end
   end
 
   def replace_target_in_tx(_, _, _, _), do: {:error, :is_a_directory}
 
-  defp receipt_in_tx(node, headers) do
-    with {:ok, meta} <- Content.stat(Namespace.entry(node, node.kind)),
+  defp receipt_in_tx(node, headers, kind \\ nil) do
+    with {:ok, meta} <- Content.stat(Namespace.entry(node, kind || node.type)),
          {:ok, node} <-
            if(request = headers["x-ankole-request-id"],
              do:
@@ -343,7 +407,9 @@ defmodule Ankole.Files.Vfs.Operations do
                }),
              else: {:ok, node}
            ),
-         do: {:ok, Map.put(node, :vfs_meta, meta)}
+         do:
+           {:ok,
+            node |> Map.put(:vfs_meta, meta) |> Map.put(:vfs_refresh_body, node.type == :doc)}
   end
 
   defp destination(scope, path, requested_kind) do
@@ -361,7 +427,7 @@ defmodule Ankole.Files.Vfs.Operations do
   end
 
   def upload_kind(scope, path) do
-    case Namespace.resolve(scope, path) do
+    case Namespace.resolve_write(scope, path) do
       {:ok, entry} ->
         entry.kind
 
@@ -387,9 +453,9 @@ defmodule Ankole.Files.Vfs.Operations do
     end
   end
 
-  defp prepare_move(scope, %{kind: :file} = source, destination) do
-    case Namespace.resolve(scope, destination) do
-      {:ok, %{kind: kind}} when kind in [:doc, :knowledge] ->
+  defp prepare_move(scope, %{type: :file} = source, destination) do
+    case Namespace.resolve_write(scope, destination) do
+      {:ok, %{kind: :doc}} ->
         with {:ok, bytes} <- Files.read_object(source.object_id), do: {:ok, %{bytes: bytes}}
 
       _ ->
@@ -430,7 +496,7 @@ defmodule Ankole.Files.Vfs.Operations do
     |> Enum.sort()
   end
 
-  defp lock_read(%{node: %{kind: kind, id: id}}) when kind in [:doc, :knowledge] do
+  defp lock_read(%{node: %{type: kind, id: id}}) when kind in [:doc, :knowledge] do
     with {:ok, _} <- Nodes.lock(id, :share), do: :ok
   end
 

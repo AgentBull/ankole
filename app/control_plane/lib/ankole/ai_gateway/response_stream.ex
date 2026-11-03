@@ -227,7 +227,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   def read(%__MODULE__{}, _count), do: {:error, :invalid_response_stream_credit}
 
   @doc "Reads the current display without consuming stream credit."
-  def display_snapshot(%__MODULE__{pid: pid}), do: safe_call(pid, :display_snapshot)
+  def display_snapshot(%__MODULE__{pid: pid}), do: safe_call(pid, :display_snapshot, 250)
 
   @spec cancel(t(), String.t()) :: :ok | {:error, term()}
   def cancel(stream, reason \\ "consumer_cancelled")
@@ -327,7 +327,6 @@ defmodule Ankole.AIGateway.ResponseStream do
       hosted_image_spec: Keyword.fetch!(opts, :hosted_image_spec),
       diagnostics: Keyword.get(opts, :diagnostics, %{}),
       failure_logged?: false,
-      prepared_request: prepared_request,
       describe_waiters: [],
       opening: nil,
       native_stream: nil,
@@ -707,7 +706,6 @@ defmodule Ankole.AIGateway.ResponseStream do
     state =
       Map.merge(state, %{
         stateful: stateful,
-        prepared_request: prepared_request,
         round_open: round_open_fun(tool_loop),
         hosted_credential_attempt: hosted_credential_attempt,
         hosted_image_spec: hosted_image_spec(prepared_request),
@@ -1274,7 +1272,11 @@ defmodule Ankole.AIGateway.ResponseStream do
         "AIGateway response stream has no upstream progress for five minutes",
         %{
           "response_id" => state.semantic.local_response_id,
-          "phase" => Atom.to_string(state.phase),
+          "phase" =>
+            case state.phase do
+              {:open_failed, _reason} -> "open_failed"
+              phase -> Atom.to_string(phase)
+            end,
           "upstream_progress" => state.semantic.upstream_progress
         }
       )
@@ -1965,8 +1967,8 @@ defmodule Ankole.AIGateway.ResponseStream do
     end
   end
 
-  defp safe_call(pid, message) do
-    GenServer.call(pid, message, :infinity)
+  defp safe_call(pid, message, timeout \\ :infinity) do
+    GenServer.call(pid, message, timeout)
   catch
     :exit, _reason -> {:error, :response_stream_closed}
   end

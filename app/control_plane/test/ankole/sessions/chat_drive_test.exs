@@ -25,9 +25,9 @@ defmodule Ankole.Sessions.ChatDriveTest do
         input = input!(agent.uid, provider_id, attachments: [stored])
         assert [attachment] = get_in(input.data, ["entry", "attachments"])
         assert attachment["object_id"] == stored["object_id"]
-        assert {:ok, conversation_id} = Files.node_conversation_id(attachment["node_id"])
+        assert {:ok, conversation_id} = Ankole.Pod.node_conversation_id(attachment["node_id"])
         assert conversation_id == input.conversation_id
-        assert {:ok, _} = Files.authorize_node(agent.uid, attachment["node_id"], "node_view")
+        assert {:ok, _} = Ankole.Pod.authorize_node(agent.uid, attachment["node_id"], "node_view")
         run = prepare_run(input)
         assert Ankole.JSON.encode!(Prompt.user(run, input)) =~ "ankole-pod chat attachment get"
         attachment["node_id"]
@@ -37,9 +37,9 @@ defmodule Ankole.Sessions.ChatDriveTest do
 
     for id <- nodes do
       assert {:ok, _} =
-               Files.write_node(Ankole.AuthZ.Actor.new(agent), id, "Revised in ChatDrive")
+               Ankole.Pod.write_node(Ankole.AuthZ.Actor.new(agent), id, "Revised in ChatDrive")
 
-      assert {:ok, revised} = Files.fetch_node(id)
+      assert {:ok, revised} = Ankole.Pod.fetch_node(id)
       refute revised.object_id == stored["object_id"]
     end
 
@@ -166,7 +166,10 @@ defmodule Ankole.Sessions.ChatDriveTest do
 
   defp conversation_file!(id, name, bytes) do
     {:ok, stored} = Files.store(bytes)
-    {:ok, file} = Repo.transact(fn -> Files.create_conversation_file_in_tx(id, name, stored) end)
+
+    {:ok, file} =
+      Repo.transact(fn -> Ankole.Pod.create_conversation_file_in_tx(id, name, stored) end)
+
     file
   end
 

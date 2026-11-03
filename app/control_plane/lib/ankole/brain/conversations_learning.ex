@@ -46,9 +46,12 @@ defmodule Ankole.Brain.ConversationsLearning do
          {:ok, model} <- ensure_extraction_model(),
          {:ok, channel} <- fetch_conversation(conversation_id),
          {:ok, _root} <-
-           Repo.transact_top_level(fn ->
-             Ankole.Files.Nodes.ensure_conversation_root_in_tx(channel.id)
-           end),
+           Repo.transact_top_level(
+             fn ->
+               Ankole.Pod.Pages.Tree.ensure_conversation_root_in_tx(channel.id)
+             end,
+             after_commit: &Ankole.Brain.Namespace.committed/1
+           ),
          {:ok, learning_context} <- learning_context(channel),
          {:ok, source} <- ensure_active_source(channel) do
       learning_context = Map.put(learning_context, :source_id, source.id)
@@ -260,9 +263,12 @@ defmodule Ankole.Brain.ConversationsLearning do
     prepared = prepare_embeddings(items)
 
     result =
-      Repo.transact_top_level(fn ->
-        finalize_in_tx(Map.merge(slice, %{outcome: outcome, items: items, prepared: prepared}))
-      end)
+      Repo.transact_top_level(
+        fn ->
+          finalize_in_tx(Map.merge(slice, %{outcome: outcome, items: items, prepared: prepared}))
+        end,
+        after_commit: &Ankole.Brain.Namespace.committed/1
+      )
 
     case result do
       {:ok, %{written: written} = report} ->
@@ -585,10 +591,16 @@ defmodule Ankole.Brain.ConversationsLearning do
   defp human_uid?(uid), do: match?({:ok, %{type: :human}}, Ankole.Principals.get_principal(uid))
 
   defp build_transcript(entries) do
+    speakers =
+      entries
+      |> Enum.filter(&is_binary(&1.message.author_uid))
+      |> Enum.uniq_by(& &1.message.author_uid)
+      |> Map.new(&{&1.message.author_uid, speaker_label(&1)})
+
     lines =
       entries
       |> Enum.map(fn entry ->
-        speaker = speaker_label(entry)
+        speaker = Map.get_lazy(speakers, entry.message.author_uid, fn -> speaker_label(entry) end)
         text = String.trim(entry.message.text || "")
 
         if text == "",

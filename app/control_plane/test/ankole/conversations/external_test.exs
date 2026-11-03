@@ -86,21 +86,21 @@ defmodule Ankole.Conversations.ExternalTest do
                  )
                end)
 
-      {:ok, root} = Ankole.Files.Nodes.conversation_root(conversation.id)
+      {:ok, root} = Ankole.Pod.Pages.Tree.conversation_root(conversation.id)
 
       for uid <- [ctx.agent.uid, human.uid] do
-        assert {:ok, _} = Ankole.Files.authorize_node(uid, root.id, "node_view")
-        assert {:ok, _} = Ankole.Files.authorize_node(uid, root.id, "node_contribute")
+        assert {:ok, _} = Ankole.Pod.authorize_node(uid, root.id, "node_view")
+        assert {:ok, _} = Ankole.Pod.authorize_node(uid, root.id, "node_contribute")
       end
 
       assert {:error, :forbidden} =
-               Ankole.Files.authorize_node(outsider.uid, root.id, "node_view")
+               Ankole.Pod.authorize_node(outsider.uid, root.id, "node_view")
 
       if kind == :im_group do
         assert {:ok, _} = Ankole.AuthZ.remove_principal_from_group(human.uid, group.id)
 
         assert {:error, :forbidden} =
-                 Ankole.Files.authorize_node(human.uid, root.id, "node_view")
+                 Ankole.Pod.authorize_node(human.uid, root.id, "node_view")
       end
     end
   end

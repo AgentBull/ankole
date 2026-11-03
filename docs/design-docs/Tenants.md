@@ -165,18 +165,17 @@ span a tree or several reference tables:
 
 | Owner | Tenant boundary |
 | --- | --- |
-| `Files.Nodes` and `Files.Access` | Recursive ancestry, descendants, trash visibility, and ACL updates bind the active tenant at every table entry. Parent and child joins also match tenant IDs. |
-| `Files.Access.Graph` | The ACL graph loads nodes and grants only for the active tenant; subsequent recursive steps use those scoped sets. |
+| `Pod.Pages.Tree` and `Pod.Access` | Recursive ancestry, descendants, trash visibility, and ACL updates bind the active tenant at every table entry. Parent and child joins also match tenant IDs. |
+| `Pod.Access.Graph` | The ACL graph loads nodes and grants only for the active tenant; subsequent recursive steps use those scoped sets. |
 | `Files.Paths` | File listing binds the tenant in both recursive branches and joins object metadata by tenant and object ID. |
 | `Files.Objects` | Collection binds the object tenant and checks each durable reference against that same tenant before attempting the foreign-key-protected delete. |
-| `Files.Jobs.PurgeNode` | Each purge batch selects leaves only in the active tenant and checks children within that tenant. |
-| `Pod.Pages.Queries.read_search_pages` | Title and body subqueries bind the active tenant explicitly. Each search branch reads the tenant-scoped Page projection with the caller's Drive authorization policy. |
+| `Pod.Jobs.PurgeTree` | Each purge batch selects leaves only in the active tenant and checks children within that tenant. |
+| `Pod.Pages.Queries.read_search_pages` | Title and body subqueries bind the active tenant explicitly. Each search branch reads the tenant-scoped Page resource with the caller's Drive authorization policy. |
 
 Root deletion temporarily defers the two ACL-anchor foreign keys within its
 transaction and validates them before returning. It still deletes through the
-tenant-scoped Node resource. `pod_page_nodes` is a read-only projection of
-`drive_nodes` and `pages`, joined by tenant and node ID; tenant cleanup deletes
-its owning tables, not the view. The physical object key has a global uniqueness
+tenant-scoped Page resource. `pages` owns both identity and Page attributes;
+Drive reads this resource and derives its filesystem presentation. The physical object key has a global uniqueness
 constraint, while `file_objects` and every reference to it remain tenant-owned.
 
 For Ecto queries, `Ankole.Repo` attaches tenant ownership to every tenant-owned
@@ -281,6 +280,11 @@ unique—backed by composite parent unique indexes so PostgreSQL blocks
 cross-tenant references across Ash actions, upserts, and raw SQL (`ON DELETE SET NULL`
 clears only the nullable reference column while keeping the child's
 `tenant_id`). Site-owned browser proofs are shared across Pods.
+
+Every tenant-owned table also has a required direct foreign key to `tenants`
+with `ON DELETE RESTRICT`, including Skill packages, files, bindings and Agent
+contracts. The tenant deletion job removes domain rows in its declared order
+before deleting the tenant itself.
 
 ## Site administration
 
@@ -461,14 +465,17 @@ to revoke its Human Principals and halt their unstarted work across all tenants
 deletion; in the surviving tenant's work-review queue, operators can reauthorize
 and resume a paused cron rule—recording the prior UID and `access_version`—or
 replace terminal work through its owning domain, while already admitted attempts
-run to completion). Agent teardown releases Workers and persistent disks, and
+run to completion). The deletion job clears Applet execution owners in bounded
+batches before deleting their Principals. Ankole blocks individual Principal
+deletion while an Applet names that Principal as its execution owner.
+Agent teardown releases Workers and persistent disks, and
 the background deletion job removes database rows in bounded, idempotent
 single-table batches ordered from leaves to parents so foreign-key cascades
 never delete bulk subtrees at once. Ankole applies the time budget after a batch
 removes rows and continues past empty tables, so each pass either removes data
 or reaches final cleanup even when database queries are slow.
 Pod content metadata and attachment
-relations are removed before Drive nodes, and Drive node batches select leaves
+relations are removed before Pages, and Page batches select leaves
 before applying their limit. The tenant's Base shard cleanup drops physical
 tables before its schema is removed. The final transaction enumerates the
 remaining `file_objects.storage_key` values and inserts site-owned DeleteObject

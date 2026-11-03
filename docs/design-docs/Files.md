@@ -1,27 +1,26 @@
 # Files
 
-`Ankole.Files` owns the tenant Drive: one durable node tree, its access rules,
-trash lifecycle and immutable file objects. Pod owns document, Base and Applet
-semantics attached to those nodes. PostgreSQL is the authority; Worker caches
-and local paths can be rebuilt. Workers never receive object-store credentials.
+`Ankole.Files` owns immutable file objects and the Drive projection. `Ankole.Pod`
+owns the Page tree, its content, access rules and lifecycle. PostgreSQL holds
+the authoritative Page facts; Worker caches and filesystem paths are rebuildable.
+Workers never receive object-store credentials.
 
 ## Ownership and storage
 
 | Table | Purpose |
 | --- | --- |
-| `drive_nodes` | Real folder, file, doc, base and applet nodes; topology, name, ACL anchors, trash state and the file's current `object_id` |
+| `pages` | Pod-owned identity, content type, topology, name, metadata, ACL anchors, trash state and a file Page's current `object_id` |
 | `file_objects` | Tenant-owned immutable bytes: UUID, storage key, SHA-256, size and completion time |
 | `message_attachments` | Frozen Message references by `(tenant_id, message_id, position)` |
 | `delivery_attachments` | Pending Delivery references by intent identity and position |
 | `pod_files` | Pod-managed resources by `(tenant_id, node_id, path)`; a nullable node identifies tenant metadata such as custom emoji |
-| `pages` | Optional Pod properties keyed by the same node ID |
 
 Every object reference is a tenant-scoped composite foreign key with `RESTRICT`
 on object deletion. A Message attachment's optional node pointer may be cleared
 when its node is removed, while its object reference still retains the bytes.
 Pod resource rows cascade when their owning node is permanently deleted.
-`pod_page_nodes` is a read-only SQL view joining nodes and Pod properties; it is
-not a second topology or a materialized copy.
+Drive reads `Ankole.Pod.Page` directly and applies the filesystem projection
+without persisting another topology.
 
 Object keys are `tenants/<tenant-id>/objects/<uuidv7>`. A new write always gets a
 new key and row, even for identical bytes. SHA-256 is calculated during upload
@@ -34,7 +33,7 @@ node's `object_id`; the last successful commit wins. Already-sent attachments
 retain their original object reference. Document history remains Pod's
 `PageSnapshot` feature. An empty file has no object until its first write.
 
-Drive publishes committed node changes on `drive-node:<id>` after the top-level
+Pod publishes committed Page changes on `drive-node:<id>` after the top-level
 transaction succeeds. Pod's page channel consumes that event for both runtime
 and browser writes. File readers compare `object_id` when reconciling missed
 events. Pod file replacement accepts the manifest's `base_object_id` (null for
@@ -47,20 +46,21 @@ own content, independently of file objects.
 Every tenant has a public root. Members and Agents have private roots initialized
 with their owner's `manage` role; Guests have none. Membership demotion preserves
 a private root but revokes its owner's
-access according to the offboarding rules. Each conversation has a folder root;
+access according to the offboarding rules. Each conversation has a system-managed empty document root;
 current participants receive view, contribute, and edit bits from the authorization
 snapshot, with no persistent grants generated from membership.
 External IM membership comes from the conversation's resolved DM peer or its
 current Principal Group members, alongside the observing Agent participants.
-Participants can edit, rename, and trash one another's files and folders in
-ChatDrive. Sent attachments retain the immutable bytes captured at delivery.
+Participants can create subpages and edit, rename, and trash one another's files
+in ChatDrive. Sent attachments retain the immutable bytes captured at delivery.
 
 Names are unique among live siblings. `Ankole.Files.Path` rejects empty, `.` and
 `..` segments, slashes, ASCII/C1 control characters, Unicode bidirectional
 override, embedding, isolate, and mark characters (`U+202A..U+202E`,
 `U+2066..U+2069`, `U+200E`, `U+200F`, `U+061C`), and segments over 255 bytes
-across Drive node creation, rename, upload, and staged chat attachment writes.
-For untrusted external IM attachment filenames and historical entries,
+across Page creation, rename, upload, and staged chat attachment writes.
+Drive reads, moves, and deletes use the same path validation as writes.
+For untrusted external IM attachment filenames,
 `Ankole.Files.sanitize_display_path/1` strips bidirectional and control
 characters before prompt formatting, `Content-Disposition` headers, and UI
 display, while browser views wrap rendered names in `<bdi>` isolation. Private
@@ -69,22 +69,22 @@ relative and at most 1024 bytes. Roots cannot be moved, renamed or trashed. File
 are leaves. A node has one parent and one ACL owner; moves recompute affected ACL
 anchors and prevent cycles. Ordinary browser/RPC name collisions receive a
 suffix. Pod display titles can remain empty or duplicated; their Drive names are
-normalized. Renaming a doc, base or applet through Drive updates its Pod title
-through the narrow content-owner callback.
+normalized. Drive rename and move operations call the Pod tree owner, which updates the
+Page name and title under the same transaction.
 
 The five permission bits retain role masks 1, 19, 23 and 31:
 
 | Bit | Action | Meaning |
 | --- | --- | --- |
 | 1 | `node_view` | Read content and visible descendants |
-| 2 | `node_contribute` | Add children to a folder/conversation, or write Base records and attachments |
-| 4 | `node_edit` | Edit content or structure, rename, move, and trash files or folders |
+| 2 | `node_contribute` | Write Base records and attachments |
+| 4 | `node_edit` | Create subpages, edit content or structure, rename, move, and trash file Pages |
 | 8 | `node_manage` | Manage access; trash structured pages and restore deleted nodes |
 | 16 | `node_comment` | Comment |
 
-Creating directly under the public or private root requires edit. Creating a
-subpage of a doc/base/applet also requires edit because it changes document
-structure. Initial content for an empty file requires contribute on its parent;
+Creating a subpage requires edit on its parent Page, including empty Pages and
+system roots. Children inherit their parent permissions. The rule is independent
+of whether Drive currently displays a body file or directory. Initial content for an empty file requires contribute on its parent;
 subsequent writes require edit on the file. File contribution grants no other
 operation. An editor's temporary-file rename over an existing file therefore
 requires edit on the destination.
@@ -104,8 +104,8 @@ while preventing an ancestor from moving to another space between root
 selection and commit. Private path writes already know their immutable private
 root and serialize with its snapshot lock. They revalidate existence after
 acquiring that lock: a concurrent move or delete returns `path_changed` instead
-of silently creating a replacement under a higher-ranked lock. Skill catalog
-snapshots share the private-root lock.
+of silently creating a replacement under a higher-ranked lock. Library owns
+Skill package synchronization and runtime selection independently of Page locks.
 
 Permission-grant writes hold the same tenant tree lock while refreshing ACL
 anchors. The refresh updates only anchor columns; it does not take a content
@@ -146,6 +146,9 @@ a full control-plane download. They support single closed/open/suffix byte
 ranges, 206, 416, ETag, If-None-Match and If-Range, including empty files.
 Multi-range or malformed Range headers are ignored and return the full response.
 Applet index HTML is read in full only because the host injects its shell.
+The native WebDAV server accepts PROPFIND bodies up to 1 MiB and XML nesting up to
+128 levels, and rejects larger or deeper request documents before processing their
+properties.
 
 OpenDAL supports `fs`, `s3` (including R2), `azblob`, `d1`, `cos`, `postgresql`,
 `oss`, `tos`, `gcs`, `sftp`, and `webdav`. Native buffering depends on the backend:
@@ -232,28 +235,47 @@ storage into one directory per test partition.
 
 ## Worker access
 
-A personal assistant uses its own private root for runtime files, Skills,
-Library documents and execution outputs. Pod's Private navigation resolves the
+A personal assistant uses its own private root for runtime files and execution
+outputs. Library owns its Skill bindings and composed Agent contracts. Pod's Private navigation resolves the
 assistant's same-tenant owner instead, allowing business tools to work with the
 owner's documents. These roots have separate owners and lifecycles. Creation
 grants the Human owner management access to the assistant's runtime root.
 
 A FUSE-capable Worker exposes `/drive` to commands and managed Codex jobs.
 `Ankole.Files.Vfs` projects the existing tree through `/api/v1/vfs/dav`; it uses
-`Brain.RequestContext` and the existing Agent/requester/disclosure intersection.
+`Brain.RequestContext` for collaboration pages and Brain disclosure, while
+Skills and composed Agent contracts use the Agent identity. Background Jobs
+also restrict Skills to their persisted admission selection.
 Each request checks the current Worker generation, incarnation, and access graph.
 The root supervisor holds the bearer token. Model processes receive filesystem
 access in their execution's mount namespace.
 
-`Public`, `AgentDrive`, and `MyDrive` share one hot sparse cache for a tenant,
+The VFS URL uses the provider's relay origin or the control plane's internal
+Worker HTTP origin, matching file transfers. The Worker channel batches committed
+content updates into targeted invalidations. Tree and access changes invalidate
+all clean entries so cached paths and directory membership follow the committed
+Page hierarchy. Page creation, deletion and restoration use the same committed
+`tree_changed` notification. The channel coalesces changes during its initial
+refresh as well as subsequent 100 ms notification windows.
+
+`Public`, `AgentDrive`, `MyDrive`, and read-only `Brain` share one hot sparse cache for a tenant,
 Agent, requester, and disclosure set. The shared remote omits ChatDrive. A
 separate remote supplies the current conversation's `ChatDrive`; the view key
 includes that conversation. Roots appear only when the access graph permits
 them. When the requester is the Agent, AgentDrive is its single private root.
 
-The projection uses `._adoc.md`, `._awiki.md`, `._asub`, `._abase`, and `._aapp`
-to distinguish structured pages, child collections, Base tables, and Applets
-from ordinary files. Identity-qualified spellings disambiguate reserved suffixes
+The projection uses `._adoc.md` and `._awiki.md` for nonempty document and
+knowledge bodies, and `._abase` and `._aapp` for Base and Applet views. Empty
+text Pages project as plain `<name>/` directories. A nonempty Page with children
+projects as both a body file and a same-name directory, sharing its Page ID.
+`mkdir` creates an empty Page; writing its corresponding Markdown file fills
+that Page. Unlinking the Markdown body clears its content and preserves children;
+removing the directory uses Page deletion. An editor may remove a document
+directory only when its body and child list are empty; deleting a populated
+subtree requires manage permission. Document metadata does not count as body
+content. A structured MOVE cannot replace an empty directory through its hidden
+body path, and a body file cannot be moved onto its own directory path. These rules are defined in
+[Drive Markdown projection](PodContentModel.md#drive-markdown-projection). Identity-qualified spellings disambiguate reserved suffixes
 and shortened names. `--links` persists Drive symlinks as `.rclonelink` files.
 Both local-to-Drive links and links within Drive retain POSIX symlink behavior.
 
@@ -278,12 +300,13 @@ another revision. In that case, the response carries the current ETag and
 resets a closed cache entry to sparse authoritative bytes. An open handle keeps
 its original write baseline until the last clean close applies the pending
 remote object. Further edits through that old handle still face the original
-conditional-write check. Knowledge pages can merge non-overlapping edits against
-an exact snapshot; [Pod Content Model](PodContentModel.md#drive-markdown-projection)
-defines the merge boundary.
+conditional-write check. Document saves also return `X-Ankole-Refresh-Body: 1`
+because their canonical Markdown includes stable block anchors assigned by the
+control plane. This refresh applies to direct writes, atomic replacements and
+receipt replays; the cache must read those canonical bytes before another edit.
 
 An ordinary file renamed over a destination supplies replacement bytes while
-preserving the destination's node, page, children, ACL anchor, and history. The
+preserving the destination Page, children, ACL anchor, and history. The
 transaction consumes the source and schedules its purge, so editor saves leave
 no temporary files in Trash. A structured page or directory can replace its own
 kind when the caller can manage the destination: the destination enters Trash
@@ -360,10 +383,28 @@ resources are accessible through `ankole-pod`, including `applet pull`.
 
 ## Skills and Automation
 
-Installed Skills remain under `skills/<name>/` in the Agent private tree.
-Drive snapshots synchronize their authoritative catalog and preserve operator
-enablement. Workers cache a manifest of path, object ID and mode, verify received
-hashes and sizes, and fail preparation if a multi-page manifest changes.
+`/drive/Skills` contains the current Agent's enabled packages from the Library
+domain. `/drive/AGENTS.md` and `/drive/DESIGN.md` contain its effective composed
+contracts. Interactive conversations share one warm cache per Agent. A
+Background Job uses a cache scope that includes its admitted Skill selection;
+package reads intersect that selection with current bindings and Plugin gates.
+Library saves, binding changes and Plugin changes broadcast VFS invalidation.
+Contract file attributes and content refresh on reads, including in long-lived
+sandboxes that bind-mount individual instruction files. Files use mode `0444`, executable
+Skill scripts use `0555`, and directories use `0555`.
+Each package lookup checks its current binding and parent Plugin enablement.
+The VFS generates a directory's child entries from one set of package file records.
+Ordinary Drive lookups resolve Page roots without composing Library contracts.
+The mount probes missing paths so a newly uploaded file can be opened while its
+parent directory listing is still cached.
+
+`/drive/Brain` projects the independent Brain tree with the same requester,
+Agent and strict-room disclosure intersection as Brain retrieval. The WebDAV
+server rejects writes to Brain, Skills and contracts, including PUT, POST,
+MKCOL, MOVE, DELETE, LOCK and COPY destinations. The Worker also mounts these
+roots read-only. Names inside ChatDrive are ordinary conversation files,
+including `AGENTS.md`, `DESIGN.md`, `Skills` and `Brain`. People edit the Meta roots through Meta Ankole; Agent knowledge writes
+use the Brain tools and their revision, attribution and approval contracts.
 
 Automation registration writes its source to a fresh `automation/<name>/`
 private directory. Every run materializes that directory and selected Skills
@@ -375,13 +416,13 @@ See [Automation Jobs](AutomationJobs.md).
 
 The Console Drive browser lists all roots of the selected tenant, including
 Human and Agent private roots and conversation roots, without an online Worker.
-It supports breadcrumbs, cursor pagination, folder creation, upload of files
+It supports breadcrumbs, cursor pagination, empty Page creation, upload of files
 and directory trees, download, move, rename and trash. Roots are immutable.
 
 | Route | Operation |
 | --- | --- |
 | `GET /api/v2/drive/:tenant_id/nodes` | List roots or children by `parent_id`, optionally `after` and `limit` |
-| `POST /api/v2/drive/:tenant_id/nodes` | Create a folder or empty file |
+| `POST /api/v2/drive/:tenant_id/nodes` | Create a document or empty file in collaboration roots; knowledge within Brain |
 | `PATCH /api/v2/drive/:tenant_id/nodes/:id` | Move or rename |
 | `DELETE /api/v2/drive/:tenant_id/nodes/:id` | Trash a subtree |
 | `POST /api/v2/drive/:tenant_id/uploads` | Multipart `parent_id`, `name`, `file` |
@@ -390,6 +431,7 @@ and directory trees, download, move, rename and trash. Roots are immutable.
 These actions check `site_console:drive` in the privileged tenant using read,
 update or delete. Creating and uploading use update, preserving existing
 administrative action semantics and CEL conditions. Site administration does
-not grant an Agent runtime access. `tenant_console` retains its existing scope.
+not grant an Agent runtime access. `tenant_console` grants authorize Pod
+administration within the selected tenant.
 See [the upgrade guide](../upgrades/unified-drive.md) before applying the one-time
 migration; old writers must be stopped before topology and object ownership move.

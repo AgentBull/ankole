@@ -7,7 +7,7 @@ order: 31
 
 **In day-to-day work, you rarely need the Console file browser described on this page. Send files directly to an Agent in chat, or share files across your team through Pod `file` pages and Pod document/Base/Chat attachments. Open the Console file browser only when you need to recover an undelivered artifact, inspect saved outputs, or organize an Agent's private drive folders manually.**
 
-Each Agent has its own private control-plane drive for chat attachments, generated images, published files, installed Skills, and Automation scripts. Shared workspace files—Pod `file` pages and Pod attachments—live in the Pod workspace under Pod page permissions rather than inside an individual Agent's drive. From the Console, you can upload, download, move, and delete files on an Agent's drive even while its Worker is stopped (note that Session and Job workspaces live in persistent Agent Home rather than drive folders).
+Each Agent has its own private control-plane drive for chat attachments, generated images, published files, and Automation scripts. Shared workspace files—Pod `file` pages and Pod attachments—live in the Pod workspace under Pod page permissions rather than inside an individual Agent's drive. From the Console, you can upload, download, move, and delete files on an Agent's drive even while its Worker is stopped (note that Session and Job workspaces live in persistent Agent Home rather than drive folders).
 
 Operators configure the underlying local directory, S3, or R2 backend via [Control-plane drive storage](../drive-storage/); to migrate files from legacy Home layouts, see [Upgrade from 1.0 to 2.0](../upgrade-to-2/).
 
@@ -21,7 +21,6 @@ Operators configure the underlying local directory, S3, or R2 backend via [Contr
 | `chats/<channel>/inbox/` | Attachments that people sent to the Agent in that conversation |
 | `chats/<channel>/generated/`, `generated/` | Images that the Agent generated (`chats/<channel>/generated/` in a conversation, or `generated/` without a source channel) |
 | `sent/` | Files that the Agent attached to replies |
-| `skills/` | The Agent's installed Skills, one folder per Skill |
 | `automation/` | Automation Job scripts |
 | Other folders | Files saved explicitly by the Agent or an operator |
 
@@ -47,13 +46,13 @@ Open the action menu beside any file or folder to move, rename, or delete it (mo
 
 Deletion is immediate and permanent—there is no trash bin, and deleting a folder removes every file inside it. Before deleting anything, confirm that no active Agent work depends on those files and either download important outputs or verify that your [backup](../backup-and-restore/) covers them.
 
-Files under `skills/` back the Agent's installed Skills directly, so editing or deleting files there alters the Skill on the very next turn; enable or disable Skills safely through the [Agent Library](../skills/) instead.
+Manage and import runnable packages in **Meta Ankole → Skills**. The Worker reads enabled packages from the read-only `/drive/Skills` view. See [Skills](../skills/) for package editing and Agent bindings.
 
 ## What remains after a restart
 
 Both the control-plane drive and persistent Agent Home survive Worker replacements. Files written only inside a Session or Job workspace stay in Agent Home until the Agent publishes them to the drive; see [Workers](../worker-management/) for provider storage limits.
 
-Agent instructions and design standards are knowledge pages in Pod under `/AnkoleBrain`. Edit the global or Agent-specific `AGENTS[.override].md` and `DESIGN[.override].md` pages through their Console links; the Worker refreshes complete runtime projections every turn. See [Agents](../agents/).
+Humans manage Agent behavior and design contracts in **Meta Ankole → Agents**. The Worker projects the complete effective `AGENTS.md` and `DESIGN.md` as read-only runtime files and refreshes them every turn. See [Agents](../agents/).
 
 ## Common problems
 

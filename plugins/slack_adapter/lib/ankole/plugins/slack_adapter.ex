@@ -103,13 +103,15 @@ defmodule Ankole.Plugins.SlackAdapter do
   @impl true
   def children do
     [
-      SlackOpenAPI.Supervisor,
-      {Registry, keys: :unique, name: Ankole.Plugins.SlackAdapter.ConnectionRegistry},
-      {DynamicSupervisor,
-       name: Ankole.Plugins.SlackAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
-      ConnectionReconciler,
-      {Ankole.Plugins.ChannelSync,
-       adapter: "slack", worker: Ankole.Plugins.SlackAdapter.Jobs.SyncChannels}
+      Ankole.Plugins.ConnectionLifecycle.supervisor_spec(__MODULE__, [
+        SlackOpenAPI.Supervisor,
+        {Registry, keys: :unique, name: Ankole.Plugins.SlackAdapter.ConnectionRegistry},
+        {DynamicSupervisor,
+         name: Ankole.Plugins.SlackAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
+        ConnectionReconciler,
+        {Ankole.Plugins.ChannelSync,
+         adapter: "slack", worker: Ankole.Plugins.SlackAdapter.Jobs.SyncChannels}
+      ])
     ]
   end
 

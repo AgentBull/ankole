@@ -1,10 +1,10 @@
 defmodule Ankole.Brain.KnowledgePagesTest do
   use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
-  alias Ankole.AIAgent.Library.Knowledge, as: Library
+  alias Ankole.Brain.Namespace, as: Namespace
   alias Ankole.Brain.{Access, Claims, GetPage, Objects, Recall, SourceLearning}
   alias Ankole.Brain.Schemas.{Claim, Chunk, Link}
-  alias Ankole.Files.Access, as: DriveAccess
+  alias Ankole.Pod.Access, as: DriveAccess
   alias Ankole.Pod.{Knowledge, Pages}
 
   setup do
@@ -12,12 +12,12 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     %{principal: reader} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
 
+    category = Ankole.BrainFixtures.category_fixture(owner.uid)
+
     {:ok, root} =
       Repo.transact(fn ->
-        {:ok, namespace} = Library.ensure_namespace_in_tx()
-
         {:ok, node} =
-          Library.ensure_child_in_tx(namespace.root.id, "Boundary", :knowledge,
+          Namespace.ensure_child_in_tx(category.id, "Boundary", :knowledge,
             inherit_permissions: false
           )
 
@@ -29,7 +29,7 @@ defmodule Ankole.Brain.KnowledgePagesTest do
         :ok =
           DriveAccess.put_role(%{principal_uid: reader.uid}, "drive:**:#{node.id}:node", "view")
 
-        {:ok, _} = Library.put_markdown_in_tx(node, "# Boundary\n\nShared lunar alloy facts.")
+        {:ok, _} = Namespace.put_markdown_in_tx(node, "# Boundary\n\nShared lunar alloy facts.")
         {:ok, node}
       end)
 
@@ -76,26 +76,26 @@ defmodule Ankole.Brain.KnowledgePagesTest do
   test "renaming same-path pages elsewhere cannot redirect historical Brain paths", ctx do
     actor = actor_fixture(ctx.owner)
     nested = child(ctx.root, "Nested", "Original shared knowledge.")
-    assert {:ok, _} = Ankole.Files.Nodes.rename(actor, ctx.root.id, "Renamed boundary")
+    assert {:ok, _} = Ankole.Pod.Pages.Tree.rename(actor, ctx.root.id, "Renamed boundary")
 
     {:ok, private_namespace} =
-      Pages.create(actor, %{type: :folder, title: "AnkoleBrain", private_owner_uid: ctx.owner.uid})
+      Pages.create(actor, %{type: :doc, title: "AnkoleBrain", private_owner_uid: ctx.owner.uid})
 
     for attrs <- [%{}, %{private_owner_uid: ctx.owner.uid}, %{parent_id: private_namespace.id}] do
-      {:ok, folder} = Pages.create(actor, Map.merge(attrs, %{type: :folder, title: "Boundary"}))
+      {:ok, folder} = Pages.create(actor, Map.merge(attrs, %{type: :doc, title: "Boundary"}))
 
       {:ok, _other} =
         Pages.create(actor, %{
-          type: :knowledge,
+          type: :doc,
           parent_id: folder.id,
           title: "Nested",
           xml: "<page><p>Unrelated local knowledge.</p></page>"
         })
 
-      assert {:ok, _} = Ankole.Files.Nodes.rename(actor, folder.id, "Other boundary")
-      assert {:ok, %{id: root_id}} = Objects.resolve_slug("Boundary")
+      assert {:ok, _} = Ankole.Pod.Pages.Tree.rename(actor, folder.id, "Other boundary")
+      assert {:ok, %{id: root_id}} = Objects.resolve_slug("notes/Boundary")
       assert root_id == ctx.root.id
-      assert {:ok, %{id: nested_id}} = Objects.resolve_slug("Boundary/Nested")
+      assert {:ok, %{id: nested_id}} = Objects.resolve_slug("notes/Boundary/Nested")
       assert nested_id == nested.id
     end
   end
@@ -175,7 +175,7 @@ defmodule Ankole.Brain.KnowledgePagesTest do
 
   test "self-healing rebuilds stale page and folder timeline chunks", ctx do
     {:ok, folder} =
-      Repo.transact(fn -> Library.ensure_child_in_tx(ctx.root.id, "Meeting", :folder) end)
+      Repo.transact(fn -> Namespace.ensure_child_in_tx(ctx.root.id, "Meeting", :knowledge) end)
 
     assert {:ok, _} =
              Ankole.Brain.Timelines.write_timeline(
@@ -198,11 +198,11 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     assert Enum.all?(chunks, &(&1.chunking_signature == Ankole.Brain.Chunker.signature(chunking)))
   end
 
-  test "timeline recall follows its source and supports folder sources without a subject", ctx do
+  test "timeline recall follows its source and preserves an absent subject on empty Pages", ctx do
     hidden = child(ctx.root, "Private timeline", "")
 
     {:ok, folder} =
-      Repo.transact(fn -> Library.ensure_child_in_tx(ctx.root.id, "Meeting", :folder) end)
+      Repo.transact(fn -> Namespace.ensure_child_in_tx(ctx.root.id, "Meeting", :knowledge) end)
 
     event = %{
       date: ~D[2026-11-02],
@@ -243,30 +243,42 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     assert restricted.chunks == []
   end
 
-  test "the skill tree is indexed but never becomes a fact source through ancestor opt-in" do
+  test "Skills and contracts cannot become fact sources through metadata", ctx do
+    actor = actor_fixture(ctx.owner)
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: ctx.owner.uid,
+        resource_pattern: "tenant_console:**",
+        action: "update"
+      })
+
     {:ok, skill} =
-      Repo.transact(fn ->
-        {:ok, namespace} = Library.ensure_namespace_in_tx()
-        {:ok, root} = Pages.fetch(namespace.root.id)
+      Ankole.AIAgent.Library.Skills.create(actor, %{
+        slug: "research",
+        manifest_xml: "<page><p>Research instructions.</p></page>",
+        metadata: %{
+          "name" => "Research",
+          "description" => "Instructions",
+          "extract_facts" => true
+        }
+      })
 
-        {:ok, _} =
-          Pages.update_properties_in_tx(root, :save_knowledge, %{
-            metadata: %{"extract_facts" => true}
-          })
+    {:ok, current} = Ankole.AIAgent.Library.Contracts.get(nil, :agents)
 
-        {:ok, skill} = Library.ensure_child_in_tx(namespace.skills.id, "research", :knowledge)
+    {:ok, contract} =
+      Ankole.AIAgent.Library.Contracts.save(actor, nil, :agents, %{
+        mode: :override,
+        base_revision: current.revision,
+        content_xml: "<page><p>Follow organization instructions.</p></page>",
+        metadata: %{"extract_facts" => true}
+      })
 
-        {:ok, _} =
-          Library.put_markdown_in_tx(
-            skill,
-            "---\nextract_facts: true\n---\n\nResearch instructions."
-          )
-
-        Objects.get_by_slug(skill.id)
-      end)
-
-    assert Ankole.Brain.Knowledge.indexable?(skill)
-    refute Ankole.Brain.Knowledge.extractable?(skill)
+    for id <- [skill.id, contract.id] do
+      assert {:error, :not_found} = Objects.get_by_slug(id)
+      refute Repo.exists?(from(c in Chunk, where: c.source_node_id == ^id))
+      refute Repo.exists?(from(c in Claim, where: c.source_node_id == ^id))
+    end
   end
 
   test "a visible timeline does not disclose the title of its restricted subject", ctx do
@@ -306,7 +318,7 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     assert {:ok, directory} =
              Pages.create(actor, %{
                title: "Business evidence",
-               type: :folder,
+               type: :doc,
                metadata: %{"extract_facts" => true}
              })
 
@@ -315,17 +327,17 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     jobs = from(j in Oban.Job, where: fragment("?->>'page_id' = ?", j.args, ^document.id))
     refute Repo.exists?(jobs)
 
-    assert {:ok, _} = Ankole.Files.Nodes.move(actor, document.id, %{parent_id: directory.id})
+    assert {:ok, _} = Ankole.Pod.Pages.Tree.move(actor, document.id, %{parent_id: directory.id})
     {:ok, moved} = Objects.get_by_slug(document.id)
     assert moved.revision == before.revision
     assert Ankole.Brain.Knowledge.extractable?(moved)
     assert Repo.exists?(from(j in jobs, where: j.state == "available"))
   end
 
-  test "a folder manager can start learning existing content and stop queued extraction", ctx do
+  test "a Page manager can start learning existing content and stop queued extraction", ctx do
     actor = actor_fixture(ctx.owner)
-    {:ok, folder} = Pages.create(actor, %{type: :folder, metadata: %{"team" => "procurement"}})
-    {:ok, nested} = Pages.create(actor, %{type: :folder, parent_id: folder.id})
+    {:ok, folder} = Pages.create(actor, %{type: :doc, metadata: %{"team" => "procurement"}})
+    {:ok, nested} = Pages.create(actor, %{type: :doc, parent_id: folder.id})
 
     {:ok, document} =
       Pages.create(actor, %{
@@ -367,12 +379,13 @@ defmodule Ankole.Brain.KnowledgePagesTest do
              end)
 
     refute Repo.exists?(from(c in Claim, where: c.source_node_id == ^document.id))
-    assert {:error, :invalid_request} = Pages.update(actor, document.id, %{extract_facts: true})
+    assert {:ok, enabled} = Pages.update(actor, document.id, %{extract_facts: true})
+    assert enabled.metadata["extract_facts"]
   end
 
-  test "folder learning uses the folder's management permission", ctx do
+  test "Page learning uses the Page's management permission", ctx do
     actor = actor_fixture(ctx.owner)
-    {:ok, folder} = Pages.create(actor, %{type: :folder})
+    {:ok, folder} = Pages.create(actor, %{type: :doc})
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, folder.id, %{
@@ -386,54 +399,12 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     assert {:ok, %{metadata: %{}}} = Pages.fetch(folder.id)
   end
 
-  for destination <- [:skill, :contract] do
-    @destination destination
-    test "late extraction is rejected after moving a page into the #{destination} path", ctx do
-      name = if @destination == :skill, do: "fact-extraction-example", else: "AGENTS.override.md"
+  test "Brain entries named like manifests remain ordinary knowledge", ctx do
+    for name <- ["AGENTS.md", "DESIGN.md", "skills"] do
       page = child(ctx.root, name, "Example company has three factories.")
       {:ok, captured} = Objects.get_by_slug(page.id)
+      assert Ankole.Brain.Knowledge.indexable?(captured)
       assert Ankole.Brain.Knowledge.extractable?(captured)
-      {:ok, namespace} = Repo.transact(fn -> Library.ensure_namespace_in_tx() end)
-      parent_id = if @destination == :skill, do: namespace.skills.id, else: namespace.root.id
-
-      assert {:ok, :ok} =
-               Repo.transact(fn ->
-                 :ok =
-                   DriveAccess.put_role(
-                     %{principal_uid: ctx.owner.uid},
-                     "drive:**:#{parent_id}:**",
-                     "manage"
-                   )
-
-                 {:ok, :ok}
-               end)
-
-      assert {:ok, _} =
-               Ankole.Files.Nodes.move(actor_fixture(ctx.owner), page.id, %{
-                 parent_id: parent_id
-               })
-
-      {:ok, moved} = Objects.get_by_slug(page.id)
-      assert moved.revision == captured.revision
-      refute Ankole.Brain.Knowledge.extractable?(moved)
-
-      extraction = %{
-        items: [
-          %{
-            "claim" => "Example company has three factories",
-            "kind" => "fact",
-            "confidence" => 0.75
-          }
-        ],
-        windows: 1
-      }
-
-      assert {:error, :stale_run} =
-               Repo.transact(fn ->
-                 SourceLearning.commit_page_run_in_tx(page.id, captured.revision, extraction)
-               end)
-
-      refute Repo.exists?(from(c in Claim, where: c.source_node_id == ^page.id))
     end
   end
 
@@ -556,7 +527,7 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     assert {:ok, _} = Pages.delete(actor_fixture(ctx.owner), ctx.root.id)
     assert {:ok, gone} = Recall.recall(ctx.agent.uid, %{query: "Beryllium"})
     assert gone.chunks == []
-    assert {:ok, _} = Ankole.Files.Nodes.restore(actor_fixture(ctx.owner), ctx.root.id)
+    assert {:ok, _} = Ankole.Pod.Pages.Tree.restore(actor_fixture(ctx.owner), ctx.root.id)
     assert {:ok, restored} = Recall.recall(ctx.agent.uid, %{query: "Beryllium"})
     assert Enum.any?(restored.chunks, &(&1.subject_page_id == page.id))
     assert Repo.exists?(from(j in jobs, where: j.state == "available"))
@@ -591,8 +562,8 @@ defmodule Ankole.Brain.KnowledgePagesTest do
   defp child(parent, name, body) do
     {:ok, node} =
       Repo.transact(fn ->
-        {:ok, node} = Library.ensure_child_in_tx(parent.id, name, :knowledge)
-        {:ok, _} = Library.put_markdown_in_tx(node, body)
+        {:ok, node} = Namespace.ensure_child_in_tx(parent.id, name, :knowledge)
+        {:ok, _} = Namespace.put_markdown_in_tx(node, body)
         {:ok, node}
       end)
 

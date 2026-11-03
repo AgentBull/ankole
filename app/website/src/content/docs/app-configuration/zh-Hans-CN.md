@@ -41,7 +41,6 @@ AppConfigure 将产品参数保存在 PostgreSQL，多数修改影响后续任�
 | `ai_agent.max_output_tokens` | 租户 | 单次模型响应允许生成的最大输出 Token 数 |
 | `ai_agent.inactivity_timeout_ms` | 租户 | 模型或上游 Provider 持续无响应多少毫秒后终止当前回合 |
 | `ai_agent.library.agent_plugin_defaults` | 租户 | Agent Plugin 的默认启用状态映射 |
-| `ai_agent.library.skill_defaults` | 租户 | Skill 的默认启用状态映射 |
 | `background_agent_jobs.max_running_per_agent` | 租户 | 单个 Agent 允许并发运行的后台 Agent 任务上限；默认 `3`，有效范围为 `1`–`64` |
 | `automation_jobs.max_running_per_agent` | 租户 | 单个 Agent 允许并发运行的自动化脚本上限；默认 `10`，有效范围为 `1`–`64` |
 

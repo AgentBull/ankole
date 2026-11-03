@@ -57,6 +57,7 @@ export class DriveView {
     readonly key: string,
     readonly scope: Mount,
     readonly chat: Mount | undefined,
+    readonly library: Mount,
     readonly recovery: string,
     private readonly releaseMount: (mount: Mount) => Promise<void>,
     private readonly releasedView: () => void
@@ -77,6 +78,7 @@ export class DriveView {
       this.scope.path,
       this.chat?.path ?? '-',
       this.recovery,
+      this.library.path,
       ...argv
     ]
   }
@@ -132,7 +134,7 @@ export class DriveView {
     await Promise.all(this.mounts().map(this.releaseMount))
   }
   private mounts(): Mount[] {
-    return this.chat ? [this.scope, this.chat] : [this.scope]
+    return this.chat ? [this.scope, this.chat, this.library] : [this.scope, this.library]
   }
 }
 
@@ -180,8 +182,9 @@ class DriveMounts {
     await mkdir(recovery, { recursive: true, mode: 0o750 })
     await chown(recovery, 0, 1000)
     const scope = await this.mount(`scope_${config.scope}`, config.endpoint, config.token, recovery)
+    let chat: Mount | undefined
     try {
-      const chat = config.conversationId
+      chat = config.conversationId
         ? await this.mount(
             `chat_${config.view}`,
             `${config.endpoint.replace(/\/$/, '')}/ChatDrive`,
@@ -189,10 +192,12 @@ class DriveMounts {
             recovery
           )
         : undefined
+      const library = await this.mount(`library_${config.libraryScope}`, config.endpoint, config.token, recovery)
       const view = new DriveView(
         config.view,
         scope,
         chat,
+        library,
         recovery,
         mount => this.release(mount),
         () => {
@@ -203,7 +208,7 @@ class DriveMounts {
       this.views.set(config.view, { view, count: (this.views.get(config.view)?.count ?? 0) + 1 })
       return view
     } catch (error) {
-      await this.release(scope)
+      await Promise.all([scope, ...(chat ? [chat] : [])].map(mount => this.release(mount)))
       throw error
     }
   }
@@ -294,6 +299,7 @@ class DriveMounts {
             url,
             vendor: 'ankole',
             bearer_token: token,
+            ...(key.startsWith('library_') ? { headers: 'X-Ankole-Library,1' } : {}),
             ...(key.startsWith('scope_') ? { headers: 'X-Ankole-Shared-Scope,1' } : {})
           }
         })
@@ -349,7 +355,10 @@ class DriveMounts {
     const endpoint = new URL('/api/v1/vfs/refresh', mount.endpoint)
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { authorization: `Bearer ${mount.token}` },
+      headers: {
+        authorization: `Bearer ${mount.token}`,
+        ...(mount.key.startsWith('library_') ? { 'x-ankole-library': '1' } : {})
+      },
       signal: AbortSignal.timeout(15_000)
     })
     if (!response.ok) throw new Error(`Drive credential refresh: HTTP ${response.status}`)
@@ -364,7 +373,7 @@ class DriveMounts {
 
   private async release(mount: Mount): Promise<void> {
     mount.references--
-    if (mount.references !== 0) return
+    if (mount.references !== 0 || mount.key.startsWith('library_')) return
     const expire = async () => {
       if (mount.references !== 0) return
       try {

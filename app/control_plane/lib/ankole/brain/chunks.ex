@@ -21,7 +21,7 @@ defmodule Ankole.Brain.Chunks do
   @spec reconcile_in_tx(Object.t(), keyword()) :: {:ok, Object.t()} | {:error, term()}
   def reconcile_in_tx(%Object{} = object, opts \\ []) do
     with :ok <- Repo.require_transaction(),
-         {:ok, _} <- Ankole.Files.Nodes.lock(object.id),
+         {:ok, _} <- Ankole.Pod.Pages.Tree.lock(object.id),
          {:ok, current} <- Ankole.Brain.Objects.get_by_slug(object.id),
          do: reconcile_current(current, opts)
   end
@@ -88,6 +88,7 @@ defmodule Ankole.Brain.Chunks do
   defp existing_positions(page_id) do
     Chunk
     |> Ash.Query.filter(page_id == ^page_id)
+    |> Ash.Query.deselect(:embedding)
     |> Ankole.Ash.read!()
     |> Map.new(&{&1.chunk_index, &1})
   end
@@ -142,12 +143,19 @@ defmodule Ankole.Brain.Chunks do
     end
   end
 
-  defp advance_revision(%{page_revision: revision}, %{page_revision: revision}), do: :ok
+  defp advance_revision(
+         %{page_revision: revision, subject_page_id: subject},
+         %{page_revision: revision, subject_page_id: subject}
+       ),
+       do: :ok
 
   defp advance_revision(chunk, spec) do
     Chunk
     |> Ash.Query.filter(id == ^chunk.id)
-    |> Ankole.Ash.update_where(:advance_revision, %{page_revision: spec.page_revision})
+    |> Ankole.Ash.update_where(
+      :advance_revision,
+      Map.take(spec, [:page_revision, :subject_page_id])
+    )
     |> written()
   end
 
@@ -155,6 +163,7 @@ defmodule Ankole.Brain.Chunks do
     %{
       content_kind: spec.content_kind,
       source_node_id: spec.source_node_id,
+      subject_page_id: spec.subject_page_id,
       chunk_text: spec.text,
       token_count: spec.token_count,
       page_revision: spec.page_revision,
@@ -172,9 +181,9 @@ defmodule Ankole.Brain.Chunks do
 
       {:error, :not_found} ->
         with :ok <- Repo.require_transaction(),
-             {:ok, node} <- Ankole.Files.Nodes.lock(id) do
+             {:ok, node} <- Ankole.Pod.Pages.Tree.lock(id) do
           reconcile_current(
-            %Object{id: id, kind: node.kind, body: "", revision: 0, deleted_at: node.deleted_at},
+            %Object{id: id, kind: node.type, body: "", revision: 0, deleted_at: node.deleted_at},
             opts
           )
         end
@@ -199,11 +208,15 @@ defmodule Ankole.Brain.Chunks do
       {:ok, []}
     else
       chunking = Keyword.get(opts, :chunking) || Config.chunking()
-      body_specs = specs(body, :body, object.id, chunking)
+
+      body_specs =
+        specs(body, :body, object.id, chunking)
+        |> Enum.map(&Map.put(&1, :subject_page_id, object.id))
 
       timeline_specs =
         Enum.flat_map(timelines, fn timeline ->
           specs(timeline_text(timeline), :timeline, timeline.source_node_id, chunking)
+          |> Enum.map(&Map.put(&1, :subject_page_id, timeline.subject_page_id))
         end)
 
       signature = Chunker.signature(chunking)

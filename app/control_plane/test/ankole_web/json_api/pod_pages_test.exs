@@ -177,7 +177,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     assert %{"id" => ^root_id, "actions" => actions, "has_children" => false} =
              Enum.find(roots, &(&1["id"] == root_id))
 
-    assert [%{"name" => "AnkoleBrain", "has_children" => true}] =
+    assert [] =
              Enum.reject(roots, &(&1["id"] == root_id))
 
     assert actions == ~w(node_view node_contribute node_edit node_manage node_comment)
@@ -340,7 +340,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              |> send_json(:post, "/pages/#{id}/move", %{parent_id: nil})
              |> json_response(403)
 
-    assert {:ok, private_root} = Ankole.Files.private_root(uid)
+    assert {:ok, private_root} = Ankole.Pod.private_root(uid)
     private_root_id = private_root.id
 
     assert {:ok, %{page: %{parent_id: ^private_root_id}, content: %{content: ^xml}}} =
@@ -718,11 +718,11 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     {:ok, secret} =
       Ankole.Pod.Pages.create(actor, %{private_owner_uid: uid, title: "Secret Source"})
 
-    {:ok, %{id: group_id}} = Ankole.Files.Access.space_group()
+    {:ok, %{id: group_id}} = Ankole.Pod.Access.space_group()
 
     {:ok, :ok} =
       Ankole.Repo.transact_top_level(fn ->
-        {:ok, Ankole.Files.Access.put_role(%{group_id: group_id}, "drive:space:**", "view")}
+        {:ok, Ankole.Pod.Access.put_role(%{group_id: group_id}, "drive:space:**", "view")}
       end)
 
     {:ok, _} =
@@ -1123,7 +1123,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     assert [%{"role" => "edit", "target_scope" => "self"}] = alice_grants
 
     alice_grant_ids_before =
-      Ankole.Files.Access.page_grants(doc.id)
+      Ankole.Pod.Access.page_grants(doc.id)
       |> Enum.filter(&(&1.principal_uid == alice.uid))
       |> MapSet.new(& &1.id)
 
@@ -1151,11 +1151,11 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
         action: "node_edit"
       })
 
-    {:ok, %{id: all_humans_id}} = Ankole.Files.Access.space_group()
+    {:ok, %{id: all_humans_id}} = Ankole.Pod.Access.space_group()
 
     {:ok, :ok} =
       Ankole.Repo.transact_top_level(fn ->
-        {:ok, Ankole.Files.Access.put_role(%{group_id: all_humans_id}, "drive:space:**", "view")}
+        {:ok, Ankole.Pod.Access.put_role(%{group_id: all_humans_id}, "drive:space:**", "view")}
       end)
 
     viewer_conn = session_conn_for(conn, viewer, "readonly-viewer")
@@ -1210,7 +1210,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
                |> json_response(200)
 
       alice_grant_ids_after =
-        Ankole.Files.Access.page_grants(doc.id)
+        Ankole.Pod.Access.page_grants(doc.id)
         |> Enum.filter(&(&1.principal_uid == alice.uid))
         |> MapSet.new(& &1.id)
 
@@ -1320,7 +1320,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              |> json_response(200)
 
     owner_scopes =
-      Ankole.Files.Access.page_grants(self_managed.id)
+      Ankole.Pod.Access.page_grants(self_managed.id)
       |> Enum.filter(&(&1.principal_uid == uid))
       |> MapSet.new(& &1.target_scope)
 

@@ -8,14 +8,21 @@ defmodule Ankole.Pod.KnowledgeTest do
   setup do
     owner = human_fixture().principal
     actor = actor_fixture(owner)
+    category = Ankole.BrainFixtures.category_fixture(owner.uid)
 
     {:ok, page} =
       Pages.create(actor, %{
         type: :knowledge,
-        private_owner_uid: owner.uid,
-        title: "DESIGN.md",
+        parent_id: category.id,
+        title: "Brand design",
         xml: "<page><p>Brand</p></page>",
         metadata: %{"colors" => %{"primary" => "#123456"}}
+      })
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: owner.uid, role: "manage"}]
       })
 
     %{actor: actor, owner: owner, page: page}
@@ -206,7 +213,12 @@ defmodule Ankole.Pod.KnowledgeTest do
     }
 
     actor = actor_fixture(agent)
-    grants = [%{principal_uid: agent.uid, role: "edit"}]
+
+    grants = [
+      %{principal_uid: ctx.owner.uid, role: "manage"},
+      %{principal_uid: agent.uid, role: "edit"}
+    ]
+
     {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, ctx.page.id, %{grants: grants})
     assert {:error, :not_found} = Ankole.Pod.AgentPages.read(actor, context, ctx.page.id)
 
@@ -240,6 +252,7 @@ defmodule Ankole.Pod.KnowledgeTest do
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, ctx.page.id, %{
         grants: [
+          %{principal_uid: ctx.owner.uid, role: "manage"},
           %{principal_uid: agent.uid, role: "view"},
           %{principal_uid: colleague.uid, role: "view"}
         ]

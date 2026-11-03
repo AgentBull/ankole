@@ -606,6 +606,12 @@ On pushes to `main`, `Publish RuntimeFabric image pair` calls `Repository checks
 - **Website TypeScript version pin**: `app/website` intentionally pins TypeScript `6.0.3` while the rest of the workspace uses TypeScript 7, because `@astrojs/check` supports only TypeScript 5–6 (`astro check` errors on 7.0, and `@astrojs/ts-content-mapper` requires 7.1+). Keep that pin until Astro supports TypeScript 7.1+.
 - **Control-plane test partitioning and incremental runs**: `bun run control-plane:test` compiles `:ankole` once and executes the suite across isolated `MIX_TEST_PARTITION` worker processes (`ANKOLE_TEST_PARTITIONS` overrides the worker count). For incremental feedback on changed modules, run `bun run control-plane:test:stale`; to run one ExUnit file directly, pass its path (`bun run control-plane:test test/path/to/file_test.exs`) or `cd app/control_plane && mix test test/path/to/file_test.exs`.
 - **Committed test fixtures**: Tests marked `sandbox: false` run serially against real transactions. `Ankole.DataCase` removes their new tenants and Site Providers after the test's own exit callbacks, including the Worker and model Providers that Agent fixtures create. Tests that provision external resources must release those resources in their own exit callbacks; DataCase handles the remaining database fixtures through their existing cleanup owners. The devkit PostgreSQL container provides 1 GiB of shared memory for parallel database queries.
+- **Upgrade migration fixtures**: From `app/control_plane`, run each historical upgrade path in a fresh, disposable test partition. Each script creates its own database, seeds the older schema, migrates forward, and checks the resulting data. Choose unused partition names on every run; do not point these scripts at a development or shared test database.
+  ```bash
+  MIX_ENV=test MIX_TEST_PARTITION=upgrade_brain_1 mix run --no-start test/fixtures/brain_knowledge_migration.exs
+  MIX_ENV=test MIX_TEST_PARTITION=upgrade_meta_1 mix run --no-start test/fixtures/meta_ankole_migration.exs
+  MIX_ENV=test MIX_TEST_PARTITION=upgrade_signal_1 mix run --no-start test/fixtures/signal_action_migration.exs
+  ```
 - **Function Runtime overload fixtures**: Control-plane capacity tests start a dedicated Docker container from `ankole-function-runtime:dev` (override with `ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE`) and remove it on exit. Keep this image available locally through `bun run services:start`. Saturating the shared devkit service would reject requests from other test partitions and the running application.
 - **Loopback TCP disconnect tests**: Protocol tests that verify upstream TCP disconnects need direct loopback sockets rather than going through an HTTP proxy (which holds its own separate connection). Ensure `NO_PROXY` includes `127.0.0.1`, `localhost`, and `::1` alongside any existing exclusions.
 - **Database-free plugin unit tests**: From the repo root, run all or one plugin's unit suite without PostgreSQL:
@@ -615,7 +621,7 @@ On pushes to `main`, `Publish RuntimeFabric image pair` calls `Repository checks
   ```
   Under the hood, `mix ankole.plugins.test` compiles `:ankole` in `:test`, skips full application boot, and runs each plugin's `test_helper.exs` to start only its own supervisor (the full `control-plane:test` suite runs these tests as well).
 - **Credo and unused-code gates**: Control-plane lint enforces Credo's default suite, `ex_slop`, and Ankole's custom checks with zero baseline exemptions (max nesting depth `4`, max cyclomatic complexity `20`). If a PR eliminates all remaining findings for a check currently marked `disabled` in `app/control_plane/.credo.exs`, re-enable that check in the same PR. Likewise, `bun run analyze:unused` flags dead production files, exports, types, and dependencies—test-only callers do not keep unused production code alive.
-- **Pinned Elixir dependency patches**: Before compiling Mix dependencies, `app/control_plane` applies local patches to Ash `3.37.2`, AshPostgres `2.15.2`, AshJsonApi `1.8.0`, and `attesto` `2.7.0` (requiring `patch` on `PATH`, preinstalled in Docker). Each `_build` tree tracks a content stamp over the patches and patch loader; whenever either changes, Mix recompiles the patched packages and clears `:ankole`'s build cache, failing hard if any hunk fails to apply. Together these patches resolve calculated identities on skipped upserts, silence spurious notification warnings, emit accurate native OpenAPI schemas (timestamps, embedded IDs, nullable array items, `DELETE` responses), honor halted `before_dispatch` plugs in JSON:API routers, accept Ankole's opaque Principal UIDs in `attesto`, and treat Ash/AshJsonApi resource-reference DSL entries as runtime rather than compile-time module edges (while keeping verifier coverage intact). Re-verify public action behavior whenever bumping these libraries, and drop each patch once upstream ships the fix.
+- **Pinned Elixir dependency patches**: Before compiling Mix dependencies, `app/control_plane` applies local patches to Ash `3.37.2`, AshPostgres `2.15.2`, AshJsonApi `1.8.0`, and `attesto` `2.10.0` (requiring `patch` on `PATH`, preinstalled in Docker). Each `_build` tree tracks a content stamp over the patches and patch loader; whenever either changes, Mix recompiles the patched packages and clears `:ankole`'s build cache, failing hard if any hunk fails to apply. Together these patches resolve calculated identities on skipped upserts, silence spurious notification warnings, emit accurate native OpenAPI schemas (timestamps, embedded IDs, nullable array items, `DELETE` responses), honor halted `before_dispatch` plugs in JSON:API routers, accept Ankole's opaque Principal UIDs in `attesto`, and treat Ash/AshJsonApi resource-reference DSL entries as runtime rather than compile-time module edges (while keeping verifier coverage intact). Re-verify public action behavior whenever bumping these libraries, and drop each patch once upstream ships the fix.
 - **Compile-connected cycle and boundary checks**: Whenever you change module references in `app/control_plane`, verify both `:test` and `:prod` graphs (since `:prod` initializes plugs at compile time):
   ```bash
   MIX_ENV=test ANKOLE_EDITION=foss mix ankole.compile_cycles
@@ -690,6 +696,12 @@ How `pod_browser_server.exs` works:
 - **Host, port, and state file**: By default the server binds `127.0.0.1:4000` (stop any competing server on `:4000` first, or set `POD_BROWSER_PORT` alongside a distinct `pod_browser_*` `MIX_TEST_PARTITION`) and serves built production assets on `http://<tenant-slug>.ankole.localhost:4000`. Always navigate via the canonical `base_url` and shared account-proof cookies written to `POD_BROWSER_STATE_PATH` (`0600` permissions; delete it after testing) rather than hitting `127.0.0.1` directly or appending `?tenant_id=` query parameters.
 - **Real connections and real auth**: The server uses the standard Ecto connection pool (not SQL Sandbox) so Phoenix Channels stay alive across requests, creates a fresh data tenant on each boot, reuses a fixed root-administrator Principal in the privileged tenant, and delivers login OTPs through a local TLS SMTP fixture whose `.mail.json` companion file lets Playwright read delivered codes without bypassing authentication or AuthZ.
 - **Coverage**: The suite verifies live collaborative page edits, Base tables, Applet publishing, access revocation, Office file previews, Console member/guest provisioning and access-version bumps across reloads, iframe module loading, CSS isolation, per-tab identity selection, and the full sample-reservation Applet backend (pending submissions, input retention on rejection, viewer write denial, competing reservations, and paired frontend/backend revision swaps—delaying one real committed HTTP response solely to inspect pending UI state).
+
+For durable Action stories, start the fixture with `POD_BROWSER_ACTIONS=true` and
+run `bun run test:pod action-runs.spec.ts`. This enables the real Oban
+`automation_jobs` queue and imports 100 Base records through an Applet. The
+browser checks visible progress, a missing Action after publication, saved-work
+recovery, reconnection, and unchanged data versions on a repeated import.
 
 For the document multiplayer suite, build a source-mounted Worker image from the
 repository root with Docker running:
@@ -814,7 +826,7 @@ Because these suites take longer than unit tests, run the specific mode that cov
   tools/e2e/run --real-llm --only=pod_content_real_llm
   ```
 
-- **Shared knowledge in real work (`knowledge_unification`)**: A Human edits a shared Skill supplement in the Pod browser and asks the real model to save a proposal using its case reference and budget rule. After the Human changes the rule, a new conversation updates the same proposal. The browser opens each delivered page link and verifies the saved content after reload:
+- **Shared knowledge in real work (`knowledge_unification`)**: A Human edits a Skill manifest and its reference file in Meta Ankole and asks the real model to save a proposal using its case reference and budget rule. After the Human changes the manifest rule, a new conversation updates the same proposal. The browser opens each delivered page link and verifies the saved content after reload:
   ```bash
   tools/e2e/run --real-llm --only=knowledge_unification
   ```
@@ -919,8 +931,8 @@ including quota, scheduling, cancellation, and cache recovery.
 Run the general suite as a normal user: upstream's read-only filesystem tests
 rely on Unix permission bits, which do not restrict root.
 The mount smoke test also streams a 300 MiB file, performs a cold same-mount
-COPY, checks immediate reads and sparse edits, and merges independent knowledge
-changes. It counts DAV requests to verify unchanged saves and zero-byte copies.
+COPY, checks immediate reads and sparse edits, and verifies read-only Brain,
+Skills and contract mounts, including executable Skill scripts. It counts DAV requests to verify unchanged saves and zero-byte copies.
 To repeat this against S3, set `ANKOLE_VFS_OBJECT_STORE_SPEC` to a JSON file
 containing the normal OpenDAL S3 spec (`scheme`, `bucket`, `region`, `endpoint`,
 `access_key_id`, `secret_access_key`); the test uses that real adapter for its

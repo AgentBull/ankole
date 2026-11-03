@@ -19,9 +19,8 @@ import { useTranslation } from 'react-i18next'
 import type { SubpageItem } from './content-api'
 import { PageIcon } from './page-icon'
 import { usePageHref } from './use-page-metadata'
-
-const valueText = (value: unknown) =>
-  value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+import { propertyText } from './state/knowledge-draft'
+import { KnowledgeValue } from './knowledge-value'
 
 /** Only authorized child pages reach this view. The columns come from their business metadata. */
 export function KnowledgeTable({ pages }: { pages: SubpageItem[] }) {
@@ -34,7 +33,7 @@ export function KnowledgeTable({ pages }: { pages: SubpageItem[] }) {
   const rows = pages
     .filter(page => {
       const values = field ? [page.metadata?.[field]] : [page.title, ...Object.values(page.metadata ?? {})]
-      return values.some(value => valueText(value).toLocaleLowerCase().includes(filter.toLocaleLowerCase()))
+      return values.some(value => propertyText(value).toLocaleLowerCase().includes(filter.toLocaleLowerCase()))
     })
     .sort((a, b) => {
       const left = sort.field ? a.metadata?.[sort.field] : a.title
@@ -42,7 +41,7 @@ export function KnowledgeTable({ pages }: { pages: SubpageItem[] }) {
       const order =
         typeof left === 'number' && typeof right === 'number'
           ? left - right
-          : valueText(left).localeCompare(valueText(right), undefined, { numeric: true })
+          : propertyText(left).localeCompare(propertyText(right), undefined, { numeric: true })
       return order * sort.direction
     })
   const heading = (name: string, title: string) => (
@@ -107,7 +106,7 @@ export function KnowledgeTable({ pages }: { pages: SubpageItem[] }) {
               </TableCell>
               {fields.map(field => (
                 <TableCell key={field} className="max-w-sm whitespace-pre-wrap break-words">
-                  {valueText(page.metadata?.[field])}
+                  <KnowledgeValue value={page.metadata?.[field]} />
                 </TableCell>
               ))}
             </TableRow>

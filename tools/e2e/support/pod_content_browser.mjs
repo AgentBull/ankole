@@ -46,7 +46,9 @@ async function openDeliveredPage(conversationID, pageID) {
   await expect(link).toBeVisible({ timeout: 30_000 })
   const href = await link.getAttribute('href')
   await link.click()
-  await expect.poll(() => podPageRouteID(new URL(page.url()).pathname.replace(/^\/pages\//, ''))).toBe(pageID)
+  await expect
+    .poll(() => podPageRouteID(new URL(page.url()).pathname.replace(/^\/(?:pages|meta\/brain)\//, '')))
+    .toBe(pageID)
   return { href, opened_url: page.url() }
 }
 
@@ -134,6 +136,25 @@ async function sendMessage() {
   }
 }
 
+async function editSkill() {
+  await page.goto(`${state.base_url}/meta/skills/${state.skill_slug}`)
+  const manifest = page.locator('section').filter({ has: page.getByRole('heading', { name: 'SKILL.md', exact: true }) })
+  await manifest.getByRole('button', { name: 'Edit', exact: true }).click()
+  await manifest.locator('.editor-content').fill(state.text)
+  const saved = page.waitForResponse(
+    response =>
+      response.request().method() === 'PUT' &&
+      new URL(response.url()).pathname.endsWith(`/meta/skills/${state.skill_slug}`)
+  )
+  await manifest.getByRole('button', { name: 'Save', exact: true }).click()
+  expect((await saved).status()).toBe(200)
+  await manifest.getByRole('button', { name: 'Edit', exact: true }).waitFor()
+  await page.reload()
+  await expect(manifest).toContainText(state.text)
+  await capture('team-skill-edit', state.skill_slug)
+  return { skill_slug: state.skill_slug }
+}
+
 async function editKnowledge() {
   await page.goto(url(`/pages/${state.page_id}`))
   const knowledge = page.locator('[data-knowledge-page]')
@@ -148,16 +169,16 @@ async function editKnowledge() {
   expect((await saved).status()).toBe(200)
   await knowledge.getByRole('button', { name: 'Edit', exact: true }).waitFor()
   await page.reload()
-  await expect(knowledge.locator('.editor-content')).toContainText(state.text)
+  await expect(knowledge).toContainText(state.text)
   await capture('team-knowledge-edit')
-  return { page_id: state.page_id, text: await knowledge.locator('.editor-content').innerText() }
+  return { page_id: state.page_id, text: await knowledge.innerText() }
 }
 
 async function knowledge() {
   const delivery = await openDeliveredPage(state.conversation_id, state.page_id)
   await expect(page.getByRole('textbox', { name: 'Page title', exact: true })).toHaveValue(state.title)
-  const content = page.locator('[data-knowledge-page] .editor-content')
-  await expect(content).toHaveAttribute('contenteditable', 'false')
+  const content = page.locator('[data-knowledge-page]')
+  await expect(content.locator('[contenteditable="true"]')).toHaveCount(0)
   for (const fact of state.facts) await expect(content).toContainText(fact)
   await page.reload()
   for (const fact of state.facts) await expect(content).toContainText(fact)
@@ -478,6 +499,7 @@ try {
   const actions = {
     send_message: sendMessage,
     edit_knowledge: editKnowledge,
+    edit_skill: editSkill,
     knowledge,
     answer_peer: answerPeer,
     comment,

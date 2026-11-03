@@ -9,11 +9,11 @@ description: 제어 플레인의 주 Agent 지침과 Codex Job 컨텍스트 구�
 
 ## 현재 컨텍스트
 
-각 실행은 Agent 신원, 활성 기능, 시작 대화, 시간대를 확인합니다. Ankole은 `/AnkoleBrain/AGENTS.md` 전체를 읽고 Agent별 페이지의 추가 또는 대체 규칙을 적용해 유효한 `AGENTS.md`를 생성합니다. `DESIGN.md`도 같은 계층을 사용하며 완전한 런타임 파일로 제공합니다.
+각 실행은 Agent 신원, 활성 기능, 시작 대화와 시간대를 확인합니다. `Ankole.AIAgent.Library.Contracts`는 개별 상속·추가·재정의 설정에 따라 전역 기준을 합칩니다. 컨트롤 플레인은 유효한 `AGENTS.md` 전체를 읽습니다. `DESIGN.md`도 같은 모듈이 관리하며 완전한 런타임 파일로 제공합니다.
 
 `Ankole.Sessions.Prompt.system/1`은 AGENTS 규약 전체, 완료 및 권한 규칙, Job과 Workflow 정책, 기억 지침, 환경과 도구 설명, Skill 카탈로그, 런타임 컨텍스트를 순서대로 조립합니다. 템플릿은 `app/control_plane/priv/sessions/prompts/`에 있습니다.
 
-Skill 카탈로그에는 현재 대화에서 읽을 수 있는 활성 Skill의 설명을 표시합니다. `skill_view`는 선택한 Skill과 허용된 보충 페이지를 필요할 때 읽습니다. 마지막에는 Agent, `/workspace`, Session 작업 공간, 시간대, 대화 시작 시각과 채널을 기록합니다. Lark와 Feishu는 하나의 어댑터를 사용하며 설정된 도메인에 따라 상위 API를 선택합니다.
+Skill 카탈로그에는 해당 Agent에서 활성화된 패키지의 설명을 표시합니다. `skill_view`는 선택한 매니페스트를 필요할 때 읽으며 Agent는 참조된 파일을 명시적으로 읽습니다. 마지막에는 Agent, `/workspace`, Session 작업 공간, 시간대, 대화 시작 시각과 채널을 기록합니다. Lark와 Feishu는 하나의 어댑터를 사용하며 설정된 도메인에 따라 상위 API를 선택합니다.
 
 ## 설정과 기록
 

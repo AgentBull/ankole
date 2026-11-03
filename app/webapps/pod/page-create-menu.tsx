@@ -31,7 +31,7 @@ export type CreatePageOptions = {
   onCreated?: (page: Page) => void
 }
 
-type PageType = 'doc' | 'knowledge' | 'base' | 'folder' | 'file'
+type PageType = 'doc' | 'knowledge' | 'base' | 'file'
 
 export type PageCreation = {
   isPending: boolean
@@ -50,7 +50,7 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
       targetScope,
       targetOwner
     }: {
-      input: 'doc' | 'knowledge' | 'base' | 'folder' | File
+      input: 'doc' | 'knowledge' | 'base' | File
       targetParentID?: string
       targetScope?: 'space' | 'private'
       targetOwner?: string
@@ -71,7 +71,7 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
       })
     }
   })
-  const run = async (type: 'doc' | 'knowledge' | 'base' | 'folder' | 'file', override?: CreatePageOptions) => {
+  const run = async (type: 'doc' | 'knowledge' | 'base' | 'file', override?: CreatePageOptions) => {
     const input = type === 'file' ? await chooseLocalFile() : type
     if (!input) return
     const callback = override?.onCreated ?? latestOnCreated.current
@@ -114,7 +114,7 @@ export function useSubpageCreation() {
   const navigate = useNavigate()
   const client = useQueryClient()
   const mutation = useMutation({
-    mutationFn: ({ input, parentID }: { input: 'doc' | 'knowledge' | 'base' | 'folder' | File; parentID: string }) => {
+    mutationFn: ({ input, parentID }: { input: 'doc' | 'knowledge' | 'base' | File; parentID: string }) => {
       if (input instanceof File) return createFilePage(input, { parent_id: parentID })
       return pageAPI.create({ type: input, title: '', parent_id: parentID })
     }
@@ -137,7 +137,7 @@ export function useSubpageCreation() {
   return forParent
 }
 
-const pageTypes = ['doc', 'knowledge', 'base', 'folder', 'file'] as const
+const pageTypes = ['doc', 'base', 'file'] as const
 
 function PageTypeItems({ create, types = pageTypes }: { create: PageCreation; types?: readonly PageType[] }) {
   useTranslation()
@@ -156,8 +156,9 @@ export function CreatePageButton({
   compact = false,
   disabled = false,
   label: providedLabel,
+  types,
   onCreated
-}: CreatePageOptions & { compact?: boolean; disabled?: boolean; label?: string }) {
+}: CreatePageOptions & { compact?: boolean; disabled?: boolean; label?: string; types?: readonly PageType[] }) {
   const { t } = useTranslation()
   const label = providedLabel ?? t('pod.content.new_page')
   const needsCapabilities = !parentID && scope === undefined
@@ -191,7 +192,7 @@ export function CreatePageButton({
         {!compact && (create.isPending ? t('pod.content.creating') : label)}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56" aria-label={label}>
-        <PageTypeItems create={create} />
+        <PageTypeItems create={create} types={types} />
       </DropdownMenuContent>
     </DropdownMenu>
   )

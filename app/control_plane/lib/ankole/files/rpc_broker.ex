@@ -41,8 +41,8 @@ defmodule Ankole.Files.RPCBroker do
   end
 
   defp requested_file(actor, %{node_id: id}) when is_binary(id) and id != "" do
-    with {:ok, node} <- Files.authorize_node(actor, id, "node_view"),
-         true <- node.kind == :file,
+    with {:ok, node} <- Ankole.Pod.authorize_node(actor, id, "node_view"),
+         true <- node.type == :file,
          do: Files.Paths.project(node, node.name),
          else: (
            false -> {:error, :not_a_file}

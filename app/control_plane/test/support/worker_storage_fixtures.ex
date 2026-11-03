@@ -117,7 +117,7 @@ defmodule Ankole.WorkerStorageFixtures do
     page_ids =
       Repo.all(from p in Ankole.Brain.Schemas.Page, where: p.slug in ^slugs, select: p.id)
 
-    Repo.delete_all(from n in Ankole.Files.Schemas.Node, where: n.id in ^page_ids)
+    Repo.delete_all(from n in Ankole.Pod.Page, where: n.id in ^page_ids)
     Repo.delete_all(from p in Principals.Principal, where: p.uid in ^uids)
     Repo.delete_all(from p in Principals.Principal, where: p.uid == ^owner_uid)
     Repo.delete_all(from job in Oban.Job, where: fragment("?->>'agent_uid'", job.args) in ^uids)

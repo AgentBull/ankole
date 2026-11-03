@@ -105,7 +105,7 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     assert id == ctx.right.id
     assert {:ok, _} = Task.await(grant, 5_000)
     assert {:ok, _} = Task.await(sharing, 5_000)
-    assert Repo.get!(Page, ctx.page.id).parent_id == ctx.right.id
+    assert Repo.get_by!(Page, id: ctx.page.id).parent_id == ctx.right.id
   end
 
   test "a grant committed while the move waits is included in its policy proof", ctx do
@@ -148,7 +148,7 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     send(writer.pid, :commit)
     assert {:ok, :written} = Task.await(writer, 5_000)
     assert {:error, :move_requires_manage} = Task.await(move, 5_000)
-    assert Repo.get!(Page, ctx.page.id).parent_id == ctx.left.id
+    assert Repo.get_by!(Page, id: ctx.page.id).parent_id == ctx.left.id
   end
 
   test "destination edit access is rechecked after waiting for a grant writer", ctx do
@@ -196,7 +196,7 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     send(writer.pid, :commit)
     assert {:ok, :written} = Task.await(writer, 5_000)
     assert {:error, :forbidden} = Task.await(move, 5_000)
-    assert Repo.get!(Page, ctx.page.id).parent_id == ctx.left.id
+    assert Repo.get_by!(Page, id: ctx.page.id).parent_id == ctx.left.id
   end
 
   defp backend_pid, do: Repo.query!("SELECT pg_backend_pid()").rows |> hd() |> hd()

@@ -62,7 +62,8 @@ defmodule Ankole.Brain.PatternsTest do
     assert %{status: :ok, pages: 1} = Patterns.run()
     assert [page] = pages()
 
-    assert page.parent_id == context.scope
+    assert page.slug =~ "analysis/pattern-#{context.scope}-"
+    assert page.upstream_state["source_node_id"] == context.scope
     assert evidence(page.id) == Enum.take(context.slugs, 3) |> Enum.sort()
 
     second = pattern(Enum.drop(context.slugs, 1), "Renewal approval now follows a shared review.")
@@ -119,14 +120,17 @@ defmodule Ankole.Brain.PatternsTest do
   test "a write conflict rolls back the whole audience batch", context do
     {:ok, note} =
       Ankole.Repo.transact_top_level(fn ->
+        {:ok, root} = Ankole.Brain.Namespace.root()
+        {:ok, category} = Ankole.Brain.Namespace.child(root.id, "analysis")
+
         {:ok, node} =
-          Ankole.AIAgent.Library.Knowledge.ensure_child_in_tx(
-            context.scope,
-            "pattern-existing-note",
+          Ankole.Brain.Namespace.ensure_child_in_tx(
+            category.id,
+            "pattern-#{context.scope}-existing-note",
             :knowledge
           )
 
-        Ankole.AIAgent.Library.Knowledge.put_markdown_in_tx(node, "Keep this note.")
+        Ankole.Brain.Namespace.put_markdown_in_tx(node, "Keep this note.")
       end)
 
     valid = pattern(Enum.take(context.slugs, 3))
@@ -151,7 +155,7 @@ defmodule Ankole.Brain.PatternsTest do
     assert %{status: :ok, pages: 2, buckets: 2} = Patterns.run()
     assert length(pages()) == 2
 
-    assert MapSet.new(pages(), & &1.parent_id) ==
+    assert MapSet.new(pages(), & &1.upstream_state["source_node_id"]) ==
              MapSet.new([Ankole.Brain.Scope.world(), context.scope])
 
     respond(context.state, [])

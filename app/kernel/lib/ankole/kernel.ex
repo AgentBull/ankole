@@ -216,12 +216,23 @@ defmodule Ankole.Kernel do
 
   def vfs_fingerprint(source), do: vfs_fingerprint_nif(source)
 
+  def page_content_empty(xml), do: page_content_empty_nif(xml)
+  defp page_content_empty_nif(_xml), do: :erlang.nif_error(:nif_not_loaded)
+
   def vfs_projection(kind, xml, metadata \\ %{}) do
     exported =
       if kind == :knowledge, do: knowledge_export(xml, metadata), else: vfs_document_export(xml)
 
     with {:ok, markdown} <- exported,
-         do: {:ok, %{vfs_md_size: byte_size(markdown), vfs_md_blake3: vfs_fingerprint(markdown)}}
+         empty when is_boolean(empty) <- page_content_empty(xml) do
+      {:ok,
+       %{
+         vfs_md_size: byte_size(markdown),
+         vfs_md_blake3: vfs_fingerprint(markdown),
+         vfs_content_empty:
+           empty and (kind != :knowledge or map_size(Map.drop(metadata, ["extract_facts"])) == 0)
+       }}
+    end
   end
 
   defp vfs_name_nif(_name, _kind, _id), do: :erlang.nif_error(:nif_not_loaded)

@@ -30,7 +30,7 @@ my-skill/
 └── templates/
 ```
 
-Name the directory using lowercase letters, digits, hyphens, or underscores. Shipped first-party Skills live under `app/library/skills/`, while per-Agent installed Skills live in that Agent's drive space.
+Use a tenant-unique slug of lowercase letters, digits, dots, hyphens or underscores, beginning with a letter or digit. Shipped first-party Skills live under `app/library/skills/`. Members create or import custom packages in **Meta Ankole → Skills**.
 
 ### Write the frontmatter
 
@@ -50,12 +50,11 @@ platforms: [linux]
 
 Write a concrete trigger condition in `description`, because the Agent scans descriptions in its catalog to decide when to load the full Skill. Set `ankole-runtime: background_job` whenever the workflow requires an isolated Background Agent Job workspace, and add `platforms: [linux]` only if the Skill invokes Linux-only binaries.
 
-### Shared knowledge and reference chapters
+### Complete Skill packages
 
-Ankole synchronizes shipped Skills to `/AnkoleBrain/skills/<name>`. The knowledge page stores standard frontmatter as metadata and the body as Page XML; scripts and templates are file children. Keep the name globally unique, including Skills bundled in Agent Plugins.
+Ankole stores each Skill as a required `SKILL.md` manifest plus its companion files. Frontmatter and the body are edited together; scripts, templates, binary assets and reference documents retain their relative paths. Official and Agent Plugin Skills share the same tenant-wide slug namespace.
 
-Teams can add knowledge children as local instructions. Mark long lookup chapters with `metadata.role = "reference"` and link their relative paths from the Skill body. `skill_view` appends visible instruction children, while references remain available for reading by subpath.
-
+Link companion files explicitly from `SKILL.md` and read them on demand. Main Agent runs use `/drive/Skills/<slug>/`; Background Agent Jobs receive the packages allowed for that Job. The enabled Agent can read the whole package. Put business data with a restricted audience in Brain or a separately shared collaboration page.
 ### Write the body
 
 Write `SKILL.md` for a capable Agent that has no prior context about your team's local conventions, spelling out:
@@ -88,7 +87,7 @@ Agent Computer injects this dependency only while the Skill is enabled. In `SKIL
 
 Enable the Skill on a test Agent and run a realistic prompt end to end, verifying that the Agent picks the Skill, reads any linked reference files, and satisfies every completion check. If the Agent skips the Skill, sharpen `description`; if steps drift out of order, tighten the numbered procedure and constraints.
 
-Verify that the current conversation sees only permitted Skill pages and supplements. Check reference subpaths, compatible-runtime loading, and routing for incompatible runtimes. Disabling the Skill or its parent Plugin must remove it from the enabled catalog and prevent `skill_view` from loading it.
+Verify package-relative references, executable scripts, compatible-runtime loading and routing for incompatible runtimes. With “Enable for all Agents” off, test a colleague binding and your assistant binding independently. Turning the global switch on and off must preserve those bindings. Disabling all applicable bindings or the parent Plugin must remove the Skill from the enabled catalog and prevent `skill_view` from loading it.
 
 ## Develop a Control Plane Plugin
 

@@ -156,6 +156,7 @@ defmodule Ankole.Brain.ContextPack do
             |> Access.filter_claims(visibility)
             |> Ash.Query.sort(valid_from: :desc, id: :asc)
             |> Ash.Query.limit(50)
+            |> Ash.Query.deselect(:embedding)
             |> Ankole.Ash.read!()
             |> Access.filter_disclosable(& &1.source_node_id, disclosure)
             |> Enum.sort_by(

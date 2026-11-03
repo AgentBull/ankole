@@ -93,9 +93,6 @@ defmodule Ankole.Pod.Serialization do
       |> enum_json(:kind)
       |> Ankole.JSON.plain()
 
-  def document_json(%{page: page, content: content}),
-    do: %{page: page_json(page), content: content_json(content)}
-
   def detail_json(detail),
     do: %{
       page: page_json(detail.page),

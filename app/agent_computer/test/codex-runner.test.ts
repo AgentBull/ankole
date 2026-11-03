@@ -24,7 +24,6 @@ import {
   AgentConversationContextResponseSchema,
   AIGatewayAPIKeyResponseSchema,
   BackgroundAgentJobResponseSchema,
-  BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
   RuntimeSkillSummarySchema,
   WorkerEnvResolveResponseSchema
@@ -873,71 +872,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
-  it('replays the stored transcript into a replacement thread when a respawn cannot resume natively', async () => {
-    const fixture = prepareFixture('done after replay', { resumeError: 'No rollout found for thread' })
-    const statusUpdates: RecordedStatusUpdate[] = []
-    const workspaceOwnerJobID = '1001'
-    mkdirAgentSync(jobProjectFor(fixture.root, workspaceOwnerJobID))
-    const currentJob = create(BackgroundAgentJobResponseSchema, {
-      ...response(),
-      task: 'Retry the failed work.',
-      runtimeThreadId: 'missing-source-thread',
-      metadataJson: jsonBytes({ legacy_thread_replay: true }),
-      continuedFromJobId: '1002',
-      workspaceOwnerJobId: workspaceOwnerJobID
-    })
-
-    try {
-      await runCodexJob(
-        turnStart(),
-        options(fixture.root, statusUpdates, [], () => currentJob, undefined, undefined, [], undefined, [
-          {
-            position: 0,
-            itemKey: 'client:event-0',
-            item: { type: 'userMessage', id: 'user-0', content: [{ type: 'text', text: '源任务原文' }] }
-          },
-          {
-            position: 1,
-            itemKey: 'command-0',
-            item: {
-              type: 'commandExecution',
-              id: 'command-0',
-              command: 'printf source',
-              cwd: '/workdir',
-              status: 'completed',
-              aggregatedOutput: 'source',
-              exitCode: 0,
-              durationMs: 1
-            }
-          },
-          {
-            position: 2,
-            itemKey: 'message-0',
-            item: { type: 'agentMessage', id: 'message-0', text: 'SOURCE_DONE' }
-          }
-        ])
-      )
-
-      const injected = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'inject-items.json'), 'utf8'))
-      expect(injected.items).toEqual([
-        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '源任务原文' }] },
-        expect.objectContaining({ type: 'function_call', name: 'shell', call_id: 'command-0' }),
-        expect.objectContaining({ type: 'function_call_output', call_id: 'command-0' }),
-        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'SOURCE_DONE' }] }
-      ])
-      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe('Retry the failed work.')
-      expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
-        runtime_checkpoint_recreated: true,
-        runtime_checkpoint_recovery: 'replayed_from_transcript',
-        legacy_thread_replay: false
-      })
-      expect(statusUpdates.at(-1)?.status).toBe('succeeded')
-    } finally {
-      fixture.cleanup()
-    }
-  })
-
-  it('continues a respawn from the durable Workspace when no stored transcript exists', async () => {
+  it('continues a respawn from the durable Workspace and source report when native history is missing', async () => {
     const fixture = prepareFixture('done after rebuild', { resumeError: 'No rollout found for thread' })
     const statusUpdates: RecordedStatusUpdate[] = []
     const workspaceOwnerJobID = '1001'
@@ -946,7 +881,6 @@ describe('@ankole/agent-computer Codex job runner', () => {
       ...response(),
       task: 'Retry the failed work.',
       runtimeThreadId: 'missing-source-thread',
-      metadataJson: jsonBytes({ legacy_thread_replay: true }),
       continuedFromJobId: '1002',
       workspaceOwnerJobId: workspaceOwnerJobID,
       resultOutputText: `SOURCE_DONE: created context-marker.txt${'界'.repeat(20000)}`
@@ -1329,8 +1263,7 @@ function options(
   onStatusUpdate?: (update: RecordedStatusUpdate) => void,
   onRPC?: (method: unknown) => void,
   contextSkills: RuntimeSkillSummary[] = [],
-  overlayText?: () => string,
-  storedTurnItems: Array<{ position: number; itemKey: string; item: Record<string, unknown> }> = []
+  overlayText?: () => string
 ): CodexJobOptions {
   const job = response(contextSkills)
   const currentJob = () => jobOverride?.() ?? job
@@ -1390,18 +1323,6 @@ function options(
           }
           return currentJob()
         }
-        case 'background_agent_job.turn_items.list':
-          return create(BackgroundAgentJobTurnItemsListResponseSchema, {
-            jobId: jobID,
-            items: storedTurnItems.map(entry => ({
-              runtimeThreadId: 'stored-thread',
-              runtimeTurnId: 'stored-turn',
-              position: entry.position,
-              itemKey: entry.itemKey,
-              itemJson: jsonBytes(entry.item)
-            })),
-            nextCursor: ''
-          })
         case 'background_agent_job.turn.upsert': {
           const request = payload as RecordedTurnUpsert
           turnUpserts.push(request)

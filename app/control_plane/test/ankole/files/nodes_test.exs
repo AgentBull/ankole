@@ -1,9 +1,11 @@
-defmodule Ankole.Files.NodesTest do
+defmodule Ankole.Pod.Pages.TreeTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
-  alias Ankole.{Files, Repo}
-  alias Ankole.Files.{Access, Nodes}
-  alias Ankole.Pod.{Pages, Properties}
+  alias Ankole.Repo
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
+  alias Ankole.Pod.Pages
+  alias Ankole.Pod.Page
 
   setup do
     owner = human_fixture().principal
@@ -12,43 +14,47 @@ defmodule Ankole.Files.NodesTest do
     %{owner: actor_fixture(owner), contributor: actor_fixture(contributor), root: root}
   end
 
-  test "folder contributors create and initially fill files but cannot overwrite or rename",
-       ctx do
-    {:ok, folder} =
-      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :folder, name: "Inbox"})
+  test "creating a subpage requires edit permission on an empty or populated Page", ctx do
+    {:ok, parent} = Nodes.create(ctx.owner, %{parent_id: ctx.root.id, type: :doc, name: "Inbox"})
+    grant(ctx.contributor, parent.id)
 
-    grant(ctx.contributor, folder.id)
+    assert {:error, :forbidden} =
+             Nodes.create(ctx.contributor, %{parent_id: parent.id, type: :doc, name: "Child"})
 
-    assert {:ok, file} =
-             Nodes.create(ctx.contributor, %{parent_id: folder.id, kind: :file, name: "notes.txt"})
+    assert :ok =
+             Repo.transact_top_level(fn ->
+               Access.put_role(
+                 %{principal_uid: ctx.contributor.principal.uid},
+                 "drive:**:#{parent.id}:**",
+                 "edit"
+               )
+             end)
 
-    assert {:ok, _} = Files.write_node(ctx.contributor, file.id, "first")
-    assert {:ok, current} = Nodes.fetch(file.id)
-    assert {:ok, "first"} = Files.read_object(current.object_id)
-    assert {:error, :forbidden} = Files.write_node(ctx.contributor, file.id, "replacement")
-    assert {:error, :forbidden} = Nodes.rename(ctx.contributor, file.id, "changed.txt")
-    assert {:error, :forbidden} = Nodes.trash(ctx.contributor, file.id)
+    assert {:ok, child} =
+             Nodes.create(ctx.contributor, %{parent_id: parent.id, type: :doc, name: "Child"})
 
-    assert {:ok, %{kind: :folder}} =
-             Nodes.create(ctx.contributor, %{
-               parent_id: folder.id,
-               kind: :folder,
-               name: "Subdirectory"
-             })
+    assert child.inherit_permissions
+    assert {:ok, _} = Pages.authorize(ctx.contributor, child.id, "node_edit")
+
+    assert {:ok, _} =
+             Ankole.Pod.Documents.write(ctx.owner, parent.id, 0, "<page><p>Body</p></page>")
+
+    assert {:ok, _} =
+             Nodes.create(ctx.contributor, %{parent_id: parent.id, type: :doc, name: "Another"})
   end
 
   test "ACL maintenance preserves modification time while node mutations advance it", ctx do
     {:ok, folder} =
-      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :folder, name: "Inbox"})
+      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, type: :doc, name: "Inbox"})
 
-    {:ok, file} = Nodes.create(ctx.owner, %{parent_id: folder.id, kind: :file, name: "File"})
+    {:ok, file} = Nodes.create(ctx.owner, %{parent_id: folder.id, type: :file, name: "File"})
     grant(ctx.contributor, folder.id)
     assert {:ok, anchored} = Nodes.fetch(folder.id)
     assert anchored.updated_at == folder.updated_at
     assert {:ok, reanchored} = Nodes.fetch(file.id)
     assert reanchored.updated_at == file.updated_at
 
-    assert {:ok, _} = Files.write_node(ctx.owner, file.id, "content")
+    assert {:ok, _} = Ankole.Pod.write_node(ctx.owner, file.id, "content")
     assert {:ok, written} = Nodes.fetch(file.id)
     assert DateTime.compare(written.updated_at, file.updated_at) == :gt
 
@@ -68,19 +74,19 @@ defmodule Ankole.Files.NodesTest do
     assert {:error, :forbidden} =
              Nodes.create(ctx.contributor, %{
                parent_id: ctx.root.id,
-               kind: :file,
+               type: :file,
                name: "denied.txt"
              })
 
     {:ok, empty} =
-      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :file, name: "prepared.txt"})
+      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, type: :file, name: "prepared.txt"})
 
-    assert {:ok, _} = Files.write_node(ctx.contributor, empty.id, "initial")
-    assert {:error, :forbidden} = Files.write_node(ctx.contributor, empty.id, "overwrite")
+    assert {:ok, _} = Ankole.Pod.write_node(ctx.contributor, empty.id, "initial")
+    assert {:error, :forbidden} = Ankole.Pod.write_node(ctx.contributor, empty.id, "overwrite")
   end
 
   test "names deduplicate and restoring avoids occupied live names", ctx do
-    attrs = %{parent_id: ctx.root.id, kind: :file, name: "report.txt"}
+    attrs = %{parent_id: ctx.root.id, type: :file, name: "report.txt"}
     {:ok, first} = Nodes.create(ctx.owner, attrs)
     {:ok, second} = Nodes.create(ctx.owner, attrs)
     assert second.name == "report.txt (1)"
@@ -103,35 +109,8 @@ defmodule Ankole.Files.NodesTest do
     end
   end
 
-  test "legacy Bidi-named nodes remain readable, movable without rename, trashable, and converge on rename",
-       ctx do
-    {:ok, folder} =
-      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :folder, name: "Archive"})
-
-    {:ok, file} =
-      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :file, name: "placeholder.sh"})
-
-    assert {:ok, _} = Files.write_node(ctx.owner, file.id, "echo legacy")
-
-    legacy_name = "报价单_\u202Efdp.sh"
-
-    Repo.query!(
-      "UPDATE drive_nodes SET name = $1 WHERE tenant_id = $2::text::uuid AND id = $3::text::uuid",
-      [legacy_name, Repo.tenant_id!(), file.id]
-    )
-
-    assert {:ok, %{name: ^legacy_name}} = Nodes.fetch(file.id)
-    assert {:ok, _meta, "echo legacy"} = Files.read(ctx.owner.principal.uid, legacy_name)
-    assert {:error, :invalid_name} = Nodes.rename(ctx.owner, file.id, legacy_name)
-    assert {:ok, moved} = Nodes.move(ctx.owner, file.id, %{parent_id: folder.id})
-    assert moved.parent_id == folder.id
-    assert {:ok, renamed} = Nodes.rename(ctx.owner, file.id, Files.file_name(legacy_name))
-    assert renamed.name == "报价单_fdp.sh"
-    assert {:ok, _} = Nodes.trash(ctx.owner, file.id)
-  end
-
   test "name allocation probes a candidate without loading its siblings", ctx do
-    attrs = %{parent_id: ctx.root.id, kind: :file, name: "report.txt"}
+    attrs = %{parent_id: ctx.root.id, type: :file, name: "report.txt"}
     {:ok, first} = Nodes.create(ctx.owner, attrs)
     {:ok, second} = Nodes.create(ctx.owner, attrs)
     assert Nodes.available_name(ctx.root.id, first.name, first.id) == first.name
@@ -161,10 +140,10 @@ defmodule Ankole.Files.NodesTest do
 
   test "Pod lists files and folders and persists favorites and sibling order", ctx do
     {:ok, folder} =
-      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :folder, name: "Folder"})
+      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, type: :doc, name: "Folder"})
 
-    {:ok, file} = Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :file, name: "File"})
-    assert is_nil(Repo.get_by(Properties, id: file.id))
+    {:ok, file} = Nodes.create(ctx.owner, %{parent_id: ctx.root.id, type: :file, name: "File"})
+    assert Repo.get_by!(Page, id: file.id).title == "File"
     assert {:ok, %{pages: pages}} = Pages.list_children(ctx.owner, nil, %{scope: "private"})
     assert Enum.map(pages, & &1.id) == [file.id, folder.id]
 
@@ -189,19 +168,19 @@ defmodule Ankole.Files.NodesTest do
 
   test "trashing an ancestor rejects descendant content and creation", ctx do
     {:ok, folder} =
-      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :folder, name: "Folder"})
+      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, type: :doc, name: "Folder"})
 
-    {:ok, file} = Nodes.create(ctx.owner, %{parent_id: folder.id, kind: :file, name: "File"})
+    {:ok, file} = Nodes.create(ctx.owner, %{parent_id: folder.id, type: :file, name: "File"})
     assert {:ok, _} = Nodes.trash(ctx.owner, folder.id)
-    assert {:error, :not_found} = Files.write_node(ctx.owner, file.id, "hidden")
+    assert {:error, :not_found} = Ankole.Pod.write_node(ctx.owner, file.id, "hidden")
 
     assert {:error, :not_found} =
-             Nodes.create(ctx.owner, %{parent_id: folder.id, kind: :file, name: "Other"})
+             Nodes.create(ctx.owner, %{parent_id: folder.id, type: :file, name: "Other"})
   end
 
   test "an isolated manage grant does not permit changing a file name", ctx do
     {:ok, file} =
-      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :file, name: "Original"})
+      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, type: :file, name: "Original"})
 
     assert {:ok, _} =
              Ankole.AuthZ.create_permission_grant(%{
@@ -235,7 +214,7 @@ defmodule Ankole.Files.NodesTest do
     assert exists.() == [[true]]
     assert {:ok, _} = Nodes.trash(ctx.owner, page.id)
     assert {:ok, _} = Nodes.purge(ctx.owner, page.id)
-    assert :ok = Ankole.Files.Jobs.PurgeNode.run(%Oban.Job{args: %{"node_id" => page.id}})
+    assert :ok = Ankole.Pod.Jobs.PurgeTree.run(%Oban.Job{args: %{"node_id" => page.id}})
     assert exists.() == [[false]]
     assert {:error, :not_found} = Nodes.fetch(page.id)
     refute Repo.get_by(Ankole.Pod.BaseTable, id: table.id)
@@ -244,7 +223,7 @@ defmodule Ankole.Files.NodesTest do
   test "restoring a folder recovers authorized descendants, resolves names, and leaves restricted trash alone",
        ctx do
     {:ok, folder} =
-      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, kind: :folder, name: "Project"})
+      Nodes.create(ctx.owner, %{parent_id: ctx.root.id, type: :doc, name: "Project"})
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.principal, folder.id, %{
@@ -252,17 +231,17 @@ defmodule Ankole.Files.NodesTest do
       })
 
     {:ok, first} =
-      Nodes.create(ctx.owner, %{parent_id: folder.id, kind: :file, name: "report.txt"})
+      Nodes.create(ctx.owner, %{parent_id: folder.id, type: :file, name: "report.txt"})
 
     assert {:ok, _} = Nodes.trash(ctx.owner, first.id)
 
     {:ok, second} =
-      Nodes.create(ctx.owner, %{parent_id: folder.id, kind: :file, name: "report.txt"})
+      Nodes.create(ctx.owner, %{parent_id: folder.id, type: :file, name: "report.txt"})
 
     assert {:ok, _} = Nodes.trash(ctx.owner, second.id)
 
     {:ok, restricted} =
-      Nodes.create(ctx.owner, %{parent_id: folder.id, kind: :file, name: "Restricted"})
+      Nodes.create(ctx.owner, %{parent_id: folder.id, type: :file, name: "Restricted"})
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.principal, restricted.id, %{

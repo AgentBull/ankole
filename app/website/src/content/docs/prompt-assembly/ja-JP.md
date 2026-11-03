@@ -9,11 +9,11 @@ description: メイン Agent のシステム指示と Codex Job のコンテキ�
 
 ## 現在のコンテキスト
 
-各 Run は Agent の識別情報、有効な能力、開始元の会話、タイムゾーンを解決します。Ankole は `/AnkoleBrain/AGENTS.md` を全文読み込み、Agent 個別ページの追加または置換規則に従って有効な `AGENTS.md` を生成します。`DESIGN.md` も同じ階層を使い、完全なランタイムファイルとして提供します。
+各 Run は Agent の識別情報、有効な能力、開始元の会話、タイムゾーンを解決します。`Ankole.AIAgent.Library.Contracts` は個別の継承・追加・上書き設定に従って全体の基準を合成します。コントロールプレーンは有効な `AGENTS.md` を全文読み込みます。`DESIGN.md` も同じモジュールが管理し、完全なランタイムファイルとして提供します。
 
 `Ankole.Sessions.Prompt.system/1` は AGENTS 規約の全文、完了と権限の規則、Job と Workflow の方針、記憶の指針、環境とツールの説明、Skill カタログ、実行時コンテキストを順に組み立てます。テンプレートは `app/control_plane/priv/sessions/prompts/` にあります。
 
-Skill カタログには、現在の会話で閲覧できる有効な Skill の説明を載せます。`skill_view` は選択した Skill と許可された補足ページを必要に応じて読み込みます。末尾には Agent、`/workspace`、Session ワークスペース、タイムゾーン、会話の開始時刻とチャネルを記録します。Lark と Feishu は共通のアダプターを使い、設定されたドメインによって上流 API を選びます。
+Skill カタログには、その Agent が有効にしているパッケージの説明を載せます。`skill_view` は選択したマニフェストを必要に応じて読み、Agent は参照先のファイルを明示的に読み込みます。末尾には Agent、`/workspace`、Session ワークスペース、タイムゾーン、会話の開始時刻とチャネルを記録します。Lark と Feishu は共通のアダプターを使い、設定されたドメインによって上流 API を選びます。
 
 ## 設定と履歴
 

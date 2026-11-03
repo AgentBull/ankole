@@ -31,6 +31,7 @@ function pageDetail(id: string, title: string, type: PageDetail['page']['type'])
   return {
     page: {
       id,
+      name: title,
       title,
       icon: null,
       type,

@@ -8,7 +8,6 @@ defmodule Ankole.Features do
   def initialize, do: OpenFeature.set_provider(%Ankole.Features.Provider{})
 
   def boolean_value(key, context \\ %{}), do: evaluate_details(key, context).value
-  def boolean_value_in_tx(key, context \\ %{}), do: evaluate_details_in_tx(key, context).value
 
   def evaluate_details(key, context \\ %{}), do: evaluate(key, context, :cached)
   def evaluate_details_in_tx(key, context \\ %{}), do: evaluate(key, context, :in_tx)

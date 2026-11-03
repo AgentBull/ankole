@@ -285,9 +285,17 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   # first-level department's parent pointer to it is dropped.
   defp department_parent_id(department) do
     case MapHelpers.fetch_value(department, "parentid") do
-      value when is_integer(value) and value > 1 -> Integer.to_string(value)
-      value when is_binary(value) -> if Ankole.Attrs.integer_value(value) > 1, do: value
-      _other -> nil
+      value when is_integer(value) and value > 1 ->
+        Integer.to_string(value)
+
+      value when is_binary(value) ->
+        case Ankole.Attrs.integer_value(value) do
+          id when is_integer(id) and id > 1 -> Integer.to_string(id)
+          _ -> nil
+        end
+
+      _other ->
+        nil
     end
   end
 

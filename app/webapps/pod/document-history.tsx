@@ -13,22 +13,22 @@ import { isRealtimeAccessDenied } from './realtime'
 import { downloadDocument, downloadKnowledge } from './state/document-export'
 import { versionTime } from './state/document-history'
 import { updatePageMetadata, refreshDirectories } from './state/navigation-cache'
-import type { PageDraftModel } from './state/page-draft'
 import { KnowledgeProperties } from './knowledge-properties'
 
 /** The live editor stays mounted while a historical document is inspected. */
 export function DocumentHistory({
   detail,
-  draft,
+  readDraft,
   close,
   returnFocus
 }: {
   detail: PageDetail
-  draft: InstanceType<typeof PageDraftModel>
+  readDraft(): { xml: string; title: string; revision: number; hasUnsavedChanges: boolean }
   close(): void
   returnFocus: RefObject<HTMLButtonElement | null>
 }) {
   useSignals()
+  const draft = readDraft()
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
   const history = useInfiniteQuery(pageHistoryQuery(detail.page.id))
@@ -42,7 +42,7 @@ export function DocumentHistory({
   const preview = denied
     ? undefined
     : selected === 'current'
-      ? { id: 'current', content: draft.xml.value, title: draft.title.value, icon: detail.page.icon }
+      ? { id: 'current', content: draft.xml, title: draft.title, icon: detail.page.icon }
       : snapshot
   const [confirmation, confirm] = useState<{
     snapshotID: string
@@ -52,7 +52,7 @@ export function DocumentHistory({
   const prepareRestore = useMutation({
     mutationFn: (_snapshotID: string) => pageAPI.history(detail.page.id),
     onSuccess: (current, snapshotID) => {
-      if (!draft.hasUnsavedChanges.value) {
+      if (!readDraft().hasUnsavedChanges) {
         confirm({ snapshotID, base_revision: current.current_revision, updated_at: current.current_updated_at })
       }
     }
@@ -158,10 +158,10 @@ export function DocumentHistory({
                       </div>
                     )}
                     <DocumentHistoryPreview
-                      editorKey={preview.id === 'current' ? `current:${draft.revision.value}` : preview.id}
+                      editorKey={preview.id === 'current' ? `current:${draft.revision}` : preview.id}
                       pageID={detail.page.id}
                       version={preview}
-                      current={{ content: draft.xml.value, title: draft.title.value, icon: detail.page.icon }}
+                      current={{ content: draft.xml, title: draft.title, icon: detail.page.icon }}
                       compare={!!snapshot && compare}
                     />
                   </ErrorBoundary>
@@ -226,7 +226,7 @@ export function DocumentHistory({
           <ContentError error={restore.error} />
           <ContentError error={prepareRestore.error} />
           <ContentError error={exportSnapshot.error} />
-          {draft.hasUnsavedChanges.value && (
+          {draft.hasUnsavedChanges && (
             <p role="status" className="text-xs">
               {t('pod.document.wait_for_save')}
             </p>
@@ -239,7 +239,7 @@ export function DocumentHistory({
             {t('pod.document.export_version')}
           </Button>
           <Button
-            disabled={!snapshot || draft.hasUnsavedChanges.value || restore.isPending || prepareRestore.isPending}
+            disabled={!snapshot || draft.hasUnsavedChanges || restore.isPending || prepareRestore.isPending}
             onClick={() => snapshot && prepareRestore.mutate(snapshot.id)}>
             {t('pod.document.restore_version')}
           </Button>
@@ -255,7 +255,7 @@ export function DocumentHistory({
                 {t('common.cancel')}
               </Button>
               <Button
-                disabled={restore.isPending || draft.hasUnsavedChanges.value}
+                disabled={restore.isPending || draft.hasUnsavedChanges}
                 onClick={() => confirmation && restore.mutate(confirmation)}>
                 {t('pod.document.restore_version')}
               </Button>

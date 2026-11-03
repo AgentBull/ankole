@@ -10,6 +10,8 @@ defmodule Ankole.Principals.Rename.References do
   alias Ankole.Repo
 
   @principal_keys [
+    {"skills", "created_by"},
+    {"agent_contracts", "updated_by"},
     {"authn_challenges", "principal_uid"},
     {"automation_jobs", "human_uid"},
     {"background_agent_jobs", "human_uid"},
@@ -42,7 +44,7 @@ defmodule Ankole.Principals.Rename.References do
     {"brain_merge_suggestions", "decided_by"},
     {"brain_schema_suggestions", "decided_by"},
     {"brain_timelines", "author"},
-    {"drive_nodes", "created_by"},
+    {"pages", "created_by"},
     {"human_access_events", "actor"},
     {"identity_directory_events", "reviewed_by"},
     {"identity_directory_states", "reviewed_by"},
@@ -149,6 +151,7 @@ defmodule Ankole.Principals.Rename.References do
           "drive:private:",
           "site_console:agent:",
           "tenant_console:agent:",
+          "tenant_console:agent_skill_binding:",
           "site_console:principal:",
           "tenant_console:principal:"
         ] do
@@ -170,9 +173,9 @@ defmodule Ankole.Principals.Rename.References do
 
     case Ankole.Brain.Objects.get_by_slug(old_slug) do
       {:ok, page} ->
-        {:ok, node} = Ankole.Files.Nodes.fetch(page.id)
-        {:ok, old_path} = Ankole.Files.Nodes.path(node)
-        {:ok, _} = Ankole.Files.Nodes.update_in_tx(node, :rename, %{name: new_uid})
+        {:ok, node} = Ankole.Pod.Pages.Tree.fetch(page.id)
+        {:ok, old_path} = Ankole.Pod.Pages.Tree.path(node)
+        {:ok, _} = Ankole.Pod.Pages.Tree.update_in_tx(node, :rename, %{name: new_uid})
 
         if page.title == old_uid do
           {:ok, _} = Ankole.Pod.Pages.update_properties_in_tx(page, :edit, %{title: new_uid})
@@ -248,20 +251,20 @@ defmodule Ankole.Principals.Rename.References do
   defp rewrite_json_collection({table, column, storage, paths}, tenant_id, old, new) do
     rows =
       Repo.query!(
-        "SELECT to_jsonb(#{column}) FROM #{table} WHERE tenant_id=$1::text::uuid AND strpos(to_jsonb(#{column})::text,$2)>0 FOR UPDATE",
+        "SELECT ctid::text, to_jsonb(#{column}) FROM #{table} WHERE tenant_id=$1::text::uuid AND strpos(to_jsonb(#{column})::text,$2)>0 FOR UPDATE",
         [tenant_id, Ankole.JSON.encode!(old)]
       ).rows
 
     assignment =
       if storage == :array, do: "ARRAY(SELECT jsonb_array_elements($3::jsonb))", else: "$3::jsonb"
 
-    Enum.each(rows, fn [before] ->
+    Enum.each(rows, fn [row_tid, before] ->
       updated = Enum.reduce(paths, before, &replace_path(&2, &1, old, new))
 
       if updated != before do
         Repo.query!(
-          "UPDATE #{table} SET #{column}=#{assignment} WHERE tenant_id=$1::text::uuid AND to_jsonb(#{column})=$2::jsonb",
-          [tenant_id, before, updated]
+          "UPDATE #{table} SET #{column}=#{assignment} WHERE tenant_id=$1::text::uuid AND ctid=$2::text::tid",
+          [tenant_id, row_tid, updated]
         )
       end
     end)

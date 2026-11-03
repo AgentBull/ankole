@@ -78,8 +78,10 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     attrs = Attrs.normalize(attrs)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
-         {:ok, summary} <- require_result_summary(attrs) do
-      case Queries.get_for_agent(job_id, agent_uid) do
+         {:ok, summary} <- require_result_summary(attrs),
+         _worker = Ankole.AgentWorkers.lock_in_tx(agent_uid),
+         :ok <- Lifecycle.lock_agent_slots(agent_uid) do
+      case Queries.lock_for_agent_in_tx(job_id, agent_uid) do
         nil ->
           {:error, :job_not_found}
 

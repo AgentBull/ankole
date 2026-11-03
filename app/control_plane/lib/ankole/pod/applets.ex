@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Applets do
   @moduledoc "Published Applet routes, called with the current principal's authority."
 
   alias Ankole.{Files, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Config, Pages}
   alias Ankole.Pod.Applets.Invocation
 
@@ -30,6 +30,7 @@ defmodule Ankole.Pod.Applets do
             }
             |> Map.reject(fn {_key, value} -> is_nil(value) end),
           "applet" => %{"pageId" => published.page_id, "revision" => published.revision},
+          "read_only" => request["method"] == "GET" or Keyword.get(opts, :read_only, false),
           "timezone" => timezone
         })
 
@@ -45,20 +46,43 @@ defmodule Ankole.Pod.Applets do
     with {:ok, task} <- start(actor, page_id, request, opts), do: Invocation.await(task)
   end
 
-  # A page lock gives this read one manifest/revision pair even when a publisher commits.
-  # Read immutable content before releasing it: file replacement and GC cannot change the package.
+  # Capture one manifest/revision pair under the Page lock, then release the
+  # database connection before downloading immutable source and environment bytes.
   defp published(%Ankole.AuthZ.Actor{} = actor, page_id, revision) do
-    Repo.transact_top_level(fn -> published_in_tx(actor, page_id, revision) end)
+    with {:ok, snapshot} <-
+           Repo.transact_top_level(fn ->
+             with {:ok, page} <- Pages.lock(page_id, :share),
+                  {:ok, _page} <- Access.authorize(actor, page, "node_view", trash: false),
+                  :ok <- applet_type(page),
+                  do: package_snapshot_in_tx(page, revision)
+           end),
+         do: load_package(snapshot)
   end
 
-  @doc false
-  def published_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, revision) do
-    with {:ok, page} <- Pages.lock(page_id, :share),
-         {:ok, _page} <- Access.authorize(actor, page, "node_view", trash: false),
-         :ok <- applet_type(page),
+  defp package_snapshot_in_tx(page, revision) do
+    with {:ok, _owner} <- owner(page),
          :ok <- current_revision(page.revision, revision),
-         {:ok, source} <- backend_source(page.id),
-         {:ok, env} <- backend_environment(page.id) do
+         {:ok, files} <- Ankole.Pod.Files.list_files(page.id),
+         files = Map.new(files, &{&1.path, &1.object_id}),
+         source_id when not is_nil(source_id) <- files["server/main.js"] do
+      {:ok,
+       %{
+         tenant_id: Repo.tenant_id!(),
+         page_id: page.id,
+         revision: page.revision,
+         owner_uid: page.owner_uid,
+         source_id: source_id,
+         env_id: files["applet.env.json"]
+       }}
+    else
+      nil -> {:error, :route_not_found}
+      error -> error
+    end
+  end
+
+  defp load_package(snapshot) do
+    with {:ok, source} <- Files.read_object(snapshot.source_id),
+         {:ok, env} <- backend_environment(snapshot.env_id) do
       payload =
         source <>
           "\n" <>
@@ -73,42 +97,150 @@ defmodule Ankole.Pod.Applets do
       digest = :crypto.hash(:sha256, payload) |> Base.encode16(case: :lower)
 
       {:ok,
-       %{
-         tenant_id: Repo.tenant_id!(),
-         page_id: page.id,
-         revision: page.revision,
-         source: source,
-         env: env,
-         sha256: digest
-       }}
+       snapshot
+       |> Map.drop([:source_id, :env_id])
+       |> Map.merge(%{source: source, env: env, sha256: digest})}
     end
+  end
+
+  @doc "Loads the current Action package; admission checks its revision before starting a slice."
+  def action_package(page_id, contexts \\ [], timeout_ms \\ nil) do
+    package =
+      Repo.transact_top_level(fn ->
+        with {:ok, page} <- Pages.lock(page_id, :share),
+             :ok <- available(page),
+             do: package_snapshot_in_tx(page, nil)
+      end)
+
+    with {:ok, snapshot} <- package,
+         {:ok, package} <- load_package(snapshot),
+         {:ok, limits} <- Config.action_limits(),
+         inspection_limits =
+           if(timeout_ms, do: Keyword.put(limits, :timeout_ms, timeout_ms), else: limits),
+         {:ok, inspection} <-
+           Ankole.FunctionRuntime.AppletClient.inspect(
+             package.source,
+             inspection_limits,
+             package.env,
+             contexts
+           ) do
+      {:ok,
+       Map.merge(package, %{
+         actions: inspection["actions"],
+         concurrency_keys: inspection["concurrencyKeys"],
+         limits: limits
+       })}
+    end
+  end
+
+  def authorize(actor, page_id, permission) do
+    with {:ok, page} <- Pages.authorize(actor, page_id, permission),
+         :ok <- available(page),
+         do: {:ok, page}
+  end
+
+  def verify_package_in_tx(package) do
+    with {:ok, page} <- Pages.lock(package.page_id, :share),
+         :ok <- available(page),
+         {:ok, _} <- owner(page),
+         true <- page.revision == package.revision and page.owner_uid == package.owner_uid,
+         do: {:ok, page},
+         else: (
+           false -> {:error, :applet_revision_changed}
+           error -> error
+         )
+  end
+
+  def invoke_action(package, context, actor) do
+    with {:ok, task} <- Invocation.start(package, context, package.limits, actor),
+         do: Invocation.await_execution(task)
+  end
+
+  def call_function(actor, page_id, request, parent) do
+    deadline = parent["deadline"]
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    with true <- remaining > 0,
+         {:ok, package} <- action_package(page_id, [], remaining),
+         true <- Map.has_key?(package.actions, request["actionKey"]),
+         {:ok, limits} <- Config.applet_limits() do
+      limits =
+        limits
+        |> Keyword.put(:deadline, deadline)
+        |> Keyword.put(:timeout_ms, max(1, deadline - System.monotonic_time(:millisecond)))
+
+      context =
+        parent
+        |> Map.take(["job", "run", "timezone", "read_only"])
+        |> Map.merge(%{
+          "actionKey" => request["actionKey"],
+          "signal" => %{"data" => request["data"] || %{}},
+          "applet" => %{"pageId" => page_id, "revision" => package.revision},
+          "principal" =>
+            actor &&
+              %{
+                "uid" => Ankole.AuthZ.Actor.uid(actor),
+                "kind" => to_string(actor.principal.type)
+              }
+        })
+
+      with {:ok, task} <- Invocation.start(package, context, limits, actor),
+           {:ok, outcome} <- Invocation.await(task) do
+        if outcome["status"] < 400,
+          do: {:ok, outcome["body"]},
+          else:
+            {:error,
+             Map.new([:code, :message, :details, :retryable, :request_sent], fn key ->
+               {key, get_in(outcome, ["body", "error", Atom.to_string(key)])}
+             end)
+             |> Map.put(:status, outcome["status"])}
+      end
+    else
+      false -> {:error, if(remaining <= 0, do: :handler_timeout, else: :missing_action_key)}
+      error -> error
+    end
+  end
+
+  def available(%{deleted_at: nil, purge_started_at: nil, type: :applet}), do: :ok
+  def available(%{type: :applet}), do: {:error, :page_trashed}
+  def available(_), do: {:error, :not_found}
+
+  def owner(%{owner_uid: nil}), do: {:error, :applet_owner_required}
+
+  def owner(%{owner_uid: uid}) do
+    case Ankole.Principals.get_principal(uid) do
+      {:ok, %{status: :active} = principal} -> {:ok, principal}
+      _ -> {:error, :applet_owner_unavailable}
+    end
+  end
+
+  def transfer_owner(actor, page_id, owner_uid) do
+    Ankole.Repo.transact_top_level(fn ->
+      with {:ok, _} <- Ankole.Principals.lock_principals_in_tx([owner_uid]),
+           :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority),
+           {:ok, _} <- Access.principal(actor),
+           {:ok, page} <- Pages.lock(page_id),
+           :ok <- applet_type(page),
+           true <-
+             page.owner_uid == Ankole.AuthZ.Actor.uid(actor) or
+               Ankole.AuthZ.pod_admin?(Ankole.AuthZ.Actor.uid(actor)),
+           {:ok, %{status: :active}} <- Ankole.Principals.get_principal(owner_uid) do
+        Ankole.Ash.update(page, :transfer_owner, %{owner_uid: owner_uid})
+      else
+        false -> {:error, :forbidden}
+        {:error, _} = error -> error
+        _ -> {:error, :applet_owner_unavailable}
+      end
+    end)
   end
 
   defp applet_type(%{type: :applet}), do: :ok
   defp applet_type(_), do: {:error, :not_found}
 
-  defp backend_source(id) do
-    with {:ok, file} <- Ankole.Pod.Files.fetch_file(id, "server/main.js"),
-         {:ok, source} <- Files.read_object(file.object_id),
-         do: {:ok, source},
-         else: (
-           {:error, :not_found} -> {:error, :route_not_found}
-           error -> error
-         )
-  end
+  defp backend_environment(nil), do: {:ok, %{}}
 
-  defp backend_environment(id) do
-    case Ankole.Pod.Files.fetch_file(id, "applet.env.json") do
-      {:ok, file} ->
-        with {:ok, bytes} <- Files.read_object(file.object_id),
-             do: Torque.decode(bytes)
-
-      {:error, :not_found} ->
-        {:ok, %{}}
-
-      error ->
-        error
-    end
+  defp backend_environment(object_id) do
+    with {:ok, bytes} <- Files.read_object(object_id), do: Torque.decode(bytes)
   end
 
   defp current_revision(_current, nil), do: :ok

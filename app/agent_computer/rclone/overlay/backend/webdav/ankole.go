@@ -19,7 +19,10 @@ import (
 )
 
 func (f *Fs) AnkoleState() *ankole.State { return f.ankole }
-func (f *Fs) SetToken(token string)      { f.srv.SetHeader("Authorization", "Bearer "+token) }
+func (f *Fs) AnkoleMetaRoots() bool {
+	return f.ankole != nil && !strings.HasSuffix(strings.TrimRight(f.opt.URL, "/"), "/ChatDrive")
+}
+func (f *Fs) SetToken(token string) { f.srv.SetHeader("Authorization", "Bearer "+token) }
 func (f *Fs) ankoleUploadLimit(ctx context.Context) error {
 	response, err := f.srv.Call(ctx, &rest.Opts{Method: "OPTIONS", Path: "", NoResponse: true})
 	if err != nil {
@@ -69,6 +72,12 @@ func ankoleError(response *http.Response, err error) error {
 	}
 	return err
 }
+
+func parseAnkoleMode(value string) uint32 {
+	mode, _ := strconv.ParseUint(value, 8, 32)
+	return uint32(mode)
+}
+func (o *Object) AnkoleMode() uint32 { return o.ankoleMode }
 
 func (o *Object) AnkoleFingerprint() string { return o.ankoleDigest }
 func (o *Object) AnkoleETag() string        { return o.ankoleETag }

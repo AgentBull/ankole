@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Comments.Activity do
   @moduledoc "Orders discussion activity and stores each reader's explicit acknowledgment."
   require Ash.Query
   alias Ankole.{ActorRef, AuthZ, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{PageComment, PageContent, Pages, PageUserState}
 
   def attention(actor) do
@@ -38,9 +38,9 @@ defmodule Ankole.Pod.Comments.Activity do
            {:ok, pages} <-
              Ankole.Pod.Page
              |> Ash.Query.filter(id in ^ids and is_nil(deleted_at))
-             |> Ankole.AuthZ.Checks.DriveAnchorFilter.apply_policy(
+             |> Ankole.AuthZ.Checks.PageAnchorFilter.apply_policy(
                actor,
-               Ankole.AuthZ.Checks.DriveAnchorFilter.policy(reachable)
+               Ankole.AuthZ.Checks.PageAnchorFilter.policy(reachable)
              )
              |> Ankole.Ash.read_authorized(actor) do
         by_page = Enum.group_by(roots, & &1.page_id)

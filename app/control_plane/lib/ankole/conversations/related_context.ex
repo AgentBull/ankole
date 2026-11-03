@@ -221,7 +221,7 @@ defmodule Ankole.Conversations.RelatedContext do
     do:
       match?(
         {:ok, _},
-        Ankole.Files.authorize_node(Ankole.AuthZ.Actor.new(principal), id, "node_view")
+        Ankole.Pod.authorize_node(Ankole.AuthZ.Actor.new(principal), id, "node_view")
       )
 
   defp summary(item) do

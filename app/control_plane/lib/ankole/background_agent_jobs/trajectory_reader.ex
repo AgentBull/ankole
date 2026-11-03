@@ -7,10 +7,10 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   reader owns the item walk, the group selection, and the truncation ladder.
   The item stream is the only readable trajectory form: a Turn recorded
   before it existed has no item rows and renders nothing, and an item whose
-  projection is empty stays replay-only.
+  projection is empty remains stored without rendering a message.
 
   The model page keeps AIGateway opaque values in their encoded form. The
-  owner Agent message result, the Console, and thread replay reveal them.
+  owner Agent message result and the Console reveal them.
   """
 
   require Ash.Expr
@@ -32,21 +32,18 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
 
   @typedoc """
   The read contract. Callers pass the Turn rows they already hold, in
-  chronological order; the lineage walk selects its own Turns because no
-  caller owns a workspace lineage.
+  chronological order.
   """
   @type scope ::
           {:current_attempt_lead, [Turn.t()]}
           | {:one_turn, Turn.t()}
           | {:attempt_summary, [Turn.t()]}
           | {:console_detail, [Turn.t()]}
-          | :lineage_replay
 
-  @typedoc "Semantic groups count `groups` and `bytes`; a summary counts `bytes`; replay counts `items`."
+  @typedoc "Semantic groups count `groups` and `bytes`; a summary counts `bytes`."
   @type budget ::
           %{groups: pos_integer(), bytes: pos_integer()}
           | %{bytes: pos_integer()}
-          | %{items: pos_integer()}
 
   @type group :: %{
           turn_id: Ecto.UUID.t(),
@@ -56,51 +53,19 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
           content_truncated: boolean()
         }
   @type summary :: %{turn_id: Ecto.UUID.t(), position: non_neg_integer(), text: String.t()}
-  @type item :: %{
-          turn_id: Ecto.UUID.t(),
-          runtime_thread_id: String.t(),
-          runtime_turn_id: String.t(),
-          position: non_neg_integer(),
-          item_key: String.t(),
-          item: map()
-        }
-
   @typedoc """
   `units` are chronological. `turn_ids` are the Turns the page spans, so a
   caller with a supplied Turn list can show a Turn that has no readable unit.
-  A lineage page lists the Turns represented by its items. `next_cursor`
-  continues the walk beyond the last delivered unit.
+  `next_cursor` continues the walk beyond the last delivered unit.
   """
   @type page :: %{
-          units: [group() | summary() | item()],
+          units: [group() | summary()],
           turn_ids: [Ecto.UUID.t()],
           next_cursor: String.t() | nil
         }
 
   @spec page(Job.t(), scope(), String.t() | nil, budget()) ::
           {:ok, page()} | {:error, atom()}
-  def page(%Job{} = job, :lineage_replay, cursor, %{items: limit})
-      when is_integer(limit) and limit > 0 do
-    with {:ok, cursor} <- decode_cursor(cursor),
-         {:ok, boundary} <- lineage_cursor_boundary(job, cursor) do
-      page =
-        job
-        |> lineage_query()
-        |> lineage_after(boundary)
-        |> Ash.Query.sort(walk_order(:asc))
-        |> Ankole.Ash.read!(action: :replay_page, page: [limit: limit])
-
-      delivered = Enum.map(page.results, &lineage_row/1)
-
-      {:ok,
-       %{
-         units: Enum.map(delivered, &lineage_unit/1),
-         turn_ids: delivered |> Enum.map(& &1.turn_id) |> Enum.uniq(),
-         next_cursor: if(page.more?, do: delivered |> List.last() |> encode_lineage_cursor())
-       }}
-    end
-  end
-
   def page(%Job{} = job, scope, cursor, budget) when is_map(budget) do
     walk = walk(job, scope)
 
@@ -127,27 +92,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
     %{turns: turns, unit: unit, reveal: reveal, fence: fence}
   end
 
-  # Child-agent threads stay out of replay: the lead thread of one attempt is
-  # the runtime thread of its first Turn. The correlated lookup uses the
-  # existing Job-attempt timeline index and never materializes the lineage.
-  defp lineage_query(%Job{} = job) do
-    TurnItem
-    |> Ash.Query.filter(
-      turn.job.workspace_owner_job_id == ^job.workspace_owner_job_id and
-        turn.job.agent_uid == ^job.agent_uid and
-        fragment(
-          "? = (SELECT lead.runtime_thread_id FROM background_agent_job_turns AS lead WHERE lead.tenant_id = ? AND lead.job_id = ? AND lead.attempt = ? ORDER BY lead.started_at ASC, lead.id ASC LIMIT 1)",
-          turn.runtime_thread_id,
-          turn.tenant_id,
-          turn.job_id,
-          turn.attempt
-        )
-    )
-    |> Ash.Query.load(
-      turn: Ash.Query.select(Turn, [:runtime_thread_id, :runtime_turn_id, :attempt, :started_at])
-    )
-  end
-
   # Items walk in Turn start order, then Turn id, then item position.
   defp walk_order(direction) do
     [
@@ -155,63 +99,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
       turn_id: direction,
       position: direction
     ]
-  end
-
-  defp lineage_row(%TurnItem{turn: %Turn{} = turn} = row) do
-    %{
-      turn_id: row.turn_id,
-      runtime_thread_id: turn.runtime_thread_id,
-      runtime_turn_id: turn.runtime_turn_id,
-      attempt: turn.attempt,
-      started_at: turn.started_at,
-      position: row.position,
-      item_key: row.item_key,
-      item: row.item
-    }
-  end
-
-  defp lineage_cursor_boundary(_job, nil), do: {:ok, nil}
-
-  defp lineage_cursor_boundary(
-         %Job{} = job,
-         %{turn_id: id, position: item_position, attempt: attempt}
-       ) do
-    job
-    |> lineage_query()
-    |> Ash.Query.filter(turn_id == ^id and position == ^item_position)
-    |> Ankole.Ash.read_one!()
-    |> case do
-      %TurnItem{} = row ->
-        case lineage_row(row) do
-          %{attempt: ^attempt} = boundary -> {:ok, boundary}
-          _other -> {:error, :invalid_background_agent_job_trajectory_cursor}
-        end
-
-      nil ->
-        {:error, :invalid_background_agent_job_trajectory_cursor}
-    end
-  end
-
-  defp lineage_after(query, nil), do: query
-
-  defp lineage_after(query, %{started_at: started_at, turn_id: id, position: item_position}) do
-    Ash.Query.filter(
-      query,
-      turn.started_at > ^started_at or
-        (turn.started_at == ^started_at and turn_id > ^id) or
-        (turn.started_at == ^started_at and turn_id == ^id and position > ^item_position)
-    )
-  end
-
-  defp lineage_unit(row) do
-    %{
-      turn_id: row.turn_id,
-      runtime_thread_id: row.runtime_thread_id,
-      runtime_turn_id: row.runtime_turn_id,
-      position: row.position,
-      item_key: row.item_key,
-      item: OpaqueContent.reveal(row.item)
-    }
   end
 
   defp decode_cursor(nil), do: {:ok, nil}
@@ -246,10 +133,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
     }
     |> Ankole.JSON.encode!()
     |> Base.url_encode64(padding: false)
-  end
-
-  defp encode_lineage_cursor(%{turn_id: turn_id, position: position, attempt: attempt}) do
-    encode_cursor(%{turn_id: turn_id, position: position}, %{turn_id => attempt})
   end
 
   # A page of the current attempt expires with the attempt; the model learns

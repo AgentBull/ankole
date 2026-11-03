@@ -3,6 +3,9 @@ use quick_xml::events::Event;
 use serde::Deserialize;
 use std::fmt::Write;
 
+const MAX_REQUEST_BYTES: usize = 1024 * 1024;
+const MAX_REQUEST_DEPTH: usize = 128;
+
 /// Metadata supplied by Files for one DAV resource; bodies stay in object storage.
 #[derive(Debug, Deserialize)]
 pub struct Entry {
@@ -18,6 +21,8 @@ pub struct Entry {
     pub node_id: String,
     #[serde(default)]
     pub stat_on_lookup: bool,
+    #[serde(default)]
+    pub mode: Option<u32>,
 }
 
 /// Validate the supported PROPFIND document without retaining its property tree.
@@ -25,14 +30,20 @@ pub fn request(source: &str, method: &str) -> Result<(), String> {
     if source.is_empty() && method == "PROPFIND" {
         return Ok(());
     }
+    if source.len() > MAX_REQUEST_BYTES {
+        return Err("DAV request exceeds the request limit".into());
+    }
     let mut reader = Reader::from_str(source);
     reader.config_mut().expand_empty_elements = true;
     let mut propfind_root = false;
-    let mut depth = 0;
+    let mut depth = 0usize;
     let mut roots = 0;
     loop {
         match reader.read_event().map_err(|e| e.to_string())? {
             Event::Start(tag) => {
+                if depth >= MAX_REQUEST_DEPTH {
+                    return Err("DAV request depth limit exceeded".into());
+                }
                 if depth == 0 {
                     roots += 1;
                     propfind_root = tag.local_name().as_ref() == "propfind";
@@ -84,6 +95,9 @@ pub fn multistatus(entries: &[Entry]) -> String {
         property(&mut out, "d:getlastmodified", &entry.modified);
         property(&mut out, "d:getcontenttype", &entry.content_type);
         property(&mut out, "a:node-id", &entry.node_id);
+        if let Some(mode) = entry.mode {
+            property(&mut out, "a:mode", &format!("{mode:o}"));
+        }
         if entry.stat_on_lookup {
             out.push_str("<a:stat-on-lookup>true</a:stat-on-lookup>");
         }
@@ -118,5 +132,22 @@ mod tests {
             .is_err()
         );
         assert!(request("<propfind/><propfind/>", "PROPFIND").is_err());
+    }
+
+    #[test]
+    fn request_enforces_size_and_depth_budgets() {
+        let oversized = "x".repeat(MAX_REQUEST_BYTES + 1);
+        assert!(request(&oversized, "PROPFIND").is_err());
+
+        let nested = format!(
+            "{}<propfind />{}",
+            "<a>".repeat(MAX_REQUEST_DEPTH + 1),
+            "</a>".repeat(MAX_REQUEST_DEPTH + 1)
+        );
+        assert!(
+            request(&nested, "PROPFIND")
+                .unwrap_err()
+                .contains("depth limit")
+        );
     }
 }

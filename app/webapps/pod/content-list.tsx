@@ -28,6 +28,7 @@ import {
   pagesQuery,
   pageSearchQuery,
   type Page,
+  type PageDomain,
   type PageScope
 } from './content-api'
 import { ContentError, scopeLabels, typeLabels } from './content-primitives'
@@ -54,7 +55,7 @@ export function ContentListRoute() {
   )
 }
 
-function PageContentList({ scope }: { scope: PageScope | 'search' }) {
+export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope | 'search'; domain?: PageDomain }) {
   const { t, i18n } = useTranslation()
   const effectiveScope = scope === 'search' ? 'all' : scope
   const search = effectiveScope === 'all'
@@ -90,11 +91,14 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
     return () => window.clearTimeout(timer)
   }, [inputQuery, query, search, setSearchParams, trash])
   const debouncing = (search || trash) && inputQuery !== query
-  const listing = useQuery({ ...pagesQuery(effectiveScope, trash ? query : ''), enabled: !rootScope && !search })
-  const searched = useQuery({ ...pageSearchQuery(query), enabled: search })
+  const listing = useQuery({
+    ...pagesQuery(effectiveScope, trash ? query : '', domain),
+    enabled: !rootScope && !search
+  })
+  const searched = useQuery({ ...pageSearchQuery(query, { domain }), enabled: search })
   const roots = useInfiniteQuery({
     ...pageChildrenQuery(effectiveScope === 'private' ? 'private' : 'space'),
-    enabled: !trash
+    enabled: !trash && domain === 'pages'
   })
   const pages = rootScope
     ? {
@@ -117,7 +121,8 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
       toast.success(t('pod.content.page_restored'), {
         action: {
           label: t('pod.content.open_page'),
-          onClick: () => void navigate({ to: podPagePath(page.id, page.title) })
+          onClick: () =>
+            void navigate({ to: domain === 'brain' ? `/meta/brain/${page.id}` : podPagePath(page.id, page.title) })
         }
       })
     }
@@ -133,6 +138,7 @@ function PageContentList({ scope }: { scope: PageScope | 'search' }) {
     <ContentListFrame
       title={search ? t('pod.content.search_pages') : scopeLabels[effectiveScope]}
       actions={
+        domain === 'pages' &&
         !trash &&
         (effectiveScope === 'private'
           ? capabilities?.can_create_private !== false

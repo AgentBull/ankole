@@ -42,8 +42,13 @@ defmodule Ankole.Sessions.ReadToolBroker do
   defp execute(Tools.Skill, turn, _request, args) do
     with {:ok, context} <-
            Ankole.Brain.RequestContext.build(turn.agent_uid, %{"signal_id" => turn.signal_id}),
+         {:ok, projection} <-
+           Ankole.BackgroundAgentJobs.RuntimeProjection.for_signal(turn.agent_uid, turn.signal_id),
          {:ok, skills} <-
-           Library.runtime_skills_for_agent(turn.agent_uid, request_context: context),
+           Library.runtime_skills_for_agent(turn.agent_uid,
+             request_context: context,
+             runtime_projection: projection
+           ),
          do:
            Tools.Skill.view(
              turn.agent_uid,

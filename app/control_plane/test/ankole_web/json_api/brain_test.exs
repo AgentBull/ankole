@@ -18,6 +18,7 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
 
   setup do
     Registry.clear_for_test()
+    {:ok, _} = SchemaPacks.install_packs([])
     {:ok, false} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
     :ok
@@ -136,7 +137,11 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       {conn, _principal_uid} = console_conn_with_principal(conn)
       insert_object!("notes/home-tenant")
       other = Ankole.DataCase.create_tenant()
-      Repo.with_tenant(other.id, fn -> insert_object!("notes/other-tenant") end)
+
+      Repo.with_tenant(other.id, fn ->
+        {:ok, _} = SchemaPacks.install_packs([])
+        insert_object!("notes/other-tenant")
+      end)
 
       assert [%{"slug" => "notes/home-tenant"}] =
                conn |> api(:get, "/api/v2/brain/objects?prefix=notes/") |> records()
@@ -171,20 +176,20 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
       {conn, _principal_uid} = console_conn_with_principal(conn)
 
       targets = %{
-        "RARE%20OBJECT" => insert_object!("zz/rare-object", %{title: "zz Rare object"}),
-        "%25" => insert_object!("zz/percent-literal", %{title: "Budget is 20% complete"}),
-        "_" => insert_object!("zz/underscore-literal", %{title: "part_number"}),
-        "%5C" => insert_object!("zz/backslash-literal", %{title: "path\\segment"})
+        "RARE%20OBJECT" => insert_object!("notes/zz/rare-object", %{title: "zz Rare object"}),
+        "%25" => insert_object!("notes/zz/percent-literal", %{title: "Budget is 20% complete"}),
+        "_" => insert_object!("notes/zz/underscore-literal", %{title: "part_number"}),
+        "%5C" => insert_object!("notes/zz/backslash-literal", %{title: "path\\segment"})
       }
 
-      insert_object!("zz/percent-decoy", %{title: "Budget is 201 complete"})
-      insert_object!("zz/underscore-decoy", %{title: "partXnumber"})
-      insert_object!("zz/backslash-decoy", %{title: "pathsegment"})
+      insert_object!("notes/zz/percent-decoy", %{title: "Budget is 201 complete"})
+      insert_object!("notes/zz/underscore-decoy", %{title: "partXnumber"})
+      insert_object!("notes/zz/backslash-decoy", %{title: "pathsegment"})
       for index <- 1..100, do: insert_object!("notes/object-search-fill-#{index}")
 
       unfiltered = conn |> api(:get, "/api/v2/brain/objects") |> records()
       assert length(unfiltered) == 100
-      refute Enum.any?(unfiltered, &(&1["slug"] == "zz/rare-object"))
+      refute Enum.any?(unfiltered, &(&1["slug"] == "notes/zz/rare-object"))
 
       for {search, target} <- targets do
         assert [%{"slug" => slug}] =
@@ -207,7 +212,7 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
           :system
         )
 
-      {:ok, private} = Ankole.Files.Nodes.private_root(other.uid)
+      {:ok, private} = Ankole.Pod.Pages.Tree.private_root(other.uid)
       claim = write_fact!(object, other.uid, %{source_node_id: private.id})
 
       assert "writer_not_in_claim_scope" ==
@@ -509,7 +514,7 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
           name: "OIDC Client"
         })
 
-      {:ok, private} = Ankole.Files.Nodes.private_root(principal_uid)
+      {:ok, private} = Ankole.Pod.Pages.Tree.private_root(principal_uid)
       scope = private.id
 
       assert %{"default_source_node_id" => ^scope} =
@@ -564,7 +569,7 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
                |> document(201)
 
       assert is_binary(archived_at)
-      assert {:ok, %{deleted_at: nil}} = Ankole.Files.Nodes.fetch(object.id)
+      assert {:ok, %{deleted_at: nil}} = Ankole.Pod.Pages.Tree.fetch(object.id)
 
       assert "not_found" ==
                conn
@@ -582,6 +587,7 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
 
     claim =
       Repo.with_tenant(other.id, fn ->
+        {:ok, _} = SchemaPacks.install_packs([])
         object = insert_object!("notes/admin-edit")
         write_fact!(object, :system)
       end)

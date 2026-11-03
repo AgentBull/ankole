@@ -86,6 +86,8 @@ describe('MentionStore and internal Pod URL matching', () => {
     expect(matchPodPageUrl(`https://pod.example.com/pages/${short}`, origin)).toBe(id)
     expect(matchPodPageUrl(`https://pod.example.com/pages/q4-design-spec-${short}`, origin)).toBe(id)
     expect(matchPodPageUrl(`https://pod.example.com/pages/${id}/`, origin)).toBe(id)
+    expect(matchPodPageUrl(`https://pod.example.com/meta/brain/${id}`, origin)).toBe(id)
+    expect(matchPodPageUrl(`https://other.example.com/meta/brain/${id}`, origin)).toBeNull()
     expect(matchPodPageUrl(`  https://pod.example.com/pages/q4-design-spec-${short}  `, origin)).toBe(id)
 
     expect(matchPodPageUrl(`https://other.example.com/pages/${short}`, origin)).toBeNull()

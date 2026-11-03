@@ -148,6 +148,12 @@ defmodule AnkoleWeb.PodURL do
 
   defp browser_path([]), do: {:ok, "/"}
 
+  defp browser_path(["meta" | rest]),
+    do:
+      {:ok,
+       "/" <>
+         Enum.map_join(["meta" | rest], "/", &URI.encode(&1, fn c -> URI.char_unreserved?(c) end))}
+
   defp browser_path(["dm", uid]), do: {:ok, "/dm/" <> URI.encode(uid, &URI.char_unreserved?/1)}
 
   defp browser_path(["content", scope])

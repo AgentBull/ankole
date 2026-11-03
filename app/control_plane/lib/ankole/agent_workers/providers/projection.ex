@@ -31,8 +31,10 @@ defmodule Ankole.AgentWorkers.Providers.Projection do
   @impl true
   def calculate(providers, opts, _context), do: {:ok, calculate(providers, opts[:field])}
 
-  defp calculate(providers, :agent_count),
-    do: Enum.map(providers, &AgentWorkers.provider_worker_count(&1.provider_id))
+  defp calculate(providers, :agent_count) do
+    counts = AgentWorkers.provider_worker_counts(Enum.map(providers, & &1.provider_id))
+    Enum.map(providers, &Map.fetch!(counts, &1.provider_id))
+  end
 
   defp calculate(providers, :selectable) do
     selectable? = Providers.selectable_fun()

@@ -146,12 +146,10 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
 
     assert {:ok, %{automation_job_run: run}} =
              Repo.transact(fn ->
-               Ankole.AutomationJobs.enqueue_run_in_tx(
-                 job.id,
-                 ctx.agent.uid,
-                 %{"id" => Ecto.UUID.generate(), "type" => "test.trigger"},
-                 now: now
-               )
+               Ankole.WorkFixtures.dispatch_job_in_tx(job, %{
+                 "id" => Ecto.UUID.generate(),
+                 "type" => "test.trigger"
+               })
              end)
 
     assert {:ok, _} =

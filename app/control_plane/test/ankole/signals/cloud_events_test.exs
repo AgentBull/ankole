@@ -46,7 +46,7 @@ defmodule Ankole.Signals.CloudEventsTest do
     assert signal.producer == :external
   end
 
-  test "endpoint subscriptions filter, fan out, retain original identity, and deduplicate",
+  test "endpoint subscriptions filter, fan out, retain source event identity, and deduplicate",
        context do
     bind!(context, context.first, "first", "triage:first")
 
@@ -61,7 +61,7 @@ defmodule Ankole.Signals.CloudEventsTest do
              MapSet.new([context.first.uid, context.second.uid])
 
     for signal <- [first, second] do
-      assert signal.source == event()["source"]
+      assert signal.source == "ankole:webhook:#{context.endpoint.id}"
       assert signal.source_event_id == event()["id"]
       assert signal.type == event()["type"]
       assert signal.data == event()["data"]
@@ -121,7 +121,7 @@ defmodule Ankole.Signals.CloudEventsTest do
   test "moving a subscription may use an unused name or replace a disabled target", context do
     for disabled_target? <- [false, true] do
       name = "move-#{disabled_target?}"
-      bind!(context, context.first, name, "source-session")
+      bind!(context, context.first, name, "source-session-#{disabled_target?}")
 
       if disabled_target? do
         bind!(context, context.second, name, "disabled-session")
@@ -139,7 +139,7 @@ defmodule Ankole.Signals.CloudEventsTest do
                )
 
       assert moved.agent_uid == context.second.uid
-      assert moved.target == %{"session_id" => "source-session"}
+      assert moved.target == %{"session_id" => "source-session-#{disabled_target?}"}
       assert moved.enabled
       assert %{enabled: false} = Repo.get_by!(Binding, agent_uid: context.first.uid, name: name)
     end
@@ -365,7 +365,7 @@ defmodule Ankole.Signals.CloudEventsTest do
                event() |> Map.put("source", "/issues") |> Map.put("trace", "")
              )
 
-    assert signal.source == "/issues"
+    assert signal.source == "ankole:webhook:#{context.endpoint.id}"
     assert Signal.envelope(signal)["trace"] == ""
   end
 

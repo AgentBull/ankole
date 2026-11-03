@@ -162,13 +162,8 @@ defmodule Mix.Tasks.Ankole.Test do
   def parse_exunit_counts(output) do
     plain = String.replace(output, ~r/\e\[[0-9;]*m/, "")
 
-    case Regex.scan(~r/^Result:\s+(?:0\s+tests|(\d+)(?:\/(\d+))?\s+passed)/m, plain) do
-      [_ | _] = results -> parse_modern_counts(results, plain)
-      [] -> parse_legacy_counts(plain)
-    end
-  end
+    results = Regex.scan(~r/^Result:\s+(?:0\s+tests|(\d+)(?:\/(\d+))?\s+passed)/m, plain)
 
-  defp parse_modern_counts(results, plain) do
     totals =
       Enum.reduce(results, %{passed: 0, tests: 0}, fn
         [_zero], acc ->
@@ -197,31 +192,11 @@ defmodule Mix.Tasks.Ankole.Test do
     }
   end
 
-  defp parse_legacy_counts(plain) do
-    matches = Regex.scan(~r/(\d+)\s+tests?,\s+(\d+)\s+failures?(?:,\s+(\d+)\s+excluded)?/, plain)
-
-    Enum.reduce(matches, %{tests: 0, failures: 0, excluded: 0}, fn match, acc ->
-      tests = match |> Enum.at(1) |> String.to_integer()
-      failures = match |> Enum.at(2) |> String.to_integer()
-      excluded = match |> Enum.at(3) |> parse_optional_integer()
-
-      %{
-        tests: acc.tests + tests,
-        failures: acc.failures + failures,
-        excluded: acc.excluded + excluded
-      }
-    end)
-  end
-
   defp sum_labeled_counts(plain, regex) do
     regex
     |> Regex.scan(plain)
     |> Enum.reduce(0, fn [_, raw], acc -> acc + String.to_integer(raw) end)
   end
-
-  defp parse_optional_integer(nil), do: 0
-  defp parse_optional_integer(""), do: 0
-  defp parse_optional_integer(value), do: String.to_integer(value)
 
   defp aggregate_counts(results) do
     Enum.reduce(results, %{tests: 0, failures: 0, excluded: 0}, fn %{counts: counts}, acc ->

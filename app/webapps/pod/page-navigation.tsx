@@ -1,6 +1,6 @@
 import { conversationAttentionQuery } from './api'
 import { commentAttentionQuery } from './content-api'
-import { canCreateChild } from './state/page-location'
+import { canCreateChild, canRenamePage } from './state/page-location'
 import { usePageHref, usePageMetadata, usePagesMetadata } from './use-page-metadata'
 import { useTranslation } from 'react-i18next'
 import {
@@ -443,8 +443,10 @@ export function PageChildrenMenu({
   pageID,
   canCreate,
   scope,
-  privateOwner
+  privateOwner,
+  types
 }: {
+  types?: readonly ('doc' | 'base' | 'knowledge' | 'file')[]
   pageID: string
   canCreate: boolean
   scope?: 'space' | 'private'
@@ -507,6 +509,7 @@ export function PageChildrenMenu({
           {canCreate && (
             <CreatePageButton
               parentID={pageID}
+              types={types}
               scope={effectiveScope}
               privateOwner={privateOwner}
               label={t('pod.sidebar.new_subpage')}
@@ -692,7 +695,8 @@ function PageTreeRow({
     treeIntent.current = setTimeout(() => void client.prefetchInfiniteQuery(pageChildrenQuery(scope, page.id)), 100)
   }
   const pages = siblings
-  const [renaming, setRenaming] = useState(false)
+  const [renameRequested, setRenaming] = useState(false)
+  const renaming = renameRequested && canRenamePage(page)
   const [moving, setMoving] = useState(false)
   const keepFocusInRow = useRef(false)
   const menuFinalFocus = () => {
@@ -874,6 +878,7 @@ export function PageRenameField({
     }
   })
   const submit = (confirmConflict = false) => {
+    if (!canRenamePage(page)) return finish()
     if (finished.current || rename.isPending) return
     if (conflictingTitle !== null) {
       if (!confirmConflict) return

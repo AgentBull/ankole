@@ -118,7 +118,7 @@ defmodule Ankole.Pod.BasesReviewTest do
     refute Map.has_key?(Repo.get_by!(BaseRecord, id: record.id).data, formula.id)
   end
 
-  test "explicitly clearing an unwritten cell is still a write for CAS", ctx do
+  test "clearing an unwritten cell preserves its CAS version until a value changes", ctx do
     primary = Enum.find(Bases.fields(ctx.table.id), & &1.is_primary)
 
     {:ok, %{records: [record]}} =
@@ -132,7 +132,21 @@ defmodule Ankole.Pod.BasesReviewTest do
       })
 
     refute Map.has_key?(cleared.data, primary.id)
-    assert cleared.versions[primary.id] == 1
+    assert cleared.versions == record.versions
+    assert cleared.updated_at == record.updated_at
+
+    assert {:ok, %{records: [changed]}} =
+             Bases.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{id: record.id, data: %{primary.id => "first value"}, expected_versions: %{}}
+                 ]
+               }
+             )
+
+    assert changed.versions[primary.id] == 1
 
     assert {:error, {:field_conflict, _}} =
              Bases.write_records(

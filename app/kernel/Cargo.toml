@@ -65,7 +65,7 @@ bytes = { version = "1.12.1", optional = true }
 cel = "0.15.0"
 chacha20poly1305 = "0.11.0"
 comrak = { version = "0.59.0", default-features = false, optional = true }
-crc32fast = "1.5.3"
+crc32fast = "1.5.4"
 csv = "1.4.0"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"], optional = true }
 globset = "0.4.21"

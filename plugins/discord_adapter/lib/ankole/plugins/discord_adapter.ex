@@ -79,11 +79,13 @@ defmodule Ankole.Plugins.DiscordAdapter do
   @impl true
   def children do
     [
-      {Registry, keys: :unique, name: Ankole.Plugins.DiscordAdapter.ConnectionRegistry},
-      {Task.Supervisor, name: Ankole.Plugins.DiscordAdapter.EventTaskSupervisor},
-      {DynamicSupervisor,
-       name: Ankole.Plugins.DiscordAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
-      ConnectionReconciler
+      Ankole.Plugins.ConnectionLifecycle.supervisor_spec(__MODULE__, [
+        {Registry, keys: :unique, name: Ankole.Plugins.DiscordAdapter.ConnectionRegistry},
+        {Task.Supervisor, name: Ankole.Plugins.DiscordAdapter.EventTaskSupervisor},
+        {DynamicSupervisor,
+         name: Ankole.Plugins.DiscordAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
+        ConnectionReconciler
+      ])
     ]
   end
 end

@@ -43,7 +43,7 @@ defmodule Ankole.AuthZ.Dsl do
               resource: [type: :string],
               action: [type: :string],
               permissions: [type: {:mfa_or_fun, 4}],
-              check: [type: {:in, [:grant, :guardrail, :drive_filter, :public]}, default: :grant]
+              check: [type: {:in, [:grant, :guardrail, :page_filter, :public]}, default: :grant]
             ]
           }
         ]

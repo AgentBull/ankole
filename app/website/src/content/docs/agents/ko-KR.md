@@ -32,9 +32,9 @@ group memory 공개 모드는 여러 사람이 함께 보는 대화방에서 Age
 
 ## Agent 규약 설정
 
-Console의 Agent 화면에서 **AGENTS / DESIGN** 원본 링크를 열어 Pod 페이지를 편집합니다. `/AnkoleBrain/AGENTS.md`는 조직의 행동 원칙, 책임, 기밀 유지 규칙을 정의하고 `/AnkoleBrain/DESIGN.md`는 웹 페이지, 슬라이드, 문서, 차트의 시각 규약을 정의합니다.
+**Meta Ankole → Agents**에서 전역 기준 또는 개별 Agent의 `AGENTS.md`와 `DESIGN.md`를 편집합니다. `AGENTS.md`는 행동과 책임을, `DESIGN.md`는 웹 페이지·슬라이드·문서·차트의 시각 규칙을 정의합니다.
 
-`/AnkoleBrain/agents/<uid>/AGENTS.md`는 개별 책임을 추가하며 `AGENTS.override.md`는 독립적인 규약 전체를 지정합니다. DESIGN도 추가 또는 대체를 선택할 수 있습니다. YAML 메타데이터에는 디자인 토큰을, 본문에는 적용 방법을 기록합니다. 개인 비서의 대체 페이지는 비공개이며 소유자가 관리합니다. 상속 규칙은 [Agent Library](../agent-library/)를 참조하세요.
+각 Agent 규약은 전역 기준을 상속하거나 내용을 추가하거나 완전히 대체할 수 있습니다. DESIGN 메타데이터에는 디자인 토큰을, 본문에는 사용법을 기록합니다. 개인 어시스턴트의 설정은 소유자 본인만 보고 편집할 수 있습니다. [Agent Library](../agent-library/)를 참조하세요.
 
 저장한 변경은 Codex Job 재개를 포함한 다음 턴부터 적용됩니다. 현재 턴에서는 시작할 때 전체를 읽은 규약을 사용합니다.
 

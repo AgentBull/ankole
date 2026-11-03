@@ -122,8 +122,6 @@ defmodule Ankole.Sessions.RPCLane do
       "automation_job.emit" => {AutomationJobRPCBroker, :handle_emit},
       "background_agent_job.get" => {BackgroundAgentJobBroker, :handle_get},
       "background_agent_job.turn.upsert" => {BackgroundAgentJobBroker, :handle_upsert_turn},
-      "background_agent_job.turn_items.list" =>
-        {BackgroundAgentJobBroker, :handle_turn_items_list},
       "background_agent_job.status.update" => {BackgroundAgentJobBroker, :handle_update_status},
       "observability.spans.export" => {ObservabilityBroker, :handle_export},
       "webhook.endpoint.create" => {WebhookRPCBroker, :handle_create},
@@ -374,7 +372,8 @@ defmodule Ankole.Sessions.RPCLane do
     }
   end
 
-  defp rpc_error_envelope(request_id, error_payload) do
+  @doc false
+  def rpc_error_envelope(request_id, error_payload) do
     details =
       error_payload
       |> RPCWire.map_value("details_json", %{})

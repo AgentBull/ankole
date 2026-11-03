@@ -51,11 +51,13 @@ defmodule Ankole.Pod.AppletFilesTest do
     assert {:ok, %{files: files}} = Files.manifest(actor, page.id)
     assert length(files) == map_size(contents)
 
-    assert {:ok, {_, _, "export {}"}} =
-             Files.resolve_applet_frame_asset(actor_fixture(viewer), page.id, 1, "main.js")
+    assert {:ok, file} =
+             Files.resolve_applet_frame_object(actor_fixture(viewer), page.id, 1, "main.js")
+
+    assert {:ok, "export {}"} = Drive.read_object(file.object_id)
 
     assert {:error, _} =
-             Files.resolve_applet_frame_asset(
+             Files.resolve_applet_frame_object(
                actor_fixture(viewer),
                page.id,
                1,
@@ -68,7 +70,7 @@ defmodule Ankole.Pod.AppletFilesTest do
     assert {:ok, %{revision: 2}} = Files.publish(actor, page.id, 1, replacement)
 
     assert {:error, {:applet_revision_changed, %{revision: 2}}} =
-             Files.resolve_applet_frame_asset(actor_fixture(viewer), page.id, 1, "main.js")
+             Files.resolve_applet_frame_object(actor_fixture(viewer), page.id, 1, "main.js")
 
     assert {:error, :not_found} = Files.read(actor, page.id, "applet.env.json")
   end
@@ -127,13 +129,15 @@ defmodule Ankole.Pod.AppletFilesTest do
 
       assert :ok =
                Repo.transact_top_level(fn ->
-                 Drive.lock_tree_in_tx()
-                 {:ok, node} = Drive.fetch_node(source.id)
+                 Ankole.Pod.lock_tree_in_tx()
+                 {:ok, node} = Ankole.Pod.fetch_node(source.id)
 
                  {:ok, _} =
-                   Drive.Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
+                   Ankole.Pod.Access.update_anchor_in_tx(node, :sharing, %{
+                     inherit_permissions: false
+                   })
 
-                 Drive.Access.put_role(
+                 Ankole.Pod.Access.put_role(
                    %{principal_uid: agent.uid},
                    "drive:**:#{source.id}:node",
                    "view",

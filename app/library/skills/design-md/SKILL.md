@@ -19,7 +19,7 @@ Resolve the project visual contract before applying the VIS, then read every sel
 2. Otherwise, if it contains `DESIGN.append.md`, read both `~/DESIGN.md` and that supplement.
 3. Otherwise read `~/DESIGN.md`, the current organization and Agent contract projected by Ankole.
 
-The Agent Home projection is read-only. People maintain the source pages in Pod under `/AnkoleBrain`.
+The Agent contract projection at `/drive/DESIGN.md` is read-only. People maintain the global baseline and each Agent’s inherit, append or override setting in Pod under Meta Ankole → Agents.
 
 Use this routing contract:
 

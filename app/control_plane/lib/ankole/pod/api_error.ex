@@ -3,6 +3,18 @@ defmodule Ankole.Pod.APIError do
   use Splode.Error, fields: [:reason], class: :invalid
 
   @chat_errors %{
+    stale: {409, "This item changed. Reload it before saving."},
+    skill_enabled_for_all:
+      {409,
+       "This Skill is enabled for every Agent. Turn off the global setting before changing individual bindings."},
+    official_skill: {422, "Official Skills cannot be renamed or deleted."},
+    required_manifest: {422, "Edit SKILL.md through the manifest editor."},
+    invalid_skill_manifest: {422, "A Skill requires a name, description and valid content."},
+    invalid_skill_package: {422, "Import a package containing SKILL.md and its files."},
+    skill_path_conflict:
+      {409, "A file and a directory cannot share a path. Choose another path."},
+    invalid_contract: {422, "Select a valid contract slot and inheritance mode."},
+    principal_owned_object: {422, "Rename this person or Agent through its identity settings."},
     comment_conflict: {409, "The comment changed. Reload it before trying again."},
     invalid_comment_body: {422, "Enter a comment of at most 20,000 characters."},
     invalid_comment_reply:

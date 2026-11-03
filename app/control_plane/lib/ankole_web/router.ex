@@ -224,6 +224,8 @@ defmodule AnkoleWeb.Router do
     get "/conversations/:id", SpaController, :pod
     get "/dm/:colleague_uid", SpaController, :pod
     get "/content/:scope", SpaController, :pod
+    get "/meta", SpaController, :pod
+    get "/meta/*path", SpaController, :pod
     get "/setup", SpaController, :setup
     get "/setup/*path", SpaController, :setup
   end

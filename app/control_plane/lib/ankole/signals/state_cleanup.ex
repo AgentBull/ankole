@@ -14,6 +14,7 @@ defmodule Ankole.Signals.StateCleanup do
         {:error, error} -> raise error
       end
 
+    :ok = Ankole.Signals.Dispatch.expire_receipts(now)
     %{tombstones: tombstones, webhook_endpoints: Webhooks.expire_due(now)}
   end
 end

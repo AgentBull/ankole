@@ -4,7 +4,7 @@ defmodule Ankole.Pod.AnchorPropertyTest do
   import Ankole.PrincipalsFixtures
   import Bitwise
   alias Ankole.AuthZ
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Page, Pages}
 
   property "anchor permissions match a page-by-page fixed point through tree and Userset mutations" do
@@ -275,8 +275,8 @@ defmodule Ankole.Pod.AnchorPropertyTest do
   end
 
   defp mutate({kind, a, b, flag}, owner, viewer, ids) do
-    page = Repo.get!(Page, Enum.at(ids, rem(a, length(ids))))
-    parent = Repo.get!(Page, Enum.at(ids, rem(b, length(ids))))
+    page = Repo.get_by!(Page, id: Enum.at(ids, rem(a, length(ids))))
+    parent = Repo.get_by!(Page, id: Enum.at(ids, rem(b, length(ids))))
 
     case kind do
       0 ->

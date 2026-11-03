@@ -3,7 +3,7 @@ defmodule Ankole.Files.VfsTest do
   import Ankole.PrincipalsFixtures
   import Plug.Conn
   alias Ankole.Files.Vfs.Auth
-  alias Ankole.Files.Nodes
+  alias Ankole.Pod.Pages.Tree, as: Nodes
   alias AnkoleWeb.Plugs.VfsWebdav
 
   defmodule SlowDAV do
@@ -25,6 +25,35 @@ defmodule Ankole.Files.VfsTest do
       send(owner, {:dav_request, conn.method, conn.request_path})
       AnkoleWeb.Plugs.VfsWebdav.call(conn, [])
     end
+  end
+
+  defmodule ContractDAV do
+    def init(opts), do: opts
+
+    def call(%{request_path: "/test-contract", method: "PUT"} = conn, {_owner, actor, uid}) do
+      {:ok, text, conn} = Plug.Conn.read_body(conn)
+
+      body =
+        Ankole.Repo.with_tenant(actor.principal.tenant_id, fn ->
+          alias Ankole.AIAgent.Library.Contracts
+          {:ok, current} = Contracts.get(uid, :agents)
+
+          {:ok, _} =
+            Contracts.save(actor, uid, :agents, %{
+              content_xml: if(text == "", do: "<page />", else: "<page><p>#{text}</p></page>"),
+              metadata: %{},
+              mode: :override,
+              base_revision: if(current, do: current.revision, else: 0)
+            })
+
+          {:ok, effective} = Contracts.effective(uid)
+          effective["agents"]["content"]
+        end)
+
+      Plug.Conn.send_resp(conn, 200, body)
+    end
+
+    def call(conn, {owner, _, _}), do: Ankole.Files.VfsTest.HeadersDAV.call(conn, owner)
   end
 
   setup do
@@ -70,6 +99,77 @@ defmodule Ankole.Files.VfsTest do
     assert request(ctx, "GET", "AgentDrive/moved/report.txt").resp_body == "replacement"
   end
 
+  test "empty Pages project as directories and body writes keep their identity and children",
+       ctx do
+    created = request(ctx, "MKCOL", "AgentDrive/Notes")
+    assert created.status == 201
+    [id] = get_resp_header(created, "x-ankole-node-id")
+    assert {:ok, %{type: :doc}} = Nodes.fetch(id)
+    listing = request(ctx, "PROPFIND", "AgentDrive", "", [{"depth", "1"}]).resp_body
+    assert listing =~ "Notes/"
+    refute listing =~ "Notes._adoc.md"
+    assert request(ctx, "PUT", "AgentDrive/Notes/child.txt", "Child").status == 201
+
+    written = request(ctx, "PUT", "AgentDrive/Notes._adoc.md", "Body", [{"if-none-match", "*"}])
+    assert written.status == 201, written.resp_body
+    assert get_resp_header(written, "x-ankole-node-id") == [id]
+    listing = request(ctx, "PROPFIND", "AgentDrive", "", [{"depth", "1"}]).resp_body
+    assert listing =~ "Notes/"
+    assert listing =~ "Notes._adoc.md"
+
+    assert request(ctx, "DELETE", "AgentDrive/Notes._adoc.md").status == 204
+    assert request(ctx, "GET", "AgentDrive/Notes._adoc.md").status == 404
+    assert request(ctx, "GET", "AgentDrive/Notes/child.txt").resp_body == "Child"
+    assert {:ok, %{deleted_at: nil, revision: revision}} = Nodes.fetch(id)
+    assert revision == 2
+    assert request(ctx, "DELETE", "AgentDrive/Notes").status == 204
+    assert {:ok, page} = Nodes.fetch(id)
+    assert page.deleted_at
+  end
+
+  test "moving a document onto an empty body's path preserves both page trees", ctx do
+    source = request(ctx, "PUT", "AgentDrive/source._adoc.md", "Source")
+    target = request(ctx, "MKCOL", "AgentDrive/target")
+    assert source.status == 201
+    assert target.status == 201
+    assert request(ctx, "PUT", "AgentDrive/target/keep.txt", "Keep me").status == 201
+
+    assert request(ctx, "MOVE", "AgentDrive/source._adoc.md", "", [
+             {"destination", "/api/v1/vfs/dav/AgentDrive/target._adoc.md"}
+           ]).status == 412
+
+    assert request(ctx, "MOVE", "AgentDrive/source._adoc.md", "", [
+             {"destination", "/api/v1/vfs/dav/AgentDrive/target"}
+           ]).status == 412
+
+    assert request(ctx, "GET", "AgentDrive/source._adoc.md").resp_body =~ "Source"
+    assert request(ctx, "GET", "AgentDrive/target/keep.txt").resp_body == "Keep me"
+
+    assert request(ctx, "MOVE", "AgentDrive/source._adoc.md", "", [
+             {"destination", "/api/v1/vfs/dav/AgentDrive/source"}
+           ]).status == 412
+
+    before = Repo.aggregate(Ankole.Files.Schemas.FileObject, :count)
+    assert request(ctx, "PUT", "AgentDrive/target", "Not a file").status == 409
+    assert Repo.aggregate(Ankole.Files.Schemas.FileObject, :count) == before
+  end
+
+  test "metadata does not keep a cleared document body visible", ctx do
+    body = "Body\n"
+    created = request(ctx, "PUT", "AgentDrive/frontmatter._adoc.md", body)
+    assert created.status == 201, created.resp_body
+    assert request(ctx, "GET", "AgentDrive/frontmatter._adoc.md").resp_body =~ "Body"
+    [id] = get_resp_header(created, "x-ankole-node-id")
+
+    Repo.update_all(from(p in Ankole.Pod.Page, where: p.id == ^id),
+      set: [metadata: %{"label" => "Retained"}]
+    )
+
+    assert request(ctx, "DELETE", "AgentDrive/frontmatter._adoc.md").status == 204
+    assert {:ok, %{vfs_content_empty: true}} = Nodes.fetch(id)
+    assert request(ctx, "GET", "AgentDrive/frontmatter._adoc.md").status == 404
+  end
+
   test "optimistic writes reject stale changes and replay committed requests without overwriting the browser",
        ctx do
     path = "AgentDrive/note.txt"
@@ -82,7 +182,7 @@ defmodule Ankole.Files.VfsTest do
     assert replay.status == 201, replay.resp_body
     assert get_resp_header(replay, "etag") == [etag]
     assert get_resp_header(replay, "x-ankole-refresh-body") == []
-    assert {:ok, _} = Ankole.Files.write_node(ctx.actor, id, "browser")
+    assert {:ok, _} = Ankole.Pod.write_node(ctx.actor, id, "browser")
     replay = request(ctx, "PUT", path, "first", headers)
     assert replay.status == 201, replay.resp_body
     assert get_resp_header(replay, "etag") != [etag]
@@ -135,7 +235,7 @@ defmodule Ankole.Files.VfsTest do
     replay = request(ctx, "MOVE", "AgentDrive/source.txt", "", headers)
     assert replay.status == 201, replay.resp_body
     assert get_resp_header(replay, "etag") == get_resp_header(moved, "etag")
-    assert {:ok, _} = Ankole.Files.write_node(ctx.actor, target_id, "browser")
+    assert {:ok, _} = Ankole.Pod.write_node(ctx.actor, target_id, "browser")
     replay = request(ctx, "MOVE", "AgentDrive/source.txt", "", headers)
     assert replay.status == 201, replay.resp_body
     assert get_resp_header(replay, "x-ankole-refresh-body") == ["1"]
@@ -180,78 +280,17 @@ defmodule Ankole.Files.VfsTest do
     assert request(ctx, "GET", "AgentDrive/copy").resp_body == "edited"
   end
 
-  test "knowledge merges separate blocks and properties but rejects competing edits and missing ancestors",
-       ctx do
-    path = "AgentDrive/merge._awiki.md"
-
-    original =
-      "---\nsummary: original\nowner: original\n---\n\nFirst block.\n\nMiddle block.\n\nLast block.\n"
-
-    base = request(ctx, "PUT", path, original)
-    assert base.status == 201, base.resp_body
-    [etag] = get_resp_header(base, "etag")
-
-    browser =
-      original
-      |> String.replace("First block.", "Browser block.")
-      |> String.replace("owner: original", "owner: browser")
-
-    assert request(ctx, "PUT", path, browser, [{"if-match", etag}]).status == 201
-
-    edited =
-      original
-      |> String.replace("Last block.", "Worker block.")
-      |> String.replace("summary: original", "summary: worker")
-
-    merged = request(ctx, "PUT", path, edited, [{"if-match", etag}])
-    assert merged.status == 201, merged.resp_body
-    assert get_resp_header(merged, "x-ankole-refresh-body") == ["1"]
-    body = request(ctx, "GET", path).resp_body
-
-    for text <- [
-          "Browser block.",
-          "Middle block.",
-          "Worker block.",
-          "owner: browser",
-          "summary: worker"
-        ],
-        do: assert(body =~ text)
-
-    assert request(
-             ctx,
-             "PUT",
-             path,
-             String.replace(original, "First block.", "Competing block."),
-             [{"if-match", etag}]
-           ).status == 412
-
-    assert request(
-             ctx,
-             "PUT",
-             path,
-             String.replace(original, "owner: original", "owner: worker"),
-             [{"if-match", etag}]
-           ).status == 412
-
-    [id] = get_resp_header(base, "x-ankole-node-id")
-
-    assert request(ctx, "PUT", path, edited, [{"if-match", "\"page:#{id}:rev:-1\""}]).status ==
-             412
-
-    assert request(ctx, "GET", path).resp_body == body
-  end
-
   test "structured MOVE preserves the source page and subtree, and one restore recovers a deleted tree",
        ctx do
-    source = request(ctx, "PUT", "AgentDrive/source._awiki.md", "Source page")
-    target = request(ctx, "PUT", "AgentDrive/target._awiki.md", "Target page")
+    source = request(ctx, "PUT", "AgentDrive/source._adoc.md", "Source page")
+    target = request(ctx, "PUT", "AgentDrive/target._adoc.md", "Target page")
     [source_id] = get_resp_header(source, "x-ankole-node-id")
     [target_id] = get_resp_header(target, "x-ankole-node-id")
-    assert request(ctx, "PUT", "AgentDrive/source._asub/child.txt", "Child").status == 201
+    assert request(ctx, "PUT", "AgentDrive/source/child.txt", "Child").status == 201
 
     moved =
-      request(ctx, "MOVE", "AgentDrive/source._awiki.md", "", [
-        {"destination", "/api/v1/vfs/dav/AgentDrive/target._awiki.md"},
+      request(ctx, "MOVE", "AgentDrive/source._adoc.md", "", [
+        {"destination", "/api/v1/vfs/dav/AgentDrive/target._adoc.md"},
         {"if-match", hd(get_resp_header(target, "etag"))}
       ])
 
@@ -259,30 +298,24 @@ defmodule Ankole.Files.VfsTest do
     assert get_resp_header(moved, "x-ankole-node-id") == [source_id]
     assert {:ok, %{deleted_at: deleted_at, purge_started_at: nil}} = Nodes.fetch(target_id)
     assert deleted_at
-    assert request(ctx, "GET", "AgentDrive/target._asub/child.txt").resp_body == "Child"
+    assert request(ctx, "GET", "AgentDrive/target/child.txt").resp_body == "Child"
     folder = request(ctx, "MKCOL", "AgentDrive/project")
     [folder_id] = get_resp_header(folder, "x-ankole-node-id")
 
-    assert request(ctx, "MOVE", "AgentDrive/target._awiki.md", "", [
-             {"destination", "/api/v1/vfs/dav/AgentDrive/project/page._awiki.md"}
+    assert request(ctx, "MOVE", "AgentDrive/target._adoc.md", "", [
+             {"destination", "/api/v1/vfs/dav/AgentDrive/project/page._adoc.md"}
            ]).status == 201
 
-    for path <- [
-          "AgentDrive/project/page._asub/child.txt",
-          "AgentDrive/project/page._awiki.md",
-          "AgentDrive/project"
-        ] do
-      deleted = request(ctx, "DELETE", path)
-      assert deleted.status == 204, deleted.resp_body
-    end
+    deleted = request(ctx, "DELETE", "AgentDrive/project")
+    assert deleted.status == 204, deleted.resp_body
 
     assert {:ok, _} = Nodes.restore(ctx.actor, folder_id)
-    assert request(ctx, "GET", "AgentDrive/project/page._asub/child.txt").resp_body == "Child"
-    assert request(ctx, "GET", "AgentDrive/project/page._awiki.md").resp_body =~ "Source page"
-    assert {:ok, %{deleted_at: nil}} = Ankole.Brain.Objects.get_by_slug(source_id)
+    assert request(ctx, "GET", "AgentDrive/project/page/child.txt").resp_body == "Child"
+    assert request(ctx, "GET", "AgentDrive/project/page._adoc.md").resp_body =~ "Source page"
+    assert {:ok, %{deleted_at: nil}} = Ankole.Pod.Pages.fetch(source_id)
   end
 
-  test "an editor can delete ordinary files and folders while page deletion requires manage",
+  test "an editor can clear a body and remove an empty directory but cannot delete a subtree",
        ctx do
     {:ok, root} = Nodes.private_root(ctx.human.uid)
     human_actor = actor_fixture(ctx.human)
@@ -292,13 +325,13 @@ defmodule Ankole.Files.VfsTest do
         grants: [%{principal_uid: ctx.agent.uid, role: "edit"}]
       })
 
-    {:ok, _} = Nodes.create(human_actor, %{parent_id: root.id, kind: :file, name: "file.txt"})
-    {:ok, _} = Nodes.create(human_actor, %{parent_id: root.id, kind: :folder, name: "folder"})
+    {:ok, _} = Nodes.create(human_actor, %{parent_id: root.id, type: :file, name: "file.txt"})
+    {:ok, _} = Nodes.create(human_actor, %{parent_id: root.id, type: :doc, name: "folder"})
 
     {:ok, _} =
       Ankole.Pod.Pages.create(human_actor, %{
         parent_id: root.id,
-        type: :knowledge,
+        type: :doc,
         title: "Protected",
         xml: "<page><p>Keep</p></page>"
       })
@@ -307,8 +340,9 @@ defmodule Ankole.Files.VfsTest do
     ctx = %{ctx | grant: conversation_grant(ctx)}
     assert request(ctx, "DELETE", "MyDrive/file.txt").status == 204
     assert request(ctx, "DELETE", "MyDrive/folder").status == 204
-    assert request(ctx, "DELETE", "MyDrive/Protected._awiki.md").status == 403
-    assert request(ctx, "GET", "MyDrive/Protected._awiki.md").resp_body =~ "Keep"
+    assert request(ctx, "DELETE", "MyDrive/Protected._adoc.md").status == 204
+    assert request(ctx, "GET", "MyDrive/Protected._adoc.md").status == 404
+    assert request(ctx, "PROPFIND", "MyDrive/Protected", "", [{"depth", "0"}]).status == 207
   end
 
   test "conversation members edit, atomically save, rename and delete shared ChatDrive files",
@@ -325,7 +359,7 @@ defmodule Ankole.Files.VfsTest do
     [id] = get_resp_header(put, "x-ankole-node-id")
     assert Nodes.conversation_id(id) == {:ok, grant.conversation_id}
 
-    assert {:ok, _} = Ankole.Files.write_node(actor_fixture(ctx.human), id, "Human edit")
+    assert {:ok, _} = Ankole.Pod.write_node(actor_fixture(ctx.human), id, "Human edit")
     current = request(ctx, "GET", "ChatDrive/reports/report.txt")
     assert current.resp_body == "Human edit"
     assert request(ctx, "PUT", "ChatDrive/reports/draft.tmp", "Final report").status == 201
@@ -342,7 +376,7 @@ defmodule Ankole.Files.VfsTest do
     assert request(ctx, "GET", "ChatDrive/reports/draft.tmp").status == 404
 
     stranger = human_fixture().principal
-    assert {:error, :forbidden} = Ankole.Files.write_node(actor_fixture(stranger), id, "Denied")
+    assert {:error, :forbidden} = Ankole.Pod.write_node(actor_fixture(stranger), id, "Denied")
     assert {:error, :forbidden} = Nodes.authorize(ctx.actor, id, "node_manage")
 
     moved =
@@ -352,27 +386,28 @@ defmodule Ankole.Files.VfsTest do
 
     assert moved.status == 201, moved.resp_body
     assert request(ctx, "GET", "ChatDrive/archive/report.txt").resp_body == "Final report"
+    assert request(ctx, "DELETE", "ChatDrive/archive").status == 403
     assert request(ctx, "DELETE", "ChatDrive/archive/report.txt").status == 204
     assert request(ctx, "DELETE", "ChatDrive/archive").status == 204
   end
 
-  test "knowledge replacement preserves the page and children, reports invalid Markdown immediately",
+  test "document replacement preserves the page and children, reports invalid Markdown immediately",
        ctx do
     put =
       request(
         ctx,
         "PUT",
-        "AgentDrive/guide._awiki.md",
-        "---\nsummary: hello\n---\n\n# Guide\n\noriginal"
+        "AgentDrive/guide._adoc.md",
+        "# Guide\n\noriginal"
       )
 
     assert put.status == 201, put.resp_body
     [id] = get_resp_header(put, "x-ankole-node-id")
-    assert request(ctx, "PROPFIND", "AgentDrive/guide._asub", "", [{"depth", "0"}]).status == 207
-    assert request(ctx, "PUT", "AgentDrive/guide._asub/script.py", "print(1)").status == 201
-    get = request(ctx, "GET", "AgentDrive/guide._awiki.md")
+    assert request(ctx, "PROPFIND", "AgentDrive/guide", "", [{"depth", "0"}]).status == 207
+    assert request(ctx, "PUT", "AgentDrive/guide/script.py", "print(1)").status == 201
+    get = request(ctx, "GET", "AgentDrive/guide._adoc.md")
     assert get.status == 200
-    assert get.resp_body =~ "summary: hello"
+    assert get.resp_body =~ "original"
 
     assert request(
              ctx,
@@ -383,20 +418,20 @@ defmodule Ankole.Files.VfsTest do
 
     move =
       request(ctx, "MOVE", "AgentDrive/temporary", "", [
-        {"destination", "/api/v1/vfs/dav/AgentDrive/guide._awiki.md"},
+        {"destination", "/api/v1/vfs/dav/AgentDrive/guide._adoc.md"},
         {"if-match", hd(get_resp_header(get, "etag"))}
       ])
 
     assert move.status == 201, move.resp_body
     assert get_resp_header(move, "x-ankole-node-id") == [id]
-    assert request(ctx, "GET", "AgentDrive/guide._asub/script.py").resp_body == "print(1)"
-    assert request(ctx, "GET", "AgentDrive/guide._awiki.md").resp_body =~ "edited"
+    assert request(ctx, "GET", "AgentDrive/guide/script.py").resp_body == "print(1)"
+    assert request(ctx, "GET", "AgentDrive/guide._adoc.md").resp_body =~ "edited"
 
-    assert request(ctx, "PUT", "AgentDrive/guide._awiki.md", "---\nbroken: [\n---\n").status ==
+    assert request(ctx, "PUT", "AgentDrive/guide._adoc.md", "---\nbroken: [\n---\n").status ==
              422
 
     assert {:ok, node} = Nodes.fetch(id)
-    assert node.kind == :knowledge
+    assert node.type == :doc
   end
 
   test "expected ETags reject mixing revisions in ranged reads", ctx do
@@ -420,7 +455,7 @@ defmodule Ankole.Files.VfsTest do
     {:ok, {_, port}} = ThousandIsland.listener_info(server)
 
     for {method, path, body, status} <- [
-          {"PUT", "AgentDrive/invalid._awiki.md", "---\nbroken: [\n---\n", 422},
+          {"PUT", "AgentDrive/invalid._adoc.md", "---\nbroken: [\n---\n", 422},
           {"PUT", "AgentDrive/large.bin", String.duplicate("x", 4096), 413},
           {"PROPFIND", "AgentDrive", "<invalid", 422}
         ] do
@@ -462,6 +497,8 @@ defmodule Ankole.Files.VfsTest do
   @tag skip: is_nil(System.get_env("ANKOLE_VFS_FUSE_IMAGE"))
   test "packaged mount2 supports random writes, SQLite, atomic saves and symlinks against real DAV",
        ctx do
+    enable_fuse_skill(ctx)
+
     if spec_file = System.get_env("ANKOLE_VFS_OBJECT_STORE_SPEC") do
       previous = Application.fetch_env!(:ankole, Ankole.ObjectStore)
       cached = :persistent_term.get({Ankole.ObjectStore, :store}, nil)
@@ -483,7 +520,14 @@ defmodule Ankole.Files.VfsTest do
     {:ok, _} =
       Ankole.Pod.Pages.create(ctx.actor, %{parent_id: root.id, title: "FuseBase", type: "base"})
 
-    server = start_supervised!({Bandit, plug: {HeadersDAV, self()}, port: 0, ip: {0, 0, 0, 0}})
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {ContractDAV, {self(), actor_fixture(ctx.human), ctx.agent.uid}},
+         port: 0,
+         ip: {0, 0, 0, 0}}
+      )
+
     {:ok, {_, port}} = ThousandIsland.listener_info(server)
     directory = Path.join(System.tmp_dir!(), "ankole-fuse-" <> Ecto.UUID.generate())
     File.mkdir_p!(directory)
@@ -503,6 +547,8 @@ defmodule Ankole.Files.VfsTest do
         [
           "run",
           "--rm",
+          "-e",
+          "ANKOLE_FUSE_CONTRACT_TEST=1",
           "--device",
           "/dev/fuse",
           "--cap-add",
@@ -541,7 +587,7 @@ defmodule Ankole.Files.VfsTest do
     refute Enum.any?(requests, fn {method, _} -> method in ["LOCK", "UNLOCK"] end)
 
     assert request(ctx, "GET", "AgentDrive/fuse/random.bin").resp_body == "01XYZ56789"
-    assert request(ctx, "GET", "AgentDrive/fuse/guide._awiki.md").resp_body =~ "edited"
+    assert request(ctx, "GET", "AgentDrive/fuse/guide._adoc.md").resp_body =~ "edited"
     assert request(ctx, "GET", "AgentDrive/fuse/link.rclonelink").resp_body == "random.bin"
     assert request(ctx, "GET", "AgentDrive/fuse/after/held.txt").resp_body == "before-after"
     assert request(ctx, "GET", "AgentDrive/fuse/sed-business").resp_body == "must upload"
@@ -700,6 +746,7 @@ defmodule Ankole.Files.VfsTest do
   @tag sandbox: is_nil(System.get_env("ANKOLE_VFS_STRESS"))
   @tag skip: is_nil(System.get_env("ANKOLE_VFS_FUSE_IMAGE"))
   test "the real Worker mount manager shares hot roots and isolates conversation views", ctx do
+    enable_fuse_skill(ctx)
     human = ctx.human
     {:ok, root} = Nodes.private_root(ctx.agent.uid)
 
@@ -724,6 +771,7 @@ defmodule Ankole.Files.VfsTest do
       Enum.map(grants, fn grant ->
         %{
           scope: grant.scope,
+          libraryScope: grant.library_scope,
           view: grant.view,
           token: grant.token,
           conversationId: grant.conversation_id,
@@ -1031,6 +1079,33 @@ defmodule Ankole.Files.VfsTest do
 
     assert status == 0, output
     output
+  end
+
+  defp enable_fuse_skill(ctx) do
+    alias Ankole.AIAgent.Library.Skills
+    actor = actor_fixture(ctx.human)
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: ctx.human.uid,
+        resource_pattern: "tenant_console:**",
+        action: "update"
+      })
+
+    {:ok, skill} =
+      Skills.create(actor, %{
+        slug: "fuse-check",
+        manifest_xml: "<page><p>Mounted capability</p></page>",
+        metadata: %{"name" => "Fuse check", "description" => "Drive projection check"}
+      })
+
+    {:ok, skill} =
+      Skills.put_file(actor, skill.slug, "scripts/run.sh", "#!/bin/sh\nprintf meta-capability", %{
+        base_revision: skill.revision,
+        mode: 365
+      })
+
+    {:ok, _} = Skills.set_binding(actor, skill.slug, ctx.agent.uid, true)
   end
 
   defp fuse_binary_args do

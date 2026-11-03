@@ -1,8 +1,8 @@
 defmodule Ankole.Brain.Access do
-  @moduledoc "Drive visibility shared by knowledge, claims, skills and their disclosure readers."
+  @moduledoc "Page visibility shared by knowledge, claims and their disclosure readers."
   import Bitwise
   require Ash.Query
-  alias Ankole.Files.Access.Graph
+  alias Ankole.Pod.Access.Graph
 
   defstruct querier_uid: nil, reachable: %{}, containers: [], pages: []
   @type t :: %__MODULE__{}
@@ -61,19 +61,16 @@ defmodule Ankole.Brain.Access do
   end
 
   def visible?(access, id) do
-    case Ankole.Files.Nodes.fetch(id) do
+    case Ankole.Pod.Pages.Tree.fetch(id) do
       {:ok, node} -> visible_node?(access, node)
       {:error, _} -> false
     end
   end
 
-  def reachable?(access, %{source_node_id: id}), do: visible?(access, id)
-  def scope_reachable?(access, id), do: visible?(access, id)
-
   def filter_objects(%Ash.Query{} = query, access) do
     Ash.Query.filter(
       query,
-      ^Ankole.AuthZ.Checks.DriveAnchorFilter.policy(access.reachable).filter
+      ^Ankole.AuthZ.Checks.PageAnchorFilter.policy(access.reachable).filter
     )
   end
 
@@ -153,10 +150,32 @@ defmodule Ankole.Brain.Access do
   end
 
   def filter_disclosable(rows, source_fun, disclosure) do
-    verdicts =
-      rows |> Enum.map(source_fun) |> Enum.uniq() |> Map.new(&{&1, disclosable?(&1, disclosure)})
+    case {disclosure.mode, recipients(disclosure)} do
+      {:relaxed, []} ->
+        rows
 
-    Enum.filter(rows, &Map.fetch!(verdicts, source_fun.(&1)))
+      {:strict, []} ->
+        []
+
+      {_, readers} ->
+        contexts = Enum.map(readers, &for_querier/1)
+        ids = rows |> Enum.map(source_fun) |> Enum.uniq()
+
+        visible =
+          Ankole.Pod.Page
+          |> Ash.Query.filter(id in ^ids and is_nil(deleted_at))
+          |> Ash.Query.select([:acl_anchor_id, :is_acl_anchor, :deleted_at])
+          |> Ankole.Ash.read!()
+          |> Enum.filter(fn page ->
+            Enum.all?(contexts, fn
+              {:ok, access} -> visible_node?(access, page)
+              {:error, _} -> false
+            end)
+          end)
+          |> MapSet.new(& &1.id)
+
+        Enum.filter(rows, &MapSet.member?(visible, source_fun.(&1)))
+    end
   end
 
   defp intersect_reachable(nil, right), do: right

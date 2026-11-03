@@ -1,5 +1,5 @@
 defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: true
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library.AgentPlugins.SourceReader

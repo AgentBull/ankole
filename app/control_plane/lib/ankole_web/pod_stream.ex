@@ -75,6 +75,15 @@ defmodule AnkoleWeb.PodStream do
       when is_map_key(agents, uid) and
              :erlang.map_get(:model, :erlang.map_get(uid, agents)) == model ->
         gateway_event(conn, scope, event, gateway)
+
+      {:session_event, _, _, _} ->
+        loop(conn, scope)
+
+      {:conversation_event, _, _} ->
+        loop(conn, scope)
+
+      {:ai_gateway_event, _, _} ->
+        loop(conn, scope)
     after
       timeout -> tick(conn, scope)
     end

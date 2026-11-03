@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Knowledge do
   @moduledoc "Commits a knowledge page's Markdown-compatible body and properties as one revision."
   require Ash.Query
   alias Ankole.{ActorRef, Kernel, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{PageContent, Pages}
   alias Ankole.Pod.Documents.History
 
@@ -21,31 +21,6 @@ defmodule Ankole.Pod.Knowledge do
   end
 
   def write(_actor, _id, _revision, _xml, _metadata), do: {:error, :invalid_request}
-
-  @doc "Merges a stale VFS edit against its exact historical knowledge revision."
-  def merge_vfs_knowledge_in_tx(actor, id, revision, parsed) do
-    with {:ok, page} <- Pages.lock(id),
-         true <- revision < page.revision,
-         {:ok, ancestor} <- History.revision_in_tx(id, revision),
-         {:ok, current} <- content(id),
-         {:ok, current_info} <- Kernel.page_comment_info(current.content),
-         {:ok, edit_info} <- Kernel.page_comment_info(parsed.xml),
-         {:ok, merged} <-
-           Kernel.vfs_merge_knowledge(
-             ancestor.content,
-             ancestor.metadata,
-             current_info.stripped_xml,
-             page.metadata,
-             edit_info.stripped_xml,
-             parsed.metadata
-           ),
-         do: put_in_tx(id, merged, actor: actor, base_revision: page.revision),
-         else: (
-           false -> {:error, :precondition_failed}
-           {:error, "conflict"} -> {:error, :precondition_failed}
-           error -> error
-         )
-  end
 
   @doc "Projects an authorized knowledge page at the requested reading depth."
   def project(_xml, metadata, level) when level in [:l0, "l0", "L0"],
@@ -120,6 +95,7 @@ defmodule Ankole.Pod.Knowledge do
          {:ok, metadata} <-
            Ankole.Ash.Types.JSONMap.cast_input(Ankole.Attrs.get(attrs, :metadata, %{}), []),
          true <- is_map(metadata),
+         metadata = identity_metadata(page, metadata, opts),
          {:ok, projection} <- Kernel.vfs_projection(:knowledge, parsed.xml, metadata),
          {:ok, previous} <- content(id) do
       now = DateTime.utc_now(:microsecond)
@@ -179,4 +155,12 @@ defmodule Ankole.Pod.Knowledge do
   defp revision(page, _revision), do: {:error, {:revision_conflict, page.revision}}
   defp knowledge(%{type: :knowledge}), do: :ok
   defp knowledge(_page), do: {:error, :invalid_page_type}
+
+  defp identity_metadata(%{metadata: %{"subtype" => "internal"} = current}, incoming, opts) do
+    keys = ["subtype", "entity_type", "uid"]
+    keys = if Keyword.has_key?(opts, :actor), do: ["archived" | keys], else: keys
+    Map.merge(Map.drop(incoming, keys), Map.take(current, keys))
+  end
+
+  defp identity_metadata(_page, incoming, _opts), do: incoming
 end

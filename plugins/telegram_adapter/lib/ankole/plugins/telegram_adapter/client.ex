@@ -90,7 +90,13 @@ defmodule Ankole.Plugins.TelegramAdapter.Client do
     url = file_url(client, file_path)
 
     request_opts =
-      [method: :get, url: url, retry: false, receive_timeout: @default_receive_timeout]
+      [
+        method: :get,
+        url: url,
+        retry: false,
+        decode_body: false,
+        receive_timeout: @default_receive_timeout
+      ]
       |> Keyword.merge(client.request_options)
 
     case Req.request(request_opts) do

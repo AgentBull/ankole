@@ -126,6 +126,9 @@ defmodule Ankole.Conversations.Delivery.ActionCardPrompt do
   def card_body(action_kind, summary, payload) do
     target_line =
       case action_kind do
+        "brain.object.create" ->
+          "Action: Create Brain object #{payload["node_title"]} in #{payload["category"]}\n#{payload["markdown"]}"
+
         "pod.knowledge.save" ->
           "Action: Save \"#{payload["node_title"]}\"\nChanges:\n#{payload["diff"]}"
 

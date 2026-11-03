@@ -600,8 +600,8 @@ defmodule Ankole.Sessions.Presentation do
     attrs = %{content_type: mime, source: "generated"}
 
     if origin,
-      do: Files.create_conversation_file_in_tx(origin.id, filename, stored, attrs),
-      else: Files.create_private_file_in_tx(agent_uid, filename, stored, attrs)
+      do: Ankole.Pod.create_conversation_file_in_tx(origin.id, filename, stored, attrs),
+      else: Ankole.Pod.create_private_file_in_tx(agent_uid, filename, stored, attrs)
   end
 
   defp generated_image_retry(image_id, reason) do

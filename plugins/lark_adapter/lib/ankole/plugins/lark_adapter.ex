@@ -105,14 +105,16 @@ defmodule Ankole.Plugins.LarkAdapter do
   def children do
     # Shared plugin processes start once and use provider app config as runtime keys.
     [
-      FeishuOpenAPI.Supervisor,
-      {Registry, keys: :unique, name: Ankole.Plugins.LarkAdapter.ConnectionRegistry},
-      {DynamicSupervisor,
-       name: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
-      BotIdentity,
-      ConnectionReconciler,
-      {Ankole.Plugins.ChannelSync,
-       adapter: "lark", worker: Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups}
+      Ankole.Plugins.ConnectionLifecycle.supervisor_spec(__MODULE__, [
+        FeishuOpenAPI.Supervisor,
+        {Registry, keys: :unique, name: Ankole.Plugins.LarkAdapter.ConnectionRegistry},
+        {DynamicSupervisor,
+         name: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
+        BotIdentity,
+        ConnectionReconciler,
+        {Ankole.Plugins.ChannelSync,
+         adapter: "lark", worker: Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups}
+      ])
     ]
   end
 

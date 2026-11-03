@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Pages.Sharing do
   @moduledoc "Owns page sharing and Space access settings."
   import Bitwise
   alias Ankole.{AuthZ, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Pages}
   alias Ankole.Pod.Pages.Collaborators
 

@@ -98,6 +98,7 @@ defmodule Ankole.Brain.SelfHealing do
     # starve fresh content out of the per-sweep batch.
     |> Ash.Query.sort(embedding_failed?: :asc)
     |> Ash.Query.limit(@embed_batch_limit)
+    |> Ash.Query.deselect(:embedding)
     |> Ankole.Ash.read!()
     |> Enum.chunk_every(@embed_call_size)
     |> Enum.reduce(0, fn batch, count ->
@@ -113,6 +114,7 @@ defmodule Ankole.Brain.SelfHealing do
     )
     |> Ash.Query.sort(embedding_failed?: :asc)
     |> Ash.Query.limit(@embed_batch_limit)
+    |> Ash.Query.deselect(:embedding)
     |> Ankole.Ash.read!()
     |> Enum.chunk_every(@embed_call_size)
     |> Enum.reduce(0, fn batch, count ->

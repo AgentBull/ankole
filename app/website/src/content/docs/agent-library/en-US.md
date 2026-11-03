@@ -1,30 +1,32 @@
 ---
 title: Agent Library
-description: What an agent can do — skills as file bundles, Agent Plugins as Codex packages, and a default-then-override enablement model resolved per agent.
+description: Skill packages, Agent enablement and instruction contracts in Meta Ankole.
 section: Developer guide
 order: 107
 ---
 
-The Agent Library resolves which Skills and Agent Plugins an Agent has enabled. Ankole stores shared Skill content in Pod under `/AnkoleBrain/skills/<name>`; each Skill homepage is a knowledge page, and its scripts and templates are file children. Agents can also install private bundles under `skills/` in their Files drive. PostgreSQL owns content, permissions, and enablement; Worker files are execution copies.
+The Agent Library owns Skill packages and Agent instruction contracts in PostgreSQL. In Pod, open **Meta Ankole → Skills** to browse packages and **Agents** to manage colleagues, your assistant and global instructions. Meta navigation branches start collapsed. Collaborative pages and the Brain knowledge graph have separate owners.
 
-## Capabilities and enablement
+## Packages and enablement
 
-A Skill has a `SKILL.md` manifest with a globally unique lowercase name. An Agent Plugin packages related Skills and an optional `workspace-template/`. Enablement resolves from shipped defaults through site and tenant settings to sparse per-Agent overrides. A Plugin member Skill also requires its parent Plugin to be enabled.
+Each Skill has a tenant-unique `slug`, a required `SKILL.md` manifest and optional reference files, scripts or binary assets. Members with custom-Skill permission can create or import packages; custom packages start disabled. The manifest is the entry point. Agents read companion files only when instructed by the manifest, and reviewed Skill lessons remain available through `skill_view`.
 
-Enablement and visibility are separate. Ankole lists enabled Skills that the current conversation can read. A human-triggered turn uses the intersection of the Agent, requester, and applicable room participants; unattended automation uses the Agent's permissions. The catalog supplies names and descriptions, while `skill_view` loads the requested content.
+A Skill can be enabled for all Agents, selected colleagues or your own assistant. Enabling it for all locks individual switches while preserving their bindings. Turning that option off restores the individual choices. A Plugin Skill also requires its parent Agent Plugin to be enabled; Plugin defaults and overrides remain independent.
 
-## Shared content and upgrades
+Skills depend on the Agent identity. Changing the requester or participants does not remove the Agent's enabled packages. Brain reads instead follow the intersection of the Agent, requester and disclosure audience.
 
-Operators edit shared Skills in Pod. Ankole appends visible knowledge children to a Skill's instructions; children with `metadata.role = "reference"` remain available by subpath for reading when needed. Agent-specific lessons add reviewed guidance when that Agent loads the Skill. See [Skill lessons](../skill-lessons/).
+## Editing and upgrades
 
-At startup and catalog synchronization, Ankole compares each shipped package with its stored baseline. The comparison includes homepage metadata and body, and every managed file's path, content hash, and mode. An unchanged package receives the upstream update atomically, including file additions and removals. Local edits preserve the whole package and record the pending upstream digest. Tenant-created supplements and custom files are outside the managed baseline.
+The Skills editor manages the manifest, metadata and package files. Saves compare `base_revision` and reject stale edits. Skills and contracts keep their current revision without historical snapshots. Official package slugs are fixed; custom packages can be renamed or deleted.
+
+Upstream synchronization compares the manifest and managed file hashes. An unchanged official package receives additions, updates and removals atomically. A local edit freezes that package until the edit is reconciled; extra local attachments remain in place.
 
 ## Agent contracts
 
-`/AnkoleBrain/AGENTS.md` defines organization-wide behavior and responsibilities; `/AnkoleBrain/DESIGN.md` defines visual standards. Under `/AnkoleBrain/agents/<uid>/`, `AGENTS.md` appends Agent responsibilities and `AGENTS.override.md` replaces the global contract. The equivalent DESIGN files append body content with a metadata merge or replace the whole document. An empty override deliberately clears the inherited content.
+**Meta Ankole → Agents → Global settings** owns the global `AGENTS.md` and `DESIGN.md` baselines. Each colleague or assistant can inherit, append to or override each baseline. DESIGN append mode merges metadata recursively and separates body sections with a horizontal rule. An empty override intentionally clears inherited content.
 
-Personal assistant pages are private to the owner and assistant. The owner manages the page, while the assistant reads it. Colleagues inherit organization contracts and need individual pages only for customization.
+Only an assistant's owner can read or edit its configuration. A new assistant overrides AGENTS with the assistant template and inherits DESIGN. Members can read colleague and global settings; designated administrators can edit them.
 
-The Console shows effective capabilities and links document editing to Pod. `GET /agents/:agent_uid/library-documents` returns the effective AGENTS and DESIGN documents and their source pages. At each turn, Worker projections refresh `~/AGENTS.md`, `~/DESIGN.md`, and `$CODEX_HOME/AGENTS.md`; the project retains its own instruction files.
+The Worker mounts enabled packages at `/drive/Skills/<slug>/` and effective contracts at `/drive/AGENTS.md` and `/drive/DESIGN.md`. These read-only mounts share a warm cache across conversations; executable scripts retain execute permission. Saved changes invalidate that cache. Background Jobs keep the Skill set captured at admission, intersected with current enablement on resume.
 
-See [Skills](../skills/) for installation, [Prompt assembly](../prompt-assembly/) for execution, and [Console](../console-api/) for capability APIs.
+See [Skill lessons](../skill-lessons/), [Writing a Skill](../writing-a-skill/) and [Prompt assembly](../prompt-assembly/).

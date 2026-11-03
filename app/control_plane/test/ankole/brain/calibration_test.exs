@@ -768,7 +768,7 @@ defmodule Ankole.Brain.CalibrationTest do
       })
 
     {:ok, _} =
-      Repo.transact_top_level(fn -> Ankole.Files.ensure_conversation_root_in_tx(channel.id) end)
+      Repo.transact_top_level(fn -> Ankole.Pod.ensure_conversation_root_in_tx(channel.id) end)
 
     channel
   end

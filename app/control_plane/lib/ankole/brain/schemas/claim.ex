@@ -363,7 +363,7 @@ defmodule Ankole.Brain.Schemas.Claim do
   end
 
   relationships do
-    belongs_to :source_node, Ankole.Files.Schemas.Node do
+    belongs_to :source_node, Ankole.Pod.Page do
       source_attribute(:source_node_id)
       define_attribute?(false)
       attribute_type(Ankole.Ash.Types.UUIDv7)

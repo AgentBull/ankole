@@ -12,13 +12,14 @@ defmodule AnkoleWeb.PodRoomChannel do
     Repo.put_tenant_id(socket.assigns.tenant_id)
 
     with_tenant(socket, fn ->
+      AnkoleWeb.PodChannel.subscribe(socket)
+      Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-room:" <> topic)
+
       opts = if String.starts_with?(topic, "applet:"), do: [trash: false], else: []
 
       with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
            {:ok, page_id} <- page_id(topic, socket.assigns.actor),
            {:ok, _} <- Pages.authorize(socket.assigns.actor, page_id, "node_view", opts) do
-        AnkoleWeb.PodChannel.subscribe(socket)
-        Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-room:" <> topic)
         if String.starts_with?(topic, "applet:"), do: send(self(), :track_presence)
         {:ok, assign(socket, %{page_id: page_id, room_topic: topic})}
       else
@@ -75,6 +76,16 @@ defmodule AnkoleWeb.PodRoomChannel do
           {:noreply, socket}
         ),
       else: revoke(socket)
+  end
+
+  defp page_id("run:" <> id, actor) do
+    with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
+         run when not is_nil(run) <- Ankole.AutomationJobs.get_run_record(id),
+         {:ok, job} when not is_nil(job) <-
+           Ankole.AutomationJobs.get_automation_job(run.automation_job_id),
+         {:ok, _} <- Ankole.AutomationJobs.get_applet_run(actor, job.page_id, id),
+         do: {:ok, job.page_id},
+         else: (_ -> {:error, :not_found})
   end
 
   defp page_id("table:" <> id, uid) do

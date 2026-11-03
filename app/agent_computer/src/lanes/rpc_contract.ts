@@ -24,8 +24,6 @@ import {
   BackgroundAgentJobGetRequestSchema,
   BackgroundAgentJobResponseSchema,
   BackgroundAgentJobStatusUpdateRequestSchema,
-  BackgroundAgentJobTurnItemsListRequestSchema,
-  BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
   JSONPassthroughResponseSchema,
@@ -138,12 +136,6 @@ export const rpcOperations = {
     effect: 'write',
     request: BackgroundAgentJobTurnUpsertRequestSchema,
     response: BackgroundAgentJobTurnUpsertResponseSchema
-  },
-  'background_agent_job.turn_items.list': {
-    scope: 'turn',
-    effect: 'read',
-    request: BackgroundAgentJobTurnItemsListRequestSchema,
-    response: BackgroundAgentJobTurnItemsListResponseSchema
   },
   'files.commit': { scope: 'worker_agent', request: FilesCommitRequestSchema, response: FilesCommitResponseSchema },
   'files.get': { scope: 'worker_agent', request: FilesGetRequestSchema, response: FilesGetResponseSchema },

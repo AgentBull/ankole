@@ -21,8 +21,8 @@ defmodule Ankole.Conversations.ActionCards do
     PreviewStates
   }
 
-  alias Ankole.Files
-  alias Ankole.Files.{Access, Nodes}
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
   alias Ankole.Pod.{Bases, BaseTable, Page, Pages}
   alias Ankole.Pod.Pages.Sharing
   alias Ankole.Signals.{Adapters, Binding, Signal}
@@ -91,7 +91,8 @@ defmodule Ankole.Conversations.ActionCards do
     end
   end
 
-  defp knowledge_disclosure(run, "pod.knowledge.save", id) do
+  defp knowledge_disclosure(run, kind, id)
+       when kind in ["pod.knowledge.save", "brain.object.create"] do
     with {:ok, context} <-
            Ankole.Brain.RequestContext.build(run.agent_uid, %{"signal_id" => run.signal_id}),
          {:ok, page} <- Pages.fetch(id),
@@ -100,6 +101,26 @@ defmodule Ankole.Conversations.ActionCards do
   end
 
   defp knowledge_disclosure(_run, _kind, _id), do: :ok
+
+  defp draft_action(actor, _conversation, "brain.object.create", args) do
+    with {:ok, category} <- Ankole.Brain.ObjectWrites.category(args["category"]),
+         {:ok, _} <- Pages.authorize(actor, category.id, "node_view"),
+         title when is_binary(title) and title != "" <- args["title"],
+         markdown when is_binary(markdown) <- args["markdown"],
+         {:ok, _} <- Ankole.Kernel.knowledge_parse(markdown) do
+      {:ok, category.id,
+       %{
+         "node_id" => category.id,
+         "category" => category.name,
+         "node_title" => title,
+         "markdown" => markdown,
+         "diff" => markdown
+       }, %{}}
+    else
+      nil -> {:error, :invalid_request}
+      error -> error
+    end
+  end
 
   defp draft_action(actor, _conversation, "pod.knowledge.save", args) do
     with {:ok, id} <- cast_uuid(args["node_id"], "node_id"),
@@ -323,12 +344,14 @@ defmodule Ankole.Conversations.ActionCards do
     {:error, "Unsupported action_kind: #{inspect(kind)}"}
   end
 
-  defp supported_conversation_action(%Conversation{kind: :native}, "pod.knowledge.save"), do: :ok
+  defp supported_conversation_action(%Conversation{kind: :native}, kind)
+       when kind in ["pod.knowledge.save", "brain.object.create"], do: :ok
 
-  defp supported_conversation_action(_, "pod.knowledge.save"),
-    do:
-      {:error,
-       "Shared knowledge edits require an authorized owner to confirm in Pod. Provide the proposed draft here and identify the owner; do not save it to private memory."}
+  defp supported_conversation_action(_, kind)
+       when kind in ["pod.knowledge.save", "brain.object.create"],
+       do:
+         {:error,
+          "Shared knowledge edits require an authorized owner to confirm in Pod. Provide the proposed draft here and identify the owner; do not save it to private memory."}
 
   defp supported_conversation_action(conversation, "conversation.add_participants") do
     if conversation.native_access_scope == :agent_peer or NativeRoom.protected_dm?(conversation),
@@ -537,7 +560,7 @@ defmodule Ankole.Conversations.ActionCards do
     now = DateTime.utc_now(:microsecond)
 
     with {:ok, card_id} <- cast_uuid(card_id, "card_id"),
-         :ok <- Files.lock_tree_in_tx(),
+         :ok <- Ankole.Pod.lock_tree_in_tx(),
          %ActionCard{} = snapshot <- get_card(card_id),
          {:ok, %Conversation{} = initial_conversation} <-
            Conversations.get_conversation(snapshot.conversation_id) do
@@ -583,7 +606,7 @@ defmodule Ankole.Conversations.ActionCards do
 
     with {:ok, conversation_id} <- Queries.cast_id(conversation_id),
          {:ok, card_id} <- cast_uuid(card_id, "card_id"),
-         :ok <- Files.lock_tree_in_tx(),
+         :ok <- Ankole.Pod.lock_tree_in_tx(),
          %ActionCard{conversation_id: ^conversation_id} = snapshot <- get_card(card_id) do
       resolve_native_after_tree_lock_in_tx(actor, conversation_id, snapshot, decision, now)
     else
@@ -705,7 +728,7 @@ defmodule Ankole.Conversations.ActionCards do
 
   @doc """
   Handles an external IM `action_event` targeting an `action_card:*` interaction
-  inside `Observe.accept_action_in_tx` (caller already holds Rank 2 `drive-tree`).
+  inside `Observe.accept_action_in_tx` (caller already holds Rank 2 `page-tree`).
   """
   def accept_external_in_tx(%Binding{} = binding, fact, channel, now) do
     value = get_in(fact.action || %{}, ["value"]) || %{}
@@ -891,6 +914,30 @@ defmodule Ankole.Conversations.ActionCards do
   defp apply_domain_action_in_tx(
          actor,
          _conversation,
+         %ActionCard{action_kind: "brain.object.create"} = card
+       ) do
+    with {:ok, category} <- Ankole.Brain.ObjectWrites.category(card.payload["category"]),
+         true <- category.id == card.target_node_id,
+         {:ok, parsed} <- Ankole.Kernel.knowledge_parse(card.payload["markdown"]),
+         {:ok, page} <-
+           Pages.create_in_tx(actor, %{
+             type: :knowledge,
+             parent_id: category.id,
+             title: card.payload["node_title"],
+             xml: parsed.xml,
+             metadata: parsed.metadata
+           }) do
+      {:ok, "Created Brain object \"#{page.title}\".",
+       [fn -> Pages.committed_tree(%{page: page}) end]}
+    else
+      false -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  defp apply_domain_action_in_tx(
+         actor,
+         _conversation,
          %ActionCard{action_kind: "pod.knowledge.save"} = card
        ) do
     with {:ok, page} <- Pages.lock(card.target_node_id),
@@ -953,7 +1000,7 @@ defmodule Ankole.Conversations.ActionCards do
     with {:ok, current_page} <- Pages.lock(node_id) do
       # Check human permission BEFORE CAS so an unauthorized clicker never marks the card :stale!
       required_action =
-        if current_page.type in [:file, :folder], do: "node_edit", else: "node_manage"
+        if current_page.type == :file, do: "node_edit", else: "node_manage"
 
       with {:ok, _} <- Access.authorize(actor, current_page, required_action) do
         if page_matches_preconditions?(current_page, card.preconditions, false) do
@@ -1188,8 +1235,8 @@ defmodule Ankole.Conversations.ActionCards do
     case Pages.fetch(node_id) do
       {:ok, page} ->
         required =
-          if card.action_kind == "pod.knowledge.save" or
-               (card.action_kind == "pod.page.delete" and page.type in [:file, :folder]),
+          if card.action_kind in ["pod.knowledge.save", "brain.object.create"] or
+               (card.action_kind == "pod.page.delete" and page.type == :file),
              do: "node_edit",
              else: "node_manage"
 

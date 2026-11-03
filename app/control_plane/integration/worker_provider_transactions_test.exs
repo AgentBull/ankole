@@ -7,7 +7,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.Providers.Provider
-  alias Ankole.AgentWorkers.Providers.Seed
+  alias Ankole.Upgrade202610.WorkerProviders, as: Seed
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.Plugins.Config, as: PluginConfig
   alias Ankole.Plugins.VercelWorkerProvider.Provider, as: Vercel

@@ -15,11 +15,11 @@ defmodule Ankole.AuthZ.RuntimeBoundariesTest do
 
     public_node_id = Scope.world()
     assert {:ok, member_access} = Access.for_querier(member.uid)
-    assert public_node_id in Ankole.Files.visible_node_ids(member_access.reachable)
+    assert public_node_id in Ankole.Pod.visible_node_ids(member_access.reachable)
     assert Scope.satisfied_by?(public_node_id, member.uid)
 
     assert {:ok, guest_access} = Access.for_querier(guest.uid)
-    refute public_node_id in Ankole.Files.visible_node_ids(guest_access.reachable)
+    refute public_node_id in Ankole.Pod.visible_node_ids(guest_access.reachable)
     refute Scope.satisfied_by?(public_node_id, guest.uid)
     refute Scope.satisfied_by_all?(public_node_id, [member.uid, guest.uid])
     assert {:error, :forbidden} = Scope.validate_writable(public_node_id, guest.uid)

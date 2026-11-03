@@ -27,7 +27,6 @@ defmodule Ankole.Upgrade202610 do
   alias Ankole.AppConfigure.Crypto
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.SiteConfig
-  alias Ankole.AutomationJobs.Schemas.Job
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Files
   alias Ankole.Principals.Principal
@@ -73,6 +72,7 @@ defmodule Ankole.Upgrade202610 do
       Ecto.Migrator.with_repo(Repo, fn _repo ->
         Repo.without_tenant(fn ->
           migrate_identity_provider_configurations()
+          migrate_job_recovery_metadata()
 
           with_processes(
             [{Registry, []}, {Phoenix.PubSub.Supervisor, [name: Ankole.PubSub]}, {Cache, []}],
@@ -89,6 +89,16 @@ defmodule Ankole.Upgrade202610 do
       end)
 
     :ok
+  end
+
+  defp migrate_job_recovery_metadata do
+    Repo.across_tenants(fn ->
+      from(job in "background_agent_jobs",
+        where: fragment("jsonb_exists(?, 'legacy_thread_replay')", job.metadata),
+        update: [set: [metadata: fragment("? - 'legacy_thread_replay'", job.metadata)]]
+      )
+      |> Repo.update_all([])
+    end)
   end
 
   defp migrate_authn_configurations do
@@ -625,8 +635,10 @@ defmodule Ankole.Upgrade202610 do
       with {:ok, attachments, count} <-
              convert_attachments(root, intent.agent_uid, intent.payload["attachments"] || []) do
         Repo.transact(fn repo ->
-          :ok = Files.lock_tree_in_tx()
-          :ok = Files.lock_root_ids_in_tx(Files.root_ids_for_principal(intent.agent_uid))
+          :ok = Ankole.Pod.lock_tree_in_tx()
+
+          :ok =
+            Ankole.Pod.lock_root_ids_in_tx(Ankole.Pod.root_ids_for_principal(intent.agent_uid))
 
           Intent
           |> where(
@@ -706,7 +718,7 @@ defmodule Ankole.Upgrade202610 do
             },
             else: attachment["object_id"]
 
-        case Files.create_private_file_in_tx(agent_uid, attachment["name"], stored, %{
+        case Ankole.Pod.create_private_file_in_tx(agent_uid, attachment["name"], stored, %{
                source: "sent",
                content_type: attachment["mime_type"]
              }) do
@@ -757,9 +769,16 @@ defmodule Ankole.Upgrade202610 do
   defp legacy_jobs do
     Repo.across_tenants(fn ->
       Repo.all(
-        from job in Job,
+        from job in "automation_jobs",
           where: not is_nil(job.legacy_directory_path),
-          order_by: job.id
+          order_by: job.id,
+          select: %{
+            id: job.id,
+            tenant_id: type(job.tenant_id, Ecto.UUID),
+            agent_uid: job.agent_uid,
+            drive_prefix: job.drive_prefix,
+            legacy_directory_path: job.legacy_directory_path
+          }
       )
     end)
   end
@@ -768,7 +787,7 @@ defmodule Ankole.Upgrade202610 do
   # copied arrived. A script that this run could not find or copy keeps it,
   # so a run with the right volume, or after a transient storage error,
   # copies it later.
-  defp import_job(root, %Job{} = job, report) do
+  defp import_job(root, job, report) do
     main = (local_dir = local_job_directory(root, job)) && Path.join(local_dir, "main.ts")
 
     case main && File.lstat(main) do
@@ -778,15 +797,12 @@ defmodule Ankole.Upgrade202610 do
         new_skips = Enum.take(report.skipped, length(report.skipped) - skipped_before)
 
         if Enum.all?(new_skips, fn {_path, reason} -> final_skip?(reason) end) do
-          {:ok, _} =
-            Repo.transact(fn repo ->
-              current =
-                repo.one!(from(row in Job, where: row.id == ^job.id, lock: "FOR UPDATE"),
-                  lock_identity: {"automation_jobs", job.id}
-                )
-
-              Ankole.Ash.update(current, :finish_script_import, %{})
-            end)
+          Repo.update_all(
+            from(row in "automation_jobs",
+              where: row.id == ^job.id and row.legacy_directory_path == ^job.legacy_directory_path
+            ),
+            set: [legacy_directory_path: nil]
+          )
         end
 
         %{report | jobs: report.jobs + 1}
@@ -802,7 +818,7 @@ defmodule Ankole.Upgrade202610 do
   # The legacy path is absolute in the Worker's file system and lies inside
   # the Agent Home `<worker root>/<uid>`; the same Agent Home is
   # `<root>/<uid>` here.
-  defp local_job_directory(root, %Job{agent_uid: agent_uid, legacy_directory_path: path}) do
+  defp local_job_directory(root, %{agent_uid: agent_uid, legacy_directory_path: path}) do
     case String.split(path, "/" <> agent_uid <> "/", parts: 2) do
       [_worker_root, relative] -> Path.join([root, agent_uid, relative])
       [_path] -> nil

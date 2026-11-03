@@ -77,6 +77,7 @@ export type PageDetail = PodPageReadResponse
 export type PageSharingDetail = PodPageSharingResponse
 export type PageSharing = PodPageSharingWriteData['body']['data']
 export type PageSharingUpdate = NonNullable<PodPageSharingUpdateData['body']>['data']
+export type PageDomain = NonNullable<NonNullable<PodPageListData['query']>['domain']>
 export type PageMove = NonNullable<PodPageMoveData['body']>['data']
 export type MentionCategoryParam = NonNullable<NonNullable<PodMentionCandidatesData['query']>['category']>
 export type MentionCandidatesResponse = PodMentionCandidatesResponse
@@ -90,8 +91,13 @@ export const contentKeys = {
   get lists() {
     return [...contentKeys.all, 'pages'] as const
   },
-  list: (scope: PageScope, query = '') =>
-    [...contentKeys.lists, scope, ...(query.trim() ? [query.trim()] : [])] as const,
+  list: (scope: PageScope, query = '', domain: PageDomain = 'pages') =>
+    [
+      ...contentKeys.lists,
+      scope,
+      ...(domain !== 'pages' ? [domain] : []),
+      ...(query.trim() ? [query.trim()] : [])
+    ] as const,
   children: (scope: 'space' | 'private', parentID?: string) =>
     [...contentKeys.lists, 'children', scope, parentID ?? null] as const,
   subpages: (scope: 'space' | 'private', parentID: string) =>
@@ -104,7 +110,8 @@ export const contentKeys = {
       query,
       options.exclude_subtree_of ?? null,
       options.required_action ?? 'node_view',
-      options.embeddable ?? false
+      options.embeddable ?? false,
+      options.domain ?? 'pages'
     ] as const,
   page: (id: string) => [...contentKeys.all, 'page', id] as const,
   insights: (id: string) => [...contentKeys.all, 'page', id, 'insights'] as const,
@@ -173,8 +180,8 @@ export const pageAPI = {
     podCommentRead({ path: { id, comment_id }, signal }),
   navigation: (activePageID?: string, signal?: AbortSignal) =>
     podPageNavigation({ query: { active_page_id: activePageID }, signal }),
-  list: (scope: PageScope, query = '', signal?: AbortSignal) =>
-    podPageList({ query: { scope, query: query.trim() || undefined }, signal }),
+  list: (scope: PageScope, query = '', signal?: AbortSignal, domain: PageDomain = 'pages') =>
+    podPageList({ query: { scope, domain, query: query.trim() || undefined }, signal }),
   children: (scope: 'space' | 'private', parentID?: string, cursor?: string, signal?: AbortSignal) =>
     podPageChildren({
       query: { ...(parentID ? { parent_id: parentID } : { scope }), ...(cursor ? { cursor } : {}), limit: 200 },
@@ -270,11 +277,11 @@ export const pageAPI = {
     podMentionsResolve({ body: { data: body }, signal })
 }
 
-export const pagesQuery = (scope: PageScope, query = '') => ({
-  queryKey: contentKeys.list(scope, query),
+export const pagesQuery = (scope: PageScope, query = '', domain: PageDomain = 'pages') => ({
+  queryKey: contentKeys.list(scope, query, domain),
   queryFn: ({ client, signal }: { client: QueryClient; signal: AbortSignal }) =>
     pageMetadata(client).read(
-      () => pageAPI.list(scope, query, signal),
+      () => pageAPI.list(scope, query, signal, domain),
       result => result.pages
     )
 })
@@ -406,13 +413,16 @@ export function cachedPages(client: QueryClient): Page[] {
   for (const [, data] of client.getQueriesData<{
     pages?: Page[] | { pages: Page[] }[]
     path?: Page[]
+    ancestors?: Page[]
+    page?: Page
   }>({
-    queryKey: contentKeys.lists
+    queryKey: contentKeys.all
   })) {
     for (const item of data?.pages ?? []) {
       for (const page of 'pages' in item ? item.pages : [item]) pages.set(page.id, page)
     }
-    for (const page of data?.path ?? []) pages.set(page.id, page)
+    for (const page of [...(data?.path ?? []), ...(data?.ancestors ?? [])]) pages.set(page.id, page)
+    if (data?.page) pages.set(data.page.id, data.page)
   }
   return [...pages.values()]
 }

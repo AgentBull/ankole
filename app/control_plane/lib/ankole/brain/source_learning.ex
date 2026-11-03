@@ -55,9 +55,12 @@ defmodule Ankole.Brain.SourceLearning do
          true <- is_nil(page.deleted_at) and page.revision == expected_revision,
          true <- Ankole.Brain.Knowledge.extractable?(page) and not facts_current?(page),
          {:ok, extraction} <- extract_excerpts(page.id, page.title, text_excerpts(page.body)) do
-      Repo.transact_top_level(fn ->
-        commit_page_run_in_tx(page_id, expected_revision, extraction)
-      end)
+      Repo.transact_top_level(
+        fn ->
+          commit_page_run_in_tx(page_id, expected_revision, extraction)
+        end,
+        after_commit: &Ankole.Brain.Namespace.committed/1
+      )
     else
       false -> {:error, :stale_run}
       error -> error
@@ -66,9 +69,9 @@ defmodule Ankole.Brain.SourceLearning do
 
   @doc "Commits extracted facts only while the source page is live at the captured revision."
   def commit_page_run_in_tx(page_id, expected_revision, extraction) do
-    Ankole.Files.Nodes.lock_tree(shared: true)
+    Ankole.Pod.Pages.Tree.lock_tree(shared: true)
 
-    with {:ok, node} <- Ankole.Files.Nodes.lock(page_id),
+    with {:ok, node} <- Ankole.Pod.Pages.Tree.lock(page_id),
          true <- is_nil(node.deleted_at),
          {:ok, page} <- Objects.get_by_slug(page_id),
          true <-
@@ -167,7 +170,10 @@ defmodule Ankole.Brain.SourceLearning do
       fingerprint: fingerprint
     }
 
-    result = Repo.transact_top_level(fn -> commit_run_in_tx(run) end)
+    result =
+      Repo.transact_top_level(fn -> commit_run_in_tx(run) end,
+        after_commit: &Ankole.Brain.Namespace.committed/1
+      )
 
     with {:ok, %{rejected: rejected} = report} <- result do
       if rejected > 0 do

@@ -85,19 +85,25 @@ Application.ensure_all_started(:postgrex)
       [tenant, UUIDv7.autogenerate()]
     )
 
-    Repo.with_tenant(tenant, fn ->
-      {:ok, _} =
-        Repo.transact(fn ->
-          {:ok, root} = Ankole.Files.Nodes.ensure_public_root_in_tx()
+    brain_id = UUIDv7.autogenerate()
 
-          Ankole.Files.Nodes.create_in_tx(%{
-            parent_id: root.id,
-            name: "AnkoleBrain",
-            kind: :folder,
-            created_by: Ankole.ActorRef.from_principal(%{tenant_id: tenant, uid: "system"})
-          })
-        end)
-    end)
+    repo.query!(
+      """
+      INSERT INTO drive_nodes(tenant_id,id,parent_id,name,kind,acl_anchor_id,inherit_permissions,
+        has_local_acl,mode,created_at,updated_at)
+      SELECT tenant_id,$2::text::uuid,id,'AnkoleBrain','folder',acl_anchor_id,true,false,420,now(),now()
+      FROM drive_nodes WHERE tenant_id=$1::text::uuid AND parent_id IS NULL
+        AND private_owner_uid IS NULL AND conversation_id IS NULL
+      """,
+      [tenant, brain_id]
+    )
+
+    repo.query!(
+      """
+      INSERT INTO pages(tenant_id,id,title,created_at,updated_at) VALUES($1::text::uuid,$2::text::uuid,'AnkoleBrain',now(),now())
+      """,
+      [tenant, brain_id]
+    )
 
     alias Ankole.AIAgent.Library.{Contracts, SourceReader}
     owner = "migration-owner@example.com"
@@ -168,7 +174,30 @@ Application.ensure_all_started(:postgrex)
       end
     end
 
-    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, to: 20_261_102_025_000, log: false)
+    {:ok, sources} = Ankole.AIAgent.Library.shipped_skill_sources()
+    builtin = Enum.find(sources, &(is_nil(&1.metadata["agent_plugin_id"]) and &1.default_enabled))
+
+    for {uid, enabled} <- [{"migration-default", false}, {"migration-custom", true}] do
+      repo.query!(
+        "INSERT INTO agent_skills(tenant_id,id,agent_uid,skill_name,source_kind,relative_path,enabled_override,default_enabled,description,content_hash,inserted_at,updated_at) VALUES($1::text::uuid,$2::text::uuid,$3,$4,'builtin',$4,$5,true,'Legacy shipped Skill','old',now(),now())",
+        [tenant, UUIDv7.autogenerate(), uid, builtin.name, enabled]
+      )
+    end
+
+    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, to: 20_261_103_020_000, log: false)
+
+    assert [[false, state]] =
+             repo.query!("SELECT enabled_for_all,upstream_state FROM skills WHERE slug=$1", [
+               builtin.name
+             ]).rows
+
+    assert state["upstream_base_hash"] == builtin.source_hash
+
+    assert [["migration-custom"], ["migration-personal"]] =
+             repo.query!(
+               "SELECT b.agent_uid FROM agent_skills b JOIN skills s ON s.id=b.skill_id AND s.tenant_id=b.tenant_id WHERE s.slug=$1 ORDER BY b.agent_uid",
+               [builtin.name]
+             ).rows
 
     assert [[nil, nil]] =
              repo.query!(
@@ -210,12 +239,12 @@ Application.ensure_all_started(:postgrex)
 
     assert [[private_id, "system (2)"]] =
              repo.query!(
-               "SELECT n.id::text,n.name FROM drive_nodes n JOIN page_contents c ON c.page_id=n.id AND c.tenant_id=n.tenant_id WHERE n.parent_id=$1::text::uuid AND c.plain_text LIKE '%Private current%'",
+               "SELECT n.id::text,n.name FROM pages n JOIN page_contents c ON c.page_id=n.id AND c.tenant_id=n.tenant_id WHERE n.parent_id=$1::text::uuid AND c.plain_text LIKE '%Private current%'",
                [mixed]
              ).rows
 
     assert [[false]] =
-             repo.query!("SELECT inherit_permissions FROM drive_nodes WHERE id=$1::text::uuid", [
+             repo.query!("SELECT inherit_permissions FROM pages WHERE id=$1::text::uuid", [
                private_id
              ]).rows
 
@@ -242,9 +271,9 @@ Application.ensure_all_started(:postgrex)
              ).rows
 
     assert [[1]] =
-             repo.query!("SELECT count(*) FROM drive_nodes WHERE system_key='ankole_brain'").rows
+             repo.query!("SELECT count(*) FROM pages WHERE system_key='ankole_brain'").rows
 
-    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, to: 20_261_102_030_000, log: false)
+    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, to: 20_261_103_020_000, log: false)
 
     canonical = fn content ->
       {:ok, parsed} = Ankole.Kernel.knowledge_parse(content)
@@ -259,6 +288,10 @@ Application.ensure_all_started(:postgrex)
             {"migration-personal", personal_documents, true}
           ] do
         {:ok, effective} = Contracts.effective(uid)
+        {:ok, local_agents} = Contracts.get(uid, :agents)
+        {:ok, local_design} = Contracts.get(uid, :design)
+        if uid == "migration-default", do: assert(is_nil(local_agents))
+        if uid != "migration-custom", do: assert(is_nil(local_design))
 
         custom_confidentiality =
           if documents["ConfidentialityPolicy.md"] ==
@@ -273,13 +306,15 @@ Application.ensure_all_started(:postgrex)
 
         assert effective["agents"]["content"] == canonical.(prior_agents)
         assert effective["design"]["content"] == canonical.(documents["DESIGN.md"])
-        {:ok, agents} = Ankole.AIAgent.Library.Knowledge.system_node("ankole_brain_agents")
-        {:ok, page} = Ankole.AIAgent.Library.Knowledge.child(agents.id, uid)
+        {:ok, agents} = Ankole.Brain.Namespace.system_node("ankole_brain_agents")
+        {:ok, page} = Ankole.Brain.Namespace.child(agents.id, uid)
         assert page.inherit_permissions == not private?
-        if uid == "migration-default", do: assert(Ankole.Files.Nodes.list_children(page.id) == [])
+
+        if uid == "migration-default",
+          do: assert(Ankole.Pod.Pages.Tree.list_children(page.id) == [])
       end
 
-      {:ok, root} = Ankole.AIAgent.Library.Knowledge.root()
+      {:ok, root} = Ankole.Brain.Namespace.root()
       refute root.inherit_permissions
     end)
 

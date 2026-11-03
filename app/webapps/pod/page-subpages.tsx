@@ -1,4 +1,4 @@
-import { canCreateChild } from './state/page-location'
+import { canCreateChild, canRenamePage } from './state/page-location'
 import { BdiLabel } from '../common/bidi-file-name'
 import { stripBidi } from '../common/bidi'
 import { formatFileBytes } from '../common/file-format'
@@ -79,6 +79,7 @@ import { PageRenameField } from './page-navigation'
 import { updatePageMetadata } from './state/navigation-cache'
 import {
   PageSubpagesModel,
+  isDocumentBodyEmpty,
   fileExtensionBadge,
   sortSubpages,
   type SubpageField,
@@ -125,7 +126,7 @@ export function DocumentSubpages({
   const sort = model.sort.value
 
   const hasPotentialChildren = detail.child_count > 0
-  const showEmpty = page.type === 'folder'
+  const showEmpty = isDocumentBodyEmpty(detail.content?.content ?? '<page/>')
   const canCreate = canCreateChild({ ...page, actions: detail.actions })
   const subpages = useInfiniteQuery({
     ...pageSubpagesQuery(scope, page.id),
@@ -450,22 +451,12 @@ export function DocumentSubpages({
                   <span>{t('pod.subpages.new_subpage')}</span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-40">
-                  <DropdownMenuItem onClick={() => void createChild.submit('folder')}>
-                    <PageIcon page={{ type: 'folder' }} />
-                    {typeLabels.folder}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void createChild.submit('doc')}>
-                    <PageIcon page={{ type: 'doc' }} />
-                    {typeLabels.doc}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void createChild.submit('knowledge')}>
-                    <PageIcon page={{ type: 'knowledge' }} />
-                    {typeLabels.knowledge}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void createChild.submit('base')}>
-                    <PageIcon page={{ type: 'base' }} />
-                    {typeLabels.base}
-                  </DropdownMenuItem>
+                  {(page.type === 'knowledge' ? (['knowledge'] as const) : (['doc', 'base'] as const)).map(type => (
+                    <DropdownMenuItem key={type} onClick={() => void createChild.submit(type)}>
+                      <PageIcon page={{ type }} />
+                      {typeLabels[type]}
+                    </DropdownMenuItem>
+                  ))}
                 </DropdownMenuContent>
               </DropdownMenu>
             </>
@@ -615,7 +606,8 @@ function SubpageListRow({
   const { t } = useTranslation()
   const pageHref = usePageHref()
   const client = useQueryClient()
-  const [renaming, setRenaming] = useState(false)
+  const [renameRequested, setRenaming] = useState(false)
+  const renaming = renameRequested && canRenamePage(item)
   const [moving, setMoving] = useState(false)
   const keepFocusInRow = useRef(false)
   const menuFinalFocus = () => {
@@ -725,7 +717,8 @@ function SubpageGridCard({
   const { t } = useTranslation()
   const pageHref = usePageHref()
   const client = useQueryClient()
-  const [renaming, setRenaming] = useState(false)
+  const [renameRequested, setRenaming] = useState(false)
+  const renaming = renameRequested && canRenamePage(item)
   const [moving, setMoving] = useState(false)
   const keepFocusInCard = useRef(false)
   const menuFinalFocus = () => {

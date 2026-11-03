@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { listAgentLibraryDocumentsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { ErrorBlock } from '../../common/error-block'
 
-/** Agent contracts are edited at their source pages in the Pod. */
+/** The Console previews the effective contracts managed in Meta Ankole. */
 export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
   const { t } = useTranslation()
   const documents = useQuery(listAgentLibraryDocumentsOptions({ path: { agent_uid: agentUID } }))
@@ -23,15 +23,9 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
           {(['agents', 'design'] as const).map(kind => (
             <li key={kind} className="grid gap-2">
               <span className="font-medium">{kind === 'agents' ? 'AGENTS.md' : 'DESIGN.md'}</span>
-              <ol className="list-inside list-decimal space-y-1">
-                {documents.data.library_documents[kind].page_urls.map((url, index) => (
-                  <li key={url}>
-                    <a href={url} className="text-sm underline underline-offset-4">
-                      {t('console.agent_library.open_source', { index: index + 1 })}
-                    </a>
-                  </li>
-                ))}
-              </ol>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded border border-border p-3 text-xs">
+                {documents.data.library_documents[kind].content}
+              </pre>
             </li>
           ))}
         </ul>

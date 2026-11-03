@@ -1,3 +1,4 @@
+import type { ReadonlySignal } from '@preact/signals-react'
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuItem,
@@ -33,13 +34,14 @@ import {
   loadDocumentReferences
 } from './state/document-export'
 import type { DocumentToolsModel } from './state/document-tools-model'
-import type { PageDraftModel } from './state/page-draft'
+import type { DocumentDraftModel } from './state/document-draft'
 
 type Tools = InstanceType<typeof DocumentToolsModel>
 
 export function DocumentMenuItems({
   detail,
   draft,
+  title,
   model,
   openInsights,
   openComments,
@@ -47,8 +49,9 @@ export function DocumentMenuItems({
   mobile
 }: {
   detail: PageDetail
-  draft: InstanceType<typeof PageDraftModel>
+  draft: InstanceType<typeof DocumentDraftModel>
   model: Tools
+  title: ReadonlySignal<string>
   openInsights(): void
   openComments(): void
   openHistory?: () => void
@@ -61,13 +64,13 @@ export function DocumentMenuItems({
   const copy = async (format: 'markdown' | 'text') => {
     try {
       const xml = draft.xml.value
-      const title = draft.title.value
+      const heading = title.value
       const content = Promise.all([
         loadDocumentReferences(client, [xml]),
         loadDocumentPrincipals([xml], detail.page.id)
       ]).then(([references, principals]) =>
         format === 'markdown'
-          ? documentMarkdownForExport(detail.page.id, xml, title, detail.page.icon, references, principals)
+          ? documentMarkdownForExport(detail.page.id, xml, heading, detail.page.icon, references, principals)
           : documentPlainTextForCopy(detail.page.id, xml, references, principals)
       )
       // Start the clipboard write in the click gesture, including while reference titles are loading.
@@ -91,7 +94,7 @@ export function DocumentMenuItems({
       await downloadDocument(client, {
         pageID: detail.page.id,
         xml: draft.xml.value,
-        title: draft.title.value,
+        title: title.value,
         icon: detail.page.icon
       })
     } catch (error) {

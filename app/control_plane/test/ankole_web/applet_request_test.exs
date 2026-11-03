@@ -23,7 +23,7 @@ defmodule AnkoleWeb.AppletRequestTest do
   test "an oversized initial buffer closes the socket and cancels the invocation before arming" do
     {conn, raw} = connection(String.duplicate("x", @max_pipeline_bytes + 1))
     task = invocation()
-    send(self(), {task.ref, :done})
+    send(self(), {task.ref, {:completed, :done}})
 
     assert_raise Bandit.TransportError, fn -> AppletRequest.await(conn, task) end
 
@@ -39,7 +39,7 @@ defmodule AnkoleWeb.AppletRequestTest do
     {conn, raw} = connection(initial)
     task = invocation()
     send(self(), {:tcp, raw, middle})
-    send(self(), {task.ref, :done})
+    send(self(), {task.ref, {:completed, :done}})
     send(self(), {:tcp, raw, last})
 
     assert {restored, {:ok, :done}} = AppletRequest.await(conn, task)
@@ -55,7 +55,7 @@ defmodule AnkoleWeb.AppletRequestTest do
     initial = "start:"
     {conn, raw} = connection(initial)
     task = invocation()
-    send(self(), {task.ref, :done})
+    send(self(), {task.ref, {:completed, :done}})
     send(self(), {:tcp, raw, String.duplicate("x", @max_pipeline_bytes - byte_size(initial))})
     send(self(), {:tcp, raw, "!"})
     send(self(), {:tcp, raw, "unread"})

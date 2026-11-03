@@ -867,9 +867,22 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
       end
 
     case result do
-      {:ok, %{"processQueryKey" => pqk}} when is_binary(pqk) -> {:ok, pqk}
-      {:ok, _body} -> {:ok, nil}
-      {:error, _reason} = error -> error
+      {:ok, %{"flowControlledStaffIdList" => [_ | _]} = body} ->
+        {:error,
+         %DingTalkOpenAPI.Error{
+           reason: :rate_limited,
+           message: "per-user flow control",
+           raw: body
+         }}
+
+      {:ok, %{"processQueryKey" => pqk}} when is_binary(pqk) ->
+        {:ok, pqk}
+
+      {:ok, _body} ->
+        {:ok, nil}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

@@ -1,7 +1,8 @@
 # Signals
 
-Signals owns durable stimuli for Agent work. Every producer submits work by
-calling `Ankole.Signals.accept/1` or `Ankole.Signals.accept_in_tx/1` with a
+Signals owns durable stimuli, their subscriptions and delivery receipts. Built-in
+event sources call `Signals.Dispatch.emit/3`; direct Agent inputs use the Session
+intake contract below, calling `Ankole.Signals.accept/1` or `Ankole.Signals.accept_in_tx/1` with a
 Signal that names its source, event identity, payload facts, authorization, and
 execution target.
 
@@ -215,6 +216,13 @@ observation nor a PubSub message can fabricate a second input. Because the
 publication guard inspects only the current process's transaction state,
 transactional code must never spawn a Task to publish pending Signals.
 
+This publication contract also applies to source dispatch, webhooks, schedules,
+script emissions, background Job status changes and Workflow replay. Their
+outer transaction owners publish every accepted Signal after commit; the
+durable wakeup remains available for recovery. A cancelled cron occurrence
+records its terminal history and advances the rule to its next slot in the
+same transaction.
+
 ## Attribution and Runtime Scope
 
 When a stimulus has an accountable Principal, `sender` identifies them and
@@ -352,6 +360,67 @@ For provider message observations, `signal` exposes normalized `signal.channel`,
 allocates a public Conversation UUID, `channel` and `entry` name filter inputs
 rather than persisted database tables.
 
+## Source dispatch and Action subscriptions
+
+`Signals.Dispatch` owns three response modes. `wait_result` runs a same-Page
+Applet call within the caller's remaining request budget. `wait_accepted`
+commits a targeted Action Run and returns `{accepted, runId, coalesced}`.
+`fire_and_forget` delivers a source event to every matching Binding, committing
+receipts and work before acknowledging the source. Durable sources use
+`emit(reference, event, response_mode: :fire_and_forget)`; Applet capabilities
+enter the same dispatcher with their authenticated Page and execution Principal.
+
+Bindings support `action` with an `automation_job_id`, in addition to Agent
+routing. Built-in source references are `schedule://`, `scheduled-event://`,
+`webhook-endpoint://`, `base://`, `applet://` and `job://`. The source owner
+maintains its default `internal` Binding through its normal create/edit API;
+additional subscriptions use `/api/v2/pod/signal-bindings` or `bindings.*` Pod
+RPCs. Source access and target Page/Job access are checked independently.
+Ankole indexes source Bindings by `(tenant_id, config_ref, id)`. Dispatch reads
+distinct destination Jobs in one batch before preparing deliveries.
+An Agent script's `emitEvent` uses its `job://` source, whose default Binding
+targets its owning Session; additional Bindings can start Actions from the same
+event. Durable Applet Action emissions also use their `job://` source. Dispatch
+locks the emitting Job with its destination Jobs and checks the live attempt
+before committing its deliveries. Applet `signals.emit` without `targetJobId`
+accepts a stable business `id` for retry deduplication and an optional `subject` for filtering; the root
+`signal_id` remains a generated UUID. Emissions from a Job inherit that Job's
+WorkAccess, while interactive emissions inherit the original caller's WorkAccess.
+Using an `admin` capability changes the resource execution Principal without
+changing this authorization provenance. Migrated private Session targets resolve through their recorded long-lived
+owner before intake. An orphaned owner fails delivery without consuming the source.
+The Console adapter editor lists provider Bindings; source-owned defaults remain
+in their owning Schedule or Webhook management flow.
+
+Dispatch sets `source` to `ankole:schedule:<id>`, `ankole:webhook:<id>`,
+`ankole:base:<table_id>`, `ankole:applet:<page_id>`, or `ankole:job:<job_id>`.
+Agent Session intake preserves that source. An enabled source cannot bind the
+same Agent and target twice. When a source targets two different Sessions of one
+Agent, its delivered event IDs include `:binding:<binding_id>` to preserve both
+deliveries under the Session intake identity constraint.
+
+`signal_binding_receipts` deduplicates `(tenant, binding, source, event_id)` for
+seven days, recording the root Signal ID and the delivered Run or Session Signal.
+Schedule history keeps its receipts beyond that window. Cleanup checks Schedule
+references in one query per batch of up to 1,000 expired receipts, advances by
+the receipt primary key, and deletes expired rows in atomic Ash batches. Migrated
+cron deliveries share their rule's Binding; terminal one-shot history uses a
+disabled archival Binding so its receipts remain readable.
+Cancelled Jobs and Jobs whose Human authorization was revoked do not receive new
+events; other enabled subscriptions continue to receive the source event. Every fanout transaction
+locks the source and destination Human authorizers, target Jobs in ID order,
+Bindings, all receipts, and then all target Session
+queues and Signals. It compares prepared Job and Binding snapshots under those
+locks before committing. Applet execution and concurrency-key evaluation happen
+outside the database transaction. Dispatch normalizes the complete event to JSON
+values before filtering and evaluates each Action delivery's concurrency key
+against the event that its Binding actually receives.
+
+For Base changes, `watched_field_ids` selects matching rows by each row's changed
+field IDs. A delete remains eligible and carries its saved business unique key.
+The filter never combines fields from separate rows. Source delivery retries
+reuse the committed batch ID, so Outbox recovery cannot duplicate a delivery.
+
 ## CloudEvents HTTP Intake
 
 Operators provision a CloudEvents Endpoint through
@@ -414,10 +483,10 @@ writes any Signal or wakeup job. Binary-mode CloudEvents and `data_base64` are
 not supported; sending `data_base64` returns HTTP 422 with
 `unsupported_cloudevent_binary_data`.
 
-Ankole evaluates all enabled, available Bindings on the Endpoint inside a single
-transaction, calling `Signals.accept_in_tx/1` for each match so that multiple
-matching Agents receive independent Signals carrying the original `source` and
-`id`. If routing fails for any subscriber, the entire fanout rolls back.
+Ankole evaluates enabled, available Endpoint Bindings and dispatches all matched
+Actions and Agent Sessions in one transaction. Session Signals carry the
+Endpoint-owned `ankole:webhook:<id>` source and the producer event ID, with a
+Binding suffix when two Sessions of the same Agent match. If routing fails for any subscriber, the entire fanout rolls back.
 Producer redeliveries return the already created Signal IDs without mutating
 stored facts, and events that match zero filters return an ignored `202`
 response.
@@ -462,6 +531,10 @@ other headers. Ankole redacts both CloudEvents and raw capability tokens in
 request logs, and any upstream proxy or CDN must redact those URL paths in its
 access logs as well.
 
+The callback reader counts bytes across every HTTP body fragment. A valid
+chunked body within the limit is accepted; cumulative overflow returns HTTP 413
+and a body transport error returns HTTP 400.
+
 When a callback arrives, `Ankole.Signals.Webhooks` locks the Endpoint and
 commits a `webhook.received` Signal before returning HTTP 204. Standing raw
 Endpoints assign each delivery a fresh event ID with at-least-once semantics,
@@ -472,10 +545,9 @@ tokens return 404.
 Passing `--automation-job-id <id>` to `create-webhook-cli` binds the raw
 Endpoint to an active Automation Job owned by the same Agent so each callback
 starts a durable Job run with the same receipt envelope.
-`Signals.Trigger.deliver_in_tx/4` shares this Signal-or-AutomationJob dispatch
-path across Webhook and Schedule triggers. Because the Endpoint uses strong
-foreign keys and cannot be rebound, changing targets requires cancelling the
-Endpoint and creating a new one; see [Automation Jobs](AutomationJobs.md).
+`Signals.Dispatch` shares its Binding and receipt path across Webhook and
+Schedule triggers. The Endpoint creation flow stores its default Binding in the
+same transaction; see [Automation Jobs](AutomationJobs.md).
 
 A capability URL authorizes only stimulus delivery—its body and headers remain
 untrusted input, so an Agent must read authoritative state from the external

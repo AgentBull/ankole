@@ -9,7 +9,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
   alias AnkoleWeb.Session, as: WebSession
   alias AnkoleWeb.SessionCookies
 
-  test "a native browser upload creates no Pod properties; its attachment-only Message and frozen download survive reads",
+  test "a native browser upload stages bytes, then creates a conversation file Page with a frozen download",
        %{conn: conn} do
     {conn, uid} = console_conn_with_principal(conn)
     agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: uid}).principal
@@ -19,14 +19,14 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     File.write!(local, bytes)
     on_exit(fn -> File.rm(local) end)
     upload = %Plug.Upload{path: local, filename: "brief.txt", content_type: "text/plain"}
-    count = Repo.aggregate(Ankole.Pod.Properties, :count)
+    count = Repo.aggregate(Ankole.Pod.Page, :count)
 
     result =
       post(conn, "/api/v2/pod/attachments", %{file: upload, fileID: Ecto.UUID.generate()})
 
     receipt = Phoenix.ConnTest.json_response(result, 200)["receipt"]
     assert is_binary(receipt)
-    assert Repo.aggregate(Ankole.Pod.Properties, :count) == count
+    assert Repo.aggregate(Ankole.Pod.Page, :count) == count
 
     id = Ecto.UUID.generate()
     message_id = Ecto.UUID.generate()
@@ -88,7 +88,10 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     assert response(outside, 416)
     assert get_resp_header(outside, "content-range") == ["bytes */#{byte_size(bytes)}"]
 
-    assert Repo.aggregate(Ankole.Pod.Properties, :count) == count
+    assert {:ok, root} = Ankole.Pod.conversation_root(id)
+    assert {:ok, %{type: :file, parent_id: parent_id}} = Pages.fetch(attachment["node_id"])
+    assert parent_id == root.id
+    assert Repo.aggregate(Ankole.Pod.Page, :count) == count + 2
     assert Repo.aggregate(Message, :count) == 1
   end
 

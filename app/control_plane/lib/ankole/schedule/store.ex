@@ -3,10 +3,18 @@ defmodule Ankole.Schedule.Store do
 
   require Ash.Query
 
+  alias Ankole.Repo
   alias Ankole.Sessions.Jobs.FireScheduledEvent
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
+
+  def reserve_event_id do
+    [[id]] =
+      Repo.query!("SELECT nextval(pg_get_serial_sequence('scheduled_events', 'id'))", []).rows
+
+    id
+  end
 
   @spec insert_idempotent_event_and_wake_in_tx(map(), keyword()) ::
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
@@ -15,7 +23,18 @@ defmodule Ankole.Schedule.Store do
     with {:ok, persisted} <- create_event(attrs, :schedule_event) do
       case Ash.Resource.get_metadata(persisted, :upsert_action) do
         :insert ->
-          with {:ok, _job} <- insert_wake_job(persisted, opts) do
+          with :ok <-
+                 if(persisted.kind == "check_back_later",
+                   do:
+                     Ankole.Signals.put_source_binding_in_tx(
+                       "scheduled-event://#{persisted.id}",
+                       persisted.agent_uid,
+                       persisted.session_id,
+                       Map.get(attrs, :automation_job_id)
+                     ),
+                   else: :ok
+                 ),
+               {:ok, _job} <- insert_wake_job(persisted, opts) do
             {:ok, %{status: :scheduled, scheduled_event: persisted}}
           end
 
@@ -26,7 +45,10 @@ defmodule Ankole.Schedule.Store do
   end
 
   def create_event(attrs, action \\ :create_event),
-    do: Ankole.Ash.create(ScheduledEvent, action, attrs, touch_update_defaults?: false)
+    do:
+      Ankole.Ash.create(ScheduledEvent, action, Map.delete(attrs, :automation_job_id),
+        touch_update_defaults?: false
+      )
 
   @doc "Locks the scheduled events that a query selects and cancels them."
   @spec cancel_matching_in_tx(Ash.Query.t(), DateTime.t(), String.t()) ::
@@ -99,6 +121,13 @@ defmodule Ankole.Schedule.Store do
   @spec lock_cron_schedule(Ecto.UUID.t(), :current | pos_integer() | nil) ::
           CronSchedule.t() | nil | {:error, :cron_schedule_changed}
   def lock_cron_schedule(cron_schedule_id, automation_job_id \\ :current) do
+    if automation_job_id != :prepared,
+      do:
+        Ankole.Signals.lock_source_bindings_in_tx(
+          "schedule://#{cron_schedule_id}",
+          if(is_integer(automation_job_id), do: automation_job_id)
+        )
+
     case get_cron_schedule(cron_schedule_id) do
       nil ->
         nil
@@ -106,14 +135,15 @@ defmodule Ankole.Schedule.Store do
       %CronSchedule{} = snapshot ->
         consumer =
           if automation_job_id == :current,
-            do: snapshot.automation_job_id,
+            do: Ankole.Signals.source_automation_job_id(snapshot),
             else: automation_job_id
 
-        if consumer, do: Ankole.AutomationJobs.lock_job_in_tx(consumer)
+        if is_integer(consumer), do: Ankole.AutomationJobs.lock_job_in_tx(consumer)
         schedule = lock_cron_row(cron_schedule_id)
 
         if automation_job_id == :current and not is_nil(schedule) and
-             schedule.automation_job_id != snapshot.automation_job_id,
+             Ankole.Signals.source_automation_job_id(schedule) !=
+               Ankole.Signals.source_automation_job_id(snapshot),
            do: {:error, :cron_schedule_changed},
            else: schedule
     end

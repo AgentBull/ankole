@@ -48,6 +48,66 @@ import type {
   GetPodActionCardData,
   GetPodActionCardErrors,
   GetPodActionCardResponses,
+  MetaAgentContractsData,
+  MetaAgentContractsErrors,
+  MetaAgentContractsResponses,
+  MetaAgentData,
+  MetaAgentErrors,
+  MetaAgentResponses,
+  MetaAgentsData,
+  MetaAgentsErrors,
+  MetaAgentsResponses,
+  MetaBrainData,
+  MetaBrainErrors,
+  MetaBrainResponses,
+  MetaCreateAgentData,
+  MetaCreateAgentErrors,
+  MetaCreateAgentResponses,
+  MetaCreateSkillData,
+  MetaCreateSkillErrors,
+  MetaCreateSkillResponses,
+  MetaDeleteSkillData,
+  MetaDeleteSkillErrors,
+  MetaDeleteSkillResponses,
+  MetaGlobalContractsData,
+  MetaGlobalContractsErrors,
+  MetaGlobalContractsResponses,
+  MetaImportSkillData,
+  MetaImportSkillErrors,
+  MetaImportSkillResponses,
+  MetaSaveAgentContractData,
+  MetaSaveAgentContractErrors,
+  MetaSaveAgentContractResponses,
+  MetaSaveGlobalContractData,
+  MetaSaveGlobalContractErrors,
+  MetaSaveGlobalContractResponses,
+  MetaSaveSkillData,
+  MetaSaveSkillErrors,
+  MetaSaveSkillResponses,
+  MetaSkillChangeFileData,
+  MetaSkillChangeFileErrors,
+  MetaSkillChangeFileResponses,
+  MetaSkillData,
+  MetaSkillErrors,
+  MetaSkillFileData,
+  MetaSkillFileErrors,
+  MetaSkillFileResponses,
+  MetaSkillPutFileData,
+  MetaSkillPutFileErrors,
+  MetaSkillPutFileResponses,
+  MetaSkillResponses,
+  MetaSkillsData,
+  MetaSkillsErrors,
+  MetaSkillSetAllData,
+  MetaSkillSetAllErrors,
+  MetaSkillSetAllResponses,
+  MetaSkillSetBindingData,
+  MetaSkillSetBindingErrors,
+  MetaSkillSetBindingResponses,
+  MetaSkillsResponses,
+  MetaUpdateAgentData,
+  MetaUpdateAgentErrors,
+  MetaUpdateAgentResponses,
   PodAdminAgentsData,
   PodAdminAgentsErrors,
   PodAdminAgentsResponses,
@@ -66,6 +126,24 @@ import type {
   PodAgentsData,
   PodAgentsErrors,
   PodAgentsResponses,
+  PodAppletJobConfigureData,
+  PodAppletJobConfigureErrors,
+  PodAppletJobConfigureResponses,
+  PodAppletJobCreateData,
+  PodAppletJobCreateErrors,
+  PodAppletJobCreateResponses,
+  PodAppletJobDeleteData,
+  PodAppletJobDeleteErrors,
+  PodAppletJobDeleteResponses,
+  PodAppletJobsData,
+  PodAppletJobsErrors,
+  PodAppletJobsResponses,
+  PodAppletOwnerData,
+  PodAppletOwnerErrors,
+  PodAppletOwnerResponses,
+  PodAppletRunData,
+  PodAppletRunErrors,
+  PodAppletRunResponses,
   PodBaseAggregateData,
   PodBaseAggregateErrors,
   PodBaseAggregateResponses,
@@ -87,6 +165,9 @@ import type {
   PodBaseSchemaData,
   PodBaseSchemaErrors,
   PodBaseSchemaResponses,
+  PodBaseTableConfigureData,
+  PodBaseTableConfigureErrors,
+  PodBaseTableConfigureResponses,
   PodBaseTableCreateData,
   PodBaseTableCreateErrors,
   PodBaseTableCreateResponses,
@@ -132,6 +213,12 @@ import type {
   PodEmbedsDeleteData,
   PodEmbedsDeleteErrors,
   PodEmbedsDeleteResponses,
+  PodEventBindingPutData,
+  PodEventBindingPutErrors,
+  PodEventBindingPutResponses,
+  PodEventBindingsData,
+  PodEventBindingsErrors,
+  PodEventBindingsResponses,
   PodFileCopyData,
   PodFileCopyErrors,
   PodFileCopyResponses,
@@ -506,6 +593,126 @@ export const podVersions = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAppletJobs operation on applet_job_operation resource
+ */
+export const podAppletJobs = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobsData, ThrowOnError>
+): RequestResult<PodAppletJobsResponses, PodAppletJobsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletJobsResponses, PodAppletJobsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs',
+    ...options
+  })
+
+/**
+ * podAppletJobCreate operation on applet_job_operation resource
+ */
+export const podAppletJobCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobCreateData, ThrowOnError>
+): RequestResult<PodAppletJobCreateResponses, PodAppletJobCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodAppletJobCreateResponses, PodAppletJobCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaGlobalContracts operation on meta_library resource
+ */
+export const metaGlobalContracts = <ThrowOnError extends boolean = true>(
+  options?: Options<MetaGlobalContractsData, ThrowOnError>
+): RequestResult<MetaGlobalContractsResponses, MetaGlobalContractsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<MetaGlobalContractsResponses, MetaGlobalContractsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/contracts',
+    ...options
+  })
+
+/**
+ * metaSkills operation on meta_library resource
+ */
+export const metaSkills = <ThrowOnError extends boolean = true>(
+  options?: Options<MetaSkillsData, ThrowOnError>
+): RequestResult<MetaSkillsResponses, MetaSkillsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<MetaSkillsResponses, MetaSkillsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills',
+    ...options
+  })
+
+/**
+ * metaCreateSkill operation on meta_library resource
+ */
+export const metaCreateSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaCreateSkillData, ThrowOnError>
+): RequestResult<MetaCreateSkillResponses, MetaCreateSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<MetaCreateSkillResponses, MetaCreateSkillErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaSkillFile operation on meta_library resource
+ */
+export const metaSkillFile = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSkillFileData, ThrowOnError>
+): RequestResult<MetaSkillFileResponses, MetaSkillFileErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<MetaSkillFileResponses, MetaSkillFileErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}/file',
+    ...options
+  })
+
+/**
+ * metaSkillChangeFile operation on meta_library resource
+ */
+export const metaSkillChangeFile = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSkillChangeFileData, ThrowOnError>
+): RequestResult<MetaSkillChangeFileResponses, MetaSkillChangeFileErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<MetaSkillChangeFileResponses, MetaSkillChangeFileErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}/file',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaSkillPutFile operation on meta_library resource
+ */
+export const metaSkillPutFile = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSkillPutFileData, ThrowOnError>
+): RequestResult<MetaSkillPutFileResponses, MetaSkillPutFileErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSkillPutFileResponses, MetaSkillPutFileErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}/file',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podBaseQuery operation on pod_base_operation resource
  */
 export const podBaseQuery = <ThrowOnError extends boolean = true>(
@@ -515,6 +722,36 @@ export const podBaseQuery = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}/query',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podAppletJobDelete operation on applet_job_operation resource
+ */
+export const podAppletJobDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobDeleteData, ThrowOnError>
+): RequestResult<PodAppletJobDeleteResponses, PodAppletJobDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodAppletJobDeleteResponses, PodAppletJobDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{id}',
+    ...options
+  })
+
+/**
+ * podAppletJobConfigure operation on applet_job_operation resource
+ */
+export const podAppletJobConfigure = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobConfigureData, ThrowOnError>
+): RequestResult<PodAppletJobConfigureResponses, PodAppletJobConfigureErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodAppletJobConfigureResponses, PodAppletJobConfigureErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -550,6 +787,79 @@ export const podModelProfiles = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/agents/{uid}/model-profiles',
     ...options
+  })
+
+/**
+ * podAppletOwner operation on pod_page_operation resource
+ */
+export const podAppletOwner = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletOwnerData, ThrowOnError>
+): RequestResult<PodAppletOwnerResponses, PodAppletOwnerErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodAppletOwnerResponses, PodAppletOwnerErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-owner',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaAgentContracts operation on meta_library resource
+ */
+export const metaAgentContracts = <ThrowOnError extends boolean = true>(
+  options: Options<MetaAgentContractsData, ThrowOnError>
+): RequestResult<MetaAgentContractsResponses, MetaAgentContractsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<MetaAgentContractsResponses, MetaAgentContractsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/agents/{uid}/contracts',
+    ...options
+  })
+
+/**
+ * metaDeleteSkill operation on meta_library resource
+ */
+export const metaDeleteSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaDeleteSkillData, ThrowOnError>
+): RequestResult<MetaDeleteSkillResponses, MetaDeleteSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<MetaDeleteSkillResponses, MetaDeleteSkillErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}',
+    ...options
+  })
+
+/**
+ * metaSkill operation on meta_library resource
+ */
+export const metaSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSkillData, ThrowOnError>
+): RequestResult<MetaSkillResponses, MetaSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<MetaSkillResponses, MetaSkillErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}',
+    ...options
+  })
+
+/**
+ * metaSaveSkill operation on meta_library resource
+ */
+export const metaSaveSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSaveSkillData, ThrowOnError>
+): RequestResult<MetaSaveSkillResponses, MetaSaveSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSaveSkillResponses, MetaSaveSkillErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1032,6 +1342,23 @@ export const ensurePodPersonalAssistant = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * metaSkillSetAll operation on meta_library resource
+ */
+export const metaSkillSetAll = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSkillSetAllData, ThrowOnError>
+): RequestResult<MetaSkillSetAllResponses, MetaSkillSetAllErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSkillSetAllResponses, MetaSkillSetAllErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}/all',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * requestPodEmailBinding operation on pod_member_account resource
  */
 export const requestPodEmailBinding = <ThrowOnError extends boolean = true>(
@@ -1114,6 +1441,19 @@ export const podPageChildren = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/children',
+    ...options
+  })
+
+/**
+ * podAppletRun operation on applet_job_operation resource
+ */
+export const podAppletRun = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletRunData, ThrowOnError>
+): RequestResult<PodAppletRunResponses, PodAppletRunErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletRunResponses, PodAppletRunErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/runs/{id}',
     ...options
   })
 
@@ -1210,6 +1550,36 @@ export const unbindPodCredential = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/me/credentials/{id}',
     ...options
+  })
+
+/**
+ * podEventBindings operation on event_binding_operation resource
+ */
+export const podEventBindings = <ThrowOnError extends boolean = true>(
+  options: Options<PodEventBindingsData, ThrowOnError>
+): RequestResult<PodEventBindingsResponses, PodEventBindingsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodEventBindingsResponses, PodEventBindingsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/signal-bindings',
+    ...options
+  })
+
+/**
+ * podEventBindingPut operation on event_binding_operation resource
+ */
+export const podEventBindingPut = <ThrowOnError extends boolean = true>(
+  options: Options<PodEventBindingPutData, ThrowOnError>
+): RequestResult<PodEventBindingPutResponses, PodEventBindingPutErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodEventBindingPutResponses, PodEventBindingPutErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/signal-bindings',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1413,6 +1783,19 @@ export const enablePodAgent = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * metaBrain operation on meta_brain resource
+ */
+export const metaBrain = <ThrowOnError extends boolean = true>(
+  options?: Options<MetaBrainData, ThrowOnError>
+): RequestResult<MetaBrainResponses, MetaBrainErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<MetaBrainResponses, MetaBrainErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/brain',
+    ...options
+  })
+
+/**
  * podKnowledgePanel operation on pod_page_operation resource
  */
 export const podKnowledgePanel = <ThrowOnError extends boolean = true>(
@@ -1586,6 +1969,23 @@ export const podEmbedsDelete = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/embeds/delete',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podBaseTableConfigure operation on pod_base_operation resource
+ */
+export const podBaseTableConfigure = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTableConfigureData, ThrowOnError>
+): RequestResult<PodBaseTableConfigureResponses, PodBaseTableConfigureErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodBaseTableConfigureResponses, PodBaseTableConfigureErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/tables/{id}/settings',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1791,6 +2191,23 @@ export const createConversation = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * metaImportSkill operation on meta_library resource
+ */
+export const metaImportSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaImportSkillData, ThrowOnError>
+): RequestResult<MetaImportSkillResponses, MetaImportSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<MetaImportSkillResponses, MetaImportSkillErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/import',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podPageCommentsRead operation on pod_document_comment_operation resource
  */
 export const podPageCommentsRead = <ThrowOnError extends boolean = true>(
@@ -1817,6 +2234,36 @@ export const podDocumentWrite = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/content',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaAgents operation on meta_agent resource
+ */
+export const metaAgents = <ThrowOnError extends boolean = true>(
+  options?: Options<MetaAgentsData, ThrowOnError>
+): RequestResult<MetaAgentsResponses, MetaAgentsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<MetaAgentsResponses, MetaAgentsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/agents',
+    ...options
+  })
+
+/**
+ * metaCreateAgent operation on meta_agent resource
+ */
+export const metaCreateAgent = <ThrowOnError extends boolean = true>(
+  options: Options<MetaCreateAgentData, ThrowOnError>
+): RequestResult<MetaCreateAgentResponses, MetaCreateAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<MetaCreateAgentResponses, MetaCreateAgentErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/agents',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1958,6 +2405,23 @@ export const updatePodProfile = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * metaSaveAgentContract operation on meta_library resource
+ */
+export const metaSaveAgentContract = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSaveAgentContractData, ThrowOnError>
+): RequestResult<MetaSaveAgentContractResponses, MetaSaveAgentContractErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSaveAgentContractResponses, MetaSaveAgentContractErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/agents/{uid}/contracts/{slot}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * reauthenticatePodMember operation on pod_member_account resource
  */
 export const reauthenticatePodMember = <ThrowOnError extends boolean = true>(
@@ -2002,6 +2466,53 @@ export const podPageSearch = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * metaAgent operation on meta_agent resource
+ */
+export const metaAgent = <ThrowOnError extends boolean = true>(
+  options: Options<MetaAgentData, ThrowOnError>
+): RequestResult<MetaAgentResponses, MetaAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<MetaAgentResponses, MetaAgentErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/agents/{uid}',
+    ...options
+  })
+
+/**
+ * metaUpdateAgent operation on meta_agent resource
+ */
+export const metaUpdateAgent = <ThrowOnError extends boolean = true>(
+  options: Options<MetaUpdateAgentData, ThrowOnError>
+): RequestResult<MetaUpdateAgentResponses, MetaUpdateAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<MetaUpdateAgentResponses, MetaUpdateAgentErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/agents/{uid}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaSaveGlobalContract operation on meta_library resource
+ */
+export const metaSaveGlobalContract = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSaveGlobalContractData, ThrowOnError>
+): RequestResult<MetaSaveGlobalContractResponses, MetaSaveGlobalContractErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSaveGlobalContractResponses, MetaSaveGlobalContractErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/contracts/{slot}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podSpace operation on pod_page_operation resource
  */
 export const podSpace = <ThrowOnError extends boolean = true>(
@@ -2024,6 +2535,23 @@ export const podSpaceWrite = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/space',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaSkillSetBinding operation on meta_library resource
+ */
+export const metaSkillSetBinding = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSkillSetBindingData, ThrowOnError>
+): RequestResult<MetaSkillSetBindingResponses, MetaSkillSetBindingErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSkillSetBindingResponses, MetaSkillSetBindingErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}/bindings',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

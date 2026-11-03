@@ -7,6 +7,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
   import Ecto.Query
   import Ankole.E2E.PodContentStory
 
+  alias Ankole.AIAgent.Library.{Skills, SourceReader}
   alias Ankole.AuthZ.Actor
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.E2E.PodContentBrowser, as: Browser
@@ -38,42 +39,40 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     tenant: tenant
   } do
     {ctx, owner} = Story.start!(tenant)
-    namespace = Ankole.AIAgent.Library.Knowledge
-    assert {:ok, _} = Ankole.AIAgent.Library.sync_agent_skills(ctx.agent.uid)
-    {:ok, skills} = namespace.system_node("ankole_brain_skills")
-    {:ok, skill} = namespace.child(skills.id, "brainstorming")
-
-    {:ok, :ok} =
-      Repo.transact_top_level(fn ->
-        :ok =
-          Ankole.Files.Access.put_role(%{principal_uid: owner}, "drive:**:#{skill.id}:**", "edit")
-
-        {:ok, :ok}
-      end)
-
-    assert {:ok, supplement} =
-             Pages.create(ctx.owner_actor, %{
-               type: :knowledge,
-               title: "Team pilot practice",
-               parent_id: skill.id
-             })
-
+    skill = prepare_brainstorming!(ctx, owner)
     reference = "PILOT-#{System.unique_integer([:positive])}"
 
+    assert {:ok, _} =
+             Skills.put_file(
+               ctx.owner_actor,
+               skill.slug,
+               "references/pilot.md",
+               "Pilot review reference: #{reference}. Cite this reference in the proposal.",
+               %{base_revision: skill.revision}
+             )
+
     assert {:ok, folder} =
-             Pages.create(ctx.owner_actor, %{type: :folder, title: "Pilot proposals #{reference}"})
+             Pages.create(ctx.owner_actor, %{type: :doc, title: "Pilot proposals #{reference}"})
 
     Enum.reduce([187, 263], nil, fn budget, previous ->
       practice =
-        "Team practice from pilot review #{reference}: every customer acquisition idea must include a validation plan. Each pilot has a maximum budget of #{budget} CNY. State this limit and cite the pilot review reference in the proposal."
+        "Team practice: every customer acquisition idea must include a validation plan. Each pilot has a maximum budget of #{budget} CNY. State this limit and cite the pilot review reference in the proposal."
 
-      Browser.edit_knowledge!(ctx, owner, supplement.id, practice)
+      Browser.edit_skill!(
+        ctx,
+        owner,
+        skill.slug,
+        SourceReader.skill_body(skill.manifest_markdown) <>
+          "\n\n" <>
+          practice <>
+          " Read references/pilot.md for the pilot review reference before writing the proposal."
+      )
 
       save_request =
         if previous do
-          "Update the existing knowledge page /pages/#{previous.id} to follow the current team practice. Keep the same page and give me its clickable link."
+          "Update the existing document /pages/#{previous.id} to follow the current team practice. Keep the same page and give me its clickable link."
         else
-          "Save the complete proposal as a knowledge page titled 'Pilot #{reference}' under /pages/#{folder.id} and give me its clickable link."
+          "Save the complete proposal as a document titled 'Pilot #{reference}' under /pages/#{folder.id} and give me its clickable link."
         end
 
       request =
@@ -87,10 +86,8 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
       complete_request!(ctx, input, require_job: false)
       messages = Ankole.E2E.WaitHelpers.ai_messages_for_signal(input.id)
       assert Ankole.E2E.Harness.tool_result_succeeded?(messages, "skill_view")
-      write_tool = if previous, do: "pod_save_page", else: "pod_create_page"
-      assert Ankole.E2E.Harness.tool_result_succeeded?(messages, write_tool)
-
-      proposal = Repo.get_by!(Page, parent_id: folder.id, type: :knowledge)
+      proposal = Repo.get_by!(Page, parent_id: folder.id, type: :doc)
+      assert proposal.created_by == Ankole.ActorRef.from_principal(ctx.agent)
       assert {:ok, %{content: content}} = Pages.get(ctx.owner_actor, proposal.id)
       assert content.plain_text =~ reference
       assert content.plain_text =~ to_string(budget)
@@ -100,7 +97,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
         assert proposal.revision > previous.revision
       end
 
-      Browser.knowledge!(ctx, owner, request["conversation_id"], proposal, [
+      Browser.document!(ctx, owner, request["conversation_id"], proposal, [
         reference,
         to_string(budget)
       ])
@@ -123,41 +120,50 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
   @tag timeout: 900_000
   test "a corrected supplier page and team rules produce a sourced quotation", %{tenant: tenant} do
     {ctx, owner} = Story.start!(tenant)
-    namespace = Ankole.AIAgent.Library.Knowledge
+    namespace = Ankole.Brain.Namespace
     reference = "QUOTE-#{System.unique_integer([:positive])}"
-    assert {:ok, _} = Ankole.AIAgent.Library.sync_agent_skills(ctx.agent.uid)
-    {:ok, skills} = namespace.system_node("ankole_brain_skills")
-    {:ok, skill} = namespace.child(skills.id, "brainstorming")
+    skill = prepare_brainstorming!(ctx, owner)
+
+    assert {:ok, _} =
+             Skills.put_file(
+               ctx.owner_actor,
+               skill.slug,
+               "references/quotation.md",
+               "Supplier comparisons must show unit price, minimum quantity, freight, and total cost. " <>
+                 "Cite the supplier pages and practice #{reference}.",
+               %{base_revision: skill.revision}
+             )
+
+    Browser.edit_skill!(
+      ctx,
+      owner,
+      skill.slug,
+      SourceReader.skill_body(skill.manifest_markdown) <>
+        "\n\nRead references/quotation.md before comparing supplier quotations."
+    )
+
+    assert {:ok, _} = Ankole.Brain.SchemaPacks.install_packs([])
+    assert {:ok, category} = Ankole.Brain.ObjectWrites.category("notes")
 
     assert {:ok, :ok} =
              Repo.transact_top_level(fn ->
                :ok =
-                 Ankole.Files.Access.put_role(
+                 Ankole.Pod.Access.put_role(
                    %{principal_uid: owner},
-                   "drive:**:#{skill.id}:**",
+                   "drive:**:#{category.id}:**",
                    "edit"
                  )
 
                {:ok, :ok}
              end)
 
-    assert {:ok, practice} =
-             Pages.create(ctx.owner_actor, %{
-               type: :knowledge,
-               parent_id: skill.id,
-               title: "Supplier quotation practice #{reference}",
-               xml:
-                 "<page><p>Supplier comparisons must show unit price, minimum quantity, freight, " <>
-                   "and total cost. Cite the supplier pages and practice #{reference}.</p></page>"
-             })
-
     assert {:ok, folder} =
-             Pages.create(ctx.owner_actor, %{type: :folder, title: "Suppliers #{reference}"})
+             Pages.create(ctx.owner_actor, %{type: :doc, title: "Quotations #{reference}"})
 
     assert {:ok, alpha} =
              Pages.create(ctx.owner_actor, %{
                type: :knowledge,
-               parent_id: folder.id,
+               parent_id: category.id,
                title: "Alpha #{reference}",
                xml:
                  "<page><p>Unit price 10 CNY. Minimum 20 units. Freight 41 CNY per order.</p></page>"
@@ -166,7 +172,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert {:ok, beta} =
              Pages.create(ctx.owner_actor, %{
                type: :knowledge,
-               parent_id: folder.id,
+               parent_id: category.id,
                title: "Beta #{reference}",
                xml:
                  "<page><p>Unit price 35 CNY. Minimum 20 units. Freight 19 CNY per order.</p></page>"
@@ -202,11 +208,11 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
       Browser.send_message!(ctx, owner,
         text: """
         Use our brainstorming Skill and its team quotation practice to compare the two suppliers
-        in /pages/#{folder.id} for an order of 20 units. Read their current saved terms; do not
+        in /pages/#{alpha.id} and /pages/#{beta.id} for an order of 20 units. Read their current saved terms; do not
         assume a unit price or freight cost. Recommend the cheaper offer including freight,
         show both totals and the minimum quantities, and cite both supplier pages and the team
-        practice reference. Save the comparison as a knowledge page titled "Comparison #{reference}"
-        under the same folder and give me its clickable link. No web research or background work
+        practice reference. Save the comparison as a document titled "Comparison #{reference}"
+        under /pages/#{folder.id} and give me its clickable link. No web research or background work
         is needed. You have permission to create the comparison. End the comparison with a line
         "Recommended supplier: <name>".
         """,
@@ -217,11 +223,11 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     complete_request!(ctx, input, require_job: false)
     messages = Ankole.E2E.WaitHelpers.ai_messages_for_signal(input.id)
     assert Ankole.E2E.Harness.tool_result_succeeded?(messages, "skill_view")
-    assert Ankole.E2E.Harness.tool_result_succeeded?(messages, "pod_get_page")
-    assert Ankole.E2E.Harness.tool_result_succeeded?(messages, "pod_create_page")
     refute Ankole.JSON.encode!(Ankole.E2E.Harness.tool_results(messages)) =~ secret
 
     comparison = Repo.get_by!(Page, title: "Comparison #{reference}", parent_id: folder.id)
+    assert comparison.type == :doc
+    assert comparison.created_by == Ankole.ActorRef.from_principal(ctx.agent)
     assert {:ok, %{content: content}} = Pages.get(ctx.owner_actor, comparison.id)
 
     for fact <- ["Alpha", "Beta", "681", "719", "20"],
@@ -229,7 +235,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
     assert content.plain_text =~ "Recommended supplier: Alpha"
 
-    for source <- [alpha, beta, practice],
+    for source <- [alpha, beta],
         do:
           assert(
             String.contains?(content.content, [
@@ -238,7 +244,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
             ])
           )
 
-    Browser.knowledge!(ctx, owner, request["conversation_id"], comparison, [
+    Browser.document!(ctx, owner, request["conversation_id"], comparison, [
       reference,
       "681",
       "719"
@@ -490,7 +496,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert Enum.any?(followup_jobs, &String.contains?(&1.task, report.id)),
            "Page chat did not pass the stable current Page to its real Agent Job"
 
-    assert Repo.get!(Page, report.id).revision > report.revision
+    assert Repo.get_by!(Page, id: report.id).revision > report.revision
     assert_base_reference(updated.content, ledger.id)
     assert Regex.match?(~r/<embed\b[^>]*\bref="#{applet.id}"/, updated.content)
     assert {:ok, %{records: ^after_human}} = Bases.query(ctx.owner_actor, table.id, %{})
@@ -596,7 +602,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
     assert {:ok, _} = Pages.authorize(Actor.new(ctx.agent), shelf.id, "page_edit")
     assert {:error, :forbidden} = Pages.authorize(Actor.new(ctx.agent), shelf.id, "page_manage")
-    assert is_nil(Repo.get!(Page, note.id).parent_id)
+    assert is_nil(Repo.get_by!(Page, id: note.id).parent_id)
     assert Repo.get!(PageContent, note.id).content == original.content
 
     move_request =
@@ -611,7 +617,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
     move_input = Repo.get_by!(Signal, message_id: move_request["message_id"])
     moved_completion = complete_request!(ctx, move_input, require_job: false)
-    moved = Repo.get!(Page, note.id)
+    moved = Repo.get_by!(Page, id: note.id)
     assert moved.parent_id == shelf.id
     assert Repo.get!(PageContent, note.id).content == original.content
     assert {:ok, _} = Pages.authorize(Actor.new(ctx.agent), note.id, "page_edit")
@@ -620,7 +626,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert %{role: "edit"} = Enum.find(moved_agents, &(&1.principal_uid == ctx.agent.uid))
     assert Repo.aggregate(from(p in Page, where: p.type == :doc), :count) == 2
     assert Repo.aggregate(from(p in Page, where: p.type == :applet), :count) == 1
-    assert Repo.get!(Page, applet.id).parent_id == shelf.id
+    assert Repo.get_by!(Page, id: applet.id).parent_id == shelf.id
     refute Repo.exists?(from p in Page, where: p.type == :base)
 
     detail =
@@ -707,7 +713,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     edited = Repo.get!(PageContent, report.id)
     assert edited.plain_text =~ human_edit["saved_marker"]
     assert edited.updated_by.uid == owner
-    assert Repo.get!(Page, report.id).revision > report.revision
+    assert Repo.get_by!(Page, id: report.id).revision > report.revision
 
     IO.puts(
       "Pod research default-Page verified: page=#{report.id} source=#{source} no_requested_output_format=true"
@@ -813,7 +819,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
              )
 
     assert human_data[stock.id] == 3
-    published_revision = Repo.get!(Page, applet.id).revision
+    published_revision = Repo.get_by!(Page, id: applet.id).revision
 
     followup =
       Browser.send_message!(ctx, owner,
@@ -829,7 +835,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
     followup_input = Repo.get_by!(Signal, message_id: followup["message_id"])
     followup_completion = complete_request!(ctx, followup_input, require_job: false)
-    assert Repo.get!(Page, applet.id).revision > published_revision
+    assert Repo.get_by!(Page, id: applet.id).revision > published_revision
     assert Repo.aggregate(from(p in Page, where: p.type == :applet), :count) == 1
     assert {:ok, %{records: [retained]}} = Bases.query(ctx.owner_actor, table.id, %{})
     assert retained["id"] == record["id"]
@@ -857,5 +863,19 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert Regex.match?(~r/<embed\b[^>]*\bref="#{id}"/, xml) or
              Regex.match?(~r/<a\b[^>]*\bhref="ankole:page\/#{id}"/, xml),
            "Report lost its reference to Base #{id}"
+  end
+
+  defp prepare_brainstorming!(ctx, owner) do
+    assert {:ok, _} = Ankole.AIAgent.Library.sync_agent_skills(ctx.agent.uid)
+
+    assert {:ok, _} =
+             Ankole.AuthZ.upsert_permission_grant(%{
+               principal_uid: owner,
+               resource_pattern: "tenant_console:skills",
+               action: "update"
+             })
+
+    assert {:ok, skill} = Skills.get("brainstorming")
+    skill
   end
 end

@@ -1,7 +1,7 @@
 defmodule Ankole.Pod.Bases.Delete do
   @moduledoc "Marks a table before its idempotent shard and metadata cleanup."
   require Ash.Query
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{BaseRepo, BaseTable, Bases, Jobs.PurgePage}
   alias Ankole.Pod.Bases.{Physical, Write}
   alias Ankole.Repo
@@ -9,7 +9,10 @@ defmodule Ankole.Pod.Bases.Delete do
   def table(actor, id, authority) do
     with {:ok, table} <- Access.write(authority, fn -> mark_in_tx(actor, id) end),
          {:ok, _} <- cleanup(id) do
-      Bases.broadcast_schema([%{id: id, data_version: table.data_version + 1}])
+      Bases.broadcast_schema([
+        %{id: id, page_id: table.page_id, data_version: table.data_version + 1}
+      ])
+
       {:ok, table}
     end
   end

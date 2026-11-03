@@ -1,5 +1,5 @@
 defmodule Ankole.Brain.Tools do
-  @moduledoc "Atomic knowledge operations; page content is maintained through Pod page tools."
+  @moduledoc "Knowledge reads, attributed facts, synthesis and explicit Brain object edits."
   alias Ankole.Brain.{
     Access,
     Claims,
@@ -75,7 +75,7 @@ defmodule Ankole.Brain.Tools do
     def fence(%__MODULE__{write_fence: fence}), do: fence.()
   end
 
-  @operations ~w(remember recall entity whoknows synthesize delta)
+  @operations ~w(remember recall entity whoknows synthesize delta write_object)
   def operations, do: @operations
   def operation?(operation), do: operation in @operations
 
@@ -111,6 +111,16 @@ defmodule Ankole.Brain.Tools do
 
   def volunteer_pointers(context, text),
     do: ContextPack.volunteer_pointers(context.querier_uid, text, disclosure: context.disclosure)
+
+  defp run("write_object", params, context) do
+    with {:ok, _} <- required(params, "markdown"),
+         true <- is_integer(params["base_revision"]) do
+      Ankole.Brain.ObjectWrites.write(params, context)
+    else
+      false -> {:error, :invalid_request}
+      error -> error
+    end
+  end
 
   defp run("remember", params, context) do
     with {:ok, claim} <- required(params, "claim"),
@@ -249,13 +259,17 @@ defmodule Ankole.Brain.Tools do
     end
   end
 
+  defp description("write_object"),
+    do:
+      "Create or revise a Brain knowledge object with complete Markdown and frontmatter. For creation give an installed ontology category, title and base_revision 0; for revision give object_id and its current base_revision from entity. Requires both your Agent and the requester to have edit permission. If approval_required is returned, pass the proposal to propose_action_card in a native Pod conversation."
+
   defp description("remember"),
     do:
-      "Remember an atomic fact or prediction with its evidence. Knowledge inherits the visibility of source_node_id, defaulting to the current conversation. Use Pod page tools for shared rules, skills and document corrections."
+      "Remember an atomic fact or prediction with its evidence. Knowledge inherits the visibility of source_node_id, defaulting to the current conversation. Use write_object for Brain object corrections."
 
   defp description("recall"),
     do:
-      "Search visible business facts, knowledge and skills. Results are summaries and relevant excerpts; read a matching Pod page for its full content."
+      "Search visible business facts and knowledge. Results are summaries and relevant excerpts; read a matching Pod page for its full content."
 
   defp description("entity"),
     do:
@@ -273,6 +287,9 @@ defmodule Ankole.Brain.Tools do
   defp parameters(name) do
     {required, fields} =
       case name do
+        "write_object" ->
+          {["markdown", "base_revision"], ~w(object_id category title markdown base_revision)}
+
         "remember" ->
           {["claim", "provenance"],
            ~w(claim provenance kind holder context entity source_node_id until_date) ++
@@ -301,7 +318,7 @@ defmodule Ankole.Brain.Tools do
            "type" =>
              cond do
                field in ~w(confidence weight) -> "number"
-               field in ~w(limit budget_tokens) -> "integer"
+               field in ~w(limit budget_tokens base_revision) -> "integer"
                true -> "string"
              end
          }}

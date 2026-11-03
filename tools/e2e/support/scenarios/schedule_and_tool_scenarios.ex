@@ -536,10 +536,10 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     file =
       if drive? do
-        {:ok, root} = Ankole.Files.Nodes.conversation_root(input.conversation_id)
-        {:ok, directory} = Ankole.Files.Nodes.child(root.id, "reports")
-        {:ok, file} = Ankole.Files.Nodes.child(directory.id, filename)
-        assert Ankole.Files.node_conversation_id(file.id) == {:ok, input.conversation_id}
+        {:ok, root} = Ankole.Pod.Pages.Tree.conversation_root(input.conversation_id)
+        {:ok, directory} = Ankole.Pod.Pages.Tree.child(root.id, "reports")
+        {:ok, file} = Ankole.Pod.Pages.Tree.child(directory.id, filename)
+        assert Ankole.Pod.node_conversation_id(file.id) == {:ok, input.conversation_id}
         file
       else
         assert {:ok, file, ^content} = Ankole.Files.read(agent.uid, expected_path)

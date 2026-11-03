@@ -13,6 +13,6 @@ defmodule DingTalkOpenAPI.Supervisor do
       {Task.Supervisor, name: DingTalkOpenAPI.EventTaskSupervisor}
     ]
 
-    Supervisor.init(children, strategy: :one_for_one)
+    Supervisor.init(children, strategy: :rest_for_one)
   end
 end

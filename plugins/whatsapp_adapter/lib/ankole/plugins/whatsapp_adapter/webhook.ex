@@ -28,7 +28,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
   def handle_webhook(%{kind: "events", method: "GET", instance_id: app_id} = request) do
     case consumers_for_app(app_id) do
       [] -> {:ok, %{status: 404, body: %{"error" => "unknown app"}}}
-      [consumer | _rest] -> verify_subscription(request, consumer, app_id)
+      consumers -> verify_subscription(request, consumers, app_id)
     end
   end
 
@@ -37,11 +37,17 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
       [] ->
         {:ok, %{status: 404, body: %{"error" => "unknown app"}}}
 
-      [consumer | _rest] = consumers ->
+      consumers ->
         signature = Map.get(request.headers, "x-hub-signature-256")
 
-        if Signature.valid?(request.raw_body, signature, Config.app_secret(consumer.config)) do
-          dispatch(request.body_params, consumers, app_id)
+        verified =
+          Enum.filter(
+            consumers,
+            &Signature.valid?(request.raw_body, signature, Config.app_secret(&1.config))
+          )
+
+        if verified != [] do
+          dispatch(request.body_params, verified, app_id)
         else
           Logging.warning(
             "whatsapp_adapter.webhook.unauthorized",
@@ -57,15 +63,15 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
   def handle_webhook(_request), do: {:ok, %{status: 404, body: %{"error" => "unknown webhook"}}}
 
   # Meta subscribes the callback URL with a GET and expects the raw challenge
-  # back as plain text. Every enabled binding of one App carries the same verify
-  # token, so the first one answers for the App.
-  defp verify_subscription(request, consumer, app_id) do
+  # back as plain text. Only bindings whose credentials match the request may
+  # answer or receive the payload, regardless of their tenant or list order.
+  defp verify_subscription(request, consumers, app_id) do
     query = request.query_params
     challenge = MapHelpers.presence(query["hub.challenge"])
     token = MapHelpers.presence(query["hub.verify_token"])
 
     if query["hub.mode"] == "subscribe" and is_binary(challenge) and is_binary(token) and
-         Plug.Crypto.secure_compare(token, Config.verify_token(consumer.config)) do
+         Enum.any?(consumers, &Plug.Crypto.secure_compare(token, Config.verify_token(&1.config))) do
       {:ok, %{status: 200, body: challenge, content_type: "text/plain"}}
     else
       Logging.warning(

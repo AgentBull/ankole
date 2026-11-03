@@ -3,10 +3,10 @@ defmodule Ankole.Files.Vfs.Content do
   require Ash.Query
   alias Ankole.{Files, Kernel, Pod}
   alias Ankole.Files.Vfs.Namespace
-  alias Ankole.Pod.{Knowledge, Pages}
+  alias Ankole.Pod.Pages
 
   def stats(entries) do
-    ids = for %{node: %{kind: kind, id: id}} <- entries, kind in [:doc, :knowledge], do: id
+    ids = for %{node: %{type: kind, id: id}} <- entries, kind in [:doc, :knowledge], do: id
     properties = Pod.vfs_properties(ids)
     object_ids = for %{node: %{object_id: id}} <- entries, is_binary(id), do: id
 
@@ -55,7 +55,7 @@ defmodule Ankole.Files.Vfs.Content do
            "httpd/unix-directory"
          )}
 
-      node.kind == :file ->
+      node.type == :file ->
         object = objects[node.object_id]
 
         {:ok,
@@ -70,7 +70,7 @@ defmodule Ankole.Files.Vfs.Content do
            if(object, do: "sha256:" <> Base.encode16(object.sha256, case: :lower), else: "")
          )}
 
-      node.kind in [:doc, :knowledge] ->
+      node.type in [:doc, :knowledge] ->
         with {:ok, property} <- Pod.vfs_property_in_tx(node, properties[node.id]) do
           {:ok,
            metadata(
@@ -95,70 +95,58 @@ defmodule Ankole.Files.Vfs.Content do
 
   defdelegate markdown(node), to: Pod, as: :vfs_markdown
 
-  def read(%{node: %{kind: :file, object_id: nil}}), do: {:ok, {:bytes, ""}}
-  def read(%{content: content}), do: {:ok, content}
-  def read(%{node: %{kind: :file, object_id: id}, size: size}), do: {:ok, {:object, id, size}}
+  def read(%{kind: kind})
+      when kind in [:root, :folder, :children, :base, :applet, :virtual_directory],
+      do: {:error, :is_a_directory}
 
-  def read(%{node: %{kind: kind} = node}) when kind in [:doc, :knowledge] do
+  def read(%{node: %{type: :file, object_id: nil}}), do: {:ok, {:bytes, ""}}
+  def read(%{content: content}), do: {:ok, content}
+  def read(%{node: %{type: :file, object_id: id}, size: size}), do: {:ok, {:object, id, size}}
+
+  def read(%{node: %{type: kind} = node}) when kind in [:doc, :knowledge] do
     with {:ok, markdown} <- markdown(node), do: {:ok, {:bytes, markdown}}
   end
 
   def read(_), do: {:error, :is_a_directory}
 
   def replace_version_in_tx(scope, node, prepared, expected, current) do
-    cond do
-      expected in [nil, "*", current] ->
-        with {:ok, _} <- replace_in_tx(scope, node, prepared), do: {:ok, false}
-
-      node.kind == :knowledge ->
-        prefix = "\"page:#{node.id}:rev:"
-
-        with true <- String.starts_with?(expected, prefix),
-             {revision, "\""} <- Integer.parse(String.replace_prefix(expected, prefix, "")),
-             {:ok, parsed} <- Kernel.knowledge_parse(prepared.bytes),
-             {:ok, _} <- Pod.merge_vfs_knowledge_in_tx(scope.actor, node.id, revision, parsed),
-             do: {:ok, true},
-             else: (
-               {:error, _} = error -> error
-               _ -> {:error, :precondition_failed}
-             )
-
-      true ->
-        {:error, :precondition_failed}
-    end
+    if expected in [nil, "*", current],
+      do: replace_in_tx(scope, node, prepared),
+      else: {:error, :precondition_failed}
   end
 
-  def replace_in_tx(scope, %{kind: :file} = node, prepared),
+  def replace_in_tx(scope, %{type: :file} = node, prepared),
     do:
-      Files.commit_node_object_in_tx(
+      Ankole.Pod.commit_node_object_in_tx(
         scope.actor,
         node.id,
         prepared.stored,
         Map.take(prepared, [:content_type])
       )
 
-  def replace_in_tx(scope, %{kind: :knowledge} = node, prepared) do
-    with {:ok, parsed} <- Kernel.knowledge_parse(prepared.bytes),
-         {:ok, page} <- Pages.lock(node.id),
-         do:
-           Knowledge.put_in_tx(page.id, parsed, actor: scope.actor, base_revision: page.revision)
-  end
-
-  def replace_in_tx(scope, %{kind: :doc} = node, prepared),
+  def replace_in_tx(scope, %{type: :doc} = node, prepared),
     do: Pod.write_vfs_markdown_in_tx(scope.actor, node.id, prepared.bytes)
 
   def replace_in_tx(_, _, _), do: {:error, :is_a_directory}
 
-  def create_in_tx(scope, parent, name, kind, prepared) when kind in [:doc, :knowledge] do
-    with {:ok, parsed} <- Kernel.knowledge_parse(prepared.bytes) do
+  def clear_in_tx(scope, %{type: :doc} = page),
+    do:
+      Pod.Documents.write_in_tx(
+        scope.actor,
+        page.id,
+        page.revision,
+        Kernel.page_validate("<page />")
+      )
+
+  def create_in_tx(scope, parent, name, :doc, prepared) do
+    with {:ok, parsed} <- Kernel.vfs_document_reconcile("<page />", prepared.bytes) do
       Pages.create_in_tx(
         scope.actor,
         %{
           parent_id: parent.id,
           title: name,
-          type: kind,
-          xml: parsed.xml,
-          metadata: parsed.metadata
+          type: :doc,
+          xml: parsed.xml
         },
         exact_name: true
       )

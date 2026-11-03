@@ -127,6 +127,8 @@ defmodule WeComOpenAPI.Bot.Client do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
+
     state = %__MODULE__{
       bot_id: Keyword.fetch!(opts, :bot_id),
       secret_fn: wrap_secret(Keyword.fetch!(opts, :secret)),

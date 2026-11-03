@@ -20,10 +20,9 @@ defmodule Ankole.Files.PathBidiTest do
     assert FilePath.file_name("e\u0301\u202E.txt") == "é.txt"
   end
 
-  test "normalize rejects Bidi and control segments while normalize_existing resolves legacy paths" do
+  test "normalize rejects Bidi and control segments" do
     legacy = "archive/报价单_\u202Efdp.sh"
     assert {:error, {:invalid_path, ^legacy}} = FilePath.normalize(legacy)
-    assert {:ok, ^legacy} = FilePath.normalize_existing(legacy)
 
     for bad <- [
           "bad\u061Cname.txt",
@@ -99,7 +98,7 @@ defmodule Ankole.Files.PathBidiTest do
 
     assert {:ok, normalized} =
              Attachment.normalize_attachment(%{
-               "path" => "sent/报价单_\u202Efdp.sh",
+               "path" => "sent/报价单_fdp.sh",
                "object_id" => object_id,
                "node_id" => node_id,
                "name" => "报价单_\u202Efdp.sh",
@@ -108,6 +107,26 @@ defmodule Ankole.Files.PathBidiTest do
 
     assert normalized["path"] == "sent/报价单_fdp.sh"
     assert normalized["name"] == "报价单_fdp.sh"
+
+    unicode_path = "sent/e\u0301.txt"
+
+    assert {:ok, %{"path" => ^unicode_path}} =
+             Attachment.normalize_attachment(%{
+               "path" => unicode_path,
+               "object_id" => object_id,
+               "node_id" => node_id,
+               "name" => "é.txt",
+               "size" => 42
+             })
+
+    assert {:error, :reply_attachment_path_invalid} =
+             Attachment.normalize_attachment(%{
+               "path" => "sent/报价单_\u202Efdp.sh",
+               "object_id" => object_id,
+               "node_id" => node_id,
+               "name" => "报价单_fdp.sh",
+               "size" => 42
+             })
 
     [msg] =
       Input.context_messages([

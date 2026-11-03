@@ -3,7 +3,7 @@ defmodule Ankole.Brain.Synthesis do
   require Ash.Query
   alias Ankole.Brain.{Access, Config, Links, ModelCalls, Objects, Recall}
   alias Ankole.Brain.Schemas.{Claim, Timeline}
-  alias Ankole.AIAgent.Library.Knowledge, as: Library
+  alias Ankole.Brain.Namespace, as: Library
   alias Ankole.Repo
 
   def synthesize(uid, question, opts \\ []) do
@@ -20,9 +20,12 @@ defmodule Ankole.Brain.Synthesis do
            is_binary(title) and is_binary(body) and String.trim(title) != "" and
              String.trim(body) != "",
          {:ok, page} <-
-           Repo.transact_top_level(fn ->
-             persist(uid, disclosure, title, body, source_ids, recall)
-           end) do
+           Repo.transact_top_level(
+             fn ->
+               persist(uid, disclosure, title, body, source_ids, recall)
+             end,
+             after_commit: &Ankole.Brain.Namespace.committed/1
+           ) do
       {:ok,
        %{page_id: page.id, slug: page.slug, title: title, body: body, source_node_ids: source_ids}}
     else
@@ -51,7 +54,7 @@ defmodule Ankole.Brain.Synthesis do
     with {:ok, access} <- Access.for_readers(uid, disclosure),
          true <- Enum.all?(source_ids, &Access.visible?(access, &1)),
          {:ok, namespace} <- Library.ensure_namespace_in_tx(),
-         {:ok, folder} <- Library.ensure_child_in_tx(namespace.root.id, "analysis", :folder),
+         {:ok, folder} <- Library.ensure_child_in_tx(namespace.root.id, "analysis", :knowledge),
          {:ok, node} <-
            Library.ensure_child_in_tx(
              folder.id,
@@ -91,7 +94,7 @@ defmodule Ankole.Brain.Synthesis do
     with {:ok, access} <- Access.for_querier(reader),
          true <- Enum.all?(source_ids, &Access.visible?(access, &1)) do
       role = if reader == writer, do: "edit", else: "view"
-      Ankole.Files.Access.put_role(%{principal_uid: reader}, "drive:**:#{node.id}:**", role)
+      Ankole.Pod.Access.put_role(%{principal_uid: reader}, "drive:**:#{node.id}:**", role)
     else
       _ -> :ok
     end
@@ -132,6 +135,7 @@ defmodule Ankole.Brain.Synthesis do
         )
         |> filter_subject(subject)
         |> Ash.Query.sort(created_at: :desc)
+        |> Ash.Query.deselect(:embedding)
         |> Ankole.Ash.read!()
 
       timelines =

@@ -15,7 +15,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
     ]
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIAgent.Library.Schemas.AgentSkill
+  alias Ankole.AIAgent.Library.Skills
   alias Ankole.Repo
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
@@ -121,8 +121,10 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     assert {:ok, _result} = Library.sync_agent_skills(agent.uid)
 
-    assert {:ok, %AgentSkill{enabled_override: false}} =
-             Library.set_agent_skill_override(agent.uid, "pdf", false)
+    actor = skill_manager(agent.uid)
+    assert {:ok, skill} = Skills.get("pdf")
+    assert {:ok, _} = Skills.set_all(actor, "pdf", false, skill.revision)
+    assert {:ok, _} = Skills.set_binding(actor, "pdf", agent.uid, false)
 
     assert {:ok, enabled_skills} = Library.enabled_skills_for_agent(agent.uid)
     refute Enum.any?(enabled_skills, &(&1["skill_name"] == "pdf"))
@@ -161,31 +163,25 @@ defmodule Ankole.E2E.Scenarios.Skill do
   end
 
   @doc """
-  Verifies that the control plane reads an installed Skill from the Agent's
-  drive before context resolve, and removes it from the catalog after its
-  drive folder is deleted. The real Worker uses that catalog.
+  Verifies that a custom Skill created and bound by a human becomes available
+  to the Agent, and disappears after its owner deletes the package.
   """
   def run_installed_skill_registry_loop(%{
         fake_feishu: fake_feishu,
         agent: agent,
         container: container
       }) do
-    put_drive_file!(
-      agent.uid,
-      "skills/e2e-installed/SKILL.md",
-      """
-      ---
-      name: e2e-installed
-      description: E2E installed skill.
-      default_enabled: true
-      category: custom
-      ---
+    actor = skill_manager(agent.uid)
 
-      # E2E Installed Skill
+    assert {:ok, skill} =
+             Skills.create(actor, %{
+               slug: "e2e-installed",
+               manifest_xml:
+                 "<page><heading level=\"1\">E2E Installed Skill</heading><p>E2E_INSTALLED_SKILL_BODY</p></page>",
+               metadata: %{"name" => "e2e-installed", "description" => "E2E installed skill."}
+             })
 
-      E2E_INSTALLED_SKILL_BODY
-      """
-    )
+    assert {:ok, _} = Skills.set_binding(actor, skill.slug, agent.uid, true)
 
     mention = lark_bot_mention()
 
@@ -232,12 +228,8 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     assert inspect(skill_result) =~ "E2E_INSTALLED_SKILL_BODY"
 
-    assert %AgentSkill{source_kind: :installed} =
-             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "e2e-installed")
-
-    # Removing the drive folder uninstalls the Skill: the next context read
-    # removes its catalog row, and the Worker removes its cached files.
-    assert {:ok, 1} = Ankole.Files.delete(agent.uid, "skills/e2e-installed")
+    assert {:ok, %{source_kind: :custom} = skill} = Skills.get("e2e-installed")
+    assert {:ok, _} = Skills.delete(actor, skill.slug, skill.revision)
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
@@ -271,10 +263,38 @@ defmodule Ankole.E2E.Scenarios.Skill do
              tool_result_error?(call) and inspect(call.result) =~ "skill is not enabled"
            end)
 
-    refute Repo.get_by(AgentSkill, agent_uid: agent.uid, skill_name: "e2e-installed")
+    assert {:error, :not_found} = Skills.get("e2e-installed")
 
     assert_signal_completed!(input.id)
     assert_signal_completed!(deleted_input.id)
     %{input: input, reply: reply, deleted_input: deleted_input, deleted_reply: deleted_reply}
+  end
+
+  defp skill_manager(uid) do
+    {:ok, %{agent: agent}} = Ankole.Principals.get_agent(uid)
+    {:ok, principal} = Ankole.Principals.get_principal(agent.owner_principal_uid)
+
+    {:ok, _} =
+      Repo.transact_top_level(fn ->
+        Ankole.AuthZ.Grants.upsert_permission_grants([
+          %{
+            principal_uid: principal.uid,
+            resource_pattern: "tenant_console:skill_bindings",
+            action: "update"
+          },
+          %{
+            principal_uid: principal.uid,
+            resource_pattern: "tenant_console:custom_skills",
+            action: "update"
+          },
+          %{
+            principal_uid: principal.uid,
+            resource_pattern: "tenant_console:custom_skills",
+            action: "delete"
+          }
+        ])
+      end)
+
+    Ankole.AuthZ.Actor.new(principal)
   end
 end

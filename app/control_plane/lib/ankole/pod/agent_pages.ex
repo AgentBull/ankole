@@ -3,9 +3,9 @@ defmodule Ankole.Pod.AgentPages do
   require Ash.Query
   alias Ankole.{AuthZ, Kernel, Repo}
   alias Ankole.Brain.Access, as: KnowledgeAccess
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Knowledge, Page, Pages}
-  alias Ankole.AuthZ.Checks.DriveAnchorFilter
+  alias Ankole.AuthZ.Checks.PageAnchorFilter
 
   def read(actor, context, id, level \\ "L2") do
     Repo.transact_top_level(fn ->
@@ -58,7 +58,7 @@ defmodule Ankole.Pod.AgentPages do
     Access.write_tree(
       actor.turn_authority,
       fn -> create_in_tx(actor, context, parent_id, title, markdown) end,
-      root_ids: fn -> Ankole.Files.Nodes.root_ids([parent_id]) end,
+      root_ids: fn -> Ankole.Pod.Pages.Tree.root_ids([parent_id]) end,
       after_commit: &Pages.committed_tree/1
     )
   end
@@ -87,6 +87,33 @@ defmodule Ankole.Pod.AgentPages do
          :ok <- requester_authorize(context, page, action, opts),
          do: :ok
   end
+
+  @doc "Applies the conversation boundary to every Brain node, including file attachments."
+  def authorize_brain_turn(%AuthZ.Actor{turn_authority: {ref, _}} = actor, page, action, opts)
+      when (is_struct(ref, Ankole.Sessions.RunRef) or is_struct(ref, Ankole.Sessions.JobTurnRef)) and
+             page.type in [:knowledge, :file] do
+    with {:ok, root} <- Pages.Tree.root(page.id) do
+      if root.system_key == "ankole_brain" do
+        with {:ok, context} <-
+               Ankole.Brain.RequestContext.build(actor.principal.uid, %{
+                 "signal_id" => ref.signal_id
+               }),
+             {:ok, _} <- visible(context, page, opts),
+             :ok <-
+               requester_authorize(
+                 %{context | authn: actor.authn},
+                 page,
+                 Keyword.get(opts, :requester_action, action),
+                 opts
+               ),
+             do: :ok
+      else
+        :ok
+      end
+    end
+  end
+
+  def authorize_brain_turn(_actor, _page, _action, _opts), do: :ok
 
   defp requester_authorize(%{disclosure: %{asker_uid: uid}} = context, page, action, opts)
        when is_binary(uid) do
@@ -117,7 +144,7 @@ defmodule Ankole.Pod.AgentPages do
     Page
     |> Ash.Query.filter(parent_id == ^id)
     |> Ash.Query.sort(name: :asc, id: :asc)
-    |> DriveAnchorFilter.apply_policy(actor, DriveAnchorFilter.policy(reachable))
+    |> PageAnchorFilter.apply_policy(actor, PageAnchorFilter.policy(reachable))
     |> Ankole.Ash.read_authorized(actor)
   end
 

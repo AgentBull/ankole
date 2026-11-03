@@ -101,6 +101,7 @@ message DriveVfsConfig {
   string scope = 3;
   string view = 4;
   string conversation_id = 5;
+  string library_scope = 6;
 }
 
 message VfsInvalidate {

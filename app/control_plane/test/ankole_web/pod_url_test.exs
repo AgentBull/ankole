@@ -18,6 +18,22 @@ defmodule AnkoleWeb.PodURLTest do
     assert {:ok, "/content/all?q=report"} = PodURL.path(get(ctx.conn, "/content/all?q=report"))
   end
 
+  test "Meta Ankole deep links serve the Pod shell with their query", ctx do
+    {conn, _uid} =
+      active_admin_conn_with_principal(%{ctx.conn | host: ctx.tenant.slug <> ".ankole.localhost"})
+
+    for path <- [
+          "/meta",
+          "/meta/brain?category=people",
+          "/meta/skills/example?file=references%2Fguide.md",
+          "/meta/agents/assistant"
+        ] do
+      rendered = get(conn, path)
+      assert {:ok, ^path} = PodURL.path(rendered)
+      assert html_response(rendered, 200) =~ entry_source(pod_entry())
+    end
+  end
+
   test "legacy and full UUID links redirect once to the slug host and short browser IDs", ctx do
     page = Kernel.gen_uuid_v7()
     chat = Kernel.gen_uuid_v7()

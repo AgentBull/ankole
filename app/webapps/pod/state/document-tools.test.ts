@@ -11,7 +11,7 @@ import {
   textStats
 } from './document-tools'
 import { DocumentToolsModel } from './document-tools-model'
-import { PageDraftModel } from './page-draft'
+import { DocumentDraftModel } from './document-draft'
 
 describe('document export and statistics', () => {
   test('Markdown export preserves the title as text and round-trips the complete body', () => {
@@ -189,7 +189,7 @@ describe('document export and statistics', () => {
   })
 
   test('DocumentToolsModel skips parsing while hidden, debounces typing updates, and clears timers on dispose', async () => {
-    const draft = new PageDraftModel()
+    const draft = new DocumentDraftModel()
     draft.source.value = 'page-1'
     draft.xml.value = '<page><p>One two</p></page>'
     const tools = new DocumentToolsModel(draft)

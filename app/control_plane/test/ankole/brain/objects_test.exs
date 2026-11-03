@@ -5,6 +5,11 @@ defmodule Ankole.Brain.ObjectsTest do
   alias Ankole.Brain.{Objects, Links}
   alias Ankole.Pod.{Knowledge, Pages}
 
+  setup do
+    {:ok, _} = Ankole.Brain.SchemaPacks.install_packs([])
+    :ok
+  end
+
   test "learning an existing entity cannot replace the team's saved knowledge" do
     attrs = %{slug: "companies/review-acme", title: "Acme", body: "Human-approved terms."}
     assert {:ok, page} = Ankole.Brain.create_object(attrs, :system)
@@ -28,11 +33,11 @@ defmodule Ankole.Brain.ObjectsTest do
       )
 
     for attrs <- [%{}, %{private_owner_uid: human.uid}] do
-      {:ok, folder} = Pages.create(actor, Map.merge(attrs, %{type: :folder, title: "companies"}))
+      {:ok, folder} = Pages.create(actor, Map.merge(attrs, %{type: :doc, title: "companies"}))
 
       {:ok, _other} =
         Pages.create(actor, %{
-          type: :knowledge,
+          type: :doc,
           parent_id: folder.id,
           title: "path-acme",
           xml: "<page><p>Unrelated page with the same relative path.</p></page>"
@@ -153,9 +158,9 @@ defmodule Ankole.Brain.ObjectsTest do
     actor = actor_fixture(human)
 
     {:ok, folder} =
-      Pages.create(actor, %{type: :folder, title: "people", private_owner_uid: human.uid})
+      Pages.create(actor, %{type: :doc, title: "people", private_owner_uid: human.uid})
 
-    {:ok, page} = Pages.create(actor, %{type: :knowledge, parent_id: folder.id, title: human.uid})
+    {:ok, page} = Pages.create(actor, %{type: :doc, parent_id: folder.id, title: human.uid})
 
     assert Objects.canonical_principal_page?("people/" <> human.uid)
     refute Objects.canonical_principal_page?(page.id)

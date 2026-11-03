@@ -4,6 +4,21 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
   alias Ankole.I18n
   alias Ankole.Conversations.Delivery.ReplyPresentation
 
+  test "preserves spaces across reasoning token boundaries" do
+    presentation =
+      [" Let", " ", "me", " check"]
+      |> Enum.with_index(1)
+      |> Enum.reduce(ReplyPresentation.new(), fn {text, revision}, acc ->
+        ReplyPresentation.apply_event(acc, "reasoning.delta", %{
+          "operation_id" => "reasoning-1",
+          "revision" => revision,
+          "text" => text
+        })
+      end)
+
+    assert presentation["thought"] == " Let me check"
+  end
+
   test "retired structured results do not enter checkpoints or consume a live revision" do
     live =
       ReplyPresentation.new()

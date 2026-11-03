@@ -137,9 +137,9 @@ defmodule Ankole.PrincipalsFixtures do
 
     {:ok, _} =
       Ankole.Repo.transact(fn ->
-        :ok = Ankole.Files.lock_tree_in_tx()
-        :ok = Ankole.Files.lock_root_ids_in_tx(Ankole.Files.root_ids_for_principal(agent_uid))
-        :ok = Ankole.Files.delete_private_root_in_tx(agent_uid)
+        :ok = Ankole.Pod.lock_tree_in_tx()
+        :ok = Ankole.Pod.lock_root_ids_in_tx(Ankole.Pod.root_ids_for_principal(agent_uid))
+        :ok = Ankole.Pod.delete_private_root_in_tx(agent_uid)
         :ok = Ankole.Conversations.delete_for_agent_in_tx(agent_uid)
         {:ok, :ok}
       end)
@@ -150,7 +150,7 @@ defmodule Ankole.PrincipalsFixtures do
       |> Ankole.Repo.all()
       |> Enum.map(& &1.id)
 
-    Ankole.Files.Schemas.Node
+    Ankole.Pod.Page
     |> where([node], node.id in ^page_ids)
     |> Ankole.Repo.delete_all()
 

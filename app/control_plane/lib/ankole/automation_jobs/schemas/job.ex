@@ -17,6 +17,7 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
   end
 
   use Ankole.Work.Provenance,
+    agent_required?: false,
     owner_session?: true,
     source_signal?: true,
     reply_route?: true,
@@ -68,8 +69,35 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
       public?: true
     )
 
-    attribute(:drive_prefix, :string, allow_nil?: false, public?: true)
-    attribute(:legacy_directory_path, :string, constraints: [trim?: false], public?: true)
+    attribute(:drive_prefix, :string, public?: true)
+
+    attribute(:executor_kind, :atom,
+      allow_nil?: false,
+      default: :agent_script,
+      constraints: [one_of: [:agent_script, :applet_function]],
+      public?: true
+    )
+
+    attribute(:page_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:action_key, :string, public?: true)
+    attribute(:config, Ankole.Ash.Types.JSONMap, default: %{}, allow_nil?: false, public?: true)
+    attribute(:idempotent, :boolean, default: false, allow_nil?: false, public?: true)
+
+    attribute(:concurrency_mode, :atom,
+      default: :parallel,
+      allow_nil?: false,
+      constraints: [one_of: [:parallel, :serial_fifo, :serial_coalesce]],
+      public?: true
+    )
+
+    attribute(:max_slices, :integer,
+      default: 1000,
+      allow_nil?: false,
+      constraints: [min: 1, max: 100_000],
+      public?: true
+    )
+
+    attribute(:unavailable_reason, :string, public?: true)
 
     attribute(:label, :string,
       allow_nil?: false,
@@ -94,7 +122,17 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
     derive_sort?(false)
 
     default_fields([
+      :id,
       :agent_uid,
+      :executor_kind,
+      :authorization_kind,
+      :page_id,
+      :action_key,
+      :config,
+      :idempotent,
+      :concurrency_mode,
+      :max_slices,
+      :unavailable_reason,
       :owner_session_id,
       :source_signal_id,
       :provider_message_id,
@@ -140,6 +178,13 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
         :human_uid,
         :human_access_version,
         :agent_uid,
+        :executor_kind,
+        :page_id,
+        :action_key,
+        :config,
+        :idempotent,
+        :concurrency_mode,
+        :max_slices,
         :owner_session_id,
         :source_signal_id,
         :provider_message_id,
@@ -167,10 +212,15 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
       change(transition_state(:cancelled))
     end
 
-    update :finish_script_import do
-      accept([])
-      change(set_attribute(:legacy_directory_path, nil))
+    update :publish_policy do
+      accept([:idempotent, :concurrency_mode, :max_slices, :unavailable_reason])
     end
+
+    update :configure do
+      accept([:config, :label])
+    end
+
+    destroy(:remove)
 
     update :reauthorize do
       accept([:authorization_kind, :human_uid, :human_access_version])

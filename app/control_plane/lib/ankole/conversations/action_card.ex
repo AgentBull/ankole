@@ -10,6 +10,7 @@ defmodule Ankole.Conversations.ActionCard do
     domain: Ankole.Conversations
 
   @action_kinds ~w(
+    brain.object.create
     pod.knowledge.save
     pod.page.set_sharing
     pod.page.delete

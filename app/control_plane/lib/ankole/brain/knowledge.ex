@@ -3,15 +3,14 @@ defmodule Ankole.Brain.Knowledge do
   require Ash.Query
   alias Ankole.Brain.{Access, Chunks, Links, Objects}
   alias Ankole.Brain.Schemas.{Claim, Chunk, Link, SlugAlias, Timeline}
-  alias Ankole.Files.Nodes
+  alias Ankole.Pod.Pages.Tree, as: Nodes
 
-  @contracts ~w(AGENTS.md AGENTS.override.md DESIGN.md DESIGN.override.md)
-
-  def folder_learning(%{type: :folder} = page) do
+  def page_learning(%{type: type, is_root: false} = page)
+      when type in [:doc, :knowledge, :base, :applet] do
     with {:ok, node} <- Nodes.fetch(page.id),
          {:ok, path} <- Nodes.path(node),
          true <- is_nil(hd(path).private_owner_uid) and is_nil(hd(path).conversation_id),
-         false <- Enum.any?(path, &(&1.name == "AnkoleBrain")) do
+         false <- Enum.any?(path, &(Map.get(&1, :system_key) == "ankole_brain")) do
       inherited =
         path
         |> Enum.drop(-1)
@@ -28,9 +27,9 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
-  def folder_learning(_page), do: nil
+  def page_learning(_page), do: nil
 
-  def folder_learning_enabled_in_tx(id) do
+  def page_learning_enabled_in_tx(id) do
     if Ankole.Brain.Config.enabled?() do
       Enum.each(descendants(id), fn node_id ->
         with {:ok, page} <- Objects.get_by_slug(node_id),
@@ -49,17 +48,10 @@ defmodule Ankole.Brain.Knowledge do
   def indexable?(page) do
     with {:ok, node} <- Nodes.fetch(page.id), {:ok, path} <- Nodes.path(node) do
       public? = is_nil(hd(path).private_owner_uid) and is_nil(hd(path).conversation_id)
-      relative = path |> Enum.map(& &1.name) |> Enum.drop_while(&(&1 != "AnkoleBrain"))
-
-      contract? =
-        case relative do
-          ["AnkoleBrain", name] -> name in @contracts
-          ["AnkoleBrain", "agents", _uid, name] -> name in @contracts
-          _ -> false
-        end
 
       public? and Enum.all?(path, &is_nil(&1.deleted_at)) and
-        node.kind in [:knowledge, :doc, :base, :applet] and not contract?
+        node.type in [:knowledge, :doc, :base, :applet] and not node.is_root and
+        not Enum.any?(path, &(&1.system_key == "ankole_brain_sources"))
     else
       _ -> false
     end
@@ -71,29 +63,21 @@ defmodule Ankole.Brain.Knowledge do
     with true <- indexable?(page),
          {:ok, node} <- Nodes.fetch(page.id),
          {:ok, path} <- Nodes.path(node) do
-      names = Enum.map(path, & &1.name)
-      brain = Enum.drop_while(names, &(&1 != "AnkoleBrain"))
+      entity? = Enum.any?(path, &(&1.system_key == "ankole_brain"))
 
-      entity? =
-        case brain do
-          ["AnkoleBrain", category | _] -> category not in ["skills" | @contracts]
-          _ -> false
-        end
-
-      not match?(["AnkoleBrain", "skills" | _], brain) and
-        (entity? or
-           Enum.any?(path, fn ancestor ->
-             case Ankole.Pod.Pages.fetch(ancestor.id) do
-               {:ok, ancestor} -> Map.get(ancestor.metadata, "extract_facts", false) == true
-               _ -> false
-             end
-           end))
+      entity? or
+        Enum.any?(path, fn ancestor ->
+          case Ankole.Pod.Pages.fetch(ancestor.id) do
+            {:ok, ancestor} -> Map.get(ancestor.metadata, "extract_facts", false) == true
+            _ -> false
+          end
+        end)
     else
       _ -> false
     end
   end
 
-  def page_changed_in_tx(%{type: type}, _content) when type in [:folder, :file], do: :ok
+  def page_changed_in_tx(%{type: type}, _content) when type == :file, do: :ok
 
   def page_changed_in_tx(page, _content) do
     with {:ok, knowledge} <- Objects.get_by_slug(page.id),
@@ -125,13 +109,8 @@ defmodule Ankole.Brain.Knowledge do
       |> Enum.each(fn page_id ->
         case Objects.get_by_slug(page_id) do
           {:ok, page} ->
-            current =
-              if String.starts_with?(new_path, "AnkoleBrain/"),
-                do: "AnkoleBrain/" <> page.slug,
-                else: page.slug
-
             if old_brain_path do
-              previous = String.replace_prefix(current, new_path, old_brain_path)
+              previous = String.replace_prefix(page.slug, new_path, old_brain_path)
               :ok = record_previous_path(page, previous)
             end
 
@@ -149,7 +128,7 @@ defmodule Ankole.Brain.Knowledge do
 
   @doc "Returns a Brain-relative path only for descendants of the canonical namespace."
   def brain_path(path) do
-    with {:ok, root} <- Ankole.AIAgent.Library.Knowledge.root(),
+    with {:ok, root} <- Ankole.Brain.Namespace.root(),
          [_root | relative] <- Enum.drop_while(path, &(&1.id != root.id)),
          do: Enum.map_join(relative, "/", & &1.name),
          else: (_ -> nil)
@@ -285,5 +264,5 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
-  defdelegate descendants(id), to: Ankole.Files, as: :descendant_node_ids
+  defdelegate descendants(id), to: Ankole.Pod, as: :descendant_node_ids
 end

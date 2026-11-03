@@ -69,8 +69,8 @@ Signal source groups can contain colon-separated namespaces, the resolver first
 confirms that the group exists in PostgreSQL before expanding the resource
 target for standard grant evaluation.
 
-For Drive nodes, `Files.Access.Graph` maintains the read-only anchor graph and
-permission projection. On reads, `Ankole.AuthZ.Checks.DriveAnchorFilter` evaluates
+For Pages, `Pod.Access.Graph` maintains the read-only anchor graph and
+permission projection. On reads, `Ankole.AuthZ.Checks.PageAnchorFilter` evaluates
 that graph inside a repeatable-read transaction, attaches a single Page query
 filter for permitted containers and self-scoped pages, and computes each
 returned page's effective role from the same graph. Directory listing queries
@@ -158,7 +158,7 @@ patterns and storing `metadata` as a JSON object.
 
 Console routes under `/api/v2` invoke generic actions on `Group`, `Membership`,
 and `Grant`, wrapping every aggregate write that locks a group, a Principal, or
-the Drive tree in `Repo.transact_top_level/2`. Cross-domain callers compose writes
+the Page tree in `Repo.transact_top_level/2`. Cross-domain callers compose writes
 inside their own transactions through `Ankole.AuthZ.Administration.Store` and
 `Ankole.AuthZ.Administration.Grants` (for example,
 `Store.replace_static_group_members/3` or `Grants.upsert_permission_grant/1`),
@@ -170,15 +170,15 @@ resource policies are not used for permission decisions.
 
 Grant mutations follow a strict lock order so Drive anchor state stays consistent:
 
-- Creating or upserting a grant acquires the Drive tree lock whenever the grant
+- Creating or upserting a grant acquires the Page tree lock whenever the grant
   carries a Drive action or matches `tenant_console:drive_space` with the `update`
   action.
 - Updating or deleting a grant first reads the existing rule; if either the
-  existing rule or the proposed rule affects Drive access, AuthZ locks the Drive
+  existing rule or the proposed rule affects Drive access, AuthZ locks the Page
   tree before locking the `Grant` row (otherwise it locks only the `Grant` row).
 - Once locked, AuthZ re-reads the `Grant` row (and Console routes check the
   locked rule's Drive-grant policy first). If a concurrent write changed the rule
-  so that it now affects Drive access when the Drive tree lock was not acquired,
+  so that it now affects Drive access when the Page tree lock was not acquired,
   AuthZ returns a stale-write error so the caller can reload the `Grant` and
   retry.
 
@@ -278,8 +278,11 @@ Resource namespaces separate administrative and runtime scopes:
 - **Pod administration**: `tenant_console:` (including
   `tenant_console:drive_space`, `tenant_console:pod_settings`,
   `tenant_console:principals`, `tenant_console:principal:<uid>`,
-  `tenant_console:group:pod_admin`, `tenant_console:invitations`, and
-  `tenant_console:identity_providers`)
+  `tenant_console:group:pod_admin`, `tenant_console:invitations`,
+  `tenant_console:identity_providers`, `tenant_console:agents`,
+  `tenant_console:agent:<uid>`, `tenant_console:agent_contracts`,
+  `tenant_console:skills`, `tenant_console:custom_skills`,
+  `tenant_console:skill_bindings`, and `tenant_console:agent_skill_binding:<uid>`)
 - **Runtime Agents**: `agent:<uid>`
 - **Drive content**: `drive:space:**`, `drive:private:<uid>:**`,
   `drive:**:<node-id>:**`, or `drive:**:<node-id>:node`
@@ -399,15 +402,16 @@ stores one action; each Userset edge requires one exact source bit.
 | Node kind | `node_contribute` | `node_edit` |
 | --- | --- | --- |
 | Base | Create, change and delete records; upload record attachments | Change schema and metadata; create child nodes |
-| Folder or conversation root | Create child nodes and write initial file content | Rename, move or delete this node |
 | File | No operation | Overwrite content, rename, move or delete this node |
-| Document or Applet | No operation | Edit content and create child nodes |
-| Public or private root | No operation | Create child nodes |
+| Document or Applet | Write initial content to an existing child file | Edit content and create child nodes |
+| Public, private or conversation root | Write initial content to an existing child file | Create child nodes |
 
-Initial file content means the file's `object_id` is null. Its first content
-commit requires `node_contribute` on its parent; subsequent commits require
-`node_edit` on the file. Creating children directly under public or private
-roots requires `node_edit`. Existing conversation participants receive view and
+Creating a child node requires `node_edit` on its parent. Initial file content
+means an existing file's `object_id` is null: its first content commit requires
+`node_contribute` on its parent; subsequent commits require `node_edit` on the
+file. Removing a Document or Applet subtree requires `node_manage`. Through
+Drive, `node_edit` also permits removing a document directory whose body and
+child list are both empty. Existing conversation participants receive view and
 contribute bits from the current membership facts; explicit ACLs may grant more.
 
 Operators cannot create or delete Drive grants through the generic Console grant

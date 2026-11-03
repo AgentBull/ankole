@@ -90,7 +90,9 @@ export function ActionCardView({
           ))}
         </div>
       )}
-      {card.action_kind === 'pod.knowledge.save' && <KnowledgeDraft payload={card.payload ?? {}} />}
+      {['pod.knowledge.save', 'brain.object.create'].includes(card.action_kind ?? '') && (
+        <KnowledgeDraft payload={card.payload ?? {}} />
+      )}
       {status === 'prepared' && (
         <div className="flex flex-wrap items-center gap-2 px-3.5 pb-3">
           <Button
@@ -152,6 +154,7 @@ export function ActionCardView({
 
 function actionKindLabel(kind: string, t: ReturnType<typeof useTranslation>['t']): string {
   switch (kind) {
+    case 'brain.object.create':
     case 'pod.knowledge.save':
       return t('pod.chat_action_card.kind_knowledge_save')
     case 'pod.page.set_sharing':
@@ -188,7 +191,7 @@ function actionStatusLabel(
 function formatPayloadDetails(card: ActionCardState, t: ReturnType<typeof useTranslation>['t']): string[] {
   const payload = card.payload ?? {}
   const lines: string[] = []
-  if (card.action_kind === 'pod.knowledge.save') {
+  if (['pod.knowledge.save', 'brain.object.create'].includes(card.action_kind ?? '')) {
     if (typeof payload.node_title === 'string') {
       lines.push(t('pod.chat_action_card.page_target', { title: payload.node_title }))
     }

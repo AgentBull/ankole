@@ -4,7 +4,8 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { stringify } from 'yaml'
-import { KnowledgeDraftModel, parseMetadata, propertySource, type KnowledgeMetadata } from './state/knowledge-draft'
+import { KnowledgeDraftModel, parseMetadata, type KnowledgeMetadata } from './state/knowledge-draft'
+import { KnowledgeValue } from './knowledge-value'
 
 export function KnowledgeProperties({
   metadata,
@@ -125,7 +126,9 @@ function Property({ name, value }: { name: string; value: unknown }) {
   return (
     <>
       <dt className="break-words text-fg-secondary">{name}</dt>
-      <dd className="whitespace-pre-wrap break-words">{typeof value === 'string' ? value : propertySource(value)}</dd>
+      <dd className="whitespace-pre-wrap break-words">
+        <KnowledgeValue value={value} />
+      </dd>
     </>
   )
 }

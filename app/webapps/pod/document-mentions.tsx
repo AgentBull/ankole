@@ -1,5 +1,5 @@
 import { formatFileBytes } from '../common/file-format'
-import { usePageMetadata, usePageTransliteration } from './use-page-metadata'
+import { usePageHref, usePageMetadata, usePageTransliteration } from './use-page-metadata'
 import { pageMetadata } from './state/page-metadata'
 import {
   Badge,
@@ -18,7 +18,7 @@ import {
 import type { EditorHost, MentionItem, MentionTarget } from '@ankole/block-editor/editor'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiCheckLine, RiFileCopyLine, RiLockLine, RiRobot2Line } from '@remixicon/react'
-import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import type { i18n as I18nInstance } from 'i18next'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -122,6 +122,12 @@ function PrincipalAvatar({
   )
 }
 
+export function PageMention({ id }: { id: string }) {
+  const store = mentionStore(useQueryClient())
+  const pageHref = usePageHref()
+  return <InlinePageMention id={id} store={store} pageHref={pageHref} />
+}
+
 function InlinePageMention({
   id,
   store,
@@ -188,12 +194,18 @@ function InlinePageMention({
             openPage(id)
           }
         }}>
-        <PageIcon page={{ type: pageType, icon: resolved.icon ?? null }} className="pod-mention-page-icon" />
+        <PageIcon
+          page={{ type: pageType, icon: resolved.icon ?? null, system_key: resolved.system_key }}
+          className="pod-mention-page-icon"
+        />
         <span>{title}</span>
       </HoverCardTrigger>
       <HoverCardContent align="start" sideOffset={6} className="w-80 space-y-2 p-3.5" aria-label={title}>
         <div className="flex items-start gap-2">
-          <PageIcon page={{ type: pageType, icon: resolved.icon ?? null }} className="mt-0.5 size-4.5 shrink-0" />
+          <PageIcon
+            page={{ type: pageType, icon: resolved.icon ?? null, system_key: resolved.system_key }}
+            className="mt-0.5 size-4.5 shrink-0"
+          />
           <span className="line-clamp-2 min-w-0 flex-1 font-medium leading-snug text-foreground">{title}</span>
           {trashed && <Badge variant="warning">{t('pod.mention.trashed_badge')}</Badge>}
         </div>
@@ -404,7 +416,12 @@ export function createMentionHostAdapters({
                   subtitle: [pathLabel, relative].filter(Boolean).join(' · '),
                   section: pageSection,
                   sectionCategory: pageSection ? 'page' : undefined,
-                  icon: <PageIcon page={{ type: candidate.type, icon }} className="size-[18px] shrink-0" />
+                  icon: (
+                    <PageIcon
+                      page={{ type: candidate.type, icon, system_key: candidate.system_key }}
+                      className="size-[18px] shrink-0"
+                    />
+                  )
                 })
               } else {
                 const candidate = principalsByUID.get(entry.id)

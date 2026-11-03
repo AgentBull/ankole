@@ -1,8 +1,8 @@
 diff --git a/backend/webdav/api/types.go b/backend/webdav/api/types.go
-index 5ed3dfe..a8735d2 100644
+index 5ed3dfe..dd659fe 100644
 --- a/backend/webdav/api/types.go
 +++ b/backend/webdav/api/types.go
-@@ -68,15 +68,18 @@ type Response struct {
+@@ -68,15 +68,19 @@ type Response struct {
  // Note that status collects all the status values for which we just
  // check the first is OK.
  type Prop struct {
@@ -15,6 +15,7 @@ index 5ed3dfe..a8735d2 100644
 -	Checksums    []string  `xml:"prop>checksums>checksum,omitempty"`
 -	Permissions  string    `xml:"prop>permissions,omitempty"`
 -	MESha1Hex    *string   `xml:"ME: prop>sha1hex,omitempty"` // Fastmail-specific sha1 checksum
++	AnkoleMode        string    `xml:"urn:ankole:vfs prop>mode,omitempty"`
 +	AnkoleETag        string    `xml:"DAV: prop>getetag,omitempty"`
 +	AnkoleFingerprint string    `xml:"urn:ankole:vfs prop>fingerprint,omitempty"`
 +	AnkoleNodeID      string    `xml:"urn:ankole:vfs prop>node-id,omitempty"`
@@ -31,7 +32,7 @@ index 5ed3dfe..a8735d2 100644
  
  // Parse a status of the form "HTTP/1.1 200 OK" or "HTTP/1.1 200"
 diff --git a/backend/webdav/webdav.go b/backend/webdav/webdav.go
-index e5c2d9e..59a04bb 100644
+index e5c2d9e..575fc30 100644
 --- a/backend/webdav/webdav.go
 +++ b/backend/webdav/webdav.go
 @@ -15,6 +15,7 @@ import (
@@ -58,7 +59,7 @@ index e5c2d9e..59a04bb 100644
  	name               string        // name of this remote
  	root               string        // the path we are working on
  	opt                Options       // parsed options
-@@ -250,13 +253,17 @@ type Fs struct {
+@@ -250,13 +253,18 @@ type Fs struct {
  //
  // Will definitely have info but maybe not meta
  type Object struct {
@@ -72,6 +73,7 @@ index e5c2d9e..59a04bb 100644
 +	ankoleDigest      string
 +	ankoleRefreshBody bool
 +	ankoleETag        string
++	ankoleMode        uint32
 +	ankoleNodeID      string
 +	fs                *Fs       // what this object is part of
 +	remote            string    // The remote path
@@ -83,7 +85,7 @@ index e5c2d9e..59a04bb 100644
  }
  
  // ------------------------------------------------------------
-@@ -705,6 +712,11 @@ var nextCloudURLRegex = regexp.MustCompile(`^(.*)/dav/files/([^/]+)`)
+@@ -705,6 +713,11 @@ var nextCloudURLRegex = regexp.MustCompile(`^(.*)/dav/files/([^/]+)`)
  // setQuirks adjusts the Fs for the vendor passed in
  func (f *Fs) setQuirks(ctx context.Context, vendor string) error {
  	switch vendor {
@@ -95,7 +97,7 @@ index e5c2d9e..59a04bb 100644
  	case "fastmail":
  		f.canStream = true
  		f.precision = time.Second
-@@ -1004,7 +1016,7 @@ func (f *Fs) ListP(ctx context.Context, dir string, callback fs.ListRCallback) e
+@@ -1004,7 +1017,7 @@ func (f *Fs) ListP(ctx context.Context, dir string, callback fs.ListRCallback) e
  	var iErr error
  	_, err := f.listAll(ctx, dir, false, false, defaultDepth, func(remote string, isDir bool, info *api.Prop) bool {
  		if isDir {
@@ -104,7 +106,7 @@ index e5c2d9e..59a04bb 100644
  			// .SetID(info.ID)
  			// FIXME more info from dir? can set size, items?
  			err := list.Add(d)
-@@ -1156,7 +1168,11 @@ func (f *Fs) mkdir(ctx context.Context, dirPath string) (err error) {
+@@ -1156,7 +1169,11 @@ func (f *Fs) mkdir(ctx context.Context, dirPath string) (err error) {
  // Mkdir creates the directory if it doesn't exist
  func (f *Fs) Mkdir(ctx context.Context, dir string) error {
  	dirPath := f.dirPath(dir)
@@ -117,7 +119,7 @@ index e5c2d9e..59a04bb 100644
  }
  
  // dirNotEmpty returns true if the directory exists and is not Empty
-@@ -1328,6 +1344,10 @@ func (f *Fs) Move(ctx context.Context, src fs.Object, remote string) (fs.Object,
+@@ -1328,6 +1345,10 @@ func (f *Fs) Move(ctx context.Context, src fs.Object, remote string) (fs.Object,
  //
  // If destination exists then return fs.ErrorDirExists
  func (f *Fs) DirMove(ctx context.Context, src fs.Fs, srcRemote, dstRemote string) error {
@@ -128,17 +130,18 @@ index e5c2d9e..59a04bb 100644
  	srcFs, ok := src.(*Fs)
  	if !ok {
  		fs.Debugf(srcFs, "Can't move directory - not same remote type")
-@@ -1474,6 +1494,9 @@ func (o *Object) Size() int64 {
+@@ -1474,6 +1495,10 @@ func (o *Object) Size() int64 {
  // setMetaData sets the metadata from info
  func (o *Object) setMetaData(info *api.Prop) (err error) {
  	o.hasMetaData = true
 +	o.ankoleETag = info.AnkoleETag
 +	o.ankoleDigest = info.AnkoleFingerprint
 +	o.ankoleNodeID = info.AnkoleNodeID
++	o.ankoleMode = parseAnkoleMode(info.AnkoleMode)
  	o.size = info.Size
  	o.modTime = time.Time(info.Modified)
  	if o.fs.hasOCMD5 || o.fs.hasOCSHA1 || o.fs.hasMESHA1 {
-@@ -1618,6 +1641,9 @@ func (o *Object) Storable() bool {
+@@ -1618,6 +1643,9 @@ func (o *Object) Storable() bool {
  // Open an object for read
  func (o *Object) Open(ctx context.Context, options ...fs.OpenOption) (in io.ReadCloser, err error) {
  	var resp *http.Response
@@ -148,7 +151,7 @@ index e5c2d9e..59a04bb 100644
  	fs.FixRangeOption(options, o.size)
  	opts := rest.Opts{
  		Method:  "GET",
-@@ -1644,7 +1670,9 @@ func (o *Object) Open(ctx context.Context, options ...fs.OpenOption) (in io.Read
+@@ -1644,7 +1672,9 @@ func (o *Object) Open(ctx context.Context, options ...fs.OpenOption) (in io.Read
  //
  // The new object may have been created if an error is returned
  func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, options ...fs.OpenOption) (err error) {
@@ -159,7 +162,7 @@ index e5c2d9e..59a04bb 100644
  	if err != nil {
  		return fmt.Errorf("Update mkParentDir failed: %w", err)
  	}
-@@ -1678,6 +1706,9 @@ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, op
+@@ -1678,6 +1708,9 @@ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, op
  			return fmt.Errorf("unchunked simple update failed: %w", err)
  		}
  	}
@@ -169,7 +172,7 @@ index e5c2d9e..59a04bb 100644
  	// read metadata from remote
  	o.hasMetaData = false
  	err = o.readMetaData(ctx)
-@@ -1761,6 +1792,9 @@ func (o *Object) updateSimple(ctx context.Context, body io.Reader, getBody func(
+@@ -1761,6 +1794,9 @@ func (o *Object) updateSimple(ctx context.Context, body io.Reader, getBody func(
  		extraHeaders = map[string]string{}
  	}
  
@@ -179,7 +182,7 @@ index e5c2d9e..59a04bb 100644
  	opts := rest.Opts{
  		Method:        "PUT",
  		Path:          filePath,
-@@ -1777,6 +1811,12 @@ func (o *Object) updateSimple(ctx context.Context, body io.Reader, getBody func(
+@@ -1777,6 +1813,12 @@ func (o *Object) updateSimple(ctx context.Context, body io.Reader, getBody func(
  		resp, err = o.fs.srv.Call(ctx, &opts)
  		return o.fs.shouldRetry(ctx, resp, err)
  	})
@@ -192,7 +195,7 @@ index e5c2d9e..59a04bb 100644
  	if err != nil {
  		// Give the WebDAV server a chance to get its internal state in order after the
  		// error.  The error may have been local in which case we closed the connection.
-@@ -1798,6 +1838,9 @@ func (o *Object) Remove(ctx context.Context) error {
+@@ -1798,6 +1840,9 @@ func (o *Object) Remove(ctx context.Context) error {
  		Path:       o.filePath(),
  		NoResponse: true,
  	}
@@ -203,10 +206,20 @@ index e5c2d9e..59a04bb 100644
  		resp, err := o.fs.srv.Call(ctx, &opts)
  		return o.fs.shouldRetry(ctx, resp, err)
 diff --git a/cmd/mount2/fs.go b/cmd/mount2/fs.go
-index 8e16972..7352220 100644
+index 8e16972..171f48a 100644
 --- a/cmd/mount2/fs.go
 +++ b/cmd/mount2/fs.go
-@@ -111,6 +111,9 @@ func translateError(err error) syscall.Errno {
+@@ -77,6 +77,9 @@ func setAttr(node vfs.Node, attr *fuse.Attr) {
+ 	attr.Owner.Uid = vfs.Opt.UID
+ 	attr.Ino = node.Inode()
+ 	attr.Mode = getMode(node)
++	if mode := vfs.AnkoleMode(node); mode != 0 {
++		attr.Mode = (attr.Mode &^ 0777) | mode
++	}
+ 	attr.Size = Size
+ 	attr.Nlink = 1
+ 	attr.Blocks = Blocks
+@@ -111,6 +114,9 @@ func translateError(err error) syscall.Errno {
  		return 0
  	}
  	_, uErr := fserrors.Cause(err)
@@ -280,7 +293,7 @@ index 74fde16..397f5df 100644
  
  import (
 diff --git a/vfs/dir.go b/vfs/dir.go
-index 9e1c437..32bebab 100644
+index 9e1c437..be72b17 100644
 --- a/vfs/dir.go
 +++ b/vfs/dir.go
 @@ -391,8 +391,6 @@ func (d *Dir) renameTree(dirPath string) {
@@ -313,8 +326,91 @@ index 9e1c437..32bebab 100644
  	}
  	return item, nil
  }
+@@ -940,7 +941,7 @@ func (d *Dir) Size() int64 {
+ 
+ // SetModTime sets the modTime for this dir
+ func (d *Dir) SetModTime(modTime time.Time) error {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	d.modTimeMu.Lock()
+@@ -1045,6 +1046,9 @@ func (d *Dir) checkName(name string) error {
+ //
+ // It returns EINVAL if name isn't a single safe path element.
+ func (d *Dir) Create(name string, flags int) (*File, error) {
++	if d.vfs.AnkoleReadOnly(path.Join(d.path, name)) {
++		return nil, EROFS
++	}
+ 	// fs.Debugf(path, "Dir.Create")
+ 	if err := d.checkName(name); err != nil {
+ 		return nil, err
+@@ -1066,7 +1070,7 @@ func (d *Dir) Create(name string, flags int) (*File, error) {
+ 		return nil, err
+ 	}
+ 	// node doesn't exist so create it
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return nil, EROFS
+ 	}
+ 	if err = d.SetModTime(time.Now()); err != nil {
+@@ -1081,7 +1085,10 @@ func (d *Dir) Create(name string, flags int) (*File, error) {
+ //
+ // It returns EINVAL if name isn't a single safe path element.
+ func (d *Dir) Mkdir(name string) (*Dir, error) {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.AnkoleReadOnly(path.Join(d.path, name)) {
++		return nil, EROFS
++	}
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return nil, EROFS
+ 	}
+ 	if err := d.checkName(name); err != nil {
+@@ -1122,7 +1129,7 @@ func (d *Dir) Mkdir(name string) (*Dir, error) {
+ 
+ // Remove the directory
+ func (d *Dir) Remove() error {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	// Check directory is empty first
+@@ -1150,7 +1157,7 @@ func (d *Dir) Remove() error {
+ 
+ // RemoveAll removes the directory and any contents recursively
+ func (d *Dir) RemoveAll() error {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	// Remove contents of the directory
+@@ -1178,7 +1185,10 @@ func (d *Dir) DirEntry() (entry fs.DirEntry) {
+ // which must be a directory.  The entry to be removed may correspond
+ // to a file (unlink) or to a directory (rmdir).
+ func (d *Dir) RemoveName(name string) error {
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.AnkoleReadOnly(path.Join(d.path, name)) {
++		return EROFS
++	}
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	// fs.Debugf(path, "Dir.Remove")
+@@ -1198,8 +1208,11 @@ func (d *Dir) RemoveName(name string) error {
+ //
+ // It returns EINVAL if newName isn't a single safe path element.
+ func (d *Dir) Rename(oldName, newName string, destDir *Dir) error {
++	if d.vfs.AnkoleReadOnly(path.Join(d.path, oldName)) || d.vfs.AnkoleReadOnly(path.Join(destDir.path, newName)) {
++		return EROFS
++	}
+ 	// fs.Debugf(d, "BEFORE\n%s", d.dump())
+-	if d.vfs.Opt.ReadOnly {
++	if d.vfs.Opt.ReadOnly || d.vfs.AnkoleReadOnly(d.path) {
+ 		return EROFS
+ 	}
+ 	if err := destDir.checkName(newName); err != nil {
 diff --git a/vfs/file.go b/vfs/file.go
-index 11d63d8..112a768 100644
+index 11d63d8..ee7d5e2 100644
 --- a/vfs/file.go
 +++ b/vfs/file.go
 @@ -17,6 +17,7 @@ import (
@@ -384,7 +480,26 @@ index 11d63d8..112a768 100644
  }
  
  // addWriter adds a write handle to the file
-@@ -865,6 +887,15 @@ func (f *File) Open(flags int) (fd Handle, err error) {
+@@ -451,7 +473,7 @@ func (f *File) SetModTime(modTime time.Time) error {
+ 	if f.d.vfs.Opt.NoModTime {
+ 		return nil
+ 	}
+-	if f.d.vfs.Opt.ReadOnly {
++	if f.d.vfs.Opt.ReadOnly || f.d.vfs.AnkoleReadOnly(f._cachePath()) {
+ 		return EROFS
+ 	}
+ 
+@@ -827,6 +849,9 @@ const o_SYMLINK = 0x4000_0000 //nolint:revive
+ //
+ // We ignore O_SYNC and O_EXCL
+ func (f *File) Open(flags int) (fd Handle, err error) {
++	if f.VFS().AnkoleReadOnly(f.Path()) && flags&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
++		return nil, EROFS
++	}
+ 	defer log.Trace(f.Path(), "flags=%s", decodeOpenFlags(flags))("fd=%v, err=%v", &fd, &err)
+ 	var (
+ 		write    bool // if set need write support
+@@ -865,6 +890,15 @@ func (f *File) Open(flags int) (fd Handle, err error) {
  		return nil, EPERM
  	}
  
@@ -400,8 +515,18 @@ index 11d63d8..112a768 100644
  	// If append is set then set read to force openRW
  	if flags&os.O_APPEND != 0 {
  		read = true
+@@ -925,6 +959,9 @@ func (f *File) Open(flags int) (fd Handle, err error) {
+ 
+ // Truncate changes the size of the named file.
+ func (f *File) Truncate(size int64) (err error) {
++	if f.VFS().AnkoleReadOnly(f.Path()) {
++		return EROFS
++	}
+ 	// make a copy of fh.writers with the lock held then unlock so
+ 	// we can call other file methods.
+ 	f.mu.Lock()
 diff --git a/vfs/vfs.go b/vfs/vfs.go
-index 6c0cb7d..b52c44a 100644
+index 6c0cb7d..ff10e6e 100644
 --- a/vfs/vfs.go
 +++ b/vfs/vfs.go
 @@ -178,19 +178,21 @@ var (
@@ -447,7 +572,17 @@ index 6c0cb7d..b52c44a 100644
  
  	return vfs
  }
-@@ -985,6 +988,9 @@ func (vfs *VFS) CreateSymlink(oldname, newname string) (Node, error) {
+@@ -603,6 +606,9 @@ func decodeOpenFlags(flags int) string {
+ 
+ // OpenFile a file according to the flags and perm provided
+ func (vfs *VFS) OpenFile(name string, flags int, perm os.FileMode) (fd Handle, err error) {
++	if vfs.AnkoleReadOnly(name) && flags&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
++		return nil, EROFS
++	}
+ 	defer log.Trace(name, "flags=%s, perm=%v", decodeOpenFlags(flags), perm)("fd=%v, err=%v", &fd, &err)
+ 
+ 	// http://pubs.opengroup.org/onlinepubs/7908799/xsh/open.html
+@@ -985,6 +991,9 @@ func (vfs *VFS) CreateSymlink(oldname, newname string) (Node, error) {
  		fs.Errorf(newname, "symlinks not supported without the --links flag")
  		return nil, ENOSYS
  	}
@@ -754,3 +889,21 @@ index 3e35751..3f3d9e4 100644
  			fs.Debugf(wbItem.name, "vfs cache: delaying writeback as --transfers exceeded")
  			resetTimer = false
  			break
+diff --git a/vfs/read_write.go b/vfs/read_write.go
+--- a/vfs/read_write.go
++++ b/vfs/read_write.go
+@@ -262,11 +262,11 @@
+ 	if fh.writeOnly() {
+ 		return n, EBADF
+ 	}
++	if err = fh.openPending(); err != nil {
++		return n, err
++	}
+ 	if off >= fh._size() {
+ 		return n, io.EOF
+-	}
+-	if err = fh.openPending(); err != nil {
+-		return n, err
+ 	}
+ 	if release {
+ 		// Do the writing with fh.mu unlocked

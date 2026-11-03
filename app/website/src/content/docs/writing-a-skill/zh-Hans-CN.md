@@ -30,7 +30,7 @@ my-skill/
 └── templates/
 ```
 
-目录名称仅限使用小写英文字母、数字、连字符（`-`）或下划线（`_`）。随源码构建分发的内置 Skill 存放在仓库的 `app/library/skills/` 目录下，单独安装到某个具体 Agent 名下的自定义 Skill 则保存在该 Agent 专属的云盘文件空间内。
+技能标识在 Pod 内唯一，以小写字母或数字开头，可包含小写字母、数字、点、连字符和下划线。随源码分发的内置 Skill 位于 `app/library/skills/`；成员在 **Meta Ankole → Skills** 中创建或导入自定义技能包。
 
 ### 写 frontmatter
 
@@ -50,12 +50,11 @@ platforms: [linux]
 
 由于 Agent 在日常对话中全靠阅读 `description` 来判断当前任务是否需要展开该 Skill，请在 `description` 中写明清晰具体的触发场景。若该项工作耗时较长或强依赖独立任务工作区，请显式指定 `ankole-runtime: background_job`；仅当脚本确需依赖 Linux 专属命令行工具时，再声明 `platforms: [linux]`。
 
-### 共享知识与参考章节
+### 完整技能包
 
-Ankole 将官方 Skill 同步到 `/AnkoleBrain/skills/<name>`。知识页把标准 Frontmatter 保存为元数据，将正文保存为 Page XML；脚本和模板作为文件子节点。所有 Skill 名称保持全局唯一，包括 Agent Plugin 内的成员技能。
+每个 Skill 包含必选的 `SKILL.md` 和配套文件。Frontmatter 与正文一起编辑，脚本、模板、二进制素材和参考文档保留包内相对路径。官方技能、Agent Plugin 技能和自定义技能共用 Pod 内唯一的标识。
 
-团队可以添加知识子页作为本地操作规范。较长的查询资料应标记 `metadata.role = "reference"`，并在技能正文中引用其相对路径。`skill_view` 自动追加当前会话可读的规范子页，参考章节则按子路径读取。
-
+在 `SKILL.md` 中明确引用配套文件，供 Agent 按需读取。主 Agent 使用 `/drive/Skills/<slug>/`，后台任务使用该任务获准的技能包。启用技能的 Agent 可以读取整个包；有特定共享范围的业务数据应存入 Brain 或单独共享的协作页面。
 ### 写正文
 
 撰写 `SKILL.md` 正文的目标，是让一个具备通用推理能力、但事先并不了解你们团队内部约定的 Agent 能够稳健交付合格结果。正文中至少应交代清楚以下五要素：
@@ -88,7 +87,7 @@ dependencies:
 
 先在测试 Agent 上开启新写的 Skill，向其发送一条贴近真实业务的测试指令，观察 Agent 能否准确命中该 Skill、按指引读取配套参考文件并严格落实交付标准：若发现 Agent 根本没有点开该 Skill，请优先优化 Frontmatter 中的 `description` 触发描述；若选中后执行步骤跳脱不稳，则进一步收紧正文中的步骤顺序与边界约束。
 
-验证当前会话只能读取有权访问的技能与补充子页，并检查参考子路径、兼容运行时加载和不兼容运行时的路由提示。关闭 Skill 或其父 Plugin 后，该技能应退出启用目录，`skill_view` 应拒绝加载。
+验证包内相对路径、可执行脚本、兼容运行时加载和不兼容运行时的路由提示。关闭“为所有 Agent 开启”后，分别验证 AI 同事绑定与自己的助理绑定；全局开关打开再关闭后，个体绑定应原样恢复。取消所有适用绑定或关闭父 Plugin 后，该技能应退出启用目录，`skill_view` 应拒绝加载。
 
 ## 开发 Control Plane Plugin
 

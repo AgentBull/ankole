@@ -41,7 +41,6 @@ AppConfigure는 제품 설정을 PostgreSQL에 저장하며 대부분의 변경�
 | `ai_agent.max_output_tokens` | 테넌트 | 단일 모델 응답의 최대 출력 토큰 수 |
 | `ai_agent.inactivity_timeout_ms` | 테넌트 | 응답이 없는 모델이나 제공자를 기다린 뒤 턴을 종료하기까지의 제한 시간(밀리초) |
 | `ai_agent.library.agent_plugin_defaults` | 테넌트 | Agent Plugin의 기본 활성화 상태 |
-| `ai_agent.library.skill_defaults` | 테넌트 | Skill의 기본 활성화 상태 |
 | `background_agent_jobs.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 BackgroundAgentJob 수(기본값 `3`, 유효 범위 `1`–`64`) |
 | `automation_jobs.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 자동화 스크립트 수(기본값 `10`, 유효 범위 `1`–`64`) |
 

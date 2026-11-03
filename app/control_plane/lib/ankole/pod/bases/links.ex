@@ -121,15 +121,18 @@ defmodule Ankole.Pod.Bases.Links do
     |> Enum.reduce_while({:ok, write}, fn field, {:ok, write} ->
       {own, peer} = roles(field)
 
+      emits? = Map.fetch!(write.tables, field.table_id).emit_changes
+      limit = if emits?, do: "", else: " LIMIT #{Bases.max_links_per_field() + 1}"
+
       ids =
         BaseRepo.query!(
-          "SELECT DISTINCT #{own}_id::text FROM #{BaseRepo.edge(field.config["edge_table"])} WHERE #{peer}_id=$1::text::uuid LIMIT #{Bases.max_links_per_field() + 1}",
+          "SELECT DISTINCT #{own}_id::text FROM #{BaseRepo.edge(field.config["edge_table"])} WHERE #{peer}_id=$1::text::uuid#{limit}",
           [id]
         ).rows
         |> List.flatten()
 
       result =
-        if length(ids) > Bases.max_links_per_field(),
+        if not emits? and length(ids) > Bases.max_links_per_field(),
           do: {:ok, Write.touch(write, field.table_id, resync: true)},
           else: touch_peers(write, field, ids)
 
@@ -146,7 +149,12 @@ defmodule Ankole.Pod.Bases.Links do
     bump_field!(write, field, ids)
 
     with :ok <- Physical.validate_sizes(write, field.table_id, ids),
-         do: {:ok, Write.touch(write, field.table_id, changed: ids)}
+         do:
+           {:ok,
+            Write.touch(write, field.table_id,
+              changed: ids,
+              row: Enum.map(ids, &%{id: &1, op: "update", fields: [field.id]})
+            )}
   end
 
   def bump_field!(write, field, ids) do

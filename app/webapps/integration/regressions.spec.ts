@@ -1,5 +1,25 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
-import { pageRoute, uuidShorten } from './pod-browser/routes'
+import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
+import { conversationRoute, pageRoute, uuidShorten } from './pod-browser/routes'
+import type { ConversationDetail } from '../pod/api'
+import type { PodAgentsResponse } from '../pod/api/generated/types.gen'
+import type { ListAgentLibraryDocumentsResponse } from '../console/api/v2/generated/types.gen'
+
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v2/browser/session', route =>
+    route.fulfill({
+      json: {
+        authenticated: true,
+        principalUID: 'person',
+        displayName: 'Person',
+        canManagePod: false,
+        accounts: [],
+        pendingAccounts: [],
+        siteAuthentications: []
+      } satisfies BrowserSessionResponse
+    })
+  )
+})
 
 test('knowledge approval exposes changes, keyboard-openable full draft and captured version before confirmation', async ({
   page
@@ -58,26 +78,62 @@ test('knowledge approval exposes changes, keyboard-openable full draft and captu
   expect(decisions).toEqual([{ data: { decision: 'confirm' } }])
 })
 
-test('selecting either Agent in a compiled Pod enables sending and retains the selection', async ({ page }) => {
-  await page.route('**/api/v2/pod/**', route =>
-    route.fulfill({
-      json: route.request().url().endsWith('/agents')
-        ? {
-            agents: [
-              { uid: 'agent-one', displayName: 'First Agent', active: true, type: 'agent', mayIntervene: false },
-              { uid: 'agent-two', displayName: 'Second Agent', active: true, type: 'agent', mayIntervene: false }
-            ]
-          }
-        : { conversations: [] }
-    })
-  )
-  await page.goto('/')
+test('selecting either Agent in a group enables sending and retains the selection and draft', async ({ page }) => {
+  const agents = [
+    { uid: 'agent-one', displayName: 'First Agent', active: true, type: 'agent', mayIntervene: false },
+    { uid: 'agent-two', displayName: 'Second Agent', active: true, type: 'agent', mayIntervene: false }
+  ]
+  const detail: ConversationDetail = {
+    conversation: {
+      id: '00112233-4455-6677-8899-aabbccddeeff',
+      title: 'Group recipients',
+      accessScope: 'participants',
+      canDelete: true,
+      canManage: true,
+      roomMode: 'group',
+      conversationKind: 'group',
+      titleCustomized: true,
+      createdBy: 'person',
+      lastMessageSeq: 0,
+      lastActivityAt: '2026-10-16T00:00:00Z',
+      rowStatus: 'idle',
+      viewer: { uid: 'person', pinned: false, muted: false, lastReadSeq: 0 },
+      agents,
+      participants: [
+        { uid: 'person', displayName: 'Person', active: true, type: 'human', mayIntervene: false },
+        ...agents
+      ]
+    },
+    messages: [],
+    activities: [],
+    pendingInteractions: [],
+    pendingQueues: [],
+    linkedRuns: [],
+    artifacts: { pageIDs: [], attachments: [] },
+    removedMessageIDs: [],
+    olderMessagesBeforeSeq: null,
+    messageRange: { firstSeq: 0, lastSeq: 0 }
+  }
+  await page.route('**/api/v2/pod/**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/agents')) {
+      return route.fulfill({
+        json: { agents, personalAssistant: null, personalAssistantAvailable: false } satisfies PodAgentsResponse
+      })
+    }
+    if (path.endsWith('/attention')) return route.fulfill({ json: [] })
+    if (path.endsWith('/conversations')) return route.fulfill({ json: { conversations: [detail.conversation] } })
+    if (path.endsWith('/events')) return route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' })
+    return route.fulfill({ json: detail })
+  })
+  await page.goto(conversationRoute(detail.conversation.id))
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Draft only')
   const recipient = page.getByRole('combobox', { name: 'Choose an Agent', exact: true })
   for (const name of ['Second Agent', 'First Agent']) {
     await recipient.click()
     await page.getByRole('option', { name, exact: true }).click()
     await expect(recipient).toContainText(name)
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Draft only')
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled()
   }
 })
@@ -275,7 +331,7 @@ test('a rejected save notification does not cover the corrected Save action', as
   await expect.poll(() => attempts).toBe(2)
 })
 
-test('Agent contracts open their source pages in Pod', async ({ page }) => {
+test('Console previews the complete effective Agent contracts without editing them', async ({ page }) => {
   await page.route('**/api/v2/agents/agent-one/library-documents**', route =>
     route.fulfill({
       json: {
@@ -283,29 +339,22 @@ test('Agent contracts open their source pages in Pod', async ({ page }) => {
           agents: {
             kind: 'agents',
             content: 'Whole Agent contract',
-            content_hash: 'agents-hash',
-            page_id: 'global',
-            page_ids: ['global'],
-            page_urls: ['https://pod.example.test/pages/global']
+            content_hash: 'agents-hash'
           },
           design: {
             kind: 'design',
             content: 'Whole visual contract',
-            content_hash: 'design-hash',
-            page_id: 'local',
-            page_ids: ['brand', 'local'],
-            page_urls: ['https://pod.example.test/pages/brand', 'https://pod.example.test/pages/local']
+            content_hash: 'design-hash'
           }
         }
-      }
+      } satisfies ListAgentLibraryDocumentsResponse
     })
   )
   await page.goto('/library/agent-one')
-  await expect(page.getByRole('link', { name: /Open source page/ })).toHaveCount(3)
-  await expect(page.getByRole('link', { name: /Open source page/ }).first()).toHaveAttribute(
-    'href',
-    'https://pod.example.test/pages/global'
-  )
+  const contracts = page.locator('section').filter({ has: page.getByRole('heading', { name: 'AGENTS / DESIGN' }) })
+  await expect(contracts.getByText('AGENTS.md', { exact: true })).toBeVisible()
+  await expect(contracts.getByText('DESIGN.md', { exact: true })).toBeVisible()
+  await expect(contracts.locator('pre')).toHaveText(['Whole Agent contract', 'Whole visual contract'])
   await expect(page.getByRole('textbox')).toHaveCount(0)
 })
 

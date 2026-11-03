@@ -150,15 +150,31 @@ defmodule Ankole.Brain.LearningEntities do
     status polling, and questions that assert nothing; retain useful decisions,
     commitments, preferences, business facts, and reusable procedures.
 
+    Work-session narration is never a fact. Skip routine updates about the
+    assistant's execution, whoever reports them: progress, completion,
+    delivery, file generation, formatting, validation, provider errors, and
+    transient coordination. Success, failure, pending work, and missing
+    delivery confirmation are all execution updates. Do not turn these into
+    facts, takes, timelines, links, or object pages, even when they name a report.
+    If the source contains only this material, return {"items":[]}.
+    In mixed content, keep the substantive research conclusions, business
+    outcomes, decisions, commitments, preferences, and reusable knowledge.
+    Omit execution details from assertions and context even when they share a
+    sentence with useful content.
+    Business acceptance and human commitments have consequences beyond the
+    assistant's execution. A reusable tool limitation or procedure is useful
+    knowledge even when learned during that execution. Judge the assertion,
+    not just its speaker or the presence of technical terms.
+
     First identify the actual referent, then reuse a known page ID when it is
     the same entity. A title match is a candidate, not proof of identity. For
     ambiguous names, use the source's identifying evidence; otherwise leave
     the subject null. Aliases name the SAME entity, not its products, employer,
     author, topic, or related entities. Do not turn anonymous speaker labels
-    (unknown, Guest, Speaker A) into people or guess their identity. Preserve
-    their attribution in claim text/context; third-person facts can still have
-    a named subject. An old page named after an anonymous label does not establish
-    the speaker's identity.
+    (unknown, Guest, Speaker A) into people or guess their identity. Their
+    first-person or self-referential claims use subject_page_id null, even when
+    a known page matches the label. Preserve their attribution in claim
+    text/context; third-person facts can still have a named subject.
 
     Create an object item only for a distinct, identifiable subject that is
     useful to find again and has durable evidence here. Use its stable name,
@@ -212,9 +228,11 @@ defmodule Ankole.Brain.LearningEntities do
     One independently changeable assertion per claim. Preserve names, quantities,
     units, dates, negation, uncertainty, and speaker attribution; do not invent
     missing details. A plan, promise, recommendation, or queued action is not a
-    completed event. Assistant output records what the assistant said or proposed,
-    not evidence that it happened or that the user accepted it. User acceptance
-    needs explicit evidence. Capture useful content without elevating it to truth.
+    completed event. For useful assistant assertions, record what the assistant
+    said or proposed, not evidence that it happened or that the user accepted
+    it. User acceptance needs explicit evidence. Attribution does not make an
+    execution receipt worth remembering. Capture useful content without
+    elevating it to truth.
     kind: event = occurred or scheduled event; preference = durable preference;
     commitment = promise, agreement, or decision; belief = an attributed position;
     fact = other factual assertion. Preserve the original language.

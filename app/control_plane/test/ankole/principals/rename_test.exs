@@ -61,8 +61,8 @@ defmodule Ankole.Principals.RenameTest do
 
     saved = Repo.get_by!(PageContent, page_id: page.id)
     assert saved.content =~ "principal=\"#{renamed.uid}\""
-    assert Repo.get!(Pod.Page, page.id).revision > page.revision
-    assert Repo.get!(Pod.Page, plain.id).revision == plain.revision
+    assert Repo.get_by!(Pod.Page, id: page.id).revision > page.revision
+    assert Repo.get_by!(Pod.Page, id: plain.id).revision == plain.revision
     assert Repo.get_by!(PageContent, page_id: plain.id).content =~ owner.uid
     assert saved.updated_by.uid == renamed.uid
     assert Repo.get!(PageComment, comment.id).body =~ renamed.uid
@@ -175,6 +175,7 @@ defmodule Ankole.Principals.RenameTest do
     outsider = human_fixture().principal
     actor = actor_fixture(owner)
     {:ok, home} = Ankole.Brain.Objects.get_by_slug("people/" <> owner.uid)
+    category = Ankole.BrainFixtures.category_fixture(owner.uid)
 
     xml =
       "<page><p>Private note. <mention principal=\"#{owner.uid}\" /><mention page=\"#{home.id}\" /></p><pre>#{owner.uid}</pre></page>"
@@ -182,10 +183,16 @@ defmodule Ankole.Principals.RenameTest do
     {:ok, page} =
       Pages.create(actor, %{
         type: :knowledge,
-        private_owner_uid: owner.uid,
+        parent_id: category.id,
         title: "Rename review",
         xml: xml,
         metadata: %{"summary" => "Private review"}
+      })
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: owner.uid, role: "manage"}]
       })
 
     {:ok, %{snapshots: [original]}} = Pod.Documents.History.list(actor, page.id)
@@ -210,7 +217,7 @@ defmodule Ankole.Principals.RenameTest do
                current.updated_at
              )
 
-    assert restored.metadata == %{"summary" => "Private review"}
+    assert restored.metadata == %{"entity_type" => "note", "summary" => "Private review"}
     assert restored_content.content =~ "principal=\"#{renamed.uid}\""
     assert restored_content.content =~ "page=\"#{home.id}\""
     assert restored_content.content =~ "<pre>#{owner.uid}</pre>"
@@ -250,6 +257,35 @@ defmodule Ankole.Principals.RenameTest do
       |> Repo.all()
 
     assert Enum.any?(participants, &(&1.principal_uid == renamed.uid))
+  end
+
+  test "Agent rename keeps delegated Skill-binding grants", %{} do
+    owner = human_fixture().principal
+    agent = agent_fixture(%{uid: "skill-delegate"}).principal
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: owner.uid,
+        resource_pattern: "tenant_console:agent_skill_binding:#{agent.uid}",
+        action: "update"
+      })
+
+    {:ok, _} = Principals.disable_agent(agent.uid)
+    assert {:ok, _} = Principals.rename(agent.uid, "renamed-skill-delegate")
+
+    assert :ok =
+             Ankole.AuthZ.authorize(
+               actor_fixture(owner),
+               "tenant_console:agent_skill_binding:renamed-skill-delegate",
+               "update"
+             )
+
+    assert {:error, _} =
+             Ankole.AuthZ.authorize(
+               actor_fixture(owner),
+               "tenant_console:agent_skill_binding:skill-delegate",
+               "update"
+             )
   end
 
   test "an Agent rename preserves historical Delivery attachment references" do

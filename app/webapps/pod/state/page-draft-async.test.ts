@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { PageDraftModel } from './page-draft'
+import { DocumentDraftModel } from './document-draft'
 
 type Request = {
   generation: number
@@ -69,7 +69,7 @@ class DraftOracle {
   }
 }
 
-function expectSame(model: InstanceType<typeof PageDraftModel>, oracle: DraftOracle) {
+function expectSame(model: InstanceType<typeof DocumentDraftModel>, oracle: DraftOracle) {
   expect(model.source.peek()).toBe(oracle.state.source)
   expect(model.xml.peek()).toBe(oracle.state.xml)
   expect(model.savedXML.peek()).toBe(oracle.state.savedXml)
@@ -77,7 +77,11 @@ function expectSame(model: InstanceType<typeof PageDraftModel>, oracle: DraftOra
   expect(model.conflict.peek()).toBe(oracle.state.conflict)
 }
 
-function deferredRequest(model: InstanceType<typeof PageDraftModel>, generation: number, capturedXml: string): Request {
+function deferredRequest(
+  model: InstanceType<typeof DocumentDraftModel>,
+  generation: number,
+  capturedXml: string
+): Request {
   let resolve!: Request['resolve']
   let reject!: Request['reject']
   const response = new Promise<{ xml: string; revision: number }>((ok, fail) => {
@@ -96,7 +100,7 @@ async function settle(request: Request, outcome: 'resolve' | 'reject', content =
 
 describe('page draft async reload model', () => {
   test('a read started before an edit cannot replace the edit', async () => {
-    const model = new PageDraftModel()
+    const model = new DocumentDraftModel()
     model.load('page-a', '<page><p>A0</p></page>', 1)
     const oracle = new DraftOracle()
     const request = deferredRequest(model, oracle.start(), oracle.state.xml)
@@ -112,7 +116,7 @@ describe('page draft async reload model', () => {
   })
 
   test('a read started on the previous page cannot touch the new page', async () => {
-    const model = new PageDraftModel()
+    const model = new DocumentDraftModel()
     model.load('page-a', '<page><p>A0</p></page>', 1)
     const oracle = new DraftOracle()
     const request = deferredRequest(model, oracle.start(), oracle.state.xml)
@@ -127,7 +131,7 @@ describe('page draft async reload model', () => {
 
   test('discard and cancel invalidate a pending read', async () => {
     for (const cancel of ['discard', 'cancelReload'] as const) {
-      const model = new PageDraftModel()
+      const model = new DocumentDraftModel()
       model.load('page-a', '<page><p>A0</p></page>', 1)
       model.xml.value = '<page><p>Local</p></page>'
       const oracle = new DraftOracle()
@@ -148,7 +152,7 @@ describe('page draft async reload model', () => {
   })
 
   test('a read cannot move the revision backwards', async () => {
-    const model = new PageDraftModel()
+    const model = new DocumentDraftModel()
     model.load('page-a', '<page><p>A0</p></page>', 5)
     const oracle = new DraftOracle('page-a', '<page><p>A0</p></page>', 5)
     const request = deferredRequest(model, oracle.start(), oracle.state.xml)
@@ -158,7 +162,7 @@ describe('page draft async reload model', () => {
   })
 
   test('a current read applies and clears the conflict', async () => {
-    const model = new PageDraftModel()
+    const model = new DocumentDraftModel()
     model.load('page-a', '<page><p>A0</p></page>', 1)
     model.conflict.value = true
     const oracle = new DraftOracle()
@@ -171,7 +175,7 @@ describe('page draft async reload model', () => {
   })
 
   test('a stale rejection is swallowed while a current one is rethrown', async () => {
-    const model = new PageDraftModel()
+    const model = new DocumentDraftModel()
     model.load('page-a', '<page><p>A0</p></page>', 1)
     const oracle = new DraftOracle()
     const stale = deferredRequest(model, oracle.start(), oracle.state.xml)
@@ -187,7 +191,7 @@ describe('page draft async reload model', () => {
   })
 
   test('a stale save cannot lower the baseline through an already started read', async () => {
-    const model = new PageDraftModel()
+    const model = new DocumentDraftModel()
     model.load('page-a', '<page><p>A0</p></page>', 1)
     const oracle = new DraftOracle()
     const request = deferredRequest(model, oracle.start(), oracle.state.xml)
@@ -205,7 +209,7 @@ describe('page draft async reload model', () => {
     const random = mulberry32(seed)
 
     for (let run = 0; run < 200; run++) {
-      const model = new PageDraftModel()
+      const model = new DocumentDraftModel()
       model.load('page-a', '<page><p>A0</p></page>', 1)
       const oracle = new DraftOracle()
       const pending: Request[] = []
@@ -266,3 +270,14 @@ function mulberry32(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
+
+test('disposing a document draft revokes an outstanding recovery read', async () => {
+  const model = new DocumentDraftModel()
+  model.load('page', '<page/>', 1)
+  const response = Promise.withResolvers<{ xml: string; revision: number }>()
+  const pending = model.reload(() => response.promise)
+  model[Symbol.dispose]()
+  response.resolve({ xml: '<page><p>Too late</p></page>', revision: 2 })
+  expect(await pending).toBeUndefined()
+  expect(model.xml.value).toBe('<page/>')
+})

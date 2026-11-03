@@ -38,7 +38,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
     {:ok, :ok} =
       Repo.transact(fn ->
         :ok =
-          Ankole.Files.Access.put_role(
+          Ankole.Pod.Access.put_role(
             %{principal_uid: human.uid},
             "drive:**:#{object.id}:**",
             "manage"
@@ -62,7 +62,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
     @operation operation
     test "#{operation} waiting behind a delete cannot change the hidden content", context do
       deleted =
-        hold(fn -> Ankole.Files.Nodes.trash_in_tx(context.actor, context.object.id) end)
+        hold(fn -> Ankole.Pod.Pages.Tree.trash_in_tx(context.actor, context.object.id) end)
 
       waiting =
         start(fn ->
@@ -118,7 +118,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
         )
       end)
 
-    deleted = start(fn -> Ankole.Files.Nodes.trash(context.actor, context.object.id) end)
+    deleted = start(fn -> Ankole.Pod.Pages.Tree.trash(context.actor, context.object.id) end)
     assert_blocked_by(deleted, saved)
     send(saved.task.pid, :commit)
     assert {:ok, _} = Task.await(saved.task, 5_000)

@@ -217,7 +217,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     alias Ankole.Conversations.{Native, Queries}
 
     with false <- Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id),
-         :ok <- Ankole.Files.lock_tree_in_tx(),
+         :ok <- Ankole.Pod.lock_tree_in_tx(),
          [signal_id, id] <- String.split(interaction_id, ":", parts: 2),
          {:ok, signal_id} <- Ecto.UUID.cast(signal_id),
          {:ok, %Signal{} = source} <-

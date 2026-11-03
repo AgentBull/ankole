@@ -13,6 +13,10 @@ defmodule Ankole.E2E.PodContentBrowser do
     run!(ctx, uid, Map.new(options) |> Map.put(:action, "send_message"))
   end
 
+  def edit_skill!(ctx, uid, slug, text) do
+    run!(ctx, uid, %{action: "edit_skill", skill_slug: slug, text: text})
+  end
+
   def edit_knowledge!(ctx, uid, page_id, text) do
     run!(ctx, uid, %{action: "edit_knowledge", page_id: page_id, text: text})
   end

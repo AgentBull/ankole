@@ -188,15 +188,25 @@ defmodule Ankole.Conversations.Queries do
   end
 
   @doc false
+  def deletion_root_ids_for_agent_in_tx(uid) do
+    uid
+    |> native_conversations_of_agent()
+    |> Ash.Query.filter(room_mode == :dm)
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.id)
+    |> Ankole.Pod.root_ids_for_conversations()
+  end
+
   def delete_for_agent_in_tx(uid) do
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
 
     uid
     |> native_conversations_of_agent()
     |> Ash.Query.filter(room_mode == :dm)
     |> Ankole.Ash.read!()
     |> Enum.reduce_while(:ok, fn conversation, :ok ->
-      with :ok <- Ankole.Files.delete_conversation_root_in_tx(conversation.id),
+      with :ok <- Ankole.Pod.delete_conversation_root_in_tx(conversation.id),
            {:ok, _} <- Ankole.Ash.destroy(conversation, :remove) do
         {:cont, :ok}
       else

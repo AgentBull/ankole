@@ -441,12 +441,23 @@ defmodule Ankole.Plugins.EmailAdapter.Mime do
   defp split_semicolons(value) do
     value
     |> String.to_charlist()
-    |> Enum.reduce({[], [], false}, fn
-      ?", {current, acc, quoted?} -> {[?" | current], acc, not quoted?}
-      ?;, {current, acc, false} -> {[], [List.to_string(Enum.reverse(current)) | acc], false}
-      char, {current, acc, quoted?} -> {[char | current], acc, quoted?}
+    |> Enum.reduce({[], [], false, false}, fn
+      char, {current, acc, quoted?, true} ->
+        {[char | current], acc, quoted?, false}
+
+      ?\\, {current, acc, true, false} ->
+        {[?\\ | current], acc, true, true}
+
+      ?", {current, acc, quoted?, false} ->
+        {[?" | current], acc, not quoted?, false}
+
+      ?;, {current, acc, false, false} ->
+        {[], [List.to_string(Enum.reverse(current)) | acc], false, false}
+
+      char, {current, acc, quoted?, false} ->
+        {[char | current], acc, quoted?, false}
     end)
-    |> then(fn {current, acc, _quoted?} ->
+    |> then(fn {current, acc, _quoted?, _escaped?} ->
       Enum.reverse([List.to_string(Enum.reverse(current)) | acc])
     end)
   end

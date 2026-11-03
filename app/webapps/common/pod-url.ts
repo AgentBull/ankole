@@ -115,7 +115,9 @@ export function podPageRouteID(value: string | undefined): string | undefined {
 }
 
 export function podPagePathnameID(pathname: string, options?: { allowTrailingSlash?: boolean }): string | undefined {
-  const match = (options?.allowTrailingSlash ? /^\/pages\/([^/]+)\/?$/ : /^\/pages\/([^/]+)$/).exec(pathname)
+  const match = (
+    options?.allowTrailingSlash ? /^\/(?:pages|meta\/brain)\/([^/]+)\/?$/ : /^\/(?:pages|meta\/brain)\/([^/]+)$/
+  ).exec(pathname)
   if (!match?.[1]) return
   try {
     return podPageRouteID(decodeURIComponent(match[1]))

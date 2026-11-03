@@ -76,7 +76,6 @@ defmodule Ankole.Conversations do
     to: Ankole.Conversations.Peers,
     as: :detail
 
-  defdelegate peer_exchanges(origin_ids), to: Ankole.Conversations.Peers, as: :exchanges
   defdelegate peer_exchange(id), to: Ankole.Conversations.Peers, as: :exchange
   defdelegate lock_peer_reply_rooms(run), to: Ankole.Conversations.Peers, as: :lock_reply_rooms
 
@@ -175,6 +174,7 @@ defmodule Ankole.Conversations do
 
   defdelegate ids_for_agent_in_tx(uid), to: Queries
   defdelegate delete_for_agent_in_tx(uid), to: Queries
+  defdelegate deletion_root_ids_for_agent_in_tx(uid), to: Queries
   defdelegate next_sequence_in_tx(conversation), to: Queries
   defdelegate expire_input_tombstones(now), to: Queries
   defdelegate lock_conversation_in_tx(id, mode \\ :update), to: Queries

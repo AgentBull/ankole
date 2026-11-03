@@ -214,7 +214,7 @@ defmodule Ankole.Conversations.Native do
     invited = Ankole.Attrs.get(attrs, :participant_uids) || []
 
     with :ok <- Repo.require_transaction(),
-         :ok <- Ankole.Files.lock_tree_in_tx(),
+         :ok <- Ankole.Pod.lock_tree_in_tx(),
          {:ok, id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :conversation_id)),
          {:ok, message_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
          {:ok, mode} <- delivery_mode(Ankole.Attrs.get(attrs, :delivery_mode)),
@@ -385,7 +385,7 @@ defmodule Ankole.Conversations.Native do
   end
 
   def delete_in_tx(actor, id, opts \\ []) do
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
 
     with {:ok, id} <- Queries.cast_id(id),
          %Conversation{} <- visible_conversation(actor, id),
@@ -396,6 +396,7 @@ defmodule Ankole.Conversations.Native do
              Ankole.AuthZ.Actor.uid(actor)
              | Enum.map(agents, & &1.uid) ++ Enum.map(peers, & &1.peer_target_uid)
            ]),
+         :ok <- Ankole.Pod.purge_root_jobs_in_tx(Ankole.Pod.root_ids_for_conversations([id])),
          :ok <-
            Ankole.Sessions.Queue.lock_sessions_in_tx(
              Enum.map(agents, &{&1.uid, Ankole.Sessions.Key.conversation(id)}) ++
@@ -406,7 +407,7 @@ defmodule Ankole.Conversations.Native do
          :ok <- ensure_idle_or_stop(conversation, agents, opts[:force_stop]),
          {:ok, stopped} <-
            Ankole.Conversations.Peers.stop_all_in_tx(peers, Ankole.AuthZ.Actor.uid(actor)),
-         :ok <- Ankole.Files.delete_conversation_root_in_tx(conversation.id),
+         :ok <- Ankole.Pod.delete_conversation_root_in_tx(conversation.id),
          {:ok, _} <- Ankole.Ash.destroy(conversation, :remove) do
       {:ok, {id, stopped}}
     else
@@ -453,7 +454,7 @@ defmodule Ankole.Conversations.Native do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
 
     with :ok <- Repo.require_transaction(),
-         :ok <- Ankole.Files.lock_tree_in_tx(),
+         :ok <- Ankole.Pod.lock_tree_in_tx(),
          {:ok, id} <- Queries.cast_id(id),
          {:ok, message_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
          {:ok, mode} <- delivery_mode(Ankole.Attrs.get(attrs, :delivery_mode)),
@@ -657,7 +658,7 @@ defmodule Ankole.Conversations.Native do
     with :ok <- if(agent, do: available_native_id(agent.uid, id), else: :ok),
          {:ok, _} <-
            Ankole.Ash.create(Conversation, :ensure_native, attrs, touch_update_defaults?: false),
-         {:ok, _} <- Ankole.Files.Nodes.ensure_conversation_root_in_tx(id),
+         {:ok, _} <- Ankole.Pod.Pages.Tree.ensure_conversation_root_in_tx(id),
          %Conversation{created_by: ^human_uid, page_id: ^page_id} = conversation <-
            Queries.lock_conversation(id),
          true <-
@@ -712,7 +713,7 @@ defmodule Ankole.Conversations.Native do
   def authorize_page(_uid, nil), do: :ok
 
   def authorize_page(%Ankole.AuthZ.Actor{} = actor, id) do
-    case Ankole.Files.authorize_node(actor, id, "node_view") do
+    case Ankole.Pod.authorize_node(actor, id, "node_view") do
       {:ok, _} -> :ok
       _ -> {:error, :page_unavailable}
     end

@@ -474,11 +474,15 @@ fn apply_overlap(chunks: Vec<String>, overlap_words: usize) -> Vec<String> {
 fn extract_trailing_context(text: &str, target_words: usize) -> &str {
     let runs = scan_word_runs(text);
     let trailing = if count_words(text) > runs.len() {
-        let starts: Vec<usize> = text.grapheme_indices(true).map(|(idx, _)| idx).collect();
-        let Some(keep_from) = starts.len().checked_sub(target_words).filter(|&i| i > 0) else {
+        if target_words == 0 {
             return "";
-        };
-        let Some(&start_byte) = starts.get(keep_from) else {
+        }
+        let Some((start_byte, _)) = text
+            .grapheme_indices(true)
+            .rev()
+            .nth(target_words - 1)
+            .filter(|(index, _)| *index > 0)
+        else {
             return "";
         };
         let Some(slice) = text.get(start_byte..) else {

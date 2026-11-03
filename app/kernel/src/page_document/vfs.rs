@@ -10,6 +10,22 @@ struct BlockProjection {
     editable: bool,
 }
 
+/// Empty editor paragraphs and whitespace do not create a Markdown file.
+/// Structural and rich blocks remain content even without searchable text.
+pub fn is_empty(source: &str) -> Result<bool> {
+    fn empty_node(node: &Node) -> bool {
+        match node {
+            Node::Text(text) => text.trim().is_empty(),
+            Node::Element(element) => {
+                matches!(element.name.as_str(), "p" | "br")
+                    && element.attrs.is_empty()
+                    && element.children.iter().all(empty_node)
+            }
+        }
+    }
+    Ok(tree::parse(source)?.children.iter().all(empty_node))
+}
+
 fn blocks(source: &str) -> Result<Vec<BlockProjection>> {
     let root = tree::parse(source)?;
     root.children
@@ -104,6 +120,22 @@ fn append_markdown(children: &mut Vec<Node>, markdown: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_paragraphs_are_directories_but_structural_content_is_not_empty() {
+        for xml in ["<page />", "<page><p> \n <br /></p><p /></page>"] {
+            assert!(is_empty(xml).unwrap());
+        }
+        for xml in [
+            "<page><p>body</p></page>",
+            "<page><image src=\"image.png\" /></page>",
+            "<page><table /></page>",
+            "<page><pre /></page>",
+            "<page><hr /></page>",
+        ] {
+            assert!(!is_empty(xml).unwrap());
+        }
+    }
     #[test]
     fn preserves_rich_subtrees_and_edits_adjacent_text() {
         let xml = "<page><p>before</p><columns><column><p>left</p></column><column><p>right</p></column></columns><p>after</p></page>";

@@ -60,7 +60,6 @@ defmodule Ankole.AuthZ.Root do
   end
 
   def admin_group_name, do: @admin_group_name
-  def pod_admin_group_name, do: "pod_admin"
 
   def pod_admin?(uid) do
     Membership
@@ -126,7 +125,7 @@ defmodule Ankole.AuthZ.Root do
   administration to another tenant.
   """
   def delete_site_admin_group_in_tx do
-    Ankole.Files.lock_tree_in_tx()
+    Ankole.Pod.lock_tree_in_tx()
 
     case Group
          |> Ash.Query.filter(name == ^@admin_group_name and built_in == true)

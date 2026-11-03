@@ -6,7 +6,7 @@ defmodule Ankole.AuthZ.GrantConcurrencyTest do
 
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Pages}
 
   setup %{tenant: tenant} do

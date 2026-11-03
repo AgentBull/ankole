@@ -9,8 +9,15 @@ defmodule Ankole.AIAgent do
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
+  defdelegate resolve_mcp_server(principal, skill, name),
+    to: Ankole.AIAgent.Library.MCP,
+    as: :resolve
+
   resources do
     resource(Ankole.AIAgent.Library.AgentPlugins.Schemas.AgentPluginOverride)
+    resource(Ankole.AIAgent.Library.Schemas.Skill)
+    resource(Ankole.AIAgent.Library.Schemas.SkillFile)
+    resource(Ankole.AIAgent.Library.Schemas.AgentContract)
 
     resource Ankole.AIAgent.Library.Schemas.AgentSkill do
       define(:list_agent_skills, action: :read)
@@ -22,6 +29,7 @@ defmodule Ankole.AIAgent do
 
     resource(Ankole.AIAgent.Console)
     resource(Ankole.AIAgent.Library.Console)
+    resource(Ankole.AIAgent.Library.Browser)
   end
 
   json_api do

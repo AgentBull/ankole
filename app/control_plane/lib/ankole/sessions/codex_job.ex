@@ -278,7 +278,7 @@ defmodule Ankole.Sessions.CodexJob do
 
   @doc false
   def mailbox_in_tx(run) do
-    :ok = Ankole.Files.lock_tree_in_tx()
+    :ok = Ankole.Pod.lock_tree_in_tx()
 
     events =
       Queue.due(run)

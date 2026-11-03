@@ -35,7 +35,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
   defp read_trusted_agent_plugins_cached(roots, ttl_ms) do
     now_ms = System.monotonic_time(:millisecond)
 
-    case :persistent_term.get(@cache_key, nil) do
+    case Ankole.AIAgent.Library.SourceCache.get(@cache_key, nil) do
       %{expires_at_ms: expires_at_ms, roots: ^roots, result: {:ok, _plugins} = result}
       when now_ms < expires_at_ms ->
         result
@@ -43,7 +43,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
       _cache_miss ->
         case read_trusted_agent_plugins_uncached(roots) do
           {:ok, _plugins} = result ->
-            :persistent_term.put(@cache_key, %{
+            Ankole.AIAgent.Library.SourceCache.put(@cache_key, %{
               expires_at_ms: now_ms + ttl_ms,
               roots: roots,
               result: result

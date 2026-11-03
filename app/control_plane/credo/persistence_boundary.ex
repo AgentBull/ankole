@@ -614,7 +614,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
   end
 
   defp schema_helper(Ankole.Pod.BaseRepo, helper, args)
-       when (helper in [:tenant_schema!, :states] and args == []) or
+       when (helper in [:tenant_schema!, :states, :outbox] and args == []) or
               (helper in [:table, :edge] and length(args) == 1),
        do: [:base]
 

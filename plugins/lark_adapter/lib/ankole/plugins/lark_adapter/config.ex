@@ -204,7 +204,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
     Client.new(
       Map.fetch!(config, "appID"),
-      fn -> Map.fetch!(config, "appSecret") end,
+      Map.fetch!(config, "appSecret"),
       [domain: domain_atom(Map.fetch!(config, "domain"))]
       |> Keyword.merge(client_opts)
       |> Keyword.merge(opts)

@@ -201,7 +201,9 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
   # The worker id of a channel route is the Agent UID: each Agent has one
   # Worker row, and only a ready or draining row has a connection.
   defp current_fence(agent_uid) do
-    case AgentWorkers.get_agent_worker!(agent_uid) do
+    case AgentWorkers.get_agent_worker!(agent_uid,
+           query: [select: [:state, :transport_route, :incarnation_id]]
+         ) do
       %AgentWorker{state: state} = worker when state in [:ready, :draining] ->
         %{transport_route: worker.transport_route, incarnation_id: worker.incarnation_id}
 

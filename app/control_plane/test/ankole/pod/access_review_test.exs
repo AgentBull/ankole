@@ -1,8 +1,8 @@
-defmodule Ankole.Files.AccessReviewTest do
+defmodule Ankole.Pod.AccessReviewTest do
   use Ankole.DataCase, async: false
   use ExUnitProperties
   import Ankole.PrincipalsFixtures
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Pages}
 
   setup do
@@ -250,7 +250,7 @@ defmodule Ankole.Files.AccessReviewTest do
 
   test "an Agent can create and move a page into its own Private root", ctx do
     actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid)
-    {:ok, root} = Ankole.Files.Nodes.private_root(ctx.agent.uid)
+    {:ok, root} = Ankole.Pod.Pages.Tree.private_root(ctx.agent.uid)
 
     {:ok, _} =
       Pages.space_agent(
@@ -403,7 +403,7 @@ defmodule Ankole.Files.AccessReviewTest do
 
   test "conditional anchor evaluation uses one native context snapshot", ctx do
     now = DateTime.utc_now(:microsecond)
-    {:ok, root} = Ankole.Files.Nodes.public_root()
+    {:ok, root} = Ankole.Pod.Pages.Tree.public_root()
     actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid)
     assert {:ok, roots} = Access.reachable_anchors(actor)
 
@@ -425,23 +425,15 @@ defmodule Ankole.Files.AccessReviewTest do
     nodes =
       Enum.map(pages, fn page ->
         page
-        |> Map.drop([:type, :title, :position])
         |> Map.merge(%{
-          kind: :doc,
+          type: :doc,
           name: page.title,
           parent_id: root.id,
           parent_anchor_id: root.id
         })
       end)
 
-    properties =
-      Enum.map(
-        pages,
-        &Map.take(&1, [:id, :tenant_id, :title, :position, :created_at, :updated_at])
-      )
-
-    Repo.insert_all(Ankole.Files.Schemas.Node, nodes)
-    Repo.insert_all(Ankole.Pod.Properties, properties)
+    Repo.insert_all(Ankole.Pod.Page, nodes)
 
     grants =
       for page <- pages do

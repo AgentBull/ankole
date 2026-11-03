@@ -72,10 +72,13 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
     assert detail.conversation.title == "brief.txt"
     assert [%Message{text: nil, attachments: [attachment]}] = detail.messages
     assert is_integer(attachment["attachment_id"])
-    assert {:ok, conversation_id} = Files.node_conversation_id(attachment["node_id"])
+    assert {:ok, conversation_id} = Ankole.Pod.node_conversation_id(attachment["node_id"])
     assert conversation_id == attrs.conversation_id
     assert {:ok, "Original uploaded text"} = Files.read_object(attachment["object_id"])
-    assert {:ok, file} = Files.authorize_node(ctx.agent.uid, attachment["node_id"], "node_view")
+
+    assert {:ok, file} =
+             Ankole.Pod.authorize_node(ctx.agent.uid, attachment["node_id"], "node_view")
+
     assert file.id == attachment["node_id"]
     signal = Repo.get_by!(Signal, message_id: attrs.message_id)
     assert signal.data["entry"] == %{"text" => nil, "attachments" => [attachment]}
@@ -152,9 +155,7 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
     assert {:ok, detail} = Ankole.ConversationsFixtures.create(ctx.human.uid, attrs)
     attachment = hd(hd(detail.messages).attachments)
 
-    Repo.delete_all(
-      from node in Ankole.Files.Schemas.Node, where: node.id == ^attachment["node_id"]
-    )
+    Repo.delete_all(from node in Ankole.Pod.Page, where: node.id == ^attachment["node_id"])
 
     assert {:error,
             %Postgrex.Error{
@@ -188,7 +189,7 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
         action: "node_edit"
       })
 
-    {:ok, _} = Files.write_node(ctx.agent.uid, attachment["node_id"], "Changed Agent file")
+    {:ok, _} = Ankole.Pod.write_node(ctx.agent.uid, attachment["node_id"], "Changed Agent file")
 
     local = Files.temp_path()
     on_exit(fn -> File.rm(local) end)

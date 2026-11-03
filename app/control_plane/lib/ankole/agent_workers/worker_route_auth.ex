@@ -75,6 +75,7 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
         with true <- same_input?(snapshot, ref),
              :ok <- input_open(snapshot, terminal?),
              :ok <- admitted_access(snapshot),
+             :ok <- Keyword.get(opts, :before_fence, fn -> :ok end).(),
              %Signal{} = event <- lock_input(snapshot, opts),
              true <- WorkAccess.fields(event) == WorkAccess.fields(snapshot),
              :ok <- input_open(event, terminal?) do

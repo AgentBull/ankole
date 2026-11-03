@@ -17,7 +17,7 @@
     Ankole.Job => :m2_process_coordination,
     # M4 read models: projections of several resources that give maps.
     Ankole.AuthZ.Snapshot => :m4_read_model,
-    {Ankole.Files.Nodes,
+    {Ankole.Pod.Pages.Tree,
      [:path, :descendants, :ancestor_ids, :hidden_trashed_ids, :shared_root_ids]} =>
       :m4_read_model,
     {Ankole.Brain.Dreaming, [:consolidation_buckets, :term_usage]} => :m4_read_model,
@@ -41,7 +41,7 @@
       :m8_set_maintenance,
     Ankole.Upgrade202610 => :m8_set_maintenance,
     Ankole.Principals.Rename.References => :m8_set_maintenance,
-    {Ankole.Files.Access, [:reanchor_pass_through_children]} => :m8_set_maintenance,
+    {Ankole.Pod.Access, [:reanchor_pass_through_children]} => :m8_set_maintenance,
     # M9 retrieval: candidate, rerank, and fusion queries over row sets.
     Ankole.Brain.Recall => :m9_retrieval,
     {Ankole.Pod.Pages.Queries, [:state_page_ids, :trash_candidates]} => :m9_retrieval,

@@ -17,6 +17,23 @@ defmodule Ankole.Brain.ClaimActionsTest do
     %{object: object}
   end
 
+  test "forgetting a page preserves its reason and removes its derived knowledge", %{
+    object: object
+  } do
+    fact = fact!(object)
+
+    assert {:ok, forgotten} =
+             Ankole.Brain.Forget.forget_object(object.id, "  superseded evidence  ", :admin)
+
+    assert forgotten.deleted_at
+    assert forgotten.meta["forgotten"]["reason"] == "superseded evidence"
+    assert forgotten.meta["forgotten"]["by"] == "console admin"
+    assert forgotten.revision > object.revision
+    assert {:ok, stored} = Ankole.Brain.Objects.get_by_slug(object.id)
+    assert stored.meta["forgotten"] == forgotten.meta["forgotten"]
+    refute Enum.any?(Claim |> Claims.current_external_facts() |> Repo.all(), &(&1.id == fact.id))
+  end
+
   test "record actions keep Fact and Take field families distinct", %{object: object} do
     fact = fact!(object)
     take = take!(object)

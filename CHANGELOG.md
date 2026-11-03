@@ -1,5 +1,125 @@
 # Changelog
 
+## Version 2.0.0-alpha.49 (2026-11-03)
+
+- Centralize 1.x Worker provider adoption and pending Automation script imports
+  in dedicated upgrade modules; keep legacy fields out of runtime Job resources.
+  Recover imported Jobs with the bounded Workspace rebuild when native thread
+  files are missing, preserving queryable history and removing transcript replay.
+
+- Recover knowledge bodies and property edits together after reloads, including
+  invalid YAML, and preserve new input when an earlier save finishes. Display
+  Page references inside business properties as links, report malformed knowledge
+  panels, and keep graph and backlink titles in sync with confirmed Page updates.
+- Fix nested transactions in Console promotion and merge reviews so review decisions commit and publish their changes.
+- Remove unused Brain panel types and retired internal read/serialization helpers; use one Drive path contract for reads and writes.
+- Read immutable Applet packages outside Page-lock transactions, batch Worker
+  provider counts, and use deterministic tool-result journal keys. Remove unused
+  VFS message handlers and coalesce the Worker's initial Drive refresh.
+- Repair Skill lesson review and UUID-based memory retrieval, preserve forgetting
+  provenance, and accept document search results without an entity subject.
+  Publish scheduled, webhook, background Job and Workflow inputs immediately
+  after commit. Recover Worker RPC credit on failed responses and report replay
+  owner failures instead of leaving callers waiting.
+- Correct Plugin restart dependencies, credential cache identities, binary
+  attachment downloads, IMAP IDLE handling and fragmented HTTP body limits.
+  Preserve reasoning spaces and completion labels, isolate WhatsApp webhook
+  verification by matching credentials, reduce repeated cache and database work,
+  and enforce tenant foreign keys on the Meta tables.
+
+- Add published Applet Actions with caller and owner execution identities,
+  persistent cursors, serial queues, coalescing and resumable slices. Route
+  schedules, webhooks and Base changes through shared Signal Bindings and
+  receipts, preserving historical deliveries. Add Base business-key upserts and
+  suppress unchanged writes; provide streaming HTTP file transfers and isolate
+  foreground and background Function Runtime capacity within the 2 GiB deployment budget.
+  Let Applet frontends follow durable Run progress and recover the latest result
+  after reconnecting through `useActionRun`. Retry Base deliveries independently
+  by tenant and table, retain the event size limit on the production Run path,
+  and reserve foreground capacity for PTC while honoring the total concurrency limit.
+  Keep filtered Base deliveries in their correct concurrency groups and drain
+  large change backlogs promptly. Wake queued Actions when a publication enables
+  parallel execution, wait for busy runtimes, and distinguish completed function
+  errors from interrupted attempts when deciding whether to retry.
+  Allow tenant deletion to finish when an Agent owns published Applets.
+  Fix Agent Applet publication lock order while keeping Action policies and
+  files atomic and rejecting writes from completed runs.
+  Preserve failed cron history when the final delivery attempt is rejected at admission.
+  Hand off slices only after the current handler finishes, preserve event IDs and
+  Human authorization on Applet emissions, and keep the original caller through
+  owner-authorized child calls. Batch historical delivery migration and receipt
+  cleanup, and reuse MCP tool discovery within each function invocation.
+
+- Add Meta Ankole with a collapsed navigation tree, a Brain graph, editable Skill
+  packages and per-Agent/global AGENTS and DESIGN contracts. Separate knowledge
+  from collaboration roots and move Skills and contracts to independent tables
+  with revision checks. Preserve positive Skill bindings under global enablement.
+  Project Brain read-only by conversation disclosure and cache each Agent's
+  read-only Skills and contracts across conversations; retain admitted Skill
+  selection for background Jobs. Migrate existing packages, contracts and grants.
+  Let members configure their assistant before starting a conversation, search
+  Skills, import package metadata and edit attachments directly from the file
+  list. Show effective Agent instructions and save feedback, with scrollable
+  workspaces on desktop and narrow screens. Keep Worker
+  connections alive during Page tree changes and use the internal Worker origin
+  for Drive mounts.
+  Persist Markdown supplied by Agent document creation so delivered links open
+  the requested content.
+  Isolate Skill drafts across package navigation and keep literal Agent UIDs
+  separate from assistant and global settings routes. Read package directories
+  without repeatedly scanning the capability catalog. Reject conflicting package
+  file paths and preserve distinct legacy knowledge bodies and attachments during
+  migration. Give each Agent list entry a separate, full-width click target.
+  Correct Skill ZIP import tests to distinguish backend file limits from Drive VFS policy.
+  Keep individual Skill bindings independent of package revisions and let editors
+  reconcile conflicts without discarding drafts. Show separate global, colleague
+  and assistant controls without creating an assistant during reads. Complete
+  Brain favorites, moves, trash and semantic links, and derive object types from
+  ontology categories. Handle archived legacy content, orphan contracts and slug
+  collisions during migration. Refresh live contract files in long-running FUSE
+  mounts and enforce admitted Job Skills across every runtime read path.
+  Support interactive Workers without FUSE by materializing enabled Skill packages.
+  Preserve installed package directories, manifest attachments, explicit enablement
+  and inherited Agent defaults during direct upgrades. Remove the legacy Skill
+  defaults setting, manage runnable packages in Meta Ankole, and grant members
+  custom-Skill editing and deletion. Keep generated pattern pages inside Brain
+  with their source's visibility, and load graph summaries without document bodies.
+  Retire active lessons when deleting a Skill and complete Skill renames without
+  reopening the discarded draft or requesting the old address.
+
+- Restore Page as the source of truth for identity, content, subpages and access,
+  and remove the folder Page type. Drive projects empty Pages as directories
+  and populated Pages as body files with optional child directories. Preserve
+  Page IDs, permissions, history and attachments during migration; clearing a
+  body keeps its children. Require parent edit permission to create subpages.
+  Use the Ankole logo for AnkoleBrain and a distinct book icon for knowledge Pages.
+  Preserve empty Page subtrees during structured moves, allow editors to remove
+  empty directories, and keep ordinary ChatDrive filenames writable. Delete
+  Page-owned Actions in lock order when removing conversations or Agents.
+
+- Hide unavailable Page actions across the canvas, sidebar, and child lists.
+  System knowledge Pages display fixed titles and omit rename, move, reorder,
+  and trash controls while keeping authorized content editing and child creation.
+
+- Improve Brain memory selection so routine task completion, delivery and
+  validation messages do not become facts or empty entity pages. Preserve
+  substantive research conclusions, business outcomes and reusable knowledge
+  when they appear alongside execution messages.
+
+- Update the kernel's Rust dependencies to the latest releases that still build
+  on Rust 1.91, including crc32fast 1.5.4. Update control-plane Elixir
+  dependencies to llm_db 2026.11.0, Localize 1.6.1, attesto 2.10.0,
+  attesto_client 2.13.0, and codepagex 0.3.0. The opaque Principal subject
+  patch now applies to attesto 2.10.0.
+
+- Fix native kernel stream completion and input boundaries: completed or failed
+  AI streams no longer emit a later abort event, token truncation avoids excessive
+  shortening across BPE merges, and OpenAI Chat records actual completion
+  times. Provider numeric fields saturate instead of overflowing, JWT configs
+  reject incorrectly typed fields, batch AuthZ rejects empty resources or actions,
+  HTTP specs require HTTP(S), zero-capacity caches stay empty, and WebDAV requests
+  are capped at 1 MiB and 128 XML levels.
+
 ## Version 2.0.0-alpha.48 (2026-11-03)
 
 - Automation Job runs whose request never reached the Agent's Worker, because

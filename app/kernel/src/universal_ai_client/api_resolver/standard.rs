@@ -561,7 +561,7 @@ pub(crate) fn normalize_response_usage(usage: &Value) -> Value {
     )
     .unwrap_or(0);
     let total_tokens = integer_value(usage.get("total_tokens").unwrap_or(&Value::Null))
-        .unwrap_or(input_tokens + output_tokens);
+        .unwrap_or(input_tokens.saturating_add(output_tokens));
     let input_details = usage
         .get("input_tokens_details")
         .or_else(|| usage.get("prompt_tokens_details"))
@@ -607,14 +607,14 @@ pub(super) fn normalize_anthropic_usage(usage: &Value) -> Value {
     .unwrap_or(0);
     let input_tokens = integer_value(usage.get("input_tokens").unwrap_or(&Value::Null))
         .unwrap_or(0)
-        + cache_read_tokens
-        + cache_creation_tokens;
+        .saturating_add(cache_read_tokens)
+        .saturating_add(cache_creation_tokens);
     let output_tokens =
         integer_value(usage.get("output_tokens").unwrap_or(&Value::Null)).unwrap_or(0);
     json!({
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "total_tokens": input_tokens + output_tokens,
+        "total_tokens": input_tokens.saturating_add(output_tokens),
         "input_tokens_details": {
             "cached_tokens": cache_read_tokens,
             "cache_creation_tokens": cache_creation_tokens
@@ -650,7 +650,7 @@ pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
             .or_else(|| usage.get("totalTokens"))
             .unwrap_or(&Value::Null),
     )
-    .unwrap_or(input_tokens + output_tokens);
+    .unwrap_or(input_tokens.saturating_add(output_tokens));
     json!({
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -747,9 +747,11 @@ pub(super) fn bool_value(value: &Value, default: bool) -> bool {
 }
 
 pub(super) fn integer_value(value: &Value) -> Option<i64> {
-    value
-        .as_i64()
-        .or_else(|| value.as_u64().map(|value| value as i64))
+    value.as_i64().or_else(|| {
+        value
+            .as_u64()
+            .map(|value| i64::try_from(value).unwrap_or(i64::MAX))
+    })
 }
 
 pub(super) fn number_value(value: &Value, default: f64) -> Value {
@@ -841,4 +843,35 @@ pub(super) fn encode_protocol_json(value: Value) -> Result<String, StreamError> 
             format!("model request body could not be encoded as JSON: {reason}"),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_numbers_saturate_instead_of_wrapping() {
+        assert_eq!(integer_value(&json!(u64::MAX)), Some(i64::MAX));
+
+        let response = normalize_response_usage(&json!({
+            "input_tokens": i64::MAX,
+            "output_tokens": 1
+        }));
+        assert_eq!(response["total_tokens"], json!(i64::MAX));
+
+        let anthropic = normalize_anthropic_usage(&json!({
+            "input_tokens": i64::MAX,
+            "cache_read_input_tokens": 1,
+            "cache_creation_input_tokens": 1,
+            "output_tokens": 1
+        }));
+        assert_eq!(anthropic["input_tokens"], json!(i64::MAX));
+        assert_eq!(anthropic["total_tokens"], json!(i64::MAX));
+
+        let provider = normalize_provider_token_usage(&json!({
+            "input_tokens": i64::MAX,
+            "output_tokens": 1
+        }));
+        assert_eq!(provider["total_tokens"], json!(i64::MAX));
+    }
 }

@@ -19,6 +19,7 @@ defmodule Ankole.Pod.Pages.Browser do
     allow(:viewers, check: :guardrail)
     allow(:create, check: :guardrail)
     allow(:update, check: :guardrail)
+    allow(:transfer_owner, check: :guardrail)
     allow(:move, check: :guardrail)
     allow(:delete, check: :guardrail)
     allow(:restore, check: :guardrail)
@@ -181,7 +182,7 @@ defmodule Ankole.Pod.Pages.Browser do
     type: [
       type: :atom,
       allow_nil?: false,
-      constraints: [one_of: [:doc, :knowledge, :base, :applet, :file, :folder]]
+      constraints: [one_of: [:doc, :knowledge, :base, :applet, :file]]
     ],
     title: [type: :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false]],
     icon: [type: :string],
@@ -248,10 +249,11 @@ defmodule Ankole.Pod.Pages.Browser do
     type: [
       type: :atom,
       allow_nil?: false,
-      constraints: [one_of: [:doc, :knowledge, :base, :applet, :file, :folder]]
+      constraints: [one_of: [:doc, :knowledge, :base, :applet, :file]]
     ],
     title: [type: :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false]],
     icon: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    system_key: [type: :string],
     private_owner_uid: [type: PrincipalKey],
     ancestors: [
       type: {:array, :string},
@@ -285,9 +287,10 @@ defmodule Ankole.Pod.Pages.Browser do
       allow_nil?: false,
       constraints: [one_of: [:ok, :trashed, :restricted]]
     ],
-    type: [type: :atom, constraints: [one_of: [:doc, :knowledge, :base, :applet, :file, :folder]]],
+    type: [type: :atom, constraints: [one_of: [:doc, :knowledge, :base, :applet, :file]]],
     title: [type: :string, constraints: [allow_empty?: true, trim?: false]],
     icon: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    system_key: [type: :string],
     private_owner_uid: [type: PrincipalKey],
     ancestors: [
       type: {:array, :string},
@@ -456,6 +459,12 @@ defmodule Ankole.Pod.Pages.Browser do
         allow_nil?: false
       )
 
+      argument(:domain, :atom,
+        constraints: [one_of: [:pages, :brain, :all]],
+        default: :pages,
+        allow_nil?: false
+      )
+
       argument(:query, :string)
 
       run(fn input, context ->
@@ -553,6 +562,12 @@ defmodule Ankole.Pod.Pages.Browser do
         ]
       )
 
+      argument(:domain, :atom,
+        constraints: [one_of: [:pages, :brain, :all]],
+        default: :pages,
+        allow_nil?: false
+      )
+
       argument(:query, :string, allow_nil?: false, constraints: [allow_empty?: true])
       argument(:exclude_subtree_of, UUIDv7)
       argument(:embeddable, :boolean, allow_nil?: false, default: false)
@@ -615,7 +630,7 @@ defmodule Ankole.Pod.Pages.Browser do
       constraints(fields: [page: @page])
 
       argument(:type, :atom,
-        constraints: [one_of: [:doc, :knowledge, :base, :file, :folder]],
+        constraints: [one_of: [:doc, :knowledge, :base, :file]],
         default: :doc
       )
 
@@ -639,9 +654,27 @@ defmodule Ankole.Pod.Pages.Browser do
           end
 
         with {:ok, page} <- result do
-          Ankole.Files.Access.authorize_with_permissions(context.actor, page)
+          Ankole.Pod.Access.authorize_with_permissions(context.actor, page)
         end
         |> APIError.result(&%{page: &1})
+      end)
+    end
+
+    action :transfer_owner, :map do
+      constraints(fields: [page: @page])
+
+      argument(:page_id, UUIDv7, allow_nil?: false)
+      argument(:owner_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+
+      run(fn input, context ->
+        APIError.result(
+          Ankole.Pod.transfer_applet_owner(
+            context.actor,
+            input.arguments.page_id,
+            input.arguments.owner_uid
+          ),
+          &%{page: &1}
+        )
       end)
     end
 

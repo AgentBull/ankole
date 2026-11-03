@@ -94,7 +94,17 @@ defmodule AnkoleWeb.JSONAPI.AgentSkillLessonsTest do
              |> send_v2(:post, path, %{"skill_name" => "no-such-skill", "content" => "Guidance."})
              |> json_response(404)
 
-    assert {:ok, _skill} = Library.set_agent_skill_override(agent.uid, "pdf", false)
+    human = human_fixture().principal
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: human.uid,
+        resource_pattern: "tenant_console:**",
+        action: "update"
+      })
+
+    {:ok, row} = Library.Skills.get("pdf")
+    assert {:ok, _} = Library.Skills.set_all(actor_fixture(human), row.slug, false, row.revision)
 
     assert %{"errors" => [%{"code" => "skill_not_enabled"}]} =
              conn

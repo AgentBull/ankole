@@ -98,6 +98,7 @@ defmodule FeishuOpenAPI.WS.Client do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     opts = validate_start_opts!(opts)
     client = Keyword.fetch!(opts, :client)
     dispatcher = Keyword.fetch!(opts, :dispatcher)

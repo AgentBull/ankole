@@ -154,7 +154,7 @@ defmodule Ankole.Conversations.Peers do
     with true <- Ankole.Agents.MessagingPolicy.allow_peer_send?(run.agent_uid, target, run.event),
          {:ok, origin, owner_session, route} <- origin(run),
          true <- (run.event.data["peer_hop_count"] || 0) < 6,
-         :ok <- Ankole.Files.lock_tree_in_tx(),
+         :ok <- Ankole.Pod.lock_tree_in_tx(),
          {:ok, _} <-
            Principals.lock_principals_in_tx([run.event.human_uid, run.agent_uid, target]),
          {:ok, pages} <- page_access(run, target, args["page_ids"] || []) do
@@ -215,7 +215,7 @@ defmodule Ankole.Conversations.Peers do
           ids,
           &match?(
             {:ok, _},
-            Ankole.Files.authorize_node(Ankole.AuthZ.Actor.new(target), &1, "node_view")
+            Ankole.Pod.authorize_node(Ankole.AuthZ.Actor.new(target), &1, "node_view")
           )
         )
 
@@ -231,7 +231,7 @@ defmodule Ankole.Conversations.Peers do
                missing,
                &match?(
                  {:ok, _},
-                 Ankole.Files.authorize_node(Ankole.AuthZ.Actor.new(sender), &1, "node_manage")
+                 Ankole.Pod.authorize_node(Ankole.AuthZ.Actor.new(sender), &1, "node_manage")
                )
              )
          }}
@@ -602,7 +602,7 @@ defmodule Ankole.Conversations.Peers do
   def stop(actor, origin_id, id) do
     Repo.transact_top_level(
       fn ->
-        with :ok <- Ankole.Files.lock_tree_in_tx(),
+        with :ok <- Ankole.Pod.lock_tree_in_tx(),
              {:ok, peer} <- visible(actor, origin_id, id),
              {:ok, _} <-
                Principals.lock_principals_in_tx([

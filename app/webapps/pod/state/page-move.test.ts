@@ -5,6 +5,7 @@ import { canMovePage, positionOrder, dropAvailability, dropRequest, rootRequest,
 function page(id: string, actions: Page['actions'], values: Partial<Page> = {}): Page {
   return {
     id,
+    name: id,
     title: id,
     type: 'doc',
     actions,
@@ -77,10 +78,10 @@ test('management can move a source without granting edit access to a destination
   expect(canMovePage(page('unknown', undefined, { role: 'manage' }))).toBe(false)
 })
 
-test('folder destinations use contribute, file leaves reject children, and unsorted names use C ordering', () => {
-  const folder = page('folder', ['node_view', 'node_contribute'], { type: 'folder' })
+test('Page destinations require edit, file leaves reject children, and unsorted names use C ordering', () => {
+  const folder = page('folder', ['node_view', 'node_contribute'], { type: 'doc' })
   const file = page('file', ['node_view', 'node_edit'], { type: 'file' })
-  expect(dropAvailability([...pages, folder, file], a, folder, 'inside')).toBe('available')
+  expect(dropAvailability([...pages, folder, file], a, folder, 'inside')).toBe('blocked')
   expect(dropAvailability([...pages, folder, file], a, file, 'inside')).toBe('blocked')
   const unordered = [
     page('emoji', [], { position: null, name: '😀' }),

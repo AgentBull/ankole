@@ -1,30 +1,32 @@
 ---
 title: Agent Library
-description: Agent に許可された能力の管理モデル。Skill はファイルバンドル、Agent Plugin は Codex パッケージとして扱い、Agent ごとに「既定 → 上書き」で有効化状態を解決します。
+description: Meta Ankole で Skill パッケージ、Agent ごとの有効化と指示を管理する。
 section: Developer guide
 order: 107
 ---
 
-Agent Library は、Agent が有効にしている Skill と Agent Plugin を解決します。共有 Skill の保存先は Pod の `/AnkoleBrain/skills/<name>` です。ホームページは知識ページ、スクリプトやテンプレートはその配下のファイルになります。Agent 専用の Skill は Files 領域の `skills/` にインストールできます。内容、権限、有効化状態は PostgreSQL が保持し、Worker には実行用のコピーを配置します。
+Agent Library は、Skill パッケージと Agent の指示を PostgreSQL で管理します。Pod の **Meta Ankole → Skills** でパッケージを、**Agents** で AI 同僚、自分のアシスタント、全体設定を管理します。Meta のナビゲーションは初めは折りたたまれています。共同編集ページと Brain の知識グラフは、それぞれ独立した領域です。
 
-## 能力と有効化
+## パッケージと有効化
 
-Skill は `SKILL.md` を持ち、名前は全体で一意の小文字識別子です。Agent Plugin は関連 Skill と任意の `workspace-template/` をまとめます。有効化は出荷時の既定値、サイトとテナントの設定、Agent 個別設定の順に解決します。Plugin に含まれる Skill には、親 Plugin の有効化も必要です。
+Skill にはテナント内で一意の `slug`、必須の `SKILL.md`、任意の参照ファイル、スクリプト、バイナリアセットがあります。カスタム Skill の管理権限を持つメンバーは作成とインポートができ、作成直後は無効です。Agent はマニフェストの指示に従って必要な添付ファイルを読みます。`skill_view` ではレビュー済みの Skill lessons も利用できます。
 
-有効化と閲覧権限は独立しています。カタログには現在の会話で閲覧できる有効な Skill が並びます。人が開始した Turn では Agent、依頼者、適用対象のルーム参加者が共通して読める範囲を使い、無人の自動処理では Agent 自身の権限を使います。カタログには名前と説明を載せ、本文は `skill_view` で読み込みます。
+すべての Agent、指定した AI 同僚、自分のアシスタントに対して有効化できます。全 Agent で有効にすると個別のスイッチがロックされ、保存済みの個別設定は保持されます。全 Agent の設定を解除すると、元の個別設定に戻ります。Plugin 内の Skill には親 Agent Plugin の有効化も必要です。Plugin 自体の既定値と上書き設定は独立しています。
 
-## 内容の編集と更新
+Skill の利用可否は Agent の識別情報で決まります。質問者や参加者が変わっても、有効なパッケージは変わりません。一方、Brain の読み取りには Agent、質問者、開示対象者の権限の共通部分が適用されます。
 
-共有 Skill は Pod で編集します。閲覧可能な知識子ページは Skill の指示に追加されますが、`metadata.role = "reference"` の章は必要なときに子パスから読み込みます。Agent 専用の承認済み指針については [Skill lessons](../skill-lessons/) を参照してください。
+## 編集と更新
 
-起動時とカタログ同期時に、Ankole は公式パッケージを保存済みの基準と照合します。対象はホームページのメタデータと本文、および管理対象ファイルのパス、内容ハッシュ、モードです。ローカル変更がなければ、ファイルの追加と削除を含めて一括更新します。変更があればパッケージ全体を保持し、確認待ちの上流ハッシュを記録します。テナント独自の補足ページとファイルは照合対象に含めません。
+Skills エディターでマニフェスト、メタデータ、パッケージ内のファイルを編集します。保存時に `base_revision` を照合し、古い版からの上書きを拒否します。Skill と指示は現在の版のみを保存し、履歴スナップショットは持ちません。公式 Skill の `slug` は固定です。カスタム Skill は改名と削除ができます。
 
-## Agent の規約
+上流との同期ではマニフェストと管理対象ファイルのハッシュを比較します。ローカル変更がない公式パッケージには追加、更新、削除を一括で適用します。ローカル変更がある場合は調整が完了するまでそのパッケージの更新を止めます。追加でアップロードした独自の添付ファイルは保持します。
 
-`/AnkoleBrain/AGENTS.md` が組織の行動原則と責務を、`/AnkoleBrain/DESIGN.md` が視覚表現の規約を定義します。`/AnkoleBrain/agents/<uid>/AGENTS.md` は個別の責務を追加し、`AGENTS.override.md` は全体を置き換えます。DESIGN も同様に、本文の追加とメタデータのマージ、または全体の置換を選べます。空の override は継承内容を意図的に空にします。
+## Agent の指示
 
-個人アシスタントのページは所有者とアシスタントだけが閲覧でき、所有者が管理します。組織の Agent は既定で共通規約を継承し、必要な場合だけ個別の規約ページを作成します。
+**Meta Ankole → Agents → 全体設定** で共通の `AGENTS.md` と `DESIGN.md` を管理します。各 Agent はそれぞれ継承、追記、上書きを選べます。DESIGN の追記はメタデータを再帰的にマージし、本文を水平線で区切ります。空の上書きは、継承内容を意図的に消去します。
 
-Console では有効な能力を確認し、規約の編集は Pod へのリンクから行います。`GET /agents/:agent_uid/library-documents` は有効な AGENTS と DESIGN、および参照元ページを返します。Worker は各 Turn で `~/AGENTS.md`、`~/DESIGN.md`、`$CODEX_HOME/AGENTS.md` を更新し、プロジェクトの指示ファイルはプロジェクト側で管理します。
+アシスタントの設定を読み書きできるのは所有者本人だけです。新しいアシスタントは AGENTS を専用テンプレートで上書きし、DESIGN を継承します。メンバーは AI 同僚と全体設定を閲覧でき、権限を持つ管理者が編集します。
 
-インストールは [Skills](../skills/)、実行経路は [Prompt assembly](../prompt-assembly/)、API は [Console](../console-api/) を参照してください。
+Worker は `/drive/Skills/<slug>/` に有効なパッケージを、`/drive/AGENTS.md` と `/drive/DESIGN.md` に合成済みの指示を読み取り専用でマウントします。キャッシュは会話間で共有し、スクリプトの実行権限を保持します。編集を保存するとキャッシュを更新します。バックグラウンド Job の再開時には、開始時に記録した Skill 集合と現在の有効な集合の共通部分を使います。
+
+[Skill lessons](../skill-lessons/)、[Skill の作成](../writing-a-skill/)、[プロンプト構成](../prompt-assembly/)も参照してください。

@@ -102,11 +102,11 @@ defmodule Ankole.Principals.PersonalAssistantTest do
     assert {:error, {:forbidden, "update"}} =
              Ankole.AuthZ.authorize(pa.uid, "site_console:agents", "update")
 
-    assert {:ok, owner_context} = Ankole.Files.Access.context_snapshot(actor_fixture(owner))
+    assert {:ok, owner_context} = Ankole.Pod.Access.context_snapshot(actor_fixture(owner))
     assert elem(owner_context, 0)["canManageSpace"]
 
     assert {:ok, {assistant_snapshot, _}} =
-             Ankole.Files.Access.context_snapshot(actor_fixture(pa), context: owner_context)
+             Ankole.Pod.Access.context_snapshot(actor_fixture(pa), context: owner_context)
 
     refute assistant_snapshot["canManageSpace"]
 
@@ -118,10 +118,10 @@ defmodule Ankole.Principals.PersonalAssistantTest do
                private_owner_uid: owner.uid
              })
 
-    assert {:ok, [root | _]} = Ankole.Files.Nodes.path(page)
+    assert {:ok, [root | _]} = Ankole.Pod.Pages.Tree.path(page)
     assert root.private_owner_uid == owner.uid
     assert page.created_by.uid == pa.uid
-    assert {:ok, root} = Ankole.Files.private_root(pa.uid)
+    assert {:ok, root} = Ankole.Pod.private_root(pa.uid)
     assert root.private_owner_uid == pa.uid
   end
 

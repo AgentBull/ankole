@@ -9,11 +9,11 @@ description: 控制面如何装配主 Agent 的系统指令，以及 Codex Job �
 
 ## 当前上下文
 
-每轮上下文包括 Agent 身份、启用能力、起始会话与时区。Ankole 完整读取 `/AnkoleBrain/AGENTS.md`，再按个体页的追加或覆盖规则得到有效 `AGENTS.md`。`DESIGN.md` 遵循相同层级，并以完整运行时文件提供给 Agent。
+每轮上下文包括 Agent 身份、启用能力、起始会话与时区。`Ankole.AIAgent.Library.Contracts` 根据个体的继承、追加或覆盖模式合并全局基线。控制面完整读取有效 `AGENTS.md`；`DESIGN.md` 由同一契约模块管理，并以完整运行时文件提供给 Agent。
 
 `Ankole.Sessions.Prompt.system/1` 依次渲染完整 AGENTS 规范、任务收尾与权限规则、Job 和 Workflow 策略、记忆指南、环境与工具说明、技能目录以及运行时上下文。模板位于 `app/control_plane/priv/sessions/prompts/`。
 
-技能目录展示当前会话可读且已启用的技能简介，`skill_view` 按需读取所选技能与有权访问的补充子页。运行时后缀记录 Agent、`/workspace`、Session 工作区、时区、会话起始时间和频道。飞书与 Lark 共用适配器，并根据配置的域选择上游 API。
+技能目录展示该 Agent 已启用的技能简介。`skill_view` 按需读取所选清单，Agent 再主动读取清单引用的配套文件。运行时后缀记录 Agent、`/workspace`、Session 工作区、时区、会话起始时间和频道。飞书与 Lark 共用适配器，并根据配置的域选择上游 API。
 
 ## 设置与历史
 

@@ -66,7 +66,12 @@ defmodule Ankole.Pod.Bases.Physical do
     end
   end
 
-  def fields(table, fields), do: Enum.map(fields, &Map.put(&1, :storage_mode, table.storage_mode))
+  def fields(table, fields),
+    do:
+      Enum.map(
+        fields,
+        &(&1 |> Map.delete(:__struct__) |> Map.put(:storage_mode, table.storage_mode))
+      )
 
   def refresh(tables) do
     Enum.reduce_while(tables, {:ok, []}, fn table, {:ok, rows} ->
@@ -179,6 +184,7 @@ defmodule Ankole.Pod.Bases.Physical do
 
     insert_rows!(table, fields, records)
     for field <- fields, do: index!(table, field)
+    unique_index!(table)
 
     BaseRepo.query!(
       "INSERT INTO #{BaseRepo.states()} (table_id,schema_version,data_version,record_count,next_auto_number) VALUES($1::text::uuid,$2,$3,$4,$5)",
@@ -223,6 +229,176 @@ defmodule Ankole.Pod.Bases.Physical do
         []
       )
     end
+  end
+
+  def upsert(write, patch) do
+    table = write.table
+    fields = Map.fetch!(write.definitions, table.id)
+
+    old =
+      case unique_record(table, fields, patch) do
+        nil ->
+          nil
+
+        id ->
+          {:ok, row} = fetch(table.id, id, fields)
+          row
+      end
+
+    now = DateTime.utc_now(:microsecond)
+    actor = Ankole.ActorRef.from_writer(write.uid, Ankole.Repo.tenant_id!(), [])
+
+    initial =
+      old ||
+        struct!(Ankole.Pod.BaseRecord, %{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
+          table_id: table.id,
+          tenant_id: Ankole.Repo.tenant_id!(),
+          data: %{},
+          versions: %{},
+          created_by: actor,
+          updated_by: actor,
+          created_at: now,
+          updated_at: now
+        })
+
+    patch =
+      if old,
+        do: patch,
+        else:
+          Enum.reduce(fields, patch, fn field, data ->
+            if field.type == :auto_number,
+              do:
+                Map.put(
+                  data,
+                  field.id,
+                  table.next_auto_number + (get_in(write.changes, [table.id, :inserted]) || 0)
+                ),
+              else: data
+          end)
+
+    data = Values.clean(Map.merge(initial.data, patch))
+    changed = Enum.filter(Map.keys(patch), &(initial.data[&1] != data[&1]))
+
+    record = %{
+      initial
+      | data: data,
+        versions:
+          Enum.reduce(changed, initial.versions, &Map.update(&2, &1, 1, fn v -> v + 1 end)),
+        updated_by: actor,
+        updated_at: now
+    }
+
+    with :ok <- Values.record_size(data, write.limits) do
+      if changed != [] do
+        stored = Enum.filter(fields, &stored?/1)
+        columns = Enum.map(stored, &BaseRepo.column(&1.id))
+        values = Enum.map(stored, &json_value(&1, "source.data"))
+
+        setters =
+          for field <- stored,
+              field.id in changed,
+              do: "#{BaseRepo.column(field.id)}=EXCLUDED.#{BaseRepo.column(field.id)}"
+
+        keys = Enum.map_join(table.unique_field_ids, ",", &BaseRepo.column/1)
+
+        BaseRepo.query!(
+          """
+          INSERT INTO #{BaseRepo.table(table.id)} (id,versions,created_by,created_at,updated_by,updated_at#{comma(columns)})
+          SELECT id::uuid,versions,created_by,created_at,updated_by,updated_at#{comma(values)}
+          FROM jsonb_to_record($1::text::jsonb) AS source(id text,data jsonb,versions jsonb,created_by text,created_at timestamptz,updated_by text,updated_at timestamptz)
+          ON CONFLICT (#{keys}) DO UPDATE SET versions=EXCLUDED.versions,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at#{comma(setters)}
+          """,
+          [Torque.encode!(wire(record))]
+        )
+      end
+
+      {:ok, if(changed == [], do: initial, else: record), old, changed}
+    end
+  end
+
+  def unique_index!(table) do
+    name = "uq_" <> BaseRepo.hex(table.id)
+    BaseRepo.query!(~s(DROP INDEX IF EXISTS "#{BaseRepo.tenant_schema!()}"."#{name}"), [])
+
+    if table.unique_field_ids != [] do
+      columns = Enum.map_join(table.unique_field_ids, ",", &BaseRepo.column/1)
+
+      BaseRepo.query!(
+        ~s|CREATE UNIQUE INDEX "#{name}" ON #{BaseRepo.table(table.id)} (#{columns})|,
+        []
+      )
+    end
+
+    :ok
+  end
+
+  def unique_record(table, fields, data) do
+    conditions =
+      for field <- fields,
+          field.id in table.unique_field_ids,
+          do: "#{BaseRepo.column(field.id)}=#{json_value(field, "$1::jsonb")}"
+
+    case BaseRepo.query!(
+           "SELECT id::text FROM #{BaseRepo.table(table.id)} WHERE #{Enum.join(conditions, " AND ")} LIMIT 1",
+           [data]
+         ).rows do
+      [[id]] -> id
+      [] -> nil
+    end
+  end
+
+  def duplicate_keys?(table, _fields) do
+    columns = Enum.map(table.unique_field_ids, &BaseRepo.column/1)
+    present = Enum.map_join(columns, " AND ", &"#{&1} IS NOT NULL")
+
+    BaseRepo.query!(
+      "SELECT 1 FROM #{BaseRepo.table(table.id)} WHERE #{present} GROUP BY #{Enum.join(columns, ",")} HAVING count(*)>1 LIMIT 1",
+      []
+    ).rows != []
+  end
+
+  def append_changes(table, attrs) do
+    BaseRepo.query!(
+      "INSERT INTO #{BaseRepo.outbox()} (id,tenant_id,page_id,table_id,data_version,actor_ref,changes) VALUES($1::text::uuid,$2::text::uuid,$3::text::uuid,$4::text::uuid,$5,$6,$7::jsonb)",
+      [
+        attrs.id,
+        Ankole.Repo.tenant_id!(),
+        table.page_id,
+        table.id,
+        table.data_version,
+        attrs.actor_ref,
+        attrs.changes
+      ]
+    )
+
+    :ok
+  end
+
+  def pending_changes(excluded \\ [], limit \\ 100) do
+    if BaseRepo.query!("SELECT to_regclass($1)", [BaseRepo.outbox()]).rows == [[nil]] do
+      []
+    else
+      BaseRepo.query!(
+        "SELECT id::text,page_id::text,table_id::text,data_version,actor_ref,changes FROM #{BaseRepo.outbox()} WHERE NOT (table_id=ANY($1::text[]::uuid[])) ORDER BY inserted_at,id LIMIT $2",
+        [excluded, limit]
+      ).rows
+      |> Enum.map(fn [id, page, table, version, actor, changes] ->
+        %{
+          id: id,
+          page_id: page,
+          table_id: table,
+          data_version: version,
+          actor_ref: actor,
+          changes: changes
+        }
+      end)
+    end
+  end
+
+  def acknowledge_changes(id) do
+    BaseRepo.query!("DELETE FROM #{BaseRepo.outbox()} WHERE id=$1::text::uuid", [id])
+    :ok
   end
 
   def insert_rows!(_table, _fields, []), do: :ok

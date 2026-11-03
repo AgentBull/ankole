@@ -3,7 +3,7 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
   @moduletag sandbox: false
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Bases, Pages}
 
   setup %{tenant: tenant} do

@@ -3,7 +3,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
   @moduletag sandbox: false
   import Ankole.PrincipalsFixtures
   alias Ankole.Pod.{BaseField, BaseRecord, BaseTable, Page, Pages}
-  alias Ankole.Files.Jobs.PurgeNode
+  alias Ankole.Pod.Jobs.PurgeTree, as: PurgeNode
 
   setup %{tenant: tenant} do
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
@@ -60,8 +60,8 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     results = Enum.map(tasks, &Task.await(&1, 10_000))
     assert Enum.count(results, &match?({:ok, _}, &1)) == 1
     assert Enum.count(results, &match?({:error, :cycle}, &1)) == 1
-    a = Repo.get!(Page, a.id)
-    b = Repo.get!(Page, b.id)
+    a = Repo.get_by!(Page, id: a.id)
+    b = Repo.get_by!(Page, id: b.id)
     refute a.parent_id == b.id and b.parent_id == a.id
   end
 
@@ -182,7 +182,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
              )
 
     {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
-    root = Repo.get!(Page, root.id)
+    root = Repo.get_by!(Page, id: root.id)
     Ankole.Pod.PagesFixtures.update_record!(root, :begin_purge)
 
     Repo.query!("""
@@ -223,7 +223,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
                  %{}
                )
 
-      assert Repo.get(Page, root.id)
+      assert Repo.get_by(Page, id: root.id)
 
       assert {:error, :cannot_restore} =
                Pages.restore(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
@@ -237,8 +237,8 @@ defmodule Ankole.Pod.ContentUserFlowTest do
                args: %{"tenant_id" => ctx.tenant.id, "node_id" => root.id}
              })
 
-    assert is_nil(Repo.get(Page, root.id))
-    assert is_nil(Repo.get(Page, database.id))
+    assert is_nil(Repo.get_by(Page, id: root.id))
+    assert is_nil(Repo.get_by(Page, id: database.id))
     assert Repo.aggregate(BaseTable, :count) == 0
 
     assert :ok =

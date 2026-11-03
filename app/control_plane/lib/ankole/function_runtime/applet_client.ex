@@ -2,18 +2,19 @@ defmodule Ankole.FunctionRuntime.AppletClient do
   @moduledoc "Connects one Applet call to a function replica without replaying executed code."
   alias Ankole.FunctionRuntime.{EndpointPool, HTTP}
 
-  def inspect(source, limits, env \\ %{}) do
+  def inspect(source, limits, env \\ %{}, contexts \\ []) do
     result =
       HTTP.request(:post, "/v1/applet/inspect", %{
         source: source,
         env: env,
+        contexts: contexts,
         timeout_ms: Keyword.get(limits, :timeout_ms, 5_000),
         memory_mb: Keyword.get(limits, :heap_mb, 64)
       })
 
     case result do
       {:ok, 200, body} ->
-        with {:ok, decoded} <- Torque.decode(body), do: {:ok, decoded["routes"]}
+        Torque.decode(body)
 
       {:ok, 503, _} ->
         {:error, %{"code" => "applet_busy"}}
@@ -30,6 +31,11 @@ defmodule Ankole.FunctionRuntime.AppletClient do
   end
 
   def start(package, context, limits, deadline \\ nil) do
+    limits =
+      if Keyword.get(limits, :lane) == :action,
+        do: Keyword.put(limits, :endpoint_url, Ankole.Pod.Config.action_runtime_url()),
+        else: limits
+
     owner = self()
     run_id = Ash.UUIDv7.generate()
 
@@ -69,12 +75,12 @@ defmodule Ankole.FunctionRuntime.AppletClient do
               end
 
             case outcome do
-              {_, result} -> done(owner, run_id, result)
               :cancelled -> :ok
+              result -> done(owner, run_id, result)
             end
 
           {:error, reason} ->
-            done(owner, run_id, failure(reason))
+            done(owner, run_id, {:rejected, failure(reason)})
         end
       end)
 
@@ -111,10 +117,12 @@ defmodule Ankole.FunctionRuntime.AppletClient do
 
   defp connect(package, context, limits, run_id, excluded, deadline) do
     with :ok <- check_deadline(deadline),
-         {:ok, endpoint, lease} <- EndpointPool.checkout(excluded) do
+         {:ok, endpoint, lease} <-
+           EndpointPool.checkout(excluded, Keyword.get(limits, :endpoint_url)) do
       query =
         URI.encode_query(%{
           run_id: run_id,
+          lane: Keyword.get(limits, :lane, :route),
           tenant_id: package.tenant_id,
           page_id: context["applet"]["pageId"],
           revision: context["applet"]["revision"],

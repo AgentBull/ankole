@@ -6,8 +6,8 @@ defmodule Ankole.Pod.RPCBroker do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.WorkerFiles
 
-  @read_operations ~w(skills.bundle pages.list pages.children pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate)
-  @write_operations ~w(chat.send_to_agent pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.update_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.call base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy)
+  @read_operations ~w(skills.bundle pages.list pages.children pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate jobs.list jobs.get_run bindings.list)
+  @write_operations ~w(chat.send_to_agent pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.update_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.call applets.transfer_owner jobs.create jobs.configure jobs.delete bindings.put base.configure_table base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy)
 
   def handle_read(turn, %FabricProto.PodRequest{} = request, ctx) do
     with {:ok, actor} <- actor_for_request(turn, request.automation_attempt, ctx) do
@@ -87,9 +87,12 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp dispatch("skills.bundle", actor, params, _ctx) do
     with {:ok, context} <- page_context(actor),
+         {:ok, projection} <-
+           Ankole.BackgroundAgentJobs.RuntimeProjection.for_turn(actor.turn_authority),
          {:ok, files} <-
            Ankole.AIAgent.Library.skill_bundle(Ankole.AuthZ.Actor.uid(actor), params["name"],
-             request_context: context
+             request_context: context,
+             runtime_projection: projection
            ),
          do: {:ok, %{files: files}}
   end
@@ -178,7 +181,8 @@ defmodule Ankole.Pod.RPCBroker do
                params["markdown"] || ""
              )
     else
-      Pages.create(actor, params, ctx.write_authority)
+      with {:ok, params} <- initial_document(params),
+           do: Pages.create(actor, params, ctx.write_authority)
     end
   end
 
@@ -258,6 +262,39 @@ defmodule Ankole.Pod.RPCBroker do
     Ankole.Pod.Applets.call(actor, params["id"], request, authority: ctx.write_authority)
   end
 
+  defp dispatch("applets.transfer_owner", actor, params, _ctx),
+    do: Ankole.Pod.transfer_applet_owner(actor, params["id"], params["owner_uid"])
+
+  defp dispatch("base.configure_table", actor, params, _ctx),
+    do: Bases.configure_table(actor, params["id"], params)
+
+  defp dispatch("jobs.create", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.create_applet_job(
+        actor,
+        params["page_id"],
+        params["action_key"],
+        params
+      )
+
+  defp dispatch("bindings.put", actor, params, _ctx),
+    do: Ankole.Signals.put_event_binding(actor, params)
+
+  defp dispatch("bindings.list", actor, params, _ctx),
+    do: Ankole.Signals.list_event_bindings(actor, params["config_ref"])
+
+  defp dispatch("jobs.configure", actor, params, _ctx),
+    do: Ankole.AutomationJobs.configure_applet_job(actor, params["page_id"], params["id"], params)
+
+  defp dispatch("jobs.delete", actor, params, _ctx),
+    do: Ankole.AutomationJobs.delete_applet_job(actor, params["page_id"], params["id"])
+
+  defp dispatch("jobs.list", actor, params, _ctx),
+    do: Ankole.AutomationJobs.list_applet_jobs(actor, params["page_id"])
+
+  defp dispatch("jobs.get_run", actor, params, _ctx),
+    do: Ankole.AutomationJobs.get_applet_run(actor, params["page_id"], params["run_id"])
+
   defp dispatch("base.tables", actor, params, _ctx),
     do: Bases.list_tables(actor, params["id"])
 
@@ -306,7 +343,7 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   defp disclosure_target(operation, actor, params)
-       when operation in ~w(base.schema base.query base.aggregate) do
+       when operation in ~w(base.schema base.query base.aggregate jobs.list jobs.get_run bindings.list) do
     with {:ok, table} <- Ankole.Pod.Bases.fetch_table(params["id"]),
          do: readable_target(actor, table.page_id)
   end
@@ -429,7 +466,7 @@ defmodule Ankole.Pod.RPCBroker do
   defp change_page(operation, actor, params, ctx) do
     with {:ok, context} <- page_context(actor),
          {:ok, result} <-
-           Ankole.Files.Access.write_tree(
+           Ankole.Pod.Access.write_tree(
              ctx.write_authority,
              fn ->
                with {:ok, current} <- Pages.lock(params["id"]),
@@ -437,7 +474,7 @@ defmodule Ankole.Pod.RPCBroker do
                     do: change_page_in_tx(operation, actor, params)
              end,
              root_ids: fn ->
-               Ankole.Files.Nodes.root_ids([params["id"]]) ++
+               Ankole.Pod.Pages.Tree.root_ids([params["id"]]) ++
                  if(operation == :move, do: Pages.destination_root_ids(actor, params), else: [])
              end,
              after_commit: fn result -> publish_page_change(operation, result) end
@@ -452,7 +489,7 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   defp authorize_page_change(operation, actor, context, page, params) do
-    if knowledge_subtree?(page) do
+    if page.type == :knowledge do
       action =
         if operation in [:set_sharing, :update_sharing], do: "node_manage", else: "node_edit"
 
@@ -464,10 +501,6 @@ defmodule Ankole.Pod.RPCBroker do
       :ok
     end
   end
-
-  defp knowledge_subtree?(%{type: :knowledge}), do: true
-
-  defp knowledge_subtree?(page), do: Ankole.Files.subtree_has_kind?(page.id, :knowledge)
 
   defp editable_destination(:move, actor, context, page, params) do
     with {:ok, parent} <- Pages.destination_root_in_tx(actor, params) do
@@ -499,6 +532,17 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp publish_page_change(operation, page) when operation in [:set_sharing, :update_sharing],
     do: Pages.committed(page)
+
+  defp initial_document(%{"markdown" => markdown} = params) when is_binary(markdown) do
+    if Map.get(params, "type", "doc") == "doc" do
+      with {:ok, parsed} <- Ankole.Kernel.vfs_document_reconcile("<page />", markdown),
+           do: {:ok, Map.put(params, "xml", parsed.xml)}
+    else
+      {:error, :invalid_request}
+    end
+  end
+
+  defp initial_document(params), do: {:ok, params}
 
   defp write_document(operation, actor, params, ctx) do
     receive_document(params["xml_home_relative_path"], ctx, fn xml ->

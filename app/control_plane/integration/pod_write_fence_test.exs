@@ -19,14 +19,27 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
     route = "pod-write-fence-#{System.unique_integer([:positive])}"
     {:ok, _worker} = SessionsCase.admit_worker(route, %{worker_id: agent.uid})
     event = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
+
+    {:ok, group} =
+      Ankole.AuthZ.create_principal_group(%{name: "write-fence-readers", display_name: "Readers"})
+
+    {:ok, _} = Ankole.AuthZ.add_principal_to_group(owner.uid, group.id)
+    {:ok, conversation} = Ankole.Conversations.get_conversation(event.conversation_id)
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        Ankole.Ash.update(conversation, :observe, %{principal_group_id: group.id})
+      end)
+
     assert {:ok, run} = Admission.admit(event, event)
     ref = %RunRef{agent_uid: agent.uid, session_id: event.session_id, signal_id: event.id}
 
     on_exit(fn ->
       Repo.with_tenant(tenant.id, fn ->
-        :ok = Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
         {:ok, value} = Ankole.Tenants.get(tenant.id)
         {:ok, _} = Ankole.Tenants.delete(value)
+        {:ok, _} = Ankole.Pod.release_applet_owners_for_tenant_deletion()
+        :ok = Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
 
         result =
           Enum.reduce_while(1..200, :pending, fn _, _ ->
@@ -68,7 +81,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
 
     assert {:ok, envelope} = Task.await(task, 5_000)
     assert SessionsCase.rpc_error_payload!(envelope)["code"] == "run_closed"
-    assert Repo.get!(Page, page.id).revision == 0
+    assert Repo.get_by!(Page, id: page.id).revision == 0
 
     assert {:ok, %{content: %{plain_text: ""}}} =
              Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
@@ -171,6 +184,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
       end
 
     assert {:ok, _} = Ankole.Files.commit(ctx.agent, publish_files)
+    page_count = Repo.aggregate(Page, :count)
 
     {:ok, _} = Run.finalize(ctx.run, :silent)
 
@@ -201,8 +215,8 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
              operation
     end
 
-    assert Repo.aggregate(Ankole.Pod.Properties, :count) == 2
-    assert Repo.get!(Page, database.id).title == "Shared"
+    assert Repo.aggregate(Page, :count) == page_count
+    assert Repo.get_by!(Page, id: database.id).title == "Shared"
     assert Repo.aggregate(BaseRecord, :count) == 0
 
     assert {:ok, %{records: []}} =

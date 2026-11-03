@@ -7,13 +7,13 @@ defmodule Ankole.Pod.Documents do
   """
   require Ash.Query
   alias Ankole.{ActorRef, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Comments, PageChange, PageContent, Pages}
   alias Ankole.Pod.Documents.{History, Insights}
 
-  def vfs_markdown(%{kind: :knowledge, id: id}), do: Ankole.Pod.Knowledge.export(id)
+  def vfs_markdown(%{type: :knowledge, id: id}), do: Ankole.Pod.Knowledge.export(id)
 
-  def vfs_markdown(%{kind: :doc, id: id}) do
+  def vfs_markdown(%{type: :doc, id: id}) do
     with {:ok, content} when not is_nil(content) <-
            PageContent |> Ash.Query.filter(page_id == ^id) |> Ankole.Ash.read_one(),
          do: Ankole.Kernel.vfs_document_export(content.content),
@@ -289,7 +289,7 @@ defmodule Ankole.Pod.Documents do
     author = ActorRef.from_writer(uid, Repo.tenant_id!(), [])
 
     with {:ok, window} <- Ankole.Pod.Config.ot_replay_window(),
-         {:ok, projection} <- Ankole.Kernel.vfs_projection(:doc, parsed.xml),
+         {:ok, projection} <- Ankole.Kernel.vfs_projection(:doc, parsed.xml, page.metadata),
          {:ok, info} <- Ankole.Kernel.page_comment_info(parsed.xml),
          {:ok, previous} <- Ankole.Kernel.page_comment_info(content.content),
          :ok <- Comments.validate_marks_in_tx(page.id, info.ids),

@@ -79,7 +79,6 @@ defmodule Ankole.Brain.SearchIndexes do
   """
   @spec ensure_current() :: {:ok, [map()]} | {:error, term()}
   def ensure_current do
-    :persistent_term.put(@maintenance_key, "rebuilding")
     result = do_ensure_current()
     :persistent_term.erase(@maintenance_key)
     result
@@ -114,6 +113,7 @@ defmodule Ankole.Brain.SearchIndexes do
         %{index: index, action: :created}
 
       not index_usable?(index) ->
+        :persistent_term.put(@maintenance_key, "rebuilding")
         Repo.query!("DROP INDEX IF EXISTS #{index}")
         create_bm25_index(index, table, column, cast)
         %{index: index, action: :rebuilt}
@@ -122,6 +122,7 @@ defmodule Ankole.Brain.SearchIndexes do
         %{index: index, action: :current}
 
       true ->
+        :persistent_term.put(@maintenance_key, "rebuilding")
         Repo.query!("DROP INDEX IF EXISTS #{index}")
         create_bm25_index(index, table, column, cast)
         %{index: index, action: :rebuilt}
@@ -131,10 +132,12 @@ defmodule Ankole.Brain.SearchIndexes do
   defp ensure_hnsw_index(index, ddl) do
     cond do
       index_definition(index) == nil ->
+        :persistent_term.put(@maintenance_key, "rebuilding")
         Repo.query!(ddl)
         %{index: index, action: :created}
 
       not index_usable?(index) ->
+        :persistent_term.put(@maintenance_key, "rebuilding")
         Repo.query!("DROP INDEX IF EXISTS #{index}")
         Repo.query!(ddl)
         %{index: index, action: :rebuilt}
@@ -175,6 +178,8 @@ defmodule Ankole.Brain.SearchIndexes do
   end
 
   defp create_bm25_index(index, table, column, cast) do
+    :persistent_term.put(@maintenance_key, "rebuilding")
+
     Repo.query!("""
     CREATE INDEX #{index}
     ON #{table}

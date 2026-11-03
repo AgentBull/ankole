@@ -5,6 +5,12 @@ use crate::vfs::webdav_xml::Entry;
 use serde_json::Value;
 
 #[rustler::nif(schedule = "DirtyCpu")]
+fn page_content_empty_nif(source: Term<'_>) -> NIFResult<bool> {
+    page_document::vfs::is_empty(&super::decode_string(source, "source")?)
+        .map_err(super::error_message)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
 fn vfs_pipeline_nif(parts: Term<'_>) -> NIFResult<String> {
     let parts: Vec<String> = serde_json::from_str(&super::decode_string(parts, "parts")?)
         .map_err(|e| super::error_message(e.to_string()))?;

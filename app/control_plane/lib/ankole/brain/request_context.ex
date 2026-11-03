@@ -34,7 +34,8 @@ defmodule Ankole.Brain.RequestContext do
   defp subject_context(subject_uid), do: {:ok, Context.for_subject(subject_uid)}
 
   defp turn_context(subject_uid, signal_id) do
-    with {:ok, event} <- owned_event(subject_uid, signal_id) do
+    with {:ok, event} <- owned_event(subject_uid, signal_id),
+         {:ok, holder} <- Scope.canonical_page_id(subject_uid) do
       conversation_id = event_conversation_id(event)
 
       {:ok,
@@ -51,7 +52,7 @@ defmodule Ankole.Brain.RequestContext do
              do: {:conversation, conversation_id},
              else: page_fallback(subject_uid)
            ),
-         holder_default: Scope.principal_page_slug(:agent, subject_uid),
+         holder_default: holder,
          write_fence: fn -> live_turn_fence(subject_uid, event.id) end
        }}
     end

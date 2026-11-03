@@ -66,13 +66,13 @@ defmodule Ankole.E2E.PodSuperagentRealLLMTest do
 
     assert {:error, _} = Pages.get(ctx.owner_actor, archive.id)
 
-    {:ok, agents} = Ankole.AIAgent.Library.Knowledge.system_node("ankole_brain_agents")
-    {:ok, legal_page} = Ankole.AIAgent.Library.Knowledge.child(agents.id, legal.uid)
+    {:ok, agents} = Ankole.Brain.Namespace.system_node("ankole_brain_agents")
+    {:ok, legal_page} = Ankole.Brain.Namespace.child(agents.id, legal.uid)
 
     {:ok, :ok} =
       Repo.transact_top_level(fn ->
         :ok =
-          Ankole.Files.Access.put_role(
+          Ankole.Pod.Access.put_role(
             %{principal_uid: owner},
             "drive:**:#{legal_page.id}:**",
             "edit"

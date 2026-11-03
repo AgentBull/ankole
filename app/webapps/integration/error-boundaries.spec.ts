@@ -1,16 +1,38 @@
 import { expect, test } from '@playwright/test'
+import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 import type { ConversationDetail } from '../pod/api'
+import type { PodAgentsResponse } from '../pod/api/generated/types.gen'
 import { conversationRoute } from './pod-browser/routes'
+
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v2/browser/session', route =>
+    route.fulfill({
+      json: {
+        authenticated: true,
+        principalUID: 'person',
+        displayName: 'Person',
+        canManagePod: false,
+        accounts: [],
+        pendingAccounts: [],
+        siteAuthentications: []
+      } satisfies BrowserSessionResponse
+    })
+  )
+})
 
 test('a crashed Pod sidebar exposes recovery on desktop and mobile without reloading the workspace', async ({
   page
 }) => {
-  await page.route('**/api/v2/browser/sessions/current', route =>
-    route.fulfill({ json: { authenticated: true, principalUID: 'person', displayName: 'Person', canManagePod: false } })
-  )
-  await page.route('**/api/v2/pod/**', route =>
-    route.fulfill({ json: { agents: [], conversations: [], pages: [], has_more: false } })
-  )
+  await page.route('**/api/v2/pod/**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/attention')) return route.fulfill({ json: [] })
+    if (path.endsWith('/agents')) {
+      return route.fulfill({
+        json: { agents: [], personalAssistant: null, personalAssistantAvailable: false } satisfies PodAgentsResponse
+      })
+    }
+    return route.fulfill({ json: { conversations: [], pages: [], has_more: false } })
+  })
   for (const viewport of [
     { width: 1440, height: 900 },
     { width: 390, height: 844 }
@@ -169,21 +191,18 @@ test('Pod chat timeline isolates a single malformed message without unmounting h
     } as unknown as typeof EventSource
   })
 
-  await page.route('**/api/v2/browser/sessions/current', route =>
-    route.fulfill({
-      json: {
-        authenticated: true,
-        principalUID: 'person',
-        canManagePod: false
-      }
-    })
-  )
-
   await page.route('**/api/v2/pod/**', route => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/agents')) {
-      return route.fulfill({ json: { agents: [agent] } })
+      return route.fulfill({
+        json: {
+          agents: [agent],
+          personalAssistant: null,
+          personalAssistantAvailable: false
+        } satisfies PodAgentsResponse
+      })
     }
+    if (path.endsWith('/attention')) return route.fulfill({ json: [] })
     if (path.endsWith('/conversations')) {
       return route.fulfill({
         json: {

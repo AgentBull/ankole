@@ -24,8 +24,8 @@ defmodule Ankole.Conversations.NativeRoom do
 
   defp list_in_tx(actor, opts) do
     uid = Ankole.AuthZ.Actor.uid(actor)
-    {:ok, reachable} = Ankole.Files.Access.reachable_anchors(actor)
-    pages = Ankole.Files.visible_node_ids(reachable)
+    {:ok, reachable} = Ankole.Pod.Access.reachable_anchors(actor)
+    pages = Ankole.Pod.visible_node_ids(reachable)
     pattern = if opts[:query], do: "%" <> Repo.escape_like(opts[:query]) <> "%"
     order = Keyword.get(opts, :order, :pinned)
 
@@ -635,7 +635,7 @@ defmodule Ankole.Conversations.NativeRoom do
         (conversation.native_access_scope == :anchor_page and
            match?(
              {:ok, _},
-             Ankole.Files.authorize_node(actor, conversation.page_id, "node_manage")
+             Ankole.Pod.authorize_node(actor, conversation.page_id, "node_manage")
            ))
 
   defp require_member_or_owner(actor, conversation) do

@@ -339,9 +339,8 @@ turn. Append-only `background_agent_job_turn_items` rows store sanitized
 semantic thread items with their positions and `item_key` values. Those item
 rows are the single storage and read-path owner of Turn content: every reader
 projects `ankole_chatml` messages from stored items at read time. Items whose
-`ankole_chatml` projection is empty remain stored for thread replay, and if a
-Turn has zero item rows, it returns an empty trajectory and falls back to
-Workspace rebuild when replay finds no items.
+`ankole_chatml` projection is empty remain stored as audit records. A Turn
+with zero item rows returns an empty trajectory.
 
 Each tool-call and tool-result pair keeps `namespace` separate from leaf `name`
 and tags tool results with `provider_hosted` (executed inside the upstream LLM
@@ -590,12 +589,9 @@ frozen vision fallback as untrusted text.
 ## Compose Agent and Project Contracts
 
 The control plane reads each organization and Agent contract as a whole.
-`/AnkoleBrain/AGENTS.md` and `DESIGN.md` provide organization defaults. An Agent
-can append `agents/<uid>/AGENTS.md` or `DESIGN.md`, or replace the corresponding
-default with `AGENTS.override.md` or `DESIGN.override.md`; an override wins when
-both filenames exist. DESIGN metadata merges objects recursively, replaces
-scalars and arrays, and removes keys whose Agent value is null. Its bodies join
-with a horizontal rule; AGENTS bodies join with a blank line.
+`Ankole.AIAgent.Library.Contracts` owns the global `AGENTS.md` and `DESIGN.md`
+baselines and each Agent's inherit, append or override choice. It composes the
+complete effective contracts from PostgreSQL for each run.
 
 Before every Turn, including continuation, the Worker atomically refreshes
 `$CODEX_HOME/AGENTS.md`, `~/AGENTS.md`, and `~/DESIGN.md` from those effective
@@ -638,15 +634,14 @@ The Worker materializes visible Skills at
 
 Before each run, Agent Computer computes the loadable Skill set by intersecting
 the Job's frozen Skill selection with the Agent's currently enabled Skills and
-the `ankole-runtime` filter. The control plane applies the Agent and current
-conversation's intersected Drive visibility to every Skill page and attached
-file. Visible supplement pages join the Skill body; child pages marked
-`metadata.role = "reference"` remain available by relative path. The MCP loader
-uses those same materialized files. When a Job calls Ankole's dynamic `skill_view` tool, it reads through the same
-path-confined loader as the main Agent, appends any active database lesson to
-`SKILL.md`, marks the Skill as used, and includes the Skill's `ankole-runtime`
-value in the tool output. The loader rejects disabled Skills, `main`-only
-Skills, and any path traversal outside the Skill root. Native Codex Skill
+the `ankole-runtime` filter. Enablement depends on the Agent identity. The Worker
+materializes each permitted package in full, including its companion files, and
+the MCP loader reads those same files.
+
+When a Job calls `skill_view`, the control plane reads the manifest, appends any
+active per-Agent lesson and marks the Skill as used. Reference files remain
+available for explicit reads by relative path. The loader rejects disabled
+Skills, `main`-only Skills and paths outside the package. Native Codex Skill
 discovery (`.agents/skills` and `skills/list`) never manages Ankole Skills.
 
 ## Prepare Agent Plugins for Each Run
@@ -851,31 +846,23 @@ window limits).
 
 If Codex cannot resume its native session file, each attempt may create at most
 one disclosed replacement thread (whether on initial resume or mid-attempt
-thread loss):
+thread loss).
 
-1. **Transcript replay** (only while `legacy_thread_replay` is set in metadata;
-   cleared on the first successful runtime anchor and inherited by continuations
-   only while set): the Worker pages stored lead-thread items across the
-   Workspace lineage via `background_agent_job.turn_items.list`, reconstructs
-   wire response items with separate `namespace` and `name` on every
-   `function_call` (so app-server restarts during deploys never flatten
-   namespaced tools into root tools), injects them into a fresh thread
-   (re-compacting if needed), and sets
-   `runtime_checkpoint_recovery: replayed_from_transcript`.
-2. **Workspace rebuild** (when `legacy_thread_replay` is unset, or when replay
-   finds zero items or fails): starts a fresh thread seeded with `job.task`, the
-   durable Workspace files, bounded attempt history, and (for continued Jobs)
-   the source Job's `task` and final report, setting
-   `runtime_checkpoint_recovery: new_thread_from_bounded_history`.
-3. **Cold-idle thread recycle**: when resuming a `waiting_on_user` Job whose
-   paused duration reaches 10 minutes and whose latest model call reports at
-   least `128,000` total tokens, `CodexJobSession` starts a fresh thread from the
-   same bounded Workspace rebuild rather than replaying a cold large context
-   window, rotating the runtime CLI `contextId` whenever a fresh thread starts or
-   compaction settles. An attempt claim preserves `metadata.paused_at` for the
-   Worker to inspect. The Worker clears it in the running-status commit after
-   recovering or replacing the thread; an earlier failure preserves it for retry.
-   Lifetime `thread_total` usage does not measure the current context window.
+The Worker starts a fresh thread seeded with `job.task`, the durable Workspace
+files, bounded attempt history, and (for continued Jobs) the source Job's `task`
+and final report. It records
+`runtime_checkpoint_recovery: new_thread_from_bounded_history`. Complete stored
+history remains available through the Job trajectory queries.
+
+**Cold-idle thread recycle**: when resuming a `waiting_on_user` Job whose
+paused duration reaches 10 minutes and whose latest model call reports at
+least `128,000` total tokens, `CodexJobSession` starts a fresh thread from the
+same bounded Workspace rebuild rather than replaying a cold large context
+window, rotating the runtime CLI `contextId` whenever a fresh thread starts or
+compaction settles. An attempt claim preserves `metadata.paused_at` for the
+Worker to inspect. The Worker clears it in the running-status commit after
+recovering or replacing the thread; an earlier failure preserves it for retry.
+Lifetime `thread_total` usage does not measure the current context window.
 
 ## Create and Dispatch a Job Once
 
@@ -907,7 +894,7 @@ idempotency key:
   calls fail naming that successor).
 - `Ankole.BackgroundAgentJobs.Schemas.Job.successor_attrs/2` copies `title`,
   `runtime_thread_id`, `workspace_owner_job_id`, `workspace_template_id`, and
-  `model_profile` (plus `legacy_thread_replay` when still set) for both manual
+  `model_profile` for both manual
   respawns and automatic steer successors. Successors never copy
   `runtime_projection`, `result`, `error`, `attempts`, or
   `managed_background_agent_job_root`, and Agent Computer never re-materializes

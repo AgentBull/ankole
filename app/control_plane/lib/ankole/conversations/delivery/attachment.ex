@@ -13,7 +13,7 @@ defmodule Ankole.Conversations.Delivery.Attachment do
 
   @doc "Authorizes the node and snapshots its current immutable object for a delivery effect."
   def from_node(agent_uid, node_id, opts \\ []) do
-    with {:ok, node} <- Files.authorize_node(agent_uid, node_id, "node_view"),
+    with {:ok, node} <- Ankole.Pod.authorize_node(agent_uid, node_id, "node_view"),
          {:ok, object} <- Files.fetch_object(node.object_id) do
       {:ok,
        %{
@@ -69,7 +69,7 @@ defmodule Ankole.Conversations.Delivery.Attachment do
   @spec verify_in_drive(String.t(), [attachment()]) :: :ok | {:error, term()}
   def verify_in_drive(agent_uid, attachments) when is_binary(agent_uid) do
     Enum.reduce_while(attachments, :ok, fn attachment, :ok ->
-      with {:ok, node} <- Files.authorize_node(agent_uid, attachment["node_id"], "node_view"),
+      with {:ok, node} <- Ankole.Pod.authorize_node(agent_uid, attachment["node_id"], "node_view"),
            true <- node.object_id == attachment["object_id"] do
         {:cont, :ok}
       else
@@ -172,10 +172,8 @@ defmodule Ankole.Conversations.Delivery.Attachment do
 
   defp drive_path(attachment) do
     with {:ok, path} <- required_text(attachment, "path"),
-         {:ok, existing} <- Files.normalize_existing_path(path),
-         sanitized = existing |> String.split("/") |> Enum.map_join("/", &Files.file_name/1),
-         {:ok, clean} <- Files.normalize_path(sanitized) do
-      {:ok, clean}
+         {:ok, path} <- Files.normalize_path(path) do
+      {:ok, path}
     else
       {:error, {:reply_attachment_required_text_blank, _} = reason} -> {:error, reason}
       {:error, {:reply_attachment_required_text_missing, _} = reason} -> {:error, reason}

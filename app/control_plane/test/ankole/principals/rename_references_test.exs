@@ -34,7 +34,7 @@ defmodule Ankole.Principals.RenameReferencesTest do
           field.type in types,
           # Page is a projection of the same Drive row, not a second identity copy.
           key =
-            {if(table == "pod_page_nodes", do: "drive_nodes", else: table),
+            {if(table == "pages", do: "pages", else: table),
              to_string(field.source || field.name)},
           not MapSet.member?(cascades, key),
           not MapSet.member?(covered, key),

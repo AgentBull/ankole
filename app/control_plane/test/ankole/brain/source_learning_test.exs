@@ -126,7 +126,7 @@ defmodule Ankole.Brain.SourceLearningTest do
       Repo.transact(fn ->
         for principal <- [reader, outsider] do
           :ok =
-            Ankole.Files.Access.put_role(
+            Ankole.Pod.Access.put_role(
               %{principal_uid: principal.uid},
               "drive:**:#{company.id}:node",
               "view"
@@ -226,7 +226,7 @@ defmodule Ankole.Brain.SourceLearningTest do
         :system
       )
 
-    {:ok, node_before} = Ankole.Files.Nodes.fetch(report.id)
+    {:ok, node_before} = Ankole.Pod.Pages.Tree.fetch(report.id)
 
     set_items(ctx.items_holder, [
       %{
@@ -250,7 +250,7 @@ defmodule Ankole.Brain.SourceLearningTest do
     assert {report_after.title, report_after.body, report_after.revision} ==
              {report.title, report.body, report.revision}
 
-    assert {:ok, node_after} = Ankole.Files.Nodes.fetch(report.id)
+    assert {:ok, node_after} = Ankole.Pod.Pages.Tree.fetch(report.id)
 
     assert {node_after.parent_id, node_after.acl_anchor_id} ==
              {node_before.parent_id, node_before.acl_anchor_id}

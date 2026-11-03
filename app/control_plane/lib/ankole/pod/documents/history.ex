@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Documents.History do
   @moduledoc "Owns durable document checkpoints and restores under the page row lock."
   require Ash.Query
   alias Ankole.{AuthZ, Kernel, Repo}
-  alias Ankole.Files.Access
+  alias Ankole.Pod.Access
   alias Ankole.Pod.{Documents, PageContent, Pages, PageSnapshot, Serialization}
 
   @checkpoint_seconds 300
@@ -107,20 +107,6 @@ defmodule Ankole.Pod.Documents.History do
       end,
       after_commit: fn %{page: page} -> Pages.committed_page(page) end
     )
-  end
-
-  @doc "Reads an exact ancestor revision while the caller holds the page row lock."
-  def revision_in_tx(id, revision) do
-    :ok = Repo.require_transaction()
-
-    case PageSnapshot
-         |> Ash.Query.filter(page_id == ^id and revision == ^revision)
-         |> Ash.Query.sort(created_at: :desc)
-         |> Ash.Query.limit(1)
-         |> Ankole.Ash.read_one() do
-      {:ok, nil} -> {:error, :precondition_failed}
-      result -> result
-    end
   end
 
   @doc "Captures the current document before a write; the caller holds the page update lock."

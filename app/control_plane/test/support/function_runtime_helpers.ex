@@ -3,8 +3,8 @@ defmodule Ankole.FunctionRuntimeHelpers do
   import ExUnit.Assertions
   alias Ankole.FunctionRuntime.{EndpointPool, HTTP}
 
-  def saturate do
-    isolate_runtime()
+  def saturate(lane \\ :route) do
+    isolate_runtime(lane)
     {:ok, endpoint, lease} = EndpointPool.checkout()
     source = "export default {'GET /':()=>true}"
     digest = :crypto.hash(:sha256, source <> "\n[]") |> Base.encode16(case: :lower)
@@ -18,7 +18,10 @@ defmodule Ankole.FunctionRuntimeHelpers do
                5_000
              )
 
-    {endpoint, lease, reserve(endpoint, digest, [])}
+    if lane == :action,
+      do: Ankole.AppConfigure.put_global_by_key("pod.applet.action_runtime_url", endpoint.url)
+
+    {endpoint, lease, reserve(endpoint, digest, lane, [])}
   end
 
   def release({endpoint, lease, ids}) do
@@ -32,11 +35,14 @@ defmodule Ankole.FunctionRuntimeHelpers do
 
   # Saturation belongs to this test's replica; other OS partitions and the
   # developer's running app continue using the shared devkit service.
-  defp isolate_runtime do
+  defp isolate_runtime(lane) do
     original = :sys.get_state(EndpointPool)
     container = "ankole-function-capacity-" <> Ash.UUIDv7.generate()
     image = System.get_env("ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE", "ankole-function-runtime:dev")
     token = Application.fetch_env!(:ankole, :function_runtime) |> Keyword.fetch!(:token)
+
+    # An action saturation test must leave room for route-lane package inspection.
+    concurrency = if lane == :action, do: 32, else: 1
 
     docker!([
       "run",
@@ -50,7 +56,7 @@ defmodule Ankole.FunctionRuntimeHelpers do
       "--env",
       "ANKOLE_FUNCTION_RUNTIME_TOKEN=" <> token,
       "--env",
-      "ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY=1",
+      "ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY=#{concurrency}",
       image,
       "start",
       "--main-service",
@@ -90,12 +96,13 @@ defmodule Ankole.FunctionRuntimeHelpers do
     String.trim(output)
   end
 
-  defp reserve(endpoint, digest, ids) when length(ids) < 256 do
+  defp reserve(endpoint, digest, lane, ids) when length(ids) < 256 do
     id = Ash.UUIDv7.generate()
 
     query =
       URI.encode_query(%{
         run_id: id,
+        lane: lane,
         tenant_id: Ankole.Repo.tenant_id!(),
         page_id: "capacity",
         revision: 1,
@@ -105,7 +112,7 @@ defmodule Ankole.FunctionRuntimeHelpers do
       })
 
     case HTTP.at(endpoint, :get, "/v1/applet/invoke?" <> query, %{}, 5_000) do
-      {:ok, 204, _} -> reserve(endpoint, digest, [id | ids])
+      {:ok, 204, _} -> reserve(endpoint, digest, lane, [id | ids])
       {:ok, 503, _} -> ids
       other -> flunk("Function runtime preflight failed: #{inspect(other)}")
     end

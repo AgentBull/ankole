@@ -9,7 +9,7 @@ Brain derives searchable facts, judgments, events, and relationships from Pod pa
 
 ## Maintain knowledge in Pod
 
-`/AnkoleBrain` contains organization knowledge, Agent identity pages, skills, and generated analysis. Knowledge pages support Markdown, business properties, references, and revision history. People edit them in Pod; Agents use the shared Pod page tools. Page IDs stay stable when a page moves or its title changes.
+**Meta Ankole → Brain** contains the organization knowledge graph and ontology categories. Knowledge entries support Markdown, business properties, references and revision history. People edit them in Pod; Agents use the Brain `write_object` operation. Page IDs stay stable when an entry moves or its title changes. Categories belong to the ontology, while Principal lifecycle operations maintain internal people and Agent profiles.
 
 A page’s knowledge panel shows the facts, timeline events, backlinks, and calibration scores that the reader can access. The Console’s **Objects** list opens these pages in Pod.
 
@@ -22,7 +22,7 @@ Knowledge enters Brain through these paths:
 | Conversation learning | Useful facts, judgments, and commitments are extracted from eligible direct-message and group conversations |
 | A registered file or URL Source | Source content becomes a Pod knowledge page and can produce extracted claims |
 
-Public Pod content participates in search. Organization rules in `AGENTS.md` and `DESIGN.md` guide behavior rather than serving as fact sources. Skills are searchable, but their instructions are not extracted as facts. Other business pages outside `/AnkoleBrain` can opt into fact extraction with the `extract_facts` property.
+Public Pod business content participates in search and can opt into fact extraction with `extract_facts`. Skill packages and Agent instruction contracts have their own storage and management in Meta Ankole, separate from Brain search and fact extraction.
 
 ## Facts, judgments, and evidence
 
@@ -53,7 +53,7 @@ Brain supplies bounded context about participants, mentioned entities, current f
 
 Pod reads offer metadata, a compact outline, or the complete page. The outline keeps introductions and section headings, with long tables and code blocks folded. Agents request full content when the task needs it. Ambiguous names produce candidates for disambiguation.
 
-Each skill has a home page at `/AnkoleBrain/skills/<name>` and supporting files beneath it. The runtime reads that home page as `SKILL.md`. Agents discover relevant skills through summaries and search, then read them through `skill_view`. Skill catalogs, content, and background Job materialization use the current requester and Agent permissions. The declared `ankole-runtime` determines where a skill runs.
+`/drive/Brain` is a read-only view of the current disclosure scope. The Agent uses `write_object` to create or revise an entry, supplying its category or ID, Markdown and base revision. When direct edit permission is missing, it proposes an Action Card for an authorized human to approve. Skills and instruction contracts are managed by humans in [Meta Ankole](../agent-library/).
 
 ## Keep knowledge current
 

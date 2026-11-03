@@ -109,7 +109,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
     long = String.duplicate("长", 300)
     [original] = Repo.all(from(snapshot in PageSnapshot, where: snapshot.page_id == ^ctx.page.id))
 
-    Repo.update_all(from(page in Ankole.Pod.Properties, where: page.id == ^ctx.page.id),
+    Repo.update_all(from(page in Ankole.Pod.Page, where: page.id == ^ctx.page.id),
       set: [title: long]
     )
 
@@ -120,13 +120,13 @@ defmodule Ankole.Pod.DocumentHistoryTest do
     {:ok, _} = Documents.write(ctx.editor, ctx.page.id, 0, "<page><p>Edited body</p></page>")
 
     restore = fn ->
-      page = Repo.get!(Ankole.Pod.Page, ctx.page.id)
+      page = Repo.get_by!(Ankole.Pod.Page, id: ctx.page.id)
       History.restore(ctx.editor, page.id, original.id, page.revision, page.updated_at)
     end
 
     assert {:ok, %{page: %{title: ^long}}} = restore.()
 
-    Repo.update_all(from(page in Ankole.Pod.Properties, where: page.id == ^ctx.page.id),
+    Repo.update_all(from(page in Ankole.Pod.Page, where: page.id == ^ctx.page.id),
       set: [title: "Short"]
     )
 
@@ -449,7 +449,7 @@ defmodule Ankole.Pod.DocumentHistoryTest do
     assert {:ok, _} = Pages.purge(ctx.owner, ctx.page.id)
 
     assert :ok =
-             Ankole.Files.Jobs.PurgeNode.perform(%Oban.Job{
+             Ankole.Pod.Jobs.PurgeTree.perform(%Oban.Job{
                args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => ctx.page.id}
              })
 

@@ -9,7 +9,6 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
   alias Ankole.AutomationJobs
   alias Ankole.AutomationJobs.Schemas.Run
   alias Ankole.Schedule
-  alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ecto.Adapters.SQL.Sandbox
 
@@ -86,7 +85,7 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
     %{cron: cron, job: job, replacement: replacement}
   end
 
-  test "an unchanged binding update and a due fire serialize on the consumer", ctx do
+  test "a due fire retries the Binding snapshot after an unchanged target update", ctx do
     update =
       pause_at_first_parent_lock(fn ->
         Schedule.update_cron_schedule(ctx.cron.id, %{"automation_job_id" => ctx.job.id},
@@ -100,8 +99,14 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
     send(update.task.pid, :continue_parent_write)
 
     assert {:ok, updated} = Task.await(update.task, 10_000)
-    assert updated.automation_job_id == ctx.job.id
-    assert {:ok, %{automation_job_run: run}} = Task.await(fire.task, 10_000)
+    assert Ankole.Signals.source_automation_job_id(updated) == ctx.job.id
+    assert {:error, :binding_changed} = Task.await(fire.task, 10_000)
+    assert Repo.all(Run) == []
+    assert Repo.all(ScheduledEvent) == []
+
+    assert {:ok, %{automation_job_run: run}} =
+             Schedule.fire_cron(ctx.cron.id, now: @slot, attempt: 2)
+
     assert run.automation_job_id == ctx.job.id
 
     Ankole.DataCase.assert_persisted_equal(
@@ -109,7 +114,8 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
       [run]
     )
 
-    assert DateTime.after?(Repo.reload!(ctx.cron).next_fire_at, @slot)
+    assert {:ok, current} = Schedule.get_cron_schedule(ctx.cron.id)
+    assert DateTime.after?(current.next_fire_at, @slot)
   end
 
   test "a manual fire locks its consumer before inserting its history", ctx do
@@ -134,7 +140,7 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
     assert {:ok, _updated} = Task.await(update.task, 10_000)
     assert {:ok, %{status: :scheduled, scheduled_event: event}} = Task.await(manual.task, 10_000)
     assert event.status == :scheduled
-    assert event.automation_job_id == ctx.job.id
+    assert Ankole.Signals.source_automation_job_id(event) == ctx.job.id
     assert event.wake_payload["payload"] == %{"version" => 2}
     assert event.wake_payload["trigger"] == "manual"
 
@@ -144,7 +150,8 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
     )
 
     assert Repo.all(Run) == []
-    assert Repo.reload!(ctx.cron).next_fire_at == ctx.cron.next_fire_at
+    assert {:ok, current} = Schedule.get_cron_schedule(ctx.cron.id)
+    assert current.next_fire_at == ctx.cron.next_fire_at
   end
 
   test "terminal fire compensation locks its consumer before inserting failed history", ctx do
@@ -175,12 +182,13 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
              event =
              Repo.one!(from e in ScheduledEvent, where: e.cron_schedule_id == ^ctx.cron.id)
 
-    assert event.automation_job_id == ctx.job.id
+    assert Ankole.Signals.source_automation_job_id(event) == ctx.job.id
     assert event.cron_fire_slot_at == @slot
     assert event.last_fire_error == %{"reason" => ":tenant_suspended"}
     assert event.wake_payload["payload"] == %{"version" => 2}
     assert Repo.all(Run) == []
-    assert DateTime.after?(Repo.reload!(ctx.cron).next_fire_at, @slot)
+    assert {:ok, current} = Schedule.get_cron_schedule(ctx.cron.id)
+    assert DateTime.after?(current.next_fire_at, @slot)
   end
 
   test "a binding switch preserves a fire committed before the rule lock", ctx do
@@ -197,10 +205,10 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
              Schedule.fire_cron(ctx.cron.id, now: @slot)
 
     assert first.automation_job_id == ctx.job.id
-    after_fire = Repo.get!(CronSchedule, ctx.cron.id)
+    assert {:ok, after_fire} = Schedule.get_cron_schedule(ctx.cron.id)
     send(update.task.pid, :continue_parent_write)
     assert {:ok, updated} = Task.await(update.task, 10_000)
-    assert updated.automation_job_id == ctx.replacement.id
+    assert Ankole.Signals.source_automation_job_id(updated) == ctx.replacement.id
     assert updated.next_fire_at == after_fire.next_fire_at
     assert updated.last_fire_at == after_fire.last_fire_at
 

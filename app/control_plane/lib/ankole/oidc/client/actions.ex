@@ -8,7 +8,7 @@ defmodule Ankole.OIDC.Client.Actions do
   def run(input, _opts, context), do: action(input.action.name, input, context)
 
   defp action(:login_sources, _input, _context) do
-    with {:ok, providers} <- Ankole.IdentityProviders.list_configured_providers() do
+    with {:ok, providers} <- Ankole.IdentityProviders.Config.active_providers() do
       sources =
         Enum.map(providers, &Map.take(&1, ["provider_id", "enabled"])) ++
           Enum.map(

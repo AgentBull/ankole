@@ -42,7 +42,7 @@ defmodule Ankole.Brain.Merge do
   """
   @spec page_summary(String.t()) :: map()
   def page_summary(slug) do
-    case Objects.resolve_slug(slug) do
+    case Objects.resolve_slug(slug, select: [:slug, :title, :type, :deleted_at]) do
       {:ok, object} ->
         %{
           page_id: object.id,
@@ -99,7 +99,7 @@ defmodule Ankole.Brain.Merge do
   @spec approve_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t(), map()) ::
           {:ok, map()} | {:error, term()}
   def approve_in_tx(suggestion_id, decided_by, attrs) do
-    Ankole.Files.Nodes.lock_tree()
+    Ankole.Pod.Pages.Tree.lock_tree()
 
     with :ok <- Repo.require_transaction(),
          {:ok, suggestion} <- fetch_pending(suggestion_id),
@@ -201,10 +201,10 @@ defmodule Ankole.Brain.Merge do
   # occupy every sweep and prevent later candidates from moving forward.
   defp exclude_recorded_and_principal_pairs(query) do
     principal_parents =
-      case Ankole.AIAgent.Library.Knowledge.root() do
+      case Ankole.Brain.Namespace.root() do
         {:ok, root} ->
           for name <- ~w(people agents),
-              {:ok, node} <- [Ankole.Files.Nodes.child(root.id, name)],
+              {:ok, node} <- [Ankole.Pod.Pages.Tree.child(root.id, name)],
               do: node.id
 
         {:error, :not_found} ->
@@ -278,7 +278,7 @@ defmodule Ankole.Brain.Merge do
   end
 
   defp lock_pair(canonical, duplicate) do
-    for id <- Enum.sort([canonical.id, duplicate.id]), do: Ankole.Files.Nodes.lock(id)
+    for id <- Enum.sort([canonical.id, duplicate.id]), do: Ankole.Pod.Pages.Tree.lock(id)
 
     with {:ok, canonical} <- Objects.get_by_slug(canonical.id),
          {:ok, duplicate} <- Objects.get_by_slug(duplicate.id),
@@ -323,16 +323,16 @@ defmodule Ankole.Brain.Merge do
 
   defp move_page_children(canonical, duplicate) do
     duplicate.id
-    |> Ankole.Files.Nodes.list_children()
+    |> Ankole.Pod.Pages.Tree.list_children()
     |> Enum.reduce_while(:ok, fn node, :ok ->
       result =
-        with {:ok, old_path} <- Ankole.Files.Nodes.path(node),
+        with {:ok, old_path} <- Ankole.Pod.Pages.Tree.path(node),
              {:ok, moved} <-
-               Ankole.Files.Access.update_anchor_in_tx(node, :move, %{
+               Ankole.Pod.Access.update_anchor_in_tx(node, :move, %{
                  parent_id: canonical.id,
-                 name: Ankole.Files.Nodes.available_name(canonical.id, node.name, node.id)
+                 name: Ankole.Pod.Pages.Tree.available_name(canonical.id, node.name, node.id)
                }),
-             :ok <- Ankole.Files.ContentOwner.move_node_in_tx(node.id, old_path),
+             :ok <- Ankole.Pod.Pages.Lifecycle.move_node_in_tx(node.id, old_path),
              do: {:ok, moved}
 
       case result do
@@ -517,8 +517,8 @@ defmodule Ankole.Brain.Merge do
   end
 
   defp insert_redirect(canonical, duplicate) do
-    with {:ok, node} <- Ankole.Files.Nodes.fetch(duplicate.id),
-         {:ok, path} <- Ankole.Files.Nodes.path(node) do
+    with {:ok, node} <- Ankole.Pod.Pages.Tree.fetch(duplicate.id),
+         {:ok, path} <- Ankole.Pod.Pages.Tree.path(node) do
       case Ankole.Brain.Knowledge.brain_path(path) do
         nil ->
           {:ok, :outside_brain_namespace}

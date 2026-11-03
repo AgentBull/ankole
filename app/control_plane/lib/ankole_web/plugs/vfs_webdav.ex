@@ -10,7 +10,10 @@ defmodule AnkoleWeb.Plugs.VfsWebdav do
   def call(%{method: "POST", path_info: ["api", "v1", "vfs", "refresh"]} = conn, _) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          {:ok, payload} <- Auth.decode(token, refresh: true),
-         {:ok, token} <- Repo.with_tenant(payload["tenant_id"], fn -> Auth.refresh(payload) end),
+         {:ok, token} <-
+           Repo.with_tenant(payload["tenant_id"], fn ->
+             Auth.refresh(payload, header(conn, "x-ankole-library") == "1")
+           end),
          do:
            conn
            |> upload_limit_header()
@@ -25,7 +28,7 @@ defmodule AnkoleWeb.Plugs.VfsWebdav do
          {:ok, payload} <- Auth.decode(token),
          {:ok, path} <- segments(path) do
       Repo.with_tenant(payload["tenant_id"], fn ->
-        case Auth.context(payload) do
+        case Auth.context(payload, header(conn, "x-ankole-library") == "1") do
           {:ok, scope} ->
             scope =
               if header(conn, "x-ankole-shared-scope") == "1",
@@ -46,6 +49,11 @@ defmodule AnkoleWeb.Plugs.VfsWebdav do
   end
 
   def call(conn, _), do: conn
+
+  defp dispatch(%{method: method} = conn, _, [root | _])
+       when root in ["Brain", "Skills", "AGENTS.md", "DESIGN.md"] and
+              method not in ["OPTIONS", "PROPFIND", "GET", "HEAD", "COPY"],
+       do: failure(conn, :forbidden)
 
   defp dispatch(%{method: "OPTIONS"} = conn, _, _),
     do:
@@ -163,7 +171,16 @@ defmodule AnkoleWeb.Plugs.VfsWebdav do
             modified: http_date(entry.modified),
             content_type: entry.content_type,
             node_id: if(entry.node, do: entry.node.id, else: ""),
-            stat_on_lookup: Map.get(entry, :stat_on_lookup, false)
+            stat_on_lookup: Map.get(entry, :stat_on_lookup, false),
+            mode:
+              Map.get(
+                entry,
+                :mode,
+                if(Map.get(entry, :read_only, false),
+                  do: if(Namespace.collection?(entry), do: 0o555, else: 0o444),
+                  else: nil
+                )
+              )
           }
         end)
 
@@ -363,7 +380,7 @@ defmodule AnkoleWeb.Plugs.VfsWebdav do
     do: {:ok, Map.put(meta, :refresh_body, Map.get(node, :vfs_refresh_body, false))}
 
   defp put_metadata(node) do
-    with {:ok, meta} <- Content.stat(Namespace.entry(node, node.kind)),
+    with {:ok, meta} <- Content.stat(Namespace.entry(node, node.type)),
          do: {:ok, Map.put(meta, :refresh_body, Map.get(node, :vfs_refresh_body, false))}
   end
 
@@ -373,12 +390,15 @@ defmodule AnkoleWeb.Plugs.VfsWebdav do
     do:
       conn
       |> put_resp_header("etag", meta.etag)
-      |> put_resp_header("x-ankole-node-id", meta.node.id)
+      |> node_id_header(meta.node)
       |> put_resp_header("x-ankole-size", Integer.to_string(meta.size))
       |> put_resp_header("x-ankole-fingerprint", Map.get(meta, :fingerprint, ""))
       |> put_resp_header("last-modified", http_date(meta.modified))
       |> put_resp_header("content-type", meta.content_type)
       |> refresh_body_header(meta)
+
+  defp node_id_header(conn, nil), do: conn
+  defp node_id_header(conn, node), do: put_resp_header(conn, "x-ankole-node-id", node.id)
 
   defp failure(conn, reason) do
     status =

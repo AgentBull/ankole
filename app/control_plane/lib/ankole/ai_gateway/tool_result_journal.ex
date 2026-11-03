@@ -356,7 +356,7 @@ defmodule Ankole.AIGateway.ToolResultJournal do
     stable_term = {subject_uid, previous_message_id, request_items}
 
     stable_term
-    |> :erlang.term_to_binary()
+    |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.url_encode64(padding: false)
   end

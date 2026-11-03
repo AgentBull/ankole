@@ -82,6 +82,8 @@ defmodule Ankole.Sessions.Ambient do
   @doc false
   def resolve_in_tx(%Signal{} = event, now) do
     with :ok <- Ankole.Sessions.Admission.authorize_attempt_in_tx(event),
+         pending <- pending_ambient_events(event),
+         :ok <- lock_bindings_in_tx([event | pending]),
          :ok <- Queue.lock_session_in_tx(event.agent_uid, event.session_id) do
       case Ankole.Signals.lock_signal_in_tx(event.id) do
         %Signal{status: :completed} = completed_event ->
@@ -98,7 +100,7 @@ defmodule Ankole.Sessions.Ambient do
               resolve_attempted_event(locked_event, now)
 
             true ->
-              resolve_locked_event(locked_event, now)
+              resolve_locked_event(locked_event, now, Enum.map(pending, & &1.id))
           end
 
         %Signal{} = unavailable_event ->
@@ -121,8 +123,8 @@ defmodule Ankole.Sessions.Ambient do
     end
   end
 
-  defp resolve_locked_event(event, now) do
-    pending_events = lock_pending_ambient_events(event)
+  defp resolve_locked_event(event, now, ids) do
+    pending_events = Ankole.Signals.lock_signals_in_tx(id: [in: ids])
     current_scene_fingerprint = current_scene_fingerprint(event.conversation_id)
 
     classified =
@@ -178,21 +180,37 @@ defmodule Ankole.Sessions.Ambient do
     end
   end
 
-  defp lock_pending_ambient_events(%Signal{} = event) do
+  defp pending_ambient_events(%Signal{} = event) do
     channel =
       if is_binary(event.conversation_id),
         do: event.conversation_id,
         else: [is_nil: true]
 
-    Ankole.Signals.lock_signals_in_tx(
-      agent_uid: event.agent_uid,
-      session_id: event.session_id,
-      type: "im.message.may_intervene",
-      producer: :kernel,
-      status: [in: [:queued, :running]],
-      last_attempt_at: [is_nil: true],
-      conversation_id: channel
+    Ankole.Signals.list_signals!(
+      query: [
+        sort: [queue_sequence: :asc],
+        filter: [
+          agent_uid: event.agent_uid,
+          session_id: event.session_id,
+          type: "im.message.may_intervene",
+          producer: :kernel,
+          status: [in: [:queued, :running]],
+          last_attempt_at: [is_nil: true],
+          conversation_id: channel
+        ]
+      ]
     )
+  end
+
+  defp lock_bindings_in_tx(events) do
+    events
+    |> Enum.map(& &1.reply_binding_id)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.each(&Ankole.Signals.share_binding_in_tx/1)
+
+    :ok
   end
 
   defp complete_superseded(superseded, now) do

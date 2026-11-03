@@ -27,12 +27,12 @@ defmodule AnkoleWeb.DriveDownloadControllerTest do
   } do
     conn = console_conn(conn)
     %{principal: agent} = agent_fixture()
-    {:ok, root} = Ankole.Files.private_root(agent.uid)
+    {:ok, root} = Ankole.Pod.private_root(agent.uid)
 
     {:ok, node} =
-      Ankole.Files.create_node(actor_fixture(agent.uid), %{
+      Ankole.Pod.create_node(actor_fixture(agent.uid), %{
         parent_id: root.id,
-        kind: :file,
+        type: :file,
         name: "empty.txt"
       })
 
@@ -53,7 +53,7 @@ defmodule AnkoleWeb.DriveDownloadControllerTest do
     file = drive_file_fixture(agent.uid, "offline/safe.sh", "echo ok")
 
     Ankole.Repo.query!(
-      "UPDATE drive_nodes SET name = $1 WHERE tenant_id = $2::text::uuid AND id = $3::text::uuid",
+      "UPDATE pages SET name = $1 WHERE tenant_id = $2::text::uuid AND id = $3::text::uuid",
       ["invoice_\u202Efdp.sh", tenant.id, file.id]
     )
 

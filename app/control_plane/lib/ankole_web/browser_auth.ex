@@ -356,7 +356,9 @@ defmodule AnkoleWeb.BrowserAuth do
           is_binary(uid) and
             Ankole.Repo.with_tenant(account.tenant.id, fn -> AuthZ.pod_admin?(uid) end),
         consoleURL:
-          if(is_binary(uid) and AuthZ.site_admin?(uid),
+          if(
+            is_binary(uid) and {:ok, account.tenant.id} == Ankole.Tenants.privileged_id() and
+              AuthZ.site_admin?(uid),
             do: AnkoleWeb.PodURL.site_origin(conn) <> AnkoleWeb.SiteAdminConsole.path()
           ),
         accounts: browser_accounts(conn),

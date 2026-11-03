@@ -391,7 +391,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
 
     {:ok, %{automation_job_run: run}} =
       Repo.transact(fn ->
-        AutomationJobs.enqueue_run_in_tx(job.id, agent_uid, %{
+        Ankole.WorkFixtures.dispatch_job_in_tx(job, %{
           "specversion" => "1.0",
           "source" => "test://activity",
           "id" => suffix,

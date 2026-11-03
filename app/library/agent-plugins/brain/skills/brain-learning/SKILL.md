@@ -25,7 +25,7 @@ page tools and record a specific fact or judgment with `remember`.
 | Text pasted into this conversation | Conversations are learned automatically; do not duplicate the transcript merely to make it searchable |
 | Someone's own idea, thesis, or framework | `remember` — see "Capture ideas verbatim" |
 | One fact, decision, or preference | `remember` with `claim` and `provenance` |
-| A structured page or dossier for a durable entity, project, or concept | Resolve the entity first; update its existing knowledge page, or use `pod_create_page` under the intended parent |
+| A structured page or dossier for a durable entity, project, or concept | Resolve the entity first; update its existing knowledge page, or use `write_object` with its installed Brain category |
 | Revising or updating prose on an existing page | Read with `pod_get_page` at `level: "L2"`, then use `pod_save_page` with the returned `revision` as `base_revision` |
 | An open question that needs investigation and a report | A background job or deep research; afterwards `remember` the durable conclusions or save the requested report in a knowledge page |
 
@@ -36,8 +36,8 @@ does not require source registration.
 ## Choose the page and its audience
 
 Use `pod_list_pages` to find the destination. Omitting `id` lists the shared
-Space roots, including AnkoleBrain; passing a page or folder UUID lists its
-visible children. A new page inherits its parent's access. Choose the
+Space roots; passing a page UUID lists its visible children. Use `brain` to
+discover organizational knowledge and `write_object` to create or revise Brain objects. A new page inherits its parent's access. Choose the
 existing team, entity, or conversation page whose readers match the request.
 Public source material alone does not authorize sharing private analysis with
 a wider audience.
@@ -73,15 +73,18 @@ keeping — typed, spoken, or in a transcribed voice note:
   edit, then submit the complete Markdown through `pod_save_page` with `id`,
   `base_revision`, and `markdown`. A revision conflict means read again and
   reconcile the change.
-- For a new page, `pod_create_page` takes `parent_id`, `title`, and complete
-  `markdown`. Keep the returned `id` for later reads and writes. Link related
+- For a new Brain object, `write_object` takes `category`, `title`, and complete
+  `markdown`. For a child of an existing knowledge object, `pod_create_page`
+  takes `parent_id`, `title`, and complete `markdown`. Keep the returned `id` for later reads and writes. Link related
   pages using Markdown links whose target is `ankole:page/` followed by the
   actual page UUID, so graph traversal can follow their identities.
 - Shared rules belong on their shared knowledge page. If the Agent cannot
   edit it, propose a `pod.knowledge.save` action card in a native Pod room,
   with the page ID, complete draft, and captured base revision. The owner
   reviews the diff before confirming. In external IM, provide the draft and
-  page link for an authorized owner to review and save in Pod.
+  page link for an authorized owner to review and save in Pod. For a new Brain
+  object without creation permission, propose `brain.object.create` in a native
+  Pod room with the category, title and complete Markdown draft.
 - Transcripts and recorder summaries carry claims, not facts. Transcription
   garbles names, and machine summaries turn banter into commitments. Before
   remembering a surprising claim — a role change, an ownership, a major

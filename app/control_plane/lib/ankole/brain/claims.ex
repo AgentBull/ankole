@@ -55,6 +55,11 @@ defmodule Ankole.Brain.Claims do
       as: :claim_parent_object,
       on: object.tenant_id == claim.tenant_id and object.id == claim.subject_page_id
     )
+    |> join(:inner, [claim], source in Ankole.Pod.Page,
+      on:
+        source.tenant_id == claim.tenant_id and source.id == claim.source_node_id and
+          is_nil(source.deleted_at)
+    )
     |> where(
       [claim, claim_parent_object: object],
       is_nil(claim.subject_page_id) or
@@ -80,7 +85,7 @@ defmodule Ankole.Brain.Claims do
 
   @doc """
   Prepares the `:console_list` read of Claims: Claims, newest
-  first, that match the Object slug, the Claim type, the current state, and
+  first, that match the subject Page ID, the Claim type, the current state, and
   the text search.
   """
   @spec console_list(Ash.Query.t(), map()) :: Ash.Query.t()
@@ -99,10 +104,11 @@ defmodule Ankole.Brain.Claims do
       when is_binary(principal_uid) and is_list(opts) do
     limit = Keyword.fetch!(opts, :limit)
 
-    holder_slugs = [
-      Scope.principal_page_slug(:human, principal_uid),
-      Scope.principal_page_slug(:agent, principal_uid)
-    ]
+    page_ids =
+      case Scope.canonical_page_id(principal_uid) do
+        {:ok, id} -> [id]
+        {:error, _} -> []
+      end
 
     scope = Scope.principal(principal_uid)
 
@@ -111,7 +117,8 @@ defmodule Ankole.Brain.Claims do
 
     Claim
     |> Ash.Query.filter(
-      holder in ^holder_slugs or author == ^principal_ref or source_node_id == ^scope
+      holder in ^page_ids or subject_page_id in ^page_ids or author == ^principal_ref or
+        source_node_id == ^scope
     )
     |> Ash.Query.sort(created_at: :desc)
     |> Ash.Query.limit(limit)

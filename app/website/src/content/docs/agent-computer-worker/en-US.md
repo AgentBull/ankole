@@ -36,7 +36,7 @@ Each Agent's persistent Home directory is mounted at `/workspace`, with `/agents
 ├── .codex/
 ├── AGENTS.md
 ├── DESIGN.md
-├── .ankole/turn-skills/<signal-id>/
+├── .ankole/turn-skills/<job-signal-id>/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
@@ -44,11 +44,9 @@ Each Agent's persistent Home directory is mounted at `/workspace`, with `/agents
     └── temp/
 ```
 
-`~/AGENTS.md` and `~/DESIGN.md` project the complete effective contracts from [Agent Library](../agent-library/). Each turn also refreshes `$CODEX_HOME/AGENTS.md`. Skills are materialized under `.ankole/turn-skills/<signal-id>/` according to current conversation permissions. `sessions/` holds conversation workspaces with stable PostgreSQL numeric IDs starting at `10000`, and `jobs/` holds Background Agent Job projects and their own instruction files.
+`~/AGENTS.md` and `~/DESIGN.md` project the complete effective contracts from [Agent Library](../agent-library/). Each turn also refreshes `$CODEX_HOME/AGENTS.md`. Main Agent runs read enabled packages from the shared, read-only `/drive/Skills/<slug>/` mount. Background Agent Jobs materialize their allowed packages under `.ankole/turn-skills/<signal-id>/`; their initial capability whitelist can shrink, but cannot expand when an operator later enables another Skill. `sessions/` holds conversation workspaces with stable PostgreSQL numeric IDs starting at `10000`, and `jobs/` holds Background Agent Job projects and their own instruction files.
 
 Agent Home survives instance deletion and container image updates—rebuilding a Worker clears only `/var/cache/ankole`. Storage durability follows the backing provider: local Docker volumes depend on the host disk, whereas forcing a Cloudflare Worker stop can lose writes made since the last R2 backup. See [Workers](../worker-management/) for provider storage limits.
-
-`~/AGENTS.md` and `~/DESIGN.md` project the complete effective contracts from [Agent Library](../agent-library/). Each turn also refreshes `$CODEX_HOME/AGENTS.md`. Skills are materialized under `.ankole/turn-skills/<signal-id>/` according to current conversation permissions. `sessions/` holds conversation workspaces with stable PostgreSQL numeric IDs starting at `10000`, and `jobs/` holds Background Agent Job projects and their own instruction files.
 
 Codex Home lives at `/workspace/.codex`. Because raw thread files stay in persistent Home, Codex can resume threads across Worker replacements even after the rebuildable SQLite cache at `/var/cache/ankole/codex` is recreated. Background Jobs load Skills on demand through `skill_view`.
 

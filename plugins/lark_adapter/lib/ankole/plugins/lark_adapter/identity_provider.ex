@@ -320,6 +320,10 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
       {:ok, item}, {:ok, acc} -> {:cont, {:ok, [item | acc]}}
       {:error, _} = error, _ -> {:halt, error}
     end)
+    |> case do
+      {:ok, items} -> {:ok, Enum.reverse(items)}
+      error -> error
+    end
   end
 
   defp sync_departments(provider_id, departments) do

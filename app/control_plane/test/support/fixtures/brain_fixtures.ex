@@ -1,10 +1,26 @@
 defmodule Ankole.BrainFixtures do
   @moduledoc false
   alias Ankole.{Brain, Repo}
-  alias Ankole.AIAgent.Library.Knowledge, as: Library
-  alias Ankole.Files.{Access, Nodes}
+  alias Ankole.Brain.Namespace, as: Library
+  alias Ankole.Pod.Access
+  alias Ankole.Pod.Pages.Tree, as: Nodes
+
+  def category_fixture(uid, name \\ "notes") do
+    {:ok, _} = Brain.SchemaPacks.install_packs([])
+    {:ok, category} = Brain.ObjectWrites.category(name)
+
+    {:ok, :ok} =
+      Repo.transact(fn ->
+        :ok = Access.put_role(%{principal_uid: uid}, "drive:**:#{category.id}:**", "manage")
+        {:ok, :ok}
+      end)
+
+    category
+  end
 
   def page_fixture_result(attrs, writer) do
+    {:ok, _} = Brain.SchemaPacks.install_packs([])
+
     Repo.transact(fn ->
       with {:ok, page} <- Brain.Objects.create_object_in_tx(attrs, :system) do
         if is_binary(writer),
@@ -36,7 +52,7 @@ defmodule Ankole.BrainFixtures do
         {:ok, root} = Library.root()
 
         {:ok, node} =
-          Library.ensure_child_in_tx(root.id, "Test source " <> name, :folder,
+          Library.ensure_child_in_tx(root.id, "Test source " <> name, :knowledge,
             inherit_permissions: false
           )
 

@@ -304,7 +304,8 @@ defmodule Ankole.Principals.HumanAccess do
            record(principal, disabled, "disable", Map.put(attrs, :released_identifiers, released)),
          :ok <-
            Ankole.OIDC.Sessions.revoke_human_in_tx(disabled.uid, disabled.access_version),
-         :ok <- Ankole.Principals.WorkCleanup.enqueue_in_tx(disabled.uid, disabled.access_version) do
+         :ok <- Ankole.Principals.WorkCleanup.enqueue_in_tx(disabled.uid, disabled.access_version),
+         :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(disabled) do
       {:ok, disabled}
     end
   end
@@ -457,7 +458,8 @@ defmodule Ankole.Principals.HumanAccess do
              reason: reason,
              actor: actor_uid,
              operation_id: operation_id
-           }) do
+           }),
+         :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(restored) do
       {:ok, restored}
     else
       {:ok, %Principal{type: :human, status: :active} = principal} -> {:ok, principal}

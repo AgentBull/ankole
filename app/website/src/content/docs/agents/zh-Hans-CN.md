@@ -32,9 +32,9 @@ order: 13
 
 ## 设置 Agent 规范
 
-通过 Console 中 Agent 的 **AGENTS / DESIGN** 来源链接进入 Pod 编辑对应页面。`/AnkoleBrain/AGENTS.md` 定义组织行为、职责和保密规则，`/AnkoleBrain/DESIGN.md` 保存网页、幻灯片、文档和图表等产出物的视觉规范。
+打开 **Meta Ankole → Agents**，编辑全局基线或个体 Agent 的 `AGENTS.md` 和 `DESIGN.md`。`AGENTS.md` 定义行为与职责，`DESIGN.md` 保存网页、幻灯片、文档和图表的视觉规范。
 
-在 `/AnkoleBrain/agents/<uid>/` 下，`AGENTS.md` 追加岗位职责，`AGENTS.override.md` 提供完整的独立规范。DESIGN 同样支持追加或覆盖：YAML 元数据保存设计令牌，正文说明具体用法。个人助理使用由主人管理的私有覆盖页。继承规则见 [Agent Library](../agent-library/)。
+每个 Agent 契约可以继承全局基线、在其后追加，或完全覆盖。DESIGN 的元数据保存设计令牌，正文说明用法。个人助理的配置仅由主人本人查看和编辑。详见 [Agent Library](../agent-library/)。
 
 保存的修改从下一轮生效，包括 Codex Job 的续跑回合；当前回合使用启动时完整读取的规范。
 

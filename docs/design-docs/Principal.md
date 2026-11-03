@@ -376,10 +376,10 @@ support offboarding and cleanup workflows.
 2. Selects `worker_provider_id` from the request or falls back to the default
    Worker provider, failing with `worker_provider_required` if neither exists.
 3. Inserts the `principals` row and creates the Agent's private Drive root,
-   before Library initialization. The transaction takes the Drive tree lock
+   before Library initialization. The transaction takes the Page tree lock
    before Principal, turn, or content locks.
 4. Inserts the `agents` row.
-5. Creates the Agent identity page under `/AnkoleBrain/agents/<uid>` and seeds its capability state.
+5. Creates the identity page under the independent `Brain/agents/<uid>` root and initializes its Agent contract slots.
 6. Inserts the `agent_workers` row in state `absent` bound permanently to the
    selected Worker provider (an Agent's Worker provider cannot change later).
 
@@ -391,7 +391,7 @@ or Principal `type`.
 Enabling or deleting an Agent snapshots affected Conversation IDs inside the
 transaction. Deleting an `active` Agent first transitions it to `disabled`;
 sending a second delete for a `disabled` Agent physically removes its durable
-rows. The transaction acquires the Drive tree lock and private-root lock first,
+rows. The transaction acquires the Page tree lock and private-root lock first,
 cleans the private subtree's Pod content and physical Base tables, removes its
 Drive nodes, strips Drive grants, and recomputes affected ACL anchors before
 deleting the `principals` row. Disabling an Agent preserves its private root and
@@ -402,17 +402,44 @@ that transaction), and `Principals.publish_agent_deletion/1` triggers Worker
 teardown. Both domain callers and Console endpoints share these publication
 helpers while keeping `Principal` and `Agent` return structs distinct.
 
-Agent identity pages and their child contracts are created in the same transaction
-as the Agent. The shared `/AnkoleBrain` tree grants read access to tenant Humans
-and Agents and management access to Pod administrators. A personal assistant's
-identity page stops permission inheritance; its owner can manage the subtree
-and the assistant can read it.
+Agent identity pages live in the independent Brain tree. The Brain root grants
+read access to active members and Agents and management access to Pod
+administrators. A personal assistant's identity page stops inheritance: its
+owner can manage it and the assistant can read it.
 
-The Console links Agent contracts to their Pod source pages. The Pod editor owns
-drafts, metadata, version conflicts and history. Internal colleagues inherit the
-organization's whole `AGENTS.md` and `DESIGN.md` without storing per-Agent copies.
-Personal assistants receive an `AGENTS.override.md` that contains their complete
-personal role.
+`Ankole.AIAgent.Library.Contracts` owns `agent_contracts`. Each Agent can have
+an `agents` slot and a `design` slot; a null `agent_uid` identifies the two global
+baselines. Global slots always use `override`. Individual slots use `inherit`,
+`append` or `override`, with an absent row meaning inheritance. AI colleagues
+inherit the baselines. A new personal assistant receives its personal template
+as an `agents` override and inherits `design`.
+
+Append joins the global and local AGENTS bodies with two newlines. DESIGN append
+joins them with a Markdown horizontal rule, recursively merges metadata maps,
+replaces arrays and scalar values, and removes keys set to null locally.
+Override uses only the local content, including a deliberately empty document.
+Every save compares `base_revision`, derives Markdown from XML and metadata, and
+advances the slot revision atomically. These slots have no snapshot history.
+
+Active human members manage capabilities from **Meta Ankole → Agents** and
+**Skills**. Members read shared Skills, global baselines and colleague contracts.
+Only the owner can read or change their assistant's contracts and individual
+Skill bindings, including when another caller is a Pod administrator. Creating
+colleagues requires `tenant_console:agents`; editing a colleague requires
+`tenant_console:agent:{uid}`; editing baselines requires
+`tenant_console:agent_contracts`, all with `update`. Global Skill switches require
+`tenant_console:skill_bindings`; colleague bindings also accept the narrower
+`tenant_console:agent_skill_binding:{uid}` grant. Official package editing uses
+`tenant_console:skills`. Custom packages use separate `tenant_console:custom_skills`
+update/delete grants, initially given to `all_humans` during tenant creation or
+migration. Startup synchronization does not restore grants removed by an admin.
+Runtime contract and Skill reads use the Agent identity independently of these
+human management checks and the requester's knowledge access.
+
+Pod API paths under `/meta/agents/:uid` always address the literal Principal UID.
+The client resolves My assistant through the personal-assistant operation and
+uses that Agent's UID for identity and contract edits. Global contracts use
+`GET /meta/contracts` and `PUT /meta/contracts/:slot`, independent of Agent names.
 
 For Human offboarding, `HumanAccess.disable/4` records the restriction and
 revokes credentials while AuthZ blocks disabling the last active human
@@ -425,6 +452,8 @@ current tenant. It reads the owner's existing assistant and returns its actual
 UID, including after either Principal has been renamed. First use creates a
 Principal, an Agent profile, default personal-assistant Library documents, a
 private runtime Drive root and an AgentWorker through the same creation path.
+The Pod uses this operation when a member first opens My assistant or a Skill's
+enablement controls, so configuration can precede the first conversation.
 The transaction grants the owner chat access and management of the assistant's
 private root. The owner uniqueness constraint resolves concurrent creation;
 an unrelated Principal occupying the default name remains a name conflict.

@@ -85,13 +85,13 @@ defmodule Ankole.Brain.Schemas.Link do
   end
 
   relationships do
-    belongs_to :from_page, Ankole.Files.Schemas.Node do
+    belongs_to :from_page, Ankole.Pod.Page do
       source_attribute(:from_page_id)
       define_attribute?(false)
       attribute_type(Ankole.Ash.Types.UUIDv7)
     end
 
-    belongs_to :to_page, Ankole.Files.Schemas.Node do
+    belongs_to :to_page, Ankole.Pod.Page do
       source_attribute(:to_page_id)
       define_attribute?(false)
       attribute_type(Ankole.Ash.Types.UUIDv7)

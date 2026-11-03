@@ -45,15 +45,47 @@ pub fn truncate_o200k_base_tokens(text: &str, budget: u64) -> String {
         }
     }
 
-    if low == 0 {
-        String::new()
-    } else if let Some(&end_byte) = ends.get(low - 1)
-        && let Some(prefix) = text.get(..end_byte)
+    let tokenizer = o200k_base_singleton();
+    let tokens = tokenizer.encode_with_special_tokens(text);
+    let token_budget = usize::try_from(budget).unwrap_or(usize::MAX);
+    let repair_tokens = token_budget
+        .checked_add(2)
+        .and_then(|end| tokens.get(..end))
+        .unwrap_or(&tokens);
+    let repair_end = tokenizer
+        .decode_bytes(repair_tokens)
+        .map_or(text.len(), |bytes| bytes.len());
+    let whole_token_end = tokens
+        .get(..token_budget)
+        .and_then(|tokens| tokenizer.decode_bytes(tokens).ok())
+        .map_or(0, |bytes| bytes.len());
+    let mut best_end = (low > 0).then(|| ends.get(low - 1).copied()).flatten();
+
+    if ends.contains(&whole_token_end)
+        && text
+            .get(..whole_token_end)
+            .is_some_and(|prefix| estimate_o200k_base_tokens(prefix) <= budget)
     {
-        prefix.trim_end().to_string()
-    } else {
-        String::new()
+        best_end = Some(whole_token_end);
     }
+
+    // Check a bounded suffix for token merges that can lower the count again.
+    let skip = ends.partition_point(|end_byte| Some(*end_byte) <= best_end);
+    for &end_byte in ends.iter().skip(skip) {
+        if end_byte > repair_end {
+            break;
+        }
+        if text
+            .get(..end_byte)
+            .is_some_and(|prefix| estimate_o200k_base_tokens(prefix) <= budget)
+        {
+            best_end = Some(end_byte);
+        }
+    }
+
+    best_end
+        .and_then(|end_byte| text.get(..end_byte))
+        .map_or_else(String::new, |prefix| prefix.trim_end().to_string())
 }
 
 #[cfg(test)]
@@ -89,6 +121,15 @@ mod tests {
             for grapheme in sliced.graphemes(true) {
                 assert_eq!(grapheme, "👨‍👩‍👧‍👦");
             }
+        }
+    }
+
+    #[test]
+    fn truncation_finds_longer_prefixes_after_token_merges() {
+        assert_eq!(estimate_o200k_base_tokens("\"g"), 2);
+        assert_eq!(estimate_o200k_base_tokens("\"go"), 1);
+        for text in ["\"go\"", "\"gog"] {
+            assert_eq!(truncate_o200k_base_tokens(text, 1), "\"go");
         }
     }
 }

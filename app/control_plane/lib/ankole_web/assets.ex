@@ -17,6 +17,8 @@ defmodule AnkoleWeb.Assets do
 
   @doc "Returns stylesheet and script tags for a named webapp entry."
   @spec entry_tags(Plug.Conn.t(), String.t()) :: iodata()
+  @cache_manifest Mix.env() == :prod
+
   def entry_tags(%Plug.Conn{} = conn, entry) do
     entries = Application.fetch_env!(:ankole, :webapp_entries)
     entry_tags(conn, entry, entries)
@@ -138,6 +140,24 @@ defmodule AnkoleWeb.Assets do
   defp read_manifest do
     path = manifest_path()
 
+    if @cache_manifest do
+      key = {__MODULE__, path}
+
+      case :persistent_term.get(key, nil) do
+        nil ->
+          manifest = load_manifest(path)
+          :persistent_term.put(key, manifest)
+          manifest
+
+        manifest ->
+          manifest
+      end
+    else
+      load_manifest(path)
+    end
+  end
+
+  defp load_manifest(path) do
     case File.read(path) do
       {:ok, json} ->
         Ankole.JSON.decode!(json)

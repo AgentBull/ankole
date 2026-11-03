@@ -9,7 +9,7 @@ Brain 从 Pod 页面和会话中提取可检索的事实、判断、事件与关
 
 ## 在 Pod 中维护知识
 
-`/AnkoleBrain` 存放组织知识、Agent 身份页面、技能和综合分析。知识页面支持 Markdown、业务属性、页面引用和版本历史。人通过 Pod 编辑，Agent 通过统一的 Pod 页面工具读写。页面移动或改名时，页面 ID 保持不变。
+**Meta Ankole → Brain** 展示组织知识图谱与本体分类。知识条目支持 Markdown、业务属性、引用和版本历史。人通过 Pod 编辑，Agent 通过 Brain 的 `write_object` 操作维护条目。条目移动或改名时，页面 ID 保持不变。本体引擎管理分类，Principal 生命周期操作维护内部成员与 Agent 档案。
 
 页面的知识面板展示当前读者有权访问的事实、时间线、反向链接和预测校准结果。Console 的 **Objects** 列表会在 Pod 中打开对应页面。
 
@@ -22,7 +22,7 @@ Brain 从 Pod 页面和会话中提取可检索的事实、判断、事件与关
 | 会话学习 | 从符合条件的私聊和群聊中提取事实、判断及承诺 |
 | 注册文件或 URL Source | 将来源内容写入 Pod 知识页面，并按配置提取主张 |
 
-公共 Pod 业务内容参与检索。`AGENTS.md` 和 `DESIGN.md` 中的组织规则用于指导行为，不作为事实来源。技能内容可检索，但技能中的指令不会被抽取为事实。`/AnkoleBrain` 之外的业务页面可通过 `extract_facts` 属性开启事实提取。
+公共 Pod 业务内容参与检索，可通过 `extract_facts` 属性开启事实提取。技能包和 Agent 指令契约在 Meta Ankole 中独立存储和管理，与 Brain 检索和事实提取分离。
 
 ## 区分事实、判断和证据
 
@@ -53,7 +53,7 @@ Agent 读取范围取 Agent 与提问者权限的交集。群聊采用严格披�
 
 Pod 页面读取分为属性、概览和全文。概览保留导语与章节标题，并折叠较长的表格和代码块；任务需要细节时，Agent 再读取全文。名称有歧义时，系统返回候选项供消歧。
 
-技能主页位于 `/AnkoleBrain/skills/<name>`，配套文件挂在主页下；运行时将主页读取为 `SKILL.md`。Agent 通过目录摘要和搜索发现技能，再用 `skill_view` 读取。技能目录、正文及后台 Job 的文件物化均采用当前提问者与 Agent 的权限交集。技能声明的 `ankole-runtime` 决定其运行位置。
+`/drive/Brain` 是当前披露范围内的只读视图。Agent 新建或修订条目时，使用 `write_object` 提交分类或条目 ID、Markdown 和基础版本。缺少直接编辑权限时，Agent 发起 Action Card 提案，由有权限的人类确认。技能与指令契约由人在 [Meta Ankole](../agent-library/) 中管理。
 
 ## 持续更新知识
 

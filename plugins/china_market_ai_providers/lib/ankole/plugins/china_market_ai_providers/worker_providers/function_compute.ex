@@ -358,7 +358,11 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute 
             true -> :starting
           end
 
-        {:ok, started, _} = DateTime.from_iso8601(item["endAt"])
+        started_at =
+          if phase != :paused do
+            {:ok, expires_at, _} = DateTime.from_iso8601(item["endAt"])
+            DateTime.add(expires_at, -86_400)
+          end
 
         %{
           tenant_id: meta["ankole.tenant"],
@@ -367,7 +371,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute 
           instance_ref: item["sandboxID"],
           phase: phase,
           reason: nil,
-          started_at: if(phase == :paused, do: nil, else: DateTime.add(started, -86_400))
+          started_at: started_at
         }
     end
   end

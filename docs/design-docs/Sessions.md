@@ -516,12 +516,17 @@ Inside the Driver, native activity is an in-memory observation consisting of one
 phase plus the current turn's tool history; it spawns no extra process, journal,
 or separate pending-call store. The Driver holds the Turn and its `PendingCalls`
 while keeping tracing handles outside execution state, and `Sessions.Activity`
-filters native display fields, ignores late updates for completed tools,
-increments display revisions, and clears transient details on completion, retry,
+filters native display fields and preserves the committed terminal phase and
+duration. A terminal Worker presentation can add its completion label; a late
+running update cannot reopen the tool. Activity increments display revisions
+and clears transient details on completion, retry,
 takeover, or process exit. Every activity snapshot carries the admitted Signal,
 workspace epoch, response identity, and an intra-epoch revision, validated
 against the durable epoch and open input; if the Driver is missing or stopped,
 callers fall back to durable generic status.
+
+The optional stream display read has a 250 ms timeout, keeping a busy model
+stream from occupying the Driver for the caller's whole snapshot deadline.
 
 Only the Run's native source conversation receives live activity events—target
 conversations of a scheduled report do not subscribe to its execution stream.
@@ -550,6 +555,10 @@ branch. Resetting a Session (`command.new` or a kernel-produced
 branch, while leaving shared public conversation history intact and readable
 under the new branch's watermark. Neither retry nor reset affects another
 Agent's Session in a shared room.
+
+Retry restoration returns reclaimed Responses to the transaction owner. That
+owner publishes terminal notifications only after the retry transaction commits;
+a rollback leaves subscribers on the durable pre-retry state.
 
 On conversation admission (`Sessions.WakeRecycle`, configured through
 `sessions.wake_recycle`), Ankole automatically rotates an active model

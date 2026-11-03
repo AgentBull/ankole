@@ -167,7 +167,10 @@ pub fn authorize(snapshot: AuthzSnapshot) -> KernelResult<AuthzDecision> {
 }
 
 pub fn authorize_all(snapshot: AuthzBatchSnapshot) -> KernelResult<AuthzDecision> {
-    if snapshot.actions.is_empty() {
+    if snapshot.resource.is_empty()
+        || snapshot.actions.is_empty()
+        || snapshot.actions.iter().any(String::is_empty)
+    {
         return Ok(decision("invalid_request", Vec::new(), Vec::new(), None));
     }
 
@@ -902,6 +905,32 @@ mod tests {
         let decision = authorize_all(snapshot).unwrap();
         assert_eq!(decision.status, "deny");
         assert_eq!(decision.denied_action.as_deref(), Some("write"));
+    }
+
+    #[test]
+    fn batch_rejects_empty_resource_and_action() {
+        let snapshot = |resource: &str, action: &str| AuthzBatchSnapshot {
+            principal: principal("active", "human"),
+            static_group_ids: Vec::new(),
+            computed_groups: Vec::new(),
+            grants: vec![SnapshotGrant {
+                id: "grant-1".to_owned(),
+                principal_uid: Some("alice".to_owned()),
+                group_id: None,
+                has_source_node: false,
+                resource_pattern: "web_console".to_owned(),
+                action: action.to_owned(),
+                condition: "true".to_owned(),
+            }],
+            resource: resource.to_owned(),
+            actions: vec![action.to_owned()],
+            context: serde_json::json!({}),
+        };
+
+        for (resource, action) in [("web_console", ""), ("", "read")] {
+            let decision = authorize_all(snapshot(resource, action)).unwrap();
+            assert_eq!(decision.status, "invalid_request");
+        }
     }
 
     #[test]

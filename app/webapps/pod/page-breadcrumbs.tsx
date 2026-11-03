@@ -1,4 +1,4 @@
-import { usePageHref, usePagesMetadata } from './use-page-metadata'
+import { usePagesMetadata } from './use-page-metadata'
 import { useTranslation } from 'react-i18next'
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@ankole/uikit'
@@ -8,6 +8,8 @@ import { Link } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { BdiLabel } from '../common/bidi-file-name'
 import { stripBidi } from '../common/bidi'
+import { linkTarget } from '../common/router'
+import { pageLocation } from './state/page-location'
 import type { Page } from './content-api'
 
 // The path speaks in value alone: ancestors are secondary ink and wash on hover, the open Page is full ink at
@@ -33,8 +35,8 @@ export function PageBreadcrumbs({
   compact: boolean
 }) {
   const { t } = useTranslation()
-  const pageHref = usePageHref()
-  const ancestors = usePagesMetadata(sourceAncestors)
+  const brain = sourceAncestors.some(page => page.type === 'knowledge' || page.system_key?.startsWith('ankole_brain'))
+  const ancestors = usePagesMetadata(sourceAncestors).filter(page => page.system_key !== 'ankole_brain')
   const folded = compact ? ancestors : ancestors.slice(0, -1)
   const parent = compact ? undefined : ancestors.at(-1)
   return (
@@ -42,8 +44,8 @@ export function PageBreadcrumbs({
       <ol className="flex min-w-0 items-center">
         {!compact && (
           <li className="flex shrink-0 items-center">
-            <Link className={crumb} to={podLocation('/content/all').pathname}>
-              {t('pod.content.pages')}
+            <Link className={crumb} to={brain ? '/meta/brain' : podLocation('/content/all').pathname}>
+              {t(brain ? 'pod.meta.brain' : 'pod.content.pages')}
             </Link>
             {separator}
           </li>
@@ -59,7 +61,9 @@ export function PageBreadcrumbs({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-48">
                 {folded.map(ancestor => (
-                  <DropdownMenuItem key={ancestor.id} render={<Link to={pageHref(ancestor.id, ancestor.title)} />}>
+                  <DropdownMenuItem
+                    key={ancestor.id}
+                    render={<Link {...linkTarget(pageLocation(ancestor, sourceAncestors))} />}>
                     <BdiLabel value={ancestor.title} fallback={t('pod.content.untitled')} />
                   </DropdownMenuItem>
                 ))}
@@ -70,7 +74,10 @@ export function PageBreadcrumbs({
         )}
         {parent && (
           <li className="flex min-w-0 shrink-[4] items-center">
-            <Link className={crumb} to={pageHref(parent.id, parent.title)} title={stripBidi(parent.title)}>
+            <Link
+              className={crumb}
+              {...linkTarget(pageLocation(parent, sourceAncestors))}
+              title={stripBidi(parent.title)}>
               <BdiLabel value={parent.title} fallback={t('pod.content.untitled')} />
             </Link>
             {separator}

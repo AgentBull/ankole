@@ -622,6 +622,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
 
   @impl GenServer
   def init({%Signal{} = event, subject_uid, conversation_id, stream_signal_id, opts}) do
+    Process.flag(:trap_exit, true)
     Ankole.Repo.put_tenant_id(event.tenant_id)
 
     case PreviewStates.claim_owner(event.id, subject_uid, conversation_id, stream_signal_id, opts) do
@@ -899,6 +900,11 @@ defmodule Ankole.Conversations.Delivery.Preview do
     finish_rich_task(state, {:error, {:reply_preview_task_exit, reason}})
   end
 
+  def handle_info(:flush_edit, %{stopping: true} = state) do
+    Process.send_after(self(), :flush_edit, @edit_flush_interval_ms)
+    {:noreply, state}
+  end
+
   def handle_info(_message, %{stopping: true} = state), do: {:noreply, state}
 
   def handle_info({:ai_gateway_event, event_type, event}, state) when is_map(event) do
@@ -1082,6 +1088,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
 
   @impl GenServer
   def terminate(_reason, state) do
+    if state.rich_task, do: Task.shutdown(state.rich_task, :brutal_kill)
     _ = Events.unsubscribe(state.subject_uid, state.conversation_id)
     :ok
   end

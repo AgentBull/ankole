@@ -139,6 +139,7 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
     # The Console review. The reviewer is the actor of the action
     # (Ankole.Brain.Console).
     action :console_approve do
+      transaction?(false)
       argument(:suggestion_id, :uuid, allow_nil?: false)
       argument(:primitive, :string)
       argument(:slug_prefix, :string)
@@ -149,6 +150,7 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
     end
 
     action :console_reject, :struct do
+      transaction?(false)
       constraints(instance_of: __MODULE__)
       argument(:suggestion_id, :uuid, allow_nil?: false)
 

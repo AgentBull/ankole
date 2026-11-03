@@ -223,8 +223,15 @@ defmodule Ankole.Sessions.Commands do
   defp retry_current(run, event) do
     now = DateTime.utc_now(:microsecond)
 
-    Ankole.Repo.transact_top_level(fn -> retry_current_in_tx(run, event, now) end)
-    |> Ankole.Errors.reason()
+    with {:ok, %{result: result}} <-
+           Ankole.Repo.transact_top_level(
+             fn -> retry_current_in_tx(run, event, now) end,
+             after_commit: fn result ->
+               Ankole.Sessions.Run.Tape.publish_reclaimed(result.reclaimed)
+             end
+           )
+           |> Ankole.Errors.reason(),
+         do: {:ok, result}
   end
 
   @doc false
@@ -239,7 +246,7 @@ defmodule Ankole.Sessions.Commands do
              "command.retry"
            ),
          # The model can commit a call before its terminal message arrives.
-         {:ok, {_state, run}} <- Run.restore_in_tx(run),
+         {:ok, {_state, run}, reclaimed} <- Run.restore_in_tx(run),
          {:ok, {run, _}} <- Run.record_pending_in_tx(run),
          {:ok, history} <-
            ModelHistory.retract_visible_turn_suffix_in_tx(
@@ -249,7 +256,8 @@ defmodule Ankole.Sessions.Commands do
              now,
              preserve_tool_history: true
            ) do
-      commit_current_retry_in_tx(run, event, history.status, now)
+      with {:ok, result} <- commit_current_retry_in_tx(run, event, history.status, now),
+           do: {:ok, %{result: result, reclaimed: reclaimed}}
     end
   end
 

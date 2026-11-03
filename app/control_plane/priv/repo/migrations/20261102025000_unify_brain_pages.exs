@@ -1,9 +1,5 @@
 defmodule Ankole.Repo.Migrations.UnifyBrainPages do
   use Ecto.Migration
-  alias Ankole.AIAgent.Library.Knowledge, as: Library
-  alias Ankole.Files.{Access, Nodes}
-  alias Ankole.Pod.{PageContent, PageSnapshot, Pages}
-  require Ash.Query
 
   @references [
     {"brain_claims", "object_slug", "subject_page_id"},
@@ -159,32 +155,7 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
     execute("DROP TABLE brain_objects")
     flush()
 
-    for [tenant_id] <- repo().query!("SELECT id::text FROM tenants").rows do
-      Ankole.Repo.with_tenant(tenant_id, fn ->
-        Ankole.Brain.Schemas.Page
-        |> Ankole.Ash.read!()
-        |> Enum.each(fn page ->
-          {:ok, _} =
-            Ankole.Brain.Chunks.reconcile_in_tx(page,
-              chunking:
-                Enum.find(Ankole.Brain.Config.definitions(), &(&1.key == "brain.chunking")).default_value
-            )
-
-          {:ok, _} = Ankole.Brain.Links.reconcile_object_links_in_tx(page.id)
-        end)
-
-        chunking =
-          Enum.find(Ankole.Brain.Config.definitions(), &(&1.key == "brain.chunking")).default_value
-
-        for [source_id] <-
-              repo().query!(
-                "SELECT DISTINCT source_node_id::text FROM brain_timelines WHERE tenant_id=$1::text::uuid AND subject_page_id IS NULL",
-                [tenant_id]
-              ).rows do
-          {:ok, _} = Ankole.Brain.Chunks.reconcile_node_in_tx(source_id, chunking: chunking)
-        end
-      end)
-    end
+    # Derived chunks and links are rebuilt after the Page ownership migration.
   end
 
   def down,
@@ -195,13 +166,13 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
       )
 
   defp migrate_tenant(tenant_id) do
-    {:ok, namespace} = Library.ensure_namespace_in_tx()
+    {:ok, namespace} = legacy_namespace()
 
     for [id] <-
           repo().query!("SELECT id::text FROM conversations WHERE tenant_id=$1::text::uuid", [
             tenant_id
           ]).rows do
-      {:ok, _root} = Nodes.ensure_conversation_root_in_tx(id)
+      {:ok, _root} = legacy_conversation_root(id)
     end
 
     rows =
@@ -215,7 +186,7 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
 
       parent =
         Enum.reduce(parents, namespace.root, fn name, parent ->
-          case Library.child(parent.id, name) do
+          case legacy_child(parent.id, name) do
             {:ok, %{kind: :file}} ->
               raise("legacy knowledge parent is a file")
 
@@ -223,12 +194,12 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
               node
 
             {:error, :not_found} ->
-              {:ok, node} = Library.ensure_child_in_tx(parent.id, name, :folder)
+              {:ok, node} = legacy_child_create(parent.id, name, :folder)
               node
           end
         end)
 
-      {:ok, page} = Library.ensure_child_in_tx(parent.id, name, :knowledge, id: object["id"])
+      {:ok, page} = legacy_child_create(parent.id, name, :knowledge, id: object["id"])
       remember(tenant_id, object["slug"], "world", page.id)
 
       versions =
@@ -296,18 +267,25 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
           markdown = if mixed?, do: body, else: version["body"]
           {:ok, parsed} = Ankole.Kernel.knowledge_parse(markdown)
 
-          {:ok, _} =
-            Ankole.Ash.create(PageSnapshot, :append, %{
-              page_id: node.id,
-              revision: revision,
-              title: object["title"],
-              metadata: business_metadata(object, version["meta"]),
-              content: parsed.xml,
-              author: version["author"] || author(),
-              document_updated_at: datetime(version["snapshot_at"]),
-              created_at: datetime(version["snapshot_at"]),
-              reason: if(mixed?, do: :baseline, else: :checkpoint)
-            })
+          repo().query!(
+            """
+            INSERT INTO page_snapshots(id,tenant_id,page_id,revision,title,metadata,content,author,
+              document_updated_at,created_at,reason)
+            VALUES($1::text::uuid,$2::text::uuid,$3::text::uuid,$4,$5,$6::jsonb,$7,$8,$9,$9,$10)
+            """,
+            [
+              Ankole.Ecto.UUIDv7.autogenerate(),
+              tenant_id,
+              node.id,
+              revision,
+              object["title"],
+              business_metadata(object, version["meta"]),
+              parsed.xml,
+              version["author"] || to_string(author()),
+              datetime(version["snapshot_at"]),
+              if(mixed?, do: "baseline", else: "checkpoint")
+            ]
+          )
         end)
 
         repo().query!(
@@ -317,8 +295,7 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
       end)
 
       if object["deleted_at"],
-        do:
-          Access.update_anchor_in_tx(page, :trash, %{deleted_at: datetime(object["deleted_at"])})
+        do: legacy_update_anchor(page, :trash, %{deleted_at: datetime(object["deleted_at"])})
 
       if source_id = object["managed_by_source_id"] do
         legacy = object["meta"] || %{}
@@ -384,7 +361,7 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
   end
 
   defp source_node(_scope, nil, conversation_id) when is_binary(conversation_id) do
-    {:ok, node} = Nodes.ensure_conversation_root_in_tx(conversation_id)
+    {:ok, node} = legacy_conversation_root(conversation_id)
     node.id
   end
 
@@ -405,31 +382,31 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
   end
 
   defp source_fallback("world", _) do
-    {:ok, root} = Library.root()
+    {:ok, root} = legacy_brain_root()
     root.id
   end
 
   defp source_fallback("principal:" <> uid = scope, _) do
-    case Ankole.Principals.get_principal(uid) do
+    case legacy_principal(uid) do
       {:ok, %{type: :system}} ->
         source_container(scope)
 
       {:ok, _} ->
-        {:ok, node} = Nodes.ensure_private_root_in_tx(uid)
+        {:ok, node} = legacy_private_root(uid)
         node.id
     end
   end
 
   defp source_fallback("group:" <> _ = scope, conversation) when is_binary(conversation) do
-    {:ok, node} = Nodes.ensure_conversation_root_in_tx(conversation)
+    {:ok, node} = legacy_conversation_root(conversation)
     restricted_page(node, scope).id
   end
 
   defp source_fallback(scope, _), do: source_container(scope)
 
   defp source_container(scope) do
-    {:ok, root} = Library.root()
-    {:ok, sources} = Library.ensure_child_in_tx(root.id, "sources", :folder)
+    {:ok, root} = legacy_brain_root()
+    {:ok, sources} = legacy_child_create(root.id, "sources", :folder)
     node = restricted_page(sources, scope)
     node.id
   end
@@ -443,12 +420,12 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
            [tenant, key, scope]
          ).rows do
       [[id]] ->
-        {:ok, node} = Nodes.fetch(id)
+        {:ok, node} = legacy_fetch(id)
         node
 
       [] ->
         base = scope |> String.split(":", parts: 2) |> List.last()
-        {:ok, path} = Nodes.path(parent)
+        {:ok, path} = legacy_path(parent)
 
         parent_slug =
           path
@@ -467,12 +444,12 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
                 [tenant, parent_slug <> "/" <> candidate]
               ).rows
 
-            if legacy == [] and Library.child(parent.id, candidate) == {:error, :not_found},
+            if legacy == [] and legacy_child(parent.id, candidate) == {:error, :not_found},
               do: candidate
           end)
 
         {:ok, node} =
-          Library.ensure_child_in_tx(parent.id, name, :knowledge, inherit_permissions: false)
+          legacy_child_create(parent.id, name, :knowledge, inherit_permissions: false)
 
         grant_scope(node, scope)
         now = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
@@ -483,12 +460,12 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
   end
 
   defp grant_scope(node, "group:" <> name) do
-    {:ok, group} = Ankole.AuthZ.get_principal_group(name)
-    :ok = Access.put_role(%{group_id: group.id}, "drive:**:#{node.id}:**", "view")
+    {:ok, group} = legacy_group(name)
+    :ok = legacy_role(%{group_id: group.id}, "drive:**:#{node.id}:**", "view")
   end
 
   defp grant_scope(node, "principal:" <> uid),
-    do: Access.put_role(%{principal_uid: uid}, "drive:**:#{node.id}:**", "view")
+    do: legacy_role(%{principal_uid: uid}, "drive:**:#{node.id}:**", "view")
 
   defp protect_assistant(node, "agents/" <> uid) do
     case repo().query!(
@@ -496,9 +473,9 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
            [Ankole.Repo.tenant_id!(), uid]
          ).rows do
       [[owner]] ->
-        {:ok, _} = Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
-        :ok = Access.put_role(%{principal_uid: uid}, "drive:**:#{node.id}:**", "view")
-        :ok = Access.put_role(%{principal_uid: owner}, "drive:**:#{node.id}:**", "manage")
+        {:ok, _} = legacy_update_anchor(node, :sharing, %{inherit_permissions: false})
+        :ok = legacy_role(%{principal_uid: uid}, "drive:**:#{node.id}:**", "view")
+        :ok = legacy_role(%{principal_uid: owner}, "drive:**:#{node.id}:**", "manage")
 
       [] ->
         :ok
@@ -511,27 +488,23 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
     {:ok, parsed} = Ankole.Kernel.knowledge_parse(body)
     at = datetime(updated)
 
-    attrs = %{
-      page_id: node.id,
-      content: parsed.xml,
-      plain_text: parsed.plain_text,
-      updated_by: author(),
-      updated_at: at
-    }
+    repo().query!(
+      """
+      INSERT INTO page_contents(tenant_id,page_id,content,plain_text,updated_by,updated_at,contributors)
+      VALUES($1::text::uuid,$2::text::uuid,$3,$4,$5,$6,ARRAY[]::text[])
+      ON CONFLICT(page_id) DO UPDATE SET content=EXCLUDED.content,plain_text=EXCLUDED.plain_text,
+        updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at
+      """,
+      [Ankole.Repo.tenant_id!(), node.id, parsed.xml, parsed.plain_text, to_string(author()), at]
+    )
 
-    case Ankole.Ash.read_one!(Ash.Query.filter(PageContent, page_id == ^node.id)) do
-      nil -> {:ok, _} = Ankole.Ash.create(PageContent, :create_in_tx, attrs)
-      content -> {:ok, _} = Ankole.Ash.update(content, :replace, Map.delete(attrs, :page_id))
-    end
-
-    {:ok, properties} = Pages.ensure_properties_in_tx(node.id)
-
-    {:ok, _} =
-      Ankole.Ash.update(properties, :save_knowledge, %{
-        metadata: metadata,
-        title: title,
-        updated_at: at
-      })
+    repo().query!(
+      """
+      UPDATE pages SET title=$3,metadata=$4::jsonb,updated_at=$5,revision=revision+1
+      WHERE tenant_id=$1::text::uuid AND id=$2::text::uuid
+      """,
+      [Ankole.Repo.tenant_id!(), node.id, title, metadata, at]
+    )
 
     repo().query!(
       "UPDATE drive_nodes SET created_at=$3,updated_at=$4 WHERE tenant_id=$1::text::uuid AND id=$2::text::uuid",
@@ -586,6 +559,292 @@ defmodule Ankole.Repo.Migrations.UnifyBrainPages do
       end)
 
     parts
+  end
+
+  # These helpers deliberately use the schema at this migration version. They
+  # must not call live Page resources whose tables can change in later releases.
+  defp legacy_query(where, args) do
+    case repo().query!(
+           "SELECT to_jsonb(n) FROM drive_nodes n WHERE n.tenant_id=$1::text::uuid AND " <> where,
+           [Ankole.Repo.tenant_id!() | args]
+         ).rows do
+      [[row]] ->
+        {:ok,
+         %{
+           id: row["id"],
+           parent_id: row["parent_id"],
+           name: row["name"],
+           kind: String.to_existing_atom(row["kind"]),
+           acl_anchor_id: row["acl_anchor_id"],
+           inherit_permissions: row["inherit_permissions"],
+           system_key: row["system_key"]
+         }}
+
+      [] ->
+        {:error, :not_found}
+    end
+  end
+
+  defp legacy_fetch(id), do: legacy_query("n.id=$2::text::uuid", [id])
+
+  defp legacy_child(parent, name),
+    do:
+      legacy_query("n.parent_id=$2::text::uuid AND n.name=$3 AND n.deleted_at IS NULL", [
+        parent,
+        name
+      ])
+
+  defp legacy_brain_root, do: legacy_query("n.system_key='ankole_brain'", [])
+
+  defp legacy_root(name, owner, conversation) do
+    case legacy_query(
+           "n.parent_id IS NULL AND n.private_owner_uid IS NOT DISTINCT FROM $2::text AND n.conversation_id IS NOT DISTINCT FROM $3::text::uuid",
+           [owner, conversation]
+         ) do
+      {:ok, _} = found ->
+        found
+
+      {:error, :not_found} ->
+        id = Ankole.Ecto.UUIDv7.autogenerate()
+
+        repo().query!(
+          """
+          INSERT INTO drive_nodes(tenant_id,id,name,kind,private_owner_uid,conversation_id,acl_anchor_id,
+            inherit_permissions,has_local_acl,mode,created_at,updated_at)
+          VALUES($1::text::uuid,$2::text::uuid,$3,'folder',$4,$5::text::uuid,$2::text::uuid,true,false,420,now(),now())
+          """,
+          [Ankole.Repo.tenant_id!(), id, name, owner, conversation]
+        )
+
+        legacy_fetch(id)
+    end
+  end
+
+  defp legacy_conversation_root(id), do: legacy_root("Conversation", nil, id)
+
+  defp legacy_private_root(uid) do
+    with {:ok, root} <- legacy_root("Private", uid, nil),
+         :ok <- legacy_role(%{principal_uid: uid}, "drive:private:#{uid}:**", "manage"),
+         do: {:ok, root}
+  end
+
+  defp legacy_namespace do
+    {:ok, public} = legacy_root("Space", nil, nil)
+    {:ok, root} = legacy_system(public.id, "AnkoleBrain", "ankole_brain", false)
+    {:ok, root} = legacy_update_anchor(root, :sharing, %{inherit_permissions: false})
+    {:ok, agents} = legacy_system(root.id, "agents", "ankole_brain_agents", true)
+    {:ok, skills} = legacy_system(root.id, "skills", "ankole_brain_skills", true)
+
+    for {name, role} <- [{"all_humans", "view"}, {"all_agents", "view"}, {"pod_admin", "manage"}] do
+      {:ok, group} = legacy_group(name)
+      :ok = legacy_role(%{group_id: group.id}, "drive:**:#{root.id}:**", role)
+    end
+
+    {:ok, %{root: root, agents: agents, skills: skills}}
+  end
+
+  defp legacy_system(parent, name, key, inherit) do
+    case legacy_query("n.system_key=$2", [key]) do
+      {:ok, _} = found ->
+        found
+
+      {:error, :not_found} ->
+        {:ok, node} = legacy_child_create(parent, name, :folder, inherit_permissions: inherit)
+
+        repo().query!(
+          "UPDATE drive_nodes SET system_key=$3 WHERE tenant_id=$1::text::uuid AND id=$2::text::uuid",
+          [Ankole.Repo.tenant_id!(), node.id, key]
+        )
+
+        legacy_fetch(node.id)
+    end
+  end
+
+  defp legacy_child_create(parent, name, kind, attrs \\ []) do
+    case legacy_child(parent, name) do
+      {:ok, %{kind: ^kind}} = found ->
+        found
+
+      {:ok, _} ->
+        raise "legacy knowledge path has incompatible content"
+
+      {:error, :not_found} ->
+        {:ok, p} = legacy_fetch(parent)
+        id = Keyword.get_lazy(attrs, :id, &Ankole.Ecto.UUIDv7.autogenerate/0)
+        inherit = Keyword.get(attrs, :inherit_permissions, true)
+
+        repo().query!(
+          """
+          INSERT INTO drive_nodes(tenant_id,id,parent_id,name,kind,inherit_permissions,has_local_acl,
+            acl_anchor_id,parent_anchor_id,mode,created_by,created_at,updated_at)
+          VALUES($1::text::uuid,$2::text::uuid,$3::text::uuid,$4,$5,$6,false,$7::text::uuid,$8::text::uuid,420,$9,now(),now())
+          """,
+          [
+            Ankole.Repo.tenant_id!(),
+            id,
+            parent,
+            name,
+            to_string(kind),
+            inherit,
+            if(inherit, do: p.acl_anchor_id, else: id),
+            if(inherit, do: nil, else: p.acl_anchor_id),
+            to_string(author())
+          ]
+        )
+
+        repo().query!(
+          """
+          INSERT INTO pages(id,tenant_id,title,revision,children_view,metadata,upstream_state,created_at,updated_at)
+          VALUES($1::text::uuid,$2::text::uuid,$3,0,'{}','{}','{}',now(),now())
+          """,
+          [id, Ankole.Repo.tenant_id!(), name]
+        )
+
+        legacy_fetch(id)
+    end
+  end
+
+  defp legacy_path(%{parent_id: nil} = node), do: {:ok, [node]}
+
+  defp legacy_path(node) do
+    {:ok, parent} = legacy_fetch(node.parent_id)
+    {:ok, path} = legacy_path(parent)
+    {:ok, path ++ [node]}
+  end
+
+  defp legacy_principal(uid) do
+    [[type]] =
+      repo().query!(
+        "SELECT type::text FROM principals WHERE tenant_id=$1::text::uuid AND uid=$2",
+        [Ankole.Repo.tenant_id!(), uid]
+      ).rows
+
+    {:ok, %{type: String.to_existing_atom(type)}}
+  end
+
+  defp legacy_group(name) do
+    tenant = Ankole.Repo.tenant_id!()
+
+    case repo().query!(
+           "SELECT id::text FROM principal_groups WHERE tenant_id=$1::text::uuid AND name=$2",
+           [tenant, name]
+         ).rows do
+      [[id]] ->
+        {:ok, %{id: id}}
+
+      [] ->
+        condition =
+          case name do
+            "all_humans" ->
+              ~s(principal.type == "human" && principal.membership == "member" && principal.status == "active")
+
+            "all_agents" ->
+              ~s(principal.type == "agent" && principal.status == "active")
+
+            "pod_admin" ->
+              nil
+          end
+
+        id = Ankole.Ecto.UUIDv7.autogenerate()
+
+        repo().query!(
+          """
+          INSERT INTO principal_groups(id,tenant_id,name,display_name,kind,built_in,computed_condition,inserted_at,updated_at)
+          VALUES($1::text::uuid,$2::text::uuid,$3,$3,$4::principal_group_kind,true,$5,now(),now())
+          """,
+          [id, tenant, name, if(condition, do: "computed", else: "static"), condition]
+        )
+
+        {:ok, %{id: id}}
+    end
+  end
+
+  defp legacy_role(subject, resource, role) do
+    target =
+      case String.split(resource, ":") do
+        ["drive", "**", id, "**"] -> id
+        _ -> nil
+      end
+
+    actions =
+      case role do
+        "view" -> ~w(node_view)
+        "manage" -> ~w(node_view node_contribute node_edit node_manage node_comment)
+      end
+
+    if target do
+      {:ok, node} = legacy_fetch(target)
+      {:ok, _} = legacy_update_anchor(node, :sharing, %{has_local_acl: true})
+    end
+
+    for action <- actions do
+      repo().query!(
+        """
+        INSERT INTO permission_grants(id,tenant_id,principal_uid,group_id,resource_pattern,action,
+          target_node_id,target_scope,inserted_at,updated_at)
+        SELECT $1::text::uuid,$2::text::uuid,$3,$4::text::uuid,$5,$6,$7::text::uuid,
+          CASE WHEN $7 IS NULL THEN NULL ELSE 'container' END,now(),now()
+        WHERE NOT EXISTS (SELECT 1 FROM permission_grants WHERE tenant_id=$2::text::uuid
+          AND principal_uid IS NOT DISTINCT FROM $3::text AND group_id IS NOT DISTINCT FROM $4::text::uuid
+          AND resource_pattern=$5 AND action=$6)
+        """,
+        [
+          Ankole.Ecto.UUIDv7.autogenerate(),
+          Ankole.Repo.tenant_id!(),
+          subject[:principal_uid],
+          subject[:group_id],
+          resource,
+          action,
+          target
+        ]
+      )
+    end
+
+    :ok
+  end
+
+  defp legacy_update_anchor(node, _action, changes) do
+    # Every changed node becomes an anchor in this migration. Recompute all
+    # descendant anchor pointers in one statement, preserving inherited grants.
+    {:ok, current} = legacy_fetch(node.id)
+    inherit = Map.get(changes, :inherit_permissions, current.inherit_permissions)
+
+    parent_anchor =
+      if node.parent_id do
+        {:ok, parent} = legacy_fetch(node.parent_id)
+        parent.acl_anchor_id
+      end
+
+    repo().query!(
+      """
+      UPDATE drive_nodes SET inherit_permissions=$3,has_local_acl=has_local_acl OR $4,
+        deleted_at=COALESCE($5,deleted_at),acl_anchor_id=id,parent_anchor_id=$6::text::uuid
+      WHERE tenant_id=$1::text::uuid AND id=$2::text::uuid
+      """,
+      [
+        Ankole.Repo.tenant_id!(),
+        node.id,
+        inherit,
+        Map.get(changes, :has_local_acl, false),
+        changes[:deleted_at],
+        parent_anchor
+      ]
+    )
+
+    repo().query!(
+      """
+      WITH RECURSIVE graph AS (
+        SELECT tenant_id,id,acl_anchor_id FROM drive_nodes WHERE tenant_id=$1::text::uuid AND id=$2::text::uuid
+        UNION ALL SELECT n.tenant_id,n.id,CASE WHEN n.is_acl_anchor THEN n.id ELSE g.acl_anchor_id END
+        FROM drive_nodes n JOIN graph g ON n.tenant_id=g.tenant_id AND n.parent_id=g.id
+      ) UPDATE drive_nodes n SET acl_anchor_id=CASE WHEN n.is_acl_anchor THEN n.id ELSE g.acl_anchor_id END,
+        parent_anchor_id=CASE WHEN n.is_acl_anchor THEN g.acl_anchor_id ELSE NULL END
+      FROM graph g WHERE n.tenant_id=g.tenant_id AND n.parent_id=g.id
+      """,
+      [Ankole.Repo.tenant_id!(), node.id]
+    )
+
+    legacy_fetch(node.id)
   end
 
   defp page_view do

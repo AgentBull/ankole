@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -17,7 +18,7 @@ pub fn reciprocal_rank_fusion(
     ranked_lists: &[Vec<String>],
     k: u64,
 ) -> Vec<ReciprocalRankFusionResult> {
-    let mut accumulated = HashMap::<String, AccumulatedScore>::new();
+    let mut accumulated = HashMap::<&str, AccumulatedScore>::new();
     let mut next_first_seen = 0;
 
     for ranked_list in ranked_lists {
@@ -31,17 +32,17 @@ pub fn reciprocal_rank_fusion(
             let rank = index + 1;
             let contribution = 1.0 / (k as f64 + rank as f64);
 
-            if let Some(existing) = accumulated.get_mut(id) {
-                existing.score += contribution;
-            } else {
-                accumulated.insert(
-                    id.clone(),
-                    AccumulatedScore {
+            match accumulated.entry(id.as_str()) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().score += contribution;
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(AccumulatedScore {
                         score: contribution,
                         first_seen: next_first_seen,
-                    },
-                );
-                next_first_seen += 1;
+                    });
+                    next_first_seen += 1;
+                }
             }
         }
     }
@@ -57,7 +58,7 @@ pub fn reciprocal_rank_fusion(
     fused
         .into_iter()
         .map(|(id, accumulated)| ReciprocalRankFusionResult {
-            id,
+            id: id.to_owned(),
             score: accumulated.score,
         })
         .collect()
