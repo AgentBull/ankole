@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.50 (2026-11-03)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.49 (2026-11-03)
 
 - Centralize 1.x Worker provider adoption and pending Automation script imports

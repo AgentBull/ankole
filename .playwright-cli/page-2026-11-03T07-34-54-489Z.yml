@@ -1,0 +1,41 @@
+- generic [ref=f6e2]:
+  - generic [ref=f6e3]:
+    - generic [ref=f6e6]:
+      - generic [ref=f6e7]:
+        - generic [ref=f6e9]:
+          - tablist "侧栏分类" [ref=f6e10]:
+            - tab "主页" [ref=f6e11] [cursor=pointer]
+            - tab "对话" [ref=f6e13] [cursor=pointer]
+          - generic [ref=f6e15]:
+            - button "搜索或跳转" [ref=f6e16]
+            - button "收起侧栏" [ref=f6e17]
+        - tabpanel [ref=f6e19]:
+          - navigation "Meta Ankole" [ref=f6e20]:
+            - list [ref=f6e21]:
+              - listitem [ref=f6e22]:
+                - generic [ref=f6e23]:
+                  - button "组织知识库" [ref=f6e24]
+                  - link "组织知识库" [ref=f6e25] [cursor=pointer]:
+                    - /url: /meta/brain
+              - listitem [ref=f6e26]:
+                - generic [ref=f6e27]:
+                  - button "技能" [ref=f6e28]
+                  - link "技能" [ref=f6e29] [cursor=pointer]:
+                    - /url: /meta/skills
+              - listitem [ref=f6e30]:
+                - generic [ref=f6e31]:
+                  - button "智能体" [ref=f6e32]
+                  - link "智能体" [ref=f6e33] [cursor=pointer]:
+                    - /url: /meta/agents
+      - generic [ref=f6e34]:
+        - button "账户菜单：⁨正在加载…⁩" [ref=f6e36] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f6e37]: 正
+          - generic [ref=f6e38]: 正在加载…
+        - link "回收站" [ref=f6e43] [cursor=pointer]:
+          - /url: /content/trash
+    - separator "调整侧栏宽度" [ref=f6e44]
+    - main [ref=f6e45]:
+      - generic [ref=f6e46]:
+        - status [ref=f6e48]: 正在加载…
+        - status [ref=f6e49]: 正在加载…
+  - region "Notifications alt+T"
