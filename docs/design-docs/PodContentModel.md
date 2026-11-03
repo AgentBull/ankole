@@ -1749,6 +1749,18 @@ plus a margin, while a native textarea over the active cell keeps keyboard
 focus, opens on the first typed character or IME composition, and never commits
 during a composition. The formula bar edits the same draft as the cell editor.
 
+Besides the cells that hold content, a viewport carries what the grid paints
+around them: the sheet's filter with the criteria of its columns, the tables
+and the validation ranges that intersect the area, each cell's note, and the
+look a table style or a conditional format gives a cell. The kernel computes
+that look with GridCraft's engine, so the server and the browser agree on it:
+a cell keeps its own style for the toolbar and gets a second, painted style
+when a table band, a header, or a matching rule changes its fill, font,
+borders, or number format, and a data bar or an icon set adds its bar or icon.
+Blank cells inside a table or a rule's range are reported for that reason. The
+grid marks a cell with a note by a corner and shows the note, or a validation
+rule's input message, as the pointer's tooltip.
+
 The editor sends one operation at a time with a 30 ms send delay and queues
 later edits behind the request in flight; each tab numbers its requests with
 its own `client_id` and an increasing `client_seq`, so a retry after a timeout
@@ -1791,6 +1803,31 @@ the run of numbers above the active cell, or else to its left, and open the
 editor on it; on a range they write one formula per column below it, or one
 after a single row. The status bar shows the sum, average, and count that the
 kernel computes for a selection of several cells.
+
+The **Data** menu holds the data tools. A filter covers the selection, or the
+block of content around the active cell when one cell is selected, and the
+header cells of its range show a button that lists the column's distinct
+values with their current selection (the kernel's `filter_values`); applying
+the list sends one `filter.set` with every column's value list, so a custom or
+top-N criterion that came from the file survives only until a column is edited
+in the browser. Data validation writes `validation.set` over the selection from
+a dialog, and a list rule with a dropdown shows an arrow beside the active cell
+that offers its entries. Before the editor commits typed input with `cell.set`,
+it asks the kernel's `validate_input`: a `stop` rule keeps the cell as it was
+and tells the author why, while a `warning` or `information` rule applies the
+input and tells them; pastes, fills, and formulas are not checked. Format as
+table and convert to range send `table.toggle`; the grid paints the table's
+style, and its own filter buttons and totals row are not editable here. Find
+and replace (`Ctrl+F`, `Ctrl+H`) search the displayed values of the sheet or
+the workbook, or the inputs when asked to; a replace matches the inputs,
+rewrites the matched cells as one undo step, and searches again. Conditional
+formats are painted but not edited. The charts of a sheet are painted over the
+cells at their anchors: the kernel lays each one out with GridCraft's chart
+crate from the workbook's current values, at the size the grid shows it, and
+returns drawing primitives that the canvas paints, so a chart follows the
+values its series name. Charts are read from the file and not created, moved,
+or edited here, and shapes, slicers, and pivot layouts stay in the file without
+a view.
 
 The freeze menu freezes the first row, the first column, or everything up to
 and including the active row, column, or cell, and a row or column header's

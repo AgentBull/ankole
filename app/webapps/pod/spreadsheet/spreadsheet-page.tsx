@@ -20,6 +20,7 @@ import {
 import { describeOp, type SpreadsheetOp } from '../state/spreadsheet-grid'
 import { SpreadsheetCanvas } from './spreadsheet-canvas'
 import { createSpreadsheetEngine } from './spreadsheet-engine'
+import { SpreadsheetFindDialog, type FindMode } from './spreadsheet-find-dialog'
 import { SpreadsheetSheetTabs, WORKSPACE_ATTRIBUTE } from './spreadsheet-sheet-tabs'
 import { SpreadsheetToolbar } from './spreadsheet-toolbar'
 
@@ -84,6 +85,13 @@ function announce(notice: SpreadsheetNotice) {
     case 'discarded':
       toast.warning(t('pod.spreadsheet.edits_discarded', { count: notice.count }))
       return
+    case 'invalid': {
+      const title = t(`pod.spreadsheet.invalid_${notice.style}`, { cell: notice.cell })
+      if (notice.style === 'stop') toast.error(title, { description: notice.message })
+      else if (notice.style === 'warning') toast.warning(title, { description: notice.message })
+      else toast.info(title, { description: notice.message })
+      return
+    }
     case 'failed':
       toast.error(requestErrorMessage(contentError(notice.error)))
       return
@@ -151,6 +159,7 @@ function SpreadsheetWorkspace({
   useSignals()
   const gridInput = useRef<HTMLTextAreaElement>(null)
   const [warningDismissed, setWarningDismissed] = useState(false)
+  const [find, setFind] = useState<FindMode>()
   const status = model.status.value
   if (status === 'too_large') {
     return (
@@ -188,10 +197,18 @@ function SpreadsheetWorkspace({
         {...{ [WORKSPACE_ATTRIBUTE]: '' }}
         aria-busy={status === 'loading'}
         className="flex h-[min(78vh,880px)] min-h-[420px] flex-col overflow-hidden rounded-control border border-border bg-background">
-        <SpreadsheetToolbar model={model} pageID={pageID} canEdit={canEdit} gridInput={gridInput} />
-        <SpreadsheetCanvas model={model} pageID={pageID} inputRef={gridInput} />
+        <SpreadsheetToolbar model={model} pageID={pageID} canEdit={canEdit} gridInput={gridInput} onFind={setFind} />
+        <SpreadsheetCanvas model={model} pageID={pageID} inputRef={gridInput} onFind={setFind} />
         <SpreadsheetSheetTabs model={model} />
       </div>
+      <SpreadsheetFindDialog
+        open={find !== undefined}
+        mode={find ?? 'find'}
+        model={model}
+        onOpenChange={open => {
+          if (!open) setFind(undefined)
+        }}
+      />
     </div>
   )
 }

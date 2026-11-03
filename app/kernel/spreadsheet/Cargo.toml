@@ -15,7 +15,9 @@ workspace = true
 [dependencies]
 base64-simd = "0.8.0"
 gridcraft-calc = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
+gridcraft-chart = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
 gridcraft-core = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
+gridcraft-engine = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
 gridcraft-formula = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
 gridcraft-functions = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
 gridcraft-model = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }

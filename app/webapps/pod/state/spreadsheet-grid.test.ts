@@ -4,6 +4,7 @@ import {
   columnName,
   decodeTSV,
   encodeTSV,
+  filterColumnsWith,
   isSpreadsheetFileName,
   LineAxis,
   MAX_COLS,
@@ -11,6 +12,7 @@ import {
   parseCell,
   parseRange,
   rangeName,
+  replaceText,
   selectedLines,
   shiftCell
 } from './spreadsheet-grid'
@@ -87,4 +89,32 @@ test('spreadsheet pages are files named .xlsx or .xlsm, including Drive duplicat
       isSpreadsheetFileName
     )
   ).toEqual([true, true, true, false, false, false, false])
+})
+
+test('a filter column edit keeps the other value lists and drops custom criteria from the file', () => {
+  const filter = {
+    range: 'A1:D9',
+    columns: [
+      { col: 0, values: ['x'], blanks: true, custom: false },
+      { col: 2, values: [], blanks: true, custom: true }
+    ]
+  }
+  expect(filterColumnsWith(filter, 1, { values: ['y', 'z'], blanks: false })).toEqual([
+    { col: 'A', values: ['x'], blanks: true },
+    { col: 'B', values: ['y', 'z'] }
+  ])
+  expect(filterColumnsWith(filter, 0, null)).toEqual([])
+  expect(filterColumnsWith(filter, 2, { values: ['q'], blanks: true })).toEqual([
+    { col: 'A', values: ['x'], blanks: true },
+    { col: 'C', values: ['q'], blanks: true }
+  ])
+})
+
+test('replace rewrites every occurrence by the case and whole-cell options', () => {
+  expect(replaceText('Total total', 'total', 'sum')).toBe('sum sum')
+  expect(replaceText('Total total', 'total', 'sum', { match_case: true })).toBe('Total sum')
+  expect(replaceText('Total', 'total', 'sum', { whole_cell: true })).toBe('sum')
+  expect(replaceText('Total cost', 'total', 'sum', { whole_cell: true })).toBeUndefined()
+  expect(replaceText('=SUM(A1)', 'sum', '=', { match_case: true })).toBeUndefined()
+  expect(replaceText('abc', '', 'x')).toBeUndefined()
 })

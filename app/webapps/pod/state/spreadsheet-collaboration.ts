@@ -9,22 +9,29 @@ import {
   memberColor,
   MAX_COLS,
   MAX_ROWS,
+  parseCell,
   parseRange,
   rangeName,
   selectionRect,
   shiftCell,
   type CellAddress,
+  type ChartPrim,
   type ClipboardBlock,
   type FillMode,
+  type FilterValue,
+  type FindMatch,
+  type FindOptions,
   type FormatSnapshot,
   type FunctionInfo,
   type PasteMode,
   type Rect,
+  type RenderChart,
   type RenderImage,
   type Selection,
   type SelectionStats,
   type SheetInfo,
   type SpreadsheetOp,
+  type ValidationFailure,
   type Viewport
 } from './spreadsheet-grid'
 import { acceptsReference, isFormula } from './spreadsheet-formula'
@@ -81,7 +88,13 @@ export type SpreadsheetEngine = {
   images(sheetID: number): Promise<RenderImage[]>
   imageData(sheetID: number, imageID: number): Promise<Uint8Array>
   cellPicture(sheetID: number, cell: string): Promise<Uint8Array>
+  charts(sheetID: number): Promise<RenderChart[]>
+  chartDrawing(sheetID: number, chartID: number, width: number, height: number): Promise<ChartPrim[]>
   functions(): Promise<FunctionInfo[]>
+  filterValues(sheetID: number, col: number): Promise<FilterValue[]>
+  validateInput(sheetID: number, cell: string, input: string): Promise<ValidationFailure | null>
+  /** `sheetID` 0 searches every sheet. */
+  find(sheetID: number, query: string, options: FindOptions): Promise<FindMatch[]>
   dispose(): void
 }
 
@@ -94,6 +107,7 @@ export type SpreadsheetNotice =
   | { kind: 'conflict'; op: SpreadsheetOp; reason: string }
   | { kind: 'rejected'; op: SpreadsheetOp; message: string; reason?: string }
   | { kind: 'discarded'; count: number }
+  | { kind: 'invalid'; cell: string; message: string; style: ValidationFailure['style'] }
   | { kind: 'failed'; error: unknown }
   | { kind: 'revoked' }
 
@@ -144,6 +158,11 @@ type UndoPlan = {
 }
 /** The most cells whose inputs an undo step reads cell by cell; larger edits read the used area. */
 const MAX_UNDO_CELLS = 200_000
+/** How far a current region can reach from its cell in each direction. */
+const REGION_ROWS = 500
+const REGION_COLS = 50
+
+const cellKey = ({ row, col }: CellAddress) => row * MAX_COLS + col
 type Entry = { op: SpreadsheetOp; undo?: UndoRecord; request?: SheetRequest; busy: number }
 type PresenceMeta = { name?: string | null; selection?: PresenceSelection | null }
 
@@ -632,10 +651,22 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     if (loaded()) announce({ sheet_id: activeSheetID.peek(), range: rangeName(selectionRect(selection.peek())) })
   }
 
-  /** Typed input can give a cell a number format, so undo puts back both its input and its format. */
+  /**
+   * Typed input can give a cell a number format, so undo puts back both its input and its format.
+   * Input that fails the cell's validation is reported to the author; a `stop` rule keeps the
+   * cell as it is, and the other styles let the input through.
+   */
   const setCell = (cell: CellAddress, input: string, sheetID = activeSheetID.peek()) => {
     const rect = { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col }
-    return recorded([{ type: 'cell.set', sheet_id: sheetID, cell: cellName(cell), input }], sheetID, rect, 'both')
+    const name = cellName(cell)
+    return planned(async () => {
+      const failure = await engine!.validateInput(sheetID, name, input).catch(() => null)
+      if (failure) {
+        options.notify({ kind: 'invalid', cell: name, message: failure.message, style: failure.style })
+        if (failure.style === 'stop') return undefined
+      }
+      return { ops: [{ type: 'cell.set', sheet_id: sheetID, cell: name, input }], sheetID, rect, capture: 'both' }
+    })
   }
 
   /**
@@ -847,6 +878,93 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       })
       return functionList
     },
+    /** The values that column `col` of the active sheet's filter offers, with their current selection. */
+    filterValues(col: number): Promise<FilterValue[] | undefined> {
+      return engine && loaded() ? engine.filterValues(activeSheetID.peek(), col) : Promise.resolve(undefined)
+    },
+    /** The cells whose text matches `query`, on the active sheet or in the whole workbook. */
+    find(query: string, options: FindOptions, scope: 'sheet' | 'workbook'): Promise<FindMatch[] | undefined> {
+      if (!engine || !loaded() || !query) return Promise.resolve(undefined)
+      return engine.find(scope === 'sheet' ? activeSheetID.peek() : 0, query, options)
+    },
+    /** Shows `cell` of `sheetID` as the selection, switching sheets when needed. */
+    goTo(sheetID: number, cell: CellAddress) {
+      if (sheetID !== activeSheetID.peek()) this.showSheet(sheetID)
+      select(cellSelection(cell))
+    },
+    /**
+     * Writes new inputs into cells of one sheet as one undo step, as a replace does. Undo puts back
+     * the inputs inside the cells' bounding rectangle.
+     */
+    replaceCells(sheetID: number, edits: { cell: string; input: string }[]) {
+      const cells = edits.map(edit => parseCell(edit.cell)).filter((cell): cell is CellAddress => cell !== undefined)
+      if (!cells.length) return Promise.resolve(undefined)
+      const rect = {
+        r0: Math.min(...cells.map(cell => cell.row)),
+        c0: Math.min(...cells.map(cell => cell.col)),
+        r1: Math.max(...cells.map(cell => cell.row)),
+        c1: Math.max(...cells.map(cell => cell.col))
+      }
+      return recorded(
+        edits.map(edit => ({ type: 'cell.set', sheet_id: sheetID, cell: edit.cell, input: edit.input })),
+        sheetID,
+        rect,
+        'values'
+      )
+    },
+    /**
+     * The block of content around `cell`: the rectangle that grows from the cell until a blank row
+     * and a blank column bound it, as a filter or a table takes it. A cell with nothing around it
+     * is its own region.
+     */
+    async currentRegion(cell: CellAddress): Promise<Rect> {
+      const sheetID = activeSheetID.peek()
+      const sheet = sheets.peek().find(item => item.sheet_id === sheetID)
+      const own = { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col }
+      if (!engine || !sheet || !sheet.rows || !sheet.cols) return own
+      const window = intersect(
+        {
+          r0: cell.row - REGION_ROWS,
+          c0: cell.col - REGION_COLS,
+          r1: cell.row + REGION_ROWS,
+          c1: cell.col + REGION_COLS
+        },
+        { r0: 0, c0: 0, r1: sheet.rows - 1, c1: sheet.cols - 1 }
+      )
+      if (!window) return own
+      const view = await engine.viewport(sheetID, window)
+      const filled = new Set(view.cells.filter(found => found.text !== '').map(found => cellKey(found)))
+      const has = (row: number, col: number) => filled.has(cellKey({ row, col }))
+      const rect = { ...own }
+      for (let grown = true; grown;) {
+        grown = false
+        const rowFilled = (row: number) => {
+          for (let col = rect.c0; col <= rect.c1; col++) if (has(row, col)) return true
+          return false
+        }
+        const colFilled = (col: number) => {
+          for (let row = rect.r0; row <= rect.r1; row++) if (has(row, col)) return true
+          return false
+        }
+        if (rect.r0 > window.r0 && rowFilled(rect.r0 - 1)) {
+          rect.r0--
+          grown = true
+        }
+        if (rect.r1 < window.r1 && rowFilled(rect.r1 + 1)) {
+          rect.r1++
+          grown = true
+        }
+        if (rect.c0 > window.c0 && colFilled(rect.c0 - 1)) {
+          rect.c0--
+          grown = true
+        }
+        if (rect.c1 < window.c1 && colFilled(rect.c1 + 1)) {
+          rect.c1++
+          grown = true
+        }
+      }
+      return rect
+    },
     /** The count, sum, and average of a rectangle, as the status bar shows them. */
     stats(sheetID: number, rect: Rect): Promise<SelectionStats | undefined> {
       return engine && loaded() ? engine.selectionStats(sheetID, rangeName(rect)) : Promise.resolve(undefined)
@@ -859,6 +977,13 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     },
     cellPicture(sheetID: number, cell: CellAddress): Promise<Uint8Array | undefined> {
       return engine && loaded() ? engine.cellPicture(sheetID, cellName(cell)) : Promise.resolve(undefined)
+    },
+    charts(sheetID: number): Promise<RenderChart[] | undefined> {
+      return engine && loaded() ? engine.charts(sheetID) : Promise.resolve(undefined)
+    },
+    /** The drawing of one chart laid out for a box of `width` by `height` pixels. */
+    chartDrawing(sheetID: number, chartID: number, width: number, height: number): Promise<ChartPrim[] | undefined> {
+      return engine && loaded() ? engine.chartDrawing(sheetID, chartID, width, height) : Promise.resolve(undefined)
     },
     /**
      * Copies the selection for the clipboard and outlines it. A cut gets a token that a later paste

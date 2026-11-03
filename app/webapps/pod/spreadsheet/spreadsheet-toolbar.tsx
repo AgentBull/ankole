@@ -33,6 +33,7 @@ import {
   RiArrowGoForwardLine,
   RiBold,
   RiBrushLine,
+  RiFilter3Line,
   RiFontColor,
   RiFormatClear,
   RiFunctions,
@@ -59,18 +60,25 @@ import {
   columnName,
   MAX_COLS,
   MAX_ROWS,
+  parseRange,
   rangeName,
   selectedLines,
   selectionRect,
+  type RenderFilter,
   type RenderStyle,
-  type SpreadsheetOp
+  type RenderTable,
+  type RenderValidation,
+  type SpreadsheetOp,
+  type ValidationRule
 } from '../state/spreadsheet-grid'
 import type { SpreadsheetSession } from '../state/spreadsheet-collaboration'
 import { chooseLocalFile } from '../native-transfers'
 import { FORMULA_BAR_ATTRIBUTE, SHEET_TAB_ATTRIBUTE, useDraftCaret, useFunctions } from './spreadsheet-cell-editor'
 import { insertPicture } from './spreadsheet-clipboard-actions'
+import type { FindMode } from './spreadsheet-find-dialog'
 import { SpreadsheetFormulaAssist } from './spreadsheet-formula-assist'
 import { SpreadsheetFunctionsDialog } from './spreadsheet-functions-dialog'
+import { SpreadsheetValidationDialog } from './spreadsheet-validation-dialog'
 import { SpreadsheetVersions } from './spreadsheet-versions'
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36]
@@ -107,6 +115,7 @@ const FILL_COLORS = [
   '--color-yellow-30'
 ]
 const THIN = { style: 'thin' }
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 /** The functions the formula menu offers before the full list. */
 const QUICK_FUNCTIONS = ['SUM', 'AVERAGE', 'COUNT', 'MAX', 'MIN'] as const
 const PICTURE_TYPES = 'image/png,image/jpeg,image/gif,image/webp,image/bmp'
@@ -164,12 +173,14 @@ export function SpreadsheetToolbar({
   model,
   pageID,
   canEdit,
-  gridInput
+  gridInput,
+  onFind
 }: {
   model: SpreadsheetSession
   pageID: string
   canEdit: boolean
   gridInput: RefObject<HTMLTextAreaElement | null>
+  onFind(mode: FindMode): void
 }) {
   useSignals()
   const editable = model.editable.value
@@ -181,13 +192,27 @@ export function SpreadsheetToolbar({
   const pending = model.pending.value
   const error = model.error.value
   const active = selection.anchor
-  const [current, setCurrent] = useState<{ input: string; text: string; style?: RenderStyle; merged: boolean }>({
+  const [current, setCurrent] = useState<{
+    input: string
+    text: string
+    style?: RenderStyle
+    merged: boolean
+    note: string
+    filter: RenderFilter | null
+    tables: RenderTable[]
+    validations: RenderValidation[]
+  }>({
     input: '',
     text: '',
-    merged: false
+    merged: false,
+    note: '',
+    filter: null,
+    tables: [],
+    validations: []
   })
   const [note, setNote] = useState('')
   const [functionsOpen, setFunctionsOpen] = useState(false)
+  const [validationOpen, setValidationOpen] = useState(false)
   const formulaBar = useRef<HTMLInputElement>(null)
   const functions = useFunctions(model)
   const painter = model.painter.value
@@ -202,7 +227,11 @@ export function SpreadsheetToolbar({
         input: inputs?.[0]?.[0] ?? '',
         text: view?.cells[0]?.text ?? '',
         style: view?.cells[0] ? view.styles[view.cells[0].style] : undefined,
-        merged: Boolean(view?.merges.length)
+        merged: Boolean(view?.merges.length),
+        note: view?.cells[0]?.note ?? '',
+        filter: view?.filter ?? null,
+        tables: view?.tables ?? [],
+        validations: view?.validations ?? []
       })
     })
     return () => {
@@ -282,6 +311,43 @@ export function SpreadsheetToolbar({
     if (file) await insertPicture(model, file, kind)
     gridInput.current?.focus({ preventScroll: true })
   }
+  const singleCell = rect.r0 === rect.r1 && rect.c0 === rect.c1
+  /** The selection, or the block of content around the active cell when one cell is selected. */
+  const dataRange = async () => (singleCell ? model.currentRegion(active) : rect)
+  const toggleFilter = async () => {
+    if (current.filter) {
+      perform({ type: 'filter.set', range: null })
+      return
+    }
+    const region = await dataRange()
+    if (region.r1 === region.r0 || !region) return
+    perform({ type: 'filter.set', range: rangeName(region) })
+  }
+  const clearFilter = () => {
+    if (current.filter) perform({ type: 'filter.set', range: current.filter.range })
+  }
+  const table = current.tables.find(item => {
+    const bounds = parseRange(item.range)
+    return (
+      bounds && active.row >= bounds.r0 && active.row <= bounds.r1 && active.col >= bounds.c0 && active.col <= bounds.c1
+    )
+  })
+  const toggleTable = async () => {
+    if (table) {
+      perform({ type: 'table.toggle', range: cellName(active), enabled: false })
+      return
+    }
+    const region = await dataRange()
+    if (region.r1 === region.r0) return
+    perform({ type: 'table.toggle', range: rangeName(region), enabled: true })
+  }
+  const validation = current.validations.find(item => {
+    const bounds = parseRange(item.range)
+    return (
+      bounds && active.row >= bounds.r0 && active.row <= bounds.r1 && active.col >= bounds.c0 && active.col <= bounds.c1
+    )
+  })
+  const saveValidation = (rule: ValidationRule | null) => perform({ type: 'validation.set', range, rule })
   const status = error
     ? t('pod.spreadsheet.sync_retrying')
     : pending
@@ -519,6 +585,36 @@ export function SpreadsheetToolbar({
                 {t('pod.spreadsheet.all_functions')}
               </DropdownMenuItem>
             </ToolMenu>
+            <ToolMenu label={t('pod.spreadsheet.data')} disabled={!editable} icon={<RiFilter3Line />}>
+              <DropdownMenuItem onClick={() => void toggleFilter()}>
+                {current.filter ? t('pod.spreadsheet.remove_filter') : t('pod.spreadsheet.create_filter')}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!current.filter?.columns.length} onClick={clearFilter}>
+                {t('pod.spreadsheet.clear_filter')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setValidationOpen(true)}>
+                {t('pod.spreadsheet.data_validation')}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!validation} onClick={() => saveValidation(null)}>
+                {t('pod.spreadsheet.remove_validation')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => void toggleTable()}>
+                {table
+                  ? t('pod.spreadsheet.convert_to_range', { table: table.name })
+                  : t('pod.spreadsheet.format_as_table')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onFind('find')}>
+                {t('pod.spreadsheet.find')}
+                <span className="ml-auto font-mono text-xs text-fg-tertiary">{isMac ? '⌘F' : 'Ctrl+F'}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onFind('replace')}>
+                {t('pod.spreadsheet.find_replace')}
+                <span className="ml-auto font-mono text-xs text-fg-tertiary">{isMac ? '⌘H' : 'Ctrl+H'}</span>
+              </DropdownMenuItem>
+            </ToolMenu>
             <ToolMenu label={t('pod.spreadsheet.insert_picture')} disabled={!editable} icon={<RiImageAddLine />}>
               <DropdownMenuItem onClick={() => void insertImage('floating')}>
                 {t('pod.spreadsheet.floating_picture')}
@@ -539,7 +635,7 @@ export function SpreadsheetToolbar({
               onClick={() => sort(true)}>
               <RiSortDesc />
             </ToolButton>
-            <Popover onOpenChange={open => open && setNote('')}>
+            <Popover onOpenChange={open => open && setNote(current.note)}>
               <PopoverTrigger
                 render={
                   <Button
@@ -657,6 +753,13 @@ export function SpreadsheetToolbar({
         onOpenChange={setFunctionsOpen}
         functions={functions}
         onInsert={insertFunction}
+      />
+      <SpreadsheetValidationDialog
+        open={validationOpen}
+        onOpenChange={setValidationOpen}
+        range={range}
+        current={validation}
+        onSave={saveValidation}
       />
     </div>
   )

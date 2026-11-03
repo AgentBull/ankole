@@ -4,25 +4,41 @@
 use std::collections::HashMap;
 
 use gridcraft_core::{CellRef, DateSystem, RangeRef, Value};
+use gridcraft_engine::cf::CfCache;
+use gridcraft_engine::cmd::data::list_items;
+use gridcraft_engine::tables::table_cell_style;
 use gridcraft_model::{
-    BorderLine, BorderStyle, Color, LineInfo, PatternType, Sheet, StyleId, Visibility, Workbook,
+    BorderLine, BorderStyle, Color, Fill, FilterCriterion, LineInfo, PatternType, Sheet, Style,
+    StyleId, Table, Underline, ValidationKind, Visibility, Workbook,
 };
 use gridcraft_numfmt::{Formatted, NumberFormat, format_value};
 use serde::Serialize;
 
 use crate::Error;
-use crate::doc::{SpreadsheetDoc, sheet_by_id};
+use crate::doc::{SpreadsheetDoc, require_sheet, sheet_by_id};
 use crate::ids::{CellArea, ImageId, SheetId};
 use crate::ops::check_size;
 
-/// A value formatted with its cell's number format, as the grid shows it.
-fn display(wb: &Workbook, sheet: &Sheet, at: CellRef) -> Formatted {
+/// The most entries a validation's dropdown list carries.
+const MAX_LIST_ITEMS: usize = 1_000;
+
+/// A value formatted with the number format `code`, as the grid shows it.
+fn display_as(wb: &Workbook, sheet: &Sheet, at: CellRef, code: &str) -> Formatted {
     let value = sheet.value(at);
     if !sheet.show_zeros && value == Value::Number(0.0) {
         return Formatted::default();
     }
-    let code = wb.styles.get(sheet.style_id(at)).num_fmt.as_str();
     format_value(&value, &NumberFormat::parse_cached(code), wb.date_system)
+}
+
+/// A value formatted with its cell's number format, as the grid shows it.
+fn display(wb: &Workbook, sheet: &Sheet, at: CellRef) -> Formatted {
+    let code = wb.styles.get(sheet.style_id(at)).num_fmt.as_str();
+    display_as(wb, sheet, at, code)
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 pub(crate) fn display_text(wb: &Workbook, sheet: &Sheet, at: CellRef) -> String {
@@ -93,6 +109,12 @@ pub struct Viewport {
     pub rows: Vec<RenderLine>,
     /// Columns in the viewport whose size, visibility, or style differs from the default.
     pub cols: Vec<RenderLine>,
+    /// The sheet's filter, when it has one.
+    pub filter: Option<RenderFilter>,
+    /// The tables that intersect the viewport.
+    pub tables: Vec<RenderTable>,
+    /// The validation rules whose ranges intersect the viewport, one entry per range.
+    pub validations: Vec<RenderValidation>,
 }
 
 /// A cell to paint. `kind` is `number`, `text`, `bool`, or `error`, which decides the default
@@ -107,14 +129,114 @@ pub struct RenderCell {
     pub text: String,
     /// The value's kind, which decides the default alignment.
     pub kind: &'static str,
-    /// The position of the cell's style in [`Viewport::styles`].
+    /// The position of the cell's own style in [`Viewport::styles`].
     pub style: usize,
+    /// The position in [`Viewport::styles`] of the style the cell is painted with when a table
+    /// style or a conditional format changes it; `style` stays the cell's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub look: Option<usize>,
     /// The colour that the number format gives the value, such as `[Red]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
     /// The fingerprint of the picture the cell holds, which the editor paints instead of text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<String>,
+    /// The note on the cell.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// The data bar or icon a conditional format adds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cf: Option<RenderCf>,
+}
+
+/// What a conditional format draws in a cell besides its style.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RenderCf {
+    /// A data bar.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bar: Option<RenderBar>,
+    /// An icon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<RenderIcon>,
+    /// Whether the rule shows the bar or icon in place of the value.
+    #[serde(skip_serializing_if = "is_false")]
+    pub hide_value: bool,
+}
+
+/// A data bar: the fraction of the cell width it fills, its colour, and whether it fades.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RenderBar {
+    /// The filled fraction of the cell width, from 0 to 1.
+    pub fraction: f32,
+    /// The bar colour as `#RRGGBB`.
+    pub color: String,
+    /// Whether the bar fades towards its end.
+    pub gradient: bool,
+}
+
+/// An icon from an icon set.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RenderIcon {
+    /// The icon set's name, such as `3Arrows`.
+    pub set: String,
+    /// The icon's position in the set, 0 the lowest.
+    pub index: usize,
+}
+
+/// The sheet's filter: its range with the header row, and the criteria of its filtered columns.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RenderFilter {
+    /// The filtered range, in A1 form.
+    pub range: String,
+    /// The columns that hold a criterion.
+    pub columns: Vec<RenderFilterColumn>,
+}
+
+/// The criterion of one filtered column.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RenderFilterColumn {
+    /// The zero-based column.
+    pub col: u32,
+    /// The displayed values the criterion shows.
+    pub values: Vec<String>,
+    /// Whether the criterion shows blank cells.
+    pub blanks: bool,
+    /// Whether the criterion is a custom or top-N filter from the file, which the editor keeps
+    /// but does not edit.
+    pub custom: bool,
+}
+
+/// A table that intersects the viewport.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RenderTable {
+    /// The table's name.
+    pub name: String,
+    /// The table's range, in A1 form.
+    pub range: String,
+    /// Whether the first row holds the column names.
+    pub header_row: bool,
+    /// Whether the last row holds totals.
+    pub totals_row: bool,
+    /// Whether the header cells show filter buttons.
+    pub filter_button: bool,
+}
+
+/// One range of a validation rule that intersects the viewport.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RenderValidation {
+    /// The range, in A1 form.
+    pub range: String,
+    /// The rule's kind: `any`, `whole`, `decimal`, `list`, `date`, `time`, `text_length`, or
+    /// `custom`.
+    pub kind: &'static str,
+    /// Whether the cells offer a dropdown of the list's entries.
+    pub dropdown: bool,
+    /// The entries of a list with a dropdown, up to the first thousand.
+    pub items: Vec<String>,
+    /// The title of the message shown while a cell is selected.
+    pub input_title: String,
+    /// The message shown while a cell is selected.
+    pub input_message: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -184,6 +306,7 @@ pub fn viewport(
     area: CellArea,
 ) -> Result<Viewport, Error> {
     let wb = doc.workbook();
+    let index = require_sheet(wb, sheet_id)?;
     let sheet = sheet_by_id(wb, sheet_id)?;
     let start = CellRef::new(area.first_row, area.first_col);
     let end = CellRef::new(area.last_row, area.last_col);
@@ -206,12 +329,75 @@ pub fn viewport(
         .map(|(at, _)| *at)
         .filter(|at| range.contains(*at) && sheet.cell(*at).is_none());
     at_cells.extend(pictured);
+    let noted = sheet
+        .comments
+        .range(range.start..=range.end)
+        .map(|(at, _)| *at)
+        .filter(|at| range.contains(*at));
+    at_cells.extend(noted);
+    // A table style and a conditional format paint blank cells too.
+    let tables: Vec<&Table> = sheet
+        .tables
+        .iter()
+        .filter(|table| table.range.intersects(&range))
+        .collect();
+    for part in tables
+        .iter()
+        .filter_map(|table| table.range.intersection(&range))
+    {
+        at_cells.extend(part.iter());
+    }
+    for part in sheet
+        .cond_formats
+        .iter()
+        .flat_map(|format| format.ranges.iter())
+        .filter_map(|area| area.intersection(&range))
+    {
+        at_cells.extend(part.iter());
+    }
     at_cells.sort_unstable();
     at_cells.dedup();
+    let mut cf_cache = CfCache::new();
     let cells = at_cells
         .into_iter()
         .map(|at| {
-            let shown = display(wb, sheet, at);
+            let own_id = sheet.style_id(at);
+            let own = wb.styles.get(own_id);
+            let mut effective: Option<Style> = tables
+                .iter()
+                .find(|table| table.range.contains(at))
+                .map(|table| table_cell_style(wb, index, table, at));
+            let mut cf = None;
+            if let Some(look) = cf_cache.look(wb, index, at) {
+                if let Some(upper) = &look.style {
+                    layer_over(effective.get_or_insert_with(|| own.clone()), upper);
+                }
+                if let Some([r, g, b]) = look.scale_fill {
+                    effective.get_or_insert_with(|| own.clone()).fill =
+                        Fill::solid(Color::rgb(r, g, b));
+                }
+                let bar = look.bar.map(|(fraction, [r, g, b], gradient)| RenderBar {
+                    fraction,
+                    color: format!("#{r:02X}{g:02X}{b:02X}"),
+                    gradient,
+                });
+                let icon = look.icon.map(|(set, position)| RenderIcon {
+                    set,
+                    index: position,
+                });
+                if bar.is_some() || icon.is_some() {
+                    cf = Some(RenderCf {
+                        bar,
+                        icon,
+                        hide_value: look.hide_value,
+                    });
+                }
+            }
+            let effective = effective.filter(|style| style != own);
+            let code = effective
+                .as_ref()
+                .map_or(own.num_fmt.as_str(), |style| style.num_fmt.as_str());
+            let shown = display_as(wb, sheet, at, code);
             let kind = match sheet.value(at) {
                 Value::Number(_) => "number",
                 Value::Bool(_) => "bool",
@@ -223,7 +409,8 @@ pub fn viewport(
                 col: at.col,
                 text: shown.text,
                 kind,
-                style: styles.index(sheet.style_id(at)),
+                style: styles.index(own_id),
+                look: effective.as_ref().map(|style| styles.index_style(style)),
                 color: shown
                     .color
                     .and_then(|color| color.rgb())
@@ -232,7 +419,66 @@ pub fn viewport(
                     .cell_pictures
                     .get(&at)
                     .map(|picture| fingerprint(&picture.data)),
+                note: sheet.comments.get(&at).map(|note| note.text.clone()),
+                cf,
             }
+        })
+        .collect();
+    let filter = sheet.autofilter.as_ref().map(|filter| RenderFilter {
+        range: filter.range.a1(),
+        columns: filter
+            .criteria
+            .iter()
+            .map(|(offset, criterion)| {
+                let (values, blanks, custom) = match criterion {
+                    FilterCriterion::Values { values, blanks } => (values.clone(), *blanks, false),
+                    _ => (Vec::new(), true, true),
+                };
+                RenderFilterColumn {
+                    col: filter.range.start.col + offset,
+                    values,
+                    blanks,
+                    custom,
+                }
+            })
+            .collect(),
+    });
+    let validations = sheet
+        .validations
+        .iter()
+        .flat_map(|validation| {
+            validation
+                .ranges
+                .iter()
+                .filter(|area| area.intersects(&range))
+                .map(move |area| (area, validation))
+        })
+        .map(|(area, validation)| {
+            let dropdown = validation.kind == ValidationKind::List && validation.in_cell_dropdown;
+            let mut items = if dropdown {
+                list_items(wb, index, validation)
+            } else {
+                Vec::new()
+            };
+            items.truncate(MAX_LIST_ITEMS);
+            RenderValidation {
+                range: area.a1(),
+                kind: validation_kind_name(validation.kind),
+                dropdown,
+                items,
+                input_title: validation.input_title.clone(),
+                input_message: validation.input_message.clone(),
+            }
+        })
+        .collect();
+    let tables = tables
+        .iter()
+        .map(|table| RenderTable {
+            name: table.name.clone(),
+            range: table.range.a1(),
+            header_row: table.header_row,
+            totals_row: table.totals_row,
+            filter_button: table.filter_button,
         })
         .collect();
     let lines = |infos: &std::collections::BTreeMap<u32, LineInfo>,
@@ -269,7 +515,53 @@ pub fn viewport(
             .collect(),
         rows,
         cols,
+        filter,
+        tables,
+        validations,
     })
+}
+
+/// Puts the parts that a differential style sets over `base`: a conditional format's style wins
+/// over the cell's own and over a table's.
+fn layer_over(base: &mut Style, upper: &Style) {
+    if upper.fill.pattern != PatternType::None {
+        base.fill = upper.fill;
+    }
+    if upper.font.color != Color::Auto {
+        base.font.color = upper.font.color;
+    }
+    base.font.bold |= upper.font.bold;
+    base.font.italic |= upper.font.italic;
+    base.font.strike |= upper.font.strike;
+    if upper.font.underline != Underline::None {
+        base.font.underline = upper.font.underline;
+    }
+    for (side, over) in [
+        (&mut base.borders.left, upper.borders.left),
+        (&mut base.borders.right, upper.borders.right),
+        (&mut base.borders.top, upper.borders.top),
+        (&mut base.borders.bottom, upper.borders.bottom),
+    ] {
+        if !over.is_none() {
+            *side = over;
+        }
+    }
+    if upper.num_fmt.as_str() != "General" {
+        base.num_fmt = upper.num_fmt.clone();
+    }
+}
+
+fn validation_kind_name(kind: ValidationKind) -> &'static str {
+    match kind {
+        ValidationKind::Any => "any",
+        ValidationKind::Whole => "whole",
+        ValidationKind::Decimal => "decimal",
+        ValidationKind::List => "list",
+        ValidationKind::Date => "date",
+        ValidationKind::Time => "time",
+        ValidationKind::TextLength => "text_length",
+        ValidationKind::Custom => "custom",
+    }
 }
 
 /// A floating picture to paint over the grid.
@@ -458,9 +750,12 @@ pub fn selection_stats(
     Ok(stats)
 }
 
+/// The distinct styles of one viewport: the workbook's by id, and computed ones (a table's or a
+/// conditional format's look) by value.
 struct StyleIndex<'a> {
     wb: &'a Workbook,
     positions: HashMap<StyleId, usize>,
+    values: HashMap<Style, usize>,
     styles: Vec<RenderStyle>,
 }
 
@@ -469,6 +764,7 @@ impl<'a> StyleIndex<'a> {
         Self {
             wb,
             positions: HashMap::new(),
+            values: HashMap::new(),
             styles: Vec::new(),
         }
     }
@@ -477,42 +773,55 @@ impl<'a> StyleIndex<'a> {
         if let Some(position) = self.positions.get(&id) {
             return *position;
         }
-        let style = self.wb.styles.get(id);
-        let theme = &self.wb.theme;
-        let hex = |color: Color| color.hex(theme);
-        let border = |line: &BorderLine| {
-            (!line.is_none()).then(|| RenderBorder {
-                style: border_name(line.style),
-                color: hex(line.color),
-            })
-        };
-        let render = RenderStyle {
-            font_name: style.font.name.clone(),
-            font_size: style.font.size,
-            bold: style.font.bold,
-            italic: style.font.italic,
-            underline: style.font.underline != gridcraft_model::Underline::None,
-            strike: style.font.strike,
-            font_color: hex(style.font.color),
-            fill_color: (style.fill.pattern != PatternType::None)
-                .then(|| hex(style.fill.fg))
-                .flatten(),
-            h_align: h_align_name(style.align.h),
-            v_align: v_align_name(style.align.v),
-            wrap: style.align.wrap,
-            indent: style.align.indent,
-            rotation: style.align.rotation,
-            borders: RenderBorders {
-                left: border(&style.borders.left),
-                right: border(&style.borders.right),
-                top: border(&style.borders.top),
-                bottom: border(&style.borders.bottom),
-            },
-        };
-        let position = self.styles.len();
-        self.styles.push(render);
+        let style = self.wb.styles.get(id).clone();
+        let position = self.index_style(&style);
         self.positions.insert(id, position);
         position
+    }
+
+    fn index_style(&mut self, style: &Style) -> usize {
+        if let Some(position) = self.values.get(style) {
+            return *position;
+        }
+        let position = self.styles.len();
+        self.styles.push(render_style(self.wb, style));
+        self.values.insert(style.clone(), position);
+        position
+    }
+}
+
+/// The paintable form of a style, its colours resolved through the workbook's theme.
+fn render_style(wb: &Workbook, style: &Style) -> RenderStyle {
+    let theme = &wb.theme;
+    let hex = |color: Color| color.hex(theme);
+    let border = |line: &BorderLine| {
+        (!line.is_none()).then(|| RenderBorder {
+            style: border_name(line.style),
+            color: hex(line.color),
+        })
+    };
+    RenderStyle {
+        font_name: style.font.name.clone(),
+        font_size: style.font.size,
+        bold: style.font.bold,
+        italic: style.font.italic,
+        underline: style.font.underline != Underline::None,
+        strike: style.font.strike,
+        font_color: hex(style.font.color),
+        fill_color: (style.fill.pattern != PatternType::None)
+            .then(|| hex(style.fill.fg))
+            .flatten(),
+        h_align: h_align_name(style.align.h),
+        v_align: v_align_name(style.align.v),
+        wrap: style.align.wrap,
+        indent: style.align.indent,
+        rotation: style.align.rotation,
+        borders: RenderBorders {
+            left: border(&style.borders.left),
+            right: border(&style.borders.right),
+            top: border(&style.borders.top),
+            bottom: border(&style.borders.bottom),
+        },
     }
 }
 

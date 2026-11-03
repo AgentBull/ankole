@@ -11,6 +11,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
   toast
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -23,6 +27,7 @@ import {
   clampCell,
   columnName,
   contains,
+  filterColumnsWith,
   fillTarget,
   intersect,
   LineAxis,
@@ -33,12 +38,20 @@ import {
   rangeName,
   selectedLines,
   selectionRect,
+  rgba,
   type CellAddress,
+  type ChartPrim,
   type FillMode,
+  type FilterValue,
   type Rect,
   type RenderCell,
+  type RenderChart,
+  type RenderFilter,
   type RenderImage,
   type RenderStyle,
+  type RenderTable,
+  type RenderValidation,
+  type Rgba,
   type SheetInfo,
   type Viewport
 } from '../state/spreadsheet-grid'
@@ -46,6 +59,8 @@ import { presenceRect, type Direction, type SpreadsheetSession } from '../state/
 import { FORMULA_BAR_ATTRIBUTE, SpreadsheetCellEditor } from './spreadsheet-cell-editor'
 import { SpreadsheetCellMenu, type MenuKind } from './spreadsheet-cell-menu'
 import { insertPicture, pasteFromClipboard } from './spreadsheet-clipboard-actions'
+import { SpreadsheetFilterPopover } from './spreadsheet-filter-popover'
+import type { FindMode } from './spreadsheet-find-dialog'
 import { displaySize, downloadPicture, pictureType } from './spreadsheet-pictures'
 
 const HEADER_WIDTH = 48
@@ -64,6 +79,12 @@ const HANDLE_SLOP = 4
 /** The corner handles of a selected floating picture. */
 const IMAGE_HANDLE = 8
 const MIN_IMAGE_SIZE = 16
+/** The filter button in a header cell, and the dropdown arrow beside a cell with a list. */
+const FILTER_BUTTON = 14
+const DROPDOWN_WIDTH = 16
+const NOTE_MARK = 6
+/** Icon set colours from the lowest rank to the highest. */
+const ICON_COLORS = ['#DA1E28', '#F1C21B', '#24A148']
 /** Colours of the references a formula draft names, in order. */
 const REFERENCE_COLORS = [
   '--color-blue-60',
@@ -74,6 +95,7 @@ const REFERENCE_COLORS = [
   '--color-teal-60'
 ]
 
+/** A cell with the style the grid paints it in: a table's or a conditional format's look when it has one. */
 type FrameCell = { cell: RenderCell; style: RenderStyle }
 /** The cells the worker returned for one sheet version, with the rectangles they cover. */
 type Frame = {
@@ -85,6 +107,9 @@ type Frame = {
   spills: Rect[]
   rowStyles: Map<number, RenderStyle>
   colStyles: Map<number, RenderStyle>
+  filter: { range: Rect; filter: RenderFilter } | undefined
+  tables: { rect: Rect; table: RenderTable }[]
+  validations: { rect: Rect; rule: RenderValidation }[]
 }
 type Corner = 'nw' | 'ne' | 'sw' | 'se'
 type Hit =
@@ -94,6 +119,8 @@ type Hit =
   | { kind: 'cell'; cell: CellAddress }
   | { kind: 'fill' }
   | { kind: 'image'; image: RenderImage; corner?: Corner }
+  | { kind: 'filter'; col: number; box: CellBox }
+  | { kind: 'dropdown'; cell: CellAddress; box: CellBox; rule: RenderValidation }
 type Drag =
   | { kind: 'select'; anchor: CellAddress; lines?: 'rows' | 'cols' }
   | { kind: 'resize'; axis: 'rows' | 'cols'; index: number; origin: number; size: number; current: number }
@@ -202,11 +229,13 @@ function wrapLines(context: CanvasRenderingContext2D, text: string, width: numbe
 export function SpreadsheetCanvas({
   model,
   pageID,
-  inputRef: input
+  inputRef: input,
+  onFind
 }: {
   model: SpreadsheetSession
   pageID: string
   inputRef: RefObject<HTMLTextAreaElement | null>
+  onFind(mode: FindMode): void
 }) {
   useSignals()
   const container = useRef<HTMLDivElement>(null)
@@ -222,6 +251,10 @@ export function SpreadsheetCanvas({
   const [menu, setMenu] = useState<MenuKind>('cells')
   const images = useRef<{ sheetID: number; version: number; list: RenderImage[] } | undefined>(undefined)
   const imagesKey = useRef('')
+  const charts = useRef<{ sheetID: number; version: number; list: RenderChart[] } | undefined>(undefined)
+  const chartsKey = useRef('')
+  /** Chart drawings by chart, document version, and box size; `null` while one is being laid out. */
+  const drawings = useRef(new Map<string, ChartPrim[] | null>())
   const bitmaps = useRef<Bitmaps>(new Map())
   const pointed = useRef<Pointed | undefined>(undefined)
   const fillOptions = useRef<HTMLDivElement>(null)
@@ -230,6 +263,8 @@ export function SpreadsheetCanvas({
   const [filled, setFilled] = useState<{ source: Rect; target: Rect }>()
   const filledRef = useRef(filled)
   const [viewing, setViewing] = useState<{ url: string; alt: string }>()
+  const [filterMenu, setFilterMenu] = useState<{ col: number; box: CellBox; values?: FilterValue[] }>()
+  const [dropdown, setDropdown] = useState<{ cell: CellAddress; box: CellBox; rule: RenderValidation }>()
   const copied = model.copied.value
   const painter = model.painter.value
   const sheet = model.activeSheet.value
@@ -423,8 +458,11 @@ export function SpreadsheetCanvas({
       context.restore()
     }
     fetchImages(view)
+    fetchCharts(view)
     paintImages(context, view, tokens)
+    paintCharts(context, view, tokens)
     paintOverlays(context, view, tokens)
+    paintDropdownArrow(context, view, tokens)
     paintHeaders(context, view, tokens)
     placeEditor(view, cached)
     placeFillOptions(view)
@@ -462,6 +500,160 @@ export function SpreadsheetCanvas({
       .catch(() => {
         if (imagesKey.current === key) imagesKey.current = ''
       })
+  }
+
+  /** Fetches the charts of the shown sheet whenever the local document changes; their drawings are laid out again. */
+  const fetchCharts = (view: Layout) => {
+    const id = view.info.sheet_id
+    const current = model.version.peek()
+    if (charts.current?.sheetID === id && charts.current.version === current) return
+    const key = `${id}:${current}`
+    if (chartsKey.current === key) return
+    chartsKey.current = key
+    void model
+      .charts(id)
+      .then(list => {
+        if (chartsKey.current !== key) return
+        chartsKey.current = ''
+        if (!list) return
+        charts.current = { sheetID: id, version: current, list }
+        drawings.current.clear()
+        requestPaint()
+      })
+      .catch(() => {
+        if (chartsKey.current === key) chartsKey.current = ''
+      })
+  }
+
+  /** A chart's drawing at a box size. The first request lays it out and the grid paints again once it arrives. */
+  const drawing = (sheetID: number, version: number, chart: RenderChart, width: number, height: number) => {
+    const key = `${sheetID}:${chart.chart_id}:${version}:${width}x${height}`
+    const cache = drawings.current
+    if (cache.has(key)) return cache.get(key) ?? undefined
+    cache.set(key, null)
+    void model
+      .chartDrawing(sheetID, chart.chart_id, width, height)
+      .then(prims => {
+        if (!prims || !cache.has(key)) return
+        cache.set(key, prims)
+        requestPaint()
+      })
+      .catch(() => cache.delete(key))
+    return undefined
+  }
+
+  /** Charts over the cells, each clipped to the pane its anchor cell belongs to. */
+  const paintCharts = (context: CanvasRenderingContext2D, view: Layout, tokens: Tokens) => {
+    const sheetID = view.info.sheet_id
+    const list = charts.current?.sheetID === sheetID ? charts.current.list : []
+    const version = charts.current?.version ?? 0
+    const mainTop = HEADER_HEIGHT + view.frozenHeight
+    const mainLeft = HEADER_WIDTH + view.frozenWidth
+    for (const chart of list) {
+      const cell = parseCell(chart.cell) ?? { row: 0, col: 0 }
+      const area = {
+        x: view.colX(cell.col) + chart.dx,
+        y: view.rowY(cell.row) + chart.dy,
+        width: Math.round(chart.width),
+        height: Math.round(chart.height)
+      }
+      if (area.width < 1 || area.height < 1) continue
+      if (area.x > view.width || area.y > view.height || area.x + area.width < HEADER_WIDTH) continue
+      const top = cell.row < view.frozenRows ? HEADER_HEIGHT : mainTop
+      const left = cell.col < view.frozenCols ? HEADER_WIDTH : mainLeft
+      context.save()
+      context.beginPath()
+      context.rect(left, top, view.width - left, view.height - top)
+      context.clip()
+      context.fillStyle = tokens.background
+      context.fillRect(area.x, area.y, area.width, area.height)
+      const prims = drawing(sheetID, version, chart, area.width, area.height)
+      if (prims) paintPrims(context, prims, area.x, area.y, tokens.font)
+      else {
+        context.strokeStyle = tokens.divider
+        context.lineWidth = 1
+        context.strokeRect(area.x + 0.5, area.y + 0.5, area.width - 1, area.height - 1)
+      }
+      context.restore()
+    }
+  }
+
+  /** Paints a chart's primitives with their origin at `(x, y)`. */
+  const paintPrims = (context: CanvasRenderingContext2D, prims: ChartPrim[], x: number, y: number, family: string) => {
+    context.save()
+    context.translate(x, y)
+    const stroke = (edge: [Rgba, number] | null) => {
+      if (!edge || edge[1] <= 0) return
+      context.strokeStyle = rgba(edge[0])
+      context.lineWidth = edge[1]
+      context.stroke()
+    }
+    for (const prim of prims) {
+      if ('Rect' in prim) {
+        const { x: px, y: py, w, h, fill, stroke: edge, radius } = prim.Rect
+        context.beginPath()
+        if (radius > 0) context.roundRect(px, py, w, h, radius)
+        else context.rect(px, py, w, h)
+        if (fill) {
+          context.fillStyle = rgba(fill)
+          context.fill()
+        }
+        stroke(edge)
+      } else if ('Line' in prim) {
+        const { pts, color, width, dash } = prim.Line
+        if (!pts.length) continue
+        context.beginPath()
+        context.setLineDash(dash ? [3, 2] : [])
+        context.moveTo(pts[0]![0], pts[0]![1])
+        for (const [px, py] of pts.slice(1)) context.lineTo(px, py)
+        stroke([color, width])
+        context.setLineDash([])
+      } else if ('Polygon' in prim) {
+        const { pts, fill, stroke: edge } = prim.Polygon
+        if (!pts.length) continue
+        context.beginPath()
+        context.moveTo(pts[0]![0], pts[0]![1])
+        for (const [px, py] of pts.slice(1)) context.lineTo(px, py)
+        context.closePath()
+        context.fillStyle = rgba(fill)
+        context.fill()
+        stroke(edge)
+      } else if ('Wedge' in prim) {
+        // Angles count clockwise from 12 o'clock; the canvas counts from 3 o'clock.
+        const { cx, cy, r_outer, r_inner, a0, a1, fill, stroke: edge } = prim.Wedge
+        const start = a0 - Math.PI / 2
+        const end = a1 - Math.PI / 2
+        context.beginPath()
+        context.arc(cx, cy, r_outer, start, end)
+        if (r_inner > 0) context.arc(cx, cy, r_inner, end, start, true)
+        else context.lineTo(cx, cy)
+        context.closePath()
+        context.fillStyle = rgba(fill)
+        context.fill()
+        stroke(edge)
+      } else if ('Circle' in prim) {
+        const { cx, cy, r, fill, stroke: edge } = prim.Circle
+        context.beginPath()
+        context.arc(cx, cy, r, 0, Math.PI * 2)
+        if (fill) {
+          context.fillStyle = rgba(fill)
+          context.fill()
+        }
+        stroke(edge)
+      } else if ('Text' in prim) {
+        const { x: px, y: py, text, size, color, bold, align, valign, rotation } = prim.Text
+        context.save()
+        context.translate(px, py)
+        if (rotation) context.rotate(rotation)
+        context.font = `${bold ? 'bold ' : ''}${size}px ${family}`
+        context.fillStyle = rgba(color)
+        context.textAlign = align === 'Left' ? 'left' : align === 'Right' ? 'right' : 'center'
+        context.textBaseline = valign === 'Top' ? 'top' : valign === 'Bottom' ? 'bottom' : 'middle'
+        context.fillText(text, 0, 0)
+        context.restore()
+      }
+    }
+    context.restore()
   }
 
   /** A picture's decoded bitmap. The first request loads it and the grid paints again once it arrives. */
@@ -639,6 +831,23 @@ export function SpreadsheetCanvas({
         context.fillRect(view.colX(col), view.rowY(row), view.cols.size(col), view.rows.size(row))
       }
     }
+    for (const row of visibleRows) {
+      for (const col of visibleCols) {
+        const bar = cached?.cells.get(cellKey(row, col))?.cell.cf?.bar
+        if (!bar || merged(row, col)) continue
+        const x = view.colX(col) + 1
+        const y = view.rowY(row) + 2
+        const width = Math.max(0, (view.cols.size(col) - 2) * bar.fraction)
+        const height = Math.max(0, view.rows.size(row) - 4)
+        if (bar.gradient) {
+          const gradient = context.createLinearGradient(x, y, x + width, y)
+          gradient.addColorStop(0, bar.color)
+          gradient.addColorStop(1, `${bar.color}33`)
+          context.fillStyle = gradient
+        } else context.fillStyle = bar.color
+        context.fillRect(x, y, width, height)
+      }
+    }
     if (view.info.show_gridlines) {
       context.strokeStyle = tokens.grid
       context.lineWidth = 1
@@ -681,7 +890,7 @@ export function SpreadsheetCanvas({
     for (const row of visibleRows) {
       for (const col of visibleCols) {
         const entry = cached?.cells.get(cellKey(row, col))
-        if (!entry?.cell.text || merged(row, col)) continue
+        if (!entry?.cell.text || entry.cell.cf?.hide_value || merged(row, col)) continue
         const cellBox = {
           x: view.colX(col),
           y: view.rowY(row),
@@ -691,6 +900,7 @@ export function SpreadsheetCanvas({
         paintText(context, tokens, entry, overflow(view, cached!, entry, cellBox, cols, merged))
       }
     }
+    if (cached) paintExtras(context, view, tokens, cached, visibleRows, visibleCols, merged)
     for (const row of visibleRows) {
       for (const col of visibleCols) {
         const style = cached?.cells.get(cellKey(row, col))?.style
@@ -708,6 +918,148 @@ export function SpreadsheetCanvas({
       }
     }
     context.setLineDash([])
+  }
+
+  /** The box of the filter button in the header cell of column `col`, inside the cell's lower-right corner. */
+  const filterButtonBox = (view: Layout, row: number, col: number): CellBox => {
+    const width = view.cols.size(col)
+    const height = view.rows.size(row)
+    const size = Math.min(FILTER_BUTTON, Math.max(0, height - 2), Math.max(0, width - 2))
+    return { x: view.colX(col) + width - size - 1, y: view.rowY(row) + height - size - 1, width: size, height: size }
+  }
+
+  /** The box of the dropdown arrow, which sits just right of a cell that offers a list. */
+  const dropdownBox = (view: Layout, cell: CellAddress): CellBox => ({
+    x: view.colX(cell.col) + view.cols.size(cell.col),
+    y: view.rowY(cell.row),
+    width: DROPDOWN_WIDTH,
+    height: view.rows.size(cell.row)
+  })
+
+  const inside = (area: CellBox, x: number, y: number) =>
+    x >= area.x && x <= area.x + area.width && y >= area.y && y <= area.y + area.height
+
+  /** The list validation that covers `cell`, when its cells offer a dropdown. */
+  const dropdownRule = (cell: CellAddress): RenderValidation | undefined =>
+    frame.current?.validations.find(entry => entry.rule.dropdown && contains(entry.rect, cell))?.rule
+
+  const paintTriangle = (context: CanvasRenderingContext2D, x: number, y: number, size: number, down: boolean) => {
+    context.beginPath()
+    if (down) {
+      context.moveTo(x - size, y - size / 2)
+      context.lineTo(x + size, y - size / 2)
+      context.lineTo(x, y + size / 2)
+    } else {
+      context.moveTo(x - size, y + size / 2)
+      context.lineTo(x + size, y + size / 2)
+      context.lineTo(x, y - size / 2)
+    }
+    context.closePath()
+    context.fill()
+  }
+
+  /** An icon from a conditional format's set, drawn from its rank colour and a shape by set family. */
+  const paintIcon = (context: CanvasRenderingContext2D, set: string, index: number, area: CellBox) => {
+    const count = Math.min(5, Math.max(3, Number(set[0]) || 3))
+    const rank = index / Math.max(1, count - 1)
+    const color = ICON_COLORS[rank < 0.34 ? 0 : rank < 0.67 ? 1 : 2]!
+    const size = Math.min(12, area.height - 4)
+    const x = area.x + 3 + size / 2
+    const y = area.y + area.height / 2
+    context.fillStyle = color
+    if (set.includes('Arrows')) {
+      if (rank < 0.34) paintTriangle(context, x, y, size / 2, true)
+      else if (rank < 0.67) context.fillRect(x - size / 2, y - 1.5, size, 3)
+      else paintTriangle(context, x, y, size / 2, false)
+      return
+    }
+    if (set.includes('Flags')) {
+      context.fillRect(x - size / 2, y - size / 2, 2, size)
+      context.fillRect(x - size / 2, y - size / 2, size, size / 2)
+      return
+    }
+    if (set.includes('Stars')) {
+      context.beginPath()
+      for (let point = 0; point < 10; point++) {
+        const radius = point % 2 ? size / 4 : size / 2
+        const angle = -Math.PI / 2 + (point * Math.PI) / 5
+        context.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius)
+      }
+      context.closePath()
+      context.fill()
+      return
+    }
+    context.beginPath()
+    context.arc(x, y, size / 2, 0, Math.PI * 2)
+    context.fill()
+    if (set.includes('Symbols')) {
+      context.fillStyle = '#FFFFFF'
+      context.font = `bold ${Math.round(size * 0.8)}px sans-serif`
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      context.fillText(rank < 0.34 ? '✕' : rank < 0.67 ? '!' : '✓', x, y + 0.5)
+    }
+  }
+
+  /** Icons, note marks, and filter buttons, over the cell text. */
+  const paintExtras = (
+    context: CanvasRenderingContext2D,
+    view: Layout,
+    tokens: Tokens,
+    cached: Frame,
+    visibleRows: number[],
+    visibleCols: number[],
+    merged: (row: number, col: number) => Rect | undefined
+  ) => {
+    for (const row of visibleRows) {
+      for (const col of visibleCols) {
+        const entry = cached.cells.get(cellKey(row, col))
+        if (!entry || merged(row, col)) continue
+        const area = { x: view.colX(col), y: view.rowY(row), width: view.cols.size(col), height: view.rows.size(row) }
+        const icon = entry.cell.cf?.icon
+        if (icon) paintIcon(context, icon.set, icon.index, area)
+        if (entry.cell.note) {
+          context.fillStyle = ICON_COLORS[0]!
+          context.beginPath()
+          context.moveTo(area.x + area.width - NOTE_MARK - 1, area.y)
+          context.lineTo(area.x + area.width - 1, area.y)
+          context.lineTo(area.x + area.width - 1, area.y + NOTE_MARK)
+          context.closePath()
+          context.fill()
+        }
+      }
+    }
+    const filter = cached.filter
+    if (!filter || !visibleRows.includes(filter.range.r0)) return
+    const filtered = new Set(filter.filter.columns.map(column => column.col))
+    for (const col of visibleCols) {
+      if (col < filter.range.c0 || col > filter.range.c1) continue
+      const area = filterButtonBox(view, filter.range.r0, col)
+      if (area.width < 6) continue
+      const active = filtered.has(col)
+      context.fillStyle = active ? tokens.focus : tokens.background
+      context.fillRect(area.x, area.y, area.width, area.height)
+      context.strokeStyle = active ? tokens.focus : tokens.divider
+      context.lineWidth = 1
+      context.strokeRect(area.x + 0.5, area.y + 0.5, area.width - 1, area.height - 1)
+      context.fillStyle = active ? '#FFFFFF' : tokens.headerText
+      paintTriangle(context, area.x + area.width / 2, area.y + area.height / 2, area.width / 4, true)
+    }
+  }
+
+  /** The arrow beside the active cell when its validation offers a list. */
+  const paintDropdownArrow = (context: CanvasRenderingContext2D, view: Layout, tokens: Tokens) => {
+    const cell = model.selection.peek().anchor
+    if (!model.editable.peek() || model.draft.peek() || !dropdownRule(cell)) return
+    const area = dropdownBox(view, cell)
+    if (area.x < HEADER_WIDTH || area.y < HEADER_HEIGHT || area.height <= 0) return
+    context.fillStyle = tokens.background
+    context.fillRect(area.x, area.y, area.width, area.height)
+    context.strokeStyle = tokens.divider
+    context.lineWidth = 1
+    context.strokeRect(area.x + 0.5, area.y + 0.5, area.width - 1, area.height - 1)
+    context.fillStyle = tokens.headerText
+    paintTriangle(context, area.x + area.width / 2, area.y + area.height / 2, 3.5, true)
   }
 
   /** Left-aligned text runs into empty cells on its right, and right-aligned text into empty cells on its left. */
@@ -1057,6 +1409,20 @@ export function SpreadsheetCanvas({
         return { kind: 'image', image }
       }
     }
+    const filter = frame.current?.sheetID === view.info.sheet_id ? frame.current.filter : undefined
+    if (filter) {
+      const col = view.colAt(x)
+      if (col >= filter.range.c0 && col <= filter.range.c1 && view.rowAt(y) === filter.range.r0) {
+        const area = filterButtonBox(view, filter.range.r0, col)
+        if (inside(area, x, y)) return { kind: 'filter', col, box: area }
+      }
+    }
+    if (model.editable.peek() && !model.draft.peek()) {
+      const anchor = model.selection.peek().anchor
+      const rule = dropdownRule(anchor)
+      const area = rule && dropdownBox(view, anchor)
+      if (rule && area && inside(area, x, y)) return { kind: 'dropdown', cell: anchor, box: area, rule }
+    }
     const handle = model.editable.peek() && !model.draft.peek() && !selected ? fillHandle(view) : undefined
     if (
       handle &&
@@ -1133,6 +1499,18 @@ export function SpreadsheetCanvas({
     input.current?.focus({ preventScroll: true })
     showFillOptions(undefined)
     const view = layout()!
+    if (hit.kind === 'filter') {
+      const col = hit.col
+      setFilterMenu({ col, box: hit.box })
+      void model.filterValues(col).then(values => {
+        setFilterMenu(menu => (menu && menu.col === col ? { ...menu, values: values ?? [] } : menu))
+      })
+      return
+    }
+    if (hit.kind === 'dropdown') {
+      setDropdown({ cell: hit.cell, box: hit.box, rule: hit.rule })
+      return
+    }
     if (hit.kind === 'image') {
       selectImage(hit.image)
       if (model.editable.peek()) {
@@ -1181,6 +1559,17 @@ export function SpreadsheetCanvas({
     requestPaint()
   }
 
+  /** The note of the cell under the pointer, or the message its validation shows. */
+  const tooltipFor = (hit: Hit): string => {
+    if (hit.kind === 'filter') return t('pod.spreadsheet.filter_button', { column: columnName(hit.col) })
+    if (hit.kind !== 'cell') return ''
+    const note = frame.current?.cells.get(cellKey(hit.cell.row, hit.cell.col))?.cell.note
+    if (note) return note
+    const rule = frame.current?.validations.find(entry => contains(entry.rect, hit.cell))?.rule
+    if (!rule?.input_message) return ''
+    return rule.input_title ? `${rule.input_title}\n${rule.input_message}` : rule.input_message
+  }
+
   const cursorFor = (hit: Hit | undefined) => {
     if (!hit) return 'default'
     if (hit.kind === 'image') {
@@ -1188,6 +1577,7 @@ export function SpreadsheetCanvas({
       return hit.corner === 'nw' || hit.corner === 'se' ? 'nwse-resize' : hit.corner ? 'nesw-resize' : 'move'
     }
     if (hit.kind === 'fill') return 'crosshair'
+    if (hit.kind === 'filter' || hit.kind === 'dropdown') return 'pointer'
     if (editable && hit.kind === 'cols' && hit.resize !== undefined) return 'col-resize'
     if (editable && hit.kind === 'rows' && hit.resize !== undefined) return 'row-resize'
     if (hit.kind === 'cell') return model.painter.peek() ? 'copy' : 'cell'
@@ -1219,7 +1609,9 @@ export function SpreadsheetCanvas({
     const { x, y } = local(event)
     const current = drag.current
     if (!current) {
-      scroller.current!.style.cursor = cursorFor(hitTest(x, y))
+      const hit = hitTest(x, y)
+      scroller.current!.style.cursor = cursorFor(hit)
+      scroller.current!.title = hit ? tooltipFor(hit) : ''
       return
     }
     if (current.kind === 'resize') {
@@ -1464,6 +1856,10 @@ export function SpreadsheetCanvas({
     }
     if (!command) return false
     const key = event.key.toLowerCase()
+    if (key === 'f' || key === 'h') {
+      onFind(key === 'f' ? 'find' : 'replace')
+      return true
+    }
     if (model.editable.peek() && (key === 'd' || key === 'r')) {
       void model.fillSelection(key === 'd' ? 'down' : 'right')
       return true
@@ -1670,6 +2066,74 @@ export function SpreadsheetCanvas({
       </ContextMenu>
       <canvas ref={canvas} aria-hidden className="pointer-events-none absolute top-0 left-0" />
       <SpreadsheetCellEditor model={model} pageID={pageID} inputRef={input} navigate={navigate} />
+      {filterMenu && (
+        <div
+          className="absolute z-10"
+          style={{ left: filterMenu.box.x, top: filterMenu.box.y + filterMenu.box.height }}>
+          <Popover
+            open
+            onOpenChange={open => {
+              if (!open) setFilterMenu(undefined)
+            }}>
+            <PopoverTrigger
+              render={<button type="button" aria-hidden tabIndex={-1} className="block size-px opacity-0" />}
+            />
+            <PopoverContent align="start" className="w-auto p-3">
+              <SpreadsheetFilterPopover
+                column={columnName(filterMenu.col)}
+                values={filterMenu.values}
+                onApply={criterion => {
+                  const filter = frame.current?.filter
+                  if (filter) {
+                    void model.perform({
+                      type: 'filter.set',
+                      sheet_id: model.activeSheetID.peek(),
+                      range: filter.filter.range,
+                      columns: filterColumnsWith(filter.filter, filterMenu.col, criterion)
+                    })
+                  }
+                  setFilterMenu(undefined)
+                  input.current?.focus({ preventScroll: true })
+                }}
+                onClose={() => setFilterMenu(undefined)}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
+      {dropdown && (
+        <div className="absolute z-10" style={{ left: dropdown.box.x, top: dropdown.box.y + dropdown.box.height }}>
+          <Popover
+            open
+            onOpenChange={open => {
+              if (!open) setDropdown(undefined)
+            }}>
+            <PopoverTrigger
+              render={<button type="button" aria-hidden tabIndex={-1} className="block size-px opacity-0" />}
+            />
+            <PopoverContent align="end" className="w-56 gap-1 p-2">
+              <PopoverTitle className="px-2">
+                {t('pod.spreadsheet.validation_dropdown', { cell: cellName(dropdown.cell) })}
+              </PopoverTitle>
+              <div className="max-h-56 overflow-y-auto">
+                {dropdown.rule.items.map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    className="block w-full truncate rounded-control px-2 py-1 text-left text-sm hover:bg-background-secondary focus-visible:outline-offset-1"
+                    onClick={() => {
+                      void model.setCell(dropdown.cell, item)
+                      setDropdown(undefined)
+                      input.current?.focus({ preventScroll: true })
+                    }}>
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
       <div ref={fillOptions} className="absolute z-10" style={{ display: 'none' }}>
         {filled && (
           <DropdownMenu>
@@ -1727,17 +2191,26 @@ function buildFrame(
     merges: [],
     spills: [],
     rowStyles: new Map(),
-    colStyles: new Map()
+    colStyles: new Map(),
+    filter: undefined,
+    tables: [],
+    validations: []
   }
   const merges = new Map<string, Rect>()
   const spills = new Map<string, Rect>()
+  const tables = new Map<string, RenderTable>()
+  const validations = new Map<string, RenderValidation>()
   views.forEach((view, index) => {
     const rect = rects[index]!
     axes.rows.replace(rect.r0, rect.r1, view.rows)
     axes.cols.replace(rect.c0, rect.c1, view.cols)
     for (const cell of view.cells) {
-      frame.cells.set(cellKey(cell.row, cell.col), { cell, style: view.styles[cell.style]! })
+      frame.cells.set(cellKey(cell.row, cell.col), { cell, style: view.styles[cell.look ?? cell.style]! })
     }
+    const filterRange = view.filter && parseRange(view.filter.range)
+    if (view.filter && filterRange) frame.filter = { range: filterRange, filter: view.filter }
+    for (const table of view.tables) tables.set(table.range, table)
+    for (const rule of view.validations) validations.set(rule.range, rule)
     for (const line of view.rows) if (line.style !== null) frame.rowStyles.set(line.index, view.styles[line.style]!)
     for (const line of view.cols) if (line.style !== null) frame.colStyles.set(line.index, view.styles[line.style]!)
     for (const merge of view.merges) {
@@ -1751,5 +2224,13 @@ function buildFrame(
   })
   frame.merges = [...merges.values()]
   frame.spills = [...spills.values()]
+  for (const [range, table] of tables) {
+    const rect = parseRange(range)
+    if (rect) frame.tables.push({ rect, table })
+  }
+  for (const [range, rule] of validations) {
+    const rect = parseRange(range)
+    if (rect) frame.validations.push({ rect, rule })
+  }
   return frame
 }

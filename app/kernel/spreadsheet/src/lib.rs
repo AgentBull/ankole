@@ -33,6 +33,7 @@
 )]
 
 mod autofit;
+mod charts;
 mod clipboard;
 mod doc;
 mod functions;
@@ -42,13 +43,16 @@ mod ops;
 mod rebase;
 mod snapshot;
 mod structure;
+mod tools;
 mod view;
 
+pub use charts::{RenderChart, chart_drawing, charts};
 pub use clipboard::{
     ClipboardBlock, ClipboardCell, MAX_CLIPBOARD_CELLS, PasteMode, copy_block, paste_op,
 };
 pub use doc::SpreadsheetDoc;
 pub use functions::{FunctionInfo, functions};
+pub use gridcraft_chart::Prim as ChartPrim;
 pub use ids::{CellArea, ImageId, SheetId};
 pub use index::{Metadata, PLAIN_TEXT_LIMIT, SheetSummary};
 pub use ops::{
@@ -58,8 +62,13 @@ pub use ops::{
 };
 pub use rebase::Conflict;
 pub use snapshot::{FormatSnapshot, format_snapshot};
+pub use tools::{
+    FilterValue, FindMatch, FindOptions, MAX_FIND_MATCHES, ValidationFailure, filter_values, find,
+    validate_input,
+};
 pub use view::{
-    CellPictureData, RenderCell, RenderImage, RenderStyle, SelectionStats, SheetInfo, Viewport,
+    CellPictureData, RenderBar, RenderCell, RenderCf, RenderFilter, RenderFilterColumn, RenderIcon,
+    RenderImage, RenderStyle, RenderTable, RenderValidation, SelectionStats, SheetInfo, Viewport,
     cell_input, cell_picture, image_data, images, selection_stats, sheets, viewport,
 };
 

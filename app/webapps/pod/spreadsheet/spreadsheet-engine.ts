@@ -61,7 +61,12 @@ export function createSpreadsheetEngine(): SpreadsheetEngine {
     images: sheetID => call('images', [sheetID]),
     imageData: (sheetID, imageID) => call('imageData', [sheetID, imageID]),
     cellPicture: (sheetID, cell) => call('cellPicture', [sheetID, cell]),
+    charts: sheetID => call('charts', [sheetID]),
+    chartDrawing: (sheetID, chartID, width, height) => call('chartDrawing', [sheetID, chartID, width, height]),
     functions: () => call('functions', []),
+    filterValues: (sheetID, col) => call('filterValues', [sheetID, col]),
+    validateInput: (sheetID, cell, input) => call('validateInput', [sheetID, cell, input]),
+    find: (sheetID, query, options) => call('find', [sheetID, query, options]),
     dispose() {
       worker.terminate()
       if (bootstrapURL) URL.revokeObjectURL(bootstrapURL)

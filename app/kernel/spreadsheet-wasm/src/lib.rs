@@ -222,6 +222,91 @@ impl Spreadsheet {
             .map_err(|error| js_error(&error))
     }
 
+    /// The charts of one sheet with their anchors, as JSON.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
+    pub fn charts(&self, sheet_id: u32) -> Result<String, JsError> {
+        json(
+            &ankole_spreadsheet::charts(&self.doc, SheetId(sheet_id))
+                .map_err(|error| js_error(&error))?,
+        )
+    }
+
+    /// The drawing primitives of the chart `chart_id` laid out for a `width` by `height` box, as
+    /// JSON.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
+    pub fn chart_drawing(
+        &self,
+        sheet_id: u32,
+        chart_id: u32,
+        width: f32,
+        height: f32,
+    ) -> Result<String, JsError> {
+        json(
+            &ankole_spreadsheet::chart_drawing(
+                &self.doc,
+                SheetId(sheet_id),
+                chart_id,
+                width,
+                height,
+            )
+            .map_err(|error| js_error(&error))?,
+        )
+    }
+
+    /// The distinct values of the zero-based column `col` inside the sheet's filter range, with
+    /// whether the current criteria show each, as JSON.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
+    pub fn filter_values(&self, sheet_id: u32, col: u32) -> Result<String, JsError> {
+        json(
+            &ankole_spreadsheet::filter_values(&self.doc, SheetId(sheet_id), col)
+                .map_err(|error| js_error(&error))?,
+        )
+    }
+
+    /// `null` when `input` passes the validation of the A1 cell `cell` or the cell has none,
+    /// otherwise the failure with its message and `stop`, `warning`, or `information` style, as
+    /// JSON.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
+    pub fn validate_input(
+        &self,
+        sheet_id: u32,
+        cell: &str,
+        input: &str,
+    ) -> Result<String, JsError> {
+        json(
+            &ankole_spreadsheet::validate_input(&self.doc, SheetId(sheet_id), cell, input)
+                .map_err(|error| js_error(&error))?,
+        )
+    }
+
+    /// The cells whose text matches `query` on the sheet `sheet_id`, or on every sheet when it is
+    /// `0`, as JSON. `options_json` carries `match_case`, `whole_cell`, and `formulas`.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` with the kernel's message when the kernel refuses the input.
+    pub fn find(&self, sheet_id: u32, query: &str, options_json: &str) -> Result<String, JsError> {
+        let options: ankole_spreadsheet::FindOptions = serde_json::from_str(options_json)
+            .map_err(|error| JsError::new(&format!("invalid search options: {error}")))?;
+        let sheet = (sheet_id != 0).then_some(SheetId(sheet_id));
+        json(
+            &ankole_spreadsheet::find(&self.doc, sheet, query, options)
+                .map_err(|error| js_error(&error))?,
+        )
+    }
+
     /// The encoded bytes of the picture in the A1 cell `cell`.
     ///
     /// # Errors

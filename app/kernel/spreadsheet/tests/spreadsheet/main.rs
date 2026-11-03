@@ -6,3 +6,4 @@ mod ops;
 mod perf;
 mod rebase;
 mod support;
+mod views;

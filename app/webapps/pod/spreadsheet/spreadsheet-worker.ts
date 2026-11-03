@@ -3,15 +3,21 @@ import wasmURL from '@ankole/kernel/spreadsheet-wasm/ankole_spreadsheet_wasm_bg.
 import type { Rebased } from '../state/spreadsheet-collaboration'
 import {
   cellName,
+  type ChartPrim,
   type ClipboardBlock,
+  type FilterValue,
+  type FindMatch,
+  type FindOptions,
   type FormatSnapshot,
   type FunctionInfo,
   type PasteMode,
   type Rect,
+  type RenderChart,
   type RenderImage,
   type SelectionStats,
   type SheetInfo,
   type SpreadsheetOp,
+  type ValidationFailure,
   type Viewport
 } from '../state/spreadsheet-grid'
 
@@ -102,8 +108,24 @@ const methods = {
   cellPicture(sheetID: number, cell: string): Uint8Array {
     return opened(local).cell_picture(sheetID, cell)
   },
+  charts(sheetID: number): RenderChart[] {
+    return JSON.parse(opened(local).charts(sheetID))
+  },
+  chartDrawing(sheetID: number, chartID: number, width: number, height: number): ChartPrim[] {
+    return JSON.parse(opened(local).chart_drawing(sheetID, chartID, width, height))
+  },
   functions(): FunctionInfo[] {
     return JSON.parse(listFunctions())
+  },
+  filterValues(sheetID: number, col: number): FilterValue[] {
+    return JSON.parse(opened(local).filter_values(sheetID, col))
+  },
+  validateInput(sheetID: number, cell: string, input: string): ValidationFailure | null {
+    return JSON.parse(opened(local).validate_input(sheetID, cell, input))
+  },
+  /** `sheetID` 0 searches every sheet. */
+  find(sheetID: number, query: string, options: FindOptions): FindMatch[] {
+    return JSON.parse(opened(local).find(sheetID, query, JSON.stringify(options)))
   },
   cellInputs(sheetID: number, rect: Rect): string[][] {
     const document = opened(local)

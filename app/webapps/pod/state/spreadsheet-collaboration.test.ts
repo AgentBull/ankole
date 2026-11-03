@@ -9,7 +9,7 @@ import {
   type SpreadsheetNotice,
   type SpreadsheetSession
 } from './spreadsheet-collaboration'
-import type { Rect, SheetInfo, SpreadsheetOp, Viewport } from './spreadsheet-grid'
+import type { Rect, SheetInfo, SpreadsheetOp, ValidationFailure, Viewport } from './spreadsheet-grid'
 
 const SHEET: SheetInfo = {
   sheet_id: 1,
@@ -33,6 +33,7 @@ function fakeEngine(
     inputs?: (rect: Rect) => string[][]
     rebase?: (pending: SpreadsheetOp[]) => Rebased[]
     viewport?: (rect: Rect) => Viewport
+    validate?: (cell: string, input: string) => ValidationFailure | null
   } = {}
 ) {
   const calls: Call[] = []
@@ -51,11 +52,35 @@ function fakeEngine(
     promote: async () => void record('promote'),
     sheets: async () => [SHEET],
     viewport: async (_sheetID, rect) =>
-      behaviour.viewport?.(rect) ?? { cells: [], styles: [], merges: [], spills: [], rows: [], cols: [] },
+      behaviour.viewport?.(rect) ?? {
+        cells: [],
+        styles: [],
+        merges: [],
+        spills: [],
+        rows: [],
+        cols: [],
+        filter: null,
+        tables: [],
+        validations: []
+      },
     cellInputs: async (_sheetID, rect) =>
       behaviour.inputs?.(rect) ??
       Array.from({ length: rect.r1 - rect.r0 + 1 }, () => Array.from({ length: rect.c1 - rect.c0 + 1 }, () => '')),
     selectionStats: async () => ({ count: 0, numbers: 0, sum: 0, average: null, min: null, max: null }),
+    charts: async () => [],
+    chartDrawing: async () => [],
+    filterValues: async (_sheetID, col) => {
+      record('filterValues', col)
+      return [{ text: 'a', blank: false, selected: true }]
+    },
+    validateInput: async (_sheetID, cell, input) => {
+      record('validateInput', cell, input)
+      return behaviour.validate?.(cell, input) ?? null
+    },
+    find: async (sheetID, query) => {
+      record('find', sheetID, query)
+      return [{ sheet_id: 1, cell: 'A1', text: query }]
+    },
     formatSnapshot: async (_sheetID, range) => {
       record('formatSnapshot', range)
       return { lines: [], cells: [{ row: 0, col: 0, format: { bold: false } }] }
@@ -570,7 +595,10 @@ test('AutoSum opens a draft over the numbers above, or writes one formula per co
     merges: [],
     spills: [],
     rows: [],
-    cols: []
+    cols: [],
+    filter: null,
+    tables: [],
+    validations: []
   })
   const { engine, called } = fakeEngine({ viewport: numbers })
   const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
@@ -685,7 +713,10 @@ test('formats, outlines, merges, and unmerges are undo steps, and other edits en
     merges: rect.r0 <= 1 && rect.c0 <= 1 ? ['B2:C2'] : [],
     spills: [],
     rows: [],
-    cols: []
+    cols: [],
+    filter: null,
+    tables: [],
+    validations: []
   })
   const { engine, called } = fakeEngine({ viewport: merged })
   const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
@@ -743,4 +774,49 @@ test('an undo pressed while a merge reads its areas undoes that merge, not the e
   const types = called('applyLocal').map(call => (call.args[0] as SpreadsheetOp).type)
   expect(types.slice(-4)).toEqual(['range.merge', 'range.unmerge', 'range.set_values', 'range.restore_formats'])
   expect(model.canUndo.value).toBe(true)
+})
+
+test('typed input that fails a stop rule is not applied, and a warning rule lets it through with a notice', async () => {
+  const { engine, called } = fakeEngine({
+    validate: (_cell, input) =>
+      input === 'maybe'
+        ? { message: '请选择', style: 'stop' }
+        : input === 'odd'
+          ? { message: '请复核', style: 'warning' }
+          : null
+  })
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model, notices } = await started(socket, engine)
+  model.edit({ row: 0, col: 0 }, 'maybe')
+  await model.commitEdit('down')
+  expect(called('applyLocal')).toHaveLength(0)
+  expect(notices).toEqual([{ kind: 'invalid', cell: 'A1', message: '请选择', style: 'stop' }])
+  model.edit({ row: 1, col: 0 }, 'odd')
+  await model.commitEdit('down')
+  expect(called('applyLocal').map(call => (call.args[0] as SpreadsheetOp).cell)).toEqual(['A2'])
+  expect(notices.at(-1)).toEqual({ kind: 'invalid', cell: 'A2', message: '请复核', style: 'warning' })
+  expect(called('validateInput').map(call => call.args)).toEqual([
+    ['A1', 'maybe'],
+    ['A2', 'odd']
+  ])
+})
+
+test('a replace writes the matched cells as one undo step and find reads through the engine', async () => {
+  const { engine, called } = fakeEngine()
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model } = await started(socket, engine)
+  expect(await model.find('total', { formulas: true }, 'workbook')).toEqual([
+    { sheet_id: 1, cell: 'A1', text: 'total' }
+  ])
+  expect(called('find').map(call => call.args)).toEqual([[0, 'total']])
+  expect(await model.filterValues(2)).toEqual([{ text: 'a', blank: false, selected: true }])
+  await model.replaceCells(1, [
+    { cell: 'A1', input: 'sum' },
+    { cell: 'C3', input: 'sum' }
+  ])
+  expect(called('applyLocal').map(call => (call.args[0] as SpreadsheetOp).cell)).toEqual(['A1', 'C3'])
+  expect(model.canUndo.value).toBe(true)
+  await model.undo()
+  const restored = called('applyLocal').at(-1)!.args[0] as SpreadsheetOp
+  expect([restored.type, restored.range]).toEqual(['range.set_values', 'A1:C3'])
 })

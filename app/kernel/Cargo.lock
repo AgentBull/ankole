@@ -144,7 +144,9 @@ version = "0.1.0"
 dependencies = [
  "base64-simd",
  "gridcraft-calc",
+ "gridcraft-chart",
  "gridcraft-core",
+ "gridcraft-engine",
  "gridcraft-formula",
  "gridcraft-functions",
  "gridcraft-model",
@@ -1593,6 +1595,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gridcraft-chart"
+version = "0.13.0"
+source = "git+https://github.com/storytold/gridcraft?rev=68a4b1a1c3684fa17553ecb2a1f088c75f6a3567#68a4b1a1c3684fa17553ecb2a1f088c75f6a3567"
+dependencies = [
+ "gridcraft-calc",
+ "gridcraft-core",
+ "gridcraft-model",
+ "gridcraft-numfmt",
+ "serde",
+]
+
+[[package]]
 name = "gridcraft-core"
 version = "0.13.0"
 source = "git+https://github.com/storytold/gridcraft?rev=68a4b1a1c3684fa17553ecb2a1f088c75f6a3567#68a4b1a1c3684fa17553ecb2a1f088c75f6a3567"
@@ -1601,6 +1615,28 @@ dependencies = [
  "js-sys",
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "gridcraft-engine"
+version = "0.13.0"
+source = "git+https://github.com/storytold/gridcraft?rev=68a4b1a1c3684fa17553ecb2a1f088c75f6a3567#68a4b1a1c3684fa17553ecb2a1f088c75f6a3567"
+dependencies = [
+ "gridcraft-calc",
+ "gridcraft-chart",
+ "gridcraft-core",
+ "gridcraft-formula",
+ "gridcraft-functions",
+ "gridcraft-model",
+ "gridcraft-numfmt",
+ "gridcraft-pdf",
+ "gridcraft-xlsx",
+ "image",
+ "log",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "web-time",
 ]
 
 [[package]]
@@ -1642,6 +1678,11 @@ source = "git+https://github.com/storytold/gridcraft?rev=68a4b1a1c3684fa17553ecb
 dependencies = [
  "gridcraft-core",
 ]
+
+[[package]]
+name = "gridcraft-pdf"
+version = "0.13.0"
+source = "git+https://github.com/storytold/gridcraft?rev=68a4b1a1c3684fa17553ecb2a1f088c75f6a3567#68a4b1a1c3684fa17553ecb2a1f088c75f6a3567"
 
 [[package]]
 name = "gridcraft-xlsx"
@@ -4942,7 +4983,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

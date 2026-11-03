@@ -47,6 +47,23 @@ export class Spreadsheet {
      */
     cell_picture(sheet_id: number, cell: string): Uint8Array;
     /**
+     * The drawing primitives of the chart `chart_id` laid out for a `width` by `height` box, as
+     * JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
+     */
+    chart_drawing(sheet_id: number, chart_id: number, width: number, height: number): string;
+    /**
+     * The charts of one sheet with their anchors, as JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
+     */
+    charts(sheet_id: number): string;
+    /**
      * The cells of the A1 range `range` with their inputs, values, and formats, as the JSON a
      * later [`paste_op`] takes.
      *
@@ -71,6 +88,24 @@ export class Spreadsheet {
      * Throws a `JsError` with the kernel's message when the kernel refuses the input.
      */
     export_xlsx(): Uint8Array;
+    /**
+     * The distinct values of the zero-based column `col` inside the sheet's filter range, with
+     * whether the current criteria show each, as JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
+     */
+    filter_values(sheet_id: number, col: number): string;
+    /**
+     * The cells whose text matches `query` on the sheet `sheet_id`, or on every sheet when it is
+     * `0`, as JSON. `options_json` carries `match_case`, `whole_cell`, and `formulas`.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
+     */
+    find(sheet_id: number, query: string, options_json: string): string;
     /**
      * A second document that starts equal to this one. Documents are copy-on-write, so the fork
      * shares every sheet with this one until either side applies an operation.
@@ -127,6 +162,16 @@ export class Spreadsheet {
      */
     sheets(): string;
     /**
+     * `null` when `input` passes the validation of the A1 cell `cell` or the cell has none,
+     * otherwise the failure with its message and `stop`, `warning`, or `information` style, as
+     * JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` with the kernel's message when the kernel refuses the input.
+     */
+    validate_input(sheet_id: number, cell: string, input: string): string;
+    /**
      * The cells, styles, merged areas, spills, and line sizes of the zero-based rectangle from
      * `(r0, c0)` to `(r1, c1)`, as JSON.
      *
@@ -168,9 +213,13 @@ export interface InitOutput {
     readonly spreadsheet_apply_rebased: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly spreadsheet_cell_input: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly spreadsheet_cell_picture: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly spreadsheet_chart_drawing: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+    readonly spreadsheet_charts: (a: number, b: number) => [number, number, number, number];
     readonly spreadsheet_copy_block: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly spreadsheet_create_blank: (a: number, b: number) => [number, number, number];
     readonly spreadsheet_export_xlsx: (a: number) => [number, number, number, number];
+    readonly spreadsheet_filter_values: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly spreadsheet_find: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly spreadsheet_fork: (a: number) => number;
     readonly spreadsheet_format_snapshot: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly spreadsheet_image_data: (a: number, b: number, c: number) => [number, number, number, number];
@@ -178,6 +227,7 @@ export interface InitOutput {
     readonly spreadsheet_open: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly spreadsheet_selection_stats: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly spreadsheet_sheets: (a: number) => [number, number, number, number];
+    readonly spreadsheet_validate_input: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly spreadsheet_viewport: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __externref_table_dealloc: (a: number) => void;

@@ -18,6 +18,16 @@
   download only, and `.xls`, `.xlsb`, `.ods`, `.csv`, and `.tsv` files keep
   their read-only previews. Operators can tune the editable file size and
   compaction with `pod.spreadsheet.limits`.
+- Spreadsheets gain the data tools. The **Data** menu filters the selection or
+  the block of data around the active cell, and the header buttons list each
+  column's values to show or hide; data validation restricts what cells accept,
+  cells with a list rule offer a dropdown, and input that breaks a rule is
+  rejected or flagged with the rule's message; a range can be formatted as a
+  table and converted back; and find and replace (Ctrl+F, Ctrl+H) search the
+  sheet or the workbook. The grid now paints the charts of a sheet from the
+  values they refer to, table styles, conditional formatting (fills, fonts,
+  data bars, colour scales, and icon sets) from the file, and a mark on cells
+  with notes, and the note popover shows the current note.
 - Spreadsheets gain the everyday editing tools of desktop spreadsheet apps.
   Typing `=` suggests functions and shows their arguments, the **Formulas**
   menu inserts a sum, average, count, maximum, or minimum of the numbers above
