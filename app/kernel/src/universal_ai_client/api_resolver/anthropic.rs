@@ -866,11 +866,11 @@ fn anthropic_messages(context: &ResponseContext, input: Option<&Value>) -> Value
                             .unwrap_or_default();
                     }
                     Some("function_call" | "custom_tool_call") => replay.push_assistant(vec![anthropic_tool_use(map)]),
-                    Some("function_call_output" | "custom_tool_call_output") => replay.push_user(json!([{
+                    Some("function_call_output" | "custom_tool_call_output") => replay.push_tool_result(json!({
                         "type": "tool_result",
                         "tool_use_id": map.get("call_id").map(value_to_text).unwrap_or_default(),
                         "content": map.get("output").map(value_to_text).unwrap_or_default()
-                    }])),
+                    })),
                     _type => replay.push_item(map),
                 }
             }
@@ -885,19 +885,28 @@ fn anthropic_messages(context: &ResponseContext, input: Option<&Value>) -> Value
 struct AnthropicReplay {
     messages: Vec<Value>,
     assistant_blocks: Vec<Value>,
+    tool_result_blocks: Vec<Value>,
     pending_thinking: Vec<Value>,
 }
 
 impl AnthropicReplay {
     fn push_assistant(&mut self, mut blocks: Vec<Value>) {
+        self.flush_tool_results();
         if self.assistant_blocks.is_empty() {
             self.assistant_blocks.append(&mut self.pending_thinking);
         }
         self.assistant_blocks.append(&mut blocks);
     }
 
+    fn push_tool_result(&mut self, block: Value) {
+        self.flush_assistant();
+        self.pending_thinking.clear();
+        self.tool_result_blocks.push(block);
+    }
+
     fn push_user(&mut self, content: Value) {
         self.flush_assistant();
+        self.flush_tool_results();
         self.pending_thinking.clear();
         self.messages
             .push(json!({"role": "user", "content": content}));
@@ -926,8 +935,18 @@ impl AnthropicReplay {
             .push(json!({"role": "assistant", "content": content}));
     }
 
+    fn flush_tool_results(&mut self) {
+        if self.tool_result_blocks.is_empty() {
+            return;
+        }
+        let content = std::mem::take(&mut self.tool_result_blocks);
+        self.messages
+            .push(json!({"role": "user", "content": content}));
+    }
+
     fn finish(mut self) -> Vec<Value> {
         self.flush_assistant();
+        self.flush_tool_results();
         self.messages
     }
 }
