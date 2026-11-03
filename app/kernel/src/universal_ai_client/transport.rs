@@ -250,6 +250,7 @@ async fn collect_http_body_until_idle(
 struct ClientKey {
     proxy: Option<String>,
     connect_ms: u64,
+    #[cfg(feature = "test-ca")]
     ca_cert_pem: Option<String>,
 }
 
@@ -258,6 +259,7 @@ impl ClientKey {
         Self {
             proxy: proxy.map(URL::to_string),
             connect_ms: upstream.timeout.connect_ms,
+            #[cfg(feature = "test-ca")]
             ca_cert_pem: upstream
                 .transport
                 .ca_cert_pem
@@ -374,6 +376,7 @@ fn build_client(
         .connect_timeout(upstream.timeout.connect_duration())
         .http1_only();
 
+    #[cfg(feature = "test-ca")]
     if let Some(ca_pem) = upstream
         .transport
         .ca_cert_pem
@@ -439,6 +442,7 @@ mod tests {
             },
             transport: TransportSpec {
                 proxy: None,
+                #[cfg(feature = "test-ca")]
                 ca_cert_pem: None,
             },
         };

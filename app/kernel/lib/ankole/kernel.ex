@@ -3,7 +3,9 @@ defmodule Ankole.Kernel do
   Native kernel helpers loaded by the Elixir control plane.
   """
 
+  @test_build? Mix.env() == :test or Path.basename(Mix.Project.build_path()) == "test"
   @rustler_mode if(Mix.env() == :prod, do: :release, else: :debug)
+  @rustler_features if(@test_build?, do: ["nif", "test-ca"], else: ["nif"])
 
   @sccache_remote_env_keys ~w(
     SCCACHE_BUCKET
@@ -87,7 +89,7 @@ defmodule Ankole.Kernel do
     # Elixir external resources, so keep it absolute instead of using `.`.
     path: Path.expand("../..", __DIR__),
     default_features: false,
-    features: ["nif"],
+    features: @rustler_features,
     mode: @rustler_mode,
     env: @rustler_env
 

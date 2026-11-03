@@ -55,6 +55,8 @@ universal_ai_client = [
   "dep:tokio-socks",
   "dep:tokio-tungstenite",
 ]
+# Custom root CA certificate field on `TransportSpec` for local TLS test fixtures.
+test-ca = []
 model_image = ["dep:image", "dep:webp"]
 
 [dependencies]

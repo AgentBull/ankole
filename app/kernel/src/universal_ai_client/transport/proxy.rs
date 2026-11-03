@@ -532,6 +532,7 @@ mod tests {
             },
             transport: TransportSpec {
                 proxy: None,
+                #[cfg(feature = "test-ca")]
                 ca_cert_pem: None,
             },
         };
@@ -572,6 +573,7 @@ mod tests {
                 },
                 transport: TransportSpec {
                     proxy: None,
+                    #[cfg(feature = "test-ca")]
                     ca_cert_pem: None,
                 },
             },
