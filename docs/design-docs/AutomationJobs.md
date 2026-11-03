@@ -204,13 +204,15 @@ the run ends in a terminal script failure. Missing `main.ts` files and invalid
 MCP declarations in Skills are also terminal script failures, so Oban never
 retries them.
 
-By contrast, a `timed_out` Worker readiness result, a lost Worker route, a
-RuntimeFabric RPC error, or an invalid Worker response counts as an
-infrastructure failure. Setup failures before `main.ts` starts (such as a failed
-copy from the drive or a failed `WorkerEnv` resolution) also count as
-infrastructure failures. When Worker readiness times out, admission claims one
-attempt under its locks before recording the failure. Every new attempt records
-its own `started_at` timestamp and receives a fresh ten-minute script budget.
+By contrast, a `timed_out` Worker readiness result, a request that no Worker
+Channel accepted (the route has no channel, the route fence names another
+connection, or the channel process ended before it took the call), and a Worker
+RPC error that confirms `execution_started: false` count as infrastructure
+failures. Setup failures before `main.ts` starts (such as a failed copy from the
+drive or a failed `WorkerEnv` resolution) report exactly that confirmation. When
+Worker readiness times out, admission claims one attempt under its locks before
+recording the failure. Every new attempt records its own `started_at` timestamp
+and receives a fresh ten-minute script budget.
 
 After an infrastructure failure, the control plane returns the run to `queued`,
 clears its attempt UUID, and lets Oban dispatch a retry, up to five total
@@ -220,20 +222,22 @@ indefinitely. Likewise, if Human authorization is revoked between attempts,
 admission marks the run `failed` and commits any configured failure notice
 instead of stranding a queued run without a valid retry owner.
 
-A running attempt that passes its RPC deadline (the ten-minute run limit plus
-ten seconds) has an unknown outcome. The Oban job marks the run `failed` with
-that reason and does not start another attempt. If a node stops during the last
-permitted Oban attempt, Oban discards the job, and the run loses this owner.
-The `ExpireAttempts` cron job runs every five minutes in each tenant and records
-the same failure for every running attempt past its deadline, so a run without
-an Oban job cannot keep a slot of `automation_jobs.max_running_per_agent`. The
-attempt UUID fences the two writers, and the second write is stale.
+A running attempt whose request the Worker Channel accepted but never answered
+has an unknown outcome, whether the connection closes first or the RPC deadline
+(the ten-minute run limit plus ten seconds) passes: the Worker may have started
+the script. The Oban job marks the run `failed` with that reason and does not
+start another attempt. If a node stops during the last permitted Oban attempt,
+Oban discards the job, and the run loses this owner. The `ExpireAttempts` cron
+job runs every five minutes in each tenant and records the same failure for
+every running attempt past its deadline, so a run without an Oban job cannot
+keep a slot of `automation_jobs.max_running_per_agent`. The attempt UUID fences
+the two writers, and the second write is stale.
 
 `WorkerAdmission` tracks Worker liveness. Whenever it marks a route unusable or
-replaces a Worker incarnation, it immediately aborts pending RPC waits on that
-route so the Oban attempt can fail and retry without waiting out the ten-minute
-script deadline. Once PostgreSQL records a new attempt UUID, the old Worker can
-neither emit events nor finish the run.
+replaces a Worker incarnation, the closing channel immediately answers its
+pending RPC waits, so the Oban attempt records the unknown outcome without
+waiting out the ten-minute script deadline. Once PostgreSQL records a new
+attempt UUID, the old Worker can neither emit events nor finish the run.
 
 When a run ends in a terminal failure and `wake_on_failure` is `true`, the
 control plane appends one `automation_job.run_failed` Signal to the owner
