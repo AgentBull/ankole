@@ -48,7 +48,7 @@ Job이 소유자 세션에 알려야 하는 상태에 도달하면, Ankole은 �
 
 ## 재개와 입력 대기
 
-`waiting_on_user`는 실행 슬롯을 점유하지 않은 채 Job의 문맥을 그대로 보존하는 일시 정지 상태입니다. 작업 도중 사람의 의사결정이 필요해지면 Job은 `waiting_on_user`로 전환되며, 최신 상태 프로젝션에는 오류 코드 `request_user_input`과 대기 중인 도구 호출 정보를 담은 `interrupted` 상태가 기록되어 다음 turn에서 정확히 어느 지점부터 재개해야 하는지 보존합니다. 이후 답변이 전달되면 Job은 다시 `running`으로 전환되어 작업을 이어 갑니다.
+`waiting_on_user`는 실행 슬롯을 점유하지 않은 채 Job의 문맥을 그대로 보존하는 일시 정지 상태입니다. 작업 도중 사람의 의사결정이 필요해지면 Job은 `waiting_on_user`로 전환되며, 최신 상태 프로젝션에는 오류 코드 `request_user_input`과 대기 중인 도구 호출 정보를 담은 `interrupted` 상태가 기록되어 다음 turn에서 정확히 어느 지점부터 재개해야 하는지 보존합니다. 이후 답변이 전달되면 Job은 다시 `running`으로 전환되어 작업을 이어 갑니다. 만약 `waiting_on_user` 상태로 `10`분 이상 일시 정지되어 있었고 직전 모델 호출에서 보고된 총 토큰 수가 `128,000` 이상인 Job을 재개할 때는 `CodexJobSession`이 식어 버린 대용량 컨텍스트 윈도우를 다시 재생하는 대신 제한된 Workspace 재구성 정보(`job.task`, 영속 Workspace 파일, 상한이 정해진 시도 이력, 선행 Job의 원본 작업·최종 보고서)로 새 스레드를 시작하며, 새 스레드가 시작되거나 컴팩션이 확정될 때마다 런타임 CLI의 `contextId`를 함께 순환합니다.
 
 일시 정지 후 재개하는 것 외에도, 이미 완료된 이전 Job의 결과와 작업 공간을 이어받아 후속 Job을 시작할 수도 있습니다. 이때는 `continued_from_job_id`와 `workspace_owner_job_id` 필드가 연쇄 이력을 기록하므로, 여러 단계로 나뉜 장기 업무에서도 기존 맥락이나 로컬 파일 작업 공간을 잃지 않고 자연스럽게 작업을 이어 갈 수 있습니다.
 
@@ -69,19 +69,22 @@ Job이 소유자 세션에 알려야 하는 상태에 도달하면, Ankole은 �
 
 각 Job에는 선택적으로 하나의 초기 workspace 템플릿을 지정할 수 있습니다. 처음으로 실제 실행이 승인(execution admission)되는 트랜잭션에서 사용할 프로바이더 및 모델 바인딩과 당시 활성화된 Agent Plugin·Skill 목록이 함께 고정 기록됩니다. 이후 재시도나 재개 시에는 이 최초 고정 목록과 해당 에이전트의 현재 유효 활성화 목록의 교집합만 허용합니다. 즉, 중간에 관리자가 특정 기능을 끄면 실행 중인 Job에서도 즉시 제외되고 다시 켜면 복원되지만, 최초 승인 시점에 없던 새 기능이 중간에 추가되지는 않습니다. 반면 프로바이더 자격 증명과 수정 가능한 Skill 파일 본문은 매 시점 최신 정본에서 읽어 옵니다. `Sessions.CodexJob`은 커널 Signal로부터 Job 실행 시도를 수락하고 실시간 조종(steer) 이벤트는 별도 경로로 분리해 처리하므로, 일반 세션 메시지 전달이 Job 조종 명령으로 오인되지 않습니다. 모든 모델 호출은 기록된 바인딩을 통해 AIGateway를 거치며, 프로바이더에 여러 자격 증명이 등록되어 있을 때의 선택·세션 친화성(affinity)·토큰 갱신·재시도는 모두 AIGateway가 전담합니다.
 
-Background Agent Job은 메인 Agent와 같은 `skill_view` 로더를 사용합니다. 활성 Skill 카탈로그와 각 페이지 읽기에는 해당 대화의 Drive 권한을 적용합니다. Worker는 매 Turn 시작 전에 현재 열람 가능한 Skill 패키지와 스크립트, MCP 선언을 실행 디렉터리에 배치합니다. `skill_view`는 읽을 때마다 활성 상태를 확인합니다.
+Background Agent Job은 메인 Agent와 마찬가지로 `Ankole.AIAgent.Library` 기반의 동적 `skill_view` 로더를 사용합니다. 매 실행 전에 Worker는 Job에 동결된 Skill 선택 목록과 `Ankole.AIAgent.Library`에서 현재 해당 Agent에 활성화된 Skill 목록 및 `ankole-runtime` 필터의 교집합을 계산하여, 허용된 각 패키지(동반 파일, 스크립트, MCP 선언 포함)를 `/workspace/.ankole/turn-skills/<signal-id>/<skill-name>/`에 배치합니다. `skill_view`가 호출될 때마다 컨트롤 플레인은 현재 활성 상태를 확인하고 `Ankole.AIAgent.Library`에서 Skill 매니페스트나 패키지 내부 상대 경로 파일을 읽어 활성 상태인 Agent별 Skill 교훈(lesson)을 덧붙여 반환합니다.
 
-Worker는 Turn 시작과 재개 시 Agent 계약 전문을 `$CODEX_HOME/AGENTS.md`와 `~/AGENTS.md`에, 시각 규격을 `~/DESIGN.md`에 반영합니다. 프로젝트 내부 지침은 워크스페이스 템플릿이나 저장소에서 관리합니다. Job 실행 정보와 Skill 목록은 developer instructions로 전달합니다. Codex 하위 Agent의 최소 대기 시간은 1분, 기본값은 10분입니다.
+Worker는 Turn 시작과 재개 시 `Ankole.AIAgent.Library.Contracts`가 합성한 유효 Agent 계약 전문을 `$CODEX_HOME/AGENTS.md`와 `~/AGENTS.md`에, 시각 규격을 `~/DESIGN.md`에 반영합니다. 프로젝트 내부 지침은 워크스페이스 템플릿이나 저장소에서 관리합니다. Job 실행 정보와 Skill 목록은 developer instructions로 전달합니다. Codex 하위 Agent의 최소 대기 시간은 1분, 기본값은 10분입니다.
 
 ## 운영자 표면
 
-운영자가 백그라운드 작업을 조회하고 제어할 수 있도록 세 개의 Console API 라우트를 제공합니다.
+`/api/v2` 아래의 Console API 라우트로 백그라운드 작업 목록·상세 조회, Turn 이력, 상태 확인, 작업 취소를 수행할 수 있습니다.
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/background-agent-jobs` | 백그라운드 Job 목록 조회 |
-| `GET` | `/background-agent-jobs/:job_id` | 특정 Job 상세 조회 |
-| `POST` | `/background-agent-jobs/:job_id/cancel` | 실행 중이거나 대기 중인 Job 취소 |
+| `GET` | `/api/v2/background-agent-jobs` | 백그라운드 Job 목록 조회 |
+| `GET` | `/api/v2/background-agent-jobs/:id` | 특정 Job 상세 조회 |
+| `GET` | `/api/v2/background-agent-jobs/health` | 백그라운드 Job 서브시스템 상태 조회 |
+| `GET` | `/api/v2/background-agent-jobs/:job_id/turns` | 특정 Job의 Turn 이력 조회 |
+| `POST` | `/api/v2/background-agent-jobs/:id/cancel` | 실행 중이거나 대기 중인 Job 취소 |
+| `POST` | `/api/v2/background-agent-jobs/:id/complete` | 특정 Job 완료 처리 |
 
 취소를 요청하면 Job 상태가 `stopped`로 전환되고 실행 중인 Worker에 취소 명령이 전달됩니다. 이후 뒤늦게 도착하는 Worker 실행 결과를 커밋할지 여부는 모두 PostgreSQL에 기록된 Job 상태, attempt 식별자, Turn revision 펜스를 기준으로 판정합니다.
 

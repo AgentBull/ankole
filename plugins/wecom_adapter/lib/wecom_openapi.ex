@@ -1,5 +1,5 @@
 defmodule WeComOpenAPI do
-  import IMTransport.HTTP, only: [filename_from_response: 1]
+  import IMTransport.HTTP, only: [filename_from_response: 1, put_body: 2]
 
   @moduledoc """
   Thin WeCom corp REST client used by Ankole's WeCom adapter.
@@ -130,18 +130,6 @@ defmodule WeComOpenAPI do
 
   defp decode_response(%Req.Response{status: status} = response) do
     {:error, %Error{reason: :unexpected_shape, http_status: status, raw: decoded(response.body)}}
-  end
-
-  defp put_body(req_opts, opts) do
-    case Keyword.fetch(opts, :body) do
-      {:ok, body} ->
-        req_opts
-        |> Keyword.put(:body, Torque.encode!(body))
-        |> Keyword.update!(:headers, &(&1 ++ [{"content-type", "application/json"}]))
-
-      :error ->
-        req_opts
-    end
   end
 
   defp normalize_query(nil), do: nil

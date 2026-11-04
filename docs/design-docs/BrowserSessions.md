@@ -185,7 +185,7 @@ context. CSRF verification reads the selected authentication once, and the Pod
 identity check uses the same Human record for access-version and login-policy
 validation. Each new request verifies current server state.
 Conversation endpoints verify either
-participant membership or, for a Page-anchored thread, `page_view` permission on
+participant membership or, for a Page-anchored thread, `node_view` permission on
 its anchor Page. Console API endpoints and native Console file transfers verify
 active `siteadmin` membership in the privileged tenant through
 `AnkoleWeb.Session.site_admin_session/1`, rejecting ordinary Pod members with

@@ -121,6 +121,7 @@ Job or source displays an error without selecting a replacement. Application
 and personal authorization keep their respective subject kinds across consent.
 Existing subscriptions let their account owner authorize and retry; administrators
 see which owner must supply the grant.
+The Pod accepts only local absolute paths as OAuth return destinations; missing or invalid destinations use the connection page.
 The authorization request uses PKCE and a one-use state
 digest. The public callback exchanges the authorization code and stores sealed
 pending tokens after checking the provider's external subject. The browser then

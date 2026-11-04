@@ -1,3 +1,4 @@
+import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
 import {
   Button,
   Input,
@@ -42,7 +43,7 @@ import {
 } from '../api/generated/sdk.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { contentError } from '../content-errors'
-import { formatPageTimestamp } from '../content-list'
+import { formatRelativeTime } from '../../common/date-time'
 import { RootSectionToggle } from '../page-navigation'
 import type { RoomUpdate } from './room-api'
 import { ChatAvatar } from './chat-avatar'
@@ -78,12 +79,7 @@ export function ChatSidebar() {
   const [assistant, setAssistant] = useState<'peek' | 'recent' | 'all'>('peek')
   const [pinnedOpen, setPinnedOpen] = useState(true)
   const [messagesOpen, setMessagesOpen] = useState(true)
-  const keepFocusInRow = useRef(false)
-  const menuFinalFocus = () => {
-    const restore = !keepFocusInRow.current
-    keepFocusInRow.current = false
-    return restore
-  }
+  const [keepFocusInRow, menuFinalFocus] = useMenuFinalFocus()
   const rooms = useInfiniteQuery({
     queryKey: [...podKeys.conversations, 'sidebar', search],
     initialPageParam: undefined as string | undefined,
@@ -174,7 +170,7 @@ export function ChatSidebar() {
     const dm = room.conversationKind === 'colleague_dm'
     const twoLines = room.conversationKind !== 'assistant_task'
     const title = conversationLabel(room, t('pod.content.untitled'))
-    const time = twoLines ? formatPageTimestamp(room.lastActivityAt, i18n.language) : ''
+    const time = twoLines ? formatRelativeTime(room.lastActivityAt, i18n.language) : ''
     const menu = (
       <>
         {!dm && (

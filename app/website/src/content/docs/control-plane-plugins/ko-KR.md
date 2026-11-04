@@ -37,13 +37,14 @@ Control Plane Plugins는 릴리스에 함께 컴파일되는 퍼스트파티 Eli
 
 ## 서브시스템 계약 및 사이트 확장 지점
 
-`Ankole.Plugins.Contracts`는 다섯 가지 서브시스템 어댑터 계약을 정의하며, 각 계약은 부팅 시점의 `validate` 검증과 선택적인 `refresh` 게시 및 `veto_disable` 트랜잭션 가드를 제공합니다.
+Control Plane Plugins는 여섯 가지 서브시스템 어댑터 계약(`Ankole.Plugins.Contracts` 및 `Ankole.Connectors.Registry`)을 선언하며, 부팅 시점의 `validate` 검증과 선택적인 `refresh` 게시 및 `veto_disable` 트랜잭션 가드를 결합합니다.
 
 - **`signals.adapter`** — 메시징·이벤트 어댑터를 선언합니다. `Ankole.Signals.Adapters`가 이를 검증하며, 검증을 통과한 어댑터는 Signal Bindings와 Conversations 전달에서 사용할 수 있습니다.
 - **`signals.webhook_handler`** — `/webhooks/v1/:handler_id/:instance_id/:kind` 엔드포인트용 HTTP 웹훅 핸들러를 선언하며, `Ankole.Signals.WebhookHandlers`가 검증합니다.
-- **`principals.identity_provider`** — 엔터프라이즈 Identity Provider 및 디렉터리 동기화 어댑터를 선언하며, `Ankole.IdentityProviders`가 검증합니다.
+- **`principals.identity_provider`** — 엔터프라이즈 Identity Provider 및 디렉터리 동기화 어댑터를 선언합니다. `Ankole.IdentityProviders`가 검증하며, 테넌트 Identity Provider 설정이 의존하고 있는 동안 `veto_disable`로 비활성화를 차단합니다.
 - **`ai_gateway.provider`** — 모델 프로바이더 어댑터를 선언합니다. `Ankole.AIGateway.Providers`가 이를 검증하고 `refresh`를 통해 활성 선언을 AI Gateway에 게시합니다.
-- **`agent_workers.provider_kind`** — Agent Worker 인프라 종류(`Ankole.AgentWorkers.ProviderKind`)를 선언합니다. `refresh`를 통해 발견된 사양과 활성 사양을 게시하며, 어느 테넌트에든 해당 종류에 할당된 Worker 행이 남아 있으면 `veto_disable`(`Ankole.AgentWorkers.Providers.veto_disable_in_tx/2`)로 플러그인 비활성화를 차단합니다.
+- **`agent_workers.provider_kind`** — Agent Worker 인프라 종류(`Ankole.AgentWorkers.ProviderKind`)를 선언하며, 부팅 시 사양을 검증하고 `refresh`를 통해 발견된 사양과 활성 사양을 게시합니다.
+- **`connectors.connector`** — `Ankole.Connectors`가 제공하는 통합 플랫폼 커넥터를 선언하여 공유 애플리케이션 자격 증명(`authConfigId`), 개인 OAuth 흐름, 외부 이벤트 트리거, 내부 MCP 툴킷(`ToolSpec`)을 노출합니다. `lark-adapter`, `github-adapter`, `linear-adapter`가 이를 구현하며, 그중 `github-adapter`와 `linear-adapter`는 `activation: :always`를 사용합니다.
 
 이 밖에도 사이트 빌드 전반에서 퍼스트파티 확장은 다음과 같은 컴파일 타임·사이트 범위 확장 지점을 함께 활용합니다.
 
@@ -80,7 +81,7 @@ Control Plane Plugins는 릴리스에 함께 컴파일되는 퍼스트파티 Eli
 
 ## 범위와 경계
 
-Control Plane Plugins는 컨트롤 플레인과 동일한 BEAM 노드 및 신뢰 도메인 안에서 실행됩니다. 모델이 호출하는 Agent Computer Worker 도구나 Skill은 이곳이 아니라 [Agent Library](../agent-library/)에서 관리하며, 컨트롤 플레인 어댑터와 이에 대응하는 Agent Plugin은 각각 독립적인 활성화 상태를 가집니다.
+Control Plane Plugins는 컨트롤 플레인과 동일한 BEAM 노드 및 신뢰 도메인 안에서 실행됩니다. `connectors.connector`(`Ankole.Connectors`)를 통해 노출되는 내부 MCP 툴킷을 제외하면 Worker 측 Skill이나 워크스페이스 템플릿은 이곳이 아니라 **Meta Ankole**([Agent Library](../agent-library/))에서 관리하며, 컨트롤 플레인 어댑터와 이에 대응하는 Agent Plugin은 각각 독립적인 활성화 상태를 가집니다.
 
 ## 다음 단계
 

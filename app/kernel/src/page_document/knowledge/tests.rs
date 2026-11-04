@@ -187,3 +187,17 @@ fn principal_markers_keep_email_uids_and_sentence_punctuation() {
         "Ask @alice@example.com. Then @+8613800000000."
     );
 }
+
+#[test]
+fn markdown_link_titles_preserve_attribute_whitespace() {
+    let page = parse("[Read](https://example.com \"first\tsecond\nthird\")").unwrap();
+    assert!(
+        page.xml.contains("title=\"first&#9;second&#10;third\""),
+        "{}",
+        page.xml
+    );
+    assert_eq!(
+        parse(&export(&page.xml, &json!({})).unwrap()).unwrap().xml,
+        page.xml
+    );
+}

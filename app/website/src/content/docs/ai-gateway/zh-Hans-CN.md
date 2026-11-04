@@ -11,16 +11,18 @@ AIGateway 是 Ankole 实例统一的 AI 调用边界。外部应用、企业业�
 
 ## 它在哪里
 
-在系统链路中，AIGateway 位于调用方与上游 Provider 之间。调用方（Agent 的模型循环、通过 OIDC 登录的人类用户或外部集成服务）在请求头中携带 Bearer Token，按 OpenResponses 格式发出请求；AIGateway 解析模型选择符、组装上游请求并转发至绑定的 Provider，随后返回单个 JSON 响应或事件流。大语言模型、向量嵌入（Embedding）、重排序（Rerank）、网页搜索与网页抓取全部经过这同一道网关边界。当某轮响应启用了 `programmatic_tool_calling` 时，AIGateway 还会通过 `Ankole.FunctionRuntime.ProgramRunner`，在 `ankole-function-runtime` 服务的无状态隔离实例（isolate）中执行每次 `programmatic_tool_call` 提交的 TypeScript 程序。
+在系统链路中，AIGateway 位于调用方与上游 Provider 之间。外部集成、通过 OIDC 登录的人类用户以及 Worker 侧 Agent 模型循环通过 HTTP、SSE 或 WebSocket 携带 Bearer Token 发起请求；控制面内部子系统（如 `Ankole.Brain` 与 `Function Runtime`）则以内置 `system` 主体（`ankole_brain` 与 `system`）在进程内直接调用 `Ankole.AIGateway`。每次请求到达后，AIGateway 解析模型选择符、组装上游请求并转发至绑定的 Provider，随后返回单个 JSON 响应或事件流。大语言模型、向量嵌入（Embedding）、重排序（Rerank）、网页搜索与网页抓取全部经过这同一道网关边界。当某轮响应启用了 `programmatic_tool_calling` 时，AIGateway 还会通过 `Ankole.FunctionRuntime.ProgramRunner`，在 `ankole-function-runtime` 服务的无状态隔离实例（isolate）中执行每次 `programmatic_tool_call` 提交的 TypeScript 程序。
 
-最核心的安全原则是：调用方永远接触不到上游 Provider 凭证。控制面集中掌管密钥凭据与路由策略，调用方只需持有自身的访问令牌与模型选择符。
+核心原则始终一致：控制面集中掌管上游密钥凭据与路由策略，调用方永远接触不到上游 Provider 凭证，只需提供自身的主体身份与模型选择符。
 
 ## 鉴权
 
-`/api/v1/ai-gateway` 下的所有端点均经过 `:ai_gateway_api` 管线与 `RequireAIGatewayAccessToken` 插件校验。请求必须在 `Authorization` 请求头中携带 Bearer Token，插件仅接受以下两类令牌：
+`/api/v1/ai-gateway` 下的所有 HTTP 与 WebSocket 端点均经过 `:ai_gateway_api` 管线与 `RequireAIGatewayAccessToken` 插件校验。网络请求必须在 `Authorization` 请求头中携带 Bearer Token，插件仅接受以下两类令牌：
 
-- **Agent Token**：为某个已启用 Agent 主体签发的 AIGateway API Key。调用范围严格限定在该 Agent 自身的模型绑定与选择符内，`subject_type = "agent"`。
+- **Agent Token**：为某个已启用 Agent 主体签发的 AIGateway API Key。调用范围严格限定在该 Agent 生效的模型档案与选择符内，`subject_type = "agent"`。
 - **OIDC 人类令牌**：由声明了 `ai_gateway.write` 作用域的 OIDC 客户端为活跃人类用户（Human）签发。请求只能使用该客户端公开的模型别名，`subject_type = "oidc_human"`。
+
+控制面第一方服务（承载企业大脑任务的 `ankole_brain`，以及承载无状态 Pod Applet `ctx.ai` 调用的 `system`）则在 BEAM 进程内直接调用 `Ankole.AIGateway`，无需签发外部 Bearer Token，用量分别记入对应的 `system` 主体 UID 名下。
 
 获取 OIDC 人类令牌的流程：先在控制台中创建带有 `ai_gateway.write` 作用域的 OIDC 客户端，配置允许访问的权限组与模型别名，再通过授权码加 PKCE 流程完成登录；若需长期调用，可申请 `offline_access` 并配合轮换式 Refresh Token 使用。发起调用的人类用户必须属于客户端允许的权限组，且只能使用客户端配置的模型别名，不得直接传入原始的 `provider_id/model` 选择符。
 
@@ -81,7 +83,13 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 ## provider 路由
 
-在发起任何上游请求之前，AIGateway 会先将模型选择符解析到真实的 Provider 绑定。每个 Agent 默认拥有八个内置模型档案：`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch` 和 `image_generate`（前五个对应语言模型，后三个对应独立能力），此外还可配置自定义语言模型档案；管理员调用则可使用显式的 Provider 条目。`GET /models` 会列出当前主体能够解析的全部模型，并支持可选的 OpenRouter 风格筛选参数（`q`、`context`、`min_price`、`max_price`、`sort` 及模态过滤）。
+在发起任何上游请求之前，AIGateway 会通过三层稀疏**模型档案（Model Profile）**继承链（`Site -> Pod -> Agent/System`，在 **Console → Model Profiles** 中配置）将模型选择符解析到真实的 Provider 绑定：
+
+- **站点（Site）、Pod 与 `system` 主体（`ankole_brain`、`system`）**提供九个固定槽位：五个语言模型槽位（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）与四个独立能力槽位（`web_search`、`web_fetch`、`image_generate`、`rerank`）。
+- **Agent** 提供除 `rerank` 外的八个内置槽位，并支持配置自定义语言模型别名；未单独覆盖的槽位会自动继承 Pod 与站点默认值。
+- **跨槽位回退链**按 `coding -> heavy -> primary` 与 `light -> primary` 解析，因此只需在站点或 Pod 层配置好 `primary`，Agent 与企业大脑即可直接运行，再按需为特定 Pod、Agent 或 `system` 主体单独指定模型覆盖。
+
+在权限允许的场景下，管理员与显式内部调用也可直接传入 `provider_id/model` 选择符。调用 `GET /models` 可列出当前主体能够解析的全部模型，并支持可选的 OpenRouter 风格筛选参数（`q`、`context`、`min_price`、`max_price`、`sort` 及模态过滤）。
 
 每条 Provider 记录内部都拥有一个凭据池。Provider 类型（`provider_kind`）、基础 URL、请求头、连接参数与能力声明由池内全体成员共享；模型档案只指向 Provider 记录本身，从不直接绑定某个具体凭据成员。请求发出前，AIGateway 会按照该 Provider 记录配置的调度策略（`fill_first`、`round_robin`、`least_used` 或 `random`）挑选健康成员——Console 会根据当前界面语言展示本地化策略名，而 API 与底层存储统一使用规范英文键名。对于同一个有状态线程（thread），AIGateway 会尽量固定复用同一个池成员。
 
@@ -89,7 +97,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 `chatgpt_subscription` 同样作为一种常规 Provider 类型接入：其 OAuth 凭据保留在控制面内，令牌刷新在 Provider 行锁保护下执行，Agent Computer Worker 与外部调用方都不会接触到这些令牌。
 
-`agentbull_cloud`（**AgentBull Cloud**，默认基础 URL 为 `https://cloudapis.agentbull.com`）是内置的聚合上游 Provider 类型，仅凭一把 API Key 即可同时提供语言模型、向量嵌入、重排序、`web_search`、`web_fetch` 与 `image_generate` 能力。其凭据同样托管在控制面内；至于 Worker 侧 MCP 技能直接读取的外部服务凭据，仍通过 `WorkerEnv` 独立配置。
+`agentbull_cloud`（**AgentBull Cloud**，默认基础 URL 为 `https://cloudapis.agentbull.com`）是内置的聚合上游 Provider 类型，仅凭一把 API Key 即可同时提供语言模型、向量嵌入、重排序、`web_search`、`web_fetch` 与 `image_generate` 能力。其凭据同样托管在控制面内；外部平台连接、成员个人 OAuth 令牌以及 Skill 声明的远程 MCP 鉴权头则由控制面的 `Ankole.Connectors` MCP 网关统一托管在 PostgreSQL 中（`WorkerEnv` 仅供 Agent Computer 内的自定义脚本与 CLI 读取环境变量）。
 
 选择符解析可能因两类配置缺失而失败，调用方应做好处理：
 
@@ -121,7 +129,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 同一套主体身份与访问令牌也可调用周边能力端点。`POST /web_search` 接收带长度上限的查询词 `query`，返回由 Provider 提供的网页搜索结果；`POST /web_fetch` 接收 1 至 5 个公网 HTTPS URL，返回提取后的网页内容。这两类调用支持传入 `web_search.default` 与 `web_fetch.default`，由 AIGateway 自动解析当前 Agent 对应的模型档案。
 
-`POST /embeddings` 接受纯文本、Token 数组或输入分块；`POST /rerank` 接收非空文档数组与正整数 `top_n` 并对文档重排。这两个端点要求显式传入 `provider_id/model` 选择符，不解析 Agent 档案名。Brain 调用这两项能力时，分别读取 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model` 与租户级的 `brain.rerank_model`。Pod Applet 的 `ctx.ai` 调用则通过 AIGateway 无状态路由执行，复用创建该 Applet 的 Agent 的语言模型档案与配额，并将用量归入该 Agent 名下（该 Agent 必须处于启用状态）。完整的知识检索机制见 [Brain](../brain/)。
+`POST /embeddings` 接受纯文本、Token 数组或结构化输入分块，并要求显式传入 `provider_id/model` 选择符——例如 `Ankole.Brain` 在生成向量嵌入时会读取 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model`。`POST /rerank` 接收非空文档数组与正整数 `top_n` 并对文档重排，既支持显式传入 `provider_id/model`，也支持传入 `default` 或 `rerank.default`（`ankole_brain` 会解析其自身生效的 `rerank` 模型档案，Agent 与人类调用则解析当前 Pod/站点的 `rerank` 档案；完整的知识检索机制见 [Brain](../brain/)）。与此同时，Pod Applet 的 `ctx.ai` 调用以内置 `system` 主体身份通过 `Ankole.AIGateway` 无状态执行，解析 Pod/站点生效的语言模型档案（`primary`、`light`、`heavy`、`coding`、`vision_fallback`），不会占用任何前台 Agent 的 Token 配额。
 
 文件管理同样作为一等公民提供：`POST /files` 上传文件、`GET /files` 列出文件、`GET /files/:id` 与 `GET /files/:id/content` 读取元数据与文件内容字节、`DELETE /files/:id` 删除文件。所有文件操作均严格按调用主体隔离范围。
 

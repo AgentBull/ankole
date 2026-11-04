@@ -14,7 +14,7 @@ order: 313
 | 旧 1.x の構成 | 2.0 の構成 | 必要な運用作業 |
 | --- | --- | --- |
 | プール型 Worker と共有 `/agents` | Agent ごとの専用 Worker と専用 `/workspace` | Home を移行または引き継ぎ、WorkerProvider を割り当てる |
-| Home 内のインストール済み Skill と Worker スクリプト自動化 | Skill は制御プレーンの Drive、処理は公開済み Applet Action | Skill を取り込み、スクリプト Job をエクスポートして Applet Job として再作成 |
+| Home 内のインストール済み Skill と Worker スクリプト自動化 | Skill と Agent 契約は Meta Ankole（`Ankole.AIAgent.Library` の PostgreSQL テーブル）、ファイルは Unified Drive、自動化処理は公開済み Applet Action | 旧 `installed-skills` と未送信添付ファイルを取り込み、スキーマ移行でカスタム Skill を分離し、スクリプト Job をエクスポートして Applet Job として再作成 |
 | Worker 上の一時的な Codex 状態 | スレッドは `/workspace/.codex`、再構築可能なキャッシュは `/var/cache/ankole/codex` | Home を保持しつつ、別途キャッシュ用ディスクを用意する |
 | インプロセス実行と 2 イメージ構成 | 外部のステートレス `ankole-function-runtime`（同一バージョンの 3 イメージ：`control-plane`、`worker`、`function-runtime`） | `ANKOLE_FUNCTION_RUNTIME_TOKEN` を追加し、対応する 3 イメージすべてを同時に更新する |
 | テナント所有権のないデータと設定 | 既存データは `default` テナントへ集約、Pod / Base ストレージは **PostgreSQL 18+** 必須（任意の `BASE_DB_URLS` 専用シャード対応） | PostgreSQL 18+ へ更新したうえで、元の暗号鍵を使ってスキーマと暗号化設定を移行する |
@@ -53,14 +53,14 @@ grep -q '^ANKOLE_FUNCTION_RUNTIME_TOKEN=' .env || printf 'ANKOLE_FUNCTION_RUNTIM
 
 初回起動時の Provider シード設定では `legacy_agents: true` を指定し、`provider_id` を Home 移行サービスの `WORKER_PROVIDER` と一致させます（公式ファイルでは `docker` です）。このシードは Provider テーブルが空のときに一度だけ取り込まれるため、取り込み後に YAML ファイルを書き換えても保存済みの Provider 設定は更新されません。
 
-2.0 には **PostgreSQL 18+**（`pg_search` 0.25.11 および `vector`）が必須です。既存データベースが PostgreSQL 18 未満の場合は、先に PostgreSQL のメジャーバージョンアップグレードを済ませてから `pg_search` 拡張を更新してください。
+2.0 には **PostgreSQL 18+**（`pg_search` `0.26.4` および `vector`）が必須です。既存データベースが PostgreSQL 18 未満の場合は、先に PostgreSQL のメジャーバージョンアップグレードを済ませてから `pg_search` 拡張を更新してください。
 
 ```sh
 docker compose pull
 docker compose stop
 docker compose up -d postgresql
 docker compose exec postgresql psql -U ankole -d ankole -v ON_ERROR_STOP=1 \
-  -c "ALTER EXTENSION pg_search UPDATE TO '0.25.11'"
+  -c "ALTER EXTENSION pg_search UPDATE TO '0.26.4'"
 docker compose up -d --force-recreate
 docker compose ps -a migrate migrate-agent-homes
 docker compose logs migrate migrate-agent-homes
@@ -68,7 +68,7 @@ docker compose logs migrate migrate-agent-homes
 
 `migrate` サービスは DB スキーマと設定データを移行し、`migrate-agent-homes` サービスは旧共有ボリュームを参照しているコンテナを停止したうえで、実在する各 Agent の Home を専用ボリュームへコピーして所有者を `uid 1000` に変更します。この両方が正常完了してからコントロールプレーン本体が起動します。完了マーカーが記録されるため、再実行しても移行済みディレクトリが上書きされることはありません（旧ボリュームが存在しない環境ではコピーを行わず正常終了します）。
 
-この段階ではまだ Agent を無効のままにしておきます。旧バージョンでドライブ機能を使っていなかった場合は、旧ボリュームに読み取り権限を付与してファイルインポートを実行します。以下は既定プロジェクト名の例なので、独自プロジェクト名を使っている場合は `ankole_agents_data` を実際の旧ボリューム名に置き換えてください。
+この段階ではまだ Agent を無効のままにしておきます。旧共有ボリュームに読み取り権限を付与したうえで、Unified Drive へのファイルインポートを実行します。以下は既定プロジェクト名の例なので、独自プロジェクト名を使っている場合は `ankole_agents_data` を実際の旧ボリューム名に置き換えてください。
 
 ```sh
 docker compose run --rm --no-deps --user root --entrypoint chmod \
@@ -77,20 +77,28 @@ docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-インポートは Skill と未送信の旧 Outbox 添付ファイルをドライブへコピーし、既存のパスを上書きしません。通常のファイルと Session・Background Job の作業領域は Home に残ります。レポートを保存し、スキップされたファイルを修正して再実行してください。Applet Action への移行用にスクリプトを別途保存し、ファイル確認と復元テストが終わるまで旧ボリュームを残してください。
+`Ankole.Upgrade202610.import_agent_home/1` は既存のパスを上書きせずに旧 `installed-skills` ディレクトリと未送信の旧 Outbox・配信添付ファイルを各 Agent のプライベート Drive へ取り込み、あわせてスキーママイグレーションがカスタム Skill、Skill パッケージファイル、および Agent 契約を Meta Ankole（`Ankole.AIAgent.Library` の PostgreSQL テーブル。実行可能なカスタム Skill パッケージは **Meta Ankole → Skills**、Agent 契約は **Meta Ankole → Agents** で管理）へ分離します。通常のユーザーファイルと Session・Background Job の作業領域は Home に残ります。レポートを保存し、スキップされたファイルを修正して再実行してください。Applet Action への移行用にスクリプトを別途保存し、ファイル確認と復元テストが終わるまで旧ボリュームを残してください。
 
 ## Kubernetes / Helm
 
 1. 旧バージョンのコントロールプレーンとプール型 Worker の Deployment をレプリカ数 `0` にスケールダウンし、旧 Pod がすべて終了するまで待ちます。強制削除や `--grace-period=0` は使わないでください。
-2. 外部または同梱のデータベースが **PostgreSQL 18+** で稼働していることを確認します。`secrets.existingSecret`（`ankole-bootstrap`）を使っている場合は、`helm upgrade` の実行前に `ANKOLE_SECRET_BASE` と `DATABASE_URL` に加え、`RELEASE_COOKIE` と `ANKOLE_FUNCTION_RUNTIME_TOKEN` の両方が登録されていることを確認します。
+2. ローカル Kubernetes Worker の `/drive` マウントに必要なクラスター側の FUSE 前提条件を整えます。クラスターごとに一度だけ FUSE デバイスプラグインをインストールし（`/dev/fuse` を備えた Linux ノード上で `smarter-devices/fuse` を広告します）、アプリケーション Namespace に `pod-security.kubernetes.io/enforce=privileged` ラベルを付与して、Helm chart が Worker `ServiceAccount` 向けに作成するクラスタースコープの `ValidatingAdmissionPolicy` と連携させます（Worker Pod は特権コンテナ、ホスト Namespace、`hostPath` ボリュームを一切使用しません。なお Helm の適用主体にはこのポリシーとバインディングを管理する権限が必要です）。
+
+```sh
+kubectl apply -f tools/deploy/kubernetes/fuse-device-plugin.yaml
+kubectl -n kube-system rollout status daemonset/ankole-fuse-devices
+kubectl label namespace ankole pod-security.kubernetes.io/enforce=privileged --overwrite
+```
+
+3. 外部または同梱のデータベースが **PostgreSQL 18+**（`pg_search` `0.26.4` および `vector`）で稼働していることを確認します。`secrets.existingSecret`（`ankole-bootstrap`）を使っている場合は、`helm upgrade` の実行前に `ANKOLE_SECRET_BASE` と `DATABASE_URL` に加え、`RELEASE_COOKIE` と `ANKOLE_FUNCTION_RUNTIME_TOKEN` の両方が登録されていることを確認します。
 
 ```sh
 kubectl -n ankole patch secret ankole-bootstrap --type merge -p "$(printf '{"stringData":{"RELEASE_COOKIE":"%s","ANKOLE_FUNCTION_RUNTIME_TOKEN":"%s"}}' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)")"
 ```
 
    （`ankole-bootstrap` 内でまだ未設定のキーに対してのみ実行してください。）
-3. 旧共有 Home の PVC をそのまま残し、`worker.agents.persistence.existingClaim` に指定します。元の `worker.installation` と Helm リリース名も変更せず維持してください。また、同梱 PostgreSQL のデータがボリューム直下に置かれている環境では、元の `postgresql.pgdata`（`/var/lib/pgsql/18/data`）を維持してください（別パスに変えると空のデータベースとして初期化されて見えることがあります）。
-4. 新しいコントロールプレーンを起動する前に、Home ボリュームの所有者とパーミッションを整えます。以下のコマンドは Pod 内の root ユーザーが `chown` を実行できるストレージ向けの例です（`OLD_AGENTS_PVC` は実際の PVC 名に置き換えてください）。
+4. 旧共有 Home の PVC をそのまま残し、`worker.agents.persistence.existingClaim` に指定します。元の `worker.installation` と Helm リリース名も変更せず維持してください。また、同梱 PostgreSQL のデータがボリューム直下に置かれている環境では、元の `postgresql.pgdata`（`/var/lib/pgsql/18/data`）を維持してください（別パスに変えると空のデータベースとして初期化されて見えることがあります）。
+5. 新しいコントロールプレーンを起動する前に、Home ボリュームの所有者とパーミッションを整えます。以下のコマンドは Pod 内の root ユーザーが `chown` を実行できるストレージ向けの例です（`OLD_AGENTS_PVC` は実際の PVC 名に置き換えてください）。
 
 ```sh
 kubectl -n ankole run ankole-agent-home-prepare --rm -i --restart=Never \
@@ -104,7 +112,7 @@ kubectl -n ankole run ankole-agent-home-prepare --rm -i --restart=Never \
 
 既定で root-squash が有効になっている NFS 環境では、Pod 内からこの `chown` を実行できません。NFS サーバー側で直接所有者と権限を変更して Worker root からの書き込みと所有者変更を許可するか、すべてのアクセスを `uid/gid 1000` にマッピングしてください。なお、`uid/gid 1000` の EFS Access Point を使っている場合は所有者変換は不要です。詳しくは [WorkerProvider とキャッシュディスク](../worker-providers/) を参照してください。
 
-続いて、`values-production.yaml` にバージョンを揃えた `controlPlane.image` と `functionRuntime.image` の digest（Worker イメージを明示的に上書きする場合のみ、同一リビジョンの `worker.image` も指定）、[ドライブバックエンド](../drive-storage/)、および旧 PVC を設定してアップグレードを実行します。
+続いて、`values-production.yaml` にバージョンを揃えた `controlPlane.image` と `functionRuntime.image` の digest（Worker イメージを明示的に上書きする場合のみ、同一リビジョンの `worker.image` も指定）、[ドライブバックエンド](../drive-storage/)、および旧 PVC を設定します。旧来の裸の UID ディレクトリを取り込んでいる間に 2.0 Worker が起動しないよう、Agent は無効のままにしてアップグレードを実行します。
 
 以下のコマンドは Namespace とリリース名がともに `ankole` で、`fullnameOverride: ankole` を指定している環境を前提としています。
 
@@ -116,7 +124,16 @@ kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-Deployment は `Recreate` 戦略で更新され、新しい Pod の起動前に `db-migrate` init コンテナがマイグレーションを実行します。ファイルインポートが完了するまでは Agent を無効のままにしておいてください。出力レポートを確認したら、`files.importAgentHomeClaim` 指定を外してもう一度 `helm upgrade` を実行し、一時マウントを解除します（Worker 側が参照する旧 Home PVC 自体は引き続き必要です）。独自のリリース名、Namespace、Deployment 名を使っている場合は適宜コマンドを読み替えてください。全パラメータの一覧は [Helm ガイド](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md) を参照してください。
+Deployment は `Recreate` 戦略で更新され、新しい Pod の起動前に `db-migrate` init コンテナがマイグレーションを実行します。旧来の裸の UID ディレクトリが残っている状態で `import_agent_home/1` を完了させ、出力レポートを確認するまでは Agent を無効のままにしておいてください。
+
+共有 Agent Home PVC（`storage.sharedClaim` / `worker.agents.persistence.existingClaim`）を利用する 2.0 Worker は、裸の `<agent_uid>` ではなく `Ankole.AgentWorkers.ProviderKind.storage_name/2` で算出されるテナント修飾付きディレクトリ名をマウントします。アップグレード後のコントロールプレーンから各 Agent の移行先ディレクトリ名を確認します。
+
+```sh
+kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
+  /app/bin/ankole eval 'IO.puts(Ankole.Repo.with_tenant("TENANT_UUID", fn -> Ankole.AgentWorkers.ProviderKind.storage_name("INSTALLATION", "AGENT_UID") end))'
+```
+
+コントロールプレーンをレプリカ数 `0` に絞り、すべての Worker が停止している状態で準備用 Pod に `OLD_AGENTS_PVC` をマウントし、各 Agent の旧 `<agent_uid>` ディレクトリを `ProviderKind.storage_name/2` のパスへリネームします（すでに同名ディレクトリが存在する場合は上書きせず手動で確認・統合してください）。その後、`files.importAgentHomeClaim` 指定を外してもう一度 `helm upgrade` を実行し、一時マウントを解除してから（Worker 側が参照する共有 Home PVC 自体は残します）Agent を再度有効化してください。独自のリリース名、Namespace、Deployment 名を使っている場合は適宜コマンドを読み替えてください。全パラメータの一覧は [Helm ガイド](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md) を参照してください。
 
 ## 検証と復旧
 

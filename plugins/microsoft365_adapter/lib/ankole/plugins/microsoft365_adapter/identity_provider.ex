@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
   @moduledoc false
 
   alias Ankole.IdentityProviders.Directory
-  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.IdentityProviders.Phone
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.Microsoft365Adapter.Config
   alias MicrosoftOpenAPI.EntraAuth
@@ -353,16 +353,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
   end
 
   defp normalized_mobile(user) do
-    case MapHelpers.optional_text(user, "mobilePhone") do
-      nil ->
-        nil
-
-      phone ->
-        case NativeKernel.phone_normalize_e164(String.trim(phone)) do
-          normalized when is_binary(normalized) -> normalized
-          {:error, _reason} -> nil
-        end
-    end
+    user |> MapHelpers.optional_text("mobilePhone") |> Phone.normalize_e164()
   end
 
   defp encode_segment(value), do: URI.encode(value, &URI.char_unreserved?/1)

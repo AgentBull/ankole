@@ -11,16 +11,18 @@ AIGateway는 Ankole 배포 인스턴스의 통합 AI 호출 경계입니다. 외
 
 ## 위치
 
-AIGateway는 호출자와 업스트림 provider 사이에 위치합니다. Agent의 모델 루프, OIDC로 인증된 사용자(Human), 또는 외부 연동 시스템이 bearer 토큰과 함께 OpenResponses 형식의 요청을 보내면, AIGateway가 모델 셀렉터를 해석해 요청을 조립한 뒤 연결된 provider로 전달하고 단일 JSON 본문이나 스트림을 반환합니다. LLM, 임베딩, 리랭크, 웹 검색, 웹 페이지 읽기 기능이 모두 이 경계를 거칩니다. 또한 응답 턴에서 `programmatic_tool_calling`을 사용하는 경우, AIGateway는 `Ankole.FunctionRuntime.ProgramRunner`를 통해 `ankole-function-runtime`의 stateless isolate에서 각 `programmatic_tool_call`의 TypeScript 프로그램을 실행합니다.
+AIGateway는 호출자와 업스트림 provider 사이에 위치합니다. 외부 연동 시스템, OIDC로 인증된 사용자(Human), Worker 측 Agent 모델 루프는 HTTP, SSE, WebSocket으로 bearer 토큰과 함께 요청을 보내며, `Ankole.Brain`이나 `Function Runtime` 같은 컨트롤 플레인 내부 서브시스템은 내장 `system` Principal(`ankole_brain`, `system`) 명의로 프로세스 안에서 직접 `Ankole.AIGateway`를 호출합니다. 모든 호출에서 AIGateway가 모델 셀렉터를 해석해 요청을 조립한 뒤 연결된 provider로 전달하고 단일 JSON 본문이나 스트림을 반환합니다. LLM, 임베딩, 리랭크, 웹 검색, 웹 페이지 읽기 기능이 모두 이 경계를 거칩니다. 또한 응답 턴에서 `programmatic_tool_calling`을 사용하는 경우, AIGateway는 `Ankole.FunctionRuntime.ProgramRunner`를 통해 `ankole-function-runtime`의 stateless isolate에서 각 `programmatic_tool_call`의 TypeScript 프로그램을 실행합니다.
 
-핵심 원칙은 명확합니다. 컨트롤 플레인이 자격 증명과 라우팅 정책을 전담 관리하므로 호출자는 업스트림 provider 자격 증명을 볼 수 없으며, 오직 자신의 토큰과 모델 셀렉터만 다룹니다.
+핵심 원칙은 명확합니다. 컨트롤 플레인이 자격 증명과 라우팅 정책을 전담 관리하므로 호출자는 업스트림 provider 자격 증명을 볼 수 없으며, 오직 자신의 호출 주체와 모델 셀렉터만 다룹니다.
 
 ## 인증
 
-`/api/v1/ai-gateway` 하위 엔드포인트는 모두 `:ai_gateway_api` 파이프라인과 `RequireAIGatewayAccessToken` 플러그를 거칩니다. 호출자는 `Authorization` 헤더에 bearer 토큰을 담아 보내야 하며, 다음 두 종류의 토큰만 허용됩니다.
+`/api/v1/ai-gateway` 하위 HTTP 및 WebSocket 엔드포인트는 모두 `:ai_gateway_api` 파이프라인과 `RequireAIGatewayAccessToken` 플러그를 거칩니다. 네트워크 호출자는 `Authorization` 헤더에 bearer 토큰을 담아 보내야 하며, 다음 두 종류의 토큰만 허용됩니다.
 
-- **Agent token** — 활성 Agent Principal을 주체(subject)로 하는 AIGateway API 키입니다. 호출 범위는 해당 Agent의 모델 바인딩과 셀렉터로 제한되며 `subject_type = "agent"`로 동작합니다.
+- **Agent token** — 활성 Agent Principal을 주체(subject)로 하는 AIGateway API 키입니다. 호출 범위는 해당 Agent의 유효 모델 프로필과 셀렉터로 제한되며 `subject_type = "agent"`로 동작합니다.
 - **OIDC Human token** — `ai_gateway.write` 권한을 가진 OIDC Client가 활성 사용자(Human)에게 발급한 토큰입니다. 해당 Client에 설정된 모델 별칭(model alias)만 호출할 수 있으며 `subject_type = "oidc_human"`으로 동작합니다.
+
+컨트롤 플레인의 퍼스트파티 서비스(Company Brain 작업을 수행하는 `ankole_brain`과 무상태 Pod Applet `ctx.ai` 호출을 수행하는 `system`)는 외부 bearer 토큰을 발급하지 않고 BEAM 프로세스 내부에서 직접 `Ankole.AIGateway`를 호출하며, 사용량은 각 `system` Principal UID로 집계됩니다.
 
 OIDC Human 토큰을 사용하려면 먼저 Console에서 `ai_gateway.write` 스코프를 가진 OIDC Client를 생성하고 허용할 그룹과 모델 별칭을 지정합니다. 이후 사용자는 PKCE를 적용한 Authorization Code 흐름으로 로그인하며, 장기 세션이 필요하면 `offline_access`를 요청해 순환 갱신되는(rotating) Refresh Token을 사용합니다. 사용자는 반드시 허용된 그룹에 속해 있어야 하며 해당 Client에 등록된 모델 별칭만 지정할 수 있고, 원시 `provider_id/model` 형식의 셀렉터는 직접 사용할 수 없습니다.
 
@@ -81,7 +83,13 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 ## Provider 라우팅
 
-AIGateway는 업스트림 API를 호출하기 전에 모델 셀렉터를 실제 provider 바인딩으로 해석합니다. 각 Agent에는 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`의 8가지 기본 프로필이 내장되어 있습니다. 앞의 5개는 언어 모델을 선택하고 뒤의 3개는 전용 보조 기능을 선택하며, 필요하면 사용자 지정 언어 모델 프로필을 추가로 정의할 수도 있습니다. 관리자는 명시적 provider 항목을 직접 지정할 수 있습니다. `GET /models`를 호출하면 현재 주체가 사용할 수 있는 셀렉터 목록이 반환되며, OpenRouter 스타일의 검색 필터(`q`, `context`, `min_price`, `max_price`, `sort`, 모달리티 필터)를 선택적으로 전달할 수 있습니다.
+AIGateway는 업스트림 API를 호출하기 전에 **Console → Model Profiles**에서 구성하는 3계층 희소 **모델 프로필(Model Profile)** 상속 체인(`Site -> Pod -> Agent/System`)에 따라 모델 셀렉터를 해석합니다.
+
+- **Site, Pod 및 `system` Principal(`ankole_brain`, `system`)**은 9개의 고정 슬롯을 제공합니다. 5개는 언어 모델 슬롯(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)이고 4개는 전용 capability 슬롯(`web_search`, `web_fetch`, `image_generate`, `rerank`)입니다.
+- **Agent**는 `rerank`를 제외한 8개 기본 슬롯과 사용자 지정 언어 모델 별칭을 제공하며, 비워 둔 슬롯은 Pod와 Site 기본값을 자동으로 상속합니다.
+- **슬롯 간 폴백**은 `coding -> heavy -> primary` 및 `light -> primary` 순서로 해석되므로 Site나 Pod에 `primary`만 구성해도 Agent와 Brain이 바로 동작하며, 필요한 경우에만 Pod·Agent·`system` Principal 단위로 개별 재정의할 수 있습니다.
+
+권한이 허용된 관리자와 내부 호출자는 명시적 `provider_id/model` 셀렉터도 직접 지정할 수 있습니다. `GET /models`를 호출하면 현재 주체가 사용할 수 있는 셀렉터 목록이 반환되며, OpenRouter 스타일의 검색 필터(`q`, `context`, `min_price`, `max_price`, `sort`, 모달리티 필터)를 선택적으로 전달할 수 있습니다.
 
 각 provider 행은 자체 자격 증명 풀(credential pool)을 보유하며, 풀에 속한 모든 자격 증명은 동일한 provider 종류, 기본 URL, 헤더, 공통 설정, 지원 capability 선언을 공유합니다. 모델 프로필은 특정 풀 항목이 아니라 provider 행 자체를 가리키며, 런타임에 AIGateway가 설정된 분배 전략(`fill_first`, `round_robin`, `least_used`, `random`)에 따라 정상 상태인 자격 증명을 선택합니다. Console 화면에서는 이 전략 이름을 현재 UI 언어로 번역해 보여 주지만, API와 데이터베이스는 정규 영문 키를 그대로 사용합니다. stateful 대화 스레드는 가능한 한 처음 선택된 자격 증명을 계속 유지합니다.
 
@@ -89,7 +97,7 @@ AIGateway는 업스트림 API를 호출하기 전에 모델 셀렉터를 실제 
 
 `chatgpt_subscription` 역시 동일한 구조의 일반 provider 종류입니다. OAuth 자격 증명은 컨트롤 플레인 내부에만 보관되며 토큰 갱신은 데이터베이스 행 잠금(row lock) 아래에서 안전하게 수행되므로, Agent Computer나 외부 호출자에게 원본 토큰이 전달되지 않습니다.
 
-`agentbull_cloud`(**AgentBull Cloud**, 기본 base URL `https://cloudapis.agentbull.com`)는 단일 API 키로 언어 모델, 임베딩, 리랭크, `web_search`, `web_fetch`, `image_generate` 기능을 모두 제공하는 내장 통합 provider입니다. 이 자격 증명 또한 컨트롤 플레인에만 보관되며, Worker 내부의 MCP 스킬에서 직접 읽어야 하는 외부 서비스 키는 별도의 `WorkerEnv`에 등록해 사용합니다.
+`agentbull_cloud`(**AgentBull Cloud**, 기본 base URL `https://cloudapis.agentbull.com`)는 단일 API 키로 언어 모델, 임베딩, 리랭크, `web_search`, `web_fetch`, `image_generate` 기능을 모두 제공하는 내장 통합 provider입니다. 이 자격 증명 또한 컨트롤 플레인에만 보관되며, 외부 플랫폼 연결과 개인 OAuth 토큰, Skill이 선언한 원격 MCP 인증 헤더는 컨트롤 플레인의 `Ankole.Connectors` MCP 게이트웨이가 PostgreSQL에서 통합 관리합니다(`WorkerEnv`는 Agent Computer 내부의 사용자 지정 CLI 및 스크립트 환경 변수에 사용합니다).
 
 셀렉터 해석 단계에서 발생할 수 있는 대표적인 구성 오류는 다음 두 가지입니다.
 
@@ -123,7 +131,7 @@ AIGateway는 업스트림 API를 호출하기 전에 모델 셀렉터를 실제 
 
 동일한 주체와 bearer 토큰으로 보조 AI 엔드포인트들도 호출할 수 있습니다. `POST /web_search`는 길이 제한이 있는 `query`를 받아 검색 결과를 반환하고, `POST /web_fetch`는 1~5개의 공개 HTTPS URL을 받아 본문 콘텐츠를 추출해 반환합니다. 두 엔드포인트에서는 `web_search.default`와 `web_fetch.default` 셀렉터를 지정할 수 있으며, 이 경우 AIGateway가 호출한 Agent의 현재 프로필 설정을 자동으로 찾아 연결합니다.
 
-`POST /embeddings`는 문자열, 토큰 배열, 입력 블록을 받아 임베딩을 생성하고, `POST /rerank`는 비어 있지 않은 문서 배열과 양의 정수 `top_n`을 받아 재정렬 결과를 반환합니다. 이 두 엔드포인트는 Agent 프로필 별칭을 해석하지 않으므로 반드시 명시적인 `provider_id/model` 셀렉터를 전달해야 합니다. 참고로 Brain 서브시스템이 임베딩과 리랭크를 호출할 때는 [AppConfigure](../app-configuration/)의 사이트 단위 설정 `brain.embedding_model`과 테넌트 단위 설정 `brain.rerank_model`을 읽어들입니다. 또한 Pod Applet 내부의 `ctx.ai` 호출은 해당 Applet을 만든 활성 Agent 명의로 AIGateway를 통해 stateless 방식으로 실행되며, 언어 모델 프로필과 토큰 할당량 및 사용량도 그 Agent에 귀속됩니다. 검색 파이프라인의 상세 동작은 [Brain](../brain/)을 참조하세요.
+`POST /embeddings`는 문자열, 토큰 배열, 구조화된 입력 블록을 받아 임베딩을 생성하며 명시적인 `provider_id/model` 셀렉터를 요구합니다(예컨대 `Ankole.Brain`은 임베딩 생성 시 [AppConfigure](../app-configuration/)의 사이트 단위 설정 `brain.embedding_model`을 읽습니다). `POST /rerank`는 비어 있지 않은 문서 배열과 양의 정수 `top_n`을 받아 재정렬 결과를 반환하며, 명시적 `provider_id/model` 셀렉터 또는 `default` / `rerank.default`를 허용합니다(`ankole_brain`은 자신의 유효 `rerank` 모델 프로필을 해석하고, Agent 및 Human 호출은 Pod/Site `rerank` 프로필을 해석합니다. 검색 파이프라인의 상세 동작은 [Brain](../brain/)을 참조하세요). 한편 Pod Applet 내부의 `ctx.ai` 호출은 내장 `system` Principal 명의로 `Ankole.AIGateway`를 통해 stateless 방식으로 실행되며, 유효 Pod/Site 언어 모델 프로필(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)을 사용하므로 포그라운드 Agent의 토큰 할당량을 소모하지 않습니다.
 
 파일 관리 역시 일급 API로 제공됩니다. `POST /files`로 업로드하고, `GET /files`로 목록을 조회하며, `GET /files/:id`와 `GET /files/:id/content`로 메타데이터와 파일 바이트를 읽고, `DELETE /files/:id`로 삭제합니다. 모든 파일 작업은 호출 주체(subject) 범위로 격리됩니다.
 

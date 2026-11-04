@@ -264,10 +264,7 @@ defmodule Ankole.Connectors.Accounts do
         time
 
       value when is_binary(value) ->
-        case DateTime.from_iso8601(value) do
-          {:ok, time, _} -> time
-          _ -> nil
-        end
+        Ankole.Attrs.parse_datetime(value)
 
       value when is_integer(value) ->
         DateTime.from_unix!(value)

@@ -13,9 +13,9 @@ Resolver、Provider モジュール、Kernel は、それぞれ明確に 1 つ�
 
 `Ankole.AIGateway.Resolver` は、リクエストの `model` フィールドを具体的な Provider ランタイムマップへ変換します。この段階で、`primary` や `web_search.default`、あるいは明示的な `provider_id/model` といった呼び出し元（subject）向けのセレクターが、実際の Provider ID、Provider 種別（kind）、上流モデル名、および解決済みのランタイム設定へと展開されます。
 
-Agent には 8 種類の組み込みモデルプロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate`）があります。このうち `coding` は、管理画面上の Background Agent Jobs プロファイルが API や永続化層で使用する内部名です。先頭の 5 つは言語モデルを選択し、残りの 3 つはそれぞれ Web 検索、Web フェッチ、画像生成の各機能（capability）を選択します。
+Agent には 8 種類の組み込みモデルプロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate`）があり、このうち `coding` は管理画面上の Background Agent Jobs プロファイルが API や永続化層で使用する内部名です。未設定のスロットは **Console → Model Profiles** で `Site -> Pod -> Agent` の順にスパース継承され、Site・Pod・`system` Principal（`ankole_brain`、`system`）にはさらに 9 つ目の組み込みスロットとして `rerank` が用意されています。
 
-なお、Embedding と Rerank は Agent プロファイルには含まれません。これらを AIGateway から直接呼び出す際は、明示的な `provider_id/model` セレクターを指定する必要があります。Brain では、[AppConfigure](../app-configuration/) の `brain.embedding_model` からサイト単位の Embedding モデルを、`brain.rerank_model` からテナント単位の Rerank モデルを読み取ります。検索精度や挙動への影響については [Brain](../brain/) を参照してください。
+Embedding は Agent プロファイルには含まれないため、AIGateway から直接呼び出す際は明示的な `provider_id/model` セレクターを指定し、Brain では [AppConfigure](../app-configuration/) の `brain.embedding_model` からサイト全体で共有する Embedding モデルを読み取ります。一方 Rerank については、`ankole_brain` が実効 `rerank` スロット（`Site -> Pod -> ankole_brain`）を解決し、Agent や Human からの Rerank 呼び出しには Pod の `rerank` スロットが使われます。検索精度や挙動への影響は [Brain](../brain/) を参照してください。
 
 対象の Provider レコードを特定すると、Resolver は利用可能な認証情報（credential）を 1 つ選択します。その際、スレッドアフィニティ（thread affinity）がある場合は、レコードに設定された `fill_first`、`round_robin`、`least_used`、`random` といった選択戦略よりも優先されます。選択された credential ID はランタイムマップに格納され、後続のすべての失敗処理経路へそのまま引き継がれます。また、ChatGPT Subscription の OAuth プールメンバーについては、Provider レコードのロックを取得した状態で、有効期限切れまたは期限間近のトークンをリフレッシュします。リフレッシュで恒久的な失敗が発生した場合はそのメンバーを `dead`、一時的な失敗の場合は `exhausted` に更新し、いずれの場合も次の利用可能なメンバーを選び直します。
 

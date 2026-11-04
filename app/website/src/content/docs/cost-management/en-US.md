@@ -9,29 +9,30 @@ Model tokens account for most of Ankole's operational cost, so control-plane set
 
 ## Lever 1: model-profile tiers
 
-Each Agent exposes eight built-in profiles that govern separate paid paths: five select language models, while the other three bind web search, web fetch, and image generation.
+Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/System`) in **Console → Model Profiles**. Each Agent exposes eight built-in slots—five language-model slots plus `web_search`, `web_fetch`, and `image_generate`—while Site, Pod, and `system` Principals (`ankole_brain` and `system`) add a ninth `rerank` slot. Unset slots inherit from Pod and Site defaults, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`.
 
 | Slot | When it runs | Cost impact |
 |---|---|---|
 | `primary` | Main reasoning model for most turns | Largest single cost driver |
-| `light` | High-volume, low-complexity paths | Keep bound to a low-cost model |
-| `heavy` | Complex synthesis | High cost per call; used sparingly when `primary` fits normal work |
-| Background Agent Jobs (`coding` internally) | Every Background Agent Job | Selects the provider and model for durable background work |
+| `light` | High-volume, low-complexity paths (falls back to `primary`) | Bind to a low-cost model to avoid billing bulk work at `primary` rates |
+| `heavy` | Complex synthesis and Dreaming | High cost per call; used sparingly when `primary` fits normal work |
+| Background Agent Jobs (`coding` internally) | Every Background Agent Job (falls back `coding -> heavy -> primary`) | Selects the provider and model for durable background work |
 | `vision_fallback` | When `primary` cannot process an image | Bind only when the Agent receives images |
 | `web_search`, `web_fetch` | Web tools | See Lever 3 |
 | `image_generate` | Image generation | High cost per call; bind only when needed |
+| `rerank` (Site / Pod / `system`) | Brain recall reranking and `/rerank` defaults | Keep bound to a fast, low-cost reranker |
 
-Subsystem model calls draw on an owning Agent's model profiles, quota, and usage attribution:
+Control-plane subsystem calls run under built-in `system` Principals so background maintenance and Applets never consume a foreground Agent's token quota:
 
-- **`brain.maintainer_agent_uid`**: Selects the active Brain maintainer Agent for the tenant. Brain executes all of its model calls as this Agent and attributes usage to it (`light` extracts conversations and Sources, `heavy` runs Dreaming and Skill lesson review, and `web_fetch` reads URL Sources), while reading the site embedding model and tenant rerank model from `AppConfigure`. If you disable the maintainer Agent, Ankole pauses Brain model calls and URL Source fetching until you re-enable or replace that Agent. **Brain → Health** reports the selected Agent and profile status; see [Brain](../brain/).
-- **Pod Applet `ctx.ai`**: Runs as the active Agent that created the Applet, drawing from that Agent's model profiles and quota and attributing token usage to it.
+- **`ankole_brain`**: Executes all Company Brain model calls and records usage under `ankole_brain`—resolving `light` (fallback `primary`) for conversation and Source extraction, `heavy` (fallback `primary`) for Dreaming and Skill lesson review, `web_fetch` for URL Sources, and `rerank` for recall reranking, plus the site-level `brain.embedding_model` key in [AppConfigure](../app-configuration/). Override any slot for `ankole_brain` in **Console → Model Profiles** whenever Brain maintenance should run on a separate budget tier from foreground Agents; **Brain → Health** reports profile readiness (see [Brain](../brain/)).
+- **`system` (Pod Applet `ctx.ai`)**: Executes stateless Pod Applet `ctx.ai` calls under the `system` Principal using effective Pod/Site built-in language-model profiles (`primary`, `light`, `heavy`, `coding`, `vision_fallback`).
 
 Two profile adjustments save the most spend:
 
-- **Bind `light` to a low-cost model.** Because `light` handles high-volume paths, binding it to a model priced near `primary` eliminates that savings tier.
-- **Size `primary` for normal turns.** Start with a smaller model for `primary` and move up to a larger tier only when task quality demands it.
+- **Bind `light` to a low-cost model at the Site or Pod level.** Because `light` falls back to `primary` when unset and handles high-volume paths (including `ankole_brain` extraction), binding a dedicated low-cost model immediately lowers bulk spend across every inheriting Agent and `ankole_brain`.
+- **Size `primary` for normal turns.** Start with a balanced model for `primary` and override `primary` or `heavy` only on specialist Agents whose task quality demands a larger tier.
 
-Unbind any slots that an Agent does not need so unused paths like `vision_fallback` cannot incur calls. Even if you leave `image_generate` empty, the Agent can still generate images natively whenever its main provider declares that capability. Similarly, when the dedicated Background Agent Job profile is unset, Jobs fall back to the Agent's `heavy` profile through AIGateway; configure the Background Agent Job profile whenever Jobs need a separate provider or model.
+Unbind optional capability slots that a Pod or Agent does not need so unused paths like `vision_fallback` cannot incur calls. Even if you leave `image_generate` empty, an Agent can still generate images natively whenever its main provider declares that capability. Similarly, when `coding` is unset, Background Agent Jobs fall back through `heavy -> primary` on AIGateway; configure `coding` whenever Jobs should use a dedicated coding model or subscription pool.
 
 ## Lever 2: reasoning effort
 
@@ -48,17 +49,20 @@ Before moving an Agent's `primary` profile to a larger model, try tuning `model_
 
 The `agent_workers.rendered_fetch_idle_ttl_ms` [AppConfigure](../app-configuration/) key sets the idle timeout before the Worker releases an idle browser-sidecar route used for rendered `web_fetch` calls. Adjusting this key controls how long the Worker retains browser memory rather than caching URL responses.
 
-## Lever 4: agent-loop budgets
+## Lever 4: agent-loop budgets and cold-wake rotation
 
-Three tenant-scoped (`scope: :tenant`) [AppConfigure](../app-configuration/) keys cap per-turn spend:
+Tenant-scoped (`scope: :tenant`) [AppConfigure](../app-configuration/) keys cap per-turn spend and prevent cold prompt-cache re-billing on long-lived threads:
 
-| Key | What it caps |
+| Key | What it controls |
 |---|---|
 | `ai_agent.max_iterations` | Agent-loop model iterations per turn |
 | `ai_agent.max_output_tokens` | Output token cap per turn |
 | `ai_agent.inactivity_timeout_ms` | Maximum idle time before an inactive turn is reaped |
+| `sessions.wake_recycle` | Cold-wake conversation rotation policy (`min_cold_gap_seconds`: `3600`, `min_context_tokens`: `128000`, `im_max_idle_seconds`: `259200`) |
 
 `ai_agent.max_iterations` bounds multi-step tool loops, while `ai_agent.max_output_tokens` bounds the length of each model response. Both `ai_agent.*` keys inherit the site default whenever a tenant has no override. Size them for normal turns in each tenant: when a complex turn reaches `max_iterations`, the loop prompts the Agent to synthesize a final answer from the results collected so far.
+
+Once an upstream provider's prompt cache expires, resuming a large stored model thread re-bills the full uncached input context on the next turn. `sessions.wake_recycle` eliminates that repeated cold-cache penalty: when a Session wakes after `min_cold_gap_seconds` (default `1` hour) with at least `min_context_tokens` (`128,000` tokens), or after `im_max_idle_seconds` (`72` hours) on external chat channels, Ankole rotates the underlying AIGateway model conversation onto a fresh successor branch seeded with a compact `<wake-briefing>` while keeping the visible room history intact.
 
 ## Lever 5: Workflow fanout and task attempts
 

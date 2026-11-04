@@ -1,3 +1,4 @@
+import { nodeErrorCode } from '../common/errors'
 import { chmod, mkdir, readdir, rm } from 'node:fs/promises'
 import { AGENT_HOME } from '../core/agent-home-paths'
 
@@ -14,7 +15,7 @@ async function waitForContract(): Promise<Record<string, string>> {
       return JSON.parse(await Bun.file(contractPath).text()) as Record<string, string>
     } catch (error) {
       // envd writes the file in place. Wait until the JSON upload is complete.
-      if (!(error instanceof SyntaxError) && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      if (!(error instanceof SyntaxError) && nodeErrorCode(error) !== 'ENOENT') throw error
       await Bun.sleep(100)
     }
   }

@@ -17,7 +17,7 @@ import {
 import { RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match, recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
 
@@ -27,7 +27,7 @@ import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, truncate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
 import { MarkdownBody } from '../../common/markdown-body'
-import { StatusIndicator } from '../console-form'
+import { DetailFact, StatusIndicator } from '../console-form'
 import {
   AgentCell,
   AgentLink,
@@ -388,13 +388,34 @@ export function ConversationDetailPage() {
           <section className="grid gap-3" aria-label={t('console.conversations.details')}>
             <h3 className="title-inline">{t('console.conversations.details')}</h3>
             <dl className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
-              <DetailField label={t('console.conversations.subject')} value={<AgentLink uid={detail.subject_uid} />} />
-              <DetailField label={t('console.conversations.key')} value={detail.conversation_key} mono />
-              <DetailField label={t('common.id', { defaultValue: 'ID' })} value={detail.id} mono />
-              <DetailField label={t('console.conversations.messages')} value={detail.message_count} />
-              <DetailField label={t('console.conversations.created')} value={formatConsoleDate(detail.inserted_at)} />
-              <DetailField label={t('console.conversations.ended_at')} value={formatConsoleDate(detail.ended_at)} />
-              <DetailField label={t('console.conversations.updated')} value={formatConsoleDate(detail.updated_at)} />
+              <DetailFact
+                className="py-4"
+                label={t('console.conversations.subject')}
+                value={<AgentLink uid={detail.subject_uid} />}
+              />
+              <DetailFact
+                className="py-4"
+                label={t('console.conversations.key')}
+                value={detail.conversation_key}
+                mono
+              />
+              <DetailFact className="py-4" label={t('common.id', { defaultValue: 'ID' })} value={detail.id} mono />
+              <DetailFact className="py-4" label={t('console.conversations.messages')} value={detail.message_count} />
+              <DetailFact
+                className="py-4"
+                label={t('console.conversations.created')}
+                value={formatConsoleDate(detail.inserted_at)}
+              />
+              <DetailFact
+                className="py-4"
+                label={t('console.conversations.ended_at')}
+                value={formatConsoleDate(detail.ended_at)}
+              />
+              <DetailFact
+                className="py-4"
+                label={t('console.conversations.updated')}
+                value={formatConsoleDate(detail.updated_at)}
+              />
             </dl>
             {Object.keys(detail.metadata).length > 0 ? (
               <Accordion className="border border-border bg-card px-4">
@@ -447,15 +468,6 @@ export function ConversationDetailPage() {
         />
       </section>
     </PageStack>
-  )
-}
-
-function DetailField({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {
-  return (
-    <div className="grid content-start gap-1 bg-card p-4">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={cn('break-all text-sm', mono && 'font-mono text-xs leading-5')}>{value}</dd>
-    </div>
   )
 }
 

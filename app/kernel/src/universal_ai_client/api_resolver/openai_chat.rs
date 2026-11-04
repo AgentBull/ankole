@@ -716,10 +716,6 @@ impl APIProtocol for ChatState {
         status: u16,
         body: Value,
     ) -> Result<Value, StreamError> {
-        if !(200..300).contains(&status) {
-            return Err(provider_body_error(status, body));
-        }
-        reject_provider_body_error(status, &body)?;
         chat_completion_body_to_response(
             context,
             provider_object_body(status, body, "OpenAI Chat Completions")?,
@@ -1290,10 +1286,7 @@ fn flush_chat_tool_output_images(messages: &mut Vec<Value>, image_parts: &mut Ve
     }));
 }
 
-fn chat_function_call(
-    _context: &ResponseContext,
-    map: &Map<String, Value>,
-) -> Result<Value, StreamError> {
+fn chat_tool_identity(map: &Map<String, Value>) -> (String, String) {
     let call_id = map
         .get("call_id")
         .map(value_to_text)
@@ -1312,6 +1305,14 @@ fn chat_function_call(
         Some(namespace) => flattened_namespace_tool_name(namespace, &name),
         None => flattened_namespace_tool_name("", &name),
     };
+    (call_id, name)
+}
+
+fn chat_function_call(
+    _context: &ResponseContext,
+    map: &Map<String, Value>,
+) -> Result<Value, StreamError> {
+    let (call_id, name) = chat_tool_identity(map);
     let arguments = map
         .get("arguments")
         .map(value_to_string)
@@ -1328,24 +1329,7 @@ fn chat_function_call(
 }
 
 fn chat_custom_tool_call(map: &Map<String, Value>) -> Result<Value, StreamError> {
-    let call_id = map
-        .get("call_id")
-        .map(value_to_text)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| generated_id("call"));
-    let name = map
-        .get("name")
-        .map(value_to_text)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
-    let name = match map
-        .get("namespace")
-        .and_then(Value::as_str)
-        .filter(|namespace| !namespace.is_empty())
-    {
-        Some(namespace) => flattened_namespace_tool_name(namespace, &name),
-        None => flattened_namespace_tool_name("", &name),
-    };
+    let (call_id, name) = chat_tool_identity(map);
     let input = map.get("input").map(value_to_text).unwrap_or_default();
     let arguments = encode_custom_tool_arguments(&input)?;
 

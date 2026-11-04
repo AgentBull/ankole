@@ -1,7 +1,7 @@
 import { TableRow, useQuery } from '../../tenant-context'
 import { principalLabel } from '../../state/principal-label'
 import { ActorLabel } from '../../actor-label'
-import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, Skeleton } from '@ankole/uikit'
+import { Table, TableBody, TableCell, TableHead, TableHeader, Skeleton } from '@ankole/uikit'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -16,7 +16,7 @@ import { formatConsoleDate } from '../../console-primitives'
 import { SinglePrincipalPicker } from '../../principal-picker'
 import { BrainSubNav } from './brain-nav'
 import { BrainPageLink, BrainHolderLabel, BrainSourceLabel } from './brain-scope'
-import { ClaimStateBadge } from './claims'
+import { ClaimStateBadge, ClaimTypeBadge } from './claims'
 
 /** Audits every claim where one Principal is holder, author, or the audience. */
 export function BrainPrincipalAuditPage() {
@@ -99,10 +99,7 @@ export function BrainPrincipalAuditPage() {
                   {claim.claim}
                 </TableCell>
                 <TableCell>
-                  <Badge variant={claim.claim_type === 'fact' ? 'secondary' : 'info'}>
-                    {t(`console.brain.claim_type_${claim.claim_type}`)}
-                    {claim.kind ? ` · ${claim.kind}` : ''}
-                  </Badge>
+                  <ClaimTypeBadge claim={claim} />
                 </TableCell>
                 <TableCell>
                   <BrainHolderLabel holder={claim.holder} />

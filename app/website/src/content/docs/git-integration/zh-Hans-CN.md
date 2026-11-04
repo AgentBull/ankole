@@ -26,9 +26,9 @@ Agent 先将代码仓库克隆到工作空间（位于 `/workspace/jobs/<job-id>
 
 ## 需要什么
 
-- **配置 Git 凭证。** 在 **Console → 环境变量** 中，将 SSH 密钥或个人访问令牌（PAT）保存为加密变量（如 `GIT_SSH_KEY` 或 `GIT_TOKEN`），新值将在 Agent 的下一回合生效。配置方法见 [环境变量](../worker-env/)。
+- **配置 Git 凭证。** 对于 GitHub（含 GitHub Enterprise），推荐直接在 **Pod → 连接（Connections）**（`Ankole.Connectors`）中配置 GitHub App 安装或个人 OAuth 授权：Ankole 会在每轮执行时自动注入绑定当前回合权限的 `GIT_ASKPASS` 凭证助手（调用控制面 `POST /api/internal/connectors/git-credentials`），使 `git clone`、`git fetch` 与 `git push` 无需在 Worker 环境变量中存放静态令牌即可直接完成 HTTPS 认证。若对接其他 Git 托管平台，仍可在 **Console → 环境变量**中将 SSH 密钥或个人访问令牌（PAT）保存为加密变量（如 `GIT_SSH_KEY` 或 `GIT_TOKEN`），详见 [环境变量](../worker-env/)。
 - **打通 Worker 到代码仓库的网络。** Worker 必须能够连接目标 Git 主机；若部署在私有网络中，请先确认 Worker 到 Git 服务器的路由可达。采用 Docker Compose 部署时，Worker 容器位于 `ankole_workers` 网络中，可同时访问控制面和公网，因此能够直接连接公网上的 Git 主机。采用 Helm Chart 部署并开启 `networkPolicy.enabled` 时，Worker Pod 可访问控制面、DNS 和公网地址；但若 Git 服务器位于私有网段，且该网段仍列在 `networkPolicy.workerDeniedCIDRs` 中，连接就会被拦截。
-- **按需配置后台 Agent 任务。** 默认回退配置已足以运行后台任务；仅当后台任务需要改用其他提供商或模型时，才需单独配置“后台 Agent 任务”档案。
+- **按需配置模型档案。** Agent 默认继承站点与 Pod 的模型档案，后台 Agent 任务也会按 `coding → heavy → primary` 顺序跨 Agent、Pod 与站点层级自动回退；仅当需要为该 Agent 或后台任务指定专属提供商与模型时，才需单独设置覆盖档案。
 
 ## 工作空间
 
@@ -42,15 +42,15 @@ Git 仓库会克隆到按 Session 或按任务隔离的工作空间目录中：
         └── ...           # 工作树
 ```
 
-替换 Worker 或升级镜像后，`/workspace` 中的仓库数据仍会保留。不过，若要防范底层存储故障导致的数据丢失，仍需及时推送至远程仓库或另行备份。如需将产物共享到 [Agent 云盘](../file-management/)，可运行 `ankole-files put` 发布文件。
+替换 Worker 或升级镜像后，`/workspace` 中的仓库数据仍会保留。不过，若要防范底层存储故障导致的数据丢失，仍需及时推送至远程仓库或另行备份。如需将构建产物或交付件共享到 `/workspace` 之外，Agent 可直接写入 `/drive`（如 `/drive/ChatDrive` 或 `/drive/Public`；在不支持 FUSE 的 Worker 上则回退使用 `ankole-files put`），详见 [文件管理](../file-management/)。
 
 ## 一个完整示例
 
 下面以配置一个负责审查 PR 的研发 Agent 为例：
 
-1. 在 **Console → 环境变量** 中，将 PAT 保存为加密变量 `GIT_TOKEN`。
-2. 创建 Agent，配置必需的 `primary`、`light` 和 `heavy` 模型档案；仅当需要覆盖默认回退配置时，再单独配置后台 Agent 任务。
-3. 编写 `AGENTS.md`，写明目标代码仓库、审查标准与分支命名约定。
+1. 在 **Pod → 连接（Connections）**中连接 GitHub App 或个人 OAuth 账号（对接非 GitHub 代码托管服务时，则在 **Console → 环境变量**中配置加密的 SSH 密钥或 PAT）。
+2. 创建 Agent——它会自动继承站点与 Pod 默认模型档案；仅在需要定制日常对话或后台任务模型时，再单独配置覆盖槽位或 `coding` 档案。
+3. 在 **Meta Ankole → Agents** 中编辑该 Agent 的 `AGENTS.md` 契约，写明目标代码仓库、审查标准与分支命名约定。
 4. 在频道中向 Agent 发送指令：“审查 `your-repo` 上最新的 PR：克隆仓库、检出分支、运行测试，并汇报发现的问题。”
 5. 收到指令后，Agent 会克隆仓库、切换分支、通过 `command` 工具运行测试并回复审查结果。整套流程既可在当前对话中直接完成，也可委派给后台 Agent 任务执行。
 

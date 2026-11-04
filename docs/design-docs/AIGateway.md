@@ -368,8 +368,10 @@ over across different provider kinds. As a built-in convenience,
 `https://cloudapis.agentbull.com`) implements all six `ProviderDSL` capabilities
 (`language_model`, `embedding_model`, `rerank_model`, `web_search`, `web_fetch`,
 and `image_generate`) so an operator can connect AIGateway to AgentBull Cloud
-with a single API key kept inside the control plane (Worker-side MCP skills read
-their own credentials separately through `WorkerEnv`). Meanwhile, three shared
+with a single API key kept inside the control plane (MCP-backed Skills call
+remote MCP servers and Connector Toolkits through the `Ankole.Connectors`
+control-plane gateway using short-lived Turn tokens rather than reading upstream
+credentials directly in the Worker). Meanwhile, three shared
 building blocks remain pure, stateless functions with no session or billing
 state: the wire resolvers in `app/kernel/src/universal_ai_client/`, failure and
 rate-limit classification in `Ankole.AIGateway.FailureDiagnostics`, and token

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { arrayPath, isRecord, objectPath, recordValue, stringArg } from '@agentbull/active-support'
+import { arrayPath, isRecord, isUrl, objectPath, recordValue, stringArg } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { defineWorkerTool, type ActivityDescription, type WorkerAgentTool } from '../../core'
 import { readTool, updateReadToolCache } from '../../core/read-tools'
@@ -31,7 +31,7 @@ const WebSearchParams = z.object({
 const HTTPSURL = z
   .string()
   .url()
-  .refine(value => isHTTPSURL(value), 'Only HTTPS URLs are supported.')
+  .refine(value => isUrl(value, 'https'), 'Only HTTPS URLs are supported.')
 
 const WebFetchParams = z.strictObject({
   urls: z
@@ -119,7 +119,7 @@ export async function renderedFallbackFetch(
   for (const [index, url] of urls.entries()) {
     if (signal?.aborted) throw new Error('web_fetch aborted')
     try {
-      if (!isHTTPSURL(url)) throw new Error('Only HTTPS URLs are supported.')
+      if (!isUrl(url, 'https')) throw new Error('Only HTTPS URLs are supported.')
       accepted.push({ url, index })
     } catch (error) {
       if (signal?.aborted) throw error
@@ -257,14 +257,6 @@ function activityExcerpt(value: string, maxCharacters: number): string {
   return characters.length <= maxCharacters
     ? normalized
     : `${characters.slice(0, Math.max(0, maxCharacters - 1)).join('')}…`
-}
-
-function isHTTPSURL(value: string): boolean {
-  try {
-    return new URL(value).protocol === 'https:'
-  } catch {
-    return false
-  }
 }
 
 function fetchedPageHost(url: string | undefined): string | undefined {

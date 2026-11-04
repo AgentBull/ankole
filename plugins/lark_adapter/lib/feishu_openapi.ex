@@ -31,6 +31,8 @@ defmodule FeishuOpenAPI do
   `Req.Response.t()` instead of parsing the `{code, msg, data}` envelope.
   """
 
+  import IMTransport.HTTP, only: [filename_from_response: 1]
+
   require Logger
 
   alias FeishuOpenAPI.{Client, Error, Request, Spec, TokenManager, UserTokenManager}
@@ -568,22 +570,6 @@ defmodule FeishuOpenAPI do
     |> case do
       {:ok, values} -> {:ok, Enum.reverse(values)}
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp filename_from_response(response) do
-    response
-    |> Req.Response.get_header("content-disposition")
-    |> List.first()
-    |> parse_filename()
-  end
-
-  defp parse_filename(nil), do: nil
-
-  defp parse_filename(value) when is_binary(value) do
-    case Regex.run(~r/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i, value) do
-      [_, name] -> URI.decode(name)
-      _ -> nil
     end
   end
 

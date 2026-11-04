@@ -280,18 +280,7 @@ defmodule Ankole.Pod.Pages.Queries do
       )
       |> Map.new(&{&1.uid, &1.display_name})
 
-    doc_ids = for %{type: type, id: id} <- pages, type in [:doc, :knowledge], do: id
-
-    excerpts_by_id =
-      if doc_ids == [] do
-        %{}
-      else
-        PageContent
-        |> Ash.Query.filter(page_id in ^doc_ids)
-        |> Ash.Query.select([:page_id, :plain_text])
-        |> Ankole.Ash.read!()
-        |> Map.new(fn row -> {row.page_id, excerpt_text(row.plain_text)} end)
-      end
+    excerpts_by_id = excerpts_by_id(pages)
 
     file_ids = for %{type: :file, id: id} <- pages, do: id
     files_by_id = Files.primary_files_by_page(file_ids)
@@ -310,6 +299,21 @@ defmodule Ankole.Pod.Pages.Queries do
          file: Map.get(files_by_id, page.id)
        }}
     end)
+  end
+
+  @doc false
+  def excerpts_by_id(pages) do
+    doc_ids = for %{type: type, id: id} <- pages, type in [:doc, :knowledge], do: id
+
+    if doc_ids == [] do
+      %{}
+    else
+      PageContent
+      |> Ash.Query.filter(page_id in ^doc_ids)
+      |> Ash.Query.select([:page_id, :plain_text])
+      |> Ankole.Ash.read!()
+      |> Map.new(fn row -> {row.page_id, excerpt_text(row.plain_text)} end)
+    end
   end
 
   defp excerpt_text(text) when is_binary(text) do

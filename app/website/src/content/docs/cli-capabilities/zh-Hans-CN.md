@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-在 Ankole 中，有一部分平台能力并不是作为每轮必带的模型工具（Tool）暴露给大模型，而是直接封装为 Agent Computer Worker 内的 Shell 命令行程序（CLI）。Agent 就像日常调用 `kubectl` 一样，直接在终端里运行它们——内置的 `ankole-pod`（涵盖 `pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook 端点管理命令以及 Automation Job 管理命令，全部采用这种交付形态。
+在 Ankole 中，有一部分平台能力并不是作为每轮必带的模型工具（Tool）暴露给大模型，而是直接封装为 Agent Computer Worker 内的 Shell 命令行程序（CLI）。Agent 就像日常调用 `kubectl` 一样，直接在终端里运行它们——内置的 `ankole-pod`（涵盖 `pages.*`、`base.*`、`applet build|publish|pull` 与 `jobs`）、`ankole-files`、`ankole-browser` 以及 Webhook 端点管理命令，全部采用这种交付形态。
 
 本页说明什么样的能力适合做成 CLI，以及如何在不注册模型工具、不塞入全局 Skill 索引、也不膨胀系统提示词的前提下，让 Agent 依然能够精准发现并正确调用这些命令。
 

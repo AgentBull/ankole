@@ -78,8 +78,8 @@ filesystem, they can read one another's files.
 
 The container itself is the Agent isolation boundary. Inside the container, the
 entrypoint, the supervisor, and the Bun Worker process that holds credentials
-run as `root`. When starting model-driven commands, Codex, MCP servers, the
-browser, or Automation scripts, `agentProcessArgv` drops privileges to `uid 1000`
+run as `root`. When starting model-driven commands, Codex, MCP servers, or the
+browser, `agentProcessArgv` drops privileges to `uid 1000`
 with `no-new-privs` and an empty capability bounding set. Commands and Codex
 processes receive their execution's Drive and recovery mounts in a private mount
 and PID namespace. These child
@@ -120,13 +120,13 @@ snapshot. Native Codex combines its global AGENTS file with project-owned
 instruction files; main, ambient, and Workflow prompts receive the complete
 AGENTS contract directly from the control plane.
 
-Attachments, published files, and Automation scripts live in the Agent's
-control-plane Files drive (`docs/design-docs/Files.md`). The Worker uses
-the mounted `/drive` filesystem when the startup probe confirms FUSE support.
-`/drive/Public`, `/drive/AgentDrive`, `/drive/MyDrive`, and `/drive/ChatDrive`
-resolve through the existing Files and Principal permission owners. Ordinary shell
-tools read and write these paths directly, including symlinks. The Worker retains
-`files.*` RPCs and `ankole-files` for providers without the capability. Enabled Skill packages and effective contracts use an Agent-scoped, shared
+Attachments, published files, and shared workspace content live in the unified
+Drive (`docs/design-docs/Files.md`). On Workers whose startup probe confirms
+FUSE support, the supervisor mounts `/drive` so `/drive/Public`,
+`/drive/AgentDrive`, `/drive/MyDrive`, and `/drive/ChatDrive` resolve directly
+through the Files and Principal permission owners, allowing ordinary shell tools
+to read and write those paths (including symlinks). On providers without FUSE
+support, the Worker falls back to `files.*` RPCs and the `ankole-files` relay. Enabled Skill packages and effective contracts use an Agent-scoped, shared
 read-only mount at `/drive/Skills`, `/drive/AGENTS.md`, and `/drive/DESIGN.md`.
 Conversation views bind that mount instead of copying the packages each turn.
 `/drive/Brain` remains read-only and uses the conversation disclosure boundary.
@@ -217,7 +217,7 @@ routes live for the duration of the Job, while fallback routes for rendered
 - `src/main.ts`: Worker lifecycle, environment workspace, and Codex dispatch.
 - `src/worker/`: environment, lifecycle, Agent Home preparation, and readiness.
 - `src/core/`: turn handlers, Agent Home paths, and `CodexRunner`.
-- `src/skills/`: materialization of conversation-visible Pod Skill packages.
+- `src/skills/`: projection and materialization of `Ankole.AIAgent.Library` Skill packages across `/drive/Skills` and `.ankole/turn-skills/`.
 - `src/fabric/` and `src/lanes/`: RuntimeFabric envelopes and lanes.
 - `src/tools/`: environment tools and Codex Skill support.
 - `test/`: Bun unit tests that run on the host.
@@ -240,7 +240,7 @@ native `apply_patch`, and GNU `stat` (`gstat` on macOS). Set
 On Linux, also run `bun run test:integration:linux`, which requires `setsid` and
 util-linux `flock` with `-F` support. To verify the built Worker image—including
 its entrypoint, image configuration, `tini`, pinned Codex bindings, browser,
-OCR, and installed Lark CLI—run `bun run test:integration:docker`.
+OCR, MCPorter, and the Git credential helper—run `bun run test:integration:docker`.
 
 ## Image configuration
 
@@ -252,9 +252,9 @@ Computer. At startup, the entrypoint loads image variables from
 variable when mounting internal Skills. Operator-managed `WorkerEnv` values are
 resolved per Agent and injected at lower precedence than explicit tool inputs;
 the control plane rejects reserved variable names during both storage and
-binding resolution. When a Lark tenant token is derived from a binding, the
-Worker refreshes it in a private file for that execution instead of freezing it
-in a long-lived shell environment.
+binding resolution. External Connector credentials stay on the control plane,
+while local `git` commands authenticate per Turn through the control-plane Git
+credential helper.
 
 When a published immutable GHCR Worker image matches the current Git inputs,
 devkit resolves and reuses it. If the Worker inputs have changed, devkit builds

@@ -5,22 +5,25 @@ section: User guide
 order: 14
 ---
 
-signal routing 규칙은 들어오는 메시지나 이벤트를 어느 Agent에 전달할지 결정합니다. 채팅용 규칙 하나는 외부 채팅 애플리케이션 하나를 단일 Agent에 연결하며, 한 Agent에 여러 규칙을 두어 여러 채팅 채널을 동시에 연결할 수도 있습니다.
+signal routing 규칙(`Signal Binding`)은 유입되는 채팅 메시지나 외부 이벤트를 어느 Agent로 전달할지 결정하며 두 가지 모드를 지원합니다.
 
-채팅 어댑터는 수신한 메시지를 Conversation에 기록한 뒤 대상 Agent 앞으로 Signal을 생성합니다. 이와 별도로 CloudEvents 웹훅 엔드포인트를 통해서도 외부 시스템의 이벤트를 받아 Signal로 전달할 수 있습니다.
+- **`ai_colleague` 모드:** 외부 채팅 애플리케이션이나 CloudEvents 소스를 지정한 단일 AI Colleague에 연결합니다. 한 AI Colleague에 여러 규칙을 두어 여러 채팅 플랫폼을 동시에 연결할 수도 있습니다.
+- **`sender_personal_assistant` 모드**(Lark/Feishu 및 Slack 지원, `agent_uid`는 `null`): 워크스페이스 전체에서 하나의 공유 Personal Assistant Bot을 운영하며, 1:1 DM(`im_dm`)을 매칭된 활성 구성원 각자의 Personal Assistant(첫 사용 시 자동 생성)로 라우팅합니다. 매핑되지 않은 발신자는 **수동 검토**로 보류되며 게스트 계정은 이 경로를 사용할 수 없습니다.
+
+채팅 어댑터는 수신한 메시지를 Conversation에 기록한 뒤 해석된 대상 Agent 앞으로 Signal을 생성합니다. 이와 별도로 CloudEvents 웹훅 엔드포인트를 통해서도 외부 시스템의 이벤트를 받아 Signal로 전달할 수 있습니다.
 
 Slack, Microsoft Teams, Lark, Feishu, DingTalk 애플리케이션을 아직 준비하지 않았다면 먼저 [Quick start](../quickstart/#chat-channels)의 Channel Provider 설정 단계를 마친 뒤 진행하세요.
 
 ## routing 규칙 만들기
 
 1. Console에서 **Signal Routing**을 열고 **New routing rule**을 선택합니다.
-2. 메시지를 수신할 Agent와 사용할 Channel Provider 어댑터를 선택합니다.
-3. `support-slack`처럼 용도가 드러나는 명확한 규칙 이름을 입력합니다.
-4. 그룹 메시지 처리 모드(group-message mode)를 선택합니다.
-5. 채팅 애플리케이션의 자격 증명과 연결 정보를 입력한 뒤 규칙을 저장합니다.
-6. 연결한 채팅 애플리케이션에서 봇에게 테스트 메시지를 보내 선택한 Agent가 정상 응답하는지 확인합니다.
+2. 사용할 Channel Provider 어댑터와 라우팅 모드를 선택합니다. 특정 AI Colleague(`ai_colleague` 모드)를 지정하거나, Lark/Feishu·Slack에서 **발신자의 Personal Assistant**(`sender_personal_assistant` 모드)를 선택합니다.
+3. `support-slack`이나 `workspace-pa-lark`처럼 용도가 드러나는 명확한 규칙 이름을 입력합니다.
+4. `ai_colleague` 규칙은 그룹 메시지 처리 모드(group-message mode)를 선택합니다(`sender_personal_assistant` 규칙은 1:1 DM 전용이며 미확인 발신자에 대해 항상 **수동 검토**를 적용합니다).
+5. **Pod → Connections**(`Ankole.Connectors`)에 등록된 기존 애플리케이션 연결(`authConfigId`)을 선택해 디렉터리 동기화·SSO 로그인과 동일한 앱 자격 증명을 공유하거나, 자격 증명을 직접 입력해 `Ankole.Connectors`에 저장한 뒤 규칙을 저장합니다.
+6. 연결한 채팅 애플리케이션에서 봇에게 테스트 메시지를 보내 대상 Agent가 정상 응답하는지 확인합니다.
 
-봇 계정마다 전용 채팅 애플리케이션과 별도의 routing 규칙을 하나씩 배정하세요. 여러 Agent가 각기 다른 봇 계정으로 활동해야 한다면, 봇 수만큼 애플리케이션을 만든 뒤 규칙도 각각 등록하면 됩니다. 이렇게 분리해 두면 Agent별 신원과 대화가 섞이지 않고, 자격 증명도 서로 영향 없이 개별 교체할 수 있습니다.
+봇 페르소나마다 전용 채팅 애플리케이션과 별도의 routing 규칙을 배정하세요. 여러 AI Colleague가 각기 다른 봇 계정으로 활동해야 한다면 봇별로 독립된 애플리케이션을 등록하고, 공유 Personal Assistant Bot에도 별도 애플리케이션을 할당해 신원과 메시지 흐름이 섞이지 않도록 유지하세요.
 
 ## group-message mode 선택
 
@@ -60,7 +63,7 @@ Telegram, Discord, LINE 같은 개인용 메신저는 기업 디렉터리가 없
 routing 규칙은 메시지 전달 경로만 결정할 뿐 지식 공개 범위는 바꾸지 않습니다. Brain이 채팅 대화에서 지식을 추출해 학습할 때는 대화 유형과 확인된 발신자 신원을 기준으로 접근 범위를 정합니다.
 
 - **그룹 채팅:** 학습된 지식은 해당 채널의 현재 member group 소속 구성원과 참여 Agent가 조회할 수 있습니다. 연결된 member group이 없는 그룹 채팅에서는 Brain 학습을 수행하지 않습니다.
-- **다이렉트 메시지:** 학습된 지식은 대화 상대방과 해당 규칙에 연결된 Agent만 조회할 수 있으며, 다른 Agent에는 기본적으로 공개되지 않습니다.
+- **다이렉트 메시지:** 학습된 지식은 대화 상대방과 해당 대화를 수행한 Agent(바인딩된 AI Colleague 또는 발신자의 Personal Assistant)만 조회할 수 있으며, 다른 Agent에는 기본적으로 공개되지 않습니다.
 
 전사에 공유해도 되는 공개 사실은 테넌트 공통 지식으로 승격될 수 있고, 반대로 기밀로 지정된 내용은 발언자 본인에게만 제한할 수 있습니다. 별도 지정이 없는 일반 대화 내용은 위의 그룹 채팅 또는 다이렉트 메시지 공개 범위를 그대로 따릅니다. 필요한 모델 설정과 검색 동작은 [Brain](../brain/)을 참조하세요.
 
@@ -68,7 +71,7 @@ routing 규칙은 메시지 전달 경로만 결정할 뿐 지식 공개 범위�
 
 규칙 목록에는 기본적으로 활성 상태인 규칙만 나타납니다. 비활성화해 둔 이전 규칙을 확인하거나 되살리려면 **비활성 규칙 표시** 토글을 켜세요.
 
-규칙에서 **편집**을 누르면 시크릿을 제외한 현재 설정을 확인하고 연결 대상 Agent, group-message mode, 채팅 자격 증명을 수정할 수 있습니다. 대상 Agent를 바꾸면 이후 새로 들어오는 메시지부터 바뀐 Agent로 전달됩니다.
+규칙에서 **편집**을 누르면 시크릿을 제외한 현재 설정을 확인하고 대상 AI Colleague, group-message mode, 연결된 `Ankole.Connectors` 항목(`authConfigId`), 또는 채팅 자격 증명을 수정할 수 있습니다. `ai_colleague` 규칙의 대상 Agent를 바꾸면 이후 새로 들어오는 메시지부터 바뀐 Agent로 전달됩니다.
 
 보안을 위해 서버는 저장된 토큰이나 시크릿 원문을 브라우저로 내려보내지 않습니다. 편집 시 자격 증명 입력란을 비워 두면 기존 암호화 값이 그대로 유지되므로, 키를 교체할 때만 새 값을 입력하세요.
 

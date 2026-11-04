@@ -1,6 +1,7 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
+import { copyText } from '../../lib/copy-text'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit/components/tabs'
 import { RiArrowRightLine, RiCheckLine, RiFileCopyLine } from '@remixicon/react'
-import { useEffect, useRef, useState } from 'react'
 
 const SOURCE_COMMANDS = `git clone https://github.com/AgentBull/ankole.git
 cd ankole
@@ -27,28 +28,10 @@ interface CopyButtonProps {
 }
 
 function CopyButton({ text, label, copiedLabel }: CopyButtonProps) {
-  const [copied, setCopied] = useState(false)
-  const resetTimer = useRef<number | undefined>(undefined)
-
-  useEffect(() => () => window.clearTimeout(resetTimer.current), [])
-
+  const [copied, markCopied] = useCopyFeedback(false, 2000)
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // Clipboard API can be unavailable on non-secure origins; fall back to a hidden textarea.
-      const textarea = document.createElement('textarea')
-      textarea.value = text
-      textarea.style.position = 'fixed'
-      textarea.style.opacity = '0'
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
-    }
-    setCopied(true)
-    window.clearTimeout(resetTimer.current)
-    resetTimer.current = window.setTimeout(() => setCopied(false), 2000)
+    await copyText(text)
+    markCopied(true)
   }
 
   const currentLabel = copied ? copiedLabel : label

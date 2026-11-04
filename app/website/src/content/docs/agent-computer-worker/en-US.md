@@ -11,11 +11,11 @@ Each Agent has its own isolated computer, called an Agent Computer Worker. When 
 
 Inside the Worker, the Bun runtime executes shell commands, file and browser tools, Skills, MCP calls, and Codex Jobs. Durable orchestration stays in the Elixir control plane: `Ankole.Sessions` drives the main Agent loop, commits consumed inputs and tool results, and owns final replies, while AIGateway manages the stored Response chain and hosted tools.
 
-When booting a Worker, the control plane injects `WORKER_ID`, the RuntimeFabric endpoint, generation credentials, and storage settings. Each Worker serves only its assigned Agent, strips control-plane credentials from child process environments, and never opens a database connection. The container itself forms the Agent's isolation boundary, where commands run as `uid` `1000` without `sudo`.
+When booting a Worker, the control plane injects `WORKER_ID`, the RuntimeFabric endpoint, generation credentials, and storage settings. Each Worker serves only its assigned Agent, strips control-plane credentials from child process environments, and never opens a database connection. The `root` supervisor (`ankole-worker-supervisor` paired with a root-only `ankole-rclone` daemon) holds `/dev/fuse` and `SYS_ADMIN` solely to assemble each execution's private mount and PID namespace, then drops child command and Codex processes to `uid` `1000` / `gid` `1000` with empty Linux capabilities (`NoNewPrivs` and no `sudo`).
 
-## Worker pools and the live connection
+## Worker providers and the live connection
 
-An Agent's saved Worker provider determines its pool, underlying platform, instance sizing, and storage backend. Even when multiple Agents share the same pool, the platform provisions a separate computer for each Agent. When a Worker sits idle, the control plane can pause or remove the compute instance while preserving the Agent's persistent Home directory. See [Worker pools](../worker-management/) for configuration and lifecycle rules.
+An Agent's assigned `WorkerProvider` (`WorkerProviders`) determines its underlying platform, instance sizing, and storage backend. Even when multiple Agents share the same `WorkerProvider`, the platform provisions a separate computer for each Agent. When a Worker sits idle, the control plane can pause or remove the compute instance while preserving the Agent's persistent Home directory. See [Worker providers](../worker-management/) for configuration and lifecycle rules.
 
 Once running, the Worker opens a single authenticated WebSocket connection to `/runtime-fabric/worker/websocket` and joins its Phoenix Channel. Over this channel, the control plane and Worker exchange environment calls, execution results, Codex control commands, and progress updates in RuntimeFabric protobuf envelopes, while transferring file bytes out-of-band through one-time HTTP relay URLs. The control plane verifies generation and incarnation numbers to reject messages from a replaced Worker, and stores all durable recovery facts in PostgreSQL.
 
@@ -29,7 +29,7 @@ For capacity accounting, each open environment workspace and each running Codex 
 
 ## The filesystem contract
 
-Each Agent's persistent Home directory is mounted at `/workspace`, with `/agents/<agent_uid>` symlinked to `/workspace`. Before enforcing the Home boundary, the Worker resolves all symbolic links. Its layout is:
+Each Agent's persistent Home directory is mounted at `/workspace` (with `/agents/<agent_uid>` symlinked to `/workspace`), while FUSE-capable Workers mount Unified Drive at `/drive` inside each execution's private mount namespace:
 
 ```text
 /workspace/
@@ -42,13 +42,23 @@ Each Agent's persistent Home directory is mounted at `/workspace`, with `/agents
     ├── .codex/config.toml
     ├── AGENTS.md
     └── temp/
+
+/drive/
+├── Public/        (read-write)
+├── MyDrive/       (read-write, Personal Assistant owner space)
+├── AgentDrive/    (read-write)
+├── ChatDrive/     (read-write, scoped to active conversation)
+├── Brain/         (read-only, disclosure-filtered)
+├── Skills/        (read-only)
+├── AGENTS.md      (read-only)
+└── DESIGN.md      (read-only)
 ```
 
-`~/AGENTS.md` and `~/DESIGN.md` project the complete effective contracts from [Agent Library](../agent-library/). Each turn also refreshes `$CODEX_HOME/AGENTS.md`. Main Agent runs read enabled packages from the shared, read-only `/drive/Skills/<slug>/` mount. Background Agent Jobs materialize their allowed packages under `.ankole/turn-skills/<signal-id>/`; their initial capability whitelist can shrink, but cannot expand when an operator later enables another Skill. `sessions/` holds conversation workspaces with stable PostgreSQL numeric IDs starting at `10000`, and `jobs/` holds Background Agent Job projects and their own instruction files.
+At `/drive`, `Ankole.Files.Vfs` exposes read-write `/drive/Public`, `/drive/MyDrive` (when acting as a Personal Assistant), `/drive/AgentDrive`, and conversation-isolated `/drive/ChatDrive`, alongside read-only `/drive/Brain`, `/drive/Skills`, `/drive/AGENTS.md`, and `/drive/DESIGN.md` from [Agent Library](../agent-library/). If a background VFS writeback hits a terminal `412` or `422` conflict, the Worker preserves local draft bytes in that scope's `/drive-recovery` directory; on Workers where startup probing cannot mount FUSE, Agents transfer Drive files via `ankole-files` instead (see [File management](../file-management/)). `~/AGENTS.md`, `~/DESIGN.md`, and `$CODEX_HOME/AGENTS.md` likewise mirror the effective contracts each turn, and Background Agent Jobs materialize their admitted Skill selection under `.ankole/turn-skills/<signal-id>/` (which can shrink on capability revocation, never expand). `sessions/` holds conversation workspaces with stable PostgreSQL numeric IDs starting at `10000`, and `jobs/` holds Background Agent Job projects and instruction files.
 
 Agent Home survives instance deletion and container image updates—rebuilding a Worker clears only `/var/cache/ankole`. Storage durability follows the backing provider: local Docker volumes depend on the host disk, whereas forcing a Cloudflare Worker stop can lose writes made since the last R2 backup. See [Workers](../worker-management/) for provider storage limits.
 
-Codex Home lives at `/workspace/.codex`. Because raw thread files stay in persistent Home, Codex can resume threads across Worker replacements even after the rebuildable SQLite cache at `/var/cache/ankole/codex` is recreated. Background Jobs load Skills on demand through `skill_view`.
+Raw Codex thread files live in `/workspace/.codex`, while `AgentCodexRuntime` scopes active Codex runtime entries, `CODEX_HOME`, and rebuildable SQLite caches under `/var/cache/ankole/codex` by execution view (including conversation identity so `ChatDrive` and disclosure mounts stay isolated). Across Worker replacements, Codex resumes threads from `/workspace/.codex` and rebuilds its cache automatically, while Background Jobs load Skills on demand through `skill_view`.
 
 ## Progress and capacity
 

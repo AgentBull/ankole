@@ -54,7 +54,7 @@ Human-authored lessons carry no expiration lease, and Dreaming never alters or r
 
 ## Add or retire a lesson
 
-1. Open **Agent Library** in the Console.
+1. Open **Meta Ankole → Skills** in Pod (or **Agent Library** in the Console).
 2. Switch the scope from **Global defaults** to the target Agent.
 3. Locate the Skill under an Agent Plugin or under **Skills**.
 4. Select **Add lesson**, stating the triggering condition first and the required action second.
@@ -66,14 +66,15 @@ For every lesson, the Console displays its author, creation timestamp, last revi
 
 ## Configure and observe learning
 
-Four `brain.*` settings in AppConfigure govern Skill lessons:
+Three `brain.*` settings in [AppConfigure](../app-configuration/) govern Skill lessons alongside `ankole_brain`'s Model Profile:
 
 | Setting | Default | Effect |
 |---|---|---|
 | `brain.skill_learning_enabled` | `true` | Enables reflection, lease review, and lesson delivery; setting it to `false` hides stored human and Dreaming lessons without deleting them. |
 | `brain.skill_learning_reflection_threshold` | `10` | Unprocessed qualifying Jobs required before Dreaming starts a reflection Job (minimum `2`). |
-| `brain.maintainer_agent_uid` | Not set | Selects the Agent whose `heavy` model profile reviews leased lessons; without a usable `heavy` profile, Ankole skips model-based review. |
 | `brain.dreaming_task_cron` | `0 5 * * *` | Cron schedule on which Dreaming checks reflection thresholds and reviews due leases. |
+
+Dreaming executes lease reviews under the built-in `ankole_brain` system Principal using its effective `heavy` Model Profile (falling back to `primary`) configured in **Console → Model Profiles** (`Site -> Pod -> ankole_brain`); without an effective `heavy` or `primary` profile, Ankole skips model-based lease review.
 
 Open **Brain → Health** in the Console to check whether Skill learning is active, inspect active lesson counts per Agent, view lessons added and retired over the past seven days, and check the age of the oldest active Dreaming lesson.
 

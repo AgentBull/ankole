@@ -30,8 +30,11 @@ and delivery route rather than owning the Discord channel.
 | REST client | Project `Req` client against API v10 |
 | Gateway client | `IMTransport.WebSocket` through the Discord socket |
 
-Configuration consists of a single required encrypted field, `botToken`, which
-can belong to at most one enabled Discord binding. The REST client returns
+Configuration requires `botToken`—stored in `Ankole.Connectors`
+(`connector_auth_configs`, referenced via `authConfigId` through
+`Ankole.Connectors.LegacyConfig` while behavior settings remain in
+`AppConfigure`)—which can belong to at most one enabled Discord binding. The
+REST client returns
 Discord message IDs for durable reply checkpoints, and the Gateway owner
 advances its session sequence watermark only after `Conversations` durably
 accepts (or explicitly ignores) each event.
@@ -147,12 +150,15 @@ Each binding's `unmatched_sender_policy` (`manual_review` or
 
 For admitted messages with attachments, `Conversations` first commits the entry
 with pending attachment metadata—ensuring unmapped senders never trigger CDN
-downloads—and the adapter then fetches the file from Discord's CDN, writes it to
-the file service ([Files](../Files.md)), and finalizes the entry. Because
+downloads—and the adapter then fetches the file from Discord's CDN, materializes
+the bytes through `Ankole.Conversations.Attachments` into unified Drive
+([Files](../Files.md))—storing an immutable `file_objects` row, freezing
+`object_id` on `message_attachments`, and linking the file into the conversation
+root (`/drive/ChatDrive`)—and finalizes the entry. Because
 Discord enforces no single global CDN download cap, Ankole enforces a 25 MB per-file
 budget: larger attachments retain their provider metadata alongside a
-`provider_download_limit` marker without creating a local file path or claiming
-local readability.
+`provider_download_limit` marker without creating a conversation Drive file or
+claiming local readability.
 
 ## Send Replies and Actions
 
@@ -160,9 +166,10 @@ Using Discord message snowflakes as `provider_message_id`, the adapter supports
 posting, replying (`fail_if_not_exists: false`, so replying to a deleted target
 gracefully posts a standalone message), editing, deleting, adding and removing
 reactions, posting dividers, and rendering interactive cards. Outbound files
-upload in a single `multipart/form-data` request combining `payload_json` and
-`files[n]` parts so text and attachments appear in one Discord message, and all
-create and edit calls disable Discord mention parsing (`allowed_mentions`) so
+read immutable bytes from `Ankole.Files` via `object_id` (`delivery_attachments`)
+and upload in a single `multipart/form-data` request combining `payload_json`
+and `files[n]` parts so text and attachments appear in one Discord message, and
+all create and edit calls disable Discord mention parsing (`allowed_mentions`) so
 Agent prose can never accidentally ping users, roles, or `@everyone`.
 
 Mutable streaming replies own one or more Discord messages split at Discord's
@@ -198,7 +205,9 @@ rate limits are retryable as well, rounding Discord's fractional-second
 `retry_after` upward so sub-second waits still pause; auth/permission errors
 require operator intervention, and `4xx` validation errors fail permanently.
 
-`AppConfigure` stores `botToken` encrypted at rest. The adapter reads the raw
+`Ankole.Connectors` stores `botToken` encrypted at rest in
+`connector_auth_configs` (referenced via `authConfigId` from the binding's
+`AppConfigure` configuration row). The adapter reads the raw
 token only when building Gateway `IDENTIFY` and `RESUME` frames and HTTP
 authorization headers—never logging or persisting it in connection status, error
 records, or raw payloads—exposing only bot identity, session state, granted

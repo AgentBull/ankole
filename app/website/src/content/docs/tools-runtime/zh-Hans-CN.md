@@ -17,9 +17,9 @@ order: 120
 
 不同类别的工具按职责归属在各自的执行端运行：
 
-- **控制面领域工具**：会话规划、定时调度、后台 Agent 任务管理、Workflow 编排、Skill 正文读取与领域级联网操作，均由控制面内对应的领域模块直接执行。
+- **控制面领域工具**：会话规划、定时调度、后台 Agent 任务管理、Workflow 编排、Skill 读取（`skill_view`）、Brain 知识工具、Pod 与统一云盘工具（含 `reply_attachment`）、`propose_action_card` 交互审批卡、`send_to_agent` 同事委托以及已配置的 `web_search` / `web_fetch` 联网操作，均由控制面内对应的领域模块直接执行。
 - **沙箱环境（Computer）工具**：通过 RuntimeFabric 协议委托给该 Agent 专属的 Worker 执行。首次调用环境工具时会自动初始化并打开对应的 Session 工作区；Worker 负责维护并发槽位与子进程运行态，控制面则负责持久化最终结果。
-- **挂载 MCP 的 Skill**：在 Worker 内通过 `command` 终端工具调用 `mcporter` 完成外部交互。
+- **挂载 MCP 的 Skill**：在 Worker 内通过 `command` 终端工具搭配调用级 `mcporter` 配置执行——其中 `connector`（内置 Toolkit）与 `streamable_http` 类型的 Skill MCP 依赖使用绑定当轮的短效内部令牌经由控制面 `Ankole.Connectors` MCP 网关代理转发，使上游凭据始终留在控制面内；`stdio` 类型的 MCP 服务则在 Worker 容器本地拉起运行。
 - **提供商托管工具**：经由 AIGateway 直接透传至上游模型提供商执行，组装工具目录时会严格对照当前所选模型声明支持的能力范围。
 
 Driver 会依照各工具声明的并发属性安排并行或顺序调用。凡涉及持久化业务副作用的控制面工具均通过 `Ankole.Sessions.Receipts` 执行，确保领域数据变更与执行回执在同一数据库事务内原子提交；AIGateway 则负责保存工具输出供下一轮模型推理读取。若调用途中遭遇 Worker 连接闪断，Driver 会严格按照工具预先声明的重试契约处置结果存疑的环境操作。

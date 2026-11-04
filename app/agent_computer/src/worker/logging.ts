@@ -221,3 +221,7 @@ function compactLabels(labels: Record<string, string | number | boolean | undefi
   }
   return compacted
 }
+
+export function turnOperation(signalID: string, flags: { first?: boolean; last?: boolean } = {}): JSONObject {
+  return { id: signalID, producer: 'ankole-worker/turn', ...flags }
+}

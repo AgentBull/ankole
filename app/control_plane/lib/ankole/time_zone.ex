@@ -41,6 +41,16 @@ defmodule Ankole.TimeZone do
     end
   end
 
+  @doc "Formats an ISO8601 instant in a time zone, returning nil for an invalid instant or zone."
+  def format_instant(value, timezone, format) when is_binary(value) and is_binary(timezone) do
+    with %DateTime{} = instant <- Ankole.Attrs.parse_datetime(value),
+         {:ok, local} <- shift(instant, timezone),
+         do: Calendar.strftime(local, format),
+         else: (_ -> nil)
+  end
+
+  def format_instant(_value, _timezone, _format), do: nil
+
   @spec resolve_local(NaiveDateTime.t(), String.t()) :: {:ok, DateTime.t()} | {:error, term()}
   def resolve_local(%NaiveDateTime{} = naive, timezone) when is_binary(timezone) do
     resolve_local(NaiveDateTime.to_date(naive), NaiveDateTime.to_time(naive), timezone)

@@ -1,3 +1,4 @@
+import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
 import { conversationAttentionQuery } from './api'
 import { commentAttentionQuery } from './content-api'
 import { canCreateChild, canRenamePage } from './state/page-location'
@@ -698,12 +699,7 @@ function PageTreeRow({
   const [renameRequested, setRenaming] = useState(false)
   const renaming = renameRequested && canRenamePage(page)
   const [moving, setMoving] = useState(false)
-  const keepFocusInRow = useRef(false)
-  const menuFinalFocus = () => {
-    const restore = !keepFocusInRow.current
-    keepFocusInRow.current = false
-    return restore
-  }
+  const [keepFocusInRow, menuFinalFocus] = useMenuFinalFocus()
   const label = page.title || t('pod.content.untitled')
   const canEdit = canCreateChild(page)
   const canMove = canMovePage(page)

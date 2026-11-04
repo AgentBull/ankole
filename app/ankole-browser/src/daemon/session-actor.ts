@@ -1,3 +1,4 @@
+import { isEqual } from '@agentbull/active-support'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BrowserContext } from 'playwright-core'
@@ -32,7 +33,6 @@ type Lease = {
 export class SessionActor {
   private mailbox: Promise<void> = Promise.resolve()
   private material?: BrowserMaterial
-  private materialJSON?: string
   private browserSession?: BrowserSession
   private lease?: Lease
   private lastReleasedToken?: string
@@ -273,7 +273,6 @@ export class SessionActor {
     await this.closeLive(true)
     await rm(material.data_root, { recursive: true, force: true })
     this.material = undefined
-    this.materialJSON = undefined
     this.remoteLost = false
     this.purged = true
     return { data: { purged: true } }
@@ -285,7 +284,6 @@ export class SessionActor {
     }
     if (!this.material) {
       this.material = incoming
-      this.materialJSON = JSON.stringify(incoming)
       this.purged = false
       return
     }
@@ -299,7 +297,7 @@ export class SessionActor {
       throw new BrowserDataError('invalid_material', 'browser material generation moved backwards')
     }
     if (incoming.material_generation === this.material.material_generation) {
-      if (JSON.stringify(incoming) !== this.materialJSON) {
+      if (!isEqual(incoming, this.material)) {
         throw new BrowserDataError('invalid_material', 'browser material changed without a generation increase')
       }
       return
@@ -311,7 +309,6 @@ export class SessionActor {
     }
     await this.closeLive(false)
     this.material = incoming
-    this.materialJSON = JSON.stringify(incoming)
     this.remoteLost = false
   }
 

@@ -19,7 +19,13 @@ Signal は永続化された受信トレイ（inbox）として機能し、AIGat
 
 モデルリクエストを組み立てる境界では、Sessions が現在の Conversation から Message 一覧を読み取ります。その際、実際のリクエストメタデータに読み取り位置を記録し、今回処理中の main メッセージおよび steer メッセージを背景履歴から除外して重複を防ぎます。なお、共有の会話履歴はあくまで推論のための文脈として渡されるだけであり、過去の発言者の権限まで引き継ぐわけではありません。受け入れ判定（アドミッション）では必ず今回の依頼者の権限を検査します。
 
-また、Signal の完了記録と最終返信の送信意図は同一トランザクションでコミットされます。内部的な応答の書き直しが発生しても返信の所有者は維持され、メッセージの取り消しやリトライが行われた後でも実行済みのツール結果を引き続き参照できます。なお、`/compress` コマンドはフィードバックとチェックポイントの保存をもって完了するため、通常の最終モデル Response の生成は行われません。
+また、Signal の完了記録と最終返信の送信意図は同一トランザクションでコミットされます。内部的な応答の書き直しが発生しても返信の所有者は維持され、メッセージの取り消しやリトライが行われた後でも実行済みのツール結果を引き続き参照できます。共有ルーム内の通常の Agent 返信が他の Agent を起こすことはありません。明示的な Agent 間連携では、`personal_assistant` がオーナーの凍結 Human `WorkAccess` のもとで `send_to_agent` を呼び出して隔離された `agent_peer` やり取りを開き、`ai_colleague` へ作業を委任します。同僚 Agent の `Clarify` 質問や `ActionCard` は元の会話へゼロホップでそのまま投影されて人間の回答が直接同僚 Agent を再開させ、同僚 Agent の確定返信は永続入力 Signal として元のアシスタント Session に届きます。なお、`/compress` コマンドはフィードバックとチェックポイントの保存をもって完了するため、通常の最終モデル Response の生成は行われません。
+
+## コールド復帰時のモデル会話ローテーション
+
+会話のアドミッション時（`Ankole.Sessions.WakeRecycle`、`sessions.wake_recycle` で設定）、先行する AIGateway モデル会話が 1 回以上の Response を完了しており、（a）前回の Response 完了からのアイドル時間が `min_cold_gap_seconds`（既定 `3,600` 秒、上流のプロンプトキャッシュ失効後）に達しかつ累積入力コンテキストが `min_context_tokens`（既定 `128,000` トークン）以上である場合、または（b）外部 IM 会話が `im_max_idle_seconds`（既定 `259,200` 秒 / 72 時間）以上アイドルだった場合、Ankole はアドミッショントランザクション内でモデル会話を後続ブランチへ自動的にローテーションします。
+
+明示的なリセット（`command.new`）、対話カードの回答・コールバック、バックグラウンドコールバック Signal（`background_agent_job.*` や `workflow.run.*`）、進行中または待機中の `BackgroundAgentJob`・`Workflow.Run` や他の実行中 Signal を持つ Session、およびクラッシュ後の再試行（`last_attempt_at != nil`）はローテーション対象から除外されます。ローテーション時には未解決の `InteractionState` と `ActionCard` チェックポイントを引き継ぎつつ公開の `conversation_messages` はそのまま維持し、後続ブランチの最初のモデルリクエストの前に `Sessions.WakeBriefing` が上限 `8,000` `o200k_base` トークンの決定論的な `<wake-briefing>` ブロック（`<brain-memory>`、`<recent-messages>`、`<recent-actions>`、`<objects-in-play>`）を注入します。
 
 ## Worker と操作の識別子
 

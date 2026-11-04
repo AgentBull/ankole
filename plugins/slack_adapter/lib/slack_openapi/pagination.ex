@@ -1,4 +1,6 @@
 defmodule SlackOpenAPI.Pagination do
+  import IMTransport.HTTP, only: [get_in_path: 2]
+
   @moduledoc "Lazy cursor pagination for Slack Web API list methods."
 
   alias SlackOpenAPI.{Client, Error}
@@ -47,15 +49,4 @@ defmodule SlackOpenAPI.Pagination do
   defp put_cursor(query, nil), do: query
   defp put_cursor(query, cursor) when is_list(query), do: Keyword.put(query, :cursor, cursor)
   defp put_cursor(query, cursor) when is_map(query), do: Map.put(query, :cursor, cursor)
-
-  defp get_in_path(value, []), do: value
-
-  defp get_in_path(map, [key | rest]) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> get_in_path(value, rest)
-      :error -> nil
-    end
-  end
-
-  defp get_in_path(_value, _path), do: nil
 end

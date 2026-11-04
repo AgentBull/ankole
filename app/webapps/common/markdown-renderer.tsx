@@ -1,6 +1,7 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Button, cn, toast } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine } from '@remixicon/react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -25,9 +26,7 @@ export default function MarkdownRenderer({ text, copyCode = false }: { text: str
 function CodeBlock({ children }: { children?: ReactNode }) {
   const { t } = useTranslation()
   const code = useRef<HTMLPreElement>(null)
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
+  const [copied, markCopied] = useCopyFeedback(false)
   return (
     <div
       {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
@@ -39,9 +38,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(code.current?.textContent ?? '')
-              setCopied(true)
-              clearTimeout(timer.current)
-              timer.current = setTimeout(() => setCopied(false), 1500)
+              markCopied(true)
               toast.success(t('pod.chat.code_copied'))
             } catch {
               toast.error(t('pod.chat.copy_failed'))

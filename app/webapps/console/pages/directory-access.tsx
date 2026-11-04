@@ -1,3 +1,4 @@
+import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import { useMutation, useQuery } from '../tenant-context'
 import { ActorLabel } from '../actor-label'
 import { Badge, Button, Checkbox, Textarea, toast } from '@ankole/uikit'
@@ -19,13 +20,6 @@ import { formatConsoleDate } from '../console-primitives'
 import { fromDocument } from '../api/json-api'
 import { principalLabel } from '../state/principal-label'
 import type { GetIdentityDirectoryResponse } from '../api/v2/generated/types.gen'
-
-function humanizeToken(value: string): string {
-  return value
-    .replace(/[._-]+/g, ' ')
-    .trim()
-    .replace(/^\w/, char => char.toUpperCase())
-}
 
 function snapshotStatusVariant(status: string) {
   if (status === 'healthy') return 'success' as const
@@ -69,7 +63,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <Badge title={snapshot.status} variant={snapshotStatusVariant(snapshot.status)}>
               {t(`console.directory_access.status_${snapshot.status}`, {
-                defaultValue: humanizeToken(snapshot.status)
+                defaultValue: humanizeTechnicalLabel(snapshot.status.replaceAll('.', '_'))
               })}
             </Badge>
             <span>
@@ -181,12 +175,12 @@ function DirectoryEventReview({
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <span className="font-medium" title={event.event_type}>
           {t(`console.directory_access.event_type_${eventTypeKey}`, {
-            defaultValue: humanizeToken(event.event_type)
+            defaultValue: humanizeTechnicalLabel(event.event_type.replaceAll('.', '_'))
           })}
         </span>
         <Badge title={event.status} variant={snapshotStatusVariant(event.status)}>
           {t(`console.directory_access.event_status_${event.status}`, {
-            defaultValue: humanizeToken(event.status)
+            defaultValue: humanizeTechnicalLabel(event.status.replaceAll('.', '_'))
           })}
         </Badge>
       </div>

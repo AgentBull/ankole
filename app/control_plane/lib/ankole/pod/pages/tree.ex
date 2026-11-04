@@ -822,13 +822,7 @@ defmodule Ankole.Pod.Pages.Tree do
     end
   end
 
-  defp truncate_name(name, max) do
-    name
-    |> String.graphemes()
-    |> Enum.reduce_while("", fn char, acc ->
-      if byte_size(acc) + byte_size(char) <= max, do: {:cont, acc <> char}, else: {:halt, acc}
-    end)
-  end
+  defp truncate_name(name, max), do: Ankole.Text.grapheme_prefix(name, max)
 
   defp atom_attrs(attrs) do
     fields = Ash.Resource.Info.attributes(Node) |> Enum.map(& &1.name)

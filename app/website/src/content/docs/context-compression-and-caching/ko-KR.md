@@ -47,6 +47,13 @@ order: 116
 
 매 압축이 완료될 때마다 AIGateway는 영구 `CompactionArtifact` 레코드를 저장합니다. 이후 대화 히스토리는 가장 최근에 생성된 압축 아티팩트를 기준점(앵커)으로 가리키며 후속 turn을 이어 갑니다.
 
+## 컴팩션과 콜드 복귀 세션 순환의 연계
+
+`ai_gateway.compaction`과 `sessions.wake_recycle`은 캐시가 살아 있는 연속 대화와 캐시가 식은 뒤의 복귀 상황을 상호 보완적으로 처리합니다.
+
+- **캐시가 유지되는 활성 대화(`ai_gateway.compaction`):** 상위 프로바이더의 프롬프트 캐시 유효 시간 안에 turn이 이어지는 동안 Ankole은 동일한 AIGateway 대화 체인을 계속 연장해 프리픽스 캐시 적중률을 높이고, 누적 컨텍스트가 `threshold` / `max_threshold_tokens`를 넘을 때만 컴팩션을 수행합니다.
+- **콜드 복귀(`sessions.wake_recycle`):** `min_cold_gap_seconds`(기본값 `3,600`초, 상위 프롬프트 캐시 만료 이후) 이상 유휴 상태였고 누적 컨텍스트가 `min_context_tokens`(기본값 `128,000` 토큰) 이상인 Session이 재개되거나, 외부 IM 채널에서 `im_max_idle_seconds`(기본값 `259,200`초 / 72시간) 이상 유휴 후 다시 깨어날 때는 `Ankole.Sessions.WakeRecycle`이 캐시 미적중 상태로 대용량 프롬프트를 재전송하는 대신 기존 AIGateway 모델 대화를 닫고 최대 `8,000` `o200k_base` 토큰 한도의 결정론적 `<wake-briefing>`이 주입된 후속 브랜치를 엽니다. 자세한 내용은 [Sessions](../sessions/)를 참조하세요.
+
 ## 튜닝
 
 - 에이전트가 비교적 짧은 대화 위주로 처리하는데 압축이 너무 일찍 자주 돈다면 **`threshold`를 높이세요**(기본값 `0.50`은 여유를 많이 둔 보수적 기준입니다).

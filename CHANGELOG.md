@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.54 (2026-11-04)
+## Version 2.0.0-alpha.55 (2026-11-04)
 
 - Create and edit spreadsheets in Pod. The page create menus offer a new
   **Spreadsheet**, which starts as a blank `Untitled.xlsx`, and every `.xlsx` or
@@ -49,6 +49,21 @@
   kinds, view them full size, and download them, and they stay in the
   downloaded `.xlsx`. Rows without a height set by hand grow with larger fonts
   and wrapped text, and shrink back when they go.
+
+## Version 2.0.0-alpha.54 (2026-11-04)
+
+- Preserve Chinese IME confirmation in comment mentions, compare knowledge-page
+  metadata by value, and keep formula arrays and dates consistent across Base
+  queries and grouping controls.
+- Keep browser material identity independent of JSON object key order, accept
+  valid Skill filenames beginning with two dots, and use the shared path rules
+  for Worker tools and MCP configuration.
+- Keep XML attribute whitespace intact when importing Markdown links, and
+  preserve newly typed search text while an earlier query updates the URL.
+- Validate Connector OAuth return paths through the browser session contract,
+  and keep file previews, downloads, copy feedback, and automation controls
+  consistent across Pod and Console.
+- Preserve seconds in automation run timestamps and Base date-time cells.
 
 ## Version 2.0.0-alpha.53 (2026-11-04)
 

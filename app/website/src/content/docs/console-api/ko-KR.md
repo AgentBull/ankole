@@ -39,11 +39,20 @@ Console 및 사이트 관리 작업의 전체 명세는 `/api/v2/openapi.json`�
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | 진행 중인 디바이스 로그인 완료 여부 폴링 |
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | 브라우저 콜백 URL 붙여넣기 폴백 완료 |
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | ChatGPT Enterprise 액세스 토큰 직접 등록 |
-| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | 특정 에이전트의 모델 프로필 목록 조회 |
-| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 모델 프로필 생성 또는 교체 |
-| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 모델 프로필 삭제 |
+| `GET` | `/api/v2/model-profiles` | Pod 또는 사이트 기본 모델 프로필과 provider-hosted 스위치 조회 |
+| `PUT` | `/api/v2/model-profiles/:profile` | Pod 또는 사이트 기본 모델 프로필 설정 |
+| `DELETE` | `/api/v2/model-profiles/:profile` | Pod 또는 사이트 기본 모델 프로필 제거(`?defaults_scope=`로 범위 지정) |
+| `PUT` | `/api/v2/model-profiles/provider-hosted` | Pod 또는 사이트 provider-hosted 기능 스위치 설정 |
+| `GET` | `/api/v2/system-principals` | 등록된 시스템 서비스 Principal 목록 조회(`ankole_brain`, `system` 등) |
+| `GET` | `/api/v2/system-principals/:uid/model-profiles` | 시스템 Principal의 모델 프로필 재정의 및 유효 설정 조회 |
+| `PUT` | `/api/v2/system-principals/:uid/model-profiles/:profile` | 시스템 Principal의 고정 슬롯 모델 재정의 설정 |
+| `DELETE` | `/api/v2/system-principals/:uid/model-profiles/:profile` | 시스템 Principal 모델 재정의 삭제 및 Pod·사이트 기본값 상속 복원 |
+| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | 특정 에이전트의 모델 프로필 재정의, 상속값 및 유효 프로필 조회 |
+| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 에이전트 고정 슬롯 재정의 또는 사용자 지정 모델 프로필 설정 |
+| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 에이전트 모델 프로필 재정의 또는 사용자 지정 프로필 삭제 |
+| `PUT` | `/api/v2/agents/:agent_uid/provider-hosted` | 단일 에이전트의 provider-hosted 기능 스위치 재정의 설정 |
 
-모든 프로바이더 자격 증명은 에이전트 컨테이너가 아닌 컨트롤 플레인 내부에 암호화된 풀 멤버로 보관됩니다. 모델 프로필이 에이전트를 특정 프로바이더와 모델에 연결하면 런타임에 AIGateway가 정상 상태인 풀 멤버를 골라 호출하며, API 응답 프로젝션에는 마스킹된 안전한 계정 정보와 상태(health), 속도 제한 수치, 누적 사용량만 포함됩니다.
+모든 프로바이더 자격 증명은 에이전트 컨테이너가 아닌 컨트롤 플레인 내부에 암호화된 풀 멤버로 보관됩니다. 모델 프로필은 사이트 기본값 → Pod 기본값 → 에이전트 또는 시스템 서비스 Principal 재정의(`ankole_brain`은 Brain 추출·Dreaming·임베딩·리랭크 호출용, `system`은 Pod Applet 모델 호출 및 내부 작업용) 계층으로 해석되며, 런타임에 AIGateway가 정상 상태인 풀 멤버를 골라 호출합니다. API 응답 프로젝션에는 마스킹된 안전한 계정 정보와 상태(health), 속도 제한 수치, 누적 사용량만 포함됩니다.
 
 ### Agent와 그 능력
 
@@ -56,6 +65,7 @@ Console 및 사이트 관리 작업의 전체 명세는 `/api/v2/openapi.json`�
 | `GET` | `/api/v2/agents/:agent_uid` | 단일 에이전트 상세 조회 |
 | `PATCH` | `/api/v2/agents/:agent_uid` | 에이전트 속성 수정 |
 | `POST` | `/api/v2/agents/:agent_uid/enable` | 비활성화된 에이전트 다시 활성화 |
+| `POST` | `/api/v2/agents/:agent_uid/rename` | 비활성화된 에이전트의 Worker 종료 후 UID 이름 변경 |
 | `DELETE` | `/api/v2/agents/:agent_uid` | 활성 에이전트는 비활성화하고, 이미 비활성화된 에이전트는 영구 삭제 |
 
 ### Worker 프로바이더
@@ -74,15 +84,17 @@ Console 및 사이트 관리 작업의 전체 명세는 `/api/v2/openapi.json`�
 
 ### 시그널 라우팅 규칙
 
-시그널 라우팅 규칙(API 스키마 명칭 `Signal Binding`)은 외부 채널 어댑터를 담당 Agent와 연결해 유입된 메시지와 이벤트가 해당 Agent에 전달되도록 합니다.
+시그널 라우팅 규칙(API 스키마 명칭 `Signal Binding`)은 외부 채널 어댑터를 지정된 AI Colleague(`ai_colleague` 모드)에 연결하거나, 공유 Lark/Feishu 및 Slack Personal Assistant Bot에서 매칭된 발신자 각자의 Personal Assistant(`sender_personal_assistant` 모드, `agent_uid`는 `null`)로 라우팅합니다.
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
 | `GET` | `/api/v2/signal-adapters` | 현재 배포 인스턴스에 선언된 시그널 어댑터 목록 조회 |
 | `GET` | `/api/v2/signal-bindings` | 라우팅 규칙 목록 조회(`?agent=` 쿼리로 특정 Agent 필터링) |
-| `PUT` | `/api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 라우팅 규칙 생성 또는 교체 |
-| `PATCH` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 부분 수정 |
-| `DELETE` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 비활성화 |
+| `GET` | `/api/v2/signal-bindings/:id` | 단일 라우팅 규칙 조회 |
+| `PUT` | `/api/v2/signal-bindings/:adapter_id/:binding_name` | 라우팅 규칙 생성 또는 재활성화 |
+| `PATCH` | `/api/v2/signal-bindings/:id` | 라우팅 규칙 수정 |
+| `DELETE` | `/api/v2/signal-bindings/:id` | 라우팅 규칙 비활성화 |
+| `POST` | `/api/v2/agents/:agent_uid/signal-deliveries/requeue` | 전송 실패한 아웃바운드 시그널 재큐잉 |
 | `GET` | `/api/v2/conversations/:conversation_id/standing-orders` | 특정 Conversation의 상시 지시(standing order) 조회 |
 | `PUT` | `/api/v2/conversations/:conversation_id/standing-orders` | 특정 Conversation의 상시 지시 전체 교체 |
 
@@ -173,10 +185,10 @@ Console API는 구성 변경뿐 아니라 시스템 전반의 운영 상태를 �
 
 - **실행 중인 Agents**: `/api/v2/agents/:agent_uid/sessions` 및 Agent별 cron 스케줄·checkback 조회·관리 라우트(목록 엔드포인트는 테넌트 전체 범위이며 `agent` 쿼리 필터 지원).
 - **Workers**: `/api/v2/agent-workers`에서 각 Agent에 할당된 Worker 인스턴스 상태를 조회합니다.
-- **Agent drive**: 파일 목록 조회와 삭제는 `/api/v2/agents/:agent_uid/files`, 경로 이동은 `/api/v2/agents/:agent_uid/file-moves`를 사용하며, 실제 파일 바이트 전송은 네이티브 라우트인 `POST /api/v2/agents/:agent_uid/files`(멀티파트 업로드)와 `GET /api/v2/agents/:agent_uid/files/content`(스트림 다운로드)로 처리합니다. 네이티브 파일 라우트에도 동일한 브라우저 세션, CSRF, 테넌트 헤더, 파일 권한 검증이 적용되며 파일 소유권은 컨트롤 플레인에 있습니다.
+- **통합 드라이브(Unified Drive)**: `GET /api/v2/drive/:tenant_id/nodes`로 테넌트 루트 및 하위 노드를 조회하고, `POST /api/v2/drive/:tenant_id/nodes`로 페이지나 빈 파일을 생성하며, `PATCH /api/v2/drive/:tenant_id/nodes/:id`로 이동·이름 변경, `DELETE /api/v2/drive/:tenant_id/nodes/:id`로 하위 트리를 휴지통에 보냅니다. 실제 바이트 전송은 네이티브 라우트인 `POST /api/v2/drive/:tenant_id/uploads`(멀티파트 업로드)와 `GET /api/v2/drive/:tenant_id/nodes/:id/content`(스트림 다운로드)로 처리하며, 동일한 브라우저 세션·CSRF 검증과 `site_console:drive` 권한 아래 Worker가 실행 중이지 않아도 동작합니다.
 - **Jobs**: `/api/v2/background-agent-jobs`에서 백그라운드 작업의 목록 조회, 상세 확인, 취소를 수행합니다.
 - **AI 활동**: `/api/v2/ai-gateway/conversations`에서 AIGateway 대화 목록과 대화별 메시지 이력을 조회합니다.
-- **Principals, AuthZ 및 OIDC 클라이언트**: `/api/v2/principals`(`PATCH /api/v2/principals/:uid/membership`, `POST /api/v2/principals/:uid/access-disables`, `POST /api/v2/principals/:uid/access-restorations` 포함), `/api/v2/principal-groups`, `/api/v2/permission-grants`, `/api/v2/oidc-clients`를 통해 조회·관리하며 [Principal 및 AuthZ](../principal-authz/)의 권한 모델을 따릅니다.
+- **Principals, AuthZ 및 OIDC 클라이언트**: `/api/v2/principals`(`POST /api/v2/principals/:uid/rename`, `PATCH /api/v2/principals/:uid/membership`, `POST /api/v2/principals/:uid/access-disables`, `POST /api/v2/principals/:uid/access-restorations` 포함), `/api/v2/principal-groups`, `/api/v2/permission-grants`, `/api/v2/oidc-clients`를 통해 조회·관리하며 [Principal 및 AuthZ](../principal-authz/)의 권한 모델을 따릅니다.
 
 ## 여기에 없는 것에 대한 참고
 

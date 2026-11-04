@@ -26,9 +26,9 @@ git push origin feature/agent-fix
 
 ## 必要なもの
 
-- **Git の認証情報。** **Console → Environment variables** を開き、SSH キーまたは PAT を `GIT_SSH_KEY` や `GIT_TOKEN` などの暗号化変数として保存します。保存した値は、Agent の次の Turn から利用可能になります。詳しくは [Environment variables](../worker-env/) を参照してください。
+- **Git の認証情報。** GitHub（Cloud または Enterprise）では、**Pod → Connections**（`Ankole.Connectors`）で GitHub App インストールまたは個人 OAuth アカウントを接続する方法を推奨します。Ankole が Turn スコープの `GIT_ASKPASS` クレデンシャルヘルパー（`POST /api/internal/connectors/git-credentials`）を自動注入するため、`WorkerEnv` に静的トークンを保存しなくても HTTPS 経由で `git clone`・`git fetch`・`git push` を認証できます。それ以外の Git ホストを使う場合は、**Console → Environment variables** で SSH キーや PAT を `GIT_SSH_KEY` や `GIT_TOKEN` などの暗号化変数として保存してください（詳しくは [Environment variables](../worker-env/) を参照）。
 - **Worker からアクセス可能なリポジトリ。** Worker から git ホストへネットワーク経由で到達できる必要があります。プライベートネットワーク環境では、Worker から対象の git サーバーへ接続できるか事前に確認してください。Docker Compose 環境では、Worker コンテナは `ankole_workers` ネットワークに接続されており、コントロールプレーンとインターネットの双方に通信できるため、パブリックな git ホストへそのままアクセスできます。Helm チャートで `networkPolicy.enabled` を有効にした場合も、Worker Pod からコントロールプレーン、DNS、パブリックアドレスへは通信できますが、プライベートアドレス上の git サーバーについては、該当するアドレス帯が `networkPolicy.workerDeniedCIDRs` に含まれている限りアクセスできません。
-- **Background Agent Job 用のモデルプロファイル（必要な場合のみ）。** まずはデフォルトのフォールバック設定のままで問題ありません。Background Agent Job で通常とは異なる Provider やモデルを使いたい場合にのみ、このプロファイルを設定してください。
+- **モデルプロファイル（個別指定が必要な場合のみ）。** Agent は上書きしない限りサイトと Pod のモデルプロファイルを継承し、Background Agent Job も `coding` から `heavy`、`primary` の順でフォールバックします。Background Agent Job で専用の Provider やモデルを使いたい場合にのみ、`coding` プロファイルを設定してください。
 
 ## workspace
 
@@ -42,15 +42,15 @@ git リポジトリは、セッションまたは Job ごとのワークスペ�
         └── ...           # the working tree
 ```
 
-`/workspace` 内のリポジトリは、Worker の入れ替えやイメージの更新を行っても維持されます。ただし、ストレージ障害に備えるため、変更内容はリモートリポジトリへプッシュするか、別途バックアップを取ってください。また、`ankole-files put` を実行すると、ファイルを [Agent ドライブ](../file-management/)へ公開できます。
+`/workspace` 内のリポジトリは、Worker の入れ替えやイメージの更新を行っても維持されます。ただし、ストレージ障害に備えるため、変更内容はリモートリポジトリへプッシュするか、別途バックアップを取ってください。ビルド成果物や納品物を `/workspace` の外へ共有する場合は、`/drive`（たとえば `/drive/ChatDrive` や `/drive/Public`、FUSE 非対応の Worker ではフォールバックの `ankole-files put`）へ直接書き出します（詳しくは [ファイル管理](../file-management/) を参照）。
 
 ## 実践例
 
 PR をレビューするコーディング Agent をセットアップする手順は次のとおりです。
 
-1. **Console → Environment variables** で、PAT を `GIT_TOKEN` という名前の暗号化変数として保存します。
-2. Agent を作成し、必要な `primary`、`light`、`heavy` プロファイルをバインドします。デフォルトのフォールバックを上書きしたい場合にのみ、Background Agent Jobs の設定を個別に行います。
-3. リポジトリ名、レビュー基準、ブランチ命名規約を記載した `AGENTS.md` を作成します。
+1. **Pod → Connections** で GitHub App または個人 OAuth アカウントを接続します（GitHub 以外のホストでは **Console → Environment variables** に暗号化した SSH キーまたは PAT を保存します）。
+2. Agent を作成します。サイトおよび Pod の既定モデルプロファイルが自動で継承されるため、通常の会話や Background Agent Job で別のモデルを使いたい場合にのみ個別の上書きや `coding` プロファイルを設定します。
+3. **Meta Ankole → Agents** でその Agent の `AGENTS.md` 規約を編集し、リポジトリ名、レビュー基準、ブランチ命名規約を記載します。
 4. チャネルで Agent に次のように依頼します。「`your-repo` の最新 PR をレビューしてください。クローンしてチェックアウトし、テストを実行したうえで、見つかった問題点を報告してください。」
 5. 依頼を受けると、Agent は `command` ツールを使ってクローン、チェックアウト、テスト実行を進め、結果を報告します。この一連の作業は会話の中で直接進めることも、Background Agent Job に委任することも可能です。
 

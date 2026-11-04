@@ -418,13 +418,13 @@ Return to the Web Console. If the browser session expired, sign in again through
 Create runtime resources in this order because each later resource references an earlier one:
 
 1. **Provider.** Open Providers, choose the service you actually use, and enter a stable Provider ID, API key, endpoint if required, and model information. Save it and confirm it is available.
-2. **Agent.** Open Agents and set its handle, display name, role, and Worker provider. Ankole generates its opaque UID. Configure `primary`, `light`, and `heavy` model profiles. One provider and model can temporarily serve all three.
-3. **Signal binding.** Open Signals, select the agent and Feishu/Lark adapter, use `lark-main` as the binding name and principal namespace, enter the same app credentials and Feishu domain, then save and enable it.
+2. **Agent.** Open Agents and set a meaningful tenant-scoped `uid`, display name, role, owner, and Worker provider. Configure the `primary`, `light`, and `heavy` model profiles either as Site or Pod defaults under Default Model Profiles (inherited by Agents) or as per-Agent overrides; one provider and model can temporarily serve all three.
+3. **Signal binding.** Open Signals, select the Agent and Feishu/Lark adapter, use `lark-main` as the binding name, choose the saved Feishu connection in **Connection**, and save to enable the binding.
 4. **Worker.** Open Workers and confirm that the Agent has the selected Worker provider and no error. Its initial state is Absent. Environment tools or Codex start the Worker when required; pure questions and control-plane tools do not.
 
 For a first group-chat smoke test, use `addressed_only`. It responds only when the bot is explicitly mentioned and needs fewer Feishu permissions than the full-message modes.
 
-The identity provider and Signal binding are separate boundaries. Entering the same App ID and App Secret twice is expected; it does not require two Feishu apps.
+`Ankole.Connectors` stores the Feishu application connection (`authConfigId`) once for the tenant during identity-provider setup, so the `lark-main` identity provider and Signal binding reuse that stored connection without requiring you to enter the App ID and App Secret twice.
 
 If you need the financial MCP, add `BULLX_FINANCIAL_DATA_MCP_API_KEY` through the Console's encrypted worker-environment surface. Test it in a new agent turn after saving.
 
@@ -552,9 +552,9 @@ Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implement
 | `app/control_plane` | Phoenix/OTP control plane application: domain and web modules, OTP entry points, release and upgrade modules, Mix tasks, configuration, migrations, and the test suites |
 | `app/agent_computer` | Bun/TypeScript Worker, environment tools, Codex, Skills, files, and terminal state |
 | `app/kernel` | Rust library loaded through Rustler and browser Node-API bindings |
-| `app/function_runtime` | Stateless Applet backend and deterministic program workers |
+| `app/function_runtime` | Stateless Applet backend, published Applet Actions, and deterministic program workers |
 | `app/webapps` | Vite/React setup, authentication, Pod, and Console applications |
-| `app/library` | Built-in agent skills and starter templates |
+| `app/library` | Built-in Agent Plugins (`agent-plugins/`), standalone Skills (`skills/`), and workspace templates |
 | `app/locales` | Shared translation catalogs |
 | `libs/` | Shared UI, editor, transport, and protocol libraries |
 | `plugins/` | Trusted first-party Plugin source and provider clients compiled by the control plane |
@@ -622,7 +622,7 @@ On pushes to `main`, `Publish RuntimeFabric image pair` calls `Repository checks
   ```
   Under the hood, `mix ankole.plugins.test` compiles `:ankole` in `:test`, skips full application boot, and runs each plugin's `test_helper.exs` to start only its own supervisor (the full `control-plane:test` suite runs these tests as well).
 - **Credo and unused-code gates**: Control-plane lint enforces Credo's default suite, `ex_slop`, and Ankole's custom checks with zero baseline exemptions (max nesting depth `4`, max cyclomatic complexity `20`). If a PR eliminates all remaining findings for a check currently marked `disabled` in `app/control_plane/.credo.exs`, re-enable that check in the same PR. Likewise, `bun run analyze:unused` flags dead production files, exports, types, and dependencies—test-only callers do not keep unused production code alive.
-- **Pinned Elixir dependency patches**: Before compiling Mix dependencies, `app/control_plane` applies local patches to Ash `3.37.2`, AshPostgres `2.15.2`, AshJsonApi `1.8.0`, and `attesto` `2.10.0` (requiring `patch` on `PATH`, preinstalled in Docker). Each `_build` tree tracks a content stamp over the patches and patch loader; whenever either changes, Mix recompiles the patched packages and clears `:ankole`'s build cache, failing hard if any hunk fails to apply. Together these patches resolve calculated identities on skipped upserts, silence spurious notification warnings, emit accurate native OpenAPI schemas (timestamps, embedded IDs, nullable array items, `DELETE` responses), honor halted `before_dispatch` plugs in JSON:API routers, accept Ankole's opaque Principal UIDs in `attesto`, and treat Ash/AshJsonApi resource-reference DSL entries as runtime rather than compile-time module edges (while keeping verifier coverage intact). Re-verify public action behavior whenever bumping these libraries, and drop each patch once upstream ships the fix.
+- **Pinned Elixir dependency patches**: Before compiling Mix dependencies, `app/control_plane` applies local patches to Ash `3.37.2`, AshPostgres `2.15.2`, AshJsonApi `1.8.0`, and `attesto` `2.10.0` (requiring `patch` on `PATH`, preinstalled in Docker). Each `_build` tree tracks a content stamp over the patches and patch loader; whenever either changes, Mix recompiles the patched packages and clears `:ankole`'s build cache, failing hard if any hunk fails to apply. Together these patches resolve calculated identities on skipped upserts, silence spurious notification warnings, emit accurate native OpenAPI schemas (timestamps, embedded IDs, nullable array items, `DELETE` responses), honor halted `before_dispatch` plugs in JSON:API routers, accept Ankole's unprefixed Principal UIDs (`:opaque` `sub_prefix`) in `attesto`, and treat Ash/AshJsonApi resource-reference DSL entries as runtime rather than compile-time module edges (while keeping verifier coverage intact). Re-verify public action behavior whenever bumping these libraries, and drop each patch once upstream ships the fix.
 - **Compile-connected cycle and boundary checks**: Whenever you change module references in `app/control_plane`, verify both `:test` and `:prod` graphs (since `:prod` initializes plugs at compile time):
   ```bash
   MIX_ENV=test ANKOLE_EDITION=foss mix ankole.compile_cycles
@@ -795,7 +795,7 @@ Ankole exposes JSON:API (`application/vnd.api+json` via `AshJsonApi`) on `/api/v
 
 Transport conventions across API surfaces:
 - **Resource vs. generic actions**: Standard CRUD routes exchange JSON:API resource documents (`data.type`, optional `data.id`, `data.attributes`), whereas generic actions accept typed arguments directly under `data` (e.g., `{"data":{"value":true}}`). Routes configured with `wrap_in_result?: false` return their typed payload directly—check the generated TypeScript operation signature before consuming a response.
-- **Non-JSON:API endpoints**: Agent Drive uploads/downloads use native multipart and binary responses under `/api/v2/agents`, Applet HTTP forwarding and SSE keep their native streaming semantics under `/api/v2`, OIDC and OpenAI-compatible endpoints keep their standard protocol paths, and initial setup, email OTP login, and browser session switching run through the dedicated Browser JSON:API router (which, like the Pod and SaaS routers, supplies its own request context without requiring a Console admin session).
+- **Non-JSON:API endpoints**: Drive binary uploads and downloads use native multipart and binary responses under `/api/v2/drive/:tenant_id/...`, while Pod file transfers, Applet HTTP forwarding, and conversation SSE keep their native binary and streaming semantics under `/api/v2/pod/...`. OIDC and OpenAI-compatible endpoints keep their standard protocol paths, and initial setup, email OTP login, and browser session switching run through the dedicated Browser JSON:API router (which, like the Pod and SaaS routers, supplies its own request context without requiring a Console admin session).
 
 Every Console and Site JSON:API route must satisfy three compile-time and test-enforced invariants (`router_test.exs` and `native_authorization_routes_test.exs`):
 1. **Unique `name`**: Serves as the OpenAPI `operationId` and generated TypeScript SDK function name.

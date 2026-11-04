@@ -427,7 +427,7 @@ snapshots, and purging the page deletes them together with its operation log
 and search cache; the 24-hour grace period then applies to every object they
 named.
 
-## Skills and Automation
+## Skills, Contracts, and Brain Projections
 
 `/drive/Skills` contains the current Agent's enabled packages from the Library
 domain. `/drive/AGENTS.md` and `/drive/DESIGN.md` contain its effective composed

@@ -1,6 +1,6 @@
 import { DRIVE_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { errorMessage } from '../../common/errors'
-import { positiveInteger } from '../primitives'
+import { assertOnlyOptions, helpRequested, positiveInteger } from '../primitives'
 import { DriveCLICommand, type DriveCLICommand as Command } from './drive-cli-protocol'
 import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import { emitFirstUseGuidance, installStdoutEpipeGuard, markHelpSeen } from '../cli-guidance'
@@ -42,7 +42,7 @@ if (import.meta.main) {
   installStdoutEpipeGuard(process.stdout)
   try {
     const args = process.argv.slice(2)
-    if (args.length === 0 || args.some(arg => arg === '--help' || arg === '-h')) {
+    if (args.length === 0 || helpRequested(args)) {
       markHelpSeen({ commandKey: 'ankole-files' })
       process.stdout.write(`${DRIVE_CLI_HELP}\n`)
     } else {
@@ -131,12 +131,6 @@ function parseArgs(args: string[]): { positional: string[]; options: Map<string,
     }
   }
   return { positional, options }
-}
-
-function assertOnlyOptions(options: Map<string, string | true>, allowed: string[]): void {
-  for (const name of options.keys()) {
-    if (!allowed.includes(name)) throw new Error(`unknown option ${name}`)
-  }
 }
 
 function assertPositionalCount(positional: string[], min: number, max: number, message: string): void {

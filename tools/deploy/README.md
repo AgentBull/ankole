@@ -12,12 +12,17 @@ the open-source Ankole release.
 
 Both targets deploy the same production architecture:
 
-- The Phoenix/OTP control plane owns durable state and serves the operator
-  Console.
-- PostgreSQL 18 stores durable state and provides the `pg_search` and `vector`
-  extensions.
-- The control plane's file service stores each Agent's drive on a local volume
-  or in S3-compatible object storage.
+- The Phoenix/OTP control plane owns durable state and serves Pod workspaces
+  alongside the operator Console.
+- PostgreSQL 18 stores durable control-plane state (providing the `pg_search`
+  and `vector` extensions) and hosts physical Base tables either in per-tenant
+  schemas on the primary database or across dedicated PostgreSQL shard databases
+  configured through `BASE_DB_URLS`.
+- Unified Drive storage persists Pod files, Applet bundles, and Drive objects on
+  a local volume or in S3-compatible and remote object stores.
+- Function Runtime (`ankole-function-runtime`) executes stateless Applet backend
+  routes, published Applet Actions, and deterministic `PTC` and `Workflow`
+  programs without database credentials.
 - For each Agent that needs an execution environment, the control plane creates
   a dedicated Agent Computer Worker container whose persistent Agent Home lives
   separately from its rebuildable cache.
@@ -31,10 +36,15 @@ and `canary` tracks alpha and beta builds, so either moving tag can lag behind
 the manifests on `main`.
 
 Each Worker container acts as one Agent's dedicated computer and sole isolation
-boundary: Agents never share a Worker, and Workers require no extra Linux kernel
-privileges. Because the control plane provisions Worker containers dynamically,
-it needs container-lifecycle permissions—access to the Docker socket under
-Docker Compose, or a namespace-scoped `Role` on Kubernetes.
+boundary: Agents never share a Worker. When `/drive` FUSE mounts are
+enabled—using `/dev/fuse` and `SYS_ADMIN` under Docker, or
+`smarter-devices/fuse` and `SYS_ADMIN` constrained by the chart's
+`ValidatingAdmissionPolicy` on Kubernetes—only the Worker's root supervisor
+holds mount capability inside a private mount namespace before dropping child
+processes (`uid 1000`) to an empty capability set. Because the control plane
+provisions Worker containers dynamically, it needs container-lifecycle
+permissions—access to the Docker socket under Docker Compose, or a
+namespace-scoped `Role` on Kubernetes.
 
 Choose the Helm chart when deploying onto a Kubernetes cluster, or Docker
 Compose when running on a single production host with local named volumes.

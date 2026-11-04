@@ -1152,16 +1152,7 @@ defmodule Ankole.Conversations.ActionCards do
     deleted_matches? = not is_nil(page.deleted_at) == expected_deleted
 
     updated_matches? =
-      case preconditions["expected_updated_at"] do
-        iso when is_binary(iso) ->
-          case DateTime.from_iso8601(iso) do
-            {:ok, dt, _} -> DateTime.compare(page.updated_at, dt) == :eq
-            _ -> false
-          end
-
-        _ ->
-          true
-      end
+      updated_at_matches?(page.updated_at, preconditions["expected_updated_at"])
 
     revision_matches? =
       case preconditions["expected_revision"] do
@@ -1178,17 +1169,17 @@ defmodule Ankole.Conversations.ActionCards do
       table.name == preconditions["expected_name"] and
       table.schema_version == preconditions["expected_schema_version"] and
       table.data_version == preconditions["expected_data_version"] and
-      case preconditions["expected_updated_at"] do
-        iso when is_binary(iso) ->
-          case DateTime.from_iso8601(iso) do
-            {:ok, dt, _} -> DateTime.compare(page.updated_at, dt) == :eq
-            _ -> false
-          end
-
-        _ ->
-          true
-      end
+      updated_at_matches?(page.updated_at, preconditions["expected_updated_at"])
   end
+
+  defp updated_at_matches?(updated_at, expected) when is_binary(expected) do
+    case Ankole.Attrs.parse_datetime(expected) do
+      %DateTime{} = datetime -> DateTime.compare(updated_at, datetime) == :eq
+      nil -> false
+    end
+  end
+
+  defp updated_at_matches?(_updated_at, _expected), do: true
 
   defp authorize_browser_card_view(actor, %Conversation{kind: :native} = conversation, _card) do
     if Native.visible_conversation?(actor, conversation.id), do: :ok, else: {:error, :not_found}

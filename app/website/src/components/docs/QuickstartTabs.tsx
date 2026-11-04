@@ -1,8 +1,10 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
+import { copyText } from '../../lib/copy-text'
 import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit/components/alert'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ankole/uikit/components/collapsible'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit/components/tabs'
 import { RiArrowDownSLine, RiArrowRightLine, RiCheckLine, RiErrorWarningLine, RiFileCopyLine } from '@remixicon/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export interface QuickstartCode {
   code: string
@@ -413,27 +415,10 @@ function CopyButton({
   labels: QuickstartLabels
   value: string
 }) {
-  const [copied, setCopied] = useState(false)
-  const resetTimer = useRef<number | undefined>(undefined)
-
-  useEffect(() => () => window.clearTimeout(resetTimer.current), [])
-
+  const [copied, markCopied] = useCopyFeedback(false, 2000)
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value)
-    } catch {
-      const textarea = document.createElement('textarea')
-      textarea.value = value
-      textarea.style.position = 'fixed'
-      textarea.style.opacity = '0'
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
-    }
-    setCopied(true)
-    window.clearTimeout(resetTimer.current)
-    resetTimer.current = window.setTimeout(() => setCopied(false), 2000)
+    await copyText(value)
+    markCopied(true)
   }
 
   const actionLabel = copied ? labels.copied : labels.copy

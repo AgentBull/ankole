@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-本 Compose 项目可在单台 Linux、macOS 或 Windows 主机上运行一套完整的 Ankole 私有化部署（宿主机 Docker 须支持运行 Linux `amd64` 或 `arm64` 容器）。项目编排了 PostgreSQL、数据库迁移任务、控制面与 Caddy HTTPS 网关；控制面则通过 Docker 套接字（socket）按需为每个 Agent 创建独立的 Agent Computer Worker 容器。
+本 Compose 项目可在单台 Linux、macOS 或 Windows 主机上运行一套完整的 Ankole 私有化部署（宿主机 Docker 须支持运行 Linux `amd64` 或 `arm64` 容器）。项目编排了 PostgreSQL、数据库迁移任务、控制面、函数运行时（`ankole-function-runtime`）与 Caddy HTTPS 网关；控制面则通过 Docker 套接字（socket）按需为每个 Agent 创建独立的 Agent Computer Worker 容器。
 
 一个站点对应一套完整部署，内部可承载多个租户；各租户拥有独立的人员、Agent、Brain 与外部平台集成，而站点管理员统一管理共享的基础设施与运行方。站点管理控制台默认挂载在 `/site-admin-console`；如需改为其他绝对路径，请在启动前设置 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` 并妥善保存在运维配置中。普通成员通过所属租户域名或 OIDC 应用登录，不访问站点管理控制台。
 
@@ -12,9 +12,9 @@
 - 已安装 Docker Engine（含 Docker Compose 插件）或 Docker Desktop。
 - 对外开放 TCP `80` 与 `443` 端口。
 - 解析到该主机的域名；仅在本机访问时也可使用 `ankole.localhost`。
-- 充足的磁盘与内存，能够同时承载 PostgreSQL、Agent 云盘，以及每个活跃 Agent 各自的 Worker 容器。
+- 充足的磁盘与内存，能够同时承载 PostgreSQL、云盘存储、函数运行时，以及每个活跃 Agent 各自的 Worker 容器。
 
-控制面容器会挂载宿主机的 Docker 套接字。由于访问该套接字等同于拥有宿主机 `root` 权限，请将宿主机视为受信任的第一方计算边界。Worker 容器不会挂载该套接字，也不具备任何额外内核特权——每个容器本身就是单个 Agent 的隔离边界。
+控制面容器会挂载宿主机的 Docker 套接字。由于访问该套接字等同于拥有宿主机 `root` 权限，请将宿主机视为受信任的第一方计算边界。Worker 容器绝不挂载 Docker 套接字，每个容器本身就是单个 Agent 的隔离边界；本地 Docker 运行方仅向容器内的 `root` 监管进程授予 `/dev/fuse` 与 `SYS_ADMIN` 权限，用于在私有挂载命名空间内挂载 `/drive`，随后将所有业务子进程（`uid 1000`）降权至空的 Linux 能力集（capability set）。
 
 ## 准备配置
 
@@ -86,7 +86,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Compose 会依次等待 PostgreSQL 就绪、数据库迁移完成以及 Agent Home 迁移服务执行成功，随后再启动控制面和 Caddy。初始状态下不会启动任何 Worker 容器：只有在创建 Agent 时，控制面才会拉取配套的 Worker 镜像并按需创建容器。
+Compose 会依次等待 PostgreSQL 就绪、数据库迁移完成、Agent Home 迁移服务执行成功且函数运行时通过健康检查后，再启动控制面和 Caddy。初始状态下不会启动任何 Worker 容器：只有在创建 Agent 时，控制面才会拉取配套的 Worker 镜像并按需创建容器。
 
 从控制面日志中查看首次设置的激活码：
 
@@ -94,7 +94,7 @@ Compose 会依次等待 PostgreSQL 就绪、数据库迁移完成以及 Agent Ho
 docker compose logs control-plane | grep "SETUP ACTIVATION CODE"
 ```
 
-在浏览器中打开 `https://ANKOLE_HOST/setup`，输入激活码，勾选需要启用的控制面插件（Control Plane Plugin），并配置管理员身份认证源。
+在浏览器中打开 `https://ANKOLE_HOST/setup`，输入激活码，勾选需要启用的控制面插件（Control Plane Plugin）与初始 Brain 知识包，并配置无密码管理员登录方式（通过 SMTP 发送 6 位邮箱验证码，或接入企业级 OIDC 单点登录）。
 
 完成初始化后，即可在控制台中配置模型提供商、模型档案、Agent Library 能力、Agent、聊天渠道绑定与 `WorkerEnv` 密钥。请勿将模型提供商的 API 密钥写入 `.env`。
 
@@ -146,7 +146,7 @@ docker compose ps
 
 从早期共享池化 Worker 版本升级时，`migrate-agent-homes` 服务会等待数据库迁移成功，再停止所有挂载旧卷 `ankole_agents_data` 的容器。随后，它会将每个现存 Agent 的主目录复制到包含租户身份的独享卷，写入租户归属标签，将属主统一改为 `uid 1000`，并在旧卷内写入完成标记。已删除 Agent 遗留的目录会被跳过，旧卷本身予以保留。执行前请确保宿主机剩余磁盘空间不少于 `ankole_agents_data` 的已用容量。若任一目录复制失败，迁移服务会报错退出并阻止控制面启动；修复后再次运行 `docker compose up` 会仅重试未完成的目录，不会覆盖已迁移完成的数据。
 
-在每个 Worker 内部，`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接，用户文件、会话文件与 Job 工作区均保留在 Agent Home 中；控制面的共享 Agent 云盘则存放在 `files_data` 卷中。若从尚未引入云盘的旧版本升级，请一次性运行以下命令，将已安装的 Skill、Automation Job 脚本及待发送的旧版附件导入云盘：
+在每个 Worker 内部，`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接，用户文件、会话文件与 Job 工作区均保留在 Agent Home 中；控制面的共享 Agent 云盘则存放在 `files_data` 卷中。若从尚未引入云盘的旧版本升级，请一次性运行以下命令，将已安装的 Skill 及待发送的旧版附件导入云盘：
 
 ```sh
 docker compose run --rm --no-deps --user root --entrypoint chmod \
@@ -168,6 +168,8 @@ docker compose exec -T postgresql \
   pg_dump -U ankole -d ankole -Fc \
   > "ankole-$(date +%Y%m%d).dump"
 ```
+
+未配置 `BASE_DB_URLS` 时（默认方案），物理 Base 数据表存放在 `ankole` 主库内按租户隔离的 `t_<tenant_hex>` Schema 中，上述单次 `pg_dump` 即可完整涵盖。若通过 `BASE_DB_URLS` 配置了物理 Base 分片库（无论是在内置 PostgreSQL 实例中新建的独立数据库，还是外部独立的 PostgreSQL 服务），都必须将全部 Base 分片库与 `ankole` 控制面库一并导出备份；对独立数据库实例执行时间点恢复（PITR）时，各分片库的恢复时间点不得早于控制面库。
 
 在 Ankole 停止状态下，通过卷快照或文件系统级备份保存 `ankole_files_data` 卷。PostgreSQL 数据位于 `ankole_postgresql_data` 中，并记录着 `ankole_files_data` 内所有云盘文件的索引引用，因此两者必须成对备份、成对恢复。同时请备份所有名为 `ankole-<installation>-<Agent hash>` 的 Agent Home 卷（以 `-cache` 结尾的缓存卷无需备份），并定期在独立主机上演练数据库、共享文件存储与 Agent Home 的联合恢复。
 

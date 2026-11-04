@@ -1,3 +1,4 @@
+import { downloadBlob } from '../../common/browser-files'
 import type { ConversationDetail, ConversationMessage } from '../api'
 
 export function messageMarkdown(message: Pick<ConversationMessage, 'text' | 'links'>): string {
@@ -53,12 +54,10 @@ export function conversationMarkdown(detail: ConversationDetail): string {
 }
 
 export function downloadMarkdownString(markdown: string, filenameBase: string) {
-  const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${filenameBase.replace(/[/\\:*?"<>|]/g, '_').trim() || 'conversation'}.md`
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  downloadBlob(
+    new Blob([markdown], { type: 'text/markdown;charset=utf-8' }),
+    `${filenameBase.replace(/[/\\:*?"<>|]/g, '_').trim() || 'conversation'}.md`
+  )
 }
 
 export function downloadMarkdown(detail: ConversationDetail) {

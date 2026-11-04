@@ -718,7 +718,8 @@ defmodule Ankole.AIGateway.Providers do
     end
   end
 
-  defp normalize_id(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+  defp normalize_id(value) when is_binary(value),
+    do: Ankole.AIGateway.ProviderConfigs.Provider.normalize_id(value)
 
   defp reject_unknown_keys(options, allowed, error_tag) do
     allowed = MapSet.new(allowed)

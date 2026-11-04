@@ -37,13 +37,14 @@ At startup, `Ankole.Plugins.Spec.from_module/1` reads these callbacks and builds
 
 ## Subsystem contracts and site contribution points
 
-`Ankole.Plugins.Contracts` defines five subsystem adapter contracts, each providing startup `validate` checks alongside optional `refresh` publication callbacks and `veto_disable` transaction guards:
+Control Plane Plugins declare adapters across six subsystem contracts (`Ankole.Plugins.Contracts` and `Ankole.Connectors.Registry`), combining startup `validate` checks with optional `refresh` publication callbacks and `veto_disable` transaction guards:
 
 - **`signals.adapter`**: Declares a messaging or event adapter validated by `Ankole.Signals.Adapters` for Signal Bindings and Conversations delivery.
 - **`signals.webhook_handler`**: Declares an HTTP webhook handler validated by `Ankole.Signals.WebhookHandlers` for `/webhooks/v1/:handler_id/:instance_id/:kind`.
-- **`principals.identity_provider`**: Declares an enterprise identity and directory adapter validated by `Ankole.IdentityProviders`.
+- **`principals.identity_provider`**: Declares an enterprise identity and directory adapter validated by `Ankole.IdentityProviders`, guarding plugin disables via `veto_disable` while tenant Identity Provider rows depend on it.
 - **`ai_gateway.provider`**: Declares a model provider adapter validated by `Ankole.AIGateway.Providers`, with a `refresh` callback that publishes active declarations to AI Gateway.
-- **`agent_workers.provider_kind`**: Declares an Agent Worker infrastructure kind (`Ankole.AgentWorkers.ProviderKind`), publishing discovered and active specs via `refresh` and guarding disables via `veto_disable` (`Ankole.AgentWorkers.Providers.veto_disable_in_tx/2`) so operators cannot disable a plugin while any tenant still has an assigned Worker row for one of its kinds.
+- **`agent_workers.provider_kind`**: Declares an Agent Worker infrastructure kind (`Ankole.AgentWorkers.ProviderKind`), validating declarations at startup and publishing discovered and active specs via `refresh`.
+- **`connectors.connector`**: Declares a unified platform connector served by `Ankole.Connectors`—contributing shared application credentials (`authConfigId`), personal OAuth flows, external event triggers, and internal MCP Toolkits (`ToolSpec`). Implemented by `lark-adapter`, `github-adapter`, and `linear-adapter` (`github-adapter` and `linear-adapter` set `activation: :always`).
 
 Beyond runtime adapters, first-party extensions can hook into compile-time, site-scoped contribution points across a site build:
 
@@ -80,7 +81,7 @@ Ankole authorizes both routes against `site_console:control_plane_plugins` (`rea
 
 ## Scope and boundaries
 
-Control Plane Plugins run inside the same BEAM node and trust domain as the control plane. They do not package model-facing Worker Skills or tools; Agent capabilities live in [Agent Library](../agent-library/), where operators enable Agent Plugins and Control Plane Plugins independently.
+Control Plane Plugins run inside the same BEAM node and trust domain as the control plane. Apart from internal MCP Toolkits exposed through `connectors.connector` (`Ankole.Connectors`), they do not package Worker-side Skills or workspace templates; Agent capabilities live in **Meta Ankole** ([Agent Library](../agent-library/)), where operators manage Agent Plugins and Control Plane Plugins independently.
 
 ## Next steps
 

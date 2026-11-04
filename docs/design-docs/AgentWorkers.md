@@ -232,13 +232,14 @@ to paths in the Agent's control-plane drive (see [Files](Files.md)). Both Job
 workspaces and Codex thread files live in persistent Home so Background Agent
 Jobs can resume Codex sessions across instance restarts.
 
-Session and Job workspaces serve as scratch directories, whereas the
-control-plane drive acts as the durable store and delivery outlet. System
-prompts give the Agent the conversation's `chats/<channel>/` drive path and
-instruct it not to touch other conversations' directories. At delivery time, the
-control plane verifies a channel file's destination when committing an
-attachment Delivery intent, without restricting local file reads or tracking
-copied content (see [Files](Files.md#conversation-files-and-delivery)).
+Session and Job workspaces serve as scratch directories, whereas the unified
+Drive acts as the durable store and delivery outlet. Each conversation mounts
+its own isolated conversation root at `/drive/ChatDrive`, keeping other
+conversations' directories out of the turn's view. At delivery time,
+`Ankole.Files.Vfs.Attachments` flushes any referenced `/drive` path on the
+connected Worker, resolves its Drive `node_id`, and checks read permission
+before `Sessions.Presentation` commits the attachment reference (see
+[Files](Files.md#attachments-and-pod-resources)).
 
 Within each Worker instance, the entrypoint, supervisor, and Bun Worker process
 run as `root` and hold the generation credential. Every untrusted or
@@ -532,8 +533,8 @@ as the model stream emits the first Worker function call (matching tool names
 and namespaces with the same lookup used at dispatch, or falling back to
 dispatch time for model providers that do not stream tool-call starts). This
 warm-up call extends `wanted_until` by at least five minutes without opening a
-workspace. Control-plane tools—such as `reply_attachment`, which accepts only
-drive paths and executes entirely in the control plane—never request a Worker,
+workspace. Control-plane tools—such as `reply_attachment`, which accepts a Drive `node_id`
+or a local `/drive` `path` resolved to `node_id`—never request Worker warm-up,
 nor do pure conversational turns.
 
 When a Run finishes, the Driver dispatches `WorkspaceClose` asynchronously in a

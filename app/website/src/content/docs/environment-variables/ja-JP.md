@@ -52,7 +52,7 @@ Helm chart の `values.yaml` では、これらに対応する設定キーとし
 
 ## ファイルストア（プロセス起動）
 
-`ANKOLE_FILES_STORE` は control plane のオブジェクトストア（`Ankole.ObjectStore`）を構成します。ここには各 Agent のドライブ（添付ファイル、生成画像、送信ファイル、インストール済み Skill、Automation Job のスクリプト、Agent が保存したファイル）のほか、Pod の `file` ページ、Pod ドキュメント/Base/Chat 添付ファイル、およびコンパイル済み Applet バンドルが保存されます。Worker にはストレージの認証情報を渡さず、ファイルデータの読み書きはすべて control plane を経由します。対応するすべての OpenDAL backend の詳細については、[control plane ドライブ・オブジェクトストレージの設定](../drive-storage/)を参照してください。
+`ANKOLE_FILES_STORE` は control plane のオブジェクトストア（`Ankole.ObjectStore`）を構成します。ここには Unified Drive のイミュータブルなファイルオブジェクト（Pod スペース、メンバーのプライベートスペース、Agent ドライブ、会話ファイルを支える `file_objects`）、Pod・Applet アセット（ドキュメントや Base のアセット、コンパイル済み Applet バンドル、カスタム絵文字を含む `pod_files`）、Skill 同梱バイナリ（`skill_files`）、および凍結されたメッセージ・配信添付ファイルが保存されます。Worker にはストレージの認証情報を渡さず、ファイルデータの読み書きはすべて control plane を経由してストリーミングされます。対応するすべての OpenDAL backend の詳細については、[control plane ドライブ・オブジェクトストレージの設定](../drive-storage/)を参照してください。
 
 | 変数 | 必須 | 意味 |
 |---|---|---|

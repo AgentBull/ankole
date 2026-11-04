@@ -1,3 +1,4 @@
+import { isApplePlatform } from '../common/platform'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { SidebarInset, SidebarProvider, SidebarTrigger, TooltipProvider, useSidebar } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
@@ -398,7 +399,7 @@ function PodShell() {
       event.key.toLowerCase() === 'k'
     // With a text selection in an editable document, the platform shortcut edits a link first.
     const linkKey = (event: KeyboardEvent) => {
-      const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+      const mac = isApplePlatform()
       if (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return false
       return (
         !!document.activeElement?.matches('.editor-content[contenteditable="true"]') &&

@@ -1,3 +1,4 @@
+import { downloadBlob } from '../../common/browser-files'
 import { formatFileBytes } from '../../common/file-format'
 import { BdiLabel } from '../../common/bidi-file-name'
 import { sanitizeFileName, sanitizeRenameValue, stripBidi } from '../../common/bidi'
@@ -310,14 +311,7 @@ function NodeRow({
       toast.error(requestErrorMessage(result.error ?? new Error(t('console.agent_files.download_failed'))))
       return
     }
-    const url = URL.createObjectURL(result.data)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = sanitizeFileName(node.name)
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    URL.revokeObjectURL(url)
+    downloadBlob(result.data, sanitizeFileName(node.name))
   }
   return (
     <TableRow>

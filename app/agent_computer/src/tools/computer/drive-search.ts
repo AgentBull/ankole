@@ -1,4 +1,5 @@
-import { dirname, resolve } from 'node:path'
+import { workspacePath } from './commands'
+import { dirname } from 'node:path'
 import { scopedPath, visibleDrivePath } from '../../drive/paths'
 import type { ComputerToolContext } from './context'
 import { MAX_OUTPUT_CHARS } from './format'
@@ -21,12 +22,7 @@ export async function searchDrive(
 ) {
   if (!context.driveView) return undefined
   const raw = params.path?.trim() || '.'
-  const expanded =
-    raw === '~'
-      ? context.agentHome
-      : raw.startsWith('~/')
-        ? resolve(context.agentHome, raw.slice(2))
-        : resolve(context.workspaceRoot, raw)
+  const expanded = workspacePath(context.agentHome, context.workspaceRoot, raw)
   const firstGlob = expanded.search(/[*?[{]/)
   const prefix = firstGlob < 0 ? expanded : dirname(`${expanded.slice(0, firstGlob)}_`)
   const canonical = await scopedPath(

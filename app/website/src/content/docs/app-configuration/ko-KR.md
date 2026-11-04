@@ -42,8 +42,9 @@ AppConfigure는 제품 설정을 PostgreSQL에 저장하며 대부분의 변경�
 | `ai_agent.inactivity_timeout_ms` | 테넌트 | 응답이 없는 모델이나 제공자를 기다린 뒤 턴을 종료하기까지의 제한 시간(밀리초) |
 | `ai_agent.library.agent_plugin_defaults` | 테넌트 | Agent Plugin의 기본 활성화 상태 |
 | `background_agent_jobs.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 BackgroundAgentJob 수(기본값 `3`, 유효 범위 `1`–`64`) |
+| `sessions.wake_recycle` | 테넌트 | 콜드 복귀 모델 대화 순환 임계값(기본값 `min_cold_gap_seconds: 3600`, `min_context_tokens: 128000`, `im_max_idle_seconds: 259200`). 프롬프트 캐시가 식은 대용량 모델 대화나 며칠간 유휴 상태였던 외부 IM 세션을 후속 브랜치로 전환하고 상한이 정해진 `<wake-briefing>`을 주입함 |
 
-### Pod, Base 및 Applet
+### Pod, Base, Applet 및 Drive
 
 | 키 | 범위 | 용도 |
 |---|---|---|
@@ -51,7 +52,8 @@ AppConfigure는 제품 설정을 PostgreSQL에 저장하며 대부분의 변경�
 | `pod.applet.limits` | 테넌트 | Applet 실행 한도(기본값 `timeout_ms: 60000`, `heap_mb: 128`) |
 | `pod.base.limits` | 테넌트 | Base 쿼리 및 레코드 한도(기본값 `query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
 | `pod.spreadsheet.limits` | 테넌트 | 스프레드시트 페이지 한도: 온라인으로 열 수 있는 최대 파일 크기(`max_file_bytes: 20971520`)와 편집 내용을 파일에 반영하는 시점(`compaction_idle_seconds: 30`, `compaction_op_threshold: 100`, `compaction_structural_threshold: 10`) |
-| `drive.trash_retention_days` | 테넌트 | 삭제된 Drive 노드를 자동으로 영구 삭제하기 전까지 보관하는 일수. 기본값은 `30`이며, `0`으로 설정하면 무기한 보관 |
+| `drive.trash_retention_days` | 테넌트 | 삭제된 Drive 노드를 자동으로 영구 삭제하기 전까지 보관하는 일수. 기본값은 `30`이며, `0`으로 설정하면 설정을 바꿀 때까지 무기한 보관 |
+| `drive.vfs_max_upload_bytes` | 사이트 | Worker `/drive` VFS 업로드당 최대 바이트 수. 기본값 `0`은 객체 저장소 업로드 한도를 사용 |
 | `pod.ot_replay_window` | 테넌트 | OT 재생을 위해 보관하는 최근 문서 변경 배치 수(기본값 `1000`) |
 
 ### Workflow

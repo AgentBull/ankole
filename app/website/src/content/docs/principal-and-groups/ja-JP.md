@@ -30,13 +30,13 @@ Identity Provider の設定を保存すると初回の完全同期が開始さ�
 
 ## Principal を表示する
 
-**Console → Access → Principals** を開くと、名前、UID、タイプ、メンバーシップ、状態の一覧が表示されます。
+すべての Principal は 1 つのテナントに所属し、`(tenant_id, uid)` で一意に識別されます。`uid` はテナント内で一意な意味のある小文字の識別子です（`alex.smith` や `research-analyst` など）。**Console → Access → Principals** を開くと、名前、UID、タイプ、メンバーシップ、状態の一覧が表示されます。
 
 - **Human** の Principal は、Identity Provider でのサインインやディレクトリ同期、パスワードレス Email OTP（`SiteCredential`）、Pod 招待リンク（`/join/:token`）、または管理者による事前作成によって生成されます。各 Human Principal はテナント内で `member` または `guest` の `membership` を持ちます。内部メンバー（`member`）は組み込みの computed group である `all_humans` に自動的に含まれます。一方、外部ゲスト（`guest`）は明示的な Pod ページ共有または Agent grant がないかぎりリソースへアクセスできず、組み込み管理者グループ（`siteadmin` や `pod_admin`）への参加や Private space の利用も不可で、Brain の `world` スコープも付与されません（ゲストの受け入れ可否と Pod アクセスは `pod.allow_external_guests` で制御します）。
-- **Agent** の Principal は、Agent を作成した時点で自動的に生成されます。
-- **System** の Principal は、内部サービスの処理用に Ankole が自動生成します。
+- **Agent** の Principal には 2 つのサブタイプがあります。**個人アシスタント（`personal_assistant`）**は有効な内部 Human `member` ごとに初回利用時に 1:1 で自動プロビジョニングされ（初期 UID は `<owner_uid>_assistant`）、Drive や Pod のコラボレーションリソースで所有者の権限を投影します。**AI 同僚（`ai_colleague`）**は共有の専門ロール向けに運用者が作成し、Agent 自身の Principal grant で動作します。
+- **System** の Principal は、Ankole 内部の固定サービスレジストリから提供される `system`（Pod Applet のステートレスな `ctx.ai` 呼び出しや内部ランタイム処理）と `ankole_brain`（Company Brain の知識抽出、Dreaming、Skill 教訓の再確認、URL Source 取得、rerank）です。System Principal はサインインや UID リネームができず、Worker も持ちません。
 
-Principal の名前、または行末の **詳細を表示** を選択すると、所属グループと直接付与された grant を確認できます。なお、Principal の UID とタイプは Identity 基盤またはランタイム側で管理される読み取り専用項目です。アクセス権の有無を調査する際は、直接の grant だけでなく所属グループ経由の grant も必ず確認してください。直接 grant がなくても、グループを通じて権限が付与されている場合があります。
+Principal の名前、または行末の **詳細を表示** を選択すると、所属グループと直接付与された grant を確認できます。Principal の `type` は不変ですが、Human Principal（`POST /api/v2/principals/:uid/rename`）および無効化済みで実行中・一時停止中 Worker を削除した Agent Principal（`POST /api/v2/agents/:uid/rename`）については、管理者が監査付きのテナント内 UID リネームを実行でき、grant・グループメンバーシップ・Brain のパスやメンション・Base 参照がアトミックに更新されます。アクセス権の有無を調査する際は、直接の grant だけでなく所属グループ経由の grant も必ず確認してください。直接 grant がなくても、グループを通じて権限が付与されている場合があります。
 
 ## 正しい permission group を選択する
 
@@ -74,7 +74,7 @@ computed group の条件式では、次のフィールドを参照できます�
 
 | フィールド | 意味 | 一般的な値 |
 | --- | --- | --- |
-| `principal.uid` | 不変の Principal UID | `01958f1a-...` |
+| `principal.uid` | テナント内の Principal UID | `alex.smith` または `research-analyst` |
 | `principal.type` | Principal の種別 | `human`、`agent`、`system` |
 | `principal.membership` | テナント内での Human メンバーシップ区分 | `human` は `member` または `guest`、`agent` と `system` は `null` |
 | `principal.status` | Principal の状態 | `active`、`disabled` |

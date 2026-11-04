@@ -1,10 +1,9 @@
+import { MemberOptions, type MemberCandidate } from './member-options'
 import {
   Button,
   Command,
   CommandEmpty,
-  CommandGroup,
   CommandInput,
-  CommandItem,
   CommandList,
   Dialog,
   DialogContent,
@@ -15,7 +14,7 @@ import {
   Switch,
   toast
 } from '@ankole/uikit'
-import { RiCheckLine, RiCloseLine, RiLink } from '@remixicon/react'
+import { RiCloseLine, RiLink } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useDebouncedValue } from '../../common/use-debounced-value'
@@ -25,15 +24,9 @@ import { agentsQuery, type ConversationDetail } from '../api'
 import { podChatTeammates } from '../api/generated/sdk.gen'
 import { ContentError } from '../content-primitives'
 import { ChatAvatar } from './chat-avatar'
-import { agentLabel } from './conversation-row'
 import { teammatesKey, useRoomActions } from './room-api'
 
-type SelectedCandidate = {
-  uid: string
-  displayName: string
-  avatarURL?: string | null
-  agent: boolean
-}
+type SelectedCandidate = MemberCandidate
 
 export function SharePopover({
   detail,
@@ -126,48 +119,12 @@ export function SharePopover({
                       : 'pod.chat_room.no_matches'
                   )}
                 </CommandEmpty>
-                {!!availablePeople.length && (
-                  <CommandGroup heading={t('pod.chat_room.people')}>
-                    {availablePeople.map(person => (
-                      <CommandItem
-                        key={person.uid}
-                        value={`human ${person.displayName} ${person.uid}`}
-                        onSelect={() =>
-                          toggle({
-                            uid: person.uid,
-                            displayName: person.displayName,
-                            avatarURL: person.avatarURL,
-                            agent: false
-                          })
-                        }>
-                        <ChatAvatar name={person.displayName} src={person.avatarURL} />
-                        <span>{person.displayName}</span>
-                        {selectedUIDs.has(person.uid) && <RiCheckLine aria-hidden className="ml-auto size-4" />}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                )}
-                {!!availableAgents.length && (
-                  <CommandGroup heading={t('pod.chat_room.agents')}>
-                    {availableAgents.map(agent => (
-                      <CommandItem
-                        key={agent.uid}
-                        value={`agent ${agent.displayName} ${agent.uid}`}
-                        onSelect={() =>
-                          toggle({
-                            uid: agent.uid,
-                            displayName: agent.displayName,
-                            avatarURL: agent.avatarURL,
-                            agent: true
-                          })
-                        }>
-                        <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
-                        <span>{agentLabel(agent)}</span>
-                        {selectedUIDs.has(agent.uid) && <RiCheckLine aria-hidden className="ml-auto size-4" />}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                )}
+                <MemberOptions
+                  people={availablePeople}
+                  agents={availableAgents}
+                  onSelect={toggle}
+                  selected={selectedUIDs}
+                />
               </CommandList>
             </Command>
           )}

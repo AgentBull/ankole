@@ -42,8 +42,9 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 | `ai_agent.inactivity_timeout_ms` | Tenant | モデルまたは Provider からの応答が途絶えた際、turn を終了するまでの待機時間（ミリ秒） |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Agent Plugin の既定の有効／無効状態 |
 | `background_agent_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる BackgroundAgentJob の上限。既定値 `3`、有効範囲 `1`〜`64` |
+| `sessions.wake_recycle` | Tenant | コールド復帰時のモデル会話ローテーション閾値（既定値 `min_cold_gap_seconds: 3600`、`min_context_tokens: 128000`、`im_max_idle_seconds: 259200`）。プロンプトキャッシュが冷えた大きなモデル会話や数日間アイドルだった外部 IM セッションを後続ブランチへ切り替え、上限付きの `<wake-briefing>` を注入する |
 
-### Pod、Base、Applet
+### Pod、Base、Applet、Drive
 
 | キー | 適用範囲 | 用途 |
 |---|---|---|
@@ -51,7 +52,8 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 | `pod.applet.limits` | Tenant | Applet 呼び出しの制限値（既定値 `timeout_ms: 60000`、`heap_mb: 128`） |
 | `pod.base.limits` | Tenant | Base のクエリおよびレコード制限値（既定値 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
 | `pod.spreadsheet.limits` | Tenant | スプレッドシートページの制限値。オンラインで開ける最大ファイルサイズ（`max_file_bytes: 20971520`）と、編集をファイルへ書き戻すタイミング（`compaction_idle_seconds: 30`、`compaction_op_threshold: 100`、`compaction_structural_threshold: 10`） |
-| `drive.trash_retention_days` | Tenant | 削除された Drive ノードを自動で完全削除するまでの保持日数。既定値は `30`。`0` にすると無期限に保持 |
+| `drive.trash_retention_days` | Tenant | 削除された Drive ノードを自動で完全削除するまでの保持日数。既定値は `30`。`0` にすると設定変更まで無期限に保持 |
+| `drive.vfs_max_upload_bytes` | Site | Worker の `/drive` VFS アップロード 1 件あたりの最大バイト数。既定値 `0` はオブジェクトストアの上限を使用 |
 | `pod.ot_replay_window` | Tenant | OT リプレイ用に保持する直近のドキュメント変更バッチ数。既定値 `1000` |
 
 ### Workflow

@@ -22,7 +22,7 @@ Ankole 보안 모델의 기본 원칙은 **최소 권한으로 시작해 명확�
 
 ## 표면 2: Agent가 사용하는 자격 증명
 
-Agent 도구가 사용하는 외부 자격 증명은 Console의 **Environment variables**에서 secret 저장 옵션을 켠 상태로 보관하고, 접근 대상을 좁혀 주기적으로 교체(회전)하세요.
+GitHub, Lark/Feishu, Slack, Linear 및 원격 Skill MCP(`streamable_http`) 연동에는 먼저 **Pod → Connections**(`Ankole.Connectors`)를 사용하세요. 상위 OAuth 및 앱 토큰이 Worker 컨테이너로 전달되지 않고 컨트롤 플레인 내부에만 암호화되어 보관되며, 컨트롤 플레인이 MCP 요청을 대리 전달하거나 `GIT_ASKPASS` 같은 턴 범위 단기 헬퍼를 주입합니다. Worker 내부의 커스텀 CLI나 스크립트에서 직접 읽어야 하는 API 키에 한해서만 Console의 **Environment variables**(`WorkerEnv`)에서 secret 저장 옵션을 켜 보관하고, 접근 대상을 좁혀 주기적으로 교체(회전)하세요.
 
 - **저장된 값을 불필요하게 평문으로 열어 보지 마세요.** 자격 증명을 교체할 때는 기존 값을 먼저 조회하지 말고 새 값을 바로 덮어써 저장하면 됩니다. 자세한 내용은 [Environment variables](../worker-env/)를 참조하세요.
 - **가능하면 시크릿 범위를 개별 Agent로 한정하세요.** 사이트나 테넌트 전역 시크릿은 소속된 모든 Agent에 전달되지만, Agent별 시크릿은 해당 Agent 하나에만 전달됩니다. 여러 Agent가 실제로 공유해야 하는 자격 증명이 아니라면 Agent 단위 설정을 우선하세요.
@@ -44,7 +44,7 @@ Agent 도구가 사용하는 외부 자격 증명은 Console의 **Environment va
 각 채팅 어댑터와 Identity Provider는 고유 자격 증명(`appID`/`appSecret`, `botToken`/`appToken`, `clientId`/`clientSecret`, Entra ID `appPassword`, Google Workspace `serviceAccountKey`)을 사용합니다. 정기 일정에 따라, 그리고 유출이 조금이라도 의심될 때는 즉시 교체하세요.
 
 - **외부 공급자 콘솔에서 먼저 교체한 뒤 Ankole 설정을 갱신하세요.** 공급자 측에서 새 키를 발급하고 이전 자격 증명을 폐기한 다음 새 값을 어댑터의 AppConfigure에 반영해야 합니다. Ankole에서만 바꾸고 공급자 측에 이전 키를 살려 두면 그대로 공격 노출 구간이 남습니다.
-- **자격 증명 성격에 맞는 Console 화면에 저장하세요.** Agent 도구용 키는 **Environment variables**에 두고, 채팅 채널과 Identity Provider 자격 증명은 각각의 전용 설정 페이지에서 관리하세요.
+- **플랫폼 및 커넥터 자격 증명을 WorkerEnv에 넣지 마세요.** 재사용 가능한 외부 서비스 연동은 **Pod → Connections**에서 관리하고, 채팅 채널과 Identity Provider 자격 증명은 각각의 전용 Console 설정 페이지에서 관리하며, **Environment variables**(`WorkerEnv`)는 Worker 로컬 CLI나 스크립트 시크릿에만 사용하세요.
 - **디렉터리 동기화용 자격 증명도 동일한 수준으로 관리하세요.** Google Workspace의 `serviceAccountKey` 및 `adminEmail`, Microsoft Graph 조회용 Entra ID 앱 자격 증명은 전사 조직도를 읽을 수 있는 민감한 권한을 가집니다. 채팅 봇 토큰과 똑같은 주기와 보안 기준으로 교체하세요.
 
 ## 표면 5: 최소 네트워크 인그레스
@@ -58,12 +58,12 @@ Ankole 운영에 인그레스 경로가 일부 필요할 수는 있지만, 모�
 
 ## 표면 6: Worker 컨테이너, Function Runtime 및 control plane
 
-각 Agent는 전용 Worker 컨테이너 또는 Pod를 단독으로 사용하며, 다른 Agent와 Worker, 캐시 디스크, 자격 증명을 공유하지 않습니다. 또한 무상태 TypeScript 프로그램(Workflow, PTC, Applet 백엔드)은 데이터베이스 자격 증명이나 Kubernetes ServiceAccount 토큰이 없는 별도의 `ankole-function-runtime` 서비스에서 격리 실행됩니다. 즉 컨테이너 자체가 격리 경계입니다. Worker 내부의 셸 명령, Codex app-server, 브라우저는 추가 내부 샌드박스 없이 Worker 사용자(`uid 1000`, Linux capabilities 및 `sudo` 없음) 권한으로 실행됩니다.
+각 Agent는 전용 Worker 컨테이너 또는 Pod를 단독으로 사용하며, 다른 Agent와 Worker, 캐시 디스크, 자격 증명을 공유하지 않습니다. 한편 무상태 TypeScript 프로그램—Workflow 오케스트레이터, 프로그래밍 방식 도구 호출(PTC), Pod Applet 백엔드, 게시된 Applet Action(Automation Job 포함), 호스트 MCP 호출—은 데이터베이스 자격 증명이나 Kubernetes ServiceAccount 토큰이 없는 별도의 `ankole-function-runtime` 서비스에서 격리 실행됩니다. 각 Worker 컨테이너·Pod 내부에서는 `root` 슈퍼바이저(`ankole-worker-supervisor` 및 FUSE 헬퍼 `ankole-rclone`)가 전용 mount·PID 네임스페이스 안에서만 `/dev/fuse`와 `SYS_ADMIN` 권한을 보유해 `/drive`를 마운트한 뒤, Agent 하위 프로세스를 실행하기 전에 모든 Linux capability를 내려놓습니다. Worker 내부의 셸 명령, Codex `app-server`, Chromium은 모두 빈 capability 세트와 `sudo` 없는 `uid 1000`(`gid 1000`) 권한으로 실행됩니다.
 
-- 모든 명령은 `sudo` 권한 없는 `uid 1000`으로 실행되므로, Home 디렉터리 안에 사용자 수준 패키지는 설치할 수 있어도 시스템 패키지는 설치할 수 없습니다. 다만 같은 Agent에 속한 여러 Session끼리는 동일한 Home 파일과 프로세스 공간을 공유합니다.
-- **Worker 자격 증명은 오직 해당 Agent 하나에만 귀속됩니다.** Worker 데몬은 인증 자격 증명을 메모리에만 보관하며 하위 명령의 환경 변수에서는 제거합니다. 다른 Agent의 자격 증명이나 이미 교체된 이전 Worker의 자격 증명으로는 연결이 거부됩니다.
+- **모든 명령은 capability 및 `sudo` 없는 `uid 1000`으로 실행됩니다.** `/workspace` 안에 사용자 수준 패키지를 설치하고 권한이 부여된 `/drive` 마운트를 읽고 쓸 수 있지만, FUSE 마운트를 변경하거나 시스템 OS 패키지를 설치할 수는 없습니다. 같은 Agent에 속한 여러 Session끼리는 동일한 파일시스템과 프로세스 공간을 공유합니다.
+- **Worker 자격 증명은 단일 Agent generation에만 귀속됩니다.** Worker 슈퍼바이저는 RuntimeFabric 및 Drive VFS 자격 증명을 메모리에만 보관하며 하위 명령의 환경 변수에서는 제거합니다. 다른 Agent의 자격 증명이나 이미 교체된 이전 Worker generation의 자격 증명으로는 연결이 거부됩니다.
 - **control plane은 호스트 root에 준하는 핵심 자산으로 보호하세요.** control plane은 Docker 소켓이나 네임스페이스 Role(Pod, Secret, PVC 생성·삭제 권한)을 통해 Worker를 제어하며, 특히 Docker 소켓 접근 권한은 호스트 root 권한과 사실상 동일합니다.
-- **Kubernetes 환경에서는 gVisor를 함께 적용하세요.** Kubernetes provider YAML의 `podTemplate.spec.runtimeClassName`에 클러스터의 gVisor RuntimeClass(예: `gvisor`)를 지정하면 됩니다. 기존 인스턴스 설정을 바꾸면 해당 풀의 Worker는 유휴 상태가 될 때 새 설정으로 교체됩니다. Helm의 `worker.runtimeClassName` 값은 최초 기동 시 기본 provider를 시드할 때만 쓰이므로, 이미 등록된 뒤에는 Console에서 provider 설정을 직접 수정하세요.
+- **Kubernetes 환경에서는 gVisor를 함께 적용하세요.** Kubernetes `WorkerProvider` YAML의 `podTemplate.spec.runtimeClassName`에 클러스터의 gVisor RuntimeClass(예: `gvisor`)를 지정하면 됩니다. 기존 인스턴스 설정을 바꾸면 해당 프로바이더의 Worker는 유휴 상태가 될 때 새 설정으로 교체됩니다. Helm의 `worker.runtimeClassName` 값은 최초 기동 시 기본 provider를 시드할 때만 쓰이므로, 이미 등록된 뒤에는 Console에서 provider 설정을 직접 수정하세요.
 - **Worker와 `ankole-function-runtime`의 이그레스(egress) 범위를 제한하세요.** Docker Compose에서는 Worker 컨테이너가 `ankole_workers` 브리지에, `ankole-function-runtime`이 `ankole_functions` 브리지에 연결되어 control plane과 외부 인터넷에는 접근할 수 있지만 내부 `ankole_backend` 네트워크의 PostgreSQL에는 접근할 수 없습니다. 클라우드 VM 위에서 운영할 때는 인스턴스 메타데이터 hop limit을 `1`로 설정하거나 컨테이너에서 `169.254.169.254` 대역을 차단하세요. Helm 배포에서 `networkPolicy.enabled`를 켜면 Worker Pod의 인바운드 연결이 차단되고 이그레스는 control plane, DNS, `networkPolicy.workerDeniedCIDRs` 바깥의 공개 주소로만 제한되며, 전용 `NetworkPolicy`를 통해 `ankole-function-runtime` 역시 control plane 인그레스와 `functionRuntime.deniedCIDRs`(사설 및 메타데이터 CIDR 제외) 바깥의 공개 이그레스만 허용됩니다. 클러스터 노드의 인스턴스 메타데이터 hop limit도 `1`로 설정하세요.
 
 ## 감사 자세

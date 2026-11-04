@@ -27,11 +27,11 @@ import {
 import { agentWorkerListOptions } from '../api/agent-workers'
 import { agentListOptions } from '../api/agents'
 import { aiGatewayConversationsOptions } from '../api/ai-gateway-conversations'
-import { backgroundAgentJobsOptions, type BackgroundAgentJobItem } from '../api/background-agent-jobs'
+import { backgroundAgentJobsOptions } from '../api/background-agent-jobs'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
-import { StatusIndicator } from '../console-form'
+import { BackgroundJobStatus } from '../background-job-status'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { readinessSteps, type ReadinessStep } from '../console-readiness'
 import { workerNeedsAttention } from './workers'
@@ -235,7 +235,7 @@ export function HomePage() {
                         className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
                         <div className="flex min-w-0 items-start justify-between gap-3">
                           <span className="min-w-0 truncate text-sm text-foreground">{job.title ?? `#${job.id}`}</span>
-                          <JobStatus status={job.status} />
+                          <BackgroundJobStatus status={job.status} />
                         </div>
                         <span className="truncate text-xs text-muted-foreground">
                           <span className={jobAgent ? undefined : 'font-mono'} title={job.agent_uid}>
@@ -530,20 +530,4 @@ function NextStep({
       <span className="text-sm leading-6 text-muted-foreground">{description}</span>
     </Link>
   )
-}
-
-function JobStatus({ status }: { status: BackgroundAgentJobItem['status'] }) {
-  const { t } = useTranslation()
-  const tone =
-    status === 'failed' || status === 'stopped'
-      ? 'danger'
-      : status === 'succeeded'
-        ? 'positive'
-        : status === 'running'
-          ? 'info'
-          : status === 'waiting_on_user'
-            ? 'waiting'
-            : 'neutral'
-
-  return <StatusIndicator tone={tone}>{t(`console.background_agent_jobs.status_${status}`)}</StatusIndicator>
 }

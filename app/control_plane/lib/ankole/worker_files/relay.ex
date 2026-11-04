@@ -61,7 +61,7 @@ defmodule Ankole.WorkerFiles.Relay do
 
   defp open_session(%{direction: direction} = attrs, origin) do
     transfer_id = Ecto.UUID.generate()
-    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    token = Ankole.Authn.SecretDigest.token()
     expires_at = DateTime.add(DateTime.utc_now(), attrs.ttl_ms, :millisecond)
     method = if direction == :pull, do: "GET", else: "PUT"
 

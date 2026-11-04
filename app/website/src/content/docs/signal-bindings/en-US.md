@@ -5,22 +5,25 @@ section: User guide
 order: 14
 ---
 
-A signal routing rule determines which Agent receives an incoming chat message or external event. Each chat rule connects one chat application to one Agent, and a single Agent can have multiple rules connecting it to different chat platforms.
+A signal routing rule (`Signal Binding`) determines how Ankole routes incoming chat messages or external events:
 
-When a message arrives, the chat adapter records it in a Conversation and admits Signals for the target Agent. You can also expose CloudEvents webhook endpoints to ingest events from external systems and route them as Signals.
+- **`ai_colleague` mode** connects a chat application or CloudEvents source to one chosen AI Colleague, and a single AI Colleague can have multiple rules across different platforms.
+- **`sender_personal_assistant` mode** (supported on Lark/Feishu and Slack with `agent_uid` set to `null`) exposes a single shared Personal Assistant Bot for your workspace: Ankole routes each direct message (`im_dm`) to that matched active member's own Personal Assistant (provisioning it on first use) and holds unmapped senders under **Manual review**.
+
+When a message arrives, the chat adapter records it in a Conversation and admits Signals for the resolved Agent. You can also expose CloudEvents webhook endpoints to ingest events from external systems and route them as Signals.
 
 If you have not yet created an application in Slack, Microsoft Teams, Lark, Feishu, or DingTalk, complete the Channel Provider setup in [Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) first.
 
 ## Create a routing rule
 
 1. Open **Signal Routing** in the Console and select **New routing rule**.
-2. Select the target Agent and the Channel Provider adapter.
-3. Enter a descriptive rule name, such as `support-slack`.
-4. Choose how the Agent should handle group messages.
-5. Enter the chat application's credentials and connection settings, then save the rule.
+2. Choose the Channel Provider adapter and routing mode: pick a target AI Colleague (`ai_colleague` mode), or select **Sender's Personal Assistant** (`sender_personal_assistant` mode on Lark/Feishu or Slack).
+3. Enter a descriptive rule name, such as `support-slack` or `workspace-pa-lark`.
+4. For `ai_colleague` rules, choose how the Agent should handle group messages (`sender_personal_assistant` rules handle direct messages only and enforce **Manual review** for unmapped senders).
+5. Select an existing application connection (`authConfigId`) from **Pod → Connections** (`Ankole.Connectors`)—allowing chat routing and directory/SSO login to share one platform application credential—or enter credentials directly to save them into `Ankole.Connectors`, then save the rule.
 6. Send a test message to the bot in that chat platform and confirm that the Agent replies.
 
-Give every bot account its own dedicated chat application and routing rule—if multiple Agents need distinct bot personas, register a separate chat application for each bot so their identities, message streams, and credential rotations stay independent.
+Give every distinct bot persona its own chat application and routing rule: use a dedicated application per AI Colleague so their identities and message streams stay independent, and use one dedicated application for a shared Personal Assistant Bot.
 
 ## Select a group-message mode
 
@@ -58,7 +61,7 @@ On consumer chat platforms such as Telegram, Discord, and LINE, every new sender
 A signal routing rule governs message delivery, whereas Brain derives knowledge visibility from the conversation type and verified participant identities:
 
 - **Group chat:** Members and Agents belonging to the channel's synchronized member group can recall knowledge learned from that room; Brain skips learning altogether for groups that have no member group.
-- **Direct message:** Only the human participant and the Agent bound to that routing rule can recall knowledge from the conversation by default.
+- **Direct message:** Only the human participant and the executing Agent (the bound AI Colleague or the sender's Personal Assistant) can recall knowledge from the conversation by default.
 
 Broad company facts can still be promoted to tenant-wide knowledge, while explicitly confidential statements can be restricted to the speaker alone; everything else retains the group-chat or direct-message audience above. See [Brain](../brain/) for retrieval and disclosure rules.
 
@@ -66,7 +69,7 @@ Broad company facts can still be promoted to tenant-wide knowledge, while explic
 
 By default, the Signal Routing page lists only active rules; toggle **Show disabled** to inspect or re-enable a paused rule.
 
-Select **Edit** to update non-secret fields—such as the target Agent, group-message mode, or rotated credentials. Pointing a rule at a different Agent routes subsequent incoming messages to the newly selected Agent.
+Select **Edit** to update non-secret fields—such as the target AI Colleague, group-message mode, selected `Ankole.Connectors` connection (`authConfigId`), or rotated credentials. Pointing an `ai_colleague` rule at a different Agent routes subsequent incoming messages to the newly selected Agent.
 
 For security, the control plane never sends stored tokens or secrets back to the browser: leave secret fields blank when editing to preserve their existing encrypted values, and enter a value only when replacing a credential.
 

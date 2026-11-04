@@ -66,6 +66,7 @@ beforeEach(() => {
 
   const fakeDocument = {
     documentElement: { lang: 'en-US' },
+    body: { appendChild() {} },
     querySelector: (selector: string) =>
       selector.includes('csrf-token')
         ? { content: 'csrf-test' }
@@ -77,6 +78,7 @@ beforeEach(() => {
       const anchor = {
         href: '',
         download: '',
+        remove() {},
         click() {
           const blob = objectBlobs.get(anchor.href)
           if (blob) downloads.push({ filename: anchor.download, blob })

@@ -6,7 +6,7 @@ This overview explains how Ankole is put together, where each subsystem lives in
 
 Ankole is a private, self-hosted platform where AI Agents carry out long-running digital work alongside humans. A single site deployment can host multiple tenants: site operators manage shared infrastructure, while each tenant owns its Agents, user accounts, provider connections, configuration, and business data. See [Tenants](design-docs/Tenants.md).
 
-Every action in Ankole runs on behalf of a **Principal**—either a human user or an Agent—and **AuthZ** determines what that Principal is permitted to do.
+Every action in Ankole runs on behalf of a **Principal**—a human user, an Agent (`personal_assistant` or `ai_colleague`), or a built-in per-tenant `system` service Principal (`system` or `ankole_brain`)—and **AuthZ** determines what that Principal is permitted to do.
 
 Agents receive work from native Pod conversations, external chat providers, scheduled triggers, and Background Agent Jobs. Because PostgreSQL persists all durable state, an Agent can invoke tools, survive process restarts, and pick up unfinished work cleanly after a crash.
 
@@ -35,10 +35,10 @@ Conversations --> Signals --> Sessions --> AIGateway --> model providers
 | AIGateway | Routes model calls across providers and stores Response chains per Principal | [AIGateway](design-docs/AIGateway.md) |
 | Brain | Stores tenant-shared organizational knowledge and retrieves it within each caller's disclosure scope | [BrainV3](design-docs/BrainV3.md) |
 | RuntimeFabric | Multiplexes live Worker traffic and RPC calls, and coordinates one-time HTTP file relays | [RuntimeFabric](design-docs/RuntimeFabric.md) |
-| Files | Stores each Agent's durable Drive files in the control plane | [Files](design-docs/Files.md) |
+| Files | Owns unified Drive byte storage (`file_objects`, `pages`, and `pod_files`) and serves WebDAV VFS (`/api/v1/vfs/dav`) for Worker `/drive` mounts | [Files](design-docs/Files.md) |
 | Agent Workers | Provisions, stops, and replaces each Agent's dedicated Worker instance | [Agent Workers](design-docs/AgentWorkers.md) |
 | Agent Computer | Executes Codex jobs and environment tools inside the Worker container | `app/agent_computer/` |
-| Function Runtime | Executes stateless Applet backend functions and deterministic TypeScript programs | [Pod Content Model](design-docs/PodContentModel.md), [Workflow](design-docs/Workflow.md) |
+| Function Runtime | Executes stateless Applet backend routes, published Applet Actions (`AutomationJobs`) with host MCP calls (`AnkoleRuntime.mcp`), and deterministic TypeScript programs | [Pod Content Model](design-docs/PodContentModel.md), [Automation Jobs](design-docs/AutomationJobs.md), [Workflow](design-docs/Workflow.md) |
 | PostgreSQL | Stores all authoritative control-plane facts and sharded physical Base tables | Migrations in `app/control_plane/priv/repo/migrations/` |
 
 Other subsystems plug into this same pipeline: **Schedule** emits a `Signal` through the standard intake whenever a timer fires, **BackgroundAgentJob** runs long-lived Codex work outside the Session that spawned it, and **AppConfigure** holds runtime settings that operators can update without restarting the cluster.
@@ -48,8 +48,8 @@ Native Pod messages flow through Conversations and Signals into Sessions just li
 ## What Each Process Does
 
 - **Elixir control plane (`app/control_plane/`)**: Runs on Phoenix and OTP. It owns PostgreSQL transactions, supervises background workers, protects encrypted provider credentials, and serves Ankole's HTTP and WebSocket APIs.
-- **Rust kernel (`app/kernel/`)**: Supplies stateless native primitives for cryptography, AuthZ CEL evaluation, Markdown and Brain Markdoc parsing, UTF-16 page diffing, AI provider HTTP/WebSocket transport, image transcoding, SSRF-checked web proxying, and object storage. It never decides or persists workflow state.
-- **Function Runtime (`ankole-function-runtime`)**: Runs stateless Supabase Edge Runtime isolates for Pod Applet backends and deterministic PTC or Workflow TypeScript programs, holding no durable state of its own.
+- **Rust kernel (`app/kernel/`)**: Supplies stateless native primitives for cryptography, AuthZ CEL evaluation, Markdown parsing, Page XML and OKF Markdown codecs, WebDAV/VFS codecs, UTF-16 page diffing, AI provider HTTP/WebSocket transport, image transcoding, SSRF-checked web proxying, and object storage. It never decides or persists workflow state.
+- **Function Runtime (`ankole-function-runtime`)**: Runs stateless Supabase Edge Runtime isolates for Pod Applet backends, published Applet Actions (`AutomationJobs`) calling host MCP tools via `AnkoleRuntime.mcp`, and deterministic PTC or Workflow TypeScript programs, holding no durable state of its own.
 - **Agent Computer (`app/agent_computer/`)**: Runs as a Bun process inside each Agent's dedicated Worker container, executing environment tools and supervising Codex sessions. Its Agent Home directory (`/workspace`) persists across container replacements, while local process state is rebuildable; it never writes directly to control-plane tables.
 
 Live traffic travels over **RuntimeFabric**, whereas completed decisions and state transitions live in **PostgreSQL**. During crash recovery, Ankole reconstructs state strictly from PostgreSQL rather than replaying transient Worker channel traffic.
@@ -58,22 +58,27 @@ Live traffic travels over **RuntimeFabric**, whereas completed decisions and sta
 
 Each Agent's persistent Home directory is mounted at `/workspace` on storage that survives Worker restarts, instance replacements, and image upgrades:
 
-- `SOUL.md`, `MISSION.md`, and `DESIGN.md` — materialized Agent identity documents
-- `.codex/` — Codex configuration and persistent thread history
-- `installed-skills/` — materialized copies of `skills/` from the Agent's Drive
+- `AGENTS.md` and `DESIGN.md` — read-only composed Agent contracts refreshed at the start of each Turn
+- `.codex/` — Codex configuration, effective `AGENTS.md`, and persistent thread history
+- `.ankole/turn-skills/<signal-id>/` — materialized Skill packages used by `BackgroundAgentJob` turns, and by interactive turns when FUSE is unavailable
 - `sessions/<workspace-id>/` — per-Session working directories (PostgreSQL allocates stable IDs starting at `10000`)
 - `jobs/<workspace-owner-job-id>/` — working directories for `BackgroundAgentJob` runs
 
 `/agents/<agent_uid>` symlinks to `/workspace`, and all path checks resolve symlinks before validating access. Rebuildable Codex SQLite state lives outside persistent Home under `/var/cache/ankole/codex`.
 
-PostgreSQL remains the source of truth for domain documents and task state, and the Worker refreshes materialized Home files at the start of each turn. Separately, the control-plane **Drive** stores attachments, generated images, published artifacts, and installed Skills so they remain accessible even when the Agent's Worker is stopped. See [Files](design-docs/Files.md) and [Agent Workers](design-docs/AgentWorkers.md).
+On Linux Workers with FUSE support, `ankole-rclone` mounts the control plane's WebDAV VFS (`/api/v1/vfs/dav`) at `/drive` inside each execution's mount namespace:
+
+- **Read-write collaboration roots (`/drive/{Public,MyDrive,AgentDrive,ChatDrive}`)**: Project authorized `pages` and `file_objects` for the active turn and conversation, preserving local drafts in `/drive-recovery` whenever a conditional write encounters a terminal conflict.
+- **Read-only Meta Ankole projections (`/drive/{Brain,Skills,AGENTS.md,DESIGN.md}`)**: Expose disclosed knowledge from `Brain` along with enabled Skills and composed contracts from `Ankole.AIAgent.Library`.
+
+PostgreSQL owns all authoritative Page, Library, Brain, and task state. Unified Drive files remain accessible even when the Agent's Worker is stopped, and Workers whose environment cannot mount FUSE fall back to `ankole-files`. See [Files](design-docs/Files.md) and [Agent Workers](design-docs/AgentWorkers.md).
 
 ## Repository Map
 
 | Path | Contents |
 | --- | --- |
 | `app/control_plane/` | Elixir control plane: domain modules, Phoenix APIs, OTP supervision trees, release/upgrade tasks, Mix tasks, configuration, migrations, and tests |
-| `app/function_runtime/` | Stateless Edge Runtime host for Applet backends and deterministic PTC/Workflow TypeScript programs |
+| `app/function_runtime/` | Stateless Edge Runtime host for Applet backends, published Applet Actions, host MCP calls (`AnkoleRuntime.mcp`), and deterministic PTC/Workflow TypeScript programs |
 | `app/kernel/` | Shared Rust native primitives and language bindings |
 | `app/agent_computer/` | Bun Worker daemon, environment tools, Codex runner, and browser integration |
 | `app/ankole-browser/` | Local Chromium daemon for rendered `web_fetch` and browser automation |
@@ -86,7 +91,7 @@ PostgreSQL remains the source of truth for domain documents and task state, and 
 | `tools/e2e/` | End-to-end test runner, fake provider services, and test suites |
 | `docs/` | Architecture specifications, operational guides, and known system tradeoffs |
 
-First-party Control Plane Plugins under `plugins/` ship messaging adapters for Lark/Feishu, DingTalk, Slack, Microsoft 365, Google Workspace, WeCom, Telegram, Discord, LINE, WhatsApp, and Email, plus China-market model providers for AIGateway:
+First-party Control Plane Plugins under `plugins/` ship messaging and identity adapters for Lark/Feishu, DingTalk, Slack, Microsoft 365, Google Workspace, WeCom, Telegram, Discord, LINE, WhatsApp, and Email, Connector adapters for GitHub and Linear, and China-market model providers for AIGateway:
 
 - **Consumer IM adapters** (Telegram, Discord, LINE, and WhatsApp) connect a bot to a single Agent and resolve each sender to a Principal either through an explicit account link or as a standalone external account.
 - **Email adapter** connects a dedicated mailbox and admits incoming mail only when the sender matches an explicit `email` identity binding. (Transactional site verification emails use the core [Authentication](design-docs/Authentication.md) SMTP settings instead.)
@@ -95,14 +100,14 @@ First-party Control Plane Plugins under `plugins/` ship messaging adapters for L
 
 Before starting its supervision tree, `Ankole.Application` initializes the OpenFeature provider, validates the site administration Console path and site identity sources, and attaches the structured request log handler. It then boots child supervisors in strict dependency order:
 
-1. `Repo`, `Pod.BaseCluster`, `PubSub`, `PodPresence`, and the OIDC signing key
+1. `Repo`, `Pod.BaseCluster`, `PubSub`, `PodPresence`, the OIDC signing key, and `AIAgent.Library.SourceCache`
 2. `AppConfigure` registry and runtime cache
 3. Observability, I18n catalogs, and initial setup bootstrap
-4. Worker runtime configuration, `Oban`, the active plugin cohort, Worker provider seeds, and the authentication rate limiter
-5. AIGateway credential pool, `FunctionRuntime` supervisor, task supervisors, response-stream supervisor, and `WorkerFiles` supervisor
-6. Outbound Delivery, `AgentWorkers`, `Sessions`, and `Workflow` supervisors
-7. Optional startup directory sync for external identity sources
-8. AIGateway model metadata cache, `DNSCluster`, and finally the public Phoenix HTTP/WebSocket endpoint
+4. Worker runtime configuration, `Oban`, the active plugin cohort, Worker provider upgrade/seed bootstrap, and the authentication rate limiter
+5. AIGateway credential pool, `FunctionRuntime` supervisor, AIGateway and Pod task supervisors, `Connectors.AppTokenCache`, `Connectors.RemoteMCP`, `AIGateway` response-recovery and response-stream supervisors, and `WorkerFiles` supervisor
+6. Outbound Delivery, `AgentWorkers`, `AIGateway.ModelMetadata.Cache`, `Sessions`, and `Workflow` supervisors
+7. Optional startup syncs for external identity providers (`IdentityProviders.StartupSync`) and the Agent Library (`AIAgent.Library.StartupSync`)
+8. `DNSCluster`, and finally the public Phoenix HTTP/WebSocket endpoint
 
 This boot sequence is a hard architectural contract: each stage may rely on services started in earlier stages, and Phoenix accepts external traffic only after every backing subsystem is ready.
 
@@ -110,11 +115,12 @@ This boot sequence is a hard architectural contract: each stage may rely on serv
 
 PostgreSQL persists every domain fact needed to resume operations seamlessly after a restart:
 
-- Principals (humans and Agents), site credentials, linked external identities, invitations, authentication challenges, groups, memberships, and AuthZ permission grants
+- Principals—humans, Agents (`personal_assistant` and `ai_colleague`), and built-in per-tenant `system` service Principals (`system` and `ankole_brain`)—along with site credentials, linked external identities, invitations, authentication challenges, groups, memberships, and AuthZ permission grants
 - Browser sessions, authentication records, and OIDC clients, sessions, authorization codes, and tokens
-- Pod pages, revisions, and both inline and physical Base tables, fields, views, and records
+- Unified Drive and Pod storage (`pages`, `file_objects`, `pod_files`, `message_attachments`, and `delivery_attachments`), page revisions, and both inline and physical Base tables, fields, views, and records
+- `AIAgent.Library` catalogs and bindings (`skills`, `skill_files`, `agent_skills`, `agent_contracts`, and `agent_plugin_overrides`)
 - `AppConfigure` settings and encrypted provider credentials
-- Connector authorization configurations, connected accounts, credential grants, and external event subscriptions
+- `Connectors` application credentials, connected accounts, OAuth sessions, and external event subscriptions (`connector_auth_configs`, `connector_connected_accounts`, `connector_oauth_sessions`, and `connector_triggers`)
 - Signal routing rules, accepted Signals, callback Endpoints, Conversations, public Messages, external provider references, deletion tombstones, and outbound Delivery intents
 - Schedules and scheduled wake events
 - AIGateway conversations, Response messages, compaction checkpoints, and provider configurations
@@ -159,7 +165,7 @@ Never substitute one identifier for another; each owning subsystem allocates and
 ## How Plugins and Skills Differ
 
 - **Control Plane Plugins** are Elixir packages compiled directly into the release and activated site-wide at boot. They can register messaging or model adapters, supervised OTP processes, HTTP plugs, extension JSON:API routes, transaction hooks, `AppConfigure` schemas, and typed Console UI slots.
-- **Agent Plugins** are standard Codex Plugin bundles that package related Agent tools, Skills, and an optional `workspace-template/` directory for specialized Jobs (such as Deep Research).
+- **Agent Plugins** are standard Codex Plugin bundles that package Skills, optional Codex Hooks (`hooks/`), and an optional `workspace-template/` directory for specialized Jobs (such as Deep Research).
 - **Skills** are self-contained `SKILL.md` capability packages that Ankole discovers, configures, and executes without requiring any Control Plane Plugin code.
 
 ## Where to Change Code
@@ -213,19 +219,20 @@ tools/e2e/run --real-llm
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | Per-Agent token budgets, billing windows, resets, and quota rejection behavior |
 | [Conversations](design-docs/Conversations.md) | Shared public conversation history, provider observation, outbound Delivery, and Pod SSE streams |
 | [Signals](design-docs/Signals.md) | Unified trigger intake, sender authorization, routing rules, and CloudEvents Endpoints |
-| [Connectors](design-docs/Connectors.md) | Tenant credentials, internal MCP services, and external event sources |
+| [Connectors](design-docs/Connectors.md) | Tenant application credentials, personal OAuth accounts, internal MCP services, external event triggers, and GitHub/Linear Connector adapters |
 | [Sessions](design-docs/Sessions.md) | Session Drivers, model tool rounds, unread history tracking, and crash recovery |
 | [BrainV3](design-docs/BrainV3.md) | Tenant-shared knowledge graph, scoped disclosure, active learning, and background Dreaming |
-| [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain page Markdoc syntax and structured Object editing in Console |
 | [Skill Lessons](design-docs/SkillLessons.md) | Leased per-Skill operational field notes distilled from completed runs |
+| [Files](design-docs/Files.md) | Unified Drive object storage, Page projections, WebDAV VFS mounts, attachments, and Pod resources |
+| [Unified Drive upgrade](upgrades/unified-drive.md) | Data, storage, Meta Ankole, and permission migrations for unified Drive |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | Worker Phoenix Channel multiplexing, RPC lanes, and HTTP file relay |
 | [Agent Workers](design-docs/AgentWorkers.md) | Per-Agent Worker provisioning, cloud providers, lifecycle fences, persistent Home, and cache disks |
 | [Schedule](design-docs/Schedule.md) | One-shot checkbacks, recurring cron schedules, and scheduled wakeups |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | Long-running asynchronous Codex jobs, turn leases, and progress reporting |
 | [Automation Jobs](design-docs/AutomationJobs.md) | Page-owned Applet Actions with native schedules, Webhooks, and durable runs |
 | [Workflow](design-docs/Workflow.md) | Fixed TypeScript orchestrations that fan out and aggregate bounded subagent calls |
-| [Principal](design-docs/Principal.md) | Unified Human and Agent identities and linked external provider accounts |
-| [Authentication](design-docs/Authentication.md) | Passwordless email OTP, enterprise SSO, personal OAuth credentials, and Pod login policies |
+| [Principal](design-docs/Principal.md) | Unified Human, Agent, and system service identities and linked external provider accounts |
+| [Authentication](design-docs/Authentication.md) | Passwordless email OTP, enterprise SSO, and Pod login policies |
 | [Passwordless authentication upgrade](upgrades/passwordless-authentication.md) | Credential preflight checks, offline OIDC session evidence, and CLI admin recovery |
 | [Human Offboarding](design-docs/HumanOffboarding.md) | Disabling departed Humans, revoking sessions, and admission checks on new work |
 | [Browser Sessions](design-docs/BrowserSessions.md) | Cookie session identity, authentication freshness, multi-account switching, and logout |
@@ -240,6 +247,6 @@ tools/e2e/run --real-llm
 | [Logger](design-docs/Logger.md) | Structured JSON and console log formatting |
 | [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md) | Deliberate non-goals, trust boundaries, and failure recovery limits |
 
-Adapter-specific protocol specifications live under `design-docs/plugins/`.
+Messaging and identity adapter protocol specifications live under `design-docs/plugins/`, while the `github-adapter` and `linear-adapter` Connector specifications live in [Connectors](design-docs/Connectors.md).
 
 Files in `design-docs/` state current architectural contracts rather than historical incident postmortems or one-off test logs; release-by-release changes live in `CHANGELOG.md`.

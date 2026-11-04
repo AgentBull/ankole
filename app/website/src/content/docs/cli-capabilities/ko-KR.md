@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 대신 Agent Computer 내부의 셸 명령어로 제공됩니다. Agent는 `kubectl`을 다루듯 셸에서 이 명령어들을 실행하며, `ankole-pod`(`pages.*`, `base.*`, `applet build|publish|pull`), `ankole-files`, `ankole-browser`, 웹훅 엔드포인트 관리 명령, automation job 관리 명령이 모두 이 방식을 따릅니다.
+Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 대신 Agent Computer 내부의 셸 명령어로 제공됩니다. Agent는 `kubectl`을 다루듯 셸에서 이 명령어들을 실행하며, `ankole-pod`(`pages.*`, `base.*`, `applet build|publish|pull`, `jobs`), `ankole-files`, `ankole-browser`, 웹훅 엔드포인트 관리 명령이 모두 이 방식을 따릅니다.
 
 이 문서에서는 어떤 기능을 CLI 형태로 설계해야 하는지, 그리고 별도의 도구 등록이나 Skill 인덱스 항목, 시스템 프롬프트 상주 설명 없이도 Agent가 적시에 기능을 발견하고 정확히 사용할 수 있게 만드는 단계적 노출(disclosure) 구조를 설명합니다.
 

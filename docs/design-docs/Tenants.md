@@ -13,9 +13,9 @@ policy in the same transaction. The
 with transitions from `false` to `true` forbidden). When `hybrid_tenant` is
 `true`, tenant creation skips default Agent and welcome Page scaffolding, and
 workspace domains (`Pod`, `Files`, `Conversations`, `AgentWorkers`,
-`FunctionRuntime`, `Signals`, and external `IdentityProviders`) reject
-operations for that tenant while organization profile, member, invitation, and
-personal account settings remain available.
+`FunctionRuntime`, `AutomationJobs`, `Connectors`, `Signals`, and external
+`IdentityProviders`) reject operations for that tenant while organization
+profile, member, invitation, and personal account settings remain available.
 
 Assigning site administrators and managing AuthZ roles belong to their
 respective domain owners. Tenant creation and slug updates share the same
@@ -423,18 +423,22 @@ overrides live in tenant-owned `app_configurations` and
 and plugins are site-owned, while identity providers and directory-sync state
 are tenant-owned; see [AppConfiguration](AppConfiguration.md).
 
-Credential-bearing external platform applications—across messaging Bindings and
-directory-syncing identity providers, even when disabled—belong to at most one
-tenant (login-only OIDC providers are excluded). Before starting a write
-transaction, Ankole verifies the credential with the platform to resolve a
-stable application identifier: Slack maps `auth.test.bot_id` via `bots.info` to
-`app_id`, and Discord and Telegram query their bot endpoints for stable bot IDs;
-if verification fails, the save aborts before writing. Encrypted config rows
-also store that public application ID in plaintext so transactional assignment
-locks can detect cross-tenant conflicts without decrypting another tenant's
-secrets or calling external APIs inside the transaction. See
-[Signals](Signals.md) for inbound routing and [Conversations](Conversations.md)
-for shared rooms and outbound Delivery.
+Credential-bearing external platform applications—across `Ankole.Connectors`
+(`connector_auth_configs`), messaging Bindings, and directory-syncing identity
+providers, even when disabled—belong to at most one tenant (login-only OIDC
+providers are excluded unless they also register shared Connector credentials).
+Before starting a write transaction, Ankole verifies the credential with the
+platform to resolve a stable application identifier: Slack maps
+`auth.test.bot_id` via `bots.info` to `app_id`, and Discord and Telegram query
+their bot endpoints for stable bot IDs; if verification fails, the save aborts
+before writing. `Ankole.Connectors` and encrypted config rows store those public
+application identifiers (`app_id`, `platform_client_id`, `public_metadata`) in
+plaintext so transactional assignment locks and unique indexes on
+`connector_auth_configs` detect cross-tenant conflicts without decrypting
+another tenant's secrets or calling external APIs inside the transaction. See
+[Connectors](Connectors.md) for shared connections, [Signals](Signals.md) for
+inbound routing, and [Conversations](Conversations.md) for shared rooms and
+outbound Delivery.
 
 ## Suspension, deletion and recovery
 
@@ -455,9 +459,9 @@ keeping stored data intact:
 - Recovery scanners check durable tenant state before admitting fresh work and
   never reactivate a suspended tenant, while operators can still cancel work,
   repair configurations, and review authorization.
-- Site maintenance processes each tenant independently so a missing Brain
-  maintainer in one tenant does not block mechanical maintenance, and shared
-  search indexes run once per site.
+- Site maintenance processes each tenant independently so an unconfigured or
+  failing Brain model in one tenant does not block mechanical maintenance, and
+  shared search indexes run once per site.
 
 Deleting a tenant first sets its deletion marker and invokes `HumanOffboarding`
 to revoke its Human Principals and halt their unstarted work across all tenants

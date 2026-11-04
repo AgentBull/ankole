@@ -1,3 +1,4 @@
+import { downloadBlob } from '../common/browser-files'
 import { Button, Input, Switch, Textarea, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
 import { useModel, useSignal } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -22,12 +23,7 @@ import {
 async function downloadSkillFile(slug: string, path: string) {
   const result = await metaSkillFile({ path: { slug }, query: { path } })
   const blob = new Blob([Uint8Array.from(atob(result.content_base64), char => char.charCodeAt(0))])
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = path.split('/').at(-1)!
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  downloadBlob(blob, path.split('/').at(-1)!)
 }
 
 export function DeleteSkillDialog({

@@ -1,3 +1,4 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Button, toast } from '@ankole/uikit'
 import {
   RiCheckboxMultipleLine,
@@ -7,7 +8,7 @@ import {
   RiFileCopyLine,
   RiRestartLine
 } from '@remixicon/react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export function MessageActions({
@@ -30,9 +31,7 @@ export function MessageActions({
   children?: ReactNode
 }) {
   const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
+  const [copied, markCopied] = useCopyFeedback(false)
   return (
     <div
       className="pod-chat-message-actions"
@@ -48,9 +47,7 @@ export function MessageActions({
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(text)
-              setCopied(true)
-              clearTimeout(timer.current)
-              timer.current = setTimeout(() => setCopied(false), 1500)
+              markCopied(true)
             } catch {
               toast.error(t('pod.chat.copy_failed'))
             }

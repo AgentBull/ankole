@@ -119,6 +119,24 @@ defmodule Ankole.Connectors.OAuthProtocolTest do
     refute_receive {:token_request, _, _}
   end
 
+  test "consent return destinations remain local to the tenant Pod", ctx do
+    for return_to <- ["//outside.example/connectors", "/\\outside.example/connectors", nil] do
+      assert {:ok, %{authorization_url: url}} =
+               OAuth.begin(ctx.human, %{
+                 "connection" => ctx.config.slug,
+                 "return_to" => return_to
+               })
+
+      state =
+        url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("state")
+
+      assert {:ok, %{return_to: nil, tenant_id: tenant}} =
+               OAuth.callback(%{"state" => state, "error" => "access_denied"})
+
+      assert tenant == Repo.tenant_id!()
+    end
+  end
+
   test "tenant teardown retries outages and finishes when a revoked provider refuses unsubscribe",
        ctx do
     {:ok, account} = expired_account(ctx, "unsubscribe-refresh")

@@ -19,7 +19,13 @@ Signal 充当执行会话的持久化收件箱，AIGateway 的 Response 链则�
 
 每当跨越模型请求边界时，`Sessions` 会读取所属 Conversation 中的最新 Message，并将读取水位线写入本次实际模型请求的元数据中；当前回合的主触发消息（main）与运行中引导消息（steer）不会在背景历史片段中重复拼入。需要注意，共享对话历史仅用于补充推理上下文，绝不赋予 Agent 冒用历史发言者身份行事的权限——每次操作准入仍严格核查当前请求发起人的权限。
 
-Signal 的完结状态会随最终对外回复意图一并原子提交。即便经历内部修订，回复归属者身份也保持不变；消息撤回或重试后，已产生的工具调用结果依然可供读取。诸如 `/compress` 之类的斜杠管理命令则通过状态反馈与检查点（Checkpoint）直接完结，无需生成常规的最终模型回复。
+Signal 的完结状态会随最终对外回复意图一并原子提交。即便经历内部修订，回复归属者身份也保持不变；消息撤回或重试后，已产生的工具调用结果依然可供读取。在共享群聊中，普通 Agent 回复不会唤醒其他 Agent；跨 Agent 显式协作通过 `send_to_agent` 发起隔离的 `agent_peer` 会话，由 `personal_assistant` 在所属人类的冻结 `WorkAccess` 授权下委托 `ai_colleague` 执行任务——同事发出的 `Clarify` 追问或 `ActionCard` 审批卡会零跳（zero-hop）直投至原对话，人类作答后直接唤醒该同事，待同事提交最终回复后再向原助理 Session 投递一条持久化输入 Signal。诸如 `/compress` 之类的斜杠管理命令则通过状态反馈与检查点（Checkpoint）直接完结，无需生成常规的最终模型回复。
+
+## 冷唤醒模型对话轮转
+
+在对话信号准入时（`Ankole.Sessions.WakeRecycle`，由 `sessions.wake_recycle` 配置），只要前序模型对话已完成至少一次 Response，且满足（a）静置时长达到 `min_cold_gap_seconds`（默认 `3,600` 秒，即上游提示词缓存已过期）同时累计输入上下文达到 `min_context_tokens`（默认 `128,000` Token），或（b）外部 IM 会话连续静置达到 `im_max_idle_seconds`（默认 `259,200` 秒 / 72 小时），Ankole 便会在准入事务内自动终结旧 AIGateway 模型对话并切换至后继分支。
+
+轮转逻辑会跳过显式重置（`command.new`）、交互卡片回调与作答、后台任务回调信号（`background_agent_job.*` 与 `workflow.run.*`）、仍存在活跃或等待态 `BackgroundAgentJob` / `Workflow.Run` 或其他运行中 Signal 的 Session，以及崩溃重试（`last_attempt_at != nil`）。切换时会自动继承未决的 `InteractionState` 与 `ActionCard` 检查点，保持公开的 `conversation_messages` 原封不动，并在后继分支发起首次模型请求前由 `Sessions.WakeBriefing` 注入上限为 `8,000` `o200k_base` Token 的确定性 `<wake-briefing>` 摘要块（涵盖 `<brain-memory>`、`<recent-messages>`、`<recent-actions>` 与 `<objects-in-play>`）。
 
 ## Worker 与操作标识
 

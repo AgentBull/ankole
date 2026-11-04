@@ -47,6 +47,13 @@ order: 116
 
 每次压缩都会产出一份持久化的 `CompactionArtifact` 记录并由 AIGateway 落盘保存。此后该会话的历史链会将最近一次压缩产物作为新的起点锚点，后续回合直接从该锚点向后续接。
 
+## 历史压缩与冷唤醒会话轮转的配合
+
+`ai_gateway.compaction` 与 `sessions.wake_recycle` 分别覆盖热态连续对话与冷态唤醒恢复两类场景：
+
+- **热态连续对话（`ai_gateway.compaction`）**：当用户在提供商提示词缓存有效期内连续交流时，Ankole 持续沿用同一条 AIGateway 模型对话链以最大化前缀缓存命中率，仅当累计上下文越过 `threshold` / `max_threshold_tokens` 时才触发原地压缩。
+- **冷态跨时段恢复（`sessions.wake_recycle`）**：当会话静置达到 `min_cold_gap_seconds`（默认 `3,600` 秒，上游提示词缓存已冷却）且累计输入达到 `min_context_tokens`（默认 `128,000` Token），或外部 IM 会话静置达到 `im_max_idle_seconds`（默认 `259,200` 秒 / 72 小时）后再次唤醒时，`Ankole.Sessions.WakeRecycle` 不会在无缓存命中的情况下重放十余万 Token 的冷历史，而是直接终结旧模型对话、开启后继分支，并注入上限 `8,000` `o200k_base` Token 的确定性 `<wake-briefing>` 摘要块；详见 [Sessions](../sessions/)。
+
 ## 调优
 
 管理员可根据实际业务形态在 Console 中微调以下参数：

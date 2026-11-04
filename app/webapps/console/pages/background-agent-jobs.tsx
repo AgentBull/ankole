@@ -1,3 +1,5 @@
+import { BackgroundJobStatus } from '../background-job-status'
+import { safeJsonParse } from '@agentbull/active-support'
 import { useMutation, useQuery, useSearchParams } from '../tenant-context'
 import { ACTIVITY_REFRESH_MS, LIST_REFRESH_MS } from '../refresh-intervals'
 import {
@@ -76,7 +78,7 @@ import { AgentFilter, type AgentScope, useAgentScope } from '../console-agent-sc
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, formatDuration, formatJSON, resourceID, truncate } from '../console-primitives'
 import { MarkdownBody } from '../../common/markdown-body'
-import { DiscardConfirmDialog, LabeledField, StatusIndicator, useDialogDiscardGuard } from '../console-form'
+import { DetailFact, DiscardConfirmDialog, LabeledField, StatusIndicator, useDialogDiscardGuard } from '../console-form'
 import {
   AgentLink,
   AgentName,
@@ -337,7 +339,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
               <SheetTitle className="min-w-0 break-words">
                 {selected?.title ?? t('console.background_agent_jobs.detail_title')}
               </SheetTitle>
-              {selected ? <StatusBadge status={selected.status} /> : null}
+              {selected ? <BackgroundJobStatus status={selected.status} /> : null}
             </div>
             <SheetDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {selected ? (
@@ -601,7 +603,7 @@ function BackgroundAgentJobCard({
           </h4>
           {/* A column that holds one status has already said it. The badge earns
               its place only where the column mixes several. */}
-          {distinguishesStatus(task.status) ? <StatusBadge status={task.status} /> : null}
+          {distinguishesStatus(task.status) ? <BackgroundJobStatus status={task.status} /> : null}
         </div>
         <div className="grid gap-1 text-xs text-muted-foreground">
           <AgentName className="truncate" uid={task.agent_uid} />
@@ -622,21 +624,6 @@ function BackgroundAgentJobCard({
   )
 }
 
-function StatusBadge({ status }: { status: JobStatus }) {
-  const { t } = useTranslation()
-  const tone =
-    status === 'failed' || status === 'stopped'
-      ? 'danger'
-      : status === 'succeeded'
-        ? 'positive'
-        : status === 'running'
-          ? 'info'
-          : status === 'waiting_on_user'
-            ? 'waiting'
-            : 'neutral'
-  return <StatusIndicator tone={tone}>{t(`console.background_agent_jobs.status_${status}`)}</StatusIndicator>
-}
-
 /**
  * Facts rail: the short scalar attributes of the job. It sticks to the top of
  * the scroll container on wide viewports so the status and account stay visible
@@ -649,29 +636,26 @@ function JobFacts({ job }: { job: BackgroundAgentJobItem }) {
     <dl
       aria-label={t('console.background_agent_jobs.overview')}
       className="grid grid-cols-1 min-w-0 content-start gap-px self-start border border-border bg-border sm:grid-cols-2 lg:grid-cols-3 xl:sticky xl:top-0 xl:grid-cols-1">
-      <Fact label={t('console.background_agent_jobs.status')} value={<StatusBadge status={job.status} />} />
-      <Fact label={t('console.background_agent_jobs.agent')} value={<AgentLink uid={job.agent_uid} />} />
-      <Fact label={t('console.background_agent_jobs.model_profile')} value={job.model_profile} mono />
-      <Fact
+      <DetailFact
+        label={t('console.background_agent_jobs.status')}
+        value={<BackgroundJobStatus status={job.status} />}
+      />
+      <DetailFact label={t('console.background_agent_jobs.agent')} value={<AgentLink uid={job.agent_uid} />} />
+      <DetailFact label={t('console.background_agent_jobs.model_profile')} value={job.model_profile} mono />
+      <DetailFact
         label={t('console.background_agent_jobs.workspace_template')}
         value={job.workspace_template_id ?? '—'}
         mono
       />
-      <Fact label={t('console.background_agent_jobs.attempts')} value={job.attempts} />
-      <Fact label={t('console.background_agent_jobs.duration')} value={formatDuration(job.duration_seconds ?? 0)} />
-      <Fact label={t('console.background_agent_jobs.queued_at')} value={formatConsoleDate(job.queued_at)} />
-      <Fact label={t('console.background_agent_jobs.started_at')} value={formatConsoleDate(job.started_at)} />
-      <Fact label={t('console.background_agent_jobs.completed_at')} value={formatConsoleDate(job.completed_at)} />
+      <DetailFact label={t('console.background_agent_jobs.attempts')} value={job.attempts} />
+      <DetailFact
+        label={t('console.background_agent_jobs.duration')}
+        value={formatDuration(job.duration_seconds ?? 0)}
+      />
+      <DetailFact label={t('console.background_agent_jobs.queued_at')} value={formatConsoleDate(job.queued_at)} />
+      <DetailFact label={t('console.background_agent_jobs.started_at')} value={formatConsoleDate(job.started_at)} />
+      <DetailFact label={t('console.background_agent_jobs.completed_at')} value={formatConsoleDate(job.completed_at)} />
     </dl>
-  )
-}
-
-function Fact({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {
-  return (
-    <div className="grid content-start gap-1 bg-card px-4 py-3">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={cn('break-all text-sm', mono && 'font-mono text-xs leading-5')}>{value}</dd>
-    </div>
   )
 }
 
@@ -1180,9 +1164,6 @@ function messageText(message: TrajectoryMessage): string {
 function prettyJSON(text: string): string {
   const trimmed = text.trim()
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return text
-  try {
-    return formatJSON(JSON.parse(trimmed))
-  } catch {
-    return text
-  }
+  const parsed = safeJsonParse(trimmed)
+  return parsed.isOk() ? formatJSON(parsed.value) : text
 }

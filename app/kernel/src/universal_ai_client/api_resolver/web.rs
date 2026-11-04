@@ -314,7 +314,7 @@ fn normalize_jina_search_body(
 }
 
 fn normalize_parallel_extract_body(status: u16, body: Value) -> Result<Value, StreamError> {
-    let object = checked_provider_object(status, body, "Parallel extract")?;
+    let object = provider_object_body(status, body, "Parallel extract")?;
     let mut results = extract_results(object.get("results").unwrap_or(&Value::Null));
     results.extend(extract_errors(object.get("errors").unwrap_or(&Value::Null)));
     Ok(extract_response(results))
@@ -325,10 +325,10 @@ fn normalize_jina_reader_extract_body(
     status: u16,
     body: Value,
 ) -> Result<Value, StreamError> {
-    let object = checked_provider_object(status, body, "Jina Reader")?;
+    let object = provider_object_body(status, body, "Jina Reader")?;
     let data = object
         .get("data")
-        .and_then(Value::as_object)
+        .filter(|data| data.is_object())
         .unwrap_or(&object);
     let request = context.resolved_provider_request_object();
     let url = data
@@ -363,21 +363,6 @@ fn normalize_jina_reader_extract_body(
     Ok(extract_response(vec![Value::Object(result)]))
 }
 
-fn checked_provider_object(
-    status: u16,
-    body: Value,
-    label: &'static str,
-) -> Result<Map<String, Value>, StreamError> {
-    if !(200..300).contains(&status) {
-        return Err(provider_body_error(status, body));
-    }
-    reject_provider_body_error(status, &body)?;
-    Ok(provider_object_body(status, body, label)?
-        .as_object()
-        .cloned()
-        .unwrap_or_default())
-}
-
 fn normalize_search_body(
     context: &ResponseContext,
     status: u16,
@@ -386,7 +371,7 @@ fn normalize_search_body(
     result_keys: &[&str],
     normalize: fn(usize, &Value) -> Value,
 ) -> Result<Value, StreamError> {
-    let object = checked_provider_object(status, body, label)?;
+    let object = provider_object_body(status, body, label)?;
     let results = result_keys
         .iter()
         .find_map(|key| object.get(*key))
@@ -619,23 +604,7 @@ fn request_limit(request: &Map<String, Value>) -> i64 {
 }
 
 fn encode_query(params: Vec<(String, String)>) -> String {
-    params
-        .into_iter()
-        .map(|(key, value)| format!("{}={}", percent_encode(&key), percent_encode(&value)))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-fn percent_encode(value: &str) -> String {
-    let mut encoded = String::new();
-    for byte in value.as_bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                encoded.push(*byte as char)
-            }
-            b' ' => encoded.push('+'),
-            byte => encoded.push_str(&format!("%{:02X}", *byte)),
-        }
-    }
-    encoded
+    url::form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(params)
+        .finish()
 }

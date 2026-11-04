@@ -176,10 +176,7 @@ export function BrainClaimsPage() {
                 {claim.claim}
               </TableCell>
               <TableCell>
-                <Badge variant={claim.claim_type === 'fact' ? 'secondary' : 'info'}>
-                  {t(`console.brain.claim_type_${claim.claim_type}`)}
-                  {claim.kind ? ` · ${claim.kind}` : ''}
-                </Badge>
+                <ClaimTypeBadge claim={claim} />
               </TableCell>
               <TableCell>
                 <BrainHolderLabel holder={claim.holder} />
@@ -229,6 +226,16 @@ export function BrainClaimsPage() {
       <ForgetClaimDialog claim={forgetClaim} onClose={() => setForgetClaim(undefined)} />
       <ResolveTakeDialog claim={resolveClaim} onClose={() => setResolveClaim(undefined)} />
     </>
+  )
+}
+
+export function ClaimTypeBadge({ claim }: { claim: { claim_type: string; kind?: string | null } }) {
+  const { t } = useTranslation()
+  return (
+    <Badge variant={claim.claim_type === 'fact' ? 'secondary' : 'info'}>
+      {t(`console.brain.claim_type_${claim.claim_type}`)}
+      {claim.kind ? ` · ${claim.kind}` : ''}
+    </Badge>
   )
 }
 

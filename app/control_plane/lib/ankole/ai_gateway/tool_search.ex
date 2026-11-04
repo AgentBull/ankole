@@ -950,26 +950,9 @@ defmodule Ankole.AIGateway.ToolSearch do
       text
     else
       suffix = "…"
-      truncated = take_graphemes(text, max(max_bytes - byte_size(suffix), 0), [], 0)
+      truncated = Ankole.Text.grapheme_prefix(text, max(max_bytes - byte_size(suffix), 0))
 
       truncated <> suffix
-    end
-  end
-
-  defp take_graphemes(_text, budget, acc, bytes) when bytes >= budget,
-    do: acc |> Enum.reverse() |> IO.iodata_to_binary()
-
-  defp take_graphemes(text, budget, acc, bytes) do
-    case String.next_grapheme(text) do
-      nil ->
-        acc |> Enum.reverse() |> IO.iodata_to_binary()
-
-      {grapheme, rest} ->
-        cost = byte_size(grapheme)
-
-        if bytes + cost > budget,
-          do: acc |> Enum.reverse() |> IO.iodata_to_binary(),
-          else: take_graphemes(rest, budget, [grapheme | acc], bytes + cost)
     end
   end
 

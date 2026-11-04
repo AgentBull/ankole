@@ -1,3 +1,4 @@
+import { downloadBlob } from '../common/browser-files'
 import { Button } from '@ankole/uikit'
 import { parseXml, printMarkdown } from '@ankole/block-editor/document'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -53,18 +54,8 @@ export function downloadDraft(
     const kept = xmlToMarkdown(draft)
     if (kept) parts.push(`---\n\n## ${t('pod.content.export_kept_draft')} ${index + 1}\n\n${kept}`)
   })
-  downloadFile(
-    `${parts.join('\n\n')}\n`,
-    documentFilename(heading ?? '', 'document-draft'),
-    'text/markdown;charset=utf-8'
+  downloadBlob(
+    new Blob([`${parts.join('\n\n')}\n`], { type: 'text/markdown;charset=utf-8' }),
+    documentFilename(heading ?? '', 'document-draft')
   )
-}
-
-function downloadFile(content: string, filename: string, type: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }))
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

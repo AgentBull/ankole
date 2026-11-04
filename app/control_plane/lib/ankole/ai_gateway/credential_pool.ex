@@ -387,8 +387,8 @@ defmodule Ankole.AIGateway.CredentialPool do
   defp entry_health(entry) do
     case entry["cooldown_until"] do
       value when is_binary(value) ->
-        case DateTime.from_iso8601(value) do
-          {:ok, datetime, _} ->
+        case Ankole.Attrs.parse_datetime(value) do
+          %DateTime{} = datetime ->
             reason = entry["cooldown_reason"] || %{}
 
             %{
@@ -631,17 +631,7 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   defp update_usage(provider_state, credential_id, snapshot) do
     update_in(provider_state, [:usage], fn usage ->
-      Map.update(usage, credential_id, snapshot, &merge_usage(&1, snapshot))
-    end)
-  end
-
-  defp merge_usage(left, right) do
-    Map.merge(left, right, fn _key, left_value, right_value ->
-      cond do
-        is_number(left_value) and is_number(right_value) -> left_value + right_value
-        is_map(left_value) and is_map(right_value) -> merge_usage(left_value, right_value)
-        true -> right_value
-      end
+      Map.update(usage, credential_id, snapshot, &Ankole.AIGateway.Usage.merge(&1, snapshot))
     end)
   end
 
@@ -655,8 +645,8 @@ defmodule Ankole.AIGateway.CredentialPool do
         parse_reset_at(integer)
 
       _value ->
-        case DateTime.from_iso8601(value) do
-          {:ok, datetime, _offset} -> DateTime.to_unix(datetime, :millisecond)
+        case Ankole.Attrs.parse_datetime(value) do
+          %DateTime{} = datetime -> DateTime.to_unix(datetime, :millisecond)
           _error -> nil
         end
     end

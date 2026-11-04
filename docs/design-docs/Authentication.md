@@ -255,8 +255,12 @@ switching, and OIDC token validation. Requiring SSO for members still accepts
 enterprise proofs and can continue to allow Guest admission via email.
 
 Pod administrators manage the Pod profile, members, invitations, and enterprise
-identity providers in Pod settings, while the platform-application registry
-prevents a single enterprise application from being bound to multiple tenants.
+identity providers in Pod settings. Each credential-bearing identity provider
+stores its application credentials in `Ankole.Connectors` (`connector_auth_configs`,
+referenced via `authConfigId` through `Ankole.Connectors.LegacyConfig`), which
+enforces single-tenant external application ownership across identity providers,
+messaging Bindings, and Connectors (and allows Lark OIDC sign-in to request
+combined personal OAuth scopes for the same Lark app when configured).
 To prevent administrator lockout, Ankole rejects any policy change or provider
 disablement that would remove the current or last administrator's permitted
 login path; the administrator must retain a binding to an enabled, permitted
@@ -293,9 +297,11 @@ administrator.
 
 ## Suspension and departure
 
-Suspending a member revokes their access and stops their active work while
-preserving their personal credentials and contact ownership, so restoring the
-member makes those bindings work again. Offboarding, by contrast, releases every
+Suspending a member bumps their `access_version`, revokes active sessions and
+personal `Ankole.Connectors` accounts, and stops active work while preserving
+their personal credentials and contact bindings; restoring the member keeps
+those bindings intact while requiring a fresh sign-in under the bumped
+`access_version`. Offboarding, by contrast, releases every
 personal credential and recyclable contact in that Pod—including email aliases
 and phone ownership—while keeping immutable enterprise subject IDs, work
 attribution, and audit history attached to the departed Principal.

@@ -22,7 +22,7 @@ Ankole 开箱即具备主体与 AuthZ 鉴权、敏感配置加密、单 Agent �
 
 ## 面 2：Agent 使用的凭据
 
-Agent 调用外部工具所需的密钥与令牌，应统一存入 Console 的“环境变量”页面并开启加密存储。加固重点在于缩小可见范围并坚持定期轮换。
+接入 GitHub、飞书/Lark、Slack、Linear 以及远程 Skill MCP（`streamable_http`）等外部服务时，请优先使用 **Pod → 连接**（`Ankole.Connectors`）：上游 OAuth 与应用令牌全程加密保存在控制面内，绝不下发至 Worker 容器，控制面会代为转发 MCP 请求或按回合注入临时凭据助手（如 `GIT_ASKPASS`）。对于必须在 Worker 容器本地命令行或脚本中读取的自定义 API 密钥，再存入 Console 的**环境变量**（`WorkerEnv`）页面并开启加密存储，同时缩小可见范围并坚持定期轮换。
 
 - **尽量只写不读。** 轮换密钥时直接覆盖填入新值即可，避免为了核对而反复在界面上解密查看旧值。具体操作见 [环境变量](../worker-env/)。
 - **优先配置 Agent 级专属变量。** 全局环境变量会对实例内的每一个 Agent 暴露，而 Agent 级变量仅注入指定的单个 Agent；除非某份凭据确实需要全员共用，否则一律按单个 Agent 限定作用域。
@@ -44,7 +44,7 @@ Agent 调用外部工具所需的密钥与令牌，应统一存入 Console 的�
 每个已接入的聊天渠道与身份源提供商都保存着外部平台凭证（如 `appID`/`appSecret`、`botToken`/`appToken`、`clientId`/`clientSecret`、Entra ID 的 `appPassword`、Google Workspace 的 `serviceAccountKey` 等）。请建立定期轮换机制；一旦怀疑存在泄露风险，须立即应急轮换。
 
 - **先在上游平台吊销旧密钥，再更新 Ankole 配置。** 请先在外部提供商控制台签发新密钥并作废旧密钥，随后将新值填入对应适配器的 AppConfigure 配置中。操作顺序至关重要：若只更新了 Ankole 配置却任由旧密钥在上游平台继续有效，攻击者仍可利用该时间窗盗用身份。
-- **按凭证用途放对存储位置。** 供 Agent 工具脚本调用的外部 API 密钥放入“环境变量”；聊天渠道与身份源提供商自身的接入凭证，则在各自专属的 Console 配置页中管理与轮换。
+- **按凭证用途放对存储位置，勿将平台与连接器凭据写入 WorkerEnv。** 可复用的外部服务连接在 **Pod → 连接**中托管，聊天渠道与身份源提供商自身的接入凭证在各自专属的 Console 配置页中管理与轮换，**环境变量**（`WorkerEnv`）仅用于存放必须在 Worker 本地脚本或命令行中使用的密钥。
 - **同等重视目录同步凭证。** Google Workspace 的 `serviceAccountKey` 与 `adminEmail`、用于读取 Microsoft Graph 的 Entra ID 应用凭证等，都具备读取全公司组织架构与人员名单的权限，轮换周期与保管要求应与聊天渠道密钥同等严格。
 
 ## 面 5：最小网络入口
@@ -58,12 +58,12 @@ Ankole 只需要按实际启用的接入方式开放极少数入站端口，绝�
 
 ## 面 6：Worker 容器、Function Runtime 与控制面
 
-每个 Agent 都独享专属的 Worker 容器或 Pod，不同 Agent 之间绝不混用 Worker 实例、缓存卷或运行凭据。与此同时，无状态的 TypeScript 程序（包括 Workflow、程序化工具调用 PTC 及 Applet 后端函数）统一运行在独立的 `ankole-function-runtime` 服务中，既不持有数据库连接凭证，也不挂载 Kubernetes ServiceAccount 令牌。在 Worker 侧，容器本身即为安全隔离边界：终端命令、Codex `app-server`及无头浏览器均在容器内以普通 Worker 用户身份直接运行，不设额外的嵌套沙箱；所有 Agent 子进程统一以非特权用户 `uid 1000` 运行，剥离全部 Linux Capabilities 且不提供 `sudo` 权限。
+每个 Agent 都独享专属的 Worker 容器或 Pod，不同 Agent 之间绝不混用 Worker 实例、缓存卷或运行凭据。与此同时，无状态的 TypeScript 程序——包括 Workflow 编排器、程序化工具调用（PTC）、Pod Applet 后端、已发布的 Applet Action（含自动化任务 Automation Job）以及宿主 MCP 调用——统一运行在独立的 `ankole-function-runtime` 服务中，既不持有数据库连接凭证，也不挂载 Kubernetes ServiceAccount 令牌。在每个 Worker 容器或 Pod 内，`root` 守护进程（`ankole-worker-supervisor` 及其 `ankole-rclone` FUSE 辅助进程）仅在私有的挂载（Mount）与进程（PID）命名空间内持有 `/dev/fuse` 与 `SYS_ADMIN` 权限以完成 `/drive` 挂载，随后在启动 Agent 子进程前彻底清空全部 Linux Capabilities：终端命令、Codex `app-server` 及无头浏览器统一以非特权用户 `uid 1000`（`gid 1000`）运行，Capabilities 集为空且不提供 `sudo` 权限。
 
-- **非特权用户运行。** 命令以 `uid 1000` 身份执行且无 `sudo`，因此 Agent 可在自身主目录（Home）内安装用户态工具，但无法篡改系统级软件包。同一 Agent 名下的不同 Session 共享该 Agent 容器内的文件系统与进程空间。
-- **Worker 连接凭据严格绑定单代单实例。** Worker 启动后仅在内存中持有连接凭据，并在拉起子进程命令前将其从环境变量中剔除；无论是其他 Agent 的凭据，还是旧一代已被替换淘汰的 Worker 凭据，都无法通过控制面校验。
+- **非特权用户运行。** 子进程以 `uid 1000` 身份执行、不带任何 Capabilities 且无 `sudo`，因此 Agent 可在 `/workspace` 内安装用户态工具并读写经授权的 `/drive` 挂载目录，但无法篡改 FUSE 挂载或系统级软件包。同一 Agent 名下的不同 Session 共享该 Agent 容器内的文件系统与进程空间。
+- **Worker 连接凭据严格绑定单代单实例。** Worker 守护进程仅在内存中持有 RuntimeFabric 与 Drive VFS 连接凭据，并在拉起子进程命令前将其从环境变量中剔除；无论是其他 Agent 的凭据，还是旧一代已被替换淘汰的 Worker 凭据，都无法通过控制面校验。
 - **按宿主机 root 同等安全级别保护控制面。** 控制面需要挂载 Docker Socket，或持有可在指定命名空间内创建与销毁 Pod、Secret 及 PVC 的 Kubernetes Role 来调度 Worker——而一旦能够操控 Docker Socket，在安全等价意义上就拥有了宿主机的 root 权限。
-- **在 Kubernetes 环境中启用 gVisor 强隔离。** 可在 Kubernetes Worker 提供商的 YAML 配置中，将 `podTemplate.spec.runtimeClassName` 设为集群已安装的 gVisor RuntimeClass（如 `gvisor`）；修改保存后，池中现有 Worker 会在进入空闲状态时平滑替换为新配置。注意，Helm Chart 中的 `worker.runtimeClassName` 仅在首次部署初始化默认提供商时读取一次，后续调整请直接在 Console 中修改提供商配置。
+- **在 Kubernetes 环境中启用 gVisor 强隔离。** 可在 Kubernetes `WorkerProvider` 的 YAML 配置中，将 `podTemplate.spec.runtimeClassName` 设为集群已安装的 gVisor RuntimeClass（如 `gvisor`）；修改保存后，该提供商下的现有 Worker 会在进入空闲状态时平滑替换为新配置。注意，Helm Chart 中的 `worker.runtimeClassName` 仅在首次部署初始化默认提供商时读取一次，后续调整请直接在 Console 中修改提供商配置。
 - **收紧 Worker 与 `ankole-function-runtime` 的东西向网络边界。** 采用 Docker Compose 部署时，Worker 容器接入 `ankole_workers` 网桥，`ankole-function-runtime` 接入 `ankole_functions` 网桥：两者均可访问控制面与公网，但均无法触达仅挂载在内部 `ankole_backend` 网络上的 PostgreSQL；若运行在云主机上，请将云实例元数据服务的条数限制（hop limit）设为 `1`，或在宿主机防火墙层面屏蔽容器对 `169.254.169.254` 的访问。采用 Helm 部署并开启 `networkPolicy.enabled` 后，Worker Pod 拒绝一切入站连接，出站仅放行控制面、集群 DNS 以及不在 `networkPolicy.workerDeniedCIDRs` 列表内的公网地址；与此同时，专用 `NetworkPolicy` 会将 `ankole-function-runtime` 限制为仅接受来自控制面的入站请求，并拦截发往 `functionRuntime.deniedCIDRs` 所列私有网段与元数据地址的出站流量。同样地，请将 Kubernetes 工作节点的实例元数据 hop limit 设为 `1`。
 
 ## 审计姿态

@@ -438,7 +438,13 @@ test('a failed Action retains its trigger data and completion time for troublesh
     expect(run.started_at).toBeTruthy()
     expect(run.finished_at).toBeTruthy()
     await details.locator(':scope > summary').click()
-    const finishedAt = await page.evaluate(iso => new Date(iso).toLocaleString(), run.finished_at!)
+    const finishedAt = await page.evaluate(
+      iso =>
+        new Intl.DateTimeFormat(document.documentElement.lang, { dateStyle: 'medium', timeStyle: 'medium' }).format(
+          new Date(iso)
+        ),
+      run.finished_at!
+    )
     await expect(details.getByText(`完成时间: ${finishedAt}`, { exact: true })).toBeVisible()
     const output = details.locator(':scope > div > pre')
     await expect(output).toBeVisible()

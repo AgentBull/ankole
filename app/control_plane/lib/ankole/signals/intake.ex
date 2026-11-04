@@ -302,8 +302,8 @@ defmodule Ankole.Signals.Intake do
   defp instant(%DateTime{} = instant), do: {:ok, instant}
 
   defp instant(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, instant, _offset} -> {:ok, instant}
+    case Ankole.Attrs.parse_datetime(value) do
+      %DateTime{} = instant -> {:ok, instant}
       _ -> {:error, :invalid_signal_time}
     end
   end

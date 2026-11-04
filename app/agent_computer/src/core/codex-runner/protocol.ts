@@ -1,7 +1,7 @@
 import { compareCodePointStrings } from '../../common/ordering'
 import { jsonObject, match } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
+import { sanitizeBinaryOutput, truncateUTF8WithMarker } from '../../common/text-sanitize'
 import type { JSONRPCMessage } from './runtime/app-server-client'
 import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../background-agent-job-documents'
 import { boundedBackgroundAgentJobPaths, type BackgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
@@ -105,10 +105,7 @@ export function projectCodexNotification(message: JSONRPCMessage): CodexNotifica
 const maxMCPStartupErrorBytes = 2_048
 
 function boundedMCPStartupError(value: string): string {
-  const sanitized = sanitizeBinaryOutput(value)
-  if (utf8ByteLength(sanitized) <= maxMCPStartupErrorBytes) return sanitized
-  const suffix = '...[truncated]'
-  return `${truncateUTF8Safe(sanitized, maxMCPStartupErrorBytes - utf8ByteLength(suffix))}${suffix}`
+  return truncateUTF8WithMarker(sanitizeBinaryOutput(value), maxMCPStartupErrorBytes)
 }
 
 export function textInput(text: string): Array<JSONObject> {

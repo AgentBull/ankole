@@ -1,3 +1,4 @@
+import { escapeRegExp } from '../../common/text'
 import { equal, uuidV4 } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type {
@@ -66,7 +67,7 @@ export const draftMentions = (mentions: ConversationMessage['mentions']): ChatMe
   )
 
 export function hasDraftMention(text: string, displayName: string) {
-  const name = displayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const name = escapeRegExp(displayName)
   return new RegExp(`(?<![\\p{L}\\p{N}_])@${name}(?![\\p{L}\\p{N}_])`, 'u').test(text)
 }
 

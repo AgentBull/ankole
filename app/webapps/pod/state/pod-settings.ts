@@ -1,3 +1,4 @@
+import { dateTimeLocalValue } from '../../common/date-time'
 import { type JsonObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { PodAdminSettingsResponse } from '../api/generated/types.gen'
@@ -56,8 +57,7 @@ export function resolveInvitationExpiryISO(
 }
 
 function defaultLocalExpiry(now = Date.now()): string {
-  const expiry = new Date(now + 7 * 86_400_000)
-  return new Date(expiry.getTime() - expiry.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+  return dateTimeLocalValue(new Date(now + 7 * 86_400_000).toISOString()).slice(0, 16)
 }
 
 export const PodSettingsModel = createModel(() => {

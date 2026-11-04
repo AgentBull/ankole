@@ -1,23 +1,16 @@
+import { effectiveFieldType } from '../base-field-types'
 import { safeJsonParse } from '@agentbull/active-support'
 import type { AggregateQuery, BaseField, RecordQuery, TableSchema } from '@ankole/applet-sdk/types'
 
-const numeric = (field?: BaseField) =>
-  field?.type === 'number' ||
-  field?.type === 'auto_number' ||
-  (field?.type === 'formula' && field.config.result_type === 'number')
-const datetime = (field?: BaseField) =>
-  !!field &&
-  (['datetime', 'created_at', 'updated_at'].includes(field.type) ||
-    (field.type === 'formula' && field.config.result_type === 'datetime'))
+const numeric = (field?: BaseField) => !!field && effectiveFieldType(field) === 'number'
+const datetime = (field?: BaseField) => !!field && effectiveFieldType(field) === 'datetime'
 const canonicalDatetime = (value: unknown) => {
   if (value === null) return true
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value)) return false
   const date = new Date(value)
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 23) === value.slice(0, 23)
 }
-const array = (field?: BaseField) =>
-  !!field &&
-  (['user', 'link', 'attachment'].includes(field.type) || (field.type === 'select' && !!field.config.multiple))
+const array = (field?: BaseField) => !!field && effectiveFieldType(field) === 'array'
 
 /** PostgreSQL remains the owner where locale or numeric precision cannot survive a JSON Number. */
 export function canQueryLocally(schema: TableSchema, query: RecordQuery): boolean {

@@ -722,15 +722,17 @@ defmodule AnkoleWeb.Session do
 
   def setup_oidc_state(conn), do: active_payload(get_session(conn, :setup_oidc_state))
 
-  def opaque_token, do: :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+  defdelegate opaque_token(), to: Ankole.Authn.SecretDigest, as: :token
 
-  def safe_return_to(value) when is_binary(value) do
+  def safe_return_to(value, fallback \\ "/")
+
+  def safe_return_to(value, fallback) when is_binary(value) do
     if String.starts_with?(value, "/") and not String.starts_with?(value, ["//", "/\\"]),
       do: value,
-      else: "/"
+      else: fallback
   end
 
-  def safe_return_to(_), do: "/"
+  def safe_return_to(_, fallback), do: fallback
 
   defp put_expiring_session(conn, key, attrs, ttl) do
     now = System.system_time(:second)

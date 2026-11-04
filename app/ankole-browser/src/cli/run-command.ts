@@ -1,8 +1,10 @@
+import { waitForExit } from '../process'
+import { atomicText } from '../files'
 import { dlopen } from 'bun:ffi'
 import { fork, type ChildProcess } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { copyFile, mkdir, open, readFile, rename } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { copyFile, mkdir, open, readFile } from 'node:fs/promises'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BrowserDataError } from '../errors'
 import type { BrowserCommand } from '../protocol'
@@ -222,17 +224,6 @@ async function stopRunner(child: ChildProcess, reason: unknown): Promise<void> {
   }
 }
 
-async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
-  if (child.exitCode !== null || child.signalCode !== null) return true
-  return await new Promise(resolve => {
-    const timer = setTimeout(() => resolve(false), timeoutMs)
-    child.once('exit', () => {
-      clearTimeout(timer)
-      resolve(true)
-    })
-  })
-}
-
 async function successfulData(
   context: BrowserClientContext,
   command: BrowserCommand,
@@ -316,18 +307,6 @@ async function ensureRunResult(runDir: string, value: RunResult): Promise<void> 
     if (!(error instanceof BrowserDataError && error.code === 'invalid_result')) throw error
   }
   await atomicText(resolve(runDir, 'result.json'), `${JSON.stringify(value, null, 2)}\n`)
-}
-
-async function atomicText(path: string, value: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${crypto.randomUUID()}.tmp`
-  const file = await open(temporary, 'w', 0o600)
-  try {
-    await file.writeFile(value)
-  } finally {
-    await file.close()
-  }
-  await rename(temporary, path)
 }
 
 function serializableError(error: unknown): Record<string, unknown> {

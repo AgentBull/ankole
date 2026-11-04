@@ -1,3 +1,4 @@
+import { truncate } from './text'
 import { Button, buttonVariants, cn } from '@ankole/uikit'
 import { RiCheckLine, RiErrorWarningLine, RiFileCopyLine, RiRefreshLine } from '@remixicon/react'
 import { QueryErrorResetBoundary } from '@tanstack/react-query'
@@ -287,11 +288,11 @@ function diagnosticSummary(error: unknown): string {
   }
   if (error instanceof Error) {
     const firstLine = error.message.split(/\r?\n/, 1)[0]?.trim() || error.name
-    return firstLine.length <= 240 ? firstLine : `${firstLine.slice(0, 240)}…`
+    return truncate(firstLine, 240)
   }
   if (typeof error === 'string') {
     const firstLine = error.split(/\r?\n/, 1)[0]?.trim() ?? ''
-    return firstLine.length <= 240 ? firstLine : `${firstLine.slice(0, 240)}…`
+    return truncate(firstLine, 240)
   }
   if (error != null) {
     return requestErrorMessage(error)

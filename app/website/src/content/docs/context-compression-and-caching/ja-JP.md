@@ -47,6 +47,13 @@ order: 116
 
 コンパクションが実行されるたびに、AIGateway は永続的な `CompactionArtifact` を保存します。会話履歴は最新のコンパクション結果を新しい基点（アンカー）として指し、それ以降の turn はそのアンカーから連なっていきます。
 
+## コンパクションとコールド復帰ローテーションの連携
+
+`ai_gateway.compaction` と `sessions.wake_recycle` は、ウォームな継続会話とコールドな再開の双方を補完し合います。
+
+- **ウォームな継続会話（`ai_gateway.compaction`）** — 上流プロバイダーのプロンプトキャッシュ有効期間内に turn が続く間、Ankole は同じ AIGateway 会話チェーンを伸ばし続けてプレフィックスキャッシュのヒット率を高く保ち、累積コンテキストが `threshold` / `max_threshold_tokens` を超えた時点でのみコンパクションを実行します。
+- **コールドな再開（`sessions.wake_recycle`）** — `min_cold_gap_seconds`（既定 `3,600` 秒、上流のプロンプトキャッシュ失効後）以上アイドルで累積コンテキストが `min_context_tokens`（既定 `128,000` トークン）以上ある Session が再開された場合、または外部 IM チャネルで `im_max_idle_seconds`（既定 `259,200` 秒 / 72 時間）以上アイドルだった場合は、`Ankole.Sessions.WakeRecycle` がキャッシュの効かない巨大な履歴を再送する代わりに古い AIGateway モデル会話を閉じ、上限 `8,000` `o200k_base` トークンの決定論的な `<wake-briefing>` を持つ後続ブランチへ切り替えます。詳しくは [Sessions](../sessions/) を参照してください。
+
 ## チューニング
 
 運用状況に応じて、次の指針でパラメータを調整できます。

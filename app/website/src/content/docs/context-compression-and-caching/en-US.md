@@ -47,6 +47,13 @@ Combining a structured summary of older assistant turns with verbatim user reque
 
 Each compaction run writes a durable `CompactionArtifact` in AIGateway, anchoring the conversation's visible history so subsequent turns continue forward from that checkpoint.
 
+## Compaction and cold-wake session rotation
+
+`ai_gateway.compaction` and `sessions.wake_recycle` work together across warm and cold traffic:
+
+- **Warm active conversations (`ai_gateway.compaction`):** While turns arrive within the upstream provider's prompt-cache window, Ankole keeps extending the same AIGateway conversation to maximize prefix-cache hit rates, compacting only when cumulative context crosses `threshold` / `max_threshold_tokens`.
+- **Cold resumptions (`sessions.wake_recycle`):** When a Session resumes after sitting idle at least `min_cold_gap_seconds` (default `3,600` seconds, after upstream prompt caches expire) with context at or above `min_context_tokens` (default `128,000` tokens)—or after `im_max_idle_seconds` (default `259,200` seconds / 72 hours) on an external IM channel—`Ankole.Sessions.WakeRecycle` closes the cold AIGateway model conversation instead of replaying an uncached six-figure prompt, opens a successor branch, and injects a deterministic `<wake-briefing>` capped at `8,000` `o200k_base` tokens; see [Sessions](../sessions/).
+
 ## Tuning
 
 - **Raise `threshold`** if your Agents mostly handle short threads and the default (`0.50`) compacts earlier than necessary.

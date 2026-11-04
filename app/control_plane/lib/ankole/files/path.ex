@@ -192,10 +192,5 @@ defmodule Ankole.Files.Path do
     do_strip_bidi(rest, <<acc::binary, byte>>)
   end
 
-  defp truncate_bytes(text, maximum) when byte_size(text) <= maximum, do: text
-
-  defp truncate_bytes(text, maximum) do
-    <<prefix::binary-size(^maximum), _::binary>> = text
-    if String.valid?(prefix), do: prefix, else: truncate_bytes(prefix, maximum - 1)
-  end
+  defp truncate_bytes(text, maximum), do: Ankole.Text.utf8_prefix(text, maximum)
 end

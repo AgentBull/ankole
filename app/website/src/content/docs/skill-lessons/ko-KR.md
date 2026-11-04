@@ -54,7 +54,7 @@ Dreaming이 생성한 기계 교훈에는 처음 7일짜리 리스가 부여됩�
 
 ## 교훈 추가 또는 폐기
 
-1. Console에서 **Agent Library**를 엽니다.
+1. Pod의 **Meta Ankole → Skills**(또는 Console의 **Agent Library**)를 엽니다.
 2. 상단 범위를 **전역 기본값**에서 대상 Agent로 전환합니다.
 3. Agent Plugin 또는 **Skills** 목록에서 대상 Skill을 찾습니다.
 4. **교훈 추가**를 누르고 적용 조건을 먼저 적은 뒤 취해야 할 행동을 입력합니다.
@@ -62,18 +62,19 @@ Dreaming이 생성한 기계 교훈에는 처음 7일짜리 리스가 부여됩�
 
 사람이 직접 등록하는 교훈은 현재 활성화된 Skill에만 추가할 수 있습니다. 기계 교훈과 달리 짧은 토큰 제한은 없으나 본문에 URL을 넣을 수는 없습니다. 등록된 교훈 본문은 직접 수정할 수 없으므로, 내용을 고치려면 기존 항목을 폐기하고 새로 추가하세요.
 
-Console 화면에는 작성 주체, 생성 시각, 재검토 예정일, 검증된 릴리스 버전, 근거가 된 증거 Job, 폐기 사유가 모두 표시됩니다. 운영자가 직접 폐기한 내용은 Dreaming의 재학습 금지 목록에 기록되므로, 이후 Dreaming이 같은 취지의 교훈을 다시 만들어 내지 않습니다. 폐기된 교훈은 Agent의 다음 턴부터 즉시 제외됩니다.
+관리 화면에는 작성 주체, 생성 시각, 재검토 예정일, 검증된 릴리스 버전, 근거가 된 증거 Job, 폐기 사유가 모두 표시됩니다. 운영자가 직접 폐기한 내용은 Dreaming의 재학습 금지 목록에 기록되므로, 이후 Dreaming이 같은 취지의 교훈을 다시 만들어 내지 않습니다. 폐기된 교훈은 Agent의 다음 턴부터 즉시 제외됩니다.
 
 ## 학습 설정 및 상태 확인
 
-Skill 교훈 동작은 다음 `brain.*` 설정으로 제어합니다.
+Skill 교훈 동작은 [AppConfigure](../app-configuration/)의 세 가지 `brain.*` 설정과 `ankole_brain`의 모델 프로필로 제어합니다.
 
 | 설정 | 기본값 | 효과 |
 |---|---|---|
 | `brain.skill_learning_enabled` | `true` | 성찰(reflection), 재검토, 교훈 전달 기능을 활성화합니다. `false`로 바꾸면 저장된 사람·Dreaming 교훈을 삭제하지 않은 채 전달만 숨깁니다. |
 | `brain.skill_learning_reflection_threshold` | `10` | 성찰 Job 하나를 시작하기 위해 쌓여야 하는 미처리 signal Job 수입니다(최솟값 `2`). |
-| `brain.maintainer_agent_uid` | 설정되지 않음 | Brain 유지보수 담당 Agent를 지정하고, 그 Agent의 `heavy` 프로필을 사용해 리스 교훈을 재검토합니다. 사용 가능한 `heavy` 프로필이 없으면 모델 기반 재검토를 건너뜁니다. |
 | `brain.dreaming_task_cron` | `0 5 * * *` | Dreaming이 성찰 트리거 조건을 점검하고 만료 임박 교훈을 재검토하는 실행 시각입니다. |
+
+리스 교훈 재검토는 내장 `ankole_brain` 시스템 Principal 명의로 실행되며, **Console → Model Profiles**(`Site -> Pod -> ankole_brain`)에서 해석되는 유효 `heavy` 모델 프로필(미설정 시 `primary`로 폴백)을 사용합니다. 사용 가능한 `heavy` 또는 `primary` 프로필이 없으면 Ankole은 모델 기반 재검토를 건너뜁니다.
 
 **Brain → 상태** 화면을 열면 Skill 학습 활성화 여부, Agent별 활성 교훈 수, 최근 7일간 추가·폐기된 교훈 수, 가장 오래된 활성 Dreaming 교훈의 경과 기간을 한눈에 확인할 수 있습니다.
 

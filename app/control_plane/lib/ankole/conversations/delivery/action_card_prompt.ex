@@ -12,40 +12,8 @@ defmodule Ankole.Conversations.Delivery.ActionCardPrompt do
   @action_kinds_list ActionCard.action_kinds()
 
   @spec from_response_items(term()) :: {:ok, map() | nil} | {:error, term()}
-  def from_response_items(items) when is_list(items) do
-    call_ids = tool_call_ids(items)
-
-    items
-    |> Enum.reduce_while({:ok, nil}, fn
-      %{"type" => "function_call_output", "call_id" => call_id, "output" => output}, {:ok, prompt}
-      when is_binary(call_id) ->
-        if MapSet.member?(call_ids, call_id) do
-          case normalize_output(ToolOutput.decode(output), call_id) do
-            {:ok, normalized} -> {:cont, {:ok, normalized}}
-            :ignore -> {:cont, {:ok, prompt}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-        else
-          {:cont, {:ok, prompt}}
-        end
-
-      _item, acc ->
-        {:cont, acc}
-    end)
-  end
-
-  def from_response_items(_items), do: {:ok, nil}
-
-  defp tool_call_ids(items) do
-    Enum.reduce(items, MapSet.new(), fn
-      %{"type" => "function_call", "name" => @tool_name, "call_id" => call_id}, acc
-      when is_binary(call_id) ->
-        MapSet.put(acc, call_id)
-
-      _item, acc ->
-        acc
-    end)
-  end
+  def from_response_items(items),
+    do: ToolOutput.last(items, @tool_name, &normalize_output/2)
 
   defp normalize_output(%{"tool" => @tool_name, "ok" => true} = output, call_id) do
     with {:ok, card_id} <- Ecto.UUID.cast(Map.get(output, "card_id")),

@@ -9,7 +9,7 @@ import { Attrs, codeNodes, extraAttrs, extraOf, markChange, markSet, markValue }
 import type { BlockDefinition } from '../../editor/block'
 import { insertBlock } from '../../editor/block-insert'
 import { editorPhrases } from '../../editor/phrases'
-import { connectedWidget, widgetBlock } from '../../editor/widget'
+import { connectedWidget, toolbarButton as widgetToolbarButton, widgetBlock } from '../../editor/widget'
 import type { PhraseSet } from '../../core/phrases'
 import * as T from '../../core/types'
 import { MermaidPreview } from './preview'
@@ -151,14 +151,8 @@ type MermaidToolbarValue = {
 }
 
 function toolbarButton(text: string, title: string, action: string): HTMLButtonElement {
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.className = `mermaid-toolbar-${action}`
+  const button = widgetToolbarButton(text, title, `mermaid-toolbar-${action}`)
   button.dataset.mermaidAction = action
-  button.textContent = text
-  button.title = title
-  button.setAttribute('aria-label', title)
-  button.tabIndex = 0
   return button
 }
 

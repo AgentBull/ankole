@@ -11,11 +11,13 @@ provider seed and assigns unbound imported Workers in one transaction. Its
 `legacy_agents` selector identifies the provider that holds the old Agent Homes;
 it does not select the default provider for new Agents.
 
-The Agent Home importer reads pending Automation script directories directly
-from migration storage. It copies the files into `drive_prefix` and clears the
-pending directory only when that import is complete. Missing files remain
-retryable through the same upgrade command. Automation Job APIs and execution
-use `drive_prefix` exclusively.
+`Ankole.Upgrade202610.import_agent_home/1` copies legacy `installed-skills/<name>`
+directories that contain `SKILL.md` into `skills/<name>` under each Agent's
+private Drive without overwriting existing Drive files, and migrates unsent
+legacy `Conversations.Delivery.Intent` attachments (`pending`, `failed`, or
+`unknown`) from `user-files/` into `file_objects` and Agent private Drive
+nodes. Missing or skipped entries are reported and remain retryable through the
+same upgrade command.
 
 The upgrade removes the obsolete `legacy_thread_replay` Job metadata key while
 preserving native thread IDs, Workspace ownership, and stored history. If a
@@ -274,10 +276,12 @@ integrity checks. It creates and drops isolated temporary databases; it does not
 upgrade the development database. Run it with the integration-test environment
 described in [CONTRIBUTING](../../CONTRIBUTING.md#run-the-right-checks).
 
-This schema upgrade does not publish FUSE. The current Kubernetes baseline lacks
-the required device and mount capability. `ankole-files` continues using the
-unified store until every built-in provider passes the release prerequisite in
-[Agent Workers](../design-docs/AgentWorkers.md#drive-fuse-release-prerequisite).
+Workers whose startup probe passes mount `/drive` through `ankole-rclone` FUSE—including
+Docker Workers and Kubernetes 1.30+ Worker Pods configured with the FUSE device
+plugin (`smarter-devices/fuse`) and Worker admission policy. `ankole-files`
+remains available against the unified store as the fallback for Workers without
+FUSE until all six built-in providers complete Gate C1 verification in
+[Agent Workers](../design-docs/AgentWorkers.md#drive-mounts-and-provider-verification).
 
 ## Brain document unification
 

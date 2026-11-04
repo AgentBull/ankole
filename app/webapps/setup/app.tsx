@@ -1,3 +1,4 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { uniq } from '@agentbull/active-support'
 import { revalidateLogic, useForm } from '@tanstack/react-form'
 import { RiArrowRightSLine, RiCheckLine, RiFileCopyLine, RiLoaderLine, RiLoginCircleLine } from '@remixicon/react'
@@ -19,7 +20,7 @@ import { toast } from '@ankole/uikit/components/sonner'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 import {
@@ -533,21 +534,11 @@ function SSOIdentityForm({
 }) {
   useSignals()
   const { i18n: i18next, t } = useTranslation()
-  const [callbackCopied, setCallbackCopied] = useState(false)
-  const callbackCopiedTimer = useRef<number | null>(null)
+  const [callbackCopied, markCallbackCopied, resetCallbackCopied] = useCopyFeedback(false, 2000)
   const [customizeCallback, setCustomizeCallback] = useState(false)
   const providerIDControlID = useId()
   const providerIDErrorID = `${providerIDControlID}-error`
   const providerIDHintID = `${providerIDControlID}-hint`
-
-  useEffect(
-    () => () => {
-      if (callbackCopiedTimer.current !== null) {
-        window.clearTimeout(callbackCopiedTimer.current)
-      }
-    },
-    []
-  )
 
   const mutation = useMutation({
     mutationFn: async (input: IdentitySetupDraft) => {
@@ -584,15 +575,8 @@ function SSOIdentityForm({
   async function copyCallbackURL() {
     try {
       await navigator.clipboard.writeText(oidcCallbackURL(publicBaseURL, model.providerID.value))
-      if (callbackCopiedTimer.current !== null) {
-        window.clearTimeout(callbackCopiedTimer.current)
-      }
-      setCallbackCopied(true)
+      markCallbackCopied(true)
       toast.success(t('setup.oidc_callback_url_copied'))
-      callbackCopiedTimer.current = window.setTimeout(() => {
-        callbackCopiedTimer.current = null
-        setCallbackCopied(false)
-      }, 2000)
     } catch {
       toast.error(t('setup.oidc_callback_url_copy_failed'))
     }
@@ -653,7 +637,7 @@ function SSOIdentityForm({
                   onChange={event => {
                     mutation.reset()
                     model.providerID.value = event.target.value
-                    setCallbackCopied(false)
+                    resetCallbackCopied()
                     model.setValidationError()
                   }}
                 />

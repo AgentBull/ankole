@@ -58,8 +58,7 @@ export function sanitizePathSegment(value: string, options: SanitizePathSegmentO
   let safe = value.trim().replace(/[^a-zA-Z0-9._-]+/g, replacement)
 
   if (trimReplacement && replacement.length > 0) {
-    const escaped = replacement.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    safe = safe.replace(new RegExp(`^${escaped}+|${escaped}+$`, 'g'), '')
+    safe = safe.replace(/^-+|-+$/g, '')
   }
 
   safe = safe.slice(0, safePathSegmentMaxLength)

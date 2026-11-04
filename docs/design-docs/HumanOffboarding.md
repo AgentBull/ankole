@@ -451,9 +451,11 @@ eligible; the administrator still initiates restoration.
 
 After restoration, the person must sign in anew: pre-disablement browser
 sessions, OIDC tokens, cancelled jobs, and paused schedules remain invalid or
-paused, restarting work requires a fresh authorized action, and personal
-upstream tool authorizations must be re-established rather than reusing stale
-local CLI profiles. Historical authorship, completed task outputs, drive files,
+paused, restarting work requires a fresh authorized action, and because
+disabling a Human revokes their personal connected accounts in
+`Ankole.Connectors`, they must re-authorize personal OAuth connections before
+invoking personal upstream tools. Historical authorship, completed task outputs,
+drive files,
 and Brain knowledge stay attributed to the original Principal UID under standard
 data permissions; offboarding never widens access to private items, alters
 retention policies, or rotates shared enterprise bot credentials. A disabled

@@ -29,19 +29,17 @@ defmodule Ankole.Conversations.Delivery.Attachment do
 
   @doc "Extracts canonical reply attachments from durable Responses content items."
   @spec attachments_from_response_items(term()) :: {:ok, [attachment()]} | {:error, term()}
-  def attachments_from_response_items(items) when is_list(items) do
-    reply_attachment_call_ids = reply_attachment_call_ids(items)
-
-    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
-      case attachments_from_response_item(item, reply_attachment_call_ids) do
+  def attachments_from_response_items(items) do
+    items
+    |> ToolOutput.outputs(@tool_name)
+    |> Enum.reduce_while({:ok, []}, fn {output, call_id}, {:ok, acc} ->
+      case attachments_from_tool_output(output, call_id) do
         {:ok, attachments} -> {:cont, {:ok, acc ++ attachments}}
         :ignore -> {:cont, {:ok, acc}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
-
-  def attachments_from_response_items(_items), do: {:ok, []}
 
   @doc "Normalizes one reply attachment into the durable provider-intent shape."
   @spec normalize_attachment(term()) :: {:ok, attachment()} | {:error, term()}
@@ -87,39 +85,6 @@ defmodule Ankole.Conversations.Delivery.Attachment do
   end
 
   def normalize_attachments(_attachments), do: {:error, :reply_attachment_attachments_not_list}
-
-  defp reply_attachment_call_ids(items) do
-    items
-    |> Enum.reduce(MapSet.new(), fn
-      %{"type" => "function_call", "name" => @tool_name, "call_id" => call_id}, acc
-      when is_binary(call_id) ->
-        MapSet.put(acc, call_id)
-
-      _item, acc ->
-        acc
-    end)
-  end
-
-  defp attachments_from_response_item(
-         %{"type" => "function_call_output", "call_id" => call_id} = item,
-         reply_attachment_call_ids
-       )
-       when is_binary(call_id) do
-    if MapSet.member?(reply_attachment_call_ids, call_id) do
-      attachments_from_reply_attachment_output(item)
-    else
-      :ignore
-    end
-  end
-
-  defp attachments_from_response_item(_item, _reply_attachment_call_ids), do: :ignore
-
-  defp attachments_from_reply_attachment_output(item) do
-    item
-    |> Map.get("output")
-    |> ToolOutput.decode()
-    |> attachments_from_tool_output(item["call_id"])
-  end
 
   defp attachments_from_tool_output(
          %{"tool" => @tool_name, "attachments" => attachments},

@@ -205,16 +205,12 @@ defmodule Ankole.AIAgent.TokenQuota do
     end
   end
 
-  defp parse_instant(%DateTime{} = instant), do: {:ok, instant}
-
-  defp parse_instant(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, instant, _offset} -> {:ok, instant}
-      {:error, _reason} -> :error
+  defp parse_instant(value) do
+    case Ankole.Attrs.parse_datetime(value) do
+      %DateTime{} = instant -> {:ok, instant}
+      nil -> :error
     end
   end
-
-  defp parse_instant(_value), do: :error
 
   defp fetch_agent(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do

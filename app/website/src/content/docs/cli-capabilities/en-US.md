@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Several Ankole capabilities ship as shell commands inside the Agent Computer rather than as model-visible tools, so Agents invoke them from the shell just like `kubectl`. `ankole-pod` (`pages.*`, `base.*`, `applet build|publish|pull`), `ankole-files`, `ankole-browser`, webhook endpoint commands, and automation job commands all follow this pattern.
+Several Ankole capabilities ship as shell commands inside the Agent Computer rather than as model-visible tools, so Agents invoke them from the shell just like `kubectl`. `ankole-pod` (`pages.*`, `base.*`, `applet build|publish|pull`, `jobs`), `ankole-files`, `ankole-browser`, and webhook endpoint commands all follow this pattern.
 
 This page explains when to package a capability as a CLI and how Ankole's progressive disclosure pattern makes it discoverable and accurate without adding a JSON tool schema, a Skill catalog entry, or permanent system-prompt text.
 

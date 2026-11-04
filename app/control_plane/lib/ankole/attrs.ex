@@ -146,6 +146,12 @@ defmodule Ankole.Attrs do
 
   def normalize_provider_lifecycle_kind(_kind), do: nil
 
+  def deep_merge(left, right) when is_map(left) and is_map(right) do
+    Map.merge(left, right, fn _key, left, right ->
+      if is_map(left) and is_map(right), do: deep_merge(left, right), else: right
+    end)
+  end
+
   def parse_datetime(nil), do: nil
 
   def parse_datetime(value) when is_binary(value) do

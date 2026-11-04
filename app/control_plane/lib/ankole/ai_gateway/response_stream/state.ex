@@ -1381,23 +1381,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp unique_public_item_id(state, item_id, source, attempt) do
-    round = StreamLoop.round(state.tool_loop)
-
-    digest =
-      :crypto.hash(
-        :sha256,
-        "#{state.local_response_id}\0#{round}\0#{source}\0#{item_id}\0#{attempt}"
-      )
-      |> Base.encode16(case: :lower)
-      |> binary_part(0, 24)
-
-    candidate = ResponseItems.ankole_identity("item", digest)
-
-    if public_identity_taken?(state, candidate),
-      do: unique_public_item_id(state, item_id, source, attempt + 1),
-      else: candidate
-  end
+  defp unique_public_item_id(state, item_id, source, attempt),
+    do: unique_public_id(state, item_id, source, "item", attempt)
 
   defp available_public_pair_id(state, pair_id, attempt) do
     if public_identity_taken?(state, pair_id) do
@@ -1407,21 +1392,21 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp unique_public_pair_id(state, pair_id, attempt) do
+  defp unique_public_pair_id(state, pair_id, attempt),
+    do: unique_public_id(state, pair_id, "pair", "call", attempt)
+
+  defp unique_public_id(state, id, source, kind, attempt) do
     round = StreamLoop.round(state.tool_loop)
 
     digest =
-      :crypto.hash(
-        :sha256,
-        "#{state.local_response_id}\0#{round}\0pair\0#{pair_id}\0#{attempt}"
-      )
+      :crypto.hash(:sha256, "#{state.local_response_id}\0#{round}\0#{source}\0#{id}\0#{attempt}")
       |> Base.encode16(case: :lower)
       |> binary_part(0, 24)
 
-    candidate = ResponseItems.ankole_identity("call", digest)
+    candidate = ResponseItems.ankole_identity(kind, digest)
 
     if public_identity_taken?(state, candidate),
-      do: unique_public_pair_id(state, pair_id, attempt + 1),
+      do: unique_public_id(state, id, source, kind, attempt + 1),
       else: candidate
   end
 

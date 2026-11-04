@@ -42,7 +42,7 @@ Agent에 내장된 8개의 모델 프로파일 슬롯(`primary`, `light`, `heavy
 - **`light`**에는 실제로 빠르고 저렴한 경량 모델을 바인딩하세요. 호출 빈도는 높고 중요도는 낮은 보조 경로를 위해 마련된 슬롯입니다.
 - **`vision_fallback`**은 이미지를 읽어야 하는 Agent에만 설정하고, 그렇지 않다면 비워 두세요.
 - **`web_search`**와 **`web_fetch`**는 서로 독립된 슬롯이므로 웹 접근이 필요한 Agent에만 각각 바인딩하세요.
-- Brain 검색용 모델은 **AppConfigure**에서 별도로 지정합니다. 사이트 범위의 `brain.embedding_model`은 전체 Agent의 벡터 검색에 쓰이고, 각 테넌트의 `brain.rerank_model`은 해당 테넌트의 재정렬(rerank)에 쓰입니다. embedding 모델을 비워 두면 벡터 검색이 비활성화되고, rerank 모델을 비워 두면 융합(fusion) 검색 순위가 그대로 유지됩니다. 자세한 내용은 [Brain](../brain/)을 참조하세요.
+- Brain 검색용 모델은 **AppConfigure**와 **Console → Model Profiles**에서 나누어 지정합니다. 사이트 범위의 `brain.embedding_model`은 AppConfigure에서 설정해 전체 Pod의 벡터 검색에 사용하고, 재정렬(rerank) 모델은 Model Profiles의 `rerank` 슬롯(`Site -> Pod -> ankole_brain`)에서 설정합니다. embedding 모델을 비워 두면 벡터 검색이 비활성화되고, `rerank`를 비워 두면 융합(fusion) 검색 순위가 그대로 유지됩니다. 자세한 내용은 [Brain](../brain/)을 참조하세요.
 
 응답이 유독 느리게 느껴지는 Agent는 실제 업무 난도에 비해 지나치게 무거운 모델이 `primary`에 바인딩되어 있는 경우가 많습니다.
 
@@ -80,7 +80,7 @@ Helm 롤백을 실행하더라도 이미 적용된 데이터베이스 마이그�
 
 ## 올바른 영구 문서 조정
 
-Agent의 담당 역할과 업무 범위가 모호하면 `AGENTS.md`를 다듬고, 말투나 판단 방식이 어긋나면 `AGENTS.md`를 수정하세요. 생성하는 웹 페이지, 슬라이드, 문서, 차트에 일관된 시각 스타일을 입히고 싶다면 `DESIGN.md`를 편집하면 됩니다. 세 문서는 각기 다른 관심사를 담당하므로 디자인 가이드 파일에 행동 수칙을 섞어 적지 마세요.
+**Meta Ankole → Agents**에서 목적에 맞는 계약 문서를 수정하세요. Agent의 담당 역할과 업무 범위, 말투나 판단 기준을 다듬을 때는 `AGENTS.md`를 수정하고, 생성하는 웹 페이지, 슬라이드, 문서, 차트에 일관된 시각 스타일을 입히고 싶다면 `DESIGN.md`를 편집하면 됩니다. 두 문서는 서로 다른 관심사를 담당하므로 `DESIGN.md`에 행동 수칙을 섞거나 `AGENTS.md`에 시각 토큰을 넣지 마세요.
 
 ## DingTalk 에이전트당 로봇 하나
 

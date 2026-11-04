@@ -1,3 +1,4 @@
+import { composingKey } from '@ankole/uikit/lib/keyboard'
 import { RiCheckLine, RiSearchLine } from '@remixicon/react'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -90,7 +91,7 @@ export function CodeLanguageMenu() {
             setIndex(0)
           }}
           onKeyDown={event => {
-            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+            if (composingKey(event.nativeEvent)) return
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               event.preventDefault()
               if (!options.length) return

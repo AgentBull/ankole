@@ -1,16 +1,7 @@
+import { writeFileAtomicSync } from '../common/atomic-write'
+import { isRecord } from '@agentbull/active-support'
 import { Database } from 'bun:sqlite'
-import { randomUUID } from 'node:crypto'
-import {
-  chmodSync,
-  closeSync,
-  constants,
-  fstatSync,
-  openSync,
-  readSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync
-} from 'node:fs'
+import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Writable } from 'node:stream'
 import { AGENT_UID, chownAgentPathSync, mkdirAgentSync } from '../common/agent-user'
@@ -76,27 +67,14 @@ export function writeContextGenerationFile(dir: string, contextId: string): stri
   const trimmed = contextId.trim()
   if (!trimmed) throw new Error('contextId must be non-empty')
   const targetPath = join(dir, CONTEXT_FILE_NAME)
-  const tempPath = join(dir, `.${CONTEXT_FILE_NAME}.${randomUUID()}.tmp`)
   const payload = `${JSON.stringify({
     version: 1,
     contextId: trimmed,
     updatedAt: new Date().toISOString()
   })}\n`
 
-  try {
-    writeFileSync(tempPath, payload, { mode: 0o600 })
-    chmodSync(tempPath, 0o600)
-    chownAgentPathSync(tempPath)
-    renameSync(tempPath, targetPath)
-    return targetPath
-  } catch (error) {
-    try {
-      unlinkSync(tempPath)
-    } catch {
-      // Best-effort cleanup of temp file.
-    }
-    throw error
-  }
+  writeFileAtomicSync(targetPath, payload, 0o600)
+  return targetPath
 }
 
 /**
@@ -121,7 +99,7 @@ export function readContextGenerationFile(
     const buffer = Buffer.alloc(stat.size)
     const bytesRead = readSync(fd, buffer, 0, stat.size, 0)
     const parsed: unknown = JSON.parse(buffer.subarray(0, bytesRead).toString('utf8'))
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    if (!isRecord(parsed)) return undefined
     const record = parsed as Record<string, unknown>
     if (record.version !== 1 || typeof record.contextId !== 'string') return undefined
     const contextId = record.contextId.trim()

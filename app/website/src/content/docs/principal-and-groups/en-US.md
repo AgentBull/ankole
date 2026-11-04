@@ -30,13 +30,13 @@ See [Quick start](../quickstart/#2-set-up-the-identity-provider-first) for instr
 
 ## View principals
 
-Open **Console → Access → Principals** to inspect each Principal's display name, UID, type, membership tier, and status:
+Every Principal belongs to one tenant and is identified by `(tenant_id, uid)`, where `uid` is a meaningful lowercase identifier unique within that tenant (such as `alex.smith` or `research-analyst`). Open **Console → Access → Principals** to inspect each Principal's display name, UID, type, membership tier, and status:
 
 - **Human** Principals originate from Identity Provider sign-in or directory sync, passwordless Email OTP (`SiteCredential`), Pod invitations (`/join/:token`), or administrator pre-creation. Every human Principal has a tenant `membership` of either `member` or `guest`. Internal `member` humans automatically match the built-in computed `all_humans` group. External `guest` humans require explicit Pod page shares or Agent grants, cannot join built-in administrator groups (`siteadmin` or `pod_admin`), cannot access Private space, and do not receive the Brain `world` scope (`pod.allow_external_guests` governs guest admission and Pod access).
-- **Agent** Principals are created automatically whenever you create an Agent.
-- **System** Principals are created by Ankole for internal service operations.
+- **Agent** Principals belong to one of two subtypes: **Personal Assistants (`personal_assistant`)**, provisioned automatically 1:1 on first use for each active internal Human `member` (`<owner_uid>_assistant`) and projecting their owner's collaboration permissions across Drive and Pod, and **AI Colleagues (`ai_colleague`)**, created by operators for shared specialist roles running under the Agent's own Principal grants.
+- **System** Principals come from Ankole's closed internal service registry—`system` (stateless Pod Applet `ctx.ai` and internal runtime operations) and `ankole_brain` (Company Brain extraction, Dreaming, Skill lesson review, URL Source fetching, and reranking). System Principals cannot sign in, cannot be renamed, and do not host Workers.
 
-Select a Principal's name or **View details** to inspect both its group memberships and its direct grants. The Principal's UID and type are assigned by the identity or runtime subsystem and are read-only. When auditing access, always check both group memberships and direct grants, since a Principal often receives permissions exclusively through groups.
+Select a Principal's name or **View details** to inspect both its group memberships and its direct grants. A Principal's `type` is immutable, whereas administrators can execute an audited tenant-local UID rename for Human Principals (`POST /api/v2/principals/:uid/rename`) and disabled Agent Principals (`POST /api/v2/agents/:uid/rename`, once any running or paused Worker instance is removed), atomically updating grants, group memberships, Brain paths and mentions, and Base references. When auditing access, always check both group memberships and direct grants, since a Principal often receives permissions exclusively through groups.
 
 ## Select the correct permission group
 
@@ -72,7 +72,7 @@ To create one, choose **Computed** and enter a boolean CEL expression under **Me
 
 | Field | Meaning | Typical value |
 | --- | --- | --- |
-| `principal.uid` | Stable Principal UID | `01958f1a-...` |
+| `principal.uid` | Tenant-scoped Principal UID | `alex.smith` or `research-analyst` |
 | `principal.type` | Principal type | `human`, `agent`, or `system` |
 | `principal.membership` | Human tenant membership | `member` or `guest` for `human`; `null` for `agent` and `system` |
 | `principal.status` | Principal status | `active` or `disabled` |

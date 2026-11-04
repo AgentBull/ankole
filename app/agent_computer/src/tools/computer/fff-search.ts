@@ -1,3 +1,4 @@
+import { workspacePath } from './commands'
 import { ms } from '@agentbull/active-support'
 import type { FileFinder, GrepCursor, GrepOptions, GrepResult, Result, SearchResult } from '@ff-labs/fff-bun'
 import { realpathSync, statSync } from 'node:fs'
@@ -228,12 +229,7 @@ export function resolveSearchTarget(scope: SearchScope, rawPath: string | undefi
   }
 
   const trimmed = rawPath.trim()
-  const expanded =
-    trimmed === '~'
-      ? scope.agentHome
-      : trimmed.startsWith('~/')
-        ? resolve(scope.agentHome, trimmed.slice(2))
-        : resolve(scope.workspaceRoot, trimmed)
+  const expanded = workspacePath(scope.agentHome, scope.workspaceRoot, trimmed)
 
   const split = splitExistingRoot(expanded)
   if (!split) return { ok: false, message: `Path not found: ${trimmed}` }

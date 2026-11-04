@@ -96,6 +96,8 @@ for (const cancel of [false, true]) {
       await page.keyboard.press('ControlOrMeta+Shift+z')
       await expect(columns).toHaveCount(0)
       await expect(editor.locator(':scope > p')).toHaveText(expected)
+      // Redo restores the same XML as before undo; only saved status proves both writes are acknowledged.
+      await expect(page.locator('[data-sync-status]')).toHaveAttribute('data-sync-status', 'saved')
       await expect
         .poll(async () => {
           const saved = await request<{ content: { content: string } }>(page, `/pages/${id}`)
@@ -112,6 +114,7 @@ for (const cancel of [false, true]) {
       await page.reload()
       await expect(page.locator('.editor-content > p')).toHaveText(expected)
       await expect(page.locator('.editor-column')).toHaveCount(0)
+      await expect(page.locator('[data-sync-status]')).toHaveAttribute('data-sync-status', 'saved')
       const reloaded = await request<{ page: { revision: number }; content: { content: string } }>(page, `/pages/${id}`)
       expect(reloaded.content.content).toBe(saved.content.content)
       expect(reloaded.page.revision).toBe(saved.page.revision)

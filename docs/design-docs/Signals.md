@@ -217,11 +217,11 @@ publication guard inspects only the current process's transaction state,
 transactional code must never spawn a Task to publish pending Signals.
 
 This publication contract also applies to source dispatch, webhooks, schedules,
-script emissions, background Job status changes and Workflow replay. Their
-outer transaction owners publish every accepted Signal after commit; the
-durable wakeup remains available for recovery. A cancelled cron occurrence
-records its terminal history and advances the rule to its next slot in the
-same transaction.
+Applet and Action signal emissions, background Job status changes, and Workflow
+replay. Their outer transaction owners publish every accepted Signal after
+commit; the durable wakeup remains available for recovery. A cancelled cron
+occurrence records its terminal history and advances the rule to its next slot
+in the same transaction.
 
 ## Attribution and Runtime Scope
 
@@ -270,11 +270,15 @@ Plugin hooks inside the write transaction with `agent_uid`, `name`, `adapter`,
 preserves its admission, and both messaging adapters and CloudEvents share the
 same write boundary and row-lock order.
 
-Bindings store only a `config_ref` pointer rather than raw provider secrets,
-which adapters read through their own AppConfigure contracts. Configuration
-keys include the tenant and binding ID. Updating `config` through PATCH
-preserves omitted keys; PUT replaces the configuration and can repair a missing
-or broken stored value. Console edit
+Bindings store a `config_ref` pointer (plus an optional `auth_config_id`
+foreign key) rather than raw provider secrets on `signal_bindings`. Adapters
+read behavior configuration through their AppConfigure contracts under keys
+derived from the tenant and binding ID, while Connector-backed adapters
+(`Ankole.Connectors.LegacyConfig`) store shared encrypted application and bot
+credentials in `Ankole.Connectors` (`connector_auth_configs`, referenced via
+`authConfigId`) and merge public metadata and decrypted secrets at read time.
+Updating `config` through PATCH preserves omitted keys; PUT replaces the
+configuration and can repair a missing or broken stored value. Console edit
 reads strip encrypted secret values—listing only which secret paths are
 populated—and omitting or sending an empty secret field preserves the existing
 encrypted value.
@@ -372,9 +376,10 @@ enter the same dispatcher with their authenticated Page and execution Principal.
 
 Bindings support `action` with an `automation_job_id`, in addition to Agent
 routing. Built-in source references are `schedule://`, `scheduled-event://`,
-`webhook-endpoint://`, `base://`, `applet://` and `job://`. Ankole also accepts
-`connector://` and `connector-trigger://` references through the
-[Connectors](Connectors.md#external-events-and-subscription-reconciliation) domain. The source owner
+`webhook-endpoint://`, `base://`, `applet://` and `job://`. Managed external sources
+use `connector://<auth_config_id>/<stream>` and `connector-trigger://<trigger_id>`
+through the [Connectors](Connectors.md#external-events-and-subscription-reconciliation)
+domain. The source owner
 maintains its default `internal` Binding through its normal create/edit API;
 additional subscriptions use `/api/v2/pod/signal-bindings` or `bindings.*` Pod
 RPCs. Source access and target Page/Job access are checked independently.
@@ -421,7 +426,9 @@ The Console adapter editor lists provider Bindings; source-owned defaults remain
 in their owning Schedule or Webhook management flow.
 
 Dispatch sets `source` to `ankole:schedule:<id>`, `ankole:webhook:<id>`,
-`ankole:base:<table_id>`, `ankole:applet:<page_id>`, or `ankole:job:<job_id>`.
+`ankole:base:<table_id>`, `ankole:applet:<page_id>`, `ankole:job:<job_id>`,
+`connector://<auth_config_id>/<stream>`, or
+`connector-trigger://<trigger_id>`.
 Agent Session intake preserves that source. An enabled source cannot bind the
 same Agent and target twice. When a source targets two different Sessions of one
 Agent, its delivered event IDs include `:binding:<binding_id>` to preserve both
@@ -588,9 +595,10 @@ same transaction; see [Automation Jobs](AutomationJobs.md).
 
 A capability URL authorizes only stimulus delivery—its body and headers remain
 untrusted input, so an Agent must read authoritative state from the external
-system before taking consequential action. The owning Agent Plugin creates,
-reconciles, and deletes the remote webhook registration; Signals does not track
-external hook state.
+system before taking consequential action. `Ankole.Connectors` owns managed
+external webhook subscriptions (`connector_triggers`), whereas generic Signals
+webhook endpoints serve caller-managed callbacks without tracking external hook
+state.
 
 ## Observe a Provider Message
 
@@ -761,9 +769,13 @@ bot APIs for stable bot IDs. Rotating tokens therefore preserves tenant
 ownership; if an existing credential has expired and blocks cross-tenant
 verification, an operator must repair or delete that configuration first.
 
-Adapters store secrets in AppConfigure's global table under keys derived from
-the tenant and binding ID. Deleting a binding purges its owned configuration.
-At runtime, adapter worker
+Adapters store behavior configuration in AppConfigure's global table under keys
+derived from the tenant and binding ID, while `Ankole.Connectors.LegacyConfig`
+stores shared application and bot secrets in `Ankole.Connectors`
+(`connector_auth_configs`, referenced via `authConfigId` in the configuration
+row and `auth_config_id` on `signal_bindings`). Deleting a binding purges its
+unshared AppConfigure row while retaining shared `connector_auth_configs`
+connections in `Ankole.Connectors`. At runtime, adapter worker
 processes always enter the Binding's tenant context before reading or writing
 domain tables.
 

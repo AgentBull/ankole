@@ -15,7 +15,7 @@ Ankole 面向企业组织运行 Agent：驱动 Agent 开展工作的触发源既
 
 对话表只记录对参与者公开可见的发言，而执行日志则单独记录模型推理调用与工具执行结果。在同一场多方对话中，每个参与的 Agent 都拥有自己独立的执行会话与模型上下文状态，其产出的回复对全体对话参与者可见；执行会话严格限定在所属对话内部，绝不跨对话混用。
 
-每个 Agent 在对话中拥有独立的 Session，其可见输出由对话参与者共享。所有回合都以执行任务的 Agent 访问资源，包括交互回合、人类消息唤醒的 `may_intervene` 回合、定时任务和服务触发的回合。Agent 消息不会唤醒其他 Agent。人类是否在职及指令版本仍决定委托能否继续执行，但资源访问不再与人类的授权取交集。
+每个 Agent 在对话中拥有独立的 Session，其可见输出由对话参与者共享。所有回合都以执行任务的 Agent 身份访问资源，包括交互回合、人类消息唤醒的 `may_intervene` 回合、定时任务和服务触发的回合。共享群聊中的普通 Agent 消息不会唤醒其他 Agent；显式的跨 Agent 协作通过 `send_to_agent` 开启隔离的 `agent_peer` 委托会话，由 `personal_assistant` 在所属人类的冻结 `WorkAccess` 授权下交由 `ai_colleague` 执行，并将同事发起的 `Clarify` 追问或 `ActionCard` 审批卡零跳（zero-hop）直投至原对话，使人类的回复能够直接唤醒该同事。人类是否在职及指令版本仍决定委托能否继续执行，但资源访问不与人类的授权取交集。
 
 ### 所有刺激由 Signals 接纳
 
@@ -31,7 +31,7 @@ Ankole 面向企业组织运行 Agent：驱动 Agent 开展工作的触发源既
 
 AIGateway 统一面向内部 Agent 与外部客户端提供有状态的 Responses 调用及托管工具（Hosted Tools）：会话运行时只管决定每轮喂入什么输入、挂载哪些工具、从哪个检查点续接以及何时发起压缩；而底层模型历史状态的持久化存储与协议执行则全权交由 AIGateway 负责。
 
-这里所说的 AIGateway `conversation` 专指模型侧的推理会话状态，与人类和 Agent 共同参与的公开业务对话（`Ankole.Conversations`）完全分属两层。如果让会话运行时在外部自己再存一套 Agent 模型历史，系统中就会衍生出两套相互竞争的模型状态实现。
+这里所说的 AIGateway `conversation` 专指模型侧的推理会话状态，与人类和 Agent 共同参与的公开业务对话（`Ankole.Conversations`）完全分属两层。如果让会话运行时在外部自己再存一套 Agent 模型历史，系统中就会衍生出两套相互竞争的模型状态实现。当对话在上游提示词缓存冷却且累积了较大上下文后恢复，或外部 IM 会话跨多天静置后再次唤醒时（`sessions.wake_recycle`），`Ankole.Sessions` 会自动切换至新的 AIGateway 模型对话分支并注入上限 `8,000` Token 的 `<wake-briefing>`，同时完整保留 `Ankole.Conversations` 中的共享发言历史。
 
 ## 经过源码核对的比较
 

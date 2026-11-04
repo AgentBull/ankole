@@ -37,13 +37,14 @@ Control Plane Plugins 用于通过受信任的第一方 Elixir/OTP 代码扩展 
 
 ## 子系统契约与站点级扩展点
 
-`Ankole.Plugins.Contracts` 集中登记了全部 5 类子系统适配器契约，每类契约均可定义启动期静态校验（`validate`）、运行时快照刷新（`refresh`）以及停用前安全拦截（`veto_disable`）：
+Control Plane Plugins 支持声明 6 类子系统适配器契约（由 `Ankole.Plugins.Contracts` 与 `Ankole.Connectors.Registry` 管理），结合启动期静态校验（`validate`）、运行时快照刷新（`refresh`）与停用前安全拦截（`veto_disable`）：
 
 - **`signals.adapter`**：声明外部消息渠道或事件源适配器，由 `Ankole.Signals.Adapters` 校验，供信号路由规则（Signal Bindings）与 Conversations 消息投递调用。
 - **`signals.webhook_handler`**：为 `/webhooks/v1/:handler_id/:instance_id/:kind` 入口注册 HTTP Webhook 接收处理器，由 `Ankole.Signals.WebhookHandlers` 校验。
-- **`principals.identity_provider`**：声明企业身份源（IdP）单点登录与通讯录同步适配器，由 `Ankole.IdentityProviders` 校验。
+- **`principals.identity_provider`**：声明企业身份源（IdP）单点登录与通讯录同步适配器，由 `Ankole.IdentityProviders` 校验，并通过 `veto_disable` 在仍有租户依赖该身份源时拦截禁用操作。
 - **`ai_gateway.provider`**：声明上游模型提供商适配器，由 `Ankole.AIGateway.Providers` 校验，并通过 `refresh` 将已激活的 Provider 定义同步至 AI Gateway 注册表。
-- **`agent_workers.provider_kind`**：声明底层 Agent Worker 计算平台类型（`Ankole.AgentWorkers.ProviderKind`），同时实现 `refresh`（发布已发现与已激活的平台规格）和 `veto_disable`（调用 `Ankole.AgentWorkers.Providers.veto_disable_in_tx/2`：只要任一租户名下仍存在绑定了该平台类型的 Worker 记录，便直接拦截插件禁用请求）。
+- **`agent_workers.provider_kind`**：声明底层 Agent Worker 计算提供方类型（`Ankole.AgentWorkers.ProviderKind`），在启动期完成契约校验并通过 `refresh` 发布已发现与已激活的提供方规格。
+- **`connectors.connector`**：声明由 `Ankole.Connectors` 承载的统一平台连接器——提供共享应用凭据（`authConfigId`）、成员个人 OAuth 授权流、外部事件触发器以及控制面内部 MCP 工具包（`ToolSpec`）。目前由 `lark-adapter`、`github-adapter` 与 `linear-adapter` 实现（其中 `github-adapter` 与 `linear-adapter` 声明为 `activation: :always`）。
 
 在此之外，第一方站点级构建还可通过以下编译期扩展点深度定制产品面：
 
@@ -80,7 +81,7 @@ Control Plane Plugins 用于通过受信任的第一方 Elixir/OTP 代码扩展 
 
 ## 职责边界
 
-Control Plane Plugins 与控制面核心代码运行在同一个 BEAM 虚拟机节点与安全信任域内。面向大模型暴露的 Worker 电脑工具与操作技能（Skill）不属于控制面插件范畴，而是由 [Agent Library](../agent-library/) 独立管理；即使某个控制面适配器插件与某个 Agent Plugin 恰好同名，二者的启用状态也完全彼此独立。
+Control Plane Plugins 与控制面核心代码运行在同一个 BEAM 虚拟机节点与安全信任域内。除 `connectors.connector` 通过 `Ankole.Connectors` 控制面网关暴露的内部 MCP 工具包外，Worker 侧的操作技能（Skill）与工作区模板由 **Meta Ankole**（[Agent Library](../agent-library/)）独立管理；即使某个控制面适配器插件与某个 Agent Plugin 恰好同名，二者的启用状态也彼此独立。
 
 ## 下一步
 

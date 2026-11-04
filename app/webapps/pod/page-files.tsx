@@ -1,3 +1,7 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
+import { isTextFile, TEXT_PREVIEW_BYTES } from '../common/file-preview'
+import { readPrefix } from '../common/browser-files'
+import { formatFileBytes } from '../common/file-format'
 import { useTranslation } from 'react-i18next'
 import { Badge, Button, buttonVariants, cn, toast } from '@ankole/uikit'
 import { RiChatQuoteLine, RiFileCopyLine, RiCheckLine, RiUploadCloud2Line } from '@remixicon/react'
@@ -32,7 +36,6 @@ const SpreadsheetPage = lazy(() => import('./spreadsheet/spreadsheet-page'))
 const LegacySpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
 const PresentationPreview = lazy(() => import('./file-presentation'))
 const transport = createClientConfig({}).fetch!
-const TEXT_BYTES = 64 * 1024
 const MAX_CSV_PREVIEW_ROWS = 500
 const filesQuery = (id: string) => ({
   queryKey: [...contentKeys.page(id), 'files'],
@@ -140,7 +143,7 @@ export function FilePage({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {file && (
           <span className="min-w-0 grow basis-full truncate text-sm sm:basis-0" title={sanitizeFileName(name)}>
-            <BdiLabel value={name} /> · {Math.ceil(file.size / 1024)} KB
+            <BdiLabel value={name} /> · {formatFileBytes(file.size)}
           </span>
         )}
         {canEdit && (
@@ -216,14 +219,6 @@ export function FilePage({
         </p>
       )}
     </section>
-  )
-}
-
-function isTextFile(name: string, mime?: string) {
-  return Boolean(
-    mime?.startsWith('text/') ||
-    ['application/json', 'application/xml', 'application/javascript'].includes(mime ?? '') ||
-    /\.(txt|md|markdown|json|xml|ya?ml|[cm]?[jt]sx?|py|exs?|rs|go|rb|sh|css|html|sql|toml)$/i.test(name)
   )
 }
 
@@ -498,7 +493,7 @@ function DelimitedTablePreview({
     queryFn: async ({ signal }) => {
       const response = await transport(url, { credentials: 'same-origin', signal })
       if (!response.body) throw new Error(t('pod.chat_attachments.preview_unavailable'))
-      const result = await readPrefix(response, TEXT_BYTES, signal)
+      const result = await readPrefix(response, TEXT_PREVIEW_BYTES, signal)
       const decoder = new TextDecoder()
       return {
         text: decoder.decode(result.bytes, { stream: result.truncated }),
@@ -685,7 +680,7 @@ function TextFilePreview({
 }) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
-  const [copied, setCopied] = useState(false)
+  const [copied, markCopied] = useCopyFeedback(false)
   const [lineRange, setLineRange] = useState<{ anchorLine: number; startLine: number; endLine: number } | null>(null)
   const [sectionSelection, setSectionSelection] = useState<FileCommentSelection | null>(null)
   const [highlightedLines, setHighlightedLines] = useState<{ start: number; end: number } | null>(null)
@@ -697,7 +692,7 @@ function TextFilePreview({
       if (!response.body) {
         throw new Error(t('pod.chat_attachments.preview_unavailable'))
       }
-      const result = await readPrefix(response, TEXT_BYTES, signal)
+      const result = await readPrefix(response, TEXT_PREVIEW_BYTES, signal)
       const decoder = new TextDecoder()
       return {
         text: decoder.decode(result.bytes, { stream: result.truncated }),
@@ -869,8 +864,7 @@ function TextFilePreview({
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(query.data.text)
-                setCopied(true)
-                window.setTimeout(() => setCopied(false), 1500)
+                markCopied(true)
               } catch {
                 toast.error(t('pod.chat.copy_failed'))
               }
@@ -912,36 +906,4 @@ function TextFilePreview({
       </div>
     </div>
   )
-}
-
-async function readPrefix(response: Response, limit: number, signal: AbortSignal) {
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('The file response has no body')
-  const chunks: Uint8Array[] = []
-  let length = 0
-  let truncated = false
-  try {
-    while (true) {
-      signal.throwIfAborted()
-      const { done, value } = await reader.read()
-      if (done) break
-      const part = value.slice(0, limit - length)
-      chunks.push(part)
-      length += part.length
-      if (part.length < value.length) {
-        truncated = true
-        break
-      }
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined)
-    reader.releaseLock()
-  }
-  const bytes = new Uint8Array(length)
-  let offset = 0
-  for (const part of chunks) {
-    bytes.set(part, offset)
-    offset += part.length
-  }
-  return { bytes, truncated }
 }

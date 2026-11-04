@@ -91,10 +91,6 @@ impl APIProtocol for AWSBedrockConverseState {
         status: u16,
         body: Value,
     ) -> Result<Value, StreamError> {
-        if !(200..300).contains(&status) {
-            return Err(provider_body_error(status, body));
-        }
-        reject_provider_body_error(status, &body)?;
         aws_bedrock_converse_body_to_response(
             context,
             provider_object_body(status, body, "AWS Bedrock Converse")?,

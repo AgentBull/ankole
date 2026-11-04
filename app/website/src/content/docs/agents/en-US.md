@@ -5,19 +5,26 @@ section: User guide
 order: 13
 ---
 
-An Agent is a durable working identity inside the Ankole Agent Harness, complete with its own mission, owner, permissions, tools, model profiles, and file storage. Each Agent accesses Company Brain strictly within its authorized knowledge boundary and receives messages or external events through signal routing rules.
+An Agent is a durable working identity inside the Ankole Agent Harness, complete with its own mission, owner, permissions, tools, Model Profiles, and persistent file storage. Each Agent accesses Company Brain strictly within its authorized knowledge boundary and collaborates in **Pod** or across external channels through signal routing rules.
 
-## Create an Agent
+## Personal Assistants and AI Colleagues
 
-1. Open **Console → Agents** and select **New Agent**.
-2. Enter the display name and review the generated handle. You can change the handle later; Ankole assigns a permanent, globally unique opaque UID when saving the Agent.
-3. Enter the role, optional avatar URL, and Worker provider.
+Ankole models two Agent subtypes under `Ankole.Principals`:
+
+- **Personal Assistant (`personal_assistant`)** — provisioned automatically 1:1 on first use for each active internal Human `member` (with initial UID `<owner_uid>_assistant`). A Personal Assistant acts with its Human owner's collaboration permissions across Unified Drive, Pod Docs and Bases, and groups such as `all_humans` (excluding `site_console:**` and `tenant_console:**` admin scopes), enforces `strict` group memory disclosure, and keeps an immutable owner. Only the owner can view or edit their Personal Assistant's contracts and Skill bindings; suspending, offboarding, or demoting the owner to `guest` disables the assistant automatically.
+- **AI Colleague (`ai_colleague`)** — created by operators for shared specialist roles across a team. An AI Colleague operates strictly under its own Principal grants across Drive, Pod, Workflows, schedules, and Background Agent Jobs, posts interactive approval cards via `propose_action_card` when human sign-off is required, and delegates focused tasks to peer Agents in isolated `agent_peer` conversations via `send_to_agent`.
+
+## Create an AI Colleague
+
+1. Open **Console → Agents** (or Pod workspace settings) and select **New Agent**.
+2. Enter the display name and choose a meaningful lowercase tenant-scoped `uid` (`^[a-z0-9][a-z0-9._@+-]{0,95}$`, such as `research-analyst`), which identifies the Agent as `(tenant_id, uid)` within the tenant.
+3. Enter the role, optional avatar URL, and `WorkerProvider`.
 4. Select the human Principal who owns the Agent, then select the disclosure mode for group memory.
-5. Save the Agent to unlock its durable instructions, model profiles, and Agent-specific environment variables on the detail page.
+5. Save the Agent to configure its contracts, Model Profile overrides, and Agent-specific environment variables.
 
-The role provides a short summary of the Agent's work—such as “Research Analyst” or “Customer Support”—while the four durable documents below govern its responsibilities, behavior, visual design, and confidentiality rules.
+The role provides a short summary of the Agent's work—such as “Research Analyst” or “Customer Support”—while two composable contracts in **Meta Ankole → Agents** (`AGENTS.md` and `DESIGN.md`) govern its behavior, responsibilities, and visual design system.
 
-The Worker provider assigns the Agent to a [Worker pool](../worker-management/). If an API request omits the provider, Ankole uses the site default—or rejects creation when no site default exists—and once saved, the Worker provider binding cannot be changed. Even when multiple Agents share a pool, each Agent gets a separate Worker instance and its own persistent Home directory. Saving a new Agent does not start an instance right away; the control plane boots the Worker on demand when a turn requires computer work.
+The `WorkerProvider` assigns the Agent to a [WorkerProvider](../worker-providers/) target. If an API request omits the provider, Ankole uses the site default—or rejects creation when no site default exists—and once saved, the `WorkerProvider` binding cannot be changed. Even when multiple Agents share a provider, each Agent gets a separate Worker instance, `/drive` FUSE workspace mounts, and its own persistent `/workspace` Home directory. Saving a new Agent does not start an instance right away; the control plane boots the Worker on demand when a turn requires computer work.
 
 ## Set ownership and group disclosure
 
@@ -40,16 +47,15 @@ Saved edits take effect on the next turn, including a resumed Codex Job. The cur
 
 ## Configure models
 
-On the same page, configure at least the `primary`, `light`, and `heavy` model profiles, which handle everyday conversation, lightweight tasks, and complex reasoning, respectively. For your initial setup, all three profiles can point to the same verified model.
+Agents resolve Model Profiles through 3-tier sparse inheritance (`Agent -> Pod -> Site`) configured in **Console → Model Profiles**, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`. Whenever your Site or Pod already defines a `primary` profile, a new Agent is ready to run immediately without per-Agent overrides; configure overrides on the Agent only when its role needs a distinct provider, model tier, or custom language-model alias:
 
-Configure optional profiles only when the Agent needs them:
+- Override `primary`, `light`, or `heavy` when this Agent needs a larger or more specialized model than the Pod default.
+- Configure `vision_fallback` when `primary` lacks native image input and the Agent must read images.
+- Configure `web_search` and `web_fetch` when this Agent needs web access that differs from the Pod default.
+- Configure `image_generate` when the Agent must create images through a dedicated image provider.
+- Configure **Background Agent Jobs** (`coding`) when Jobs need a separate provider or model (unset `coding` falls back through `heavy -> primary`). To run Jobs through a ChatGPT subscription, select its [ChatGPT subscription provider](../chatgpt-subscription-provider/) here.
 
-- Configure `vision_fallback` when the Agent must read images.
-- Configure `web_search` and `web_fetch` when the Agent must search or read public web pages.
-- Configure `image_generate` when the Agent must create images.
-- Configure **Background Agent Jobs** when Jobs need a separate provider or model. To run Jobs through a ChatGPT subscription, select its [ChatGPT subscription provider](../chatgpt-subscription-provider/) here.
-
-Select the Provider first to unlock the model selector and the context-length field; leave the context length empty to use the Provider and model default.
+Select the Provider first to unlock the model selector and the context-length field; leave the context length empty to use the Provider and model default. Deleting an Agent slot override restores inheritance from the Pod and Site defaults.
 
 Under **Advanced settings**, the Console displays only options declared by the selected Provider. **Reasoning summary** applies only to the Responses API, **Answer detail** sets the default response verbosity, and **Service tier** overrides the request priority tier for this profile. Supported values depend on the Provider, account, and model—leave these fields blank to use the Provider defaults.
 
@@ -65,21 +71,21 @@ Once an Agent reaches its limit, Ankole replies to new chat messages with the co
 
 Select **Reset period** to start a fresh period immediately so the Agent can resume work ahead of schedule, or select **Remove limit** to lift the quota altogether. Both actions retain historical usage records for auditing. See [Cost management](../cost-management/) for additional spend controls.
 
-## Configure capabilities and environment variables
+## Configure capabilities, connections, and environment variables
 
-Each Agent inherits your tenant's default Agent Plugins and Skills. To customize them, open **Console → Agent Library** and update the tenant defaults or configure an override for this Agent; see [Agent Library](../skills/) for the full procedure.
+Each Agent inherits your tenant's default Agent Plugins and Skills. Open **Meta Ankole → Skills** in Pod (or **Console → Agent Library**) to update tenant defaults or configure per-Agent Skill overrides; see [Skills](../skills/) and [Agent Library](../agent-library/) for the full procedure.
 
-Whenever a Skill, CLI tool, or MCP service requires an API key, add it under **Environment variables** on the Agent page. Values set here are exposed exclusively to this Agent and override the tenant value (or the site value when the tenant has no override). See [Environment variables](../worker-env/).
+For external SaaS platforms, OAuth accounts, and MCP services (such as Lark/Feishu, GitHub, Linear, or Skill-declared remote MCP servers), configure shared application credentials and personal OAuth connections in **Pod → Connections** (`/connectors`) through `Ankole.Connectors`, which keeps secrets inside the control plane; see [Using MCP](../using-mcp/). Reserve **Environment variables** on the Agent page for custom CLI tools and scripts running inside the Agent Computer—values set there are exposed exclusively to this Agent and override the tenant or site value (see [Environment variables](../worker-env/)).
 
 ## Connect a chat channel
 
-In **Pod Chat**, workspace members can send direct messages (`dm`) to an active Agent or invite it into a group conversation (`group`) right away without a Signal Binding.
+In **Pod Chat**, workspace members can send direct messages (`dm`) to their Personal Assistant or an active AI Colleague, or invite AI Colleagues into a group conversation (`group`), without a Signal Binding. Agents can also message peer Agents directly in isolated `agent_peer` conversations via `send_to_agent`.
 
-Signal Bindings govern external IM channels and mailboxes. To connect Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a dedicated mailbox, open **Console → Signal routing** and bind the external chat application to the target Agent. A single chat application can feed multiple routing rules, or you can register dedicated bot applications for different Agents. See [Signal routing rules](../signal-bindings/).
+Signal Bindings govern external IM channels and mailboxes. To connect Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a dedicated mailbox, open **Console → Signal routing** and bind the external chat application to the target Agent (reusing shared `Ankole.Connectors` credentials where supported). A single chat application can feed multiple routing rules, or you can register dedicated bot applications for different Agents. See [Signal routing rules](../signal-bindings/).
 
-## Change or disable an Agent
+## Change, rename, or disable an Agent
 
-You can update an Agent's display name, role, durable instructions, models, and capabilities at any time, whereas its UID is permanent because other configurations reference it.
+You can update an Agent's display name, role, `AGENTS.md` and `DESIGN.md` contracts, Model Profile overrides, and capabilities at any time. To rename an AI Colleague's tenant-scoped `uid`, first disable the Agent and remove any running or paused Worker instance, then run the audited rename action (`POST /api/v2/agents/:uid/rename` or via workspace admin), which updates grants, group memberships, Brain paths and mentions, and Base references atomically within the tenant.
 
 Disabling an Agent stops it from accepting new work while keeping it in the Agent list in a disabled state. From there, you can re-enable it at any time or delete it permanently—permanent deletion requires disabling the Agent first and removes the Agent together with all of its sessions, jobs, and historical records. If you only want to pause messages from one external chat entry point, disable that channel's signal routing rule instead of disabling the entire Agent.
 
@@ -88,8 +94,8 @@ Disabling an Agent stops it from accepting new work while keeping it in the Agen
 Check these items in order:
 
 1. The Agent is enabled.
-2. The `primary`, `light`, and `heavy` profiles are configured, and the LLM Provider is available.
-3. A signal routing rule points to this Agent.
+2. An effective `primary` Model Profile resolves for the Agent (via Site/Pod defaults or Agent overrides), and its LLM Provider is healthy.
+3. For external channels, a signal routing rule points to this Agent.
 4. **Console → Workers** shows the Agent's Worker as ready, or starting without a failure reason.
 5. **Console → Conversations** recorded the message—inspect any error attached to the turn.
 

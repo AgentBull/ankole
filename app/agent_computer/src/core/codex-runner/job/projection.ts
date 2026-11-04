@@ -1,7 +1,7 @@
 import { imageBytes } from '../../../common/image-bytes'
 import { safeJsonStringify } from '@agentbull/active-support'
 import { errorMessage } from '../../../common/errors'
-import { truncateUTF8Safe, utf8ByteLength } from '../../../common/text-sanitize'
+import { truncateUTF8WithMarker } from '../../../common/text-sanitize'
 import { MAX_READ_CHARS } from '../../../tools/computer/format'
 import type { WorkerAgentTool } from '../..'
 import { zodToJSONSchema } from '../../tool-schema'
@@ -12,7 +12,6 @@ import type { JsonValue as JSONValue } from '../generated/protocol/serde_json/Js
 
 // Bound tool output before it crosses JSON-RPC into the shared app-server.
 const maxToolResultBytes = 16_384
-const truncationSuffix = '...[truncated]'
 
 export type CodexJobProjection = {
   dynamicTools: DynamicToolSpec[]
@@ -104,9 +103,7 @@ function toolResultImageURL(part: unknown): string | undefined {
 }
 
 function boundedText(text: string, maxBytes = maxToolResultBytes): string {
-  if (utf8ByteLength(text) <= maxBytes) return text
-  const prefix = truncateUTF8Safe(text, maxBytes - utf8ByteLength(truncationSuffix))
-  return `${prefix}${truncationSuffix}`
+  return truncateUTF8WithMarker(text, maxBytes)
 }
 
 function dynamicToolFailure(text: string): DynamicToolCallResponse {

@@ -62,3 +62,9 @@ export function truncateUTF8Safe(text: string, maxBytes: number): string {
 
   return best
 }
+
+export function truncateUTF8WithMarker(text: string, maxBytes: number): string {
+  if (utf8ByteLength(text) <= maxBytes) return text
+  const marker = '...[truncated]'
+  return `${truncateUTF8Safe(text, maxBytes - utf8ByteLength(marker))}${marker}`
+}

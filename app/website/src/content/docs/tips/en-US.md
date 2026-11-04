@@ -42,7 +42,7 @@ Each Agent's eight built-in profile slots—`primary`, `light`, `heavy`, `coding
 - Bind **`light`** to a genuinely fast, low-cost model, since Ankole uses it for high-volume background classification and routing work.
 - Configure **`vision_fallback`** only if the Agent receives images and its `primary` model lacks native vision; otherwise leave it empty.
 - Treat **`web_search`** and **`web_fetch`** independently—bind them only on Agents that need public web access.
-- Configure Brain retrieval in **AppConfigure**: the site-wide `brain.embedding_model` powers vector search across all Agents, while each tenant's `brain.rerank_model` controls cross-encoder reranking. Leaving the embedding model empty disables vector search, and leaving the rerank model empty keeps reciprocal-rank fusion order; see [Brain](../brain/).
+- Configure Brain retrieval across **AppConfigure** and **Console → Model Profiles**: the site-wide `brain.embedding_model` in AppConfigure powers shared vector search across all Pods, while the `rerank` slot in Model Profiles (`Site -> Pod -> ankole_brain`) controls cross-encoder reranking. Leaving the embedding model empty disables vector search, and leaving `rerank` unset keeps reciprocal-rank fusion order; see [Brain](../brain/).
 
 When an Agent feels sluggish in chat, its `primary` slot is often bound to a heavier model than the work that it actually performs requires.
 
@@ -80,7 +80,7 @@ Rolling back a Helm release or container tag never reverses Ecto database migrat
 
 ## Adjust the correct durable document
 
-Update `AGENTS.md` when an Agent's scope or responsibilities change, `AGENTS.md` when its tone or judgment misses the mark, and `DESIGN.md` when generated web pages, slides, documents, or charts need consistent visual styling. Because each file owns one concern, keep behavioral rules out of `DESIGN.md` and visual tokens out of `AGENTS.md`.
+Update `AGENTS.md` in **Meta Ankole → Agents** when an Agent's scope, responsibilities, judgment, or tone needs adjustment, and update `DESIGN.md` when generated web pages, slides, documents, or charts need consistent visual styling. Because the two contracts own separate concerns, keep behavioral rules out of `DESIGN.md` and visual tokens out of `AGENTS.md`.
 
 ## One robot per DingTalk agent
 

@@ -1,7 +1,9 @@
+import { errorMessage, nodeErrorCode } from '../../common/errors'
+import { workspacePath } from './commands'
 import { scopedPath, driveDeadline } from '../../drive/paths'
 import { readdir, stat } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { compactActivityPath } from '../activity-summary'
@@ -50,12 +52,7 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<LsDetails>> {
       const requested = params.path?.trim() || '.'
-      const expanded =
-        requested === '~'
-          ? context.agentHome
-          : requested.startsWith('~/')
-            ? resolve(context.agentHome, requested.slice(2))
-            : resolve(context.workspaceRoot, requested)
+      const expanded = workspacePath(context.agentHome, context.workspaceRoot, requested)
 
       const miss = (text: string): AgentToolResult<LsDetails> => ({
         content: [{ type: 'text', text }],
@@ -75,9 +72,9 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
         }
       } catch (error) {
         return miss(
-          (error as NodeJS.ErrnoException).code === 'ENOENT'
+          nodeErrorCode(error) === 'ENOENT'
             ? `Path not found: ${requested}`
-            : `Cannot access ${requested}: ${error instanceof Error ? error.message : String(error)}`
+            : `Cannot access ${requested}: ${errorMessage(error)}`
         )
       }
 
@@ -94,7 +91,7 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
           }
         }
       } catch (error) {
-        return miss(`Cannot read directory: ${error instanceof Error ? error.message : String(error)}`)
+        return miss(`Cannot read directory: ${errorMessage(error)}`)
       }
       entries.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
 

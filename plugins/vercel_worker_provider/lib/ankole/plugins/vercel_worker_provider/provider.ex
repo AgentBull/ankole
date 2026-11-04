@@ -519,11 +519,8 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
     }
 
   defp collect(items, fun) do
-    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
-      case fun.(item) do
-        {:ok, values} -> {:cont, {:ok, acc ++ values}}
-        error -> {:halt, error}
-      end
-    end)
+    with {:ok, groups} <- items |> Stream.map(fun) |> Ankole.Attrs.collect_results() do
+      {:ok, Enum.concat(groups)}
+    end
   end
 end

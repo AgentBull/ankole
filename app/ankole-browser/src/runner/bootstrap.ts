@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import { appendFile, mkdir, open, rename } from 'node:fs/promises'
+import { atomicJSON } from '../files'
+import { appendFile, mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { chromium, type Browser, type BrowserContext, type Dialog, type Page } from 'playwright-core'
@@ -191,18 +192,6 @@ function insideRunDir(root: string, value: string): string {
     throw new Error('artifact path must stay inside runDir')
   }
   return path
-}
-
-async function atomicJSON(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${crypto.randomUUID()}.tmp`
-  const file = await open(temporary, 'w', 0o600)
-  try {
-    await file.writeFile(`${JSON.stringify(value, null, 2)}\n`)
-  } finally {
-    await file.close()
-  }
-  await rename(temporary, path)
 }
 
 function serializeError(error: unknown, boundEndpoint: string): Record<string, unknown> {

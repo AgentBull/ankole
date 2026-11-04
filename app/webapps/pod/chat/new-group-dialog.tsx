@@ -1,11 +1,11 @@
+import { agentLabel } from './conversation-row'
+import { MemberOptions, type MemberCandidate } from './member-options'
 import {
   Button,
   Checkbox,
   Command,
   CommandEmpty,
-  CommandGroup,
   CommandInput,
-  CommandItem,
   CommandList,
   Dialog,
   DialogContent,
@@ -27,10 +27,9 @@ import { agentsQuery, podKeys, type ConversationDetail } from '../api'
 import { createConversation, podChatTeammates, updateConversation } from '../api/generated/sdk.gen'
 import { ContentError } from '../content-primitives'
 import { ChatAvatar } from './chat-avatar'
-import { agentLabel } from './conversation-row'
 import { teammatesKey } from './room-api'
 
-type Member = { uid: string; displayName: string; avatarURL?: string | null; agent: boolean }
+type Member = MemberCandidate
 
 /**
  * Starts a group from an assistant task or a colleague DM. The source conversation stays as it is: an assistant
@@ -198,46 +197,7 @@ export function NewGroupDialog({
                   <CommandEmpty>
                     {t(query !== search || people.isPending ? 'pod.content.loading' : 'pod.chat_room.no_matches')}
                   </CommandEmpty>
-                  {!!morePeople.length && (
-                    <CommandGroup heading={t('pod.chat_room.people')}>
-                      {morePeople.map(person => (
-                        <CommandItem
-                          key={person.uid}
-                          value={`human ${person.uid}`}
-                          onSelect={() =>
-                            add({
-                              uid: person.uid,
-                              displayName: person.displayName,
-                              avatarURL: person.avatarURL,
-                              agent: false
-                            })
-                          }>
-                          <ChatAvatar name={person.displayName} src={person.avatarURL} />
-                          <span>{person.displayName}</span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  )}
-                  {!!moreAgents.length && (
-                    <CommandGroup heading={t('pod.chat_room.agents')}>
-                      {moreAgents.map(agent => (
-                        <CommandItem
-                          key={agent.uid}
-                          value={`agent ${agent.uid}`}
-                          onSelect={() =>
-                            add({
-                              uid: agent.uid,
-                              displayName: agent.displayName,
-                              avatarURL: agent.avatarURL,
-                              agent: true
-                            })
-                          }>
-                          <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
-                          <span>{agentLabel(agent)}</span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  )}
+                  <MemberOptions people={morePeople} agents={moreAgents} onSelect={add} />
                 </CommandList>
               )}
             </Command>

@@ -2,7 +2,7 @@ import { writeFileAtomic } from '../common/atomic-write'
 import { mkdirAgent } from '../common/agent-user'
 import { ms } from '@agentbull/active-support'
 import { compareCodePointStrings } from '../common/ordering'
-import { errorMessage } from '../common/errors'
+import { nodeErrorCode, errorMessage } from '../common/errors'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { lstat, readFile, readdir, realpath, rm, stat } from 'node:fs/promises'
@@ -214,7 +214,7 @@ async function readRouteRecord(path: string): Promise<RouteRecord | undefined> {
     }
     return parsed as RouteRecord
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    if (nodeErrorCode(error) === 'ENOENT') return undefined
     throw error
   }
 }

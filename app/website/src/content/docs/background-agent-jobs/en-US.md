@@ -48,7 +48,7 @@ Completion wakeups carry a bounded result summary. When the persisted final resp
 
 ## Resume and wait-for-input
 
-`waiting_on_user` pauses a job cleanly without holding a running slot. When a job needs a human decision, it transitions to `waiting_on_user` while the latest-status projection records `interrupted` with error code `request_user_input` and the pending tool call, giving the owner Session an exact continuation point. Once the answer arrives, the job transitions back to `running` and resumes.
+`waiting_on_user` pauses a job cleanly without holding a running slot. When a job needs a human decision, it transitions to `waiting_on_user` while the latest-status projection records `interrupted` with error code `request_user_input` and the pending tool call, giving the owner Session an exact continuation point. Once the answer arrives, the job transitions back to `running` and resumes. When a `waiting_on_user` job resumes after sitting paused for at least `10` minutes and its latest model call reported at least `128,000` total tokens, `CodexJobSession` starts a fresh thread seeded from the bounded Workspace rebuild (`job.task`, durable Workspace files, bounded attempt history, and any source task/report) rather than replaying a cold large context window, rotating the runtime CLI `contextId` whenever a fresh thread starts or compaction settles.
 
 A new job can also continue from an earlier completed job rather than its own pause: `continued_from_job_id` and `workspace_owner_job_id` link the chain so multi-stage work carries forward both its Codex thread and its workspace.
 
@@ -69,19 +69,22 @@ When an attempt hits AIGateway quota exhaustion with a known future recovery tim
 
 Each job carries an optional workspace template, and on its first execution admission Ankole atomically snapshots both the resolved provider/model binding and the Agent's enabled Agent Plugins and Skills. Retries and resumes intersect that frozen snapshot with the Agent's current effective set: disabling a capability revokes it immediately and re-enabling restores it, whereas capabilities enabled only after admission cannot be added retroactively. Credentials and mutable Skill files still resolve from their live owners. `Sessions.CodexJob` admits each attempt from its kernel Signal and isolates steer events so ordinary conversation deliveries are never mistaken for job steers. Every model call flows through AIGateway under the captured binding, where AIGateway manages credential-pool selection, affinity, refresh, and retries.
 
-Background Agent Jobs use the same `skill_view` loader as the main Agent. The current enabled Skill catalog and every page read follow the conversation's Drive visibility. Before each Turn, the Worker materializes the visible current package, including scripts and MCP declarations. `skill_view` checks current enablement on each read.
+Background Agent Jobs use the same dynamic `skill_view` loader as the main Agent, backed by `Ankole.AIAgent.Library`. Before each run, the Worker computes the loadable Skill set by intersecting the Job's frozen Skill selection with the Agent's currently enabled Skills in `Ankole.AIAgent.Library` and the `ankole-runtime` filter, materializing each permitted package—including companion files, scripts, and MCP declarations—at `/workspace/.ankole/turn-skills/<signal-id>/<skill-name>/`. On each `skill_view` call, the control plane verifies current enablement, reads the Skill manifest or relative package file from `Ankole.AIAgent.Library`, and appends any active per-Agent Skill lesson.
 
-Before every Turn, including resume, the Worker refreshes the complete effective Agent contract in `$CODEX_HOME/AGENTS.md` and `~/AGENTS.md`, and the visual contract in `~/DESIGN.md`. Workspace templates and repositories own project instructions. Job context and the Skill index arrive as developer instructions. Codex uses a one-minute minimum and ten-minute default for native subagent waits.
+Before every Turn, including resume, the Worker refreshes the complete effective Agent contract (`Ankole.AIAgent.Library.Contracts`) in `$CODEX_HOME/AGENTS.md` and `~/AGENTS.md`, and the visual contract in `~/DESIGN.md`. Workspace templates and repositories own project instructions. Job context and the Skill index arrive as developer instructions. Codex uses a one-minute minimum and ten-minute default for native subagent waits.
 
 ## The operator surface
 
-Three Console API routes cover job inspection and control:
+Console API routes under `/api/v2` cover job inspection, turn history, health, and lifecycle control:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/background-agent-jobs` | List jobs |
-| `GET` | `/background-agent-jobs/:job_id` | Read one job |
-| `POST` | `/background-agent-jobs/:job_id/cancel` | Cancel a job |
+| `GET` | `/api/v2/background-agent-jobs` | List jobs |
+| `GET` | `/api/v2/background-agent-jobs/:id` | Read one job |
+| `GET` | `/api/v2/background-agent-jobs/health` | Read job subsystem health |
+| `GET` | `/api/v2/background-agent-jobs/:job_id/turns` | List turns for a job |
+| `POST` | `/api/v2/background-agent-jobs/:id/cancel` | Cancel a job |
+| `POST` | `/api/v2/background-agent-jobs/:id/complete` | Mark a job completed |
 
 Calling `cancel` transitions the Job to `stopped` and requests cancellation of its live Worker execution; PostgreSQL's Job status, attempt identity, and Turn revision fence any late Worker result from committing.
 

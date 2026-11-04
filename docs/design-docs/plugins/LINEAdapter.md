@@ -31,8 +31,11 @@ delivery route rather than owning the LINE chat.
 | Webhook handler ID | `line` |
 | Messaging API client | Project `Req` client against `api.line.me` and `api-data.line.me` |
 
-Each binding stores the LINE Developers channel ID alongside the encrypted
-channel secret and encrypted long-lived channel access token. A channel ID can
+Each binding configures the LINE Developers channel ID alongside the encrypted
+channel secret and encrypted long-lived channel access token—stored in
+`Ankole.Connectors` (`connector_auth_configs`, referenced via `authConfigId`
+through `Ankole.Connectors.LegacyConfig` while behavior settings remain in
+`AppConfigure`). A channel ID can
 belong to at most one enabled LINE binding so two Agents never double-answer the
 same Official Account.
 
@@ -123,22 +126,24 @@ mapping notice and records a mapping request without storing the message, while
 Inside the webhook transaction, `Conversations` commits admitted messages with
 pending attachment rows—ensuring unmapped senders never trigger downloads—and
 spawns a supervised background task to download the media from
-`api-data.line.me`, write it to the file service ([Files](../Files.md)), and
+`api-data.line.me`, materialize the bytes through
+`Ankole.Conversations.Attachments` into unified Drive ([Files](../Files.md))—storing
+an immutable `file_objects` row, freezing `object_id` on `message_attachments`,
+and linking the file into the conversation root (`/drive/ChatDrive`)—and
 finalize the entry without delaying the `200` webhook response:
 
 - If the download task cannot start, the webhook returns an error so LINE
   redelivers against the already committed pending observation.
-- On redelivery, the adapter reuses any attachment that the current Agent
-  already materialized and re-fetches anything still missing (including
-  in-flight downloads from earlier tasks whose liveness cannot be proved);
-  `Conversations` never overwrites an already materialized file path for that
-  Agent with a pathless update, and moving a route to a different Agent fetches
-  that Agent's own copy.
+- On redelivery, `Ankole.Conversations.Attachments` reuses any attachment whose
+  stored `object_id` is already satisfied on the shared Message and re-fetches
+  anything still missing (including in-flight downloads from earlier tasks whose
+  liveness cannot be proved), never overwriting an already materialized
+  attachment reference with an unmaterialized update.
 - For LINE-transcoded video and audio, the download task waits a bounded interval
-  for transcoding to finish. Files up to 25 MB are stored locally; larger files
-  keep their provider metadata plus `provider_download_limit`, and externally
-  hosted content retains only its external URL without creating a local file
-  path.
+  for transcoding to finish. Files up to 25 MB are stored in unified Drive;
+  larger files keep their provider metadata plus `provider_download_limit`, and
+  externally hosted content retains only its external URL without creating a
+  conversation Drive file.
 
 ## Send Replies and Actions
 
@@ -182,8 +187,10 @@ errors require operator action, malformed `4xx` payloads fail permanently, and
 HTTP `429` distinguishes per-second rate limits (retryable) from monthly quota
 exhaustion (flagged for operator plan upgrade or monthly reset).
 
-`AppConfigure` encrypts the channel secret and channel access token at rest and
-excludes them from logs, error records, and stored raw webhook payloads.
+`Ankole.Connectors` encrypts the channel secret and channel access token at rest
+in `connector_auth_configs` (referenced via `authConfigId` from the binding's
+`AppConfigure` configuration row) and excludes them from logs, error records,
+and stored raw webhook payloads.
 
 ## Tests
 

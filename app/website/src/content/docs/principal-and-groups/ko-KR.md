@@ -30,13 +30,13 @@ directory group의 기준 원본(source of truth)은 외부 identity 시스템�
 
 ## Principal 보기
 
-**Console → Access → Principals**를 열면 이름, UID, 유형, 멤버십, 상태 목록이 표시됩니다.
+모든 Principal은 하나의 테넌트에 속하며 `(tenant_id, uid)`로 식별됩니다. 여기서 `uid`는 해당 테넌트 안에서 고유하고 의미가 드러나는 소문자 식별자입니다(예: `alex.smith` 또는 `research-analyst`). **Console → Access → Principals**를 열면 이름, UID, 유형, 멤버십, 상태 목록이 표시됩니다.
 
 - **Human** principal은 Identity Provider 로그인 및 디렉터리 동기화, 패스워드리스 이메일 OTP(`SiteCredential`), Pod 초대 링크(`/join/:token`), 또는 관리자 사전 생성을 통해 만들어집니다. 각 human principal은 테넌트 안에서 `member` 또는 `guest` 중 하나의 `membership`을 가집니다. 내부 구성원인 `member`는 내장 computed group인 `all_humans`에 자동 포함됩니다. 반면 외부 협력자인 `guest`는 명시적인 Pod 페이지 공유나 Agent grant가 있어야만 접근할 수 있으며, 내장 관리자 그룹(`siteadmin`, `pod_admin`) 참여나 Private space 사용이 제한되고 Brain의 `world` 범위 지식도 제공받지 않습니다(외부 게스트 허용 여부와 Pod 접근 정책은 `pod.allow_external_guests`로 제어합니다).
-- **Agent** principal은 새 Agent를 생성할 때 함께 만들어집니다.
-- **System** principal은 내부 서비스 작업을 위해 Ankole이 자체 생성합니다.
+- **Agent** principal은 두 가지 하위 유형으로 나뉩니다. **개인 어시스턴트(`personal_assistant`)**는 활성 내부 Human `member`마다 첫 사용 시 1:1로 자동 프로비저닝되어(`<owner_uid>_assistant`) Drive 및 Pod 협업 리소스에서 소유자의 권한을 투영하고, **AI 동료(`ai_colleague`)**는 공유 전문 역할을 위해 운영자가 생성하며 Agent 자신의 Principal grant로 동작합니다.
+- **System** principal은 Ankole의 닫힌 내부 서비스 레지스트리에 등록된 `system`(무상태 Pod Applet `ctx.ai` 및 내부 런타임 작업)과 `ankole_brain`(Company Brain 사실 추출, Dreaming, Skill 교훈 재검토, URL Source 수집, 리랭크)입니다. System principal은 로그인하거나 이름을 바꿀 수 없으며 Worker도 실행하지 않습니다.
 
-Principal 이름이나 행 오른쪽의 **상세 보기**를 누르면 소속 group과 직접 부여된 grant를 모두 볼 수 있습니다. Principal UID와 유형은 해당 identity 또는 런타임 소유 도메인에서 결정하므로 읽기 전용입니다. 접근 권한을 점검할 때는 직접 grant뿐 아니라 소속 group도 반드시 함께 확인하세요. 직접 grant가 없더라도 group 멤버십을 통해 권한을 부여받았을 수 있습니다.
+Principal 이름이나 행 오른쪽의 **상세 보기**를 누르면 소속 group과 직접 부여된 grant를 모두 볼 수 있습니다. Principal의 `type`은 불변이지만, 관리자는 Human Principal(`POST /api/v2/principals/:uid/rename`)과 비활성화 후 실행 중·일시 중지된 Worker 인스턴스를 제거한 Agent Principal(`POST /api/v2/agents/:uid/rename`)에 대해 감사 기록이 남는 테넌트 내 UID 이름 변경을 수행할 수 있으며, 이때 권한 grant·그룹 멤버십·Brain 경로 및 멘션·Base 참조가 원자적으로 함께 갱신됩니다. 접근 권한을 점검할 때는 직접 grant뿐 아니라 소속 group도 반드시 함께 확인하세요. 직접 grant가 없더라도 group 멤버십을 통해 권한을 부여받았을 수 있습니다.
 
 ## 올바른 permission group 선택
 
@@ -74,7 +74,7 @@ computed group은 별도의 멤버 목록을 저장하지 않으며 수동으로
 
 | 필드 | 의미 | 예시 값 |
 | --- | --- | --- |
-| `principal.uid` | 고유 Principal UID | `01958f1a-...` |
+| `principal.uid` | 테넌트 범위 Principal UID | `alex.smith` 또는 `research-analyst` |
 | `principal.type` | Principal 유형 | `human`, `agent`, `system` |
 | `principal.membership` | 테넌트 내 human 멤버십 구분 | `human`은 `member` 또는 `guest`, `agent`와 `system`은 `null` |
 | `principal.status` | Principal 상태 | `active`, `disabled` |

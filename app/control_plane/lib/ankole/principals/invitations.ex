@@ -39,7 +39,7 @@ defmodule Ankole.Principals.Invitations do
          true <-
            is_nil(attrs.invited_email) or
              (is_binary(attrs.invited_email) and
-                Regex.match?(~r/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/, attrs.invited_email)),
+                Regex.match?(Ankole.Principals.HumanUser.email_format(), attrs.invited_email)),
          do: :ok,
          else: (_ -> {:error, :invalid_invitation})
   end

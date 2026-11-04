@@ -14,7 +14,6 @@ defmodule Ankole.Pod.Comments do
   alias Ankole.Sessions.{Key, Queue}
 
   @wakeup_signal_type "pod.page_comment.addressed"
-  @principal_xml_mention_regex ~r/<mention\s+principal="([^"]+)"\s*\/>/
   @principal_md_mention_regex ~r/@\[[^\]]*\]\(principal:([^)\s]+)\)/
   @max_anchor_bytes 1_024
   @max_quote_chars 1_000
@@ -786,10 +785,7 @@ defmodule Ankole.Pod.Comments do
 
   defp extract_body_agent_uids(body_text, agents, author_uid)
        when is_binary(body_text) and is_list(agents) do
-    xml_uids =
-      @principal_xml_mention_regex
-      |> Regex.scan(body_text, capture: :all_but_first)
-      |> List.flatten()
+    xml_uids = Ankole.Pod.Pages.Mentions.principal_uids(body_text)
 
     md_uids =
       @principal_md_mention_regex

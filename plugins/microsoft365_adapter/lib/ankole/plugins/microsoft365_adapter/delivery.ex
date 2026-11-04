@@ -330,15 +330,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
     |> MapHelpers.compact_map()
   end
 
-  defp split_text(text) do
-    case text
-         |> String.graphemes()
-         |> Enum.chunk_every(@max_text_chars)
-         |> Enum.map(&Enum.join/1) do
-      [] -> [""]
-      chunks -> chunks
-    end
-  end
+  defp split_text(text), do: Ankole.Text.chunk_graphemes(text, @max_text_chars)
 
   defp truncate(text, size), do: String.slice(text, 0, size)
 

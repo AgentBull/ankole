@@ -742,21 +742,9 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
   end
 
   defp merge_response_usage(loop, field, %{} = usage),
-    do: Map.update!(loop, field, &merge_usage(&1, usage))
+    do: Map.update!(loop, field, &Ankole.AIGateway.Usage.merge(&1, usage))
 
   defp merge_response_usage(loop, _field, _missing), do: loop
-
-  defp merge_usage(nil, usage), do: usage
-
-  defp merge_usage(%{} = accumulated, %{} = usage) do
-    Map.merge(accumulated, usage, fn _key, left, right ->
-      cond do
-        is_number(left) and is_number(right) -> left + right
-        is_map(left) and is_map(right) -> merge_usage(left, right)
-        true -> right
-      end
-    end)
-  end
 
   defp list_of_maps(value) when is_list(value), do: Enum.filter(value, &is_map/1)
   defp list_of_maps(_value), do: []

@@ -1,3 +1,5 @@
+import { cronEditorLabels } from '../common/cron-editor-labels'
+import { dateTimeLocalValue, formatDateTime } from '../common/date-time'
 import {
   Button,
   CronEditor,
@@ -407,7 +409,7 @@ function RunSummary({ run, source }: { run: ActionRun; source?: string }) {
   return (
     <>
       #{run.id} · {t(`pod.automation.status_${run.status}`)}
-      {time && <span className="text-muted-foreground"> · {new Date(time).toLocaleString()}</span>}
+      {time && <span className="text-muted-foreground"> · {formatDateTime(time, undefined, 'medium')}</span>}
       {source && (
         <span className="block break-words text-muted-foreground">
           {t('pod.automation.run_source')}: {source}
@@ -424,7 +426,7 @@ function RunContent({ run }: { run: ActionRun }) {
     <div className="mt-2 grid min-w-0 gap-2">
       {run.finished_at && (
         <p className="text-muted-foreground">
-          {t('pod.automation.run_finished')}: {new Date(run.finished_at).toLocaleString()}
+          {t('pod.automation.run_finished')}: {formatDateTime(run.finished_at, undefined, 'medium')}
         </p>
       )}
       <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words">
@@ -496,7 +498,8 @@ function Schedules({ items, sources, active, busy, change, onRun }: Controls & {
               {item.name} · {t(`pod.automation.status_${item.status}`)}
             </p>
             <p className="text-muted-foreground">
-              {t('pod.automation.next_run')}: {item.next_fire_at ? new Date(item.next_fire_at).toLocaleString() : '—'}
+              {t('pod.automation.next_run')}:{' '}
+              {item.next_fire_at ? formatDateTime(item.next_fire_at, undefined, 'medium') : '—'}
             </p>
             <Button size="sm" variant="link" onClick={() => setHistory(history === item.id ? undefined : item.id)}>
               {t('pod.automation.trigger_history')}
@@ -612,37 +615,7 @@ function ScheduleForm({
           value={String(Number(schedule?.schedule.every_ms ?? 3600000) / 60000)}
         />
       ) : (
-        <CronEditor
-          value={expression}
-          onChange={setExpression}
-          disabled={busy}
-          labels={{
-            mode: t('common.cron_mode'),
-            modes: {
-              every_minutes: t('common.cron_mode_every_minutes'),
-              hourly: t('common.cron_mode_hourly'),
-              daily: t('common.cron_mode_daily'),
-              weekly: t('common.cron_mode_weekly'),
-              monthly: t('common.cron_mode_monthly'),
-              custom: t('common.cron_mode_custom')
-            },
-            interval: t('common.cron_interval'),
-            minute: t('common.cron_minute'),
-            time: t('common.cron_time'),
-            weekday: t('common.cron_weekday'),
-            weekdays: [
-              t('common.cron_weekday_sun'),
-              t('common.cron_weekday_mon'),
-              t('common.cron_weekday_tue'),
-              t('common.cron_weekday_wed'),
-              t('common.cron_weekday_thu'),
-              t('common.cron_weekday_fri'),
-              t('common.cron_weekday_sat')
-            ],
-            dayOfMonth: t('common.cron_day_of_month'),
-            expression: t('common.cron_expression')
-          }}
-        />
+        <CronEditor value={expression} onChange={setExpression} disabled={busy} labels={cronEditorLabels(t)} />
       )}
       <Field
         name="timezone"
@@ -666,7 +639,7 @@ function ScheduleHistory({ id, sources, onRun }: { id: string; sources: Sources;
       <ContentError error={history.error} />
       {history.data?.events.map(event => (
         <p key={event.id}>
-          {event.cron_fire_slot_at ? new Date(event.cron_fire_slot_at).toLocaleString() : `#${event.id}`} ·{' '}
+          {event.cron_fire_slot_at ? formatDateTime(event.cron_fire_slot_at, undefined, 'medium') : `#${event.id}`} ·{' '}
           {t(`pod.automation.status_${event.status}`)}
           {Object.keys(event.last_fire_error).length > 0 && <span> · {json(event.last_fire_error)}</span>}
         </p>
@@ -685,7 +658,7 @@ function Deliveries({ items, onRun }: { items: JobDelivery[]; onRun(id: number):
       </summary>
       {items.map((item, index) => (
         <p key={index} className="mt-2 break-all">
-          {new Date(item.received_at).toLocaleString()} ·{' '}
+          {formatDateTime(item.received_at, undefined, 'medium')} ·{' '}
           {item.automation_job_run_id ? (
             <Button size="sm" variant="link" onClick={() => onRun(item.automation_job_run_id!)}>
               #{item.automation_job_run_id}
@@ -753,7 +726,7 @@ function Webhooks({
               {item.label} · {t(`pod.automation.status_${item.status}`)}
             </p>
             <p className="text-muted-foreground">
-              {t('pod.automation.expires')}: {new Date(item.expires_at).toLocaleString()}
+              {t('pod.automation.expires')}: {formatDateTime(item.expires_at, undefined, 'medium')}
             </p>
             <Deliveries items={deliveries} onRun={onRun} />
           </div>
@@ -821,7 +794,7 @@ function WebhookForm({
   const [mode, setMode] = useState<'standing' | 'one_shot'>(endpoint?.mode ?? 'standing')
   const [format, setFormat] = useState<'raw' | 'cloudevents'>(endpoint?.event_format ?? 'raw')
   const expires = new Date(endpoint?.expires_at ?? Date.now() + 30 * 86400000)
-  const local = new Date(expires.getTime() - expires.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  const local = dateTimeLocalValue(expires.toISOString()).slice(0, 16)
   return (
     <Form
       busy={busy}

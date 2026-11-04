@@ -1,3 +1,4 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Button, toast } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiFileTextLine } from '@remixicon/react'
 import { Link } from '@tanstack/react-router'
@@ -8,9 +9,7 @@ import {
   lazy,
   Suspense,
   useContext,
-  useEffect,
   useRef,
-  useState,
   type HTMLAttributes,
   type ReactNode
 } from 'react'
@@ -82,9 +81,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
 function Table({ children }: { children?: ReactNode }) {
   const { t } = useTranslation()
   const table = useRef<HTMLTableElement>(null)
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
+  const [copied, markCopied] = useCopyFeedback(false)
   return (
     <div className="my-3">
       <div className="flex justify-end">
@@ -101,9 +98,7 @@ function Table({ children }: { children?: ReactNode }) {
               .join('\n')
             try {
               await navigator.clipboard.writeText(text)
-              setCopied(true)
-              clearTimeout(timer.current)
-              timer.current = setTimeout(() => setCopied(false), 1500)
+              markCopied(true)
               toast.success(t('pod.chat_timeline.copied'))
             } catch {
               toast.error(t('pod.chat.copy_failed'))

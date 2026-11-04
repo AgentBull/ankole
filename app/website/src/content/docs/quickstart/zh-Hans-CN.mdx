@@ -224,8 +224,8 @@ export const deploymentTabs = [
     badge: '企业级推荐',
     summary: '适合已具备 Kubernetes 集群，并能配置节点调度和 HTTPS Ingress 的企业团队；控制面通过 Kubernetes API 为每个 Agent 创建独立的 Worker Pod。',
     prerequisites: [
-      'Kubernetes 1.27 或更高版本，Helm 3 或更高版本',
-      'Linux amd64 或 arm64 节点',
+      'Kubernetes 1.30 或更高版本（需支持 ValidatingAdmissionPolicy），Helm 3 或更高版本',
+      '具备内核 FUSE 支持、并通过 FUSE 设备插件（smarter-devices/fuse，见 tools/deploy/kubernetes/fuse-device-plugin.yaml）暴露 /dev/fuse 的 Linux amd64 或 arm64 节点',
       "HTTPS Ingress，以及支持共享 ReadWriteMany（Agent Home PVC）与 ReadWriteOnce（缓存 PVC）的持久化存储"
     ],
     basic: {
@@ -398,7 +398,7 @@ export const deploymentTabs = [
         {
           title: '确认 Worker 与 Function Runtime 的安全配置',
           body: [
-            'Worker Pod 不需要任何额外的内核特权——容器本身就是每个 Agent 的隔离边界。Chart 会为控制面分配一个命名空间级 Role（允许创建和删除 Pod、Secret 与 PVC），为 Worker Pod 绑定独立的无权限 ServiceAccount，并确保 ankole-function-runtime 在不挂载数据库凭据与 ServiceAccount 令牌的条件下运行。'
+            '每个 Worker Pod 通过 /dev/fuse（smarter-devices/fuse）挂载 /drive：其受信任的 root 监管进程使用 SYS_ADMIN 挂载 FUSE 并建立隔离的执行挂载命名空间，随后将所有 Agent、浏览器与 Codex 子进程降权至无特权的 uid 1000（清空 Linux Capability 并启用 allowPrivilegeEscalation: false）。在 Kubernetes 1.30+ 集群上，Chart 自带的 ValidatingAdmissionPolicy 将上述能力严格限制在专用 Worker ServiceAccount 上，禁止特权容器、宿主机命名空间与 hostPath 挂载，并确保 ankole-function-runtime 在不挂载数据库凭据与 ServiceAccount 令牌的条件下运行。'
           ],
           fields: [
             {
@@ -411,6 +411,7 @@ export const deploymentTabs = [
               description: '可选。启用后，Worker Pod 拒绝一切入站连接，出站仅可访问控制面、DNS 和公网地址，同时 ankole-function-runtime 会按 functionRuntime.deniedCIDRs 阻断受限网段。'
             }
           ],
+          links: [{ label: 'WorkerProviders', href: '../worker-providers/' }],
           caution:
             'Worker 容器属于受信任的第一方组件；控制面持有可创建 Pod 和 Secret 的命名空间级 Role，请将其当作等同于 root 权限的核心组件加以保护。'
         },
@@ -1340,16 +1341,16 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: '可选 Agent 档案和 Brain 维护配置',
-  summary: '扩展能力档案可按需选配；Brain 检索则使用站点级向量嵌入（Embedding）模型与租户级重排（Rerank）模型。',
+  title: '可选能力档案与企业大脑（Brain）模型配置',
+  summary: '扩展能力槽位可按需选配；企业大脑运行在内置 ankole_brain 系统主体下，通过稀疏模型档案与站点级向量嵌入模型协同工作。',
   steps: [
     {
-      title: '按需配置 Agent 能力档案',
+      title: '按需配置可选能力档案',
       fields: [
         {
           name: '后台 Agent 任务',
           description:
-            '选择持久后台 Agent 任务所使用的提供商和模型（内部存储键为 coding 档案）。'
+            '选择持久后台 Agent 任务所使用的提供商和模型（内部存储键为 coding 档案；留空时沿 heavy -> primary 自动回退）。'
         },
         {
           name: 'vision_fallback',
@@ -1366,21 +1367,17 @@ export const modelAdvanced = {
       ]
     },
     {
-      title: '选择 Brain 维护 Agent 和检索模型',
-      body: ['打开 Console → 系统配置 → Brain，先选择目标租户，再指定负责维护该租户 Brain 的活跃 Agent。Brain 的全部后台模型调用均以该 Agent 身份发起并计入其用量；一旦该 Agent 停用，知识抽取与 URL 来源抓取都会暂停，直到重新启用或改派其他活跃 Agent。选定后，可通过页面链接跳转检查该 Agent 的模型档案配置。'],
+      title: '配置企业大脑（ankole_brain）与向量检索模型',
+      body: ['企业大脑（Company Brain）以内置 ankole_brain 系统主体运行，不占用任何前台 Agent 的 Token 配额。它在 Console → Model Profiles 中按三层稀疏继承链（Site -> Pod -> ankole_brain）解析模型档案——使用 light（回退 primary）抽取日常事实、heavy（回退 primary）执行离线 Dreaming 归纳与技能教训复审、web_fetch 抓取 URL 来源、rerank 对召回候选重新排序——并配合 AppConfigure 中的站点级向量嵌入模型工作。'],
       fields: [
         {
-          name: 'brain.maintainer_agent_uid',
+          name: 'ankole_brain（Model Profiles）',
           description:
-            '调用所选 Agent 的 light 档案抽取日常知识、heavy 档案执行离线整合（Dreaming）、web_fetch 档案抓取 URL 来源。若未配置 web_fetch 或提供商请求失败，URL 来源抓取也会随之失败。'
+            '在 Console → Model Profiles 中为 ankole_brain 配置或覆盖 light、heavy、web_fetch 与 rerank 槽位（未覆盖的槽位自动继承 Pod 与站点默认值）。'
         },
         {
           name: 'brain.embedding_model',
-          description: '站点级设置，用于开启语义向量检索。请选择提供商与模型，并准确填写向量维度。'
-        },
-        {
-          name: 'brain.rerank_model',
-          description: '租户级设置，使用交叉编码器对多路融合后的检索结果重新排序；留空则直接保留融合顺序。'
+          description: 'AppConfigure 中的站点级设置，用于开启语义向量检索。请选择提供商与模型，并准确填写向量维度。'
         }
       ],
       links: [
@@ -2480,11 +2477,11 @@ export const signalAdvanced = {
 
 一套 Ankole 私有化部署实例由一个逻辑控制面，以及每位 Agent 各自独占的一个 Agent Computer Worker 组成。控制面持有持久领域状态与监督权，负责全局管理与调度；Worker 则负责承载 Agent 的实际运行，相当于每位 Agent 专属的工作电脑。
 
-不同 Agent 之间绝不共用 Worker，正如团队中每位同事都有各自独立的工作电脑。创建 Agent 时，控制面会同步为其创建专属 Worker，并在后续运行中自动负责该 Worker 的停止、升级替换与销毁回收。
+不同 Agent 之间绝不共用 Worker，正如团队中每位同事都有各自独立的工作电脑。创建 Agent 时，控制面会通过绑定的 [WorkerProvider](../worker-providers/) 自动为其开通专属 Worker，并在后续运行中负责该 Worker 的停止、升级替换与销毁回收。
 
 <DocsKnowledgeNote
   label="💡 你知道吗？"
-  text="Worker 所在的容器或 Pod 就是它唯一的隔离边界：Agent 的命令行执行与无头浏览器均直接在其中运行，不设内层沙盒，容器本身也无需任何额外内核特权。Agent 可以在自己的 Worker 上自由安装软件甚至把环境弄坏，但绝无法冒充其他 Agent；一旦某个 Worker 未能按时就绪，控制面会自动将其重建。"
+  text="每个 Worker 容器或 Pod 严格隔离单个 Agent：其受信任的 root 监管进程通过 /dev/fuse 与 SYS_ADMIN（在 Kubernetes 1.30+ 集群上由 ValidatingAdmissionPolicy 严格锁定在专用 Worker ServiceAccount 上）挂载 /drive FUSE 并隔离挂载命名空间，同时将所有 Agent、浏览器与 Codex 子进程降权至无特权的 uid 1000。Agent 可以在自己的持久 /workspace 中自由安装软件，但绝无法冒充其他 Agent；一旦某个 Worker 未能按时就绪，控制面会自动将其重建。"
 />
 
 每套部署实例均需要 PostgreSQL 数据库、控制面云盘文件存储，以及每位 Agent 的持久 Home 存储。官方 Kubernetes Helm Chart 默认采用共享的 ReadWriteMany Home PVC 搭配独立的 ReadWriteOnce 缓存 PVC——其中持久 Home 必须纳入定期备份，缓存卷则无需备份。
@@ -2576,21 +2573,19 @@ Ankole 专为企业私有化部署设计。一套站点可承载多个租户；�
 
 ## 3. 添加模型提供商，并创建 Agent
 
-Agent 的模型档案只保存模型引用，因此必须先添加模型提供商。登录 Console 后打开 **模型提供商 → 新增提供商**，选择提供商类型，填写固定的 Provider ID、接口地址与访问凭证并保存。
+模型档案通过引用已登记的模型提供商解析路由，因此请先登录 Console 打开 **模型提供商 → 新增提供商**，选择提供商类型，填写稳定的 Provider ID、接口地址与访问凭证并保存。控制面会对所有提供商凭证加密存储，切勿将模型 API 密钥写入部署环境变量或 Agent 工作区文件中。
 
-控制面会对所有提供商凭证进行加密存储，切勿将模型 API 密钥写入部署环境变量或 Agent 工作区文件中。
-
-随后打开 **Agents → New Agent**，填写唯一标识（handle）和显示名称，选择运行所需的 WorkerProvider，并在职责说明（mission）中写清工作范围与交付要求；Agent 的全局 UID 由 Ankole 自动生成。
-
-接着为该 Agent 配置三个核心模型档案（Model Profile）：
+接着打开 **Console → Model Profiles**，配置站点或 Pod 层的默认语言模型槽位（按 `Site -> Pod -> Agent/System` 三层稀疏继承，并支持 `coding -> heavy -> primary` 与 `light -> primary` 自动回退）：
 
 | Profile | 建议用途 |
 |---|---|
-| `primary` | 日常绝大多数对话与工具调用使用的主模型 |
-| `light` | 简单、高频的轻量推理与维护任务 |
-| `heavy` | 高复杂度深度推理任务 |
+| `primary` | 日常对话与工具调用使用的主模型（必填；`light` 与 `coding -> heavy` 未配置时均回退至此） |
+| `light` | 高频、低成本轻量回合与 `ankole_brain` 日常事实抽取 |
+| `heavy` | 高复杂度深度综合、离线 Dreaming 归纳与技能教训复审 |
 
-以上三个核心档案缺一不可。首次跑通链路时，可以先让三者共用同一个已验证可用的提供商和模型；待确认 IM 收发对话顺畅后，再按实际负载拆分为不同档位的模型。
+首次跑通链路时，只需在站点或 Pod 默认层为 `primary` 绑定一个已验证可用的提供商和模型，所有 Agent 与 `ankole_brain` 即可直接运行；待确认端到端对话顺畅后，再将 `light` 与 `heavy` 拆分为不同档位的模型。
+
+在 **Pod** 工作区中，系统已为每位内部成员自动配备 1:1 专属**个人助理**（可在 **Pod Chat** 中直接对话）。如需创建供团队共享或对接外部 IM 渠道的专业岗位 **AI 同事**，请打开 **Agents → New Agent**，设定语义清晰的租户内小写 `uid`（例如 `research-analyst`）、显示名称、角色定位、负责人与 `WorkerProvider` 并保存。新建 Agent 默认继承站点与 Pod 的模型档案（无需逐项重复填表，仅需按需覆盖特定槽位），其行为准则与视觉设计规范则在 **Meta Ankole → Agents** 的 `AGENTS.md` 与 `DESIGN.md` 中统一维护。
 
 <QuickstartDisclosure
   client:visible
@@ -2602,9 +2597,7 @@ Agent 的模型档案只保存模型引用，因此必须先添加模型提供�
 
 ## 4. 连接聊天渠道并创建信号路由规则
 
-请先在 Console 中确认目标聊天平台对应的控制面插件（Control Plane Plugin）已启用，再前往该平台后台创建机器人或应用。即便企业的身份源（IdP）与聊天渠道同属一个平台，生产环境仍建议分别创建独立应用，将登录及通讯录权限与机器人消息权限隔离，后续轮换密钥或发布应用版本时也互不干扰。
-
-一套聊天应用通常对应一个独立的机器人身份；若多位 Agent 需要展示各自不同的机器人名称、头像或权限范围，请在同一聊天平台分别创建多套应用。应用准备就绪后，回到 Console 创建信号路由规则，将该聊天渠道绑定到目标 Agent。
+团队成员在内置 **Pod Chat** 中可直接与个人助理和 AI 同事对话，无需配置路由规则。如需接入外部 IM 渠道，请先在 Console 中确认目标平台的控制面插件（Control Plane Plugin）已启用。对于接入了 `Ankole.Connectors` 的平台（如**飞书 / Lark**），在 **Pod → Connections**（`/connectors`）或 Console 中登记一套共享应用连接（`authConfigId`）后，即可将同一个飞书自建应用直接复用于 SSO 登录、通讯录同步、IM 信号路由、MCP 工具包与事件触发器，无需重复创建应用或二次粘贴密钥。当多位 AI 同事需要展示各自独立的机器人名称、头像或权限范围时，也可分别登记独立的机器人连接并绑定各自的信号路由规则。
 
 在账号映射机制上，Slack、Teams、飞书 / Lark、钉钉与企业微信属于企业办公平台，发信人直接对应 IdP 同步的企业通讯录成员；Telegram、Discord、LINE 与 WhatsApp 则属于个人消费级 IM，发信人没有企业员工档案，默认需由管理员先在**身份 → 待绑定账号**中将每位新发信人关联至已有账号后，Agent 才会为其提供服务（WhatsApp 若检测到发信手机号已归属某个已知主体，则会自动完成映射）；电子邮件渠道接入的是单个专用邮箱，仅识别命中显式邮箱身份绑定的发件人。
 
@@ -2650,7 +2643,7 @@ Agent 的模型档案只保存模型引用，因此必须先添加模型提供�
 
 > @Ankole 你能做什么？你现在服务哪个团队？
 
-收到由真实大模型生成的回复后，即可继续按业务需求打磨 Agent 的职责说明（mission）、模型档位与群聊介入策略。
+收到由真实大模型生成的回复后，即可继续在 **Meta Ankole → Agents** 中打磨 `AGENTS.md` 与 `DESIGN.md` 规范，并按业务需求细化模型档位与群聊介入策略。
 
 <span id="agent-not-replying" aria-hidden="true" />
 
@@ -2662,7 +2655,7 @@ Agent 的模型档案只保存模型引用，因此必须先添加模型提供�
 2. 机器人已被邀请加入测试所在的频道、团队或群聊会话。
 3. 平台要求的消息接收事件与接口权限均已审批生效。
 4. 信号路由规则处于启用状态，且指向正确的目标 Agent。
-5. 目标 Agent 已配齐 `primary`、`light` 与 `heavy` 三个核心模型档案。
+5. 目标 Agent 能解析出有效的 `primary` 模型档案（来自 **Console → Model Profiles** 的站点/Pod 默认值或 Agent 覆盖配置）。
 6. 模型提供商的 API 凭证与模型名称真实有效。
 7. 在 **Console → 工作节点** 中，该 Agent 对应的 Worker 状态显示为“就绪”；若未就绪，页面会直接展示底层平台返回的具体原因。
 

@@ -1,60 +1,56 @@
 ---
 title: はじめに
-description: Ankole Agent Harness と Company Brain が提供する機能と、専用環境にデプロイしたインスタンスの動作を説明します。
+description: Ankole デジタル本社、Agent Harness、Meta Ankole の Company Brain が提供する機能と、プライベートデプロイインスタンスの仕組みを説明します。
 section: Getting started
 order: 1
 ---
 
-**Ankole は、Company Brain を備えたオープンソースの Claude Tag 代替製品です。企業向け Agent Harness により、Agent が根拠を示しながら意思決定を行うために必要なコンテキスト、権限、ツール、フィードバック環境を提供します。**
+**Ankole は、Meta Ankole の Company Brain を中核に据えたオープンソースのデジタル本社およびエンタープライズ Agent Harness です。共同作業のための Pod ワークスペースと、メンバーごとのパーソナルアシスタントおよび専門 AI 同僚を組み合わせ、Agent が根拠を示しながら継続業務を遂行するためのコンテキスト・権限・ツール・フィードバック基盤を提供します。**
 
-継続稼働する Agent は、全社的な業務において、共有の社内知識、Pod ワークスペース、リアルタイムのシグナル、企業の権限モデル、Agent Computer の実行環境、そして永続的な実行基盤を活用できます。
+プライベート環境では、人と Agent が Pod Docs、シャード化された Base、React + TypeScript Applet、Pod Chat、外部チャットツールを横断して協働し、その裏側を共有知識、統合 Connectors、Function Runtime、専用の Agent Computer Worker が支えます。
 
-モデルは受け取ったコンテキストにもとづいて推論を行います。これに対し Harness は、最新の社内情報の選定、アクセス規則の適用、権限の付与、障害発生後の作業復旧を担い、実行結果を次の意思決定へとつなげるために記録します。
+単体の言語モデルは渡されたプロンプトの範囲でしか推論できませんが、Ankole は最新の社内事実の組み立て、実行時の Principal・Drive 権限検査、分離コンテキスト間の委譲、障害後の処理再開、そして修正指摘や実際の結果の次回業務への反映までを一貫して担います。
 
-## Harness が提供する機能
+## Ankole が提供する機能
 
-- **知識の構造化と保持：** Brain は、知識の出所、時点、保有者、確信度、矛盾の有無、開示範囲をひも付けて保持します。
-- **根拠の可視化：** 証拠、不確実性、競合する仮説、不足している情報が、人間が後から検証できる形で残ります。
-- **イベント駆動の起動：** メッセージの受信、スケジュール実行、Webhook、外部イベントをきっかけに、担当の Agent が起動します。
-- **厳格な権限制御：** 各 Agent の権限範囲は、ID、AuthZ、承認フロー、監査記録、エスカレーション経路によって統制されます。
-- **長時間実行と自動復旧：** 数時間から数日にわたる作業でも、途中で新しい入力を受け付けたり、プロセス障害から復旧したりしながら処理を継続し、完了後に元のコンテキストへ結果を届けられます。
-- **知識へのフィードバック：** 人による修正や観測された実際の結果をもとに、次の意思決定が始まる前に Company Brain を更新できます。
+- **Pod デジタル本社：** 階層型 Docs の共同編集、物理シャード化された Base テーブルでの業務データ管理、LLM 不要の公開済み Applet Action を備えた React + TypeScript Applet、マルチプレイヤー Pod Chat を提供し、Slack・Microsoft Teams・Lark/Feishu・DingTalk・WeCom とも連携します。
+- **パーソナルアシスタントと AI 同僚：** すべての社内メンバーには本人の共同作業権限を引き継ぐ 1 対 1 の**パーソナルアシスタント**が用意され、専門業務を担う **AI 同僚**は固有の Principal 権限・Action Card 承認・分離された Peer A2A 委譲（`send_to_agent`）のもとで稼働します。
+- **Meta Ankole（`Brain`・`Skills`・契約）：** 出所・Claim・時点・確信度・矛盾・公開範囲を管理する **Brain** オントロジーグラフと、共有 **Skills**、継承可能な `AGENTS.md` / `DESIGN.md` の行動・デザイン契約をひとつの基盤に統合します。
+- **統合 Connectors と MCP ゲートウェイ：** `Ankole.Connectors` がテナント共有のアプリ認証情報、メンバー個人の OAuth 認可（`/connectors`）、Lark/Feishu・GitHub・Linear やリモート MCP サーバー向けのコントロールプレーン MCP ゲートウェイを管理し、生のシークレットを Worker や Applet 分離環境に渡しません。
+- **イベント駆動と障害復旧：** チャットメッセージ、定期スケジュール、Webhook、Connector トリガーが Session・Background Agent Job・決定論的な Applet Action を起動し、プロセス障害後も PostgreSQL から正確に再開します。
+- **継続的な学習ループ：** Dreaming が実際の Job 実行履歴から 7 日間リースの Skill 注意事項（教訓）を自動で有効化し、予測と実際の結果も照合します。恒久的な注意事項や共有 Skill は人が Meta Ankole で整備します。
 
-## デプロイインスタンスの構成部品
+## デプロイインスタンスの構成要素
 
-以降のドキュメントでは、次の用語を使用します。
+ドキュメント全体を通して、次の主要概念が登場します。
 
-| 部品 | 内容 | 詳細 |
+| 構成要素 | 内容 | 詳細 |
 |---|---|---|
-| **Agent** | 固有のミッション、アクセス権、ツール、対外 ID を持つ作業主体です。ミッションと成果物の基準は編集可能なファイルで定義し、1 つのインスタンス上で複数の Agent を運用できます。 | [Agents](../agents/) |
-| **Pod** | 人と Agent が共同作業を行う共有ワークスペースです。階層ページ、リアルタイム共同編集ドキュメント、Base リレーショナルテーブル、Applet、マルチプレイヤー対応の Pod Chat を備えています。 | [アーキテクチャ概要](../architecture/) |
-| **Brain** | 共有の社内知識を蓄積する基盤です。出所、Claim、時点、確信度、矛盾、開示範囲を保持し、権限を持つ Agent に最新の知識を提供します。 | [Brain](../brain/) |
-| **Session** | コンテキスト、ワークスペースの状態、実行中の誘導、キャンセル、障害復旧を管理する実行単位です。 | [Sessions](../sessions/) |
-| **Signal routing rule** | シグナルの送信元と Agent を結び付け、その経路で行使できる権限を設定するルールです。 | [Signal routing rules](../signal-bindings/) |
-| **Background job** | Session から起動される長時間タスクです。完了した結果は元のチャネルへ配信されます。 | [Background Agent Jobs](../background-agent-jobs/) |
-| **Skill** | 特定の業務を遂行するための定型手順です。Agent が改善案を提示し、人間が承認した変更が次回以降の Session に反映されます。 | [Skills](../skills/) |
-| **Principal** | 人間と Agent の双方を表す権限主体です。ランタイムは両者に対して一貫した権限検査と監査を適用します。 | [Principal and AuthZ](../principal-authz/) |
-| **Function Runtime** | ステートレスな `ankole-function-runtime` サービスです。分離された環境で TypeScript プログラムを実行し、Pod Applet のバックエンド関数や決定論的なツールオーケストレーションを担います。 | [アーキテクチャ概要](../architecture/) |
-| **Agent Computer Worker** | ツール、ファイル操作、ターミナル、ブラウザー、Codex Job を実行するワーカー環境です。なお、メインのモデルループ自体は Control Plane 側で実行されます。 | [Agent Computer Worker](../agent-computer-worker/) |
+| **Pod** | 人と Agent が協働する共有デジタル本社です。階層型 Docs、物理シャード化 Base テーブル、React + TypeScript Applet（公開済み Applet Action を含む）、統合 Drive、マルチプレイヤー Pod Chat を備えます。 | [アーキテクチャ概要](../architecture/) |
+| **パーソナルアシスタントと AI 同僚** | 2 種類の Agent ロールです。メンバーごとに 1 対 1 で紐付き所有者の共同作業権限で動く**パーソナルアシスタント**と、固有の Principal 権限を持ち分離された Peer A2A（`send_to_agent`）で連携する専門 **AI 同僚**で構成されます。 | [Agents](../agents/) |
+| **Meta Ankole（`Brain`・`Skills`・契約）** | **Brain** オントロジーグラフと出典付き Claim、再利用可能な **Skills**（Agent ごとのリース教訓を含む）、そして `AGENTS.md` / `DESIGN.md` 契約を束ねる組織知識基盤です。 | [Brain](../brain/)、[Skills](../skills/)、[Agent Library](../agent-library/) |
+| **統合 Connectors** | テナントのアプリ接続（`authConfigId`）、個人 OAuth（`/connectors`）、外部イベント購読、そして Lark・GitHub・Linear などの Toolkit を Worker や Function Runtime へ提供するコントロールプレーン MCP ゲートウェイです。 | [MCP の利用](../using-mcp/) |
+| **Principal** | 人・Agent・内部 `system` サービス（`system`、`ankole_brain`）を表す `(tenant_id, uid)` の責任主体です。`Ankole.AuthZ` が実行時の権限判定と監査記録を Principal 単位で行います。 | [Principal and AuthZ](../principal-authz/) |
+| **Session** | 会話や Peer A2A 連携における Agent の実行単位で、コンテキスト、途中誘導、キャンセル、コールドウェイク時の会話ローテーション、障害復旧を管理します。 | [Sessions](../sessions/) |
+| **Signal routing rule** | IM チャネル、Webhook、スケジュール、Base/Applet イベント、Connector トリガーを対象の Agent Session または公開済み Applet Action に結び付けるルールです。 | [Signal routing rules](../signal-bindings/) |
+| **Background Agent Job** | 専用 Worker 上で数時間にわたり非同期実行できる永続的な Codex タスクで、途中の確認質問や最終成果物を元の会話へ返します。 | [Background Agent Jobs](../background-agent-jobs/) |
+| **Function Runtime** | ステートレスな `ankole-function-runtime` サービスです。分離された TypeScript 実行環境で Pod Applet バックエンド、公開済み Applet Action（[Automation Jobs](../automation-jobs/)）、PTC、Workflow を動かし、コントロールプレーンの MCP ホストへブリッジします。 | [アーキテクチャ概要](../architecture/) |
+| **Agent Computer Worker** | 各 Agent 専用の計算環境です。シェルツール、ヘッドレスブラウザー、Codex Job、MCPorter、Git ヘルパー、永続 `/workspace` Home に加え、統合 Drive・Brain・Skills・契約を投影する `/drive` FUSE マウントを備えます。 | [Agent Computer Worker](../agent-computer-worker/) |
 
-また、複数の情報源を横断する長時間の調査には [Deep Research](../deep-research-job/) を利用でき、[ブラウザー自動化](../browser-automation/)を通じて実際の Web ページを操作させることも可能です。
+さらに、複数情報源を横断する本格調査には [Deep Research](../deep-research-job/) を、実際の Web ページ操作には [ブラウザー自動化](../browser-automation/) を利用できます。
 
-## 対応する意思決定の仕事
+## 支える意思決定と継続業務
 
-Ankole は、検証可能な証拠を積み上げ、実際の結果と照らし合わせて改善していく重要なデジタル業務に適しています。
+Ankole は、検証可能な根拠と成果物が求められる重要なデジタル業務向けに設計されています。たとえば、競合する仮説を検証する業界調査、シナリオモデルにもとづく製品・市場評価、再現可能なコードによるデータ分析、そして Pod Base・Applet・GitHub・Linear・企業チャットをまたぐ継続的な業務運用などに対応します。
 
-たとえば、競合する複数の仮説を比較検討する業界調査、シナリオモデルを用いた製品・市場の選定、再現可能な分析手法と複数の因果仮説を検証する高度なデータ分析などが挙げられます。
-
-業務の性質に応じて柔軟な体制を組めるのも Harness の特徴です。1 つの Agent に意思決定全体を一任することもできれば、コンテキストを分離して判断ミスの連鎖（相関エラー）を抑えたい場面では、Workflow を使って複数の Agent に作業を分担させることもできます。
-
-社内知識とリアルタイムのシグナルからコンテキストが組み立てられ、Agent は限定された権限のもとで業務を遂行します。そして、得られた証拠と実際の結果にもとづいて、次の意思決定が更新されていきます。
+課題の性質に応じて、メンバーのパーソナルアシスタントが本人権限で直接処理することも、Peer A2A（`send_to_agent`）で専門 AI 同僚に委譲することも、[Workflow](../workflows/) で複数の分離コンテキストに分割して相関エラーを抑えることも、LLM 不要の Applet Action で決定論的な同期・点検を定期実行することもできます。どの実行経路でも Meta Ankole と受信 Signal が最新の文脈を供給し、Principal と AuthZ が操作境界を守り、得られた結果が次の業務へと還流します。
 
 ## 現在のステータス
 
-Ankole は、本番環境で稼働する完全な企業向け Agent Harness です。自社管理のインフラ上に、Control Plane、Pod ワークスペース、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、Kernel、Company Brain、運用コンソールを一括してデプロイできます。中核となるコードと主要なステートマシンには形式検証を適用しており、エンドツーエンドテストによってメッセージ経路、障害復旧、並行処理、アップグレード手順を継続的に検証しています。
+Ankole は、本番稼働するエンタープライズ向けデジタル本社および Agent Harness です。Elixir コントロールプレーン、Pod ワークスペース、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、Rust カーネル、Meta Ankole、統合 Connectors、運用 Console をすべて自社インフラ上にセルフホストできます。中核コードと主要ステートマシンには形式検証を適用し、メッセージルーティング・Drive ACL・障害復旧・並行制御・アップグレードを網羅する E2E テストを継続実行しています。
 
-なお、Ankole にはパブリック API の後方互換性保証はありません。リリース時に互換性のない変更が含まれる場合があります。
+なお、Ankole にはパブリック API の後方互換性保証はなく、リリース時に破壊的変更が含まれる場合があります。
 
 ## 次のステップ
 
-ローカル環境での立ち上げ手順については、[クイックスタート](../quickstart/)を参照してください。各コンポーネントの責務と境界については、[アーキテクチャ概要](../architecture/)で詳しく説明しています。
+デプロイを始めるには [クイックスタート](../quickstart/) に進んでください。各コンポーネントの連携構造については [アーキテクチャ概要](../architecture/) を参照してください。

@@ -1,4 +1,4 @@
-import { ms, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { ms, stringArg } from '@agentbull/active-support'
 import { errorMessage, toError } from '../common/errors'
 import { turnAcceptedEnvelope, workerProgressEnvelope } from '../lanes/session_lane'
 import { isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
@@ -16,7 +16,7 @@ import type { BrowserRuntime } from '../browser-runtime'
 import type { WorkerConfig } from './config'
 import type { WorkerDrainState } from './drain'
 import type { Slots } from './lifecycle_messages'
-import { workerLogger } from './logging'
+import { turnOperation, workerLogger } from './logging'
 import { abortTurnWithAck, TurnTerminalRejectedError, type TurnAbortFailure } from './turn_completion'
 import { executeActiveTurn } from './turn_execution'
 import { turnFailureDetails, turnFailureLogFields } from './turn_failure'
@@ -525,12 +525,4 @@ function invalidAttemptReason(error: unknown): string | undefined {
 /** Keys one local Turn across mailbox revisions of the same Signal. */
 function turnKey(turn: JobTurnRef): string {
   return `${turn.job_id}:${turn.attempt}:${turn.signal_id}`
-}
-
-function turnOperation(signalID: string, flags: { first?: boolean; last?: boolean } = {}): JSONObject {
-  return {
-    id: signalID,
-    producer: 'ankole-worker/turn',
-    ...flags
-  }
 }

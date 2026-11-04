@@ -83,34 +83,33 @@ defmodule Ankole.Connectors.OAuth do
 
   def callback(%{"state" => state, "code" => code} = params)
       when is_binary(state) and is_binary(code) do
-    with [tenant, _] <- String.split(state, ".", parts: 2),
-         {:ok, tenant} <- Ecto.UUID.cast(tenant) do
-      Repo.with_tenant(tenant, fn -> complete_callback(state, code, params) end)
-    else
-      _ -> {:error, :invalid_oauth_state}
-    end
+    with_state_tenant(state, fn _tenant -> complete_callback(state, code, params) end)
   end
 
   def callback(%{"state" => state, "error" => error})
       when is_binary(state) and is_binary(error) do
+    with_state_tenant(state, fn tenant ->
+      with {:ok, session} <- take_callback(state) do
+        {:ok,
+         %{
+           error: "oauth_authorization_cancelled",
+           return_to: session.return_to,
+           tenant_id: tenant
+         }}
+      end
+    end)
+  end
+
+  def callback(_), do: {:error, :oauth_authorization_failed}
+
+  defp with_state_tenant(state, complete) do
     with [tenant, _] <- String.split(state, ".", parts: 2),
          {:ok, tenant} <- Ecto.UUID.cast(tenant) do
-      Repo.with_tenant(tenant, fn ->
-        with {:ok, session} <- take_callback(state) do
-          {:ok,
-           %{
-             error: "oauth_authorization_cancelled",
-             return_to: session.return_to,
-             tenant_id: tenant
-           }}
-        end
-      end)
+      Repo.with_tenant(tenant, fn -> complete.(tenant) end)
     else
       _ -> {:error, :invalid_oauth_state}
     end
   end
-
-  def callback(_), do: {:error, :oauth_authorization_failed}
 
   defp take_callback(state) do
     digest = SecretDigest.digest("connector_oauth_state", state)
@@ -262,9 +261,6 @@ defmodule Ankole.Connectors.OAuth do
   defp issuer(_, nil), do: :ok
   defp issuer(_, _), do: {:error, :oauth_issuer_mismatch}
 
-  defp safe_return_to("/" <> rest = path),
-    do: if(String.starts_with?(rest, "/"), do: nil, else: path)
-
-  defp safe_return_to(_), do: nil
+  defp safe_return_to(path), do: AnkoleWeb.Session.safe_return_to(path, nil)
   def callback_url, do: AnkoleWeb.Endpoint.url() <> "/oauth/connectors/callback"
 end

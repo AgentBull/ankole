@@ -1,3 +1,4 @@
+import { nodeErrorCode } from '../common/errors'
 import { existsSync, lstatSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { pathIsWithin } from './path-boundary'
@@ -15,7 +16,7 @@ export function canonicalPath(path: string): string {
       lstatSync(ancestor)
       break
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      if (nodeErrorCode(error) !== 'ENOENT') throw error
       missing.unshift(basename(ancestor))
       ancestor = dirname(ancestor)
     }

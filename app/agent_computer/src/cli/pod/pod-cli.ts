@@ -1,3 +1,5 @@
+import { helpRequested } from '../primitives'
+import { isRecord } from '@agentbull/active-support'
 import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { isBuiltin } from 'node:module'
@@ -548,12 +550,7 @@ function parseCommentsCommand(rest: string[], cwd: string) {
         cursor = tail[++index]
         if (!cursor) throw new Error('--cursor requires a value')
       } else if (arg === '--limit') {
-        const raw = tail[++index]
-        const parsed = Number(raw)
-        if (!raw || !/^\d+$/.test(raw) || !Number.isSafeInteger(parsed) || parsed <= 0) {
-          throw new Error('--limit requires a positive integer')
-        }
-        limit = parsed
+        limit = decimalPositiveInteger(tail[++index], '--limit')
       } else if (!arg.startsWith('-') && !id) {
         id = arg
       } else {
@@ -642,12 +639,7 @@ function parseCommentsCommand(rest: string[], cwd: string) {
         commentId = tail[++index]
         if (!commentId) throw new Error('--comment requires a comment id')
       } else if (arg === '--version') {
-        const raw = tail[++index]
-        const parsed = Number(raw)
-        if (!raw || !/^\d+$/.test(raw) || !Number.isSafeInteger(parsed) || parsed < 1) {
-          throw new Error('--version requires a positive integer')
-        }
-        version = parsed
+        version = decimalPositiveInteger(tail[++index], '--version')
       } else if (arg === '--reopen') {
         resolved = false
       } else if (!arg.startsWith('-') && !id) {
@@ -666,9 +658,17 @@ function parseCommentsCommand(rest: string[], cwd: string) {
   throw new Error('Use comments list|show|reply|resolve ...')
 }
 
+function decimalPositiveInteger(value: string | undefined, name: string): number {
+  const parsed = Number(value)
+  if (!value || !/^\d+$/.test(value) || !Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} requires a positive integer`)
+  }
+  return parsed
+}
+
 function parseParams(json: string) {
   const params: unknown = JSON.parse(json)
-  if (!params || typeof params !== 'object' || Array.isArray(params)) {
+  if (!isRecord(params)) {
     throw new Error('Parameters must be a JSON object')
   }
   return params as Record<string, unknown>
@@ -678,7 +678,7 @@ if (import.meta.main) {
   installStdoutEpipeGuard(process.stdout)
   try {
     const args = process.argv.slice(2)
-    if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
+    if (args.length === 0 || helpRequested(args)) {
       markHelpSeen({ commandKey: 'ankole-pod' })
       process.stdout.write(`${POD_CLI_HELP}\n`)
     } else {

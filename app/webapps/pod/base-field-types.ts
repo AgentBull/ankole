@@ -1,3 +1,4 @@
+import { formatDateTime } from '../common/date-time'
 import {
   RiAttachmentLine,
   RiCalendarLine,
@@ -72,7 +73,7 @@ export function displayValue(field: BaseField, value: Value) {
   if (field.type === 'checkbox') return value ? '✓' : '—'
   if (field.type === 'select') return Array.isArray(value) ? namesOf(field, value) : namesOf(field, [value])
   if (field.type === 'datetime' || field.type === 'created_at' || field.type === 'updated_at') {
-    return new Date(String(value)).toLocaleString()
+    return formatDateTime(String(value), undefined, 'medium')
   }
   if (Array.isArray(value)) {
     return value.map(item => (typeof item === 'object' && item && 'name' in item ? item.name : item)).join(', ')

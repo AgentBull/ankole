@@ -15,7 +15,7 @@ To keep responsibilities clear, Ankole separates five records across distinct ow
 
 The conversation record holds the messages visible to human and Agent participants, whereas the work log holds model calls and tool results. Each participating Agent in a conversation owns its own Session and model state: all conversation participants can view the work in that Session, and a Session never crosses conversations.
 
-Each Agent has its own Session in a conversation, and its visible output is shared with the conversation participants. Every turn accesses resources as the executing Agent, including interactive, human-woken `may_intervene`, scheduled and service-triggered turns. Agent messages never wake other Agents. Human employment and instruction versions still determine whether delegated work may continue; they do not intersect Human grants with Agent resource access.
+Each Agent has its own Session in a conversation, and its visible output is shared with the conversation participants. Every turn accesses resources as the executing Agent, including interactive, human-woken `may_intervene`, scheduled and service-triggered turns. Ordinary Agent messages in shared rooms never wake other Agents; instead, explicit Agent-to-Agent delegation uses `send_to_agent` to open an isolated `agent_peer` exchange from a `personal_assistant` to an `ai_colleague` under the owner's frozen Human `WorkAccess`, projecting any colleague `Clarify` question or `ActionCard` directly into the origin conversation (zero-hop pass-through) so the human's answer wakes the colleague directly. Human employment and instruction versions still determine whether delegated work may continue; they do not intersect Human grants with Agent resource access.
 
 ### Admit every stimulus through Signals
 
@@ -31,7 +31,7 @@ Each cron schedule runs in its own stable `cron:<schedule_id>` Session, and each
 
 AIGateway provides stateful Responses chains and hosted tools for both internal Agents and external API clients: the Session runtime selects inputs, tools, continuation checkpoints, and compaction triggers, while AIGateway stores the model transcript and executes those operations.
 
-An AIGateway conversation represents model session state rather than the shared participant conversation—duplicating Agent transcript history inside the Session runtime would create a second competing model-state store.
+An AIGateway conversation represents model session state rather than the shared participant conversation—duplicating Agent transcript history inside the Session runtime would create a second competing model-state store. When a conversation wakes after its upstream prompt cache has cooled with a large context or after a multi-day external IM idle gap (`sessions.wake_recycle`), `Ankole.Sessions` rotates onto a fresh AIGateway model conversation seeded with a bounded `8,000`-token `<wake-briefing>` while leaving the shared `Ankole.Conversations` message stream untouched.
 
 ## Source-checked comparison
 

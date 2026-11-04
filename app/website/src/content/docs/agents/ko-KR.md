@@ -5,19 +5,26 @@ section: User guide
 order: 13
 ---
 
-Agent는 Ankole Agent Harness 안에서 지속적으로 업무를 수행하는 작업 주체입니다. 각 Agent는 고유한 미션, 소유자, 접근 권한, 도구, 모델 프로필, 전용 파일 공간을 갖추고 있으며, 지정된 지식 공개 범위에 따라 Company Brain을 활용합니다. 외부 메시지나 이벤트는 신호 라우팅 규칙을 통해 담당 Agent로 전달됩니다.
+Agent는 Ankole Agent Harness 안에서 지속적으로 업무를 수행하는 작업 주체입니다. 각 Agent는 고유한 미션, 소유자, 접근 권한, 도구, 모델 프로필, 영구 파일 공간을 갖추고 있으며, 허용된 지식 공개 범위 안에서 Company Brain을 활용하고 **Pod** 워크스페이스나 신호 라우팅 규칙으로 연결된 외부 채널에서 협업합니다.
 
-## Agent 생성
+## 개인 어시스턴트와 AI 동료
 
-1. **Console → Agents**를 열고 **New Agent**를 선택합니다.
-2. 표시 이름을 입력하고 자동 생성된 handle을 확인합니다. handle은 나중에도 변경할 수 있으며, 저장 시점에 Ankole이 전역에서 고유한 불투명(opaque) UID를 발급합니다.
-3. 역할(role), 아바타 URL(선택 사항), Worker provider를 지정합니다.
+`Ankole.Principals`는 Agent를 두 가지 하위 유형으로 구분합니다.
+
+- **개인 어시스턴트(`personal_assistant`)** — 활성 상태인 각 내부 Human `member`마다 첫 사용 시 1:1로 자동 프로비저닝됩니다(초기 UID는 `<owner_uid>_assistant`). Unified Drive, Pod Docs·Base, `all_humans` 같은 협업 리소스에서는 소유자(사람)의 권한을 투영해 동작하며(`site_console:**` 및 `tenant_console:**` 관리자 범위 제외), group memory 공개 모드는 `strict`로 고정되고 소유자도 변경할 수 없습니다. 규약과 Skill 바인딩은 소유자 본인만 조회·편집할 수 있으며, 소유자 계정이 일시 중지·퇴사 처리되거나 외부 `guest`로 전환되면 어시스턴트도 자동으로 비활성화됩니다.
+- **AI 동료(`ai_colleague`)** — 팀 전반의 전문 역할을 위해 운영자가 생성하는 공유 Agent입니다. Drive, Pod, Workflow, 스케줄, Background Agent Job 전반에서 Agent 자신의 Principal 권한으로 동작하며, 사람의 승인이 필요한 작업에서는 `propose_action_card`로 승인 카드를 게시하고 `send_to_agent`를 통해 격리된 `agent_peer` 대화에서 동료 Agent에게 하위 업무를 위임합니다.
+
+## AI 동료 생성
+
+1. **Console → Agents**(또는 Pod 워크스페이스 설정)를 열고 **New Agent**를 선택합니다.
+2. 표시 이름을 입력하고 의미가 드러나는 테넌트 범위 소문자 `uid`(`^[a-z0-9][a-z0-9._@+-]{0,95}$`, 예: `research-analyst`)를 지정합니다. Agent는 테넌트 안에서 `(tenant_id, uid)`로 고유하게 식별됩니다.
+3. 역할(role), 아바타 URL(선택 사항), `WorkerProvider`를 지정합니다.
 4. 이 Agent를 소유할 사용자 Principal과 group memory 공개 모드를 선택합니다.
-5. Agent를 저장하면 상세 페이지에서 durable 지침 문서, model profile, Agent별 environment variable을 이어서 구성할 수 있습니다.
+5. Agent를 저장한 뒤 규약, 모델 프로필 재정의, Agent별 환경 변수를 구성합니다.
 
-역할(role)은 "Research Analyst"나 "Customer Support"처럼 담당 업무를 한눈에 알아볼 수 있게 요약한 설명입니다. 실제 책임 범위와 행동 원칙, 시각 디자인, 기밀 유지 기준은 아래에서 설명하는 네 가지 durable 문서로 제어합니다.
+역할(role)은 "Research Analyst"나 "Customer Support"처럼 담당 업무를 한눈에 알아볼 수 있게 요약한 설명입니다. 실제 행동 원칙·책임 범위와 시각 디자인 규칙은 **Meta Ankole → Agents**의 두 가지 조합형 규약 문서(`AGENTS.md`, `DESIGN.md`)로 관리합니다.
 
-Worker provider 설정은 이 Agent가 사용할 [Worker pool](../worker-management/)을 결정합니다. 생성 요청에서 생략하면 사이트 기본 pool이 할당되며, 기본 pool이 지정되어 있지 않으면 생성이 거부됩니다. 한 번 저장한 Worker provider는 나중에 바꿀 수 없습니다. 여러 Agent가 같은 pool을 쓰더라도 각자 독립된 전용 Worker와 영구 Home을 할당받으며, Agent를 저장한 직후에는 인스턴스를 띄우지 않고 실제로 컴퓨터 작업이 필요해질 때 control plane이 시작합니다.
+`WorkerProvider` 설정은 이 Agent가 사용할 [WorkerProvider](../worker-providers/) 대상을 결정합니다. 생성 요청에서 생략하면 사이트 기본 provider가 할당되며, 기본 provider가 지정되어 있지 않으면 생성이 거부됩니다(저장 후에는 변경할 수 없습니다). 여러 Agent가 같은 provider를 공유하더라도 각자 독립된 전용 Worker 인스턴스, `/drive` FUSE 마운트, 영구 `/workspace` Home을 할당받으며, Agent를 저장한 직후에는 인스턴스를 띄우지 않고 실제로 컴퓨터 작업이 필요해질 때 control plane이 온디맨드로 시작합니다.
 
 ## 소유자와 group memory 공개 설정
 
@@ -40,18 +47,15 @@ group memory 공개 모드는 여러 사람이 함께 보는 대화방에서 Age
 
 ## 모델 구성
 
-같은 페이지에서 최소한 일반 대화용 `primary`, 가벼운 보조 작업용 `light`, 복합 추론용 `heavy` 세 가지 model profile을 구성하세요.
+Agent의 모델 프로필은 **Console → Model Profiles**에서 구성하는 3계층 희소 상속 체인(`Agent -> Pod -> Site`)을 따라 해석되며, `coding -> heavy -> primary` 및 `light -> primary` 슬롯 간 폴백이 적용됩니다. Site나 Pod에 `primary` 프로필이 이미 구성되어 있으면 새 Agent는 슬롯별 개별 설정 없이도 즉시 동작하므로, 이 Agent의 역할에 Pod 기본값과 다른 provider·모델 등급·사용자 지정 언어 모델 별칭이 필요할 때만 슬롯을 재정의하세요.
 
-초기 설정 단계에서는 이미 검증을 마친 동일한 모델 하나를 세 프로필에 모두 지정해도 무방합니다.
+- Pod 기본값보다 상위 등급이나 특화된 모델이 필요하면 `primary`, `light`, 또는 `heavy`를 재정의합니다.
+- `primary`가 네이티브 이미지 입력을 지원하지 않는데 이미지를 읽어야 한다면 `vision_fallback`을 구성합니다.
+- Pod 기본값과 다른 웹 검색·열람 설정이 필요하면 `web_search`와 `web_fetch`를 구성합니다.
+- 전용 이미지 생성 provider를 사용하려면 `image_generate`를 구성합니다.
+- 백그라운드 작업(`coding`)에 별도의 provider나 모델을 쓰려면 **Background Agent Jobs** 프로필을 구성합니다(비워 두면 `heavy -> primary`로 폴백합니다). ChatGPT 구독 연결도 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 통해 동일한 방식으로 선택할 수 있습니다.
 
-나머지 선택적 프로필은 해당 기능이 실제로 필요한 Agent에만 구성하세요.
-
-- 이미지를 읽고 해석해야 한다면 `vision_fallback`을 구성합니다.
-- 공개 웹 페이지를 검색하거나 본문을 가져와야 한다면 `web_search`와 `web_fetch`를 구성합니다.
-- 이미지를 직접 생성해야 한다면 `image_generate`를 구성합니다.
-- 백그라운드 작업에 별도의 provider나 모델을 쓰려면 **Background Agent Jobs** 프로필을 구성합니다. ChatGPT 구독 연결도 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 통해 동일한 방식으로 선택할 수 있습니다.
-
-모델을 고르거나 직접 입력하려면 먼저 Provider부터 선택해야 하며, context length 입력란 역시 Provider를 선택한 뒤에 활성화됩니다. context length를 비워 두면 해당 Provider와 모델의 기본값을 따릅니다.
+모델을 고르거나 직접 입력하려면 먼저 Provider부터 선택해야 하며, context length 입력란 역시 Provider를 선택한 뒤에 활성화됩니다. context length를 비워 두면 해당 Provider와 모델의 기본값을 따릅니다. Agent 슬롯 재정의를 삭제하면 다시 Pod 및 Site 기본값을 상속합니다.
 
 고급 설정 영역에는 선택한 Provider에서 선언한 옵션만 나타납니다. **Reasoning summary**는 Responses API 기반 모델에만 적용되며, **Answer detail**은 응답의 기본 상세 수준을 지정하고, **Service tier**는 해당 model profile의 요청 등급을 재정의합니다. 선택 가능한 값은 Provider, 계정 등급, 모델에 따라 다르며 비워 두면 Provider 기본값이 적용됩니다.
 
@@ -67,29 +71,21 @@ Agent가 한도에 도달하면 채팅으로 새 메시지를 보냈을 때 일�
 
 **주기 재설정**을 누르면 그 시점을 기준으로 새 주기가 즉시 시작되어 기존 주기가 끝나기 전이라도 작업을 재개할 수 있으며, **한도 해제**를 누르면 토큰 제한 자체가 제거됩니다. 어느 쪽을 실행하든 기존의 토큰 사용 이력은 감사(audit) 목적으로 보존됩니다. 그 밖의 비용 제어 수단은 [Cost management](../cost-management/)를 참조하세요.
 
-## 기능과 environment variable 구성
+## 기능, 연결 및 environment variable 구성
 
-새로 만든 Agent는 Agent Plugins와 Skills에 대한 테넌트 기본값을 그대로 상속합니다. 구성을 변경하려면 **Console → Agent Library**에서 테넌트 전체 기본값을 수정하거나 해당 Agent 전용 override를 지정하세요.
+새로 만든 Agent는 Agent Plugins와 Skills에 대한 테넌트 기본값을 그대로 상속합니다. 구성을 변경하려면 Pod의 **Meta Ankole → Skills**(또는 **Console → Agent Library**)에서 테넌트 전체 기본값을 수정하거나 해당 Agent 전용 override를 지정하세요. 자세한 설정 방법은 [Skills](../skills/)와 [Agent Library](../agent-library/)를 참조하세요.
 
-자세한 설정 방법은 [Agent Library](../skills/)를 참조하세요.
-
-Skill이나 명령줄 도구, MCP 서비스에서 외부 API 키가 필요한 경우에는 Agent 상세 페이지의 **Environment variables** 섹션에 등록하세요. 여기에 등록한 값은 해당 Agent 전용으로 격리되어 전달됩니다.
-
-동일한 이름의 변수가 있을 때 Agent별 값은 테넌트 값을 덮어쓰며, 테넌트 값이 없으면 사이트 값을 덮어씁니다. 자세한 우선순위 규칙은 [Environment variables](../worker-env/)를 참조하세요.
+Lark/Feishu, GitHub, Linear 같은 외부 SaaS 플랫폼, 개인 OAuth 계정, Skill이 선언한 원격 MCP 서비스 자격 증명은 **Pod → Connections**(`/connectors`)에서 `Ankole.Connectors`로 통합 구성하여 시크릿을 컨트롤 플레인 내부에 보관합니다([MCP 사용](../using-mcp/) 참조). Agent 상세 페이지의 **Environment variables** 섹션은 Agent Computer 내부의 사용자 지정 CLI 도구나 스크립트에서 읽는 환경 변수에 사용하며, 동일한 이름의 변수가 있을 때 Agent별 값은 테넌트 및 사이트 값을 덮어씁니다([Environment variables](../worker-env/) 참조).
 
 ## chat channel 연결
 
-**Pod Chat**에서는 별도의 Signal Binding 없이도 워크스페이스 구성원이 활성 상태인 Agent에게 바로 1:1 메시지(`dm`)를 보내거나 그룹 대화(`group`)에 초대할 수 있습니다.
+**Pod Chat**에서는 별도의 Signal Binding 없이도 워크스페이스 구성원이 자신의 개인 어시스턴트나 활성 AI 동료에게 바로 1:1 메시지(`dm`)를 보내거나 AI 동료를 그룹 대화(`group`)에 초대할 수 있습니다. Agent끼리도 `send_to_agent`를 통해 격리된 `agent_peer` 대화에서 직접 협업할 수 있습니다.
 
-외부 IM 채널과 전용 메일함 연동은 Signal Binding으로 관리합니다. Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp 또는 이메일로 들어오는 메시지를 처리하려면 signal routing 규칙을 등록하세요.
+외부 IM 채널과 전용 메일함 연동은 Signal Binding으로 관리합니다. Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp 또는 이메일로 들어오는 메시지를 처리하려면 **Console → Signal routing**을 열고 연동할 채팅 애플리케이션과 담당 Agent를 연결하세요(지원 플랫폼에서는 `Ankole.Connectors`에 등록된 공유 연결을 그대로 재사용할 수 있습니다). 하나의 채팅 앱에 여러 라우팅 규칙을 둘 수도 있고, Agent마다 별도의 봇 애플리케이션을 만들어 연결할 수도 있습니다. 자세한 규칙 작성법은 [Signal routing rules](../signal-bindings/)를 참조하세요.
 
-**Console → Signal routing**을 열고 연동할 채팅 애플리케이션과 담당 Agent를 연결하면 됩니다. 하나의 채팅 앱에 여러 라우팅 규칙을 둘 수도 있고, Agent마다 별도의 봇 애플리케이션을 만들어 연결할 수도 있습니다.
+## Agent 변경, 이름 변경 또는 비활성화
 
-자세한 규칙 작성법은 [Signal routing rules](../signal-bindings/)를 참조하세요.
-
-## Agent 변경 또는 비활성화
-
-표시 이름, 역할, durable 지침 문서, 모델 프로필, 활성 기능은 운영 중 언제든지 변경할 수 있습니다. 다만 UID는 다른 설정에서 이 Agent를 참조하는 고유 식별자이므로 변경할 수 없습니다.
+표시 이름, 역할, `AGENTS.md` 및 `DESIGN.md` 규약, 모델 프로필 재정의, 활성 기능은 운영 중 언제든지 변경할 수 있습니다. AI 동료의 테넌트 범위 `uid`를 변경하려면 먼저 Agent를 비활성화하고 실행 중이거나 일시 중지된 Worker 인스턴스를 제거한 뒤, 감사 기록이 남는 이름 변경 작업(`POST /api/v2/agents/:uid/rename` 또는 워크스페이스 관리 화면)을 실행하세요. 테넌트 내 권한 grant, 그룹 멤버십, Brain 경로 및 멘션, Base 참조가 단일 트랜잭션으로 일괄 갱신됩니다.
 
 Agent를 비활성화하면 새 작업을 수락하지 않고 목록에 "비활성" 상태로 남습니다. 비활성 상태인 Agent는 언제든 다시 활성화하거나 영구 삭제할 수 있습니다. 영구 삭제는 비활성화된 Agent에 대해서만 허용되며, 실행 시 해당 Agent의 세션, 작업, 관련 기록이 함께 삭제됩니다. Agent 전체를 멈추지 않고 특정 채팅 채널 유입만 막으려면 관련 signal routing 규칙만 비활성화하세요.
 
@@ -98,7 +94,7 @@ Agent를 비활성화하면 새 작업을 수락하지 않고 목록에 "비활�
 다음 항목을 순서대로 점검해 보세요.
 
 1. Agent가 활성(Active) 상태인지 확인합니다.
-2. `primary`, `light`, `heavy` 모델 프로필이 모두 지정되어 있고 연결된 LLM Provider가 정상 작동하는지 확인합니다.
+2. Agent에 유효한 `primary` 모델 프로필이 해석되고 있는지(Site/Pod 기본값 또는 Agent 재정의), 그리고 연결된 LLM Provider가 정상 작동하는지 확인합니다.
 3. 외부 채널을 사용 중이라면 시그널 라우팅 규칙이 이 Agent를 가리키고 있는지 확인합니다.
 4. **Console → Workers**에서 해당 Agent의 Worker가 `ready` 상태이거나 오류 없이 시작 중인지 확인합니다.
 5. **Console → Conversations**에서 메시지가 실제로 유입되었는지, 실행 로그에 구체적인 오류 원인이 기록되어 있는지 확인합니다.

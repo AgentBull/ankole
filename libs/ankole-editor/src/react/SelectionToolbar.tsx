@@ -1,3 +1,4 @@
+import { composingKey } from '@ankole/uikit/lib/keyboard'
 import { Button } from '@ankole/uikit/components/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@ankole/uikit/components/dropdown-menu'
 import { Input } from '@ankole/uikit/components/input'
@@ -130,8 +131,6 @@ function selectionRect(editor: Wordgard, { from, to }: Range) {
     top = Math.min(start.top, end.top)
   return new DOMRect(left, top, Math.max(start.right, end.right) - left, Math.max(start.bottom, end.bottom) - top)
 }
-
-const composingKey = (event: KeyboardEvent) => event.isComposing || event.keyCode === 229
 
 /** Whether the host acts on any selection, editable or not: asking an Agent about it or commenting on it. */
 const actsOnSelection = (editor: Wordgard) => {

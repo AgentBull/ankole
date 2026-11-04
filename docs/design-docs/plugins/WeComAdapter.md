@@ -64,7 +64,11 @@ Identity-provider configurations store `corpId`, `agentId`, and `appSecret` from
 the self-built app plus optional `contactsSecret` from the WeCom contacts-sync
 tool (`oidc.enabled` governs login, and `sync.contacts` governs directory
 import—saving fails if `sync.contacts` is enabled without `contactsSecret`,
-because WeCom's standard `appSecret` omits member names). In addition, WeCom
+because WeCom's standard `appSecret` omits member names). `Ankole.Connectors.LegacyConfig`
+stores bot credentials (`botId`, `secret`) and identity-provider credentials
+(`corpId`, `agentId`, `appSecret`, `contactsSecret`) in `Ankole.Connectors`
+(`connector_auth_configs`, referenced via `authConfigId`) while keeping behavior
+settings in `AppConfigure`. In addition, WeCom
 REST endpoints require static egress IPs allowlisted separately on both the
 self-built app and the contacts-sync tool; credential verification surfaces
 missing allowlist entries (WeCom error `60020`) along with the exact WeCom
@@ -115,13 +119,18 @@ Voice messages arrive pre-transcribed as text, quoted messages render quoted
 prose as a leading Markdown blockquote and merge quoted media into attachments
 (since WeCom omits the quoted message's ID), and inbound attachment URLs—which
 expire after 5 minutes and serve AES-encrypted bytes with a per-item key—are
-downloaded, decrypted, and written to the file service ([Files](../Files.md))
-during ingress without ever storing temporary URLs or AES keys.
+downloaded, decrypted, and materialized through
+`Ankole.Conversations.Attachments` into unified Drive ([Files](../Files.md))—storing
+an immutable `file_objects` row, freezing `object_id` on `message_attachments`,
+and linking the file into the conversation root (`/drive/ChatDrive`)—during
+ingress without ever storing temporary URLs or AES keys.
 
 ## Send Replies
 
 Outbound execution processes only durable Delivery intents: sending WeCom
-Markdown text, uploading a single attachment, or sending a JSON template card.
+Markdown text, reading immutable attachment bytes from `Ankole.Files` via
+`object_id` (`delivery_attachments`) to upload a single attachment, or sending a
+JSON template card.
 Before sending, the Rust kernel converts prose to WeCom's Markdown dialect
 (keeping tables intact, turning inline images into links, and using CommonMark
 byte spans to preserve fenced, indented, and inline code verbatim, while live
@@ -185,10 +194,12 @@ periodic full sync runs.
 
 ## Restart and Recovery
 
-PostgreSQL persists encrypted settings in `AppConfigure`, public Messages and
-Delivery intents in `Conversations`, accepted stimuli in `Signals`, execution
-state in `Sessions`, and people, groups, memberships, and grants in `Principals`
-and `AuthZ`—never exposing WeCom credentials to Agent Computer. After a
+PostgreSQL persists encrypted WeCom credentials in `Ankole.Connectors` and
+behavior settings in `AppConfigure`, public Messages and Delivery intents in
+`Conversations`, file objects and conversation Drive nodes in `Files`, accepted
+stimuli in `Signals`, execution state in `Sessions`, and people, groups,
+memberships, and grants in `Principals` and `AuthZ`—never exposing WeCom
+credentials to Agent Computer. After a
 control-plane restart, `ConnectionLifecycle` reconnects bot WebSockets, and any
 open `AIStream` page still inside its 10-minute window resumes under its stored
 stream ID (or seals and rolls over to a new page if the window elapsed).

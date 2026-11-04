@@ -48,7 +48,7 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 
 ## 恢复与等待输入
 
-`waiting_on_user` 是一种“任务上下文保持存活、但不白占执行槽位”的挂起状态。当后台任务遇到必须由人工拍板的分歧时，会将状态切换为 `waiting_on_user`：最新状态投影记录为 `interrupted`（错误码 `request_user_input`），并保留待决的工具调用（tool call）上下文，从而为主会话随后的答复留出精准的续接锚点。一旦收到答复，任务便重新切回 `running` 沿着原线程继续推进。
+`waiting_on_user` 是一种“任务上下文保持存活、但不白占执行槽位”的挂起状态。当后台任务遇到必须由人工拍板的分歧时，会将状态切换为 `waiting_on_user`：最新状态投影记录为 `interrupted`（错误码 `request_user_input`），并保留待决的工具调用（tool call）上下文，从而为主会话随后的答复留出精准的续接锚点。一旦收到答复，任务便重新切回 `running` 沿着原线程继续推进。若处于 `waiting_on_user` 的任务已暂停满 `10` 分钟，且最近一次模型调用报告的总 Token 数达到 `128,000` 及以上，`CodexJobSession` 恢复执行时会跳过已冷却的超大上下文窗口，直接基于受限的工作区重建信息（`job.task`、持久工作区文件、有界尝试历史及前序任务说明/报告）开启新线程，并在每次开启新线程或完成压缩后同步轮转运行时 CLI 的 `contextId`。
 
 除在同一次任务内暂停恢复外，新任务还可以基于前序已结束的任务接力续跑：数据库通过 `continued_from_job_id` 与 `workspace_owner_job_id` 记录这条继承链，使多阶段长任务得以一路向下传递，既不丢失前序脉络，也能直接复用已有工作区文件。
 
@@ -71,19 +71,22 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 
 在底层接入上，`Sessions.CodexJob` 从内核 Signal 准入每次任务尝试，并将运行中引导（steer）事件与常规会话消息分道处理，防止发往主会话的普通消息误干扰后台任务。任务内的每一轮模型调用均经由 AIGateway 按已锁定的模型绑定发出；若目标 Provider 配有多把密钥，凭据挑选、会话亲和、令牌刷新与故障切换均由 AIGateway 统一托管。
 
-后台任务与主 Agent 使用同一个 `skill_view` 加载器。当前启用的技能目录和每次页面读取都遵循本次会话的 Drive 可见范围。每个 Turn 开始前，Worker 物化当前可见的技能包，包括脚本和 MCP 声明；`skill_view` 在每次读取时检查当前启用状态。
+后台任务与主 Agent 共用基于 `Ankole.AIAgent.Library` 的动态 `skill_view` 加载器。每次运行前，Worker 会将任务冻结的 Skill 快照与该 Agent 当前在 `Ankole.AIAgent.Library` 中已启用的 Skill 集合及 `ankole-runtime` 过滤条件取交集，并将允许使用的完整技能包（含随附文件、脚本与 MCP 声明）物化至 `/workspace/.ankole/turn-skills/<signal-id>/<skill-name>/`。每次调用 `skill_view` 时，控制面都会实时核验当前启用状态，从 `Ankole.AIAgent.Library` 读取 Skill 清单或包内相对路径文件，并附带该 Agent 当前生效的技能教训（Skill Lesson）。
 
-每个 Turn 启动或续跑前，Worker 都会将完整的 Agent 有效契约刷新到 `$CODEX_HOME/AGENTS.md` 和 `~/AGENTS.md`，将视觉规范刷新到 `~/DESIGN.md`。项目内的指令由工作区模板或代码仓库维护。任务上下文和技能目录通过开发者指令传入。Codex 原生子 Agent 的最短等待时间为 1 分钟，默认等待时间为 10 分钟。
+每个 Turn 启动或续跑前，Worker 都会将由 `Ankole.AIAgent.Library.Contracts` 合成的完整 Agent 有效契约刷新到 `$CODEX_HOME/AGENTS.md` 和 `~/AGENTS.md`，将视觉规范刷新到 `~/DESIGN.md`。项目内的指令由工作区模板或代码仓库维护。任务上下文和技能目录通过开发者指令传入。Codex 原生子 Agent 的最短等待时间为 1 分钟，默认等待时间为 10 分钟。
 
 ## 运维界面
 
-Console API 提供三条核心管理路由供运维监控与干预：
+`/api/v2` 下的 Console API 路由提供任务查询、回合轨迹、健康检查与生命周期干预能力：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/background-agent-jobs` | 分页列出后台任务 |
-| `GET` | `/background-agent-jobs/:job_id` | 查看单个任务的详细状态与执行记录 |
-| `POST` | `/background-agent-jobs/:job_id/cancel` | 取消指定后台任务 |
+| `GET` | `/api/v2/background-agent-jobs` | 分页列出后台任务 |
+| `GET` | `/api/v2/background-agent-jobs/:id` | 查看单个任务的详细状态与执行记录 |
+| `GET` | `/api/v2/background-agent-jobs/health` | 查询后台任务子系统健康状态 |
+| `GET` | `/api/v2/background-agent-jobs/:job_id/turns` | 列出指定任务的回合（Turn）轨迹 |
+| `POST` | `/api/v2/background-agent-jobs/:id/cancel` | 取消指定后台任务 |
+| `POST` | `/api/v2/background-agent-jobs/:id/complete` | 手动标记指定后台任务完成 |
 
 发起取消会将数据库中的 Job 状态更新为 `stopped`，并向 Worker 发送实时中断指令；后续任何迟到的 Worker 执行结果能否入库提交，均由 PostgreSQL 中的 Job 状态、attempt 标识与回合版本号（Turn revision）共同裁决。
 

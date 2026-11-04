@@ -1,3 +1,4 @@
+import { truncate } from './text'
 import i18n from './i18n'
 
 /** Pages localize known failures from this code instead of showing the server's English message. */
@@ -132,5 +133,5 @@ function conciseMessage(message: string): string {
   if (safe.startsWith('# ') || safe.includes('\nException:')) {
     return safe.split(/\r?\n/, 1)[0] ?? i18n.t('common.request_failed')
   }
-  return safe.length <= 500 ? safe : `${safe.slice(0, 500)}…`
+  return truncate(safe, 500)
 }

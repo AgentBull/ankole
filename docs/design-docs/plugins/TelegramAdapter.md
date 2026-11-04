@@ -29,8 +29,11 @@ observation and delivery route rather than owning the Telegram chat.
 | Signal configuration | `signals.telegram.bindings.<id>` |
 | Bot API client | Project `Req` client |
 
-Configuration consists of a single required encrypted field, `botToken`, which
-can belong to at most one enabled Telegram binding. The Bot API client returns
+Configuration requires `botToken`—stored in `Ankole.Connectors`
+(`connector_auth_configs`, referenced via `authConfigId` through
+`Ankole.Connectors.LegacyConfig` while behavior settings remain in
+`AppConfigure`)—which can belong to at most one enabled Telegram binding. The
+Bot API client returns
 Telegram message IDs for durable reply checkpoints, and the long-poll worker
 confirms each `update_id` only after `Conversations` durably accepts (or
 explicitly ignores) the update.
@@ -103,18 +106,22 @@ Under each binding's `unmatched_sender_policy`:
 
 For admitted messages with media, `Conversations` commits a pending attachment
 projection first—ensuring unmapped senders never trigger downloads—after which
-the adapter calls `getFile`, downloads the bytes into the file service
-([Files](../Files.md)), and updates the entry. Because Telegram's hosted cloud
-Bot API caps bot file downloads at 20 MB, larger attachments retain their
-provider metadata plus a `provider_download_limit` marker without creating a
-local file path or claiming local readability.
+the adapter calls `getFile`, materializes the bytes through
+`Ankole.Conversations.Attachments` into unified Drive ([Files](../Files.md))—storing
+an immutable `file_objects` row, freezing `object_id` on `message_attachments`,
+and linking the file into the conversation root (`/drive/ChatDrive`)—and updates
+the entry. Because Telegram's hosted cloud Bot API caps bot file downloads at
+20 MB, larger attachments retain their provider metadata plus a
+`provider_download_limit` marker without creating a conversation Drive file or
+claiming local readability.
 
 ## Send Replies and Actions
 
 Using Telegram integer message IDs as `provider_message_id`, the adapter
 supports posting, replying, editing, deleting, adding/removing reactions,
-sending dividers, and rendering cards—uploading outbound files via multipart Bot
-API requests and preserving `message_thread_id` inside forum topics.
+sending dividers, and rendering cards—reading immutable bytes from
+`Ankole.Files` via `object_id` (`delivery_attachments`) for multipart Bot API
+uploads and preserving `message_thread_id` inside forum topics.
 
 Mutable streaming replies own one or more Telegram messages whose message IDs
 and rendered presentation are checkpointed on the source Signal after every
@@ -135,7 +142,9 @@ responses are retryable and honor Telegram's `retry_after` delay, auth and
 permission errors require operator action, and confirmed invalid targets fail
 permanently.
 
-`AppConfigure` encrypts `botToken` at rest and keeps it out of connection
+`Ankole.Connectors` encrypts `botToken` at rest in `connector_auth_configs`
+(referenced via `authConfigId` from the binding's `AppConfigure` configuration
+row) and keeps it out of connection
 status, logs, persisted error records, and raw provider payloads; public status
 views expose only safe Bot identity, current `offset`, connection state, and
 bounded error codes.

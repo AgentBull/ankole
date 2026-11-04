@@ -39,11 +39,20 @@ Agent を稼働させるには背後のモデル接続が不可欠です。運�
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | デバイスログインの完了状態を 1 回ポーリング |
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | ブラウザーコールバック URL 貼り付けによる代替ログインを完了 |
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Enterprise アクセストークンを追加 |
-| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | Agent のモデルプロファイル一覧を取得 |
-| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | モデルプロファイルを作成または置換 |
-| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | モデルプロファイルを削除 |
+| `GET` | `/api/v2/model-profiles` | Pod またはサイトの既定モデルプロファイルおよび provider-hosted スイッチを取得 |
+| `PUT` | `/api/v2/model-profiles/:profile` | Pod またはサイトの既定モデルプロファイルを設定 |
+| `DELETE` | `/api/v2/model-profiles/:profile` | Pod またはサイトの既定モデルプロファイルを削除（`?defaults_scope=` で対象スコープを指定） |
+| `PUT` | `/api/v2/model-profiles/provider-hosted` | Pod またはサイトの provider-hosted 機能スイッチを設定 |
+| `GET` | `/api/v2/system-principals` | 登録済みのシステムサービス Principal（`ankole_brain`、`system` など）を一覧取得 |
+| `GET` | `/api/v2/system-principals/:uid/model-profiles` | システム Principal のモデルプロファイル上書き値と実効設定を取得 |
+| `PUT` | `/api/v2/system-principals/:uid/model-profiles/:profile` | システム Principal の固定スロットモデル上書きを設定 |
+| `DELETE` | `/api/v2/system-principals/:uid/model-profiles/:profile` | システム Principal の上書きを削除し、Pod・サイト既定値の継承に戻す |
+| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | Agent のモデルプロファイル上書き値・継承値・実効プロファイルを取得 |
+| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Agent の固定スロット上書きまたはカスタムプロファイルを設定 |
+| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Agent のプロファイル上書きまたはカスタムプロファイルを削除 |
+| `PUT` | `/api/v2/agents/:agent_uid/provider-hosted` | 特定の Agent に対する provider-hosted 機能の上書きを設定 |
 
-Provider の認証情報は暗号化されたプールメンバーとして control plane 内にのみ保管され、Agent の実行環境へ渡されることはありません。モデルプロファイルは Agent を特定の provider とモデルに紐付け、AIGateway がその provider 内の正常なメンバーを選択します。API のレスポンスには安全なアカウント識別情報、ヘルス状態、レート制限情報、使用量だけが含まれます。
+Provider の認証情報は暗号化されたプールメンバーとして control plane 内にのみ保管され、Agent の実行環境へ渡されることはありません。モデルプロファイルは「サイト既定値 → Pod 既定値 → Agent またはシステムサービス Principal の上書き（`ankole_brain` は Brain の抽出・Dreaming・埋め込み・リランク用、`system` は Pod Applet のモデル呼び出しや内部処理用）」の階層で解決され、AIGateway がその provider 内の正常なメンバーを選択します。API のレスポンスには安全なアカウント識別情報、ヘルス状態、レート制限情報、使用量だけが含まれます。
 
 ### Agent とその能力
 
@@ -56,6 +65,7 @@ Agent は、運用者が各種設定を組み立てる際の中心となる単�
 | `GET` | `/api/v2/agents/:agent_uid` | 特定の Agent の詳細を取得 |
 | `PATCH` | `/api/v2/agents/:agent_uid` | Agent の設定を更新 |
 | `POST` | `/api/v2/agents/:agent_uid/enable` | 無効化されている Agent を再有効化 |
+| `POST` | `/api/v2/agents/:agent_uid/rename` | 無効化済み Agent の Worker 終了後に UID を変更 |
 | `DELETE` | `/api/v2/agents/:agent_uid` | 有効な Agent なら無効化し、すでに無効化済みの Agent なら完全に削除 |
 
 ### Worker provider
@@ -74,15 +84,17 @@ Agent は、運用者が各種設定を組み立てる際の中心となる単�
 
 ### signal routing rule
 
-signal routing rule（API スキーマ上の名称は `Signal Binding`）は、外部チャネルなどの provider アダプターを Agent へ接続し、メッセージやイベントが Agent に届くようにします。
+signal routing rule（API スキーマ上の名称は `Signal Binding`）は、外部チャネルのアダプターを特定の AI Colleague へルーティングするか（`ai_colleague` モード）、共有の Lark/Feishu・Slack Personal Assistant Bot で一致した送信者ごとの Personal Assistant へルーティングします（`sender_personal_assistant` モード、`agent_uid` は `null`）。
 
 | メソッド | パス | 用途 |
 |---|---|---|
 | `GET` | `/api/v2/signal-adapters` | このデプロイインスタンスで利用可能な signal アダプターを一覧取得 |
 | `GET` | `/api/v2/signal-bindings` | ルーティングルールを一覧取得（`?agent=` で対象 Agent を絞り込み可能） |
-| `PUT` | `/api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | ルーティングルールを作成または置換 |
-| `PATCH` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | ルーティングルールを更新 |
-| `DELETE` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | ルーティングルールを無効化 |
+| `GET` | `/api/v2/signal-bindings/:id` | ルーティングルールの詳細を取得 |
+| `PUT` | `/api/v2/signal-bindings/:adapter_id/:binding_name` | ルーティングルールを作成または再有効化 |
+| `PATCH` | `/api/v2/signal-bindings/:id` | ルーティングルールを更新 |
+| `DELETE` | `/api/v2/signal-bindings/:id` | ルーティングルールを無効化 |
+| `POST` | `/api/v2/agents/:agent_uid/signal-deliveries/requeue` | 配信失敗した送信 Signal を再キューイング |
 | `GET` | `/api/v2/conversations/:conversation_id/standing-orders` | 特定の Conversation の standing orders を取得 |
 | `PUT` | `/api/v2/conversations/:conversation_id/standing-orders` | 特定の Conversation の standing orders を更新 |
 
@@ -173,10 +185,10 @@ Console API は設定変更だけでなく、システム全体の稼働状況�
 
 - **稼働中の Agent セッションとスケジュール**: `/api/v2/agents/:agent_uid/sessions`、および Agent ごとの cron スケジュール・checkback 管理ルート（テナント横断の一覧エンドポイントでは `agent` クエリパラメータで絞り込み可能）。
 - **Worker の状態**: `/api/v2/agent-workers` から各 Agent の Worker 状態を一覧取得できます。
-- **Agent ドライブ**: `/api/v2/agents/:agent_uid/files` でファイルの一覧取得・削除、`/api/v2/agents/:agent_uid/file-moves` で移動を行います。バイナリ転送にはネイティブルートを使い、`POST /api/v2/agents/:agent_uid/files` がマルチパートアップロード、`GET /api/v2/agents/:agent_uid/files/content` がダウンロードに対応します。ネイティブ転送ルートでも同じブラウザーセッション、CSRF 検証、テナント選択、ファイル権限チェックが適用され、ファイル自体の管理は control plane が担います。
+- **統合ドライブ（Unified Drive）**: `GET /api/v2/drive/:tenant_id/nodes` でテナント内の各ルートや子ノードを一覧取得し、`POST /api/v2/drive/:tenant_id/nodes` でページや空ファイルを作成、`PATCH /api/v2/drive/:tenant_id/nodes/:id` で移動または名前変更、`DELETE /api/v2/drive/:tenant_id/nodes/:id` でサブツリーをゴミ箱へ移動します。バイナリ転送にはネイティブルートを使い、`POST /api/v2/drive/:tenant_id/uploads` がマルチパートアップロード、`GET /api/v2/drive/:tenant_id/nodes/:id/content` がバイトストリームのダウンロードに対応します。すべて同じブラウザーセッション、CSRF 検証、`site_console:drive` 権限のもとで認可され、稼働中の Worker を必要としません。
 - **Background Agent Job**: `/api/v2/background-agent-jobs`（一覧取得、詳細取得、キャンセル）。
 - **AI 呼び出し履歴**: `/api/v2/ai-gateway/conversations`（会話ごとのモデル入出力メッセージ）。
-- **Principal、AuthZ、OIDC クライアント**: `/api/v2/principals`（`PATCH /api/v2/principals/:uid/membership`、`POST /api/v2/principals/:uid/access-disables`、`POST /api/v2/principals/:uid/access-restorations` を含む）、`/api/v2/principal-groups`、`/api/v2/permission-grants`、および `/api/v2/oidc-clients`。これらは [Principal と AuthZ](../principal-authz/) で解説している権限モデルに対応しています。
+- **Principal、AuthZ、OIDC クライアント**: `/api/v2/principals`（`POST /api/v2/principals/:uid/rename`、`PATCH /api/v2/principals/:uid/membership`、`POST /api/v2/principals/:uid/access-disables`、`POST /api/v2/principals/:uid/access-restorations` を含む）、`/api/v2/principal-groups`、`/api/v2/permission-grants`、および `/api/v2/oidc-clients`。これらは [Principal と AuthZ](../principal-authz/) で解説している権限モデルに対応しています。
 
 ## ここに含まれないものについて
 

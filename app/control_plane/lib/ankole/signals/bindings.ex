@@ -141,7 +141,7 @@ defmodule Ankole.Signals.Bindings do
          configuration_base =
            Ankole.Connectors.LegacyConfig.current_for_configuration(current_config, patch),
          config =
-           merge_binding_config(
+           Ankole.Attrs.deep_merge(
              configuration_base,
              ConfigSecrets.preserve(definition.fields, patch, configuration_base)
            ),
@@ -772,16 +772,6 @@ defmodule Ankole.Signals.Bindings do
   end
 
   defp read_binding_configuration(%Binding{}, _read), do: {:error, :binding_config_unavailable}
-
-  defp merge_binding_config(current, patch) when is_map(current) and is_map(patch) do
-    Map.merge(current, patch, fn _key, current_value, patch_value ->
-      if is_map(current_value) and is_map(patch_value) do
-        merge_binding_config(current_value, patch_value)
-      else
-        patch_value
-      end
-    end)
-  end
 
   defp ensure_binding_adapter(%Binding{adapter: adapter}, adapter), do: :ok
   defp ensure_binding_adapter(%Binding{}, _adapter), do: {:error, :binding_conflict}

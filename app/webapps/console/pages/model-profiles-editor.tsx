@@ -29,7 +29,6 @@ import {
   ModelProfilesModel,
   PROFILE_NAMES,
   type ModelProfileSubmission,
-  type ProfileDraft,
   type ProfileName
 } from '../state/model-profiles-model'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
@@ -215,14 +214,7 @@ export function ProfileEditor({
   useSignals()
   const { t } = useTranslation()
   const signals = model.profiles[profile]
-  const draft: ProfileDraft = {
-    description: signals.description.value,
-    providerID: signals.providerID.value,
-    model: signals.model.value,
-    contextLength: signals.contextLength.value,
-    providerOptions: signals.providerOptions.value,
-    error: signals.error.value
-  }
+  const draft = model.snapshot(profile)
   const hasOverride = Object.hasOwn(configuration.overrides, profile)
   const persist = useMutation({
     mutationFn: async (input: ProfilePersistence) => {

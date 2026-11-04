@@ -1,3 +1,4 @@
+import { waitForExit } from '@ankole/browser'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { lstat, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -88,23 +89,17 @@ export class BrowserDaemonSupervisor {
     this.child = undefined
     this.options.onEvent?.({ kind: 'exited', code, signal })
     if (!this.desired) return
-    const delayMs = Math.min(5_000, 250 * 2 ** this.restartAttempts)
-    this.restartAttempts += 1
-    this.options.onEvent?.({ kind: 'restart_scheduled', delayMs })
-    this.restartTimer = setTimeout(() => {
-      this.restartTimer = undefined
-      void this.ensureStarted().catch(() => this.scheduleAfterFailedStart())
-    }, delayMs)
-    this.restartTimer.unref()
+    this.scheduleRestart(true)
   }
 
-  private scheduleAfterFailedStart(): void {
+  private scheduleRestart(announce = false): void {
     if (!this.desired || this.restartTimer) return
     const delayMs = Math.min(5_000, 250 * 2 ** this.restartAttempts)
     this.restartAttempts += 1
+    if (announce) this.options.onEvent?.({ kind: 'restart_scheduled', delayMs })
     this.restartTimer = setTimeout(() => {
       this.restartTimer = undefined
-      void this.ensureStarted().catch(() => this.scheduleAfterFailedStart())
+      void this.ensureStarted().catch(() => this.scheduleRestart())
     }, delayMs)
     this.restartTimer.unref()
   }
@@ -135,15 +130,4 @@ async function waitForSocketOrExit(
   }
   killProcessGroup(child.pid, 'SIGTERM')
   throw new Error('ankole-browserd readiness timed out')
-}
-
-async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
-  if (child.exitCode !== null || child.signalCode !== null) return true
-  return await new Promise(resolve => {
-    const timer = setTimeout(() => resolve(false), timeoutMs)
-    child.once('exit', () => {
-      clearTimeout(timer)
-      resolve(true)
-    })
-  })
 }

@@ -33,11 +33,6 @@ fn resolve_rerank_body(
     body: Value,
     label: &'static str,
 ) -> Result<Value, StreamError> {
-    if !(200..300).contains(&status) {
-        return Err(provider_body_error(status, body));
-    }
-    reject_provider_body_error(status, &body)?;
-
     let mut object = provider_object_body(status, body, label)?
         .as_object()
         .cloned()

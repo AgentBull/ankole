@@ -11,16 +11,18 @@ AIGateway は、Ankole デプロイインスタンスにおける統一された
 
 ## 位置づけ
 
-AIGateway は呼び出し元と上流 provider の間に位置します。呼び出し元（Agent のモデルループ、OIDC Human、または外部連携システム）が bearer token を添えて OpenResponses 形式のリクエストを送ると、AIGateway がセレクターを解決してリクエストを組み立て、紐付けられた provider を呼び出して単一の JSON レスポンスまたはストリームを返します。LLM、embedding、rerank、Web 検索、Web 取得（fetch）はいずれもこの同じ境界を通ります。また、レスポンスターンで `programmatic_tool_calling` を使用する場合は、`Ankole.FunctionRuntime.ProgramRunner` を通じて `ankole-function-runtime` 上のステートレスな isolate 内で各 `programmatic_tool_call` の TypeScript プログラムを実行します。
+AIGateway は呼び出し元と上流 provider の間に位置します。外部連携システム、OIDC Human、Worker 側の Agent モデルループは HTTP、SSE、または WebSocket 経由で bearer token を添えてリクエストを送り、`Ankole.Brain` や `Function Runtime` などの control plane 内部サブシステムは組み込みの `system` Principal（`ankole_brain` と `system`）としてプロセス内で直接 `Ankole.AIGateway` を呼び出します。どの呼び出しでも AIGateway がセレクターを解決してリクエストを組み立て、紐付けられた provider を呼び出して単一の JSON レスポンスまたはストリームを返します。LLM、embedding、rerank、Web 検索、Web 取得（fetch）はいずれもこの同じ境界を通ります。また、レスポンスターンで `programmatic_tool_calling` を使用する場合は、`Ankole.FunctionRuntime.ProgramRunner` を通じて `ankole-function-runtime` 上のステートレスな isolate 内で各 `programmatic_tool_call` の TypeScript プログラムを実行します。
 
-ここで最も重要なのは、呼び出し元が上流 provider の認証情報に一切触れないという点です。認証情報とルーティングポリシーはすべて control plane が管理し、呼び出し元が扱うのは自身のトークンとモデルセレクターだけです。
+ここで最も重要なのは、呼び出し元が上流 provider の認証情報に一切触れないという点です。認証情報とルーティングポリシーはすべて control plane が管理し、呼び出し元が扱うのは自身の認証主体とモデルセレクターだけです。
 
 ## 認証
 
-`/api/v1/ai-gateway` 配下のすべてのエンドポイントは、`:ai_gateway_api` パイプラインと `RequireAIGatewayAccessToken` plug を通過します。リクエストの `Authorization` ヘッダーには bearer token が必須であり、次の 2 種類のトークンのみを受け付けます。
+`/api/v1/ai-gateway` 配下のすべての HTTP・WebSocket エンドポイントは、`:ai_gateway_api` パイプラインと `RequireAIGatewayAccessToken` plug を通過します。ネットワークリクエストの `Authorization` ヘッダーには bearer token が必須であり、次の 2 種類のトークンのみを受け付けます。
 
-- **agent token** — 有効な Agent Principal を主体とする AIGateway API キーです。呼び出し対象はその Agent の model binding とセレクターに限定され、`subject_type = "agent"` として扱われます。
+- **agent token** — 有効な Agent Principal を主体とする AIGateway API キーです。呼び出し対象はその Agent の有効なモデルプロファイルとセレクターに限定され、`subject_type = "agent"` として扱われます。
 - **OIDC Human token** — `ai_gateway.write` スコープを持つ OIDC Client から有効な Human に対して発行されるトークンです。その Client に許可されたモデルエイリアスのみを使用でき、`subject_type = "oidc_human"` として扱われます。
+
+一方、control plane 内部のファーストパーティサービス（Company Brain の処理を担う `ankole_brain`、および Pod Applet のステートレスな `ctx.ai` 呼び出しを担う `system`）は外部 bearer token を発行せず BEAM プロセス内で直接 `Ankole.AIGateway` を呼び出し、それぞれの `system` Principal UID に使用量を記録します。
 
 OIDC Human token を取得するには、Console で `ai_gateway.write` スコープを持つ OIDC Client を作成し、許可するグループとモデルエイリアスを設定したうえで、Authorization Code + PKCE フローでログインします。長期間利用する場合は `offline_access` を要求し、ローテーション式の Refresh Token を使用してください。利用する人間は許可されたグループに所属している必要があり、指定できるのはその Client のモデルエイリアスのみです（`provider_id/model` 形式の直接指定はできません）。
 
@@ -81,7 +83,13 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 ## Provider routing
 
-AIGateway は上流へのリクエストを行う前に、モデルセレクターを実際の provider binding へ解決します。Agent にはあらかじめ 8 つの標準プロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate`）が用意されており、最初の 5 つが言語モデル用、残りの 3 つが個別機能用です。さらに Agent ごとにカスタムの言語モデルプロファイルを追加することもできます。管理者は明示的な provider エントリを指定できます。現在の認証主体が解決可能なモデルの一覧は `GET /models` で確認でき、OpenRouter 形式のクエリパラメータ（`q`、`context`、`min_price`、`max_price`、`sort`、モダリティフィルタ）による絞り込みにも対応しています。
+AIGateway は上流へのリクエストを行う前に、**Console → Model Profiles** で構成される 3 層の疎な**モデルプロファイル（Model Profile）**継承チェーン（`Site -> Pod -> Agent/System`）に従ってモデルセレクターを解決します。
+
+- **Site、Pod、および `system` Principal（`ankole_brain`、`system`）**は 9 つの固定スロットを持ちます。内訳は 5 つの言語モデルスロット（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）と 4 つの機能スロット（`web_search`、`web_fetch`、`image_generate`、`rerank`）です。
+- **Agent** は `rerank` を除く 8 つの標準スロットに加え、Agent ごとのカスタム言語モデルエイリアスを持ち、未指定のスロットは Pod と Site の既定値を継承します。
+- **スロット間のフォールバック**は `coding -> heavy -> primary` および `light -> primary` の順で解決されるため、Site または Pod で `primary` を設定するだけで Agent と Brain が動作し、必要な箇所だけ Pod・Agent・`system` Principal 単位で上書きできます。
+
+また、権限のある管理者や内部呼び出し元は `provider_id/model` 形式の明示的なセレクターも指定できます。現在の認証主体が解決可能なモデルの一覧は `GET /models` で確認でき、OpenRouter 形式のクエリパラメータ（`q`、`context`、`min_price`、`max_price`、`sort`、モダリティフィルタ）による絞り込みにも対応しています。
 
 各 provider レコードは内部に credential pool を持っています。provider kind、base URL、ヘッダー、設定値、capability 宣言はプール内の全メンバーで共有されます。モデルプロファイルが参照するのはあくまで provider レコードであり、特定のプールメンバーを直接指定することはありません。AIGateway は設定された選択戦略（`fill_first`、`round_robin`、`least_used`、`random`）に従って正常なメンバーを選びます（Console 上では UI 言語に応じて翻訳表示されますが、API と永続化ではこれらの正規キーが使われます）。なお、stateful なスレッドでは可能な限り同じプールメンバーが継続して選択されます。
 
@@ -89,7 +97,7 @@ AIGateway は上流へのリクエストを行う前に、モデルセレクタ�
 
 `chatgpt_subscription` も通常の provider kind の 1 つとして扱われます。OAuth 認証情報は control plane 内に保持され、トークンのリフレッシュは行ロックのもとで安全に実行されます。Agent Computer や外部の呼び出し元にこれらのトークンが渡されることはありません。
 
-`agentbull_cloud`（**AgentBull Cloud**、既定の base URL は `https://cloudapis.agentbull.com`）は組み込みの統合型上流 provider kind であり、1 つの API キーで言語モデル、embedding、rerank、`web_search`、`web_fetch`、`image_generate` をまとめて利用できます。この認証情報も control plane 内に保持されます（一方、Worker 上の MCP スキルが直接参照する外部 API キー類には、従来どおり `WorkerEnv` を使用します）。
+`agentbull_cloud`（**AgentBull Cloud**、既定の base URL は `https://cloudapis.agentbull.com`）は組み込みの統合型上流 provider kind であり、1 つの API キーで言語モデル、embedding、rerank、`web_search`、`web_fetch`、`image_generate` をまとめて利用できます。この認証情報も control plane 内に保持され、さらに外部プラットフォーム接続やメンバー個人の OAuth トークン、Skill が宣言するリモート MCP ヘッダーは control plane の `Ankole.Connectors` MCP ゲートウェイが PostgreSQL 内で一元管理します（`WorkerEnv` は Agent Computer 内のカスタム CLI やスクリプト向け環境変数に用います）。
 
 セレクター解決の失敗には、呼び出し元でハンドリングすべき代表的なパターンが 2 つあります。
 
@@ -123,7 +131,7 @@ AIGateway は上流へのリクエストを行う前に、モデルセレクタ�
 
 同じ認証主体とトークンを使って、周辺の AI 機能もそのまま呼び出せます。`POST /web_search` は文字数上限付きの `query` を受け取って検索結果を返し、`POST /web_fetch` は 1〜5 件の公開 HTTPS URL を受け取ってページ本文を返します。これらのエンドポイントでは `web_search.default` や `web_fetch.default` を指定でき、AIGateway が現在の Agent プロファイルを自動的に解決します。
 
-`POST /embeddings` はテキスト、トークン配列、または入力ブロックを受け付けます。`POST /rerank` は空でないドキュメント配列と正の整数 `top_n` を受け取って再ランク付けを行います。これら 2 つのエンドポイントでは `provider_id/model` 形式による明示的なセレクター指定が必須であり、Agent プロファイル名は解決されません。Brain がこれらを呼び出す際は、[AppConfigure](../app-configuration/) のサイト設定 `brain.embedding_model` とテナント設定 `brain.rerank_model` を使用します。また、Pod Applet からの `ctx.ai` 呼び出しは、その Applet を作成した有効な Agent の権限で AIGateway を経由し、ステートレスに実行されます（言語モデルプロファイル、クォータ、使用量もすべてその Agent に帰属します）。検索の詳細については [Brain](../brain/) を参照してください。
+`POST /embeddings` はテキスト、トークン配列、または構造化入力ブロックを受け付け、`provider_id/model` 形式による明示的なセレクター指定が必要です（たとえば `Ankole.Brain` は embedding 生成時に [AppConfigure](../app-configuration/) のサイト設定 `brain.embedding_model` を読み取ります）。`POST /rerank` は空でないドキュメント配列と正の整数 `top_n` を受け取って再ランク付けを行い、明示的な `provider_id/model` セレクターまたは `default` / `rerank.default` を受け付けます（`ankole_brain` は自身の有効な `rerank` モデルプロファイルを解決し、Agent や Human の呼び出しは Pod/Site の `rerank` プロファイルを解決します。検索の詳細は [Brain](../brain/) を参照してください）。一方、Pod Applet の `ctx.ai` 呼び出しは組み込みの `system` Principal のもとで `Ankole.AIGateway` を経由してステートレスに実行され、Pod/Site の有効な言語モデルプロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）を使用するため、フォアグラウンド Agent のトークンクォータを消費しません。
 
 ファイル操作も標準の API として組み込まれています。`POST /files` でアップロード、`GET /files` で一覧取得、`GET /files/:id` と `GET /files/:id/content` でメタデータとファイル本体の読み取り、`DELETE /files/:id` で削除を行えます。すべてのファイルは認証主体ごとのスコープに分離されます。
 

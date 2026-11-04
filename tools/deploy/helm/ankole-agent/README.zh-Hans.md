@@ -291,8 +291,8 @@ helm upgrade ankole ./tools/deploy/helm/ankole-agent \
 共享卷时，请先完成[共享卷目录迁移](../../../../docs/upgrades/unified-drive.md#kubernetes-shared-agent-homes)。若变更了 Helm 发布名称，
 请通过 `worker.agents.persistence.existingClaim` 显式指向原有 PVC。
 
-旧版池化 Worker 以 root 身份运行，旧 Agent Home 目录权限为 `0700`；新版 Worker 中的命令、
-Codex、MCP、浏览器和 Automation 脚本均以 uid `1000` 运行（仅持有凭据的 Worker 监管进程
+旧版池化 Worker 以 root 身份运行，旧 Agent Home 目录权限为 `0700`；当前 Worker 布局中的命令、
+Codex、MCP 服务与浏览器均以 uid `1000` 运行（仅持有凭据的 Worker 监管进程
 以 root 运行），而一次性云盘导入任务则以 uid `10001` 读取旧文件。待所有旧写入进程全部停止后，
 请按底层存储类型处理旧 PVC 权限：
 
@@ -330,7 +330,7 @@ kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
 ```
 
 导入完成后，去掉 `files.importAgentHomeClaim` 参数再执行一次升级以卸载只读挂载。导入过程会将
-各 Agent 已安装的 Skill、Automation Job 脚本及待发送的旧版附件内容复制到云盘（不会覆盖云盘中
+各 Agent 已安装的 Skill 及待发送的旧版附件内容复制到云盘（不会覆盖云盘中
 同名已有文件，并会汇总输出跳过或无法读取的文件）；用户文件、会话文件与 Job 工作区仍保留在
 Agent Home 中。移除旧存储卷前，请先根据导入报告处理所有缺失附件，以免挂起的旧版消息因等待附件
 转换而受阻。
@@ -387,6 +387,12 @@ mv "$backup_path.partial" "$backup_path"
 会保留 `.partial` 后缀，仅当两步全部成功时才重命名为正式备份文件。宿主机上的 `pg_restore`
 客户端须支持 PostgreSQL 18 归档格式；此外，`-l` 参数仅校验归档目录索引，不能替代在独立数据库上
 执行的完整恢复演练。
+
+未配置 `secrets.baseDBURLs`（或 `secrets.existingSecret` 中的 `BASE_DB_URLS`）时，物理
+Base 数据表存放在 `DATABASE_URL` 指向的主库内按租户隔离的 `t_<tenant_hex>` Schema 中，上述
+`ankole` 导出归档即可一并涵盖。若通过 `secrets.baseDBURLs` 或 `BASE_DB_URLS` 配置了独立
+的物理 Base 分片库，必须将全部 PostgreSQL 分片库与控制面数据库同步导出备份；对独立数据库实例
+执行时间点恢复（PITR）时，各分片库的恢复时间点不得早于控制面库。
 
 如果 `kubectl exec` 在传输过程中截断了导出流，请保留现场诊断信息，设置环境变量
 `KUBECTL_REMOTE_COMMAND_WEBSOCKETS=false` 后重新导出并校验归档，切勿将截断的文件当作有效备份。
@@ -509,7 +515,9 @@ NetworkPolicy 需依赖支持网络策略的 CNI 插件才能实际生效；选�
 本 Chart 不接管外部 Worker 提供商或远程浏览器网络的隔离策略。请在节点侧自行加固云主机元数据防护
 （支持实例元数据跳数限制的节点请将跳数限制设为 `1`），并参照英文指南中的
 [Worker 出站核验步骤](README.md#verify-worker-egress-in-a-deployment)实测部署边界：通过测试专用
-Agent 的 `command` 工具、本地浏览器及 Automation Job 分别访问受控的公网放行端点与私网拦截端点，
+Agent 在 Worker Pod 上使用 `command` 工具、本地浏览器与 `BackgroundAgentJob`（Codex 回合）分别访问
+受控的公网放行端点与私网拦截端点（如需一并核验 Function Runtime 的 `functionRuntime.deniedCIDRs`
+网络策略，可通过一次性 Applet 后端路由或已发布的 Applet Action 发起同样的请求），
 并交叉比对网络插件拒绝记录与目标端点访问日志——单纯出现浏览器 SSRF 拦截、远程浏览器代理请求、连接被拒
 或超时，均不足以证明集群级 NetworkPolicy 已经生效。
 

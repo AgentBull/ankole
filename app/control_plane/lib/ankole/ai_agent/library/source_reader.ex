@@ -167,27 +167,12 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
   defp load_default_template_cached(root, filename, fallback, ttl_ms) do
     key = {__MODULE__, :default_template, filename}
-    now_ms = System.monotonic_time(:millisecond)
 
-    case Ankole.AIAgent.Library.SourceCache.get(key, nil) do
-      %{expires_at_ms: expires_at_ms, root: ^root, content: content}
-      when now_ms < expires_at_ms ->
-        content
-
-      _cache_miss ->
-        case File.read(Path.join(root, filename)) do
-          {:ok, content} ->
-            Ankole.AIAgent.Library.SourceCache.put(key, %{
-              expires_at_ms: now_ms + ttl_ms,
-              root: root,
-              content: content
-            })
-
-            content
-
-          {:error, _reason} ->
-            fallback
-        end
+    case Ankole.AIAgent.Library.SourceCache.fetch(key, root, ttl_ms, fn ->
+           File.read(Path.join(root, filename))
+         end) do
+      {:ok, content} -> content
+      {:error, _reason} -> fallback
     end
   end
 
@@ -215,28 +200,9 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   defp read_builtin_skill_sources_cached(roots, ttl_ms) do
-    now_ms = System.monotonic_time(:millisecond)
-
-    case Ankole.AIAgent.Library.SourceCache.get(@cache_key, nil) do
-      %{expires_at_ms: expires_at_ms, roots: cached_roots, result: {:ok, _sources} = result}
-      when cached_roots == roots and now_ms < expires_at_ms ->
-        result
-
-      _cache_miss ->
-        case read_builtin_skill_sources_uncached(roots) do
-          {:ok, _sources} = result ->
-            Ankole.AIAgent.Library.SourceCache.put(@cache_key, %{
-              expires_at_ms: now_ms + ttl_ms,
-              roots: roots,
-              result: result
-            })
-
-            result
-
-          {:error, _reason} = error ->
-            error
-        end
-    end
+    Ankole.AIAgent.Library.SourceCache.fetch(@cache_key, roots, ttl_ms, fn ->
+      read_builtin_skill_sources_uncached(roots)
+    end)
   end
 
   defp read_builtin_skill_sources_uncached(roots) do

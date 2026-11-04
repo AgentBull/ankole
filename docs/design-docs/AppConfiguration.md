@@ -42,9 +42,11 @@ access by existing Guests, without modifying any Principal's stored membership.
 
 Domain-specific credentials and preferences live in their owning tables rather
 than AppConfigure: AIGateway stores provider credentials in
-`ai_gateway_providers`, and Agent model preferences live in `agents.options`.
-AppConfigure is not a free-form key-value store; it rejects any key that code
-has not registered.
+`ai_gateway_providers`, `Ankole.Connectors` stores encrypted application and
+personal account credentials in `connector_auth_configs` and
+`connector_connected_accounts`, and per-Agent model profile and provider-hosted
+overrides live in `agents.options["ai_agent"]`. AppConfigure is not a free-form
+key-value store; it rejects any key that code has not registered.
 
 ## Declare Each Key Before Use
 
@@ -172,13 +174,15 @@ AppConfigure reads and accepts:
   them from the site configuration catalog, and resolves `tenant:<tenant_id>`
   followed directly by the code default without consulting site storage.
 - A `tenant` definition resolves values in priority order: an Agent override
-  first (when the caller passes `agent_id`), then the current tenant's value,
-  then the site value, and finally the code default.
+  (`agent:<uid>`, when the caller passes `agent_id`), then the current tenant's
+  value (`tenant:<id>`), then the site value (`global`), and finally the code
+  default.
 
-System scopes accept registered system Principal UIDs and the nine fixed
-`ai_gateway.model_profiles.<slot>` keys. ModelProfiles merges those overrides
-with Pod and Site slots. Provider-hosted switches and custom aliases have no
-system layer.
+System scopes (`system:<uid>`) accept registered system Principal UIDs and the
+nine fixed `ai_gateway.model_profiles.<slot>` keys. `ModelProfiles` merges those
+system overrides—or, for an Agent, the per-Agent overrides stored in
+`agents.options["ai_agent"]`—with `tenant:<id>` and `global` AppConfigure rows.
+Provider-hosted switches and custom aliases have no `system:<uid>` layer.
 
 When resolving a `pod`, `tenant`, Agent, or system Principal value, the caller
 must hold an active `Ankole.Repo` tenant context (and any `agent_id` must belong
@@ -188,9 +192,12 @@ Some namespaces narrow write access further. Identity-provider settings
 (`principals.identity_providers.*`) belong strictly to `tenant:<id>` without
 inheriting a site default, and the generic settings endpoints reject writes to
 these keys so the identity-provider subsystem can validate platform application
-assignments. Signal binding secrets use `global` scope and a key derived from
-the tenant and binding ID. The binding lifecycle owns these secrets and deletes
-them when the binding is removed.
+assignments. Signal binding configurations use `global` scope and a key derived
+from the tenant and binding ID; the binding lifecycle owns these rows and deletes
+them when no binding references the key. For Connector-backed identity providers
+and Signal bindings, `Ankole.Connectors.LegacyConfig` keeps behavior settings in
+AppConfigure while storing shared application and bot secrets in
+`Ankole.Connectors` (`connector_auth_configs`, referenced via `authConfigId`).
 
 The Console writes site values through `/api/v2/site/app-configurations` and
 workspace values through `/api/v2/app-configurations` under the same validation
@@ -205,12 +212,15 @@ source (`agent`, `system`, `tenant`, `global`, or `default`). OS environment var
 never override an AppConfigure key.
 
 AIGateway owns the tenant-scoped `ai_gateway.model_profiles.<slot>` and
-`ai_gateway.provider_hosted.<capability>` keys. Their schemas reject `nil` rows;
-the dedicated model-profile API deletes the current layer's row to restore
-inheritance. Model profiles merge each slot across the Agent or system Principal,
-Pod, and Site before applying cross-slot fallback. Overrides, same-slot inherited
-values, and final effective values are separate read contracts. Effective entries
-retain `source` and `resolved_from_profile` metadata for runtime and Console consumers.
+`ai_gateway.provider_hosted.<capability>` keys in AppConfigure (covering
+`system:<uid>`, `tenant:<id>`, and `global` rows), while storing per-Agent model
+profile and `provider_hosted` overrides in `agents.options["ai_agent"]`. Their
+schemas reject `nil` rows; the dedicated model-profile API deletes the current
+layer's entry to restore inheritance. `ModelProfiles` merges each slot across the
+Agent or system Principal, Pod (`tenant:<id>`), and Site (`global`) before
+applying cross-slot fallback. Overrides, same-slot inherited values, and final
+effective values are separate read contracts. Effective entries retain `source`
+and `resolved_from_profile` metadata for runtime and Console consumers.
 
 ## Feature policies
 
@@ -268,9 +278,12 @@ AppConfigure separates site and tenant data into two PostgreSQL tables:
   the natural primary key.
 - Tenant, Agent, and system Principal rows live in the tenant-owned
   `app_configurations` table (`AppConfig` Ash resource), which requires
-  `tenant_id` and accepts `tenant:<id>`, `agent:<uid>`, or registered
-  `system:<uid>` scopes. It uses `{tenant_id, scope, key}` as its natural primary
-  key and enforces tenant isolation through `Ankole.Repo` on every read and write.
+  `tenant_id` and accepts `tenant:<id>`, `agent:<uid>` (for Agent-overridable
+  `tenant` definitions), or registered `system:<uid>` (for system Principal
+  model profile overrides; per-Agent model profile overrides live in
+  `agents.options["ai_agent"]`). It uses `{tenant_id, scope, key}` as its natural
+  primary key and enforces tenant isolation through `Ankole.Repo` on every read
+  and write.
 
 Both tables store `scope`, `key`, JSONB `value`, `inserted_at`, and
 `updated_at`, with PostgreSQL constraints validating both `scope` and the JSONB

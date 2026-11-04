@@ -177,17 +177,9 @@ defmodule DingTalkOpenAPI do
   end
 
   defp put_body(req_opts, opts) do
-    cond do
-      Keyword.has_key?(opts, :form_multipart) ->
-        Keyword.put(req_opts, :form_multipart, Keyword.fetch!(opts, :form_multipart))
-
-      Keyword.has_key?(opts, :body) ->
-        req_opts
-        |> Keyword.put(:body, Torque.encode!(Keyword.fetch!(opts, :body)))
-        |> Keyword.update!(:headers, &(&1 ++ [{"content-type", "application/json"}]))
-
-      true ->
-        req_opts
+    case Keyword.fetch(opts, :form_multipart) do
+      {:ok, form} -> Keyword.put(req_opts, :form_multipart, form)
+      :error -> IMTransport.HTTP.put_body(req_opts, opts)
     end
   end
 

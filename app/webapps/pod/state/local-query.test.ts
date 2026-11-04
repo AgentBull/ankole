@@ -79,3 +79,35 @@ test('equivalent datetime spellings use PostgreSQL normalization while canonical
     ).toBe(true)
   }
 })
+
+test('array-valued formulas honor the same database comparison gate as their referenced field', () => {
+  const formulaSchema = {
+    ...schema,
+    fields: [
+      {
+        id: 'formula',
+        name: 'Related',
+        type: 'formula',
+        config: { result_type: 'array' },
+        version: 1,
+        is_primary: false
+      }
+    ],
+    local_query: { text_contains_ascii: true, jsonb_compare: false }
+  } as TableSchema
+  const query = { sort: [{ field_id: 'formula', direction: 'asc' as const }] }
+  expect(canQueryLocally(formulaSchema, query)).toBe(false)
+  expect(
+    canQueryLocally({ ...formulaSchema, local_query: { text_contains_ascii: true, jsonb_compare: true } }, query)
+  ).toBe(true)
+  expect(
+    canQueryLocally(formulaSchema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'formula', operator: 'gt', value: ['a'] }] }
+    })
+  ).toBe(false)
+  expect(
+    canQueryLocally(formulaSchema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'formula', operator: 'contains', value: 'a' }] }
+    })
+  ).toBe(true)
+})

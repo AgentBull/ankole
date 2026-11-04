@@ -86,7 +86,7 @@ defmodule GoogleOpenAPI.Auth do
     subject = Keyword.get(opts, :subject) || client.delegated_subject
     cache_key = {client.token_base_url, client.service_account_email, subject, scope}
 
-    case cached_token(cache_key) do
+    case IMTransport.TokenCache.lookup(Cache.token_table(), cache_key) do
       {:ok, token} -> {:ok, token}
       :miss -> fetch_jwt_bearer_token(client, subject, scope, cache_key)
     end
@@ -145,16 +145,6 @@ defmodule GoogleOpenAPI.Auth do
 
   defp token_from_body(body),
     do: {:error, %Error{reason: :unexpected_shape, raw: body}}
-
-  defp cached_token(cache_key) do
-    case :ets.lookup(Cache.token_table(), cache_key) do
-      [{^cache_key, token, expires_at}] ->
-        if System.monotonic_time(:millisecond) < expires_at, do: {:ok, token}, else: :miss
-
-      [] ->
-        :miss
-    end
-  end
 
   defp token_url(%Client{token_base_url: token_base_url}), do: token_base_url <> "/token"
 

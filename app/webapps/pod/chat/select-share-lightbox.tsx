@@ -1,6 +1,8 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
+import { downloadBlob } from '../../common/browser-files'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, toast } from '@ankole/uikit'
 import { RiAlertLine, RiCheckLine, RiDownloadLine, RiFileCopyLine, RiImageLine, RiSaveLine } from '@remixicon/react'
-import { useEffect, useRef, useState } from 'react'
+
 import { useTranslation } from 'react-i18next'
 import type { ConversationMessage } from '../api'
 import { downloadMarkdownString, selectionToMarkdown } from './export-markdown'
@@ -26,16 +28,7 @@ export function SelectShareLightbox({
   onSaveAsPage?: () => void
 }) {
   const { t } = useTranslation()
-  const [copiedKind, setCopiedKind] = useState<'image' | 'markdown' | null>(null)
-  const copyTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-
-  useEffect(() => () => clearTimeout(copyTimer.current), [])
-
-  const markCopied = (kind: 'image' | 'markdown') => {
-    setCopiedKind(kind)
-    clearTimeout(copyTimer.current)
-    copyTimer.current = setTimeout(() => setCopiedKind(null), 1500)
-  }
+  const [copiedKind, markCopied] = useCopyFeedback<'image' | 'markdown' | null>(null)
 
   const markdown = selectionToMarkdown(messages, { title })
   const filenameBase = title?.trim() || 'conversation-excerpt'
@@ -136,12 +129,10 @@ export function SelectShareLightbox({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  const url = URL.createObjectURL(result.blob)
-                  const link = document.createElement('a')
-                  link.href = url
-                  link.download = `${filenameBase.replace(/[/\\:*?"<>|]/g, '_') || 'conversation-excerpt'}.png`
-                  link.click()
-                  setTimeout(() => URL.revokeObjectURL(url), 1000)
+                  downloadBlob(
+                    result.blob,
+                    `${filenameBase.replace(/[/\\:*?"<>|]/g, '_') || 'conversation-excerpt'}.png`
+                  )
                 }}>
                 <RiDownloadLine aria-hidden />
                 {t('pod.chat_timeline.download_png', { defaultValue: 'Download PNG' })}

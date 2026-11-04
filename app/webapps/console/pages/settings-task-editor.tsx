@@ -1,3 +1,4 @@
+import { recordValue, safeJsonParse } from '@agentbull/active-support'
 import { Button, Input, SwitchRow } from '@ankole/uikit'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -85,12 +86,7 @@ function SmtpSettingsEditor({
   const { t } = useTranslation()
   const [recipient, setRecipient] = useState('')
   const [result, setResult] = useState<{ draft: string; recipient: string; message: string; pending?: boolean }>()
-  let draft: Record<string, unknown> = {}
-  try {
-    draft = JSON.parse(value)
-  } catch {
-    /* Invalid input remains a form error. */
-  }
+  const draft = recordValue(safeJsonParse(value).unwrapOr(undefined)) ?? {}
   const set = (key: string, next: unknown) => onChange(JSON.stringify({ ...draft, [key]: next }))
   const runTest = async () => {
     const snapshot = value

@@ -52,7 +52,7 @@ defmodule Ankole.Connectors.LegacyConfig do
          {:ok, secret} <- Credentials.secret(auth),
          supplied = extract(config),
          :ok <- compatible(secret, supplied) do
-      {:ok, hydrate_credentials(config, auth, deep_merge(secret, supplied))}
+      {:ok, hydrate_credentials(config, auth, Ankole.Attrs.deep_merge(secret, supplied))}
     end
   end
 
@@ -62,7 +62,7 @@ defmodule Ankole.Connectors.LegacyConfig do
     config
     |> strip()
     |> Map.merge(auth.public_metadata)
-    |> deep_merge(secret)
+    |> Ankole.Attrs.deep_merge(secret)
     |> credential_names(auth.plugin_id)
   end
 
@@ -182,7 +182,7 @@ defmodule Ankole.Connectors.LegacyConfig do
 
     with {:ok, previous} <- Credentials.secret(existing),
          :ok <- compatible(previous, credential),
-         merged = deep_merge(previous, credential),
+         merged = Ankole.Attrs.deep_merge(previous, credential),
          {:ok, changes} <- Store.credential_changes(existing, application, previous, merged),
          do: Store.update_in_tx(existing, changes)
   end
@@ -206,12 +206,6 @@ defmodule Ankole.Connectors.LegacyConfig do
       |> Map.reject(fn {_key, value} -> is_nil(value) or value == "" end)
 
   defp strip(map), do: Map.drop(map, @credential_names)
-
-  defp deep_merge(left, right),
-    do:
-      Map.merge(left, right, fn _key, l, r ->
-        if is_map(l) and is_map(r), do: deep_merge(l, r), else: r
-      end)
 
   defp fingerprint(plugin, credential) do
     id =

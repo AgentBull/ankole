@@ -1,3 +1,4 @@
+import { isNumber } from '@agentbull/active-support'
 import { Socket } from 'phoenix'
 import { Buffer } from 'node:buffer'
 import { errorMessage, toError } from '../common/errors'
@@ -952,7 +953,7 @@ function streamReply(response: unknown): StreamReply {
 }
 
 function optionalNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  return isNumber(value, true) ? value : undefined
 }
 
 function replyReason(response: unknown): string {

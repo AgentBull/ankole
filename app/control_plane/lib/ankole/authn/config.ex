@@ -63,7 +63,7 @@ defmodule Ankole.Authn.Config do
     optional = ["username", "password", "cacertfile"]
 
     if Schema.json_value?(settings) and String.trim(server) != "" and
-         Regex.match?(~r/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/, from) and
+         Regex.match?(Ankole.Principals.HumanUser.email_format(), from) and
          is_integer(port) and port in 1..65_535 and is_boolean(ssl) and
          Enum.all?(optional, &(is_nil(settings[&1]) or is_binary(settings[&1]))) do
       {:ok, settings}

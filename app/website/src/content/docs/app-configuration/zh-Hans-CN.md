@@ -42,8 +42,9 @@ AppConfigure 将产品参数保存在 PostgreSQL，多数修改影响后续任�
 | `ai_agent.inactivity_timeout_ms` | 租户 | 模型或上游 Provider 持续无响应多少毫秒后终止当前回合 |
 | `ai_agent.library.agent_plugin_defaults` | 租户 | Agent Plugin 的默认启用状态映射 |
 | `background_agent_jobs.max_running_per_agent` | 租户 | 单个 Agent 允许并发运行的后台 Agent 任务上限；默认 `3`，有效范围为 `1`–`64` |
+| `sessions.wake_recycle` | 租户 | 冷唤醒模型对话轮转阈值（默认 `min_cold_gap_seconds: 3600`、`min_context_tokens: 128000`、`im_max_idle_seconds: 259200`）；当提示词缓存冷却且上下文体积较大，或外部 IM 会话跨多天静置后恢复时，自动轮转至新模型对话分支并注入受限的 `<wake-briefing>` |
 
-### Pod、Base 与 Applet
+### Pod、Base、Applet 与 Drive
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
@@ -51,7 +52,8 @@ AppConfigure 将产品参数保存在 PostgreSQL，多数修改影响后续任�
 | `pod.applet.limits` | 租户 | Applet（小应用）运行限制（默认 `timeout_ms: 60000`、`heap_mb: 128`） |
 | `pod.base.limits` | 租户 | Base 查询与记录限制（默认 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
 | `pod.spreadsheet.limits` | 租户 | 电子表格页面限制：可在线打开的最大文件（`max_file_bytes: 20971520`），以及编辑何时写回文件（`compaction_idle_seconds: 30`、`compaction_op_threshold: 100`、`compaction_structural_threshold: 10`） |
-| `drive.trash_retention_days` | 租户 | Ankole 在自动彻底删除前保留已删除 Drive 节点的天数；默认 `30`，设为 `0` 时无限期保留 |
+| `drive.trash_retention_days` | 租户 | Ankole 在自动彻底删除前保留已删除 Drive 节点的天数；默认 `30`，设为 `0` 时在修改此配置前无限期保留 |
+| `drive.vfs_max_upload_bytes` | 站点 | Worker `/drive` VFS 单文件最大上传字节数；默认 `0` 表示沿用底层对象存储上传上限 |
 | `pod.ot_replay_window` | 租户 | 为协同文档 OT 重放保留的最近变更批次数；默认 `1000` |
 
 ### Workflow

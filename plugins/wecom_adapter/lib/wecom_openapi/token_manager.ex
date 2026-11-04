@@ -77,21 +77,12 @@ defmodule WeComOpenAPI.TokenManager do
   end
 
   defp ensure_started(%Client{} = client) do
-    cache_namespace = Client.cache_namespace(client)
-
-    case Registry.lookup(WeComOpenAPI.TokenRegistry, cache_namespace) do
-      [{pid, _}] ->
-        pid
-
-      [] ->
-        case DynamicSupervisor.start_child(
-               WeComOpenAPI.TokenManager.Supervisor,
-               {__MODULE__, client}
-             ) do
-          {:ok, pid} -> pid
-          {:error, {:already_started, pid}} -> pid
-        end
-    end
+    TokenCache.ensure_started(
+      WeComOpenAPI.TokenRegistry,
+      WeComOpenAPI.TokenManager.Supervisor,
+      Client.cache_namespace(client),
+      {__MODULE__, client}
+    )
   end
 
   defp do_fetch(%Client{} = client, {:corp, _ns} = key) do

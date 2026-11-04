@@ -40,6 +40,11 @@ test('typing immediately after a colleague mention keeps every character in orde
     const input = comments(page).getByRole('textbox', { name: '添加评论…', exact: true })
     await input.fill(`@${state.agent_uid}`)
     await expect(comments(page).getByRole('option')).toHaveCount(1)
+    for (const isComposing of [true, false]) {
+      await input.dispatchEvent('keydown', { key: 'Enter', keyCode: 229, isComposing })
+      await expect(input).toHaveValue(`@${state.agent_uid}`)
+      await expect(comments(page).getByRole('option')).toHaveCount(1)
+    }
     await page.clock.pauseAt(new Date(clockStart.getTime() + 60_000))
     await input.press('Enter')
     await expect(input).toHaveValue('@Browser content Agent ')
