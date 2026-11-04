@@ -9,7 +9,7 @@ defmodule FeishuOpenAPI.Request do
   overrides` before the actual HTTP call happens.
   """
 
-  alias FeishuOpenAPI.{Client, Error, Spec, TokenManager, UserTokenManager}
+  alias FeishuOpenAPI.{Client, Error, Spec, TokenManager}
 
   @type req_opts :: keyword()
 
@@ -40,16 +40,11 @@ defmodule FeishuOpenAPI.Request do
     {:ok, bearer(token)}
   end
 
-  defp resolve_auth(%Client{} = client, %Spec{user_access_token_key: key}) when is_binary(key) do
-    with {:ok, token} <- UserTokenManager.get(client, key), do: {:ok, bearer(token)}
-  end
-
   defp resolve_auth(_client, %Spec{access_token_type: :user_access_token}) do
     {:error,
      %Error{
        code: :user_access_token_missing,
-       msg:
-         "access_token_type: :user_access_token requires user_access_token: or user_access_token_key:"
+       msg: "access_token_type: :user_access_token requires user_access_token:"
      }}
   end
 

@@ -1,5 +1,5 @@
 defmodule Ankole.Pod.AgentPages do
-  @moduledoc "Page reads and explicit edits within an Agent conversation's disclosure boundary."
+  @moduledoc "Page operations use the executing Actor; Brain also applies the conversation disclosure boundary."
   require Ash.Query
   alias Ankole.{AuthZ, Kernel, Repo}
   alias Ankole.Brain.Access, as: KnowledgeAccess
@@ -24,7 +24,7 @@ defmodule Ankole.Pod.AgentPages do
   end
 
   def children(actor, context, nil) do
-    with {:ok, reachable} <- KnowledgeAccess.visibility(context),
+    with {:ok, reachable} <- business_visibility(context),
          {:ok, directory} <-
            Ankole.Pod.Pages.Queries.list_children(actor, nil, %{reachable: reachable}),
          do: {:ok, Enum.map(directory.pages, &summary/1)}
@@ -77,64 +77,49 @@ defmodule Ankole.Pod.AgentPages do
            })
   end
 
-  @doc "Requires page visibility for every recipient and edit rights for the Agent and requester."
+  @doc "Uses the executing Actor's permissions, with audience and requester checks for Brain."
   def editable(actor, context, page),
     do: authorize_change(actor, context, page, "node_edit")
 
   def authorize_change(actor, context, page, action, opts \\ []) do
-    with {:ok, _} <- visible(context, page, opts),
-         {:ok, _} <- Access.authorize(actor, page, action, opts),
-         :ok <- requester_authorize(context, page, action, opts),
-         do: :ok
-  end
-
-  @doc "Applies the conversation boundary to every Brain node, including file attachments."
-  def authorize_brain_turn(%AuthZ.Actor{turn_authority: {ref, _}} = actor, page, action, opts)
-      when (is_struct(ref, Ankole.Sessions.RunRef) or is_struct(ref, Ankole.Sessions.JobTurnRef)) and
-             page.type in [:knowledge, :file] do
-    with {:ok, root} <- Pages.Tree.root(page.id) do
-      if root.system_key == "ankole_brain" do
-        with {:ok, context} <-
-               Ankole.Brain.RequestContext.build(actor.principal.uid, %{
-                 "signal_id" => ref.signal_id
-               }),
-             {:ok, _} <- visible(context, page, opts),
-             :ok <-
-               requester_authorize(
-                 %{context | authn: actor.authn},
-                 page,
-                 Keyword.get(opts, :requester_action, action),
-                 opts
-               ),
-             do: :ok
-      else
-        :ok
-      end
+    if Access.brain_page?(page) do
+      KnowledgeAccess.authorize_change(actor, context, page, action, opts)
+    else
+      with {:ok, _} <- Access.authorize(actor, page, action, opts), do: :ok
     end
   end
 
-  def authorize_brain_turn(_actor, _page, _action, _opts), do: :ok
-
-  defp requester_authorize(%{disclosure: %{asker_uid: uid}} = context, page, action, opts)
-       when is_binary(uid) do
-    with {:ok, principal} <- Ankole.Principals.get_principal(uid),
-         {:ok, _} <-
-           Access.authorize(
+  def business_visibility(context, opts \\ []) do
+    with {:ok, principal} <- Ankole.Principals.get_principal(context.querier_uid),
+         do:
+           Access.reachable_anchors(
              AuthZ.Actor.new(principal, authn: Map.get(context, :authn, %{})),
-             page,
-             action,
              opts
-           ),
-         do: :ok
+           )
   end
 
-  defp requester_authorize(_context, _page, _action, _opts), do: :ok
+  @doc "Combines business permissions with Brain disclosure for lists spanning both domains."
+  def visibility(context, opts \\ []) do
+    with {:ok, business} <- business_visibility(context, opts),
+         {:ok, brain} <- KnowledgeAccess.visibility(context, opts) do
+      ids =
+        case Ankole.Pod.Pages.Tree.system_node("ankole_brain") do
+          {:ok, root} -> Ankole.Pod.descendant_node_ids(root.id)
+          {:error, :not_found} -> []
+        end
+
+      {:ok, Map.merge(Map.drop(business, ids), Map.take(brain, ids))}
+    end
+  end
 
   def visible(context, page, opts \\ []) do
     trash = Keyword.get(opts, :trash, false)
     graph_opts = if trash, do: [trash_page_ids: [page.id]], else: []
 
-    with {:ok, reachable} <- KnowledgeAccess.visibility(context, graph_opts),
+    visibility =
+      if Access.brain_page?(page), do: &KnowledgeAccess.visibility/2, else: &business_visibility/2
+
+    with {:ok, reachable} <- visibility.(context, graph_opts),
          {:ok, _} <- Access.authorize_reachable(page, "node_view", reachable, trash: trash),
          do: {:ok, reachable},
          else: (_ -> {:error, :not_found})

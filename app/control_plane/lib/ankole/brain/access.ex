@@ -12,6 +12,66 @@ defmodule Ankole.Brain.Access do
           present_uids: [String.t()]
         }
 
+  @doc "Applies the conversation boundary to every Brain node, including file attachments."
+  def authorize_turn(%Ankole.AuthZ.Actor{turn_authority: {ref, _}} = actor, page, action, opts)
+      when (is_struct(ref, Ankole.Sessions.RunRef) or is_struct(ref, Ankole.Sessions.JobTurnRef)) and
+             page.type in [:knowledge, :file] do
+    with {:ok, root} <- Ankole.Pod.Pages.Tree.root(page.id) do
+      if root.system_key == "ankole_brain" do
+        with {:ok, context} <-
+               Ankole.Brain.RequestContext.build(actor.principal.uid, %{
+                 "signal_id" => ref.signal_id
+               }),
+             {:ok, _} <- visible_page(context, page, opts),
+             :ok <-
+               requester_authorize(
+                 %{context | authn: actor.authn},
+                 page,
+                 Keyword.get(opts, :requester_action, action),
+                 opts
+               ),
+             do: :ok
+      else
+        :ok
+      end
+    end
+  end
+
+  def authorize_turn(_actor, _page, _action, _opts), do: :ok
+
+  defp requester_authorize(%{disclosure: %{asker_uid: uid}} = context, page, action, opts)
+       when is_binary(uid) do
+    with {:ok, principal} <- Ankole.Principals.get_principal(uid),
+         {:ok, _} <-
+           Ankole.Pod.Access.authorize(
+             Ankole.AuthZ.Actor.new(principal, authn: Map.get(context, :authn, %{})),
+             page,
+             action,
+             opts
+           ),
+         do: :ok
+  end
+
+  defp requester_authorize(_context, _page, _action, _opts), do: :ok
+
+  def authorize_change(actor, context, page, action, opts) do
+    with {:ok, _} <- visible_page(context, page, opts),
+         {:ok, _} <- Ankole.Pod.Access.authorize(actor, page, action, opts),
+         :ok <- requester_authorize(context, page, action, opts),
+         do: :ok
+  end
+
+  defp visible_page(context, page, opts) do
+    trash = Keyword.get(opts, :trash, false)
+    graph_opts = if trash, do: [trash_page_ids: [page.id]], else: []
+
+    with {:ok, reachable} <- visibility(context, graph_opts),
+         {:ok, _} <-
+           Ankole.Pod.Access.authorize_reachable(page, "node_view", reachable, trash: trash),
+         do: {:ok, reachable},
+         else: (_ -> {:error, :not_found})
+  end
+
   def open_disclosure, do: %{mode: :relaxed, asker_uid: nil, present_uids: []}
   def for_querier(uid), do: for_readers(uid, open_disclosure())
   def for_readers(uid, disclosure), do: for_context(%{querier_uid: uid, disclosure: disclosure})

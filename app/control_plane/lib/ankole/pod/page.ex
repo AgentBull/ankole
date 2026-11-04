@@ -209,8 +209,18 @@ defmodule Ankole.Pod.Page do
         :purge_started_at,
         :created_at,
         :updated_at,
-        :title
+        :title,
+        :icon,
+        :position,
+        :metadata,
+        :saved_from_message_id,
+        :children_view,
+        :vfs_md_size,
+        :vfs_md_blake3,
+        :vfs_content_empty
       ])
+
+      validate(Ankole.Pod.Validations.ChildrenView)
     end
 
     update :update_in_tx do

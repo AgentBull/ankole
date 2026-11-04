@@ -55,13 +55,19 @@ export function PagePicker({
   const visibleRoots = roots.filter(root => root.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
   const byID = new Map([...pages, ...ancestors].map(page => [page.id, page]))
   const parentTitle = (page: Page) => {
-    const ancestors = pageAncestors(page, byID).map(parent => parent.title || t('pod.content.untitled'))
+    const chain = pageAncestors(page, byID)
+    const root = chain[0] ?? page
+    const ancestors = chain
+      .filter(parent => domain === 'brain' || parent.parent_id != null)
+      .map(parent => parent.title || t('pod.content.untitled'))
     const scope =
       domain === 'brain'
         ? t('pod.meta.brain')
-        : page.private_owner_uid
+        : root.private_owner_uid
           ? t('pod.content.private')
-          : t('pod.content.space')
+          : root.parent_id == null
+            ? t('pod.content.space')
+            : t('pod.content.shared_with_me')
     return ancestors.length > 0 ? `${scope} / ${ancestors.join(' / ')}` : scope
   }
   return (

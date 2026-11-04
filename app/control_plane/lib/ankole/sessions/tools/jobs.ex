@@ -415,13 +415,13 @@ defmodule Ankole.Sessions.Tools.Jobs do
           )
         end
 
-      {:ok, result, []}
+      {:ok, result, [fn -> Ankole.BackgroundAgentJobs.Lifecycle.publish_status_commit(value) end]}
     end)
   end
 
   defp job_result(value) do
     {:ok, Tools.result(%{"job_id" => value.job.id, "status" => Atom.to_string(value.job.status)}),
-     []}
+     [fn -> Ankole.BackgroundAgentJobs.Lifecycle.publish_status_commit(value) end]}
   end
 
   defp project_prepared({:ok, sessions, commit}, project) do

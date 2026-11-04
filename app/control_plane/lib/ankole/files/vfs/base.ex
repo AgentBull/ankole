@@ -457,7 +457,7 @@ defmodule Ankole.Files.Vfs.Base do
     Ankole.Pod.Access.write(
       scope.actor.turn_authority,
       fn ->
-        with {:ok, access} <- Ankole.Brain.Access.for_context(scope.context),
+        with {:ok, access} <- Ankole.Brain.Access.for_querier(scope.context.querier_uid),
              {:ok, _} <-
                Namespace.authorize(%{scope | access: access}, entry.node, "node_contribute"),
              {:ok, table} <- Bases.fetch_table(entry.base_write.table_id),

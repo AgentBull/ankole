@@ -21,7 +21,15 @@ defmodule Ankole.Schedule.Projections do
   # channel. A model asked "how many targets" otherwise has to guess, and a guess
   # reads as fact in the reply.
   @spec cron_model_projection(CronSchedule.t()) :: map()
-  def cron_model_projection(%CronSchedule{} = schedule) do
+  def cron_model_projection(schedule), do: hd(cron_model_projections([schedule]))
+
+  def cron_model_projections(schedules) do
+    schedules
+    |> Enum.zip(Ankole.Signals.source_automation_job_ids(schedules))
+    |> Enum.map(fn {schedule, job_id} -> cron_projection(schedule, job_id) end)
+  end
+
+  defp cron_projection(%CronSchedule{} = schedule, job_id) do
     %{
       "name" => schedule.name,
       "status" => Atom.to_string(schedule.status),
@@ -32,7 +40,7 @@ defmodule Ankole.Schedule.Projections do
       "delivery_target_count" => delivery_target_count(schedule),
       "next_fire_at" => Planner.datetime(schedule.next_fire_at),
       "last_fire_at" => Planner.datetime(schedule.last_fire_at),
-      "automation_job_id" => Ankole.Signals.source_automation_job_id(schedule)
+      "automation_job_id" => job_id
     }
   end
 
@@ -44,7 +52,19 @@ defmodule Ankole.Schedule.Projections do
   end
 
   @spec event_model_projection(ScheduledEvent.t()) :: map()
-  def event_model_projection(%ScheduledEvent{kind: "check_back_later"} = event) do
+  def event_model_projection(event), do: hd(event_model_projections([event]))
+
+  def event_model_projections(events) do
+    receipts = Ankole.Signals.delivery_receipts_by_signal(Enum.map(events, & &1.signal_id))
+
+    events
+    |> Enum.zip(Ankole.Signals.source_automation_job_ids(events))
+    |> Enum.map(fn {event, job_id} ->
+      event_projection(event, job_id, Map.get(receipts, event.signal_id, []))
+    end)
+  end
+
+  defp event_projection(%ScheduledEvent{kind: "check_back_later"} = event, job_id, receipts) do
     wake_payload = event.wake_payload || %{}
 
     %{
@@ -56,11 +76,11 @@ defmodule Ankole.Schedule.Projections do
       "check" => wake_payload["check"],
       "context_summary" => wake_payload["context_summary"],
       "quiet_success" => wake_payload["quiet_success"] == true,
-      "automation_job_id" => Ankole.Signals.source_automation_job_id(event),
-      "automation_job_run_id" => event_run_id(event),
+      "automation_job_id" => job_id,
+      "automation_job_run_id" => Enum.find_value(receipts, & &1.automation_job_run_id),
       "deliveries" =>
         Enum.map(
-          Ankole.Signals.delivery_receipts(event.signal_id),
+          receipts,
           &Map.take(&1, [:automation_job_run_id, :delivered_signal_id])
         ),
       "fired_at" => Planner.datetime(event.fired_at),
@@ -69,7 +89,7 @@ defmodule Ankole.Schedule.Projections do
     }
   end
 
-  def event_model_projection(%ScheduledEvent{kind: "cron_fire"} = event) do
+  defp event_projection(%ScheduledEvent{kind: "cron_fire"} = event, job_id, receipts) do
     wake_payload = event.wake_payload || %{}
 
     %{
@@ -77,11 +97,11 @@ defmodule Ankole.Schedule.Projections do
       "due_at" => Planner.datetime(event.due_at),
       "timezone" => event.timezone,
       "trigger" => wake_payload["trigger"],
-      "automation_job_id" => Ankole.Signals.source_automation_job_id(event),
-      "automation_job_run_id" => event_run_id(event),
+      "automation_job_id" => job_id,
+      "automation_job_run_id" => Enum.find_value(receipts, & &1.automation_job_run_id),
       "deliveries" =>
         Enum.map(
-          Ankole.Signals.delivery_receipts(event.signal_id),
+          receipts,
           &Map.take(&1, [:automation_job_run_id, :delivered_signal_id])
         ),
       "fired_at" => Planner.datetime(event.fired_at),
@@ -89,11 +109,6 @@ defmodule Ankole.Schedule.Projections do
       "last_error" => model_last_error(event.last_fire_error)
     }
   end
-
-  defp event_run_id(event),
-    do:
-      Ankole.Signals.delivery_receipts(event.signal_id)
-      |> Enum.find_value(& &1.automation_job_run_id)
 
   defp model_last_error(error) when is_map(error) do
     case Ankole.Attrs.get_string_first(error, "reason") do

@@ -22,8 +22,7 @@ defmodule FeishuOpenAPI do
   The client defaults to a `tenant_access_token`, automatically fetched and
   cached (see `FeishuOpenAPI.TokenManager`). Pass
   `access_token_type: :app_access_token`, `access_token_type: nil`,
-  `user_access_token: "u-..."`, or `user_access_token_key: "user-1"` to
-  override. Passing a `user_access_token`/`user_access_token_key` without
+  `user_access_token: "u-..."` to override. Passing a `user_access_token` without
   an explicit `access_token_type:` implies `:user_access_token`.
 
   `body` / `query` / `path_params` / `headers` / `req_options` are forwarded
@@ -35,7 +34,7 @@ defmodule FeishuOpenAPI do
 
   require Logger
 
-  alias FeishuOpenAPI.{Client, Error, Request, Spec, TokenManager, UserTokenManager}
+  alias FeishuOpenAPI.{Client, Error, Request, Spec, TokenManager}
 
   # Feishu business codes the SDK reacts to (everything else is surfaced as-is):
   #   * @token_invalid_codes — the access token went stale; drop it and retry once.
@@ -94,8 +93,6 @@ defmodule FeishuOpenAPI do
     * `:access_token_type` — `:tenant_access_token` (default),
       `:app_access_token`, `:user_access_token`, or `nil` for no auth header
     * `:user_access_token` — if set, wins over any token-manager lookup
-    * `:user_access_token_key` — if set, uses `FeishuOpenAPI.UserTokenManager`
-      to inject a cached `user_access_token` and auto-refresh it when expired
     * `:tenant_key` — marketplace-app tenant id
     * `:req_options` — options merged into the `Req` call
     * `:form_multipart` — passed through to Req (use `FeishuOpenAPI.upload/3`)
@@ -477,15 +474,11 @@ defmodule FeishuOpenAPI do
   defp maybe_recover_app_ticket(_client), do: :ok
 
   # Drop exactly the cached credential that just failed, so the retry refetches
-  # it. Managed user tokens keep their refresh_token and only expire the stale
-  # access token, allowing the retry to refresh through UserTokenManager.
+  # it. Explicit user tokens are owned by the caller.
   defp invalidate_for_retry(client, %Spec{} = spec) do
     cond do
       is_binary(spec.user_access_token) ->
         :ok
-
-      is_binary(spec.user_access_token_key) ->
-        UserTokenManager.expire_access_token(client, spec.user_access_token_key)
 
       spec.access_token_type == :user_access_token ->
         :ok

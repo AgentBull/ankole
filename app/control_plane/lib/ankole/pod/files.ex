@@ -252,16 +252,62 @@ defmodule Ankole.Pod.Files do
 
   def publish(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, files, authority)
       when is_list(files) do
+    publish_prepared(actor, page_id, base_revision, files, authority, MapSet.new())
+  end
+
+  def publish(_uid, _page_id, _base_revision, _files, _authority), do: {:error, :invalid_manifest}
+
+  @doc "Streams Worker build artifacts into immutable storage, then commits one Applet manifest."
+  def publish_from_worker(actor, page_id, base_revision, files, worker, authority)
+      when is_list(files) do
+    with {:ok, page} <- Pages.authorize(actor, page_id, "node_edit"),
+         :ok <- require_type(page, :applet),
+         {:ok, maximum} <- Drive.upload_limit(),
+         {:ok, stored} <- stage_worker_files(files, worker, maximum),
+         {:ok, _} <-
+           Repo.transact_top_level(fn ->
+             stored |> Enum.map(&Drive.complete_object_in_tx/1) |> Ankole.Attrs.collect_results()
+           end) do
+      owned = MapSet.new(stored, & &1.object_id)
+      publish_prepared(actor, page_id, base_revision, stored, authority, owned)
+    end
+  end
+
+  def publish_from_worker(_actor, _page_id, _revision, _files, _worker, _authority),
+    do: {:error, :invalid_manifest}
+
+  defp stage_worker_files(files, worker, maximum) do
+    Enum.reduce_while(files, {:ok, []}, fn file, {:ok, stored} ->
+      with {:ok, source} <- Drive.normalize_path(Ankole.Attrs.get(file, :home_relative_path)),
+           {:ok, %{"body" => body}} <-
+             Ankole.WorkerFiles.stream(source, worker: worker, max_bytes: maximum),
+           {:ok, object} <- Drive.store(body) do
+        {:cont,
+         {:ok,
+          [
+            Map.merge(object, %{
+              path: Ankole.Attrs.get(file, :path),
+              content_type: Ankole.Attrs.get(file, :content_type)
+            })
+            | stored
+          ]}}
+      else
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp publish_prepared(actor, page_id, base_revision, files, authority, owned) do
     authority = authority || actor.turn_authority
 
     with {:ok, _} <- Pages.authorize(actor, page_id, "node_edit"),
          {:ok, upserts} <- publish_files(page_id, files),
-         :ok <- own_publish_contents(actor, page_id, upserts),
+         :ok <- own_publish_contents(actor, page_id, upserts, owned),
          {:ok, env} <- validate_environment(page_id, upserts),
          {:ok, routes} <- inspect_backend(page_id, upserts, env) do
       Access.write(
         authority,
-        fn -> publish_in_tx(actor, page_id, base_revision, upserts, routes) end,
+        fn -> publish_in_tx(actor, page_id, base_revision, upserts, routes, owned) end,
         before_fence: fn ->
           Ankole.AutomationJobs.sync_applet_policies_in_tx(page_id, routes["actions"])
         end,
@@ -269,8 +315,6 @@ defmodule Ankole.Pod.Files do
       )
     end
   end
-
-  def publish(_uid, _page_id, _base_revision, _files, _authority), do: {:error, :invalid_manifest}
 
   @doc "Parses the authoritative page directory in a Pod drive path."
   def parse_path("pages/" <> rest) do
@@ -299,11 +343,18 @@ defmodule Ankole.Pod.Files do
     end)
   end
 
-  defp publish_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, upserts, routes) do
+  defp publish_in_tx(
+         %Ankole.AuthZ.Actor{} = actor,
+         page_id,
+         base_revision,
+         upserts,
+         routes,
+         owned
+       ) do
     write_file_in_tx(actor, page_id, "node_edit", fn page ->
       with :ok <- require_type(page, :applet),
            :ok <- revision(page, base_revision),
-           :ok <- own_publish_contents(actor, page.id, upserts),
+           :ok <- own_publish_contents(actor, page.id, upserts, owned),
            {:ok, result} <-
              commit_files_in_tx(page.id, upserts, [
                "src",
@@ -537,13 +588,14 @@ defmodule Ankole.Pod.Files do
   def required_upload_action(_role), do: "node_edit"
 
   # An object ID names bytes, not authority. The publication must reference a
-  # current asset of this Applet or an explicit path on the executing Agent's Drive.
-  defp own_publish_contents(%Ankole.AuthZ.Actor{} = actor, page_id, upserts) do
+  # current Applet asset, bytes received from the authenticated Worker, or an
+  # explicit path on the executing Agent's Drive.
+  defp own_publish_contents(%Ankole.AuthZ.Actor{} = actor, page_id, upserts, owned) do
     with {:ok, files} <- all_files(page_id) do
       current = MapSet.new(files, & &1.object_id)
 
       if Enum.all?(upserts, fn file ->
-           MapSet.member?(current, file.object_id) or
+           MapSet.member?(owned, file.object_id) or MapSet.member?(current, file.object_id) or
              case Drive.fetch(actor, file.source_path) do
                {:ok, %{object_id: id}} -> id == file.object_id
                _ -> false

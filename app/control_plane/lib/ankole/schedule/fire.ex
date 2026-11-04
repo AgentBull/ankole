@@ -41,7 +41,7 @@ defmodule Ankole.Schedule.Fire do
 
         case result do
           {:error, reason} -> {:error, {:cron_fire_failed, reason, schedule.next_fire_at}}
-          result -> result
+          {:ok, plan} -> {:ok, Map.put(plan, :schedule_snapshot, schedule)}
         end
 
       _ ->
@@ -120,7 +120,7 @@ defmodule Ankole.Schedule.Fire do
       with :ok <- authorize_work_in_tx(schedule),
            %CronSchedule{} = locked <-
              Store.lock_cron_schedule(schedule.id, :prepared),
-           true <- same_cron_fire?(locked, schedule) do
+           true <- same_cron_fire?(locked, plan.schedule_snapshot) do
         fire_locked_cron_in_tx(locked, now, plan)
       else
         false -> {:error, :cron_schedule_changed}
@@ -130,20 +130,9 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp same_cron_fire?(locked, schedule) do
-    locked.status == :active and
-      Map.take(locked, [
-        :next_fire_at,
-        :authorization_kind,
-        :human_uid,
-        :human_access_version
-      ]) ==
-        Map.take(schedule, [
-          :next_fire_at,
-          :authorization_kind,
-          :human_uid,
-          :human_access_version
-        ])
+  defp same_cron_fire?(locked, snapshot) do
+    locked.status == :active and locked.updated_at == snapshot.updated_at and
+      locked.next_fire_at == snapshot.next_fire_at
   end
 
   defp fire_locked_cron_in_tx(schedule, now, plan) do
@@ -373,13 +362,12 @@ defmodule Ankole.Schedule.Fire do
   end
 
   defp deliver_scheduled_event(event, now, plan) do
-    signal =
-      signal_payload(event, now)
-      |> Map.put("signal_id", plan.signal["signal_id"])
-      |> Map.put("source", plan.signal["source"])
+    expected = signal_payload(event, now) |> Map.delete("source")
+    prepared = Map.take(plan.signal, Map.keys(expected))
 
-    deliveries = Enum.map(plan.deliveries, &%{&1 | signal: signal})
-    Ankole.Signals.deliver_dispatch_in_tx(%{plan | signal: signal, deliveries: deliveries})
+    if expected == prepared,
+      do: Ankole.Signals.deliver_dispatch_in_tx(plan),
+      else: {:error, :scheduled_event_changed}
   end
 
   defp mark_event_fired(event, delivery, now) do

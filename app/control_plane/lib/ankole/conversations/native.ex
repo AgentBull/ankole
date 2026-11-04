@@ -454,7 +454,11 @@ defmodule Ankole.Conversations.Native do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
 
     with :ok <- Repo.require_transaction(),
-         :ok <- Ankole.Pod.lock_tree_in_tx(),
+         :ok <-
+           if(Ankole.Attrs.get(attrs, :attachments, []) not in [nil, []],
+             do: Ankole.Pod.lock_tree_in_tx(),
+             else: :ok
+           ),
          {:ok, id} <- Queries.cast_id(id),
          {:ok, message_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
          {:ok, mode} <- delivery_mode(Ankole.Attrs.get(attrs, :delivery_mode)),
@@ -516,6 +520,89 @@ defmodule Ankole.Conversations.Native do
         %Ankole.Conversations.Statement{} = statement
       ),
       do: Ankole.Conversations.Delivery.Posting.post_in_tx(target, statement)
+
+  def post_in_tx(
+        %StatementTarget{kind: :native} = target,
+        %{completion: %{clarify_prompt: %{"interactive_output" => prompt}}} = statement
+      ) do
+    alias Ankole.Conversations.{Native, PostResult}
+    alias Ankole.Conversations.Delivery.{Interactions, ReplyPresentation}
+    event = statement.signal
+    interaction_id = event.id <> ":" <> prompt["interaction_id"]
+
+    clarify = %{
+      "tool_call_id" => String.replace_prefix(prompt["interaction_id"], "clarify:", ""),
+      "interaction_id" => interaction_id,
+      "question" => prompt["body"],
+      "choices" => prompt["choices"],
+      "allow_free_text" => prompt["free_input"] == true
+    }
+
+    presentation =
+      ReplyPresentation.new(state: "awaiting_input")
+      |> ReplyPresentation.interaction_request(event.id, prompt)
+
+    final = %{statement | completion: Map.put(statement.completion, :clarify_prompt, nil)}
+
+    with {:ok, posted} <- Ankole.Conversations.post_in_tx(target, final),
+         {:ok, message} <-
+           Native.post_native_in_tx(target.conversation_id, event, prompt["body"], :message, [],
+             delivery_key: prompt["interaction_id"],
+             rich_content:
+               if(posted.messages == [],
+                 do: %{"clarify" => clarify, "execution" => statement.completion[:execution]},
+                 else: %{"clarify" => clarify}
+               )
+           ),
+         {:ok, _event} <-
+           Interactions.open_in_tx(
+             event,
+             presentation,
+             statement.now || DateTime.utc_now(:microsecond)
+           ) do
+      {:ok, PostResult.merge(posted, %PostResult{messages: [message]})}
+    end
+  end
+
+  def post_in_tx(
+        %StatementTarget{kind: :native} = target,
+        %{completion: %{action_card_prompt: %{"interactive_output" => output} = prompt}} =
+          statement
+      ) do
+    alias Ankole.Conversations.{ActionCards, Native, PostResult}
+    alias Ankole.Conversations.Delivery.{Interactions, ReplyPresentation}
+    event = statement.signal
+
+    presentation =
+      ReplyPresentation.new(state: "awaiting_input")
+      |> ReplyPresentation.interaction_request(event.id, output)
+
+    final = %{statement | completion: Map.put(statement.completion, :action_card_prompt, nil)}
+
+    with {:ok, card} <- ActionCards.commit_prepared_in_tx(event, target.conversation_id, prompt),
+         {:ok, posted} <- Ankole.Conversations.post_in_tx(target, final),
+         card_json = ActionCards.client_card_state(card),
+         {:ok, message} <-
+           Native.post_native_in_tx(target.conversation_id, event, prompt["body"], :message, [],
+             delivery_key: prompt["interaction_id"],
+             rich_content:
+               if(posted.messages == [],
+                 do: %{
+                   "action_card" => card_json,
+                   "execution" => statement.completion[:execution]
+                 },
+                 else: %{"action_card" => card_json}
+               )
+           ),
+         {:ok, _event} <-
+           Interactions.open_in_tx(
+             event,
+             presentation,
+             statement.now || DateTime.utc_now(:microsecond)
+           ) do
+      {:ok, PostResult.merge(posted, %PostResult{messages: [message]})}
+    end
+  end
 
   def post_in_tx(
         %StatementTarget{kind: :native} = target,
@@ -957,9 +1044,14 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  def active_human?(%Ankole.AuthZ.Actor{} = actor) do
-    with {:ok, %{type: :human, status: :active} = principal} <-
-           Ankole.Principals.get_principal(Ankole.AuthZ.Actor.uid(actor)),
+  def active_human?(actor, current_principal \\ nil) do
+    current =
+      if current_principal,
+        do: {:ok, current_principal},
+        else: Ankole.Principals.get_principal(Ankole.AuthZ.Actor.uid(actor))
+
+    with {:ok, %{type: :human, status: :active} = principal} <- current,
+         true <- principal.uid == Ankole.AuthZ.Actor.uid(actor),
          {:ok, _} <- Ankole.Pod.principal(%{actor | principal: principal}),
          do: true,
          else: (_ -> false)
@@ -967,7 +1059,10 @@ defmodule Ankole.Conversations.Native do
 
   @doc false
   def visible_conversation(actor, id, opts \\ []), do: NativeRoom.visible(actor, id, opts)
-  def visible_conversation?(actor, id), do: not is_nil(visible_conversation(actor, id))
+
+  def visible_conversation?(actor, id, opts \\ []),
+    do: not is_nil(visible_conversation(actor, id, opts))
+
   def room_agents(id), do: NativeRoom.agents(id)
   def conversation_agent(id), do: List.first(room_agents(id))
 

@@ -118,6 +118,11 @@ defmodule Ankole.Signals do
 
   defdelegate lock_dispatch_in_tx(plan, works \\ []), to: Ankole.Signals.Dispatch, as: :lock_in_tx
   defdelegate deliver_dispatch_in_tx(plan), to: Ankole.Signals.Dispatch, as: :deliver_in_tx
+
+  defdelegate delivery_receipts_by_signal(ids),
+    to: Ankole.Signals.Dispatch,
+    as: :receipts_by_signal
+
   defdelegate delivery_receipts(signal_id), to: Ankole.Signals.Dispatch, as: :receipts
   defdelegate source_deliveries(reference), to: Ankole.Signals.SourceBindings, as: :deliveries
 

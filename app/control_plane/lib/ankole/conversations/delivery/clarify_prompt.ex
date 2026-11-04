@@ -11,9 +11,9 @@ defmodule Ankole.Conversations.Delivery.ClarifyPrompt do
 
   @spec from_response_items(term()) :: {:ok, map() | nil} | {:error, term()}
   def from_response_items(items),
-    do: ToolOutput.last(items, @tool_name, &normalize_output/2)
+    do: ToolOutput.last(items, @tool_name, &from_output/2)
 
-  defp normalize_output(%{"tool" => @tool_name} = output, call_id) do
+  def from_output(%{"tool" => @tool_name} = output, call_id) do
     with {:ok, question} <- required_text(output, :question),
          {:ok, choices} <- normalize_choices(Map.get(output, "choices", [])) do
       fallback =
@@ -43,7 +43,7 @@ defmodule Ankole.Conversations.Delivery.ClarifyPrompt do
     end
   end
 
-  defp normalize_output(_output, _call_id), do: :ignore
+  def from_output(_output, _call_id), do: :ignore
 
   defp normalize_choices(choices) when is_list(choices) and length(choices) <= 4 do
     choices

@@ -614,7 +614,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
            turn_ref.session_id,
            args["limit"] || 10
          )
-         |> Enum.map(&Schedule.event_model_projection/1)
+         |> Schedule.event_model_projections()
      }}
   end
 
@@ -658,7 +658,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
        "schedules" =>
          turn_ref
          |> cron_schedules_for_turn()
-         |> Enum.map(&Schedule.cron_model_projection/1)
+         |> Schedule.cron_model_projections()
      }}
   end
 
@@ -676,7 +676,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
          "runs" =>
            schedule.id
            |> Schedule.list_cron_runs(args["limit"] || 25)
-           |> Enum.map(&Schedule.event_model_projection/1)
+           |> Schedule.event_model_projections()
        }}
     end
   end

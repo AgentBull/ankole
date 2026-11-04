@@ -73,7 +73,7 @@ defmodule Ankole.Pod.Applets.Invocation do
     log_outcome(context, started, outcome)
 
     outcome =
-      if context["principal"]["kind"] == "agent",
+      if context["principal"]["kind"] == "agent" or is_map(context["run"]),
         do: outcome,
         else: Map.drop(outcome, ["logs", "debug"])
 

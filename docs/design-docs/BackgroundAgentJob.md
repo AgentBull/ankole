@@ -639,14 +639,16 @@ Each `SKILL.md` frontmatter may declare an optional `ankole-runtime` target
 
 `ankole-runtime` governs Skill discovery and `skill_view` invocation rather than
 acting as a filesystem boundary inside an installed Plugin directory.
-The Worker materializes visible Skills at
+A Worker with Drive mounts reads selected Skill packages from its scoped
+`/drive/Skills` mount and links the turn's Skill directory to that view. A Worker
+without the mount materializes the packages at
 `/workspace/.ankole/turn-skills/<signal-id>/<skill-name>/`.
 
 Before each run, Agent Computer computes the loadable Skill set by intersecting
 the Job's frozen Skill selection with the Agent's currently enabled Skills and
 the `ankole-runtime` filter. Enablement depends on the Agent identity. The Worker
-materializes each permitted package in full, including its companion files, and
-the MCP loader reads those same files.
+uses the mounted packages when available, or materializes each permitted package
+in full with its companion files. The MCP loader reads the same selected packages.
 
 When a Job calls `skill_view`, the control plane reads the manifest, appends any
 active per-Agent lesson and marks the Skill as used. Reference files remain
@@ -990,6 +992,11 @@ written; and asks the human user only when a real user decision, approval, or
 missing user fact is needed.
 
 ## Hand Off a Lifecycle Notification
+
+The transaction owner publishes committed wakeup, dispatch, and command Signals
+after a create, message, stop, console completion, timeout, or worker rejection
+commits. A rollback publishes nothing. The persisted Signals and EnsureDriver
+recovery continue to own eventual execution.
 
 Transitioning to `succeeded`, `failed`, or `waiting_on_user` inserts an open
 lifecycle Signal for the originating conversation. When a foreground

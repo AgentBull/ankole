@@ -31,7 +31,8 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
           from j in Oban.Job, where: fragment("?->>'tenant_id' = ?", j.args, ^tenant.id)
         )
 
-        for table <- Ankole.Tenants.Jobs.Delete.tenant_tables() do
+        for table <-
+              (Ankole.Tenants.Jobs.Delete.tenant_tables() -- ["principals"]) ++ ["principals"] do
           Repo.query!("DELETE FROM #{table} WHERE tenant_id = $1::text::uuid", [tenant.id])
         end
 
@@ -40,6 +41,58 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     end)
 
     %{owner: owner, editor: editor, viewer: viewer, left: left, right: right, page: page}
+  end
+
+  test "text chat admission and completion proceed while an unrelated page tree edit holds its lock",
+       ctx do
+    actor = actor_fixture(ctx.owner)
+    agent = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: ctx.owner.uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(ctx.owner.uid, agent.uid)
+    id = Ecto.UUID.generate()
+
+    {:ok, _} =
+      Ankole.Conversations.create(actor, %{
+        conversation_id: id,
+        agent_uid: agent.uid,
+        message_id: Ecto.UUID.generate(),
+        text: "Review the project"
+      })
+
+    [signal] = Ankole.Signals.list_signals!(query: [filter: [conversation_id: id]])
+    parent = self()
+
+    tree_edit =
+      Task.async(
+        Repo.bind_tenant(fn ->
+          Repo.transact_top_level(fn ->
+            Ankole.Pod.lock_tree_in_tx()
+            send(parent, :tree_locked)
+            receive do: (:release -> {:ok, :released})
+          end)
+        end)
+      )
+
+    assert_receive :tree_locked, 5_000
+
+    try do
+      chat =
+        Task.async(
+          Repo.bind_tenant(fn ->
+            {:ok, run} = Ankole.Sessions.Admission.admit(signal, signal)
+            {:ok, _} = Ankole.Sessions.Run.finalize(run, :silent)
+
+            Ankole.Conversations.post(actor, id, %{
+              message_id: Ecto.UUID.generate(),
+              text: "Continue"
+            })
+          end)
+        )
+
+      assert {:ok, _} = Task.await(chat, 5_000)
+    after
+      send(tree_edit.pid, :release)
+      Task.await(tree_edit, 5_000)
+    end
   end
 
   test "the checked move holds grant and tree changes until the durable commit", ctx do

@@ -267,6 +267,14 @@ defmodule Ankole.PluginsTest do
              Contracts.validate("agent_workers.provider_kind", declaration)
   end
 
+  test "Connector declarations require the protocol entry points" do
+    assert {:error, {:missing_connector_callbacks, String, [tools: 0, call: 3]}} =
+             Contracts.validate("connectors.connector", %{module: String})
+
+    assert {:error, {:invalid_connector_declaration, %{}}} =
+             Contracts.validate("connectors.connector", %{})
+  end
+
   defp start_registry! do
     name = registry_name()
 

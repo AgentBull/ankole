@@ -123,33 +123,31 @@ defmodule Ankole.Pod.Pages do
       title = Ankole.Attrs.get(attrs, :title, "") |> Ankole.Files.Path.strip_bidi_and_controls()
       kind = Ankole.Attrs.get(attrs, :type, "doc")
 
-      with {:ok, node} <-
+      with {:ok, content, projection} <-
+             prepare_initial_content(kind, Ankole.Attrs.get(attrs, :xml), metadata),
+           {:ok, page} <-
              Nodes.create_in_tx(
                %{
                  parent_id: parent.id,
                  type: kind,
                  name: Nodes.name_from_title(title),
                  owner_uid: if(kind in [:applet, "applet"], do: uid),
-                 created_by: ActorRef.from_principal(principal)
-               },
-               opts
+                 created_by: ActorRef.from_principal(principal),
+                 title: title,
+                 icon: Ankole.Attrs.get(attrs, :icon),
+                 position: Ankole.Attrs.get(attrs, :position),
+                 saved_from_message_id: source && source.id,
+                 children_view: children_view,
+                 metadata: metadata
+               }
+               |> Map.merge(projection),
+               Keyword.put(opts, :initial_content, content)
              ),
-           {:ok, _} <-
-             initialize_metadata_in_tx(node.id, %{
-               title: title,
-               icon: Ankole.Attrs.get(attrs, :icon),
-               position: Ankole.Attrs.get(attrs, :position),
-               saved_from_message_id: source && source.id,
-               children_view: children_view,
-               metadata: metadata
-             }),
-           {:ok, page} <- fetch(node.id),
            :ok <-
              initial_content(
                page,
                uid,
-               Ankole.Attrs.get(attrs, :skip_default_table, false),
-               Ankole.Attrs.get(attrs, :xml)
+               Ankole.Attrs.get(attrs, :skip_default_table, false)
              ),
            :ok <- Ankole.Brain.Knowledge.page_changed_in_tx(page, nil),
            do: {:ok, page}
@@ -818,49 +816,42 @@ defmodule Ankole.Pod.Pages do
          else: (_ -> {:error, :forbidden})
   end
 
-  defp replace_initial_content(%{page_id: id} = attrs) do
-    content = PageContent |> Ash.Query.filter(page_id == ^id) |> Ankole.Ash.read_one!()
-    Ankole.Ash.update(content, :replace, Map.delete(attrs, :page_id))
+  defp prepare_initial_content(kind, xml, metadata)
+       when kind in [:doc, "doc", :knowledge, "knowledge"] do
+    kind = if kind in [:doc, "doc"], do: :doc, else: :knowledge
+
+    validate =
+      if kind == :doc,
+        do: &Ankole.Kernel.page_validate/1,
+        else: &Ankole.Kernel.knowledge_validate/1
+
+    with {:ok, parsed} <- validate.(xml || "<page />"),
+         {:ok, projection} <- Ankole.Kernel.vfs_projection(kind, parsed.xml, metadata),
+         do: {:ok, %{content: parsed.xml, plain_text: parsed.plain_text}, projection}
   end
 
-  defp initial_content(%{type: :knowledge} = page, _uid, _skip, xml) do
-    with {:ok, parsed} <- Ankole.Kernel.knowledge_validate(xml || "<page />"),
-         {:ok, projection} <- Ankole.Kernel.vfs_projection(:knowledge, parsed.xml, page.metadata),
-         {:ok, _} <- update_properties_in_tx(page, :cache_vfs_projection, projection),
-         {:ok, content} <-
-           replace_initial_content(%{
-             page_id: page.id,
-             content: parsed.xml,
-             plain_text: parsed.plain_text,
-             updated_by: page.created_by,
-             updated_at: page.updated_at
-           }),
+  defp prepare_initial_content(_kind, nil, _metadata), do: {:ok, nil, %{}}
+  defp prepare_initial_content(_kind, _xml, _metadata), do: {:error, :invalid_request}
+
+  defp initial_content(%{type: type} = page, _uid, _skip) when type in [:doc, :knowledge] do
+    content = PageContent |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.read_one!()
+
+    with :ok <- validate_initial_comments(page, content),
          do: History.checkpoint_in_tx(page, content, page.created_at, :created)
   end
 
-  defp initial_content(%{type: :doc} = page, uid, _skip, xml) do
-    with {:ok, parsed} <- Ankole.Kernel.page_validate(xml || "<page />"),
-         {:ok, projection} <- Ankole.Kernel.vfs_projection(:doc, parsed.xml, page.metadata),
-         {:ok, _} <- update_properties_in_tx(page, :cache_vfs_projection, projection),
-         {:ok, info} <- Ankole.Kernel.page_comment_info(parsed.xml),
-         :ok <- Ankole.Pod.Comments.validate_marks_in_tx(page.id, info.ids),
-         {:ok, content} <-
-           replace_initial_content(%{
-             page_id: page.id,
-             content: parsed.xml,
-             plain_text: parsed.plain_text,
-             updated_by: ActorRef.from_writer(uid, Repo.tenant_id!(), []),
-             updated_at: page.updated_at
-           }),
-         do: History.checkpoint_in_tx(page, content, page.created_at, :created)
-  end
-
-  defp initial_content(%{type: :base} = page, uid, false, nil) do
+  defp initial_content(%{type: :base} = page, uid, false) do
     with {:ok, _} <- Ankole.Pod.Bases.init_default_table_in_tx(page, uid), do: :ok
   end
 
-  defp initial_content(_page, _uid, _skip, nil), do: :ok
-  defp initial_content(_page, _uid, _skip, _xml), do: {:error, :invalid_request}
+  defp initial_content(_page, _uid, _skip), do: :ok
+
+  defp validate_initial_comments(%{type: :doc} = page, content) do
+    with {:ok, info} <- Ankole.Kernel.page_comment_info(content.content),
+         do: Ankole.Pod.Comments.validate_marks_in_tx(page.id, info.ids)
+  end
+
+  defp validate_initial_comments(_page, _content), do: :ok
 
   defp source_message(_uid, nil), do: {:ok, nil}
 

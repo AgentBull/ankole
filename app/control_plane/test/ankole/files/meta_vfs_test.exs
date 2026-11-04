@@ -149,6 +149,49 @@ defmodule Ankole.Files.MetaVfsTest do
     end
   end
 
+  test "a colleague keeps its business files when the requester cannot read them", ctx do
+    outsider = human_fixture().principal
+    category = Ankole.BrainFixtures.category_fixture(ctx.owner.uid)
+
+    {:ok, knowledge} =
+      Ankole.Pod.Pages.create(actor_fixture(ctx.owner), %{
+        type: :knowledge,
+        parent_id: category.id,
+        title: "Confidential note",
+        xml: "<page><p>Restricted knowledge</p></page>"
+      })
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, knowledge.id, %{
+        inherit_permissions: false,
+        grants: [
+          %{principal_uid: ctx.owner.uid, role: "manage"},
+          %{principal_uid: ctx.agent.uid, role: "view"}
+        ]
+      })
+
+    brain_path =
+      "Brain/#{category.name}/" <>
+        Ankole.Kernel.vfs_name(knowledge.name, :knowledge, knowledge.id)
+
+    assert request(ctx, "GET", brain_path).status == 200
+    {:ok, payload} = Auth.decode(ctx.grant.token)
+
+    payload =
+      Map.put(payload, "disclosure", %{
+        "mode" => "strict",
+        "asker_uid" => outsider.uid,
+        "present_uids" => [outsider.uid]
+      })
+
+    {:ok, token} = Ankole.SecretKeyBase.seal(Torque.encode!(payload), "drive.vfs", [])
+    scoped = %{ctx | grant: %{ctx.grant | token: token}}
+
+    assert request(scoped, "PUT", "AgentDrive/private-note.txt", "colleague notes").status == 201
+    assert request(scoped, "GET", "AgentDrive/private-note.txt").resp_body == "colleague notes"
+    assert request(scoped, "GET", brain_path).status == 404
+  end
+
   test "the warm capability mount does not depend on the original requester remaining active",
        ctx do
     {:ok, payload} = Auth.decode(ctx.grant.token)

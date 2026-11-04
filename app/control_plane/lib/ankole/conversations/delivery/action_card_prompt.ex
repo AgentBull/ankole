@@ -13,9 +13,9 @@ defmodule Ankole.Conversations.Delivery.ActionCardPrompt do
 
   @spec from_response_items(term()) :: {:ok, map() | nil} | {:error, term()}
   def from_response_items(items),
-    do: ToolOutput.last(items, @tool_name, &normalize_output/2)
+    do: ToolOutput.last(items, @tool_name, &from_output/2)
 
-  defp normalize_output(%{"tool" => @tool_name, "ok" => true} = output, call_id) do
+  def from_output(%{"tool" => @tool_name, "ok" => true} = output, call_id) do
     with {:ok, card_id} <- Ecto.UUID.cast(Map.get(output, "card_id")),
          action_kind when action_kind in @action_kinds_list <- Map.get(output, "action_kind"),
          {:ok, summary} <- sanitize_summary(Map.get(output, "summary")),
@@ -74,7 +74,7 @@ defmodule Ankole.Conversations.Delivery.ActionCardPrompt do
     end
   end
 
-  defp normalize_output(_output, _call_id), do: :ignore
+  def from_output(_output, _call_id), do: :ignore
 
   def sanitize_summary(summary) when is_binary(summary) do
     cleaned =

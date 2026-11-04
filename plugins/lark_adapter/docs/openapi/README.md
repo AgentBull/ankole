@@ -99,10 +99,9 @@ By default, every request attaches a cached `tenant_access_token`. You can overr
 
 - `access_token_type: :tenant_access_token` - default behavior
 - `access_token_type: :app_access_token` - attach an `app_access_token`
-- `access_token_type: :user_access_token` - pair with `user_access_token:` or `user_access_token_key:`
+- `access_token_type: :user_access_token` - pair with `user_access_token:`
 - `access_token_type: nil` - omit the `Authorization` header
 - `user_access_token: token` - send `Authorization: Bearer <token>` directly (implies `:user_access_token`)
-- `user_access_token_key: key` - load a managed `user_access_token` from `FeishuOpenAPI.UserTokenManager` (implies `:user_access_token`)
 
 Examples:
 
@@ -116,11 +115,6 @@ FeishuOpenAPI.get(client, "some/app-token-only/api", access_token_type: :app_acc
 # explicit user token
 FeishuOpenAPI.get(client, "contact/v3/users/me",
   user_access_token: "eyJhbGciOi..."
-)
-
-# managed user token with auto refresh
-FeishuOpenAPI.get(client, "contact/v3/users/me",
-  user_access_token_key: "current-user"
 )
 
 # no auth header
@@ -214,23 +208,9 @@ Matching the official Node SDK, these helpers call `authen/v1/oidc/access_token`
 - `:scope`
 - `:raw`
 
-To keep a user token fresh across requests automatically, register it in `FeishuOpenAPI.UserTokenManager`:
-
-```elixir
-{:ok, _tokens} =
-  FeishuOpenAPI.UserTokenManager.init_with_code(
-    client,
-    "current-user",
-    "authorization_code_from_login"
-  )
-
-{:ok, resp} =
-  FeishuOpenAPI.get(client, "contact/v3/users/me",
-    user_access_token_key: "current-user"
-  )
-```
-
-`FeishuOpenAPI.UserTokenManager` refreshes `access_token` values 3 minutes before upstream expiry using the stored `refresh_token`. By contrast, passing `user_access_token: "..."` directly sends that literal bearer token without automatic refresh.
+Connectors owns persistent user credentials and refreshes them before calling
+this client. Other callers supply a current `user_access_token` and manage its
+lifetime through the OAuth helpers above.
 
 ## Requests, Uploads, and Downloads
 

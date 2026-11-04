@@ -184,6 +184,8 @@ defmodule Ankole.Schedule do
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}
           | {:error, term()}
   def fire_due_event(scheduled_event_id, opts \\ []) when is_integer(scheduled_event_id) do
+    opts = Keyword.put_new_lazy(opts, :now, fn -> DateTime.utc_now(:microsecond) end)
+
     with {:ok, plan} <- Fire.prepare_event(scheduled_event_id, opts) do
       Repo.transact_top_level(
         fn ->
@@ -192,6 +194,7 @@ defmodule Ankole.Schedule do
         after_commit: fn result -> Ankole.Signals.publish_committed(Map.get(result, :signals)) end
       )
     end
+    |> retry_changed(opts, fn retry_opts -> fire_due_event(scheduled_event_id, retry_opts) end)
     |> Fire.persist_fire_error(scheduled_event_id, opts)
   end
 
@@ -204,7 +207,26 @@ defmodule Ankole.Schedule do
         after_commit: fn result -> Ankole.Signals.publish_committed(Map.get(result, :signals)) end
       )
     end
+    |> retry_changed(opts, fn retry_opts ->
+      fire_cron(cron_schedule_id, Keyword.put(retry_opts, :now, now))
+    end)
     |> Fire.persist_cron_error(cron_schedule_id, now, opts)
+  end
+
+  defp retry_changed(result, opts, retry) do
+    reason =
+      case result do
+        {:error, {:cron_fire_failed, reason, _}} -> reason
+        {:error, reason} -> reason
+        _ -> nil
+      end
+
+    retries = Keyword.get(opts, :retries, 3)
+
+    if reason in [:binding_changed, :scheduled_event_changed, :cron_schedule_changed] and
+         retries > 0,
+       do: retry.(Keyword.put(opts, :retries, retries - 1)),
+       else: result
   end
 
   @doc """
@@ -267,6 +289,9 @@ defmodule Ankole.Schedule do
   Returns the model-visible scheduled event projection for schedule RPC responses.
   """
   @spec event_model_projection(ScheduledEvent.t()) :: map()
+  defdelegate event_model_projections(events), to: Projections
+  defdelegate cron_model_projections(schedules), to: Projections
+
   defdelegate event_model_projection(event), to: Projections
 
   @doc """

@@ -18,35 +18,7 @@ defmodule Ankole.Signals.AppletDispatch do
 
   def dispatch(context, page, actor, _caller, :wait_accepted, [%{"targetJobId" => id} = request]) do
     with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
-         {:ok, job} when not is_nil(job) <- AutomationJobs.get_automation_job(id),
-         :ok <- AutomationJobs.authorize_applet_job(actor, job, page.id, "node_contribute"),
-         signal = envelope(context, page, request),
-         {:ok, key} <- AutomationJobs.prepare_applet_job(job, signal) do
-      Repo.transact_top_level(fn ->
-        with :ok <- WorkAccess.check_in_tx(job),
-             locked when not is_nil(locked) <- lock_target(job, context),
-             :ok <- Ankole.AuthZ.authorize_turn_in_tx(attempt_authority(actor)),
-             true <- locked.status == :active,
-             :ok <- AutomationJobs.authorize_applet_job(actor, locked, page.id, "node_contribute"),
-             {:ok, result} <-
-               AutomationJobs.enqueue_locked_in_tx(locked, signal,
-                 concurrency_key: key,
-                 signal_id: signal["signal_id"],
-                 causation_id: signal["causation_id"],
-                 correlation_id: signal["correlation_id"]
-               ) do
-          {:ok,
-           %{accepted: true, runId: result.automation_job_run.id, coalesced: result.coalesced}}
-        else
-          false -> {:error, :automation_job_not_active}
-          nil -> {:error, :not_found}
-          error -> error
-        end
-      end)
-    else
-      {:ok, nil} -> {:error, :not_found}
-      error -> error
-    end
+         do: accept(context, page, actor, id, envelope(context, page, request), 3)
   end
 
   def dispatch(context, page, actor, caller, :fire_and_forget, [request]) when is_map(request) do
@@ -62,6 +34,47 @@ defmodule Ankole.Signals.AppletDispatch do
   end
 
   def dispatch(_, _, _, _, _, _), do: {:error, :invalid_request}
+
+  defp accept(context, page, actor, id, signal, retries) do
+    with {:ok, job} when not is_nil(job) <- AutomationJobs.get_automation_job(id),
+         :ok <- AutomationJobs.authorize_applet_job(actor, job, page.id, "node_contribute"),
+         {:ok, key} <- AutomationJobs.prepare_applet_job(job, signal) do
+      result =
+        Repo.transact_top_level(fn ->
+          with :ok <- WorkAccess.check_in_tx(job),
+               locked when not is_nil(locked) <- lock_target(job, context),
+               :ok <- Ankole.AuthZ.authorize_turn_in_tx(attempt_authority(actor)),
+               true <- locked.status == :active,
+               :ok <- unchanged_job(locked, job),
+               :ok <-
+                 AutomationJobs.authorize_applet_job(actor, locked, page.id, "node_contribute"),
+               {:ok, result} <-
+                 AutomationJobs.enqueue_locked_in_tx(locked, signal,
+                   concurrency_key: key,
+                   signal_id: signal["signal_id"],
+                   causation_id: signal["causation_id"],
+                   correlation_id: signal["correlation_id"]
+                 ) do
+            {:ok,
+             %{accepted: true, runId: result.automation_job_run.id, coalesced: result.coalesced}}
+          else
+            false -> {:error, :automation_job_not_active}
+            nil -> {:error, :not_found}
+            error -> error
+          end
+        end)
+
+      if result == {:error, :automation_job_changed} and retries > 0,
+        do: accept(context, page, actor, id, signal, retries - 1),
+        else: result
+    else
+      {:ok, nil} -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  defp unchanged_job(job, job), do: :ok
+  defp unchanged_job(_locked, _prepared), do: {:error, :automation_job_changed}
 
   defp authorization(%{"job" => %{"id" => id}}, _caller) do
     with {:ok, job} when not is_nil(job) <- AutomationJobs.get_automation_job(id),

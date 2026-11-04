@@ -817,7 +817,9 @@ Search and directory lists enforce access before applying result caps:
   `required_action=node_edit` (checking both view and edit bits before the cap,
   whereas ordinary search checks `node_view`), and Base copies default to the
   source Page's parent when editable or require picking an editable destination
-  first.
+  first. Destination labels derive Space or Private from the loaded root and
+  show Shared when the caller cannot see that root. System roots appear as
+  locations rather than untitled document breadcrumbs.
 - **Scoped lists, favorites, recents, and Trash**: Scoped text queries filter
   titles and bodies before the 200-row cap. Favorites and recents filter to
   visible live Pages first and sort by favorite or visit timestamp with Page ID
@@ -1205,6 +1207,13 @@ reader states.
 
 ### Drive Markdown projection
 
+The Worker `ankole-pod` CLI transfers Markdown over the signed WorkerFiles relay.
+The control plane exports and reconciles it with the Rust document codec, checks
+the caller's `base_revision`, and preserves rich blocks and comment anchors.
+Append parses only the supplied fragment; patch carries the original revision
+through its read-edit-write sequence. Document bytes travel as files, outside
+the RuntimeFabric JSON envelope.
+
 `._adoc.md` renders editable Markdown blocks with stable anchors for the current
 revision. Reconciliation preserves unchanged XML subtrees, including rich blocks,
 then uses `Documents.write_in_tx` and its comment-preservation contract. Damaged
@@ -1485,6 +1494,10 @@ thread read; the browser does not walk list cursors to locate them. The summary
 uses database aggregates for counts and returns resolution state only for native
 anchors in the current document. Each listed thread carries its own unread
 state. Acknowledging activity notifies only connections for the same Principal.
+
+Page creation validates the final body and computes its VFS projection before
+inserting the Page and its content once. The same transaction creates the first
+history checkpoint and applies the domain's metadata rules.
 
 `page_contents` stores canonical page-tree XML together with derived plain text.
 The Rust kernel enforces the exact same XML vocabulary and normalization rules
@@ -2022,8 +2035,11 @@ alongside shared chunks, CSS, and `dist/index.html`:
   publication manifest covers `src/`, `dist/`, optional `server/main.js`, and
   optional `package.json`, `bun.lock`, `tsconfig.json`, and `applet.env.json`.
   Ankole publishes all paths and Action Job policies atomically and increments
-  the Page revision by one. Every content digest must exist in the publishing
-  Agent's drive or on the target Page. Ankole inspects routes with the published
+  the Page revision by one. The Worker streams local build files through the
+  signed WorkerFiles relay into immutable object storage. The publication owner
+  holds those newly stored references through validation and the manifest CAS.
+  Other publication callers may reuse content from the publishing Agent's Drive
+  or the target Page. Ankole inspects routes with the published
   environment before acquiring write locks to reject invalid handlers or
   top-level host calls. It synchronizes Job policies before taking the final
   Signal or Automation Run lock, then checks the Page revision and commits the

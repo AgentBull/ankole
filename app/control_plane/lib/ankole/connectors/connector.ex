@@ -27,4 +27,18 @@ defmodule Ankole.Connectors.Connector do
                       webhook: 4,
                       webhook_response: 1,
                       reconcile_trigger: 4
+
+  def validate_declaration(%{module: module}) when is_atom(module) and not is_nil(module) do
+    with {:module, _} <- Code.ensure_loaded(module) do
+      case Enum.reject([tools: 0, call: 3], fn {name, arity} ->
+             function_exported?(module, name, arity)
+           end) do
+        [] -> :ok
+        missing -> {:error, {:missing_connector_callbacks, module, missing}}
+      end
+    end
+  end
+
+  def validate_declaration(declaration),
+    do: {:error, {:invalid_connector_declaration, declaration}}
 end

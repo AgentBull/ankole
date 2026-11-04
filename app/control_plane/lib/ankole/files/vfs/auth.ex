@@ -109,13 +109,16 @@ defmodule Ankole.Files.Vfs.Auth do
          {:ok, access} <-
            if(library_only,
              do: {:ok, %Brain.Access{querier_uid: principal.uid}},
-             else: Brain.Access.for_context(context)
-           ) do
+             else: Brain.Access.for_querier(principal.uid)
+           ),
+         {:ok, brain_access} <-
+           if(library_only, do: {:ok, access}, else: Brain.Access.for_context(context)) do
       {:ok,
        %{
          actor: Actor.new(principal),
          context: context,
          access: access,
+         brain_access: brain_access,
          library_only: library_only,
          runtime_projection: payload["skill_selection"],
          conversation_id: payload["conversation_id"]

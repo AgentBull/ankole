@@ -119,7 +119,11 @@ associations.
 keys. `GET /api/v2/pod/pages/:page_id/jobs/:job_id/runs` returns the latest 100 Runs
 visible to the caller. Run history and single-Run reads include the retained
 CloudEvents `event`, start and finish timestamps, progress, result, error, and
-`stdout` and `stderr` tails. Each log tail is bounded to 64 KiB and carries a
+`stdout` and `stderr` tails. Applet `console` output follows the Run through
+continuation slices and final success or failure: `warn` and `error` append to
+stderr, and other levels append to stdout. The current attempt fence and the
+slice transition commit the logs together, so retries cannot append an already
+committed slice twice. Each log tail is bounded to 64 KiB and carries a
 truncation flag. Timestamps are null before the corresponding lifecycle step.
 For a coalesced Run, `event` is its current input; source receipts identify earlier
 deliveries that were coalesced into it. Source management lives under that Job's

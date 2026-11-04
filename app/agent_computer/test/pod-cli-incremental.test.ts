@@ -17,25 +17,25 @@ import { agentProcessArgv } from '../src/core/execution/process-group'
 const respond = (result: unknown) => create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes({ result }) })
 
 describe('Pod incremental and source commands', () => {
-  it('compiles append fragments and applies exact Markdown patches with the original revision', async () => {
+  it('transfers append fragments and applies exact Markdown patches with the original revision', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-edit-'))
     const frame = { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } }
-    const writes: { operation: string; revision: unknown; xml: string }[] = []
-    let xml = '<page><p>Old name 🧑‍💻</p><p>Repeated Repeated</p></page>'
+    const writes: { operation: string; revision: unknown; markdown: string }[] = []
+    let markdown = 'Old name 🧑‍💻\n\nRepeated Repeated'
     const rpc = (async (_method, raw, actualFrame) => {
       const payload = raw as RPCRequestInit<'pod.read'>
       expect(actualFrame as unknown).toEqual(frame)
       const params = jsonObjectFromBytes(payload.paramsJson as Uint8Array, 'params')!
-      const local = join(root, params.xml_home_relative_path as string)
-      if (payload.operation === 'pages.read') await writeFile(local, xml)
+      const local = join(root, params.markdown_home_relative_path as string)
+      if (payload.operation === 'pages.read') await writeFile(local, markdown)
       else {
         writes.push({
           operation: payload.operation!,
           revision: params.base_revision,
-          xml: await readFile(local, 'utf8')
+          markdown: await readFile(local, 'utf8')
         })
       }
-      return respond({ page: { revision: 7 }, content: { xml_file: true } })
+      return respond({ page: { revision: 7 }, content: { markdown_file: true } })
     }) as RPCRequester
     const bridge = startPodCLIBridge({
       rpc,
@@ -53,8 +53,8 @@ describe('Pod incremental and source commands', () => {
       await command('pages.append', { markdown: '## API\n\nAppended' })
       await command('pages.patch', { edits: [{ old_text: 'Old name', new_text: 'New name' }] })
       expect(writes).toEqual([
-        { operation: 'pages.append', revision: 7, xml: '<page><h2>API</h2><p>Appended</p></page>' },
-        { operation: 'pages.write', revision: 7, xml: '<page><p>New name 🧑‍💻</p><p>Repeated Repeated</p></page>' }
+        { operation: 'pages.append', revision: 7, markdown: '## API\n\nAppended' },
+        { operation: 'pages.write', revision: 7, markdown: 'New name 🧑‍💻\n\nRepeated Repeated' }
       ])
       await expect(command('pages.patch', { edits: [{ old_text: 'Repeated', new_text: 'X' }] })).rejects.toThrow(
         'more than once'
@@ -66,9 +66,9 @@ describe('Pod incremental and source commands', () => {
         command('pages.patch', { base_revision: 6, edits: [{ old_text: 'Old', new_text: 'New' }] })
       ).rejects.toThrow('revision changed')
       expect(writes).toHaveLength(2)
-      xml = '<page><p>Repeated Repeated</p></page>'
+      markdown = 'Repeated Repeated'
       await command('pages.patch', { edits: [{ old_text: 'Repeated', new_text: '$&', replace_all: true }] })
-      expect(writes[2]!.xml).toBe('<page><p>$&amp; $&amp;</p></page>')
+      expect(writes[2]!.markdown).toBe('$& $&')
       expect(await readdir(join(root, '.ankole/pod-content'))).toEqual([])
     } finally {
       bridge.close()

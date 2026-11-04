@@ -145,6 +145,17 @@ defmodule Ankole.Pod.Access do
 
   defp administrative_authorization(_actor), do: :not_administrative
 
+  def brain_page?(%{type: :knowledge}), do: true
+
+  def brain_page?(%{type: :file, id: id}) do
+    case Pages.root(id) do
+      {:ok, %{system_key: "ankole_brain"}} -> true
+      _ -> false
+    end
+  end
+
+  def brain_page?(_page), do: false
+
   def authorize(uid, page, action, opts \\ []) when action in @actions do
     opts = authorization_options(action, opts)
 
@@ -156,7 +167,7 @@ defmodule Ankole.Pod.Access do
         :not_administrative ->
           with {:ok, reachable} <- reachable_anchors(uid, page_options(page, opts)),
                {:ok, _} <- authorize_bits(page, action, reachable),
-               :ok <- Ankole.Pod.AgentPages.authorize_brain_turn(uid, page, action, opts),
+               :ok <- Ankole.Brain.Access.authorize_turn(uid, page, action, opts),
                do: {:ok, page}
 
         error ->

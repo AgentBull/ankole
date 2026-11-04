@@ -180,18 +180,6 @@ defmodule FeishuOpenAPI.RequestTest do
              )
   end
 
-  test "explicit tenant access token rejects conflicting managed user token options", %{
-    client: client
-  } do
-    Req.Test.stub(FeishuOpenAPI.RequestTest, fn _conn -> flunk("request should not be sent") end)
-
-    assert {:error, %FeishuOpenAPI.Error{code: :conflicting_access_token_options}} =
-             FeishuOpenAPI.get(client, "/open-apis/contact/v3/users/me",
-               access_token_type: :tenant_access_token,
-               user_access_token_key: "current-user"
-             )
-  end
-
   test "missing path param raises a bad_path error", %{client: client} do
     Req.Test.stub(FeishuOpenAPI.RequestTest, fn _conn -> raise "should not be called" end)
 

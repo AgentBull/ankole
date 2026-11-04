@@ -1,5 +1,5 @@
 import { driveMounts, type DriveView } from '../../../drive/mounts'
-import { materializeKnowledgeSkills } from '../../../skills/knowledge-skills'
+import { linkMountedSkills, materializeKnowledgeSkills } from '../../../skills/knowledge-skills'
 import { HostedTool } from '../../../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import type { TurnStart } from '../../../lanes/session_lane'
 import {
@@ -91,18 +91,27 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   // Agent. It gets every selected Skill so that it rejects a main-only Skill for
   // its runtime, not as a disabled Skill.
   const loadableSkills = selectedSkills.filter(skill => skillAvailableInRuntime(skill, 'background_job'))
-  const materializedSkills = await materializeKnowledgeSkills({
-    root: join(opts.agentHome, '.ankole', 'turn-skills', turnStart.turn.signal_id),
-    frame: { jobTurn: turnStart.turn },
-    skills: loadableSkills,
-    rpc: opts.rpc
-  })
+  let materializedSkills: Awaited<ReturnType<typeof materializeKnowledgeSkills>> | undefined
+  let cleanupSkills: (() => Promise<void>) | undefined
   let cleanupMaterials: (() => Promise<void>) | undefined
   try {
     driveView = await driveMounts.acquire(turnStart.drive_vfs)
+    materializedSkills = driveView
+      ? undefined
+      : await materializeKnowledgeSkills({
+          root: join(opts.agentHome, '.ankole', 'turn-skills', turnStart.turn.signal_id),
+          frame: { jobTurn: turnStart.turn },
+          skills: loadableSkills,
+          rpc: opts.rpc
+        })
+    cleanupSkills =
+      materializedSkills?.cleanup ??
+      (await linkMountedSkills(join(opts.agentHome, '.ankole', 'turn-skills', turnStart.turn.signal_id)))
+    const skillsRoot = materializedSkills?.root ?? join(driveView!.library.path, 'Skills')
     const skillRoots = {
-      builtinSkillsRoot: materializedSkills.root,
-      agentInstalledSkillsRoot: materializedSkills.root
+      builtinSkillsRoot: skillsRoot,
+      agentInstalledSkillsRoot: skillsRoot,
+      driveSkillsRoot: skillsRoot
     }
     const loadedSkillNames = new Set<string>()
     const skillLoader = createSkillLoader({
@@ -152,7 +161,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
       ...(initializeProject && job.workspaceTemplateId ? { workspaceTemplateId: job.workspaceTemplateId } : {})
     })
     const skillMCPServers = await loadEnabledSkillMCPServers({
-      enabledSkills: materializedSkills.skills,
+      enabledSkills: materializedSkills?.skills ?? loadableSkills,
       skillRoots,
       runtime: 'background_job'
     })
@@ -285,7 +294,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         try {
           await materials.cleanup()
         } finally {
-          await materializedSkills.cleanup()
+          await cleanupSkills?.()
           await driveView?.release()
         }
       }
@@ -293,7 +302,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   } catch (error) {
     await driveView?.release().catch(() => undefined)
     await cleanupMaterials?.().catch(() => undefined)
-    await materializedSkills.cleanup().catch(() => undefined)
+    await cleanupSkills?.().catch(() => undefined)
     throw error
   }
 }

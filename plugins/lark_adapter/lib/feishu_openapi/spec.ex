@@ -21,7 +21,6 @@ defmodule FeishuOpenAPI.Spec do
     :access_token_type,
     :tenant_key,
     :user_access_token,
-    :user_access_token_key,
     query: nil,
     headers: [],
     body: :unset,
@@ -38,7 +37,6 @@ defmodule FeishuOpenAPI.Spec do
           access_token_type: :tenant_access_token | :app_access_token | :user_access_token | nil,
           tenant_key: String.t() | nil,
           user_access_token: String.t() | nil,
-          user_access_token_key: String.t() | nil,
           query: keyword() | map() | nil,
           headers: list(),
           body: body_directive(),
@@ -57,9 +55,8 @@ defmodule FeishuOpenAPI.Spec do
   def build(method, path, opts) when is_atom(method) and is_binary(path) and is_list(opts) do
     path_params = Keyword.get(opts, :path_params, %{})
     user_token = Keyword.get(opts, :user_access_token)
-    user_token_key = Keyword.get(opts, :user_access_token_key)
 
-    with {:ok, access_token_type} <- resolve_access_token_type(opts, user_token, user_token_key),
+    with {:ok, access_token_type} <- resolve_access_token_type(opts, user_token),
          {:ok, rendered_path} <- render_path(path, path_params) do
       {:ok,
        %__MODULE__{
@@ -68,7 +65,6 @@ defmodule FeishuOpenAPI.Spec do
          access_token_type: access_token_type,
          tenant_key: Keyword.get(opts, :tenant_key),
          user_access_token: user_token,
-         user_access_token_key: user_token_key,
          query: Keyword.get(opts, :query),
          headers: Keyword.get(opts, :headers, []),
          body: fetch_or_unset(opts, :body),
@@ -92,10 +88,10 @@ defmodule FeishuOpenAPI.Spec do
   def auth_managed?(%__MODULE__{user_access_token: t}) when is_binary(t), do: false
   def auth_managed?(%__MODULE__{}), do: true
 
-  defp resolve_access_token_type(opts, user_token, user_token_key) do
+  defp resolve_access_token_type(opts, user_token) do
     case Keyword.fetch(opts, :access_token_type) do
       {:ok, type} when type in @valid_access_token_types ->
-        validate_explicit_access_token_type(type, user_token, user_token_key)
+        validate_explicit_access_token_type(type, user_token)
 
       {:ok, other} ->
         {:error,
@@ -109,7 +105,6 @@ defmodule FeishuOpenAPI.Spec do
         default =
           cond do
             is_binary(user_token) -> :user_access_token
-            is_binary(user_token_key) -> :user_access_token
             true -> :tenant_access_token
           end
 
@@ -117,13 +112,13 @@ defmodule FeishuOpenAPI.Spec do
     end
   end
 
-  defp validate_explicit_access_token_type(type, user_token, user_token_key) do
-    if type != :user_access_token and (is_binary(user_token) or is_binary(user_token_key)) do
+  defp validate_explicit_access_token_type(type, user_token) do
+    if type != :user_access_token and is_binary(user_token) do
       {:error,
        %Error{
          code: :conflicting_access_token_options,
          msg:
-           "user_access_token/user_access_token_key may only be used with access_token_type: :user_access_token or when access_token_type is omitted"
+           "user_access_token may only be used with access_token_type: :user_access_token or when access_token_type is omitted"
        }}
     else
       {:ok, type}

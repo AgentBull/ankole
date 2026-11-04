@@ -243,8 +243,11 @@ grants the Human owner management access to the assistant's runtime root.
 
 A FUSE-capable Worker exposes `/drive` to commands and managed Codex jobs.
 `Ankole.Files.Vfs` projects the existing tree through `/api/v1/vfs/dav`; it uses
-`Brain.RequestContext` for collaboration pages and Brain disclosure, while
-Skills and composed Agent contracts use the Agent identity. Background Jobs
+the executing Actor's permissions for collaboration pages, Base tables, Applets,
+and ordinary files. Personal assistants project their Human owner's business
+permissions; AI colleagues use their own. Brain and its attachments additionally
+apply the audience intersection from `Brain.RequestContext`. Skills and composed
+Agent contracts use the Agent identity. Background Jobs
 also restrict Skills to their persisted admission selection.
 Each request checks the current Worker generation, incarnation, and access graph.
 The root supervisor holds the bearer token. Model processes receive filesystem
@@ -262,7 +265,9 @@ refresh as well as subsequent 100 ms notification windows.
 Agent, requester, and disclosure set. The shared remote omits ChatDrive. A
 separate remote supplies the current conversation's `ChatDrive`; the view key
 includes that conversation. Roots appear only when the access graph permits
-them. When the requester is the Agent, AgentDrive is its single private root.
+them. AgentDrive resolves the executing Agent's private root; MyDrive resolves
+the requester's private root only when the executing Actor can access it. Sharing
+a cache scope does not give business roots Brain's audience restriction.
 
 The projection uses `._adoc.md` and `._awiki.md` for nonempty document and
 knowledge bodies, and `._abase` and `._aapp` for Base and Applet views. Empty

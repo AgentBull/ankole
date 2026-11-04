@@ -73,6 +73,7 @@ defmodule Ankole.Plugins.Contracts do
   # dependencies of this module.
   defp contracts do
     %{
+      "connectors.connector" => %{validate: &Ankole.Connectors.Connector.validate_declaration/1},
       "signals.adapter" => %{validate: &Ankole.Signals.Adapters.validate_declaration/1},
       "signals.webhook_handler" => %{
         validate: &Ankole.Signals.WebhookHandlers.validate_declaration/1

@@ -157,11 +157,11 @@ describe('Pod Agent CLI', () => {
     }
   })
 
-  it('uses the active Agent turn and converts document Markdown at the Worker boundary', async () => {
+  it('uses the active Agent turn and transfers Markdown for conversion by the control plane', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-cli-'))
     const calls: { method: string; payload: Record<string, unknown>; frame: unknown; retry: unknown }[] = []
     const frame = { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } }
-    let forwardedXML = ''
+    let forwardedMarkdown = ''
     const rpc = (async (method, payload, suppliedFrame, opts) => {
       calls.push({
         method,
@@ -170,11 +170,11 @@ describe('Pod Agent CLI', () => {
         retry: opts?.retryOnDisconnect
       })
       const params = jsonObjectFromBytes((payload as { paramsJson: Uint8Array }).paramsJson, 'params')!
-      const local = join(root, params.xml_home_relative_path as string)
-      if (method === 'pod.read') await writeFile(local, '<page><p>Hello</p></page>')
-      else forwardedXML = await readFile(local, 'utf8')
+      const local = join(root, params.markdown_home_relative_path as string)
+      if (method === 'pod.read') await writeFile(local, 'Hello')
+      else forwardedMarkdown = await readFile(local, 'utf8')
       return create(JSONPassthroughResponseSchema, {
-        bodyJson: jsonBytes({ result: { page: { revision: 7 }, content: { xml_file: true } } })
+        bodyJson: jsonBytes({ result: { page: { revision: 7 }, content: { markdown_file: true } } })
       })
     }) as RPCRequester
     const bridge = startPodCLIBridge({ rpc, frame, drive: new FakeDrive(root).drive(), socketRoot: root })
@@ -200,9 +200,9 @@ describe('Pod Agent CLI', () => {
       expect(calls.map(call => call.retry)).toEqual([true, false])
       const written = jsonObjectFromBytes(calls[1]!.payload.paramsJson as Uint8Array, 'params')!
       expect(written.base_revision).toBe(7)
-      expect(forwardedXML).toContain('<h1>Heading</h1>')
+      expect(forwardedMarkdown).toBe('# Heading\n')
       expect(written.xml).toBeUndefined()
-      expect(written.markdown).toBe('# Heading\n')
+      expect(written.markdown).toBeUndefined()
       await expect(
         requestSocketLineBridge(
           bridge.socketPath,
@@ -492,7 +492,7 @@ export const provider = defineApplet(App)`
     }
   })
 
-  it('checks publication source boundaries and removes its temporary drive staging on success and failure', async () => {
+  it('checks publication source boundaries and publishes without temporary Drive pages', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-cli-'))
     const outside = await mkdtemp(join(tmpdir(), 'pod-cli-outside-'))
     const files = new FakeDrive(root)
@@ -502,7 +502,7 @@ export const provider = defineApplet(App)`
     const rpc = (async method => {
       expect(String(method)).toBe('pod.write')
       calls++
-      expect(files.paths('_pod/applets/page').length).toBeGreaterThan(0)
+      expect(files.paths('_pod/applets/page')).toEqual([])
       if (rejected) throw new Error('revision conflict')
       return create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes({ result: { revision: 1 } }) })
     }) as RPCRequester

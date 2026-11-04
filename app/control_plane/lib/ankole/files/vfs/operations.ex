@@ -471,8 +471,9 @@ defmodule Ankole.Files.Vfs.Operations do
     writer.(
       scope.actor.turn_authority,
       fn ->
-        with {:ok, access} <- Ankole.Brain.Access.for_context(scope.context),
-             do: fun.(%{scope | access: access})
+        with {:ok, access} <- Ankole.Brain.Access.for_querier(scope.context.querier_uid),
+             {:ok, brain_access} <- Ankole.Brain.Access.for_context(scope.context),
+             do: fun.(%{scope | access: access, brain_access: brain_access})
       end,
       shared_tree: !topology?,
       root_ids: fn -> path_root_ids(scope, paths) end,
