@@ -186,6 +186,10 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
      handle_task_result(result, %{state | task: nil, task_kind: nil, task_generation: nil})}
   end
 
+  # Trapping exits lets `terminate/2` stop the active task; a linked Registry
+  # partition's exit still stops this owner.
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
+
   # Mint can forward transport messages as soon as the connect task transfers
   # socket ownership. Keep those few messages until the task result installs
   # the matching connection state.

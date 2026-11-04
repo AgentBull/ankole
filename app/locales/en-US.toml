@@ -4119,6 +4119,18 @@ reauthentication_required = "Verify your current sign-in again, then retry this 
 mail_unavailable = "Email delivery failed. Check the site's SMTP settings and try again."
 external_guests_disabled = "This space does not allow external guests."
 
+[pod.next_steps]
+title = "Next steps"
+refresh = "Show others"
+refreshing = "Finding others…"
+ambitious = "10x"
+meta = "{$effort} · {$whyNow}"
+expected = "Expected result: {$outcome}"
+no_others = "No other steps right now. Try again later."
+
+[pod.reply_suggestion]
+use = "Use the suggested reply: {$text}"
+
 [pod.chat_timeline]
 compose_answer = "Answer with references or files"
 answer_context = "Answering this question"
@@ -4189,6 +4201,11 @@ tool_count = """
 one {{{$count} tool call}}
 *   {{{$count} tool calls}}"""
 exit_code = "Exit {$code}"
+patch_added_file = "Added"
+patch_deleted_file = "Deleted"
+patch_counts = "Lines added: {$added}, lines removed: {$removed}"
+patch_truncated = "Only the beginning of this patch is shown."
+new_messages = "New messages"
 image_zoom = "Image zoom"
 load_more_execution = "Load more execution records"
 loading_execution = "Loading execution records…"

@@ -24,6 +24,7 @@ const invocations = new Map<
     worker?: ReturnType<typeof worker>
     createdAt?: number
     bridgeToken?: string
+    inner?: WebSocket
   }
 >()
 type WarmWorker = { instance: EdgeRuntime.UserWorker; memory: number; createdAt: number; idleAt: number }
@@ -140,6 +141,29 @@ async function fetchOneShot(instance: Awaited<ReturnType<typeof worker>>, req: R
   const response = await instance.fetch(forward(req, body), { signal: req.signal })
   const bytes = await response.arrayBuffer()
   return new Response(bytes, { status: response.status, headers: response.headers })
+}
+
+/** Resolves whether the Worker accepts its bridge before the call deadline. */
+function bridgeReady(inner: WebSocket, deadline: number) {
+  return new Promise<boolean>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(false), Math.max(0, deadline - Date.now()))
+    inner.addEventListener(
+      'open',
+      () => {
+        clearTimeout(timer)
+        resolve(true)
+      },
+      { once: true }
+    )
+    inner.addEventListener(
+      'error',
+      () => {
+        clearTimeout(timer)
+        reject(new Error('Applet Worker bridge failed'))
+      },
+      { once: true }
+    )
+  })
 }
 
 Deno.serve(async (req: Request) => {
@@ -280,6 +304,8 @@ Deno.serve(async (req: Request) => {
         const release = (aborted = false) => {
           return (settlement ??= (async () => {
             clearTimeout(timer)
+            // Settlement also closes a bridge whose control-plane side never completed its upgrade.
+            lease?.inner?.close()
             try {
               if (lease?.worker) {
                 const instance = await lease.worker
@@ -340,17 +366,16 @@ Deno.serve(async (req: Request) => {
         }
         const mcp = new InvocationMCP(origin, caller, admin, lease.deadline)
         lease.bridgeToken = crypto.randomUUID()
+        // The Worker accepts its bridge only after the module, including top-level await, loads.
+        // Upgrading afterwards keeps Worker boot inside admission, so an expired call never starts.
+        const inner = new WebSocket(`ws://127.0.0.1:9000/_internal/applet/bridge/${runId}?token=${lease.bridgeToken}`)
+        lease.inner = inner
+        if (!(await bridgeReady(inner, lease.deadline))) {
+          await release(true)
+          return json(504, 'handler_timeout')
+        }
         const { socket, response } = Deno.upgradeWebSocket(req)
-        socket.addEventListener(
-          'open',
-          () => {
-            const inner = new WebSocket(
-              `ws://127.0.0.1:9000/_internal/applet/bridge/${runId}?token=${lease!.bridgeToken}`
-            )
-            bridgeAppletSockets(socket, inner, mcp)
-          },
-          { once: true }
-        )
+        socket.addEventListener('open', () => bridgeAppletSockets(socket, inner, mcp), { once: true })
         return response
       } catch (error: any) {
         if (!instance) lease.worker = undefined

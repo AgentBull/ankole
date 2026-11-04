@@ -16,7 +16,7 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert {:ok, _worker} = admit_worker(route)
 
     assert {:ok, %{job: job, dispatch_event: dispatch}} =
-             BackgroundAgentJobs.create_with_dispatch(%{
+             create_job_with_stub_driver(%{
                "agent_uid" => agent.uid,
                "created_by" => %{
                  "principal_uid" => to_string(Ankole.ActorRef.from_principal(agent))
@@ -207,9 +207,8 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert %{status: :queued, attempts: 1, execution_failures: 1} = Repo.reload!(job)
     assert event.status == :queued
 
-    assert {:ok, %{signal: repeated, compensation: nil}} =
-             CodexJob.abort(run.job_ref, agent.uid, error)
-
+    assert {:ok, %Signal{} = repeated} = CodexJob.abort(run.job_ref, agent.uid, error)
+    assert repeated.__metadata__[:compensation] == nil
     assert repeated.available_at == event.available_at
     assert %{status: :queued, attempts: 1, execution_failures: 1} = Repo.reload!(job)
   end
@@ -1174,7 +1173,7 @@ defmodule Ankole.Sessions.CodexJobTest do
 
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
-             BackgroundAgentJobs.create_with_dispatch(%{
+             create_job_with_stub_driver(%{
                "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "owner_session_id" => "owner-session-#{suffix}",

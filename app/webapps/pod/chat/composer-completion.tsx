@@ -56,6 +56,11 @@ export function completionAt(
   }
 }
 
+/** Enter waits for results that are still loading, so the composer never sends the typed query as a message. */
+export function holdsEnter(event: Pick<KeyboardEvent, 'key' | 'shiftKey'>, loading: boolean, optionCount: number) {
+  return event.key === 'Enter' && !event.shiftKey && loading && optionCount === 0
+}
+
 export type CompletionOption = { id: string; group?: string; content: ReactNode; choose(): void }
 export function ComposerCompletionList({
   id,
@@ -102,6 +107,10 @@ export function ComposerCompletionList({
       if (event.key === 'Tab' && (event.shiftKey || !options.length)) {
         onClose()
         return false
+      }
+      if (holdsEnter(event, loading, options.length)) {
+        event.preventDefault()
+        return true
       }
       if (!options.length || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {

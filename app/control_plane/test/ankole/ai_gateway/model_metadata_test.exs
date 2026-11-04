@@ -342,7 +342,7 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
     assert request.url ==
              "https://chatgpt.com/backend-api/codex/models?client_version=0.166.0"
 
-    assert {"Authorization", "Bearer chatgpt-access"} in request.headers
+    assert {"authorization", "Bearer chatgpt-access"} in request.headers
     assert {"ChatGPT-Account-ID", "chatgpt-account"} in request.headers
     assert {"Originator", "codex_cli_rs"} in request.headers
     assert metadata["id"] == "gpt-5.6-sol"

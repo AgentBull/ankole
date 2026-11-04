@@ -17,7 +17,8 @@ import {
 } from './api'
 import { ChatModel, mergeMessages } from './state/chat'
 import { LocalChatDrafts, UnconfirmedChats, useChatDraft, useChatDrafts } from './chat-drafts'
-import { useChatHistory } from './chat-history'
+import { findMessageStep, firstUnreadMessageID, useChatHistory, type ChatEntry } from './chat-history'
+import type { PodCommandNavigationState } from './command-menu'
 import { editingSnapshot, useChatCommands, type ChatCommands } from './chat-commands'
 import { ChatAttachmentDrafts } from './chat-attachments'
 import { useConversationEvents } from './use-conversation-events'
@@ -32,6 +33,7 @@ import { NewGroupDialog } from './chat/new-group-dialog'
 import { ChatSummaryPanel } from './chat/chat-summary-panel'
 import { SessionFindBar } from './chat/session-find-bar'
 import { QueuedStrip } from './chat/queued-strip'
+import { ReplySuggestion } from './chat/reply-suggestion'
 import { useRoomActions } from './chat/room-api'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
 import './chat.css'
@@ -101,6 +103,7 @@ export function ChatPage({
     [finding, setFinding] = useState(false),
     [renaming, setRenaming] = useState(false),
     [deleting, setDeleting] = useState(false)
+  const [findInitial, setFindInitial] = useState<{ key: string; query: string; messageID?: string }>()
   const root = useRef<HTMLElement>(null)
   const composerInput = useRef<HTMLTextAreaElement>(null)
   const pageQuote = drafts.pageQuote.value
@@ -123,6 +126,7 @@ export function ChatPage({
   const findReturnFocus = useRef<HTMLElement | null>(null)
   const closeFinding = useCallback(() => {
     setFinding(false)
+    setFindInitial(undefined)
     const target = findReturnFocus.current?.isConnected ? findReturnFocus.current : root.current
     target?.focus({ preventScroll: true })
   }, [])
@@ -158,6 +162,31 @@ export function ChatPage({
   })
   const data = detail.data,
     history = useChatHistory(conversationID, data)
+  // The read position from before this visit stays fixed, so marking the room read does not move the divider.
+  const [entry, setEntry] = useState<ChatEntry & { id: string }>()
+  if (data && conversationID && entry?.id !== conversationID) {
+    setEntry({ id: conversationID, readSeq: data.conversation.viewer.lastReadSeq, lastSeq: data.messageRange.lastSeq })
+  }
+  const location = useLocation()
+  const navigationState = location.state as (Partial<PodCommandNavigationState> & { __TSR_key?: string }) | null
+  const findMessage = pageID ? undefined : navigationState?.findMessage
+  const findKey = navigationState?.__TSR_key ?? location.href
+  const handledFind = useRef<string | undefined>(undefined)
+  const findPages = useRef(0)
+  useEffect(() => {
+    if (!findMessage || !data || handledFind.current === findKey || history.isPending) return
+    const step = findMessageStep(data, findMessage.seq, findPages.current, !!history.error)
+    if (step === 'load_older') {
+      findPages.current += 1
+      history.mutate(null)
+      return
+    }
+    handledFind.current = findKey
+    findPages.current = 0
+    findReturnFocus.current = null
+    setFindInitial({ key: findKey, query: findMessage.query, messageID: step.messageID })
+    setFinding(true)
+  }, [data, findKey, findMessage, history])
   const nonAssistantPageChat =
     !!pageID && !!data && !detail.error && data.conversation.conversationKind !== 'assistant_task'
   useEffect(() => {
@@ -421,7 +450,16 @@ export function ChatPage({
           onEditingChange={setRenaming}
         />
       )}
-      {finding && <SessionFindBar root={root} history={history} inputRef={findInput} onClose={closeFinding} />}
+      {finding && (
+        <SessionFindBar
+          key={findInitial?.key}
+          root={root}
+          history={history}
+          inputRef={findInput}
+          initial={findInitial}
+          onClose={closeFinding}
+        />
+      )}
       <div className="pod-chat-room-body">
         <div className="pod-chat-room-main">
           <ErrorBoundary
@@ -432,6 +470,7 @@ export function ChatPage({
             <TurnTimeline
               model={model}
               presentation={pageID ? 'page' : 'standalone'}
+              unreadMessageID={entry?.id === conversationID ? firstUnreadMessageID(data, entry) : undefined}
               history={history}
               messages={messages}
               viewerUID={data.conversation.viewer.uid}
@@ -528,6 +567,15 @@ export function ChatPage({
               </p>
             )}
             {!!failure && <RequestFailure error={failure} action={retry} sendFailure />}
+            <ReplySuggestion
+              conversationID={conversationID}
+              detail={data}
+              idle={!commands.working && !model.hasContent.value && !model.links.value.length && !model.editing.value}
+              onUse={text => {
+                model.draft.value = text
+                composerInput.current?.focus()
+              }}
+            />
             {composer}
           </div>
         </div>

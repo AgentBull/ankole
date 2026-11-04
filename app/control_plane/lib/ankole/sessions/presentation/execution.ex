@@ -78,7 +78,7 @@ defmodule Ankole.Sessions.Presentation.Execution do
       "status" => step_status(call, output, result, status),
       "duration_ms" => result["duration_ms"],
       "input" => excerpt(input),
-      "output" => excerpt(output_text)
+      "output" => excerpt(output_text, 5_000)
     }
   end
 
@@ -175,14 +175,18 @@ defmodule Ankole.Sessions.Presentation.Execution do
 
   defp decode(_), do: %{}
 
-  defp excerpt(nil), do: ""
+  # An excerpt keeps 8,000 characters. Output also keeps its last `tail` characters,
+  # because commands report failures and summaries at the end.
+  defp excerpt(value, tail \\ 0)
+  defp excerpt(nil, _tail), do: ""
 
-  defp excerpt(value) when is_binary(value) do
-    case String.split_at(value, 8_000) do
-      {head, ""} -> head
-      {head, _rest} -> head <> "\n…"
+  defp excerpt(value, tail) when is_binary(value) do
+    cond do
+      String.length(value) <= 8_000 -> value
+      tail == 0 -> String.slice(value, 0, 8_000) <> "\n…"
+      true -> String.slice(value, 0, 8_000 - tail) <> "\n…\n" <> String.slice(value, -tail, tail)
     end
   end
 
-  defp excerpt(value), do: value |> Ankole.JSON.encode!() |> excerpt()
+  defp excerpt(value, tail), do: value |> Ankole.JSON.encode!() |> excerpt(tail)
 end

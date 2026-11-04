@@ -548,7 +548,7 @@ defmodule AnkoleWeb.PodContentChannelTest do
 
     reference = push(document, "changes", %{"base_revision" => 0, "client_seq" => 1})
     assert_reply reference, :error, %{reason: "invalid_request", details: nil}, 1_000
-    assert Repo.reload!(page).revision == 0
+    assert Repo.get_by!(Ankole.Pod.Page, id: page.id).revision == 0
   end
 
   test "applet rooms expose current presence without persisting ephemeral broadcasts", ctx do

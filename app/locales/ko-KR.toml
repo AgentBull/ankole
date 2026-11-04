@@ -4048,6 +4048,18 @@ reauthentication_required = "현재 로그인 정보를 다시 인증한 다음 
 mail_unavailable = "이메일을 보낼 수 없습니다. 사이트의 SMTP 설정을 확인하고 다시 시도하세요."
 external_guests_disabled = "이 스페이스에서는 외부 게스트를 허용하지 않습니다."
 
+[pod.next_steps]
+title = "다음에 진행할 일"
+refresh = "다른 제안 보기"
+refreshing = "다른 제안을 찾는 중…"
+ambitious = "10x 도전"
+meta = "{$effort} · {$whyNow}"
+expected = "기대 결과: {$outcome}"
+no_others = "지금은 다른 제안이 없습니다. 잠시 후 다시 시도하세요."
+
+[pod.reply_suggestion]
+use = "제안된 답장 사용: {$text}"
+
 [pod.chat_timeline]
 compose_answer = "참조나 파일을 첨부해 답변"
 answer_context = "이 질문에 답변 중"
@@ -4106,6 +4118,11 @@ you = "나"
 archived = "보관됨"
 tool_count = "도구 호출 {$count}회"
 exit_code = "종료 코드 {$code}"
+patch_added_file = "추가"
+patch_deleted_file = "삭제"
+patch_counts = "{$added}줄 추가, {$removed}줄 삭제"
+patch_truncated = "패치의 앞부분만 표시합니다."
+new_messages = "새 메시지"
 image_zoom = "이미지 확대/축소"
 load_more_execution = "실행 기록 더 불러오기"
 loading_execution = "실행 기록을 불러오는 중…"

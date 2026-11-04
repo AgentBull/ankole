@@ -208,10 +208,12 @@ defmodule Ankole.EditionBuildTest do
 
       try do
         if origin == :foss_upgrade do
-          command!(directory, "mix", ["ecto.migrate", "--to", "20261016000300", "--quiet"], foss)
-
+          # An older release ran only its own data steps. Like the upgrade
+          # fixtures, build its schema without the current data upgrade, which
+          # the release migration below runs against the complete schema.
           seed = """
           Ecto.Migrator.with_repo(Ankole.Repo, fn repo ->
+            Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, to: 20261016000300, log: false)
             repo.query!("UPDATE tenants SET display_name = 'Edition upgrade fixture' WHERE slug = 'default'")
             repo.query!("INSERT INTO browser_sessions (id, generation, expires_at, admin_auth, inserted_at, updated_at) VALUES ('019a2b00-0000-7000-8000-000000000010', 1, NOW() + INTERVAL '1 day', jsonb_build_object('principal_uid', 'obsolete-cookie'), NOW(), NOW())")
             repo.query!("INSERT INTO browser_login_transactions (id, browser_id, generation, purpose, expires_at, tenant_id, inserted_at, updated_at) VALUES ('019a2b00-0000-7000-8000-000000000011', '019a2b00-0000-7000-8000-000000000010', 1, 'console', NOW() + INTERVAL '1 hour', '019a2b00-0000-7000-8000-000000000001', NOW(), NOW())")

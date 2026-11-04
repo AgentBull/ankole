@@ -9,6 +9,9 @@ defmodule Ankole.Pod.Chat.Browser do
   authz do
     scope(:pod)
     allow(:attention, check: :guardrail)
+    allow(:next_steps, check: :guardrail)
+    allow(:choose_next_step, check: :guardrail)
+    allow(:reply_suggestion, check: :guardrail)
     allow(:peer_exchange, check: :guardrail)
     allow(:stop_peer_exchange, check: :guardrail)
     allow(:agents, check: :guardrail)
@@ -173,6 +176,89 @@ defmodule Ankole.Pod.Chat.Browser do
       run(fn _input, context ->
         Ankole.Principals.ensure_personal_assistant(Ankole.AuthZ.Actor.uid(context.actor))
         |> APIError.result(fn %{principal: principal} -> Presentation.agent(principal) end)
+      end)
+    end
+
+    action :next_steps, :map do
+      constraints(
+        fields: [
+          steps: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields: [
+                  id: [type: UUIDv7, allow_nil?: false],
+                  title: [type: :string, allow_nil?: false],
+                  outcome: [type: :string, allow_nil?: false],
+                  effort: [type: :string, allow_nil?: false],
+                  whyNow: [type: :string, allow_nil?: false],
+                  ambitious: [type: :boolean, allow_nil?: false]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      transaction?(false)
+      argument(:refresh, :boolean, default: false)
+      argument(:locale, :string)
+
+      run(fn input, context ->
+        steps =
+          Conversations.next_steps(context.actor,
+            refresh: input.arguments.refresh,
+            locale: input.arguments[:locale]
+          )
+
+        {:ok,
+         %{
+           steps:
+             Enum.map(steps, fn step ->
+               %{
+                 id: step.id,
+                 title: step.title,
+                 outcome: step.outcome,
+                 effort: step.effort,
+                 whyNow: step.why_now,
+                 ambitious: step.ambitious
+               }
+             end)
+         }}
+      end)
+    end
+
+    action :choose_next_step, :boolean do
+      argument(:id, UUIDv7, allow_nil?: false)
+
+      run(fn input, context ->
+        case Conversations.choose_next_step(context.actor, input.arguments.id) do
+          :ok -> {:ok, true}
+          {:error, reason} -> APIError.result({:error, reason})
+        end
+      end)
+    end
+
+    action :reply_suggestion, :map do
+      constraints(
+        fields: [
+          messageID: [type: UUIDv7],
+          text: [type: :string]
+        ]
+      )
+
+      transaction?(false)
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:locale, :string)
+
+      run(fn input, context ->
+        context.actor
+        |> Conversations.reply_suggestion(input.arguments.id, locale: input.arguments[:locale])
+        |> case do
+          {:ok, suggestion} -> {:ok, %{messageID: suggestion.message_id, text: suggestion.text}}
+          {:error, :not_found} -> APIError.result({:error, :conversation_not_found})
+        end
       end)
     end
 

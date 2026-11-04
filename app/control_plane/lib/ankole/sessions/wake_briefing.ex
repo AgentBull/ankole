@@ -807,7 +807,7 @@ defmodule Ankole.Sessions.WakeBriefing do
     with {:ok, actor} <- agent_actor(run),
          {:ok, node} <- Ankole.Pod.authorize_node(actor, node_id, "node_view") do
       case node do
-        %{kind: :doc, id: id, name: name} ->
+        %{type: :doc, id: id, name: name} ->
           case Pages.get(actor, id) do
             {:ok, %{content: %{plain_text: text}}} when is_binary(text) and text != "" ->
               {:ok, "pod:#{name || id}", text}
@@ -819,7 +819,7 @@ defmodule Ankole.Sessions.WakeBriefing do
               {:pointer, "unavailable"}
           end
 
-        %{kind: :file, name: name, object_id: object_id} when is_binary(object_id) ->
+        %{type: :file, name: name, object_id: object_id} when is_binary(object_id) ->
           if sensitive_path?(name) do
             {:pointer, "redacted_sensitive_path"}
           else

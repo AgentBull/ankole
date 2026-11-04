@@ -3,18 +3,24 @@ import { chromium, expect } from '@playwright/test'
 const [port, tenantID, principalUID, mode, inbox] = process.argv.slice(2)
 const enabled = mode !== 'disabled'
 const browser = await chromium.launch({ args: [`--host-resolver-rules=MAP *.example.test 127.0.0.1:${port}`] })
-const context = await browser.newContext({
-  ignoreHTTPSErrors: true,
-  proxy: { server: 'http://127.0.0.1:9', bypass: '.example.test' }
-})
-const page = await context.newPage()
 const errors: string[] = []
 const failures: string[] = []
-page.on('requestfailed', request => failures.push(`${request.url()} ${request.failure()?.errorText}`))
-page.on('console', message => {
-  if (message.type() === 'error') failures.push(message.text())
-})
-page.on('pageerror', error => errors.push(error.message))
+// The Site Console phase signs in from its own browser context. Clearing the
+// Pod cookies instead would fail the Pod shell's in-flight sidebar requests.
+const openPage = async () => {
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    proxy: { server: 'http://127.0.0.1:9', bypass: '.example.test' }
+  })
+  const page = await context.newPage()
+  page.on('requestfailed', request => failures.push(`${request.url()} ${request.failure()?.errorText}`))
+  page.on('console', message => {
+    if (message.type() === 'error') failures.push(message.text())
+  })
+  page.on('pageerror', error => errors.push(error.message))
+  return page
+}
+let page = await openPage()
 try {
   const shell = await page.goto(`https://pod.example.test:${port}/fixture-browser/pod/${principalUID}`)
   expect(shell?.status()).toBe(200)
@@ -39,7 +45,7 @@ try {
     await expect(tab).toHaveCount(0)
   }
 
-  await context.clearCookies()
+  page = await openPage()
   await page.goto(`https://site.example.test:${port}/site-admin-console`)
   await page.getByLabel('Email address', { exact: true }).fill('fixture-browser@example.test')
   const send = page.getByRole('button', { name: 'Send code', exact: true })
@@ -107,6 +113,9 @@ try {
     expect(response.status()).toBe(200)
     await response.finished()
   }
+  // Closing the browser would abort the Console's remaining requests mid-query and
+  // break the fixture's shared database connection before the next phase.
+  await page.waitForLoadState('networkidle')
 
   expect(errors).toEqual([])
   expect(failures).toEqual([])

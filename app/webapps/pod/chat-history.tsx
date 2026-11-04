@@ -65,6 +65,47 @@ export function OlderMessages({
   )
 }
 
+/** The read position and newest message a room had when the viewer entered it. */
+export type ChatEntry = { readSeq: number; lastSeq: number }
+
+/**
+ * Finds the first message from someone else that arrived after the viewer's read position at entry.
+ * It returns nothing when older unread messages are still unloaded, because the boundary would then be wrong.
+ */
+export function firstUnreadMessageID(
+  detail: Pick<ConversationDetail, 'messages' | 'olderMessagesBeforeSeq' | 'conversation'>,
+  entry: ChatEntry
+) {
+  const first = detail.messages[0]
+  if (!first || (detail.olderMessagesBeforeSeq != null && first.seq > entry.readSeq + 1)) return undefined
+  return detail.messages.find(
+    message =>
+      message.seq > entry.readSeq &&
+      message.seq <= entry.lastSeq &&
+      message.kind !== 'notice' &&
+      !(message.authorType === 'human' && message.authorUID === detail.conversation.viewer.uid)
+  )?.id
+}
+
+// Each page holds up to 500 messages, so ten pages reach far back without loading a whole archive.
+const FIND_MESSAGE_PAGES = 10
+
+/**
+ * Decides how the room reaches the message a search result named: it loads one more page of older history,
+ * or it opens the in-room find at that message, or without a target once the message cannot be reached.
+ */
+export function findMessageStep(
+  detail: Pick<ConversationDetail, 'messages' | 'olderMessagesBeforeSeq'>,
+  seq: number,
+  pagesLoaded: number,
+  failed: boolean
+): 'load_older' | { messageID?: string } {
+  const target = detail.messages.find(message => message.seq === seq)
+  if (target) return { messageID: target.id }
+  const older = detail.olderMessagesBeforeSeq
+  return !failed && older != null && older > seq && pagesLoaded < FIND_MESSAGE_PAGES ? 'load_older' : {}
+}
+
 export function messageID(message: DisplayMessage) {
   return message.type === 'committed' ? message.message.id : message.message.messageID
 }
@@ -74,9 +115,10 @@ export function useChatReading(
   presentation: ChatPresentation,
   { scrollRef, contentRef, state, stopScroll, scrollToBottom }: StickToBottomInstance,
   messageKeys: string,
-  jumpToMatch: ReturnType<typeof useChatHistory>['jumpToMatch']
+  jumpToMatch: ReturnType<typeof useChatHistory>['jumpToMatch'],
+  initial: ChatReadingPosition | undefined
 ) {
-  const position = useRef<ChatReadingPosition | undefined>(model.reading.peek()[presentation])
+  const position = useRef(initial)
   const elements = useRef<HTMLElement[]>([])
   const byID = useRef(new Map<string, HTMLElement>())
 

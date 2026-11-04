@@ -1564,6 +1564,10 @@ export type UpdateConversationQueueResponses = {
       }>
       roomMode: 'dm' | 'group'
       rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
       title: string
       titleCustomized: boolean
       viewer: {
@@ -1697,6 +1701,33 @@ export type UpdateConversationQueueResponses = {
 }
 
 export type UpdateConversationQueueResponse = UpdateConversationQueueResponses[keyof UpdateConversationQueueResponses]
+
+export type ChoosePodNextStepData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/next-steps/{id}/choose'
+}
+
+export type ChoosePodNextStepErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ChoosePodNextStepError = ChoosePodNextStepErrors[keyof ChoosePodNextStepErrors]
+
+export type ChoosePodNextStepResponses = {
+  /**
+   * Success
+   */
+  201: boolean
+}
+
+export type ChoosePodNextStepResponse = ChoosePodNextStepResponses[keyof ChoosePodNextStepResponses]
 
 export type PodPageMoveData = {
   /**
@@ -3058,6 +3089,10 @@ export type PodConversationAttentionResponses = {
     }>
     roomMode: 'dm' | 'group'
     rowStatus: string
+    searchMatch?: {
+      excerpt: string
+      seq: number
+    } | null
     title: string
     titleCustomized: boolean
     viewer: {
@@ -3296,6 +3331,10 @@ export type ConversationDetailResponses = {
       }>
       roomMode: 'dm' | 'group'
       rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
       title: string
       titleCustomized: boolean
       viewer: {
@@ -3559,6 +3598,10 @@ export type UpdateConversationResponses = {
       }>
       roomMode: 'dm' | 'group'
       rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
       title: string
       titleCustomized: boolean
       viewer: {
@@ -3912,6 +3955,10 @@ export type AnswerConversationInteractionResponses = {
       }>
       roomMode: 'dm' | 'group'
       rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
       title: string
       titleCustomized: boolean
       viewer: {
@@ -4531,6 +4578,10 @@ export type ResolveConversationActionCardResponses = {
       }>
       roomMode: 'dm' | 'group'
       rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
       title: string
       titleCustomized: boolean
       viewer: {
@@ -6282,6 +6333,10 @@ export type PostConversationMessageResponses = {
       }>
       roomMode: 'dm' | 'group'
       rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
       title: string
       titleCustomized: boolean
       viewer: {
@@ -8188,6 +8243,48 @@ export type PodSpaceAgentDeleteResponses = {
 
 export type PodSpaceAgentDeleteResponse = PodSpaceAgentDeleteResponses[keyof PodSpaceAgentDeleteResponses]
 
+export type PodNextStepsData = {
+  /**
+   * Request body for the podNextSteps operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      locale?: string | null
+      refresh?: boolean | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/next-steps'
+}
+
+export type PodNextStepsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodNextStepsError = PodNextStepsErrors[keyof PodNextStepsErrors]
+
+export type PodNextStepsResponses = {
+  /**
+   * Success
+   */
+  201: {
+    steps: Array<{
+      ambitious: boolean
+      effort: string
+      id: string
+      outcome: string
+      title: string
+      whyNow: string
+    }>
+  }
+}
+
+export type PodNextStepsResponse = PodNextStepsResponses[keyof PodNextStepsResponses]
+
 export type PodBaseViewCreateData = {
   /**
    * Request body for the podBaseViewCreate operation on pod_base_operation resource
@@ -8974,6 +9071,10 @@ export type PodConversationsResponses = {
       }>
       roomMode: 'dm' | 'group'
       rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
       title: string
       titleCustomized: boolean
       viewer: {
@@ -9135,6 +9236,10 @@ export type CreateConversationResponses = {
       }>
       roomMode: 'dm' | 'group'
       rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
       title: string
       titleCustomized: boolean
       viewer: {
@@ -10202,6 +10307,43 @@ export type MetaUpdateAgentResponses = {
 }
 
 export type MetaUpdateAgentResponse = MetaUpdateAgentResponses[keyof MetaUpdateAgentResponses]
+
+export type PodReplySuggestionData = {
+  /**
+   * Request body for the podReplySuggestion operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      locale?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/reply-suggestion'
+}
+
+export type PodReplySuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodReplySuggestionError = PodReplySuggestionErrors[keyof PodReplySuggestionErrors]
+
+export type PodReplySuggestionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    messageID?: string | null
+    text?: string | null
+  }
+}
+
+export type PodReplySuggestionResponse = PodReplySuggestionResponses[keyof PodReplySuggestionResponses]
 
 export type MetaSaveGlobalContractData = {
   /**

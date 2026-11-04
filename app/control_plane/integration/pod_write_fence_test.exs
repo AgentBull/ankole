@@ -63,7 +63,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
     }
   end
 
-  test "a signed XML relay cannot commit after its RunRef closes", ctx do
+  test "a signed Markdown relay cannot commit after its RunRef closes", ctx do
     page = shared_page(ctx, "doc")
     Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> page.id)
 
@@ -71,7 +71,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
       pod_request("pages.write", %{
         id: page.id,
         base_revision: 0,
-        xml_home_relative_path: "report.xml"
+        markdown_home_relative_path: "report.md"
       })
 
     task = delayed_rpc(ctx, request, run: proto_ref(ctx.ref))
@@ -174,16 +174,16 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
 
     applet = shared_page(ctx, "applet")
 
-    publish_files =
-      for {path, content} <- [
-            {"src/main.ts", "export {}"},
-            {"dist/index.html", "<!doctype html><p>Published</p>"}
-          ] do
-        {:ok, stored} = Ankole.Files.store(content)
-        Map.merge(stored, %{path: path, source: "agent", source_path: path})
-      end
+    worker_files = %{
+      "src/main.ts" => "export {}",
+      "dist/index.html" => "<!doctype html><p>Published</p>"
+    }
 
-    assert {:ok, _} = Ankole.Files.commit(ctx.agent, publish_files)
+    WorkerFilesFake.start!(ctx.route, files: worker_files)
+
+    publish_files =
+      for path <- Map.keys(worker_files), do: %{path: path, home_relative_path: path}
+
     page_count = Repo.aggregate(Page, :count)
 
     {:ok, _} = Run.finalize(ctx.run, :silent)
@@ -353,7 +353,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
         send(parent, {:relay_waiting, self()})
 
         receive do
-          :release -> {:ok, "<page><p>Too late</p></page>"}
+          :release -> {:ok, "Too late"}
         after
           5_000 -> {:error, {"test_timeout", "relay was not released"}}
         end

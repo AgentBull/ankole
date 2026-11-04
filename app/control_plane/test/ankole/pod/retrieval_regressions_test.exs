@@ -84,7 +84,7 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
     {:ok, root} = Ankole.Pod.Pages.Tree.private_root(owner.uid)
 
     pod_pages =
-      for kind <- ~w(doc knowledge base applet) do
+      for kind <- ~w(doc base applet) do
         {:ok, page} =
           Pages.create(actor, %{
             parent_id: root.id,

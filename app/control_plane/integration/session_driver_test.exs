@@ -627,6 +627,9 @@ defmodule Ankole.Sessions.DriverTest do
 
       if reason != :unknown_route do
         owner = self()
+        # The channel process has no tenant context, so the test resolves the
+        # tenant-scoped topic here.
+        topic = WorkerRoute.topic(key.agent_uid)
 
         start_supervised!(
           {Task,
@@ -644,7 +647,7 @@ defmodule Ankole.Sessions.DriverTest do
                       Phoenix.Tracker.track(
                         Ankole.AgentWorkers.WorkerTracker,
                         self(),
-                        WorkerRoute.topic(key.agent_uid),
+                        topic,
                         route,
                         meta
                       )
@@ -1707,12 +1710,21 @@ defmodule Ankole.Sessions.DriverTest do
     ) do
       args = workflow_ending_args(tool)
       Agent.update(script, &%{&1 | calls: [tool_call("end", tool, args)]})
-      {key, event, call} = workflow_task(owner, sibling?: tool == "sleep", concurrency: 1)
+
+      # The committed dispatches reach passive fakes because the test admits the
+      # sibling itself and starts the task Driver only after the fixture state.
+      {key, event, call} =
+        workflow_task(owner,
+          sibling?: tool == "sleep",
+          concurrency: 1,
+          passive_dispatch?: true
+        )
 
       # Earlier failed attempts are fixture state; the next claim, model stream,
       # tool transaction, tape commit and Driver replacement use the real path.
       Repo.update!(change(call, attempts: attempt - 1))
       handler = hold_workflow_commit(boundary)
+      :global.unregister_name(Ankole.Sessions.driver_name(key))
       {:ok, first} = Ankole.Sessions.ensure_driver(key)
       _ = await_request(key)
       assert_receive {:workflow_commit, writer}, 10000
@@ -2026,6 +2038,9 @@ defmodule Ankole.Sessions.DriverTest do
         "args" => %{}
       })
 
+    if Keyword.get(opts, :passive_dispatch?, false),
+      do: RuntimeCase.stub_workflow_drivers(workflow)
+
     result = Ankole.Workflow.Replay.commit_replay_pending(workflow.id, arguments, 0)
 
     {:ok, %{new_calls: [call | _]}} = result
@@ -2266,10 +2281,13 @@ defmodule Ankole.Sessions.DriverTest do
     refute_receive {:model_request, _}, 100
   end
 
-  test("reset defers later input until the next conversation (G2, G4)", %{
-    key: key,
-    script: script
-  }) do
+  test(
+    "a queued reset lets later Human input finish before it starts the next conversation (G2, G4)",
+    %{
+      key: key,
+      script: script
+    }
+  ) do
     Agent.update(script, &%{&1 | block_first?: true})
     {:ok, first} = Ankole.Signals.accept(attrs(key))
     _ = await_request(key)
@@ -2300,8 +2318,24 @@ defmodule Ankole.Sessions.DriverTest do
         String.replace_prefix(Repo.reload!(later).final_response_id, "resp_", "")
       )
 
-    assert old.conversation_id != new.conversation_id
+    # The mailbox runs Human input before background work such as a kernel reset,
+    # so the later input is answered in the current conversation, which the
+    # reset then ends.
+    assert old.conversation_id == new.conversation_id
     assert Repo.get!(Ankole.AIGateway.Schemas.Conversation, old.conversation_id).ended_at
+
+    {:ok, fresh} =
+      Ankole.Signals.accept(%{attrs(key) | data: %{"entry" => %{"text" => "Fresh work"}}})
+
+    _ = await_request(key)
+
+    fresh_message =
+      Repo.get!(
+        Message,
+        String.replace_prefix(wait_for_completion(fresh.id).final_response_id, "resp_", "")
+      )
+
+    assert fresh_message.conversation_id != old.conversation_id
     refute_receive {:model_request, _}, 100
   end
 
@@ -3276,6 +3310,9 @@ defmodule Ankole.Sessions.DriverTest do
   ) do
     parent = self()
     gate = :atomics.new(1, [])
+    # Context resolution reads the Worker row before the model request, so the
+    # test opens the gate only after the model has requested the tool.
+    :atomics.put(gate, 1, 1)
     handler = {__MODULE__, make_ref()}
 
     :ok =
@@ -3302,7 +3339,11 @@ defmodule Ankole.Sessions.DriverTest do
 
     Agent.update(
       script,
-      &%{&1 | calls: [tool_call("join-race", "command", %{"command" => "printf done"})]}
+      &%{
+        &1
+        | block_first?: true,
+          calls: [tool_call("join-race", "command", %{"command" => "printf done"})]
+      }
     )
 
     route = RuntimeCase.unique_route()
@@ -3310,6 +3351,9 @@ defmodule Ankole.Sessions.DriverTest do
     on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, event} = Ankole.Signals.accept(attrs(key))
     _request = await_request(key)
+    assert_receive {:model_waiting, provider}, 5000
+    :atomics.put(gate, 1, 0)
+    send(provider, :release_model)
     assert_receive {:worker_lookup_held, lookup}, 5000
     wait_for_worker_request(key)
     assert {:ok, _} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
@@ -3755,10 +3799,12 @@ defmodule Ankole.Sessions.DriverTest do
     on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
 
+    # Because the test admits the blocker and starts the waiting Driver itself,
+    # the committed dispatches reach passive fakes.
     [blocker, waiting] =
       for suffix <- ["capacity-blocker", "capacity-wait"] do
         assert {:ok, result} =
-                 Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+                 RuntimeCase.create_job_with_stub_driver(%{
                    "source_signal_id" => Ankole.WorkFixtures.service_source(key.agent_uid).id,
                    "agent_uid" => key.agent_uid,
                    "owner_session_id" => key.session_id,
@@ -3780,6 +3826,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert {:ok, :marked_stale} =
              Ankole.AgentWorkers.WorkerAdmission.mark_route_unusable(route, :socket_closed)
 
+    :global.unregister_name(Ankole.Sessions.driver_name(waiting.key))
     assert {:ok, driver} = Ankole.Sessions.ensure_driver(waiting.key)
 
     assert eventually(fn ->
@@ -4149,8 +4196,7 @@ defmodule Ankole.Sessions.DriverTest do
 
     assert {:ok, %{canceled_signals: 0}} =
              Ankole.Conversations.Observe.emit_entry_removed(
-               key.agent_uid,
-               "b01",
+               Ankole.Signals.get_agent_binding!(key.agent_uid, "b01").id,
                RuntimeCase.lifecycle_entry(%{
                  source_event_id: "withdraw-context:" <> suffix,
                  provider_message_id: context_id,

@@ -385,7 +385,65 @@
   color: var(--fg-secondary);
   text-align: left;
 }
+.pod-chat-reply-suggestion {
+  display: flex;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+.pod-chat-reply-suggestion > button {
+  max-width: 100%;
+  color: var(--fg-secondary);
+}
+.pod-chat-home-guides > .pod-chat-next-steps {
+  grid-column: 1 / -1;
+}
+.pod-chat-next-steps-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pod-chat-home-guides .pod-chat-next-steps-header h2 {
+  margin-bottom: 0;
+}
+.pod-chat-next-steps ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+.pod-chat-next-steps li > button {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 20px;
+}
+.pod-chat-next-step-title {
+  color: var(--foreground);
+  font-weight: 500;
+}
+/* The badge follows the title's last word, so a long title wraps as ordinary text. */
+.pod-chat-next-step-title > [data-slot='badge'] {
+  margin-inline-start: 6px;
+  vertical-align: 1px;
+}
+.pod-chat-next-step-outcome {
+  color: var(--fg-secondary);
+}
+.pod-chat-next-step-meta {
+  color: var(--fg-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
 .pod-chat-starters button:hover,
+.pod-chat-next-steps li > button:hover,
 .pod-chat-recent-row:hover {
   background: var(--accent);
 }
@@ -1608,6 +1666,73 @@
   margin: 0 0 5px;
   color: var(--fg-tertiary);
   font-family: var(--font-mono);
+  font-size: 12px;
+}
+.pod-chat-unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  color: var(--info-foreground);
+  font-size: 12px;
+}
+.pod-chat-unread-divider::before,
+.pod-chat-unread-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--info);
+}
+.pod-chat-patch-counts {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.pod-chat-patch-counts > [aria-hidden] {
+  display: inline-flex;
+  gap: 4px;
+}
+.pod-chat-patch-counts [data-marker='+'] {
+  color: var(--success-foreground);
+}
+.pod-chat-patch-counts [data-marker='-'] {
+  color: var(--destructive-foreground);
+}
+.pod-chat-patch section + section {
+  margin-top: 8px;
+}
+.pod-chat-patch header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pod-chat-patch-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+.pod-chat-patch-kind {
+  color: var(--fg-tertiary);
+}
+.pod-chat-patch header > .pod-chat-patch-counts {
+  margin-left: auto;
+}
+.pod-chat-patch pre > span {
+  display: block;
+  min-height: 18px;
+  padding: 0 4px;
+}
+.pod-chat-patch pre > [data-marker='+'] {
+  background: var(--success-subtle);
+}
+.pod-chat-patch pre > [data-marker='-'] {
+  background: var(--destructive-subtle);
+}
+.pod-chat-patch pre > [data-marker='@'] {
+  color: var(--fg-tertiary);
+}
+.pod-chat-patch-truncated {
+  margin: 6px 0 0;
+  color: var(--fg-tertiary);
   font-size: 12px;
 }
 .pod-chat-command-terminal .pod-chat-command-text > span {

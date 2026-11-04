@@ -358,9 +358,11 @@ defmodule Ankole.Sessions.CodexJob do
       fn ->
         BackgroundAgentJobs.abort_attempt_in_tx(ref, worker_id, error, now)
       end,
-      after_commit: fn result ->
+      after_commit: fn event ->
+        compensation = event.__metadata__[:compensation]
+
         Ankole.Signals.publish_committed(
-          [result[:wakeup_event], result[:dispatch_event]]
+          [compensation[:wakeup_event], compensation[:dispatch_event]]
           |> Enum.reject(&is_nil/1)
         )
       end

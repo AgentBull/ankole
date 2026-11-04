@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { completionAt, insertCompletionTrigger } from '../chat/composer-completion'
+import { completionAt, holdsEnter, insertCompletionTrigger } from '../chat/composer-completion'
 import { hasDraftMention } from './chat'
 import { removePageMention } from '../chat/composer'
 
@@ -96,4 +96,13 @@ test('toolbar trigger insertion separates word tokens so chosen mentions remain 
     completion: { kind: 'slash', start: 7, end: 8, query: '' },
     cursor: 8
   })
+})
+
+test('Enter waits for loading completion results instead of sending the typed query', () => {
+  expect(holdsEnter({ key: 'Enter', shiftKey: false }, true, 0)).toBe(true)
+  // Settled results without a match, a visible option, and Shift+Enter keep the composer's own Enter behavior.
+  expect(holdsEnter({ key: 'Enter', shiftKey: false }, false, 0)).toBe(false)
+  expect(holdsEnter({ key: 'Enter', shiftKey: false }, true, 1)).toBe(false)
+  expect(holdsEnter({ key: 'Enter', shiftKey: true }, true, 0)).toBe(false)
+  expect(holdsEnter({ key: 'Tab', shiftKey: false }, true, 0)).toBe(false)
 })

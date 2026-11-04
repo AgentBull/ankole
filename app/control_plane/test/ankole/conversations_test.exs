@@ -903,6 +903,41 @@ defmodule Ankole.ConversationsTest do
     assert Repo.aggregate(Message, :count) == 1
   end
 
+  test "moving the anchor Page to Trash closes its room", %{human: human, agent: agent} do
+    %{principal: owner} = human_fixture()
+    owner_actor = Ankole.PrincipalsFixtures.actor_fixture(owner.uid)
+    human_actor = Ankole.PrincipalsFixtures.actor_fixture(human.uid)
+
+    {:ok, page} =
+      Ankole.Pod.Pages.create(owner_actor, %{
+        title: "Shared report",
+        private_owner_uid: owner.uid
+      })
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+        grants: [%{principal_uid: human.uid, role: "view"}]
+      })
+
+    request = Map.merge(attrs(agent), %{page_id: page.id, access_scope: :anchor_page})
+
+    assert {:ok, detail} =
+             in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, request) end)
+
+    assert {:ok, _} = Ankole.Pod.Pages.delete(owner_actor, page.id)
+
+    assert {:error, :conversation_not_found} =
+             Conversations.get(human_actor, detail.conversation.id)
+
+    assert {:error, :conversation_not_found} =
+             in_tx(fn ->
+               Ankole.ConversationsFixtures.post(human.uid, detail.conversation.id, %{
+                 message_id: Ecto.UUID.generate(),
+                 text: "Is this still open?"
+               })
+             end)
+  end
+
   defp attrs(agent) do
     %{
       conversation_id: Ecto.UUID.generate(),

@@ -392,7 +392,7 @@ defmodule AnkoleWeb.PodControllerTest do
     end
   end
 
-  test "SSE emits committed changes and model text, keeps unrelated messages, and unsubscribes",
+  test "SSE emits committed changes and model text, drops other streams, and unsubscribes",
        %{
          conn: conn
        } do
@@ -506,8 +506,9 @@ defmodule AnkoleWeb.PodControllerTest do
     assert sse_payload(completed, "conversation") == %{"conversationID" => id}
     refute_receive {:stream_frame, _}
     assert_receive {:unrelated, :must_remain}
-    assert_receive ^unrelated_native
-    assert_receive ^unrelated_gateway
+    # Events for other conversations and model streams do not accumulate in the stream process.
+    refute_received ^unrelated_native
+    refute_received ^unrelated_gateway
 
     :ok =
       Ankole.Conversations.Events.publish_message(id)

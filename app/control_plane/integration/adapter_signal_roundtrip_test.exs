@@ -116,6 +116,7 @@ defmodule Ankole.Conversations.AdapterSignalRoundtripTest do
     consumer =
       inbound.chat_consumer(
         AdapterContext.new(
+          binding_id: binding.id,
           agent_uid: agent.uid,
           binding_name: binding.name,
           adapter: adapter,

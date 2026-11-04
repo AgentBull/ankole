@@ -23,7 +23,10 @@ export function attachmentPreviewKind(name: string, type?: string) {
   if (mime === 'application/pdf') return 'pdf'
   if (/\.(xlsx?|csv|tsv|ods)$/i.test(name) || mime?.includes('spreadsheet')) return 'spreadsheet'
   if (/\.pptx$/i.test(name) || mime?.includes('presentationml')) return 'presentation'
+  // A `.ts` source file often arrives as `video/mp2t`, so text detection runs before media.
   if (isTextFile(name, mime)) return 'text'
+  if (mime?.startsWith('video/')) return 'video'
+  if (mime?.startsWith('audio/')) return 'audio'
   return undefined
 }
 
@@ -105,6 +108,10 @@ export function AttachmentPreview({
             <Suspense fallback={<p role="status">{t('pod.content.loading_file')}</p>}>
               {kind === 'pdf' ? (
                 <iframe className="h-[70dvh] w-full border border-border" src={url} title={stripBidi(name)} />
+              ) : kind === 'video' ? (
+                <video controls playsInline preload="metadata" className="max-h-[70dvh] w-full rounded" src={url} />
+              ) : kind === 'audio' ? (
+                <audio controls preload="metadata" className="w-full" src={url} />
               ) : kind === 'spreadsheet' ? (
                 <SpreadsheetPreview url={url} />
               ) : kind === 'presentation' ? (

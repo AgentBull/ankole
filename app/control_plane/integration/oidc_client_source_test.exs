@@ -264,7 +264,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
 
     records =
       Enum.flat_map(prompts, fn prompt ->
-        [_instructions, excerpt] = String.split(prompt, "Excerpt:\n", parts: 2)
+        [_prompt, excerpt] = Regex.run(~r{<excerpt>\n(.*)\n</excerpt>}s, prompt)
         excerpt |> String.split("\n", trim: true) |> Enum.map(&Ankole.JSON.decode!/1)
       end)
 

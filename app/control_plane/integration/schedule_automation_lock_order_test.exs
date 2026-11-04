@@ -86,19 +86,13 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
 
     assert {:ok, updated} = Task.await(update.task, 10_000)
     assert Ankole.Signals.source_automation_job_id(updated) == ctx.job.id
-    assert {:error, :binding_changed} = Task.await(fire.task, 10_000)
-    assert Repo.all(Run) == []
-    assert Repo.all(ScheduledEvent) == []
 
-    assert {:ok, %{automation_job_run: run}} =
-             Schedule.fire_cron(ctx.cron.id, now: @slot, attempt: 2)
+    assert {:ok, %{automation_job_run: run, scheduled_event: event}} =
+             Task.await(fire.task, 10_000)
 
     assert run.automation_job_id == ctx.job.id
-
-    Ankole.DataCase.assert_persisted_equal(
-      Repo.all(from r in Run, where: r.automation_job_id == ^ctx.job.id),
-      [run]
-    )
+    assert_persisted_equal(Repo.all(Run), [run])
+    assert_persisted_equal(Repo.all(ScheduledEvent), [event])
 
     assert {:ok, current} = Schedule.get_cron_schedule(ctx.cron.id)
     assert DateTime.after?(current.next_fire_at, @slot)
@@ -388,8 +382,10 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
     assert_blocked_on_consumer(fire, update)
     send(update.task.pid, :continue_parent_write)
     assert {:ok, _} = Task.await(update.task, 10_000)
-    assert {:error, :binding_changed} = Task.await(fire.task, 10_000)
-    assert {:ok, %{status: :fired}} = Schedule.fire_cron(ctx.cron.id, now: @slot)
+    assert {:ok, %{status: :fired, deliveries: [_, _]}} = Task.await(fire.task, 10_000)
+
+    assert Enum.map(Repo.all(Run), & &1.automation_job_id) ==
+             List.duplicate(ctx.replacement.id, 2)
   end
 
   test "retargeting a checkback can overlap a fire to its existing consumers", ctx do
@@ -445,8 +441,10 @@ defmodule Ankole.ScheduleAutomationLockOrderTest do
     assert_blocked_on_consumer(fire, update)
     send(update.task.pid, :continue_parent_write)
     assert {:ok, _} = Task.await(update.task, 10_000)
-    assert {:error, :binding_changed} = Task.await(fire.task, 10_000)
-    assert {:ok, %{status: :fired}} = Schedule.fire_due_event(event.id, now: @slot)
+    assert {:ok, %{status: :fired, deliveries: [_, _]}} = Task.await(fire.task, 10_000)
+
+    assert Enum.map(Repo.all(Run), & &1.automation_job_id) ==
+             List.duplicate(ctx.replacement.id, 2)
   end
 
   test "retrying cron creation can overlap a fire after another consumer subscribes", ctx do

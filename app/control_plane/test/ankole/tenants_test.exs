@@ -151,6 +151,8 @@ defmodule Ankole.TenantsTest do
   end
 
   test "tenant deletion releases Applet owners before deleting their Agents" do
+    # Agent deletion reconciles the Docker Worker through the Engine HTTP fixture.
+    Ankole.AgentWorkerDockerHTTP.install()
     tenant = new_tenant()
 
     {agent, applet} =

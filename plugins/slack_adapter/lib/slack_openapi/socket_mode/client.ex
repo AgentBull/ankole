@@ -63,7 +63,6 @@ defmodule SlackOpenAPI.SocketMode.Client do
 
   @impl true
   def init(opts) do
-    Process.flag(:trap_exit, true)
     opts = validate_opts!(opts)
 
     state = %__MODULE__{

@@ -125,6 +125,9 @@ defmodule AnkoleWeb.PodExecutionLogTest do
                "max_agent_calls" => 128
              })
 
+    # The room API reads queued calls; passive task Drivers keep them from starting.
+    Ankole.SessionsCase.stub_workflow_drivers(run)
+
     pending =
       for index <- 0..104,
           do: %{

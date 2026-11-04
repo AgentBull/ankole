@@ -52,6 +52,7 @@ defmodule Ankole.Conversations do
     resource(Ankole.Conversations.DeliveryAttachment)
     resource(Ankole.Conversations.Delivery.PreviewState)
     resource(Ankole.Conversations.ActionCard)
+    resource(Ankole.Conversations.NextStep)
 
     resource Ankole.Conversations.Delivery.Intent do
       define(:list_intents, action: :read)
@@ -109,6 +110,13 @@ defmodule Ankole.Conversations do
               to: NativeRoom
 
   defdelegate list_rooms(actor, opts \\ []), to: Native
+  defdelegate next_steps(actor, opts \\ []), to: Ankole.Conversations.NextSteps, as: :menu
+  defdelegate choose_next_step(actor, id), to: Ankole.Conversations.NextSteps, as: :choose
+
+  defdelegate reply_suggestion(actor, conversation_id, opts \\ []),
+    to: Ankole.Conversations.ReplySuggestion,
+    as: :suggest
+
   defdelegate agents(human_uid), to: Native
   defdelegate authorize_agent(actor, uid), to: Native
   defdelegate model_profiles(human_uid, agent_uid), to: Native

@@ -19,7 +19,8 @@ import {
   unloadedPendingQuestions
 } from '../chat/turn-timeline'
 import { activitySteps } from '../chat/collapsed-work-view'
-import { ToolRunView, commandDetails, formatToolDetail, humanizeToolName } from '../chat/tool-run-view'
+import { findMessageStep, firstUnreadMessageID } from '../chat-history'
+import { ToolRunView, commandDetails, formatToolDetail, humanizeToolName, patchDetails } from '../chat/tool-run-view'
 import { MessageActions } from '../chat/message-actions'
 import { ChatModel } from './chat'
 
@@ -219,6 +220,77 @@ test('terminal details show the real command, output and exit code without expos
   expect(failed).toContain('pod-chat-command-stderr')
   expect(failed).not.toContain('&quot;stderr&quot;')
   expect(commandDetails({ ...command, input: '{"command":' })).toBeUndefined()
+})
+
+test('apply_patch work shows each changed file with its counts and changed lines', () => {
+  const input = [
+    '*** Begin Patch',
+    '*** Update File: src/report.ts',
+    '*** Move to: src/summary.ts',
+    '@@ export function total',
+    ' const rows = load()',
+    '-return rows.length',
+    '+return rows.filter(Boolean).length',
+    '+// counted once',
+    '*** Add File: notes.md',
+    '+# Notes',
+    '*** Delete File: old.txt',
+    '*** End Patch'
+  ].join('\n')
+  const patch = patchDetails({ tool: 'apply_patch', input })!
+  expect(patch).toMatchObject({ added: 3, removed: 1, truncated: false })
+  expect(patch.files.map(file => [file.kind, file.path, file.movePath, file.added, file.removed])).toEqual([
+    ['update', 'src/report.ts', 'src/summary.ts', 2, 1],
+    ['add', 'notes.md', undefined, 1, 0],
+    ['delete', 'old.txt', undefined, 0, 0]
+  ])
+  const html = render(
+    <ToolRunView
+      steps={[{ id: 'patch', tool: 'apply_patch', title: 'apply_patch', status: 'completed', input, output: 'Done!' }]}
+    />
+  )
+  expect(html).toContain('src/report.ts → src/summary.ts')
+  expect(html).toContain('<span data-marker="-">-return rows.length</span>')
+  expect(html).toContain('Lines added: 3, lines removed: 1')
+  expect(html).toContain('Deleted')
+  expect(html).not.toContain('*** Begin Patch')
+  // The work history keeps only an excerpt of long input, and other tools keep their plain detail.
+  expect(patchDetails({ tool: 'apply_patch', input: `${input.split('\n*** Add File')[0]}\n…` })!.truncated).toBe(true)
+  expect(patchDetails({ tool: 'apply_patch', input: '{"changes":[]}' })).toBeUndefined()
+  expect(patchDetails({ tool: 'command', input })).toBeUndefined()
+})
+
+test('the new-messages boundary is the first reply from someone else that was unread on entry', () => {
+  const message = (id: string, seq: number, authorUID: string, kind: 'message' | 'notice' = 'message') =>
+    ({ id, seq, authorUID, kind, authorType: authorUID === 'viewer' ? 'human' : 'agent' }) as never
+  const detail = {
+    conversation: { viewer: { uid: 'viewer' } } as never,
+    olderMessagesBeforeSeq: null,
+    messages: [
+      message('read', 4, 'agent'),
+      message('own', 5, 'viewer'),
+      message('joined', 6, 'agent', 'notice'),
+      message('reply', 7, 'agent'),
+      message('live', 9, 'agent')
+    ]
+  }
+  expect(firstUnreadMessageID(detail, { readSeq: 4, lastSeq: 8 })).toBe('reply')
+  // Messages that arrive after entry never open a divider of their own.
+  expect(firstUnreadMessageID(detail, { readSeq: 8, lastSeq: 8 })).toBeUndefined()
+  // An unread boundary inside unloaded history is not guessed from the loaded window.
+  expect(firstUnreadMessageID({ ...detail, olderMessagesBeforeSeq: 4 }, { readSeq: 2, lastSeq: 8 })).toBeUndefined()
+  expect(firstUnreadMessageID({ ...detail, olderMessagesBeforeSeq: 4 }, { readSeq: 3, lastSeq: 8 })).toBe('read')
+})
+
+test('a searched message loads older pages until it is reachable, then opens the find there', () => {
+  const detail = { olderMessagesBeforeSeq: 600, messages: [{ id: 'm600', seq: 600 }] } as never
+  expect(findMessageStep(detail, 120, 0, false)).toBe('load_older')
+  expect(findMessageStep(detail, 600, 0, false)).toEqual({ messageID: 'm600' })
+  // A failed page, exhausted history, the page budget, or a withdrawn target opens the find without a target.
+  expect(findMessageStep(detail, 120, 0, true)).toEqual({})
+  expect(findMessageStep(detail, 120, 10, false)).toEqual({})
+  expect(findMessageStep({ olderMessagesBeforeSeq: null, messages: [] } as never, 120, 0, false)).toEqual({})
+  expect(findMessageStep(detail, 700, 0, false)).toEqual({})
 })
 
 test('answered and superseded decisions remain locked when loaded from durable interaction state', () => {
@@ -466,6 +538,9 @@ test('frozen attachments choose the existing in-chat preview for supported offic
   expect(attachmentPreviewKind('worker.rs', 'application/octet-stream')).toBe('text')
   expect(attachmentPreviewKind('preview.png', 'image/png')).toBe('image')
   expect(attachmentPreviewKind('bundle.zip', 'application/zip')).toBeUndefined()
+  expect(attachmentPreviewKind('demo.mp4', 'video/mp4')).toBe('video')
+  expect(attachmentPreviewKind('memo.m4a', 'audio/mp4')).toBe('audio')
+  expect(attachmentPreviewKind('worker.ts', 'video/mp2t')).toBe('text')
 })
 
 test('a committed clarification replaces its stream without hiding another Agent', () => {

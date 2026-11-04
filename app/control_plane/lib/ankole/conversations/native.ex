@@ -799,8 +799,9 @@ defmodule Ankole.Conversations.Native do
   @doc false
   def authorize_page(_uid, nil), do: :ok
 
+  # Room access follows the live Page, so a Page in Trash closes its room.
   def authorize_page(%Ankole.AuthZ.Actor{} = actor, id) do
-    case Ankole.Pod.authorize_node(actor, id, "node_view") do
+    case Ankole.Pod.authorize_node(actor, id, "node_view", trash: false) do
       {:ok, _} -> :ok
       _ -> {:error, :page_unavailable}
     end

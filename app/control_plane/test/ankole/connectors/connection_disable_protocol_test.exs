@@ -117,7 +117,8 @@ defmodule Ankole.Connectors.ConnectionDisableProtocolTest do
     assert transaction_config["authConfigId"] == ctx.root.id
     key = Config.connection_key(config)
     assert [{owner, _}] = Registry.lookup(Ankole.Plugins.SlackAdapter.ConnectionRegistry, key)
-    assert SlackOpenAPI.SocketMode.Client.status(owner) == :connected
+    # The fake server counts the socket before the client handles the upgrade response.
+    assert eventually(fn -> SlackOpenAPI.SocketMode.Client.status(owner) == :connected end)
     {key, owner}
   end
 end

@@ -329,16 +329,17 @@ defmodule Ankole.Conversations.SharedAssistantBotTest do
     }
   end
 
+  # Card callbacks arrive as complete event envelopes, and the adapter reads the action from them.
   defp action("lark", sender, chat, index, source_id) do
-    %FeishuOpenAPI.Event{
-      id: "action-#{index}",
-      raw: %{},
-      content: %{
+    FeishuOpenAPI.Event.from_envelope(%{
+      "schema" => "2.0",
+      "header" => %{"event_id" => "action-#{index}", "event_type" => "card.action.trigger"},
+      "event" => %{
         "operator" => %{"open_id" => sender},
         "context" => %{"open_chat_id" => chat, "open_message_id" => "om_#{index}"},
         "action" => %{"name" => "approve", "value" => %{"sourceSignalId" => source_id}}
       }
-    }
+    })
   end
 
   defp action("slack", sender, chat, index, source_id) do

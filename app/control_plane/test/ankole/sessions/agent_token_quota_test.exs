@@ -293,7 +293,7 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
 
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
-             BackgroundAgentJobs.create_with_dispatch(%{
+             create_job_with_stub_driver(%{
                "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "owner_session_id" => "owner-session-#{suffix}",

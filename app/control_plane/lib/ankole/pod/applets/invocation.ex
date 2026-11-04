@@ -147,18 +147,24 @@ defmodule Ankole.Pod.Applets.Invocation do
       max(0, state.deadline - System.monotonic_time(:millisecond)) ->
         cancel_invocation(state)
 
-        {:aborted,
-         %{
-           "status" => 504,
-           "body" => %{
-             "error" => %{
-               "code" => "handler_timeout",
-               "message" => "Applet invocation timed out",
-               "details" => nil
-             }
-           },
-           "logs" => []
-         }}
+        # The client reports before it exits, so a call that expired before `start` stays rejected.
+        receive do
+          {:applet_runtime, ^run_id, :done, {:rejected, _outcome} = rejected} -> rejected
+        after
+          0 ->
+            {:aborted,
+             %{
+               "status" => 504,
+               "body" => %{
+                 "error" => %{
+                   "code" => "handler_timeout",
+                   "message" => "Applet invocation timed out",
+                   "details" => nil
+                 }
+               },
+               "logs" => []
+             }}
+        end
     end
   end
 

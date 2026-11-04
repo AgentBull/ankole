@@ -15,7 +15,7 @@ import {
 } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
@@ -24,7 +24,7 @@ import { agentsQuery, type ConversationDetail, type ConversationMessage, type Po
 import { MessageArtifacts, SaveMessageButton, SaveSelectionAsPageDialog } from '../message-artifacts'
 import { OlderMessages, messageID, useChatReading, type useChatHistory } from '../chat-history'
 import type { PageDetail } from '../content-api'
-import { ChatModel, type ChatPresentation, type DisplayMessage } from '../state/chat'
+import { ChatModel, type ChatPresentation, type ChatReadingPosition, type DisplayMessage } from '../state/chat'
 import { ChatMarkdown } from './chat-markdown'
 import { ActionCardView } from './action-card-view'
 import { ChoiceCard, type ClarifyAnswer } from './choice-card'
@@ -39,6 +39,9 @@ import { SelectShareLightbox } from './select-share-lightbox'
 import { TurnRail } from './turn-rail'
 import { avatarInitials, ChatAvatar } from './chat-avatar'
 import type { LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
+
+// Leaves room above the first unread message for the divider that introduces it.
+const UNREAD_DIVIDER_OFFSET = 48
 
 type TimelineActions = {
   edit?(message: ConversationMessage): void
@@ -73,7 +76,8 @@ export function TurnTimeline({
   onAnswer,
   onResolveActionCard,
   onComposeAnswer,
-  onRefresh
+  onRefresh,
+  unreadMessageID
 }: {
   model: InstanceType<typeof ChatModel>
   presentation: ChatPresentation
@@ -100,10 +104,16 @@ export function TurnTimeline({
   onResolveActionCard?: (cardID: string, decision: ActionCardDecision) => Promise<unknown>
   onComposeAnswer?: (interactionID: string, text: string) => void
   onRefresh?: () => void
+  /** The first message the viewer had not read on entering; the timeline opens there under a divider. */
+  unreadMessageID?: string
 }) {
   useSignals()
   const { t } = useTranslation()
-  const savedReading = useRef(model.reading.peek()[presentation])
+  // A position remembered in this session wins; otherwise the timeline opens with the new-messages divider in view.
+  const savedReading = useRef<ChatReadingPosition | undefined>(
+    model.reading.peek()[presentation] ??
+      (unreadMessageID ? { atBottom: false, messageID: unreadMessageID, offset: UNREAD_DIVIDER_OFFSET } : undefined)
+  )
   const reducedMotion = useReducedMotion()
   const [shareOpen, setShareOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -116,7 +126,7 @@ export function TurnTimeline({
   })
   const { scrollRef, contentRef, isAtBottom, scrollToBottom } = stick
   const messageKeys = messages.map(messageID).join('|')
-  useChatReading(model, presentation, stick, messageKeys, history.jumpToMatch)
+  useChatReading(model, presentation, stick, messageKeys, history.jumpToMatch, savedReading.current)
   const committed = messages.filter(item => item.type === 'committed').map(item => item.message)
   const selectableMessages = committed.filter(msg => msg.kind !== 'notice')
   const selecting = model.selectingMessages.value
@@ -196,86 +206,98 @@ export function TurnTimeline({
             const selectable = item.type === 'committed' && item.message.kind !== 'notice'
             const isSelected = selectable && selectedIDSet.has(id)
             return (
-              <div
-                key={id}
-                data-chat-message-id={id}
-                tabIndex={-1}
-                className={cn(
-                  selecting &&
-                    selectable &&
-                    'relative flex items-start gap-2 rounded-control px-1.5 py-0.5 transition-colors',
-                  isSelected && 'bg-accent/55 ring-1 ring-border'
-                )}>
-                {selecting && selectable && (
-                  <button
-                    type="button"
-                    data-select-ignore=""
-                    role="checkbox"
-                    aria-checked={isSelected}
-                    aria-label={t('pod.chat_timeline.select_message_item', {
-                      defaultValue: 'Select message from {$author}',
-                      author: item.message.authorDisplayName
-                    })}
-                    onClick={() => model.toggleSelectedMessage(id)}
-                    className="mt-2.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-fg-secondary hover:text-foreground">
-                    {isSelected ? (
-                      <RiCheckboxLine className="size-4 text-primary" aria-hidden />
-                    ) : (
-                      <RiCheckboxBlankLine className="size-4" aria-hidden />
-                    )}
-                  </button>
+              <Fragment key={id}>
+                {id === unreadMessageID && (
+                  <div
+                    className="pod-chat-unread-divider"
+                    role="separator"
+                    aria-label={t('pod.chat_timeline.new_messages')}>
+                    {t('pod.chat_timeline.new_messages')}
+                  </div>
                 )}
-                <div className={selecting && selectable ? 'min-w-0 flex-1' : undefined}>
-                  <ErrorBoundary variant="inline" onReset={onRefresh} resetKeys={[id, item.message]}>
-                    {item.type === 'committed' ? (
-                      <CommittedMessage
-                        message={item.message as TimelineMessage}
-                        conversationID={conversationID}
-                        peerReply={committedByID.get(peerExchanges.replies.get(item.message.id) ?? '')}
-                        peerLive={peerExchanges.latest.has(item.message.id)}
-                        onEdit={
-                          item.message.id === latestInput?.messageID &&
-                          latestInput.authorUID === viewerUID &&
-                          actions?.edit
-                            ? () => actions.edit!(item.message)
-                            : undefined
-                        }
-                        onRetry={
-                          retryableMessageIDs.includes(item.message.id) && actions?.regenerate
-                            ? () => actions.regenerate!(item.message)
-                            : undefined
-                        }
-                        onQuote={onQuote ? text => onQuote(text, item.message) : undefined}
-                        onSelectMessage={selectable ? () => model.startSelectingMessages(item.message.id) : undefined}
-                        linkedRuns={executions.messages.get(item.message.id) ?? []}
-                        replySource={replySources.get(item.message.id)}
-                        onJumpToSource={sourceID => jumpToMessage(sourceID)?.focus({ preventScroll: true })}
-                        onAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onAnswer : undefined}
-                        onResolveActionCard={onResolveActionCard}
-                        onComposeAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onComposeAnswer : undefined}
-                        readOnlyReason={readOnlyReason}
-                        keyboardActive={item.message.id === lastChoice}
-                        showActions={item.message.id === latestReply?.id}
-                        editDisabledReason={actions?.editDisabledReason}
-                        avatarURL={members.find(member => member.uid === item.message.authorUID)?.avatarURL}
-                        own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
-                        queued={item.queued}
-                        continued={continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))}
-                      />
-                    ) : (
-                      <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
-                        <MessageIdentity name={t('pod.chat_timeline.you')} human quiet />
-                        <div className="pod-chat-human-text">
-                          <ChatMarkdown text={item.message.text ?? ''} />
-                        </div>
-                        <p role="status" className="pod-chat-message-state">
-                          {t(item.message.state === 'failed' ? 'pod.chat.send_failed' : 'pod.chat.sending')}
-                        </p>
-                      </article>
-                    )}
-                  </ErrorBoundary>
+                <div
+                  data-chat-message-id={id}
+                  tabIndex={-1}
+                  className={cn(
+                    selecting &&
+                      selectable &&
+                      'relative flex items-start gap-2 rounded-control px-1.5 py-0.5 transition-colors',
+                    isSelected && 'bg-accent/55 ring-1 ring-border'
+                  )}>
+                  {selecting && selectable && (
+                    <button
+                      type="button"
+                      data-select-ignore=""
+                      role="checkbox"
+                      aria-checked={isSelected}
+                      aria-label={t('pod.chat_timeline.select_message_item', {
+                        defaultValue: 'Select message from {$author}',
+                        author: item.message.authorDisplayName
+                      })}
+                      onClick={() => model.toggleSelectedMessage(id)}
+                      className="mt-2.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-fg-secondary hover:text-foreground">
+                      {isSelected ? (
+                        <RiCheckboxLine className="size-4 text-primary" aria-hidden />
+                      ) : (
+                        <RiCheckboxBlankLine className="size-4" aria-hidden />
+                      )}
+                    </button>
+                  )}
+                  <div className={selecting && selectable ? 'min-w-0 flex-1' : undefined}>
+                    <ErrorBoundary variant="inline" onReset={onRefresh} resetKeys={[id, item.message]}>
+                      {item.type === 'committed' ? (
+                        <CommittedMessage
+                          message={item.message as TimelineMessage}
+                          conversationID={conversationID}
+                          peerReply={committedByID.get(peerExchanges.replies.get(item.message.id) ?? '')}
+                          peerLive={peerExchanges.latest.has(item.message.id)}
+                          onEdit={
+                            item.message.id === latestInput?.messageID &&
+                            latestInput.authorUID === viewerUID &&
+                            actions?.edit
+                              ? () => actions.edit!(item.message)
+                              : undefined
+                          }
+                          onRetry={
+                            retryableMessageIDs.includes(item.message.id) && actions?.regenerate
+                              ? () => actions.regenerate!(item.message)
+                              : undefined
+                          }
+                          onQuote={onQuote ? text => onQuote(text, item.message) : undefined}
+                          onSelectMessage={selectable ? () => model.startSelectingMessages(item.message.id) : undefined}
+                          linkedRuns={executions.messages.get(item.message.id) ?? []}
+                          replySource={replySources.get(item.message.id)}
+                          onJumpToSource={sourceID => jumpToMessage(sourceID)?.focus({ preventScroll: true })}
+                          onAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onAnswer : undefined}
+                          onResolveActionCard={onResolveActionCard}
+                          onComposeAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onComposeAnswer : undefined}
+                          readOnlyReason={readOnlyReason}
+                          keyboardActive={item.message.id === lastChoice}
+                          showActions={item.message.id === latestReply?.id}
+                          editDisabledReason={actions?.editDisabledReason}
+                          avatarURL={members.find(member => member.uid === item.message.authorUID)?.avatarURL}
+                          own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
+                          queued={item.queued}
+                          continued={
+                            id !== unreadMessageID &&
+                            continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))
+                          }
+                        />
+                      ) : (
+                        <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
+                          <MessageIdentity name={t('pod.chat_timeline.you')} human quiet />
+                          <div className="pod-chat-human-text">
+                            <ChatMarkdown text={item.message.text ?? ''} />
+                          </div>
+                          <p role="status" className="pod-chat-message-state">
+                            {t(item.message.state === 'failed' ? 'pod.chat.send_failed' : 'pod.chat.sending')}
+                          </p>
+                        </article>
+                      )}
+                    </ErrorBoundary>
+                  </div>
                 </div>
-              </div>
+              </Fragment>
             )
           })}
           {activeStreams.map(stream => (

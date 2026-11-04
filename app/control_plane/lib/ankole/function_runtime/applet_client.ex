@@ -53,9 +53,10 @@ defmodule Ankole.FunctionRuntime.AppletClient do
           {:ok, connection, endpoint, lease} ->
             outcome =
               try do
+                # A call that expires before `start` is sent never ran its handler.
                 outcome =
                   if System.monotonic_time(:millisecond) >= deadline do
-                    {:aborted, failure(:handler_timeout)}
+                    {:rejected, failure(:handler_timeout)}
                   else
                     with {:ok, connection} <-
                            send_json(connection, %{
@@ -112,6 +113,7 @@ defmodule Ankole.FunctionRuntime.AppletClient do
 
         case outcome do
           {:completed, _} -> outcome
+          {:rejected, _} -> outcome
           :cancelled -> :cancelled
           _ -> {:aborted, failure(:handler_error)}
         end
@@ -226,7 +228,8 @@ defmodule Ankole.FunctionRuntime.AppletClient do
   end
 
   defp handshake(conn, ref, status, headers, deadline) do
-    case Mint.WebSocket.recv(conn, 0, remaining_timeout(deadline, 5_000)) do
+    # Function Runtime answers the upgrade after Worker boot, which may use the whole call budget.
+    case Mint.WebSocket.recv(conn, 0, max(1, deadline - System.monotonic_time(:millisecond))) do
       {:ok, conn, responses} ->
         status =
           Enum.reduce(responses, status, fn

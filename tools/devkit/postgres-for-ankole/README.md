@@ -83,8 +83,11 @@ bun run kit app-db migrate
 When upgrading an existing database, swapping the container image updates the
 shared library on disk without updating the SQL catalog definitions of installed
 extensions. Back up the database first and stop the control plane for a
-maintenance window. Then start PostgreSQL with the updated image and run the
-following SQL in the application database:
+maintenance window. The image stops with `SIGINT`, PostgreSQL's fast shutdown:
+stopping or recreating the container disconnects any remaining clients and
+writes a shutdown checkpoint, so the updated image starts from that checkpoint
+instead of recovering WAL written by the previous server. Then start PostgreSQL
+with the updated image and run the following SQL in the application database:
 
 ```sql
 ALTER EXTENSION pg_search UPDATE TO '0.26.4';

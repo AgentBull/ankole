@@ -25,7 +25,7 @@ defmodule Ankole.AIGateway.RateLimitIntegrationTest do
           else: {:json, 200, completed()}
       end)
 
-    assert {:ok, %{body: %{"id" => "resp_recovered"}}} =
+    assert {:ok, %{body: %{"id" => "tmp_resp_" <> _temporary_id, "status" => "completed"}}} =
              AIGateway.create_response(agent.uid, request)
 
     assert_receive {:attempt, first_at, first}

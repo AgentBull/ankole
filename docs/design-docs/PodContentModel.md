@@ -2514,7 +2514,10 @@ with native patches under `app/function_runtime/native/patches`:
   HTTP preflight returning `204` (reserving one slot), `428` (upload missing
   code first, then open the WebSocket), or `503` (at capacity; only a
   pre-admission connect error or preflight `503` allows one retry on another
-  replica—executed code and capability writes never replay). Closing the
+  replica—executed code and capability writes never replay). The replica
+  completes the WebSocket upgrade only after the Applet Worker loads its module,
+  including top-level await, so a call whose deadline expires during Worker boot
+  fails before it starts and remains safe to retry. Closing the
   WebSocket settles the slot with an authenticated `DELETE` (bounded by the
   call's wall-time limit if abandoned), while caller exit, cancellation,
   timeout, or disconnect settles `Ankole.Pod.Applets.Invocation` once and stops

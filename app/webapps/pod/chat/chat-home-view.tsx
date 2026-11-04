@@ -11,6 +11,7 @@ import { ChatAvatar } from './chat-avatar'
 import { ConversationGlyph, ConversationTitle, conversationPath } from './conversation-row'
 import { formatRelativeTime } from '../../common/date-time'
 import { ContentError } from '../content-primitives'
+import { NextStepsMenu } from './next-steps-menu'
 
 export function ChatHomeView({
   composer,
@@ -66,16 +67,21 @@ export function ChatHomeView({
       {!pageID && !colleague && (
         <div className="pod-chat-home-guides">
           {showSuggestions && !pageID && (
-            <section>
-              <h2>{t('pod.chat_room.start_with')}</h2>
-              <div className="pod-chat-starters">
-                {['research', 'analyze', 'build', 'notes'].map(key => (
-                  <button type="button" key={key} onClick={() => onSuggestion(t(`pod.chat_room.starter_${key}`))}>
-                    {t(`pod.chat_room.starter_${key}`)}
-                  </button>
-                ))}
-              </div>
-            </section>
+            <NextStepsMenu
+              onChoose={onSuggestion}
+              fallback={
+                <section>
+                  <h2>{t('pod.chat_room.start_with')}</h2>
+                  <div className="pod-chat-starters">
+                    {['research', 'analyze', 'build', 'notes'].map(key => (
+                      <button type="button" key={key} onClick={() => onSuggestion(t(`pod.chat_room.starter_${key}`))}>
+                        {t(`pod.chat_room.starter_${key}`)}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              }
+            />
           )}
           {!pageID && !colleague && (!!recent.data?.conversations.length || recent.isError) && (
             <section>

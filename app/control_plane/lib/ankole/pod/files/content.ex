@@ -101,8 +101,11 @@ defmodule Ankole.Pod.Files.Content do
 
   def authorize_write(_actor, _node), do: {:error, :not_a_file}
 
+  # Creating a file takes the tree lock, which ranks before the object row that
+  # `Objects.complete_in_tx/1` locks, so both file entry points take it first.
   def create_conversation_file_in_tx(conversation_id, name, stored, attrs \\ %{}) do
     Repo.require_transaction!({__MODULE__, :create_conversation_file_in_tx})
+    Nodes.lock_tree()
 
     with {:ok, root} <- Nodes.ensure_conversation_root_in_tx(conversation_id),
          {:ok, object} <- Objects.complete_in_tx(stored) do
@@ -115,6 +118,7 @@ defmodule Ankole.Pod.Files.Content do
 
   def create_private_file_in_tx(uid, name, stored, attrs \\ %{}) do
     Repo.require_transaction!({__MODULE__, :create_private_file_in_tx})
+    Nodes.lock_tree()
 
     with {:ok, root} <- Nodes.ensure_private_root_in_tx(uid),
          :ok <- Paths.lock_root(root.id),

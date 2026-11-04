@@ -15,11 +15,11 @@ export function conversationFindRanges(root: HTMLElement, query: string): Range[
     let text = ''
     const walker = document.createTreeWalker(message, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        return node.parentElement?.closest(
+        // Only markup inside the message hides text: a modal dialog marks the whole app aria-hidden while it closes.
+        const hidden = node.parentElement?.closest(
           'button, [aria-hidden="true"], [hidden], details:not([open]) > :not(summary)'
         )
-          ? NodeFilter.FILTER_REJECT
-          : NodeFilter.FILTER_ACCEPT
+        return hidden && message.contains(hidden) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
       }
     })
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -46,20 +46,24 @@ export function SessionFindBar({
   root,
   history,
   inputRef,
+  initial,
   onClose
 }: {
   root: RefObject<HTMLElement | null>
   history: ReturnType<typeof useChatHistory>
   inputRef?: RefObject<HTMLInputElement | null>
+  /** Opens with a query, and selects its first match inside `messageID` when that message is loaded. */
+  initial?: { query: string; messageID?: string }
   onClose(): void
 }) {
   const { t } = useTranslation()
-  const [query, setQuery] = useState(''),
+  const [query, setQuery] = useState(initial?.query ?? ''),
     [index, setIndex] = useState(0),
     [count, setCount] = useState(0)
   const indexRef = useRef(index)
   const selected = useRef<Range | undefined>(undefined)
   const located = useRef(false)
+  const targetMessage = useRef(initial?.messageID)
   const search = (step: number | 'new' | 'refresh') => {
     const element = root.current
     const ranges = element ? conversationFindRanges(element, query) : []
@@ -82,6 +86,15 @@ export function SessionFindBar({
         ranges.findIndex(range => range.getBoundingClientRect().bottom > top)
       )
     } else if (typeof step === 'number' && ranges.length) next = (next + step + ranges.length) % ranges.length
+    // A searched message takes the first match the bar locates, including one that renders after the bar opens.
+    if (!located.current && targetMessage.current) {
+      const target = element?.querySelector(`[data-chat-message-id="${CSS.escape(targetMessage.current)}"]`)
+      const inTarget = target ? ranges.findIndex(range => target.contains(range.startContainer)) : -1
+      if (inTarget >= 0) {
+        next = inTarget
+        targetMessage.current = undefined
+      }
+    }
     indexRef.current = next
     selected.current = ranges[next]
     const firstMatch = !located.current && !!ranges[next]

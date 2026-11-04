@@ -1,5 +1,54 @@
 # Changelog
 
+## Version 2.0.0-alpha.57 (2026-11-04)
+
+- Show file edits in a turn's work history as per-file changes with added and
+  removed line counts, and keep the end of long tool output, where failing tests
+  and command summaries appear. Expanding a command shows the end of its output
+  first.
+- Wait for loading `@` suggestions when Enter is pressed instead of sending the
+  half-typed mention, and play audio and video chat attachments inside their
+  preview dialog.
+- Open tooltips after a short hover delay so that moving the pointer across a
+  toolbar no longer flashes every hint; keyboard focus still shows them at once.
+- Show why a chat matched in global search with an excerpt of the matching
+  message, and open the room at that message with in-room search filled in.
+- Open a room at the first unread message from others under a New messages
+  divider, so returning to a busy group shows where to start reading.
+- Take the page-tree lock before storing chat attachments and generated images
+  as conversation or private files, so these writes follow the same lock order
+  as other page-tree changes.
+- Offer 4 to 7 concrete next steps from your personal assistant on the chat
+  home, including at most one ambitious 10x step, drawn from your recent
+  conversations, pages, and Brain knowledge. Choosing a step fills the composer
+  for you to edit and send; Show others writes a new menu, and steps you pass
+  over in two menus are not offered again.
+- Suggest one next message above the composer after an Agent replies in a
+  conversation where you are the only person. Choosing it only fills your
+  draft, and the suggestion stops for the visit after you pass over three in a
+  row.
+- Close a Page's discussion room as soon as the Page moves to Trash, so people
+  who could see the Page can no longer read or post in its room.
+- Release the Worker workspace when a recovered turn finishes after Ankole
+  replaced its Session Driver, instead of holding the slot until idle expiry.
+- Finish aborted and stalled background job attempts without an error after
+  they commit, and wake the owning conversation with the resulting failure.
+- Keep the AI reply to an edited, supplemented, or retried external chat
+  message attached to the original request.
+- Reread the Pod pages and files a resumed conversation worked with when Ankole
+  builds its wake briefing.
+- Remove the retired RuntimeFabric worker key from site configuration during
+  upgrade, so configuration reads and E2E cleanup no longer fail on it.
+- Stop Lark, Slack, DingTalk, Discord, Email, and Telegram long connections
+  together with their connection registry, so a plugin restart cannot leave
+  duplicate connections.
+- Count Applet Worker startup, including top-level await, toward call admission,
+  so an Action whose deadline expires during startup is retried instead of
+  failing with an unknown outcome.
+- Stop the bundled PostgreSQL image with a fast shutdown, so stopping or
+  recreating it no longer waits for connected clients until the server is
+  killed and must recover on its next start.
+
 ## Version 2.0.0-alpha.56 (2026-11-04)
 
 - Create and edit spreadsheets in Pod. The page create menus offer a new

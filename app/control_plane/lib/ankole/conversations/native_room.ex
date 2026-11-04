@@ -77,6 +77,56 @@ defmodule Ankole.Conversations.NativeRoom do
     |> then(&if(opts[:attention], do: &1, else: Ash.Query.limit(&1, opts[:limit] || 100)))
     |> Ankole.Ash.read!()
     |> project_rooms(actor, reachable)
+    |> put_search_matches(opts[:query], pattern)
+  end
+
+  @search_excerpt_chars 120
+  @search_lead_chars 40
+
+  # A body match names the latest matching message, so Pod can show why the room matched and open it there.
+  defp put_search_matches(details, query, _pattern) when query in [nil, ""], do: details
+  defp put_search_matches([], _query, _pattern), do: []
+
+  defp put_search_matches(details, query, pattern) do
+    ids = Enum.map(details, & &1.conversation.id)
+
+    matches =
+      Message
+      |> Ash.Query.filter(conversation_id in ^ids and not withdrawn and ilike(text, ^pattern))
+      |> Ash.Query.distinct([:conversation_id])
+      |> Ash.Query.distinct_sort(conversation_id: :asc, seq: :desc)
+      |> Ash.Query.select([:conversation_id, :seq, :text])
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.conversation_id, &1})
+
+    needle = Regex.compile!(Regex.escape(query), "iu")
+
+    Enum.map(details, fn detail ->
+      case matches[detail.conversation.id] do
+        %{seq: seq, text: text} ->
+          Map.put(detail, :search_match, %{seq: seq, excerpt: search_excerpt(text, needle)})
+
+        nil ->
+          detail
+      end
+    end)
+  end
+
+  defp search_excerpt(text, needle) do
+    text = text |> String.replace(~r/\s+/u, " ") |> String.trim()
+
+    # PostgreSQL ILIKE matched the stored text. When Unicode case folding differs here,
+    # the excerpt starts at the beginning of the message.
+    start =
+      case Regex.run(needle, text, return: :index) do
+        [{byte, _length}] -> text |> binary_part(0, byte) |> String.length()
+        nil -> 0
+      end
+
+    from = max(start - @search_lead_chars, 0)
+    lead = if from > 0, do: "…", else: ""
+    trail = if from + @search_excerpt_chars < String.length(text), do: "…", else: ""
+    lead <> String.slice(text, from, @search_excerpt_chars) <> trail
   end
 
   defp im_query(query, uid) do

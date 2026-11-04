@@ -192,9 +192,14 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate admit_attempt_in_tx(snapshot, event, prepare, opts),
     to: Ankole.BackgroundAgentJobs.Admission
 
-  @doc "Authorizes and locks an attempt, settles its input, and commits abort compensation."
+  @doc """
+  Authorizes and locks an attempt, settles its input, and commits abort compensation.
+
+  The returned Signal carries the compensation in its `:compensation` metadata so
+  the transaction owner can publish the resulting wakeup after commit.
+  """
   @spec abort_attempt_in_tx(Ankole.Sessions.JobTurnRef.t(), String.t(), map(), DateTime.t()) ::
-          {:ok, Signal.t() | %{signal: Signal.t(), compensation: nil}} | {:error, term()}
+          {:ok, Signal.t()} | {:error, term()}
   defdelegate abort_attempt_in_tx(ref, worker_id, error, now),
     to: Ankole.BackgroundAgentJobs.TurnWatchdog
 

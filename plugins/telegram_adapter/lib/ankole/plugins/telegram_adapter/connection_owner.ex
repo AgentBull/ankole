@@ -86,7 +86,16 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
     {:noreply, handle_task_result(result, state)}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %Task{ref: ref}} = state) do
+  def handle_info({:DOWN, ref, :process, pid, reason}, %{task: %Task{ref: ref}} = state) do
+    # This clause handles the crash, so the linked task's exit signal must not stop the owner.
+    Process.unlink(pid)
+
+    receive do
+      {:EXIT, ^pid, _reason} -> :ok
+    after
+      0 -> :ok
+    end
+
     Logging.warning(
       "telegram_adapter.connection_owner.task_failed",
       "Telegram polling task failed",
@@ -97,6 +106,12 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
     Process.send_after(self(), retry_message(state), @retry_ms)
     {:noreply, state}
   end
+
+  # Trapping exits lets `terminate/2` stop the linked task, which reports through
+  # :DOWN. Any other abnormal link exit, such as the Registry partition's, stops this owner.
+  def handle_info({:EXIT, pid, _reason}, %{task: %Task{pid: pid}} = state), do: {:noreply, state}
+  def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
 
   def handle_info(_message, state), do: {:noreply, state}
 

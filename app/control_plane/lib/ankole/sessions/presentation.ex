@@ -82,12 +82,21 @@ defmodule Ankole.Sessions.Presentation do
     with :ok <- Ankole.Sessions.Fence.check_in_tx(run, :share), do: {:ok, :current}
   end
 
+  # An applied revision or control command keeps the original trigger as the
+  # external reply owner, matching the Signal that owns the reply preview.
   def reply_event(events, fallback) do
     events
     |> Enum.filter(fn event ->
       case StatementTarget.for_reply(event) do
-        {:ok, target} -> StatementTarget.reply_eligible?(target, event)
-        _ -> false
+        {:ok, %StatementTarget{kind: :native} = target} ->
+          StatementTarget.reply_eligible?(target, event)
+
+        {:ok, target} ->
+          StatementTarget.reply_eligible?(target, event) and
+            Preview.channel_reply_eligible?(event)
+
+        _ ->
+          false
       end
     end)
     |> List.last()
