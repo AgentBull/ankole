@@ -365,13 +365,6 @@ defmodule Ankole.EditionBuildTest do
     {output, status} =
       System.cmd(executable, args, cd: directory, env: env, stderr_to_stdout: true)
 
-    # DIAGNOSTIC-TEMP
-    File.write!(
-      "/private/tmp/claude-501/-Users-baozi--claude-spares-spare-GS1lUK/f5fa8a8c-40e0-4535-a505-98a1992c17bd/scratchpad/edition-commands.log",
-      "\n==== #{executable} #{Enum.join(args, " ")} (#{status})\n#{output}",
-      [:append]
-    )
-
     assert status == 0,
            "#{executable} #{Enum.join(args, " ")} failed:\n#{String.slice(output, -6000, 6000)}"
 
