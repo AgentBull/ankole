@@ -45,6 +45,77 @@ function command(state: GardState, f: Command.Pure, success: boolean | null = tr
 }
 
 describe('history', () => {
+  it('keeps composition completion in its event after preedit returns to the original text', () => {
+    let state = mkState(doc(p('base')))
+    const original = state.doc
+    state = state.update({
+      changes: { from: 5, insert: [Leaf.text('zh')] },
+      userEvent: 'input.type.compose.start',
+      annotations: Transaction.time.of(100)
+    }).state
+    state = state.update({
+      changes: { from: 5, to: 7 },
+      userEvent: 'input.type.compose',
+      annotations: Transaction.time.of(200)
+    }).state
+    ist(state.doc.eq(original), true)
+    state = state.update({
+      changes: { from: 5, insert: [Leaf.text('中')] },
+      userEvent: 'input.type.compose',
+      annotations: Transaction.time.of(1000)
+    }).state
+    const completed = state.doc
+    ist(undoDepth(state), 1)
+    state = command(state, undo)
+    ist(state.doc.eq(original), true)
+    state = command(state, redo)
+    ist(state.doc.eq(completed), true)
+    state = state.update({
+      changes: { from: 6, insert: [Leaf.text('next')] },
+      userEvent: 'input.type.compose.start',
+      annotations: Transaction.time.of(2000)
+    }).state
+    ist(undoDepth(state), 2)
+    state = command(state, undo)
+    ist(state.doc.eq(completed), true)
+  })
+
+  it('preserves a net-zero composition boundary across remote mapping before completion', () => {
+    let state = mkState(doc(p('base'), p()))
+    state = state.update({
+      changes: { from: 5, insert: [Leaf.text('x')] },
+      userEvent: 'input.type',
+      annotations: Transaction.time.of(100)
+    }).state
+    state = state.update({
+      changes: { from: 8, insert: [Leaf.text('zh')] },
+      userEvent: 'input.type.compose.start',
+      annotations: Transaction.time.of(1000)
+    }).state
+    state = state.update({
+      changes: { from: 8, to: 10 },
+      userEvent: 'input.type.compose',
+      annotations: Transaction.time.of(1100)
+    }).state
+    state = receive(state, 'R', 1)
+    const beforeCompletion = state.doc
+    state = state.update({
+      changes: { from: 8, to: 10 },
+      userEvent: 'input.type.compose',
+      annotations: Transaction.time.of(2000)
+    }).state
+    const completed = state.doc
+    ist(completed, doc(p('Rbasex')), eq)
+    ist(undoDepth(state), 2)
+    state = command(state, undo)
+    ist(state.doc.eq(beforeCompletion), true)
+    state = command(state, undo)
+    ist(state.doc, doc(p('Rbase'), p()), eq)
+    state = command(state, redo)
+    state = command(state, redo)
+    ist(state.doc.eq(completed), true)
+  })
+
   it('allows to undo a change', () => {
     let state = mkState()
     state = type(state, 'newtext')

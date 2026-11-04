@@ -20,7 +20,6 @@ defmodule Ankole.Sessions.RPCLane do
   payload maps become `rpc_error` frames.
   """
 
-  alias Ankole.AutomationJobs.RPCBroker, as: AutomationJobRPCBroker
   alias Ankole.Files.RPCBroker, as: FilesRPCBroker
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
@@ -42,8 +41,6 @@ defmodule Ankole.Sessions.RPCLane do
           | :turn_read
           | :turn_write
           | :turn_complete
-          | :turn_or_automation_read
-          | :turn_or_automation_write
 
   @typedoc """
   Connection and frame facts handed to every broker beside the decoded
@@ -64,12 +61,6 @@ defmodule Ankole.Sessions.RPCLane do
                        case {entry["scope"], entry["effect"]} do
                          {"worker_agent", nil} ->
                            :worker_agent
-
-                         {"turn_or_automation", "read"} ->
-                           :turn_or_automation_read
-
-                         {"turn_or_automation", "write"} ->
-                           :turn_or_automation_write
 
                          {"turn", "read"} ->
                            :turn_read
@@ -115,11 +106,6 @@ defmodule Ankole.Sessions.RPCLane do
       "ai_gateway.api_key_for.create_or_find_by_agent" =>
         {AIGatewayAPIKeyBroker, :handle_request},
       "session_turn.abort" => {JobAbort, :handle_abort},
-      "automation_job.create" => {AutomationJobRPCBroker, :handle_create},
-      "automation_job.list" => {AutomationJobRPCBroker, :handle_list},
-      "automation_job.show" => {AutomationJobRPCBroker, :handle_show},
-      "automation_job.cancel" => {AutomationJobRPCBroker, :handle_cancel},
-      "automation_job.emit" => {AutomationJobRPCBroker, :handle_emit},
       "background_agent_job.get" => {BackgroundAgentJobBroker, :handle_get},
       "background_agent_job.turn.upsert" => {BackgroundAgentJobBroker, :handle_upsert_turn},
       "background_agent_job.status.update" => {BackgroundAgentJobBroker, :handle_update_status},
@@ -250,13 +236,6 @@ defmodule Ankole.Sessions.RPCLane do
           apply(module, function, [ctx.worker_id, payload, ctx])
         end
 
-      {:ok, {module, function, scope, request_mod, _response_mod}}
-      when scope in [:turn_or_automation_read, :turn_or_automation_write] ->
-        with {:ok, ctx} <- optional_turn_context(request, ctx, scope_effect(scope)),
-             {:ok, payload} <- decode_payload(request_mod, request.payload, ctx) do
-          apply(module, function, [ctx[:turn_ref], payload, ctx])
-        end
-
       {:ok, {module, function, :turn_complete, request_mod, _response_mod}} ->
         with {:ok, turn_ref} <- request_turn_ref(request, ctx),
              :ok <- require_job_ref(turn_ref, ctx),
@@ -306,8 +285,6 @@ defmodule Ankole.Sessions.RPCLane do
     end
   end
 
-  defp scope_effect(:turn_or_automation_read), do: :read
-  defp scope_effect(:turn_or_automation_write), do: :write
   defp scope_effect(:turn_read), do: :read
   defp scope_effect(:turn_write), do: :write
 

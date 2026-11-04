@@ -12,6 +12,8 @@ import { codexAppServerSpec, codexJobThreadEnv } from '../runtime/app-server-spe
 import { materializeAgentLibraryDocuments } from '../../agent-library-documents'
 import { agentHomePaths } from '../../agent-home-paths'
 import { createWebTools } from '../../../tools/web/web-tools'
+import { createContainerComputer } from '../../../tools/computer/computer'
+import { createReadFileTool } from '../../../tools/computer/read-file-tool'
 import { webSearchIsProviderHosted } from '../../runtime-policy'
 import { createSkillTools } from '../../../tools/library/skill-tools'
 import { createPeerTools } from '../../../tools/library/peer-tools'
@@ -173,6 +175,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     opts.abortSignal?.throwIfAborted()
     const bindingName = turnStart.signal.binding_name
     const materials = await prepareExecutionMaterials({
+      frame: { jobTurn: turnStart.turn },
       agentHome: opts.agentHome,
       rpc: opts.rpc,
       bindingName,
@@ -195,10 +198,13 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     })
     cleanupMaterials = materials.cleanup
     opts.abortSignal?.throwIfAborted()
+    const computer = createContainerComputer(opts.agentHome, jobProject.root, { driveView })
     const webTools = (
       await createWebTools({
         rpc: opts.rpc,
         turn: turnStart.turn,
+        workspaceRoot: jobProject.root,
+        computer,
         renderedFallback: materials.renderedFetch
       })
     ).filter(tool => tool.name !== 'web_search' || !webSearchIsProviderHosted(turnStart))
@@ -213,7 +219,14 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
       turn: turnStart.turn,
       requestContext: turnStart.request_context
     })
-    const projection = buildCodexJobProjection({ tools: [...webTools, ...skillTools, ...brainTools, ...peerTools] })
+    const readFile = createReadFileTool({
+      agentHome: opts.agentHome,
+      workspaceRoot: jobProject.root,
+      computer
+    })
+    const projection = buildCodexJobProjection({
+      tools: [...webTools, readFile, ...skillTools, ...brainTools, ...peerTools]
+    })
     projection.dynamicTools.push(parentInputToolSpec())
 
     const threadEnv = codexJobThreadEnv({

@@ -3,12 +3,10 @@ defmodule Ankole.Sessions.TurnRuntimeEnvTest do
 
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.TurnRuntimeEnv
-  alias Ankole.AgentWorkers.WorkerAuthKey
 
   import Ankole.PrincipalsFixtures
 
   @runtime_name "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL"
-  @profile_name "ANKOLE_RUNTIME_LARK_PROFILE"
 
   test "exports only the frozen Human authorization" do
     %{principal: human} = human_fixture()
@@ -74,7 +72,7 @@ defmodule Ankole.Sessions.TurnRuntimeEnvTest do
            }) == %{}
   end
 
-  test "restoration gives a new stimulus a new profile without reviving stale work" do
+  test "restoration admits new authorization without reviving stale work" do
     alias Ankole.Principals.HumanAccess
     %{principal: human} = human_fixture()
     old_signal = authorized(human)
@@ -104,22 +102,6 @@ defmodule Ankole.Sessions.TurnRuntimeEnvTest do
       sender_key: human.uid
     }
 
-  test "names the Lark profile byte for byte as the Worker did before" do
-    # Computed with the former Worker code: `ankole-u-` and the base64url
-    # HMAC-SHA256 of the identity, keyed with the installation key.
-    assert TurnRuntimeEnv.lark_profile("worker-secret", "human-alice", 1) ==
-             "ankole-u-ua-czUjC-GGMM5BAg-Kfip_pfRS6mPEuQ23AIE5h6EA"
-
-    assert TurnRuntimeEnv.lark_profile("worker-secret", "human-alice", 2) ==
-             "ankole-u-QWn2bkOEC6Av4ZhcK0yYIvrRdgFFxSD00JccXhV_f3Q"
-
-    assert TurnRuntimeEnv.lark_profile("worker-secret", "human-bob", 1) ==
-             "ankole-u-IhXPvK8PMtK4SSP5GDnOGf9Y130C4iJovRzq9fO6CD8"
-
-    assert TurnRuntimeEnv.lark_profile("other-worker-secret", "human-alice", 1) ==
-             "ankole-u-GJi4AvNXSfa4DaOfrvPgcJctPx4FsOqiHGjKEoAeT7I"
-  end
-
   test "reads only the canonical current sender runtime value" do
     assert TurnRuntimeEnv.current_sender_principal_uid(%{@runtime_name => "principal-1"}) ==
              "principal-1"
@@ -129,10 +111,5 @@ defmodule Ankole.Sessions.TurnRuntimeEnvTest do
     assert TurnRuntimeEnv.current_sender_principal_uid(nil) == nil
   end
 
-  defp human_env(uid, version) do
-    %{
-      @runtime_name => uid,
-      @profile_name => TurnRuntimeEnv.lark_profile(WorkerAuthKey.ensure!(), uid, version)
-    }
-  end
+  defp human_env(uid, _version), do: %{@runtime_name => uid}
 end

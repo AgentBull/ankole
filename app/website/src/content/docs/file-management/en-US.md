@@ -7,7 +7,7 @@ order: 31
 
 **In day-to-day work, you rarely need the Console file browser described on this page. Send files directly to an Agent in chat, or share files across your team through Pod `file` pages and Pod document/Base/Chat attachments. Open the Console file browser only when you need to recover an undelivered artifact, inspect saved outputs, or organize an Agent's private drive folders manually.**
 
-Each Agent has its own private control-plane drive for chat attachments, generated images, published files, and Automation scripts. Shared workspace files—Pod `file` pages and Pod attachments—live in the Pod workspace under Pod page permissions rather than inside an individual Agent's drive. From the Console, you can upload, download, move, and delete files on an Agent's drive even while its Worker is stopped (note that Session and Job workspaces live in persistent Agent Home rather than drive folders).
+Each Agent has its own private control-plane drive for chat attachments, generated images, and published files. Shared workspace files—Pod `file` pages and Pod attachments—live in the Pod workspace under Pod page permissions rather than inside an individual Agent's drive. From the Console, you can upload, download, move, and delete files on an Agent's drive even while its Worker is stopped (note that Session and Job workspaces live in persistent Agent Home rather than drive folders).
 
 Operators configure the underlying local directory, S3, or R2 backend via [Control-plane drive storage](../drive-storage/); to migrate files from legacy Home layouts, see [Upgrade from 1.0 to 2.0](../upgrade-to-2/).
 
@@ -21,7 +21,6 @@ Operators configure the underlying local directory, S3, or R2 backend via [Contr
 | `chats/<channel>/inbox/` | Attachments that people sent to the Agent in that conversation |
 | `chats/<channel>/generated/`, `generated/` | Images that the Agent generated (`chats/<channel>/generated/` in a conversation, or `generated/` without a source channel) |
 | `sent/` | Files that the Agent attached to replies |
-| `automation/` | Automation Job scripts |
 | Other folders | Files saved explicitly by the Agent or an operator |
 
 ## Upload reference material

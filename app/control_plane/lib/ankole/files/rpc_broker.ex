@@ -10,7 +10,7 @@ defmodule Ankole.Files.RPCBroker do
   def handle_list(agent_uid, %FabricProto.FilesListRequest{} = request, ctx) do
     limit = if request.limit in [0, nil], do: @list_limit, else: request.limit
 
-    with {:ok, actor} <- actor(agent_uid, request.automation_attempt, ctx),
+    with {:ok, actor} <- actor(agent_uid, ctx),
          {:ok, page} <-
            Files.list(actor, request.prefix,
              limit: limit,
@@ -29,7 +29,7 @@ defmodule Ankole.Files.RPCBroker do
   end
 
   def handle_get(agent_uid, %FabricProto.FilesGetRequest{} = request, ctx) do
-    with {:ok, actor} <- actor(agent_uid, request.automation_attempt, ctx),
+    with {:ok, actor} <- actor(agent_uid, ctx),
          {:ok, target} <- home_relative_path(request.home_relative_path),
          {:ok, file} <- current_file(actor, request),
          {:ok, opts} <- transfer_opts(ctx),
@@ -61,7 +61,7 @@ defmodule Ankole.Files.RPCBroker do
   defp requested_file(actor, request), do: Files.fetch(actor, request.path)
 
   def handle_commit(agent_uid, %FabricProto.FilesCommitRequest{} = request, ctx) do
-    with {:ok, actor} <- actor(agent_uid, request.automation_attempt, ctx),
+    with {:ok, actor} <- actor(agent_uid, ctx),
          {:ok, opts} <- transfer_opts(ctx),
          {:ok, upserts} <- receive_upserts(request.upserts, opts),
          {:ok, result} <- Files.commit(actor, upserts, request.deletes) do
@@ -75,10 +75,7 @@ defmodule Ankole.Files.RPCBroker do
     end
   end
 
-  defp actor(_uid, attempt, ctx) when not is_nil(attempt),
-    do: Ankole.AutomationJobs.authorize_attempt_actor(attempt, ctx)
-
-  defp actor(uid, nil, ctx) do
+  defp actor(uid, ctx) do
     authority = if ref = ctx[:turn_ref], do: {ref, uid}
 
     with {:ok, principal} <- Principals.get_principal(uid),

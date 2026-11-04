@@ -64,7 +64,24 @@ const StdioDependency = z
   })
   .strict()
 
-const MCPDependency = z.discriminatedUnion('transport', [StreamableHTTPDependency, StdioDependency])
+const ConnectorDependency = z
+  .object({
+    type: z.literal('mcp'),
+    value: ServerName,
+    description: Description.optional(),
+    transport: z.literal('connector'),
+    toolkit: ServerName,
+    connection: ServerName.optional(),
+    account: ServerName.optional(),
+    enabled_tools: ToolFilter.optional(),
+    disabled_tools: ToolFilter.optional()
+  })
+  .strict()
+const MCPDependency = z.discriminatedUnion('transport', [
+  StreamableHTTPDependency,
+  StdioDependency,
+  ConnectorDependency
+])
 const OpenAIMetadata = z
   .object({
     dependencies: z
@@ -98,7 +115,13 @@ export interface StdioMCPServer extends MCPServerBase {
   command: string
 }
 
-export type MCPServerConfig = StreamableHTTPMCPServer | StdioMCPServer
+export interface ConnectorMCPServer extends MCPServerBase {
+  transport: 'connector'
+  toolkit: string
+  connection?: string
+  account?: string
+}
+export type MCPServerConfig = StreamableHTTPMCPServer | StdioMCPServer | ConnectorMCPServer
 
 export interface LoadEnabledSkillMCPServersInput {
   enabledSkills: RuntimeSkillSummary[]
@@ -200,6 +223,19 @@ async function readSkillMCPDependencies(
 }
 
 function serverConfigFromDependency(skillName: string, dependency: ParsedMCPDependency): MCPServerConfig {
+  if (dependency.transport === 'connector') {
+    return {
+      name: dependency.value,
+      transport: dependency.transport,
+      toolkit: dependency.toolkit,
+      connection: dependency.connection,
+      account: dependency.account,
+      description: dependency.description,
+      enabledTools: dependency.enabled_tools,
+      disabledTools: dependency.disabled_tools,
+      sourceSkills: [skillName]
+    }
+  }
   if (dependency.transport === 'streamable_http') {
     return {
       name: dependency.value,
@@ -227,6 +263,7 @@ function serverConfigFromDependency(skillName: string, dependency: ParsedMCPDepe
 
 /** Stable non-secret connection identity used for declaration conflicts. */
 function serverConnectionIdentity(server: MCPServerConfig): string {
+  if (server.transport === 'connector') return JSON.stringify({ ...server, sourceSkills: undefined })
   return JSON.stringify(
     server.transport === 'streamable_http'
       ? {

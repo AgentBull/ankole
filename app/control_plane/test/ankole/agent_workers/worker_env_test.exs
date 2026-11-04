@@ -133,6 +133,79 @@ defmodule Ankole.AgentWorkers.WorkerEnvTest do
     assert response.vars[secret] == "rpc-secret"
   end
 
+  test "MCP Skill bearer credentials stay in the control plane", %{unique: unique} do
+    %{principal: agent} = agent_fixture()
+    name = "MCP_SECRET_#{unique}"
+
+    {:ok, _} =
+      WorkerEnv.console_put_for_agent(agent.uid, name, %{
+        "value" => "upstream-only",
+        "secret" => false
+      })
+
+    yaml =
+      "dependencies:\n  tools:\n    - type: mcp\n      value: protected\n      transport: streamable_http\n      url: https://example.com/mcp\n      bearer_token_env_var: #{name}\n"
+
+    {:ok, blob} = Ankole.Files.store(yaml)
+
+    {:ok, _} =
+      Ankole.Files.commit(agent.uid, [
+        Map.merge(blob, %{path: "mcp/credential-test", source: "agent"})
+      ])
+
+    {:ok, _} =
+      Repo.transact_top_level(fn ->
+        with {:ok, skill} <-
+               Ankole.Ash.create(Ankole.AIAgent.Library.Schemas.Skill, :create, %{
+                 slug: "credential-test",
+                 name: "credential-test",
+                 description: "fixture",
+                 source_kind: :custom,
+                 enabled_for_all: true,
+                 manifest_xml: "<p>fixture</p>",
+                 manifest_markdown: "fixture"
+               }),
+             do:
+               Ankole.Ash.create(Ankole.AIAgent.Library.Schemas.SkillFile, :put, %{
+                 skill_id: skill.id,
+                 relative_path: "agents/openai.yaml",
+                 object_id: blob.object_id,
+                 content_type: "application/yaml"
+               })
+      end)
+
+    assert {:ok, %{vars: vars, operator_vars: operator}} =
+             Ankole.AgentWorkers.WorkerEnvBroker.handle_request(
+               agent.uid,
+               %FabricProto.WorkerEnvResolveRequest{},
+               %{turn_ref: nil, request_id: "env-secret"}
+             )
+
+    refute Map.has_key?(vars, name)
+    refute Map.has_key?(operator, name)
+
+    assert {:ok, snapshot} = WorkerEnv.runtime_projection(agent.uid)
+    refute name in snapshot["names"]
+    refute Map.has_key?(snapshot["plain_values"], name)
+
+    assert {:ok, cleaned} =
+             WorkerEnv.filter_runtime_projection(%{
+               "names" => [name, "ORDINARY"],
+               "plain_values" => %{
+                 name => "historical-upstream-token",
+                 "ORDINARY" => "frozen-value"
+               }
+             })
+
+    assert cleaned == %{
+             "names" => ["ORDINARY"],
+             "plain_values" => %{"ORDINARY" => "frozen-value"}
+           }
+
+    assert {:ok, %{"headers" => [{"authorization", "Bearer upstream-only"}]}} =
+             Ankole.AIAgent.resolve_mcp_server(agent, "credential-test", "protected")
+  end
+
   test "RuntimeFabric worker_env.resolve rejects an unknown Agent" do
     assert {:ok, envelope} =
              handle_rpc(
@@ -146,5 +219,50 @@ defmodule Ankole.AgentWorkers.WorkerEnvTest do
              )
 
     assert envelope_body_type(envelope) == :rpc_error
+  end
+
+  test "malformed unrelated MCP metadata does not block Worker environment renewal" do
+    %{principal: agent} = agent_fixture()
+    {:ok, blob} = Ankole.Files.store("dependencies: [unterminated")
+
+    {:ok, _} =
+      Ankole.Files.commit(agent.uid, [
+        Map.merge(blob, %{path: "fixtures/broken-mcp", source: "agent"})
+      ])
+
+    {:ok, skill} =
+      Repo.transact_top_level(fn ->
+        with {:ok, skill} <-
+               Ankole.Ash.create(Ankole.AIAgent.Library.Schemas.Skill, :create, %{
+                 slug: "broken-mcp",
+                 name: "broken-mcp",
+                 description: "invalid fixture",
+                 source_kind: :custom,
+                 enabled_for_all: false,
+                 manifest_xml: "<p>fixture</p>",
+                 manifest_markdown: "fixture"
+               }),
+             {:ok, _} <-
+               Ankole.Ash.create(Ankole.AIAgent.Library.Schemas.SkillFile, :put, %{
+                 skill_id: skill.id,
+                 relative_path: "agents/openai.yaml",
+                 object_id: blob.object_id,
+                 content_type: "application/yaml"
+               }),
+             do: {:ok, skill}
+      end)
+
+    assert {:ok, _} =
+             Ankole.AgentWorkers.WorkerEnvBroker.handle_request(
+               agent.uid,
+               %FabricProto.WorkerEnvResolveRequest{},
+               %{turn_ref: nil, request_id: "malformed-unrelated"}
+             )
+
+    {:ok, _} =
+      Ankole.Ash.update(skill, :save, %{base_revision: skill.revision, enabled_for_all: true})
+
+    assert {:error, %YamlElixir.ParsingError{}} =
+             Ankole.AIAgent.resolve_mcp_server(agent, "broken-mcp", "protected")
   end
 end

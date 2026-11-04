@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Ankole の機能の中には、モデルに直接公開するツール定義ではなく、Agent Computer 上のシェルコマンド（CLI）として提供されているものがあります。Agent は `gh` や `kubectl` を使うのと同じ感覚でシェルからこれらを呼び出します。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook エンドポイント操作コマンド、および automation job 操作コマンドはいずれもこの形態をとっています。
+Ankole の機能の中には、モデルに直接公開するツール定義ではなく、Agent Computer 上のシェルコマンド（CLI）として提供されているものがあります。Agent は `kubectl` を使うのと同じ感覚でシェルからこれらを呼び出します。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook エンドポイント操作コマンド、および automation job 操作コマンドはいずれもこの形態をとっています。
 
 このページでは、どのような機能を CLI として実装すべきかという基準と、ツール登録・Skill インデックス・システムプロンプトへの常駐記述なしに Agent が機能を正確に見つけて使えるようにする「段階的開示アーキテクチャ」について説明します。
 
@@ -27,30 +27,15 @@ Ankole の機能の中には、モデルに直接公開するツール定義で�
 
 **2. 意思決定の分岐点に一文のポインタを置く。** Agent がその機能の必要性に気づけるよう、関連する判断を行う場所（隣接ツールの説明文、特定の外部サービス連携 Skill、あるいは別 CLI の `--help` など）に一文だけの案内ポインタを置きます。各ポインタには、特定の手法へ誘導する表現は入れず、「どのような条件のときに関係するか」と「どの `--help` を読めばよいか」だけを中立に記します。CLI 形態で提供するすべての機能には、関連タスクの途中で Agent が必ず通る箇所に最低 1 つのポインタが必要です。つまり、「どういう場面でその機能が意味を持つか」という経路そのものから、ポインタを置くべき場所が自ずと決まります。
 
-**3. 共通仕様は `--help` に集約し、外部システム固有の知識だけを Skill に書く。** その CLI を使うあらゆる場面に共通する契約は `--help` 側に置きます。特定の外部サービスと連携するための Skill には、そのサービス固有の差分だけを記述します。たとえば GitHub Webhook 用の Skill であれば、冒頭で共通仕様の確認先として `create-webhook-cli --help` を案内したうえで、本文では GitHub 側のフック登録、ping 検証、配信設定、フック数上限だけを扱います。こうしておけば、2 つ目の別サービス連携を追加するときも共通レイヤーに一切手を加えずそのまま再利用できます。
+**共通の仕様は `--help`、外部サービスの知識はプラグイン Skill に記述します。** CLI 全体に適用する規則は `--help` にまとめます。Skill は外部サービスの操作仕様を説明し、必要に応じてプラットフォーム機能を案内します。たとえば Toolkit のアップロード操作には Pod ファイル参照が必要なため、Skill は `pod-content` を使って Worker のファイルを先にアップロードするよう案内します。
 
-## Automation jobs
+## Automation Jobs
 
-automation job は、トリガー発火のたびに Agent の会話を起こすのではなく、決定論的なスクリプトでトリガーを処理する仕組みです。checkback、cron スケジュール、または webhook エンドポイントに `automation_job_id` を指定するとスクリプト実行に切り替わり、指定しなければ従来どおり Agent を直接起動します。
+Automation Job は Function Runtime で公開済み Applet Action を実行します。Agent は `ankole-pod applet` で Applet をビルド・公開し、`ankole-pod jobs` で Action の確認、Job の作成・設定、スケジュールと Webhook の管理、Run の確認を行います。使用前に `ankole-pod --help` を参照してください。
 
-作成時、Agent はワークスペース内にディレクトリを作って `main.ts` を配置し、初期構成や SDK を使わない分岐を手動確認したあと、`create-automation-job-cli` でそのディレクトリを登録します。登録するとディレクトリ一式がドライブ上の新しいフォルダー `automation/<ディレクトリ名>-<ランダムなサフィックス>` にコピーされ、そのパスが `drive_prefix` として返されます。各実行では、発火時点でそのドライブフォルダーにある内容が新しい一時実行ディレクトリへコピーされ、そこで Bun により `main.ts` が実行されます。そのため、実行中に作業ディレクトリへ書き出した一時ファイルは次回の実行には引き継がれません。スクリプトを更新したいときは、Agent が `ankole-files put <dir> <drive_prefix>` を実行するだけで次回の実行から変更が反映され、再登録は不要です。
+サーバーは `{routes, actions}` を公開します。Action がハンドラー、冪等性、同時実行方針を宣言し、`ctx.signal` と `ctx.job.config` を読み、`ctx.state` で状態を保存します。`continueSlice()` で同じ Run の処理を分割できます。外部呼び出しは `AnkoleRuntime.mcp`、チーム権限では `AnkoleRuntime.admin.mcp` を使います。
 
-各実行試行には、最新の Agent `WorkerEnv` と、現在有効な Skill からその呼び出し専用に生成された `MCPORTER_CONFIG` が渡されます。スクリプトがどの MCP サーバーを使うかを Worker が事前に推測することはなく、スクリプト側から `mcporter` と標準入力の JSON を使って任意の MCP ツールを呼び出せます。なお、Automation 実行時には Skill の指示文（`SKILL.md`）は読み込まれず、Agent Home 上の永続 `mcporter` 設定も参照されません。
-
-ランタイム SDK からは `context()` と `emitEvent(payload)` が提供されます。`context().event` には、Agent を直接起こす場合に Signal として届くものと同一の CloudEvents エンベロープが入っています。スクリプトは何も出力せず正常終了することも、`emitEvent` を 1 回以上呼び出して owner session に永続的な `automation_job.emitted` イベントを送ることもできます。
-
-なお、`context()` と `emitEvent` はプラットフォーム管理下の本実行環境でのみ利用可能です。ローカルでの直接実行（`bun main.ts`）は、セットアップ確認やこれらの SDK 関数を呼ばない分岐のテストに使います。登録後は、SDK を呼ぶ各分岐を実際のテストトリガーで発火させ、記録された永続 run の結果を確認してください。`emitEvent` が標準出力へフォールバックすることはなく、対応する Signal が PostgreSQL へ永続化された時点で初めて Promise が resolve します。
-
-トリガーが消費されるたびに、checkback の確定・cron スケジュールの進行・webhook の受け入れと同一の PostgreSQL トランザクション内で永続 run レコードが作成されます。スクリプト内の未捕捉例外、非ゼロ終了、タイムアウトはいずれもスクリプト自身の確定結果として扱われ、自動リトライは行われません。一方、Worker インスタンスの喪失はインフラ障害として扱われ、既存の Oban wake 経路を通じて新しいフェンス付き試行（attempt）が再ディスパッチされます。再実行によってスクリプトの副作用が繰り返される可能性があるため、スクリプトは再実行されても安全な（冪等な）実装にする必要があります。
-
-アクティブな Agent Turn 内では、次の CLI コマンドを使用します。
-
-- `create-automation-job-cli --dir <path> --label <text> [--wake-on-failure]`
-- `list-automation-jobs-cli [--limit <1-500>]`
-- `show-automation-job-cli --id <automation-job-id> [--runs <1-100>]`
-- `cancel-automation-job-cli --id <automation-job-id>`
-
-Console の Automation Jobs ページでは、登録済みジョブの一覧や直近の run ステータス、試行回数、エラー、終了コード、上限付きの標準出力／標準エラー末尾を確認できます。モデルにとっての正式な仕様リファレンスは、常に `create-automation-job-cli --help` です。
+自動化パネルと SDK の `useAppletJobs()`・`useJobSources(jobID)` も同じ操作を提供します。テスト配信後は Run の入力、結果、エラー、ログを確認してください。[Automation Jobs](../automation-jobs/)に権限と復旧方法を説明しています。
 
 ## 新しい CLI 機能の要件
 

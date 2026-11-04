@@ -66,6 +66,10 @@ defmodule Ankole.LockOrder do
       "principals" => 3,
       "oidc_sessions" => 4,
       "agent_workers" => 5,
+      "connector_auth_configs" => 6,
+      "connector_connected_accounts" => 6,
+      "connector_oauth_sessions" => 6,
+      "connector_triggers" => 7,
       "background_agent_jobs" => 7,
       "workflow_runs" => 7,
       "automation_jobs" => 7,
@@ -93,8 +97,14 @@ defmodule Ankole.LockOrder do
     # including when both belong to the parent-work rank. Likewise, Action Cards
     # always lock before their source Signal row at rank 11.
     @row_dependencies %{
-      "automation_jobs" => ["signal_bindings", "signal_webhook_endpoints", "cron_schedules"],
-      "signal_bindings" => ["signal_webhook_endpoints", "cron_schedules"],
+      "connector_auth_configs" => ["connector_connected_accounts", "connector_oauth_sessions"],
+      "automation_jobs" => [
+        "signal_bindings",
+        "connector_triggers",
+        "signal_webhook_endpoints",
+        "cron_schedules"
+      ],
+      "signal_bindings" => ["connector_triggers", "signal_webhook_endpoints", "cron_schedules"],
       "automation_job_runs" => ["automation_job_states"],
       "conversation_action_cards" => "signals"
     }

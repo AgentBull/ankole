@@ -6,7 +6,6 @@ defmodule Ankole.Upgrade202610Test do
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Crypto
   alias Ankole.AppConfigure.SiteConfig
-  alias Ankole.AutomationJobs
   alias Ankole.Files
   alias Ankole.Plugins.Microsoft365Adapter.Config, as: TeamsConfig
   alias Ankole.Plugins.SlackAdapter.Config, as: SlackConfig
@@ -43,6 +42,53 @@ defmodule Ankole.Upgrade202610Test do
     end)
 
     :ok
+  end
+
+  test "repeat upgrades preserve shared connector references, including disabled applications" do
+    %{principal: admin} = human_fixture()
+    %{principal: agent} = agent_fixture()
+    {:ok, _} = Repo.transact(fn -> Ankole.AuthZ.add_pod_admin_in_tx(admin.uid) end)
+
+    for status <- ["active", "disabled"] do
+      assert {:ok, root} =
+               Ankole.Connectors.create_auth_config(admin, %{
+                 "plugin_id" => "lark",
+                 "slug" => "upgrade-" <> status,
+                 "auth_scheme" => "lark_app",
+                 "secret" => %{"appID" => "cli_upgrade_" <> status, "appSecret" => "secret"}
+               })
+
+      assert {:ok, provider} =
+               Ankole.IdentityProviders.save_provider("upgrade-" <> status, "lark", %{
+                 "authConfigId" => root.id,
+                 "sync" => %{"contacts" => false, "websocket" => false}
+               })
+
+      assert {:ok, %{binding: binding}} =
+               Bindings.put_binding(agent.uid, "lark", status, %{
+                 "config" => %{
+                   "authConfigId" => root.id,
+                   "identityProvider" => "upgrade-" <> status
+                 }
+               })
+
+      assert {:ok, _} =
+               Ankole.Connectors.update_auth_config(admin, root.id, %{"status" => status})
+
+      "app-config://" <> binding_key = binding.config_ref
+      binding_row = Repo.get_by!(SiteConfig, scope: "global", key: binding_key)
+      scope = "tenant:" <> Repo.tenant_id!()
+      provider_row = Repo.get_by!(AppConfig, scope: scope, key: provider["config_key"])
+
+      assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
+      assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
+
+      assert Repo.get_by!(SiteConfig, scope: "global", key: binding_key).value ==
+               binding_row.value
+
+      assert Repo.get_by!(AppConfig, scope: scope, key: provider["config_key"]).value ==
+               provider_row.value
+    end
   end
 
   for {adapter, module} <- [{"slack", SlackConfig}, {"teams", TeamsConfig}] do
@@ -459,16 +505,7 @@ defmodule Ankole.Upgrade202610Test do
 
       write!(first_home, "installed-skills/weather/SKILL.md", "# First tenant")
       write!(second_home, "installed-skills/weather/SKILL.md", "# Second tenant")
-      write!(first_home, "automation/price/main.ts", "console.log('first')\n")
-      write!(second_home, "automation/price/main.ts", "console.log('second')\n")
       drive_file_fixture(first_uid, skill_path, "# Existing first tenant")
-
-      first_job = legacy_job!(first_uid, "/agents/#{first_uid}/automation/price")
-
-      second_job =
-        Repo.with_tenant(second.id, fn ->
-          legacy_job!(second_uid, "/agents/#{second_uid}/automation/price")
-        end)
 
       for {tenant, uid, home} <- [
             {first, first_uid, first_home},
@@ -504,23 +541,18 @@ defmodule Ankole.Upgrade202610Test do
           end)
         end)
 
-      assert output =~ "Imported 3 files for 2 Agents and 2 Automation Job scripts."
+      assert output =~ "Imported 1 files for 2 Agents."
       assert output =~ "Migrated 2 pending intent attachments."
       assert Repo.tenant_id!() == first.id
 
-      for {tenant, uid, other_uid, job, skill, script} <- [
-            {first, first_uid, second_uid, first_job, "# Existing first tenant",
-             "console.log('first')\n"},
-            {second, second_uid, first_uid, second_job, "# Second tenant",
-             "console.log('second')\n"}
+      for {tenant, uid, other_uid, skill} <- [
+            {first, first_uid, second_uid, "# Existing first tenant"},
+            {second, second_uid, first_uid, "# Second tenant"}
           ] do
         Repo.with_tenant(tenant.id, fn ->
           assert {:ok, skill_file, ^skill} = Files.read(uid, skill_path)
-          assert {:ok, script_file, ^script} = Files.read(uid, job.drive_prefix <> "/main.ts")
           assert skill_file.tenant_id == tenant.id
-          assert script_file.tenant_id == tenant.id
           assert {:error, :not_found} = Files.fetch(other_uid, skill_path)
-          assert legacy_job_path(job.id) == nil
 
           intent =
             intent!(
@@ -539,7 +571,7 @@ defmodule Ankole.Upgrade202610Test do
 
       {_report, output} = with_io(fn -> Upgrade202610.import_agent_home(root) end)
 
-      assert output =~ "Imported 0 files for 2 Agents and 0 Automation Job scripts."
+      assert output =~ "Imported 0 files for 2 Agents."
       assert output =~ "Migrated 0 pending intent attachments."
       assert Repo.tenant_id!() == first.id
     end
@@ -564,7 +596,7 @@ defmodule Ankole.Upgrade202610Test do
       drive_file_fixture(agent_uid, "user-files/reports/q3.md", "edited in the drive")
 
       {report, output} = with_io(fn -> Upgrade202610.import_agent_home(root) end)
-      assert %{agents: 1, files: 2, jobs: 0, jobs_without_script: []} = report
+      assert %{agents: 1, files: 2} = report
       assert report.deleted_agent_homes == [Path.join(root, "deleted-agent")]
 
       assert output =~
@@ -588,72 +620,6 @@ defmodule Ankole.Upgrade202610Test do
       assert {:ok, %{mode: 0o755}} = Files.fetch(agent_uid, "skills/weather/scripts/fetch.sh")
 
       assert %{files: 0} = import_home(root)
-    end
-
-    test "copies legacy Automation Job scripts to their drive folders", %{
-      root: root,
-      agent_uid: agent_uid,
-      home: home
-    } do
-      write!(home, "automation/price/main.ts", "console.log('price')\n")
-      write!(home, "automation/price/lib/parse.ts", "export {}\n")
-      with_script = legacy_job!(agent_uid, "/agents/#{agent_uid}/automation/price")
-      without_script = legacy_job!(agent_uid, "/agents/#{agent_uid}/automation/gone")
-
-      assert %{jobs: 1, jobs_without_script: [id]} = import_home(root)
-      assert id == without_script.id
-
-      prefix = with_script.drive_prefix
-      assert paths(agent_uid, prefix) == ["#{prefix}/lib/parse.ts", "#{prefix}/main.ts"]
-      assert legacy_job_path(with_script.id) == nil
-      # A script that this run did not find keeps its path for a later run.
-      assert legacy_job_path(without_script.id) ==
-               "/agents/#{agent_uid}/automation/gone"
-    end
-
-    test "clears the path of a script whose only skipped entry is a symlink", %{
-      root: root,
-      agent_uid: agent_uid,
-      home: home
-    } do
-      write!(home, "automation/tool/main.ts", "console.log('tool')\n")
-      link = Path.join(home, "automation/tool/node_modules/.bin/tool")
-      File.mkdir_p!(Path.dirname(link))
-      File.ln_s!("../tool/cli.js", link)
-      job = legacy_job!(agent_uid, "/agents/#{agent_uid}/automation/tool")
-
-      assert %{skipped: [{^link, {:not_a_regular_file, :symlink}}]} = import_home(root)
-
-      # A symlink is skipped on every run, so it does not keep the job pending.
-      assert legacy_job_path(job.id) == nil
-      assert paths(agent_uid, job.drive_prefix) == ["#{job.drive_prefix}/main.ts"]
-    end
-
-    test "keeps the path of a script that was not copied completely", %{
-      root: root,
-      agent_uid: agent_uid,
-      home: home
-    } do
-      write!(home, "automation/report/main.ts", "console.log('report')\n")
-      write!(home, "automation/report/secret.ts", "export {}\n")
-      unreadable = Path.join(home, "automation/report/secret.ts")
-      File.chmod!(unreadable, 0o000)
-      on_exit(fn -> File.chmod(unreadable, 0o644) end)
-      job = legacy_job!(agent_uid, "/agents/#{agent_uid}/automation/report")
-
-      assert %{skipped: [{^unreadable, {:invalid_source, :eacces}}]} = import_home(root)
-
-      assert legacy_job_path(job.id) != nil
-
-      File.chmod!(unreadable, 0o644)
-      assert %{skipped: []} = import_home(root)
-
-      assert paths(agent_uid, job.drive_prefix) == [
-               "#{job.drive_prefix}/main.ts",
-               "#{job.drive_prefix}/secret.ts"
-             ]
-
-      assert legacy_job_path(job.id) == nil
     end
 
     test "reports an Agent Home that it cannot read instead of taking it for an empty one", %{
@@ -712,47 +678,8 @@ defmodule Ankole.Upgrade202610Test do
     files |> Enum.map(& &1.path) |> Enum.reject(&String.starts_with?(&1, "automation/scaffold"))
   end
 
-  # A job as the migration left it: an empty drive folder and the old
-  # Agent Home directory in `legacy_directory_path`.
   defp intent!(filter),
     do: Ankole.Conversations.list_intents!(query: [filter: filter]) |> List.first()
-
-  defp legacy_job_path(id) do
-    Repo.one!(
-      from row in "automation_jobs", where: row.id == ^id, select: row.legacy_directory_path
-    )
-  end
-
-  defp legacy_job!(agent_uid, legacy_directory_path) do
-    unique = System.unique_integer([:positive])
-
-    source =
-      Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid, binding_name: "lark")
-
-    scaffold = "automation/scaffold-#{unique}"
-    drive_file_fixture(agent_uid, scaffold <> "/main.ts")
-
-    {:ok, job} =
-      AutomationJobs.create_job(%{
-        agent_uid: agent_uid,
-        owner_session_id: source.session_id,
-        source_signal_id: source.id,
-        provider_message_id: source.provider_message_id,
-        source_provenance: %{"kind" => "test"},
-        reply_route: %{"binding_name" => source.reply_binding_name},
-        drive_prefix: scaffold,
-        label: "Legacy job #{unique}",
-        wake_on_failure: false
-      })
-
-    prefix = "automation/#{job.id}"
-
-    Repo.update_all(where("automation_jobs", [row], row.id == ^job.id),
-      set: [drive_prefix: prefix, legacy_directory_path: legacy_directory_path]
-    )
-
-    %{job | drive_prefix: prefix}
-  end
 
   test "site mail settings decrypt with the old key and seal with the authentication key" do
     mail = %{

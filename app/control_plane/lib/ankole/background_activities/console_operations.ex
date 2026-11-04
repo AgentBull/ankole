@@ -11,11 +11,6 @@ defmodule Ankole.BackgroundActivities.ConsoleOperations do
     resolve_param(:agent_uid, :principal_key)
     allow(:console_jobs, resource: "site_console:background_agent_jobs", action: "read")
     allow(:console_workflow, resource: "site_console:agent:{agent_uid}:workflow", action: "read")
-
-    allow(:console_automation_runs,
-      resource: "site_console:agent:{agent_uid}:automation_jobs",
-      action: "read"
-    )
   end
 
   resource do
@@ -236,78 +231,6 @@ defmodule Ankole.BackgroundActivities.ConsoleOperations do
       argument(:limit, :integer, default: 25, constraints: [min: 1, max: 100])
       argument(:calls_cursor, :string, constraints: [trim?: false, allow_empty?: true])
       argument(:runs_cursor, :string, constraints: [trim?: false, allow_empty?: true])
-      run(Ankole.BackgroundActivities.ConsoleActions)
-    end
-
-    action :console_automation_runs, :map do
-      transaction?(false)
-
-      constraints(
-        fields: [
-          next_cursor: [type: :string, constraints: [trim?: false, allow_empty?: true]],
-          observed_at: [
-            type: :string,
-            constraints: [trim?: false, allow_empty?: true],
-            allow_nil?: false
-          ],
-          runs: [
-            type: {:array, :map},
-            constraints: [
-              items: [
-                fields: [
-                  agent_uid: [
-                    type: :string,
-                    constraints: [trim?: false, allow_empty?: true],
-                    allow_nil?: false
-                  ],
-                  attempt_id: [type: :string, constraints: [trim?: false, allow_empty?: true]],
-                  attempts: [type: :integer, allow_nil?: false],
-                  automation_job_id: [type: :integer, allow_nil?: false],
-                  definition_status: [
-                    type: :atom,
-                    constraints: [one_of: [:active, :cancelled]],
-                    allow_nil?: false
-                  ],
-                  error: [type: :string, constraints: [trim?: false, allow_empty?: true]],
-                  id: [type: :integer, allow_nil?: false],
-                  inserted_at: [type: :string, constraints: [trim?: false, allow_empty?: true]],
-                  label: [type: :string, constraints: [trim?: false, allow_empty?: true]],
-                  owner_session_id: [
-                    type: :string,
-                    constraints: [trim?: false, allow_empty?: true],
-                    allow_nil?: false
-                  ],
-                  resource_kind: [
-                    type: :atom,
-                    constraints: [one_of: [:automation_run]],
-                    allow_nil?: false
-                  ],
-                  scheduled_event_id: [
-                    type: :string,
-                    constraints: [trim?: false, allow_empty?: true]
-                  ],
-                  started_at: [type: :string, constraints: [trim?: false, allow_empty?: true]],
-                  status: [
-                    type: :atom,
-                    constraints: [one_of: [:queued, :running]],
-                    allow_nil?: false
-                  ],
-                  updated_at: [type: :string, constraints: [trim?: false, allow_empty?: true]]
-                ]
-              ]
-            ],
-            allow_nil?: false
-          ]
-        ]
-      )
-
-      argument(:agent_uid, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:limit, :integer, default: 25, constraints: [min: 1, max: 100])
-      argument(:cursor, :string, constraints: [trim?: false, allow_empty?: true])
       run(Ankole.BackgroundActivities.ConsoleActions)
     end
   end

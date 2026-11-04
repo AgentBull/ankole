@@ -53,7 +53,7 @@ Skill이 이 변수 이름만 참조하도록 선언되어 있으므로 이름�
 
 **Console → Agent Library**에서 `context-dev`를 찾아 활성화합니다. 테넌트 전체에 기본 적용하거나 필요한 Agent에만 개별 적용할 수 있습니다. 기본값과 개별 재정의 방식은 [Agent Library](../skills/)를 참조하세요.
 
-활성화한 Skill은 Agent의 다음 턴부터 적용됩니다. 반대로 비활성화하면 다음 턴, 다음 Background Agent Job, 다음 Automation Job 실행 시도부터 연결이 해제됩니다.
+`context-dev` 활성화·비활성화는 이후 Agent 턴과 Background Agent Job에 적용됩니다.
 
 ### 4. 동작 확인
 
@@ -61,7 +61,7 @@ Skill을 활성화한 Agent에게 익숙한 도메인의 브랜드 프로필 조
 
 ## Ankole이 연결하는 방식
 
-Context.dev는 `https://mcp.context.dev/mcp`에서 MCP 서버를 호스팅합니다. `context-dev` Skill은 이 서버를 [Skill-backed MCP dependency](../mcp/)로 선언하므로, 해당 Skill이 활성화된 실행이 진행되는 동안에만 연결이 유지됩니다. Ankole은 매 턴, Background Agent Job 실행, 또는 Automation 시도마다 일회용 비공개 mcporter 설정 파일을 생성하며, 파일 안에는 변수 이름만 기록합니다. 실제 API 키 값은 실행 환경에만 머물고 설정 파일에는 기록되지 않습니다.
+Context.dev의 `https://mcp.context.dev/mcp`는 Skill의 원격 MCP 의존성으로 선언됩니다. Worker는 단기 Turn 토큰으로 제어면 Skill 프록시를 호출합니다. 프록시가 설정된 `CONTEXT_DEV_API_KEY`를 읽어 상위 서비스를 인증하며, 이 비밀 값은 Worker 환경 스냅샷에서 제외됩니다. 임시 MCPorter 설정은 내부 게이트웨이를 참조합니다.
 
 Context.dev 자체 데스크톱 가이드는 브라우저 기반 OAuth 로그인을 안내하지만, 헤드리스 환경에서 동작하는 Worker에서는 이 절차를 수행할 수 없습니다. 대신 Ankole은 동일한 서버가 `Authorization` 헤더로 지원하는 API 키 인증 경로를 사용하므로 별도의 대화형 로그인이 필요하지 않습니다.
 

@@ -1,0 +1,73 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List comments for one issue, project, initiative, or project update.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {
+        "type": ["string", "null"]
+      },
+      "initiative": {
+        "type": ["string", "null"]
+      },
+      "issue": {
+        "type": ["string", "null"]
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "project": {
+        "type": ["string", "null"]
+      },
+      "projectUpdate": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "list_comments",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "cursor": {
+            "type": ["string", "null"]
+          },
+          "has_next_page": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "properties": {
+                "body": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": ["string", "null"]
+                },
+                "id": {
+                  "type": ["string", "null"]
+                },
+                "updatedAt": {
+                  "type": ["string", "null"]
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["items", "has_next_page", "cursor"],
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

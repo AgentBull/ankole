@@ -218,8 +218,7 @@ class Branch {
   depth: number
 
   constructor(
-    // The changes in this event. It will hold at least one
-    // change or effect.
+    // The changes in this event. A user can revert all preedit before completion adds cleanup.
     readonly changes: ChangeSet,
     // The effects associated with this event
     readonly effects: readonly Transaction.Effect<any>[],
@@ -248,7 +247,7 @@ class Branch {
   }
 
   // Resolve this event's mapping, if any.
-  resolve(config: GardState.Configuration): Branch | null {
+  resolve(config: GardState.Configuration, preserveEmpty = false): Branch | null {
     if (!this.mapped) return this
     const { change, doc } = this.mapped
     let { next } = this
@@ -257,8 +256,8 @@ class Branch {
     const { a: mappedMapping, b: mappedChanges } = ChangeSet.transform(doc, change, this.changes)
     // If there's more events below this, push the updated mapping down
     if (next) next = next.addMapping(mappedMapping, next.mapped ? null : this.changes.apply(doc))
-    // If there's nothing left in this event, return the next one
-    if (mappedChanges.empty && !this.effects.length) return next && next.resolve(config)
+    // Keep the active composition's empty group so its completion cannot join an older edit.
+    if (mappedChanges.empty && !this.effects.length && !preserveEmpty) return next && next.resolve(config)
     // Map the effects over the original mapping, and the selection
     // (referring to the state before this event's changes) over the
     // updated mapping.
@@ -374,12 +373,14 @@ class HistoryState {
   ): HistoryState {
     // Make sure the top of the done branch is resolved, so that we
     // can add changes without worrying about its mapping
-    let done = this.done && this.done.resolve(tr.startState.config)
+    const continuingComposition =
+      userEvent === 'input.type.compose' && this.prevUserEvent?.startsWith('input.type.compose')
+    let done = this.done && this.done.resolve(tr.startState.config, continuingComposition)
     // If possible, add the changes to the top event, otherwise start
     // a new event
     if (
       done &&
-      !done.changes.empty &&
+      (!done.changes.empty || continuingComposition) &&
       (!userEvent || joinableUserEvent.test(userEvent) || tr.annotation(Transaction.appended)) &&
       ((time - this.prevTime < config.newGroupDelay &&
         config.joinToEvent(tr, isAdjacent(done.changes, event.changes))) ||

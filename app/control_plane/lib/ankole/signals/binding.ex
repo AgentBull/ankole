@@ -50,6 +50,8 @@ defmodule Ankole.Signals.Binding do
   end
 
   attributes do
+    attribute(:auth_config_id, Ankole.Ash.Types.UUIDv7, public?: true)
+
     attribute(:id, Ankole.Ash.Types.UUIDv7,
       primary_key?: true,
       allow_nil?: false,
@@ -93,12 +95,19 @@ defmodule Ankole.Signals.Binding do
     timestamps(type: :utc_datetime_usec)
   end
 
+  relationships do
+    has_many :receipts, Ankole.Signals.BindingReceipt do
+      destination_attribute(:binding_id)
+    end
+  end
+
   json_api do
     type("signal_binding")
     derive_filter?(false)
     derive_sort?(false)
 
     default_fields([
+      :id,
       :routing_mode,
       :agent_uid,
       :automation_job_id,
@@ -106,6 +115,7 @@ defmodule Ankole.Signals.Binding do
       :name,
       :adapter,
       :config_ref,
+      :auth_config_id,
       :target,
       :filters,
       :unaddressed_group_message_policy,
@@ -138,6 +148,7 @@ defmodule Ankole.Signals.Binding do
         :routing_mode,
         :adapter,
         :config_ref,
+        :auth_config_id,
         :filters,
         :target,
         :unaddressed_group_message_policy,
@@ -155,6 +166,7 @@ defmodule Ankole.Signals.Binding do
         :name,
         :adapter,
         :config_ref,
+        :auth_config_id,
         :filters,
         :target,
         :unaddressed_group_message_policy,
@@ -176,6 +188,10 @@ defmodule Ankole.Signals.Binding do
         where: [changing(:filters)],
         only_when_valid?: true
       )
+    end
+
+    update :link_auth_config do
+      accept([:auth_config_id])
     end
 
     update :disable do

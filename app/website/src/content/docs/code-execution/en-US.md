@@ -11,7 +11,7 @@ Every Agent command executes on that Agent's dedicated computer: an isolated Wor
 
 ## Shell commands
 
-Foreground turns execute shell commands through the `command` tool (`app/agent_computer/src/tools/computer/command-tool.ts`). Each command spawns in its own process group under the Worker user (`uid` `1000`, without `sudo`) with a clean environment stripped of the Worker credential, a working directory inside Agent Home, and a default 180-second foreground timeout—cancelling or timing out terminates the entire process group. The [browser](../browser-automation/) daemon, Codex app-server, and Automation scripts likewise run as the Worker user without requiring elevated kernel privileges.
+Foreground turns execute shell commands through the `command` tool (`app/agent_computer/src/tools/computer/command-tool.ts`). Each command spawns in its own process group under the Worker user (`uid` `1000`, without `sudo`) with a clean environment stripped of the Worker credential, a working directory inside Agent Home, and a default 180-second foreground timeout—cancelling or timing out terminates the entire process group. The [browser](../browser-automation/) daemon and Codex app-server likewise run as the Worker user without requiring elevated kernel privileges.
 
 Running as `uid` `1000` allows commands to write inside Agent Home, install user-space packages, and spawn subprocesses, while preventing system-level OS package installation. Sessions and Jobs belonging to one Agent share `/workspace`, while container boundaries isolate different Agents, and Workers hold neither database connections nor object-store credentials.
 

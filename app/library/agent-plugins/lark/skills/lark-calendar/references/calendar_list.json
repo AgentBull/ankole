@@ -1,0 +1,82 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Calendar list.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "page_size": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "sync_token": {
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "calendar_list",
+  "outputSchema": {
+    "properties": {
+      "calendar_list": {
+        "items": {
+          "properties": {
+            "calendar_id": {
+              "type": "string"
+            },
+            "color": {
+              "type": "integer"
+            },
+            "description": {
+              "type": "string"
+            },
+            "is_deleted": {
+              "type": "boolean"
+            },
+            "is_third_party": {
+              "type": "boolean"
+            },
+            "permissions": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "summary_alias": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "has_more": {
+        "type": "boolean"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "sync_token": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

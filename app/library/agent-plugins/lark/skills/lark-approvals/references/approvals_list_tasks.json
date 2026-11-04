@@ -1,0 +1,134 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Approvals list tasks.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "page_size": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "topic": {
+        "type": "string"
+      },
+      "user_id": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": ["topic"],
+    "type": "object"
+  },
+  "name": "approvals_list_tasks",
+  "outputSchema": {
+    "properties": {
+      "count": {
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "has_more": {
+        "type": "boolean"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "tasks": {
+        "items": {
+          "properties": {
+            "definition_code": {
+              "type": "string"
+            },
+            "definition_group_id": {
+              "type": "string"
+            },
+            "definition_group_name": {
+              "type": "string"
+            },
+            "definition_id": {
+              "type": "string"
+            },
+            "definition_name": {
+              "type": "string"
+            },
+            "initiator_names": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "initiators": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "process_code": {
+              "type": "string"
+            },
+            "process_external_id": {
+              "type": "string"
+            },
+            "process_id": {
+              "type": "string"
+            },
+            "process_status": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "task_external_id": {
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "urls": {
+              "properties": {
+                "helpdesk": {
+                  "type": "string"
+                },
+                "mobile": {
+                  "type": "string"
+                },
+                "pc": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  }
+}

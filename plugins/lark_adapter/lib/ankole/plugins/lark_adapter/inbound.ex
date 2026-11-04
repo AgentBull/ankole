@@ -95,8 +95,11 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   """
   @spec handle_card_action(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_card_action(_event_type, %Event{} = event, consumers) do
-    action = CardAction.from_payload(event.content || event.raw)
-    AdapterContext.dispatch_chat(consumers, &emit_card_action(&1, action, event))
+    action = CardAction.from_payload(event.raw)
+
+    if is_binary(action.open_chat_id) and action.open_chat_id != "",
+      do: AdapterContext.dispatch_chat(consumers, &emit_card_action(&1, action, event)),
+      else: {:ok, []}
   end
 
   # Unit tests inspect the same implementation that the production entry uses.

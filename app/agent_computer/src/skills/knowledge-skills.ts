@@ -16,8 +16,7 @@ export async function linkMountedSkills(root: string): Promise<() => Promise<voi
 /** Materializes the enabled packages for one execution. */
 export async function materializeKnowledgeSkills(input: {
   root: string
-  frame?: TurnRPCFrame
-  automationAttempt?: { jobId: string; runId: string; attemptId: string }
+  frame: TurnRPCFrame
   skills: RuntimeSkillSummary[]
   rpc: RPCRequester
 }): Promise<{ root: string; skills: RuntimeSkillSummary[]; cleanup(): Promise<void> }> {
@@ -30,8 +29,7 @@ export async function materializeKnowledgeSkills(input: {
         'pod.read',
         {
           operation: 'skills.bundle',
-          paramsJson: jsonBytes({ name: skill.skillName }),
-          automationAttempt: input.automationAttempt
+          paramsJson: jsonBytes({ name: skill.skillName })
         },
         input.frame,
         { retryOnDisconnect: true }

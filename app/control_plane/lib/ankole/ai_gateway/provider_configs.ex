@@ -243,7 +243,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @doc """
   Disables an active provider or deletes a provider that is already disabled.
 
-  Both operations require the provider to have no Agent profile or Brain model references.
+  Both operations require the provider to have no active model-profile or Brain model references.
   """
   @spec delete_provider(String.t()) :: provider_result()
   def delete_provider(provider_id) when is_binary(provider_id),
@@ -551,8 +551,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     |> Ankole.Ash.read_one!()
   end
 
-  # A non-empty reference list blocks Provider disable or deletion. Agent
-  # profiles live in JSONB; defaults and system overrides use AppConfigure envelopes.
+  # A non-empty reference list blocks Provider disable or deletion. Agent and
+  # enabled OIDC Client profiles live in JSONB; defaults use AppConfigure envelopes.
   @doc false
   def provider_references(provider_id) do
     %{rows: agent_rows} =
@@ -597,10 +597,27 @@ defmodule Ankole.AIGateway.ProviderConfigs do
         [provider_id]
       )
 
+    %{rows: client_rows} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT 'tenant:' || client.tenant_id::text || ':oidc_client:' || client.id::text || ':' || profile.key AS reference
+        FROM oidc_clients AS client
+        CROSS JOIN LATERAL jsonb_each(
+          CASE WHEN jsonb_typeof(client.model_aliases) = 'object'
+            THEN client.model_aliases ELSE '{}'::jsonb END
+        ) AS profile(key, value)
+        WHERE client.enabled = true
+          AND profile.value @> jsonb_build_object('provider_id', $1::text)
+        """,
+        [provider_id]
+      )
+
     with {:ok, brain_references} <-
            Ankole.Brain.Config.model_provider_references(provider_id) do
       (Enum.map(agent_rows, fn [reference] -> reference end) ++
-         Enum.map(default_rows, fn [reference] -> reference end) ++ brain_references)
+         Enum.map(default_rows, fn [reference] -> reference end) ++
+         Enum.map(client_rows, fn [reference] -> reference end) ++ brain_references)
       |> Enum.sort()
     end
   end

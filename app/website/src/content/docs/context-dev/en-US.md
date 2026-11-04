@@ -53,7 +53,7 @@ Use the exact name `CONTEXT_DEV_API_KEY`, which the Skill manifest declares. Set
 
 Open **Console → Agent Library**, locate `context-dev`, and enable it either as a tenant default or per Agent; see [Agent Library](../skills/) for the default-then-override model.
 
-Enabling `context-dev` takes effect on the Agent's next turn, while disabling it removes the MCP connection from subsequent turns, Background Agent Jobs, and Automation Job attempts.
+Enabling or disabling `context-dev` takes effect on subsequent Agent turns and Background Agent Job executions.
 
 ### 4. Confirm it works
 
@@ -61,7 +61,7 @@ Ask an enabled Agent for a small lookup, such as the brand profile of a domain t
 
 ## How Ankole connects
 
-Context.dev hosts an MCP server at `https://mcp.context.dev/mcp`, which `context-dev` declares as a [Skill-backed MCP dependency](../mcp/) so the connection exists only while an enabled execution runs. For each turn, Background Agent Job, or Automation Job attempt, Ankole writes a single-use `mcporter` configuration containing only the `CONTEXT_DEV_API_KEY` variable name—keeping the secret value inside the process environment and out of config files on disk.
+Context.dev hosts `https://mcp.context.dev/mcp`, declared by the Skill as a remote MCP dependency. The Worker calls the control-plane Skill proxy with a short-lived Turn token. The proxy reads the configured `CONTEXT_DEV_API_KEY` and authenticates upstream; this referenced secret is excluded from Worker environment snapshots. The disposable MCPorter configuration points to the internal gateway.
 
 While Context.dev's desktop setup docs use interactive browser OAuth—which a headless Worker cannot complete—Ankole authenticates non-interactively via the `Authorization` header supported by the same MCP endpoint.
 

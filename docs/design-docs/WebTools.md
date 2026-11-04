@@ -71,7 +71,8 @@ and `result_offset` to read the next segment. Full page text stays in the run's
 in-memory page cache—refetched if recovery restarts the run—so foreground calls
 need no workspace file.
 
-Codex Jobs enforce a 40,000-character call budget backed by workspace files.
+Codex Jobs enforce a 40,000-Unicode-code-point call budget, including headers,
+backed by workspace files.
 Because page text is unbounded, untrusted input that replays on every turn
 iteration until compaction shrinks it to roughly 2,000 tokens, returning an
 unbounded page directly would bill the same text repeatedly before discarding
@@ -84,7 +85,7 @@ single-URL call can therefore use all 40,000 characters, while a five-URL batch
 still gives every URL a usable window.
 
 When a page exceeds its share, Agent Computer keeps its head and tail cut cleanly
-on line boundaries, writes the complete page (up to 2,000,000 characters) to
+on line boundaries, writes the complete page (up to 2,000,000 Unicode code points) to
 `<workspace>/temp/web-fetch/<host>-<hash>.md`, and prepends a header above the
 excerpt showing the returned size, total size, file path, and exact `read_file`
 call needed to inspect the omitted middle. Placing that note at the top ensures
@@ -92,10 +93,61 @@ it survives Codex Job projections, which keep the head of a tool output and
 truncate the tail. If writing the workspace file fails, the fetch still returns
 bounded text and notes in the header that the full file is unavailable.
 
+Agent Computer sends the original URL batch with each fenced `tools.read`
+request and selects one transport page with the private `_workspace_page`
+argument. The broker removes that argument before schema validation and
+authorization, so authorization sees the original model arguments. The Job
+adapter then selects that page for the shared provider and browser-fallback
+path. Each response carries at most 2,000,000 code points once for the Worker
+cache and workspace writer. Transferring one page at a time keeps the response
+within the Worker channel's 16 MiB frame. When a page exceeds that
+file cap, the response also carries at most 160,000 UTF-8 bytes from its ending
+so the excerpt still shows the original page's tail. Foreground Sessions use
+the byte-window projection above.
+
+For rendered extraction, the Job adapter requests the browser's
+`result_mode: "workspace"` for one URL at a time. The browser returns the
+complete extracted text below the file cap, or the capped prefix with the true
+character count and original ending above it. Agent Computer and the control
+plane preserve those counts and the ending through file output and cache hits.
+The browser's default fetch command accepts up to five URLs and returns at most
+524,288 UTF-16 code units per page; foreground Sessions use that default.
+
+The browser daemon and client enforce a 16 MiB serialized response limit,
+including JSON escapes and the terminating newline. Workspace mode accepts
+exactly one URL, so a 2,000,000-code-point prefix and 160,000-byte ending fit even
+when JSON represents every character with a six-byte escape. If unusually large
+metadata exceeds the response limit, the daemon returns `invalid_result`.
+The Worker sends a rendered continuation without the previous cached page,
+because the control plane reads that continuation directly. This keeps one copy
+of the page inside its Worker frame while preserving the original URL batch and
+Job authorization fence.
+
+Job setup exposes the existing `read_file` tool against the real Job workspace.
+The Agent user writes fetched page files through the same workspace command
+adapter that reads them. The writer follows filesystem permissions for file
+and directory links; a link cannot make the root Worker write a protected file.
+The header names its first omitted line, and Codex can use that call to inspect
+the saved middle. An individual line that exceeds its excerpt share is omitted
+whole. The file reader bounds each line; if it truncates a long line, Codex can
+use the command shell to read the saved file at a character or byte offset.
+The web-fetch projection allows up to 160,000 UTF-8 bytes so it preserves
+the complete 40,000-code-point result. The file-reader projection preserves
+the reader's bounded 100,000-UTF-16-unit text window together with its next-line
+offset, including Unicode text. Other dynamic tools use a 16,384-byte bound.
+
 The workspace file is the sole owner of the complete page text: tool-result
 metadata records only the URL, title, character counts, and file path without
 duplicating the body. Because the file is rebuildable worker-local state, no
 durable control-plane record depends on it.
+
+For foreground rendered fetches, the Worker transfers the browser result once
+in the internal tool result's details. The control plane reads those details
+and builds the Session's byte window; it does not need a second text copy of
+the browser body. If the sealed Worker frame still exceeds its budget, for
+example because of a very large title, the Worker returns a bounded error
+receipt. A transient connection failure keeps the original result available
+for adoption.
 
 ## Read a Page in a Browser When Fetch Fails
 
@@ -103,15 +155,16 @@ When `web_fetch` falls back to browser rendering, Agent Computer allocates an
 in-memory temporary route and sends a `fetch` command over the Worker's daemon
 socket carrying the route, session, resolved backend material, and artifact
 root—without writing a material file to disk. Each client request enforces a
-300-second deadline and an 8 MiB response cap, closing the socket immediately on
+300-second deadline and a 16 MiB response cap, closing the socket immediately on
 cancellation.
 
-Inside `ankole-browser`, a batch accepts up to five URLs, opens at most two
-pages concurrently, and enforces a fixed per-URL timeout. For each page, the
+Inside `ankole-browser`, a default fetch batch accepts up to five URLs, opens at
+most two pages concurrently, and enforces a fixed per-URL timeout. For each page, the
 browser waits for the main document navigation to commit—without waiting for
 `DOMContentLoaded`—and then waits briefly for visible text to stabilize. Partial
-failures do not discard sibling pages, and returned entries preserve the caller's
-request order.
+failures during page creation, navigation, or extraction produce an error for
+that URL. The browser keeps successful sibling results, continues the remaining
+URLs, and returns entries in the caller's request order.
 
 If rendered extraction fails, Agent Computer logs the backend kind, failure
 stage, error code, retryability flag, failed URL index, URL scheme and host, and
@@ -220,7 +273,13 @@ calls, and the Codex runner maintains a Job-session cache of up to 100 entries.
 In both caches, a clean fetch result satisfies repeat requests for the same URL
 for 15 minutes—annotating the output as a cached repeat—while failed or degraded
 fetches are never cached. Each cache lives purely in memory for the lifetime of
-its owning process and caches page results rather than provider routing.
+its owning process and caches page results rather than provider routing. The
+Worker fills the Job cache from each workspace-page response; a repeat request
+sends only its selected URL's cached page through the fenced owner, retaining
+the original total size, tail and source. The control plane timestamps every
+clean response, including a cache hit, so freshness uses its clock. The response
+carries the body once, and the displayed header and result metadata identify both its source and
+whether the owner reused a clean cached page.
 
 ## Tests
 
@@ -232,6 +291,8 @@ Automated tests verify:
   calls, and unclipped small pages
 - workspace full-text persistence, the 2,000,000-character file cap, and
   continuation `read_file` offsets
+- complete rendered pages beyond the default prefix, original endings above the
+  file cap, and escaped JSON within the real browser and Worker frame limits
 - bounded excerpts and explicit missing-file notes when workspace writes fail
 - in-memory backend material delivery without writing material files to disk
 - per-URL error isolation and preserved request ordering across mixed batches

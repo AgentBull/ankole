@@ -1,0 +1,67 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Read a project by UUID, name, or slug.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "includeMembers": {
+        "type": "boolean"
+      },
+      "includeMilestones": {
+        "type": "boolean"
+      },
+      "includeResources": {
+        "type": "boolean"
+      },
+      "query": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": ["query"],
+    "type": "object"
+  },
+  "name": "get_project",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "content": {
+            "type": ["string", "null"]
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "lead": {
+            "type": ["object", "string", "null"]
+          },
+          "name": {
+            "type": ["string", "null"]
+          },
+          "startDate": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": ["object", "string", "null"]
+          },
+          "targetDate": {
+            "type": ["string", "null"]
+          },
+          "url": {
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

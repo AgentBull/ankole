@@ -1,0 +1,108 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create or update a project. Supply id to update; supply name and teams to create.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "anyOf": [
+      {
+        "required": ["id"]
+      },
+      {
+        "required": ["name", "teams"]
+      }
+    ],
+    "properties": {
+      "content": {
+        "type": ["string", "null"]
+      },
+      "description": {
+        "type": ["string", "null"]
+      },
+      "id": {
+        "type": ["string", "null"]
+      },
+      "labels": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "lead": {
+        "type": ["string", "null"]
+      },
+      "members": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "name": {
+        "type": ["string", "null"]
+      },
+      "priority": {
+        "type": "integer"
+      },
+      "startDate": {
+        "type": ["string", "null"]
+      },
+      "state": {
+        "type": ["string", "null"]
+      },
+      "targetDate": {
+        "type": ["string", "null"]
+      },
+      "teams": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "save_project",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "content": {
+            "type": ["string", "null"]
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "lead": {
+            "type": ["object", "string", "null"]
+          },
+          "name": {
+            "type": ["string", "null"]
+          },
+          "startDate": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": ["object", "string", "null"]
+          },
+          "targetDate": {
+            "type": ["string", "null"]
+          },
+          "url": {
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

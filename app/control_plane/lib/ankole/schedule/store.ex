@@ -20,7 +20,11 @@ defmodule Ankole.Schedule.Store do
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
   def insert_idempotent_event_and_wake_in_tx(attrs, opts) do
-    with {:ok, persisted} <- create_event(attrs, :schedule_event) do
+    with {:ok, persisted} <-
+           create_event(
+             attrs,
+             if(attrs.kind == "cron_fire", do: :schedule_cron_event, else: :schedule_event)
+           ) do
       case Ash.Resource.get_metadata(persisted, :upsert_action) do
         :insert ->
           with :ok <-
@@ -96,14 +100,25 @@ defmodule Ankole.Schedule.Store do
           {:ok, CronSchedule.t()} | {:error, :cron_schedule_not_found}
   def lock_cron_by_idempotency(attrs) do
     query =
-      Ash.Query.filter(
-        CronSchedule,
-        agent_uid == ^attrs.agent_uid and owner_session_id == ^attrs.owner_session_id and
-          idempotency_key == ^attrs.idempotency_key
-      )
+      if attrs[:owner_job_id] do
+        Ash.Query.filter(
+          CronSchedule,
+          owner_job_id == ^attrs.owner_job_id and idempotency_key == ^attrs.idempotency_key
+        )
+      else
+        Ash.Query.filter(
+          CronSchedule,
+          agent_uid == ^attrs.agent_uid and owner_session_id == ^attrs.owner_session_id and
+            idempotency_key == ^attrs.idempotency_key
+        )
+      end
 
-    with %CronSchedule{id: id} <- read_one(query),
-         %CronSchedule{} = schedule <- lock_cron_schedule(id, attrs.automation_job_id) do
+    # Creation only adds a default Binding for a new row. An idempotent retry
+    # keeps existing subscriptions, so neither path locks other consumers.
+    query = Ash.Query.lock(query, :for_update)
+
+    with %CronSchedule{} = schedule <-
+           read_one(query, lock_identity: {:rows, "cron_schedules", :id}) do
       {:ok, schedule}
     else
       nil -> {:error, :cron_schedule_not_found}
@@ -111,28 +126,35 @@ defmodule Ankole.Schedule.Store do
   end
 
   @doc """
-  Locks the operation's consumer before the rule.
+  Locks the source owner before the rule. Job-owned rules have a fixed default
+  destination, so edits do not lock their independent fanout consumers.
 
-  The default uses the current binding. An explicit consumer is the target of
-  a binding edit or a retained event, whose binding can differ from the rule.
-  When the current binding changes before the lock, the result is
+  Agent-owned rules lock their current Bindings and any requested destination
+  before editing. Dispatch passes `:prepared` after acquiring its delivery locks.
+  When the current Binding changes before the lock, the result is
   `{:error, :cron_schedule_changed}`.
   """
-  @spec lock_cron_schedule(Ecto.UUID.t(), :current | pos_integer() | nil) ::
+  @spec lock_cron_schedule(Ecto.UUID.t(), :current | :prepared | pos_integer() | nil) ::
           CronSchedule.t() | nil | {:error, :cron_schedule_changed}
-  def lock_cron_schedule(cron_schedule_id, automation_job_id \\ :current) do
-    if automation_job_id != :prepared,
-      do:
+  def lock_cron_schedule(cron_schedule_id, automation_job_id \\ :current)
+
+  def lock_cron_schedule(cron_schedule_id, :prepared), do: lock_cron_row(cron_schedule_id)
+
+  def lock_cron_schedule(cron_schedule_id, automation_job_id) do
+    case get_cron_schedule(cron_schedule_id) do
+      nil ->
+        nil
+
+      %CronSchedule{owner_job_id: owner} when is_integer(owner) ->
+        Ankole.AutomationJobs.lock_job_in_tx(owner)
+        lock_cron_row(cron_schedule_id)
+
+      %CronSchedule{} = snapshot ->
         Ankole.Signals.lock_source_bindings_in_tx(
           "schedule://#{cron_schedule_id}",
           if(is_integer(automation_job_id), do: automation_job_id)
         )
 
-    case get_cron_schedule(cron_schedule_id) do
-      nil ->
-        nil
-
-      %CronSchedule{} = snapshot ->
         consumer =
           if automation_job_id == :current,
             do: Ankole.Signals.source_automation_job_id(snapshot),

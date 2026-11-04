@@ -403,6 +403,7 @@ defmodule Ankole.Principals.PodAdminOperations do
               items: [
                 fields: [
                   adapter_id: [type: :string, allow_nil?: false],
+                  plugin_id: [type: :string, allow_nil?: false],
                   default_provider_id: [type: :string, allow_nil?: false],
                   display_name: [type: Ankole.Ash.Types.StringMap, allow_nil?: false],
                   fields: [type: {:array, Ankole.Plugins.ConfigField}, allow_nil?: false]

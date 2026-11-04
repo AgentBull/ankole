@@ -73,19 +73,19 @@ defmodule Ankole.E2E.Harness do
   def long_lease_seconds, do: @long_lease_seconds
 
   @doc "App id whose connection carries primary-binding chats."
-  def primary_app_id, do: @primary_app_id
+  def primary_app_id, do: @primary_app_id <> "_" <> Repo.tenant_id!()
 
   @doc "App id whose connection carries record-binding chats."
-  def record_app_id, do: @record_app_id
+  def record_app_id, do: @record_app_id <> "_" <> Repo.tenant_id!()
 
   @doc "App id whose connection carries ambient-binding chats."
-  def ambient_app_id, do: @ambient_app_id
+  def ambient_app_id, do: @ambient_app_id <> "_" <> Repo.tenant_id!()
 
   @doc "App id used by the primary agent's multi-agent-room binding."
-  def multi_a_app_id, do: @multi_a_app_id
+  def multi_a_app_id, do: @multi_a_app_id <> "_" <> Repo.tenant_id!()
 
   @doc "App id used by the secondary agent's binding."
-  def secondary_app_id, do: @secondary_app_id
+  def secondary_app_id, do: @secondary_app_id <> "_" <> Repo.tenant_id!()
 
   @doc "Uses the production connection pool for a serial E2E suite with committed transactions."
   def start_committed_repo! do
@@ -115,15 +115,8 @@ defmodule Ankole.E2E.Harness do
   def cleanup_committed_fixtures_on_exit! do
     tenant_id = Repo.tenant_id!()
     drivers = Ankole.SessionsCase.driver_pids()
-    principals = Repo.all(from(p in Principals.Principal, select: p.uid))
-    workers = Repo.all(from(w in AgentWorker, select: w.agent_uid))
     providers = Repo.all(from(p in ProviderConfigs.Provider, select: p.provider_id))
     worker_providers = Enum.map(AgentWorkers.Providers.list(), & &1.provider_id)
-    jobs = Repo.all(from(j in Oban.Job, select: j.id))
-    nodes = Repo.all(from(n in Ankole.Pod.Page, select: n.id))
-
-    scopes =
-      Repo.all(from(c in Ankole.AppConfigure.AppConfig, distinct: c.scope, select: c.scope))
 
     global_config =
       Repo.all(from(c in Ankole.AppConfigure.AppConfig.for_scope("global"), select: c.key))
@@ -132,51 +125,46 @@ defmodule Ankole.E2E.Harness do
         {key, value}
       end)
 
-    conversations = Repo.all(from(c in Conversation, select: c.id))
-
     on_exit(
       Repo.bind_tenant(fn ->
         Ankole.SessionsCase.stop_new_drivers(drivers)
 
         committed_checkout(fn ->
-          created = Repo.all(from(p in Principals.Principal, where: p.uid not in ^principals))
-          uids = Enum.map(created, & &1.uid)
+          if tenant = Repo.get(Ankole.Tenants.Tenant, tenant_id) do
+            assert {:ok, _} = Ankole.Tenants.delete(tenant)
 
-          Repo.query!(
-            "SET CONSTRAINTS pages_acl_anchor_fkey, pages_parent_anchor_fkey DEFERRED"
-          )
+            worker = Oban.Worker.to_string(Ankole.Tenants.Jobs.Delete)
 
-          Repo.delete_all(from(n in Ankole.Pod.Page, where: n.id not in ^nodes))
-          Repo.delete_all(from(c in Ankole.AppConfigure.AppConfig, where: c.scope not in ^scopes))
-          # Shared conversations contain the committed fixture statements.
-          Repo.delete_all(from(c in Conversation, where: c.id not in ^conversations))
+            job =
+              Repo.one!(
+                from(j in Oban.Job,
+                  where: j.worker == ^worker and j.args["tenant_id"] == ^tenant_id,
+                  where: j.state in ["available", "scheduled", "retryable"]
+                )
+              )
 
-          for uid <- uids do
-            assert {:ok, :ok} =
-                     Repo.transact(fn ->
-                       :ok = Ankole.Pod.delete_private_root_in_tx(uid)
-                       {:ok, :ok}
+            # Oban is manual here. Drive only this tenant's lifecycle owners;
+            # the Docker callback has already removed its external resources.
+            assert {:ok, true} =
+                     WaitHelpers.wait_until(WaitHelpers.deadline(60_000), fn ->
+                       result = Ankole.Tenants.Jobs.Delete.perform(job)
+                       assert result == :ok or match?({:snooze, _}, result), inspect(result)
+
+                       for worker <- Repo.all(from(w in AgentWorker, where: w.state == :deleting)) do
+                         assert :ok =
+                                  Ankole.AgentWorkers.ReconcileJob.perform(%Oban.Job{
+                                    args: %{
+                                      "tenant_id" => tenant_id,
+                                      "agent_uid" => worker.agent_uid
+                                    }
+                                  })
+                       end
+
+                       is_nil(Repo.get(Ankole.Tenants.Tenant, tenant_id))
                      end)
           end
 
-          # The owner foreign key is RESTRICT. Delete Agents before their Humans.
-          Repo.delete_all(
-            from(p in Principals.Principal, where: p.uid in ^uids and p.type == :agent)
-          )
-
-          Repo.delete_all(
-            from(r in Principals.AccessRestriction, where: r.principal_uid in ^uids)
-          )
-
-          Repo.delete_all(from(e in Principals.AccessEvent, where: e.principal_uid in ^uids))
-          Repo.delete_all(from(p in Principals.Principal, where: p.uid in ^uids))
-          Repo.delete_all(from(w in AgentWorker, where: w.agent_uid not in ^workers))
-
-          Repo.delete_all(
-            from(j in Oban.Job,
-              where: j.id not in ^jobs and j.args["tenant_id"] == ^tenant_id
-            )
-          )
+          Repo.delete_all(from(j in Oban.Job, where: j.args["tenant_id"] == ^tenant_id))
 
           Repo.delete_all(
             from(p in ProviderConfigs.Provider, where: p.provider_id not in ^providers)
@@ -199,31 +187,6 @@ defmodule Ankole.E2E.Harness do
 
           for {key, value} <- global_config do
             assert {:ok, _} = Ankole.AppConfigure.put_global_by_key(key, value)
-          end
-
-          if tenant = Repo.get(Ankole.Tenants.Tenant, tenant_id) do
-            assert {:ok, _} = Ankole.Tenants.delete(tenant)
-
-            worker = Oban.Worker.to_string(Ankole.Tenants.Jobs.Delete)
-
-            job =
-              Repo.one!(
-                from(j in Oban.Job,
-                  where: j.worker == ^worker and j.args["tenant_id"] == ^tenant_id,
-                  where: j.state in ["available", "scheduled", "retryable"]
-                )
-              )
-
-            # Other tenants can still have platform jobs. Teardown runs only
-            # this tenant's persisted delete job through its original owner.
-            assert {:ok, true} =
-                     WaitHelpers.wait_until(WaitHelpers.deadline(60_000), fn ->
-                       result = Ankole.Tenants.Jobs.Delete.perform(job)
-                       assert result == :ok or match?({:snooze, _}, result), inspect(result)
-                       Ankole.Tenants.get(tenant_id) == {:error, :not_found}
-                     end)
-
-            Repo.delete_all(from(j in Oban.Job, where: j.id == ^job.id))
           end
 
           :ok = Ankole.AppConfigure.Cache.clear_for_test()
@@ -250,11 +213,11 @@ defmodule Ankole.E2E.Harness do
   def start_fake_feishu!(opts \\ []) do
     apps =
       Keyword.get(opts, :apps, [
-        {@primary_app_id, @app_secret},
-        {@record_app_id, @app_secret},
-        {@ambient_app_id, @app_secret},
-        {@multi_a_app_id, @app_secret},
-        {@secondary_app_id, @app_secret}
+        {primary_app_id(), @app_secret},
+        {record_app_id(), @app_secret},
+        {ambient_app_id(), @app_secret},
+        {multi_a_app_id(), @app_secret},
+        {secondary_app_id(), @app_secret}
       ])
 
     state = start_supervised!({FakeFeishu.State, owner: self()})
@@ -286,9 +249,13 @@ defmodule Ankole.E2E.Harness do
   # The historical e2e bot identities: the multi-agent apps carry distinct
   # bots, every other e2e app shares "ou_bot" so `lark_bot_mention/0` defaults
   # keep addressing the bot.
-  defp e2e_bot_open_id(@multi_a_app_id), do: "ou_lark_bot_a"
-  defp e2e_bot_open_id(@secondary_app_id), do: "ou_lark_bot_b"
-  defp e2e_bot_open_id(_app_id), do: "ou_bot"
+  defp e2e_bot_open_id(app_id) do
+    cond do
+      app_id == multi_a_app_id() -> "ou_lark_bot_a"
+      app_id == secondary_app_id() -> "ou_lark_bot_b"
+      true -> "ou_bot"
+    end
+  end
 
   @doc """
   Derives real long connections from enabled bindings and waits for the WS
@@ -555,11 +522,11 @@ defmodule Ankole.E2E.Harness do
   into `installed-skills/<name>/` of its Agent Home before the next turn.
   """
   def put_drive_file!(agent_uid, path, content, opts \\ []) do
-    assert {:ok, %{sha256: sha256}} = Ankole.Files.store(content)
+    assert {:ok, stored} = Ankole.Files.store(content)
 
     upsert =
       Ankole.Attrs.maybe_put(
-        %{path: path, sha256: sha256, source: "agent"},
+        Map.merge(stored, %{path: path, source: "agent"}),
         :mode,
         Keyword.get(opts, :mode)
       )
@@ -668,19 +635,19 @@ defmodule Ankole.E2E.Harness do
 
     primary_binding =
       upsert_lark_binding!(agent.uid, "lark-chaos-primary", :ignore, fake_feishu,
-        app_id: @primary_app_id,
+        app_id: primary_app_id(),
         group_message_mode: "addressed_only"
       )
 
     record_binding =
       upsert_lark_binding!(agent.uid, "lark-chaos-record", :record_only, fake_feishu,
-        app_id: @record_app_id,
+        app_id: record_app_id(),
         group_message_mode: "observe_all"
       )
 
     ambient_binding =
       upsert_lark_binding!(agent.uid, "lark-chaos-ambient", :may_intervene, fake_feishu,
-        app_id: @ambient_app_id,
+        app_id: ambient_app_id(),
         group_message_mode: "may_intervene"
       )
 
@@ -723,7 +690,7 @@ defmodule Ankole.E2E.Harness do
         :ignore,
         fake_feishu,
         Keyword.merge(
-          [app_id: @secondary_app_id, group_message_mode: "addressed_only"],
+          [app_id: secondary_app_id(), group_message_mode: "addressed_only"],
           opts
         )
       )
@@ -767,19 +734,19 @@ defmodule Ankole.E2E.Harness do
 
     primary_binding =
       upsert_lark_binding!(agent.uid, "lark-real-llm-primary", :ignore, fake_feishu,
-        app_id: @primary_app_id,
+        app_id: primary_app_id(),
         group_message_mode: "addressed_only"
       )
 
     record_binding =
       upsert_lark_binding!(agent.uid, "lark-real-llm-record", :record_only, fake_feishu,
-        app_id: @record_app_id,
+        app_id: record_app_id(),
         group_message_mode: "observe_all"
       )
 
     ambient_binding =
       upsert_lark_binding!(agent.uid, "lark-real-llm-ambient", :may_intervene, fake_feishu,
-        app_id: @ambient_app_id,
+        app_id: ambient_app_id(),
         group_message_mode: "may_intervene"
       )
 
@@ -798,7 +765,7 @@ defmodule Ankole.E2E.Harness do
   """
   def setup_multi_agent_binding!(agent_uid, fake_feishu) do
     upsert_lark_binding!(agent_uid, "lark-chaos-multi-a", :ignore, fake_feishu,
-      app_id: @multi_a_app_id,
+      app_id: multi_a_app_id(),
       group_message_mode: "addressed_only",
       user_name: "Agent A"
     )

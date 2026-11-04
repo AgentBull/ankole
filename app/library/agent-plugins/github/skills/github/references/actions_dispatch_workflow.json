@@ -1,0 +1,46 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a workflow dispatch event",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "inputs": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "repo": {
+        "type": "string"
+      },
+      "return_run_details": {
+        "type": "boolean"
+      },
+      "workflow_id": {
+        "oneOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "required": ["owner", "repo", "workflow_id", "ref"],
+    "type": "object"
+  },
+  "name": "actions_dispatch_workflow",
+  "outputSchema": {
+    "type": "object"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Task sections list.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "page_size": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "resource_id": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "resource_type": {
+        "type": "string"
+      },
+      "update_msec": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "task_sections_list",
+  "outputSchema": {
+    "properties": {
+      "has_more": {
+        "type": "boolean"
+      },
+      "items": {
+        "items": {
+          "properties": {
+            "guid": {
+              "type": "string"
+            },
+            "is_default": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "page_token": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

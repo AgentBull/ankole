@@ -95,9 +95,9 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       const { webhookEndpointListOptions } = await import('./pages/webhooks')
       return all(ensure(agentListOptions()), ensure(webhookEndpointListOptions(agentFilter(location))))
     },
-    automationJobs: async ({ location }: ConsoleRouteLoaderContext) => {
+    automationJobs: async () => {
       const { automationJobListOptions } = await import('./pages/automation-jobs')
-      return all(ensure(agentListOptions()), ensure(automationJobListOptions(agentFilter(location))))
+      return ensure(automationJobListOptions())
     },
     settings: () => ensure(listSiteAppConfigurationsOptions()).then(() => null),
     workerEnvs: () => ensure(listSiteWorkerEnvsOptions()).then(() => null),

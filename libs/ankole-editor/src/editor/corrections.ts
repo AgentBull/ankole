@@ -147,9 +147,18 @@ export const flattenChildlessBlocks = Correction.onChildList(S.BlockGroup, group
 })
 
 /** Moving or deleting the last block removes that column; one remaining column becomes ordinary blocks. */
-export const flattenColumns = Correction.onChildList([S.Columns, S.Column], node => {
+export const flattenColumns = Correction.onChildList([S.Columns, S.Column], (node, transaction) => {
   const row = node.node.type === S.Column.type ? node.parent : node
   if (!row || row.node.marks.length) return null
+  // Moving the composing paragraph's ancestors ends the browser's composition. Its end handler
+  // finishes that row's cleanup; other rows still normalize in the current transaction.
+  if (
+    transaction?.isUserEvent('input.type.compose.start') &&
+    transaction.newSelection.head > row.before &&
+    transaction.newSelection.head < row.after
+  ) {
+    return null
+  }
   const changes: ChangeSet.Spec[] = []
   const kept = row.node.content.filter(
     column => (column.isPlot && column.content.length) || Attrs.isInSet(column.marks)

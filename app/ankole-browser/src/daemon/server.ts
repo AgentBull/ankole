@@ -5,6 +5,7 @@ import { dirname } from 'node:path'
 import { BrowserDataError, browserError } from '../errors'
 import {
   failureResponse,
+  BrowserMaxResponseBytes,
   parseBrowserRequest,
   successResponse,
   type BrowserRequest,
@@ -107,6 +108,15 @@ export class BrowserDaemonServer {
 
   private respond(socket: Socket, response: BrowserResponse): void {
     if (socket.destroyed) return
-    socket.end(`${JSON.stringify(response)}\n`)
+    let payload = JSON.stringify(response)
+    if (Buffer.byteLength(payload) + 1 > BrowserMaxResponseBytes) {
+      payload = JSON.stringify(
+        failureResponse(
+          response,
+          browserError(new BrowserDataError('invalid_result', 'browser response exceeds the 16 MiB limit'))
+        )
+      )
+    }
+    socket.end(`${payload}\n`)
   }
 }

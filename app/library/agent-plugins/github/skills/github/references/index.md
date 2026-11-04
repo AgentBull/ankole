@@ -1,0 +1,42 @@
+# github operations
+
+Choose the operation below, then read only its linked contract.
+
+- [actions_cancel_run](actions_cancel_run.json): Cancel a workflow run
+- [actions_dispatch_workflow](actions_dispatch_workflow.json): Create a workflow dispatch event
+- [actions_download_artifact](actions_download_artifact.json): Download an artifact
+- [actions_get_run](actions_get_run.json): Get a workflow run
+- [actions_get_run_logs](actions_get_run_logs.json): Download workflow run logs
+- [actions_list_runs](actions_list_runs.json): List workflow runs for a repository
+- [actions_list_workflows](actions_list_workflows.json): List repository workflows
+- [actions_rerun_workflow](actions_rerun_workflow.json): Re-run a workflow
+- [checks_list_for_ref](checks_list_for_ref.json): List check runs for a Git reference
+- [issues_create](issues_create.json): Create an issue
+- [issues_create_comment](issues_create_comment.json): Create an issue comment
+- [issues_get](issues_get.json): Get an issue
+- [issues_list](issues_list.json): List repository issues
+- [issues_list_comments](issues_list_comments.json): List issue comments
+- [issues_manage_labels](issues_manage_labels.json): Set labels for an issue
+- [issues_search](issues_search.json): Search issues and pull requests
+- [issues_update](issues_update.json): Update an issue
+- [pulls_create](pulls_create.json): Create a pull request
+- [pulls_create_review](pulls_create_review.json): Create a review for a pull request
+- [pulls_get](pulls_get.json): Get a pull request
+- [pulls_list](pulls_list.json): List pull requests
+- [pulls_list_files](pulls_list_files.json): List pull requests files
+- [pulls_list_reviews](pulls_list_reviews.json): List reviews for a pull request
+- [pulls_merge](pulls_merge.json): Merge a pull request
+- [pulls_reply_review_comment](pulls_reply_review_comment.json): Create a reply for a review comment
+- [pulls_update](pulls_update.json): Update a pull request
+- [releases_create](releases_create.json): Create a release
+- [releases_get_latest](releases_get_latest.json): Get the latest release
+- [releases_list](releases_list.json): List releases
+- [releases_update](releases_update.json): Update a release
+- [releases_upload_asset](releases_upload_asset.json): Upload a release asset
+- [repos_compare_commits](repos_compare_commits.json): Compare two commits
+- [repos_create_branch](repos_create_branch.json): Create a reference
+- [repos_get](repos_get.json): Get a repository
+- [repos_get_content](repos_get_content.json): Get repository content
+- [repos_list_branches](repos_list_branches.json): List branches
+- [repos_list_commits](repos_list_commits.json): List commits
+- [repos_put_content](repos_put_content.json): Create or update file contents

@@ -15,6 +15,12 @@ defmodule Ankole.AIAgent.Library.Skills do
       |> Ash.Query.sort(relative_path: :asc)
       |> Ankole.Ash.read!()
 
+  def mcp_metadata_files do
+    SkillFile
+    |> Ash.Query.filter(relative_path == "agents/openai.yaml")
+    |> Ankole.Ash.read()
+  end
+
   def bindings(uid),
     do:
       AgentSkill

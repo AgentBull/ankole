@@ -270,72 +270,28 @@ Because previews are ephemeral presentation, `Conversations` commits the final
 public Agent Message only after the provider confirms the durable Delivery
 intent.
 
-## Let a Job Use Lark Tools
+## Use Lark Tools
 
-When the `lark` Agent Plugin is enabled, `WorkerEnv` resolves a bot tenant
-access token at execution start from the current Signal route's Lark binding—or
-implicitly from the Agent's sole available Lark binding (if multiple Lark
-bindings are available and the execution carries no matching Lark route, or if
-the routed binding is disabled or unavailable, `WorkerEnv` injects no Lark
-variables rather than guessing another binding). Using stored provider identity
-metadata to look up recipient `open_id` values for direct-message shortcuts,
-`WorkerEnv` injects:
+The `lark` Agent Plugin supplies four generated Skills: messaging, approvals,
+tasks, and calendars. Each Skill selects an explicit tool and calls MCPorter.
+Applet routes and native Automation Jobs call the same Toolkit through
+`AnkoleRuntime.mcp.call`. Connectors owns the tenant's application roots and
+personal OAuth tokens; Workers receive only a short-lived internal Turn token.
 
-- `LARKSUITE_CLI_APP_ID`
-- `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`
-- `LARKSUITE_CLI_BRAND`
-- `LARKSUITE_CLI_DEFAULT_AS=bot`
-- `LARKSUITE_CLI_STRICT_MODE=bot`
+The execution Principal determines which employee an operation represents.
+Personal assistants act for their human owner. For APIs accepting an application
+token and employee ID, the adapter uses the verified identity-provider binding
+and injects that employee ID. APIs requiring personal OAuth return an actionable
+consent link when authorization is missing. Members authorize in Pod's Connections
+page, and an optional identity-provider setting combines personal scopes with
+OIDC sign-in. Offboarding invalidates personal credentials and stops dependent
+Jobs and subscriptions.
 
-`WorkerEnv` never exposes `appSecret`, and Skills come exclusively from the
-enabled Agent Plugin—configuring a `SignalBinding` supplies credentials without
-enabling Skills on its own.
-
-For user-scoped Feishu approvals, the `lark-approvals` Skill (`ankole-runtime: main`,
-exposed only to human-initiated foreground Turns and never to unattended/scheduled
-Turns or background Jobs—though foreground Turns may still delegate receipt
-parsing, currency math, or data prep to a background Job) uses a separate
-per-Human profile path:
-
-- From `runtime_fabric.worker_auth_key`, the control plane derives an opaque
-  HMAC-SHA256 `lark-cli` profile name—hashing `principal_uid` for access version
-  `1`, or `principal_uid <> <<0>> <> decimal_access_version` for higher
-  versions (rejecting any Human turn without a positive `access_version`)—and
-  sends the Worker only the derived profile name and active-human marker, never
-  raw Principal UIDs or version numbers. If a Human is disabled and later
-  restored, their incremented `access_version` maps to a fresh profile requiring
-  new PersonalAgent app setup and user login; older profiles remain on disk for
-  already admitted runs while staying unreachable through the wrapper (without
-  revoking tokens on Feishu's servers).
-- Before invoking `lark-cli`, the Skill wrapper scrubs the bot `LARKSUITE_CLI_*`
-  environment variables (including `LARKSUITE_CLI_STRICT_MODE=bot`, since env
-  credentials override named profiles and each user profile sets
-  `strict-mode=off` to hold both a user token and its PersonalAgent tenant
-  token) and explicitly passes the derived profile, pinning `--as user` on
-  approval reads/writes and `--as bot` on approval file uploads. Note that
-  sender separation here is enforced by Skill wrapper convention rather than OS
-  sandbox isolation, because all profiles share the Worker's `.lark-cli`
-  directory under Ankole's trusted first-party extension model.
-- Initial provisioning per `(principal, access_version)` runs three steps:
-  1. PersonalAgent app registration creates a dedicated app and stores its
-     credentials via `lark-cli profile add --app-secret-stdin` (never asking the
-     user for an app secret or passing secrets via CLI args or `WorkerEnv`;
-     registration errors surface HTTP status, provider code, and description).
-  2. Before uploading approval attachments, the user enables and publishes
-     `approval:approval` and `approval:instance.file` in the Feishu developer
-     console (if an upload hits `app_scope_not_applied`, the Skill returns the
-     console link and stops rather than mutating app scopes).
-  3. OAuth device login (`auth login`, which never creates an app or grants app
-     scopes) authorizes the user token.
-- During both device flows, opaque device codes stay out of model context: the
-  `begin` subcommand returns only user verification instructions and writes the
-  device code with mode `0600` and an absolute expiry inside mode-`0700`
-  `.lark-cli/.ankole-profile-state/<derived-profile>/app-registration.json` or
-  `auth-login.json` (atomically replacing any prior file for that flow and
-  deleting the file once completed, denied, expired, or invalid), so `complete`
-  needs no device-code argument. A shared file lock serializes profile creation,
-  policy repair, login, and logout, while approval queries, uploads, and
-  submissions run lock-free in parallel across users.
+Approval, task, and calendar events become CloudEvents routed by Signal Bindings.
+The packaged approval inbox Applet queries pending tasks, sends interactive
+cards, and handles signed card callbacks through a personal Action. It checks
+the clicking employee against that Action's human authority, performs the
+selected approval operation, and writes the result back to the card.
 
 ## Import People and Departments
 

@@ -83,7 +83,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, _research_view} = Library.skill_view(agent.uid, "create-deep-research")
     assert {:ok, _lineage_view} = Library.skill_view(agent.uid, "idea-lineage")
 
-    for skill_name <- ~w(lark-im lark-office-suite lark-oa) do
+    for skill_name <- ~w(lark-im lark-approvals lark-tasks lark-calendar) do
       assert %Skill{enabled_for_all: true, source_kind: :agent_plugin, agent_plugin_id: "lark"} =
                Repo.get_by!(Skill, slug: skill_name)
     end
@@ -101,14 +101,24 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, _brainstorming} = Library.skill_view(agent.uid, "brainstorming")
   end
 
-  test "the enabled Lark Plugin declares approvals as a main-runtime Skill" do
+  test "the enabled Lark Plugin exposes the generated approvals Toolkit" do
     %{principal: agent} = agent_fixture()
     assert {:ok, _plugin} = AgentPlugins.set_agent_override(agent.uid, "lark", true)
 
     assert {:ok, %{"skills" => runtime_skills}} = Library.runtime_catalog_for_agent(agent.uid)
 
     approvals = Enum.find(runtime_skills, &(&1["skill_name"] == "lark-approvals"))
-    assert approvals["metadata"]["ankole-runtime"] == "main"
+    assert approvals["metadata"]["ankole-runtime"] in [nil, "any"]
+
+    assert {:ok, %{"content" => yaml}} =
+             Library.skill_view(agent.uid, "lark-approvals", "agents/openai.yaml")
+
+    assert {:ok, %{"dependencies" => %{"tools" => [declaration]}}} =
+             YamlElixir.read_from_string(yaml)
+
+    assert declaration["transport"] == "connector"
+    assert declaration["toolkit"] == "lark_approvals"
+    assert "approvals_approve" in declaration["enabled_tools"]
   end
 
   test "skill_view merges canonical skill body with delivered skill lessons" do

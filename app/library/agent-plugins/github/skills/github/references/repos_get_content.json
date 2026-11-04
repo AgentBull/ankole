@@ -1,0 +1,307 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get repository content",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "owner": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "repo": {
+        "type": "string"
+      }
+    },
+    "required": ["owner", "repo", "path"],
+    "type": "object"
+  },
+  "name": "repos_get_content",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "oneOf": [
+          {
+            "items": {
+              "properties": {
+                "_links": {
+                  "properties": {
+                    "git": {
+                      "type": ["string", "null"]
+                    },
+                    "html": {
+                      "type": ["string", "null"]
+                    },
+                    "self": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["git", "html", "self"],
+                  "type": "object"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "download_url": {
+                  "type": ["string", "null"]
+                },
+                "git_url": {
+                  "type": ["string", "null"]
+                },
+                "html_url": {
+                  "type": ["string", "null"]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "sha": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "type": {
+                  "enum": ["dir", "file", "submodule", "symlink"],
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "_links",
+                "git_url",
+                "html_url",
+                "download_url",
+                "name",
+                "path",
+                "sha",
+                "size",
+                "type",
+                "url"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          {
+            "properties": {
+              "_links": {
+                "properties": {
+                  "git": {
+                    "type": ["string", "null"]
+                  },
+                  "html": {
+                    "type": ["string", "null"]
+                  },
+                  "self": {
+                    "type": "string"
+                  }
+                },
+                "required": ["git", "html", "self"],
+                "type": "object"
+              },
+              "content": {
+                "type": "string"
+              },
+              "download_url": {
+                "type": ["string", "null"]
+              },
+              "encoding": {
+                "type": "string"
+              },
+              "git_url": {
+                "type": ["string", "null"]
+              },
+              "html_url": {
+                "type": ["string", "null"]
+              },
+              "name": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "sha": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "submodule_git_url": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "type": {
+                "enum": ["file"],
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "_links",
+              "git_url",
+              "html_url",
+              "download_url",
+              "name",
+              "path",
+              "sha",
+              "size",
+              "type",
+              "url",
+              "content",
+              "encoding"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "_links": {
+                "properties": {
+                  "git": {
+                    "type": ["string", "null"]
+                  },
+                  "html": {
+                    "type": ["string", "null"]
+                  },
+                  "self": {
+                    "type": "string"
+                  }
+                },
+                "required": ["git", "html", "self"],
+                "type": "object"
+              },
+              "download_url": {
+                "type": ["string", "null"]
+              },
+              "git_url": {
+                "type": ["string", "null"]
+              },
+              "html_url": {
+                "type": ["string", "null"]
+              },
+              "name": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "sha": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "target": {
+                "type": "string"
+              },
+              "type": {
+                "enum": ["symlink"],
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "_links",
+              "git_url",
+              "html_url",
+              "download_url",
+              "name",
+              "path",
+              "sha",
+              "size",
+              "type",
+              "url",
+              "target"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "_links": {
+                "properties": {
+                  "git": {
+                    "type": ["string", "null"]
+                  },
+                  "html": {
+                    "type": ["string", "null"]
+                  },
+                  "self": {
+                    "type": "string"
+                  }
+                },
+                "required": ["git", "html", "self"],
+                "type": "object"
+              },
+              "download_url": {
+                "type": ["string", "null"]
+              },
+              "git_url": {
+                "type": ["string", "null"]
+              },
+              "html_url": {
+                "type": ["string", "null"]
+              },
+              "name": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "sha": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "submodule_git_url": {
+                "type": "string"
+              },
+              "type": {
+                "enum": ["submodule"],
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "_links",
+              "git_url",
+              "html_url",
+              "download_url",
+              "name",
+              "path",
+              "sha",
+              "size",
+              "type",
+              "url",
+              "submodule_git_url"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

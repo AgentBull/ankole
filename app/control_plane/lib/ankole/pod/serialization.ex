@@ -191,6 +191,14 @@ defmodule Ankole.Pod.Serialization do
 
   defp error_details(code, details), do: %{code: code, message: code, details: details}
 
+  def json_value(%Ankole.Signals.WebhookEndpoint{} = endpoint),
+    do:
+      endpoint
+      |> Map.take(
+        Ankole.Signals.WebhookEndpoint.__schema__(:fields) -- [:token_digest, :tenant_id]
+      )
+      |> json_value()
+
   def json_value(%Ankole.Pod.Page{} = page), do: page_json(page)
   def json_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
   def json_value(%Ankole.ActorRef{} = value), do: to_string(value)
@@ -233,7 +241,8 @@ defmodule Ankole.Pod.Serialization do
       code when code in ~w(handler_error handler_out_of_memory read_only_route) ->
         500
 
-      "forbidden" ->
+      code
+      when code in ~w(forbidden human_access_revoked work_authorization_review_required applet_owner_required user_authority_unavailable) ->
         403
 
       "move_requires_manage" ->
@@ -246,7 +255,10 @@ defmodule Ankole.Pod.Serialization do
       when code in ~w(revision_conflict title_conflict document_conflict sharing_conflict cannot_restore manifest_changed
                           field_conflict record_conflict record_exists schema_conflict local_table_changed
                           client_sequence_conflict applet_revision_changed
-                          position_conflict spreadsheet_conflict spreadsheet_busy) ->
+                          position_conflict spreadsheet_conflict spreadsheet_busy
+                          job_sources_changed binding_source_changed automation_job_not_active
+                          signal_source_in_use connector_trigger_busy connection_changed connector_trigger_changed
+                          webhook_terminal cron_schedule_completed cron_schedule_deleted) ->
         409
 
       _ ->

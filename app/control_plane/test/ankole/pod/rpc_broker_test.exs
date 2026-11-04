@@ -1,31 +1,58 @@
 defmodule Ankole.Pod.RPCBrokerTest do
   use Ankole.DataCase, async: false
 
+  # Driver Tasks can be cancelled while querying; each needs its own transaction.
+  @moduletag sandbox: false
+
   import Ankole.PrincipalsFixtures
-  import Ankole.FilesFixtures, only: [applet_manifest_fixture: 3]
+  import Ankole.FilesFixtures, only: [applet_manifest_fixture: 3, publish_applet_fixture: 2]
 
   alias Ankole.Pod.{Documents, Files, Pages, RPCBroker}
+  alias Ankole.AgentWorkers.WorkerRoute
   alias Ankole.BackgroundAgentJobs
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Sessions.RunRef
   alias Ankole.Signals.Signal
   alias Ankole.WorkerFilesFake
 
-  setup do
+  setup tags do
     owner = human_fixture().principal
-    agent = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: owner.uid}).principal
-    Ankole.ConversationsFixtures.grant_chat(owner.uid, agent.uid)
+    attrs = %{owner_principal_uid: owner.uid}
+
+    attrs =
+      if tags[:personal_assistant], do: Map.put(attrs, :type, :personal_assistant), else: attrs
+
+    agent = Ankole.SessionsCase.agent_fixture(attrs).principal
+
+    base_url =
+      Ankole.AIGatewayCase.start_upstream_server(fn request ->
+        {:sse, 200, Ankole.AIGatewayCase.chat_completion_stream_events(request, "Fixture reply")}
+      end)
+
+    {:ok, %{"provider_id" => provider_id}} =
+      Ankole.AIGateway.ModelProfiles.get_model_profile(agent.uid, "primary")
+
+    {:ok, _} =
+      Ankole.AIGateway.ProviderConfigs.update_provider(provider_id, %{base_url: "#{base_url}/v1"})
+
+    :ok = Ankole.SessionsCase.cache_actor_runtime_models(provider_id)
+
+    unless tags[:personal_assistant],
+      do: Ankole.ConversationsFixtures.grant_chat(owner.uid, agent.uid)
+
     route = "pod-broker-#{System.unique_integer([:positive])}"
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     {:ok, _worker} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
 
     room_id = Ecto.UUID.generate()
 
     {:ok, _} =
-      Ankole.ConversationsFixtures.create(owner, %{
+      create_conversation_source(owner, %{
         conversation_id: room_id,
         agent_uid: agent.uid,
         message_id: Ecto.UUID.generate(),
-        room_mode: :group,
+        room_mode: if(tags[:personal_assistant], do: :dm, else: :group),
         text: "Work with my Pod pages"
       })
 
@@ -46,6 +73,147 @@ defmodule Ankole.Pod.RPCBrokerTest do
       route: route,
       ctx: %{route: route, worker_id: agent.uid, request_id: "pod-test"}
     }
+  end
+
+  test "an Agent manages native Job sources and reads their delivery history through Pod RPC",
+       ctx do
+    job = Ankole.WorkFixtures.applet_job(ctx.owner)
+
+    assert {:ok, _} =
+             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, job.page_id, %{
+               grants: [%{principal_uid: ctx.agent, role: "edit"}]
+             })
+
+    params = %{page_id: job.page_id, job_id: job.id}
+
+    assert {:ok, %{"result" => [%{"id" => id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.list", params), ctx.ctx)
+
+    assert id == job.id
+
+    assert {:ok, %{"result" => action_keys}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.actions", params), ctx.ctx)
+
+    assert job.action_key in action_keys
+
+    assert {:ok, %{"result" => %{"id" => schedule_id}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request(
+                 "jobs.schedules.put",
+                 Map.merge(params, %{
+                   name: "refresh",
+                   payload: %{mode: "data"},
+                   timezone: "Etc/UTC",
+                   schedule: %{
+                     kind: "every",
+                     every_ms: 60_000,
+                     anchor_at: DateTime.to_iso8601(DateTime.utc_now())
+                   }
+                 })
+               ),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => [%{"id" => ^schedule_id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.schedules.list", params), ctx.ctx)
+
+    assert {:ok, %{"result" => [_]}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("bindings.list", %{config_ref: "schedule://#{schedule_id}"}),
+               ctx.ctx
+             )
+
+    {:ok, schedule} = Ankole.Schedule.get_cron_schedule(schedule_id)
+
+    assert {:ok, %{automation_job_run: run}} =
+             Ankole.Schedule.fire_cron(schedule_id, now: schedule.next_fire_at)
+
+    assert {:ok, %{"result" => %{"id" => run_id}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("jobs.get_run", %{page_id: job.page_id, run_id: run.id}),
+               ctx.ctx
+             )
+
+    assert run_id == run.id
+
+    assert {:ok, %{"result" => [%{"id" => ^run_id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.runs", params), ctx.ctx)
+
+    assert {:ok, %{"result" => %{"deliveries" => [%{"automation_job_run_id" => ^run_id}]}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("jobs.schedules.runs", Map.put(params, :id, schedule_id)),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => %{"webhook_endpoint" => endpoint, "token" => token}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request(
+                 "jobs.webhooks.create",
+                 Map.merge(params, %{
+                   label: "callback",
+                   expires_at: DateTime.add(DateTime.utc_now(), 3600) |> DateTime.to_iso8601()
+                 })
+               ),
+               ctx.ctx
+             )
+
+    assert is_binary(token)
+    refute Map.has_key?(endpoint, "token_digest")
+
+    assert {:ok, %{"result" => %{"status" => "paused"}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("jobs.webhooks.pause", Map.put(params, :id, endpoint["id"])),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => [%{"endpoint" => %{"status" => "paused"}}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.webhooks.list", params), ctx.ctx)
+  end
+
+  @tag personal_assistant: true
+  test "a personal assistant manages its Human's sources through an admitted Pod RPC turn", ctx do
+    job = Ankole.WorkFixtures.applet_job(ctx.owner, %{authorization_kind: "human"})
+    params = %{page_id: job.page_id, job_id: job.id}
+
+    assert {:ok, %{"result" => [%{"id" => id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.list", params), ctx.ctx)
+
+    assert id == job.id
+
+    assert {:ok, %{"result" => %{"webhook_endpoint" => endpoint, "token" => token}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request(
+                 "jobs.webhooks.create",
+                 Map.merge(params, %{
+                   label: "Human callback",
+                   expires_at: DateTime.add(DateTime.utc_now(), 3600) |> DateTime.to_iso8601()
+                 })
+               ),
+               ctx.ctx
+             )
+
+    assert endpoint["authorization_kind"] == "human"
+    assert endpoint["human_uid"] == ctx.owner
+    assert endpoint["human_access_version"] == job.human_access_version
+    assert endpoint["owner_job_id"] == job.id
+    assert is_nil(endpoint["agent_uid"])
+
+    assert {:ok, %{automation_job_run: run, signals: []}} =
+             Ankole.Signals.Webhooks.receive(token, [], "personal work")
+
+    assert run.automation_job_id == job.id
+
+    assert {:ok, %{"result" => [%{"id" => run_id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.runs", params), ctx.ctx)
+
+    assert run_id == run.id
   end
 
   test "a Job can read only its admitted Skills through bundles and DAV", ctx do
@@ -1116,7 +1284,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
     message_id = Ecto.UUID.generate()
 
     assert {:ok, _} =
-             Ankole.ConversationsFixtures.create(ctx.owner, %{
+             create_conversation_source(ctx.owner, %{
                conversation_id: Ecto.UUID.generate(),
                message_id: message_id,
                agent_uid: ctx.agent,
@@ -1237,11 +1405,25 @@ defmodule Ankole.Pod.RPCBrokerTest do
              )
   end
 
+  defp create_conversation_source(human, attrs) do
+    Repo.transact_top_level(fn ->
+      with {:ok, detail} <- Ankole.ConversationsFixtures.create(human, attrs) do
+        signal = Repo.get_by!(Signal, message_id: attrs.message_id)
+        key = %{agent_uid: signal.agent_uid, session_id: signal.session_id}
+
+        if Ankole.Sessions.driver_pid(key) == :undefined,
+          do: Ankole.SessionsCase.stub_driver(key)
+
+        {:ok, detail}
+      end
+    end)
+  end
+
   defp page_request(ctx, text \\ "Create a report and an applet.") do
     message_id = Ecto.UUID.generate()
 
     assert {:ok, _} =
-             Ankole.ConversationsFixtures.create(ctx.owner, %{
+             create_conversation_source(ctx.owner, %{
                conversation_id: Ecto.UUID.generate(),
                message_id: message_id,
                agent_uid: ctx.agent,
@@ -1271,22 +1453,49 @@ defmodule Ankole.Pod.RPCBrokerTest do
     }
 
     result =
-      if previous do
-        BackgroundAgentJobs.respawn_with_dispatch(
-          previous.id,
-          Map.put(attrs, "message", "Continue the task.")
-        )
-      else
-        BackgroundAgentJobs.create_with_dispatch(
-          Map.merge(attrs, %{
-            "title" => "Create deliverable",
-            "task" => "Save the deliverable as a Page."
-          })
-        )
-      end
+      Repo.transact_top_level(
+        fn ->
+          result =
+            if previous do
+              Ankole.BackgroundAgentJobs.Dispatch.respawn_with_dispatch_in_tx(
+                previous.id,
+                Map.put(attrs, "message", "Continue the task.")
+              )
+            else
+              Ankole.BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(
+                Map.merge(attrs, %{
+                  "title" => "Create deliverable",
+                  "task" => "Save the deliverable as a Page."
+                })
+              )
+            end
+
+          with {:ok, %{job: job} = created} <- result do
+            # This broker test drives Admission itself; reserve the Driver before dispatch commits.
+            Ankole.SessionsCase.stub_driver(%{
+              agent_uid: ctx.agent,
+              session_id: BackgroundAgentJobs.job_session_id(job.id)
+            })
+
+            {:ok, created}
+          end
+        end,
+        after_commit: fn created -> Ankole.Signals.publish_committed(created.dispatch_event) end
+      )
 
     assert {:ok, %{job: job, dispatch_event: dispatch}} = result
-    assert {:ok, attempt} = Ankole.Sessions.Admission.admit(dispatch, dispatch)
+
+    assert {:ok, %Ankole.Sessions.CodexJob.Attempt{} = attempt} =
+             Ankole.Sessions.Admission.admit(dispatch, dispatch)
+
+    assert {:ok, :sent_or_queued} = Ankole.Sessions.CodexJob.start(attempt)
+    expected = Ankole.Sessions.JobTurnRef.to_proto(attempt.job_ref)
+
+    assert_receive {:actor_lane,
+                    %FabricProto.Envelope{
+                      body: {:turn_start, %FabricProto.TurnStart{turn: ^expected}}
+                    }},
+                   1_000
 
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.commit_status_with_wakeup(
@@ -1429,6 +1638,313 @@ defmodule Ankole.Pod.RPCBrokerTest do
              )
 
     assert debug =~ "agent-debug"
+  end
+
+  test "Applet Job and Binding reads use their Page and source disclosure without a Base id",
+       ctx do
+    actor = actor_fixture(ctx.agent)
+    {:ok, applet} = Pages.create(actor, %{type: "applet", private_owner_uid: ctx.agent})
+
+    publish_applet_fixture(
+      %{actor: actor, page: applet},
+      "export default {actions:{work:{idempotent:true,handler:()=>({ok:true})}}}"
+    )
+
+    {:ok, job} =
+      Ankole.AutomationJobs.create_applet_job(actor, applet.id, "work", %{
+        authorization_kind: "service"
+      })
+
+    binding_params = %{config_ref: "applet://#{applet.id}", automation_job_id: job.id}
+
+    assert {:ok, %{"result" => %{"id" => binding_id}}} =
+             RPCBroker.handle_write(ctx.ref, request("bindings.put", binding_params), ctx.ctx)
+
+    assert {:ok, ^binding_id} = Ecto.UUID.cast(binding_id)
+
+    assert {:ok, %{"result" => %{"id" => ^binding_id, "enabled" => true}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("bindings.put", Map.put(binding_params, :id, binding_id)),
+               ctx.ctx
+             )
+
+    {:ok, %{receipts: [receipt]}} =
+      Ankole.Signals.emit(binding_params.config_ref, %{
+        id: "broker-action",
+        type: "test.trigger",
+        data: %{}
+      })
+
+    run_id = receipt.automation_job_run_id
+    {:ok, base} = Pages.create(actor, %{type: "base", private_owner_uid: ctx.agent})
+    {:ok, table} = Ankole.Pod.Bases.create_table(actor, base.id, %{name: "Source"})
+
+    reads = [
+      {"jobs.actions", %{page_id: applet.id}},
+      {"jobs.runs", %{page_id: applet.id, job_id: job.id}},
+      {"jobs.list", %{page_id: applet.id}},
+      {"jobs.get_run", %{page_id: applet.id, run_id: run_id}},
+      {"bindings.list", %{config_ref: binding_params.config_ref}},
+      {"bindings.list", %{config_ref: "job://#{job.id}"}},
+      {"bindings.list", %{config_ref: "base://#{table.id}"}}
+    ]
+
+    # Domain access for the Agent does not imply permission to disclose to its requester.
+    assert {:ok, [_]} = Ankole.AutomationJobs.list_applet_jobs(actor, applet.id)
+    assert {:ok, [_]} = Ankole.Signals.list_event_bindings(actor, binding_params.config_ref)
+
+    for {operation, params} <- reads do
+      assert {:error, %{"code" => "not_found"}} =
+               RPCBroker.handle_read(ctx.ref, request(operation, params), ctx.ctx)
+    end
+
+    for page <- [applet, base] do
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(ctx.agent, page.id, %{
+          grants: [%{principal_uid: ctx.owner, role: "view"}]
+        })
+    end
+
+    assert {:ok, %{"result" => [%{"id" => job_id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.list", %{page_id: applet.id}), ctx.ctx)
+
+    assert job_id == job.id
+
+    assert {:ok, %{"result" => %{"id" => ^run_id, "automation_job_id" => ^job_id}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("jobs.get_run", %{page_id: applet.id, run_id: run_id}),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => [%{"id" => ^binding_id}]}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("bindings.list", %{config_ref: binding_params.config_ref}),
+               ctx.ctx
+             )
+
+    for reference <- ["job://#{job.id}", "base://#{table.id}"] do
+      assert {:ok, %{"result" => []}} =
+               RPCBroker.handle_read(
+                 ctx.ref,
+                 request("bindings.list", %{config_ref: reference}),
+                 ctx.ctx
+               )
+    end
+
+    {:ok, other} = Pages.create(actor, %{type: "applet", private_owner_uid: ctx.agent})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.agent, other.id, %{
+        grants: [%{principal_uid: ctx.owner, role: "view"}]
+      })
+
+    assert {:error, %{"code" => "forbidden"}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("jobs.get_run", %{page_id: other.id, run_id: run_id}),
+               ctx.ctx
+             )
+  end
+
+  test "Job-scoped Binding reads preserve disclosure of the Job Page and each source", ctx do
+    actor = actor_fixture(ctx.agent)
+    {:ok, applet} = Pages.create(actor, %{type: "applet", private_owner_uid: ctx.agent})
+
+    publish_applet_fixture(
+      %{actor: actor, page: applet},
+      "export default {actions:{work:{idempotent:true,handler:()=>({ok:true})}}}"
+    )
+
+    {:ok, job} =
+      Ankole.AutomationJobs.create_applet_job(actor, applet.id, "work", %{
+        authorization_kind: "service"
+      })
+
+    {:ok, base} = Pages.create(actor, %{type: "base", private_owner_uid: ctx.agent})
+    {:ok, table} = Ankole.Pod.Bases.create_table(actor, base.id, %{name: "Private source"})
+
+    {:ok, binding} =
+      Ankole.Signals.put_event_binding(actor, %{
+        config_ref: "base://#{table.id}",
+        automation_job_id: job.id
+      })
+
+    binding_id = binding.id
+    assert {:ok, [%{id: ^binding_id}]} = Ankole.Signals.list_event_bindings(actor, nil, job.id)
+    params = %{job_id: job.id}
+
+    assert {:error, %{"code" => "not_found"}} =
+             RPCBroker.handle_read(ctx.ref, request("bindings.list", params), ctx.ctx)
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.agent, applet.id, %{
+        grants: [%{principal_uid: ctx.owner, role: "view"}]
+      })
+
+    assert {:ok, %{"result" => []}} =
+             RPCBroker.handle_read(ctx.ref, request("bindings.list", params), ctx.ctx)
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.agent, base.id, %{
+        grants: [%{principal_uid: ctx.owner, role: "view"}]
+      })
+
+    assert {:ok, %{"result" => [%{"id" => ^binding_id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("bindings.list", params), ctx.ctx)
+  end
+
+  test "a personal assistant reads only its Human's Applet Jobs and Run sources on a shared Page",
+       ctx do
+    owner = actor_fixture(ctx.owner)
+    other = human_fixture().principal
+
+    assistant =
+      Ankole.SessionsCase.agent_fixture(%{
+        type: :personal_assistant,
+        owner_principal_uid: ctx.owner
+      }).principal
+
+    route = "personal-job-broker-#{System.unique_integer([:positive])}"
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+    {:ok, _} = Ankole.SessionsCase.admit_worker(route, %{worker_id: assistant.uid})
+    conversation_id = Ecto.UUID.generate()
+
+    {:ok, _} =
+      create_conversation_source(ctx.owner, %{
+        conversation_id: conversation_id,
+        agent_uid: assistant.uid,
+        message_id: Ecto.UUID.generate(),
+        text: "Inspect my personal Applet Job"
+      })
+
+    signal = Repo.one!(from(s in Signal, where: s.conversation_id == ^conversation_id))
+    assert {:ok, _run} = Ankole.Sessions.Admission.admit(signal, signal)
+
+    ref = %RunRef{
+      agent_uid: assistant.uid,
+      session_id: signal.session_id,
+      signal_id: signal.id
+    }
+
+    rpc = %{route: route, worker_id: assistant.uid, request_id: "personal-job-read"}
+    assert {:ok, actor} = RPCBroker.actor_for_request(ref, rpc)
+    assert actor.principal.uid == assistant.uid
+    assert Ankole.Principals.authority_uid(actor.principal.uid) == ctx.owner
+    {:ok, page} = Pages.create(owner, %{type: "applet", private_owner_uid: ctx.owner})
+
+    publish_applet_fixture(
+      %{actor: owner, page: page},
+      "export default {actions:{work:{idempotent:true,handler:()=>({ok:true})}}}"
+    )
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
+        grants: [
+          %{principal_uid: assistant.uid, role: "contribute"},
+          %{principal_uid: other.uid, role: "contribute"}
+        ]
+      })
+
+    jobs =
+      for human <- [owner, actor_fixture(other)] do
+        {:ok, job} =
+          Ankole.AutomationJobs.create_applet_job(human, page.id, "work", %{
+            authorization_kind: "human"
+          })
+
+        {:ok, binding} =
+          Ankole.Signals.put_event_binding(human, %{
+            config_ref: "job://#{job.id}",
+            automation_job_id: job.id
+          })
+
+        {:ok, %{runId: run_id}} =
+          Ankole.Signals.applet_dispatch(
+            %{"applet" => %{"pageId" => page.id}},
+            page,
+            human,
+            human,
+            "emit",
+            [%{"targetJobId" => job.id, "type" => "manual"}]
+          )
+
+        {job.id, run_id, binding.id}
+      end
+
+    [{own_job, own_run, own_binding}, {other_job, other_run, _other_binding}] = jobs
+
+    assert {:ok, %{"result" => [%{"id" => ^own_job, "human_uid" => human_uid}]}} =
+             RPCBroker.handle_read(ref, request("jobs.list", %{page_id: page.id}), rpc)
+
+    assert human_uid == ctx.owner
+
+    assert {:ok, %{"result" => %{"id" => ^own_run, "automation_job_id" => ^own_job}}} =
+             RPCBroker.handle_read(
+               ref,
+               request("jobs.get_run", %{page_id: page.id, run_id: own_run}),
+               rpc
+             )
+
+    assert {:ok, %{"result" => [%{"id" => ^own_binding}]}} =
+             RPCBroker.handle_read(
+               ref,
+               request("bindings.list", %{config_ref: "job://#{own_job}"}),
+               rpc
+             )
+
+    assert {:error, %{"code" => "forbidden"}} =
+             RPCBroker.handle_read(
+               ref,
+               request("jobs.get_run", %{page_id: page.id, run_id: other_run}),
+               rpc
+             )
+
+    assert {:error, %{"code" => "forbidden"}} =
+             RPCBroker.handle_read(
+               ref,
+               request("bindings.list", %{config_ref: "job://#{other_job}"}),
+               rpc
+             )
+  end
+
+  test "Binding reads of an Applet Job source retain its Page authorization", ctx do
+    job = Ankole.WorkFixtures.applet_job(ctx.owner)
+    reference = "job://#{job.id}"
+
+    {:ok, binding} =
+      Ankole.Signals.put_event_binding(actor_fixture(ctx.owner), %{
+        config_ref: reference,
+        automation_job_id: job.id
+      })
+
+    assert {:ok, _} =
+             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, job.page_id, %{
+               grants: [%{principal_uid: ctx.agent, role: "view"}]
+             })
+
+    assert {:ok,
+            %{
+              "result" => [
+                %{"id" => binding_id, "config_ref" => ^reference, "automation_job_id" => job_id}
+              ]
+            }} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("bindings.list", %{config_ref: reference}),
+               ctx.ctx
+             )
+
+    assert binding_id == binding.id
+    assert job_id == job.id
+
+    outsider = Ankole.SessionsCase.agent_fixture().principal
+
+    assert {:error, :forbidden} =
+             Ankole.Signals.list_event_bindings(actor_fixture(outsider.uid), reference)
   end
 
   test "interactive and background Agents publish Action policies atomically with the live fence",

@@ -1,0 +1,54 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Merge a pull request",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "commit_message": {
+        "type": "string"
+      },
+      "commit_title": {
+        "type": "string"
+      },
+      "merge_method": {
+        "enum": ["merge", "squash", "rebase"],
+        "type": "string"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "pull_number": {
+        "type": "integer"
+      },
+      "repo": {
+        "type": "string"
+      },
+      "sha": {
+        "type": "string"
+      }
+    },
+    "required": ["owner", "repo", "pull_number"],
+    "type": "object"
+  },
+  "name": "pulls_merge",
+  "outputSchema": {
+    "properties": {
+      "merged": {
+        "type": "boolean"
+      },
+      "message": {
+        "type": "string"
+      },
+      "sha": {
+        "type": "string"
+      }
+    },
+    "required": ["merged", "message", "sha"],
+    "type": "object"
+  }
+}

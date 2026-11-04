@@ -27,7 +27,7 @@ const config: KnipConfig = {
         'tools/deploy/kubernetes/update-schema.ts!',
         'tools/e2e/support/pod_content_browser.mjs!',
         ...privateWebapps,
-        'app/library/agent-plugins/lark/skills/lark-approvals/scripts/profile-setup.ts!'
+        'app/library/agent-plugins/lark/skills/lark-approvals/examples/approval-inbox/server/main.js!'
       ]
     },
     'app/ankole-browser': {
@@ -39,7 +39,6 @@ const config: KnipConfig = {
         'src/main.ts!',
         'src/worker/function-compute-bootstrap.ts!',
         'src/worker/lambda-hooks.ts!',
-        'src/automation-jobs/sdk.ts!',
         'scripts/*.ts',
         'src/cli/**/*-cli.ts!'
       ],
@@ -70,8 +69,8 @@ const config: KnipConfig = {
       ]
     },
     'app/function_runtime': {
-      entry: ['main/index.ts!'],
-      project: ['main/**/*.ts!']
+      entry: ['main/index.ts!', 'main/node_crypto.ts!', 'build.ts!'],
+      project: ['main/**/*.ts!', 'build.ts!']
     },
     'app/kernel': {
       entry: ['scripts/build-node-addon.ts!', 'scripts/build-wasm.ts!']

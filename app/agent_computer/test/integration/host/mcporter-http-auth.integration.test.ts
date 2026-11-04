@@ -22,8 +22,8 @@ describe('mcporter HTTP authentication', () => {
     root = undefined
   })
 
-  it('adds the Bearer scheme to a token resolved from WorkerEnv', async () => {
-    const requests: Array<{ rpcMethod: string | undefined; authorization: string | null }> = []
+  it('routes Skill HTTP through the Turn-authenticated gateway without an upstream credential', async () => {
+    const requests: Array<{ rpcMethod: string | undefined; authorization: string | null; path: string }> = []
     server = Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
@@ -31,7 +31,8 @@ describe('mcporter HTTP authentication', () => {
         if (request.method !== 'POST') {
           requests.push({
             rpcMethod: undefined,
-            authorization: request.headers.get('authorization')
+            authorization: request.headers.get('authorization'),
+            path: new URL(request.url).pathname
           })
           return new Response('SSE stream is not supported', { status: 405, headers: { Allow: 'POST' } })
         }
@@ -39,9 +40,10 @@ describe('mcporter HTTP authentication', () => {
         const message = (await request.json()) as { id?: string | number; method?: string }
         requests.push({
           rpcMethod: message.method,
-          authorization: request.headers.get('authorization')
+          authorization: request.headers.get('authorization'),
+          path: new URL(request.url).pathname
         })
-        if (request.headers.get('authorization') !== 'Bearer integration-token') {
+        if (request.headers.get('authorization') !== 'Bearer integration-turn-token') {
           return jsonRPCResponse(
             message.id,
             undefined,
@@ -53,16 +55,19 @@ describe('mcporter HTTP authentication', () => {
           )
         }
 
-        if (message.method === 'initialize') {
+        if (message.method === 'server/discover') {
           return jsonRPCResponse(message.id, {
-            protocolVersion: '2025-06-18',
+            supportedVersions: ['2026-07-28'],
             capabilities: { tools: {} },
-            serverInfo: { name: 'authenticated-fixture', version: '1.0.0' }
+            ttlMs: 0,
+            cacheScope: 'private'
           })
         }
         if (message.method === 'notifications/initialized') return new Response(null, { status: 202 })
         if (message.method === 'tools/list') {
           return jsonRPCResponse(message.id, {
+            ttlMs: 0,
+            cacheScope: 'private',
             tools: [
               {
                 name: 'echo',
@@ -82,19 +87,24 @@ describe('mcporter HTTP authentication', () => {
         name: 'authenticated-fixture',
         sourceSkills: ['authenticated-fixture'],
         transport: 'streamable_http',
-        url: `http://127.0.0.1:${server.port}/mcp`,
+        url: 'https://upstream.example/mcp',
         bearerTokenEnvVar: 'MCP_AUTH_TOKEN'
       }
     ]
-    config = materializeMCPorterConfig(servers, { directory: root })
+    config = materializeMCPorterConfig(servers, {
+      directory: root,
+      gatewayOrigin: `http://127.0.0.1:${server.port}`,
+      gatewayToken: 'integration-turn-token'
+    })
     const configSource = readFileSync(config.path, 'utf8')
-    expect(configSource).toContain('"bearerToken": "${MCP_AUTH_TOKEN}"')
-    expect(configSource).not.toContain('integration-token')
+    expect(configSource).toContain('"bearerToken": "integration-turn-token"')
+    expect(configSource).not.toContain('MCP_AUTH_TOKEN')
+    expect(configSource).not.toContain('upstream.example')
 
     const child = Bun.spawn(
       ['mcporter', 'list', 'authenticated-fixture.echo', '--schema', '--json', '--timeout', '10000'],
       {
-        env: { ...process.env, ...config.env, MCP_AUTH_TOKEN: 'integration-token' },
+        env: { ...process.env, ...config.env },
         stdout: 'pipe',
         stderr: 'pipe'
       }
@@ -105,11 +115,14 @@ describe('mcporter HTTP authentication', () => {
       new Response(child.stderr).text()
     ])
 
-    expect(exitCode, stderr).toBe(0)
+    expect(exitCode, stderr || stdout).toBe(0)
     expect(stdout).toContain('echo')
-    expect(requests.map(request => request.rpcMethod)).toContain('initialize')
+    expect(requests.map(request => request.rpcMethod)).toContain('server/discover')
     expect(requests.map(request => request.rpcMethod)).toContain('tools/list')
-    expect(requests.every(request => request.authorization === 'Bearer integration-token')).toBe(true)
+    expect(requests.every(request => request.authorization === 'Bearer integration-turn-token')).toBe(true)
+    expect(
+      requests.every(request => request.path === '/api/internal/mcp/skills/authenticated-fixture/authenticated-fixture')
+    ).toBe(true)
   })
 })
 
@@ -123,7 +136,7 @@ function jsonRPCResponse(
     {
       jsonrpc: '2.0',
       ...(id === undefined ? {} : { id }),
-      ...(error ? { error } : { result })
+      ...(error ? { error } : { result: { ...(result as object), resultType: 'complete' } })
     },
     { status }
   )

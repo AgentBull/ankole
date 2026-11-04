@@ -11,6 +11,8 @@ Agent가 Agent Computer Worker에서 명령을 실행하거나 MCP 서버를 호
 
 여기에 등록한 변수는 Agent와 Agent가 띄운 하위 프로그램에서 읽을 수 있습니다. 각 명령은 등록된 값만 담긴 깨끗한 환경에서 새로 시작되며, Worker 데몬 프로세스 자체의 환경 변수는 상속하지 않습니다. 따라서 Agent 도구가 실제로 사용해야 하는 자격 증명만 여기에 저장하고, LLM Provider나 Identity Provider, 채팅 채널용 자격 증명은 각각의 전용 Console 페이지에서 설정하세요.
 
+원격 HTTP MCP 자격 증명은 제어면 프록시가 읽습니다. `bearer_token_env_var`가 참조하는 값은 Worker 환경 스냅샷에서 제외하며, Worker는 내부 Turn 토큰으로 프록시를 사용합니다. 기본 Connector의 앱 자격 증명과 개인 OAuth는 Pod 연결 페이지에서 관리합니다. 그 밖의 명령 변수는 아래 규칙에 따라 전달됩니다.
+
 ## 먼저 스코프를 선택하세요
 
 | 변수가 필요한 대상 | 설정 위치 | 적용 범위 |

@@ -1,0 +1,148 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Im update message.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          }
+        ]
+      },
+      "message_id": {
+        "type": "string"
+      },
+      "msg_type": {
+        "type": "string"
+      }
+    },
+    "required": ["message_id", "msg_type", "content"],
+    "type": "object"
+  },
+  "name": "im_update_message",
+  "outputSchema": {
+    "properties": {
+      "body": {
+        "properties": {
+          "content": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "chat_id": {
+        "type": "string"
+      },
+      "create_time": {
+        "type": "string"
+      },
+      "deleted": {
+        "type": "boolean"
+      },
+      "mentions": {
+        "items": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "id_type": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "tenant_key": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "message_app_link": {
+        "type": "string"
+      },
+      "message_id": {
+        "type": "string"
+      },
+      "message_position": {
+        "type": "string"
+      },
+      "msg_type": {
+        "type": "string"
+      },
+      "parent_id": {
+        "type": "string"
+      },
+      "root_id": {
+        "type": "string"
+      },
+      "sender": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "id_type": {
+            "type": "string"
+          },
+          "open_bot_id": {
+            "type": "string"
+          },
+          "sender_i18n_names": {
+            "properties": {
+              "en_us": {
+                "type": "string"
+              },
+              "ja_jp": {
+                "type": "string"
+              },
+              "zh_cn": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "sender_name": {
+            "type": "string"
+          },
+          "sender_type": {
+            "type": "string"
+          },
+          "tenant_key": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "thread_id": {
+        "type": "string"
+      },
+      "thread_message_position": {
+        "type": "string"
+      },
+      "update_time": {
+        "type": "string"
+      },
+      "updated": {
+        "type": "boolean"
+      },
+      "upper_message_id": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

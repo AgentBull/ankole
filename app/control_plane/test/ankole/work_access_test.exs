@@ -111,8 +111,7 @@ defmodule Ankole.WorkAccessTest do
                created_by: %{"kind" => "turn", "signal_id" => source.id}
              )
 
-    Ankole.FilesFixtures.drive_file_fixture(agent.uid, "automation/check/main.ts")
-    assert {:ok, job} = AutomationJobs.create_job(automation(source))
+    job = automation(source)
 
     assert {:ok, %{automation_job_run: queued}} =
              Repo.transact(fn ->
@@ -129,7 +128,7 @@ defmodule Ankole.WorkAccessTest do
                worker_id: agent.uid
              })
 
-    assert {:ok, %{run: running}} = AutomationJobs.start_attempt(running.id)
+    assert {:ok, %{run: running}} = AutomationJobs.start_applet_attempt(running.id, 0)
     assert AutomationJobs.count_running_runs_for_human(human.uid, human.access_version) == 0
     assert AutomationJobs.count_running_runs_for_human(human.uid, human.access_version + 1) == 1
 
@@ -308,17 +307,6 @@ defmodule Ankole.WorkAccessTest do
     %{principal: agent, provider_id: provider_id} =
       Ankole.AIGatewayCase.background_agent_fixture()
 
-    on_exit(fn ->
-      Repo.with_tenant(tenant.id, fn ->
-        Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
-        cleanup_tenant!(tenant)
-      end)
-
-      assert {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(provider_id)
-      assert {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(provider_id)
-      assert {:error, :not_found} = Ankole.AIGateway.ProviderConfigs.fetch_provider(provider_id)
-    end)
-
     %{principal: reviewer} = Ankole.PrincipalsFixtures.human_fixture()
     source = source_event(agent.uid, agent.uid)
 
@@ -330,8 +318,19 @@ defmodule Ankole.WorkAccessTest do
                created_by: %{"kind" => "turn", "signal_id" => source.id}
              )
 
-    Ankole.FilesFixtures.drive_file_fixture(agent.uid, "automation/check/main.ts")
-    assert {:ok, automation} = AutomationJobs.create_job(automation(source))
+    automation = automation(source)
+
+    on_exit(fn ->
+      Repo.with_tenant(tenant.id, fn ->
+        Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
+        cleanup_tenant!(tenant)
+      end)
+
+      assert {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(provider_id)
+      assert {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(provider_id)
+      assert {:error, :not_found} = Ankole.AIGateway.ProviderConfigs.fetch_provider(provider_id)
+    end)
+
     assert {:ok, %{run: workflow}} = Workflow.create_with_dispatch(workflow(source))
 
     assert {:ok, %{job: job}} =
@@ -345,7 +344,18 @@ defmodule Ankole.WorkAccessTest do
                "reply_route" => %{"binding_name" => source.reply_binding_name}
              })
 
-    resources = [source, checkback, cron, automation, workflow, job]
+    actor = Ankole.PrincipalsFixtures.actor_fixture(agent.uid)
+
+    {:ok, %{webhook_endpoint: webhook}} =
+      Ankole.AutomationJobs.JobSources.webhooks(
+        actor,
+        automation.page_id,
+        automation.id,
+        :create,
+        %{label: "Review", expires_at: DateTime.add(DateTime.utc_now(), 3600)}
+      )
+
+    resources = [source, checkback, cron, automation, webhook, workflow, job]
 
     declared =
       Ankole.TestModules.all()
@@ -413,7 +423,7 @@ defmodule Ankole.WorkAccessTest do
       assert Repo.reload!(work).human_uid == reviewer.uid
     end
 
-    assert length(HumanAccess.history(reviewer.uid)) == 6
+    assert length(HumanAccess.history(reviewer.uid)) == 7
   end
 
   test "reauthorizing a revoked cron preserves its paused state until explicit resume" do
@@ -511,16 +521,10 @@ defmodule Ankole.WorkAccessTest do
       }
     }
 
-  defp automation(source),
-    do: %{
-      agent_uid: source.agent_uid,
-      owner_session_id: source.session_id,
-      source_signal_id: source.id,
-      source_provenance: %{"kind" => "turn"},
-      reply_route: %{"binding_name" => source.reply_binding_name},
-      drive_prefix: "automation/check",
-      label: "Check status"
-    }
+  defp automation(source) do
+    uid = source.human_uid || source.agent_uid
+    Ankole.WorkFixtures.applet_job(uid, %{authorization_kind: source.authorization_kind})
+  end
 
   defp trigger(id),
     do: %{

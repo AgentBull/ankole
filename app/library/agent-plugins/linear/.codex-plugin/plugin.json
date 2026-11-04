@@ -1,0 +1,6 @@
+{
+  "name": "linear",
+  "version": "1.0.0",
+  "description": "Find and manage Linear issues, projects, cycles, comments, teams, labels, and workflow states through the official MCP service.",
+  "skills": "./skills/"
+}

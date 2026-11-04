@@ -6,11 +6,11 @@ defmodule Ankole.Pod.RPCBroker do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.WorkerFiles
 
-  @read_operations ~w(skills.bundle pages.list pages.children pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate jobs.list jobs.get_run bindings.list)
-  @write_operations ~w(chat.send_to_agent pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.update_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.call applets.transfer_owner jobs.create jobs.configure jobs.delete bindings.put base.configure_table base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy)
+  @read_operations ~w(jobs.actions jobs.runs jobs.list jobs.get_run bindings.list jobs.schedules.list jobs.schedules.runs jobs.webhooks.list skills.bundle pages.list pages.children pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate)
+  @write_operations ~w(jobs.schedules.put jobs.schedules.pause jobs.schedules.resume jobs.schedules.run jobs.schedules.delete jobs.webhooks.create jobs.webhooks.update jobs.webhooks.pause jobs.webhooks.resume jobs.webhooks.cancel jobs.webhooks.delete chat.send_to_agent pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.update_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.call applets.transfer_owner jobs.create jobs.configure jobs.delete bindings.put base.configure_table base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy)
 
   def handle_read(turn, %FabricProto.PodRequest{} = request, ctx) do
-    with {:ok, actor} <- actor_for_request(turn, request.automation_attempt, ctx) do
+    with {:ok, actor} <- actor_for_request(turn, ctx) do
       handle(request, Map.put(ctx, :actor, actor), @read_operations)
     else
       {:error, reason} -> error(ctx, reason)
@@ -18,7 +18,7 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   def handle_write(turn, %FabricProto.PodRequest{} = request, ctx) do
-    with {:ok, actor} <- actor_for_request(turn, request.automation_attempt, ctx) do
+    with {:ok, actor} <- actor_for_request(turn, ctx) do
       ctx = Map.merge(ctx, %{actor: actor, write_authority: actor.turn_authority})
 
       ctx =
@@ -33,11 +33,7 @@ defmodule Ankole.Pod.RPCBroker do
     end
   end
 
-  @doc false
-  def actor_for_request(nil, %FabricProto.AutomationAttemptRef{} = attempt, ctx),
-    do: Ankole.AutomationJobs.authorize_attempt_actor(attempt, ctx)
-
-  def actor_for_request(ref, nil, ctx)
+  def actor_for_request(ref, ctx)
       when is_struct(ref, Ankole.Sessions.RunRef) or is_struct(ref, Ankole.Sessions.JobTurnRef) do
     with {:ok, signal} <- Ankole.Signals.get_signal(ref.signal_id),
          true <- signal.agent_uid == ctx.worker_id and signal.session_id == ref.session_id,
@@ -56,7 +52,7 @@ defmodule Ankole.Pod.RPCBroker do
     end
   end
 
-  def actor_for_request(_, _, _), do: {:error, :work_authorization_review_required}
+  def actor_for_request(_, _), do: {:error, :work_authorization_review_required}
 
   defp instruction_subject(%{authorization_kind: "human", human_uid: uid}) when is_binary(uid),
     do: Ankole.Principals.get_principal(uid)
@@ -268,6 +264,146 @@ defmodule Ankole.Pod.RPCBroker do
   defp dispatch("base.configure_table", actor, params, _ctx),
     do: Bases.configure_table(actor, params["id"], params)
 
+  defp dispatch("jobs.schedules.list", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.schedules(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :list,
+        params
+      )
+
+  defp dispatch("jobs.schedules.put", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.schedules(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :put,
+        params
+      )
+
+  defp dispatch("jobs.schedules.pause", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.schedules(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :pause,
+        params
+      )
+
+  defp dispatch("jobs.schedules.resume", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.schedules(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :resume,
+        params
+      )
+
+  defp dispatch("jobs.schedules.run", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.schedules(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :run,
+        params
+      )
+
+  defp dispatch("jobs.schedules.delete", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.schedules(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :delete,
+        params
+      )
+
+  defp dispatch("jobs.schedules.runs", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.schedules(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :runs,
+        params
+      )
+
+  defp dispatch("jobs.webhooks.list", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.webhooks(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :list,
+        params
+      )
+
+  defp dispatch("jobs.webhooks.create", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.webhooks(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :create,
+        params
+      )
+
+  defp dispatch("jobs.webhooks.update", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.webhooks(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :update,
+        params
+      )
+
+  defp dispatch("jobs.webhooks.pause", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.webhooks(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :pause,
+        params
+      )
+
+  defp dispatch("jobs.webhooks.resume", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.webhooks(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :resume,
+        params
+      )
+
+  defp dispatch("jobs.webhooks.cancel", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.webhooks(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :cancel,
+        params
+      )
+
+  defp dispatch("jobs.webhooks.delete", actor, params, _ctx),
+    do:
+      Ankole.AutomationJobs.JobSources.webhooks(
+        actor,
+        params["page_id"],
+        params["job_id"],
+        :delete,
+        params
+      )
+
   defp dispatch("jobs.create", actor, params, _ctx),
     do:
       Ankole.AutomationJobs.create_applet_job(
@@ -280,8 +416,15 @@ defmodule Ankole.Pod.RPCBroker do
   defp dispatch("bindings.put", actor, params, _ctx),
     do: Ankole.Signals.put_event_binding(actor, params)
 
-  defp dispatch("bindings.list", actor, params, _ctx),
-    do: Ankole.Signals.list_event_bindings(actor, params["config_ref"])
+  defp dispatch("bindings.list", actor, params, _ctx) do
+    with {:ok, bindings} <-
+           Ankole.Signals.list_event_bindings(actor, params["config_ref"], params["job_id"]) do
+      {:ok,
+       Enum.filter(bindings, fn binding ->
+         disclosure_target("bindings.list", actor, %{"config_ref" => binding.config_ref}) == :ok
+       end)}
+    end
+  end
 
   defp dispatch("jobs.configure", actor, params, _ctx),
     do: Ankole.AutomationJobs.configure_applet_job(actor, params["page_id"], params["id"], params)
@@ -291,6 +434,12 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp dispatch("jobs.list", actor, params, _ctx),
     do: Ankole.AutomationJobs.list_applet_jobs(actor, params["page_id"])
+
+  defp dispatch("jobs.actions", actor, params, _ctx),
+    do: Ankole.AutomationJobs.list_applet_actions(actor, params["page_id"])
+
+  defp dispatch("jobs.runs", actor, params, _ctx),
+    do: Ankole.AutomationJobs.list_applet_runs(actor, params["page_id"], params["job_id"])
 
   defp dispatch("jobs.get_run", actor, params, _ctx),
     do: Ankole.AutomationJobs.get_applet_run(actor, params["page_id"], params["run_id"])
@@ -343,9 +492,36 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   defp disclosure_target(operation, actor, params)
-       when operation in ~w(base.schema base.query base.aggregate jobs.list jobs.get_run bindings.list) do
+       when operation in ~w(base.schema base.query base.aggregate) do
     with {:ok, table} <- Ankole.Pod.Bases.fetch_table(params["id"]),
          do: readable_target(actor, table.page_id)
+  end
+
+  defp disclosure_target(operation, actor, params)
+       when operation in ~w(jobs.actions jobs.runs jobs.list jobs.get_run jobs.schedules.list jobs.schedules.runs jobs.webhooks.list) do
+    readable_target(actor, params["page_id"])
+  end
+
+  defp disclosure_target("bindings.list", actor, %{"config_ref" => "base://" <> id}) do
+    with {:ok, table} <- Bases.fetch_table(id), do: readable_target(actor, table.page_id)
+  end
+
+  defp disclosure_target("bindings.list", actor, %{"config_ref" => "applet://" <> id}),
+    do: readable_target(actor, id)
+
+  defp disclosure_target("bindings.list", actor, %{"config_ref" => "job://" <> id}) do
+    with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
+         {:ok, job} when not is_nil(job) <- Ankole.AutomationJobs.get_automation_job(id) do
+      readable_target(actor, job.page_id)
+    else
+      {:ok, nil} -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  defp disclosure_target("bindings.list", actor, %{"job_id" => id}) do
+    with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
+         do: disclosure_target("bindings.list", actor, %{"config_ref" => "job://#{id}"})
   end
 
   defp disclosure_target(_operation, _actor, _params), do: :ok

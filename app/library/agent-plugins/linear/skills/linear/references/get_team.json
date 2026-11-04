@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Read a team by ID or name.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "query": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": ["query"],
+    "type": "object"
+  },
+  "name": "get_team",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "description": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "key": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

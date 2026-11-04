@@ -54,24 +54,8 @@ const run = {
   updated_at: observed_at,
   counts: { ...counts, total: 0, running: 0 }
 }
-const automation = {
-  ...owner,
-  id: 101,
-  resource_kind: 'automation_run',
-  automation_job_id: 111,
-  definition_status: 'cancelled',
-  label: 'Cancelled definition with live execution',
-  status: 'running',
-  attempts: 2,
-  attempt_id: 'attempt-running',
-  error: 'Previous attempt disconnected',
-  scheduled_event_id: 'signal-automation',
-  started_at: observed_at,
-  inserted_at: observed_at,
-  updated_at: observed_at
-}
 
-async function home(page: Page, failures = false) {
+async function home(page: Page, failures: false | 403 | 503 = false) {
   const requests: string[] = []
   let workflowDenied = failures
   // A URL predicate avoids matching the source modules of the v2 clients.
@@ -97,7 +81,14 @@ async function home(page: Page, failures = false) {
         }
         if (path.endsWith('/workflow')) {
           if (workflowDenied) {
-            return route.fulfill({ status: 403, json: { errors: [{ code: 'forbidden', detail: 'access denied' }] } })
+            return route.fulfill({
+              status: workflowDenied,
+              json: {
+                errors: [
+                  { code: workflowDenied === 403 ? 'forbidden' : 'temporarily_unavailable', detail: 'read unavailable' }
+                ]
+              }
+            })
           }
           return route.fulfill({
             json: {
@@ -143,13 +134,7 @@ async function home(page: Page, failures = false) {
             }
           })
         }
-        if (failures) {
-          return route.fulfill({
-            status: 503,
-            json: { errors: [{ code: 'temporarily_unavailable', detail: 'Read service unavailable' }] }
-          })
-        }
-        return route.fulfill({ json: { observed_at, runs: [automation], next_cursor: null } })
+        return route.fulfill({ status: 404, json: {} })
       }
       if (path.includes('readiness')) {
         return route.fulfill({
@@ -204,7 +189,6 @@ test('Home shows native activity relationships including cancelled parents and i
   const area = page.getByRole('region', { name: 'Background activity', exact: true })
   const jobs = area.getByRole('region', { name: 'Background Jobs', exact: true })
   const workflow = area.getByRole('region', { name: 'Workflow', exact: true })
-  const automations = area.getByRole('region', { name: 'Automation runs', exact: true })
   await expect(jobs.getByText('Waiting report job', { exact: true })).toBeVisible()
   await expect(jobs.getByText('Waiting for user', { exact: true })).toBeVisible()
   await expect(jobs.getByRole('link', { name: 'Waiting report job' })).toHaveAttribute(
@@ -219,9 +203,6 @@ test('Home shows native activity relationships including cancelled parents and i
   await expect(workflow.getByText(/^Sleeping until /)).toHaveCount(1)
   await expect(workflow.getByText('Running before calls exist', { exact: true })).toBeVisible()
   await expect(workflow.getByText('Terminal cleanup pending', { exact: true })).toBeVisible()
-  await expect(automations.getByText(/Definition #111 .*cancelled/i)).toBeVisible()
-  await expect(automations.getByText('Running', { exact: true })).toBeVisible()
-  await expect(automations.getByText('Scheduled event: signal-automation', { exact: true })).toBeVisible()
   await expect(page.getByText('Running background Agent Jobs', { exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('home-background-activity.png'), fullPage: true })
   const workflowReads = server.requests.filter(path => path.includes('/background-activities/workflow')).length
@@ -234,32 +215,30 @@ test('Home shows native activity relationships including cancelled parents and i
   await page.getByRole('option', { name: 'Operations Agent', exact: true }).click()
   await expect
     .poll(() => server.requests.filter(path => path.includes('/agents/agent-two/background-activities/')).length)
-    .toBe(3)
+    .toBe(2)
   expect(new URL(page.url()).searchParams.has('activity_jobs_cursor')).toBe(false)
 })
 
-test('Home distinguishes independent permission, loading failure and empty groups and retries only the failed group', async ({
-  page
-}) => {
-  const server = await home(page, true)
-  await page.goto('/console-home')
-  const area = page.getByRole('region', { name: 'Background activity', exact: true })
-  const jobs = area.getByRole('region', { name: 'Background Jobs', exact: true })
-  const workflow = area.getByRole('region', { name: 'Workflow', exact: true })
-  const automations = area.getByRole('region', { name: 'Automation runs', exact: true })
-  await expect(jobs.getByText('No current activity in this group.', { exact: true })).toBeVisible()
-  await expect(
-    workflow.getByText('This group is not available with the current permissions.', { exact: true })
-  ).toBeVisible()
-  await expect(
-    automations.getByText('This activity group could not be loaded. Retry to refresh its state.', { exact: true })
-  ).toBeVisible()
-  await expect(automations.getByText('No current activity in this group.', { exact: true })).not.toBeVisible()
-  server.allowWorkflow()
-  const jobsReads = server.requests.filter(path => path.includes('/background-activities/background-jobs')).length
-  await workflow.getByRole('button', { name: 'Retry', exact: true }).click()
-  await expect(workflow.getByText('Admitted call still running', { exact: true })).toBeVisible()
-  expect(server.requests.filter(path => path.includes('/background-activities/background-jobs'))).toHaveLength(
-    jobsReads
-  )
-})
+for (const failure of [403, 503] as const) {
+  test(`Home shows ${failure} failures and retries the affected activity group`, async ({ page }) => {
+    const server = await home(page, failure)
+    await page.goto('/console-home')
+    const area = page.getByRole('region', { name: 'Background activity', exact: true })
+    const jobs = area.getByRole('region', { name: 'Background Jobs', exact: true })
+    const workflow = area.getByRole('region', { name: 'Workflow', exact: true })
+    await expect(jobs.getByText('No current activity in this group.', { exact: true })).toBeVisible()
+    const message =
+      failure === 403
+        ? 'This group is not available with the current permissions.'
+        : 'This activity group could not be loaded. Retry to refresh its state.'
+    await expect(workflow.getByText(message, { exact: true })).toBeVisible()
+    await expect(workflow.getByText('No current activity in this group.', { exact: true })).not.toBeVisible()
+    server.allowWorkflow()
+    const jobsReads = server.requests.filter(path => path.includes('/background-activities/background-jobs')).length
+    await workflow.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(workflow.getByText('Admitted call still running', { exact: true })).toBeVisible()
+    expect(server.requests.filter(path => path.includes('/background-activities/background-jobs'))).toHaveLength(
+      jobsReads
+    )
+  })
+}

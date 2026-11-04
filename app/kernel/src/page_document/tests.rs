@@ -143,6 +143,45 @@ fn all_three_limits_accept_the_boundary_and_reject_one_over() {
         );
     }
 }
+
+#[test]
+fn changes_json_depth_is_bounded_independently_of_document_depth() {
+    std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            let source = format!("{}null{}", "[".repeat(512), "]".repeat(512));
+            assert!(decode_changes(&source).is_ok());
+            assert!(
+                decode_changes(&format!("[{source}]"))
+                    .unwrap_err()
+                    .contains("JSON depth")
+            );
+            assert!(decode_changes(&format!("{source} true")).is_err());
+            assert!(decode_changes(r#"["escaped \\\" [ { "]"#).is_ok());
+            assert!(decode_changes("[}").is_err());
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn maximum_depth_diff_crosses_json_before_application() {
+    std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            let target = format!(
+                "<page>{}<p>a</p>{}</page>",
+                "<blockquote>".repeat(126),
+                "</blockquote>".repeat(126)
+            );
+            let changes = diff("<page />", &target).unwrap().to_string();
+            assert_eq!(apply("<page />", &changes).unwrap().xml, target);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
 #[test]
 fn changes_reject_invalid_shapes_and_unprepared_normalization() {
     let xml = "<page><p>a b</p></page>";
@@ -242,6 +281,23 @@ fn server_diff_preserves_paragraphs_and_utf16_selection_offsets() {
         validate(new).unwrap().xml
     );
     assert_eq!(diff(new, new).unwrap(), json!([]));
+}
+
+#[test]
+fn server_draft_rebase_deltas_match_the_browser_corpus() {
+    let samples: Value = serde_json::from_str(include_str!(
+        "../../../../libs/ankole-editor/corpus/rust/draft-rebase.json"
+    ))
+    .unwrap();
+    for sample in samples.as_array().unwrap() {
+        let before = sample["before"].as_str().unwrap();
+        let after = sample["after"].as_str().unwrap();
+        assert_eq!(diff(before, after).unwrap(), sample["changes"]);
+        assert_eq!(
+            apply(before, &sample["changes"].to_string()).unwrap().xml,
+            after
+        );
+    }
 }
 
 #[test]

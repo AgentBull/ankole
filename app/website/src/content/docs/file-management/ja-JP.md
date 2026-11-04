@@ -7,7 +7,7 @@ order: 31
 
 **通常、このページで説明するファイルブラウザを使う必要はありません。日常のやり取りでは、チャットで Agent に直接ファイルを送信するか、Pod ワークスペースで共有の Pod `file` ページやドキュメント/Base/Chat 添付ファイルを利用してください。Console のファイルブラウザは、チャットで届かなかった成果物の回収、保存済み出力の確認、または各 Agent 専用のドライブフォルダを手動で整理する場合にのみ使用します。**
 
-各 Agent は control plane 上に専用のプライベートドライブを持ち、添付ファイル、生成画像、公開ファイル、Automation スクリプトを保存します。一方、ワークスペース全体で共有する Pod の `file` ページや Pod 添付ファイルは Pod のページ権限のもとで管理され、個別 Agent の Console ドライブには入りません。Agent ドライブは Worker が停止していても Console から操作できます。なお、Session や Job の作業用ワークスペースは永続 Home 側に置かれており、ドライブ内のフォルダとは別物です。
+各 Agent は control plane 上に専用のプライベートドライブを持ち、添付ファイル、生成画像、公開ファイルを保存します。一方、ワークスペース全体で共有する Pod の `file` ページや Pod 添付ファイルは Pod のページ権限のもとで管理され、個別 Agent の Console ドライブには入りません。Agent ドライブは Worker が停止していても Console から操作できます。なお、Session や Job の作業用ワークスペースは永続 Home 側に置かれており、ドライブ内のフォルダとは別物です。
 
 ローカルフォルダや S3・R2 のストレージ設定については [ドライブストレージ設定](../drive-storage/) を、旧 Home からのインポート手順については [1.0 から 2.0 への更新](../upgrade-to-2/) を参照してください。
 
@@ -21,7 +21,6 @@ order: 31
 | `chats/<channel>/inbox/` | その会話で Agent に送信された添付ファイル |
 | `chats/<channel>/generated/`、`generated/` | Agent が生成した画像（会話内では `chats/<channel>/generated/`、チャネルに紐付かない場合は `generated/`） |
 | `sent/` | Agent が返信に添付したファイル |
-| `automation/` | Automation Job のスクリプト |
 | その他のフォルダ | Agent または利用者が保存したファイル |
 
 ## 参照資料をアップロードする

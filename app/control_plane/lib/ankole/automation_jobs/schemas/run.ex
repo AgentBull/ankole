@@ -11,10 +11,9 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
 
   authz do
     scope(:site_console)
-    resolve_param(:agent_uid, :principal_key)
 
     allow(:console_list,
-      resource: "site_console:agent:{agent_uid}:automation_jobs",
+      resource: "site_console:automation_jobs",
       action: "read"
     )
   end
@@ -90,7 +89,6 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
 
     attribute(:attempt_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:started_at, :utc_datetime_usec, public?: true)
-    attribute(:worker_wait_started_at, :utc_datetime_usec, public?: true)
     attribute(:finished_at, :utc_datetime_usec, public?: true)
     attribute(:exit_code, :integer, public?: true)
 
@@ -127,9 +125,8 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   # The definition facts of the Console activity projection, read in the
   # same query as the run.
   calculations do
-    calculate(:job_agent_uid, :string, expr(job.agent_uid))
+    calculate(:job_page_id, Ankole.Ash.Types.UUIDv7, expr(job.page_id))
     calculate(:job_label, :string, expr(job.label))
-    calculate(:job_owner_session_id, :string, expr(job.owner_session_id))
     calculate(:job_status, :atom, expr(job.status))
   end
 
@@ -141,6 +138,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
     default_fields([
       :id,
       :automation_job_id,
+      :event,
       :status,
       :attempts,
       :slice_count,
@@ -176,6 +174,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   end
 
   actions do
+    destroy(:remove)
     defaults([:read])
 
     read :list_page do
@@ -186,14 +185,11 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
       multitenancy(:allow_global)
     end
 
-    # The Console run history of one job of one Agent, the newest run first.
+    # Console lists one Job’s runs, newest first.
     read :console_list do
-      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
       argument(:automation_job_id, :integer, allow_nil?: false)
 
-      filter(
-        expr(automation_job_id == ^arg(:automation_job_id) and job.agent_uid == ^arg(:agent_uid))
-      )
+      filter(expr(automation_job_id == ^arg(:automation_job_id)))
 
       prepare(build(sort: [inserted_at: :desc, id: :desc]))
       pagination(keyset?: true, default_limit: 20, max_page_size: 100, countable: false)
@@ -212,10 +208,6 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
         :concurrency_key,
         :coalesce_key
       ])
-    end
-
-    update :wait_for_worker do
-      accept([:worker_wait_started_at])
     end
 
     update :start do

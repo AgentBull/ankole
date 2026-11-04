@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { BrowserDataError } from './errors'
 
 export const BrowserProtocolVersion = 1 as const
+export const BrowserMaxResponseBytes = 16 * 1024 * 1024
 
 export const BrowserErrorCodeSchema = z.enum([
   'invalid_command',
@@ -242,9 +243,14 @@ const EvalArgsSchema = z.object({ expression: NonEmptyString }).strict()
 
 const FetchArgsSchema = z
   .object({
-    urls: z.array(NonEmptyString).min(1, 'requires at least one URL').max(5, 'accepts at most five URLs')
+    urls: z.array(NonEmptyString).min(1, 'requires at least one URL').max(5, 'accepts at most five URLs'),
+    result_mode: z.literal('workspace').optional()
   })
   .strict()
+  .refine(value => value.result_mode !== 'workspace' || value.urls.length === 1, {
+    message: 'workspace fetch requires exactly one URL',
+    path: ['urls']
+  })
 
 const EmptyArgsSchema = z.object({}).strict()
 const LifecycleArgsSchema = z.object({ verb: LifecycleVerbSchema }).strict()

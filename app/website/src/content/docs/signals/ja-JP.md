@@ -5,7 +5,7 @@ section: Developer guide
 order: 102
 ---
 
-Signal は、Agent の Session に対して作業の実行を要求する永続イベントです。チャットメッセージ、スケジュールの定時起動、Automation の実行結果、各種の業務イベントなどを統一的に表現できます。Signal から Conversation や Message を参照することはできますが、汎用の業務イベントではこれらの参照は必須ではありません。
+Signal は、Agent の Session に対して作業の実行を要求する永続イベントです。チャットメッセージ、スケジュールの定時起動、各種の業務イベントなどを統一的に表現できます。Signal から Conversation や Message を参照することはできますが、汎用の業務イベントではこれらの参照は必須ではありません。
 
 責務はドメインごとに明確に分かれています。イベントの受け入れと Signal Routing Rule は `Ankole.Signals`、共有発言の記録・外部イベントの観測・返信の配信は `Ankole.Conversations`、そして実際の Agent 実行は `Ankole.Sessions` がそれぞれ所有します。つまり「観測された事実」「起動のトリガー」「実行状態」をそれぞれの所有ドメインが独立して管理する構造になっています。
 

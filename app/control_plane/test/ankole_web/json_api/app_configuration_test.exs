@@ -382,10 +382,7 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
        %{conn: conn} do
     conn = console_conn(conn)
 
-    conn = api_get(conn, ~p"/api/v2/site/app-configurations")
-    assert %{"app_configurations" => entries} = json_response(conn, 200)
-    assert %{"editable" => false} = entry(entries, "runtime_fabric.worker_auth_key")
-    conn = conn |> recycle_api() |> api_get(~p"/api/v2/app-configurations")
+    conn = api_get(conn, ~p"/api/v2/app-configurations")
     assert %{"app_configurations" => tenant_entries} = json_response(conn, 200)
     assert %{"editable" => false} = entry(tenant_entries, "principals.identity_providers.active")
 
@@ -394,15 +391,6 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
       |> recycle_api()
       |> api_put(~p"/api/v2/app-configurations/principals.identity_providers.active", %{
         "value" => []
-      })
-
-    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
-
-    conn =
-      conn
-      |> recycle_api()
-      |> api_put(~p"/api/v2/site/app-configurations/runtime_fabric.worker_auth_key", %{
-        "value" => "leaked"
       })
 
     assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)

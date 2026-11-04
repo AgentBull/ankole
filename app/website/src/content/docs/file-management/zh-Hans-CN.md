@@ -7,7 +7,7 @@ order: 31
 
 **多数情况下，无需使用本页介绍的文件浏览器：在对话中直接把文件发给 Agent，或在 Pod 工作空间中使用共享的 Pod `file` 页面及文档/Base/Chat 附件即可。只有当你需要找回未送达的产物、检查已落盘的输出，或手动整理某个 Agent 的私有云盘目录时，才需要打开 Console 文件浏览器。**
 
-每个 Agent 都拥有自己独立的控制面私有云盘，用于保存收到的附件、生成的图片、发出的文件、Automation 脚本；而面向团队协作共享的 Pod `file` 页面与各类 Pod 附件，则在 Pod 工作空间内按页面权限统一管理，不属于单个 Agent 的 Console 云盘。即使没有运行中的 Worker，你也能在 Console 中上传、下载、移动和删除 Agent 云盘文件。至于执行会话（Session）与后台任务（Job）的工作区，则位于持久 Home 中，并非云盘文件夹。
+每个 Agent 都拥有自己独立的控制面私有云盘，用于保存收到的附件、生成的图片、发出的文件；而面向团队协作共享的 Pod `file` 页面与各类 Pod 附件，则在 Pod 工作空间内按页面权限统一管理，不属于单个 Agent 的 Console 云盘。即使没有运行中的 Worker，你也能在 Console 中上传、下载、移动和删除 Agent 云盘文件。至于执行会话（Session）与后台任务（Job）的工作区，则位于持久 Home 中，并非云盘文件夹。
 
 部署运维人员可按 [控制面云盘存储配置](../drive-storage/) 配置本地目录、S3 或 R2；旧版持久 Home 的文件导入方式见 [从 1.0 升级到 2.0](../upgrade-to-2/)。
 
@@ -21,7 +21,6 @@ order: 31
 | `chats/<channel>/inbox/` | 用户在对应会话中发给 Agent 的附件 |
 | `chats/<channel>/generated/`、`generated/` | Agent 生成的图片（会话内归入 `chats/<channel>/generated/`，无会话来源时归入 `generated/`） |
 | `sent/` | Agent 随回复发出的文件 |
-| `automation/` | Automation Job 脚本 |
 | 其他文件夹 | Agent 或用户主动保存的文件 |
 
 ## 上传参考资料

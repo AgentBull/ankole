@@ -58,7 +58,7 @@ Ankole 운영에 인그레스 경로가 일부 필요할 수는 있지만, 모�
 
 ## 표면 6: Worker 컨테이너, Function Runtime 및 control plane
 
-각 Agent는 전용 Worker 컨테이너 또는 Pod를 단독으로 사용하며, 다른 Agent와 Worker, 캐시 디스크, 자격 증명을 공유하지 않습니다. 또한 무상태 TypeScript 프로그램(Workflow, PTC, Applet 백엔드)은 데이터베이스 자격 증명이나 Kubernetes ServiceAccount 토큰이 없는 별도의 `ankole-function-runtime` 서비스에서 격리 실행됩니다. 즉 컨테이너 자체가 격리 경계입니다. Worker 내부의 셸 명령, Codex app-server, Automation 스크립트, 브라우저는 추가 내부 샌드박스 없이 Worker 사용자(`uid 1000`, Linux capabilities 및 `sudo` 없음) 권한으로 실행됩니다.
+각 Agent는 전용 Worker 컨테이너 또는 Pod를 단독으로 사용하며, 다른 Agent와 Worker, 캐시 디스크, 자격 증명을 공유하지 않습니다. 또한 무상태 TypeScript 프로그램(Workflow, PTC, Applet 백엔드)은 데이터베이스 자격 증명이나 Kubernetes ServiceAccount 토큰이 없는 별도의 `ankole-function-runtime` 서비스에서 격리 실행됩니다. 즉 컨테이너 자체가 격리 경계입니다. Worker 내부의 셸 명령, Codex app-server, 브라우저는 추가 내부 샌드박스 없이 Worker 사용자(`uid 1000`, Linux capabilities 및 `sudo` 없음) 권한으로 실행됩니다.
 
 - 모든 명령은 `sudo` 권한 없는 `uid 1000`으로 실행되므로, Home 디렉터리 안에 사용자 수준 패키지는 설치할 수 있어도 시스템 패키지는 설치할 수 없습니다. 다만 같은 Agent에 속한 여러 Session끼리는 동일한 Home 파일과 프로세스 공간을 공유합니다.
 - **Worker 자격 증명은 오직 해당 Agent 하나에만 귀속됩니다.** Worker 데몬은 인증 자격 증명을 메모리에만 보관하며 하위 명령의 환경 변수에서는 제거합니다. 다른 Agent의 자격 증명이나 이미 교체된 이전 Worker의 자격 증명으로는 연결이 거부됩니다.

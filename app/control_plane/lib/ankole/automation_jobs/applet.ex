@@ -21,6 +21,7 @@ defmodule Ankole.AutomationJobs.Applet do
 
       Repo.transact_top_level(fn ->
         with :ok <- WorkAccess.check_in_tx(authorization),
+             :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority, lock: false),
              _ <- lock_page_jobs(page_id),
              {:ok, job} <-
                Ankole.Ash.create(
@@ -28,13 +29,13 @@ defmodule Ankole.AutomationJobs.Applet do
                  :create,
                  Map.merge(authorization, policy_attrs(policy))
                  |> Map.merge(%{
-                   executor_kind: :applet_function,
                    page_id: page_id,
                    action_key: action_key,
                    config: Ankole.Attrs.get(attrs, :config, %{}),
                    label: Ankole.Attrs.get(attrs, :label, action_key)
                  })
                ),
+             :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority),
              {:ok, _} <- Pod.verify_applet_package_in_tx(package),
              do: {:ok, job}
       end)
@@ -42,7 +43,7 @@ defmodule Ankole.AutomationJobs.Applet do
   end
 
   def authorize(actor, job, page_id, permission) do
-    with true <- job.executor_kind == :applet_function and job.page_id == page_id,
+    with true <- job.page_id == page_id,
          true <-
            job.authorization_kind != "human" or
              job.human_uid == Ankole.Principals.authority_uid(Actor.uid(actor)),
@@ -64,6 +65,26 @@ defmodule Ankole.AutomationJobs.Applet do
     end
   end
 
+  def actions(actor, page_id) do
+    with {:ok, _} <- Pod.authorize_applet(actor, page_id, "node_view"),
+         {:ok, package} <- Pod.applet_action_package(page_id),
+         do: {:ok, package.actions |> Map.keys() |> Enum.sort()}
+  end
+
+  def runs(actor, page_id, job_id) do
+    with {:ok, %Job{} = job} <- AutomationJobs.get_automation_job(job_id),
+         :ok <- authorize(actor, job, page_id, "node_view") do
+      Run
+      |> Ash.Query.filter(automation_job_id == ^job.id)
+      |> Ash.Query.sort(id: :desc)
+      |> Ash.Query.limit(100)
+      |> Ankole.Ash.read()
+    else
+      {:ok, nil} -> {:error, :not_found}
+      error -> error
+    end
+  end
+
   def configure(actor, page_id, id, attrs) do
     mutate(actor, page_id, id, fn job ->
       Ankole.Ash.update(
@@ -74,11 +95,30 @@ defmodule Ankole.AutomationJobs.Applet do
     end)
   end
 
-  def delete(actor, page_id, id), do: mutate(actor, page_id, id, &Ankole.Ash.destroy(&1, :remove))
+  def delete(actor, page_id, id) do
+    Repo.transact_top_level(fn ->
+      with :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority, lock: false),
+           {:ok, %Job{} = job} <- AutomationJobs.get_automation_job(id),
+           :ok <-
+             authorize(
+               actor,
+               job,
+               page_id,
+               if(job.authorization_kind == "human", do: "node_contribute", else: "node_edit")
+             ),
+           :ok <- Ankole.AutomationJobs.JobSources.purge_in_tx([id]),
+           :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority),
+           do: {:ok, job},
+           else: (
+             {:ok, nil} -> {:error, :not_found}
+             error -> error
+           )
+    end)
+  end
 
   defp mutate(actor, page_id, id, fun) do
     Repo.transact_top_level(fn ->
-      with :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority),
+      with :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority, lock: false),
            %Job{} = job <- AutomationJobs.lock_job_in_tx(id),
            :ok <-
              authorize(
@@ -87,7 +127,9 @@ defmodule Ankole.AutomationJobs.Applet do
                page_id,
                if(job.authorization_kind == "human", do: "node_contribute", else: "node_edit")
              ),
-           do: fun.(job),
+           {:ok, result} <- fun.(job),
+           :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority),
+           do: {:ok, result},
            else: (
              nil -> {:error, :not_found}
              error -> error
@@ -443,18 +485,13 @@ defmodule Ankole.AutomationJobs.Applet do
     :ok = Repo.require_transaction()
     Enum.each(Enum.sort(ids), &Ankole.AdvisoryLock.lock(Repo, "applet-jobs:" <> &1))
 
-    Job
-    |> Ash.Query.filter(page_id in ^ids)
-    |> Ash.Query.sort(id: :asc)
-    |> Ash.Query.lock(:for_update)
-    |> Ankole.Ash.read!(lock_identity: {:rows, "automation_jobs", :id})
-    |> Enum.reduce_while(:ok, fn job, :ok ->
-      case Ankole.Ash.destroy(job, :remove) do
-        :ok -> {:cont, :ok}
-        {:ok, _} -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
+    ids =
+      Job
+      |> Ash.Query.filter(page_id in ^ids)
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.id)
+
+    Ankole.AutomationJobs.JobSources.purge_in_tx(ids)
   end
 
   defp policy(package, key) do

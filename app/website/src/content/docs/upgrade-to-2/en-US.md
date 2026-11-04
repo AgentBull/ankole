@@ -14,7 +14,7 @@ Always rehearse the upgrade against a restored backup in an isolated staging env
 | Old 1.x layout | 2.0 layout | Operator action |
 | --- | --- | --- |
 | Pooled Workers and shared `/agents` | One Worker and private `/workspace` per Agent | Copy or adopt Agent Homes and assign a WorkerProvider |
-| Installed Skills and Automation scripts in Home | `skills/` and `automation/` in the control-plane drive | Run the one-time Agent Home file import |
+| Installed Skills and Worker script automations in Home | Skills in the control-plane drive; automation logic in published Applet Actions | Import Skills; export script Jobs and recreate them as Applet Jobs |
 | Transient Codex state in Workers | Threads in `/workspace/.codex`; rebuildable cache in `/var/cache/ankole/codex` | Preserve Home and attach a separate cache disk |
 | In-process script sandboxes and 2 images | External stateless `ankole-function-runtime` (3 co-versioned images: `control-plane`, `worker`, `function-runtime`) | Set `ANKOLE_FUNCTION_RUNTIME_TOKEN` and deploy all three matching images |
 | Data and configuration without tenant ownership | Original data placed in the `default` tenant; Pod / Base storage on **PostgreSQL 18+** (with optional `BASE_DB_URLS` shards) | Upgrade to PostgreSQL 18+ and run schema and encrypted-config migrations with the original key |
@@ -22,6 +22,8 @@ Always rehearse the upgrade against a restored backup in an isolated staging env
 | Console at `/console` | Site Admin Console at `/site-admin-console` (or `ANKOLE_SITE_ADMIN_CONSOLE_PATH`) | Update bookmarks and reverse-proxy ingress rules |
 
 If a late 1.x deployment already runs per-Agent Workers or drives, perform only the remaining steps—never overwrite existing Home or drive volumes with empty storage.
+
+Before migration, export every `agent_script` Job definition, its source code and configuration, and any Run history you need. The Applet-only migration permanently deletes these Jobs, their Run history, bindings, and receipts; rolling back container images cannot restore them. After upgrading, publish replacement Applet Actions, create their Jobs, and reconnect schedules or webhooks before restoring automation traffic. The old automation-job CLI commands and `automation_jobs.max_running_per_agent` setting are removed. Recovery of deleted records requires restoring the pre-upgrade database backup.
 
 ## Prepare the upgrade
 
@@ -75,7 +77,7 @@ docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-`import_agent_home/1` imports installed Skills, Automation scripts, and unsent legacy Outbox attachments without overwriting existing drive paths, leaving general user files and Session/Job workspaces in Home. Save the printed import report, fix any `Skipped` files or Automation Jobs missing `main.ts`, and re-run the import until clean. Retain the old shared volume until file verification and a restore rehearsal succeed.
+`import_agent_home/1` imports installed Skills and unsent legacy Outbox attachments without overwriting existing drive paths. General user files and Session/Background Job workspaces stay in Home. Save the report, repair skipped files, and rerun the import. Preserve script source separately for conversion to Applet Actions, and retain the old volume until verification and a restore rehearsal succeed.
 
 ## Upgrade Kubernetes / Helm
 
@@ -117,7 +119,7 @@ Because the control-plane Deployment uses the `Recreate` strategy, the new Pod's
 ## Verify and recover
 
 - Inspect migrated Agents, Identity Providers, signal routing rules, and Background Agent Jobs under the `default` tenant in the Console. Verify that every existing Agent has an assigned WorkerProvider, since the site default provider applies only to newly created Agents.
-- Enable a single canary Agent first and exercise file tools and a Background Agent Job—checking legacy Home files, Codex thread resumption, imported Skills and Automation scripts, drive uploads/downloads, and chat attachment delivery—before re-enabling your remaining Agents and schedules.
+- Enable a single canary Agent first and exercise file tools and a Background Agent Job—checking legacy Home files, Codex thread resumption, imported Skills and published Applet Jobs, drive uploads/downloads, and chat attachment delivery—before re-enabling your remaining Agents and schedules.
 - If a migration step fails, leave 1.x replicas stopped, inspect the Compose `migrate` or Kubernetes `db-migrate` logs, fix the reported secret, credential, group-name collision, or storage permission issue, and re-run the 2.0 migration.
 - `import_agent_home/1` logs leftover Home directories belonging to previously deleted Agents without recreating those Agents; delete legacy directories or volumes only after confirming none of their files are needed.
 - If you must roll back to 1.x, stop all 2.0 control planes, `ankole-function-runtime` instances, and Workers, restore your coordinated pre-upgrade backup (PostgreSQL, any `BASE_DB_URLS` shard databases, object/file storage, Agent Homes, configuration, and original `ANKOLE_SECRET_BASE`), and start the 1.x images. Running `helm rollback` or reverting image tags alone cannot undo destructive passwordless or schema migrations, nor preserve post-upgrade writes that were not exported separately.

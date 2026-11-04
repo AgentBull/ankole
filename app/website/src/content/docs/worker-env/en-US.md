@@ -9,6 +9,8 @@ Agents rely on environment variables when running CLI tools, calling MCP servers
 
 Every command spawned by the Agent starts with a clean environment populated from these configured variables rather than inheriting the Worker daemon's own process environment, and both the Agent and any child processes that it launches can read them. Store only credentials that Agent tools genuinely need; configure LLM Provider keys, Identity Provider secrets, and chat-channel tokens on their dedicated Console pages instead.
 
+Remote HTTP MCP dependencies are an exception to Worker injection: the control-plane proxy resolves their declared `bearer_token_env_var` values, and Worker snapshots exclude those referenced secrets. The Worker receives an internal Turn token instead. Configure built-in Connector application credentials and personal OAuth grants on the Pod Connections page. Other custom command variables follow the environment rules below.
+
 ## Select the scope first
 
 | Who needs the variable | Where to set it | Scope |

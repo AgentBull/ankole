@@ -1,4 +1,4 @@
-import { type RPCRequester } from '../../lanes/rpc_lane'
+import { type RPCRequester, type TurnRPCFrame } from '../../lanes/rpc_lane'
 
 /**
  * Keeps the combined, operator, and binding views returned by the control
@@ -13,9 +13,10 @@ export type ResolvedAgentWorkerEnv = {
 
 export async function resolveAgentWorkerEnvParts(
   rpc: RPCRequester,
+  frame: TurnRPCFrame,
   bindingName?: string
 ): Promise<ResolvedAgentWorkerEnv> {
-  const response = await rpc('worker_env.resolve', { bindingName: bindingName ?? '' }, undefined, {
+  const response = await rpc('worker_env.resolve', { bindingName: bindingName ?? '' }, frame, {
     retryOnDisconnect: true
   })
   return {

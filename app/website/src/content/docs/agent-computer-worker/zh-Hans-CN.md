@@ -9,7 +9,7 @@ Agent Computer Worker 是每个 Agent 专属的隔离运行环境，相当于它
 
 ## 执行与归属
 
-在职责划分上，Bun Worker 负责运行 Shell 命令、文件与浏览器工具、Skills、MCP 调用、自动化脚本以及 Codex Job；控制面的 `Ankole.Sessions` 负责驱动主 Agent 循环，将输入消费记录与工具执行结果持久化落库，并生成最终回复；AIGateway 则负责维护持久化的 Response 链与托管工具（Hosted Tools）。
+在职责划分上，Bun Worker 负责运行 Shell 命令、文件与浏览器工具、Skills、MCP 调用以及 Codex Job；控制面的 `Ankole.Sessions` 负责驱动主 Agent 循环，将输入消费记录与工具执行结果持久化落库，并生成最终回复；AIGateway 则负责维护持久化的 Response 链与托管工具（Hosted Tools）。
 
 启动实例时，控制面会向 Worker 注入 `WORKER_ID`、RuntimeFabric 连接地址、代数（generation）凭据与存储参数。每个 Worker 实例只服务于所属的单个 Agent，不直连数据库，并在派生子进程前剥离平台凭据。容器本身构成 Agent 的安全隔离边界：所有命令均以 `uid 1000` 普通用户身份运行，不提供 `sudo` 权限。
 

@@ -27,14 +27,6 @@ defmodule Ankole.BackgroundActivities do
         :console_workflow,
         name: "background_activity_workflow"
       )
-
-      route(
-        Ankole.BackgroundActivities.ConsoleOperations,
-        :get,
-        "/agents/:agent_uid/background-activities/automation-runs",
-        :console_automation_runs,
-        name: "background_activity_automation_runs"
-      )
     end
   end
 end

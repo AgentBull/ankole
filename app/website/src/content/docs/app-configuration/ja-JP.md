@@ -42,7 +42,6 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 | `ai_agent.inactivity_timeout_ms` | Tenant | モデルまたは Provider からの応答が途絶えた際、turn を終了するまでの待機時間（ミリ秒） |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Agent Plugin の既定の有効／無効状態 |
 | `background_agent_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる BackgroundAgentJob の上限。既定値 `3`、有効範囲 `1`〜`64` |
-| `automation_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる自動化スクリプトの上限。既定値 `10`、有効範囲 `1`〜`64` |
 
 ### Pod、Base、Applet
 
@@ -52,7 +51,7 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 | `pod.applet.limits` | Tenant | Applet 呼び出しの制限値（既定値 `timeout_ms: 60000`、`heap_mb: 128`） |
 | `pod.base.limits` | Tenant | Base のクエリおよびレコード制限値（既定値 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
 | `pod.spreadsheet.limits` | Tenant | スプレッドシートページの制限値。オンラインで開ける最大ファイルサイズ（`max_file_bytes: 20971520`）と、編集をファイルへ書き戻すタイミング（`compaction_idle_seconds: 30`、`compaction_op_threshold: 100`、`compaction_structural_threshold: 10`） |
-| `drive.trash_retention_days` | Tenant  削除された Drive ノードを自動で完全削除するまでの保持日数。既定値は `30`。`0` にすると無期限に保持 |
+| `drive.trash_retention_days` | Tenant | 削除された Drive ノードを自動で完全削除するまでの保持日数。既定値は `30`。`0` にすると無期限に保持 |
 | `pod.ot_replay_window` | Tenant | OT リプレイ用に保持する直近のドキュメント変更バッチ数。既定値 `1000` |
 
 ### Workflow
@@ -123,7 +122,6 @@ Langfuse、LangSmith、VictoriaTraces およびその他の OTLP/HTTP レシー�
 
 | キー | 適用範囲 | 用途 |
 |---|---|---|
-| `runtime_fabric.worker_auth_key` | Site、読み取り専用 | 初回起動時に control plane が生成するインストール識別キー。Lark プロファイルの命名などに使われ、Worker の認証情報としては使われない |
 | `agent_workers.ready_timeout_seconds` | Site | Worker が `ready` にならないまま待機を許容する秒数。超過すると新しいキャッシュディスクで再構築される。既定値は `600`（10 分） |
 | `agent_workers.rendered_fetch_idle_ttl_ms` | Tenant | 組み込み `web_fetch` のレンダリングフォールバック用ブラウザをアイドル保持する時間（ミリ秒） |
 | `security.ssrf_filter` | Site | モデル主導の fetch リクエストに対して、プライベート IP、ループバック、リンクローカル、CGNAT アドレスへのアクセスを遮断するかどうか |

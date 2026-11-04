@@ -4,8 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdirAgentSync } from '../../../src/common/agent-user'
 import { agentProcessArgv } from '../../../src/core/execution/process-group'
-import { runAutomationJob } from '../../../src/automation-jobs/run'
-import { runFixture, request, rpcStub } from '../../support/automation-job-run'
 
 if (process.platform !== 'linux' || !existsSync('/etc/ankole-agent-computer-container')) {
   throw new Error('Worker credential tests require the Worker image; run bun run test:integration:docker')
@@ -50,29 +48,6 @@ test('model processes cannot read or signal the credential-holding Worker and su
     rmSync(`/agents/${agent}`, { force: true })
   }
 }, 30_000)
-
-test('Automation runs as the Agent user and can read its context and use the emit bridge', async () => {
-  const fixture = runFixture(`
-import { readFileSync } from 'node:fs'
-if (process.getuid() !== 1000) throw new Error('Automation retained the Worker uid')
-if (!/^NoNewPrivs:\\s+1$/m.test(readFileSync('/proc/self/status', 'utf8'))) throw new Error('missing no-new-privs')
-if (process.env.ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY) throw new Error('Automation inherited the Worker key')
-await emitEvent({uid: process.getuid(), value: context().event.data.value})
-`)
-  mkdirAgentSync(fixture.root, 0o700)
-  const emitted: unknown[] = []
-  try {
-    const result = await runAutomationJob(request(fixture, { value: 42 }), {
-      config: fixture.config,
-      sdkPath: fixture.sdkPath,
-      rpc: rpcStub(fixture, emitted)
-    })
-    expect(result.status, result.error).toBe('succeeded')
-    expect(emitted).toEqual([{ uid: 1000, value: 42 }])
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true })
-  }
-})
 
 test('the entry refuses to run the credential owner as the Agent user', async () => {
   const child = Bun.spawn(agentProcessArgv(['/usr/local/bin/ankole-worker-entry', 'true']), {

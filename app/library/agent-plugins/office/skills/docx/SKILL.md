@@ -1,6 +1,6 @@
 ---
 name: docx
-description: "Use this skill for local .docx files as input or output: create, read, edit, and validate Word files. Lark cloud documents and tokens belong to lark-office-suite."
+description: "Use this skill for local .docx files as input or output: create, read, edit, and validate Word files."
 default_enabled: true
 category: productivity
 ankole-runtime: background_job

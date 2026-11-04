@@ -13,14 +13,6 @@ import {
   AIGatewayAPIKeyResponseSchema,
   ActorTurnAbortRequestSchema,
   ActorTurnAbortResponseSchema,
-  AutomationJobCreateRequestSchema,
-  AutomationJobEmitRequestSchema,
-  AutomationJobEmitResponseSchema,
-  AutomationJobListRequestSchema,
-  AutomationJobRunRequestSchema,
-  AutomationJobRunResponseSchema,
-  AutomationJobShowRequestSchema,
-  AutomationJobTargetRequestSchema,
   BackgroundAgentJobGetRequestSchema,
   BackgroundAgentJobResponseSchema,
   BackgroundAgentJobStatusUpdateRequestSchema,
@@ -47,7 +39,7 @@ import {
 export type RPCOperation =
   | { scope: 'worker_agent'; request: DescMessage; response: DescMessage }
   | {
-      scope: 'turn' | 'turn_or_automation'
+      scope: 'turn'
       effect: 'read' | 'write' | 'complete'
       request: DescMessage
       response: DescMessage
@@ -62,13 +54,13 @@ export const rpcOperations = {
     response: VfsFlushResponseSchema
   },
   'pod.read': {
-    scope: 'turn_or_automation',
+    scope: 'turn',
     effect: 'read',
     request: PodRequestSchema,
     response: JSONPassthroughResponseSchema
   },
   'pod.write': {
-    scope: 'turn_or_automation',
+    scope: 'turn',
     effect: 'write',
     request: PodRequestSchema,
     response: JSONPassthroughResponseSchema
@@ -83,41 +75,6 @@ export const rpcOperations = {
     scope: 'worker_agent',
     request: AIGatewayAPIKeyRequestSchema,
     response: AIGatewayAPIKeyResponseSchema
-  },
-  'automation_job.cancel': {
-    scope: 'turn',
-    effect: 'write',
-    request: AutomationJobTargetRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  'automation_job.create': {
-    scope: 'turn',
-    effect: 'write',
-    request: AutomationJobCreateRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  'automation_job.emit': {
-    scope: 'worker_agent',
-    request: AutomationJobEmitRequestSchema,
-    response: AutomationJobEmitResponseSchema
-  },
-  'automation_job.list': {
-    scope: 'turn',
-    effect: 'read',
-    request: AutomationJobListRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  'automation_job.run': {
-    owner: 'worker',
-    handler: 'runAutomationJob',
-    request: AutomationJobRunRequestSchema,
-    response: AutomationJobRunResponseSchema
-  },
-  'automation_job.show': {
-    scope: 'turn',
-    effect: 'read',
-    request: AutomationJobShowRequestSchema,
-    response: JSONPassthroughResponseSchema
   },
   'background_agent_job.get': {
     scope: 'turn',
@@ -206,7 +163,6 @@ export type WorkerRPCHandler<M extends WorkerOwnedRPCMethod> = (
 
 export type WorkerRPCHandlers = {
   flushDriveFiles?: WorkerRPCHandler<'vfs.flush'>
-  runAutomationJob?: WorkerRPCHandler<'automation_job.run'>
   pullWorkerFile?: WorkerRPCHandler<'worker_files.pull'>
   pushWorkerFile?: WorkerRPCHandler<'worker_files.push'>
 }

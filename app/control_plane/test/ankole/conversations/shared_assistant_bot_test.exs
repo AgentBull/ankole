@@ -181,7 +181,12 @@ defmodule Ankole.Conversations.SharedAssistantBotTest do
         assert clicked.human_uid == human.uid
 
         if adapter == "lark" do
-          assert {:ok, %{}} = Ankole.Plugins.LarkAdapter.RuntimeEnv.resolve_worker_env(binding)
+          assert {:ok, %{binding: binding_env}} =
+                   Ankole.AgentWorkers.WorkerEnv.effective_env_parts(assistant.uid,
+                     binding_name: binding.name
+                   )
+
+          assert binding_env == %{}
         end
 
         assert {:ok, [%{deleted_mirror_entries: 1}]} =

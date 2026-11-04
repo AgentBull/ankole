@@ -201,7 +201,9 @@ defmodule Ankole.Pod.Applets do
     end
   end
 
-  def available(%{deleted_at: nil, purge_started_at: nil, type: :applet}), do: :ok
+  def available(%{id: id, deleted_at: nil, purge_started_at: nil, type: :applet}),
+    do: if(Ankole.Pod.page_live?(id), do: :ok, else: {:error, :page_trashed})
+
   def available(%{type: :applet}), do: {:error, :page_trashed}
   def available(_), do: {:error, :not_found}
 

@@ -1,0 +1,85 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tasks create comment.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "type": "string"
+      },
+      "reply_to_comment_id": {
+        "type": "string"
+      },
+      "resource_id": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "resource_type": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": ["content", "resource_id"],
+    "type": "object"
+  },
+  "name": "tasks_create_comment",
+  "outputSchema": {
+    "properties": {
+      "comment": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "creator": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "reply_to_comment_id": {
+            "type": "string"
+          },
+          "resource_id": {
+            "type": "string"
+          },
+          "resource_type": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  }
+}

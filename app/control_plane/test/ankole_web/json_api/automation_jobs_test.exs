@@ -1,182 +1,114 @@
 defmodule AnkoleWeb.JSONAPI.AutomationJobsTest do
-  @moduledoc "Checks the automation job routes of `/api/v2`."
   use AnkoleWeb.ConnCase, async: false
-
   import Ecto.Query
-  import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
-
-  alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
-  alias Ankole.AuthZ.Grant
-  alias Ankole.AutomationJobs
-  alias Ankole.Repo
-  alias Ankole.Setup.Config, as: SetupConfig
-
-  @json_api "application/vnd.api+json"
+  alias Ankole.{AutomationJobs, Repo}
 
   setup do
-    Registry.clear_for_test()
+    Ankole.AppConfigure.Registry.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
 
-    :ok = SetupConfig.delete_bootstrap_activation_code()
+    :ok = Ankole.Setup.Config.delete_bootstrap_activation_code()
     :ok
   end
 
-  test "admin reads the jobs of all Agents or of one Agent, and the runs of one job",
-       %{conn: conn} do
-    %{principal: agent} = agent_fixture()
-    %{principal: other_agent} = agent_fixture()
-    source = source_event!(agent.uid)
-    other_source = source_event!(agent.uid)
+  test "Console inspects Page Jobs and their results directly by Job ID", %{conn: conn} do
+    human = human_fixture().principal
 
-    job = create_job!(agent.uid, source, "Console test consumer")
-    other_session_job = create_job!(agent.uid, other_source, "Second session consumer")
-    foreign_job = create_job!(other_agent.uid, source_event!(other_agent.uid), "Foreign")
+    job =
+      Ankole.WorkFixtures.applet_job(human.uid, %{
+        label: "Console Action",
+        authorization_kind: "human"
+      })
 
-    assert {:ok, %{automation_job_run: run}} =
-             Repo.transact(fn ->
-               Ankole.WorkFixtures.dispatch_job_in_tx(job, %{
-                 "specversion" => "1.0",
-                 "id" => "console-trigger",
-                 "source" => "test://console",
-                 "type" => "test.triggered",
-                 "data" => %{}
-               })
-             end)
+    other = Ankole.WorkFixtures.applet_job(human.uid)
 
-    assert {:ok, _worker} =
-             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
-               worker_id: agent.uid
-             })
+    {:ok, %{automation_job_run: queued}} =
+      Repo.transact(fn ->
+        Ankole.WorkFixtures.dispatch_job_in_tx(job, %{
+          "id" => "console",
+          "type" => "manual",
+          "data" => %{}
+        })
+      end)
 
-    assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(run.id)
+    assert {:ok, %{run: running}} = AutomationJobs.start_applet_attempt(queued.id, 0)
 
-    assert {:ok, _run} =
-             AutomationJobs.finish_attempt(run.id, attempt.attempt_id, %{
+    assert {:ok, _} =
+             AutomationJobs.finish_attempt(running.id, running.attempt_id, %{
                status: "succeeded",
-               exit_code: 0,
-               stdout: "checked",
-               stderr: ""
+               result: %{"checked" => true},
+               stdout: "Synced 3 rows.\n",
+               stderr: "Provider warning.\n",
+               stdout_truncated: true
              })
 
     conn = console_conn(conn)
+    list = conn |> request("/api/v2/automation-jobs") |> json_response(200)
 
-    everything = conn |> request("/api/v2/automation-jobs") |> json_response(200)
+    assert MapSet.new(list["data"], & &1["id"]) ==
+             MapSet.new([to_string(job.id), to_string(other.id)])
 
-    assert MapSet.new(everything["data"], & &1["id"]) ==
-             MapSet.new(Enum.map([job, other_session_job, foreign_job], &to_string(&1.id)))
+    detail = conn |> request("/api/v2/automation-jobs/#{job.id}") |> json_response(200)
+    assert detail["data"]["attributes"]["page_id"] == job.page_id
+    assert detail["data"]["attributes"]["action_key"] == "work"
+    assert detail["data"]["attributes"]["human_uid"] == human.uid
+    refute Map.has_key?(detail["data"]["attributes"], "agent_uid")
+    runs = conn |> request("/api/v2/automation-jobs/#{job.id}/runs") |> json_response(200)
 
-    list =
-      conn
-      |> request("/api/v2/automation-jobs?agent=#{agent.uid}&page[limit]=1")
-      |> json_response(200)
+    assert [%{"attributes" => %{"status" => "succeeded", "result" => %{"checked" => true}}}] =
+             runs["data"]
 
-    assert [%{"id" => newest, "type" => "automation_job", "attributes" => attributes}] =
-             list["data"]
-
-    assert newest == to_string(other_session_job.id)
-    assert attributes["owner_session_id"] == other_source.session_id
-    assert attributes["status"] == "active"
-    refute Map.has_key?(attributes, "human_uid")
-
-    detail =
-      conn
-      |> request("/api/v2/agents/#{agent.uid}/automation-jobs/#{job.id}")
-      |> json_response(200)
-
-    assert detail["data"]["attributes"]["label"] == "Console test consumer"
-
-    runs =
-      conn
-      |> request("/api/v2/agents/#{agent.uid}/automation-jobs/#{job.id}/runs")
-      |> json_response(200)
-
-    assert [%{"attributes" => %{"status" => "succeeded", "stdout" => "checked"}}] = runs["data"]
-
-    assert %{"data" => []} =
-             conn
-             |> request("/api/v2/agents/#{other_agent.uid}/automation-jobs/#{job.id}/runs")
-             |> json_response(200)
-
-    assert %{"errors" => [%{"status" => "404"}]} =
-             conn
-             |> request("/api/v2/agents/#{other_agent.uid}/automation-jobs/#{job.id}")
-             |> json_response(404)
+    attributes = hd(runs["data"])["attributes"]
+    assert attributes["event"] == queued.event
+    assert attributes["started_at"] == DateTime.to_iso8601(running.started_at)
+    assert {:ok, _, 0} = DateTime.from_iso8601(attributes["finished_at"])
+    assert attributes["stdout"] == "Synced 3 rows.\n"
+    assert attributes["stderr"] == "Provider warning.\n"
+    assert attributes["stdout_truncated"] == true
+    assert attributes["stderr_truncated"] == false
   end
 
-  test "job detail needs the read grant of the owning Agent", %{conn: conn} do
-    %{principal: agent} = agent_fixture()
-    %{principal: other_agent} = agent_fixture()
-    job = create_job!(agent.uid, source_event!(agent.uid), "Permission test consumer")
-    {conn, admin_uid} = console_conn_with_principal(conn)
-    path = "/api/v2/agents/#{agent.uid}/automation-jobs/#{job.id}"
+  test "Job detail requires the tenant-wide Job inspection permission", %{conn: conn} do
+    human = human_fixture().principal
+    job = Ankole.WorkFixtures.applet_job(human.uid)
+    {conn, uid} = console_conn_with_principal(conn)
 
     for {pattern, status} <- [
-          {"site_console:agent:#{agent.uid}:automation_jobs", 200},
-          {"site_console:automation_jobs", 403},
-          {"site_console:agent:#{other_agent.uid}:automation_jobs", 403}
+          {"site_console:automation_jobs", 200},
+          {"site_console:agent:someone:automation_jobs", 403}
         ] do
       Repo.delete_all(
-        from grant in Grant,
+        from g in Ankole.AuthZ.Grant,
           where:
-            grant.resource_pattern in ["site_console:**", "tenant_console:**"] or
-              grant.principal_uid == ^admin_uid
+            g.resource_pattern in ["site_console:**", "tenant_console:**"] or
+              g.principal_uid == ^uid
       )
 
-      assert {:ok, _grant} =
-               AuthZ.create_permission_grant(%{
-                 principal_uid: admin_uid,
+      assert {:ok, _} =
+               Ankole.AuthZ.create_permission_grant(%{
+                 principal_uid: uid,
                  resource_pattern: pattern,
                  action: "read",
                  condition: "true",
                  metadata: %{}
                })
 
-      assert conn |> request(path) |> json_response(status)
+      assert conn |> request("/api/v2/automation-jobs/#{job.id}") |> json_response(status)
     end
   end
 
   test "missing browser session is rejected", %{conn: conn} do
-    assert conn |> get(~p"/api/v2/automation-jobs") |> json_response(401)
+    assert conn |> get("/api/v2/automation-jobs") |> json_response(401)
   end
 
   defp request(conn, path) do
     conn
     |> recycle_api()
-    |> put_req_header("accept", @json_api)
-    |> put_req_header("content-type", @json_api)
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
     |> get(path)
-  end
-
-  defp create_job!(agent_uid, source, label) do
-    drive_file_fixture(agent_uid, "automation/console-test/main.ts")
-
-    assert {:ok, job} =
-             AutomationJobs.create_job(%{
-               agent_uid: agent_uid,
-               owner_session_id: source.session_id,
-               source_signal_id: source.id,
-               provider_message_id: source.provider_message_id,
-               source_provenance: %{"kind" => "console-test"},
-               reply_route: %{
-                 "binding_name" => source.reply_binding_name,
-                 "conversation_id" => source.conversation_id
-               },
-               drive_prefix: "automation/console-test",
-               label: label,
-               wake_on_failure: true
-             })
-
-    job
-  end
-
-  defp source_event!(agent_uid) do
-    Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid,
-      binding_name: "github",
-      source: "test://webhook-source"
-    )
   end
 end

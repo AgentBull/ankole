@@ -58,7 +58,7 @@ Ankole 只需要按实际启用的接入方式开放极少数入站端口，绝�
 
 ## 面 6：Worker 容器、Function Runtime 与控制面
 
-每个 Agent 都独享专属的 Worker 容器或 Pod，不同 Agent 之间绝不混用 Worker 实例、缓存卷或运行凭据。与此同时，无状态的 TypeScript 程序（包括 Workflow、程序化工具调用 PTC 及 Applet 后端函数）统一运行在独立的 `ankole-function-runtime` 服务中，既不持有数据库连接凭证，也不挂载 Kubernetes ServiceAccount 令牌。在 Worker 侧，容器本身即为安全隔离边界：终端命令、Codex `app-server`、自动化脚本及无头浏览器均在容器内以普通 Worker 用户身份直接运行，不设额外的嵌套沙箱；所有 Agent 子进程统一以非特权用户 `uid 1000` 运行，剥离全部 Linux Capabilities 且不提供 `sudo` 权限。
+每个 Agent 都独享专属的 Worker 容器或 Pod，不同 Agent 之间绝不混用 Worker 实例、缓存卷或运行凭据。与此同时，无状态的 TypeScript 程序（包括 Workflow、程序化工具调用 PTC 及 Applet 后端函数）统一运行在独立的 `ankole-function-runtime` 服务中，既不持有数据库连接凭证，也不挂载 Kubernetes ServiceAccount 令牌。在 Worker 侧，容器本身即为安全隔离边界：终端命令、Codex `app-server`及无头浏览器均在容器内以普通 Worker 用户身份直接运行，不设额外的嵌套沙箱；所有 Agent 子进程统一以非特权用户 `uid 1000` 运行，剥离全部 Linux Capabilities 且不提供 `sudo` 权限。
 
 - **非特权用户运行。** 命令以 `uid 1000` 身份执行且无 `sudo`，因此 Agent 可在自身主目录（Home）内安装用户态工具，但无法篡改系统级软件包。同一 Agent 名下的不同 Session 共享该 Agent 容器内的文件系统与进程空间。
 - **Worker 连接凭据严格绑定单代单实例。** Worker 启动后仅在内存中持有连接凭据，并在拉起子进程命令前将其从环境变量中剔除；无论是其他 Agent 的凭据，还是旧一代已被替换淘汰的 Worker 凭据，都无法通过控制面校验。

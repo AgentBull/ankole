@@ -661,6 +661,19 @@ defmodule Ankole.Pod.Pages.Tree do
     Node |> Ash.Query.filter(is_acl_anchor and is_nil(deleted_at)) |> Ankole.Ash.read!()
   end
 
+  def page_live?(id) do
+    ids = [id | ancestor_ids([id])]
+
+    pages =
+      Node
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.Query.select([:id, :deleted_at, :purge_started_at])
+      |> Ankole.Ash.read!()
+
+    Enum.any?(pages, &(&1.id == id)) and
+      Enum.all?(pages, &(is_nil(&1.deleted_at) and is_nil(&1.purge_started_at)))
+  end
+
   def ancestor_ids(ids) do
     Repo.query!(
       """

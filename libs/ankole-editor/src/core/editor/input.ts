@@ -54,6 +54,9 @@ export const eventObserver = GardState.Facet.define<
   }
 })
 
+/** @internal Runs after the core ends composition and leaves the current DOM flush. */
+export const compositionComplete = GardState.Facet.define<(wg: Wordgard) => void>()
+
 type InputEventData = {
   inputType: string
   data: string | null
@@ -88,6 +91,11 @@ export class InputState {
   composing: null | { changes: number; target: Text | null } = null
   // End time of the previous composition
   compositionEndedAt = 0
+  private compositionCompletionPending = false
+  /** @internal Native input ended, but the model still needs this composition's completion. */
+  get compositionPending() {
+    return this.compositionCompletionPending
+  }
   // Used in a kludge to detect when an Enter keypress should be
   // considered part of the composition on Safari, which fires events
   // in the wrong order
@@ -128,8 +136,12 @@ export class InputState {
   }
 
   handleEvent(event: Event) {
-    if (this.suppressEvents) return
+    if (this.suppressEvents || !this.wg.connected) return
     if (!eventBelongsToEditor(this.wg, event) || this.ignoreDuringComposition(event)) return
+    if (this.compositionCompletionPending) {
+      this.wg.flush()
+      this.finishComposition()
+    }
     if (event.type == 'keydown' && this.keydown(event as KeyboardEvent)) return
     if (event.type == 'keyup' && (event as KeyboardEvent).keyCode == 16) this.shiftKey = false
     if (event.type == 'beforeinput') {
@@ -481,6 +493,7 @@ export class InputState {
   clearComposition() {
     const comp = this.composing!
     this.composing = null
+    this.compositionCompletionPending = true
     this.compositionPendingKey = true
     this.compositionEndedAt = Date.now()
     if (!comp.target) return false
@@ -490,6 +503,19 @@ export class InputState {
     const pos = this.posAtDOM(comp.target, 0, 1)
     this.wg.observer.addDirtyRange(pos, pos + comp.target.nodeValue!.length)
     return true
+  }
+
+  /** @internal Complete local input before another user action or a network send can take ownership. */
+  finishComposition() {
+    if (!this.compositionCompletionPending || !this.wg.connected || this.wg.isFlushing) return
+    this.compositionCompletionPending = false
+    for (const complete of this.wg.state.facet(compositionComplete)) {
+      try {
+        complete(this.wg)
+      } catch (error) {
+        logException(this.wg.state, error, 'composition completion')
+      }
+    }
   }
 
   abortComposition() {
@@ -516,9 +542,17 @@ export class InputState {
 
   connect() {
     this.ensureHandlers(this.wg.state)
+    if (this.compositionCompletionPending) {
+      // Reconnecting resets the native caret. Draw the accepted model selection before reading it.
+      if (!this.wg.isFlushing) this.wg.dispatch({ selection: this.wg.state.selection })
+      this.wg.scheduleFlush()
+    }
   }
 
   disconnect() {
+    this.compositionCompletionPending ||= !!this.composing
+    this.composing = null
+    this.pendingInputEvent = null
     if (this.mouseSelection) this.mouseSelection.disconnect()
   }
 }
@@ -917,6 +951,7 @@ export type CompositionInfo = {
 
 function compositionEnd(wg: Wordgard) {
   if (wg.inputState.composing && wg.inputState.clearComposition()) wg.flush()
+  wg.inputState.finishComposition()
 }
 
 function compositionUpdate(wg: Wordgard, event: CompositionEvent) {

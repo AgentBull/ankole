@@ -1,0 +1,306 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a reply for a review comment",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "body": {
+        "type": "string"
+      },
+      "comment_id": {
+        "type": "integer"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "pull_number": {
+        "type": "integer"
+      },
+      "repo": {
+        "type": "string"
+      }
+    },
+    "required": ["owner", "repo", "pull_number", "comment_id", "body"],
+    "type": "object"
+  },
+  "name": "pulls_reply_review_comment",
+  "outputSchema": {
+    "properties": {
+      "_links": {
+        "properties": {
+          "html": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          },
+          "pull_request": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          },
+          "self": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          }
+        },
+        "required": ["self", "html", "pull_request"],
+        "type": "object"
+      },
+      "author_association": {
+        "enum": [
+          "COLLABORATOR",
+          "CONTRIBUTOR",
+          "FIRST_TIMER",
+          "FIRST_TIME_CONTRIBUTOR",
+          "MANNEQUIN",
+          "MEMBER",
+          "NONE",
+          "OWNER"
+        ],
+        "type": "string"
+      },
+      "body": {
+        "type": "string"
+      },
+      "body_html": {
+        "type": "string"
+      },
+      "body_text": {
+        "type": "string"
+      },
+      "commit_id": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string"
+      },
+      "diff_hunk": {
+        "type": "string"
+      },
+      "html_url": {
+        "type": "string"
+      },
+      "id": {
+        "type": "integer"
+      },
+      "in_reply_to_id": {
+        "type": "integer"
+      },
+      "line": {
+        "type": "integer"
+      },
+      "node_id": {
+        "type": "string"
+      },
+      "original_commit_id": {
+        "type": "string"
+      },
+      "original_line": {
+        "type": "integer"
+      },
+      "original_position": {
+        "type": "integer"
+      },
+      "original_start_line": {
+        "type": ["integer", "null"]
+      },
+      "path": {
+        "type": "string"
+      },
+      "position": {
+        "type": "integer"
+      },
+      "pull_request_review_id": {
+        "type": ["integer", "null"]
+      },
+      "pull_request_url": {
+        "type": "string"
+      },
+      "reactions": {
+        "properties": {
+          "+1": {
+            "type": "integer"
+          },
+          "-1": {
+            "type": "integer"
+          },
+          "confused": {
+            "type": "integer"
+          },
+          "eyes": {
+            "type": "integer"
+          },
+          "heart": {
+            "type": "integer"
+          },
+          "hooray": {
+            "type": "integer"
+          },
+          "laugh": {
+            "type": "integer"
+          },
+          "rocket": {
+            "type": "integer"
+          },
+          "total_count": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": ["url", "total_count", "+1", "-1", "laugh", "confused", "heart", "hooray", "eyes", "rocket"],
+        "type": "object"
+      },
+      "side": {
+        "enum": ["LEFT", "RIGHT"],
+        "type": "string"
+      },
+      "start_line": {
+        "type": ["integer", "null"]
+      },
+      "start_side": {
+        "enum": ["LEFT", "RIGHT"],
+        "type": ["string", "null"]
+      },
+      "subject_type": {
+        "enum": ["line", "file"],
+        "type": "string"
+      },
+      "updated_at": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      },
+      "user": {
+        "properties": {
+          "avatar_url": {
+            "type": "string"
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "events_url": {
+            "type": "string"
+          },
+          "followers_url": {
+            "type": "string"
+          },
+          "following_url": {
+            "type": "string"
+          },
+          "gists_url": {
+            "type": "string"
+          },
+          "gravatar_id": {
+            "type": ["string", "null"]
+          },
+          "html_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": ["string", "null"]
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "organizations_url": {
+            "type": "string"
+          },
+          "received_events_url": {
+            "type": "string"
+          },
+          "repos_url": {
+            "type": "string"
+          },
+          "site_admin": {
+            "type": "boolean"
+          },
+          "starred_at": {
+            "type": "string"
+          },
+          "starred_url": {
+            "type": "string"
+          },
+          "subscriptions_url": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "user_view_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "avatar_url",
+          "events_url",
+          "followers_url",
+          "following_url",
+          "gists_url",
+          "gravatar_id",
+          "html_url",
+          "id",
+          "node_id",
+          "login",
+          "organizations_url",
+          "received_events_url",
+          "repos_url",
+          "site_admin",
+          "starred_url",
+          "subscriptions_url",
+          "type",
+          "url"
+        ],
+        "type": ["object", "null"]
+      }
+    },
+    "required": [
+      "url",
+      "id",
+      "node_id",
+      "pull_request_review_id",
+      "diff_hunk",
+      "path",
+      "commit_id",
+      "original_commit_id",
+      "user",
+      "body",
+      "created_at",
+      "updated_at",
+      "html_url",
+      "pull_request_url",
+      "author_association",
+      "_links"
+    ],
+    "type": "object"
+  }
+}

@@ -147,7 +147,10 @@ defmodule Ankole.Schedule.Fire do
   end
 
   defp fire_locked_cron_in_tx(schedule, now, plan) do
-    case Cron.validate_fire_schedule(schedule) do
+    case if(Ankole.AutomationJobs.JobSources.live?(schedule),
+           do: Cron.validate_fire_schedule(schedule),
+           else: {:cancel, :page_trashed}
+         ) do
       :ok ->
         with {:ok, event} <-
                insert_cron_history(
@@ -166,7 +169,7 @@ defmodule Ankole.Schedule.Fire do
 
       {:cancel, reason} ->
         with {:ok, event} <- insert_cron_history(schedule, now, :cancelled, reason),
-             {:ok, _schedule} <- Cron.advance_after_fire(schedule, event.cron_fire_slot_at, now) do
+             {:ok, _schedule} <- Cron.advance_after_terminal_failure(schedule, now) do
           {:ok, %{status: :cancelled, scheduled_event: event}}
         end
     end
@@ -356,11 +359,13 @@ defmodule Ankole.Schedule.Fire do
          opts
        ) do
     with %CronSchedule{} = schedule <- schedule,
+         true <- Ankole.AutomationJobs.JobSources.live?(schedule),
          :ok <- Cron.validate_fire_schedule(schedule),
          {:ok, delivery} <- deliver_scheduled_event(event, now, opts[:dispatch]),
          {:ok, event} <- mark_event_fired(event, delivery, now) do
       {:ok, fire_result(event, delivery)}
     else
+      false -> mark_event_cancelled(event, now, :page_trashed)
       nil -> mark_event_cancelled(event, now, :cron_schedule_not_found)
       {:cancel, reason} -> mark_event_cancelled(event, now, reason)
       {:error, _reason} = error -> error
@@ -436,22 +441,25 @@ defmodule Ankole.Schedule.Fire do
       "subject" => "schedule:#{event.id}",
       "time" => DateTime.to_iso8601(now),
       "type" => signal_type(event),
-      "data" => %{
-        "scheduled_event_id" => event.id,
-        "due_at" => DateTime.to_iso8601(event.due_at),
-        "fired_at" => DateTime.to_iso8601(now),
-        "timezone" => event.timezone,
-        "cron_schedule_id" => event.cron_schedule_id,
-        "cron_fire_slot_at" => Planner.datetime(event.cron_fire_slot_at),
-        "wake_payload" => event.wake_payload || %{},
-        "reply_route" =>
-          Attrs.reject_nil_values(%{
-            "binding_name" => event.binding_name,
-            "conversation_id" => event.conversation_id,
-            "provider_thread_id" => event.provider_thread_id,
-            "provider_message_id" => event.provider_message_id
-          })
-      }
+      "data" =>
+        Map.merge(get_in(event.wake_payload || %{}, ["payload"]) || %{}, %{
+          "trigger" => event.wake_payload["trigger"],
+          "cron_schedule_name" => event.wake_payload["cron_schedule_name"],
+          "scheduled_event_id" => event.id,
+          "due_at" => DateTime.to_iso8601(event.due_at),
+          "fired_at" => DateTime.to_iso8601(now),
+          "timezone" => event.timezone,
+          "cron_schedule_id" => event.cron_schedule_id,
+          "cron_fire_slot_at" => Planner.datetime(event.cron_fire_slot_at),
+          "wake_payload" => event.wake_payload || %{},
+          "reply_route" =>
+            Attrs.reject_nil_values(%{
+              "binding_name" => event.binding_name,
+              "conversation_id" => event.conversation_id,
+              "provider_thread_id" => event.provider_thread_id,
+              "provider_message_id" => event.provider_message_id
+            })
+        })
     }
   end
 

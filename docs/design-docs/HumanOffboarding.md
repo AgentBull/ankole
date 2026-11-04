@@ -36,6 +36,7 @@ without automatic detection.
 | Principals | Store Human access state, disable reasons, identity links, and the persistent revocation fact. |
 | AuthZ | Decide permissions, authorize administrator operations. |
 | Console and OIDC authentication | Reject disabled Humans and revoked credentials at their own request boundaries. |
+| Connectors | Revoke personal external grants with the Human access version and reconcile their resource subscriptions. |
 | OIDC | Provide standard logout notifications and Introspection, and own Client/session records and notification delivery. |
 | Signals, Sessions, Schedule, Background Agent Jobs, Workflow, and Automation Jobs | Store the Human association of work, check it at execution admission, and stop future execution. |
 | Agent Computer | Execute admitted attempts through the Worker contract. It does not own Human status or a separate permission list. |
@@ -103,6 +104,13 @@ contact identifiers even if an earlier suspension already disabled the account,
 recording the released identifier keys in the audit log. When a user later tries
 to claim a recyclable contact identifier, Ankole verifies that the verification
 ceremony started after the identifier's most recent release timestamp.
+
+Connectors revokes the Human's personal OAuth accounts in the disable transaction,
+incrementing their credential versions and clearing refresh leases. A refresh
+already in flight cannot restore the revoked grant. Gateway calls check the
+current Human access version and account status. Resource subscriptions stop
+through reconciliation; teardown can use the last token to unsubscribe without
+restoring authorization. Restoring membership requires a fresh personal grant.
 
 Every login method and work item belonging to a Human checks the same
 `access_version`; see [Authentication](Authentication.md) for credential release
@@ -402,7 +410,7 @@ its own start check, and is rejected.
 | Queued Human input, Turn, Background Agent Job, or Workflow task | End pending execution with the owner's stopped or cancelled result. |
 | Checkback | Cancel its pending wake-up. |
 | Cron schedule | Pause the rule and cancel pending fires; permit no further automatic or manual execution under its old authorization. |
-| Automation Job | Cancel the definition and queued runs; permit no new trigger consumption under its old authorization. |
+| Automation Job | Cancel the definition and queued runs; pause its owned cron rules and Webhooks; permit no new trigger consumption under its old authorization. |
 | Running attempt | Retain its completion rights and results; do not request an offboarding interrupt. |
 | Retry, resumed attempt, Workflow continuation, or separately dispatched child | Check again and reject the invalid Human authorization. |
 | Pending Human approval or confirmation | Reject that Human's response; another authorized Human must make a new decision. |

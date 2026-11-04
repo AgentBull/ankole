@@ -205,10 +205,16 @@ defmodule Ankole.IdentityProviders.ObservationTest do
       assert AuthZ.allowed?(uid, "workspace:presence", "read", %{})
 
       if adapter == "wecom" do
-        # A fresh provider has genuinely no stored secret; editing an existing
-        # provider intentionally preserves omitted secrets in the Console API.
+        # A different external application has no directory secret. Providers
+        # for the same application share credentials through the tenant vault.
         no_secret_provider = "wecom-without-contacts"
-        config = config |> Map.delete("contactsSecret") |> Map.put("sync", %{"contacts" => false})
+
+        config =
+          config
+          |> Map.put("agentId", "1000003")
+          |> Map.delete("contactsSecret")
+          |> Map.put("sync", %{"contacts" => false})
+
         assert {:ok, _} = IdentityProviders.save_provider(no_secret_provider, adapter, config)
 
         assert {:ok, no_secret_group} =

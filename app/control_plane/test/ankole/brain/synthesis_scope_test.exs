@@ -93,6 +93,37 @@ defmodule Ankole.Brain.SynthesisScopeTest do
     refute prompt =~ "Second renewal evidence"
   end
 
+  test "synthesis sends temporal claim evidence as JSON and persists the analysis", ctx do
+    evidence = source(ctx.agent.uid, ctx.alice.uid, "Temporal")
+    valid_from = ~U[2026-01-01 00:00:00Z]
+
+    assert {:ok, %{claim: claim}} =
+             Ankole.Brain.write_fact(
+               %{
+                 subject_page_id: page_id("companies/acme"),
+                 source_node_id: evidence.id,
+                 claim: "Acme renewal starts on the first day of 2026",
+                 kind: "fact",
+                 holder: "world",
+                 notability: "medium",
+                 confidence: 0.75,
+                 valid_from: valid_from,
+                 provenance: "Synthesis regression"
+               },
+               ctx.agent.uid
+             )
+
+    assert {:ok, result} = Synthesis.synthesize(ctx.agent.uid, "Acme renewal")
+    assert evidence.id in result.source_node_ids
+    assert {:ok, page} = Objects.get_by_slug(result.page_id)
+    assert page.meta["role"] == "synthesis"
+    assert page.body == @analysis_body
+    assert_receive {:synthesis_request, request}
+    prompt = request["messages"] |> List.first() |> Map.fetch!("content")
+    assert prompt =~ claim.id
+    assert prompt =~ DateTime.to_iso8601(claim.valid_from)
+  end
+
   defp source(agent_uid, reader_uid, label) do
     {:ok, page} =
       page_fixture_result(

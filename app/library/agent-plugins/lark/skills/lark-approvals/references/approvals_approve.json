@@ -1,0 +1,36 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Approvals approve.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval_code": {
+        "type": "string"
+      },
+      "comment": {
+        "type": "string"
+      },
+      "form": {
+        "type": "string"
+      },
+      "instance_code": {
+        "type": "string"
+      },
+      "task_id": {
+        "type": "string"
+      }
+    },
+    "required": ["approval_code", "instance_code", "task_id"],
+    "type": "object"
+  },
+  "name": "approvals_approve",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

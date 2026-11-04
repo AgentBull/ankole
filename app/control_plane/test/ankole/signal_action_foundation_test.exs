@@ -85,80 +85,47 @@ defmodule Ankole.SignalActionFoundationTest do
     assert {:ok, _} = AutomationJobs.start_applet_attempt(tail, 0)
   end
 
-  test "a script's emitted event reaches its owner and an Action in one fanout", ctx do
-    publish_applet_fixture(
-      ctx,
-      "export default {actions:{work:{idempotent:true,handler:async()=>1}}}"
-    )
+  test "a native Job schedule fans out to its Action and an explicitly subscribed Agent", ctx do
+    publish_applet_fixture(ctx, "export default {actions:{work:{idempotent:true,handler:()=>1}}}")
 
-    {:ok, action} =
+    {:ok, job} =
       AutomationJobs.create_applet_job(ctx.actor, ctx.page.id, "work", %{
         authorization_kind: "service"
       })
 
     %{principal: agent} = Ankole.SessionsCase.agent_fixture()
     source = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
-    Ankole.FilesFixtures.drive_file_fixture(agent.uid, "automation/fanout/main.ts")
+    Ankole.ConversationsFixtures.grant_chat(ctx.actor.principal.uid, agent.uid)
 
-    {:ok, script} =
-      AutomationJobs.create_job(%{
-        agent_uid: agent.uid,
-        owner_session_id: source.session_id,
-        source_signal_id: source.id,
-        source_provenance: %{},
-        drive_prefix: "automation/fanout",
-        label: "Emitter",
-        authorization_kind: "service",
-        reply_route: %{
-          "binding_name" => source.reply_binding_name,
-          "conversation_id" => source.conversation_id
-        }
+    {:ok, cron} =
+      AutomationJobs.JobSources.schedules(ctx.actor, ctx.page.id, job.id, :put, %{
+        name: "fanout",
+        schedule: %{kind: "cron", expression: "*/10 * * * *"},
+        timezone: "Etc/UTC",
+        payload: %{mode: "fanout"}
       })
 
-    agent_actor = actor_fixture(agent.uid)
-
-    {:ok, _} =
-      Ankole.Pod.PagesFixtures.set_sharing(ctx.actor.principal.uid, ctx.page.id, %{
-        inherit_permissions: false,
-        grants: [%{principal_uid: agent.uid, role: "contribute"}]
-      })
-
-    {:ok, binding} =
-      Signals.put_event_binding(agent_actor, %{
-        config_ref: "job://#{script.id}",
-        automation_job_id: action.id
-      })
-
-    {:ok, %{automation_job_run: queued}} =
-      Repo.transact(fn ->
-        Ankole.WorkFixtures.dispatch_job_in_tx(script, %{
-          "id" => "start",
-          "source" => "test",
-          "type" => "test",
-          "data" => %{}
-        })
-      end)
-
-    {:ok, _} =
-      Ankole.SessionsCase.admit_worker("emit-foundation-#{agent.uid}", %{worker_id: agent.uid})
-
-    {:ok, %{run: running}} = AutomationJobs.start_attempt(queued.id)
-
-    assert {:ok, emitted} =
-             AutomationJobs.emit_event(agent.uid, running.id, running.attempt_id, %{
-               "changed" => true
+    assert {:ok, _} =
+             Signals.put_event_binding(ctx.actor, %{
+               config_ref: "schedule://#{cron.id}",
+               agent_uid: agent.uid,
+               target: %{session_id: source.session_id}
              })
 
-    assert emitted.session_id == source.session_id
-    assert emitted.source == "ankole:job:#{script.id}"
+    assert {:ok, %{signals: [signal], deliveries: receipts}} =
+             Ankole.Schedule.fire_cron(cron.id, now: cron.next_fire_at)
 
-    [receipt] =
-      Ankole.Ash.read!(Ash.Query.filter(Signals.BindingReceipt, binding_id == ^binding.id))
+    assert signal.session_id == source.session_id
+    assert length(receipts) == 2
 
-    run = AutomationJobs.get_run_record(receipt.automation_job_run_id)
-    assert run.automation_job_id == action.id
-    assert run.event["source"] == emitted.source
-    assert run.event["data"]["payload"] == %{"changed" => true}
+    run =
+      Enum.find_value(receipts, fn receipt ->
+        receipt.automation_job_run_id &&
+          AutomationJobs.get_run_record(receipt.automation_job_run_id)
+      end)
+
+    assert run.automation_job_id == job.id
+    assert run.event["data"]["mode"] == "fanout"
   end
 
   test "a revoked personal subscription does not block the other targets of its source", ctx do
@@ -290,6 +257,7 @@ defmodule Ankole.SignalActionFoundationTest do
     %{principal: agent} = agent_fixture(owner_principal_uid: personal.principal.uid)
     Ankole.ConversationsFixtures.grant_chat(personal.principal.uid, agent.uid)
     source = Ankole.WorkFixtures.service_source(agent.uid)
+    Ankole.SessionsCase.stub_driver(%{agent_uid: agent.uid, session_id: source.session_id})
 
     publish_applet_fixture(ctx, """
     const emit=()=>AnkoleRuntime.admin.signals.emit({type:'authority.changed'});

@@ -1,7 +1,7 @@
 import { describe, it } from 'bun:test'
 import ist from 'ist'
 import { GardState, Correction } from '../../src/core/state'
-import { Leaf } from '../../src/core/doc'
+import { ChangeSet, Leaf } from '../../src/core/doc'
 import { Strong, Emphasis, Paragraph } from '../../src/core/types/schema'
 import { Doc, Blockquote } from './types'
 
@@ -9,6 +9,24 @@ import { basicBuilders, eq } from './schema'
 const { doc, p, blockquote, h1, $img, em } = basicBuilders
 
 describe('Correction', () => {
+  it('passes local transaction context while explicit correction checks still normalize', () => {
+    const correction = Correction.onChildList(Paragraph, (node, transaction) => {
+      if (transaction?.isUserEvent('input.type.compose.start')) return null
+      return node.node.contentLength ? null : { from: node.start, insert: [Leaf.text('.')] }
+    })
+    const before = doc(p('a'))
+    const changes = ChangeSet.create(before, { from: 1, to: 2 })
+    const state = GardState.create({ doc: before, config: correction }).update({
+      changes,
+      userEvent: 'input.type.compose.start'
+    }).state
+    ist(state.doc, doc(p()), eq)
+    const checked = Correction.check(changes, state.doc, [correction], before)
+    ist(checked)
+    ist(checked!.apply(state.doc), doc(p('.')), eq)
+    ist(correction.scan(state)!.newDoc, doc(p('.')), eq)
+  })
+
   it('is notified of child list changes', () => {
     const notified: number[] = []
     let s = GardState.create({

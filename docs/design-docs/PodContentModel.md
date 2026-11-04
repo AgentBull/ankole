@@ -128,7 +128,12 @@ its document origin during wheel and edge scrolling, and Escape cancels the gest
 inside text selects characters.
 Command/Control+A selects the whole document, and Enter edits the first
 selected block at its end. Duplicate, move, delete, and block-menu commands act
-on the selected group. Command/Control+Enter toggles selected tasks together,
+on the selected group. When an IME replaces selected blocks, the browser
+commits the final candidate once and preserves unselected blocks. The editor
+prepares a selected heading or list item before the core records composition.
+A preparatory key event and its first preedit share one undo step even when
+the first text arrives later.
+Command/Control+Enter toggles selected tasks together,
 using the inverse of the first selected task's state. List-type changes affect only the selected items, while
 Undo restores each structural action in one step. The editor specification in
 `libs/ankole-editor/SPEC.md` owns the remaining keyboard and block contracts.
@@ -1031,7 +1036,10 @@ age, including during list, read, restore, write-time pruning, and scheduled
 expiry. Restore commits body and metadata together as a new revision. History
 requires `node_edit`, while current content requires `node_view`.
 `GET /api/v2/pod/pages/:id/knowledge/export` returns canonical OKF Markdown;
-`snapshot_id` selects an authorized historical checkpoint.
+callers omit `snapshot_id` for the current revision or provide it for an authorized
+historical checkpoint. When callers export the current revision or read the
+knowledge panel, Ankole returns `403` if they lack `node_view` and `404` if the
+Page is missing or in trash.
 
 ### Meta Ankole
 
@@ -1042,8 +1050,11 @@ opening a detail route does not expand its ancestors. The disclosure button
 controls expansion separately from the link that opens the module or item.
 Switching sidebar tabs preserves expanded branches. A file-directory label
 expands its branch, and only the current destination receives page highlighting.
+Agent availability updates preserve the user's tab selection and keyboard focus.
 The workspace scrolls beneath the module navigation so long packages and Agent
 contracts remain reachable on desktop and narrow screens.
+Pod hosts serve `/meta` and its descendant paths directly, so opening a link or
+reloading a Meta page enters the same workspace.
 
 Brain opens a graph of visible knowledge objects and directed semantic links.
 People can filter by ontology category or keyword, zoom, pan, open a node and
@@ -1267,6 +1278,9 @@ Whole-document writes and appends require the revision that the Agent read. On a
 revision conflict, the Agent reads the current document before submitting revised
 work. The server publishes an accepted write as an incremental ChangeSet for open
 editors, which transform pending Human edits over it.
+For an incremental write, the browser keeps unconfirmed text once as it
+incorporates the committed changes and submits its rebased batch through the
+collaboration session.
 
 Document participants and selections are ephemeral Phoenix Presence data. The
 server derives participant identity from the authenticated Principal and checks
@@ -1495,12 +1509,20 @@ replacing the live document or undo stack: rejected local edits leave the last
 valid draft editable and show an error, while a remote/local merge that crosses
 a bound preserves the local draft and prompts for explicit reset or reload.
 
+JSON transport allows up to `512` nested containers so that a document at the
+tree-depth limit can carry both a node object and its content array at each
+level, together with the request or replay envelope. The Kernel and control
+plane enforce this transport bound during encoding and decoding; the document
+codec still validates tree depth, node count, and source size before committing.
+Ankole reserves an 8 MiB native stack when document NIFs parse or normalize
+content, generate VFS projections, or merge knowledge.
+
 ### Agent document reads and writes
 
 Agents read business content within the current requester and room disclosure
 boundary. The broker evaluates each reader's conditional grants with the trusted
-ingress IP and RPC surface carried by the executing actor. Autonomous Automation
-Job attempts use the Agent's own permissions and their live attempt fence.
+ingress IP and RPC surface carried by the executing actor. Applet Action attempts use their enabling Human or Page owner and their live
+attempt fence.
 Document reads return Markdown, revision, and resolved `references` metadata
 for any `<mention />` targets visible to the caller via `ankole-pod pages.read`,
 which holds a shared page lock across the content read (and across any revision
@@ -1588,11 +1610,52 @@ re-verify topic membership immediately, while reconnects, tab-visibility
 restores, and a 60-second version poll heal any missed broadcasts. Every
 broadcast reflects state that has already committed in PostgreSQL.
 
-During active IME composition, if a remote text edit shares the composing text
-node's marks, the editor maps both endpoints through pending changes and
-mutates only the affected UTF-16 range in the DOM, preserving native browser
-composition underlines and caret position when earlier text shifts; structural
-edits or mark mismatches cancel composition through the editor's standard path.
+During active IME composition, the client continues receiving revisions,
+acknowledging committed batches, and rebasing in-flight and pending edits.
+The client defers local post-rebase normalization to preserve the composing
+text node and its ancestors, while the editor still validates every incoming
+transaction. When composition ends or is canceled, the editor completes local
+cleanup and normalization in that composition's undo step, without waiting for
+an older request to release the transport slot. The client includes those changes
+in the next batch allowed by its one-in-flight rule.
+
+The editor follows the original composing text block through local and remote
+edits. If the user moves the caret before composition ends, the editor cleans
+that block's column ancestors and any emptied list paragraph while keeping the
+new caret in place. Cross-column text replacements preserve the surviving
+paragraph, heading, or code block's type, attributes, and insertion caret.
+Removing the original text block cancels its pending cleanup.
+A composition with no local text changes preserves an existing empty list
+paragraph. Finishing composition while read-only clears pending cleanup without
+changing the document. If the browser ends composition synchronously while the
+editor draws, completion waits until that draw and its update listeners finish;
+the editor runs cleanup once outside the drawing phase. If preedit returns to
+the original text, the editor keeps
+that composition's undo boundary through remote edits so completion cannot
+join an earlier local edit.
+
+The host can finish an embedded Base configuration asynchronously, such as
+adding a newly created field to the visible fields. If its callback arrives
+during composition, the editor applies the reference update after composition
+cleanup and normalization. Each accepted configuration update keeps its own
+undo step, so undoing it preserves the committed candidate rather than
+restoring preedit text. An update for a removed or disconnected embed does not
+target another embed, and a read-only completion discards pending updates.
+
+Disconnecting an editor ends native composition tracking and discards pending
+browser input metadata. The editor keeps its accepted document, selection, and
+unfinished composition cleanup. While cleanup is pending, collaboration
+continues receiving and rebasing remote changes but defers normalization and
+local submission. Reconnecting schedules a draw with the model's selection,
+then finishes cleanup before accepting subsequent input. Local input and
+collaboration submission can then continue without another composition event.
+
+If a compatible remote text edit shares the composing text node's marks, the
+editor maps both endpoints through pending changes and mutates only the affected
+UTF-16 range in the DOM, preserving native browser composition underlines and
+caret position when earlier text shifts. The editor handles incompatible
+structural edits or marks through its standard composition cancellation and
+draft-recovery paths.
 Finally, the editor host resolves Page `embed` blocks carrying `ref` and
 `ankole:asset/<full-sha256>/<name>` URLs: inserting an inline subpage creates
 the child Page in the tree first, deleting a direct child embed from the block
@@ -2398,7 +2461,11 @@ inherits the original `ctx.principal` and ordinary capability identity. A team
 Job's child therefore has no current user and uses `admin` for owner operations.
 `signals.emit({targetJobId})` durably accepts a same-Page Job and returns its Run
 ID. [Automation Jobs](AutomationJobs.md#applet-actions) defines persistent state,
-serial queues, continuation and authorized progress subscriptions.
+serial queues, continuation and authorized progress subscriptions. Applets use
+`useJobSources(jobID)` to manage Job-owned schedules and Webhooks. These sources
+inherit the Job's Page and work authority, route directly to its Action, and need
+no conversation or Agent. Trash suppresses callbacks and cron slots, restoration
+permits future triggers, and permanent deletion removes sources with their Job.
 
 Browser requests hit `/api/v2/pod/pages/:id/routes/*path` under standard Pod
 session + CSRF checks and must send `x-ankole-applet-revision` (Agent RPC
@@ -2503,8 +2570,9 @@ business write:
   selected ordinary or `admin` execution Principal. Missing `light` configuration
   falls back to primary. An unconfigured slot returns `422 ai_not_configured`,
   invalid model/effort parameters return `422`, and provider failures return `502`.
-- **MCP and files**: `mcp.call` resolves tools through enabled Skills and the
-  selected execution Principal. Server annotations govern GET access and safe
+- **MCP and files**: `mcp.call` selects a Connector Toolkit or an HTTP server
+  from enabled Skills. The Function Runtime host calls the control-plane gateway
+  through MCPorter using the selected execution Principal. Tool annotations govern GET access and safe
   retries; the shared File/HTTP bridge streams large uploads and downloads.
   [MCP-backed Skills](MCPBackedSkills.md#applet-tools-and-streaming-files) defines
   protocol negotiation, JSON limits and unknown upstream outcomes.

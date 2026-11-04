@@ -1,0 +1,45 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Im pin message.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "message_id": {
+        "type": "string"
+      }
+    },
+    "required": ["message_id"],
+    "type": "object"
+  },
+  "name": "im_pin_message",
+  "outputSchema": {
+    "properties": {
+      "pin": {
+        "properties": {
+          "chat_id": {
+            "type": "string"
+          },
+          "create_time": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "operator_id": {
+            "type": "string"
+          },
+          "operator_id_type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  }
+}

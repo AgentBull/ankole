@@ -6,5 +6,8 @@ defmodule Ankole.Schedule.Schemas.CronSchedule.ExecutionSessionId do
 
   @impl true
   def calculate(records, _opts, _context),
-    do: Enum.map(records, &Ankole.Schedule.Cron.execution_session_id(&1.id))
+    do:
+      Enum.map(records, fn record ->
+        if is_nil(record.owner_job_id), do: Ankole.Schedule.Cron.execution_session_id(record.id)
+      end)
 end

@@ -1,6 +1,5 @@
 defmodule Ankole.Sessions.ScheduleToolTest do
   use Ankole.SessionsCase
-  import Ankole.FilesFixtures, only: [drive_file_fixture: 3]
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Context
   alias Ankole.Sessions.ToolCatalog
@@ -151,35 +150,16 @@ defmodule Ankole.Sessions.ScheduleToolTest do
   test "automation cron add accepts absent payload and cron-origin get accepts absent name", %{
     run: run
   } do
-    drive_file_fixture(
-      run.agent_uid,
-      "automation/schedule-tool/main.ts",
-      "export default async function() {}"
-    )
-
-    assert {:ok, automation} =
-             Ankole.AutomationJobs.create_job(%{
-               agent_uid: run.agent_uid,
-               owner_session_id: run.session_id,
-               source_signal_id: run.signal_id,
-               source_provenance: %{"kind" => "test"},
-               reply_route: %{
-                 "binding_name" => run.event.reply_binding_name,
-                 "conversation_id" => run.event.conversation_id
-               },
-               drive_prefix: "automation/schedule-tool",
-               label: "Follow-up automation",
-               wake_on_failure: false
-             })
+    automation = Ankole.WorkFixtures.applet_job(run.agent_uid)
 
     args =
-      cron_args("script") |> Map.delete("payload") |> Map.put("automation_job_id", automation.id)
+      cron_args("action") |> Map.delete("payload") |> Map.put("automation_job_id", automation.id)
 
-    created = invoke(run, "cron", args, "script-cron")
+    created = invoke(run, "cron", args, "action-cron")
     refute created.is_error, inspect(created)
 
     assert {:ok, rule} =
-             Schedule.get_cron_schedule_by_name(run.agent_uid, run.session_id, "script")
+             Schedule.get_cron_schedule_by_name(run.agent_uid, run.session_id, "action")
 
     id = rule.id
     assert rule.payload == %{}
@@ -187,7 +167,35 @@ defmodule Ankole.Sessions.ScheduleToolTest do
 
     assert invoke(origin, "cron", %{"action" => "get"}, "origin-get").details["schedule"][
              "name"
-           ] == "script"
+           ] == "action"
+  end
+
+  test "check_back_later can deliver its default subscription to an Applet Action", %{run: run} do
+    job = Ankole.WorkFixtures.applet_job(run.agent_uid)
+    count = Repo.aggregate(Ankole.Signals.Signal, :count)
+
+    args =
+      checkback_args("Refresh data", "Run the deterministic refresh")
+      |> Map.put("automation_job_id", job.id)
+
+    response = invoke(run, "check_back_later", args, "applet-checkback")
+    refute response.is_error, inspect(response)
+    event = Repo.one!(from e in ScheduledEvent, where: e.source_signal_id == ^run.signal_id)
+
+    assert {:ok, %{automation_job_run: action, signals: []}} =
+             Schedule.fire_due_event(event.id, now: event.due_at)
+
+    assert action.automation_job_id == job.id
+    assert Repo.aggregate(Ankole.Signals.Signal, :count) == count
+
+    assert :ok =
+             Ankole.AutomationJobs.Jobs.ExecuteRun.run(%Oban.Job{
+               args: %{"automation_job_run_id" => action.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    assert Ankole.AutomationJobs.get_run_record(action.id).status == :succeeded
   end
 
   defp invoke(run, name, args, id) do

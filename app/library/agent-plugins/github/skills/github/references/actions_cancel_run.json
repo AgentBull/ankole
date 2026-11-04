@@ -1,0 +1,31 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Cancel a workflow run",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "owner": {
+        "type": "string"
+      },
+      "repo": {
+        "type": "string"
+      },
+      "run_id": {
+        "type": "integer"
+      }
+    },
+    "required": ["owner", "repo", "run_id"],
+    "type": "object"
+  },
+  "name": "actions_cancel_run",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+  }
+}

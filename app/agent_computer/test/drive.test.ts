@@ -6,7 +6,6 @@ import { startDriveCLIBridge } from '../src/cli/drive/drive-cli-bridge'
 import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
 import { commandFromArgs } from '../src/cli/drive/drive-cli'
 import { assertDrivePath, Drive, maxFilesPerPut } from '../src/drive/drive'
-import { downloadFolder } from '../src/drive/folder-sync'
 import { FakeDrive } from './support/fake-drive'
 
 function withAgentHome(run: (agentHome: string) => Promise<void>): Promise<void> {
@@ -89,45 +88,6 @@ describe('drive folders', () => {
         }
       })
       await expect(drive.list('script')).rejects.toThrow('changed during listing')
-    }))
-
-  it('does not return a successful download of an old main and a new module', () =>
-    withAgentHome(async agentHome => {
-      const fake = new FakeDrive(agentHome)
-      fake.put('script/main.ts', 'main-v1')
-      fake.put('script/module.ts', 'module-v1')
-      let gets = 0
-      const drive = new Drive({
-        agentHome,
-        rpc: async (method, payload, frame, options) => {
-          if (method === 'files.get' && ++gets === 2) {
-            fake.put('script/main.ts', 'main-v2')
-            fake.put('script/module.ts', 'module-v2')
-          }
-          return fake.rpc(method, payload, frame, options)
-        }
-      })
-      await expect(downloadFolder(drive, 'script', join(agentHome, 'run'))).rejects.toThrow('changed during download')
-      const files = await downloadFolder(drive, 'script', join(agentHome, 'retry'))
-      expect(files).toHaveLength(2)
-      expect(readFileSync(join(agentHome, 'retry/main.ts'), 'utf8')).toBe('main-v2')
-      expect(readFileSync(join(agentHome, 'retry/module.ts'), 'utf8')).toBe('module-v2')
-    }))
-
-  it('downloads a folder into an empty directory', () =>
-    withAgentHome(async agentHome => {
-      const fake = new FakeDrive(agentHome)
-      fake.put('automation/price/main.ts', 'console.log(1)')
-      fake.put('automation/price/lib/parse.ts', 'export {}')
-      fake.put('automation/pricing/main.ts', 'other job')
-      const runDir = join(agentHome, '.ankole', 'automation-runs', 'attempt-1')
-      mkdirSync(runDir, { recursive: true })
-
-      const files = await downloadFolder(fake.drive(), 'automation/price', runDir)
-
-      expect(files.map(file => file.path)).toEqual(['automation/price/lib/parse.ts', 'automation/price/main.ts'])
-      expect(readFileSync(join(runDir, 'main.ts'), 'utf8')).toBe('console.log(1)')
-      expect(readFileSync(join(runDir, 'lib', 'parse.ts'), 'utf8')).toBe('export {}')
     }))
 })
 

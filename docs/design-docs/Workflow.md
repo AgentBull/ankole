@@ -199,8 +199,8 @@ The Elixir control plane:
 - persists runs and task calls in PostgreSQL
 - enforces per-run and per-Agent task concurrency caps
 - executes each task through a control-plane Session Driver equipped with Web
-  tools, read-only Brain tools, BackgroundAgentJob delegation tools, `sleep`,
-  and `submit_result`
+  tools, the read-only Brain operations `recall` and `entity`, BackgroundAgentJob
+  delegation tools, `sleep`, and `submit_result`
 - preserves the task's AIGateway conversation and committed tool receipts across
   retries (up to three call attempts per wake segment)
 - drives deterministic script replay, commits memo updates, and delivers the
@@ -462,8 +462,7 @@ This read-only projection omits script source, full result bodies, and raw memo
 payloads, triggers no cancellations, wakeups, or cleanups, and keeps delegated
 `BackgroundAgentJob` counts (linked via `owner_session_id`) separate rather than
 summing them into a combined busy counter; see
-[Background Agent Job](BackgroundAgentJob.md) and
-[Automation Jobs](AutomationJobs.md) for the sibling activity sections.
+[Background Agent Job](BackgroundAgentJob.md) for the sibling activity section.
 
 ## Module Owners
 

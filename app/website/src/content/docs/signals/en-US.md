@@ -5,7 +5,7 @@ section: Developer guide
 order: 102
 ---
 
-A Signal is a durable event that asks an Agent Session to perform work—whether triggered by a chat message, a scheduled wakeup, an automation result, or an external business event. While chat Signals reference a Conversation and Message, a generic business Signal can target a Session directly without either one.
+A Signal is a durable event that asks an Agent Session to perform work—whether triggered by a chat message, a scheduled wakeup, or an external business event. While chat Signals reference a Conversation and Message, a generic business Signal can target a Session directly without either one.
 
 Three control-plane domains divide this pipeline cleanly: `Ankole.Signals` owns event admission and Signal Routing Rules, `Ankole.Conversations` owns shared message history, external channel observation, and outbound delivery, and `Ankole.Sessions` owns Agent execution. Keeping these three domains distinct separates the recorded channel fact, the execution stimulus, and the Session runtime state.
 

@@ -11,7 +11,6 @@ defmodule Ankole.AppConfigure.Declarations do
   alias Ankole.Sessions.BackgroundAgentJobCap
   alias Ankole.Sessions.DeadLetterNoticeConfig
   alias Ankole.Sessions.WakeRecycle
-  alias Ankole.AgentWorkers.WorkerAuthKey
   alias Ankole.AgentWorkers.WorkerWebFetchConfig
   alias Ankole.Workflow.WorkerConfig, as: WorkflowWorkerConfig
 
@@ -26,10 +25,8 @@ defmodule Ankole.AppConfigure.Declarations do
       Ankole.Plugins.Config.enabled_ids_definition(),
       CompactionPolicy.config_definition(),
       Ankole.Security.SSRFFilter.definition(),
-      WorkerAuthKey.definition(),
       WorkerWebFetchConfig.definition(),
       BackgroundAgentJobCap.definition(),
-      Ankole.AgentWorkers.SlotLock.automation_capacity_definition(),
       DeadLetterNoticeConfig.definition(),
       WakeRecycle.definition()
     ] ++

@@ -58,7 +58,7 @@ Ankole の運用にはいくつかの通信経路が必要ですが、すべて�
 
 ## 面 6:Worker コンテナ、Function Runtime、コントロールプレーン
 
-各 Agent には専用の Worker コンテナ（または Pod）が 1 つずつ割り当てられ、異なる Agent 間で Worker、キャッシュディスク、認証情報を共有することはありません。また、ステートレスな TypeScript プログラム（Workflow、PTC、Applet バックエンド）は独立した `ankole-function-runtime` サービス上で実行され、データベース認証情報も Kubernetes の ServiceAccount トークンも持ちません。隔離境界となるのはコンテナそのものです。Worker 内のコマンド、Codex app-server、Automation スクリプト、ブラウザーは内側サンドボックスなしの Worker ユーザー権限で動作し、Agent プロセスは Linux ケーパビリティおよび `sudo` 権限を持たない `uid 1000` で実行されます。
+各 Agent には専用の Worker コンテナ（または Pod）が 1 つずつ割り当てられ、異なる Agent 間で Worker、キャッシュディスク、認証情報を共有することはありません。また、ステートレスな TypeScript プログラム（Workflow、PTC、Applet バックエンド）は独立した `ankole-function-runtime` サービス上で実行され、データベース認証情報も Kubernetes の ServiceAccount トークンも持ちません。隔離境界となるのはコンテナそのものです。Worker 内のコマンド、Codex app-server、ブラウザーは内側サンドボックスなしの Worker ユーザー権限で動作し、Agent プロセスは Linux ケーパビリティおよび `sudo` 権限を持たない `uid 1000` で実行されます。
 
 - **コマンドは `sudo` なしの `uid 1000` で動作する。** 自身の Home 配下にユーザーレベルのパッケージを追加することはできますが、OS のシステムパッケージは変更できません。なお、同一 Agent 内の複数 Session は同じファイルシステムとプロセス空間を共有します。
 - **Worker の認証情報は単一の Agent だけに紐づく。** Worker は接続用認証情報をメモリ上にのみ保持し、子コマンドの環境変数からは除外します。別の Agent の認証情報や、すでに入れ替えられた旧世代 Worker の認証情報では接続できません。

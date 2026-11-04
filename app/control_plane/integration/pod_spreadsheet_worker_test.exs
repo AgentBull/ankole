@@ -3,7 +3,7 @@ Code.require_file("support/pod_document_worker.exs", __DIR__)
 defmodule Ankole.PodSpreadsheetWorkerTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.{AutomationJobs, Files, Kernel}
+  alias Ankole.{Files, Kernel}
   alias Ankole.AgentWorkers.Config
   alias Ankole.Pod.Spreadsheets
 
@@ -16,7 +16,8 @@ defmodule Ankole.PodSpreadsheetWorkerTest do
     {:ok, previous} = Config.fetch()
     tenant_id = Repo.tenant_id!()
     on_exit(fn -> Config.put(Map.to_list(previous)) end)
-    agent_uid = Ankole.PodDocumentWorker.start(port)
+    human = Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Forecast Analyst"}).principal
+    agent_uid = Ankole.PodDocumentWorker.start(port, human.uid)
 
     on_exit(fn ->
       Supervisor.terminate_child(Ankole.Supervisor, Ankole.PodDocumentWorker)
@@ -26,14 +27,14 @@ defmodule Ankole.PodSpreadsheetWorkerTest do
       end)
     end)
 
-    %{agent_uid: agent_uid}
+    %{agent_uid: agent_uid, human: human}
   end
 
   test "real Agent file commands download pending Human edits and replace a spreadsheet", %{
-    agent_uid: agent_uid
+    agent_uid: agent_uid,
+    human: human
   } do
     actor = Ankole.PrincipalsFixtures.actor_fixture(agent_uid)
-    human = Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Forecast Analyst"}).principal
 
     file =
       Ankole.FilesFixtures.drive_file_fixture(
@@ -67,16 +68,24 @@ defmodule Ankole.PodSpreadsheetWorkerTest do
     {:ok, %{ops: [_]}} = Spreadsheets.bootstrap(actor, file.id)
     Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:#{file.id}")
 
-    for {path, bytes} <- [{"main.ts", script()}, {"replacement.xlsx", replacement}] do
+    for {path, bytes} <- [
+          {"fixtures/spreadsheet-relay.ts", script()},
+          {"fixtures/replacement.xlsx", replacement}
+        ] do
       {:ok, stored} = Files.store(bytes)
-
-      {:ok, _} =
-        Files.commit(agent_uid, [
-          Map.merge(stored, %{path: "automation/spreadsheet-relay/#{path}", source: "agent"})
-        ])
+      {:ok, _} = Files.commit(agent_uid, [Map.merge(stored, %{path: path, source: "agent"})])
     end
 
-    result = run(agent_uid, file.id)
+    {:ok, result} =
+      Ankole.PodDocumentWorker.command(
+        agent_uid,
+        human.uid,
+        "Replace the shared spreadsheet #{file.id} with the board-approved forecast",
+        "ankole-files get fixtures/spreadsheet-relay.ts --output spreadsheet-relay.ts && " <>
+          "bun spreadsheet-relay.ts " <> file.id,
+        ~s({"downloaded_node")
+      )
+
     assert result["downloaded_node"] == file.id
     assert result["replaced_node"] == file.id
 
@@ -116,54 +125,17 @@ defmodule Ankole.PodSpreadsheetWorkerTest do
     bytes
   end
 
-  defp run(agent_uid, page_id) do
-    source = Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid)
-
-    {:ok, job} =
-      AutomationJobs.create_job(%{
-        agent_uid: agent_uid,
-        owner_session_id: source.session_id,
-        source_signal_id: source.id,
-        drive_prefix: "automation/spreadsheet-relay",
-        label: "Spreadsheet file relay verification",
-        reply_route: %{},
-        source_provenance: %{}
-      })
-
-    {:ok, %{automation_job_run: run}} =
-      Repo.transact(fn ->
-        AutomationJobs.enqueue_run_in_tx(job.id, agent_uid, %{
-          "specversion" => "1.0",
-          "id" => Ecto.UUID.generate(),
-          "source" => "test://spreadsheet-relay",
-          "type" => "spreadsheet.verify",
-          "data" => %{"page" => page_id}
-        })
-      end)
-
-    :ok =
-      Ankole.AutomationJobs.Jobs.ExecuteRun.perform(%Oban.Job{
-        args: %{"automation_job_run_id" => run.id, "tenant_id" => Repo.tenant_id!()}
-      })
-
-    result = Repo.reload!(run)
-
-    assert result.status == :succeeded,
-           inspect(Map.take(result, [:status, :error, :stdout, :stderr]))
-
-    assert result.exit_code == 0
-    Torque.decode!(String.trim(result.stdout))
-  end
-
   defp script do
     ~S"""
+    const page = Bun.argv[2];
     async function files(...args) {
       const child = Bun.spawn(['ankole-files', ...args], {stdout: 'pipe', stderr: 'pipe'});
       const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
       if (code !== 0) throw Error(err || out);
       return JSON.parse(out);
     }
-    const before = await files('get', context().event.data.page, '--node', '--output', 'downloaded.xlsx');
+    await files('get', 'fixtures/replacement.xlsx', '--output', 'replacement.xlsx');
+    const before = await files('get', page, '--node', '--output', 'downloaded.xlsx');
     await files('put', 'downloaded.xlsx', 'results/before-replacement.xlsx');
     await files('put', 'replacement.xlsx', 'quarterly-forecast.xlsx');
     const after = await files('get', 'quarterly-forecast.xlsx', '--output', 'after.xlsx');

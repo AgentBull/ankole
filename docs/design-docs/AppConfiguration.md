@@ -396,12 +396,6 @@ produces and validates a candidate value in memory without writing to
 PostgreSQL; the setup flow or owning subsystem must explicitly persist the
 accepted value, and read calls never auto-generate rows.
 
-For example, `runtime_fabric.worker_auth_key` is a generated installation key
-that stays inside the control plane to derive opaque Lark profile names (whereas
-individual Worker generations use separate random credentials managed by
-`AgentWorkers`). This key sets `console_writable: false` because replacing it
-would invalidate existing Lark profile names.
-
 ## Custom Agent Computer Environment Variables
 
 `WorkerEnv` manages operator-defined environment variables for Agent Computer

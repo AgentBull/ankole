@@ -1,3 +1,4 @@
+import { ConnectorConfigFields } from '../connector-config-fields'
 import { TableRow, useMutation, useQuery, Link, useSearchParams, useNavigate } from '../tenant-context'
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { recordValue } from '@agentbull/active-support'
@@ -28,13 +29,7 @@ import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
 import { linkTarget } from '../../common/router'
-import {
-  ConfigField,
-  ConfigFields,
-  configFieldServerError,
-  defaultConfig,
-  localizedText
-} from '../../common/config-fields'
+import { ConfigField, configFieldServerError, defaultConfig, localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { formatConsoleDate } from '../console-primitives'
@@ -594,7 +589,11 @@ export function SignalBindingEditorPage() {
           <FormSection
             title={t('console.signals.section_connection')}
             description={t('console.signals.section_connection_hint')}>
-            <ConfigFields
+            <ConnectorConfigFields
+              pluginId={activeAdapter.plugin_id ?? activeAdapter.adapter_id}
+              onConnectionChange={config => {
+                model.config.value = config
+              }}
               advancedLabel={t('console.signals.section_advanced')}
               config={model.config.value}
               fields={activeFields}

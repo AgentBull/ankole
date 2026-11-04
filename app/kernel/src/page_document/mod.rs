@@ -14,7 +14,7 @@ mod tree;
 #[cfg(feature = "markdown")]
 pub mod vfs;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tree::{Element, Node, Result};
 
@@ -55,7 +55,7 @@ pub fn apply(source: &str, changes: &str) -> Result<Page> {
     if changes.len() > tree::SOURCE_LIMIT * 4 {
         return Err("ChangeSet exceeds the request limit".into());
     }
-    let changes: Value = serde_json::from_str(changes).map_err(|e| e.to_string())?;
+    let changes = decode_changes(changes)?;
     let doc = document::page_document_normalized(&tree::parse(source)?)?;
     let updated = changeset::apply(&doc, &changes)?;
     let root = document::read_tree(&updated)?;
@@ -65,6 +65,40 @@ pub fn apply(source: &str, changes: &str) -> Result<Page> {
         return Err("ChangeSet must include the page normalization correction".into());
     }
     page(root)
+}
+
+fn decode_changes(source: &str) -> Result<Value> {
+    // A document level contains an object and a content array, plus wire envelopes.
+    const JSON_DEPTH_LIMIT: usize = 512;
+    let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+    for byte in source.bytes() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                quoted = false;
+            }
+        } else {
+            match byte {
+                b'"' => quoted = true,
+                b'[' | b'{' => {
+                    depth += 1;
+                    if depth > JSON_DEPTH_LIMIT {
+                        return Err("ChangeSet JSON depth limit exceeded".into());
+                    }
+                }
+                b']' | b'}' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+    }
+    let mut decoder = serde_json::Deserializer::from_str(source);
+    decoder.disable_recursion_limit();
+    let value = Value::deserialize(&mut decoder).map_err(|error| error.to_string())?;
+    decoder.end().map_err(|error| error.to_string())?;
+    Ok(value)
 }
 pub fn diff(old: &str, new: &str) -> Result<Value> {
     let old = document::page_document_normalized(&tree::parse(old)?)?;

@@ -30,6 +30,7 @@ Conversations --> Signals --> Sessions --> AIGateway --> model providers
 | Pod | Hosts workspace pages, Base tables, Applets, and file embeds | [Pod Content Model](design-docs/PodContentModel.md) |
 | Conversations | Manages shared conversations, public Messages, provider observations, and outbound Delivery | [Conversations](design-docs/Conversations.md) |
 | Signals | Ingests incoming triggers, routes CloudEvents, and records authorization and target decisions | [Signals](design-docs/Signals.md) |
+| Connectors | Owns tenant credentials, internal MCP services, and external event sources | [Connectors](design-docs/Connectors.md) |
 | Sessions | Drives each Agent's model loop and recovers in-flight steps across restarts | [Sessions](design-docs/Sessions.md) |
 | AIGateway | Routes model calls across providers and stores Response chains per Principal | [AIGateway](design-docs/AIGateway.md) |
 | Brain | Stores tenant-shared organizational knowledge and retrieves it within each caller's disclosure scope | [BrainV3](design-docs/BrainV3.md) |
@@ -65,7 +66,7 @@ Each Agent's persistent Home directory is mounted at `/workspace` on storage tha
 
 `/agents/<agent_uid>` symlinks to `/workspace`, and all path checks resolve symlinks before validating access. Rebuildable Codex SQLite state lives outside persistent Home under `/var/cache/ankole/codex`.
 
-PostgreSQL remains the source of truth for domain documents and task state, and the Worker refreshes materialized Home files at the start of each turn. Separately, the control-plane **Drive** stores attachments, generated images, published artifacts, installed Skills, and Automation scripts so they remain accessible even when the Agent's Worker is stopped. See [Files](design-docs/Files.md) and [Agent Workers](design-docs/AgentWorkers.md).
+PostgreSQL remains the source of truth for domain documents and task state, and the Worker refreshes materialized Home files at the start of each turn. Separately, the control-plane **Drive** stores attachments, generated images, published artifacts, and installed Skills so they remain accessible even when the Agent's Worker is stopped. See [Files](design-docs/Files.md) and [Agent Workers](design-docs/AgentWorkers.md).
 
 ## Repository Map
 
@@ -113,6 +114,7 @@ PostgreSQL persists every domain fact needed to resume operations seamlessly aft
 - Browser sessions, authentication records, and OIDC clients, sessions, authorization codes, and tokens
 - Pod pages, revisions, and both inline and physical Base tables, fields, views, and records
 - `AppConfigure` settings and encrypted provider credentials
+- Connector authorization configurations, connected accounts, credential grants, and external event subscriptions
 - Signal routing rules, accepted Signals, callback Endpoints, Conversations, public Messages, external provider references, deletion tombstones, and outbound Delivery intents
 - Schedules and scheduled wake events
 - AIGateway conversations, Response messages, compaction checkpoints, and provider configurations
@@ -211,6 +213,7 @@ tools/e2e/run --real-llm
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | Per-Agent token budgets, billing windows, resets, and quota rejection behavior |
 | [Conversations](design-docs/Conversations.md) | Shared public conversation history, provider observation, outbound Delivery, and Pod SSE streams |
 | [Signals](design-docs/Signals.md) | Unified trigger intake, sender authorization, routing rules, and CloudEvents Endpoints |
+| [Connectors](design-docs/Connectors.md) | Tenant credentials, internal MCP services, and external event sources |
 | [Sessions](design-docs/Sessions.md) | Session Drivers, model tool rounds, unread history tracking, and crash recovery |
 | [BrainV3](design-docs/BrainV3.md) | Tenant-shared knowledge graph, scoped disclosure, active learning, and background Dreaming |
 | [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain page Markdoc syntax and structured Object editing in Console |
@@ -219,7 +222,7 @@ tools/e2e/run --real-llm
 | [Agent Workers](design-docs/AgentWorkers.md) | Per-Agent Worker provisioning, cloud providers, lifecycle fences, persistent Home, and cache disks |
 | [Schedule](design-docs/Schedule.md) | One-shot checkbacks, recurring cron schedules, and scheduled wakeups |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | Long-running asynchronous Codex jobs, turn leases, and progress reporting |
-| [Automation Jobs](design-docs/AutomationJobs.md) | Deterministic Agent-owned scripts that handle triggers without spending a model turn |
+| [Automation Jobs](design-docs/AutomationJobs.md) | Page-owned Applet Actions with native schedules, Webhooks, and durable runs |
 | [Workflow](design-docs/Workflow.md) | Fixed TypeScript orchestrations that fan out and aggregate bounded subagent calls |
 | [Principal](design-docs/Principal.md) | Unified Human and Agent identities and linked external provider accounts |
 | [Authentication](design-docs/Authentication.md) | Passwordless email OTP, enterprise SSO, personal OAuth credentials, and Pod login policies |

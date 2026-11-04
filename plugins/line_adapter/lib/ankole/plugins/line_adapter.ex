@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.LineAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc "First-party LINE consumer IM adapter."
 
   @behaviour Ankole.Plugins.Plugin

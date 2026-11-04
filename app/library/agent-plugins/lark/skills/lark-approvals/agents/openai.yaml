@@ -1,0 +1,22 @@
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "lark_approvals"
+      transport: "connector"
+      toolkit: "lark_approvals"
+      enabled_tools:
+        - "approvals_add_sign"
+        - "approvals_approve"
+        - "approvals_cancel"
+        - "approvals_cc"
+        - "approvals_create_comment"
+        - "approvals_create_instance"
+        - "approvals_get_definition"
+        - "approvals_get_instance"
+        - "approvals_list_comments"
+        - "approvals_list_instances"
+        - "approvals_list_tasks"
+        - "approvals_reject"
+        - "approvals_rollback"
+        - "approvals_transfer"
+        - "approvals_upload_file"

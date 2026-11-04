@@ -154,7 +154,7 @@ defmodule Ankole.Sessions.WorkflowTask do
 
   def failure(reason) do
     error =
-      if is_map(reason),
+      if is_map(reason) and not is_struct(reason),
         do: reason,
         else: %{"code" => "workflow_task_turn_failed", "message" => inspect(reason)}
 
@@ -167,7 +167,7 @@ defmodule Ankole.Sessions.WorkflowTask do
   def tools(_run, tools, hosted) do
     hosted =
       Enum.flat_map(hosted, fn
-        %{"type" => "brain"} -> [%{"type" => "brain", "operations" => ~w(recall get_page)}]
+        %{"type" => "brain"} -> [%{"type" => "brain", "operations" => ~w(recall entity)}]
         %{"type" => "web_search"} = tool -> [tool]
         _ -> []
       end)

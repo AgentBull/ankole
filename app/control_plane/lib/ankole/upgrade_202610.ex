@@ -6,9 +6,9 @@ defmodule Ankole.Upgrade202610 do
   database steps, run `mix run --no-start -e 'Ankole.Upgrade202610.run()'`
   with the original encryption key and every control-plane replica stopped.
 
-  `import_agent_home/1` copies installed Skills, Automation Job scripts, and
-  unsent legacy Delivery attachments from a pooled Worker `/agents` directory
-  into Agent drives without replacing existing drive files.
+  `import_agent_home/1` copies installed Skills and unsent legacy Delivery
+  attachments from a pooled Worker `/agents` directory into Agent drives
+  without replacing existing drive files.
 
   Remove this file, its Mix alias, its Release call, and
   `files.importAgentHomeClaim` when every supported direct-upgrade origin
@@ -43,9 +43,7 @@ defmodule Ankole.Upgrade202610 do
   @type report :: %{
           agents: non_neg_integer(),
           files: non_neg_integer(),
-          jobs: non_neg_integer(),
           attachments: non_neg_integer(),
-          jobs_without_script: [pos_integer()],
           deleted_agent_homes: [Path.t()],
           skipped: [{Path.t(), term()}]
         }
@@ -443,13 +441,13 @@ defmodule Ankole.Upgrade202610 do
 
     if row && not Map.has_key?(row.value, "platform_application") do
       result =
-        with {:ok, definition} <- Registry.require_key(key),
-             {:ok, config} <- AppConfigure.Codec.load(definition, scope, key, row.value),
-             {:ok, application} <- Bindings.resolve_platform_application(module, config, source) do
-          Repo.with_tenant(tenant_id, fn ->
-            Repo.transact(fn -> record_identity_in_tx(row, config, application) end)
-          end)
-        end
+        Repo.with_tenant(tenant_id, fn ->
+          with {:ok, definition} <- Registry.require_key(key),
+               {:ok, config} <-
+                 AppConfigure.Codec.load(definition, scope, key, row.value, :configuration) do
+            backfill_config_identity(row, config, module, source)
+          end
+        end)
 
       case result do
         {:ok, :recorded} ->
@@ -458,6 +456,15 @@ defmodule Ankole.Upgrade202610 do
         {:error, reason} ->
           raise "platform application migration failed for tenant #{tenant_id}, configuration #{key}: #{inspect(reason)}; repair the configuration and rerun mix ecto.migrate or Release.migrate"
       end
+    end
+  end
+
+  defp backfill_config_identity(row, config, module, source) do
+    if config["authConfigId"] do
+      {:ok, :recorded}
+    else
+      with {:ok, application} <- Bindings.resolve_platform_application(module, config, source),
+           do: Repo.transact(fn -> record_identity_in_tx(row, config, application) end)
     end
   end
 
@@ -518,9 +525,7 @@ defmodule Ankole.Upgrade202610 do
     report = %{
       agents: 0,
       files: 0,
-      jobs: 0,
       attachments: 0,
-      jobs_without_script: [],
       deleted_agent_homes: Enum.map(deleted, &Path.join(root, &1)),
       skipped: []
     }
@@ -531,32 +536,22 @@ defmodule Ankole.Upgrade202610 do
       end)
 
     report =
-      Enum.reduce(legacy_jobs(), report, fn job, report ->
-        Repo.with_tenant(job.tenant_id, fn -> import_job(root, job, report) end)
-      end)
-
-    report =
       Enum.reduce(legacy_intents(), report, fn intent, report ->
         Repo.with_tenant(intent.tenant_id, fn -> import_attachments(root, intent, report) end)
       end)
 
     %{
       report
-      | jobs_without_script: Enum.reverse(report.jobs_without_script),
-        skipped: Enum.reverse(report.skipped)
+      | skipped: Enum.reverse(report.skipped)
     }
   end
 
   defp format_report(report) do
     lines =
       [
-        "Imported #{report.files} files for #{report.agents} Agents and #{report.jobs} Automation Job scripts.",
+        "Imported #{report.files} files for #{report.agents} Agents.",
         "Migrated #{report.attachments} pending intent attachments."
       ] ++
-        Enum.map(
-          report.jobs_without_script,
-          &"Automation Job #{&1}: no main.ts in its directory."
-        ) ++
         Enum.map(
           report.deleted_agent_homes,
           &"No Agent has the UID of #{&1}: it is the Home of a deleted Agent."
@@ -766,65 +761,6 @@ defmodule Ankole.Upgrade202610 do
     end
   end
 
-  defp legacy_jobs do
-    Repo.across_tenants(fn ->
-      Repo.all(
-        from job in "automation_jobs",
-          where: not is_nil(job.legacy_directory_path),
-          order_by: job.id,
-          select: %{
-            id: job.id,
-            tenant_id: type(job.tenant_id, Ecto.UUID),
-            agent_uid: job.agent_uid,
-            drive_prefix: job.drive_prefix,
-            legacy_directory_path: job.legacy_directory_path
-          }
-      )
-    end)
-  end
-
-  # The legacy path goes only after every file of the script that can be
-  # copied arrived. A script that this run could not find or copy keeps it,
-  # so a run with the right volume, or after a transient storage error,
-  # copies it later.
-  defp import_job(root, job, report) do
-    main = (local_dir = local_job_directory(root, job)) && Path.join(local_dir, "main.ts")
-
-    case main && File.lstat(main) do
-      {:ok, %{type: :regular}} ->
-        skipped_before = length(report.skipped)
-        report = import_folder(job.agent_uid, local_dir, job.drive_prefix, report)
-        new_skips = Enum.take(report.skipped, length(report.skipped) - skipped_before)
-
-        if Enum.all?(new_skips, fn {_path, reason} -> final_skip?(reason) end) do
-          Repo.update_all(
-            from(row in "automation_jobs",
-              where: row.id == ^job.id and row.legacy_directory_path == ^job.legacy_directory_path
-            ),
-            set: [legacy_directory_path: nil]
-          )
-        end
-
-        %{report | jobs: report.jobs + 1}
-
-      {:error, reason} when reason != :enoent ->
-        skip(report, main, reason)
-
-      _missing ->
-        %{report | jobs_without_script: [job.id | report.jobs_without_script]}
-    end
-  end
-
-  # The legacy path is absolute in the Worker's file system and lies inside
-  # the Agent Home `<worker root>/<uid>`; the same Agent Home is
-  # `<root>/<uid>` here.
-  defp local_job_directory(root, %{agent_uid: agent_uid, legacy_directory_path: path}) do
-    case String.split(path, "/" <> agent_uid <> "/", parts: 2) do
-      [_worker_root, relative] -> Path.join([root, agent_uid, relative])
-      [_path] -> nil
-    end
-  end
-
   defp import_folder(agent_uid, local_dir, prefix, report) do
     {entries, report} = collect(local_dir, "", report)
 
@@ -904,10 +840,4 @@ defmodule Ankole.Upgrade202610 do
   end
 
   defp skip(report, path, reason), do: %{report | skipped: [{path, reason} | report.skipped]}
-
-  # A symlink, a special file, or a file over the transfer limit is skipped on
-  # every run; an unreadable entry or a storage error can succeed later.
-  defp final_skip?({:not_a_regular_file, _type}), do: true
-  defp final_skip?({:file_too_large, _size, _max_bytes}), do: true
-  defp final_skip?(_reason), do: false
 end

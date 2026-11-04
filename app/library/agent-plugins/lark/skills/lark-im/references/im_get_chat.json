@@ -1,0 +1,162 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Im get chat.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "chat_id": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": ["chat_id"],
+    "type": "object"
+  },
+  "name": "im_get_chat",
+  "outputSchema": {
+    "properties": {
+      "add_member_permission": {
+        "type": "string"
+      },
+      "at_all_permission": {
+        "type": "string"
+      },
+      "avatar": {
+        "type": "string"
+      },
+      "bot_count": {
+        "type": "string"
+      },
+      "bot_manager_id_list": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "chat_mode": {
+        "type": "string"
+      },
+      "chat_status": {
+        "type": "string"
+      },
+      "chat_tag": {
+        "type": "string"
+      },
+      "chat_type": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "edit_permission": {
+        "type": "string"
+      },
+      "external": {
+        "type": "boolean"
+      },
+      "group_message_type": {
+        "type": "string"
+      },
+      "hide_member_count_setting": {
+        "type": "string"
+      },
+      "i18n_names": {
+        "properties": {
+          "en_us": {
+            "type": "string"
+          },
+          "ja_jp": {
+            "type": "string"
+          },
+          "zh_cn": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "join_message_visibility": {
+        "type": "string"
+      },
+      "labels": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "leave_message_visibility": {
+        "type": "string"
+      },
+      "membership_approval": {
+        "type": "string"
+      },
+      "moderation_permission": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "owner_id": {
+        "type": "string"
+      },
+      "owner_id_type": {
+        "type": "string"
+      },
+      "pin_manage_setting": {
+        "type": "string"
+      },
+      "restricted_mode_setting": {
+        "properties": {
+          "download_has_permission_setting": {
+            "type": "string"
+          },
+          "message_has_permission_setting": {
+            "type": "string"
+          },
+          "screenshot_has_permission_setting": {
+            "type": "string"
+          },
+          "status": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "share_card_permission": {
+        "type": "string"
+      },
+      "tenant_key": {
+        "type": "string"
+      },
+      "toolkit_ids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "urgent_setting": {
+        "type": "string"
+      },
+      "user_count": {
+        "type": "string"
+      },
+      "user_manager_id_list": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "video_conference_setting": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

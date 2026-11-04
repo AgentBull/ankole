@@ -51,10 +51,13 @@ describe('setting groups', () => {
     const rows = settingRows([
       item('observability.traces.enabled'),
       item('setup.completed', { editable: false }),
-      item('runtime_fabric.worker_auth_key', { editable: false, encrypted: true })
+      item('principals.identity_providers.active', { editable: false })
     ])
 
-    expect(rows.managed.map(managed => managed.key)).toEqual(['setup.completed', 'runtime_fabric.worker_auth_key'])
+    expect(rows.managed.map(managed => managed.key)).toEqual([
+      'setup.completed',
+      'principals.identity_providers.active'
+    ])
     expect(rows.groups[0]?.items.map(member => member.key)).toEqual(['observability.traces.enabled'])
   })
 

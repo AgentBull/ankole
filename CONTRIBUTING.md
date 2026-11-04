@@ -638,7 +638,7 @@ On pushes to `main`, `Publish RuntimeFabric image pair` calls `Repository checks
   MIX_TEST_PARTITION=session_driver elixir --sname session_checks@localhost -S mix test integration/session_driver_test.exs
   ```
   Running `bun run test:integration` inside `app/control_plane` executes PostgreSQL + Function Runtime integration suites while excluding `cloud`, `cluster`, and `external` tags (covered below).
-- **Agent Computer test tiers**: `bun run agent-computer:test` runs host unit tests (requires Bun, Bash, GNU `timeout`, Python 3). Inside `app/agent_computer`, `bun run test:integration` runs portable host integration tests with Codex `0.166.0`, MCPorter `0.16.0` on Bun, native `apply_patch`, and GNU `stat` (`gstat` on macOS), honoring `ANKOLE_CODEX_BINARY` and setting `TMPDIR=/tmp` to keep Unix socket paths short. On Linux, also run `bun run test:integration:linux` (`setsid` + util-linux `flock -F`). Docker-backed checks (`bun run test:integration:docker` and `bun run test:docker`) verify the packaged Worker image (`tini`, pinned Codex bindings, browser, OCR, Lark CLI).
+- **Agent Computer test tiers**: `bun run agent-computer:test` runs host unit tests (requires Bun, Bash, GNU `timeout`, Python 3). Inside `app/agent_computer`, `bun run test:integration` runs portable host integration tests with Codex `0.166.0`, MCPorter `0.16.0` on Bun, native `apply_patch`, and GNU `stat` (`gstat` on macOS), honoring `ANKOLE_CODEX_BINARY` and setting `TMPDIR=/tmp` to keep Unix socket paths short. On Linux, also run `bun run test:integration:linux` (`setsid` + util-linux `flock -F`). Docker-backed checks (`bun run test:integration:docker` and `bun run test:docker`) verify the packaged Worker image (`tini`, pinned Codex bindings, browser, OCR, MCPorter and Git credential exchange).
 
 ### Persistence boundary
 
@@ -707,9 +707,16 @@ origins. Omit `POD_BROWSER_DEV_SERVER` for production-bundle checks.
 
 For durable Action stories, start the fixture with `POD_BROWSER_ACTIONS=true` and
 run `bun run test:pod action-runs.spec.ts`. This enables the real Oban
-`automation_jobs` queue and imports 100 Base records through an Applet. The
+`automation_jobs` and `default` queues and imports 100 Base records through an Applet. The
 browser checks visible progress, a missing Action after publication, saved-work
 recovery, reconnection, and unchanged data versions on a repeated import.
+`bun run test:pod automation-sources.spec.ts` exercises the native Applet
+Automation panel through Job creation, schedule execution, callback delivery,
+configuration changes, and retained Run history using the same real runtime.
+The recurring Cron story waits for a real minute boundary and verifies the
+automatically delivered slot time and business payload.
+It also selects Lark task events in the panel, sends signed provider events
+through the real ingress, and verifies event filtering and subscription removal.
 
 For the document multiplayer suite, build a source-mounted Worker image from the
 repository root with Docker running:
@@ -729,7 +736,7 @@ POD_BROWSER_STATE_PATH=/tmp/ankole-pod-browser.json bun run test:pod document-mu
 ```
 
 The suite drives independent authenticated browser sessions and a deterministic Agent
-AutomationJob through `ankole-pod`, RuntimeFabric, the signed file relay, and
+Session command through `ankole-pod`, RuntimeFabric, the signed file relay, and
 PostgreSQL. It covers structural edits, local undo, reconnection, tab reload
 recovery, title conflicts, revoked access, live selections across multiple tabs, lost acknowledgements,
 and Agent writes concurrent with pending Human text. It also verifies retrying

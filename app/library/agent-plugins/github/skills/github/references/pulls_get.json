@@ -1,0 +1,2383 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get a pull request",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "owner": {
+        "type": "string"
+      },
+      "pull_number": {
+        "type": "integer"
+      },
+      "repo": {
+        "type": "string"
+      }
+    },
+    "required": ["owner", "repo", "pull_number"],
+    "type": "object"
+  },
+  "name": "pulls_get",
+  "outputSchema": {
+    "properties": {
+      "url": {
+        "type": "string"
+      },
+      "merged_at": {
+        "type": ["string", "null"]
+      },
+      "mergeable_state": {
+        "type": "string"
+      },
+      "comments": {
+        "type": "integer"
+      },
+      "updated_at": {
+        "type": "string"
+      },
+      "draft": {
+        "type": "boolean"
+      },
+      "commits": {
+        "type": "integer"
+      },
+      "mergeable": {
+        "type": ["boolean", "null"]
+      },
+      "stack": {
+        "properties": {
+          "base": {
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "sha": {
+                "type": "string"
+              }
+            },
+            "required": ["ref", "sha"],
+            "type": "object"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "size": {
+            "type": "integer"
+          }
+        },
+        "required": ["base"],
+        "type": ["object", "null"]
+      },
+      "closed_at": {
+        "type": ["string", "null"]
+      },
+      "node_id": {
+        "type": "string"
+      },
+      "assignee": {
+        "properties": {
+          "avatar_url": {
+            "type": "string"
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "events_url": {
+            "type": "string"
+          },
+          "followers_url": {
+            "type": "string"
+          },
+          "following_url": {
+            "type": "string"
+          },
+          "gists_url": {
+            "type": "string"
+          },
+          "gravatar_id": {
+            "type": ["string", "null"]
+          },
+          "html_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": ["string", "null"]
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "organizations_url": {
+            "type": "string"
+          },
+          "received_events_url": {
+            "type": "string"
+          },
+          "repos_url": {
+            "type": "string"
+          },
+          "site_admin": {
+            "type": "boolean"
+          },
+          "starred_at": {
+            "type": "string"
+          },
+          "starred_url": {
+            "type": "string"
+          },
+          "subscriptions_url": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "user_view_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "avatar_url",
+          "events_url",
+          "followers_url",
+          "following_url",
+          "gists_url",
+          "gravatar_id",
+          "html_url",
+          "id",
+          "node_id",
+          "login",
+          "organizations_url",
+          "received_events_url",
+          "repos_url",
+          "site_admin",
+          "starred_url",
+          "subscriptions_url",
+          "type",
+          "url"
+        ],
+        "type": ["object", "null"]
+      },
+      "created_at": {
+        "type": "string"
+      },
+      "requested_teams": {
+        "items": {
+          "properties": {
+            "description": {
+              "type": ["string", "null"]
+            },
+            "enterprise_id": {
+              "type": "integer"
+            },
+            "html_url": {
+              "type": "string"
+            },
+            "id": {
+              "type": "integer"
+            },
+            "ldap_dn": {
+              "type": "string"
+            },
+            "members_url": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "notification_setting": {
+              "type": "string"
+            },
+            "organization_id": {
+              "type": "integer"
+            },
+            "permission": {
+              "type": "string"
+            },
+            "privacy": {
+              "type": "string"
+            },
+            "repositories_url": {
+              "type": "string"
+            },
+            "slug": {
+              "type": "string"
+            },
+            "type": {
+              "enum": ["enterprise", "organization"],
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "node_id",
+            "url",
+            "members_url",
+            "name",
+            "description",
+            "permission",
+            "html_url",
+            "repositories_url",
+            "slug",
+            "type"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "deletions": {
+        "type": "integer"
+      },
+      "review_comment_url": {
+        "type": "string"
+      },
+      "commits_url": {
+        "type": "string"
+      },
+      "_links": {
+        "properties": {
+          "comments": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          },
+          "commits": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          },
+          "html": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          },
+          "issue": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          },
+          "review_comment": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          },
+          "review_comments": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          },
+          "self": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          },
+          "statuses": {
+            "properties": {
+              "href": {
+                "type": "string"
+              }
+            },
+            "required": ["href"],
+            "type": "object"
+          }
+        },
+        "required": ["comments", "commits", "statuses", "html", "issue", "review_comments", "review_comment", "self"],
+        "type": "object"
+      },
+      "merged": {
+        "type": "boolean"
+      },
+      "patch_url": {
+        "type": "string"
+      },
+      "maintainer_can_modify": {
+        "type": "boolean"
+      },
+      "issue_url": {
+        "type": "string"
+      },
+      "active_lock_reason": {
+        "type": ["string", "null"]
+      },
+      "assignees": {
+        "items": {
+          "properties": {
+            "avatar_url": {
+              "type": "string"
+            },
+            "email": {
+              "type": ["string", "null"]
+            },
+            "events_url": {
+              "type": "string"
+            },
+            "followers_url": {
+              "type": "string"
+            },
+            "following_url": {
+              "type": "string"
+            },
+            "gists_url": {
+              "type": "string"
+            },
+            "gravatar_id": {
+              "type": ["string", "null"]
+            },
+            "html_url": {
+              "type": "string"
+            },
+            "id": {
+              "type": "integer"
+            },
+            "login": {
+              "type": "string"
+            },
+            "name": {
+              "type": ["string", "null"]
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "organizations_url": {
+              "type": "string"
+            },
+            "received_events_url": {
+              "type": "string"
+            },
+            "repos_url": {
+              "type": "string"
+            },
+            "site_admin": {
+              "type": "boolean"
+            },
+            "starred_at": {
+              "type": "string"
+            },
+            "starred_url": {
+              "type": "string"
+            },
+            "subscriptions_url": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "user_view_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "avatar_url",
+            "events_url",
+            "followers_url",
+            "following_url",
+            "gists_url",
+            "gravatar_id",
+            "html_url",
+            "id",
+            "node_id",
+            "login",
+            "organizations_url",
+            "received_events_url",
+            "repos_url",
+            "site_admin",
+            "starred_url",
+            "subscriptions_url",
+            "type",
+            "url"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "additions": {
+        "type": "integer"
+      },
+      "number": {
+        "type": "integer"
+      },
+      "merged_by": {
+        "properties": {
+          "avatar_url": {
+            "type": "string"
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "events_url": {
+            "type": "string"
+          },
+          "followers_url": {
+            "type": "string"
+          },
+          "following_url": {
+            "type": "string"
+          },
+          "gists_url": {
+            "type": "string"
+          },
+          "gravatar_id": {
+            "type": ["string", "null"]
+          },
+          "html_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": ["string", "null"]
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "organizations_url": {
+            "type": "string"
+          },
+          "received_events_url": {
+            "type": "string"
+          },
+          "repos_url": {
+            "type": "string"
+          },
+          "site_admin": {
+            "type": "boolean"
+          },
+          "starred_at": {
+            "type": "string"
+          },
+          "starred_url": {
+            "type": "string"
+          },
+          "subscriptions_url": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "user_view_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "avatar_url",
+          "events_url",
+          "followers_url",
+          "following_url",
+          "gists_url",
+          "gravatar_id",
+          "html_url",
+          "id",
+          "node_id",
+          "login",
+          "organizations_url",
+          "received_events_url",
+          "repos_url",
+          "site_admin",
+          "starred_url",
+          "subscriptions_url",
+          "type",
+          "url"
+        ],
+        "type": ["object", "null"]
+      },
+      "review_comments_url": {
+        "type": "string"
+      },
+      "statuses_url": {
+        "type": "string"
+      },
+      "base": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "repo": {
+            "properties": {
+              "pushed_at": {
+                "type": ["string", "null"]
+              },
+              "mirror_url": {
+                "type": ["string", "null"]
+              },
+              "merges_url": {
+                "type": "string"
+              },
+              "allow_squash_merge": {
+                "type": "boolean"
+              },
+              "private": {
+                "type": "boolean"
+              },
+              "has_pages": {
+                "type": "boolean"
+              },
+              "url": {
+                "type": "string"
+              },
+              "hooks_url": {
+                "type": "string"
+              },
+              "contributors_url": {
+                "type": "string"
+              },
+              "fork": {
+                "type": "boolean"
+              },
+              "squash_merge_commit_title": {
+                "enum": ["PR_TITLE", "COMMIT_OR_PR_TITLE"],
+                "type": "string"
+              },
+              "stargazers_url": {
+                "type": "string"
+              },
+              "keys_url": {
+                "type": "string"
+              },
+              "stargazers_count": {
+                "type": "integer"
+              },
+              "downloads_url": {
+                "type": "string"
+              },
+              "events_url": {
+                "type": "string"
+              },
+              "compare_url": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": ["string", "null"]
+              },
+              "web_commit_signoff_required": {
+                "type": "boolean"
+              },
+              "permissions": {
+                "properties": {
+                  "admin": {
+                    "type": "boolean"
+                  },
+                  "maintain": {
+                    "type": "boolean"
+                  },
+                  "pull": {
+                    "type": "boolean"
+                  },
+                  "push": {
+                    "type": "boolean"
+                  },
+                  "triage": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["admin", "pull", "push"],
+                "type": "object"
+              },
+              "svn_url": {
+                "type": "string"
+              },
+              "allow_rebase_merge": {
+                "type": "boolean"
+              },
+              "default_branch": {
+                "type": "string"
+              },
+              "blobs_url": {
+                "type": "string"
+              },
+              "has_wiki": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": ["string", "null"]
+              },
+              "owner": {
+                "properties": {
+                  "avatar_url": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": ["string", "null"]
+                  },
+                  "events_url": {
+                    "type": "string"
+                  },
+                  "followers_url": {
+                    "type": "string"
+                  },
+                  "following_url": {
+                    "type": "string"
+                  },
+                  "gists_url": {
+                    "type": "string"
+                  },
+                  "gravatar_id": {
+                    "type": ["string", "null"]
+                  },
+                  "html_url": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "integer"
+                  },
+                  "login": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": ["string", "null"]
+                  },
+                  "node_id": {
+                    "type": "string"
+                  },
+                  "organizations_url": {
+                    "type": "string"
+                  },
+                  "received_events_url": {
+                    "type": "string"
+                  },
+                  "repos_url": {
+                    "type": "string"
+                  },
+                  "site_admin": {
+                    "type": "boolean"
+                  },
+                  "starred_at": {
+                    "type": "string"
+                  },
+                  "starred_url": {
+                    "type": "string"
+                  },
+                  "subscriptions_url": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "user_view_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "avatar_url",
+                  "events_url",
+                  "followers_url",
+                  "following_url",
+                  "gists_url",
+                  "gravatar_id",
+                  "html_url",
+                  "id",
+                  "node_id",
+                  "login",
+                  "organizations_url",
+                  "received_events_url",
+                  "repos_url",
+                  "site_admin",
+                  "starred_url",
+                  "subscriptions_url",
+                  "type",
+                  "url"
+                ],
+                "type": "object"
+              },
+              "node_id": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "license": {
+                "properties": {
+                  "html_url": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "node_id": {
+                    "type": "string"
+                  },
+                  "spdx_id": {
+                    "type": ["string", "null"]
+                  },
+                  "url": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["key", "name", "url", "spdx_id", "node_id"],
+                "type": ["object", "null"]
+              },
+              "pull_request_creation_policy": {
+                "enum": ["all", "collaborators_only"],
+                "type": "string"
+              },
+              "created_at": {
+                "type": ["string", "null"]
+              },
+              "allow_merge_commit": {
+                "type": "boolean"
+              },
+              "watchers": {
+                "type": "integer"
+              },
+              "git_commits_url": {
+                "type": "string"
+              },
+              "commits_url": {
+                "type": "string"
+              },
+              "git_refs_url": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "starred_at": {
+                "type": "string"
+              },
+              "languages_url": {
+                "type": "string"
+              },
+              "delete_branch_on_merge": {
+                "type": "boolean"
+              },
+              "full_name": {
+                "type": "string"
+              },
+              "allow_auto_merge": {
+                "type": "boolean"
+              },
+              "anonymous_access_enabled": {
+                "type": "boolean"
+              },
+              "milestones_url": {
+                "type": "string"
+              },
+              "squash_merge_commit_message": {
+                "enum": ["PR_BODY", "COMMIT_MESSAGES", "BLANK"],
+                "type": "string"
+              },
+              "merge_commit_message": {
+                "enum": ["PR_BODY", "PR_TITLE", "BLANK"],
+                "type": "string"
+              },
+              "has_downloads": {
+                "type": "boolean"
+              },
+              "issue_comment_url": {
+                "type": "string"
+              },
+              "clone_url": {
+                "type": "string"
+              },
+              "teams_url": {
+                "type": "string"
+              },
+              "statuses_url": {
+                "type": "string"
+              },
+              "trees_url": {
+                "type": "string"
+              },
+              "comments_url": {
+                "type": "string"
+              },
+              "temp_clone_token": {
+                "type": "string"
+              },
+              "allow_forking": {
+                "type": "boolean"
+              },
+              "labels_url": {
+                "type": "string"
+              },
+              "subscribers_url": {
+                "type": "string"
+              },
+              "ssh_url": {
+                "type": "string"
+              },
+              "has_pull_requests": {
+                "type": "boolean"
+              },
+              "language": {
+                "type": ["string", "null"]
+              },
+              "issues_url": {
+                "type": "string"
+              },
+              "html_url": {
+                "type": "string"
+              },
+              "master_branch": {
+                "type": "string"
+              },
+              "contents_url": {
+                "type": "string"
+              },
+              "has_discussions": {
+                "type": "boolean"
+              },
+              "forks_count": {
+                "type": "integer"
+              },
+              "merge_commit_title": {
+                "enum": ["PR_TITLE", "MERGE_MESSAGE"],
+                "type": "string"
+              },
+              "subscription_url": {
+                "type": "string"
+              },
+              "forks_url": {
+                "type": "string"
+              },
+              "is_template": {
+                "type": "boolean"
+              },
+              "branches_url": {
+                "type": "string"
+              },
+              "deployments_url": {
+                "type": "string"
+              },
+              "open_issues_count": {
+                "type": "integer"
+              },
+              "git_tags_url": {
+                "type": "string"
+              },
+              "forks": {
+                "type": "integer"
+              },
+              "has_projects": {
+                "type": "boolean"
+              },
+              "issue_events_url": {
+                "type": "string"
+              },
+              "topics": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "homepage": {
+                "type": ["string", "null"]
+              },
+              "notifications_url": {
+                "type": "string"
+              },
+              "allow_update_branch": {
+                "type": "boolean"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "assignees_url": {
+                "type": "string"
+              },
+              "collaborators_url": {
+                "type": "string"
+              },
+              "open_issues": {
+                "type": "integer"
+              },
+              "releases_url": {
+                "type": "string"
+              },
+              "use_squash_pr_title_as_default": {
+                "type": "boolean"
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "pulls_url": {
+                "type": "string"
+              },
+              "code_search_index_status": {
+                "properties": {
+                  "lexical_commit_sha": {
+                    "type": "string"
+                  },
+                  "lexical_search_ok": {
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "tags_url": {
+                "type": "string"
+              },
+              "watchers_count": {
+                "type": "integer"
+              },
+              "git_url": {
+                "type": "string"
+              },
+              "has_issues": {
+                "type": "boolean"
+              },
+              "visibility": {
+                "type": "string"
+              },
+              "archive_url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "archive_url",
+              "assignees_url",
+              "blobs_url",
+              "branches_url",
+              "collaborators_url",
+              "comments_url",
+              "commits_url",
+              "compare_url",
+              "contents_url",
+              "contributors_url",
+              "deployments_url",
+              "description",
+              "downloads_url",
+              "events_url",
+              "fork",
+              "forks_url",
+              "full_name",
+              "git_commits_url",
+              "git_refs_url",
+              "git_tags_url",
+              "hooks_url",
+              "html_url",
+              "id",
+              "node_id",
+              "issue_comment_url",
+              "issue_events_url",
+              "issues_url",
+              "keys_url",
+              "labels_url",
+              "languages_url",
+              "merges_url",
+              "milestones_url",
+              "name",
+              "notifications_url",
+              "owner",
+              "private",
+              "pulls_url",
+              "releases_url",
+              "stargazers_url",
+              "statuses_url",
+              "subscribers_url",
+              "subscription_url",
+              "tags_url",
+              "teams_url",
+              "trees_url",
+              "url",
+              "clone_url",
+              "default_branch",
+              "forks",
+              "forks_count",
+              "git_url",
+              "has_downloads",
+              "has_issues",
+              "has_projects",
+              "has_wiki",
+              "has_pages",
+              "homepage",
+              "language",
+              "archived",
+              "disabled",
+              "mirror_url",
+              "open_issues",
+              "open_issues_count",
+              "license",
+              "pushed_at",
+              "size",
+              "ssh_url",
+              "stargazers_count",
+              "svn_url",
+              "watchers",
+              "watchers_count",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "user": {
+            "properties": {
+              "avatar_url": {
+                "type": "string"
+              },
+              "email": {
+                "type": ["string", "null"]
+              },
+              "events_url": {
+                "type": "string"
+              },
+              "followers_url": {
+                "type": "string"
+              },
+              "following_url": {
+                "type": "string"
+              },
+              "gists_url": {
+                "type": "string"
+              },
+              "gravatar_id": {
+                "type": ["string", "null"]
+              },
+              "html_url": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "login": {
+                "type": "string"
+              },
+              "name": {
+                "type": ["string", "null"]
+              },
+              "node_id": {
+                "type": "string"
+              },
+              "organizations_url": {
+                "type": "string"
+              },
+              "received_events_url": {
+                "type": "string"
+              },
+              "repos_url": {
+                "type": "string"
+              },
+              "site_admin": {
+                "type": "boolean"
+              },
+              "starred_at": {
+                "type": "string"
+              },
+              "starred_url": {
+                "type": "string"
+              },
+              "subscriptions_url": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "user_view_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "avatar_url",
+              "events_url",
+              "followers_url",
+              "following_url",
+              "gists_url",
+              "gravatar_id",
+              "html_url",
+              "id",
+              "node_id",
+              "login",
+              "organizations_url",
+              "received_events_url",
+              "repos_url",
+              "site_admin",
+              "starred_url",
+              "subscriptions_url",
+              "type",
+              "url"
+            ],
+            "type": "object"
+          }
+        },
+        "required": ["label", "ref", "repo", "sha", "user"],
+        "type": "object"
+      },
+      "comments_url": {
+        "type": "string"
+      },
+      "html_url": {
+        "type": "string"
+      },
+      "requested_reviewers": {
+        "items": {
+          "properties": {
+            "avatar_url": {
+              "type": "string"
+            },
+            "email": {
+              "type": ["string", "null"]
+            },
+            "events_url": {
+              "type": "string"
+            },
+            "followers_url": {
+              "type": "string"
+            },
+            "following_url": {
+              "type": "string"
+            },
+            "gists_url": {
+              "type": "string"
+            },
+            "gravatar_id": {
+              "type": ["string", "null"]
+            },
+            "html_url": {
+              "type": "string"
+            },
+            "id": {
+              "type": "integer"
+            },
+            "login": {
+              "type": "string"
+            },
+            "name": {
+              "type": ["string", "null"]
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "organizations_url": {
+              "type": "string"
+            },
+            "received_events_url": {
+              "type": "string"
+            },
+            "repos_url": {
+              "type": "string"
+            },
+            "site_admin": {
+              "type": "boolean"
+            },
+            "starred_at": {
+              "type": "string"
+            },
+            "starred_url": {
+              "type": "string"
+            },
+            "subscriptions_url": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "user_view_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "avatar_url",
+            "events_url",
+            "followers_url",
+            "following_url",
+            "gists_url",
+            "gravatar_id",
+            "html_url",
+            "id",
+            "node_id",
+            "login",
+            "organizations_url",
+            "received_events_url",
+            "repos_url",
+            "site_admin",
+            "starred_url",
+            "subscriptions_url",
+            "type",
+            "url"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "author_association": {
+        "enum": [
+          "COLLABORATOR",
+          "CONTRIBUTOR",
+          "FIRST_TIMER",
+          "FIRST_TIME_CONTRIBUTOR",
+          "MANNEQUIN",
+          "MEMBER",
+          "NONE",
+          "OWNER"
+        ],
+        "type": "string"
+      },
+      "milestone": {
+        "properties": {
+          "closed_at": {
+            "type": ["string", "null"]
+          },
+          "closed_issues": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "creator": {
+            "properties": {
+              "avatar_url": {
+                "type": "string"
+              },
+              "email": {
+                "type": ["string", "null"]
+              },
+              "events_url": {
+                "type": "string"
+              },
+              "followers_url": {
+                "type": "string"
+              },
+              "following_url": {
+                "type": "string"
+              },
+              "gists_url": {
+                "type": "string"
+              },
+              "gravatar_id": {
+                "type": ["string", "null"]
+              },
+              "html_url": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "login": {
+                "type": "string"
+              },
+              "name": {
+                "type": ["string", "null"]
+              },
+              "node_id": {
+                "type": "string"
+              },
+              "organizations_url": {
+                "type": "string"
+              },
+              "received_events_url": {
+                "type": "string"
+              },
+              "repos_url": {
+                "type": "string"
+              },
+              "site_admin": {
+                "type": "boolean"
+              },
+              "starred_at": {
+                "type": "string"
+              },
+              "starred_url": {
+                "type": "string"
+              },
+              "subscriptions_url": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "user_view_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "avatar_url",
+              "events_url",
+              "followers_url",
+              "following_url",
+              "gists_url",
+              "gravatar_id",
+              "html_url",
+              "id",
+              "node_id",
+              "login",
+              "organizations_url",
+              "received_events_url",
+              "repos_url",
+              "site_admin",
+              "starred_url",
+              "subscriptions_url",
+              "type",
+              "url"
+            ],
+            "type": ["object", "null"]
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "due_on": {
+            "type": ["string", "null"]
+          },
+          "html_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "labels_url": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "open_issues": {
+            "type": "integer"
+          },
+          "state": {
+            "enum": ["open", "closed"],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "closed_issues",
+          "creator",
+          "description",
+          "due_on",
+          "closed_at",
+          "id",
+          "node_id",
+          "labels_url",
+          "html_url",
+          "number",
+          "open_issues",
+          "state",
+          "title",
+          "url",
+          "created_at",
+          "updated_at"
+        ],
+        "type": ["object", "null"]
+      },
+      "auto_merge": {
+        "properties": {
+          "commit_message": {
+            "type": "string"
+          },
+          "commit_title": {
+            "type": "string"
+          },
+          "enabled_by": {
+            "properties": {
+              "avatar_url": {
+                "type": "string"
+              },
+              "email": {
+                "type": ["string", "null"]
+              },
+              "events_url": {
+                "type": "string"
+              },
+              "followers_url": {
+                "type": "string"
+              },
+              "following_url": {
+                "type": "string"
+              },
+              "gists_url": {
+                "type": "string"
+              },
+              "gravatar_id": {
+                "type": ["string", "null"]
+              },
+              "html_url": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "login": {
+                "type": "string"
+              },
+              "name": {
+                "type": ["string", "null"]
+              },
+              "node_id": {
+                "type": "string"
+              },
+              "organizations_url": {
+                "type": "string"
+              },
+              "received_events_url": {
+                "type": "string"
+              },
+              "repos_url": {
+                "type": "string"
+              },
+              "site_admin": {
+                "type": "boolean"
+              },
+              "starred_at": {
+                "type": "string"
+              },
+              "starred_url": {
+                "type": "string"
+              },
+              "subscriptions_url": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "user_view_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "avatar_url",
+              "events_url",
+              "followers_url",
+              "following_url",
+              "gists_url",
+              "gravatar_id",
+              "html_url",
+              "id",
+              "node_id",
+              "login",
+              "organizations_url",
+              "received_events_url",
+              "repos_url",
+              "site_admin",
+              "starred_url",
+              "subscriptions_url",
+              "type",
+              "url"
+            ],
+            "type": "object"
+          },
+          "merge_method": {
+            "enum": ["merge", "squash", "rebase"],
+            "type": "string"
+          }
+        },
+        "required": ["enabled_by", "merge_method", "commit_title", "commit_message"],
+        "type": ["object", "null"]
+      },
+      "merge_commit_sha": {
+        "type": ["string", "null"]
+      },
+      "labels": {
+        "items": {
+          "properties": {
+            "archived_by": {
+              "allOf": [
+                {
+                  "type": "object"
+                }
+              ]
+            },
+            "color": {
+              "type": "string"
+            },
+            "default": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": ["string", "null"]
+            },
+            "id": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": ["id", "node_id", "url", "name", "description", "color", "default", "archived_at", "archived_by"],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "state": {
+        "enum": ["open", "closed"],
+        "type": "string"
+      },
+      "id": {
+        "type": "integer"
+      },
+      "changed_files": {
+        "type": "integer"
+      },
+      "diff_url": {
+        "type": "string"
+      },
+      "review_comments": {
+        "type": "integer"
+      },
+      "user": {
+        "properties": {
+          "avatar_url": {
+            "type": "string"
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "events_url": {
+            "type": "string"
+          },
+          "followers_url": {
+            "type": "string"
+          },
+          "following_url": {
+            "type": "string"
+          },
+          "gists_url": {
+            "type": "string"
+          },
+          "gravatar_id": {
+            "type": ["string", "null"]
+          },
+          "html_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": ["string", "null"]
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "organizations_url": {
+            "type": "string"
+          },
+          "received_events_url": {
+            "type": "string"
+          },
+          "repos_url": {
+            "type": "string"
+          },
+          "site_admin": {
+            "type": "boolean"
+          },
+          "starred_at": {
+            "type": "string"
+          },
+          "starred_url": {
+            "type": "string"
+          },
+          "subscriptions_url": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "user_view_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "avatar_url",
+          "events_url",
+          "followers_url",
+          "following_url",
+          "gists_url",
+          "gravatar_id",
+          "html_url",
+          "id",
+          "node_id",
+          "login",
+          "organizations_url",
+          "received_events_url",
+          "repos_url",
+          "site_admin",
+          "starred_url",
+          "subscriptions_url",
+          "type",
+          "url"
+        ],
+        "type": "object"
+      },
+      "rebaseable": {
+        "type": ["boolean", "null"]
+      },
+      "title": {
+        "type": "string"
+      },
+      "locked": {
+        "type": "boolean"
+      },
+      "head": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "repo": {
+            "properties": {
+              "pushed_at": {
+                "type": ["string", "null"]
+              },
+              "mirror_url": {
+                "type": ["string", "null"]
+              },
+              "merges_url": {
+                "type": "string"
+              },
+              "allow_squash_merge": {
+                "type": "boolean"
+              },
+              "private": {
+                "type": "boolean"
+              },
+              "has_pages": {
+                "type": "boolean"
+              },
+              "url": {
+                "type": "string"
+              },
+              "hooks_url": {
+                "type": "string"
+              },
+              "contributors_url": {
+                "type": "string"
+              },
+              "fork": {
+                "type": "boolean"
+              },
+              "squash_merge_commit_title": {
+                "enum": ["PR_TITLE", "COMMIT_OR_PR_TITLE"],
+                "type": "string"
+              },
+              "stargazers_url": {
+                "type": "string"
+              },
+              "keys_url": {
+                "type": "string"
+              },
+              "stargazers_count": {
+                "type": "integer"
+              },
+              "downloads_url": {
+                "type": "string"
+              },
+              "events_url": {
+                "type": "string"
+              },
+              "compare_url": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": ["string", "null"]
+              },
+              "web_commit_signoff_required": {
+                "type": "boolean"
+              },
+              "permissions": {
+                "properties": {
+                  "admin": {
+                    "type": "boolean"
+                  },
+                  "maintain": {
+                    "type": "boolean"
+                  },
+                  "pull": {
+                    "type": "boolean"
+                  },
+                  "push": {
+                    "type": "boolean"
+                  },
+                  "triage": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["admin", "pull", "push"],
+                "type": "object"
+              },
+              "svn_url": {
+                "type": "string"
+              },
+              "allow_rebase_merge": {
+                "type": "boolean"
+              },
+              "default_branch": {
+                "type": "string"
+              },
+              "blobs_url": {
+                "type": "string"
+              },
+              "has_wiki": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": ["string", "null"]
+              },
+              "owner": {
+                "properties": {
+                  "avatar_url": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": ["string", "null"]
+                  },
+                  "events_url": {
+                    "type": "string"
+                  },
+                  "followers_url": {
+                    "type": "string"
+                  },
+                  "following_url": {
+                    "type": "string"
+                  },
+                  "gists_url": {
+                    "type": "string"
+                  },
+                  "gravatar_id": {
+                    "type": ["string", "null"]
+                  },
+                  "html_url": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "integer"
+                  },
+                  "login": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": ["string", "null"]
+                  },
+                  "node_id": {
+                    "type": "string"
+                  },
+                  "organizations_url": {
+                    "type": "string"
+                  },
+                  "received_events_url": {
+                    "type": "string"
+                  },
+                  "repos_url": {
+                    "type": "string"
+                  },
+                  "site_admin": {
+                    "type": "boolean"
+                  },
+                  "starred_at": {
+                    "type": "string"
+                  },
+                  "starred_url": {
+                    "type": "string"
+                  },
+                  "subscriptions_url": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "user_view_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "avatar_url",
+                  "events_url",
+                  "followers_url",
+                  "following_url",
+                  "gists_url",
+                  "gravatar_id",
+                  "html_url",
+                  "id",
+                  "node_id",
+                  "login",
+                  "organizations_url",
+                  "received_events_url",
+                  "repos_url",
+                  "site_admin",
+                  "starred_url",
+                  "subscriptions_url",
+                  "type",
+                  "url"
+                ],
+                "type": "object"
+              },
+              "node_id": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "license": {
+                "properties": {
+                  "html_url": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "node_id": {
+                    "type": "string"
+                  },
+                  "spdx_id": {
+                    "type": ["string", "null"]
+                  },
+                  "url": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["key", "name", "url", "spdx_id", "node_id"],
+                "type": ["object", "null"]
+              },
+              "pull_request_creation_policy": {
+                "enum": ["all", "collaborators_only"],
+                "type": "string"
+              },
+              "created_at": {
+                "type": ["string", "null"]
+              },
+              "allow_merge_commit": {
+                "type": "boolean"
+              },
+              "watchers": {
+                "type": "integer"
+              },
+              "git_commits_url": {
+                "type": "string"
+              },
+              "commits_url": {
+                "type": "string"
+              },
+              "git_refs_url": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "starred_at": {
+                "type": "string"
+              },
+              "languages_url": {
+                "type": "string"
+              },
+              "delete_branch_on_merge": {
+                "type": "boolean"
+              },
+              "full_name": {
+                "type": "string"
+              },
+              "allow_auto_merge": {
+                "type": "boolean"
+              },
+              "anonymous_access_enabled": {
+                "type": "boolean"
+              },
+              "milestones_url": {
+                "type": "string"
+              },
+              "squash_merge_commit_message": {
+                "enum": ["PR_BODY", "COMMIT_MESSAGES", "BLANK"],
+                "type": "string"
+              },
+              "merge_commit_message": {
+                "enum": ["PR_BODY", "PR_TITLE", "BLANK"],
+                "type": "string"
+              },
+              "has_downloads": {
+                "type": "boolean"
+              },
+              "issue_comment_url": {
+                "type": "string"
+              },
+              "clone_url": {
+                "type": "string"
+              },
+              "teams_url": {
+                "type": "string"
+              },
+              "statuses_url": {
+                "type": "string"
+              },
+              "trees_url": {
+                "type": "string"
+              },
+              "comments_url": {
+                "type": "string"
+              },
+              "temp_clone_token": {
+                "type": "string"
+              },
+              "allow_forking": {
+                "type": "boolean"
+              },
+              "labels_url": {
+                "type": "string"
+              },
+              "subscribers_url": {
+                "type": "string"
+              },
+              "ssh_url": {
+                "type": "string"
+              },
+              "has_pull_requests": {
+                "type": "boolean"
+              },
+              "language": {
+                "type": ["string", "null"]
+              },
+              "issues_url": {
+                "type": "string"
+              },
+              "html_url": {
+                "type": "string"
+              },
+              "master_branch": {
+                "type": "string"
+              },
+              "contents_url": {
+                "type": "string"
+              },
+              "has_discussions": {
+                "type": "boolean"
+              },
+              "forks_count": {
+                "type": "integer"
+              },
+              "merge_commit_title": {
+                "enum": ["PR_TITLE", "MERGE_MESSAGE"],
+                "type": "string"
+              },
+              "subscription_url": {
+                "type": "string"
+              },
+              "forks_url": {
+                "type": "string"
+              },
+              "is_template": {
+                "type": "boolean"
+              },
+              "branches_url": {
+                "type": "string"
+              },
+              "deployments_url": {
+                "type": "string"
+              },
+              "open_issues_count": {
+                "type": "integer"
+              },
+              "git_tags_url": {
+                "type": "string"
+              },
+              "forks": {
+                "type": "integer"
+              },
+              "has_projects": {
+                "type": "boolean"
+              },
+              "issue_events_url": {
+                "type": "string"
+              },
+              "topics": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "homepage": {
+                "type": ["string", "null"]
+              },
+              "notifications_url": {
+                "type": "string"
+              },
+              "allow_update_branch": {
+                "type": "boolean"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "assignees_url": {
+                "type": "string"
+              },
+              "collaborators_url": {
+                "type": "string"
+              },
+              "open_issues": {
+                "type": "integer"
+              },
+              "releases_url": {
+                "type": "string"
+              },
+              "use_squash_pr_title_as_default": {
+                "type": "boolean"
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "pulls_url": {
+                "type": "string"
+              },
+              "code_search_index_status": {
+                "properties": {
+                  "lexical_commit_sha": {
+                    "type": "string"
+                  },
+                  "lexical_search_ok": {
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "tags_url": {
+                "type": "string"
+              },
+              "watchers_count": {
+                "type": "integer"
+              },
+              "git_url": {
+                "type": "string"
+              },
+              "has_issues": {
+                "type": "boolean"
+              },
+              "visibility": {
+                "type": "string"
+              },
+              "archive_url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "archive_url",
+              "assignees_url",
+              "blobs_url",
+              "branches_url",
+              "collaborators_url",
+              "comments_url",
+              "commits_url",
+              "compare_url",
+              "contents_url",
+              "contributors_url",
+              "deployments_url",
+              "description",
+              "downloads_url",
+              "events_url",
+              "fork",
+              "forks_url",
+              "full_name",
+              "git_commits_url",
+              "git_refs_url",
+              "git_tags_url",
+              "hooks_url",
+              "html_url",
+              "id",
+              "node_id",
+              "issue_comment_url",
+              "issue_events_url",
+              "issues_url",
+              "keys_url",
+              "labels_url",
+              "languages_url",
+              "merges_url",
+              "milestones_url",
+              "name",
+              "notifications_url",
+              "owner",
+              "private",
+              "pulls_url",
+              "releases_url",
+              "stargazers_url",
+              "statuses_url",
+              "subscribers_url",
+              "subscription_url",
+              "tags_url",
+              "teams_url",
+              "trees_url",
+              "url",
+              "clone_url",
+              "default_branch",
+              "forks",
+              "forks_count",
+              "git_url",
+              "has_downloads",
+              "has_issues",
+              "has_projects",
+              "has_wiki",
+              "has_pages",
+              "homepage",
+              "language",
+              "archived",
+              "disabled",
+              "mirror_url",
+              "open_issues",
+              "open_issues_count",
+              "license",
+              "pushed_at",
+              "size",
+              "ssh_url",
+              "stargazers_count",
+              "svn_url",
+              "watchers",
+              "watchers_count",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "user": {
+            "properties": {
+              "avatar_url": {
+                "type": "string"
+              },
+              "email": {
+                "type": ["string", "null"]
+              },
+              "events_url": {
+                "type": "string"
+              },
+              "followers_url": {
+                "type": "string"
+              },
+              "following_url": {
+                "type": "string"
+              },
+              "gists_url": {
+                "type": "string"
+              },
+              "gravatar_id": {
+                "type": ["string", "null"]
+              },
+              "html_url": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "login": {
+                "type": "string"
+              },
+              "name": {
+                "type": ["string", "null"]
+              },
+              "node_id": {
+                "type": "string"
+              },
+              "organizations_url": {
+                "type": "string"
+              },
+              "received_events_url": {
+                "type": "string"
+              },
+              "repos_url": {
+                "type": "string"
+              },
+              "site_admin": {
+                "type": "boolean"
+              },
+              "starred_at": {
+                "type": "string"
+              },
+              "starred_url": {
+                "type": "string"
+              },
+              "subscriptions_url": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "user_view_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "avatar_url",
+              "events_url",
+              "followers_url",
+              "following_url",
+              "gists_url",
+              "gravatar_id",
+              "html_url",
+              "id",
+              "node_id",
+              "login",
+              "organizations_url",
+              "received_events_url",
+              "repos_url",
+              "site_admin",
+              "starred_url",
+              "subscriptions_url",
+              "type",
+              "url"
+            ],
+            "type": "object"
+          }
+        },
+        "required": ["label", "ref", "repo", "sha", "user"],
+        "type": "object"
+      },
+      "body": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": [
+      "_links",
+      "assignee",
+      "labels",
+      "base",
+      "body",
+      "closed_at",
+      "comments_url",
+      "commits_url",
+      "created_at",
+      "diff_url",
+      "head",
+      "html_url",
+      "id",
+      "node_id",
+      "issue_url",
+      "merge_commit_sha",
+      "merged_at",
+      "milestone",
+      "number",
+      "patch_url",
+      "review_comment_url",
+      "review_comments_url",
+      "statuses_url",
+      "state",
+      "locked",
+      "title",
+      "updated_at",
+      "url",
+      "user",
+      "author_association",
+      "auto_merge",
+      "additions",
+      "changed_files",
+      "comments",
+      "commits",
+      "deletions",
+      "mergeable",
+      "mergeable_state",
+      "merged",
+      "maintainer_can_modify",
+      "merged_by",
+      "review_comments"
+    ],
+    "type": "object"
+  }
+}

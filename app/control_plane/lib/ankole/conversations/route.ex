@@ -138,22 +138,6 @@ defmodule Ankole.Conversations.Route do
     end
   end
 
-  defp authorization_owner(%Signal{
-         source: source,
-         type: type,
-         data: %{"automation_job_run_id" => id},
-         agent_uid: uid
-       })
-       when is_integer(id) and type in ["automation_job.emitted", "automation_job.run_failed"] do
-    with %{automation_job_id: job_id} <-
-           Ankole.Work.Owner.get(Ankole.AutomationJobs.Schemas.Run, id),
-         true <- source in ["ankole:job:#{job_id}", "control-plane://automation-jobs/#{job_id}"],
-         %{agent_uid: ^uid} = job <-
-           Ankole.Work.Owner.get(Ankole.AutomationJobs.Schemas.Job, job_id),
-         do: job,
-         else: (_ -> nil)
-  end
-
   defp authorization_owner(_signal), do: nil
 
   @doc "Returns the creation source Message through Job wakeups and continuations."
@@ -360,6 +344,42 @@ defmodule Ankole.Conversations.Route do
   end
 
   def source(_turn), do: {:error, :reply_route_not_in_turn}
+
+  @doc "Resolves a conversation-level destination through this Agent's recorded transport."
+  def conversation_reply_route(agent_uid, conversation_id) do
+    with {:ok, conversation} <-
+           Ankole.Conversations.Target.conversation_for_agent_in_tx(agent_uid, conversation_id) do
+      case conversation.kind do
+        :native ->
+          {:ok, %{conversation_id: conversation.id}}
+
+        :external ->
+          case Ankole.Signals.list_signals!(
+                 query: [
+                   filter: [
+                     agent_uid: agent_uid,
+                     conversation_id: conversation.id,
+                     reply_binding_id: [is_nil: false]
+                   ],
+                   sort: [inserted_at: :desc, id: :desc],
+                   limit: 1,
+                   select: [:reply_binding_id, :reply_binding_name]
+                 ]
+               ) do
+            [signal] ->
+              {:ok,
+               %{
+                 conversation_id: conversation.id,
+                 binding_id: signal.reply_binding_id,
+                 binding_name: signal.reply_binding_name
+               }}
+
+            [] ->
+              {:error, :reply_route_unavailable}
+          end
+      end
+    end
+  end
 
   @doc """
   Resolves the session that can receive a webhook or automation result after

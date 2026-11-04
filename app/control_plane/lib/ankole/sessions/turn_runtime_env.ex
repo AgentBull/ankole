@@ -7,21 +7,13 @@ defmodule Ankole.Sessions.TurnRuntimeEnv do
   senders produce no variable, so unattended work cannot inherit a person's
   identity.
 
-  For a human sender it also names the sender's opaque `lark-cli` profile:
-  `ankole-u-` and the unpadded base64url HMAC-SHA256 of the sender identity,
-  keyed with the installation's worker key. The identity is the Principal UID
-  for access version 1, and otherwise the UID, a NUL byte, and the version.
-  The key never leaves the control plane, and the name is stable across
-  Workers, so an authorized user keeps the profile.
   """
 
   alias Ankole.Principals
   alias Ankole.Principals.Principal
   alias Ankole.Signals.Signal
-  alias Ankole.AgentWorkers.WorkerAuthKey
 
   @current_sender_principal "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL"
-  @lark_profile "ANKOLE_RUNTIME_LARK_PROFILE"
 
   @spec resolve(Signal.t()) :: %{String.t() => String.t()}
   def resolve(%Signal{authorization_kind: "human", human_uid: uid, human_access_version: version}) do
@@ -60,22 +52,5 @@ defmodule Ankole.Sessions.TurnRuntimeEnv do
     end
   end
 
-  defp runtime_env({:active_human, uid, version}) do
-    %{
-      @current_sender_principal => uid,
-      @lark_profile => lark_profile(WorkerAuthKey.ensure!(), uid, version)
-    }
-  end
-
-  @doc false
-  @spec lark_profile(String.t(), String.t(), pos_integer()) :: String.t()
-  def lark_profile(key, principal_uid, access_version) do
-    # Version 1 keeps the profiles stored before access revocation existed.
-    identity =
-      if access_version == 1,
-        do: principal_uid,
-        else: principal_uid <> <<0>> <> Integer.to_string(access_version)
-
-    "ankole-u-" <> Base.url_encode64(:crypto.mac(:hmac, :sha256, key, identity), padding: false)
-  end
+  defp runtime_env({:active_human, uid, _version}), do: %{@current_sender_principal => uid}
 end

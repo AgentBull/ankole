@@ -1,0 +1,616 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tasks get.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "task_guid": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": ["task_guid"],
+    "type": "object"
+  },
+  "name": "tasks_get",
+  "outputSchema": {
+    "properties": {
+      "task": {
+        "properties": {
+          "next_task_guid": {
+            "type": "string"
+          },
+          "source": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          },
+          "due": {
+            "properties": {
+              "is_all_day": {
+                "type": "boolean"
+              },
+              "timestamp": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "agent_task_progress": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "repeat_rule": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "text_deliveries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "assignee_related": {
+            "items": {
+              "properties": {
+                "completed_at": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tasklists": {
+            "items": {
+              "properties": {
+                "section_guid": {
+                  "type": "string"
+                },
+                "tasklist_guid": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "creator": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "dependencies": {
+            "items": {
+              "properties": {
+                "task_guid": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "agent_task_status": {
+            "type": "integer"
+          },
+          "guid": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "integer"
+          },
+          "origin": {
+            "properties": {
+              "href": {
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "platform_i18n_name": {
+                "properties": {
+                  "de_de": {
+                    "type": "string"
+                  },
+                  "en_us": {
+                    "type": "string"
+                  },
+                  "es_es": {
+                    "type": "string"
+                  },
+                  "fr_fr": {
+                    "type": "string"
+                  },
+                  "it_it": {
+                    "type": "string"
+                  },
+                  "ja_jp": {
+                    "type": "string"
+                  },
+                  "ko_kr": {
+                    "type": "string"
+                  },
+                  "ru_ru": {
+                    "type": "string"
+                  },
+                  "th_th": {
+                    "type": "string"
+                  },
+                  "zh_cn": {
+                    "type": "string"
+                  },
+                  "zh_hk": {
+                    "type": "string"
+                  },
+                  "zh_tw": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "refer_resources": {
+                "items": {
+                  "properties": {
+                    "resource_id": {
+                      "type": "string"
+                    },
+                    "source_message": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "unavailable_reason": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "completed_at": {
+            "type": "string"
+          },
+          "custom_fields": {
+            "items": {
+              "properties": {
+                "datetime_value": {
+                  "type": "string"
+                },
+                "guid": {
+                  "type": "string"
+                },
+                "member_value": {
+                  "items": {
+                    "properties": {},
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "multi_select_value": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "number_value": {
+                  "type": "string"
+                },
+                "single_select_value": {
+                  "type": "string"
+                },
+                "text_value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "subtask_count": {
+            "type": "integer"
+          },
+          "is_milestone": {
+            "type": "boolean"
+          },
+          "positive_reminders": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "relative_fire_minute": {
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "attachments": {
+            "items": {
+              "properties": {
+                "file_token": {
+                  "type": "string"
+                },
+                "guid": {
+                  "type": "string"
+                },
+                "is_cover": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "resource": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "uploaded_at": {
+                  "type": "string"
+                },
+                "uploader": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "custom_complete": {
+            "properties": {
+              "android": {
+                "properties": {
+                  "href": {
+                    "type": "string"
+                  },
+                  "tip": {
+                    "properties": {
+                      "de_de": {
+                        "type": "string"
+                      },
+                      "en_us": {
+                        "type": "string"
+                      },
+                      "es_es": {
+                        "type": "string"
+                      },
+                      "fr_fr": {
+                        "type": "string"
+                      },
+                      "it_it": {
+                        "type": "string"
+                      },
+                      "ja_jp": {
+                        "type": "string"
+                      },
+                      "ko_kr": {
+                        "type": "string"
+                      },
+                      "ru_ru": {
+                        "type": "string"
+                      },
+                      "th_th": {
+                        "type": "string"
+                      },
+                      "zh_cn": {
+                        "type": "string"
+                      },
+                      "zh_hk": {
+                        "type": "string"
+                      },
+                      "zh_tw": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "ios": {
+                "properties": {
+                  "href": {
+                    "type": "string"
+                  },
+                  "tip": {
+                    "properties": {
+                      "de_de": {
+                        "type": "string"
+                      },
+                      "en_us": {
+                        "type": "string"
+                      },
+                      "es_es": {
+                        "type": "string"
+                      },
+                      "fr_fr": {
+                        "type": "string"
+                      },
+                      "it_it": {
+                        "type": "string"
+                      },
+                      "ja_jp": {
+                        "type": "string"
+                      },
+                      "ko_kr": {
+                        "type": "string"
+                      },
+                      "ru_ru": {
+                        "type": "string"
+                      },
+                      "th_th": {
+                        "type": "string"
+                      },
+                      "zh_cn": {
+                        "type": "string"
+                      },
+                      "zh_hk": {
+                        "type": "string"
+                      },
+                      "zh_tw": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "pc": {
+                "properties": {
+                  "href": {
+                    "type": "string"
+                  },
+                  "tip": {
+                    "properties": {
+                      "de_de": {
+                        "type": "string"
+                      },
+                      "en_us": {
+                        "type": "string"
+                      },
+                      "es_es": {
+                        "type": "string"
+                      },
+                      "fr_fr": {
+                        "type": "string"
+                      },
+                      "it_it": {
+                        "type": "string"
+                      },
+                      "ja_jp": {
+                        "type": "string"
+                      },
+                      "ko_kr": {
+                        "type": "string"
+                      },
+                      "ru_ru": {
+                        "type": "string"
+                      },
+                      "th_th": {
+                        "type": "string"
+                      },
+                      "zh_cn": {
+                        "type": "string"
+                      },
+                      "zh_hk": {
+                        "type": "string"
+                      },
+                      "zh_tw": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "parent_task_guid": {
+            "type": "string"
+          },
+          "extra": {
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "attachment_deliveries": {
+            "items": {
+              "properties": {
+                "file_token": {
+                  "type": "string"
+                },
+                "guid": {
+                  "type": "string"
+                },
+                "is_cover": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "resource": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "uploaded_at": {
+                  "type": "string"
+                },
+                "uploader": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "reminders": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "relative_fire_minute": {
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "start": {
+            "properties": {
+              "is_all_day": {
+                "type": "boolean"
+              },
+              "timestamp": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  }
+}

@@ -144,7 +144,8 @@ defmodule AnkoleWeb.PodURL do
     end
   end
 
-  defp browser_path([path]) when path in ["settings", "me"], do: {:ok, "/" <> path}
+  defp browser_path([path]) when path in ["settings", "me", "connectors"],
+    do: {:ok, "/" <> path}
 
   defp browser_path([]), do: {:ok, "/"}
 

@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.Microsoft365Adapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc "First-party Microsoft 365 chat (Teams) and identity (Entra ID) plugin."
 
   @behaviour Ankole.Plugins.Plugin

@@ -131,6 +131,7 @@ defmodule Ankole.Principals.Humans do
     end
   end
 
+  @doc "Locks Principal state in UID order while allowing new foreign-key references."
   def lock_principals_in_tx(uids) when is_list(uids) do
     uids = uids |> Enum.uniq() |> Enum.sort()
 
@@ -138,7 +139,7 @@ defmodule Ankole.Principals.Humans do
       Principal
       |> Ash.Query.filter(uid in ^uids)
       |> Ash.Query.sort(uid: :asc)
-      |> Ash.Query.lock(:for_update)
+      |> Ash.Query.lock("FOR NO KEY UPDATE")
       |> Ankole.Ash.read!(lock_identity: {"principals", uids})
 
     {:ok, principals}

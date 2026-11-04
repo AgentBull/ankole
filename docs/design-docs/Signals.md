@@ -372,23 +372,51 @@ enter the same dispatcher with their authenticated Page and execution Principal.
 
 Bindings support `action` with an `automation_job_id`, in addition to Agent
 routing. Built-in source references are `schedule://`, `scheduled-event://`,
-`webhook-endpoint://`, `base://`, `applet://` and `job://`. The source owner
+`webhook-endpoint://`, `base://`, `applet://` and `job://`. Ankole also accepts
+`connector://` and `connector-trigger://` references through the
+[Connectors](Connectors.md#external-events-and-subscription-reconciliation) domain. The source owner
 maintains its default `internal` Binding through its normal create/edit API;
 additional subscriptions use `/api/v2/pod/signal-bindings` or `bindings.*` Pod
 RPCs. Source access and target Page/Job access are checked independently.
+Listing subscriptions accepts either `config_ref` or `job_id`. A Job-scoped list
+requires target Page read permission and includes only sources the caller can
+read, so the Automation panel can load its subscriptions in one request.
+Mutation requires the
+source's management permission, and personal assistants use their owner's
+Human identity for personal source authorization.
+
+For Agent reads, `bindings.list` resolves a Base source to its table's Page and
+an Applet source or Applet Job source to its Applet Page. The Agent and the
+conversation's disclosure recipients must be able to view that Page. Other
+source types use their owning domain's source authorization.
+When `bindings.list` selects a Job with `job_id`, Ankole requires those readers
+to view the Job's Applet Page and applies the same source disclosure rules to
+each returned subscription.
+
+`PUT /api/v2/pod/signal-bindings` creates a subscription when the caller omits
+`id`; the caller supplies an existing subscription's ID to update it. Both PUT
+and GET return each subscription's stable `id`, which the caller can use to change
+its configuration or disable it with `enabled: false`.
+
 Ankole indexes source Bindings by `(tenant_id, config_ref, id)`. Dispatch reads
 distinct destination Jobs in one batch before preparing deliveries.
-An Agent script's `emitEvent` uses its `job://` source, whose default Binding
-targets its owning Session; additional Bindings can start Actions from the same
-event. Durable Applet Action emissions also use their `job://` source. Dispatch
-locks the emitting Job with its destination Jobs and checks the live attempt
-before committing its deliveries. Applet `signals.emit` without `targetJobId`
+Applet `signals.emit` without `targetJobId`
 accepts a stable business `id` for retry deduplication and an optional `subject` for filtering; the root
 `signal_id` remains a generated UUID. Emissions from a Job inherit that Job's
 WorkAccess, while interactive emissions inherit the original caller's WorkAccess.
 Using an `admin` capability changes the resource execution Principal without
 changing this authorization provenance. Migrated private Session targets resolve through their recorded long-lived
 owner before intake. An orphaned owner fails delivery without consuming the source.
+An Agent Binding that targets a Conversation also targets replies to that
+Conversation. An explicit reply route keeps its binding, thread and message
+context. Otherwise, `Conversations.Route` resolves a native Conversation directly
+or uses the latest recorded transport binding for that Agent and external
+Conversation. The inferred route posts to the Conversation without inheriting
+an old message or thread. Signals persist across ordinary history cleanup, so
+an idle Conversation remains reachable; a missing transport route fails dispatch.
+Final external replies require a valid delivery route and a reply-capable
+Conversation, including replies to custom event types. Streaming previews keep
+their separate event-type eligibility rules.
 The Console adapter editor lists provider Bindings; source-owned defaults remain
 in their owning Schedule or Webhook management flow.
 
@@ -542,8 +570,17 @@ whereas one-shot Endpoints accept a single callback; subsequent deliveries to a
 known terminal Endpoint return 204 without recording new work, and unknown
 tokens return 404.
 
+Job-owned endpoints store `owner_job_id` and inherit their Job's retained work
+authorization. Their default Binding targets the owner Job without an Agent or
+Session. The Job's Page APIs manage expiry, pause, resume and cancellation.
+`paused` endpoints ignore every callback before dispatch and preserve one-shot
+availability. A trashed owning Page or ancestor has the same delivery behavior;
+Page restoration permits callbacks while the endpoint remains active and unexpired.
+Human revocation pauses personal endpoints. Job deletion and Page purge remove
+endpoints and their source Bindings and receipts in the Job cleanup transaction.
+
 Passing `--automation-job-id <id>` to `create-webhook-cli` binds the raw
-Endpoint to an active Automation Job owned by the same Agent so each callback
+Endpoint to an active Applet Job the calling Agent may use so each callback
 starts a durable Job run with the same receipt envelope.
 `Signals.Dispatch` shares its Binding and receipt path across Webhook and
 Schedule triggers. The Endpoint creation flow stores its default Binding in the

@@ -16,6 +16,9 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     "CHAOS_B07_CREATE",
     "CHAOS_B07_JOB",
     "CHAOS_B07_WAKE",
+    "CHAOS_ASSISTANT_POD_CLI",
+    "CHAOS_SERVICE_POD_CLI",
+    "CHAOS_HUMAN_POD_CLI",
     "CHAOS_Q03_TRANSPORT",
     "CHAOS_WEBHOOK_CLI",
     "COMPOSE_UPGRADE_READ",
@@ -281,7 +284,15 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
           | {:completion, String.t(), keyword()}
   def action_for(kind, count, request \\ %{}) do
     cond do
-      kind in [:b07_create, :b07_job, :b07_notice, :b07_wake] ->
+      kind in [
+        :b07_create,
+        :b07_job,
+        :b07_notice,
+        :b07_wake,
+        :assistant_pod_cli,
+        :service_pod_cli,
+        :human_pod_cli
+      ] ->
         FakeOpenAILongLivedOwnerScenarios.action_for(kind, count)
 
       kind == :webhook_cli ->

@@ -63,6 +63,10 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
+  auth_config_id?: string | null
+  /**
+   * Field included by default.
+   */
   automation_job_id?: number | null
   /**
    * Field included by default.
@@ -78,6 +82,10 @@ export type SignalBindingType = {
   filters: {
     [key: string]: unknown
   }
+  /**
+   * Field included by default.
+   */
+  id: string
   /**
    * Field included by default.
    */
@@ -196,11 +204,7 @@ export type AutomationJob = {
     /**
      * Field included by default.
      */
-    action_key?: string | null
-    /**
-     * Field included by default.
-     */
-    agent_uid?: string | null
+    action_key: string
     /**
      * Field included by default.
      */
@@ -219,15 +223,10 @@ export type AutomationJob = {
     config: {
       [key: string]: unknown
     }
-    /**
-     * Field included by default.
-     */
-    drive_prefix?: string | null
-    /**
-     * Field included by default.
-     */
-    executor_kind: 'agent_script' | 'applet_function'
     human_access_version?: number | null
+    /**
+     * Field included by default.
+     */
     human_uid?: string | null
     /**
      * Field included by default.
@@ -248,21 +247,7 @@ export type AutomationJob = {
     /**
      * Field included by default.
      */
-    owner_session_id?: string | null
-    /**
-     * Field included by default.
-     */
-    page_id?: string | null
-    /**
-     * Field included by default.
-     */
-    provider_message_id?: string | null
-    /**
-     * Field included by default.
-     */
-    reply_route: {
-      [key: string]: unknown
-    }
+    page_id: string
     /**
      * Field included by default.
      */
@@ -285,10 +270,6 @@ export type AutomationJob = {
      * Field included by default.
      */
     updated_at: string
-    /**
-     * Field included by default.
-     */
-    wake_on_failure: boolean
   }
   id: string
   /**
@@ -500,6 +481,7 @@ export type WebhookEndpoint = {
      * Field included by default.
      */
     agent_uid?: string | null
+    authorization_kind?: string | null
     /**
      * Field included by default.
      */
@@ -524,6 +506,8 @@ export type WebhookEndpoint = {
      * Field included by default.
      */
     fired_at?: string | null
+    human_access_version?: number | null
+    human_uid?: string | null
     /**
      * Field included by default.
      */
@@ -536,6 +520,10 @@ export type WebhookEndpoint = {
      * Field included by default.
      */
     mode: string
+    /**
+     * Field included by default.
+     */
+    owner_job_id?: number | null
     /**
      * Field included by default.
      */
@@ -561,7 +549,7 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+    status: 'armed' | 'active' | 'paused' | 'fired' | 'cancelled' | 'expired'
     /**
      * Field included by default.
      */
@@ -975,6 +963,10 @@ export type SignalBinding = {
      * Field included by default.
      */
     agent_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    auth_config_id?: string | null
     /**
      * Field included by default.
      */
@@ -1827,6 +1819,10 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
+  owner_job_id?: number | null
+  /**
+   * Field included by default.
+   */
   provider_message_id?: string | null
   /**
    * Field included by default.
@@ -1849,7 +1845,7 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
-  status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+  status: 'armed' | 'active' | 'paused' | 'fired' | 'cancelled' | 'expired'
   /**
    * Field included by default.
    */
@@ -1966,7 +1962,7 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  agent_uid: string
+  agent_uid?: string | null
   /**
    * Field included by default.
    */
@@ -2018,7 +2014,11 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  owner_session_id: string
+  owner_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  owner_session_id?: string | null
   /**
    * Field included by default.
    */
@@ -2056,7 +2056,7 @@ export type CronSchedule = {
     /**
      * Field included by default.
      */
-    agent_uid: string
+    agent_uid?: string | null
     authorization_kind?: string | null
     /**
      * Field included by default.
@@ -2107,7 +2107,11 @@ export type CronSchedule = {
     /**
      * Field included by default.
      */
-    owner_session_id: string
+    owner_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    owner_session_id?: string | null
     /**
      * Field included by default.
      */
@@ -2279,7 +2283,7 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  agent_uid: string
+  agent_uid?: string | null
   /**
    * Field included by default.
    */
@@ -2349,7 +2353,7 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  session_id: string
+  session_id?: string | null
   /**
    * Field included by default.
    */
@@ -2413,6 +2417,9 @@ export type AutomationJobRun = {
      * Field included by default.
      */
     error?: string | null
+    /**
+     * Field included by default.
+     */
     event: {
       [key: string]: unknown
     }
@@ -2470,7 +2477,6 @@ export type AutomationJobRun = {
      * Field included by default.
      */
     stdout_truncated: boolean
-    worker_wait_started_at?: string | null
   }
   id: string
   /**
@@ -2738,7 +2744,7 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    agent_uid: string
+    agent_uid?: string | null
     authorization_kind?: string | null
     /**
      * Field included by default.
@@ -2807,7 +2813,7 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    session_id: string
+    session_id?: string | null
     /**
      * Field included by default.
      */
@@ -5523,7 +5529,7 @@ export type GetHumanAccessResponses = {
     status: string
     uid: string
     work: Array<{
-      agent_uid: string
+      agent_uid?: string | null
       authorization_kind: string
       can_reauthorize: boolean
       human_access_version?: number | null
@@ -5976,54 +5982,47 @@ export type ListSignalBindingsResponses = {
 
 export type ListSignalBindingsResponse = ListSignalBindingsResponses[keyof ListSignalBindingsResponses]
 
-export type GetAutomationJobData = {
+export type ListConnectorAuthConfigsData = {
   body?: never
-  path: {
-    id: string
-    agent_uid: string
-  }
-  query?: {
-    /**
-     * Relationship paths to include in the response
-     */
-    include?: string
-    /**
-     * Limits the response fields to only those listed for each type
-     */
-    fields?: {
-      /**
-       * Comma separated field names for automation_job
-       */
-      automation_job?: string
-      [key: string]: unknown
-    }
-  }
-  url: '/api/v2/agents/{agent_uid}/automation-jobs/{id}'
+  path?: never
+  query?: never
+  url: '/api/v2/connector-auth-configs'
 }
 
-export type GetAutomationJobErrors = {
+export type ListConnectorAuthConfigsErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type GetAutomationJobError = GetAutomationJobErrors[keyof GetAutomationJobErrors]
+export type ListConnectorAuthConfigsError = ListConnectorAuthConfigsErrors[keyof ListConnectorAuthConfigsErrors]
 
-export type GetAutomationJobResponses = {
+export type ListConnectorAuthConfigsResponses = {
   /**
    * Success
    */
   200: {
-    data?: AutomationJob
-    included?: Array<unknown>
-    meta?: {
-      [key: string]: unknown
-    }
+    connections: Array<{
+      auth_scheme: string
+      configured_credential_fields: Array<string>
+      display_name: string
+      id: string
+      inserted_at: string
+      is_default: boolean
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      slug: string
+      status: string
+      updated_at: string
+    }>
   }
 }
 
-export type GetAutomationJobResponse = GetAutomationJobResponses[keyof GetAutomationJobResponses]
+export type ListConnectorAuthConfigsResponse =
+  ListConnectorAuthConfigsResponses[keyof ListConnectorAuthConfigsResponses]
 
 export type ListBrainObjectTypesData = {
   body?: never
@@ -6319,7 +6318,7 @@ export type DisableHumanAccessResponses = {
     status: string
     uid: string
     work: Array<{
-      agent_uid: string
+      agent_uid?: string | null
       authorization_kind: string
       can_reauthorize: boolean
       human_access_version?: number | null
@@ -6638,7 +6637,6 @@ export type ListAutomationJobsData = {
       automation_job?: string
       [key: string]: unknown
     }
-    agent?: string
   }
   url: '/api/v2/automation-jobs'
 }
@@ -6920,58 +6918,6 @@ export type ChangeHumanMembershipResponses = {
 
 export type ChangeHumanMembershipResponse = ChangeHumanMembershipResponses[keyof ChangeHumanMembershipResponses]
 
-export type BackgroundActivityAutomationRunsData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: {
-    cursor?: string
-    limit?: number
-  }
-  url: '/api/v2/agents/{agent_uid}/background-activities/automation-runs'
-}
-
-export type BackgroundActivityAutomationRunsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type BackgroundActivityAutomationRunsError =
-  BackgroundActivityAutomationRunsErrors[keyof BackgroundActivityAutomationRunsErrors]
-
-export type BackgroundActivityAutomationRunsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    next_cursor?: string | null
-    observed_at: string
-    runs: Array<{
-      agent_uid: string
-      attempt_id?: string | null
-      attempts: number
-      automation_job_id: number
-      definition_status: 'active' | 'cancelled'
-      error?: string | null
-      id: number
-      inserted_at?: string | null
-      label?: string | null
-      owner_session_id: string
-      resource_kind: 'automation_run'
-      scheduled_event_id?: string | null
-      started_at?: string | null
-      status: 'queued' | 'running'
-      updated_at?: string | null
-    }>
-  }
-}
-
-export type BackgroundActivityAutomationRunsResponse =
-  BackgroundActivityAutomationRunsResponses[keyof BackgroundActivityAutomationRunsResponses]
-
 export type ReviewIdentityDirectoryEventData = {
   /**
    * Request body for the review_identity_directory_event operation on identity_provider_operation resource
@@ -7219,65 +7165,52 @@ export type ResetAgentTokenQuotaResponses = {
 
 export type ResetAgentTokenQuotaResponse = ResetAgentTokenQuotaResponses[keyof ResetAgentTokenQuotaResponses]
 
-export type ListAutomationJobRunsData = {
+export type ListConnectorCatalogData = {
   body?: never
-  path: {
-    agent_uid: string
-    automation_job_id: number
-  }
-  query?: {
-    /**
-     * Paginates the response with the limit and offset or keyset pagination.
-     */
-    page?: {
-      after?: string
-      before?: string
-      limit?: number
-    }
-    /**
-     * Relationship paths to include in the response
-     */
-    include?: string
-    /**
-     * Limits the response fields to only those listed for each type
-     */
-    fields?: {
-      /**
-       * Comma separated field names for automation_job_run
-       */
-      automation_job_run?: string
-      [key: string]: unknown
-    }
-  }
-  url: '/api/v2/agents/{agent_uid}/automation-jobs/{automation_job_id}/runs'
+  path?: never
+  query?: never
+  url: '/api/v2/connector-catalog'
 }
 
-export type ListAutomationJobRunsErrors = {
+export type ListConnectorCatalogErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type ListAutomationJobRunsError = ListAutomationJobRunsErrors[keyof ListAutomationJobRunsErrors]
+export type ListConnectorCatalogError = ListConnectorCatalogErrors[keyof ListConnectorCatalogErrors]
 
-export type ListAutomationJobRunsResponses = {
+export type ListConnectorCatalogResponses = {
   /**
    * Success
    */
   200: {
-    /**
-     * An array of resource objects representing a automation_job_run
-     */
-    data?: Array<AutomationJobRun>
-    included?: Array<unknown>
-    meta?: {
-      [key: string]: unknown
-    }
+    connectors: Array<{
+      auth_schemes: Array<string>
+      credential_fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      display_name: string
+      event_streams?: Array<{
+        event_types: Array<string>
+        id: string
+        label: string
+      }> | null
+      id: string
+      plugin_id: string
+      public_fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      toolkits: Array<string>
+      trigger_types?: Array<{
+        [key: string]: unknown
+      }> | null
+    }>
   }
 }
 
-export type ListAutomationJobRunsResponse = ListAutomationJobRunsResponses[keyof ListAutomationJobRunsResponses]
+export type ListConnectorCatalogResponse = ListConnectorCatalogResponses[keyof ListConnectorCatalogResponses]
 
 export type DeleteAgentTokenQuotaData = {
   body?: never
@@ -7647,7 +7580,7 @@ export type RetryHumanWorkCleanupResponses = {
     status: string
     uid: string
     work: Array<{
-      agent_uid: string
+      agent_uid?: string | null
       authorization_kind: string
       can_reauthorize: boolean
       human_access_version?: number | null
@@ -8473,7 +8406,7 @@ export type ListWorkAccessReviewsResponses = {
    */
   200: {
     work: Array<{
-      agent_uid: string
+      agent_uid?: string | null
       authorization_kind: string
       can_reauthorize: boolean
       human_access_version?: number | null
@@ -8521,7 +8454,7 @@ export type ClassifyWorkAccessResponses = {
    */
   201: {
     work: Array<{
-      agent_uid: string
+      agent_uid?: string | null
       authorization_kind: string
       can_reauthorize: boolean
       human_access_version?: number | null
@@ -8634,6 +8567,54 @@ export type SetAgentLibraryPluginResponses = {
 
 export type SetAgentLibraryPluginResponse = SetAgentLibraryPluginResponses[keyof SetAgentLibraryPluginResponses]
 
+export type GetAutomationJobData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for automation_job
+       */
+      automation_job?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/automation-jobs/{id}'
+}
+
+export type GetAutomationJobErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAutomationJobError = GetAutomationJobErrors[keyof GetAutomationJobErrors]
+
+export type GetAutomationJobResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: AutomationJob
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetAutomationJobResponse = GetAutomationJobResponses[keyof GetAutomationJobResponses]
+
 export type ArchiveBrainSourceData = {
   body?: never
   path: {
@@ -8729,7 +8710,7 @@ export type RestoreHumanAccessResponses = {
     status: string
     uid: string
     work: Array<{
-      agent_uid: string
+      agent_uid?: string | null
       authorization_kind: string
       can_reauthorize: boolean
       human_access_version?: number | null
@@ -8863,6 +8844,65 @@ export type ListAgentWorkerEnvsResponses = {
 }
 
 export type ListAgentWorkerEnvsResponse = ListAgentWorkerEnvsResponses[keyof ListAgentWorkerEnvsResponses]
+
+export type ListAutomationJobRunsData = {
+  body?: never
+  path: {
+    automation_job_id: number
+  }
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for automation_job_run
+       */
+      automation_job_run?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/automation-jobs/{automation_job_id}/runs'
+}
+
+export type ListAutomationJobRunsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAutomationJobRunsError = ListAutomationJobRunsErrors[keyof ListAutomationJobRunsErrors]
+
+export type ListAutomationJobRunsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a automation_job_run
+     */
+    data?: Array<AutomationJobRun>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAutomationJobRunsResponse = ListAutomationJobRunsResponses[keyof ListAutomationJobRunsResponses]
 
 export type PauseCronScheduleData = {
   body?: never
@@ -11196,7 +11236,7 @@ export type ClearHumanAccessRestrictionResponses = {
     status: string
     uid: string
     work: Array<{
-      agent_uid: string
+      agent_uid?: string | null
       authorization_kind: string
       can_reauthorize: boolean
       human_access_version?: number | null

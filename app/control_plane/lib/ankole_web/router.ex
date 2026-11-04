@@ -71,6 +71,20 @@ defmodule AnkoleWeb.Router do
     plug :require_ai_gateway_access_token
   end
 
+  scope "/webhooks/connectors/:tenant_id", AnkoleWeb do
+    post "/auth/:auth_config_id", ConnectorWebhookController, :auth
+    post "/triggers/:trigger_id", ConnectorWebhookController, :trigger
+  end
+
+  scope "/api/internal/connectors", AnkoleWeb do
+    post "/git-credentials", ConnectorMCPController, :git_credentials
+  end
+
+  scope "/api/internal/mcp", AnkoleWeb do
+    post "/toolkits/:toolkit", ConnectorMCPController, :toolkit
+    post "/skills/:skill/:server", ConnectorMCPController, :skill
+  end
+
   scope "/api/v2/browser" do
     pipe_through :session_api
     AnkoleWeb.runtime_forward("/", AnkoleWeb.JSONAPI.BrowserRouter)
@@ -79,6 +93,7 @@ defmodule AnkoleWeb.Router do
   scope "/", AnkoleWeb do
     pipe_through :oauth_protocol
 
+    get "/oauth/connectors/callback", ConnectorController, :callback
     get "/.well-known/openid-configuration", OIDCController, :discovery
     get "/.well-known/jwks.json", OIDCController, :jwks
     get "/oauth/authorize", OIDCController, :authorize
@@ -217,6 +232,7 @@ defmodule AnkoleWeb.Router do
     get "/site-admin-console", SpaController, :console
     get "/site-admin-console/*path", SpaController, :console
     get "/settings", SpaController, :pod
+    get "/connectors", SpaController, :pod
     get "/me", SpaController, :pod
     get "/pod", SpaController, :pod
     get "/pod/*path", SpaController, :pod

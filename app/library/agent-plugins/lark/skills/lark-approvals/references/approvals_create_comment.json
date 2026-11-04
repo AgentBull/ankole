@@ -1,0 +1,60 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Approvals create comment.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "at_info_list": {
+        "items": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "offset": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "comment_id": {
+        "type": "string"
+      },
+      "content": {
+        "type": "string"
+      },
+      "disable_bot": {
+        "type": "boolean"
+      },
+      "extra": {
+        "type": "string"
+      },
+      "instance_id": {
+        "type": "string"
+      },
+      "parent_comment_id": {
+        "type": "string"
+      }
+    },
+    "required": ["instance_id", "content"],
+    "type": "object"
+  },
+  "name": "approvals_create_comment",
+  "outputSchema": {
+    "properties": {
+      "comment_id": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

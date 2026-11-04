@@ -19,6 +19,14 @@ defmodule Ankole.Signals.WebhookEndpoint do
     allow(:cancel_operator_endpoint, resource: "site_console:webhooks", action: "delete")
   end
 
+  use Ankole.Work.Provenance,
+    agent_required?: false,
+    kind: "webhook",
+    cleanup_key: "webhooks",
+    review_states: [:armed, :active, :paused],
+    reauthorizable_states: [:armed, :active, :paused],
+    revoke_action: {Ankole.Signals.Webhooks, :stop_human_work_in_tx}
+
   @modes ~w(one_shot standing)
   @type t :: %__MODULE__{}
 
@@ -28,6 +36,7 @@ defmodule Ankole.Signals.WebhookEndpoint do
     migrate?(false)
 
     foreign_key_names([
+      {:owner_job_id, "signal_webhook_endpoints_owner_job_fkey"},
       {:agent_uid, "signal_webhook_endpoints_agent_uid_fkey"},
       {:source_signal_id, "signal_webhook_endpoints_source_signal_id_fkey"},
       {:conversation_id, "signal_webhook_endpoints_conversation_id_fkey"}
@@ -36,9 +45,10 @@ defmodule Ankole.Signals.WebhookEndpoint do
     unique_index_names([{[:token_digest], "signal_webhook_endpoints_token_digest_index"}])
 
     check_constraints do
+      check_constraint(:authorization_kind, "signal_webhook_endpoints_work_authorization_check")
       check_constraint(:mode, "signal_webhook_endpoints_mode_check")
       check_constraint(:event_format, "signal_webhook_endpoints_event_format_check")
-      check_constraint(:agent_uid, "signal_webhook_endpoints_raw_target_check")
+      check_constraint(:owner_job_id, "signal_webhook_endpoints_owner_scope_check")
       check_constraint(:status, "signal_webhook_endpoints_status_check")
       check_constraint(:status, "signal_webhook_endpoints_lifecycle_check")
       check_constraint(:token_digest, "signal_webhook_endpoints_token_digest_length")
@@ -64,7 +74,8 @@ defmodule Ankole.Signals.WebhookEndpoint do
     )
 
     attribute(:event_format, :string, allow_nil?: false, default: "raw", public?: true)
-    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
+    ash_attributes()
+    attribute(:owner_job_id, :integer, public?: true)
     attribute(:binding_name, :string, public?: true)
     attribute(:session_id, :string, public?: true)
     attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
@@ -96,6 +107,7 @@ defmodule Ankole.Signals.WebhookEndpoint do
     default_fields([
       :id,
       :agent_uid,
+      :owner_job_id,
       :binding_name,
       :session_id,
       :conversation_id,
@@ -121,9 +133,13 @@ defmodule Ankole.Signals.WebhookEndpoint do
     default_initial_state(:armed)
 
     transitions do
+      transition(:pause, from: [:armed, :active], to: :paused)
+      transition(:resume_armed, from: :paused, to: :armed)
+      transition(:resume_active, from: :paused, to: :active)
+      transition(:stop_human_work, from: [:armed, :active], to: :paused)
       transition(:fire, from: :armed, to: :fired)
-      transition(:cancel, from: [:armed, :active], to: :cancelled)
-      transition(:expire, from: [:armed, :active], to: :expired)
+      transition(:cancel, from: [:armed, :active, :paused], to: :cancelled)
+      transition(:expire, from: [:armed, :active, :paused], to: :expired)
     end
   end
 
@@ -149,6 +165,10 @@ defmodule Ankole.Signals.WebhookEndpoint do
         :token_digest,
         :event_format,
         :agent_uid,
+        :owner_job_id,
+        :authorization_kind,
+        :human_uid,
+        :human_access_version,
         :binding_name,
         :session_id,
         :conversation_id,
@@ -166,7 +186,7 @@ defmodule Ankole.Signals.WebhookEndpoint do
       validate(one_of(:event_format, ["raw", "cloudevents"]))
 
       validate(present([:agent_uid, :session_id]),
-        where: [attribute_equals(:event_format, "raw")]
+        where: [attribute_equals(:event_format, "raw"), attribute_equals(:owner_job_id, nil)]
       )
 
       validate(
@@ -179,6 +199,38 @@ defmodule Ankole.Signals.WebhookEndpoint do
         end,
         only_when_valid?: true
       )
+    end
+
+    update :configure do
+      accept([:label, :expires_at])
+    end
+
+    update :pause do
+      accept([])
+      change(transition_state(:paused))
+    end
+
+    update :resume_armed do
+      accept([])
+      change(transition_state(:armed))
+    end
+
+    update :resume_active do
+      accept([])
+      change(transition_state(:active))
+    end
+
+    update :stop_human_work do
+      accept([])
+      change(transition_state(:paused))
+    end
+
+    update :reauthorize do
+      accept([:authorization_kind, :human_uid, :human_access_version])
+    end
+
+    destroy :remove do
+      primary?(true)
     end
 
     update :fire do

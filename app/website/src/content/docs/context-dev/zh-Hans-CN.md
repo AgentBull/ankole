@@ -53,7 +53,7 @@ stripe.com 对应哪个 NAICS 行业代码？
 
 打开 **Console → Agent 能力库**，找到 `context-dev` 并开启：既可设为租户默认开启，也可仅对确实需要采集外部网页的个别 Agent 单独放行。“租户默认 + 单 Agent 覆盖”的配置方式详见 [Agent 能力库](../skills/)。
 
-开启后从该 Agent 的下一轮对话起正式生效；日后若将其关闭，随后的对话回合、新启动的后台 Agent 任务及下一次 Automation Job 运行便都会立即移除该连接。
+启用或停用 `context-dev` 后，设置从后续 Agent 回合和后台 Agent 任务开始生效。
 
 ### 4. 验证可用性
 
@@ -61,7 +61,7 @@ stripe.com 对应哪个 NAICS 行业代码？
 
 ## Ankole 怎么连接
 
-Context.dev 官方托管的 MCP 服务地址为 `https://mcp.context.dev/mcp`。`context-dev` Skill 将其声明为一项[基于 Skill 的 MCP 依赖](../mcp/)，因此网络连接仅在已启用该 Skill 的单次执行期间按需建立：每次启动对话回合、后台 Agent 任务或 Automation Job 运行时，Ankole 都会单独生成一份临时的私有 `mcporter` 配置文件，且配置文件中只写入环境变量引用名，真实的密钥明文始终留在进程运行环境中，绝不会落盘写入配置文件。
+Context.dev 的 MCP 服务地址为 `https://mcp.context.dev/mcp`，由 Skill 声明为远程 MCP 依赖。Worker 使用短期回合令牌调用控制面的 Skill 代理。代理读取已配置的 `CONTEXT_DEV_API_KEY` 并用于上游认证，该引用密钥不会进入 Worker 环境快照。临时 MCPorter 配置指向内部网关。
 
 顺带一提，Context.dev 面向个人桌面客户端默认推荐走浏览器 OAuth 交互授权，这在无人值守的服务端 Worker 中显然无法使用；因此 Ankole 对接的是同一服务端原生支持的 API Key 鉴权模式，直接通过 `Authorization` 请求头完成认证，全程无需人工点选登录。
 

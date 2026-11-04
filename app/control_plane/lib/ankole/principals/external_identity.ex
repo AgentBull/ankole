@@ -70,6 +70,18 @@ defmodule Ankole.Principals.ExternalIdentity do
   actions do
     defaults([:read])
 
+    read :by_employee_id do
+      argument(:providers, {:array, :string}, allow_nil?: false)
+      argument(:employee_id, :string, allow_nil?: false)
+
+      filter(
+        expr(
+          provider in ^arg(:providers) and
+            fragment("?->>'user_id' = ?", metadata, ^arg(:employee_id))
+        )
+      )
+    end
+
     read :read_across_tenants do
       multitenancy(:allow_global)
     end

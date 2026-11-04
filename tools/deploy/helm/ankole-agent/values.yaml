@@ -96,7 +96,7 @@ functionRuntime:
     minReplicas: 1
     maxReplicas: 5
     targetCPUUtilizationPercentage: 70
-  # Include public control-plane and database addresses used by the site.
+  # Include database, infrastructure, and metadata addresses used by the site.
   deniedCIDRs:
     - 10.0.0.0/8
     - 172.16.0.0/12

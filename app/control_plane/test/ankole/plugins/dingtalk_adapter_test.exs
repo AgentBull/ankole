@@ -662,8 +662,12 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       "enabled" => true
     }
 
-    assert {:ok, ^config} = Ankole.IdentityProviders.Config.save_provider(activation, config)
-    activation
+    assert {:ok, persisted} = Ankole.IdentityProviders.Config.save_provider(activation, config)
+    assert Map.delete(persisted, "authConfigId") == config
+    assert {:ok, root} = Ankole.Connectors.get_auth_config(persisted["authConfigId"], "dingtalk")
+    assert {:ok, %{"clientSecret" => secret}} = Ankole.Connectors.Credentials.secret(root)
+    assert secret == config["clientSecret"]
+    persisted
   end
 
   @identity_config %{
@@ -784,10 +788,10 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     ]
 
     stub_identity_requests(self(), users)
-    configure_identity_provider(provider_id, @identity_config)
+    config = configure_identity_provider(provider_id, @identity_config)
 
     assert {:ok, %{users: 1, departments: 1}} =
-             IdentityProvider.sync_directory(provider_id, @identity_config)
+             IdentityProvider.sync_directory(provider_id, config)
 
     assert [_group_id] = AuthZ.external_group_ids(provider_id, :directory_department, "20")
 
@@ -847,7 +851,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     alias Ankole.IdentityProviders.DirectoryAccess
     alias Ankole.Principals.HumanAccess
     provider_id = "dingtalk-leave-#{unique_suffix()}"
-    configure_identity_provider(provider_id, @identity_config)
+    config = configure_identity_provider(provider_id, @identity_config)
 
     assert {:ok, observed} =
              IdentityProvider.upsert_user(provider_id, %{
@@ -866,7 +870,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     }
 
     consumer =
-      IdentityProvider.identity_consumer(provider_id, @identity_config)
+      IdentityProvider.identity_consumer(provider_id, config)
       |> Map.put(:tenant_id, Repo.tenant_id!())
 
     for _ <- 1..2 do
@@ -900,7 +904,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     alias Ankole.IdentityProviders.DirectoryAccess
     alias Ankole.Principals.HumanAccess
     provider_id = "dingtalk-recovery-#{unique_suffix()}"
-    configure_identity_provider(provider_id, @identity_config)
+    config = configure_identity_provider(provider_id, @identity_config)
     user = %{"userid" => "returned", "name" => "Returned", "dept_id_list" => [20]}
     assert {:ok, observed} = IdentityProvider.upsert_user(provider_id, user)
 
@@ -913,7 +917,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     uid = observed.principal.uid
 
     consumer =
-      IdentityProvider.identity_consumer(provider_id, @identity_config)
+      IdentityProvider.identity_consumer(provider_id, config)
       |> Map.put(:tenant_id, Repo.tenant_id!())
 
     event = %Event{
@@ -943,7 +947,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     )
 
     assert {:error, %DingTalkOpenAPI.Error{reason: :unexpected_shape}} =
-             IdentityProvider.sync_directory(provider_id, @identity_config)
+             IdentityProvider.sync_directory(provider_id, config)
 
     assert DirectoryAccess.state(provider_id).status == :failed
 
@@ -951,7 +955,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
              HumanAccess.clear_restriction(uid, restriction.id, nil, "review", "clear-incomplete")
 
     stub_identity_requests(self(), [user])
-    assert {:ok, %{users: 1}} = IdentityProvider.sync_directory(provider_id, @identity_config)
+    assert {:ok, %{users: 1}} = IdentityProvider.sync_directory(provider_id, config)
     assert DirectoryAccess.state(provider_id).status == :healthy
 
     assert {:ok, _} =
@@ -971,10 +975,10 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     alias Ankole.Plugins.DingTalkAdapter.Dispatcher
     alias DingTalkOpenAPI.Stream.Dispatcher, as: StreamDispatcher
     provider_id = "dingtalk-incomplete-#{unique_suffix()}"
-    configure_identity_provider(provider_id, @identity_config)
+    config = configure_identity_provider(provider_id, @identity_config)
 
     consumer =
-      IdentityProvider.identity_consumer(provider_id, @identity_config)
+      IdentityProvider.identity_consumer(provider_id, config)
       |> Map.put(:tenant_id, Repo.tenant_id!())
 
     dispatcher = Dispatcher.build([consumer])

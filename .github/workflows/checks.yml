@@ -98,6 +98,8 @@ jobs:
           MIX_ENV: prod
       - run: mix ankole.openapi.check
         working-directory: app/control_plane
+      - run: mix ankole.toolkits
+        working-directory: app/control_plane
       - name: Verify generated browser SDKs
         run: |
           bun run --filter @ankole/webapps openapi:generate

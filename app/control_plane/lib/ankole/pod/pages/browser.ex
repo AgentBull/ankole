@@ -862,7 +862,7 @@ defmodule Ankole.Pod.Pages.Browser do
         Ankole.Pod.Knowledge.export(
           context.actor,
           input.arguments.id,
-          input.arguments.snapshot_id
+          input.arguments[:snapshot_id]
         )
         |> APIError.result(&%{markdown: &1})
       end)
@@ -873,13 +873,16 @@ defmodule Ankole.Pod.Pages.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        with {:ok, _} <- Pages.authorize(context.actor, input.arguments.id, "node_view"),
-             {:ok, panel} <-
-               Ankole.Brain.Knowledge.panel(
-                 Ankole.Brain.Tools.Context.for_subject(Ankole.AuthZ.Actor.uid(context.actor)),
-                 input.arguments.id
-               ),
-             do: {:ok, %{panel: Ankole.JSON.plain(panel)}}
+        result =
+          with {:ok, _} <- Pages.authorize(context.actor, input.arguments.id, "node_view"),
+               {:ok, panel} <-
+                 Ankole.Brain.Knowledge.panel(
+                   Ankole.Brain.Tools.Context.for_subject(Ankole.AuthZ.Actor.uid(context.actor)),
+                   input.arguments.id
+                 ),
+               do: {:ok, %{panel: Ankole.JSON.plain(panel)}}
+
+        APIError.result(result)
       end)
     end
 

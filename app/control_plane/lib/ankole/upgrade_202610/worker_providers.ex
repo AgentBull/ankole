@@ -1,8 +1,6 @@
 defmodule Ankole.Upgrade202610.WorkerProviders do
   @moduledoc "Imports the bootstrap providers and assigns legacy Agents in one transaction."
 
-  require Ash.Query
-  alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.Providers.YAML
   alias Ankole.Errors
@@ -99,20 +97,11 @@ defmodule Ankole.Upgrade202610.WorkerProviders do
   defp secret(_source), do: :error
   @spec assign_legacy_provider_in_tx(String.t()) :: :ok | {:error, term()}
   defp assign_legacy_provider_in_tx(provider_id) do
-    query =
-      AgentWorker
-      |> Ash.Query.filter(is_nil(provider_id) and state != :deleting)
-      |> Ash.Query.sort(agent_uid: :asc)
-      |> Ash.Query.lock(:for_update)
-
-    workers =
-      query
-      |> Ash.Query.for_read(:across_tenants)
-      |> Ankole.Ash.read_across_tenants!(lock_identity: {:rows, "agent_workers", :agent_uid})
+    workers = Repo.across_tenants(&Ankole.AgentWorkers.lock_unassigned_workers_in_tx/0)
 
     Enum.reduce_while(workers, :ok, fn worker, :ok ->
       Repo.with_tenant(worker.tenant_id, fn ->
-        Ankole.Ash.update(worker, :assign_provider, %{provider_id: provider_id})
+        Ankole.AgentWorkers.assign_worker_provider(worker, %{provider_id: provider_id})
       end)
       |> case do
         {:ok, _updated} -> {:cont, :ok}

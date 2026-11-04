@@ -41,13 +41,14 @@ import { instantFromDateTimeLocal } from '../state/token-quota-editor-model'
 type WebhookEndpointItem = {
   id: string
   agent_uid: string | null
+  owner_job_id: number | null
   binding_name: string | null
   session_id: string | null
   conversation_id: string | null
   event_format: string
   label: string
   mode: string
-  status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+  status: 'armed' | 'fired' | 'active' | 'paused' | 'cancelled' | 'expired'
   expires_at: string
   source_provenance: Record<string, unknown>
   inserted_at: string
@@ -61,7 +62,7 @@ export function webhookEndpointListOptions(agentUID: string | undefined) {
 
 /** A live endpoint can still receive a callback; the rest are history. */
 function live(endpoint: WebhookEndpointItem): boolean {
-  return endpoint.status === 'armed' || endpoint.status === 'active'
+  return endpoint.status === 'armed' || endpoint.status === 'active' || endpoint.status === 'paused'
 }
 
 export function WebhooksPage() {
@@ -339,7 +340,11 @@ function WebhookEndpointRow({
           <span className="font-mono text-xs text-muted-foreground">{formatConsoleDate(endpoint.inserted_at)}</span>
         </div>
       </TableCell>
-      {endpoint.agent_uid ? <AgentCell uid={endpoint.agent_uid} /> : <TableCell>—</TableCell>}
+      {endpoint.agent_uid ? (
+        <AgentCell uid={endpoint.agent_uid} />
+      ) : (
+        <TableCell>{endpoint.owner_job_id ? `${t('pod.automation.job')} #${endpoint.owner_job_id}` : '—'}</TableCell>
+      )}
       <TableCell>
         <span className="block max-w-56 truncate font-mono text-xs" title={endpoint.session_id ?? undefined}>
           {endpoint.session_id}
@@ -386,6 +391,7 @@ function webhookStatusTone(status: WebhookEndpointItem['status']): StatusTone {
       return 'info'
     case 'expired':
       return 'warning'
+    case 'paused':
     case 'cancelled':
       return 'neutral'
   }

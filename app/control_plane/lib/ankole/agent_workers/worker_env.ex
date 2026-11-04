@@ -71,11 +71,19 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
     with {:ok, items} <- console_list_for_agent(agent_uid) do
       present = Enum.filter(items, & &1.present)
 
+      filter_runtime_projection(%{
+        "names" => present |> Enum.map(& &1.name) |> Enum.sort(),
+        "plain_values" => present |> Enum.reject(& &1.secret) |> Map.new(&{&1.name, &1.value})
+      })
+    end
+  end
+
+  def filter_runtime_projection(projection) do
+    with {:ok, keys} <- Ankole.AIAgent.mcp_credential_env_keys() do
       {:ok,
-       %{
-         "names" => present |> Enum.map(& &1.name) |> Enum.sort(),
-         "plain_values" => present |> Enum.reject(& &1.secret) |> Map.new(&{&1.name, &1.value})
-       }}
+       projection
+       |> Map.update!("names", &Enum.reject(&1, fn name -> name in keys end))
+       |> Map.update!("plain_values", &Map.drop(&1, keys))}
     end
   end
 

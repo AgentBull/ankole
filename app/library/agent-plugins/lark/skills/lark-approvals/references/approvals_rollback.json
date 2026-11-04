@@ -1,0 +1,36 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Approvals rollback.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "comment": {
+        "type": "string"
+      },
+      "instance_code": {
+        "type": "string"
+      },
+      "node_ids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "task_id": {
+        "type": "string"
+      }
+    },
+    "required": ["instance_code", "task_id", "node_ids"],
+    "type": "object"
+  },
+  "name": "approvals_rollback",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

@@ -13,7 +13,16 @@ defmodule Ankole.TenantsTest do
   alias Ankole.Signals.Signal
   alias Ankole.AgentWorkers.WorkerEnv
 
-  setup %{tenant: tenant} do
+  setup %{tenant: tenant} = context do
+    if context[:sandbox] == false do
+      {:ok, privileged_id} = Tenants.privileged_id()
+
+      on_exit(fn ->
+        assert {:ok, _} =
+                 AppConfigure.put_global_by_key("tenants.privileged_tenant_id", privileged_id)
+      end)
+    end
+
     :ok = set_privileged_tenant(tenant)
     :ok = Tenants.ensure_scaffold(tenant)
     :ok
@@ -61,6 +70,56 @@ defmodule Ankole.TenantsTest do
 
       assert {:error, :last_active_human_admin} =
                HumanAccess.disable(admin.uid, "suspend", nil, Ecto.UUID.generate(), :suspended)
+    end)
+
+    assert {:ok, _} = Tenants.delete(tenant)
+    drain_delete(tenant.id)
+    assert {:error, :not_found} = Tenants.get(tenant.id)
+  end
+
+  @tag sandbox: false
+  test "tenant deletion removes fired Job schedule history before its sources and Job" do
+    tenant = new_tenant()
+
+    Repo.with_tenant(tenant.id, fn ->
+      human = human_fixture().principal
+      actor = actor_fixture(human.uid)
+      job = Ankole.WorkFixtures.applet_job(human.uid)
+
+      assert {:ok, schedule} =
+               Ankole.AutomationJobs.JobSources.schedules(actor, job.page_id, job.id, :put, %{
+                 name: "tenant-deletion",
+                 payload: %{},
+                 timezone: "Etc/UTC",
+                 schedule: %{
+                   kind: "every",
+                   every_ms: 60_000,
+                   anchor_at: DateTime.to_iso8601(DateTime.utc_now())
+                 }
+               })
+
+      assert {:ok, %{status: :fired}} =
+               Ankole.Schedule.fire_cron(schedule.id, now: schedule.next_fire_at)
+
+      assert {:ok, %{status: :scheduled}} =
+               Ankole.AutomationJobs.JobSources.schedules(actor, job.page_id, job.id, :run, %{
+                 id: schedule.id,
+                 idempotency_key: "manual-before-deletion"
+               })
+
+      assert {:ok, %{events: events, deliveries: [_]}} =
+               Ankole.AutomationJobs.JobSources.schedules(actor, job.page_id, job.id, :runs, %{
+                 id: schedule.id
+               })
+
+      assert Enum.sort(Enum.map(events, & &1.status)) == [:fired, :scheduled]
+      assert Enum.all?(events, &(&1.cron_schedule_id == schedule.id && is_nil(&1.agent_uid)))
+
+      assert {:ok, %{webhook_endpoint: _}} =
+               Ankole.AutomationJobs.JobSources.webhooks(actor, job.page_id, job.id, :create, %{
+                 label: "tenant-deletion",
+                 expires_at: DateTime.add(DateTime.utc_now(), 3600)
+               })
     end)
 
     assert {:ok, _} = Tenants.delete(tenant)

@@ -1,0 +1,94 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Im list chats.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "page_size": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "sort_type": {
+        "type": "string"
+      },
+      "types": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "im_list_chats",
+  "outputSchema": {
+    "properties": {
+      "has_more": {
+        "type": "boolean"
+      },
+      "items": {
+        "items": {
+          "properties": {
+            "avatar": {
+              "type": "string"
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "chat_mode": {
+              "type": "string"
+            },
+            "chat_status": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "external": {
+              "type": "boolean"
+            },
+            "labels": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_id": {
+              "type": "string"
+            },
+            "owner_id_type": {
+              "type": "string"
+            },
+            "p2p_target_id": {
+              "type": "string"
+            },
+            "p2p_target_type": {
+              "type": "string"
+            },
+            "tenant_key": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "page_token": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

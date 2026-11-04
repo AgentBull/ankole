@@ -94,7 +94,7 @@ defmodule Ankole.Principals.WorkAccess do
          true <- is_nil(human_uid) or authorization.authorization_kind == "human",
          :ok <- check_in_tx(authorization),
          %{} = work <- Owner.lock(schema, id),
-         :ok <- check_execution_target(work.agent_uid, authorization),
+         :ok <- check_execution_target(Map.get(work, :agent_uid), authorization),
          true <- reauthorizable?(kind, work),
          true <- work.authorization_kind != "human" or not is_nil(human_uid),
          previous_authorization = fields(work),
@@ -140,7 +140,7 @@ defmodule Ankole.Principals.WorkAccess do
     %{
       kind: kind,
       id: to_string(work.id),
-      agent_uid: work.agent_uid,
+      agent_uid: Map.get(work, :agent_uid),
       status: status,
       authorization_kind: work.authorization_kind,
       human_uid: work.human_uid,
@@ -324,15 +324,8 @@ defmodule Ankole.Principals.WorkAccess do
     |> Ankole.Ash.read!()
   end
 
-  # Principal locks have the first rank of the work lock order; the UID order
-  # keeps the locks of concurrent callers in one order.
   defp lock_principals(uids) do
-    uids = uids |> Enum.uniq() |> Enum.sort()
-
-    Principal
-    |> Ash.Query.filter(uid in ^uids)
-    |> Ash.Query.sort(uid: :asc)
-    |> Ash.Query.lock(:for_update)
-    |> Ankole.Ash.read!(lock_identity: {"principals", uids})
+    {:ok, principals} = Ankole.Principals.lock_principals_in_tx(uids)
+    principals
   end
 end

@@ -1,4 +1,5 @@
 import structuralDiffs from '../corpus/rust/structural-diffs.json'
+import draftRebase from '../corpus/rust/draft-rebase.json'
 import { describe, expect, test } from 'bun:test'
 import { ChangeSet, Leaf, type Plot } from '../src/core/doc'
 import { Wordgard } from '../src/core/editor'
@@ -6,20 +7,26 @@ import { Transaction } from '../src/core/state'
 import { parseXml, printXml } from '../src/document/xml'
 import { headlessState } from '../src/editor/extension'
 import { pageDocument, readTree } from '../src/editor/convert'
-import { Paragraph } from '../src/core/types'
+import { Paragraph, Strong } from '../src/core/types'
 import { insertImage, redo, toggleFormat, undo } from '../src/editor/commands'
-import { Align } from '../src/editor/schema'
+import { Align, ListItem } from '../src/editor/schema'
 import { limits } from '../src/document/tree'
 import { PageCollaboration, type PageChange, type PageChangeRequest } from '../src/editor/page-collaboration'
 import { trackCommentSelection } from '../src/editor/comments'
 import { blockChange, deleteBlock } from '../src/editor/block-actions'
 import { changeTable, editableTable, type TableAction } from '../src/editor/tables'
+import { Command, enter, insertText } from '../src/core/command'
+import { BlockSelection } from '../src/editor/block-selection'
+import { eventHandler } from '../src/core/editor/input'
+import { endComposition, exportMarkdown } from './helpers'
+import { undoDepth } from '../src/core/history'
 
 /** This view adapter uses the production state, appenders, changes and transaction listeners. */
 function editor(xml = '<page><p>base</p></page>', guarded = false): Wordgard {
   const view = {
     state: headlessState(parseXml(xml)),
     composing: false,
+    connected: true,
     focus() {},
     dispatch(spec: Transaction | Transaction.Spec) {
       const transactions = Transaction.append(spec instanceof Transaction ? spec : view.state.update(spec))
@@ -48,6 +55,41 @@ const waitFor = async (test: () => boolean) => {
   }
 }
 const xmlOf = (view: Wordgard) => printXml(readTree(view.state.doc))
+const composingColumns =
+  '<page><p>Before</p><columns><column><p>A</p><p>Keep</p></column><column><p>B</p></column></columns><p>After</p></page>'
+function textAt(document: Plot.Doc, text: string): number {
+  let found = -1
+  document.iterate((node, pos) => {
+    if (node.isText && node.param === text) found = pos
+  })
+  if (found < 0) throw new Error(`Missing text: ${text}`)
+  return found
+}
+function beginColumnComposition(view: Wordgard) {
+  Object.assign(view, { composing: true })
+  view.dispatch({
+    selection: BlockSelection.of(view.state.doc, [textAt(view.state.doc, 'A') - 1, textAt(view.state.doc, 'B') - 1])!
+  })
+  expect(
+    Command.dispatch(view, insertText, {
+      ...view.state.selection.replacementRange,
+      insert: 'zh',
+      userEvent: 'input.type.compose.start'
+    })
+  ).toBe(true)
+  expect(view.state.sel.head.parent.parent!.node.name).toBe('Column')
+}
+function finishColumnComposition(view: Wordgard, cancel = false, endEvent = true) {
+  const host = view.state.sel.head.parent
+  Command.dispatch(view, insertText, {
+    from: host.start,
+    to: host.end,
+    insert: cancel ? '' : '中',
+    userEvent: 'input.type.compose'
+  })
+  endComposition(view)
+  if (endEvent) for (const handler of view.state.facet(eventHandler).compositionend ?? []) handler({} as Event, view)
+}
 
 /** Unit transport: two production clients, server ordering and canonical wire validation. */
 function peers(xml: string) {
@@ -114,6 +156,382 @@ function peers(xml: string) {
 }
 
 describe('production OT client', () => {
+  for (const remoteTarget of [null, 'first', 'After']) {
+    test(`empty list composition still finishes after remote ${remoteTarget ?? 'no edit'}`, async () => {
+      const original = '<page><ul><li><p>first</p></li><li /></ul><p>After</p></page>'
+      const network = peers(original)
+      const [view, peer] = network.views
+      try {
+        let itemStart = -1
+        view.state.doc.iterate((node, pos) => {
+          if (node.type === ListItem.type && node.isPlot && !node.content.length) itemStart = pos + 1
+        })
+        expect(itemStart).toBeGreaterThan(0)
+        view.dispatch({ selection: { anchor: itemStart } })
+        Object.assign(view, { composing: true })
+        const start = enter(view, null)
+        expect(start).not.toBeNull()
+        view.dispatch({ ...start!, userEvent: 'input.type.compose.start' })
+        Command.dispatch(view, insertText, {
+          from: view.state.selection.from,
+          to: view.state.selection.to,
+          insert: 'zh',
+          userEvent: 'input.type.compose'
+        })
+        const paragraph = view.state.sel.head.parent
+        Command.dispatch(view, insertText, {
+          from: paragraph.start,
+          to: paragraph.end,
+          insert: '',
+          userEvent: 'input.type.compose'
+        })
+        if (remoteTarget !== null) {
+          peer.dispatch({
+            changes: { from: textAt(peer.state.doc, remoteTarget), insert: [Leaf.text('Remote ')] },
+            userEvent: 'input.type'
+          })
+          await waitFor(() => xmlOf(view).includes(`Remote ${remoteTarget}`))
+        }
+        expect(xmlOf(view)).toContain('<li><p /></li>')
+        endComposition(view)
+        const expected = remoteTarget === null ? original : original.replace(remoteTarget, `Remote ${remoteTarget}`)
+        expect(await network.settle()).toBe(expected)
+        expect(exportMarkdown(view)).not.toContain('<p />')
+        expect(undoDepth(view.state)).toBe(1)
+        expect(undo(view)).toBe(true)
+        expect(await network.settle()).toBe(expected)
+      } finally {
+        network.dispose()
+      }
+    })
+  }
+
+  for (const remoteTarget of ['Before', 'After']) {
+    for (const cancel of [false, true]) {
+      test(`remote ${remoteTarget} text remains visible during column composition and ${cancel ? 'cancellation' : 'commit'}`, async () => {
+        const network = peers(composingColumns)
+        const [view, peer] = network.views
+        try {
+          beginColumnComposition(view)
+          const head = view.state.selection.head
+          peer.dispatch({
+            changes: { from: textAt(peer.state.doc, remoteTarget), insert: [Leaf.text('Remote ')] },
+            userEvent: 'input.type'
+          })
+          await waitFor(() => network.clients[0]!.currentRevision() === 1)
+          expect(xmlOf(view)).toContain(`Remote ${remoteTarget}`)
+          expect(view.state.selection.head).toBe(head + (remoteTarget === 'Before' ? 7 : 0))
+          expect(view.state.sel.head.parent.node.textContent()).toBe('zh')
+          expect(view.state.sel.head.parent.parent!.node.name).toBe('Column')
+          expect(network.recoveries).toEqual([])
+          expect(network.committedXML()).not.toContain('zh')
+          finishColumnComposition(view, cancel)
+          const stored = await network.settle()
+          expect(stored).toContain(cancel ? '<p />' : '<p>中</p>')
+          expect(stored).toContain(`Remote ${remoteTarget}`)
+          expect(stored).not.toContain('<columns')
+          expect(undo(view)).toBe(true)
+          const restored = await network.settle()
+          expect(restored).toContain('<p>A</p>')
+          expect(restored).toContain('<p>B</p>')
+          expect(restored).toContain(`Remote ${remoteTarget}`)
+          expect(redo(view)).toBe(true)
+          expect(await network.settle()).toBe(stored)
+        } finally {
+          network.dispose()
+        }
+      })
+    }
+  }
+
+  for (const outcome of ['stale', 'lost acknowledgement']) {
+    for (const cancel of [false, true]) {
+      test(`an in-flight ${outcome} request preserves composition through ${cancel ? 'core cancellation' : 'core commit'}`, async () => {
+        const view = editor(composingColumns, true)
+        let document = view.state.doc
+        const log: PageChange[] = []
+        const requests: PageChangeRequest[] = []
+        const release = Promise.withResolvers<void>()
+        const acknowledge = Promise.withResolvers<void>()
+        const recoveries: (string | null)[] = []
+        const failures: unknown[] = []
+        let pending = false
+        const commit = (request: Pick<PageChangeRequest, 'client_id' | 'client_seq' | 'changes'>) => {
+          const changed = ChangeSet.fromJSON(document.schema, request.changes).apply(document)
+          expect(changed.eq(pageDocument(parseXml(printXml(readTree(changed)))))).toBe(true)
+          document = changed
+          log.push({ revision: log.length + 1, kind: 'change', ...request })
+        }
+        const client = new PageCollaboration(view, 0, {
+          clientID: 'composing-sender',
+          changed(state) {
+            pending = state.pending
+            if (state.error) failures.push(state.error)
+          },
+          reset(draft) {
+            recoveries.push(draft)
+          },
+          sync() {
+            throw new Error('Unexpected revision gap')
+          },
+          async send(request) {
+            requests.push(structuredClone(request))
+            if (requests.length === 1) {
+              if (outcome === 'lost acknowledgement') commit(request)
+              await release.promise
+              if (outcome === 'lost acknowledgement') throw new Error('acknowledgement lost')
+            } else if (outcome === 'lost acknowledgement' && requests.length === 2) {
+              expect(request).toEqual(requests[0]!)
+              await acknowledge.promise
+            } else {
+              expect(request.base_revision).toBe(log.length)
+              commit(request)
+            }
+            return { revision: log.length, changes: log.slice(request.base_revision) }
+          }
+        })
+        try {
+          view.dispatch({
+            changes: { from: textAt(view.state.doc, 'Before'), insert: [Leaf.text('Local ')] },
+            userEvent: 'input.type'
+          })
+          await waitFor(() => requests.length === 1)
+          const original = structuredClone(requests[0]!)
+          beginColumnComposition(view)
+          if (outcome === 'lost acknowledgement') {
+            release.resolve()
+            await waitFor(() => requests.length === 2)
+          }
+          commit({
+            client_id: 'peer',
+            client_seq: 1,
+            changes: ChangeSet.create(document, {
+              from: textAt(document, 'After'),
+              insert: [Leaf.text('Remote ')]
+            }).toJSON()
+          })
+          client.receive({ revision: log.length, changes: [...log] })
+          expect(client.currentRevision()).toBe(outcome === 'stale' ? 1 : 2)
+          expect(xmlOf(view)).toContain('Local Before')
+          expect(xmlOf(view)).toContain('Remote After')
+          expect(view.state.sel.head.parent.node.textContent()).toBe('zh')
+          expect(view.state.sel.head.parent.parent!.node.name).toBe('Column')
+          release.resolve()
+          acknowledge.resolve()
+          await Bun.sleep(80)
+          expect(requests).toEqual(outcome === 'stale' ? [original] : [original, original])
+          expect(printXml(readTree(document))).not.toContain('zh')
+          expect(pending).toBe(true)
+
+          // Core composition cleanup need not dispatch the DOM compositionend hook.
+          // The next send must still normalize both memory and the prepared payload.
+          finishColumnComposition(view, cancel, false)
+          await waitFor(() => !pending && client.currentRevision() === log.length)
+          const stored = printXml(readTree(document))
+          expect(xmlOf(view)).toBe(stored)
+          expect(view.state.doc.eq(pageDocument(parseXml(stored)))).toBe(true)
+          expect(stored).not.toContain('<columns')
+          expect(stored).toContain(cancel ? '<p />' : '<p>中</p>')
+          expect(stored).toContain('Local Before')
+          expect(stored).toContain('Remote After')
+          expect(requests).toHaveLength(outcome === 'stale' ? 2 : 3)
+          expect(requests.at(-1)!.client_seq).toBe(2)
+          expect(requests.at(-1)!.base_revision).toBe(outcome === 'stale' ? 1 : 2)
+          expect(requests[0]).toEqual(original)
+          expect(recoveries).toEqual([])
+          expect(failures.map(error => (error as Error).message)).toEqual(
+            outcome === 'stale' ? [] : ['acknowledgement lost']
+          )
+          expect(undo(view)).toBe(true)
+          await waitFor(() => !pending && client.currentRevision() === log.length)
+          const restored = xmlOf(view)
+          expect(restored).toBe(
+            composingColumns
+              .replace('<p>Before</p>', '<p>Local Before</p>')
+              .replace('<p>After</p>', '<p>Remote After</p>')
+          )
+          expect(restored).toBe(printXml(readTree(document)))
+          expect(view.state.doc.eq(pageDocument(parseXml(restored)))).toBe(true)
+          expect(redo(view)).toBe(true)
+          await waitFor(() => !pending && client.currentRevision() === log.length)
+          expect(xmlOf(view)).toBe(stored)
+          expect(xmlOf(view)).toBe(printXml(readTree(document)))
+          expect(view.state.doc.eq(pageDocument(parseXml(stored)))).toBe(true)
+        } finally {
+          release.resolve()
+          acknowledge.resolve()
+          client.dispose()
+        }
+      })
+    }
+  }
+
+  for (const { cancel, followup } of [
+    { cancel: false, followup: false },
+    { cancel: true, followup: false },
+    { cancel: false, followup: true }
+  ]) {
+    test(`core ${cancel ? 'cancellation' : 'commit'} normalizes before a slow acknowledged request releases its slot${followup ? ' and separates later ordinary input' : ''}`, async () => {
+      const view = editor(composingColumns, true)
+      let document = view.state.doc
+      const log: PageChange[] = []
+      const requests: PageChangeRequest[] = []
+      const release = Promise.withResolvers<void>()
+      const failures: unknown[] = []
+      let pending = false
+      const client = new PageCollaboration(view, 0, {
+        clientID: 'slow-composition',
+        changed(state) {
+          pending = state.pending
+          if (state.error) failures.push(state.error)
+        },
+        reset() {
+          throw new Error('Unexpected reset')
+        },
+        sync() {
+          throw new Error('Unexpected revision gap')
+        },
+        async send(request) {
+          requests.push(structuredClone(request))
+          document = ChangeSet.fromJSON(document.schema, request.changes).apply(document)
+          log.push({
+            revision: log.length + 1,
+            kind: 'change',
+            client_id: request.client_id,
+            client_seq: request.client_seq,
+            changes: request.changes
+          })
+          if (requests.length === 1) await release.promise
+          return { revision: log.length, changes: log.slice(request.base_revision) }
+        }
+      })
+      try {
+        view.dispatch({
+          changes: { from: textAt(view.state.doc, 'Before'), insert: [Leaf.text('Local ')] },
+          userEvent: 'input.type'
+        })
+        await waitFor(() => requests.length === 1)
+        const original = structuredClone(requests[0]!)
+        beginColumnComposition(view)
+        const remote = ChangeSet.create(document, {
+          from: textAt(document, 'After'),
+          insert: [Leaf.text('Remote ')]
+        })
+        document = remote.apply(document)
+        log.push({ revision: 2, kind: 'change', client_id: 'peer', client_seq: 1, changes: remote.toJSON() })
+        client.receive({ revision: 2, changes: [...log] })
+        expect(client.currentRevision()).toBe(2)
+        expect(view.state.sel.head.parent.parent!.node.name).toBe('Column')
+
+        finishColumnComposition(view, cancel, false)
+        const completed = composingColumns
+          .replace('<p>Before</p>', '<p>Local Before</p>')
+          .replace('<p>After</p>', '<p>Remote After</p>')
+        const expected = completed.replace(
+          '<columns><column><p>A</p><p>Keep</p></column><column><p>B</p></column></columns>',
+          `${cancel ? '<p />' : '<p>中</p>'}<p>Keep</p>`
+        )
+        // Local completion cannot wait for the transport or its 500 ms history grouping window.
+        expect(view.state.doc.eq(pageDocument(parseXml(expected)))).toBe(true)
+        await Bun.sleep(600)
+        if (followup) {
+          const { from, to } = view.state.selection.replacementRange
+          Command.dispatch(view, insertText, {
+            from,
+            to,
+            insert: 'x',
+            userEvent: 'input.type'
+          })
+          expect(xmlOf(view)).toBe(expected.replace('<p>中</p>', '<p>中x</p>'))
+          expect(undo(view)).toBe(true)
+          expect(xmlOf(view)).toBe(expected)
+        }
+        expect(requests).toEqual([original])
+        release.resolve()
+        await waitFor(() => !pending)
+        expect(xmlOf(view)).toBe(expected)
+        expect(printXml(readTree(document))).toBe(expected)
+        expect(undo(view)).toBe(true)
+        expect(xmlOf(view)).toBe(completed)
+        await waitFor(() => !pending)
+        expect(printXml(readTree(document))).toBe(completed)
+        expect(redo(view)).toBe(true)
+        expect(xmlOf(view)).toBe(expected)
+        await waitFor(() => !pending)
+        expect(printXml(readTree(document))).toBe(expected)
+        expect(failures).toEqual([])
+      } finally {
+        release.resolve()
+        client.dispose()
+      }
+    })
+  }
+
+  test('core completion applies full normalization to composing marks without column cleanup', async () => {
+    const original = '<page><p>base</p></page>'
+    const view = editor(original, true)
+    Object.assign(view, { composing: true })
+    view.dispatch({
+      changes: { from: 1, to: 5, insert: [Leaf.text('中 ', [Strong])] },
+      selection: { anchor: 3 },
+      userEvent: 'input.type.compose.start'
+    })
+    const expected = '<page><p><strong>中</strong> </p></page>'
+    expect(view.state.doc.eq(pageDocument(parseXml(expected)))).toBe(false)
+    await Bun.sleep(600)
+    endComposition(view)
+    expect(view.state.doc.eq(pageDocument(parseXml(expected)))).toBe(true)
+    expect(view.state.selection.head).toBe(3)
+    expect(undo(view)).toBe(true)
+    expect(xmlOf(view)).toBe(original)
+    expect(redo(view)).toBe(true)
+    expect(xmlOf(view)).toBe(expected)
+  })
+
+  for (const replacement of [false, true]) {
+    test(`a remote ${replacement ? 'replacement' : 'deletion'} of the composing host preserves the draft through recovery`, () => {
+      const view = editor(composingColumns, true)
+      const confirmed = view.state.doc
+      const columns = confirmed.resolve(textAt(confirmed, 'A')).matchingParent(node => node.name === 'Columns')!
+      let draft: string | null | undefined
+      let sends = 0
+      const client = new PageCollaboration(view, 0, {
+        clientID: 'composing-draft',
+        changed() {},
+        sync() {},
+        reset(value) {
+          draft = value
+        },
+        async send() {
+          sends++
+          throw new Error('Unexpected request')
+        }
+      })
+      try {
+        beginColumnComposition(view)
+        const before = view.state
+        const remote = ChangeSet.create(confirmed, {
+          from: columns.before,
+          to: columns.after,
+          insert: replacement ? [Paragraph.create([Leaf.text('replacement')])] : []
+        })
+        client.receive({
+          revision: 1,
+          changes: [{ revision: 1, kind: 'change', client_id: 'peer', client_seq: 1, changes: remote.toJSON() }]
+        })
+        expect(view.state).toBe(before)
+        expect(client.currentRevision()).toBe(0)
+        expect(draft).toContain('<p>zh</p>')
+        expect(draft).toContain('<p>Keep</p>')
+        expect(draft).not.toContain('<p>B</p>')
+        expect(draft).not.toContain('replacement')
+        expect(sends).toBe(0)
+      } finally {
+        client.dispose()
+      }
+    })
+  }
+
   const tableXML = (labels: string[]) =>
     `<page><table>${labels.map(label => `<tr><td><p>${label}</p></td></tr>`).join('')}</table></page>`
   const typeInCell = (view: Wordgard, label: string) => {
@@ -643,38 +1061,43 @@ describe('production OT client', () => {
     client.dispose()
   })
 
-  test('two individually valid edits that exceed the combined limit preserve the local draft', () => {
-    const xml = `<page><p>${'x'.repeat(limits.source - '<page><p></p></page>'.length - 2)}</p></page>`
-    const view = editor(xml, true)
-    const initial = view.state
-    const remote = initial.update({ changes: { from: 1, insert: [Leaf.text('BB')] } }).changes
-    let draft: string | null | undefined
-    let sent = 0
-    const client = new PageCollaboration(view, 0, {
-      clientID: 'local',
-      changed() {},
-      reset(value) {
-        draft = value
-      },
-      sync() {},
-      async send() {
-        sent++
-        throw new Error('not sent')
-      }
-    })
-    view.dispatch({ changes: { from: 1, insert: [Leaf.text('A')] } })
-    const accepted = view.state
-    client.receive({
-      revision: 1,
-      changes: [{ revision: 1, kind: 'change', client_id: 'other', client_seq: 1, changes: remote.toJSON() }]
-    })
-    expect(view.state).toBe(accepted)
-    expect(draft?.length).toBe(limits.source - 1)
-    expect(draft?.startsWith('<page><p>A')).toBe(true)
-    expect(draft?.includes('BB')).toBe(false)
-    expect(sent).toBe(0)
-    client.dispose()
-  })
+  test.each([false, true])(
+    'two individually valid edits that exceed the combined limit preserve the local draft while composing=%s',
+    composing => {
+      const xml = `<page><p>${'x'.repeat(limits.source - '<page><p></p></page>'.length - 2)}</p></page>`
+      const view = editor(xml, true)
+      const initial = view.state
+      const remote = initial.update({ changes: { from: 1, insert: [Leaf.text('BB')] } }).changes
+      let draft: string | null | undefined
+      let sent = 0
+      const client = new PageCollaboration(view, 0, {
+        clientID: 'local',
+        changed() {},
+        reset(value) {
+          draft = value
+        },
+        sync() {},
+        async send() {
+          sent++
+          throw new Error('not sent')
+        }
+      })
+      view.dispatch({ changes: { from: 1, insert: [Leaf.text('A')] } })
+      Object.assign(view, { composing })
+      const accepted = view.state
+      client.receive({
+        revision: 1,
+        changes: [{ revision: 1, kind: 'change', client_id: 'other', client_seq: 1, changes: remote.toJSON() }]
+      })
+      expect(view.state).toBe(accepted)
+      expect(draft?.length).toBe(limits.source - 1)
+      expect(draft?.startsWith('<page><p>A')).toBe(true)
+      expect(draft?.includes('BB')).toBe(false)
+      expect(sent).toBe(0)
+      expect(client.currentRevision()).toBe(0)
+      client.dispose()
+    }
+  )
 
   test('two concurrent clients rebase an old base and converge with server storage', async () => {
     const a = editor(),
@@ -758,6 +1181,82 @@ describe('production OT client', () => {
     expect(calls).toBe(2)
     expect(xmlOf(view)).toBe('<page><p>oncebase</p></page>')
     client.dispose()
+  })
+
+  test('native whole-document writes retain an in-flight draft once through its original request and reopen', async () => {
+    const view = editor(draftRebase[0]!.before, true)
+    let document = view.state.doc
+    const log: PageChange[] = []
+    const requests: PageChangeRequest[] = []
+    const release = Promise.withResolvers<void>()
+    let pending = false
+    const recoveries: (string | null)[] = []
+    const client = new PageCollaboration(view, 0, {
+      clientID: 'retained-draft',
+      changed(state) {
+        pending = state.pending
+        expect(state.error).toBeUndefined()
+      },
+      reset(draft) {
+        recoveries.push(draft)
+      },
+      sync() {},
+      async send(request) {
+        requests.push(structuredClone(request))
+        if (requests.length === 1) await release.promise
+        if (request.base_revision === log.length) {
+          document = ChangeSet.fromJSON(document.schema, request.changes).apply(document)
+          log.push({
+            revision: log.length + 1,
+            kind: 'change',
+            client_id: request.client_id,
+            client_seq: request.client_seq,
+            changes: request.changes
+          })
+        }
+        return { revision: log.length, changes: log.slice(request.base_revision) }
+      }
+    })
+    try {
+      const draft = ' Local draft A'
+      view.dispatch({ changes: { from: view.state.doc.length - 1, insert: [Leaf.text(draft)] } })
+      await waitFor(() => requests.length === 1)
+      const original = structuredClone(requests[0])
+      expect(original!.base_revision).toBe(0)
+
+      for (const sample of draftRebase) {
+        const changes = sample.changes as ChangeSet.JSON
+        document = ChangeSet.fromJSON(document.schema, changes).apply(document)
+        expect(printXml(readTree(document))).toBe(sample.after)
+        const change: PageChange = {
+          revision: log.length + 1,
+          kind: 'change',
+          client_id: 'server:agent',
+          client_seq: log.length + 1,
+          changes
+        }
+        log.push(change)
+        client.receive({ revision: log.length, changes: [change] })
+        expect(xmlOf(view).split(draft)).toHaveLength(2)
+        expect(requests).toEqual([original!])
+      }
+
+      release.resolve()
+      await waitFor(() => !pending && client.currentRevision() === log.length)
+      expect(requests).toHaveLength(2)
+      expect(requests[0]).toEqual(original!)
+      expect(recoveries).toEqual([])
+      const stored = printXml(readTree(document))
+      expect(xmlOf(view)).toBe(stored)
+      expect(stored.split(draft)).toHaveLength(2)
+      for (const text of ['Corrected name', 'Appended block', 'Second block']) expect(stored).toContain(text)
+      expect(stored).not.toContain('Initial')
+      expect(stored).not.toContain('Remote name')
+      expect(xmlOf(editor(stored, true))).toBe(stored)
+    } finally {
+      release.resolve()
+      client.dispose()
+    }
   })
 
   test('an Agent reset preserves unconfirmed local work without transforming across it', () => {

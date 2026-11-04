@@ -1,0 +1,287 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List check runs for a Git reference",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "app_id": {
+        "type": "integer"
+      },
+      "check_name": {
+        "type": "string"
+      },
+      "filter": {
+        "enum": ["latest", "all"],
+        "type": "string"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "page": {
+        "type": "integer"
+      },
+      "per_page": {
+        "type": "integer"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "repo": {
+        "type": "string"
+      },
+      "status": {
+        "enum": ["queued", "in_progress", "completed"],
+        "type": "string"
+      }
+    },
+    "required": ["owner", "repo", "ref"],
+    "type": "object"
+  },
+  "name": "checks_list_for_ref",
+  "outputSchema": {
+    "properties": {
+      "check_runs": {
+        "items": {
+          "properties": {
+            "app": {
+              "properties": {
+                "client_id": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "events": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "external_url": {
+                  "type": "string"
+                },
+                "html_url": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer"
+                },
+                "installations_count": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "node_id": {
+                  "type": "string"
+                },
+                "owner": {
+                  "oneOf": [
+                    {
+                      "type": "object"
+                    },
+                    {
+                      "type": "object"
+                    }
+                  ]
+                },
+                "permissions": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "node_id",
+                "owner",
+                "name",
+                "description",
+                "external_url",
+                "html_url",
+                "created_at",
+                "updated_at",
+                "permissions",
+                "events"
+              ],
+              "type": ["object", "null"]
+            },
+            "check_suite": {
+              "properties": {
+                "id": {
+                  "type": "integer"
+                }
+              },
+              "required": ["id"],
+              "type": ["object", "null"]
+            },
+            "completed_at": {
+              "type": ["string", "null"]
+            },
+            "conclusion": {
+              "enum": ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required"],
+              "type": ["string", "null"]
+            },
+            "deployment": {
+              "properties": {
+                "created_at": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "environment": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer"
+                },
+                "node_id": {
+                  "type": "string"
+                },
+                "original_environment": {
+                  "type": "string"
+                },
+                "performed_via_github_app": {
+                  "type": ["object", "null"]
+                },
+                "production_environment": {
+                  "type": "boolean"
+                },
+                "repository_url": {
+                  "type": "string"
+                },
+                "statuses_url": {
+                  "type": "string"
+                },
+                "task": {
+                  "type": "string"
+                },
+                "transient_environment": {
+                  "type": "boolean"
+                },
+                "updated_at": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "node_id",
+                "task",
+                "environment",
+                "description",
+                "statuses_url",
+                "repository_url",
+                "url",
+                "created_at",
+                "updated_at"
+              ],
+              "type": "object"
+            },
+            "details_url": {
+              "type": ["string", "null"]
+            },
+            "external_id": {
+              "type": ["string", "null"]
+            },
+            "head_sha": {
+              "type": "string"
+            },
+            "html_url": {
+              "type": ["string", "null"]
+            },
+            "id": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "output": {
+              "properties": {
+                "annotations_count": {
+                  "type": "integer"
+                },
+                "annotations_url": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "text": {
+                  "type": ["string", "null"]
+                },
+                "title": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["title", "summary", "text", "annotations_count", "annotations_url"],
+              "type": "object"
+            },
+            "pull_requests": {
+              "items": {
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "started_at": {
+              "type": ["string", "null"]
+            },
+            "status": {
+              "enum": ["queued", "in_progress", "completed", "waiting", "requested", "pending"],
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "node_id",
+            "head_sha",
+            "name",
+            "url",
+            "html_url",
+            "details_url",
+            "status",
+            "conclusion",
+            "started_at",
+            "completed_at",
+            "external_id",
+            "check_suite",
+            "output",
+            "app",
+            "pull_requests"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "total_count": {
+        "type": "integer"
+      }
+    },
+    "required": ["total_count", "check_runs"],
+    "type": "object"
+  }
+}

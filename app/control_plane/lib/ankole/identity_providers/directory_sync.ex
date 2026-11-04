@@ -127,7 +127,10 @@ defmodule Ankole.IdentityProviders.DirectorySync do
         {:ok, :sync_disabled}
 
       true ->
-        enqueue_sync(provider_id, reason: "provider_saved", source: source)
+        case enqueue_sync(provider_id, reason: "provider_saved", source: source) do
+          {:error, {:storage_error, _, _, :connection_disabled}} -> {:ok, :connection_disabled}
+          result -> result
+        end
     end
   end
 
@@ -243,6 +246,9 @@ defmodule Ankole.IdentityProviders.DirectorySync do
             sync_job_result(job, provider_id)
           end
       end
+    else
+      {:error, {:storage_error, _, _, :connection_disabled}} -> {:ok, {:skipped, provider_id}}
+      error -> error
     end
   end
 

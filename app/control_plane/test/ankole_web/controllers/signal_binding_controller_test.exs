@@ -592,7 +592,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> recycle_api()
       |> api_patch(binding_path(agent.uid, "lark-main"), %{
         "agent_uid" => agent.uid,
-        "config" => %{"appSecret" => "", "domain" => "lark"},
+        "config" => %{"appSecret" => "", "userName" => "Updated Bot"},
         "group_message_mode" => "observe_all"
       })
 
@@ -613,7 +613,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              )
 
     assert stored_config["appSecret"] == original_config["appSecret"]
-    assert stored_config["domain"] == "lark"
+    assert stored_config["domain"] == "feishu"
+    assert stored_config["userName"] == "Updated Bot"
   end
 
   test "unknown signal adapter remains a 404", %{conn: conn} do
@@ -643,7 +644,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> patch_binding(agent.uid, agent.uid, "lark-main", lark_config("same-agent-updated"))
+      |> patch_binding(
+        agent.uid,
+        agent.uid,
+        "lark-main",
+        Map.put(lark_config("same-agent-updated"), "authConfigId", nil)
+      )
 
     assert %{
              "signal_binding" => %{
@@ -1427,7 +1433,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         "appSecret" => "secret"
       })
 
-    {:ok, ^identity_config} =
+    {:ok, persisted} =
       Ankole.IdentityProviders.Config.save_provider(
         %{
           "provider_id" => provider_id,
@@ -1438,6 +1444,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         },
         identity_config
       )
+
+    assert Map.delete(persisted, "authConfigId") == Map.delete(identity_config, "authConfigId")
+    assert is_binary(persisted["authConfigId"])
 
     :ok
   end

@@ -27,10 +27,20 @@ defmodule Ankole.IdentityProvidersTest do
     AppConfigureRegistry.clear_for_test()
   end
 
-  test "adapter catalog hides active plugins removed from the next-start enable list" do
-    assert Enum.any?(IdentityProviders.list_adapters(), &(&1.plugin_id == "lark-adapter"))
+  test "always-active identity adapters remain configurable with an empty enable list" do
     assert {:ok, []} = PluginConfig.put_enabled_ids([])
-    assert Enum.map(IdentityProviders.list_adapters(), & &1.adapter_id) == []
+    ids = Enum.map(IdentityProviders.list_adapters(), & &1.adapter_id)
+
+    for id <- ~w(lark slack dingtalk wecom entra-id google-workspace),
+        do: assert(id in ids)
+
+    assert {:ok, provider} =
+             IdentityProviders.save_provider("self-service", "lark", %{
+               "appID" => "cli_self_service",
+               "appSecret" => "secret"
+             })
+
+    assert provider["adapter_id"] == "lark"
   end
 
   test "an enabled tenant identity provider prevents disabling its Plugin" do
@@ -71,7 +81,7 @@ defmodule Ankole.IdentityProvidersTest do
     refute "lark-adapter" in enabled
   end
 
-  test "adapter catalog fails closed when the enable list cannot be decoded" do
+  test "always-active adapters do not depend on decoding the optional-plugin enable list" do
     :ok = AppConfigure.delete_global(PluginConfig.enabled_ids_definition())
     now = DateTime.utc_now(:second)
 
@@ -84,7 +94,7 @@ defmodule Ankole.IdentityProvidersTest do
     })
 
     Cache.clear_for_test()
-    assert Enum.map(IdentityProviders.list_adapters(), & &1.adapter_id) == []
+    assert Enum.any?(IdentityProviders.list_adapters(), &(&1.adapter_id == "lark"))
   end
 
   test "saving an enabled provider enqueues the first full sync" do

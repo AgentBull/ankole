@@ -223,8 +223,12 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                     <span>
                       {t(`console.status.${work.status}`, { defaultValue: humanizeTechnicalLabel(work.status) })}
                     </span>
-                    <span aria-hidden>·</span>
-                    <AgentLink uid={work.agent_uid} />
+                    {work.agent_uid ? (
+                      <>
+                        <span aria-hidden>·</span>
+                        <AgentLink uid={work.agent_uid} />
+                      </>
+                    ) : null}
                   </span>
                   <code className="text-xs break-all text-muted-foreground">{work.id}</code>
                 </div>

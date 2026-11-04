@@ -55,10 +55,30 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
     )
     |> register_contact_handlers(consumers)
     |> register_im_group_handlers(consumers)
+    |> register_connector_handlers(consumers)
+  end
+
+  defp register_connector_handlers(dispatcher, consumers) do
+    Enum.reduce(
+      Ankole.Plugins.LarkAdapter.ConnectorEvents.event_types(),
+      dispatcher,
+      fn event_type, acc ->
+        FeishuDispatcher.on(
+          acc,
+          event_type,
+          handler(consumers, &Ankole.Plugins.LarkAdapter.ConnectorEvents.handle_event/3)
+        )
+      end
+    )
   end
 
   defp card_action_callback(consumers) do
-    inner = handler(consumers, &Inbound.handle_card_action/3)
+    inner =
+      handler(consumers, fn type, event, consumers ->
+        with {:ok, _} <-
+               Ankole.Plugins.LarkAdapter.ConnectorEvents.handle_event(type, event, consumers),
+             do: Inbound.handle_card_action(type, event, consumers)
+      end)
 
     fn event_type, %Event{} = event ->
       case inner.(event_type, event) do
@@ -71,7 +91,7 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
               }
             }
           else
-            {:ok, results}
+            %{"toast" => %{"type" => "success", "content" => "Request received."}}
           end
 
         other ->

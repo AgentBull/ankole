@@ -17,7 +17,7 @@ const POD_FIRST_USE_GUIDANCE = [
 
 export const POD_CLI_HELP = `ankole-pod — durable pages and data in your Pod
 
-Run inside an active Ankole turn or AutomationJob attempt. Each operation uses the Agent's
+Run inside an active Ankole turn. Each operation uses the Agent's
 Principal permissions. If access is denied, ask a member to share the page
 or add your Agent to the space.
 
@@ -49,7 +49,12 @@ Read operations:
   base.schema  {id: table_id}
   base.query   {id, filter?, sort?, page_size?, page_token?, ids?}
   base.aggregate {id, filter?, group_by?, metrics}
+  jobs.schedules.list {page_id, job_id}
+  jobs.schedules.runs {page_id, job_id, id}
+  jobs.webhooks.list {page_id, job_id}
   jobs.list {page_id}
+  jobs.actions {page_id} — discover published Action keys
+  jobs.runs {page_id, job_id} — list the latest 100 Runs
   jobs.get_run {page_id, run_id} — read authorized Run status and progress
   bindings.list {config_ref}
 
@@ -81,6 +86,12 @@ Write operations:
   base.delete_view  {id: view_id, version}
   base.write    {id: table_id, creates?:[{data}], updates?:[{id,data,expected_versions}], deletes?:[{id,expected_versions}], upserts?:[{data}]}
   base.copy     {id: table_id, parent_id: report_page_id, filter?}
+  jobs.schedules.put {page_id, job_id, name, schedule, timezone?, payload?, id?, idempotency_key?}
+  jobs.schedules.pause|resume|delete {page_id, job_id, id}
+  jobs.schedules.run {page_id, job_id, id, idempotency_key}
+  jobs.webhooks.create {page_id, job_id, label, expires_at, mode?: standing|one_shot, event_format?: raw|cloudevents}
+  jobs.webhooks.update {page_id, job_id, id, label?, expires_at?}
+  jobs.webhooks.pause|resume|cancel|delete {page_id, job_id, id}
   jobs.create {page_id, action_key, authorization_kind: human|service, label?, config?}
   jobs.configure {page_id, id, label?, config?}
   jobs.delete {page_id, id}
@@ -154,7 +165,7 @@ Optional src/server/main.ts
 exports a default route table typed with import type { Routes } from
 '@ankole/applet-sdk/server'. Build bundles it into server/main.js as ESM with external node:* builtins.
 The runtime provides Node builtins, temporary /tmp files, fetch, process.env from
-applet.env.json, and AnkoleRuntime base, file, ai and HttpError. GET handlers cannot write.
+applet.env.json, and AnkoleRuntime base, file, ai, mcp, signals and HttpError. GET handlers cannot write.
 Backend exports may contain {routes, actions}. Each Action declares idempotent,
 concurrency (parallel|serial_fifo|serial_coalesce), concurrencyKey(ctx), maxSlices,
 and handler(ctx). Jobs hold configuration and durable state; code owns policy.
@@ -162,9 +173,18 @@ ctx.state.get/set/delete and ctx.state.scope(name) persist cursors; remainingMs(
 and continueSlice({delaySeconds,progress}) continue the same Run with latest code.
 AnkoleRuntime capabilities use the caller or personal Job owner; team Jobs use
 AnkoleRuntime.admin, which executes as the Applet's current owner. GET and nested
-calls are read-only. signals.emit({targetJobId,type,data}) accepts a same-Page Job;
-signals.call({actionKey,data}) runs synchronously within the remaining budget.
+calls are read-only. mcp.call(tool,args,{server,connection?,account?,skill?})
+uses a Toolkit, or an enabled remote HTTP Skill when skill is supplied.
+admin.mcp uses the current Page owner; HttpError.details preserves consent links
+and recovery metadata. signals.emit({targetJobId,type,data}) accepts a same-Page Job;
+omit targetJobId to publish to Bindings: routes use applet://<page-id>,
+Actions use job://<job-id>. An Agent wakeup needs
+a Binding to its conversation. signals.call({actionKey,data}) runs synchronously
+within the remaining budget.
 Applet pull restores source and package files, then runs bun install --ignore-scripts.
+useAppletJobs() manages published Actions, Jobs and Run history;
+useJobSources(jobId) manages that Job's schedules and Webhooks. Use the built-in
+Automation panel when custom controls are unnecessary.
 Use useActionRun(runId) in the frontend to follow accepted Run progress, results,
 and errors; it refreshes after reconnecting. Use useRoute/useRouteMutation for
 routes; route writes do not refresh queries
@@ -414,6 +434,9 @@ export async function buildApplet(directory: string) {
 }
 
 export async function commandFromArgs(args: string[], cwd = process.cwd()) {
+  if (args[0] === 'jobs' && ['schedules', 'webhooks'].includes(args[1] ?? '') && args[2]) {
+    args = [`jobs.${args[1]}.${args[2]}`, ...args.slice(3)]
+  }
   if (args[0] === 'chat' && args[1] === 'attachment' && args[2] === 'get') {
     const [, , , conversationId, messageId, rawPosition, toFlag, destination] = args
     const position = Number(rawPosition)
@@ -665,7 +688,7 @@ if (import.meta.main) {
         process.stdout.write(`${JSON.stringify(command.local, null, 2)}\n`)
       } else {
         const socket = process.env[POD_CLI_SOCKET_ENV]
-        if (!socket) throw new Error('ankole-pod requires an active Ankole turn or AutomationJob attempt')
+        if (!socket) throw new Error('ankole-pod requires an active Ankole turn')
         await emitFirstUseGuidance({ commandKey: 'ankole-pod', guidance: POD_FIRST_USE_GUIDANCE })
         const result = await requestSocketLineBridge(socket, JSON.stringify(command), 'Invalid Pod bridge response')
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)

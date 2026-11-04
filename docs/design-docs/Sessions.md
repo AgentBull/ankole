@@ -178,6 +178,11 @@ retry, or finalization can advance past that boundary until its database
 operation commits. If an operation returns an epoch mismatch or closed-run
 error, the Driver stops immediately.
 
+Run types preserve structured execution-error maps and normalize exceptions
+into execution errors before Turn applies the retry or finalization policy.
+An Ash or PostgreSQL exception therefore follows the same durable retry path
+as other unexpected execution failures.
+
 During preparation, the Driver replays durable inbox controls before resuming
 model or tool I/O, and if a newer epoch has superseded the workspace, Ankole
 refuses to resume the previous Run. When a round commits, the Driver cancels

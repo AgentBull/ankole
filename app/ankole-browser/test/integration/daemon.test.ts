@@ -254,6 +254,79 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
     })
   }, 10_000)
 
+  test('workspace rendered fetch preserves a complete long page and the default fetch prefix', async () => {
+    const body = `START\n${'ordinary article line\n'.repeat(35_000)}TRUE-ARTICLE-END\n`
+    const file = join(root, 'long-workspace.html')
+    await writeFile(
+      file,
+      `<!doctype html><meta charset="utf-8"><title>Long article</title><style>body{white-space:pre}</style><body><script>document.body.textContent=${JSON.stringify(body)}</script>`
+    )
+    const url = `file://${file}`
+    const regular = await sendBrowserCommand(context, { name: 'fetch', args: { urls: [url] } })
+    expect(regular.ok).toBe(true)
+    if (!regular.ok) throw new Error(regular.error.message)
+    const regularPage = (regular.data as { results: Array<{ text: string }> }).results[0]!
+    expect(regularPage.text.length).toBe(512 * 1024)
+    const fetched = await sendBrowserCommand(
+      context,
+      { name: 'fetch', args: { urls: [url], result_mode: 'workspace' } },
+      { timeoutMs: 30_000 }
+    )
+    expect(fetched).toMatchObject({
+      ok: true,
+      data: { results: [{ text: body, total_characters: body.length, stored_characters: body.length }] }
+    })
+    const rejected = await sendBrowserCommand(context, {
+      name: 'fetch',
+      args: { urls: Array(5).fill(url), result_mode: 'workspace' }
+    })
+    expect(rejected).toMatchObject({ ok: false, error: { code: 'invalid_command' } })
+  }, 40_000)
+
+  test('workspace rendered fetch transfers capped Unicode and worst-case escaped text through the real socket', async () => {
+    for (const [name, body, total] of [
+      ['unicode', `${'🚀'.repeat(2_000_001)}TRUE-END`, 2_000_009],
+      ['escaped', `${'\u0001'.repeat(2_000_001)}TRUE-END`, 2_000_009]
+    ] as const) {
+      const file = join(root, `workspace-${name}.html`)
+      await writeFile(
+        file,
+        `<!doctype html><meta charset="utf-8"><style>body{white-space:pre}</style><body><script>document.body.textContent=${JSON.stringify(body)}</script>`
+      )
+      const fetched = await sendBrowserCommand(
+        context,
+        { name: 'fetch', args: { urls: [`file://${file}`], result_mode: 'workspace' } },
+        { timeoutMs: 30_000 }
+      )
+      expect(fetched.ok).toBe(true)
+      if (!fetched.ok) throw new Error(fetched.error.message)
+      const page = (
+        fetched.data as {
+          results: Array<{ text: string; total_characters: number; stored_characters: number; tail: string }>
+        }
+      ).results[0]!
+      expect(page.total_characters).toBe(total)
+      expect(page.stored_characters).toBe(2_000_000)
+      expect([...page.text].length).toBe(2_000_000)
+      expect(page.text).not.toContain('TRUE-END')
+      expect(page.tail.endsWith('TRUE-END')).toBe(true)
+      expect(Buffer.byteLength(page.tail)).toBeLessThanOrEqual(160_000)
+      if (name === 'escaped') expect(Buffer.byteLength(JSON.stringify(fetched))).toBeGreaterThan(8 * 1024 * 1024)
+    }
+  }, 65_000)
+
+  test('the daemon rejects an oversized response before writing it to the client', async () => {
+    const fetched = await sendBrowserCommand(
+      context,
+      { name: 'eval', args: { expression: `'x'.repeat(16 * 1024 * 1024)` } },
+      { timeoutMs: 30_000 }
+    )
+    expect(fetched).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_result', message: 'browser response exceeds the 16 MiB limit' }
+    })
+  }, 35_000)
+
   test('code runs own their default artifacts and serialize explicit directory reuse', async () => {
     const previousRunner = process.env.ANKOLE_BROWSER_RUNNER
     process.env.ANKOLE_BROWSER_RUNNER = resolve(import.meta.dir, '../../dist/runner/bootstrap.js')

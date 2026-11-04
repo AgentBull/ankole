@@ -1,0 +1,36 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Approvals reject.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval_code": {
+        "type": "string"
+      },
+      "comment": {
+        "type": "string"
+      },
+      "form": {
+        "type": "string"
+      },
+      "instance_code": {
+        "type": "string"
+      },
+      "task_id": {
+        "type": "string"
+      }
+    },
+    "required": ["approval_code", "instance_code", "task_id"],
+    "type": "object"
+  },
+  "name": "approvals_reject",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

@@ -128,7 +128,7 @@ export function PodSidebar({
   }, [pathname, isMobile, setOpenMobile])
   useEffect(() => {
     if (routeTab) setTab(routeTab)
-  }, [pathname, routeTab, agents.data?.personalAssistantAvailable])
+  }, [pathname, routeTab])
   useEffect(() => {
     if (state === 'expanded' || isMobile) setPreviewOpen(false)
   }, [state, isMobile])

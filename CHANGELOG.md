@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.51 (2026-11-04)
+## Version 2.0.0-alpha.54 (2026-11-04)
 
 - Create and edit spreadsheets in Pod. The page create menus offer a new
   **Spreadsheet**, which starts as a blank `Untitled.xlsx`, and every `.xlsx` or
@@ -49,6 +49,84 @@
   kinds, view them full size, and download them, and they stay in the
   downloaded `.xlsx`. Rows without a height set by hand grow with larger fonts
   and wrapped text, and shrink back when they go.
+
+## Version 2.0.0-alpha.53 (2026-11-04)
+
+- Use the supported read-only Brain operations in Workflow tasks, and terminate
+  foreground command process groups when a conversation turn is stopped.
+- Export current knowledge without an optional snapshot ID, return permission
+  and missing-page errors from knowledge panels, and encode dated recall
+  evidence before generating persistent synthesis pages.
+- Preserve sidebar tab selection and focus while Agent availability loads.
+
+- Preserve the native input node when IME composition replaces selected blocks
+  without a preceding key event or receives compatible remote text edits, and
+  clean up empty nested columns when composition ends. Keep that cleanup in the
+  same undo step while earlier edits await confirmation or the first preedit
+  arrives after structural preparation.
+- Complete empty-list composition cleanup across remote edits, and preserve
+  original list paragraphs when a later composition ends without input or
+  editing resumes after a read-only completion. Moving the caret finishes cleanup
+  at the original paragraph without changing another list, and ending a reverted
+  preedit keeps its own undo step across remote edits.
+- Keep the insertion caret and block attributes when cross-column composition
+  starts in a heading or code block. Apply asynchronous embedded Base
+  configuration updates after composition cleanup so undo preserves the
+  committed candidate. Finish synchronous composition-end events outside
+  drawing when switching an editor to read-only.
+- Finish pending composition cleanup and resume drawing when an editor
+  reconnects, preserving accepted text, remote edits, the insertion caret,
+  and collaboration submissions.
+- Save, synchronize, and generate Drive projections for documents at the
+  supported nesting-depth limit.
+- Return stable event subscription IDs and let Agent CLI callers read Jobs,
+  Runs, and source subscriptions through their declared access checks.
+  Apply Page disclosure checks to Job-scoped subscription lists and their sources.
+- Reject model Provider removal while an enabled OIDC Client still uses it.
+- Give Codex Jobs bounded web-page excerpts and complete workspace files, with
+  working file reads, complete Unicode read windows and continuation hints,
+  and repeated-fetch caching. Write page files as the Agent user and transfer
+  rendered page bodies once so foreground results fit the Worker frame. Keep
+  completed pages and continue the remaining URLs when another browser page
+  cannot be created.
+
+## Version 2.0.0-alpha.52 (2026-11-04)
+
+- Recover rejected Connector tokens through the shared credential owner and
+  retry safe operations once. Preserve Git authentication and require explicit
+  retry for writes whose effects cannot safely be repeated.
+- Keep remote MCP and event-subscription error details available for diagnosis.
+  Let members repair a subscription and return to the same Applet Job, preserving
+  their authorization and source-selection context.
+- Add platform setup guidance to connection forms and load a Job's event
+  subscriptions in one request.
+
+## Version 2.0.0-alpha.51 (2026-11-04)
+
+- Keep OfficeCLI on the release tested with the Worker image by disabling its
+  background self-updates by default, preserving document screenshots when an
+  upstream release omits required assemblies.
+- Restore scheduled Applet replies to the originating messaging conversation.
+- Add tenant-owned external connections with shared encrypted credentials for
+  identity providers, messaging channels, Applets, and Agents. Members authorize
+  personal accounts in Pod; administrators manage application credentials there.
+  Expose Lark approvals, tasks, calendars and messaging, GitHub collaboration,
+  and Linear through explicit MCP Toolkits and generated Skills and SDK types.
+- Run Applet MCP calls through the Function Runtime host and shared control-plane
+  gateway. Proxy remote Skill servers, keep external credentials on the control
+  plane, and authenticate local Git through the active Turn.
+- Let Applet Jobs own schedules and webhook endpoints, with pause, resume,
+  delivery history, Page lifecycle, and personal-access revocation. Manage Jobs,
+  native triggers, connector events and Run results from the Automation panel.
+  Deterministic triggers run Actions without waking an Agent.
+- **Breaking:** replace Agent-script Automation Jobs with published Applet Actions.
+  Migration removes stored `agent_script` Jobs, their Runs, state and related
+  event bindings and receipts. Export required scripts and configuration before
+  upgrading, then recreate those automations as Applet Actions. Remove the Automation Job script CLI, `emitEvent()`, the
+  Worker `lark-cli` and `gh` executables, and
+  `automation_jobs.max_running_per_agent`; use Pod Job APIs and Connector Toolkits.
+- Keep authorization locks compatible with concurrent chat and background Job
+  writes, and handle database exceptions through the Session retry path.
 
 ## Version 2.0.0-alpha.50 (2026-11-03)
 

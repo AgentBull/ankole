@@ -46,6 +46,9 @@ export function requestErrorDetailList(error: unknown): Record<string, unknown>[
 
 export function requestErrorMessage(error: unknown): string {
   const code = requestErrorCode(error)
+  if (code === 'connection_application_change_requires_new_connection') {
+    return i18n.t('pod.connectors.application_change_requires_new_connection')
+  }
   const localized = code && authnErrors[code === 'last_admin_member' ? 'last_active_human_admin' : code]
   if (localized) return i18n.t(localized)
   const [first] = jsonApiErrors(error)

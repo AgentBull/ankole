@@ -304,6 +304,8 @@ defmodule Ankole.Principals.HumanAccess do
            record(principal, disabled, "disable", Map.put(attrs, :released_identifiers, released)),
          :ok <-
            Ankole.OIDC.Sessions.revoke_human_in_tx(disabled.uid, disabled.access_version),
+         :ok <-
+           Ankole.Connectors.revoke_human_accounts_in_tx(disabled.uid, disabled.access_version),
          :ok <- Ankole.Principals.WorkCleanup.enqueue_in_tx(disabled.uid, disabled.access_version),
          :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(disabled) do
       {:ok, disabled}

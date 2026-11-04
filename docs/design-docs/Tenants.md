@@ -471,7 +471,9 @@ deletion while an Applet names that Principal as its execution owner.
 Agent teardown releases Workers and persistent disks, and
 the background deletion job removes database rows in bounded, idempotent
 single-table batches ordered from leaves to parents so foreign-key cascades
-never delete bulk subtrees at once. Ankole applies the time budget after a batch
+never delete bulk subtrees at once. Scheduled-event history precedes its cron
+rules; source bindings, webhook endpoints, and Run history precede their Jobs.
+Ankole applies the time budget after a batch
 removes rows and continues past empty tables, so each pass either removes data
 or reaches final cleanup even when database queries are slow.
 Pod content metadata and attachment

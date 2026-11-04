@@ -3,7 +3,6 @@ import type { Stats } from 'node:fs'
 import { chmod, lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { nodeErrorCode } from '../common/errors'
-import type { AutomationAttemptRef } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { relativePathWithin } from '../core/path-boundary'
 import { type RPCRequester, type TurnRPCFrame } from '../lanes/rpc_lane'
 
@@ -59,7 +58,6 @@ export class Drive {
     private readonly opts: {
       agentHome: string
       rpc: RPCRequester
-      automationAttempt?: Omit<AutomationAttemptRef, '$typeName'>
     }
   ) {}
 
@@ -94,8 +92,7 @@ export class Drive {
       {
         prefix: prefixPath,
         limit: opts.limit ?? listPageLimit,
-        after: opts.after ?? '',
-        automationAttempt: this.opts.automationAttempt
+        after: opts.after ?? ''
       },
       undefined,
       { retryOnDisconnect: true }
@@ -103,18 +100,13 @@ export class Drive {
     return { files: response.files.map(driveFileFromWire), nextAfter: response.nextAfter, revision: response.revision }
   }
 
-  async get(
-    path: string,
-    localPath: string,
-    opts: { node?: boolean; frame?: TurnRPCFrame; automationAttempt?: Omit<AutomationAttemptRef, '$typeName'> } = {}
-  ): Promise<DriveFile> {
+  async get(path: string, localPath: string, opts: { node?: boolean; frame?: TurnRPCFrame } = {}): Promise<DriveFile> {
     const response = await this.opts.rpc(
       'files.get',
       {
         path: opts.node ? '' : assertDrivePath(path),
         homeRelativePath: await this.homeRelativePath(localPath, { create: true }),
-        nodeId: opts.node ? path : '',
-        automationAttempt: opts.automationAttempt ?? this.opts.automationAttempt
+        nodeId: opts.node ? path : ''
       },
       opts.frame,
       { timeoutMs: transferTimeoutMs, retryOnDisconnect: true }
@@ -141,7 +133,7 @@ export class Drive {
     }
     const response = await this.opts.rpc(
       'files.commit',
-      { upserts: wireUpserts, deletes: deletes.map(assertDrivePath), automationAttempt: this.opts.automationAttempt },
+      { upserts: wireUpserts, deletes: deletes.map(assertDrivePath) },
       undefined,
       { timeoutMs: transferTimeoutMs }
     )

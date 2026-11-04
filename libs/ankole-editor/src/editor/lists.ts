@@ -6,12 +6,13 @@
  */
 import { Plot, Pos, type ChangeSet, type Node, type Token } from '../core/doc'
 import { KeyBinding, Wordgard } from '../core/editor'
+import { compositionComplete } from '../core/editor/input'
 import { history } from '../core/history'
-import { GardSelection, GardState, Transaction } from '../core/state'
+import { GardSelection, type GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { Attrs } from './attributes'
 import * as S from './schema'
-import { selectedUnits } from './block-selection'
+import { clearCompositionHost, compositionHost, selectedUnits } from './block-selection'
 import { isList } from './block-insert'
 import { liftListFromBlock } from './nesting'
 
@@ -246,17 +247,6 @@ function taskAt(wg: Wordgard, event: MouseEvent): { pos: number; node: Node } | 
   return found && isItem(found.node) ? found : null
 }
 
-const clearComposedItem = Transaction.Annotation.define<boolean>()
-
-const composedItemField = GardState.Field.define<boolean>({
-  create: () => false,
-  update(active, tr) {
-    if (tr.annotation(clearComposedItem)) return false
-    if (tr.docChanged) return tr.isUserEvent('input.type.compose')
-    return active
-  }
-})
-
 /**
  * An edit that empties the only paragraph of a list item leaves an empty item, which reads as `-`.
  * A paragraph with attributes stays. A page write keeps its source as written, history replays what
@@ -296,7 +286,6 @@ const emptiedItems = Transaction.extender.of(tr => {
 })
 
 export const listEditing: GardState.Extension = [
-  composedItemField,
   emptiedItems,
   KeyBinding.of({
     key: 'Mod-Enter',
@@ -316,14 +305,15 @@ export const listEditing: GardState.Extension = [
       return tasks.length ? toggleTasks(tasks) : false
     }
   }),
-  Wordgard.domEventHandler('compositionend', (_event, wg) => {
+  compositionComplete.of(wg => {
     const { state } = wg
-    if (state.readOnly || !state.field(composedItemField, false)) return false
-    if (!state.selection.isCursor) {
-      wg.dispatch({ annotations: clearComposedItem.of(true) })
-      return false
+    const position = state.field(compositionHost, false)
+    if (position == null) return
+    if (state.readOnly) {
+      wg.dispatch({ annotations: clearCompositionHost.of(true) })
+      return
     }
-    const paragraph = state.sel.head.parent
+    const paragraph = state.doc.resolve(position + 1).parent
     const item = paragraph.parent
     if (
       item &&
@@ -335,14 +325,16 @@ export const listEditing: GardState.Extension = [
     ) {
       wg.dispatch({
         changes: { from: paragraph.before, to: paragraph.after },
-        selection: GardSelection.cursor(item.start),
-        annotations: clearComposedItem.of(true),
+        selection:
+          state.selection.isCursor && state.sel.head.parent.pos === position
+            ? GardSelection.cursor(item.start)
+            : undefined,
+        annotations: clearCompositionHost.of(true),
         userEvent: 'input.type.compose'
       })
     } else {
-      wg.dispatch({ annotations: clearComposedItem.of(true) })
+      wg.dispatch({ annotations: clearCompositionHost.of(true) })
     }
-    return false
   }),
   Wordgard.domEventHandler('mousedown', (event, wg) => {
     if (event.button != 0 || wg.state.readOnly) return false

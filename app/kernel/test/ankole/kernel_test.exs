@@ -729,6 +729,27 @@ defmodule Ankole.KernelTest do
     assert_receive {:universal_ai_client, ^ref, :aborted}, 1_000
   end
 
+  test "universal AI client test NIF build enables test-ca root certificate parsing" do
+    req_ref = make_ref()
+
+    spec =
+      Torque.encode!(%{
+        "upstream" => %{
+          "method" => "POST",
+          "url" => "https://127.0.0.1:1/test-ca-probe",
+          "transport" => %{
+            "ca_cert_pem" => "-----BEGIN CERTIFICATE-----\n@@@\n-----END CERTIFICATE-----\n"
+          }
+        }
+      })
+
+    assert :ok = Ankole.Kernel.universal_ai_client_raw_request_nif(spec, self(), req_ref)
+
+    assert_receive {:universal_ai_client_request, ^req_ref,
+                    {:error, %{"code" => "client_build_failed", "stage" => "connect"}}},
+                   1_000
+  end
+
   defp start_http_sse_server(chunks, opts \\ []) do
     {:ok, listen_socket} =
       :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])

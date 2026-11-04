@@ -18,6 +18,17 @@ defmodule AnkoleWeb.PodURLTest do
     assert {:ok, "/content/all?q=report"} = PodURL.path(get(ctx.conn, "/content/all?q=report"))
   end
 
+  test "Connector authorization links serve the Pod shell and preserve the requested connection",
+       ctx do
+    {conn, _uid} =
+      active_admin_conn_with_principal(%{ctx.conn | host: ctx.tenant.slug <> ".ankole.localhost"})
+
+    path = "/connectors?connection=github-main&scopes=repo"
+    rendered = get(conn, path)
+    assert {:ok, ^path} = PodURL.path(rendered)
+    assert html_response(rendered, 200) =~ entry_source(pod_entry())
+  end
+
   test "Meta Ankole deep links serve the Pod shell with their query", ctx do
     {conn, _uid} =
       active_admin_conn_with_principal(%{ctx.conn | host: ctx.tenant.slug <> ".ankole.localhost"})

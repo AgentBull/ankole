@@ -1,0 +1,34 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Calendar delete event.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "calendar_id": {
+        "type": "string"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "need_notification": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      }
+    },
+    "required": ["event_id"],
+    "type": "object"
+  },
+  "name": "calendar_delete_event",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

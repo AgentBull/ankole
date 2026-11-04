@@ -1,0 +1,64 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Download workflow run logs",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "destination": {
+        "additionalProperties": false,
+        "properties": {
+          "base_object_id": {
+            "type": ["string", "null"]
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "role": {
+            "enum": ["file", "asset", "attachment"],
+            "type": "string"
+          }
+        },
+        "required": ["page_id", "role", "name"],
+        "type": "object"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "repo": {
+        "type": "string"
+      },
+      "run_id": {
+        "type": "integer"
+      }
+    },
+    "required": ["owner", "repo", "run_id", "destination"],
+    "type": "object"
+  },
+  "name": "actions_get_run_logs",
+  "outputSchema": {
+    "properties": {
+      "content_type": {
+        "type": ["string", "null"]
+      },
+      "file_ref": {
+        "type": "string"
+      },
+      "size": {
+        "type": "integer"
+      }
+    },
+    "required": ["file_ref"],
+    "type": "object"
+  }
+}

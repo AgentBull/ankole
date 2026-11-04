@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.WeComAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc """
   First-party WeCom (企业微信) plugin declaration.
 

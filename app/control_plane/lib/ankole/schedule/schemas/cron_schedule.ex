@@ -28,6 +28,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
 
   use Ankole.Work.Provenance,
     owner_session?: true,
+    agent_required?: false,
     kind: "cron",
     cleanup_key: "cron",
     review_states: [:active, :paused],
@@ -42,10 +43,12 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     migrate?(false)
 
     foreign_key_names([
+      {:owner_job_id, "cron_schedules_owner_job_fkey"},
       {:agent_uid, "cron_schedules_agent_uid_fkey"}
     ])
 
     check_constraints do
+      check_constraint(:owner_job_id, "cron_schedules_owner_scope_check")
       check_constraint(:authorization_kind, "cron_schedules_work_authorization_check")
       check_constraint(:status, "cron_schedules_status_check")
       check_constraint(:next_fire_at, "cron_schedules_live_deadline_check")
@@ -58,10 +61,19 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       check_constraint(:created_by, "cron_schedules_created_by_object")
     end
 
-    identity_index_names(idempotency: "cron_schedules_idempotency_index")
+    identity_wheres_to_sql(
+      idempotency: "owner_job_id IS NULL",
+      job_idempotency: "owner_job_id IS NOT NULL"
+    )
+
+    identity_index_names(
+      idempotency: "cron_schedules_idempotency_index",
+      job_idempotency: "cron_schedules_job_idempotency_index"
+    )
 
     unique_index_names([
-      {[:agent_uid, :owner_session_id, :name], "cron_schedules_agent_name_index"}
+      {[:agent_uid, :owner_session_id, :name], "cron_schedules_agent_name_index"},
+      {[:owner_job_id, :name], "cron_schedules_job_name_index"}
     ])
   end
 
@@ -74,6 +86,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     )
 
     ash_attributes()
+    attribute(:owner_job_id, :integer, public?: true)
     attribute(:binding_name, :string, public?: true)
     attribute(:name, :string, allow_nil?: false, public?: true)
     attribute(:schedule, Ankole.Ash.Types.JSONMap, default: %{}, allow_nil?: false, public?: true)
@@ -94,7 +107,13 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   end
 
   identities do
-    identity(:idempotency, [:agent_uid, :owner_session_id, :idempotency_key])
+    identity(:idempotency, [:agent_uid, :owner_session_id, :idempotency_key],
+      where: expr(is_nil(owner_job_id))
+    )
+
+    identity(:job_idempotency, [:owner_job_id, :idempotency_key],
+      where: expr(not is_nil(owner_job_id))
+    )
   end
 
   calculations do
@@ -118,6 +137,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       :status,
       :agent_uid,
       :owner_session_id,
+      :owner_job_id,
       :execution_session_id,
       :binding_name,
       :automation_job_id,
@@ -239,6 +259,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
         :status,
         :agent_uid,
         :owner_session_id,
+        :owner_job_id,
         :binding_name,
         :name,
         :schedule,
@@ -252,6 +273,40 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       ])
 
       validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
+    end
+
+    create :create_job do
+      primary?(false)
+      upsert?(true)
+      upsert_identity(:job_idempotency)
+      upsert_fields([:idempotency_key])
+
+      accept([
+        :id,
+        :authorization_kind,
+        :human_uid,
+        :human_access_version,
+        :status,
+        :agent_uid,
+        :owner_session_id,
+        :owner_job_id,
+        :binding_name,
+        :name,
+        :schedule,
+        :timezone,
+        :payload,
+        :delivery,
+        :next_fire_at,
+        :last_fire_at,
+        :idempotency_key,
+        :created_by
+      ])
+
+      validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
+    end
+
+    destroy :remove do
+      primary?(true)
     end
 
     update :update_definition do

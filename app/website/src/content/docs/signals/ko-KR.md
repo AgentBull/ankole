@@ -5,7 +5,7 @@ section: Developer guide
 order: 102
 ---
 
-Signal은 특정 Agent의 Session에 작업 실행을 요청하는 영속 이벤트로, 채팅 메시지, 스케줄 기동, 자동화 스크립트 결과, 각종 업무 이벤트를 나타냅니다. 필요한 경우 Conversation과 Message를 참조할 수 있지만, 일반 업무 이벤트에서는 두 객체가 없어도 Signal을 생성할 수 있습니다.
+Signal은 특정 Agent의 Session에 작업 실행을 요청하는 영속 이벤트로, 채팅 메시지, 스케줄 기동, 각종 업무 이벤트를 나타냅니다. 필요한 경우 Conversation과 Message를 참조할 수 있지만, 일반 업무 이벤트에서는 두 객체가 없어도 Signal을 생성할 수 있습니다.
 
 소유권도 명확히 나뉘어 있습니다. 이벤트 수용과 Signal Routing Rule은 `Ankole.Signals`가 맡고, 공유 발언 저장·외부 채널 관찰·메시지 전달은 `Ankole.Conversations`가 맡으며, 실제 세션 실행은 `Ankole.Sessions`가 맡습니다. 즉 원본 사실, 실행 트리거, 실행 상태를 각 도메인 소유자가 분리해 관리합니다.
 

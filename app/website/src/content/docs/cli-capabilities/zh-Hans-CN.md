@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-在 Ankole 中，有一部分平台能力并不是作为每轮必带的模型工具（Tool）暴露给大模型，而是直接封装为 Agent Computer Worker 内的 Shell 命令行程序（CLI）。Agent 就像日常调用 `gh` 或 `kubectl` 一样，直接在终端里运行它们——内置的 `ankole-pod`（涵盖 `pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook 端点管理命令以及 Automation Job 管理命令，全部采用这种交付形态。
+在 Ankole 中，有一部分平台能力并不是作为每轮必带的模型工具（Tool）暴露给大模型，而是直接封装为 Agent Computer Worker 内的 Shell 命令行程序（CLI）。Agent 就像日常调用 `kubectl` 一样，直接在终端里运行它们——内置的 `ankole-pod`（涵盖 `pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook 端点管理命令以及 Automation Job 管理命令，全部采用这种交付形态。
 
 本页说明什么样的能力适合做成 CLI，以及如何在不注册模型工具、不塞入全局 Skill 索引、也不膨胀系统提示词的前提下，让 Agent 依然能够精准发现并正确调用这些命令。
 
@@ -30,30 +30,15 @@ CLI 输出的 `--help` 帮助信息直接承载 Agent 正确调用该能力所�
 Agent 之所以能“想起来”有这个命令，靠的是埋在相邻决策节点上的一句话指针——它可以放在某个相邻工具的描述里、某个对接特定外部系统的 Skill 里，或是另一个关联 CLI 的 `--help` 末尾。每条指针只客观点明“在什么场景下需要用到该能力”以及“运行哪条 `--help` 查看详情”，绝不强行诱导模型调用。凡是做成 CLI 的能力，都必须在通往该场景的必经入口处至少留有一条指针：让这项能力派上用场的那条业务路径，天然就决定了应该把指针放在哪里。
 
 **3. 通用平台契约写在 `--help`，外部系统差异留在插件 Skill。**
-凡是对该能力所有使用场景普遍成立的平台级规则，一律收敛进 CLI 的 `--help`；对接具体第三方平台的 Skill 只需补充该外部系统特有的增量知识。例如，GitHub Webhook Skill 开篇第一句就引导 Agent 先运行 `create-webhook-cli --help` 了解通用的 Webhook 安全与投递契约，而 Skill 正文自己只写 GitHub 侧的 Hook 注册接口、Ping 握手校验、投递对账与仓库配额限制。这样一来，日后新增第二个平台的 Webhook 集成时，整套底层通用契约都能零成本直接复用。
+凡是适用于该 CLI 的通用规则，都应写进 `--help`。插件 Skill 说明外部服务的操作契约，并在需要时引导 Agent 使用平台能力。例如，Toolkit 上传操作需要 Pod 文件引用，因此 Skill 会引导 Agent 通过 `pod-content` 上传 Worker 文件，再调用外部上传操作。
 
-## Automation job
+## 自动化任务
 
-Automation Job 是确定性脚本消费者：无论是 Checkback 延迟回查、Cron 定时计划还是 Webhook 端点，都可以配置 `automation_job_id` 将触发事件交由脚本消费，而不必每次都直接唤醒 Agent 会话（未配置该字段的触发器仍保持直接唤醒会话的默认行为）。
+自动化任务在 Function Runtime 中运行已发布的 Applet Action。Agent 使用 `ankole-pod applet` 构建并发布 Applet，再通过 `ankole-pod jobs` 查看 Action、创建或配置任务、管理定时与回调端点、检查运行记录。调用前应阅读 `ankole-pod --help`。
 
-创建流程上，Agent 会先在本地工作区新建独立目录并编写 `main.ts`，手动运行验证基础环境与不依赖平台 SDK 的纯逻辑分支，随后调用 `create-automation-job-cli` 完成注册。注册时，整个脚本目录会被上传至控制面云盘的 `automation/<目录名>-<随机后缀>` 路径下，并在返回结果中给出对应的 `drive_prefix`。此后每次触发执行，Worker 都会将触发当刻云盘该路径下的文件复制到一个全新的临时运行目录，再用 Bun 执行其中的 `main.ts`——因此脚本在当前工作目录下临时生成的文件不会留存到下一次运行。后续如需更新代码，Agent 直接执行 `ankole-files put <dir> <drive_prefix>` 覆盖云盘目录即可，无需重新注册。
+Applet 服务端导出 `{routes, actions}`。Action 声明处理函数、幂等性和并发策略，通过 `ctx.signal`、`ctx.job.config` 读取输入和配置，通过 `ctx.state` 保存游标，并可用 `continueSlice()` 在同一次运行中分段执行。外部调用使用 `AnkoleRuntime.mcp`；团队名义使用 `AnkoleRuntime.admin.mcp`。
 
-每次触发运行（attempt）都会获取最新的 Agent `WorkerEnv` 环境变量，并根据当前已启用的 Skill 动态生成当次专属的 `MCPORTER_CONFIG`。Worker 不会预先猜测脚本会用到哪个 MCP 服务；脚本可通过 `mcporter` 配合标准输入（stdin）JSON 直接调用任一已启用 Skill 暴露的 MCP 工具。注意：Automation Job 运行时不加载 Skill 的 Markdown 文本指令，也不读取 Agent Home 下持久保存的本地 `mcporter` 配置。
-
-运行时 SDK 向脚本暴露两个核心函数：`context()` 与 `emitEvent(payload)`。其中 `context().event` 返回的正是该触发器在直接唤醒模式下写入 Signal 的同款 CloudEvents 事件信封。若脚本执行完毕未调用 `emitEvent`，当次运行即视为静默成功；若调用了一次或多次 `emitEvent`，则会向归属会话持久化写入 `automation_job.emitted` 信号。
-
-需要注意，`context()` 与 `emitEvent` 仅在平台受管运行（platform run）上下文中注入。在工作区直接裸跑 `bun main.ts` 只能验证语法环境与纯本地逻辑分支；完成注册后，必须用真实的测试触发器把每个调用了 SDK 的分支实际跑通一遍，并核查生成的持久化运行记录。此外，`emitEvent` 绝不会降级退化为往标准输出打印日志——只有当对应的 Signal 已在控制面数据库持久化落盘后，它返回的 Promise 才会正式 resolve。
-
-每一次触发消费都会在同一个 PostgreSQL 事务内原子写入持久化运行记录（即 Checkback 认领、Cron 游标推进或 Webhook 接收动作，与脚本 `run` 记录同时提交）。脚本自身抛错、返回非零退出码或执行超时均属于确定的运行终态，系统不会自动重跑；而若因底层 Worker 容器失联导致中断，则属于基础设施故障，现有的 Oban 唤醒链路会发起一次带新栅栏标识的重试（fenced attempt）。由于基础设施重派可能导致脚本逻辑再次执行，编写脚本时必须保证外部副作用具备幂等安全性。
-
-以下管理命令仅在活跃的 Agent 回合（turn）内可用：
-
-- `create-automation-job-cli --dir <path> --label <text> [--wake-on-failure]`
-- `list-automation-jobs-cli [--limit <1-500>]`
-- `show-automation-job-cli --id <automation-job-id> [--runs <1-100>]`
-- `cancel-automation-job-cli --id <automation-job-id>`
-
-在运维侧，Console 的“自动化任务”页面会展示每个 Job 及其近期运行状态、尝试次数、报错详情、退出码与有界 `stdout`/`stderr` 日志尾部；而面向模型侧的完整使用规范，则始终由 `create-automation-job-cli --help` 单点维护。
+Applet「自动化」面板及 SDK 的 `useAppletJobs()`、`useJobSources(jobID)` 提供相同的任务与触发源管理能力。测试触发后，应检查真实运行记录的输入、结果、错误和日志。权限与恢复方式见[自动化任务](../automation-jobs/)。
 
 ## 新增 CLI 能力的要求
 

@@ -7,10 +7,11 @@ import { cleanupExecutionMaterials, prepareExecutionMaterials } from '../src/cor
 import { BrowserRuntime, type RenderedFetchBrowserMaterializeSettings } from '../src/browser-runtime'
 import type { BrowserRoute } from '../src/browser-runtime/materializer'
 import { projectWorkerEnv, type CodexJobRuntimeProjection } from '../src/core/codex-runner/job/runtime-projection'
-import { LARK_TENANT_TOKEN_ENV } from '../src/core/execution/lark-credential'
-import { MCPORTER_CONFIG_ENV } from '../src/tools/mcp/mcporter-config'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { type RPCRequester } from '../src/lanes/rpc_lane'
+import { type RPCRequester, type TurnRPCFrame } from '../src/lanes/rpc_lane'
+
+const mainFrame = { run: { session: { session_id: 'main:agent' }, signal_id: 'main-signal' } }
+const jobFrame = { jobTurn: { session: { session_id: 'job:1' }, signal_id: 'job-signal', job_id: 1, attempt: 2 } }
 
 const roots: string[] = []
 const browserBackendJSON = '{"kind":"local_chromium","executable":"/bin/true","args":[]}'
@@ -32,7 +33,8 @@ describe('execution materials', () => {
 
     const materials = await prepareExecutionMaterials({
       agentHome,
-      rpc: workerEnvRPC(),
+      rpc: workerEnvRPC(mainFrame),
+      frame: mainFrame,
       bindingName: 'lark-main',
       runtimeEnv: { RUNTIME_SAFE: 'yes' },
       mcpServers: [],
@@ -55,31 +57,27 @@ describe('execution materials', () => {
     const settings = fetchRendered.mock.calls[0]![1]
     expect(settings.ssrfFilter).toBe(true)
     expect(settings.workerEnv?.BROWSER_BACKEND_JSON).toBe(browserBackendJSON)
-    expect(settings.workerEnv?.[LARK_TENANT_TOKEN_ENV]).toBeUndefined()
     expect(settings.idleTtlMs).toBe(45_000)
-    expect(fetchRendered).toHaveBeenCalledWith(['https://example.com'], settings, signal)
+    expect(fetchRendered).toHaveBeenCalledWith(['https://example.com'], settings, signal, undefined)
+    await materials.renderedFetch!.fetchBatch(['https://example.com'], signal, 'workspace')
+    expect(fetchRendered).toHaveBeenLastCalledWith(['https://example.com'], settings, signal, 'workspace')
     expect(materials.workerEnv.SAFE).toBe('value')
     expect(materials.workerEnv.BROWSER_BACKEND_JSON).toBeUndefined()
-    expect(materials.workerEnv[LARK_TENANT_TOKEN_ENV]).toBeUndefined()
-    expect(materials.workerEnv[MCPORTER_CONFIG_ENV]).toStartWith(temp)
+    expect(materials.workerEnv.MCPORTER_CONFIG).toStartWith(temp)
     expect(materials.runtimeEnv.RUNTIME_SAFE).toBe('yes')
-    expect(materials.runtimeEnv['ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE']).toStartWith(agentHome)
     expect(materials.runtimeEnv.ANKOLE_BROWSER_SOCKET).toBeUndefined()
     expect(materials.browserEnv.ANKOLE_BROWSER_SOCKET).toBe(join(root, 'socket', 'browser.sock'))
     expect(materials.browserEnv.ANKOLE_BROWSER_MATERIAL).toStartWith(join(root, 'runtime', 'browser'))
 
-    const mcporterPath = materials.workerEnv[MCPORTER_CONFIG_ENV]!
-    const larkPath = materials.runtimeEnv['ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE']!
+    const mcporterPath = materials.workerEnv.MCPORTER_CONFIG!
     const browserPath = materials.browserEnv.ANKOLE_BROWSER_MATERIAL!
     expect(await Bun.file(mcporterPath).exists()).toBe(true)
-    expect(await Bun.file(larkPath).exists()).toBe(true)
     expect(await Bun.file(browserPath).exists()).toBe(true)
     expect((await Bun.file(browserPath).json()).idle_ttl_ms).toBe(30 * 60_000)
 
     await materials.cleanup()
     await materials.cleanup()
     expect(await Bun.file(mcporterPath).exists()).toBe(false)
-    expect(await Bun.file(larkPath).exists()).toBe(false)
     expect(await Bun.file(browserPath).exists()).toBe(false)
     expect(await Bun.file(join(scopeRoot, '.ankole', 'browser-route.json')).exists()).toBe(true)
   })
@@ -102,7 +100,8 @@ describe('execution materials', () => {
     }
     const materials = await prepareExecutionMaterials({
       agentHome,
-      rpc: workerEnvRPC(),
+      rpc: workerEnvRPC(jobFrame),
+      frame: jobFrame,
       bindingName: 'lark-main',
       mcpServers: [],
       mcporterDirectory: temp,
@@ -128,7 +127,7 @@ describe('execution materials', () => {
     }
   })
 
-  it('cleans Browser, MCPorter, and Lark in order without hiding the first error', async () => {
+  it('cleans Browser and MCPorter in order without hiding the first error', async () => {
     const calls: string[] = []
     const browserError = new Error('browser cleanup failed')
 
@@ -144,17 +143,11 @@ describe('execution materials', () => {
           calls.push('mcporter')
           throw new Error('mcporter cleanup failed')
         }
-      },
-      lark: {
-        cleanup: () => {
-          calls.push('lark')
-          throw new Error('lark cleanup failed')
-        }
       }
     })
 
     await expect(cleanup).rejects.toBe(browserError)
-    expect(calls).toEqual(['browser', 'mcporter', 'lark'])
+    expect(calls).toEqual(['browser', 'mcporter'])
   })
 })
 
@@ -176,16 +169,15 @@ function browserRuntime(root: string): BrowserRuntime {
   })
 }
 
-function workerEnvRPC(): RPCRequester {
+function workerEnvRPC(expectedFrame: TurnRPCFrame): RPCRequester {
   return (async (method: unknown, payload: unknown, frame: unknown) => {
     expect(method).toBe('worker_env.resolve')
     expect(payload).toMatchObject({ bindingName: 'lark-main' })
-    expect(frame).toBeUndefined()
+    expect(frame).toEqual(expectedFrame)
 
     const bindingVars = {
-      LARKSUITE_CLI_APP_ID: 'app-1',
-      LARKSUITE_CLI_BRAND: 'feishu',
-      [LARK_TENANT_TOKEN_ENV]: 'tenant-token'
+      ANKOLE_MCP_TOKEN: 'turn-token',
+      ANKOLE_MCP_ORIGIN: 'https://control.example.test'
     }
     const vars = {
       SAFE: 'value',

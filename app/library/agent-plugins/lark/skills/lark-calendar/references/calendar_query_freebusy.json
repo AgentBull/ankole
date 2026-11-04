@@ -1,0 +1,85 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Calendar query freebusy.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "include_external_calendar": {
+        "type": "boolean"
+      },
+      "need_rsvp_status": {
+        "type": "boolean"
+      },
+      "only_busy": {
+        "type": "boolean"
+      },
+      "principal_uids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "time_max": {
+        "type": "string"
+      },
+      "time_min": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      },
+      "user_ids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": ["time_min", "time_max"],
+    "type": "object"
+  },
+  "name": "calendar_query_freebusy",
+  "outputSchema": {
+    "properties": {
+      "freebusy_lists": {
+        "items": {
+          "properties": {
+            "freebusy_items": {
+              "items": {
+                "properties": {
+                  "end_time": {
+                    "type": "string"
+                  },
+                  "rsvp_status": {
+                    "type": "string"
+                  },
+                  "start_time": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  }
+}

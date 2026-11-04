@@ -38,8 +38,8 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
     refute Map.has_key?(plugin, :ankole)
 
     github = Enum.find(agent_plugins, &(&1.id == "github"))
-    assert github.version == "1.3.0"
-    assert Enum.any?(github.skills, &(&1.name == "github-auth"))
+    assert github.version == "2.0.0"
+    assert Enum.any?(github.skills, &(&1.name == "github"))
   end
 
   test "GitHub stays disabled until the installation enables it" do

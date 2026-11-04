@@ -21,12 +21,13 @@ Responsibilities split cleanly across the stack:
 - `SKILL.md` tells the model when to use a capability, which tool to choose,
   and how to interpret the response.
 - `agents/openai.yaml` declares the stable server name, transport, endpoint or
-  command, credential environment variable name, and tool filters.
+  command, connection selection, and tool filters.
 - The control plane owns the active set of enabled Skills and encrypted
   operator credentials.
 - Agent Computer resolves the active Skill declarations and writes an
   invocation-scoped `mcporter` config file.
-- WorkerEnv injects credential values into the execution environment.
+- Connectors holds remote credentials in the control plane. WorkerEnv supplies a
+  short-lived internal token bound to the active Turn.
 - `mcporter` opens the MCP connection, fetches the selected tool's schema when
   requested, and invokes the tool.
 - The remote or local MCP server validates arguments, enforces its own
@@ -51,7 +52,7 @@ pending upstream fingerprint. Additional local files remain outside that fingerp
 
 The Agent identity determines package enablement. Main runs read complete
 packages from the shared read-only `/drive/Skills` mount. Background Agent Jobs
-and Automation attempts materialize the intersection of their initial Skill
+materialize the intersection of their initial Skill
 selection and the Agent's currently enabled Skills before loading MCP dependencies.
 The MCP loader reads the same package files as the Agent.
 
@@ -83,7 +84,13 @@ dependencies:
 ```
 
 `value` sets the `mcporter` server name, `description` is optional, and
-`transport` must be either `streamable_http` or `stdio`:
+`transport` is `connector`, `streamable_http`, or `stdio`:
+
+- **`connector`**: Requires `toolkit` and may set `connection`, `account`,
+  `enabled_tools`, and `disabled_tools`. The control plane selects the named
+  tenant connection; omission requires an unambiguous default connection.
+  Plugin `ToolSpec` declarations generate these tool filters, individual
+  `references/<tool>.json` schemas, and Applet SDK types.
 
 - **`streamable_http`**: Requires an HTTP or HTTPS `url` and may optionally set
   `protocol_version`, `bearer_token_env_var`, `enabled_tools`, and
@@ -96,8 +103,7 @@ dependencies:
   Skill declarations are trusted first-party configuration, Agent Computer
   launches `command` via `/bin/sh -lc`.
 
-Declarations do not configure a call timeout; instead, each Skill or Automation
-script passes an explicit `--timeout` flag to `mcporter` that fits its
+Declarations do not configure a call timeout; each Skill passes an explicit `--timeout` flag to `mcporter` that fits its
 workflow. If `agents/openai.yaml` or `dependencies.tools` is absent, the Skill
 declares no MCP dependencies.
 
@@ -118,11 +124,9 @@ model instructions:
 Accordingly, the main Agent loads MCP dependencies from enabled `any` and
 `main` Skills, while a Background Agent Job loads dependencies from its
 selected `any` and `background_job` Skills (including member Skills of its
-selected Agent Plugins). Automation Jobs do not run a model or read Skill
-instructions; instead, on each attempt the control plane sends summaries of the
-Agent's currently enabled Skills to Agent Computer, which loads every MCP
-dependency in that set without filtering on `ankole-runtime`. Ankole does not
-define a separate `automation_job` value for `ankole-runtime`.
+selected Agent Plugins). Applet Automation Jobs execute in Function Runtime. Their
+MCP calls use the Job's execution Principal or the current Page owner through
+`admin.mcp.call`.
 
 Multiple Skills may declare the same server `value` only if every connection,
 description, and filter field matches identically. When they match, Ankole
@@ -141,7 +145,7 @@ both filter modes at once.
 For every execution—even when the resolved server set is empty—Agent Computer
 writes a fresh JSON config file with mode `0600`, exports its path as
 `MCPORTER_CONFIG`, and deletes the file during execution cleanup. Main
-environment Workspaces and Automation attempts write this file under
+environment Workspaces write this file under
 `/var/share` by default (or `TMPDIR` when set), while Background Agent Job
 attempts write it inside the Job workspace's `temp/` directory.
 
@@ -150,14 +154,22 @@ The generated file always sets `imports: []`. Together with the explicit
 `mcporter` from reading MCP configs from Agent Home, the project tree, Codex,
 an editor, or the host machine.
 
-When rendering server entries, Agent Computer translates a pinned HTTP entry
-into `baseUrl`, `protocolVersion`, and a `bearerToken` `${VARIABLE}`
-placeholder; for unpinned HTTP entries, it omits `protocolVersion` so
-`mcporter` negotiates the protocol version automatically. It translates a
-`stdio` entry into `command: /bin/sh` with `args: [-lc, <declared command>]`.
-Agent Computer never reads secret values while generating this file, so raw
-credentials cannot land on disk; instead, `mcporter` expands `${VARIABLE}` at
-call time and attaches the `Bearer` authorization scheme.
+Agent Computer renders Connector entries as the control-plane
+`/api/internal/mcp/toolkits/:toolkit` URL and remote Skill entries as
+`/api/internal/mcp/skills/:skill/:server`. Both use protocol `2026-07-28` and
+an internal Turn token. The Worker renews this token every five minutes and
+atomically updates the disposable config and Git context file. It also refreshes
+the active connection and application-account choices from the control plane.
+The Worker command and MCPorter enforce their caller-selected timeouts. The
+gateway bounds upstream work by the current Turn token's expiry; Function
+Runtime calls use the remaining Applet invocation budget.
+`mcporter list` exposes connection aliases such as `github@work`, and aliases
+such as `github@work@42` select a particular application account. An account key
+is URL-encoded in the alias, including dots, while the gateway receives its
+original value. Human OAuth accounts stay bound to the authorized Human and
+are not listed as application choices. The gateway resolves remote Skill credentials and attaches them to
+upstream requests. Local `stdio` entries use `/bin/sh -lc` with the declared
+command. Generated files contain no external credential values.
 
 Each execution runtime receives an isolated view of the config:
 
@@ -165,7 +177,7 @@ Each execution runtime receives an isolated view of the config:
 | --- | --- | --- | --- |
 | Main Agent | Current Skill summaries when the environment Workspace opens | One Worker environment Workspace | Main Agent command tool |
 | Background Agent Job | Current selected standalone and Plugin Skills | One prepared Codex execution | Codex terminal |
-| Automation Job | Current enabled Agent Skill summaries | One Automation attempt | `main.ts` |
+| Applet route or Automation Job | Explicit Toolkit or enabled Skill | One host invocation, in memory | Function Runtime MCPorter library |
 
 Because the main model loop runs in the control plane, it requests an
 environment Workspace only when a tool needs the Worker's computer; turns that
@@ -234,30 +246,42 @@ mcporter call 'server-name.tool-name' --json - --output json --timeout 360000 < 
 After the call finishes, the model must delete the temporary argument file and
 check the process exit code before parsing `stdout`.
 
-An Automation script invokes `mcporter` via `Bun.spawn` with the same argument
-vector, writing a single JSON object to child `stdin`, checking the exit code,
-and parsing `stdout`. Automation scripts must never write a persistent
-`mcporter` config file.
-
 ## Applet tools and streaming files
 
-Applet `AnkoleRuntime.mcp.call` resolves HTTP MCP servers from the executing
-Principal's enabled Skills and their existing credential configuration.
-`AnkoleRuntime.admin.mcp.call` uses the Page's current owner. The server's tool
-schema and annotations determine read-only and idempotency behavior. A GET route
-can call only a tool declaring `readOnlyHint: true`; caller-supplied options cannot
-change that declaration. Schema fields marked `int64` or `uint64` are returned
-as decimal strings, including nested properties and array items. Within one
-Applet invocation, repeated calls to the same tool reuse its discovered definition
-and protocol session. Each call still resolves the Principal's current Skill
-configuration and tool filters; a different Principal or server configuration
-uses a separate cache entry. Invocation completion discards the cache.
+The trusted Function Runtime host runs MCPorter for
+`AnkoleRuntime.mcp.call(tool, arguments, {server, connection?, account?, skill?})`.
+Without `skill`, `server` identifies a Connector Toolkit. With `skill`, the
+gateway resolves the named HTTP server from the execution Principal's enabled
+Skills. Calls return the tool's structured output. `admin.mcp.call` uses the
+Page's current owner; the ordinary call uses the route caller or personal Job's
+authorizing human. A service Job has no ordinary caller identity.
 
-HTTP MCP defaults to the stateless `2026-07-28` protocol. Discovery can fall back
-to legacy initialization and session headers when the server rejects the new
-protocol. Tool execution does not replay a non-idempotent call as protocol
-negotiation. The existing Worker MCP configuration has no separate server-count
-limit and defaults its remote transport to automatic protocol selection.
+The control plane sends separate signed caller and admin contexts to the host.
+The host removes these headers before opening the user isolate and consumes MCP
+capability frames itself. Protocol discovery requires a valid signed context;
+tool discovery and calls recheck current Principal, Page, and Turn or Attempt
+authority. Notifications receive an empty HTTP 202 response. A GET route can call only tools declaring
+`readOnlyHint: true`. Connector `ToolSpec` schemas validate both input and output;
+fields marked `int64` or `uint64` become decimal strings. Plugins resolve static
+ToolSpec schemas at compile time while exposing the original declarations to
+tool discovery and generated clients. Skill calls validate arguments against the schema
+returned by their selected server.
+
+The internal gateway implements stateless MCP `2026-07-28`, including
+`server/discover`, complete result envelopes, and cache metadata. Its pure Elixir
+`RemoteMCP` adapter handles upstream legacy initialization and session reuse,
+keyed by tenant, execution identity, endpoint, and credentials. The connection
+cache also retains the upstream tool catalog for ten minutes; credential changes
+select a separate cache entry. Explicit session expiry can recreate a session. A lost response to a non-idempotent write returns
+an unknown outcome instead of silently replaying the write. Idle sessions expire
+and close after ten minutes. A completed tool response with `isError: true`
+remains a tool error; it does not imply an unknown write outcome. Text-only
+results retain their content without inventing structured output.
+HTTP and JSON-RPC failures retain the upstream status, message, and error details
+so callers can correct invalid arguments or recover authorization. The gateway
+redacts the injected credential from these diagnostics. HTTP 401 responses,
+including OAuth-style error bodies, preserve their status so the Toolkit gateway
+can use the shared credential recovery path.
 
 `Ankole.Files.HTTP` owns the shared HTTP/file bridge. Uploading a `file_ref`
 authorizes and resolves an immutable File object in a short transaction, releases
@@ -272,19 +296,21 @@ bytes. Invalid HTTP URLs return a non-retryable error before sending a request.
 If a non-idempotent request has sent bytes and loses its response, the bridge
 returns `%{code: "upstream_outcome_unknown", retryable: false, request_sent: true}`.
 The caller reconciles the upstream outcome before deciding whether to retry.
+Local Toolkit validation and credential rejection return `request_sent: false`.
+REST rejection details preserve the provider's response body. The gateway removes
+the exact injected credential values from error details and proxied MCP content
+before returning them to a caller.
 
 ## Failure Contract
 
-Agent Computer aborts execution setup before any user command or Automation
-script starts if it encounters an invalid Skill summary, an inaccessible Skill
+Agent Computer aborts execution setup before any user command starts if it encounters an invalid Skill summary, an inaccessible Skill
 root, a malformed MCP declaration, or conflicting definitions for the same
 server name. At call time, `mcporter` exits with a non-zero status on a missing
 bearer variable, connection failure, protocol error, invalid argument, or
 remote server error. Callers must preserve the diagnostic output and never
 treat partial `stdout` as a valid result.
 
-Because main command output, Codex terminal output, and Automation `stdout` and
-`stderr` all enforce strict byte limits, Skills must pass server pagination and
+Because command and Codex terminal output enforce byte limits, Skills must pass server pagination and
 result-size parameters that stay within those execution bounds.
 
 Agent Computer never fetches MCP catalogs during setup, nor does config
@@ -294,32 +320,22 @@ process.
 
 ## Security and Deliberate Limits
 
-WorkerEnv injects credentials into the same trusted Worker environment that
-runs the model's shell command or Automation script, while the generated
-`mcporter` config file contains only `${VARIABLE}` placeholders. If a required
-environment variable is missing, the diagnostic message must report the
-variable's name without ever printing a credential value.
+Connectors owns remote application roots and personal refresh tokens. Workers
+receive an internal Turn token; Function Runtime hosts receive invocation tokens.
+The gateway checks the live execution identity before using external credentials.
+Local Git authentication uses `GIT_ASKPASS` to exchange the active Turn token for
+a short-lived repository credential, without storing it in a credential helper.
+The helper returns the fixed HTTPS username locally and exchanges the password
+once per request. It prints an authorization link when consent is required.
+An explicit connection remains authoritative. Without one, Ankole matches the
+repository's HTTPS host and port to active GitHub connections, using the matching
+default or sole match; multiple nondefault matches require a connection choice.
 
-Treat all MCP server output as untrusted input. By design, the Skill and
-`mcporter` path omits four client-side mechanisms:
-
-- Validating responses against MCP output schemas.
-- Mapping MCP tool annotations to programmatic callers or parallel scheduling.
-- Rendering native tool-level activity indicators or interactive approval UI.
-- Scrubbing WorkerEnv secret values from MCP tool results.
-
-Because client-side secret redaction is absent, any secret that a server
-accidentally echoes in its response can enter persistent command history.
-Ankole accepts this narrower boundary only for trusted, first-party MCP Skills,
-since those secrets already reside in the same Worker environment and never
-appear in the generated config file. Do not connect untrusted third-party MCP
-servers through this contract without a dedicated security review.
-
-Ultimately, the remote credential's permission scope is the real security and
-write boundary. Tool filters in `agents/openai.yaml` and guidance in `SKILL.md`
-steer trusted code, not untrusted adversaries. If an Automation Job requires
-narrower authority than the main Agent, issue it a separate credential identity
-or omit that MCP dependency from the Agent's enabled Skills.
+Tool filters and Skill guidance select supported capabilities. Connector tools
+also enforce explicit subject policy, credential selection, schemas, and
+read-only annotations in the gateway. Local `stdio` Skills remain trusted
+first-party code and use the ordinary Worker execution boundary. Treat upstream
+content as data rather than instructions.
 
 ## Authoring Rules
 

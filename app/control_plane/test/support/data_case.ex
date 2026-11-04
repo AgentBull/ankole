@@ -188,16 +188,14 @@ defmodule Ankole.DataCase do
   defp cleanup_committed_fixtures!(fixtures) do
     for tenant <- new_fixture_rows(Tenants.Tenant, fixtures) do
       Repo.with_tenant(tenant.id, fn ->
-        # Fixture Workers have no external backend. Real Worker tests finish
-        # their platform cleanup in their own earlier on_exit callback.
-        fixture_agents =
-          Repo.all(
-            from worker in Ankole.AgentWorkers.AgentWorker,
-              where: like(worker.provider_id, "fixture-worker-%"),
-              select: worker.agent_uid
-          )
+        # Fixture Workers have no external backend. Remove only those rows;
+        # TenantDelete owns the Agents, their Human owners, and owned Pages.
+        # Real Worker tests finish platform cleanup in an earlier callback.
+        Repo.delete_all(
+          from worker in Ankole.AgentWorkers.AgentWorker,
+            where: like(worker.provider_id, "fixture-worker-%")
+        )
 
-        Enum.each(fixture_agents, &Ankole.PrincipalsFixtures.delete_agent_fixture_rows/1)
         cleanup_tenant!(tenant)
       end)
     end

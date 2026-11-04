@@ -1,6 +1,42 @@
 defmodule Ankole.WorkFixtures do
   @moduledoc false
 
+  def applet_job(uid, attrs \\ %{}) do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+
+    owner =
+      if actor.principal.type == :agent do
+        Ankole.PrincipalsFixtures.human_fixture().principal
+        |> Ankole.PrincipalsFixtures.actor_fixture()
+      else
+        actor
+      end
+
+    {:ok, page} = Ankole.Pod.Pages.create(owner, %{type: "applet"})
+
+    if actor.principal.uid != owner.principal.uid do
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(owner.principal.uid, page.id, %{
+          grants: [%{principal_uid: actor.principal.uid, role: "edit"}]
+        })
+    end
+
+    Ankole.FilesFixtures.publish_applet_fixture(
+      %{actor: owner, page: page},
+      "export default { actions: { work: { idempotent: true, handler: ctx => ctx.signal.data } } }"
+    )
+
+    {:ok, job} =
+      Ankole.AutomationJobs.create_applet_job(
+        actor,
+        page.id,
+        "work",
+        Map.merge(%{authorization_kind: "service"}, attrs)
+      )
+
+    job
+  end
+
   def dispatch_job_in_tx(job, event) do
     alias Ankole.{AutomationJobs, Signals}
     reference = "webhook-endpoint://#{Ash.UUIDv7.generate()}"
@@ -12,8 +48,8 @@ defmodule Ankole.WorkFixtures do
          :ok <-
            Signals.SourceBindings.put_in_tx(
              reference,
-             job.agent_uid,
-             job.owner_session_id,
+             nil,
+             nil,
              job.id
            ),
          {:ok, plan} <- Signals.Dispatch.prepare(reference, event),

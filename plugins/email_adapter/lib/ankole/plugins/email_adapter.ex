@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.EmailAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc "First-party email (IMAP and SMTP) consumer IM adapter."
 
   @behaviour Ankole.Plugins.Plugin

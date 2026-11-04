@@ -13,7 +13,7 @@ Always back up PostgreSQL (both the control-plane database and any physical Base
 |---|---|---|
 | Control-plane PostgreSQL | Principals, Sessions, Jobs, Pod metadata and documents, provider configuration, encrypted credentials, generation and storage references | `pg_dump -Fc` or PITR |
 | Physical Base shards (`BASE_DB_URLS`) | Tenant physical Base table rows (in single-database deployments with `BASE_DB_URLS` unset, Base tables live in the control-plane database and one atomic `pg_dump` captures both) | `pg_dump -Fc` or PITR on every shard database |
-| Object store (file store) | Pod `file` pages, Pod and conversation attachments, compiled Applet bundles, published files, installed Skills, Automation scripts | Compose `files_data`, the file-store PVC, or the S3 bucket |
+| Object store (file store) | Pod `file` pages, Pod and conversation attachments, compiled Applet bundles, published files, installed Skills | Compose `files_data`, the file-store PVC, or the S3 bucket |
 | Agent Home | Workspaces, local packages, Codex threads in `/workspace/.codex` | Each provider's persistent volumes, shared directories, Drives, EFS, or Cloudflare R2 backups |
 | Deployment configuration and secrets | `ANKOLE_SECRET_BASE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`, `BASE_DB_URLS`, and other startup credentials | A separate secret manager |
 

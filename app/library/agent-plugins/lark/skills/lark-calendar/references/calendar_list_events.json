@@ -1,0 +1,416 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Calendar list events.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "anchor_time": {
+        "type": "string"
+      },
+      "calendar_id": {
+        "type": "string"
+      },
+      "end_time": {
+        "type": "string"
+      },
+      "op_user_id": {
+        "type": "string"
+      },
+      "page_size": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "start_time": {
+        "type": "string"
+      },
+      "sync_token": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "calendar_list_events",
+  "outputSchema": {
+    "properties": {
+      "has_more": {
+        "type": "boolean"
+      },
+      "items": {
+        "items": {
+          "properties": {
+            "app_link": {
+              "type": "string"
+            },
+            "attachments": {
+              "items": {
+                "properties": {
+                  "file_size": {
+                    "type": "string"
+                  },
+                  "file_token": {
+                    "type": "string"
+                  },
+                  "is_deleted": {
+                    "type": "boolean"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "attendee_ability": {
+              "type": "string"
+            },
+            "attendees": {
+              "items": {
+                "properties": {
+                  "approval_reason": {
+                    "type": "string"
+                  },
+                  "attendee_id": {
+                    "type": "string"
+                  },
+                  "chat_id": {
+                    "type": "string"
+                  },
+                  "chat_members": {
+                    "items": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "is_external": {
+                    "type": "boolean"
+                  },
+                  "is_optional": {
+                    "type": "boolean"
+                  },
+                  "is_organizer": {
+                    "type": "boolean"
+                  },
+                  "operate_id": {
+                    "type": "string"
+                  },
+                  "resource_customization": {
+                    "items": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "room_id": {
+                    "type": "string"
+                  },
+                  "rsvp_status": {
+                    "type": "string"
+                  },
+                  "third_party_email": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "user_id": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "color": {
+              "type": "integer"
+            },
+            "create_time": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "description_rich": {
+              "type": "string"
+            },
+            "end_time": {
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "date_time": {
+                  "type": "string"
+                },
+                "timestamp": {
+                  "type": "string"
+                },
+                "timezone": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "event_check_in": {
+              "properties": {
+                "check_in_end_time": {
+                  "properties": {
+                    "duration": {
+                      "type": "integer"
+                    },
+                    "time_type": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "check_in_start_time": {
+                  "properties": {
+                    "duration": {
+                      "type": "integer"
+                    },
+                    "time_type": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "enable_check_in": {
+                  "type": "boolean"
+                },
+                "need_notify_attendees": {
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "event_id": {
+              "type": "string"
+            },
+            "event_organizer": {
+              "properties": {
+                "display_name": {
+                  "type": "string"
+                },
+                "user_id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "free_busy_status": {
+              "type": "string"
+            },
+            "has_more_attendee": {
+              "type": "boolean"
+            },
+            "is_exception": {
+              "type": "boolean"
+            },
+            "location": {
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "latitude": {
+                  "type": "number"
+                },
+                "longitude": {
+                  "type": "number"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "need_notification": {
+              "type": "boolean"
+            },
+            "organizer_calendar_id": {
+              "type": "string"
+            },
+            "recurrence": {
+              "type": "string"
+            },
+            "recurring_event_id": {
+              "type": "string"
+            },
+            "reminders": {
+              "items": {
+                "properties": {
+                  "minutes": {
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "schemas": {
+              "items": {
+                "properties": {
+                  "app_link": {
+                    "type": "string"
+                  },
+                  "ui_name": {
+                    "type": "string"
+                  },
+                  "ui_status": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "self_rsvp_status": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "start_time": {
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "date_time": {
+                  "type": "string"
+                },
+                "timestamp": {
+                  "type": "string"
+                },
+                "timezone": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "status": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "vchat": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "icon_type": {
+                  "type": "string"
+                },
+                "live_link": {
+                  "type": "string"
+                },
+                "meeting_settings": {
+                  "properties": {
+                    "allow_attendees_start": {
+                      "type": "boolean"
+                    },
+                    "assign_hosts": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "auto_record": {
+                      "type": "boolean"
+                    },
+                    "join_meeting_permission": {
+                      "type": "string"
+                    },
+                    "open_lobby": {
+                      "type": "boolean"
+                    },
+                    "owner_id": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "meeting_url": {
+                  "type": "string"
+                },
+                "third_party_meeting_settings": {
+                  "properties": {
+                    "meeting_descriptions": {
+                      "items": {
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "meeting_id": {
+                      "type": "string"
+                    },
+                    "meeting_no": {
+                      "type": "string"
+                    },
+                    "meeting_type": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "vc_info": {
+                  "properties": {
+                    "meeting_no": {
+                      "type": "string"
+                    },
+                    "unique_id": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "vc_type": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "visibility": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "sync_token": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

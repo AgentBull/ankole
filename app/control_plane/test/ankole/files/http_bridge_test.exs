@@ -4,6 +4,12 @@ defmodule Ankole.Files.HTTPBridgeTest do
   alias Ankole.Files.HTTP
   alias Ankole.Pod.{Files, Pages}
 
+  defmodule GatewayHTTP do
+    use Plug.Builder
+    plug Plug.Parsers, parsers: [:json], json_decoder: Torque
+    plug AnkoleWeb.Router
+  end
+
   defmodule Upstream do
     import Plug.Conn
     def init(owner), do: owner
@@ -184,6 +190,19 @@ defmodule Ankole.Files.HTTPBridgeTest do
 
   test "Skill MCP declarations use stateless POST, legacy discovery and server annotations",
        ctx do
+    gateway =
+      start_supervised!({Bandit, plug: GatewayHTTP, ip: {0, 0, 0, 0}, port: 0}, id: :gateway)
+
+    {:ok, {_, port}} = ThousandIsland.listener_info(gateway)
+    origin = Application.get_env(:ankole, :runtime_fabric_internal_origin)
+
+    Application.put_env(
+      :ankole,
+      :runtime_fabric_internal_origin,
+      "http://host.docker.internal:#{port}"
+    )
+
+    on_exit(fn -> Application.put_env(:ankole, :runtime_fabric_internal_origin, origin) end)
     agent = agent_fixture().principal
     actor = actor_fixture(agent.uid)
 
@@ -232,11 +251,13 @@ defmodule Ankole.Files.HTTPBridgeTest do
       }}
       """)
 
-      for _ <- 1..2 do
+      version = if mode == "legacy", do: "2025-11-25", else: "2026-07-28"
+
+      for iteration <- 1..2 do
         assert {:ok,
                 %{
                   "status" => 200,
-                  "body" => %{"structuredContent" => %{"id" => "9223372036854775807"}}
+                  "body" => %{"id" => "9223372036854775807"}
                 }} =
                  Ankole.Pod.Applets.call(actor, page.id, %{
                    "method" => "POST",
@@ -244,36 +265,48 @@ defmodule Ankole.Files.HTTPBridgeTest do
                    "query" => %{}
                  })
 
-        if mode == "legacy" do
-          assert_receive {:rpc, "tools/list", ["2026-07-28"]}
-          assert_receive {:rpc, "initialize", ["2025-11-25"]}
-          assert_receive {:rpc, "notifications/initialized", ["2025-11-25"]}
+        if iteration == 1 do
+          if mode == "legacy" do
+            assert_receive {:rpc, "tools/list", ["2026-07-28"]}
+            assert_receive {:rpc, "initialize", [^version]}
+            assert_receive {:rpc, "notifications/initialized", [^version]}
+          end
+
+          assert_receive {:rpc, "tools/list", [^version]}
         end
 
-        assert_receive {:rpc, "tools/list", _}
-        assert_receive {:rpc, "tools/call", _}
-        assert_receive {:rpc, "tools/call", _}
+        assert_receive {:rpc, "tools/call", [^version]}
+        assert_receive {:rpc, "tools/call", [^version]}
         refute_receive {:rpc, _, _}
       end
 
-      options = %{"skill" => mode, "server" => "demo"}
-      context = %{"read_only" => true, "deadline" => System.monotonic_time(:millisecond) + 10_000}
+      context = %{
+        actor: actor,
+        read_only: true,
+        deadline: System.monotonic_time(:millisecond) + 10_000
+      }
 
       assert {:ok, %{"structuredContent" => %{"id" => "9223372036854775807"}}} =
-               Ankole.Pod.Applets.MCP.call(actor, "read", %{}, options, context)
+               Ankole.Connectors.Gateway.request(
+                 {:skill, mode, "demo"},
+                 %{"method" => "tools/call", "params" => %{"name" => "read", "arguments" => %{}}},
+                 context,
+                 %{}
+               )
 
       assert {:error, :read_only_route} =
-               Ankole.Pod.Applets.MCP.call(actor, "write", %{}, options, context)
+               Ankole.Connectors.Gateway.request(
+                 {:skill, mode, "demo"},
+                 %{
+                   "method" => "tools/call",
+                   "params" => %{"name" => "write", "arguments" => %{}}
+                 },
+                 context,
+                 %{}
+               )
 
-      drain_rpc()
-    end
-  end
-
-  defp drain_rpc do
-    receive do
-      {:rpc, _, _} -> drain_rpc()
-    after
-      0 -> :ok
+      assert_receive {:rpc, "tools/call", [^version]}
+      refute_receive {:rpc, _, _}
     end
   end
 end

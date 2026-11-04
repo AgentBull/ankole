@@ -518,7 +518,7 @@ defmodule Ankole.Conversations.PeersTest do
     }
 
     assert {:ok, peer_actor} =
-             Ankole.Pod.RPCBroker.actor_for_request(ref, nil, %{worker_id: ctx.colleague.uid})
+             Ankole.Pod.RPCBroker.actor_for_request(ref, %{worker_id: ctx.colleague.uid})
 
     assert {:ok, %{page: actual}} = Ankole.Pod.Pages.get(peer_actor, archive.id)
     assert actual.id == archive.id

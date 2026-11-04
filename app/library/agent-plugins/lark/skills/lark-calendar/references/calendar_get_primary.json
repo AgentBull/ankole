@@ -1,0 +1,79 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Calendar get primary.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "op_user_id": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "calendar_get_primary",
+  "outputSchema": {
+    "properties": {
+      "calendars": {
+        "items": {
+          "properties": {
+            "calendar": {
+              "properties": {
+                "calendar_id": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "is_deleted": {
+                  "type": "boolean"
+                },
+                "is_third_party": {
+                  "type": "boolean"
+                },
+                "permissions": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "summary_alias": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  }
+}

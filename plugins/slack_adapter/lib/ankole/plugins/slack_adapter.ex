@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.SlackAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc "First-party Slack chat and identity-provider plugin."
 
   @behaviour Ankole.Plugins.Plugin

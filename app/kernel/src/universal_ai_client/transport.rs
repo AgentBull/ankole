@@ -253,6 +253,7 @@ async fn collect_http_body_until_idle(
 struct ClientKey {
     proxy: Option<String>,
     connect_ms: u64,
+    #[cfg(feature = "test-ca")]
     ca_cert_pem: Option<String>,
 }
 
@@ -261,6 +262,7 @@ impl ClientKey {
         Self {
             proxy: proxy.map(URL::to_string),
             connect_ms: upstream.timeout.connect_ms,
+            #[cfg(feature = "test-ca")]
             ca_cert_pem: upstream
                 .transport
                 .ca_cert_pem
@@ -377,6 +379,7 @@ fn build_client(
         .connect_timeout(upstream.timeout.connect_duration())
         .http1_only();
 
+    #[cfg(feature = "test-ca")]
     if let Some(ca_pem) = upstream
         .transport
         .ca_cert_pem
@@ -442,6 +445,7 @@ mod tests {
             },
             transport: TransportSpec {
                 proxy: None,
+                #[cfg(feature = "test-ca")]
                 ca_cert_pem: None,
             },
         };
@@ -452,6 +456,35 @@ mod tests {
         }
 
         assert!(HTTP_CLIENTS.len() <= MAX_HTTP_CLIENT_CACHE_ENTRIES);
+    }
+
+    #[test]
+    fn ca_cert_pem_is_used_only_with_test_ca_feature() {
+        let upstream = UpstreamSpec {
+            kind: UpstreamKind::HTTPSSE,
+            method: "GET".to_string(),
+            url: "https://127.0.0.1/ca-test".to_string(),
+            headers: Vec::new(),
+            body: None,
+            websocket_initial_messages: Vec::new(),
+            timeout: TimeoutSpec {
+                connect_ms: 1,
+                first_byte_ms: 100,
+                idle_ms: 100,
+                total_ms: None,
+            },
+            transport: serde_json::from_str(
+                r#"{"ca_cert_pem":"-----BEGIN CERTIFICATE-----\n@@@\n-----END CERTIFICATE-----\n"}"#,
+            )
+            .unwrap(),
+        };
+
+        let result = build_client(&upstream, None);
+
+        #[cfg(feature = "test-ca")]
+        assert!(result.is_err());
+        #[cfg(not(feature = "test-ca"))]
+        assert!(result.is_ok());
     }
 
     #[test]

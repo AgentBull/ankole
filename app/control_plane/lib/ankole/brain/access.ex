@@ -162,10 +162,12 @@ defmodule Ankole.Brain.Access do
         ids = rows |> Enum.map(source_fun) |> Enum.uniq()
 
         visible =
-          Ankole.Pod.Page
-          |> Ash.Query.filter(id in ^ids and is_nil(deleted_at))
-          |> Ash.Query.select([:acl_anchor_id, :is_acl_anchor, :deleted_at])
-          |> Ankole.Ash.read!()
+          Ankole.Pod.list_page_records!(
+            query: [
+              filter: [id: [in: ids], deleted_at: [is_nil: true]],
+              select: [:acl_anchor_id, :is_acl_anchor, :deleted_at]
+            ]
+          )
           |> Enum.filter(fn page ->
             Enum.all?(contexts, fn
               {:ok, access} -> visible_node?(access, page)

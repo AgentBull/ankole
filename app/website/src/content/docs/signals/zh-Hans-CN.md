@@ -5,7 +5,7 @@ section: Developer guide
 order: 102
 ---
 
-Signal 是驱动 Agent 执行会话处理工作的持久化事件，既可以代表一条聊天消息、一次定时唤醒、一份自动化脚本结果，也可以代表一条通用业务事件。聊天类 Signal 会关联对应的 Conversation 与 Message 记录，而纯业务事件则可直接投递，无需生成对话与发言记录。
+Signal 是驱动 Agent 执行会话处理工作的持久化事件，既可以代表一条聊天消息、一次定时唤醒，也可以代表一条通用业务事件。聊天类 Signal 会关联对应的 Conversation 与 Message 记录，而纯业务事件则可直接投递，无需生成对话与发言记录。
 
 在职责划分上，`Ankole.Signals` 负责事件接纳与信号路由规则，`Ankole.Conversations` 负责管理共享发言、外部平台事件观测与对外消息投递，`Ankole.Sessions` 则负责实际的会话执行——原始来源事实、触发信号与运行时执行状态各归其主、边界清晰。
 
@@ -49,7 +49,7 @@ POST /webhooks/v1/:handler_id/:instance_id/:kind
 
 控制器根据 `signals.webhook_handler` 插件契约定位对应的处理器（Handler），校验声明支持的事件类别，并交由该处理器验证上游平台签名或接入凭据；聊天信号适配器则遵循 `signals.adapter` 契约。
 
-由 Agent 在运行期间自主创建的外部事件回调则使用专用路径 `/webhooks/v1/event-callbacks/wh_<token>`。注意，路径中的随机令牌仅用于授权触发已登记的回调路由，并不对第三方传入的请求体内容做真实性背书。`Signals` 在数据库中仅保存令牌的哈希摘要，并在收到回调时将端点状态更新与 `webhook.received` 事件（或绑定的自动化脚本运行记录）放在同一事务内提交。完整的委托生命周期与 Worker 桥接机制见 [Webhook 委托](../webhook-delegations/)。
+由 Agent 在运行期间自主创建的外部事件回调则使用专用路径 `/webhooks/v1/event-callbacks/wh_<token>`。注意，路径中的随机令牌仅用于授权触发已登记的回调路由，并不对第三方传入的请求体内容做真实性背书。`Signals` 在数据库中仅保存令牌的哈希摘要，并在收到回调时将端点状态更新与 `webhook.received` 事件（或绑定的 Applet Action 运行记录）放在同一事务内提交。完整的委托生命周期与 Worker 桥接机制见 [Webhook 委托](../webhook-delegations/)。
 
 ## 投递
 

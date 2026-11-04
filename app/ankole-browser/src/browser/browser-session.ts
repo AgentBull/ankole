@@ -151,7 +151,7 @@ export class BrowserSession {
         this.guard.assertRendererAvailable('eval')
         return await this.registry.currentFrame().evaluate(command.args.expression)
       case 'fetch':
-        return await this.fetch(command.args.urls, deadline)
+        return await this.fetch(command.args.urls, deadline, command.args.result_mode)
     }
     return unsupportedCommand(command)
   }
@@ -403,7 +403,7 @@ export class BrowserSession {
     return { path: outputPath }
   }
 
-  private async fetch(urls: string[], deadline: number): Promise<Record<string, unknown>> {
+  private async fetch(urls: string[], deadline: number, resultMode?: 'workspace'): Promise<Record<string, unknown>> {
     const results: Array<Record<string, unknown> | undefined> = Array.from({ length: urls.length })
     const workerCount = Math.min(2, urls.length)
     const waves = Math.ceil(urls.length / workerCount)
@@ -414,9 +414,10 @@ export class BrowserSession {
         while (nextIndex < urls.length) {
           const index = nextIndex++
           const value = urls[index]!
-          const page = await this.registry.newPage()
+          let page: Page | undefined
           const urlDeadline = Math.min(deadline - 250, Date.now() + perURLBudget)
           try {
+            page = await this.registry.newPage()
             const url = await validateNavigationURL(value, this.material)
             const navigationTimeout = urlDeadline - Date.now() - RenderedFetchMinimumSettleMs
             if (navigationTimeout <= 0) {
@@ -429,15 +430,15 @@ export class BrowserSession {
             const text = await waitForReadableText(page, urlDeadline)
             const textLimit = 512 * 1024
             const textEnd = (text.codePointAt(textLimit - 1) ?? 0) > 0xffff ? textLimit - 1 : textLimit
-            const content = text.slice(0, textEnd)
+            const content = resultMode === 'workspace' ? workspaceFetchText(text) : { text: text.slice(0, textEnd) }
             const title = await page.title()
-            if (!content.isWellFormed() || !title.isWellFormed()) {
+            if (!content.text.isWellFormed() || !title.isWellFormed()) {
               throw new BrowserDataError('invalid_result', 'rendered fetch returned invalid Unicode')
             }
             results[index] = {
               url: page.url(),
               title,
-              text: content,
+              ...content,
               metadata: { source: 'rendered_fallback' },
               warnings: []
             }
@@ -451,7 +452,7 @@ export class BrowserSession {
               metadata: { source: 'rendered_fallback' }
             }
           } finally {
-            await page.close({ runBeforeUnload: false }).catch(() => undefined)
+            await page?.close({ runBeforeUnload: false }).catch(() => undefined)
           }
         }
       }
@@ -549,6 +550,31 @@ const RenderedFetchMinimumSettleMs = 1_000
 const RenderedFetchStableWindowMs = 600
 const RenderedFetchMaximumSettleMs = 3_000
 const RenderedFetchSampleIntervalMs = 200
+
+/** Bounded workspace text fields fit both frames, including worst-case JSON escapes. */
+export function workspaceFetchText(text: string): {
+  text: string
+  total_characters: number
+  stored_characters: number
+  tail?: string
+} {
+  if (!text.isWellFormed()) throw new BrowserDataError('invalid_result', 'rendered fetch returned invalid Unicode')
+  const maximum = 2_000_000
+  let total = 0
+  let prefixEnd = 0
+  for (const point of text) {
+    if (total < maximum) prefixEnd += point.length
+    total++
+  }
+  const page = { text: text.slice(0, prefixEnd), total_characters: total, stored_characters: Math.min(total, maximum) }
+  if (total <= maximum) return page
+  // Encode only a bounded suffix. It is wider than the byte budget even for ASCII, so a possible
+  // UTF-16 split at its beginning cannot survive in the returned UTF-8 tail.
+  const tail = Buffer.from(text.slice(-320_000), 'utf8')
+  let start = Math.max(0, tail.length - 160_000)
+  while ((tail[start]! & 0xc0) === 0x80) start++
+  return { ...page, tail: tail.toString('utf8', start) }
+}
 
 async function waitForReadableText(page: Page, deadline: number): Promise<string> {
   const startedAt = Date.now()

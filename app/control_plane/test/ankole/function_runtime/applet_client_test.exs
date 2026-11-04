@@ -35,6 +35,7 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
   alias Ankole.FunctionRuntime.{AppletClient, EndpointPool, HTTP}
 
   setup do
+    Ankole.Repo.put_tenant_id(Ash.UUIDv7.generate())
     original = :sys.get_state(EndpointPool)
     {:ok, real, real_lease} = EndpointPool.checkout()
 
@@ -263,7 +264,7 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
     id = Ash.UUIDv7.generate()
     digest = :crypto.hash(:sha256, source <> "\n[]") |> Base.encode16(case: :lower)
 
-    {%{tenant_id: "test", source: source, env: %{}, sha256: digest},
+    {%{tenant_id: Ankole.Repo.tenant_id!(), source: source, env: %{}, sha256: digest},
      %{"method" => "POST", "path" => "/", "applet" => %{"pageId" => id, "revision" => 1}}}
   end
 

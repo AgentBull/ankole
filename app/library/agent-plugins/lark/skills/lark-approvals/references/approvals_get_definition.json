@@ -1,0 +1,138 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Approvals get definition.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval_code": {
+        "type": "string"
+      },
+      "locale": {
+        "type": "string"
+      },
+      "nested_mutable_group": {
+        "type": "boolean"
+      },
+      "user_id": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      },
+      "with_admin_id": {
+        "type": "boolean"
+      },
+      "with_option": {
+        "type": "boolean"
+      }
+    },
+    "required": ["approval_code"],
+    "type": "object"
+  },
+  "name": "approvals_get_definition",
+  "outputSchema": {
+    "properties": {
+      "approval_admin_ids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "approval_name": {
+        "type": "string"
+      },
+      "form": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          },
+          {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        ]
+      },
+      "form_widget_relation": {
+        "type": "string"
+      },
+      "node_list": {
+        "items": {
+          "properties": {
+            "approver_chosen_multi": {
+              "type": "boolean"
+            },
+            "approver_chosen_range": {
+              "items": {
+                "properties": {
+                  "approver_range_ids": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "approver_range_type": {
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "custom_node_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "need_approver": {
+              "type": "boolean"
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "node_type": {
+              "type": "string"
+            },
+            "require_signature": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "status": {
+        "type": "string"
+      },
+      "viewers": {
+        "items": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  }
+}

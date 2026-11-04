@@ -44,13 +44,10 @@ defmodule DingTalkOpenAPI.Stream.ClientTest do
         ]
       )
 
-    {:ok, pid} =
-      Client.start_link(client: client, dispatcher: dispatcher, auto_reconnect: false)
+    pid =
+      start_supervised!({Client, client: client, dispatcher: dispatcher, auto_reconnect: false})
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Client.stop(pid)
-      send(server, :close)
-    end)
+    on_exit(fn -> send(server, :close) end)
 
     # Registration used the open endpoint with the client id and derived subscriptions.
     assert_receive {:register, "/v1.0/gateway/connections/open", register_body}, 1_000

@@ -1,0 +1,260 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List branches",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "owner": {
+        "type": "string"
+      },
+      "page": {
+        "type": "integer"
+      },
+      "per_page": {
+        "type": "integer"
+      },
+      "protected": {
+        "type": "boolean"
+      },
+      "repo": {
+        "type": "string"
+      }
+    },
+    "required": ["owner", "repo"],
+    "type": "object"
+  },
+  "name": "repos_list_branches",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "items": {
+          "properties": {
+            "commit": {
+              "properties": {
+                "sha": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": ["sha", "url"],
+              "type": "object"
+            },
+            "name": {
+              "type": "string"
+            },
+            "protected": {
+              "type": "boolean"
+            },
+            "protection": {
+              "properties": {
+                "allow_deletions": {
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                },
+                "allow_force_pushes": {
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                },
+                "allow_fork_syncing": {
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                },
+                "block_creations": {
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "enforce_admins": {
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["url", "enabled"],
+                  "type": "object"
+                },
+                "lock_branch": {
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "protection_url": {
+                  "type": "string"
+                },
+                "required_conversation_resolution": {
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                },
+                "required_linear_history": {
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                },
+                "required_pull_request_reviews": {
+                  "properties": {
+                    "bypass_pull_request_allowances": {
+                      "type": "object"
+                    },
+                    "dismiss_stale_reviews": {
+                      "type": "boolean"
+                    },
+                    "dismissal_restrictions": {
+                      "type": "object"
+                    },
+                    "require_code_owner_reviews": {
+                      "type": "boolean"
+                    },
+                    "require_last_push_approval": {
+                      "type": "boolean"
+                    },
+                    "required_approving_review_count": {
+                      "maximum": 6,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["dismiss_stale_reviews", "require_code_owner_reviews"],
+                  "type": "object"
+                },
+                "required_signatures": {
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["url", "enabled"],
+                  "type": "object"
+                },
+                "required_status_checks": {
+                  "properties": {
+                    "checks": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "contexts": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "contexts_url": {
+                      "type": "string"
+                    },
+                    "enforcement_level": {
+                      "type": "string"
+                    },
+                    "strict": {
+                      "type": "boolean"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["contexts", "checks"],
+                  "type": "object"
+                },
+                "restrictions": {
+                  "properties": {
+                    "apps": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "apps_url": {
+                      "type": "string"
+                    },
+                    "teams": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "teams_url": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "users": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "users_url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["url", "users_url", "teams_url", "apps_url", "users", "teams", "apps"],
+                  "type": "object"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "protection_url": {
+              "type": "string"
+            }
+          },
+          "required": ["name", "commit", "protected"],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

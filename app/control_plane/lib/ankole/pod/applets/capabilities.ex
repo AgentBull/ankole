@@ -55,7 +55,8 @@ defmodule Ankole.Pod.Applets.Capabilities do
       error(:handler_error)
   end
 
-  defp actor(context, page, caller, admin?, operation) do
+  @doc false
+  def actor(context, page, caller, admin?, operation) do
     cond do
       operation in ["state.get", "state.set", "state.delete"] ->
         with {:ok, _} <-
@@ -86,9 +87,6 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   defp dispatch_context(context, page, actor, caller, "signals." <> operation, args),
     do: Ankole.Signals.applet_dispatch(context, page, actor, caller, operation, args)
-
-  defp dispatch_context(context, _page, actor, _caller, "mcp.call", [tool, args, options]),
-    do: Ankole.Pod.Applets.MCP.call(actor, tool, args, options, context)
 
   defp dispatch_context(_context, page, actor, _caller, operation, args),
     do: dispatch(page, actor, operation, args)

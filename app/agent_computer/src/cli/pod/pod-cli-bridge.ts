@@ -26,7 +26,12 @@ const readOperations = [
   'base.schema',
   'base.query',
   'base.aggregate',
+  'jobs.schedules.list',
+  'jobs.schedules.runs',
+  'jobs.webhooks.list',
   'jobs.list',
+  'jobs.actions',
+  'jobs.runs',
   'jobs.get_run',
   'bindings.list'
 ] as const
@@ -49,6 +54,17 @@ const writeOperations = [
   'applets.publish',
   'applets.call',
   'applets.transfer_owner',
+  'jobs.schedules.put',
+  'jobs.schedules.pause',
+  'jobs.schedules.resume',
+  'jobs.schedules.run',
+  'jobs.schedules.delete',
+  'jobs.webhooks.create',
+  'jobs.webhooks.update',
+  'jobs.webhooks.pause',
+  'jobs.webhooks.resume',
+  'jobs.webhooks.cancel',
+  'jobs.webhooks.delete',
   'jobs.create',
   'jobs.configure',
   'jobs.delete',
@@ -73,13 +89,7 @@ const Command = z.object({
   pull_directory: z.string().optional()
 })
 
-export function startPodCLIBridge(opts: {
-  rpc: RPCRequester
-  frame?: TurnRPCFrame
-  automationAttempt?: { jobId: string; runId: string; attemptId: string }
-  drive: Drive
-  socketRoot?: string
-}) {
+export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame; drive: Drive; socketRoot?: string }) {
   return startSocketLineBridge({
     socketPath: join(opts.socketRoot ?? WORKER_SHARE_ROOT, `ankole-pod-${randomUUID()}.sock`),
     maxRequestBytes: 32 * 1024 * 1024,
@@ -100,14 +110,9 @@ export function startPodCLIBridge(opts: {
       try {
         const request = async (operation: string, params: Record<string, unknown>) => {
           const method = readOperationNames.has(operation) ? 'pod.read' : 'pod.write'
-          const response = await opts.rpc(
-            method,
-            { operation, paramsJson: jsonBytes(params), automationAttempt: opts.automationAttempt },
-            opts.frame,
-            {
-              retryOnDisconnect: method === 'pod.read'
-            }
-          )
+          const response = await opts.rpc(method, { operation, paramsJson: jsonBytes(params) }, opts.frame, {
+            retryOnDisconnect: method === 'pod.read'
+          })
           const body = jsonObjectFromBytes(response.bodyJson, 'Pod response') ?? {}
           return (body.result ?? body) as Record<string, unknown>
         }

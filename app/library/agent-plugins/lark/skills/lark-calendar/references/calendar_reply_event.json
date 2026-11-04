@@ -1,0 +1,34 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Calendar reply event.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "calendar_id": {
+        "type": "string"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "rsvp_status": {
+        "type": "string"
+      }
+    },
+    "required": ["event_id", "rsvp_status"],
+    "type": "object"
+  },
+  "name": "calendar_reply_event",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

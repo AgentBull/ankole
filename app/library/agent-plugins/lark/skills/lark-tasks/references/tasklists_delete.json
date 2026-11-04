@@ -1,0 +1,28 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tasklists delete.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "tasklist_guid": {
+        "type": "string"
+      }
+    },
+    "required": ["tasklist_guid"],
+    "type": "object"
+  },
+  "name": "tasklists_delete",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

@@ -102,6 +102,11 @@ defmodule Ankole.Principals do
 
     resource ExternalIdentity do
       define(:list_external_identities, action: :read)
+
+      define(:external_identities_by_employee,
+        action: :by_employee_id,
+        args: [:providers, :employee_id]
+      )
     end
 
     resource(Ankole.Principals.SiteCredential)

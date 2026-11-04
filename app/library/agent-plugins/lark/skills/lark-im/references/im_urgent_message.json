@@ -1,0 +1,45 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Im urgent message.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "channel": {
+        "enum": ["app", "sms", "phone"],
+        "type": "string"
+      },
+      "message_id": {
+        "type": "string"
+      },
+      "user_id_list": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": ["message_id", "user_id_list"],
+    "type": "object"
+  },
+  "name": "im_urgent_message",
+  "outputSchema": {
+    "properties": {
+      "invalid_user_id_list": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  }
+}

@@ -30,8 +30,6 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
     check_back_later.wakeup
     cron.fire
     webhook.received
-    automation_job.emitted
-    automation_job.run_failed
     background_agent_job.completed
     background_agent_job.failed
     background_agent_job.input_undeliverable

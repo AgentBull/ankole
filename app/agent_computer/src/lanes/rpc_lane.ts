@@ -46,7 +46,7 @@ export type RPCCallOptions = {
  */
 export type RPCFrame<M extends ControlPlaneOwnedRPCMethod> = (typeof rpcOperations)[M] extends { scope: 'turn' }
   ? TurnRPCFrame
-  : M extends 'pod.read' | 'pod.write' | 'files.get'
+  : M extends 'pod.read' | 'pod.write' | 'files.get' | 'worker_env.resolve'
     ? TurnRPCFrame | void
     : void
 

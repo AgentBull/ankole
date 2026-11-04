@@ -6,6 +6,170 @@ defmodule Ankole.Sessions.BackgroundAgentJobBrokerTest do
   alias Ankole.Sessions.CodexJob
   alias Ankole.Sessions.Run
 
+  defmodule MCPFixture do
+    import Plug.Conn
+    def init(owner), do: owner
+
+    def call(conn, owner) do
+      {:ok, bytes, conn} = read_body(conn)
+      request = Torque.decode!(bytes)
+      send(owner, {:projected_mcp, request["method"], get_req_header(conn, "authorization")})
+
+      result =
+        if request["method"] == "tools/list",
+          do: %{
+            "tools" => [
+              %{
+                "name" => "read",
+                "inputSchema" => %{"type" => "object"},
+                "annotations" => %{"readOnlyHint" => true}
+              }
+            ]
+          },
+          else: %{"content" => [%{"type" => "text", "text" => "accepted"}]}
+
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(
+        200,
+        Torque.encode!(%{"jsonrpc" => "2.0", "id" => request["id"], "result" => result})
+      )
+    end
+  end
+
+  test "Job MCP uses admitted Skills and excludes old projected upstream credentials" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+    route = unique_route()
+    parent = start_parent_turn!(agent.uid, route)
+    server = start_supervised!({Bandit, plug: {MCPFixture, self()}, ip: {127, 0, 0, 1}, port: 0})
+    {:ok, {_, port}} = ThousandIsland.listener_info(server)
+    url = "http://127.0.0.1:#{port}/mcp"
+    secret_name = "JOB_MCP_TOKEN"
+    mcp_skill!(agent.uid, "admitted-mcp", url, secret_name)
+    mcp_skill!(agent.uid, "main-only-mcp", url, secret_name, %{"ankole-runtime" => "main"})
+
+    {:ok, _} =
+      Ankole.AgentWorkers.WorkerEnv.console_put_for_agent(agent.uid, secret_name, %{
+        "value" => "control-plane-secret",
+        "secret" => false
+      })
+
+    {:ok, _} =
+      Ankole.AgentWorkers.WorkerEnv.console_put_for_agent(agent.uid, "JOB_MODE", %{
+        "value" => "frozen"
+      })
+
+    job = create_job!(agent.uid, parent, "mcp-projection")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    now = DateTime.add(job.queued_at, 1, :second)
+    assert {:ok, %{event: event}} = Run.rebuild(key, now)
+    assert {:ok, run} = Admission.admit(key, event, now: now)
+    assert {:ok, _} = CodexJob.start(run)
+    assert_receive {:actor_lane, envelope}, 200
+    turn = turn_start_payload!(envelope).turn
+    job = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+    refute secret_name in job.runtime_projection["worker_env"]["names"]
+    assert job.runtime_projection["worker_env"]["plain_values"]["JOB_MODE"] == "frozen"
+
+    historical =
+      job.runtime_projection
+      |> put_in(["worker_env", "names"], [secret_name, "JOB_MODE"])
+      |> put_in(["worker_env", "plain_values", secret_name], "old-upstream-token")
+
+    # Represents a Job persisted before MCP credential filtering was applied.
+    Repo.query!(
+      "UPDATE background_agent_jobs SET runtime_projection = $1 WHERE tenant_id = $2 AND id = $3",
+      [historical, Ecto.UUID.dump!(Repo.tenant_id!()), job.id]
+    )
+
+    assert {:ok, response} =
+             handle_rpc(
+               rpc_request(
+                 "projected-job",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{job_id: Integer.to_string(job.id)},
+                 job_turn: turn
+               ),
+               route,
+               agent.uid
+             )
+
+    sent = response |> job_payload() |> Map.fetch!(:runtime_projection_json) |> Torque.decode!()
+
+    assert sent["worker_env"] == %{
+             "names" => ["JOB_MODE"],
+             "plain_values" => %{"JOB_MODE" => "frozen"}
+           }
+
+    mcp_skill!(agent.uid, "late-mcp", url, secret_name)
+    {:ok, ref} = Ankole.Sessions.JobTurnRef.from_proto(turn, agent.uid)
+    {:ok, env} = Ankole.Connectors.Tokens.worker(agent.uid, ref)
+
+    for slug <- ["late-mcp", "main-only-mcp"] do
+      rejected = gateway_mcp(slug, env["ANKOLE_MCP_TOKEN"])
+      assert rejected["result"]["isError"] == true
+      assert inspect(rejected) =~ "skill_not_enabled"
+    end
+
+    refute_receive {:projected_mcp, _, _}
+
+    accepted = gateway_mcp("admitted-mcp", env["ANKOLE_MCP_TOKEN"])
+    refute accepted["result"]["isError"] == true
+    assert accepted["result"]["content"] == [%{"type" => "text", "text" => "accepted"}]
+    assert_receive {:projected_mcp, "tools/call", ["Bearer control-plane-secret"]}
+  end
+
+  defp mcp_skill!(uid, slug, url, secret_name, metadata \\ %{}) do
+    yaml =
+      "dependencies:\n  tools:\n    - type: mcp\n      value: protected\n      transport: streamable_http\n      url: #{url}\n      bearer_token_env_var: #{secret_name}\n"
+
+    {:ok, blob} = Ankole.Files.store(yaml)
+
+    {:ok, _} =
+      Ankole.Files.commit(uid, [Map.merge(blob, %{path: "fixtures/" <> slug, source: "agent"})])
+
+    {:ok, _} =
+      Repo.transact_top_level(fn ->
+        with {:ok, skill} <-
+               Ankole.Ash.create(Ankole.AIAgent.Library.Schemas.Skill, :create, %{
+                 slug: slug,
+                 name: slug,
+                 description: "MCP fixture",
+                 source_kind: :custom,
+                 enabled_for_all: true,
+                 manifest_xml: "<p>fixture</p>",
+                 manifest_markdown: "fixture",
+                 metadata: metadata
+               }),
+             do:
+               Ankole.Ash.create(Ankole.AIAgent.Library.Schemas.SkillFile, :put, %{
+                 skill_id: skill.id,
+                 relative_path: "agents/openai.yaml",
+                 object_id: blob.object_id,
+                 content_type: "application/yaml"
+               })
+      end)
+  end
+
+  defp gateway_mcp(slug, token) do
+    Plug.Test.conn(
+      "POST",
+      "/api/internal/mcp/skills/#{slug}/protected",
+      Torque.encode!(%{
+        "jsonrpc" => "2.0",
+        "id" => "projection",
+        "method" => "tools/call",
+        "params" => %{"name" => "read", "arguments" => %{}}
+      })
+    )
+    |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
+    |> Plug.Conn.put_req_header("content-type", "application/json")
+    |> AnkoleWeb.Endpoint.call(AnkoleWeb.Endpoint.init([]))
+    |> Map.fetch!(:resp_body)
+    |> Torque.decode!()
+  end
+
   test "RPC rejects a conversation RunRef for Job operations on either connection" do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()

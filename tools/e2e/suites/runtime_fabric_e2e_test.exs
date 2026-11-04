@@ -23,6 +23,10 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
   @moduletag sandbox: false
   @moduletag timeout: 240_000
 
+  setup_all do
+    start_committed_repo!()
+  end
+
   setup do
     cleanup_committed_fixtures_on_exit!()
     :ok
@@ -730,7 +734,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
   end
 
   @tag :b07_long_lived_owner
-  test "a real Codex Job creates long-lived resources and their HTTP and script callbacks wake its origin" do
+  test "a real Codex Job creates Webhook and Applet Jobs whose callbacks reach its origin" do
     ctx = start_worker_e2e_stack!()
     uid = ctx.agent.uid
     assert {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
@@ -753,7 +757,40 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       AnkoleWeb.Endpoint.config_change([{AnkoleWeb.Endpoint, endpoint_config}], [])
     end)
 
+    owner = Ankole.PrincipalsFixtures.human_fixture().principal
+    actor = Ankole.PrincipalsFixtures.actor_fixture(owner)
+    Ankole.ConversationsFixtures.grant_chat(owner.uid, uid)
+    assert {:ok, page} = Ankole.Pod.Pages.create(actor, %{type: "applet", title: "B07 callbacks"})
+
+    Ankole.FilesFixtures.publish_applet_fixture(%{actor: actor, page: page}, """
+    export default {actions:{callback:{idempotent:true,handler:async ctx=>{
+      await AnkoleRuntime.admin.signals.emit({
+        id:'b07-callback-' + ctx.signal.id, type:'b07.action.completed',
+        data:{marker:'CHAOS_B07_WAKE',path:'automation'}
+      });
+      return {path:'automation'};
+    }}}};
+    """)
+
+    DockerWorker.exec!(ctx.container, [
+      "sh",
+      "-ec",
+      "printf %s '#{Base.encode64(Torque.encode!(%{page_id: page.id}))}' | base64 -d > /workspace/b07-applet.json"
+    ])
+
     input = send!(ctx, "b07-owner", "CHAOS_B07_CREATE")
+
+    assert {:ok, true} =
+             wait_until(deadline(30_000), fn -> FakeOpenAIState.waiting?(:b07_create) end)
+
+    grants =
+      [uid, input.human_uid]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.map(&%{principal_uid: &1, role: "edit"})
+
+    assert {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{grants: grants})
+    assert :ok = FakeOpenAIState.release(:b07_create)
     assert {:ok, _, _} = wait_for_completed_final_reply(ctx.container, input.id, deadline(90_000))
     job = Repo.one!(from(j in Job, where: j.source_signal_id == ^input.id))
 
@@ -776,19 +813,27 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     automation =
       Repo.one!(
         from(j in Ankole.AutomationJobs.Schemas.Job,
-          where: j.agent_uid == ^uid and j.label == "B07 automation" and j.status == :active
+          where: j.page_id == ^page.id and j.label == "B07 automation" and j.status == :active
         )
       )
 
     dispatch = Repo.get!(Signal, endpoint.source_signal_id)
     assert dispatch.session_id == BackgroundAgentJobs.job_session_id(job.id)
     assert endpoint.session_id == input.session_id
-    assert automation.owner_session_id == input.session_id
-    assert automation.source_signal_id == dispatch.id
     assert endpoint.conversation_id == input.conversation_id
-    assert automation.authorization_kind == dispatch.authorization_kind
-    assert automation.human_uid == dispatch.human_uid
-    assert automation.human_access_version == dispatch.human_access_version
+    assert automation.page_id == page.id
+    assert automation.action_key == "callback"
+    assert automation.authorization_kind == "service"
+    assert automation.human_uid == nil
+
+    assert {:ok, binding} =
+             Ankole.Signals.put_event_binding(actor, %{
+               config_ref: "job://#{automation.id}",
+               agent_uid: uid,
+               target: %{conversation_id: input.conversation_id}
+             })
+
+    assert binding.target["conversation_id"] == input.conversation_id
 
     assert Repo.one!(
              from(e in WebhookEndpoint,
@@ -796,12 +841,10 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
              )
            )
 
-    assert Repo.one!(
-             from(j in Ankole.AutomationJobs.Schemas.Job,
-               where:
-                 j.agent_uid == ^uid and j.label == "B07 automation" and j.status == :cancelled
-             )
-           )
+    assert Repo.aggregate(
+             from(j in Ankole.AutomationJobs.Schemas.Job, where: j.page_id == ^page.id),
+             :count
+           ) == 1
 
     # The capability stays inside the fixture container until this local HTTP
     # request. It must not appear in model tool output or test diagnostics.
@@ -853,11 +896,11 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                "agent_uid" => uid,
                "session_id" => input.session_id,
                "binding_name" => input.reply_binding_name,
-               "tool_call_id" => "b07-script-trigger",
-               "idempotency_key" => "b07-script-trigger",
+               "tool_call_id" => "b07-action-trigger",
+               "idempotency_key" => "b07-action-trigger",
                "schedule" => %{"at" => DateTime.to_iso8601(due_at), "timezone" => "Etc/UTC"},
-               "reason" => "Exercise the registered script after its Job ends.",
-               "check" => "Run the deterministic fixture.",
+               "reason" => "Exercise the Applet Action after its Codex Job ends.",
+               "check" => "Run the published Action through Function Runtime.",
                "context_summary" => "B07 long-lived owner",
                "reply_route" => %{
                  "conversation_id" => input.conversation_id,
@@ -877,39 +920,42 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                %{"automation_job_run_id" => queued.id}
              )
 
-    assert %Ankole.AutomationJobs.Schemas.Run{status: :succeeded, exit_code: 0} =
+    assert %Ankole.AutomationJobs.Schemas.Run{
+             status: :succeeded,
+             result: %{"path" => "automation"}
+           } =
              Repo.reload!(queued)
 
     emitted =
       Repo.one!(
         from(e in Signal,
-          where: e.agent_uid == ^uid and e.type == "automation_job.emitted"
+          where: e.agent_uid == ^uid and e.type == "b07.action.completed"
         )
       )
 
     assert emitted.session_id == input.session_id
-    assert emitted.data["payload"]["path"] == "automation"
+    assert emitted.data["path"] == "automation"
+    assert emitted.authorization_kind == "service"
 
-    assert {:ok, script_reply, _} =
+    assert {:ok, action_reply, _} =
              wait_for_completed_final_reply(ctx.container, emitted.id, deadline(90_000))
 
-    assert script_reply.message.text =~ "B07_OWNER_RECEIVED"
+    assert action_reply.message.text =~ "B07_OWNER_RECEIVED"
     assert Repo.reload!(job).status == :succeeded
     assert_signal_completed!(receipt.id)
     assert_signal_completed!(emitted.id)
   end
 
   @tag :pod_automation
-  test "service and Human automation attempts use Pod through the authenticated Docker Worker" do
+  test "service and Human instructions use the Agent's Pod grants through the Docker Worker" do
     owner = Ankole.PrincipalsFixtures.human_fixture().principal
     human = Ankole.PrincipalsFixtures.human_fixture().principal
 
-    agent =
-      Ankole.SessionsCase.agent_fixture(%{worker_provider_id: DockerWorker.provider_id!()}).principal
-
+    ctx = start_worker_e2e_stack!()
+    agent = ctx.agent
     actor = Ankole.PrincipalsFixtures.actor_fixture(owner)
-    start_worker!([agent.uid], automatic_signal_wakeups: false)
     assert DockerWorker.container_info(DockerWorker.container_name(agent.uid)).status == "running"
+    for uid <- [owner.uid, human.uid], do: Ankole.ConversationsFixtures.grant_chat(uid, agent.uid)
 
     {:ok, database} =
       Ankole.Pod.Pages.create(actor, %{type: "base", private_owner_uid: owner.uid})
@@ -931,7 +977,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
             }) do
         put_drive_file!(owner.uid, "pod-automation/" <> path, bytes)
         {:ok, file} = Ankole.Files.fetch(owner.uid, "pod-automation/" <> path)
-        %{path: path, sha256: Base.encode16(file.sha256, case: :lower)}
+        %{path: path, object_id: file.object_id, source_path: "pod-automation/" <> path}
       end
 
     assert {:ok, _} = Ankole.Pod.Files.publish(actor, applet.id, 0, manifest)
@@ -946,9 +992,19 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                })
     end
 
-    put_drive_file!(agent.uid, "automation/pod/main.ts", """
+    human_actor = Ankole.PrincipalsFixtures.actor_fixture(human)
+
+    assert {:error, :forbidden} =
+             Ankole.Pod.Bases.create_field(human_actor, table.id, %{
+               name: "Direct Human edit",
+               type: "text"
+             })
+
+    assert {:error, :forbidden} = Ankole.Pod.Files.read(human_actor, applet.id, "src/main.tsx")
+
+    script = ~S"""
     import {existsSync} from 'node:fs';
-    const data = context().event.data;
+    const data = await Bun.file('/workspace/e2e-pod-cli-data.json').json();
     async function cli(program, args) {
       const process = Bun.spawn([program, ...args], { stdout: 'pipe', stderr: 'pipe' });
       const [code, out, err] = await Promise.all([
@@ -963,100 +1019,122 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     const schema = await cli('ankole-pod', ['base.create_field', JSON.stringify({
       id: data.table, name: 'From ' + data.kind, type: 'text'
     })]);
-    const source = await cli('ankole-files', [
-      'get', 'pages/' + data.applet + '/src/main.tsx', '--pod', '--output', 'source.tsx'
-    ]);
-    if (source.code === 0 && await Bun.file('source.tsx').text() !== data.files['src/main.tsx']) {
+    const sourcePath = 'source-' + data.kind + '.tsx';
+    const source = await cli('ankole-pod', ['files.download', JSON.stringify({
+      id: data.applet, path: 'src/main.tsx', local_path: sourcePath
+    })]);
+    if (source.code === 0 && await Bun.file(sourcePath).text() !== data.files['src/main.tsx']) {
       throw new Error('Pod relay returned different source bytes');
     }
-    const pull = await cli('ankole-pod', ['applet', 'pull', 'restored', JSON.stringify({id: data.applet})]);
+    const restoredDir = 'restored-' + data.kind;
+    const pull = await cli('ankole-pod', ['applet', 'pull', restoredDir, JSON.stringify({id: data.applet})]);
     const restored = [];
     let dependency;
     if (pull.code === 0) {
       for (const [path, bytes] of Object.entries(data.files)) {
-        if (await Bun.file('restored/' + path).text() !== bytes) throw new Error('Restored file differs: ' + path);
+        if (await Bun.file(restoredDir + '/' + path).text() !== bytes) throw new Error('Restored file differs: ' + path);
         restored.push(path);
       }
-      dependency = (await import(Bun.resolveSync('pod-pull-dependency', process.cwd() + '/restored'))).default;
+      dependency = (await import(Bun.resolveSync('pod-pull-dependency', process.cwd() + '/' + restoredDir))).default;
     }
-    console.log(JSON.stringify({
+    console.log("POD_CLI_RESULT=" + JSON.stringify({
       record, schema, source, pull, restored, dependency,
-      pullOutputExists: existsSync('restored'),
-      postinstallRan: existsSync('restored/postinstall-ran')
+      sourceOutputExists: existsSync(sourcePath),
+      pullOutputExists: existsSync(restoredDir),
+      postinstallRan: existsSync(restoredDir + '/postinstall-ran')
     }));
-    """)
+    """
+
+    DockerWorker.exec!(ctx.container, [
+      "sh",
+      "-ec",
+      "printf %s '#{Base.encode64(script)}' | base64 -d > /workspace/e2e-pod-cli.ts"
+    ])
 
     for kind <- [:service, :human] do
-      source = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
+      data = %{
+        "table" => table.id,
+        "field" => primary.id,
+        "applet" => applet.id,
+        "kind" => to_string(kind),
+        "files" => project
+      }
 
-      if kind == :human do
-        assert {:ok, _} =
-                 Repo.transact(fn ->
-                   Ankole.Ash.update(
-                     source,
-                     :reauthorize,
-                     Ankole.Principals.WorkAccess.from_sender(human.uid)
-                   )
-                 end)
-      end
+      DockerWorker.exec!(ctx.container, [
+        "sh",
+        "-ec",
+        "printf %s '#{Base.encode64(Torque.encode!(data))}' | base64 -d > /workspace/e2e-pod-cli-data.json"
+      ])
 
-      assert {:ok, job} =
-               Ankole.AutomationJobs.create_job(%{
+      sender = if kind == :human, do: human, else: owner
+      sender_actor = Ankole.PrincipalsFixtures.actor_fixture(sender)
+
+      assert {:ok, %{conversation: conversation}} =
+               Ankole.Conversations.create(sender_actor, %{
+                 conversation_id: Ecto.UUID.generate(),
+                 message_id: Ecto.UUID.generate(),
                  agent_uid: agent.uid,
-                 owner_session_id: source.session_id,
-                 source_signal_id: source.id,
-                 drive_prefix: "automation/pod",
-                 label: "Pod #{kind} transport",
-                 reply_route: %{},
-                 source_provenance: %{}
+                 text: if(kind == :human, do: "CHAOS_HUMAN_POD_CLI", else: "CHAOS_DIRECT_OK")
                })
 
-      assert {:ok, %{automation_job_run: run}} =
-               Repo.transact(fn ->
-                 Ankole.AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, %{
-                   "specversion" => "1.0",
-                   "id" => Ecto.UUID.generate(),
-                   "source" => "test://pod-automation",
-                   "type" => "test.triggered",
-                   "data" => %{
-                     "table" => table.id,
-                     "field" => primary.id,
-                     "applet" => applet.id,
-                     "kind" => to_string(kind),
-                     "files" => project
-                   }
-                 })
-               end)
+      initial = Repo.get_by!(Signal, conversation_id: conversation.id, agent_uid: agent.uid)
 
-      assert :ok =
-               perform_job(Ankole.AutomationJobs.Jobs.ExecuteRun, %{
-                 "automation_job_run_id" => run.id
-               })
+      input =
+        if kind == :human do
+          initial
+        else
+          assert {:ok, %{status: :driving}} = ensure_input_driver!(initial, initial.available_at)
 
-      current = Repo.reload!(run)
-      assert current.status == :succeeded, inspect(Map.take(current, [:error, :stdout, :stderr]))
-      assert current.exit_code == 0
-      result = Torque.decode!(String.trim(current.stdout))
+          assert {:ok, _} =
+                   wait_for_completed_signal_message(ctx.container, initial.id, deadline(90_000))
+
+          assert {:ok, input} =
+                   Repo.transact(fn ->
+                     Ankole.Signals.accept_in_tx(%{
+                       producer: :kernel,
+                       source: "test://pod-cli",
+                       id: Ecto.UUID.generate(),
+                       type: "test.work",
+                       time: DateTime.utc_now(:microsecond),
+                       target: %{agent_uid: agent.uid, conversation_id: conversation.id},
+                       sender: sender.uid,
+                       authorization: Ankole.Principals.WorkAccess.service(),
+                       data: %{"text" => "CHAOS_SERVICE_POD_CLI"},
+                       reply_route: %{conversation_id: conversation.id}
+                     })
+                   end)
+
+          input
+        end
+
+      assert input.authorization_kind == to_string(kind)
+      assert {:ok, %{status: :driving}} = ensure_input_driver!(input, input.available_at)
+
+      assert {:ok, _} =
+               wait_for_completed_signal_message(ctx.container, input.id, deadline(90_000))
+
+      assert {:ok, detail} = Ankole.Conversations.get(sender_actor, conversation.id)
+
+      assert Enum.any?(detail.messages, fn message ->
+               message.author_type == :agent and message.signal_id == input.id and
+                 message.text =~ "POD_CLI_DONE"
+             end)
+
+      messages = ai_messages_for_signal(input.id)
+      assert [%{"raw" => output}] = successful_tool_results(messages, "command")
+      assert [_, json] = Regex.run(~r/^POD_CLI_RESULT=(.+)$/m, output)
+      result = Torque.decode!(json)
+      assert_signal_completed!(input.id)
       assert result["record"]["code"] == 0
 
-      if kind == :service do
-        assert result["schema"]["code"] == 0
-        assert result["source"]["code"] == 0
-        assert result["pull"]["code"] == 0
-        assert Enum.sort(result["restored"]) == Enum.sort(Map.keys(project))
-        assert result["dependency"] == 42
-        assert result["pullOutputExists"]
-        refute result["postinstallRan"]
-      else
-        assert result["schema"]["code"] == 1
-        assert result["schema"]["err"] =~ "forbidden"
-        assert result["source"]["code"] == 1
-        assert result["source"]["err"] =~ "forbidden"
-        assert result["pull"]["code"] == 1
-        assert result["pull"]["err"] =~ "Applet source is not available"
-        refute result["pullOutputExists"]
-        assert result["restored"] == []
-      end
+      assert result["schema"]["code"] == 0, inspect(result["schema"])
+      assert result["source"]["code"] == 0, inspect(result["source"])
+      assert result["pull"]["code"] == 0, inspect(result["pull"])
+      assert Enum.sort(result["restored"]) == Enum.sort(Map.keys(project))
+      assert result["dependency"] == 42
+      assert result["sourceOutputExists"]
+      assert result["pullOutputExists"]
+      refute result["postinstallRan"]
     end
 
     assert {:ok, %{records: records}} = Ankole.Pod.Bases.query(actor, table.id, %{})
@@ -1064,7 +1142,8 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert Enum.all?(records, &String.ends_with?(&1["created_by"], "/" <> agent.uid))
     assert {:ok, schema} = Ankole.Pod.Bases.get_table(actor, table.id)
     assert Enum.any?(schema.fields, &(&1.name == "From service"))
-    refute Enum.any?(schema.fields, &(&1.name == "From human"))
+    assert Enum.any?(schema.fields, &(&1.name == "From human"))
+    refute Enum.any?(schema.fields, &(&1.name == "Direct Human edit"))
   end
 
   defp automation_applet_project do

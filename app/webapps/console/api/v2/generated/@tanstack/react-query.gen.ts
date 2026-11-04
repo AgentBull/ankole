@@ -10,7 +10,6 @@ import {
   approveIdentityDirectory,
   archiveBrainSource,
   assignAgentWorkerProvider,
-  backgroundActivityAutomationRuns,
   backgroundActivityJobs,
   backgroundActivityWorkflow,
   bindIdentityMappingRequest,
@@ -99,6 +98,8 @@ import {
   listBrainSources,
   listBrainSuggestions,
   listCheckbacks,
+  listConnectorAuthConfigs,
+  listConnectorCatalog,
   listCronScheduleRuns,
   listCronSchedules,
   listDefaultModelProfiles,
@@ -193,9 +194,6 @@ import type {
   AssignAgentWorkerProviderData,
   AssignAgentWorkerProviderError,
   AssignAgentWorkerProviderResponse,
-  BackgroundActivityAutomationRunsData,
-  BackgroundActivityAutomationRunsError,
-  BackgroundActivityAutomationRunsResponse,
   BackgroundActivityJobsData,
   BackgroundActivityJobsError,
   BackgroundActivityJobsResponse,
@@ -460,6 +458,12 @@ import type {
   ListCheckbacksData,
   ListCheckbacksError,
   ListCheckbacksResponse,
+  ListConnectorAuthConfigsData,
+  ListConnectorAuthConfigsError,
+  ListConnectorAuthConfigsResponse,
+  ListConnectorCatalogData,
+  ListConnectorCatalogError,
+  ListConnectorCatalogResponse,
   ListCronScheduleRunsData,
   ListCronScheduleRunsError,
   ListCronScheduleRunsResponse,
@@ -2341,21 +2345,21 @@ export const listSignalBindingsOptions = (options?: Options<ListSignalBindingsDa
     queryKey: listSignalBindingsQueryKey(options)
   })
 
-export const getAutomationJobQueryKey = (options: Options<GetAutomationJobData>) =>
-  createQueryKey('getAutomationJob', options)
+export const listConnectorAuthConfigsQueryKey = (options?: Options<ListConnectorAuthConfigsData>) =>
+  createQueryKey('listConnectorAuthConfigs', options)
 
 /**
- * get_automation_job operation on automation_job resource
+ * list_connector_auth_configs operation on app_configuration_operation resource
  */
-export const getAutomationJobOptions = (options: Options<GetAutomationJobData>) =>
+export const listConnectorAuthConfigsOptions = (options?: Options<ListConnectorAuthConfigsData>) =>
   queryOptions<
-    GetAutomationJobResponse,
-    GetAutomationJobError,
-    GetAutomationJobResponse,
-    ReturnType<typeof getAutomationJobQueryKey>
+    ListConnectorAuthConfigsResponse,
+    ListConnectorAuthConfigsError,
+    ListConnectorAuthConfigsResponse,
+    ReturnType<typeof listConnectorAuthConfigsQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getAutomationJob({
+      const { data } = await listConnectorAuthConfigs({
         ...options,
         ...queryKey[0],
         signal,
@@ -2363,7 +2367,7 @@ export const getAutomationJobOptions = (options: Options<GetAutomationJobData>) 
       })
       return data
     },
-    queryKey: getAutomationJobQueryKey(options)
+    queryKey: listConnectorAuthConfigsQueryKey(options)
   })
 
 export const listBrainObjectTypesQueryKey = (options?: Options<ListBrainObjectTypesData>) =>
@@ -2870,79 +2874,6 @@ export const changeHumanMembershipMutation = (
   return mutationOptions
 }
 
-export const backgroundActivityAutomationRunsQueryKey = (options: Options<BackgroundActivityAutomationRunsData>) =>
-  createQueryKey('backgroundActivityAutomationRuns', options)
-
-/**
- * background_activity_automation_runs operation on background_activities_operation resource
- */
-export const backgroundActivityAutomationRunsOptions = (options: Options<BackgroundActivityAutomationRunsData>) =>
-  queryOptions<
-    BackgroundActivityAutomationRunsResponse,
-    BackgroundActivityAutomationRunsError,
-    BackgroundActivityAutomationRunsResponse,
-    ReturnType<typeof backgroundActivityAutomationRunsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await backgroundActivityAutomationRuns({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: backgroundActivityAutomationRunsQueryKey(options)
-  })
-
-export const backgroundActivityAutomationRunsInfiniteQueryKey = (
-  options: Options<BackgroundActivityAutomationRunsData>
-): QueryKey<Options<BackgroundActivityAutomationRunsData>> =>
-  createQueryKey('backgroundActivityAutomationRuns', options, true)
-
-/**
- * background_activity_automation_runs operation on background_activities_operation resource
- */
-export const backgroundActivityAutomationRunsInfiniteOptions = (
-  options: Options<BackgroundActivityAutomationRunsData>
-) => {
-  const opts = infiniteQueryOptions<
-    BackgroundActivityAutomationRunsResponse,
-    BackgroundActivityAutomationRunsError,
-    InfiniteData<BackgroundActivityAutomationRunsResponse>,
-    QueryKey<Options<BackgroundActivityAutomationRunsData>>,
-    string | Pick<QueryKey<Options<BackgroundActivityAutomationRunsData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<BackgroundActivityAutomationRunsData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await backgroundActivityAutomationRuns({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: backgroundActivityAutomationRunsInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
 /**
  * review_identity_directory_event operation on identity_provider_operation resource
  */
@@ -3113,21 +3044,21 @@ export const resetAgentTokenQuotaMutation = (
   return mutationOptions
 }
 
-export const listAutomationJobRunsQueryKey = (options: Options<ListAutomationJobRunsData>) =>
-  createQueryKey('listAutomationJobRuns', options)
+export const listConnectorCatalogQueryKey = (options?: Options<ListConnectorCatalogData>) =>
+  createQueryKey('listConnectorCatalog', options)
 
 /**
- * list_automation_job_runs operation on automation_job_run resource
+ * list_connector_catalog operation on app_configuration_operation resource
  */
-export const listAutomationJobRunsOptions = (options: Options<ListAutomationJobRunsData>) =>
+export const listConnectorCatalogOptions = (options?: Options<ListConnectorCatalogData>) =>
   queryOptions<
-    ListAutomationJobRunsResponse,
-    ListAutomationJobRunsError,
-    ListAutomationJobRunsResponse,
-    ReturnType<typeof listAutomationJobRunsQueryKey>
+    ListConnectorCatalogResponse,
+    ListConnectorCatalogError,
+    ListConnectorCatalogResponse,
+    ReturnType<typeof listConnectorCatalogQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await listAutomationJobRuns({
+      const { data } = await listConnectorCatalog({
         ...options,
         ...queryKey[0],
         signal,
@@ -3135,55 +3066,8 @@ export const listAutomationJobRunsOptions = (options: Options<ListAutomationJobR
       })
       return data
     },
-    queryKey: listAutomationJobRunsQueryKey(options)
+    queryKey: listConnectorCatalogQueryKey(options)
   })
-
-export const listAutomationJobRunsInfiniteQueryKey = (
-  options: Options<ListAutomationJobRunsData>
-): QueryKey<Options<ListAutomationJobRunsData>> => createQueryKey('listAutomationJobRuns', options, true)
-
-/**
- * list_automation_job_runs operation on automation_job_run resource
- */
-export const listAutomationJobRunsInfiniteOptions = (options: Options<ListAutomationJobRunsData>) => {
-  const opts = infiniteQueryOptions<
-    ListAutomationJobRunsResponse,
-    ListAutomationJobRunsError,
-    InfiniteData<ListAutomationJobRunsResponse>,
-    QueryKey<Options<ListAutomationJobRunsData>>,
-    | {
-        after?: string
-        before?: string
-        limit?: number
-      }
-    | Pick<QueryKey<Options<ListAutomationJobRunsData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<QueryKey<Options<ListAutomationJobRunsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  page: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await listAutomationJobRuns({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: listAutomationJobRunsInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
 
 /**
  * delete_agent_token_quota operation on agent_model_configuration resource
@@ -3943,6 +3827,31 @@ export const setAgentLibraryPluginMutation = (
   return mutationOptions
 }
 
+export const getAutomationJobQueryKey = (options: Options<GetAutomationJobData>) =>
+  createQueryKey('getAutomationJob', options)
+
+/**
+ * get_automation_job operation on automation_job resource
+ */
+export const getAutomationJobOptions = (options: Options<GetAutomationJobData>) =>
+  queryOptions<
+    GetAutomationJobResponse,
+    GetAutomationJobError,
+    GetAutomationJobResponse,
+    ReturnType<typeof getAutomationJobQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAutomationJob({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAutomationJobQueryKey(options)
+  })
+
 /**
  * archive_brain_source operation on brain_source resource
  */
@@ -4063,6 +3972,78 @@ export const listAgentWorkerEnvsOptions = (options: Options<ListAgentWorkerEnvsD
     },
     queryKey: listAgentWorkerEnvsQueryKey(options)
   })
+
+export const listAutomationJobRunsQueryKey = (options: Options<ListAutomationJobRunsData>) =>
+  createQueryKey('listAutomationJobRuns', options)
+
+/**
+ * list_automation_job_runs operation on automation_job_run resource
+ */
+export const listAutomationJobRunsOptions = (options: Options<ListAutomationJobRunsData>) =>
+  queryOptions<
+    ListAutomationJobRunsResponse,
+    ListAutomationJobRunsError,
+    ListAutomationJobRunsResponse,
+    ReturnType<typeof listAutomationJobRunsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAutomationJobRuns({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAutomationJobRunsQueryKey(options)
+  })
+
+export const listAutomationJobRunsInfiniteQueryKey = (
+  options: Options<ListAutomationJobRunsData>
+): QueryKey<Options<ListAutomationJobRunsData>> => createQueryKey('listAutomationJobRuns', options, true)
+
+/**
+ * list_automation_job_runs operation on automation_job_run resource
+ */
+export const listAutomationJobRunsInfiniteOptions = (options: Options<ListAutomationJobRunsData>) => {
+  const opts = infiniteQueryOptions<
+    ListAutomationJobRunsResponse,
+    ListAutomationJobRunsError,
+    InfiniteData<ListAutomationJobRunsResponse>,
+    QueryKey<Options<ListAutomationJobRunsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListAutomationJobRunsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListAutomationJobRunsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listAutomationJobRuns({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listAutomationJobRunsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
 
 /**
  * pause_cron_schedule operation on cron_schedule resource
